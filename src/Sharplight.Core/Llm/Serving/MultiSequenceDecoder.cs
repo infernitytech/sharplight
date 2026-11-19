@@ -27,6 +27,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput, _runEndRows;
     private readonly KvBlockCache? _pool;          // paged: block tables, pool, content index, recurrent-state snapshots
     private readonly string[] _recurrentStates = [];   // states with a slot row (copied for snapshots)
+    private readonly string[] _kvStates = [];          // paged KV caches with one row per token (copied for copy-on-write)
     private readonly int _posAxes;
     private readonly int _textPositionAxes;   // leading position axes that carry a text token's position (the rest are 0)
     private readonly int[] _length;
@@ -106,9 +107,13 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <param name="textPositionAxes">Leading position axes that carry a text row's position (<see cref="WellKnown.TextPositionAxes"/>).</param>
     /// <param name="snapshotRows">Paged recurrent model: spare rows of the recurrent states after the slots' for prefix-cache snapshots.</param>
     /// <param name="recurrentStates">Names of the states with a slot row (copied for snapshots).</param>
+    /// <param name="kvStates">
+    /// Names of the paged KV caches when every one has a row per token (copied block by block to fork slots, <see cref="ForkKv"/>; empty
+    /// for a model without attention); null when some cache is laid out otherwise (compressed), which leaves forking off.
+    /// </param>
     internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows, int kvBlockSize = 0, int kvBlocks = 0,
         int rollbackRows = 0, string? hiddenOutput = null, int textPositionAxes = WellKnown.DefaultTextPositionAxes, int snapshotRows = 0,
-        IReadOnlyList<string>? recurrentStates = null)
+        IReadOnlyList<string>? recurrentStates = null, IReadOnlyList<string>? kvStates = null)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -129,9 +134,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         {
             KvBlockSize = kvBlockSize;
             _recurrentStates = [.. recurrentStates ?? []];
+            _kvStates = [.. kvStates ?? []];
             bool snapshots = hasRecurrentState && snapshotRows > 0 && _recurrentStates.Length > 0 && compiled.CanCopyStateRows;
+            bool fork = kvStates is not null && compiled.CanCopyStateRows && (!hasRecurrentState || _recurrentStates.Length > 0);
             _pool = new KvBlockCache(slots, kvBlockSize, kvBlocks, (int)_blockTable.Shape[1].Fixed, hasRecurrentState, snapshots ? snapshotRows : 0,
-                snapshots ? CopyStateRow : null);
+                snapshots || (fork && hasRecurrentState) ? CopyStateRow : null, fork ? CopyKvRows : null);
         }
 
         if (g.TryInput(InputRole.Embeddings) is not null)
@@ -240,8 +247,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             },
         });
         var recurrentStates = ms.States.Where(p => !MultiSequence.IsKvState(p.Key)).Select(p => p.Value.Name).ToList();
+        var kv = ms.States.Where(p => MultiSequence.IsKvState(p.Key)).ToList();
+        var kvStates = kv.All(p => p.Key.Compression <= 1) ? kv.Select(p => p.Value.Name).ToList() : null;
         return new MultiSequenceDecoder(compiled, slots, contextLength, recurrentStates.Count > 0, maxLogitsRows, blockSize, kvBlocks, ms.RollbackRows, hiddenOutput,
-            textPositionAxes, spare, recurrentStates);
+            textPositionAxes, spare, recurrentStates, kvStates);
     }
 
     /// <inheritdoc/>
@@ -390,7 +399,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     }
 
     /// <inheritdoc/>
-    public bool SaveKvStateSnapshot(int slot, UInt128 hash)
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false)
     {
         Check(slot);
         if (_pool is null || _pool.SnapshotCapacity == 0 || _length[slot] % KvBlockSize != 0 || (_commits is not null && _pendingRows[slot] != 0))
@@ -398,11 +407,53 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             return false;
         }
 
-        return _pool.SaveSnapshot(slot, hash);
+        return _pool.SaveSnapshot(slot, hash, speculative);
     }
 
     /// <summary>Copies every recurrent state's row <paramref name="from"/> to row <paramref name="to"/> (slots, then snapshot rows).</summary>
     private bool CopyStateRow(int from, int to) => _compiled.CopyStateRows(_recurrentStates, from, to);
+
+    /// <inheritdoc/>
+    public int PrepareDecodeSteps(bool deviceSampling)
+    {
+        var run = new RunParameters();
+        if (deviceSampling && _samplingParams is not null)
+        {
+            run.SkipOutputs.Add("logits");
+        }
+
+        if (_hiddenSize > 0)
+        {
+            run.SkipOutputs.Add(_hiddenOutput);
+        }
+
+        for (int n = 1; n <= SlotCount; n++)
+        {
+            run.Symbols[WellKnown.TokenSymbol] = n;
+            run.Symbols["R"] = n;
+            run.Symbols[WellKnown.RunSymbol] = n;
+            _compiled.Prepare(run);
+        }
+
+        return SlotCount;
+    }
+
+    /// <summary>Copies <paramref name="count"/> token rows of every paged KV cache (copy-on-write of a shared block).</summary>
+    private bool CopyKvRows(int from, int to, int count) => _compiled.CopyStateRows(_kvStates, from, to, count);
+
+    /// <inheritdoc/>
+    public bool ForkKv(int slot, int source)
+    {
+        Check(slot);
+        Check(source);
+        if (_pool is null || _length[slot] != 0 || (_commits is not null && _pendingRows[source] != 0) || !_pool.Fork(slot, source))
+        {
+            return false;
+        }
+
+        _length[slot] = _length[source];
+        return true;
+    }
 
 
     /// <inheritdoc/>
@@ -744,7 +795,13 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         for (int u = 0; u < count; u++)
         {
-            pool.Grow(inputs[u].Slot, _length[inputs[u].Slot] + inputs[u].Tokens.Length);
+            int slot = inputs[u].Slot;
+            if (!pool.Unshare(slot, _length[slot]))
+            {
+                throw new InvalidOperationException($"Slot {slot} shares the block it writes into and the device cannot copy it.");
+            }
+
+            pool.Grow(slot, _length[slot] + inputs[u].Tokens.Length);
         }
 
         if (pool.TableDirty)

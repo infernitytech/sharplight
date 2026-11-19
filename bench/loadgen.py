@@ -18,7 +18,8 @@ representative). --prompt-words then has no effect.
 
 Server metrics: with --metrics the Prometheus text of <url>/metrics is read right before and after the timed part (after the
 warm-up) and the difference of every counter / histogram sum / histogram count is stored as "metrics_delta" in the JSON
-(sharplight_step_duration_seconds_sum, vllm:spec_decode_num_accepted_tokens_total, ...).
+(sharplight_step_duration_seconds_sum, vllm:spec_decode_num_accepted_tokens_total, ...), and the cumulative buckets of
+sharplight_step_rows (steps per row range).
 
 usage: loadgen.py --url http://127.0.0.1:8080 --model NAME -c 16 [--per-worker 3] [--max-tokens 128] [--json out.json]
 """
@@ -54,9 +55,12 @@ async def scrape(client, url):
             m = _SAMPLE.match(line.strip())
             if not m: continue
             name, labels, val = m.group(1), m.group(2) or "", m.group(3)
-            if not (name.endswith("_total") or name.endswith("_sum") or name.endswith("_count")): continue
+            # step-size histogram buckets too (how many serving steps fall in each row range)
+            bucket = name == "sharplight_step_rows_bucket"
+            if not (name.endswith("_total") or name.endswith("_sum") or name.endswith("_count") or bucket): continue
             # drop per-model / per-engine labels so the keys stay stable; keep position labels (spec decode per position)
-            keep = ",".join(x for x in labels.strip("{}").split(",") if x.startswith("position=") or x.startswith("reason=") or x.startswith("finished_reason="))
+            keep = ",".join(x for x in labels.strip("{}").split(",") if x.startswith("position=") or x.startswith("reason=") or x.startswith("finished_reason=")
+                            or (bucket and x.startswith("le=")))
             key = name + ("{" + keep + "}" if keep else "")
             out[key] = out.get(key, 0.0) + float(val)
         return out
