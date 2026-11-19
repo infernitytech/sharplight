@@ -45,7 +45,8 @@ public class BatchedMultimodalTests
     internal static LlmModel Load(string name, bool gpu)
     {
         var (path, mmproj, imageTokens) = Model(name);
-        Assert.SkipUnless(File.Exists(path) || Directory.Exists(path), $"{name} not available");
+        bool present = File.Exists(path) || (Directory.Exists(path) && Directory.EnumerateFiles(path, "*.safetensors").Any());
+        Assert.SkipUnless(present, $"{name} not available");
         Assert.SkipWhen(mmproj is not null && !File.Exists(mmproj), $"{name}: mmproj not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
@@ -242,7 +243,7 @@ public class BatchedMultimodalTests
     {
         var ct = TestContext.Current.CancellationToken;
         string sample = Path.Combine(Model("glm-ocr").Path, "sharplight-sample.png");
-        Assert.SkipUnless(File.Exists(sample), "GLM-OCR or its sample image is not available");
+        Assert.SkipUnless(File.Exists(sample) && File.Exists(Path.Combine(Model("glm-ocr").Path, "model.safetensors")), "GLM-OCR or its sample image is not available");
         using var model = Load("glm-ocr", gpu);
         Assert.True(model.HasDraftHead, "GLM-OCR's MTP layer is imported as the draft head");
         Assert.True(model.Definition.Graphs.ContainsKey(WellKnown.DraftMultimodalGraph));
