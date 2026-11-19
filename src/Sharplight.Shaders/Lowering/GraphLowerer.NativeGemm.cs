@@ -45,7 +45,7 @@ public sealed partial class GraphLowerer
     private bool NativeFp8GroupedWeight(Value weight)
     {
         var w = weight.Weight!;
-        if (!NativeGemmFp8 || DiagnosticSwitches.NoWeightRepack || !DiagnosticSwitches.Fp8Repack || w.Type != DataType.F8E4M3_B128
+        if (!(DiagnosticSwitches.Fp8Grouped ?? NativeGemmFp8) || DiagnosticSwitches.NoWeightRepack || !DiagnosticSwitches.Fp8Repack || w.Type != DataType.F8E4M3_B128
             || w.Shape.Rank != 2 || w.Shape.Dims.Any(d => d.IsSymbolic) || w.Shape[0].Fixed % WeightRepacker.Fp8GroupRows != 0
             || w.Shape[1].Fixed % 512 != 0)
         {

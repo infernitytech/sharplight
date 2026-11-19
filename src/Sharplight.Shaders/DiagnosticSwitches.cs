@@ -191,6 +191,12 @@ internal static class DiagnosticSwitches
     /// <summary>Repack block-scaled FP8 weights into the aligned split layout (<c>SHARPLIGHT_REPACK_FP8=0</c> disables).</summary>
     public static bool Fp8Repack { get; } = IsNotZero("SHARPLIGHT_REPACK_FP8");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_GROUPED</c>: 1 stores block-scaled E4M3 matrices in the 128-row groups (<c>WeightRepack.Fp8B128Grouped</c>) on
+    /// every target, 0 on none; unset: where the hand-written FP8 GEMM reads them (CUDA).
+    /// </summary>
+    public static bool? Fp8Grouped { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_FP8_GROUPED") is { } v ? v != "0" : null;
+
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
 
