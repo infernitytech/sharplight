@@ -295,7 +295,7 @@ Engine (`InferenceEngine`):
   KV blocks, including the partly filled last one, and gets a copy of the recurrent state) and samples its own first token from a copy
   of the leader's logits row (so the leader's last prompt row is sampled on the CPU). Copy-on-write: the first slot that writes into a
   block another slot holds copies the block's rows into a new block (`KvBlockCache.Unshare`, `CompiledModel.CopyStateRows` with a row
-  count: `vkCmdCopyBuffer` on Vulkan, memcpy on the CPU); full blocks are never written, so only the last one is ever copied. A follower
+  count: `vkCmdCopyBuffer` on Vulkan, `cuMemcpyDtoDAsync` on CUDA, memcpy on the CPU and in Metal shared storage); full blocks are never written, so only the last one is ever copied. A follower
   whose leader is cancelled or preempted first computes its prompt itself (attaching what is cached). Needs a device that copies state
   rows and KV caches with one row per token (compressed caches: no forks). Metric: `EngineMetricsSnapshot.ForkedSequences`.
 - Preemption: a preempted sequence's blocks are released into the cache; when it resumes, the blocks still cached are attached and
@@ -310,7 +310,7 @@ Models with recurrent state (gated delta nets, Mamba, Mamba-2, RWKV, short convo
 - KV rows of the attention layers can be attached, but the recurrent state after a prefix cannot be rebuilt from them. The decoder
   keeps *state snapshots* in spare rows of every recurrent state (`MultiSequence.Transform(..., spareStateRows)`, `[slots + N, ...]`),
   copied with `CompiledModel.CopyStateRows` (CPU: memcpy; Vulkan: `vkCmdCopyBuffer` ordered with the steps; a device without it,
-  e.g. Metal for now, falls back to no prefix caching for such models). A snapshot is keyed by the hash of the block it ends with;
+  falls back to no prefix caching for such models; CUDA: `cuMemcpyDtoDAsync` on the segment stream; Metal: a copy in shared storage between command buffers). A snapshot is keyed by the hash of the block it ends with;
   blocks are attached only up to the last block with a snapshot, which is restored into the slot's row.
 - Where snapshots are taken (bounded memory instead of one per block). A snapshot is the state after a step, so a boundary inside a
   prompt chunk costs that prompt one more pass (the chunk is cut there), while a boundary where the chunk ends anyway costs only the copy.
