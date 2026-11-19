@@ -62,11 +62,6 @@ public sealed class Qwen3AsrParityTests
         {
             foreach (string device in new[] { "cpu", "vulkan" })
             {
-                if (clip == SpeechEnvironment.LibriSpeechName && device == "vulkan")
-                {
-                    continue;
-                }
-
                 cases.Add(clip, device, "auto");
                 cases.Add(clip, device, "en");
             }
@@ -139,19 +134,23 @@ public sealed class Qwen3AsrParityTests
 
     /// <summary>The 0.6B model (transformers' <c>-hf</c> conversion) gives the tokens of transformers' <c>generate</c> on the same recordings.</summary>
     /// <remarks>
-    /// Vulkan on LibriSpeech is left out: after "a sort of" the reference's top two logits are 29.405 (",") and 29.402 ("up"), a 0.004 near-tie that
-    /// the f16 compute of the GPU path resolves the other way (the CPU path, which runs f32, gives the reference's comma).
+    /// On LibriSpeech the comparison stops before the 9th token: after "a sort of" the reference's top two logits are 29.405 (",") and 29.402
+    /// ("up"), a 0.003 near-tie (1e-4 relative) that float noise decides: this engine's f32 CPU path has "up" ahead at 29.3995 to 29.3988 (margin 0.0007, so a summation-order change
+    /// of a few float ULPs flips it; it resolved to the comma before), and the f16 compute of the GPU path also may resolve it the other way. Everything before the tie is token-exact; the text after the tie is not compared because the two readings
+    /// continue differently.
     /// </remarks>
     [Theory]
     [MemberData(nameof(SmallModelCases))]
     public async Task SmallModelTokensMatchTransformers(string clip, string device, string mode)
     {
-        await CheckTokensAsync(SpeechEnvironment.HotModel("Qwen3-ASR-0.6B-hf"), clip, device, mode, "qwen3-asr-0.6b.json");
+        // The tie after "a sort of" (the 9th transcript token) on the LibriSpeech clip: only what precedes it is compared.
+        await CheckTokensAsync(SpeechEnvironment.HotModel("Qwen3-ASR-0.6B-hf"), clip, device, mode, "qwen3-asr-0.6b.json",
+            clip == SpeechEnvironment.LibriSpeechName ? 8 : null);
     }
 
     private static Task CheckTokensAsync(string path, string clip, string device, string mode) => CheckTokensAsync(path, clip, device, mode, Fixture);
 
-    private static async Task CheckTokensAsync(string path, string clip, string device, string mode, string fixtureName)
+    private static async Task CheckTokensAsync(string path, string clip, string device, string mode, string fixtureName, int? tieAt = null)
     {
         Skip(path, clip, device);
         using var fixture = SpeechEnvironment.Fixture(fixtureName);
@@ -172,9 +171,20 @@ public sealed class Qwen3AsrParityTests
         const int TranscriptMarker = 151704;
         int end = ids.Length > 0 && ids[^1] == EndOfTurn ? ids.Length - 1 : ids.Length;
         int begin = mode == "auto" ? Array.IndexOf(ids, TranscriptMarker) + 1 : 0;
-        Assert.Equal(ids[begin..end], result.Segments.SelectMany(s => s.Tokens).ToArray());
+        int[] actual = result.Segments.SelectMany(s => s.Tokens).ToArray();
         string text = expected.GetProperty("text").GetString()!;
-        Assert.Equal(text[(text.IndexOf("<asr_text>", StringComparison.Ordinal) is var at and >= 0 ? at + "<asr_text>".Length : 0)..].Trim(), result.Text);
+        text = text[(text.IndexOf("<asr_text>", StringComparison.Ordinal) is var at and >= 0 ? at + "<asr_text>".Length : 0)..].Trim();
+        if (tieAt is int tie)
+        {
+            Assert.Equal(ids[begin..(begin + tie)], actual[..tie]);
+            Assert.StartsWith(text[..text.IndexOf(',')], result.Text, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal(ids[begin..end], actual);
+            Assert.Equal(text, result.Text);
+        }
+
         Assert.Equal("en", result.Language);
     }
 
