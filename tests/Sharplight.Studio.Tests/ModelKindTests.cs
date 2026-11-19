@@ -213,7 +213,7 @@ public sealed class ModelKindTests
 
         var sd = library.Entries.Single(entry => entry.Id == "sd");
         await library.DeleteCommand.ExecuteAsync(sd);
-        await library.DeleteCommand.ExecuteAsync(sd);
+        await library.Confirmation!.ConfirmCommand.ExecuteAsync(null);
 
         Assert.Single(library.Entries);
         Assert.True(library.SelectedKindFilter!.IsAll);

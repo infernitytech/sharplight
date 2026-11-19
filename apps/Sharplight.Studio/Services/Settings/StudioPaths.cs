@@ -32,6 +32,9 @@ internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
     /// <summary>The last verified documents of every model feed channel (offline listing).</summary>
     public string FeedCacheDirectory => Path.Combine(DataDirectory, "feed-cache");
 
+    /// <summary>When each model was last loaded.</summary>
+    public string ModelUsageFile => Path.Combine(DataDirectory, "model-usage.json");
+
     /// <summary>The conversation and statistics database.</summary>
     public string DatabaseFile => Path.Combine(DataDirectory, "studio.db");
 

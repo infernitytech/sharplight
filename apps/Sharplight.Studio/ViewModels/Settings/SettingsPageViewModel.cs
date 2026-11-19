@@ -144,6 +144,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     public partial string FeedUrl { get; set; } = "";
 
     /// <summary>The address the official feed is at.</summary>
+    /// <summary>Check the feed for newer versions of installed models every day and badge the Models page.</summary>
+    [ObservableProperty]
+    public partial bool CheckModelUpdates { get; set; }
+
     public string DefaultFeedUrl => Services.Feed.FeedOptions.DefaultUrl;
 
     /// <summary>System prompt of new chats.</summary>
@@ -317,6 +321,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 
     partial void OnFeedUrlChanged(string value) => Save();
 
+    partial void OnCheckModelUpdatesChanged(bool value) => Save();
+
     partial void OnDefaultSystemPromptChanged(string value) => Save();
 
     partial void OnEnableThinkingChanged(bool value) => Save();
@@ -454,6 +460,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         HuggingFaceToken = settings.HuggingFaceToken ?? "";
         FeedChannel = FeedChannelChoice.For(settings.FeedChannel);
         FeedUrl = settings.FeedUrl ?? "";
+        CheckModelUpdates = settings.CheckModelUpdates;
         DefaultSystemPrompt = settings.DefaultSystemPrompt;
         EnableThinking = settings.EnableThinking;
         var sampling = settings.DefaultSampling;
@@ -571,6 +578,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             HuggingFaceToken = string.IsNullOrWhiteSpace(HuggingFaceToken) ? null : HuggingFaceToken.Trim(),
             FeedChannel = FeedChannel.Value == Services.Feed.FeedOptions.Stable ? null : FeedChannel.Value,
             FeedUrl = string.IsNullOrWhiteSpace(FeedUrl) ? null : FeedUrl.Trim(),
+            CheckModelUpdates = CheckModelUpdates,
             DefaultSystemPrompt = DefaultSystemPrompt,
             EnableThinking = EnableThinking,
             DefaultSampling = current.DefaultSampling with
