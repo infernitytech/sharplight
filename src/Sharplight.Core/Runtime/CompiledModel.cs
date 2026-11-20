@@ -364,6 +364,21 @@ public sealed class CompiledModel : IDisposable
     public void GetOutput<T>(string name, Span<T> destination) where T : unmanaged
         => GetOutput(name, MemoryMarshal.AsBytes(destination));
 
+    /// <summary>Where the most recent <see cref="Run"/> spent its time, summed over the segments (diagnostics).</summary>
+    public SegmentRunTimings LastRunTimings
+    {
+        get
+        {
+            var sum = default(SegmentRunTimings);
+            foreach (var s in _segments)
+            {
+                sum += s.LastRunTimings;
+            }
+
+            return sum;
+        }
+    }
+
     /// <summary>Clears the persistent state (KV caches, recurrent state) of every segment, starting a new sequence.</summary>
     public void ResetState()
     {

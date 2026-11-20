@@ -107,6 +107,14 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     /// <summary>GPU time (first to last launch) of the most recent <see cref="Execute(RunParameters)"/>, in ms.</summary>
     public double LastGpuMs { get; private set; }
 
+    /// <inheritdoc />
+    public SegmentRunTimings LastRunTimings { get; private set; }
+
+    /// <summary>Timestamps of the current execution's wait for its stream (<see cref="WaitForStream"/>).</summary>
+    private long _waitStart;
+    private long _waitEnd;
+    private bool _replayed;
+
     /// <summary>Per-launch GPU timing with events. Defaults to on with <c>SHARPLIGHT_CUDA_PROFILE=1</c>.</summary>
     public bool Profile { get; set; } = DiagnosticSwitches.Profile;
 
@@ -281,6 +289,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
                 : throw new ArgumentException($"Runtime scalar '{name}' not provided.");
         }
 
+        long started = Stopwatch.GetTimestamp();
         _dev.Enter();
         if (_program.ScalarSlots.Count > 0)
         {
@@ -290,8 +299,11 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         var bindings = new Bindings(RecordingSymbols(parameters));
         CopyForwardedInputs(bindings);
         var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
+        long recordStart = Stopwatch.GetTimestamp();
+        bool recorded = false;
         if (!_recorded.TryGetValue(key, out var recording))
         {
+            recorded = true;
             CheckWithinCompiledBounds(bindings);
             EvictOldestRecording();
             recording = Record(_program.Launches, bindings);
@@ -303,6 +315,9 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             }
         }
 
+        long recordEnd = Stopwatch.GetTimestamp();
+        _waitStart = _waitEnd = 0;
+        _replayed = false;
         if (Profile)
         {
             RunProfiled(recording, key);
@@ -313,6 +328,11 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
 
         PublishProducedSymbols(parameters);
+        long finished = Stopwatch.GetTimestamp();
+        double recordMs = recorded ? Stopwatch.GetElapsedTime(recordStart, recordEnd).TotalMilliseconds : 0;
+        double waitMs = _waitStart == 0 ? 0 : Stopwatch.GetElapsedTime(_waitStart, _waitEnd).TotalMilliseconds;
+        double submitMs = Stopwatch.GetElapsedTime(started, finished).TotalMilliseconds - recordMs - waitMs;
+        LastRunTimings = new SegmentRunTimings(LastGpuMs, recordMs, submitMs, waitMs, recorded, _replayed);
     }
 
     /// <summary>
@@ -429,7 +449,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
         CudaApi.Check(CudaApi.cuGraphLaunch(entry.Exec, _stream), "cuGraphLaunch");
         CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
-        Synchronize("the graph of segment " + Segment.Index);
+        _replayed = true;
+        WaitForStream("the graph of segment " + Segment.Index);
         float ms;
         CudaApi.Check(CudaApi.cuEventElapsedTime(&ms, _start, _end), "cuEventElapsedTime");
         return ms;
@@ -633,7 +654,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
 
         CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
-        Synchronize("the launches of segment " + Segment.Index);
+        WaitForStream("the launches of segment " + Segment.Index);
         float ms;
         CudaApi.Check(CudaApi.cuEventElapsedTime(&ms, _start, _end), "cuEventElapsedTime");
         return ms;
@@ -711,6 +732,19 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             return CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
                 (uint)kernel.SharedBytes, _stream, parameter, null);
         }
+    }
+
+    /// <summary><see cref="Synchronize"/> at the end of an execution, timed for <see cref="LastRunTimings"/>.</summary>
+    private void WaitForStream(string what)
+    {
+        long start = Stopwatch.GetTimestamp();
+        Synchronize(what);
+        if (_waitStart == 0)
+        {
+            _waitStart = start;
+        }
+
+        _waitEnd = Stopwatch.GetTimestamp();
     }
 
     private void Synchronize(string what)

@@ -82,6 +82,7 @@ public sealed class InferenceEngine : IDisposable
     private long _loadTimestamp;
     /// <summary>A step this long after the previous one sees the load of its own sequences only (see <see cref="StepTokens"/>).</summary>
     private static readonly TimeSpan LoadHoldTime = TimeSpan.FromSeconds(1);
+    private readonly StepProfiler? _profiler = StepProfiler.Create();
     private readonly int _prefillChunk;
     private long _nextId, _tick;
     private int _rr, _transit;
@@ -514,6 +515,7 @@ public sealed class InferenceEngine : IDisposable
 
         _speculator?.Dispose();
         _decoder.Dispose();
+        _profiler?.Dispose();
     }
 
     // ---- scheduler --------------------------------------------------------------------------------------------------
@@ -540,10 +542,16 @@ public sealed class InferenceEngine : IDisposable
             }
             try
             {
+                long admitStart = Stopwatch.GetTimestamp();
                 Reap();
                 if (!Volatile.Read(ref _admissionPaused))
                 {
                     Admit();
+                }
+
+                if (_profiler is not null)
+                {
+                    _profiler.AdmitMs += Stopwatch.GetElapsedTime(admitStart).TotalMilliseconds;
                 }
 
                 if (_active.Count > 0)
@@ -1512,6 +1520,7 @@ public sealed class InferenceEngine : IDisposable
             return;
         }
 
+        long stepStart = Stopwatch.GetTimestamp();
         _inputs.Clear();
         _stepSeqs.Clear();
         _stepBaseLength.Clear();
@@ -1559,6 +1568,8 @@ public sealed class InferenceEngine : IDisposable
             TraceStep(elapsed, stepTokens - budget.Tokens);
         }
 
+        long processStart = Stopwatch.GetTimestamp();
+        var profileRows = _profiler is null ? default : ProfileRows();
         ProcessResults(results);
         if (observe)
         {
@@ -1566,6 +1577,35 @@ public sealed class InferenceEngine : IDisposable
         }
 
         UpdateKvGauges();
+        if (_profiler is not null)
+        {
+            _profiler.Write(stepStart, profileRows.Decode, profileRows.Prompt, profileRows.PromptInputs, _active.Count, Stopwatch.GetElapsedTime(stepStart, t0).TotalMilliseconds,
+                (_decoder as MultiSequenceDecoder)?.LastStepPhases ?? new StepPhaseTimes(0, 0, elapsed.TotalMilliseconds, 0, default),
+                Stopwatch.GetElapsedTime(processStart).TotalMilliseconds);
+        }
+    }
+
+    /// <summary>The decode rows, prompt rows and prompt inputs of the step being processed (<see cref="StepProfiler"/>).</summary>
+    private (int Decode, int Prompt, int PromptInputs) ProfileRows()
+    {
+        int decode = 0;
+        int prompt = 0;
+        int promptInputs = 0;
+        for (int i = 0; i < _inputs.Count; i++)
+        {
+            int n = _inputs[i].Tokens.Length;
+            if (_stepReplay[i] || _stepSeqs[i].Prefilling)
+            {
+                prompt += n;
+                promptInputs++;
+            }
+            else
+            {
+                decode += n;
+            }
+        }
+
+        return (decode, prompt, promptInputs);
     }
 
     /// <summary>Writes one line about the step that just ran (<see cref="DiagnosticSwitches.SchedulerTrace"/>).</summary>
