@@ -231,6 +231,39 @@ public sealed class WelcomePageViewModelTests
     }
 
     [Fact]
+    public async Task ABusyGpu_IsSizedByItsFreeMemory_AndShowsWhy()
+    {
+        using var flow = new Flow();
+        await WelcomeFeed.PublishAsync(flow.Rig, chatMemory: 5L << 30);
+        flow.Rig.Services.Runtime.Memory = () =>
+        [
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Gpu.Id, FakeRuntime.Gpu.Name, true, 16L << 30, 3L << 30, true, 16L << 30),
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Cpu.Id, FakeRuntime.Cpu.Name, false, 32L << 30, 24L << 30, true),
+        ];
+        await flow.OpenAsync();
+
+        Assert.Equal("Test GPU · 3.0 GB free of 16.0 GB", flow.Welcome.GpuText);
+        Assert.False(flow.Welcome.HasItems);
+        Assert.Contains("memory", flow.Welcome.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheReason_NamesFreeAndTotalGpuMemory()
+    {
+        using var flow = new Flow();
+        await WelcomeFeed.PublishAsync(flow.Rig, chatMemory: 5L << 30);
+        flow.Rig.Services.Runtime.Memory = () =>
+        [
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Gpu.Id, FakeRuntime.Gpu.Name, true, 16L << 30, 14L << 30, true, 16L << 30),
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Cpu.Id, FakeRuntime.Cpu.Name, false, 32L << 30, 24L << 30, true),
+        ];
+        await flow.OpenAsync();
+
+        Assert.True(flow.Welcome.HasReason);
+        Assert.Contains("14.0 GB free of 16.0 GB", flow.Welcome.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task FirstStart_ShowsTheWelcomeFlow_OnlyWhileTheLibraryIsEmptyAndTheFlowIsNotDone()
     {
         using var rig = new FeedCatalogTests.Rig();

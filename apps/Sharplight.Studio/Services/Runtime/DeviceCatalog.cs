@@ -46,7 +46,7 @@ internal static class DeviceCatalog
                 bool gpu = info.Kind is not DeviceKind.Cpu;
                 string? key = gpu ? GpuKey(info, counts) : null;
                 var option = new ComputeDeviceOption($"{info.Provider}:{info.Index}", info.Name, provider.Name, gpu, info.TotalMemory,
-                    [.. info.Features.Order(StringComparer.Ordinal)], key);
+                    [.. info.Features.Order(StringComparer.Ordinal)], key, IsUnified: info.Kind is DeviceKind.IntegratedGpu or DeviceKind.VirtualGpu);
                 if (CudaDriverProblem(info) is { } problem)
                 {
                     unusable[option.Id] = problem;

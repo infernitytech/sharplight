@@ -183,4 +183,109 @@ public sealed class StarterRecommenderTests
         Assert.Equal([StarterRole.Chat, StarterRole.Speech, StarterRole.Embedding], preferences.Roles.Select(role => role.Role));
         Assert.All(preferences.Roles.SelectMany(role => role.Prefer), fragment => Assert.DoesNotContain('.', fragment));
     }
+
+    [Fact]
+    public void FreeGpuMemory_NotTotalMemory_SizesTheModel()
+    {
+        // A GPU of 24 GB that other applications leave 7 GB of: the 14B model would not load.
+        var machine = new MachineProfile("Test GPU", 24 * Gib, "vulkan:0", 1, 64 * Gib, 500 * Gib, GpuUsableBytes: 24 * Gib, GpuFreeBytes: (long)(7.5 * Gib));
+
+        var recommendation = Recommender().Recommend(StarterCatalog.Feed(), machine, s_environment);
+
+        Assert.Equal("qwen3-8b.q4-k-m-gguf", ChatId(recommendation));
+        Assert.True(recommendation.Items[0].OnGpu);
+        Assert.Contains("7.5 GB free of 24.0 GB", recommendation.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ACappedDevice_UsesTheCapacity_NotTheTotal()
+    {
+        var machine = new MachineProfile("Test GPU", 24 * Gib, "vulkan:0", 1, 64 * Gib, 500 * Gib, GpuUsableBytes: 8 * Gib, GpuFreeBytes: 8 * Gib);
+
+        var recommendation = Recommender().Recommend(StarterCatalog.Feed(), machine, s_environment);
+
+        Assert.Equal("qwen3-8b.q4-k-m-gguf", ChatId(recommendation));
+    }
+
+    [Fact]
+    public void TheModelLeavesHeadroomForTheContext()
+    {
+        // 6.3 GB free x 0.9 = 5.7 GB budget: the 5.8 GB figure of the 8B model is out, and so is it with the KV cache of a 4096-token context.
+        var machine = new MachineProfile("Test GPU", 8 * Gib, "vulkan:0", 1, 16 * Gib, 500 * Gib, GpuUsableBytes: 8 * Gib, GpuFreeBytes: (long)(6.3 * Gib));
+
+        var recommendation = Recommender().Recommend(StarterCatalog.Feed(), machine, s_environment);
+
+        Assert.NotEqual("qwen3-8b.q4-k-m-gguf", ChatId(recommendation));
+        Assert.All(recommendation.Items.Where(item => item.OnGpu), item => Assert.True(item.MemoryBytes <= machine.GpuAvailableBytes));
+        Assert.Contains("4096-token context", recommendation.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AFeedContextFigure_ReplacesTheHeadroomEstimate()
+    {
+        var package = StarterCatalog.Chat("qwen3-8b", "Qwen3", 5.0, 4.0) with
+        {
+            Requirements = new PackageRequirements
+            {
+                Memory = [new MemoryRequirement { Device = "gpu", Weights = 5 * Gib, PerSlotContext = new SlotContextMemory { Bytes = Gib / 2, Tokens = 4096 } }],
+            },
+        };
+
+        var recommendation = Recommender().Recommend([package], Gpu(8), s_environment);
+
+        Assert.Equal(5 * Gib + Gib / 2, recommendation.Items[0].MemoryBytes);
+    }
+
+    [Fact]
+    public void ALowVramGpu_RunsTheModelOnTheCpu_AndSaysSo()
+    {
+        var machine = new MachineProfile("Small GPU", 2 * Gib, "vulkan:0", 1, 16 * Gib, 500 * Gib, GpuUsableBytes: 2 * Gib, GpuFreeBytes: Gib);
+
+        var recommendation = Recommender().Recommend(StarterCatalog.Feed(), machine, s_environment);
+
+        Assert.True(recommendation.CpuOnly);
+        Assert.False(recommendation.Items[0].OnGpu);
+        Assert.Contains("only 1.0 GB free", recommendation.Reason, StringComparison.Ordinal);
+        Assert.Contains("CPU", recommendation.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WithoutAGpu_TheFreeSystemMemory_SizesTheModel()
+    {
+        var machine = new MachineProfile(null, 0, null, 0, 16 * Gib, 500 * Gib, SystemFreeBytes: 4 * Gib);
+
+        var recommendation = Recommender().Recommend(StarterCatalog.Feed(), machine, s_environment);
+
+        // 4 GB free x 0.4 = 1.6 GB: only the smallest model with its context headroom fits.
+        Assert.Equal("qwen3-0.6b.q8-0-gguf", ChatId(recommendation));
+        Assert.Contains("No GPU found", recommendation.Reason, StringComparison.Ordinal);
+        Assert.Contains("16.0 GB system memory", recommendation.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AUnifiedGpu_SharesItsMemoryWithTheOtherModels()
+    {
+        // The chat model takes 5.6 of the 5.85 GB budget: the speech and embedding models must not be placed on a second, imaginary pool.
+        var machine = new MachineProfile("Integrated", 8 * Gib, "vulkan:0", 1, 8 * Gib, 500 * Gib, GpuUsableBytes: 8 * Gib, GpuFreeBytes: (long)(6.5 * Gib), GpuIsUnified: true);
+        var packages = new[]
+        {
+            StarterCatalog.Chat("qwen3-8b", "Qwen3", 5.0, 4.0),
+            StarterCatalog.Speech("whisper-tiny", 0.5, 0.04, "silero-vad-v5.onnx"),
+            StarterCatalog.Detector("silero-vad-v5.onnx"),
+        };
+
+        var recommendation = Recommender().Recommend(packages, machine, s_environment);
+
+        Assert.Equal("qwen3-8b", ChatId(recommendation));
+        Assert.Contains("shared with the system", recommendation.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain(recommendation.Items, item => item.Role == StarterRole.Speech);
+    }
+
+    [Fact]
+    public void AMachineWithoutLiveFigures_UsesItsTotals()
+    {
+        var recommendation = Recommender().Recommend(StarterCatalog.Feed(), Gpu(8), s_environment);
+
+        Assert.Contains("Fits in the 8.0 GB of GPU memory", recommendation.Reason, StringComparison.Ordinal);
+    }
 }
