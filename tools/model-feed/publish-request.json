@@ -1,9 +1,13 @@
 {
   "entries": [
-    "gemma-4-31b-it:q4-k-m-gguf"
+    "qwen3.8-27b:q4-k-m-gguf",
+    "qwen3-coder-next:q4-k-m-gguf",
+    "gpt-oss-120b:mxfp4-gguf",
+    "qwen3.5-122b-a10b:ud-q4-k-xl-gguf",
+    "qwen3.8-flash-next:ud-q4-k-xl-gguf"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "First package built on the self-hosted feed runner: Gemma 4 31B Q4_K_M (pipeline check before the other large variants)."
+  "reason": "Recommended variants of the large verified models on the self-hosted runner: Qwen3.8 27B, Qwen3 Coder Next, gpt-oss 120B, Qwen3.5 122B-A10B, Qwen3.8 Flash Next."
 }
