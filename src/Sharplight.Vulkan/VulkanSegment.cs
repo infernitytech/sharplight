@@ -318,8 +318,9 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         long total = _streamedWeights.Sum(b => b.Bytes);
         long largestRow = _streamedWeights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
         var timer = Stopwatch.StartNew();
-        using (var uploader = new WeightUploader(_dev, _pool, total, largestRow))
+        lock (_dev.StreamLock)
         {
+            var uploader = _dev.StreamUploader(largestRow);
             foreach (var buffer in _streamedWeights)
             {
                 uploader.Upload(buffer, _alloc[buffer]);

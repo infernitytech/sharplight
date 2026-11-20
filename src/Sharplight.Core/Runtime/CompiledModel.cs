@@ -246,6 +246,14 @@ public sealed class CompiledModel : IDisposable
                 s.SetInput(input, data);
             }
         }
+
+        foreach (var s in _streamed)
+        {
+            if (s is not null && s.Segment.Inputs.Contains(input))
+            {
+                s.SetInput(input, data);
+            }
+        }
     }
 
     /// <summary>Typed overload of <see cref="SetInput(Value, ReadOnlySpan{byte})"/>.</summary>
@@ -305,6 +313,12 @@ public sealed class CompiledModel : IDisposable
         for (int i = 0; i < _segments.Length; i++)
         {
             var seg = Runner(i, parameters);
+            // The next segment streams its weights: start the copies while this one runs.
+            if (i + 1 < _segments.Length && _streamed[i + 1] is not null && Runner(i + 1, parameters) is IStreamedSegment next)
+            {
+                next.BeginStreaming();
+            }
+
             // Forward activations produced by earlier segments.
             foreach (var v in seg.Segment.Inputs)
             {

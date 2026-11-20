@@ -6,7 +6,8 @@ namespace Sharplight.Vulkan.Tests;
 
 /// <summary>
 /// Routed experts placed on the CPU fallback with a streamed GPU compilation (<see cref="PlacementOptions.StreamExpertsMinRows"/>): large
-/// batches run the experts on the GPU with their weights copied in, small ones on the CPU; both match the CPU-only compilation.
+/// batches run the experts on the GPU with their weights copied in and match the GPU-only compilation, small ones run on the CPU and match
+/// the CPU-only compilation.
 /// </summary>
 public sealed class StreamedExpertsTests
 {
@@ -87,13 +88,20 @@ public sealed class StreamedExpertsTests
             return y;
         }
 
-        var expected = Run(cpu);
+        // The whole graph on the GPU: the streamed experts run the same kernels, so they match it closely; the GPU's grouped expert
+        // products may round to f16 above 16 items, so the CPU comparison is looser there.
+        using var gpu = CompiledModel.Compile(graph, new PlacementOptions { Devices = [new DeviceSlot { Device = Gpu.Device! }], Compile = Compile });
+        var cpuResult = Run(cpu);
+        var gpuResult = Run(gpu);
         // Twice: the second pass copies the streamed weights into buffers the first one already used.
         Run(model);
         var actual = Run(model);
-        for (int i = 0; i < expected.Length; i++)
+        bool streamed = rows >= MinRows;
+        for (int i = 0; i < actual.Length; i++)
         {
-            Assert.True(Math.Abs(expected[i] - actual[i]) <= 1e-3 + 1e-3 * Math.Abs(expected[i]), $"rows={rows} [{i}]: {actual[i]} vs {expected[i]}");
+            float expected = streamed ? gpuResult[i] : cpuResult[i];
+            Assert.True(Math.Abs(expected - actual[i]) <= 1e-4 + 1e-4 * Math.Abs(expected), $"rows={rows} [{i}]: {actual[i]} vs {expected}");
+            Assert.True(Math.Abs(cpuResult[i] - actual[i]) <= 3e-2 + 3e-2 * Math.Abs(cpuResult[i]), $"rows={rows} [{i}]: {actual[i]} vs the CPU's {cpuResult[i]}");
         }
     }
 }

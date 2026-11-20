@@ -121,6 +121,15 @@ internal static unsafe partial class CudaApi
     public static partial int cuEventSynchronize(nint evt);
 
     [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuStreamWaitEvent(nint stream, nint evt, uint flags);
+
+    [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuMemHostRegister_v2")]
+    public static partial int cuMemHostRegister(void* pointer, nuint bytes, uint flags);
+
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuMemHostUnregister(void* pointer);
+
+    [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuEventElapsedTime(float* milliseconds, nint start, nint end);
 
     [LibraryImport(CudaLibraries.Driver)]
@@ -188,6 +197,9 @@ internal static unsafe partial class CudaApi
 
     /// <summary><c>CU_EVENT_DISABLE_TIMING</c>.</summary>
     public const uint EventDisableTiming = 2;
+
+    /// <summary><c>CU_MEMHOSTREGISTER_READ_ONLY</c>: the device only reads the registered memory (allows read-only file mappings).</summary>
+    public const uint MemHostRegisterReadOnly = 8;
 
     /// <summary>Throws a <see cref="CudaException"/> for a failed call.</summary>
     /// <param name="result">The <c>CUresult</c> of the call.</param>

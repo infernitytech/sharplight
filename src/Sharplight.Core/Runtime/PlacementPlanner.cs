@@ -338,25 +338,35 @@ public static class PlacementPlanner
     {
         var expertGroups = groupOrder.Where(IsExpertGroup).ToList();
         var pinned = new HashSet<string>();
-        var groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, 0, out used);
         // Routed experts go to the fallback layer by layer, from the first layer on, until every other group fits the devices. Each moved
         // group adds device buffers for the values it exchanges with its layer, the devices then also hold the graph outputs, and with
-        // streaming (prefill on the GPU) the largest moved group's weights.
-        for (int i = 0; i < expertGroups.Count && SpillsBesidesExperts(groupDevice, fallbackSlot); i++)
+        // streaming (prefill on the GPU) the largest moved group's weights; a fill is repeated with the room the groups it moved need.
+        long Overhead(IReadOnlyCollection<string> moved) => moved.Count == 0 ? 0
+            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) + (stream ? moved.Max(g => groupBytes[g]) : 0);
+        List<string> Moved(Dictionary<string, int> placed) => [.. placed.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
+        Dictionary<string, int> groupDevice;
+        while (true)
         {
-            pinned.Add(expertGroups[i]);
-            long overhead = transfers.GetValueOrDefault(OutputsKey) + pinned.Sum(g => transfers.GetValueOrDefault(g))
-                + (stream ? pinned.Max(g => groupBytes[g]) : 0);
-            groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, overhead, out used);
-        }
+            groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, Overhead(pinned), out used);
+            for (int repeat = 0; repeat < 3; repeat++)
+            {
+                var moved = Moved(groupDevice);
+                var refill = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, Overhead(moved), out var refillUsed);
+                bool stable = Moved(refill).ToHashSet().SetEquals(moved);
+                groupDevice = refill;
+                used = refillUsed;
+                if (stable)
+                {
+                    break;
+                }
+            }
 
-        if (groupDevice.Any(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key) && !pinned.Contains(kv.Key)))
-        {
-            // Experts that spilled after the pinned ones exchange values too.
-            var moved = groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key).ToList();
-            long overhead = transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g))
-                + (stream ? moved.Max(g => groupBytes[g]) : 0);
-            groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, overhead, out used);
+            if (!SpillsBesidesExperts(groupDevice, fallbackSlot) || pinned.Count == expertGroups.Count)
+            {
+                break;
+            }
+
+            pinned.Add(expertGroups[pinned.Count]);
         }
 
         return groupDevice;

@@ -8,7 +8,8 @@ namespace Sharplight.Vulkan;
 /// <summary>
 /// Streams weight and constant buffers to device memory. Destinations the host can map (integrated GPUs and other unified-memory
 /// devices) are written directly; the others go through up to two host-visible staging buffers: while the GPU copies one, the CPU
-/// fills the other (reading mapped files, repacking rows). Single use, not thread-safe.
+/// fills the other (reading mapped files, repacking rows). Not thread-safe; reusable after <see cref="Complete"/> (the streaming
+/// uploader of <see cref="VulkanDevice.StreamUploader"/>).
 /// </summary>
 /// <remarks>
 /// The staging buffers are sized to what is free, not fixed: at most <see cref="MaxStagingSize"/>, no more than the uploads need, at
