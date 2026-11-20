@@ -59,7 +59,7 @@ public sealed class PlacementExpertTests
         var graph = BuildGraph(out var x, out var ids, out var slotWeights);
         using var device = Kit.Provider.OpenDevice(Kit.Provider.GetDevices()[0]);
         using var fallback = Kit.Provider.OpenDevice(Kit.Provider.GetDevices()[0]);
-        var options = Options(device, fallback, Layers * DenseBytes + ExpertBytes);   // the dense layers and one layer of experts
+        var options = Options(device, fallback, Layers * DenseBytes + ExpertBytes + 2048);   // the dense layers, one layer of experts and the transfer buffers
 
         var plan = PlacementPlanner.Plan(graph, options);
 

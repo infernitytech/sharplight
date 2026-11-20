@@ -43,6 +43,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly bool _fused;
     private readonly bool _intDot;
     private readonly bool _smallCodes;
+    private readonly bool _fusedDot;
     private readonly Action<int> _body;
     private readonly Action<int> _intDotBody;
     private readonly Action<int> _quantizeBody;
@@ -86,6 +87,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _fused = Quant.HasFusedKernel(fmt);
         _intDot = intDot && IntDot.Supports(fmt) && _k % IntDot.BlockSize == 0 && _k <= int.MaxValue;
         _smallCodes = IntDot.HasSmallCodes(fmt);
+        _fusedDot = _intDot && IntDot.HasFusedDot(fmt) && _k % Quant.BlockSize(fmt) == 0;
         long maxItems = Math.Max(1, ids.MaxElements);
         _cnt = (int*)Mem.Alloc(_experts * sizeof(int), false);
         _start = (int*)Mem.Alloc(_experts * sizeof(int), false);
@@ -235,7 +237,18 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                     Simd.Prefetch(wbase + (n + PrefetchRows) * _rowBytes, _rowBytes);
                 }
 
-                IntDot.Decode(_fmt, wbase + n * _rowBytes, _k, u, a, b);
+                byte* row = wbase + n * _rowBytes;
+                if (_fusedDot)
+                {
+                    for (long t = 0; t < m; t++)
+                    {
+                        yr[t][n] = IntDot.FusedDot(_fmt, row, IntDot.RowAt(xr[t], _k), k);
+                    }
+
+                    continue;
+                }
+
+                IntDot.Decode(_fmt, row, _k, u, a, b);
                 for (long t = 0; t < m; t++)
                 {
                     yr[t][n] = IntDot.Dot(level, u, a, b, _smallCodes, IntDot.RowAt(xr[t], _k), k);

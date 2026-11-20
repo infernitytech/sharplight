@@ -52,7 +52,8 @@ public static class PlacementPlanner
         bool splitExperts = fallbackSlot >= 0 && options.SplitExperts && Environment.GetEnvironmentVariable("SHARPLIGHT_SPLIT_EXPERTS") is not ("0" or "false");
         var groupOf = GroupKeys(graph, fallbackSlot >= 0, splitExperts);
         var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile, groupOf);
-        var groupDevice = AssignGroups(groupOrder, groupBytes, options, slots.Count, fallbackSlot, out long[] used);
+        var transfers = splitExperts ? MeasureExpertTransfers(graph, options.Compile, groupOf) : [];
+        var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, options, slots.Count, fallbackSlot, out long[] used);
         var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot, groupOf);
         var segments = BuildSegments(graph, nodeSlot, slots, options.GroupDataDependentCounts);
         return new PlacementPlan
@@ -307,19 +308,73 @@ public static class PlacementPlanner
     /// (<see cref="TableGroupSuffix"/>) that does not fit the current device goes to the fallback slot and the fill continues where it was;
     /// tables larger than every device do not count toward the shares. <paramref name="used"/> receives the bytes placed on each slot.
     /// </summary>
-    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
+    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, Dictionary<string, long> transfers, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
     {
         var expertGroups = groupOrder.Where(IsExpertGroup).ToList();
         var pinned = new HashSet<string>();
-        var groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, out used);
-        // Routed experts go to the fallback layer by layer, from the first layer on, until every other group fits the devices.
+        var groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, 0, out used);
+        // Routed experts go to the fallback layer by layer, from the first layer on, until every other group fits the devices. Each moved
+        // group adds device buffers for the values it exchanges with its layer, and the devices then also hold the graph outputs.
         for (int i = 0; i < expertGroups.Count && SpillsBesidesExperts(groupDevice, fallbackSlot); i++)
         {
             pinned.Add(expertGroups[i]);
-            groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, out used);
+            long overhead = transfers.GetValueOrDefault(OutputsKey) + pinned.Sum(g => transfers.GetValueOrDefault(g));
+            groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, overhead, out used);
+        }
+
+        if (groupDevice.Any(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key) && !pinned.Contains(kv.Key)))
+        {
+            // Experts that spilled after the pinned ones exchange values too.
+            long overhead = transfers.GetValueOrDefault(OutputsKey)
+                + groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Sum(kv => transfers.GetValueOrDefault(kv.Key));
+            groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, overhead, out used);
         }
 
         return groupDevice;
+    }
+
+    /// <summary>Key of <see cref="MeasureExpertTransfers"/>'s entry for the graph outputs.</summary>
+    private const string OutputsKey = "";
+
+    /// <summary>
+    /// Bytes at the compile bounds of the values each routed-expert group exchanges with the rest of the graph (they need device buffers on
+    /// the other side when the group runs on the fallback), and under <see cref="OutputsKey"/> the bytes of the graph outputs.
+    /// </summary>
+    private static Dictionary<string, long> MeasureExpertTransfers(ComputeGraph graph, CompileOptions compile, Func<Node, string> groupOf)
+    {
+        var transfers = new Dictionary<string, long> { [OutputsKey] = graph.Outputs.Values.Distinct().Sum(v => ValueBytes(v, compile)) };
+        var groupOfValue = new Dictionary<Value, string>();
+        foreach (var n in graph.Nodes)
+        {
+            foreach (var o in n.Outputs)
+            {
+                groupOfValue[o] = groupOf(n);
+            }
+        }
+
+        var counted = new HashSet<(string, Value)>();
+        foreach (var n in graph.Nodes)
+        {
+            string group = groupOf(n);
+            foreach (var v in n.Inputs)
+            {
+                if (v.Weight is not null || v.State is not null || !groupOfValue.TryGetValue(v, out string? producer) || producer == group)
+                {
+                    continue;
+                }
+
+                // A value crossing into or out of an expert group.
+                foreach (string g in new[] { group, producer }.Where(IsExpertGroup))
+                {
+                    if (counted.Add((g, v)))
+                    {
+                        transfers[g] = transfers.GetValueOrDefault(g) + ValueBytes(v, compile);
+                    }
+                }
+            }
+        }
+
+        return transfers;
     }
 
     /// <summary>Whether a group other than routed experts or lookup tables went to the fallback slot.</summary>
@@ -330,9 +385,9 @@ public static class PlacementPlanner
 
     /// <summary>
     /// One greedy fill (see <see cref="AssignGroups"/>) with the <paramref name="pinned"/> groups on the fallback slot; they do not count toward
-    /// the shares.
+    /// the shares. <paramref name="overhead"/> bytes are kept free on every device.
     /// </summary>
-    private static Dictionary<string, int> FillGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, PlacementOptions options, int slotCount, int fallbackSlot, HashSet<string> pinned, out long[] used)
+    private static Dictionary<string, int> FillGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, PlacementOptions options, int slotCount, int fallbackSlot, HashSet<string> pinned, long overhead, out long[] used)
     {
         int nPipe = options.Devices.Count;
         var capacity = new long[nPipe];
@@ -340,7 +395,7 @@ public static class PlacementPlanner
         for (int i = 0; i < nPipe; i++)
         {
             var d = options.Devices[i];
-            capacity[i] = Math.Max(0, (d.MemoryLimit ?? d.Device.AvailableMemory) - options.ReservePerDevice);
+            capacity[i] = Math.Max(0, (d.MemoryLimit ?? d.Device.AvailableMemory) - options.ReservePerDevice - overhead);
             share[i] = d.Weight ?? capacity[i];
         }
 
