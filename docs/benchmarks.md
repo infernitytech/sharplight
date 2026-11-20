@@ -7723,8 +7723,9 @@ and not changed:
 | the TMA kernel at decode sizes | does not apply (64 rows run the generated split-K GEMMs) |
 
 * CUDA is 0.7 ms per step behind Vulkan at 64 sequences with the same Slang kernels: q / o 28.3 against 26.4 µs, down 74.6 against
-  70.5, gate / up 148.5 against 145.0 (minimum per launch), the split-K reductions 0.72 against 0.60 ms. Three of the CUDA forms of
-  `gemm_fp8.slang` take 255 registers with 84-byte spills under NVRTC; which variants serve decode is the next thing to settle.
+  70.5, gate / up 148.5 against 145.0 (minimum per launch), the split-K reductions 0.72 against 0.60 ms. The decode forms of
+  `gemm_fp8.slang` (64-row tiles, split-K) take 146 registers without spills under NVRTC (the 128-row forms take 255 with 84-byte
+  spills, but the hand-written GEMM serves those sizes), so one 256-thread workgroup fits per SM.
 * Against vLLM (15.6 ms) the step is 2.3 ms longer: the weight GEMMs stream at 520-670 GB/s against vLLM's ~766 (1.3 ms), five
   split-K reductions per layer (0.7 ms; vLLM overlaps its reduction with programmatic dependent launch), attention (0.4 ms). A fused
   q / k / v GEMM needs a multi-output GEMM (separate outputs; the dual form combines its two products) and saves an estimated

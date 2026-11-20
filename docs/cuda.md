@@ -687,8 +687,8 @@ phase-1 kernels as the fallback, and each flips the default for a device class o
    - FP8 main loop at CUTLASS's ~90 % of the MMA peak per cycle (ours 76 %): the promotion (64 scale products per thread and K
      block; one per row where a warp's weight scales agree, which needs registers below the 168-register cap of 288 threads) and the
      tile-end stores;
-   - the batched decode step (CUDA 17.9, Vulkan 17.3, vLLM 15.6 ms at 64 sequences): the CUDA forms of `gemm_fp8.slang` that spill
-     under NVRTC, weight streaming at 520-670 GB/s, a multi-output q / k / v GEMM, the split-K reductions in the GEMM's last
+   - the batched decode step (CUDA 17.9, Vulkan 17.3, vLLM 15.6 ms at 64 sequences): the CUDA forms of `gemm_fp8.slang` at decode
+     sizes (0.7 ms behind their SPIR-V forms), weight streaming at 520-670 GB/s, a multi-output q / k / v GEMM, the split-K reductions in the GEMM's last
      workgroup or overlapped by programmatic dependent launch.
 4. **Phase 5: MoE.** Grouped GEMMs over sorted experts with TMA-gathered rows, fused routing / top-k / gather, MXFP4 and NVFP4 expert
    weights on the Blackwell block-scaled tensor-core instructions.

@@ -27,6 +27,22 @@ public sealed class CudaCodeTests
     }
 
     [Fact]
+    public void TensorMapHeaderParsesPerMap()
+    {
+        var maps = CudaTensorMapSpec.ParseList("0 2 4096,1024 4224 128,128;1 3 4096,128,96 4096,540672 128,64,1");
+
+        Assert.Equal(2, maps.Length);
+        Assert.Equal(0, maps[0].Pointer);
+        Assert.Equal([4096UL, 1024UL], maps[0].Dims);
+        Assert.Equal([4224UL], maps[0].Strides);
+        Assert.Equal([128U, 128U], maps[0].Box);
+        Assert.Equal(1, maps[1].Pointer);
+        Assert.Equal([4096UL, 540672UL], maps[1].Strides);
+        Assert.Equal([128U, 64U, 1U], maps[1].Box);
+        Assert.Throws<FormatException>(() => CudaTensorMapSpec.ParseList("0 2 4096 4224 128,128"));
+    }
+
+    [Fact]
     public void LibraryKernelCompilesToPtxThroughNvrtc()
     {
         RequireNvrtc();
