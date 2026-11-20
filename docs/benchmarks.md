@@ -8723,3 +8723,142 @@ for n in 512 2048 8192; do $CLI ~/models/hf/gpt-oss-20b --provider cuda --bench 
 SHARPLIGHT_COMPILATION_CACHE=off SHARPLIGHT_CUDA_MIN_BLOCKS="matmul_moe_dual:gemm_sk:2;matmul_moe_epi:gemm_sk:2" $BB ...   # launch-bounds sweep
 SHARPLIGHT_SPLITK_FUSED=1 / SHARPLIGHT_MULTI_FUSED=1 / SHARPLIGHT_SPLIT_FILL=1 / SHARPLIGHT_FP8_DUAL_SPLIT=1 $BB ...          # 61.4
 ```
+
+## 62. MoE with CPU offload, round 2: CPU expert layers split with the GPU, resident streamed experts, integer dots for the IQ grid formats (2026-11-20)
+
+Branch `perf/offload-r2` (base `develop` at `fef12123`, §59 merged; `develop` merged again at `2e10734b`). Same machine and methodology as
+§59: GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, no resizable BAR), AMD EPYC 7443 with a ~10-core cgroup quota (AVX2, no
+AVX-512), llama.cpp b11177, the GPU shared with another perf agent (runs serialized with a lock) and the CPU with a model-feed job and that
+agent's tests. Sharplight: `sharplight <model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes,
+decode 64 steps; tok/s best / median); llama.cpp: `llama-bench -ngl 99 -ncmoe 6 -fa 1 -p 512 -n 64 -r 3 -t 10` (mean ± sd of 3).
+`SHARPLIGHT_SEGMENT_TIMING=1` (new) prints the host time of every segment per decode step.
+
+### 62.1 Where the decode step went (start of the round)
+
+Qwen3.5-122B-A10B UD-IQ2_XXS on CUDA, 50.5 / 47.8 tok/s: the experts of 10 layers on the CPU (llama.cpp: 6) at ~1.2-1.5 ms each under this
+machine's load, 9.5 ms on the GPU (1350 launches). The GPU's spare memory went to the 512-row logits buffer (485 MiB, a session reads one
+row), the 1 GiB reserve (of which ~1.1 GiB was still free after compiling), the streaming memory (one layer's experts, unused in decode), the
+`ReservePerSegment` of 32 MiB counted twice per moved layer, and activation arenas that the segments did not share (166 + 174 + 274 MiB:
+each larger segment compiled later allocated its own). On the GPU, the routed experts in IQ2_XXS / IQ2_S ran the f32 expert matvec at
+~370 GB/s with gate and up in separate launches; the router took five launches (softmax, top-k, sum, scale, divide).
+
+### 62.2 Changes
+
+* **Split CPU expert layers** (`CompiledModel.RunSplit`, `CompileOptions.SparseExpertSlots`, CUDA): every CPU layer of routed experts gets a
+  third compilation for passes of up to `SHARPLIGHT_SPARSE_EXPERT_ROWS` rows (default 4), whose expert banks hold only the experts such a
+  pass can select (32 of 256, 84 MB for all banks, shared by the layers). In decode the GPU takes the first slots of every row and copies the
+  experts they select from the page-locked mapped file into the bank slots (the ids are rewritten to slots; ~2.6 MB per expert of this model),
+  while the CPU computes the other slots (ids of -1 select no expert: `MatMulId` on the CPU gives zero rows); both outputs are sums over the
+  slots and are added. The GPU's share moves by one slot after every pass toward the point where neither waits (here 5.8-6 of 8 slots); a
+  split layer takes ~0.75 ms against 1.2-1.5 ms on the CPU alone. Segments qualify when every expert product reads one ids input, the
+  outputs are slot sums and a pass selects at most a quarter of the bank (`SparseMinExpertsPerSlot`); weights must be memory-mapped and
+  stored as is (gpt-oss's repacked MXFP4 and its bias gathers keep the CPU path). Vulkan has no sparse copies yet (`IComputeDevice.StreamsSelectedExperts`).
+* **Resident streamed experts** (`IStreamedSegment.WeightsResident`): the streaming memory the GPU keeps for prefill holds the last streamed
+  layer between prefills (copied at load, and the last copy of every streamed pass), so that layer runs on the GPU in decode too: streaming
+  no longer costs a decode layer (`SHARPLIGHT_STREAM_RESIDENT=0` for the old behavior).
+* **Memory**: a session's logits buffer holds one row (`CreateSession`, `R` = 1); the largest GPU segment of each device compiles first, so the
+  others share its activation arena (274 MiB instead of 614); the streamed and sparse compilations share their input and output buffers (by
+  ordinal; inputs holding graph inputs excluded), counted once by the planner, which also keeps room for the sparse banks; `ReservePerSegment`
+  8 MiB (the segment's buffers are counted apart); the default device reserve with a fallback device is 512 MiB (1 GiB without). A compilation
+  that runs out of memory is placed again with the measured shortfall (what the rest of the plan needed beyond the free memory, plus 64 MiB)
+  kept free, up to three times, and a streamed compilation that runs out of memory now triggers that retry instead of leaving prefill on the
+  CPU. With the same reserve the 122B now keeps the experts of 40 layers on the GPU (8 on the CPU, one of them resident) against 38-39.
+* **Vulkan budget**: with VK_EXT_memory_budget the driver's budget is the limit; the 92 % estimate only stands in without it (2.6 GB more on this
+  device: 7 CPU expert layers instead of 11).
+* **Integer-dot expert matvec for the grid formats** (`mmvq.slang`, `UseIntDotExpertMatvec`): IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS and IQ3_S expert
+  banks unpack 32 values per chunk from the lattice grids into signed int8 quads (sign bits applied bytewise) for the q8-activation dot, so
+  decode runs the dual gate / up launch with the activation in its store and the down product with the weighted slot sum: GPU step 9.8 → 8.7 ms.
+  Dense matmuls of these formats keep the f32 kernels. `SHARPLIGHT_MMVQ_GRID=0` turns it off.
+* **Router fusion** (`FuseRouterTopK`, `topk_softmax` in topk.slang): a top-k (k ≤ 16) of a softmax over [rows, experts] with the renormalization
+  of the selected weights (ReduceSum, Scale, Div) runs as one subgroup launch that computes the probabilities as the softmax kernel does:
+  -0.40 ms per decode step (9.02 → 8.62 ms GPU; 1011 launches for 40 layers and the head). `SHARPLIGHT_NO_ROUTER_FUSION=1` turns it off.
+
+### 62.3 Qwen3.5-122B-A10B UD-IQ2_XXS (tok/s, best / median)
+
+| | CPU expert layers in decode | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA, start of the round (`fef12123`, 10 moved) | 10 | 50.5 / 47.8 | 930 / 928 |
+| + resident streamed layer, one-row logits | 9 + 1 resident | 51.7 / 48.9 | 930 / 929 |
+| + integer dots for the grid formats, shared arenas in compile order (GPU 9.8 → 8.7 ms) | 9 + 1 | 55.1 / 51.7 | 910 / 908 |
+| + 512 MiB reserve, 8 MiB per segment (8 moved; CPU layers at 1.49 ms under load) | 7 + 1 | 52.4 / 52.0 | 1000 / 999 |
+| + split decode, router fusion = **this branch** (two runs) | 7 split + 1 | **72.2 / 69.9**, 71.4 / 69.7 | **999 / 998**, 996 / 995 |
+| this branch, `SHARPLIGHT_SPARSE_EXPERT_ROWS=0` (no split) | 7 + 1 | 59.5 / 56.4 | 996 |
+| this branch, `SHARPLIGHT_NO_ROUTER_FUSION=1` (GPU 9.02 against 8.62 ms) | 7 split + 1 | 69.9 / 68.1 | 997 |
+| this branch, `SHARPLIGHT_MMVQ_GRID=0` (GPU 9.76 ms) | 7 split + 1 | 68.5 / 64.4 | 997 |
+| llama.cpp CUDA `-ncmoe 6` (two runs this round) | 6 | 71.4 ± 1.7, 70.3 ± 2.2 | 973 ± 39, 966 ± 54 |
+| Vulkan, §59 | 14 | 43.5 / 42.8 | 705 / 688 |
+| Vulkan, this branch with the 92 % budget (`SHARPLIGHT_DISABLE_FEATURES=memory_budget`) | 10 + 1 | 51.7 / 48.3 | 851 / 846 |
+| Vulkan, this branch (driver budget; two runs) | 6 + 1 | **67.2 / 60.2**, 71.1 / 66.3 | **1071 / 1003**, 1098 / 1020 |
+| llama.cpp Vulkan `-ncmoe 6` | 6 | 46.6 ± 1.3 | 752 ± 12 |
+
+* CUDA decode 1.0x of llama.cpp (best 71.4-72.2 against 70.3-71.4; medians 69.7-70.2), prefill 1.03x; Vulkan decode 1.44-1.53x, prefill 1.42-1.46x.
+  The target of ~1.1x on CUDA is not reached: the CPU's share of a split layer has a fixed cost (below).
+* The decode step on CUDA (`SHARPLIGHT_SEGMENT_TIMING=1`, final build): 7 split layers of 0.74-0.78 ms each (the GPU takes 5.8-6 of the 8
+  slots; the CPU's 2 slots take 0.54-0.61 ms and then waits ~0.1 ms for the GPU's copies and products), 8 small GPU segments of ~0.2 ms (the
+  attention and router of a layer, an input upload and a read-back), the resident layer 0.08 ms, then the large GPU segment (40 layers and the
+  head, 1011 launches; 8.6 ms of GPU time in all).
+* The CPU's share does not shrink with its slots: 2 of 8 experts take ~0.55 ms against ~1.2-1.5 ms for all 8 (CPU profile per layer: the
+  paired gate / up product 0.27 ms, the down product 0.18 ms, the SiLU of the 8 slot rows 0.09 ms, sum and copy 0.06 ms; the worker threads
+  sleep during the GPU segment before and wake for the first product). Longer worker spinning (`SHARPLIGHT_CPU_SPIN_US=1000`) gave 74.3 / 71.7
+  and 75.2 / 74.2 against 71.5 / 69.9 and 75.4 / 71.6 at the default 200 µs: within this machine's noise, so the default stays.
+* Resident layer: worth ~0.4 ms per step without the split (51.7 against 50.5); with the split the layer it keeps would run split
+  (`SHARPLIGHT_STREAM_RESIDENT=0`: 74.7 / 70.9, within noise of the default).
+* Greedy output: the FamilyGenerationTests cases (raw prompt, chat turn, story; 32 tokens against llama.cpp b11177) pass on CUDA and on Vulkan.
+
+### 62.4 gpt-oss-120b MXFP4 (tok/s, best / median)
+
+| | CPU expert layers | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA, §59 | 20 | 48.1 / 47.5 | 278 / 232 |
+| CUDA, this branch (no split: repacked MXFP4 and bias gathers) | 20 | 49.3 / 42.9 | 283 / 278 |
+| llama.cpp CUDA `-ncmoe 22` (§59) | | 40.4 | 176 |
+| Vulkan, §59 | 22 | 44.1 / 43.0 | 71 / 63 |
+| Vulkan, this branch (driver budget) | 20 | **50.7 / 49.1** | **112** / 78 |
+| llama.cpp Vulkan `-ncmoe 22` (§59) | | 34.8 | 107 |
+
+* Vulkan decode 1.46x and prefill 1.04x (best) of llama.cpp; prefill is still bound by streamed copies the page cache cannot hold (the 63 GB
+  file in a 62 GB cgroup, §59.4). Greedy text on CUDA and Vulkan unchanged from §59 (" Paris.\n\nGreat! If you have any more questions ...").
+* Qwen3-Coder-Next is not local; Qwen3.8-Flash-Next UD-IQ1_S (66 GB, larger than the cgroup's memory) was not measured.
+
+### 62.5 Tests, and what did not work
+
+| suite | result |
+|---|---|
+| Sharplight.Cpu.Tests (incl. new `MoeTests.NoExpertIdsGiveZeroProducts`) | CPUTESTS |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StateHandoff, StreamedExperts (new `SplitExpertsMatchTheCpu`), Moe, RowInvariance, QuantFormat (IQ grid formats now on the int-dot expert matvec), F16Range, TopK, Fusion | VKTESTS |
+| Sharplight.Cuda.Tests | CUDATESTS |
+| FamilyGenerationTests, Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan, after merging `develop` | FAMTESTS |
+| gpt-oss-120b greedy text, CUDA and Vulkan | identical to §59 |
+
+* Tightening the reserve before the planner counted the sparse banks ran out of memory while compiling; the first retry added a fixed
+  256 MiB per attempt, which moved one layer more than needed (9 against 8). Retries now reserve the measured shortfall, and the planner
+  counts the banks (84 MB for 32 slots).
+* A copy of selected experts that spanned the page-locked range of a weight and the pageable partial pages around it failed
+  (`cuMemcpyHtoDAsync`: invalid argument); copies are split at the registered range's ends.
+* Sharing the streamed compilations' input buffers broke when a graph input fed them (the caller sets graph inputs for every segment before
+  a run, so the shared buffer held the last segment's): only inputs of intermediate values are shared (caught by `StreamedExpertsTests`).
+* Sparse compilations for one row (`SHARPLIGHT_SPARSE_EXPERT_ROWS=1`, 21 MB of banks) measured 74.4 / 71.2 and 73.9 / 70.9 against 71.9 / 69.7
+  and 72.4 / 69.9 for four rows (+1.5 %, within noise); four rows stay the default so that serving steps of 2-4 sequences split too.
+* The first Vulkan run with the driver's budget had 100-300 ms per streamed layer copy (decode median 55, prefill 608) while the machine was
+  loaded (load average 10.5); the repeated runs (table) copied at the usual speed.
+* No sparse copies on Vulkan: its streamed copies go through staging memory on a worker thread, which would take CPU time from the CPU's share
+  of the slots; importing the mapped file (VK_EXT_external_memory_host) would let the GPU read it directly.
+
+### 62.6 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf     # or gpt-oss-120b/gpt-oss-120b-MXFP4.gguf
+for p in cuda vulkan; do SHARPLIGHT_LOAD_TIMING=1 SHARPLIGHT_SEGMENT_TIMING=1 $CLI $M --provider $p --cpu-offload --bench 512; done
+SHARPLIGHT_SPARSE_EXPERT_ROWS=0 $CLI $M --provider cuda --cpu-offload --bench 512      # no split decode
+SHARPLIGHT_NO_ROUTER_FUSION=1 $CLI $M --provider cuda --cpu-offload --bench 512        # router in five launches
+SHARPLIGHT_MMVQ_GRID=0 $CLI $M --provider cuda --cpu-offload --bench 512               # f32 expert matvec for the IQ formats
+SHARPLIGHT_STREAM_RESIDENT=0 $CLI $M --provider cuda --cpu-offload --bench 512         # no resident streamed layer
+SHARPLIGHT_DEVICE_RESERVE_MIB=1024 SHARPLIGHT_SEGMENT_RESERVE_MIB=32 $CLI $M --provider cuda --cpu-offload --bench 512   # the old reserves
+SHARPLIGHT_DISABLE_FEATURES=memory_budget $CLI $M --provider vulkan --cpu-offload --bench 512   # Vulkan at 92 % of the heap
+SHARPLIGHT_CPU_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
+for k in cuda13 vulkan; do $LLAMA_ROOT/runtime.llama-b11177-$k/llama-bench -m $M -ngl 99 -ncmoe 6 -fa 1 -p 512 -n 64 -r 3 -t 10; done
+HOME=<model mirror> SHARPLIGHT_TEST_LARGE=1 SHARPLIGHT_TEST_CUDA=1 SHARPLIGHT_TEST_CASE="Qwen3.5-122B-A10B UD-IQ2_XXS" \
+  dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*Generation_matches_reference_on_cuda"
+```
