@@ -18,10 +18,15 @@ namespace Sharplight.Llm;
 /// also when the decoder runs steps asynchronously (by default that work overlaps the next step on the device).</item>
 /// <item><c>SHARPLIGHT_STEP_SNAPSHOTS=0</c>: recurrent-state snapshots for prefix caching are only copied after a step, so a snapshot
 /// inside a prompt chunk cuts the chunk (<see cref="Serving.IBatchDecoder.SnapshotsInsideSteps"/> is false; for A/B measurements).</item>
+/// <item><c>SHARPLIGHT_DEVICE_RESERVE_MIB=&lt;n&gt;</c>: device memory kept free on every device by a placement that
+/// <see cref="LlmLoadOptions.ReservePerDevice"/> leaves at its default (for measurements).</item>
 /// </list>
 /// </summary>
 internal static class DiagnosticSwitches
 {
+    /// <summary>The device reserve forced for the process in bytes, or null (<c>SHARPLIGHT_DEVICE_RESERVE_MIB</c>).</summary>
+    public static long? DeviceReserve { get; } = long.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_DEVICE_RESERVE_MIB"), out long mib) && mib >= 0 ? mib << 20 : null;
+
     /// <summary>False when device sampling is disabled for the process.</summary>
     public static bool DeviceSampling { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_DEVICE_SAMPLING") != "0";
 

@@ -181,7 +181,9 @@ public sealed class LlmModel : IDisposable
     public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
     {
         var sw = Stopwatch.StartNew();
-        var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: BatchTokens);
+        // A session reads the logits of a pass's last row only (InferenceSession binds R = 1), so the logits buffer holds one row, not a
+        // batch's (485 MiB for a 248K vocabulary at 512 rows).
+        var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: 1);
         var compiled = CompiledModel.Compile(WithSamplingHead(Definition.Graph(graph)), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
         CompiledModel? encoder = null;
@@ -508,7 +510,7 @@ public sealed class LlmModel : IDisposable
             Definition.Property(WellKnown.DraftConvTaps, 0), Definition.Property(WellKnown.DraftLatticeCandidates, 0), tokenMap);
     }
 
-    private const long DefaultReserve = 1L << 30;
+    private static long DefaultReserve => DiagnosticSwitches.DeviceReserve ?? 1L << 30;
 
     /// <summary>Largest rows per forward pass chosen automatically (<see cref="TaskLoadOptions.MaxBatchTokens"/> 0).</summary>
     public const int AutomaticMaxBatchTokens = 2048;

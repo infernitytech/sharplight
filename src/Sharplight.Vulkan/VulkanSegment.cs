@@ -381,17 +381,27 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// <remarks>The copy runs through the device's staging buffers on a worker thread, while the caller runs the segment before this one.</remarks>
     public void BeginStreaming()
     {
-        if (_streamedWeights.Count > 0 && _streaming is null)
+        if (_streamedWeights.Count > 0 && _streaming is null && !WeightsResident)
         {
             _streaming = Task.Run(CopyStreamedWeights);
         }
     }
 
-    /// <summary>Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now.</summary>
+    /// <inheritdoc />
+    public bool WeightsResident { get; set; }
+
+    /// <summary>
+    /// Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now unless they are <see cref="WeightsResident"/>.
+    /// </summary>
     private void StreamWeights()
     {
         var streaming = _streaming;
         _streaming = null;
+        if (streaming is null && WeightsResident)
+        {
+            return;
+        }
+
         if (streaming is null)
         {
             CopyStreamedWeights();

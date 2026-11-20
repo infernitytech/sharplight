@@ -280,7 +280,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// </remarks>
     public void BeginStreaming()
     {
-        if (_streamedWeights.Count == 0 || _streaming)
+        if (_streamedWeights.Count == 0 || _streaming || WeightsResident)
         {
             return;
         }
@@ -329,7 +329,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
     }
 
-    /// <summary>Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not.</summary>
+    /// <inheritdoc />
+    public bool WeightsResident { get; set; }
+
+    /// <summary>
+    /// Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not and the
+    /// weights are not <see cref="WeightsResident"/> (the wait then is for their last copy, normally long done).
+    /// </summary>
     private void StreamWeights()
     {
         BeginStreaming();

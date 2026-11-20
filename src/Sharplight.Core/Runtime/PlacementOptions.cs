@@ -44,11 +44,16 @@ public sealed class PlacementOptions
     public int StreamBuffers { get; init; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_BUFFERS") == "2" ? 2 : 1;
 
     /// <summary>A copy with the compile options <paramref name="compile"/> and every other setting kept.</summary>
-    internal PlacementOptions WithCompile(CompileOptions compile) => new()
+    internal PlacementOptions WithCompile(CompileOptions compile) => With(compile, ReservePerDevice);
+
+    /// <summary>A copy that reserves <paramref name="reservePerDevice"/> bytes on every device, every other setting kept.</summary>
+    internal PlacementOptions WithReserve(long reservePerDevice) => With(Compile, reservePerDevice);
+
+    private PlacementOptions With(CompileOptions compile, long reservePerDevice) => new()
     {
         Devices = Devices,
         Fallback = Fallback,
-        ReservePerDevice = ReservePerDevice,
+        ReservePerDevice = reservePerDevice,
         ReservePerSegment = ReservePerSegment,
         Compile = compile,
         GroupDataDependentCounts = GroupDataDependentCounts,
