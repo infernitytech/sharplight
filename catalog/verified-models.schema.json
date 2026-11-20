@@ -188,6 +188,33 @@
                     "type": "string"
                   }
                 },
+                "level": {
+                  "enum": [
+                    "verified",
+                    "partial",
+                    "loads",
+                    "verified-tiny",
+                    null
+                  ]
+                },
+                "verification": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quality": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "qualityNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "notes": {
                   "type": [
                     "string",
@@ -343,6 +370,12 @@
               ]
             }
           },
+          "referencePrecision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "verification": {
             "type": "object",
             "properties": {
@@ -448,6 +481,33 @@
               },
               "companions": {
                 "$ref": "#/properties/entries/items/properties/variants/items/properties/companions"
+              },
+              "level": {
+                "enum": [
+                  "verified",
+                  "partial",
+                  "loads",
+                  "verified-tiny",
+                  null
+                ]
+              },
+              "verification": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "quality": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "qualityNote": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "notes": {
                 "type": [

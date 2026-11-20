@@ -45,6 +45,9 @@ manifest.sig           detached signature over the exact bytes of manifest.json
   "id": "qwen3-0.6b.q8-0-gguf",
   "version": "1.0.0",
   "display": { "name": "Qwen3 0.6B", "variant": "Q8_0 GGUF", "family": "Qwen3", "summary": "...", "tags": ["reasoning", "tools"] },
+  "group": { "id": "qwen3-0.6b", "name": "Qwen3 0.6B", "variant": "q8-0-gguf", "label": "Q8_0 GGUF", "format": "gguf",
+             "quantization": "Q8_0", "bitsPerWeight": 8.5, "recommended": true, "quality": "near-lossless",
+             "qualityNote": "Practically identical to BF16.", "reference": "BF16", "size": 645685324, "sourceSize": 639446688 },
   "publisher": { "name": "...", "countryOfOrigin": "CN", "url": "..." },   // who made the model; ISO 3166-1 alpha-2
   "packager": { "name": "Sharplight", "feed": "https://.../models/v1" },     // who converted and signed it
   "license": { "spdx": "apache-2.0", "name": "Apache License 2.0", "url": "...", "commercialUse": true, "gated": false },
@@ -57,9 +60,14 @@ manifest.sig           detached signature over the exact bytes of manifest.json
     "server": ">=1.0.0",          // minimum host version (version range); optional
     "engine": ">=0.1.0",          // minimum Sharplight engine version
     "packageFormat": 3,           // .slm container version
-    "deviceFeatures": [],         // neutral engine feature names a device must have
-    "memory": [ { "device": "gpu", "weights": 652000000, "overhead": 480000000,
-                  "perSlotContext": { "tokens": 8192, "bytes": 310000000 } } ],
+    "deviceFeatures": [],         // neutral engine feature names a device must have (hard requirement)
+    "kernels": [ { "weightType": "q8_0", "bytes": 633233408, "nativeFeatures": ["matrix_f16"], "fallback": true },
+                 { "weightType": "f32", "bytes": 262144, "nativeFeatures": [], "fallback": true } ],
+    "memory": [ { "device": "gpu", "weights": 633495552, "overhead": 1959878656,
+                  "perSlotContext": { "tokens": 4096, "bytes": 469762048 },
+                  "perSlotContextMax": { "tokens": 40960, "bytes": 4697620480 },
+                  "kvBytesPerToken": 114688, "stateBytesPerSlot": 0 },
+                { "device": "cpu", ... } ],
     "disk": 640123456
   },
   "dependencies": [ { "id": "silero-vad-v5.onnx", "range": "[1.0.0,2.0.0)", "kind": "required", "role": "voice-activity" } ],
@@ -82,7 +90,9 @@ manifest.sig           detached signature over the exact bytes of manifest.json
 | Field | Rule |
 |---|---|
 | `requirements.server`, `.engine`, `.packageFormat` | checked before install and before load (`PackageCompatibility`); an incompatible package is listed but not installable, with the reason |
-| `requirements.memory` | first-pass placement filter; the engine's own estimate on the device decides |
+| `group` | the model this package is a variant of; see "Model groups and variants" |
+| `requirements.memory` | first-pass placement filter; the engine's own estimate on the device decides (details below) |
+| `requirements.kernels` | the package's weight types and the device features that accelerate them; see below |
 | `dependencies` | NuGet-style ranges. `required`: installed together, a missing one fails the install. `optional`: offered. Roles are auxiliary roles (`draft`, `voice-activity`, `lora`, ...) or `pairing`. Companions merged into the `.slm` are not dependencies. |
 | `license.gated` | the host asks for explicit acceptance of the terms before install |
 | `files[].chunks` | SHA-256 per chunk: resumable, verified transfers from several sources (mirrors, peers) |
@@ -102,6 +112,7 @@ packages/<id>/<version>/manifest.json, manifest.sig,
 <channel>/index.json, <channel>/index.sig                 the channel's service index and its signature
 <channel>/catalog/index.json                              list of pages
 <channel>/catalog/page/<n>.json                           package summaries, 200 per page, ordered by id
+<channel>/catalog/models.json                             the model groups with their variants (see "Model groups and variants")
 <channel>/packages/<id>/index.json                        the versions listed in this channel: manifest digest, size, publication
                                                           time, current state in this channel, requirements and dependencies
 ```
@@ -124,20 +135,118 @@ packages/<id>/<version>/manifest.json, manifest.sig,
   "expires": "2026-12-17T10:05:00Z",     // freeze protection: an expired index is rejected (accepted with a warning when allowed offline)
   "sequence": 412,                        // strictly increasing per channel; lower than last seen is rejected (rollback protection)
   "channel": "stable",                    // the channel this index lists (absent for a feed without channels)
-  "resources": { "catalog": "stable/catalog/index.json", "packages": "stable/packages/{id}/index.json", "keys": "keys/keyset.json" },
-  "catalog": { "pages": 3, "packages": 412, "digest": "sha256:..." }
+  "resources": { "catalog": "stable/catalog/index.json", "models": "stable/catalog/models.json",
+                 "packages": "stable/packages/{id}/index.json", "keys": "keys/keyset.json" },
+  "catalog": { "pages": 3, "packages": 412, "digest": "sha256:...", "models": 97, "modelsDigest": "sha256:..." }
 }
 ```
 
 Digests (`sha256:<hex>` over the exact bytes) chain index → catalog index → pages → package index → manifest → `.slm` (and its chunks),
 so one signature check on the index authenticates every listing, and the manifest signature authenticates each package on its own:
-mirrors and peers need no trust. A page entry carries what a listing needs without further requests: id, latest version, all
-versions, display, publisher and country of origin, license, model (kind, tasks, capabilities, size data), requirements,
+mirrors and peers need no trust (the model listing hangs off the index the same way: `catalog.modelsDigest`). A page entry carries
+what a listing needs without further requests: id, latest version, all versions, display, group, publisher and country of origin,
+license, model (kind, tasks, capabilities, size data), requirements, verification (level, reference, summary, providers, date),
 dependencies, size, state, manifest and package index digests.
 
 Caching: the channel documents (`<channel>/**`) and the key set short-lived (`no-cache`, ETag); everything under
 `packages/<id>/<version>/` immutable (`max-age=31536000, immutable`). Package files are read with range requests. Publication is
 atomic from a reader's view: package objects first, package indexes and pages next, `index.json` and `index.sig` last.
+
+## Model groups and variants
+
+A model is usually published in several variants (quantizations and formats): `qwen3.5-122b-a10b.ud-iq2-xxs-gguf`,
+`qwen3.5-122b-a10b.ud-q4-k-xl-gguf`, `qwen3.5-122b-a10b.fp8-safetensors`, ... Each variant is its own package (own versions,
+own `.slm`); the **model group** ties them together so a host lists the model once and compares its variants against its hardware.
+The contract (additive to schema version 1; readers that do not know these fields ignore them):
+
+**Identity.** The group id is the verified-catalog entry id; the variant id is the catalog variant id; the package id is
+`<group.id>.<group.variant>`. `feedtool publish` rejects a manifest whose `group` does not name its package id that way, an unknown
+`quality` tier, or `bitsPerWeight` outside (0, 64]. A package without `group` (published before groups existed) is grouped by its
+`provenance.catalogEntry` / `catalogVariant` when the package id is `<entry>.<variant>` (`PackageManifest.EffectiveGroup`); otherwise it
+is a model of its own whose group id is the package id.
+
+**`group`** (manifest, copied into each catalog-page summary):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string, required | model group id = catalog entry id (`[a-z0-9.-]`) |
+| `name` | string | model name, the same for every variant |
+| `variant` | string, required | variant id within the group = catalog variant id |
+| `label` | string | what a user picks (`UD-Q4_K_XL GGUF + mmproj`) |
+| `format` | string | upstream format the package was converted from: `gguf`, `safetensors`, `onnx`, ... (the `.slm` itself is always the same format) |
+| `quantization` | string | upstream quantization name (`Q4_K_M`, `UD-IQ2_XXS`, `FP8`, `MXFP4`, `NVFP4`, `GPTQ-Int4`, `BF16`) |
+| `bitsPerWeight` | number | measured on the package: weight bytes x 8 / weight elements, 2 decimals (includes scales and the tensors kept in higher precision) |
+| `recommended` | bool | the variant a host offers first; at most one per group in a channel (`feedtool verify` reports more) |
+| `quality` | string | tier relative to `reference`, best first: `reference`, `near-lossless` (8-bit, FP8), `high` (5-6 bit), `good` (4 bit), `reduced` (3 bit), `low` (1-2 bit) |
+| `qualityNote` | string | one sentence on the quality relative to `reference` |
+| `reference` | string | the precision quality is measured against: `BF16`, or the release format (`MXFP4` for gpt-oss) |
+| `size` | integer | bytes of the `.slm` (download and disk size) |
+| `sourceSize` | integer | bytes of the upstream files the package was built from (with companions) |
+
+The verification level is per variant: `verification.level` of the manifest (and of the summary) is `verified` when this variant's
+own files were compared with the reference, `partial` when only the architecture or another variant of the model was (the catalog
+variant's `level`; `verification.summary` then starts with what was and was not checked on this variant).
+
+**Model listing** (`<channel>/catalog/models.json`, `FeedModelListing`): written by every publish, promote, state change and reindex
+from the same summaries as the pages, chained into the signed index by `catalog.modelsDigest` (and `catalog.models` = number of
+models); readers that fetch it check the digest (`FeedClient.GetModelListingAsync`). It lists the listed packages only (unlisted ones
+are left out; yanked and deprecated ones stay, with their `state`).
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "models": [                                   // ordered by id
+    {
+      "id": "qwen3.5-122b-a10b", "name": "Qwen3.5 122B-A10B", "family": "Qwen3.5", "kind": "text-generation",
+      "architecture": "qwen3_5_moe", "parameters": 122000000000, "contextLength": 262144,
+      "publisher": { ... }, "license": { ... }, "tags": ["moe", "vision", "reasoning", "tools"],
+      "recommended": "qwen3.5-122b-a10b.ud-q4-k-xl-gguf",       // package id, or absent
+      "variants": [                                             // bitsPerWeight ascending, then size, then id
+        { "package": "qwen3.5-122b-a10b.ud-iq2-xxs-gguf", "version": "1.0.0", "variant": "ud-iq2-xxs-gguf",
+          "label": "UD-IQ2_XXS GGUF + mmproj", "format": "gguf", "quantization": "UD-IQ2_XXS", "bitsPerWeight": 2.4,
+          "recommended": false, "quality": "low", "qualityNote": "...", "reference": "BF16", "size": 37600000000,
+          "verification": "partial", "requirements": { ... the package's requirements ... }, "state": { "listed": true } }
+      ]
+    }
+  ]
+}
+```
+
+Model-level fields (name, family, kind, architecture, parameters, context, publisher, license, tags) come from the recommended
+variant, else the first package by id. A feed published before model listings existed has no `resources.models`; then
+`FeedSnapshot.Models` (also available on every snapshot) groups the verified page summaries the same way.
+
+**Compatibility check per variant.** Everything a host needs is in `requirements` (pages and the model listing carry it; no manifest
+fetch):
+
+- `memory[]`, one entry per device kind (`gpu`: device-local memory of an accelerator; `cpu`: system memory). The two entries carry the
+  same figures: the engine keeps one copy of the weights on the device that runs them, and splits layers between devices when one is
+  too small (a split needs the sum, plus one overhead per device).
+  - `weights`: weight bytes of the package (companions included).
+  - `overhead`: activations and scratch for a 512-token prefill batch at the default context plus 384 MiB runtime (at least what the
+    catalog's estimate leaves beyond weights and one default context); conservative.
+  - `kvBytesPerToken`: KV cache bytes per context token of one slot over every layer whose cache grows with the context, at a 16-bit
+    cache (an 8-bit cache, `kv-type q8_0`, needs about 0.53x, `q4_0` 0.28x).
+  - `stateBytesPerSlot`: bytes per slot that do not grow with the context: recurrent state (linear-attention / SSM layers of hybrid
+    models such as Qwen3.5 and Qwen3-Next) and saturated sliding-window caches.
+  - `perSlotContext` / `perSlotContextMax`: the exact state of one slot at the default context (4096 tokens, or the model's maximum
+    when smaller) and at the model's maximum context.
+  - Need for `s` slots of `c` tokens: `weights + overhead + s * (stateBytesPerSlot + kvBytesPerToken * c)`
+    (`MemoryRequirement.TotalFor(slots, contextTokens)`); exact at long contexts, an upper bound at short ones (sliding windows).
+    Manifests without `kvBytesPerToken` (built before these fields) scale `perSlotContext` linearly. The figures are a first-pass
+    filter: the engine's own footprint estimate on the actual device decides at load time.
+- `kernels[]`: the package's weight types (engine names: `q4_k`, `iq2_xxs`, `mxfp4`, `nvfp4`, `f8e4m3_b128`, `bf16`, ...), largest
+  share first, with `bytes`, `nativeFeatures` (neutral device feature names, `Sharplight.Runtime.DeviceFeatures`, whose kernels
+  accelerate the type; any one helps) and `fallback`. With `fallback: true` (every type the engine has today) every provider (CPU,
+  Vulkan, CUDA, Metal) runs the type with its generic kernel when the device lacks the native features: same memory, slower. A host
+  shows "native" when the device reports one of `nativeFeatures` for the largest types and "fallback" otherwise; a type with
+  `fallback: false` would make a device without its features incompatible. Current mapping: FP8 (`f8e4m3*`, `f8e5m2`):
+  `native_gemm_fp8`, `matrix_fp8`, `fp8`, `matrix_f16`; MXFP4: `native_gemm_moe`, `matrix_f16`; NVFP4 and the GPTQ / AWQ integer
+  types (`q4z_*`, `q8z_*`): `int_dot`, `matrix_f16`; F16 / BF16: `native_gemm_f16`, `library_gemm`, `matrix_f16`, `matrix_bf16`; GGUF
+  block types: `matrix_f16`.
+- `deviceFeatures`: features a device must have to run the package at all (empty for every package today).
+- `disk`: bytes of the `.slm` (the download is written to `<file>.part` and renamed, so the size is needed once).
+- `engine`, `server`, `packageFormat`: versions, checked by `PackageCompatibility`.
 
 ## Signing and keys
 
