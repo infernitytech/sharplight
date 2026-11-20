@@ -96,6 +96,12 @@
                     <Border Classes="badge ok" IsVisible="{Binding IsVerified}" ToolTip.Tip="Listed in the signed feed index; the manifest and package file are verified before install">
                       <TextBlock Text="Verified" />
                     </Border>
+                    <Border Classes="badge ok" IsVisible="{Binding IsRecommended}" ToolTip.Tip="The variant of this model offered first">
+                      <TextBlock Text="Recommended" />
+                    </Border>
+                    <Border Classes="badge warn" IsVisible="{Binding IsPartial}" ToolTip.Tip="{Binding PartialText}">
+                      <TextBlock Text="Partial" />
+                    </Border>
                     <Border Classes="badge accent">
                       <TextBlock Text="{Binding Version}" />
                     </Border>

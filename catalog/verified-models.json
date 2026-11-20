@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-19",
+  "updated": "2026-11-20",
   "docSections": [
     {
       "id": "1.1",
@@ -1141,7 +1141,7 @@
           "memoryBytes": 92841256974,
           "companions": [],
           "level": "partial",
-          "verification": "Not run on this checkpoint; the Hugging Face qwen3_next import and the FP8 block-scaled path were verified on Qwen3.8-27B-FP8 and the architecture on the Q4_K_M GGUF.",
+          "verification": "Not run on this checkpoint; the Hugging Face qwen3_next mapping was verified on a tiny random checkpoint (ids identical to transformers), the FP8 block-scaled path on Qwen3.8-27B-FP8 and the architecture on the Q4_K_M GGUF.",
           "quality": "near-lossless",
           "qualityNote": "Qwen\u0027s official block-scaled FP8 (128 x 128); native FP8 GEMMs where the device has them.",
           "repository": "Qwen/Qwen3-Coder-Next-FP8",
@@ -1589,7 +1589,7 @@
           "memoryBytes": 213754468260,
           "companions": [],
           "level": "partial",
-          "verification": "Not run on this checkpoint; the Hugging Face qwen3_next import and the FP8 block-scaled path were verified on smaller models (Qwen3.8-27B-FP8) and the architecture on the GGUF variants.",
+          "verification": "Not run on this checkpoint; the Hugging Face qwen4_exp mapping was verified on a tiny random checkpoint (ids identical to transformers), the FP8 block-scaled path on Qwen3.8-27B-FP8 and the architecture on the GGUF variants.",
           "quality": "near-lossless",
           "qualityNote": "Qwen\u0027s official block-scaled FP8; 186 GB.",
           "repository": "Qwen/Qwen3.8-Flash-Next-FP8",

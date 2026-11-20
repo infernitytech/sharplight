@@ -176,6 +176,9 @@ public class FamilyGenerationTests
             " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
         new("Qwen3-Coder-Next Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", Large: true, Tokens: 16),
+        // Qwen3.8 27B (qwen35 dense hybrid) Q4_K_M: the model feed's 4-bit variant, against llama.cpp b11177 CPU.
+        new("Qwen3.8-27B Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf", P1, "text", [],
+            " a young boy named Tom. Tom was a curious and adventurous kid who loved to explore the world around him.\n\nOne day, Tom noticed that the sea near his village was getting dirtier and dirt", Large: true),
         // Qwen3.8-Flash-Next (qwen4exp, 111 GB): the layers that do not fit on the GPU run on the CPU; the 28.8 GB n-gram table
         // exercises weight rows beyond 4 GiB.
         new("Qwen3.8-Flash-Next UD-Q4_K_XL GGUF (llama.cpp)",

@@ -268,7 +268,9 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
                 return;
             }
 
-            var packages = await Task.Run(() => listing.Packages.Select(summary => new FeedPackageViewModel(summary, _services.Feed.Environment, listing.Verified)).ToList());
+            // Variants of one model stay together, smallest first (the feed's model groups).
+            var packages = await Task.Run(() => listing.Packages.Select(summary => new FeedPackageViewModel(summary, _services.Feed.Environment, listing.Verified))
+                .OrderBy(package => package.ModelId, StringComparer.Ordinal).ThenBy(package => package.VariantOrder).ThenBy(package => package.Id, StringComparer.Ordinal).ToList());
             _all.Clear();
             _all.AddRange(packages);
             Kinds.Clear();

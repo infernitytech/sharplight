@@ -64,13 +64,33 @@ internal sealed partial class FeedPackageViewModel : ObservableObject
     /// <summary>The model's publisher, or empty.</summary>
     public string Publisher => Summary.Publisher?.Name ?? "";
 
-    /// <summary>Architecture, quantization and parameter count, e.g. <c>qwen3 · Q8_0 · 596M parameters</c>.</summary>
+    /// <summary>
+    /// Architecture, quantization, bits per weight, parameter count and the quality against the reference precision, e.g.
+    /// <c>qwen3 · Q8_0 · 8.5 bits per weight · 596M parameters · near-lossless vs BF16: Practically identical to BF16.</c>
+    /// </summary>
     public string Details => string.Join(" · ", new[]
     {
         Summary.Model?.Architecture,
         Summary.Model?.Quantization,
+        Summary.Group?.BitsPerWeight is { } bits ? $"{bits:0.#} bits per weight" : null,
         Summary.Model?.Parameters is { } parameters ? $"{ByteFormat.Count(parameters)} parameters" : null,
+        Summary.Group?.Quality is { } quality ? $"{quality}{(Summary.Group.Reference is { } reference ? $" vs {reference}" : "")}{(Summary.Group.QualityNote is { } note ? $": {note}" : "")}" : null,
     }.Where(part => !string.IsNullOrEmpty(part)));
+
+    /// <summary>The model this package is a variant of (the feed's group id, else the package id): variants of one model are listed together.</summary>
+    public string ModelId => Summary.Group?.Id ?? Summary.Id;
+
+    /// <summary>Sort key of the variant within its model: bits per weight, else the download size.</summary>
+    public double VariantOrder => Summary.Group?.BitsPerWeight ?? Summary.Size / 1e12;
+
+    /// <summary>The feed marks this variant as the one to offer first for its model.</summary>
+    public bool IsRecommended => Summary.Group?.Recommended == true;
+
+    /// <summary>Only the architecture or another variant of the model was compared with the reference, not this variant's files.</summary>
+    public bool IsPartial => string.Equals(Summary.Verification?.Level, "partial", StringComparison.Ordinal);
+
+    /// <summary>What the partial verification covers, or empty.</summary>
+    public string PartialText => IsPartial ? Summary.Verification?.Summary ?? "Partially verified." : "";
 
     /// <summary>The packages this one installs with (required dependencies), one per line.</summary>
     public IReadOnlyList<string> Dependencies => [.. Summary.Dependencies.Where(dependency => dependency.IsRequired).Select(dependency => dependency.Id)];
