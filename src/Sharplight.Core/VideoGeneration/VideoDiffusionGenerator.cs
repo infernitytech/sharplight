@@ -123,7 +123,8 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
         // weights take little of the device, hold either the text encoder or the transformer and VAE (compiled again from the
         // cached kernels; the conditioning of the last prompts is reused, so the encoder only returns for new prompts).
         long weightBytes = model.Definition.Weights.Values.Sum(w => w.ByteSize);
-        long deviceBytes = model.Options.Devices.Sum(slot => slot.Device.Info.TotalMemory);
+        // What the devices can hold for this process (others' use taken off), not their total memory.
+        long deviceBytes = model.Options.Devices.Sum(slot => slot.MemoryLimit ?? slot.Device.GetMemoryInfo().Capacity);
         _holdOneStage = deviceBytes > 0 && weightBytes > deviceBytes * HoldOneStageFraction;
         Metadata = TaskClientMetadata.For(model.Definition);
     }

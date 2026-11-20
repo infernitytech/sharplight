@@ -9,6 +9,7 @@ namespace Sharplight.Runtime;
 /// Diagnostic environment switches of Sharplight.Core:
 /// <list type="bullet">
 /// <item><c>SHARPLIGHT_DISABLE_FEATURES</c>: comma-separated feature names (or "all") disabled for every device, see <see cref="DisabledByEnvironment"/>.</item>
+/// <item><c>SHARPLIGHT_LIMIT_DEVICE_MEMORY</c>, <c>SHARPLIGHT_LIMIT_HOST_VISIBLE_DEVICE_MEMORY</c>, <c>SHARPLIGHT_LIMIT_MAX_ALLOCATION</c>, <c>SHARPLIGHT_LIMIT_PINNED_HOST_MEMORY</c>: process-wide memory caps, see <see cref="DeviceMemoryLimits"/>.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c>: process-wide override of <see cref="DeviceInfo.SubmissionBudgetMs"/>; read by the providers.</item>
 /// </list>
 /// </remarks>

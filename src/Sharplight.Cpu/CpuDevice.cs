@@ -40,7 +40,8 @@ internal sealed class CpuDevice : IComputeDevice
     {
         get
         {
-            long available = HostCpuInfo.MemInfo("MemAvailable") ?? Info.TotalMemory;
+            // Bounded by the container's memory limit, which /proc/meminfo does not show.
+            long available = HostCpuInfo.AvailableMemory() ?? Info.TotalMemory;
             return _options?.MemoryBudget is { } budget ? Math.Min(budget, available) : available;
         }
     }
@@ -68,7 +69,7 @@ internal sealed class CpuDevice : IComputeDevice
             capabilities["rdm"] = Flag(Rdm.IsSupported);
         }
 
-        long total = HostCpuInfo.MemInfo("MemTotal") ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        long total = HostCpuInfo.TotalMemory() ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         return new DeviceInfo
         {
             Provider = CpuExecutionProvider.ProviderName,

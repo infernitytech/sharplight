@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Sharplight.Cuda.Interop;
+using Sharplight.Runtime;
 
 namespace Sharplight.Cuda;
 
@@ -50,7 +51,16 @@ internal sealed unsafe class CudaBlas : IDisposable
             return null;
         }
 
-        return new CudaBlas(device, handle, device.Allocate(WorkspaceBytes));
+        try
+        {
+            return new CudaBlas(device, handle, device.Allocate(WorkspaceBytes, "cuBLASLt workspace"));
+        }
+        catch (DeviceOutOfMemoryException)
+        {
+            // No room for the workspace on a small or crowded device: the products stay on the generated kernels.
+            CublasLtApi.cublasLtDestroy(handle);
+            return null;
+        }
     }
 
     /// <summary>The cuBLASLt data type of a library kernel's operand type, or null when the library GEMM does not take it.</summary>
