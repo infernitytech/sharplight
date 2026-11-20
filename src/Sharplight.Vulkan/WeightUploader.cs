@@ -83,12 +83,39 @@ internal sealed unsafe class WeightUploader : IDisposable
 
             ulong chunk = Math.Min(_stagingSize - _fill, (ulong)(total - done));
             chunk -= chunk % (ulong)rowBytes;
-            WeightCopier.CopyChunk(buffer, source, pointer, done, (long)chunk, _staging[_slot].Mapped + _fill, rowBytes);
+            if (buffer.Repack != WeightRepack.None)
+            {
+                // Repacking writes out of order, which write-combined staging memory makes slow: repack into cached memory, then one
+                // sequential copy.
+                byte* repacked = RepackScratch(chunk);
+                WeightCopier.CopyChunk(buffer, source, pointer, done, (long)chunk, repacked, rowBytes);
+                WeightCopier.CopyParallel(repacked, _staging[_slot].Mapped + _fill, (long)chunk);
+            }
+            else
+            {
+                WeightCopier.CopyChunk(buffer, source, pointer, done, (long)chunk, _staging[_slot].Mapped + _fill, rowBytes);
+            }
 
             _pending.Add((destination.Buffer, destination.Offset + (ulong)done, _fill, chunk));
             _fill = Math.Min(_stagingSize, (_fill + chunk + StagingAlignment - 1) & ~(StagingAlignment - 1));
             done += (long)chunk;
         }
+    }
+
+    private byte* _repackScratch;
+    private ulong _repackScratchBytes;
+
+    /// <summary>Cached host memory of at least <paramref name="bytes"/> for repacking a chunk before it goes to staging memory, kept until disposed.</summary>
+    private byte* RepackScratch(ulong bytes)
+    {
+        if (_repackScratchBytes < bytes)
+        {
+            System.Runtime.InteropServices.NativeMemory.AlignedFree(_repackScratch);
+            _repackScratch = (byte*)System.Runtime.InteropServices.NativeMemory.AlignedAlloc((nuint)bytes, 4096);
+            _repackScratchBytes = bytes;
+        }
+
+        return _repackScratch;
     }
 
     /// <summary>Submits the remaining copies and waits until the staging buffers are idle.</summary>
@@ -231,5 +258,8 @@ internal sealed unsafe class WeightUploader : IDisposable
         }
 
         _created = 0;
+        System.Runtime.InteropServices.NativeMemory.AlignedFree(_repackScratch);
+        _repackScratch = null;
+        _repackScratchBytes = 0;
     }
 }

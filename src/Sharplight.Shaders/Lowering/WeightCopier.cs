@@ -88,7 +88,7 @@ internal static unsafe class WeightCopier
     /// Multi-threaded copy: weight sources are usually mmapped files, where a single thread is bound by page-fault handling
     /// rather than memory bandwidth.
     /// </summary>
-    private static void CopyParallel(byte* src, byte* dst, long bytes)
+    internal static void CopyParallel(byte* src, byte* dst, long bytes)
     {
         if (bytes <= CopyPieceBytes)
         {
