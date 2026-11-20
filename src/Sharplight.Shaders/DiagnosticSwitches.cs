@@ -236,6 +236,19 @@ internal static class DiagnosticSwitches
     /// <summary>Activation rows from which the hand-written provider GEMMs serve a matmul, or null for the default.</summary>
     public static long? NativeGemmMinRows { get; } = Read("SHARPLIGHT_NATIVE_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_TMA=1</c>: the 128-row tiles of the hand-written FP8 GEMM run on its warp-specialized form with tensor copies
+    /// (<c>gemm_fp8_tma.cu</c>) where the device has <c>tensor_copies</c>. Off by default: faster standalone, but not in a model's
+    /// prefill under the board's power limit (benchmarks.md section 57).
+    /// </summary>
+    public static bool NativeFp8Tma { get; } = IsSet("SHARPLIGHT_FP8_TMA");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_TALL_COST</c>: time of a 128-row block of the hand-written FP8 GEMM relative to a 64-row one in its tile
+    /// choice, or null for the default.
+    /// </summary>
+    public static double? NativeFp8TallCost { get; } = Read("SHARPLIGHT_FP8_TALL_COST") is { } v ? double.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>False keeps E4M3-weight prefill matmuls off the fp8 tensor-core GEMM.</summary>
     public static bool Fp8Gemm { get; } = IsNotZero("SHARPLIGHT_FP8_GEMM");
 

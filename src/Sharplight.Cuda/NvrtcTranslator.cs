@@ -11,7 +11,8 @@ namespace Sharplight.Cuda;
 /// Compiles the CUDA C++ Slang generates into PTX for one virtual architecture (<c>compute_XY</c>) with NVRTC, the portable code of the
 /// CUDA provider. The block size header of the source (<see cref="SlangCompiler.CudaThreadsHeader"/>) is kept as the first line of the PTX.
 /// Kernels whose shared arrays exceed CUDA's 48 KB static limit are moved to dynamic shared memory (<see cref="SharedMemoryRewriter"/>);
-/// their size follows the block size as a second header line (<see cref="CudaPtx.SharedHeader"/>).
+/// their size follows the block size as a second header line (<see cref="CudaPtx.SharedHeader"/>), and the tensor maps of their
+/// parameters a third (<see cref="SlangCompiler.CudaTensorMapsHeader"/>).
 /// The floating-point headers the source may include (<c>cuda_fp16.h</c>, <c>cuda_bf16.h</c>, <c>cuda_fp8.h</c>) are passed from the files
 /// shipped next to NVRTC, so no CUDA toolkit is needed. Thread-safe.
 /// </summary>
@@ -77,10 +78,17 @@ internal sealed class NvrtcTranslator : KernelTranslator
         string threadsLine = source.StartsWith(SlangCompiler.CudaThreadsHeader, StringComparison.Ordinal) && headerEnd > 0 ? source[..(headerEnd + 1)] : "";
         // Kernels written in CUDA C++ (SlangCompiler.CompileCuda) state their dynamic shared memory in a second header line.
         int declaredShared = 0;
+        string mapsLine = "";
         if (headerEnd > 0 && source.AsSpan(headerEnd + 1).StartsWith(SlangCompiler.CudaSharedHeader, StringComparison.Ordinal))
         {
             int valueStart = headerEnd + 1 + SlangCompiler.CudaSharedHeader.Length;
-            declaredShared = int.Parse(source.AsSpan(valueStart, source.IndexOf('\n', valueStart) - valueStart), CultureInfo.InvariantCulture);
+            int sharedEnd = source.IndexOf('\n', valueStart);
+            declaredShared = int.Parse(source.AsSpan(valueStart, sharedEnd - valueStart), CultureInfo.InvariantCulture);
+            // The tensor maps of the parameters, if any, follow as a third header line.
+            if (source.AsSpan(sharedEnd + 1).StartsWith(SlangCompiler.CudaTensorMapsHeader, StringComparison.Ordinal))
+            {
+                mapsLine = source[(sharedEnd + 1)..(source.IndexOf('\n', sharedEnd + 1) + 1)];
+            }
         }
 
         byte[] ptx;
@@ -107,7 +115,7 @@ internal sealed class NvrtcTranslator : KernelTranslator
         }
 
         string sharedLine = dynamicShared > 0 ? $"{CudaPtx.SharedHeader}{dynamicShared}\n" : "";
-        return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine), .. ptx];
+        return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine), .. ptx];
     }
 
     /// <summary>

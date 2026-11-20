@@ -184,6 +184,8 @@ public sealed class CudaCodeTests
     [InlineData(300, false)]
     [InlineData(100, true)]
     [InlineData(700, true)]
+    [InlineData(1500, false)]
+    [InlineData(1500, true)]
     public void NativeFp8GemmMatchesTheCpu(int rows, bool swiglu)
     {
         var provider = new CudaProvider();
@@ -192,7 +194,8 @@ public sealed class CudaCodeTests
         Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmFp8), "The GPU has no hand-written FP8 GEMM (compute capability below 8.9).");
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // From 65 rows the hand-written GEMM serves (64-row tiles at 100 rows, 128-row tiles at 700 for these shapes), reading the
+        // From 65 rows the hand-written GEMM serves (64-row tiles at 100 rows, 128-row tiles at 700 dual and 1500 for these shapes on
+        // 82 SMs; the 128-row tiles take the tensor-copy form where the GPU has it), reading the
         // 128-row weight groups and the dense scale copy of the E4M3 activations. The activations are values that the per-128 E4M3
         // quantization represents exactly, so the CPU's f32 product differs by the summation order only.
         var expected = RunProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, swiglu, DataType.F8E4M3_B128);
@@ -211,6 +214,15 @@ public sealed class CudaCodeTests
         for (int i = 0; i < reference.Length; i++)
         {
             Assert.True(Math.Abs(reference[i] - actual[i]) <= 1e-4 * scale, $"y[{i}]: {actual[i]} vs the generated GEMM's {reference[i]}");
+        }
+
+        // The warp-specialized form with tensor copies (128-row tiles, from compute capability 9.0; opt-in, run the suite with
+        // SHARPLIGHT_FP8_TMA=1 to cover it) sums like the per-thread copies' kernel: bit for bit the same results.
+        if (info.Features.Contains(DeviceFeatures.TensorCopies))
+        {
+            var copies = new DeviceOptions();
+            copies.DisabledFeatures.Add(DeviceFeatures.TensorCopies);
+            Assert.Equal(RunProjection(provider.OpenDevice(info, copies), rows, swiglu, DataType.F8E4M3_B128), actual);
         }
     }
 
@@ -235,7 +247,7 @@ public sealed class CudaCodeTests
             using var model = CompiledModel.Compile(graph, new PlacementOptions
             {
                 Devices = [new DeviceSlot { Device = device }],
-                Compile = new CompileOptions { MaxTokens = 1024, ContextLength = 1024 },
+                Compile = new CompileOptions { MaxTokens = 2048, ContextLength = 2048 },
                 ReservePerDevice = 0,
             });
             var input = new float[rows * 1024];

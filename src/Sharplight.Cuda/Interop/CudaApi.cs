@@ -138,6 +138,23 @@ internal static unsafe partial class CudaApi
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuFuncSetAttribute(nint function, int attribute, int value);
 
+    /// <summary>
+    /// Encodes a tiled tensor map (<c>CUtensorMap</c>, 128 bytes) for tensor copies into shared memory
+    /// (<c>cp.async.bulk.tensor</c>, compute capability 9.0 and later).
+    /// </summary>
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuTensorMapEncodeTiled(void* tensorMap, int dataType, uint rank, ulong globalAddress, ulong* globalDims,
+        ulong* globalStrides, uint* boxDims, uint* elementStrides, int interleave, int swizzle, int l2Promotion, int oobFill);
+
+    /// <summary><c>CU_TENSOR_MAP_DATA_TYPE_UINT8</c>.</summary>
+    public const int TensorMapUInt8 = 0;
+
+    /// <summary><c>CU_TENSOR_MAP_SWIZZLE_128B</c>.</summary>
+    public const int TensorMapSwizzle128 = 3;
+
+    /// <summary><c>CU_TENSOR_MAP_L2_PROMOTION_L2_256B</c>.</summary>
+    public const int TensorMapL2Promotion256 = 3;
+
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuLaunchKernel(nint function, uint gridX, uint gridY, uint gridZ, uint blockX, uint blockY, uint blockZ,
         uint sharedMemoryBytes, nint stream, void** parameters, void** extra);
