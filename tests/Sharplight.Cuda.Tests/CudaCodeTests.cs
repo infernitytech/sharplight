@@ -197,6 +197,8 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(40, false)]
+    [InlineData(64, true)]
     [InlineData(100, false)]
     [InlineData(300, false)]
     [InlineData(100, true)]
@@ -211,7 +213,7 @@ public sealed class CudaCodeTests
         Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmFp8), "The GPU has no hand-written FP8 GEMM (compute capability below 8.9).");
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // From 65 rows the hand-written GEMM serves (64-row tiles at 100 rows, 128-row tiles at 700 dual and 1500 for these shapes on
+        // From 32 rows the hand-written GEMM serves (its decode form, 64-row weight tiles, at 40 and 64 rows; 64-row tiles at 100 rows, 128-row tiles at 700 dual and 1500 for these shapes on
         // 82 SMs; the 128-row tiles take the tensor-copy form where the GPU has it), reading the
         // 128-row weight groups and the dense scale copy of the E4M3 activations. The activations are values that the per-128 E4M3
         // quantization represents exactly, so the CPU's f32 product differs by the summation order only.

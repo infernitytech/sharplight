@@ -160,7 +160,8 @@ public sealed partial class GraphLowerer
     /// launch and the reduction.
     /// </summary>
     private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel,
-        bool tokenTilesFirst = false, Func<TensorRef, long, long, KernelVariant[]?>? native = null, Func<int, int, CompiledKernel>? fusedKernel = null)
+        bool tokenTilesFirst = false, Func<TensorRef, long, long, KernelVariant[]?>? native = null, Func<int, int, CompiledKernel>? fusedKernel = null,
+        long? nativeMinRows = null)
     {
 
         long n = p.N;
@@ -178,7 +179,7 @@ public sealed partial class GraphLowerer
 
         string label = MatMulLabel(p);
         var quantized = QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, k, minRows, rowsMax, code);
-        long nativeMin = Math.Max(minRows, NativeGemmMinRows);
+        long nativeMin = Math.Max(minRows, nativeMinRows ?? NativeGemmMinRows);
         var nativeVariants = rowsMax >= nativeMin ? native?.Invoke(quantized, nativeMin, rowsMax) : null;
         if (nativeVariants is null)
         {

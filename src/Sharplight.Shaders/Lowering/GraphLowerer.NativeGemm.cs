@@ -141,8 +141,7 @@ public sealed partial class GraphLowerer
     private KernelVariant[] NativeFp8Variants(long n, long k, string? dualEpilogue, long xcap, long minRows, long maxRows, Func<Bindings, long> rows)
     {
         bool dual = dualEpilogue is not null;
-        // Decode batches (one 64-row token tile) on narrower weight tiles: twice the blocks, so the last wave of blocks is shorter.
-        int decodeColumns = DiagnosticSwitches.NativeFp8DecodeColumns ?? NativeFp8Tile;
+        int decodeColumns = NativeFp8DecodeColumns;
         bool decodeForm = decodeColumns != NativeFp8Tile && minRows <= 64;
         bool Decode(long r) => decodeForm && r <= 64;
         var used = new SortedSet<int>();
@@ -169,6 +168,30 @@ public sealed partial class GraphLowerer
 
         return [.. variants];
     }
+
+    /// <summary>
+    /// Weight rows per tile of the hand-written FP8 GEMM's decode form: batches of at most 64 rows (one token tile) on 64-row weight
+    /// tiles, twice the blocks of the 128-row tiles for the same weights, so the last of the 2-5 block waves is shorter. RTX PRO 4500,
+    /// Qwen3-8B-FP8 at 64 sequences (GPU µs per layer against the generated fp8 GEMM with split-K): gate / up 147.5 → 134.6, down
+    /// 75.3 + 2.8 → 69.4, o 30.1 + 2.8 → 24.4; step 17.06 → 16.47 ms. 128-row weight tiles from 17 rows: 17.10 ms.
+    /// <c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=128</c> turns the decode form off.
+    /// </summary>
+    private static int NativeFp8DecodeColumns => DiagnosticSwitches.NativeFp8DecodeColumns ?? 64;
+
+    /// <summary>
+    /// Rows from which the hand-written FP8 GEMM's decode form (<see cref="NativeFp8DecodeColumns"/>) serves: below, the generated fp8
+    /// GEMM's K split fills the GPU better. RTX PRO 4500, Qwen3-8B-FP8 decode steps (GPU ms, decode form off → on): 24 sequences 14.22 →
+    /// 14.61, 32: 14.90 → 14.71, 48: 16.32 → 15.65, 64: 17.53 → 16.77.
+    /// </summary>
+    private const long NativeFp8DecodeMinRows = 32;
+
+    /// <summary>
+    /// Rows from which the hand-written FP8 GEMM serves a matmul: from <see cref="NativeFp8DecodeMinRows"/> on its decode form when
+    /// <paramref name="decode"/> (not a member of a multi-output q / k / v GEMM, which is faster at decode sizes: 43.4 against 51.8 µs per
+    /// Qwen3-8B layer), else from <see cref="NativeGemmMinRows"/>.
+    /// </summary>
+    private static long NativeFp8MinRows(bool decode)
+        => decode && NativeFp8DecodeColumns != NativeFp8Tile && DiagnosticSwitches.NativeGemmMinRows is null ? NativeFp8DecodeMinRows : NativeGemmMinRows;
 
     /// <summary>A launch variant of <c>gemm_fp8_native.cu</c> with tiles of <paramref name="tileRows"/> tokens and <paramref name="columns"/> weight rows.</summary>
     private KernelVariant NativeFp8Variant(long n, long k, string? dualEpilogue, long xcap, int tileRows, int columns, Func<Bindings, bool> serves,
