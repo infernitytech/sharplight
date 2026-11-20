@@ -75,6 +75,8 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddTaskClientFactory<CsmSynthesizerFactory>()
                 .AddModelAdapter<VibeVoiceAdapter>()
                 .AddTaskClientFactory<VibeVoiceSynthesizerFactory>()
+                .AddModelAdapter<VoxCpm2Adapter>()
+                .AddTaskClientFactory<VoxCpm2SynthesizerFactory>()
                 .AddModelAdapter<VibeVoiceAsrAdapter>()
                 .AddTaskClientFactory<VibeVoiceRecognizerFactory>()
                 .AddModelAdapter<ChatterboxAdapter>()

@@ -241,13 +241,14 @@ internal sealed class EngineModelRuntime : IModelRuntime
 
                 var info = device.GetMemoryInfo();
                 long total = info.Total > 0 ? info.Total : option.TotalMemory;
-                memory.Add(new DeviceMemory(option.Id, option.Name, option.IsGpu, total, Math.Min(total, info.Available), info.IsExact));
+                long capacity = Math.Min(total, info.Capacity);
+                memory.Add(new DeviceMemory(option.Id, option.Name, option.IsGpu, total, Math.Min(total, info.Available), info.IsExact, capacity));
                 if (option.GpuKey is not null)
                 {
                     // The same GPU through another provider shares its memory: no second context is opened just to ask.
                     foreach (var sibling in _physical.Where(other => other.GpuKey == option.GpuKey && other.Id != option.Id))
                     {
-                        memory.Add(new DeviceMemory(sibling.Id, sibling.Name, true, total, Math.Min(total, info.Available), info.IsExact));
+                        memory.Add(new DeviceMemory(sibling.Id, sibling.Name, true, total, Math.Min(total, info.Available), info.IsExact, capacity));
                     }
                 }
             }

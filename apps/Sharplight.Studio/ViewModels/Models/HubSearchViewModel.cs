@@ -325,8 +325,8 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         try
         {
             var memory = await _advisor.GetMemoryAsync(CancellationToken.None);
-            _capacity = DiscoverFilter.Capacity(memory.Where(entry => entry.IsGpu).Sum(entry => entry.TotalBytes),
-                memory.Where(entry => !entry.IsGpu).Select(entry => entry.TotalBytes).DefaultIfEmpty(0).Max());
+            _capacity = DiscoverFilter.Capacity(memory.Where(entry => entry.IsGpu).Sum(entry => entry.UsableBytes),
+                memory.Where(entry => !entry.IsGpu).Select(entry => entry.UsableBytes).DefaultIfEmpty(0).Max());
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {

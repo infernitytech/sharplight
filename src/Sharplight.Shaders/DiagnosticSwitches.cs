@@ -242,6 +242,18 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static long? NativeMoeMinRows { get; } = Read("SHARPLIGHT_NATIVE_MOE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_TMA=0</c> keeps the 128-row tiles of the hand-written FP8 GEMM on its per-thread-copy form
+    /// (<c>gemm_fp8_native.cu</c>) where the device has <c>tensor_copies</c> (default: the warp-specialized <c>gemm_fp8_tma.cu</c>).
+    /// </summary>
+    public static bool NativeFp8Tma { get; } = IsNotZero("SHARPLIGHT_FP8_TMA");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_TALL_COST</c>: time of a 128-row block of the hand-written FP8 GEMM relative to a 64-row one in its tile
+    /// choice, or null for the default.
+    /// </summary>
+    public static double? NativeFp8TallCost { get; } = Read("SHARPLIGHT_FP8_TALL_COST") is { } v ? double.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>False keeps E4M3-weight prefill matmuls off the fp8 tensor-core GEMM.</summary>
     public static bool Fp8Gemm { get; } = IsNotZero("SHARPLIGHT_FP8_GEMM");
 
@@ -409,6 +421,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>False merges the partials of split-K decoding in a separate combine launch instead of the last workgroup of each row (<c>SHARPLIGHT_ATTN_DECODE_FUSED=0</c>).</summary>
     public static bool AttentionDecodeFusedCombine { get; } = IsNotZero("SHARPLIGHT_ATTN_DECODE_FUSED");
+
+    /// <summary><c>SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH</c>: largest merged width (heads per workgroup x DV) of the fused decode combine, or null for the default.</summary>
+    public static long? AttentionDecodeFusedWidth { get; } = Read("SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Split-K decode tuning: target workgroups, minimum keys per split, maximum splits, [rows per lane group and batch].</summary>
     public static int[] AttentionDecodeConfig { get; } = (Read("SHARPLIGHT_ATTN_DECODE_CFG") ?? "1024,128,64").Split(',').Select(int.Parse).ToArray();

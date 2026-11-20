@@ -325,7 +325,8 @@ internal static class ModelInspector
             return ModelKinds.AudioSeparation;
         }
 
-        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice" or "csm" or "dia" || IsDiaOriginalConfig(root))
+        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice" or "csm" or "dia" || IsDiaOriginalConfig(root)
+            || root.TryGetProperty("architecture", out var voxcpm) && voxcpm.ValueKind == System.Text.Json.JsonValueKind.String && voxcpm.GetString() == "voxcpm2")
         {
             return ModelKinds.SpeechSynthesis;
         }

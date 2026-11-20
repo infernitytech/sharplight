@@ -54,8 +54,10 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
 - **Lowering.** `CudaCodeGenerator` calls the shared `GraphLowerer` with warp size 32, the device's opt-in shared memory (see
   [shared memory](#shared-memory)), the SM count as compute units and the device's features, so the CUDA provider selects the same
   kernels as the Vulkan provider on the same NVIDIA GPU where both have the features. That keeps Vulkan the reference for parity.
-- **Memory.** Device memory per buffer (`cuMemAlloc`, zeroed), weights uploaded through two 64 MB pinned staging buffers that the CPU
-  fills (reading mapped files, repacking rows with the shared `WeightCopier`) while the GPU copies the other one. Shared weights,
+- **Memory.** Device memory per buffer (`cuMemAlloc`, zeroed), weights uploaded through two pinned staging buffers of up to 64 MB that the CPU
+  fills (reading mapped files, repacking rows with the shared `WeightCopier`) while the GPU copies the other one. When the system
+  refuses page-locked memory the staging halves down to 1 MB, then falls back to one pageable buffer with synchronous copies; an
+  allocation that fails throws `DeviceOutOfMemoryException` with the driver's free/total figures ([hardware.md](hardware.md)). Shared weights,
   per-graph states, device forwarding between segments and data-dependent symbols work as on Vulkan.
 - **Execution.** Each segment owns a CUDA stream and two timing events. Launches are recorded once per binding of the symbols (kernel,
   grid, packed arguments) and replayed with `cuLaunchKernel`; launches on one stream run in order, so the hazard tracker's barriers are
@@ -238,6 +240,22 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   writes both the Slang and the CUDA form), and multiplies row-ranged rows by their inverse scale. The decode and the MMAs' K
   order are gemm_cm2's, so outputs are identical with the feature on and off (gpt-oss-20b greedy outputs byte-identical).
   gpt-oss-20b, 2048 tokens: gate / up 2.63 → 2.26 ms, down 1.43 → 1.20 ms per layer ([benchmarks.md §56](benchmarks.md)).
+- **`gemm_fp8_tma.cu`** (`native_gemm_fp8` and `tensor_copies`, compute capability 9.0+): the 128-row tiles of the FP8 GEMM in a
+  warp-specialized persistent form. At most one block per SM walks its share of the tiles (the copies of a tile's first K blocks
+  overlap the previous tile's last blocks and stores); one lane of a copy warp issues tensor copies (`cp.async.bulk.tensor`, 128-byte
+  swizzle) of the activation and weight tiles and bulk copies of their scales into a ring of three 32 KB stages and two scale slots;
+  full and empty barriers replace the block barrier per K block; the eight computing warps do the MMAs and the promotion of
+  `gemm_fp8_native.cu`, bit for bit the same results. Qwen3-8B-FP8 prefill +9-11 % (0.86-0.99x of vLLM, [benchmarks.md
+  §57](benchmarks.md)). `SHARPLIGHT_FP8_TMA=0` or disabling `tensor_copies` keeps `gemm_fp8_native.cu`.
+
+**Tensor maps.** A CUDA C++ kernel can take tensor maps (`CUtensorMap`) after its scalars: the lowering states them in a header line
+(`// sharplight-tensormaps: <pointer argument> <rank> <dims> <strides> <box>; ...`, `SlangCompiler.CudaTensorMapsHeader`), the
+translator keeps it in front of the PTX, and `CudaSegment` encodes each map over the pointer argument it names
+(`cuTensorMapEncodeTiled`, bytes, 128-byte swizzle) when it records the launch, 64-byte aligned after the scalars. Recordings, CUDA
+graphs and precompiled packages need nothing else. Two compiler details matter for such kernels under NVRTC (benchmarks.md §57.3):
+`__launch_bounds__` without a block minimum (with one, NVRTC 13.0's PTX spilled inside the MMA loop), and `shared::cta` copy
+destinations (the `shared::cluster` form makes ptxas add a run-time check with a fallback call that needs local memory, whose first
+launch can fail with "out of memory" once the KV cache has filled the GPU).
 
 Measured limits of the FP8 kernel (prototypes, [benchmarks.md §53.4 and §54.3](benchmarks.md)): with the MMAs and `ldmatrix` alone
 the loop runs at ~300 TFLOPS (the `mma.sync` E4M3 peak of this GPU is 474); with the dense layouts the scale copies cost nothing, the
@@ -248,6 +266,11 @@ large batches, register double-buffering of A, L2 prefetch hints; a promotion wi
 valid for 128 x 128 block-scaled checkpoints, which the lowering cannot tell from per-channel ones. Blackwell's block-scaled
 `mma.sync ... kind::mxf8f6f4.block_scale` needs UE8M0 (power-of-two) scales per 32 values and `sm_120a`: vLLM's default DeepGEMM path
 rounds the checkpoints' scales up to powers of two and requantizes the weights for it, a numerics change this provider does not make.
+Round 13 ([benchmarks.md §57.2](benchmarks.md)) revised these limits: a model's prefill and a sustained GEMM run at the board's 200 W
+limit, so burst timings of ablations mostly measure clock (the "no code loads" ablation kept 2.7 GHz instead of 2.2 because the
+tensor cores multiplied stale shared memory). Per SM cycle `gemm_fp8_native.cu` reaches 65 % of the MMA peak, `gemm_fp8_tma.cu` 76 %
+and CUTLASS ~90 %; the block barrier per K block cost 13 points and the per-output promotion 9. Measure FP8 kernels in FLOPs per SM
+cycle or sustained (`bench/s57_gemm`), not in bursts.
 
 **CUDA graphs** (`launch_graphs`). A segment records its launches once per symbol binding (kernel, grid, arguments); positions and
 lengths are runtime scalars uploaded before the launches, so every decode step of a sequence repeats one recording. When a recording
@@ -631,7 +654,11 @@ first); of `Sharplight.Shaders`: `SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS` (rows from w
 f16 GEMM, default 256), `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (rows from which the hand-written FP8 GEMM serves, default 65),
 `SHARPLIGHT_FP8_GROUPED=1|0` (FP8 weights in 128-row groups on every target or none; default: where the hand-written FP8 GEMM runs),
 `SHARPLIGHT_NATIVE_MOE_MIN_ROWS` (average routed rows per expert from which the hand-written grouped MXFP4 GEMM serves, default 12),
-`SHARPLIGHT_DISABLE_FEATURES=native_gemm_f16,native_gemm_fp8,native_gemm_moe,launch_graphs` (back to the phase-2 kernels and per-launch submission),
+`SHARPLIGHT_FP8_TMA=0` (128-row FP8 tiles on `gemm_fp8_native.cu` instead of `gemm_fp8_tma.cu`), `SHARPLIGHT_FP8_TALL_COST` (relative
+cost of a 128-row FP8 block in the tile choice), `SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH` (widest head group whose decode attention merges
+its split partials in the last workgroup),
+`SHARPLIGHT_DISABLE_FEATURES=native_gemm_f16,native_gemm_fp8,native_gemm_moe,tensor_copies,launch_graphs` (back to the phase-2 kernels and per-launch
+submission),
 `SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
@@ -670,6 +697,15 @@ phase-1 kernels as the fallback, and each flips the default for a device class o
    - a FlashAttention-2-style prefill kernel in CUDA C++ (`fe` is a quarter of an 8192-token FP8 prefill at 105 TFLOPS), split-K for
      the native f16 GEMM's small grids, the dual GEMM writing the f16 copy, the 8B decode matvecs;
    - gpt-oss-20b prefill (MoE, 0.63-0.76x of vLLM): a grouped MXFP4 expert GEMM in CUDA C++.
+   Round 13 (branch `perf/llm-r13`, [benchmarks.md §57](benchmarks.md)): tensor maps in kernel parameters, `tensor_copies`, the
+   warp-specialized persistent FP8 GEMM (`gemm_fp8_tma.cu`, default from 9.0): Qwen3-8B-FP8 prefill +9-11 %, 0.99 / 0.88 / 0.86x of
+   vLLM at 512 / 2048 / 8192 rows. Open from it:
+   - FP8 main loop at CUTLASS's ~90 % of the MMA peak per cycle (ours 76 %): the promotion (64 scale products per thread and K
+     block; one per row where a warp's weight scales agree, which needs registers below the 168-register cap of 288 threads) and the
+     tile-end stores;
+   - the batched decode step (CUDA 17.9, Vulkan 17.3, vLLM 15.6 ms at 64 sequences): the CUDA forms of `gemm_fp8.slang` at decode
+     sizes (0.7 ms behind their SPIR-V forms), weight streaming at 520-670 GB/s, a multi-output q / k / v GEMM, the split-K reductions in the GEMM's last
+     workgroup or overlapped by programmatic dependent launch.
 4. **Phase 5: MoE.** Started on `perf/llm-r12` ([benchmarks.md §56](benchmarks.md)): the hand-written grouped MXFP4 expert GEMM
    (`gemm_moe_native.cu`, raw codes in a `cp.async` ring, decoded per MMA); gpt-oss-20b prefill 0.81-1.07x / 0.74-0.87x / 0.63-0.71x of
    vLLM at 512 / 2048 / 8192 tokens before / after. Open: the prefill attention (`fa` is 16 of 140 ms at 2048 tokens against

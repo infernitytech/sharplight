@@ -11,4 +11,7 @@ internal sealed record CudaKernel(nint Module, nint Function, uint ThreadsX, uin
 {
     /// <summary>The library GEMM the launch runs instead of a kernel, or null for a kernel.</summary>
     public CudaLibraryGemm? Library { get; init; }
+
+    /// <summary>Tensor maps the launch arguments end with, encoded from the pointer arguments (empty for most kernels).</summary>
+    public CudaTensorMapSpec[] TensorMaps { get; init; } = [];
 }

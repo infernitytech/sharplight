@@ -38,6 +38,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private readonly nint _end;
     /// <summary>Pinned host copy of the runtime scalar slots, uploaded at the start of every execution.</summary>
     private readonly uint* _runtimeSlots;
+    /// <summary>Whether <see cref="_runtimeSlots"/> is page-locked (see <see cref="CudaDevice.AllocateHost"/>).</summary>
+    private readonly bool _runtimeSlotsPinned;
     private bool _disposed;
 
     internal CudaSegment(CudaDevice dev, GraphSegment segment, KernelProgram program, CompileOptions options)
@@ -58,9 +60,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             _start = start;
             CudaApi.Check(CudaApi.cuEventCreate(&end, CudaApi.EventDefault), "cuEventCreate");
             _end = end;
-            void* slots;
-            CudaApi.Check(CudaApi.cuMemAllocHost(&slots, RuntimeSlots * sizeof(uint)), "cuMemAllocHost");
-            _runtimeSlots = (uint*)slots;
+            _runtimeSlots = (uint*)dev.AllocateHost(RuntimeSlots * sizeof(uint), out _runtimeSlotsPinned);
             new Span<uint>(_runtimeSlots, RuntimeSlots).Clear();
 
             long bytes = 0;
@@ -120,13 +120,16 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         return sb.ToString();
     }
 
+    /// <summary>What a buffer holds, for out-of-memory messages.</summary>
+    private static string Purpose(BufferDecl buffer) => $"{buffer.Kind.ToString().ToLowerInvariant()} buffer {buffer.Name}";
+
     /// <summary>Allocates (or borrows) the buffer of <paramref name="b"/>; returns the bytes this segment newly holds.</summary>
     private long AllocateBuffer(BufferDecl b)
     {
         if (b.Kind == BufferKind.Weight && b.Weight is { } w && _options.SharedWeights is { } shared)
         {
             // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
-            var lease = shared.Acquire(_dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes, () => _dev.Allocate(b.Bytes), _dev.Free);
+            var lease = shared.Acquire(_dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes, () => _dev.Allocate(b.Bytes, Purpose(b)), _dev.Free);
             _leases[b] = lease;
             _alloc[b] = lease.Buffer;
             return lease.MustFill ? b.Bytes : 0;
@@ -142,7 +145,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             return 0;
         }
 
-        _alloc[b] = _dev.Allocate(b.Bytes);
+        _alloc[b] = _dev.Allocate(b.Bytes, Purpose(b));
         sharedStates?.Add(b.State!, _alloc[b]);
         return b.Bytes;
     }
@@ -161,7 +164,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             var progress = new LoadProgressCounter(_options.Progress, LoadStage.Uploading, weights.Sum(b => b.Bytes), _dev.Info.Name);
             try
             {
-                using var uploader = new CudaWeightUploader(_dev);
+                long largestRow = weights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
+                using var uploader = new CudaWeightUploader(_dev, weights.Sum(b => b.Bytes), largestRow);
                 foreach (var buffer in weights)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -514,18 +518,31 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
                 continue;
             }
 
-            recorded.Add(new CudaRecordedLaunch(launch.Name, ProfileName(launch.Name, variant.Kernel.EntryPoint), _dev.Kernel(variant.Kernel), grid.X, grid.Y, grid.Z, PackArguments(launch, bindings)));
+            var kernel = _dev.Kernel(variant.Kernel);
+            recorded.Add(new CudaRecordedLaunch(launch.Name, ProfileName(launch.Name, variant.Kernel.EntryPoint), kernel, grid.X, grid.Y, grid.Z,
+                PackArguments(launch, bindings, kernel.TensorMaps)));
         }
 
         return [.. recorded];
     }
 
-    /// <summary>The kernel's parameter struct: every pointer (8 bytes) first, then the 32-bit scalars, as the kernels declare them.</summary>
-    private byte[] PackArguments(KernelLaunch launch, Bindings bindings)
+    /// <summary>
+    /// The kernel's parameter struct: every pointer (8 bytes) first, then the 32-bit scalars, as the kernels declare them, then the
+    /// kernel's tensor maps (<paramref name="tensorMaps"/>, 128 bytes each from the next 64-byte boundary), encoded over the pointers
+    /// they describe.
+    /// </summary>
+    private byte[] PackArguments(KernelLaunch launch, Bindings bindings, CudaTensorMapSpec[] tensorMaps)
     {
         int pointers = launch.Args.Count(a => a is PointerArg);
         int bytes = pointers * 8 + (launch.Args.Count - pointers) * 4;
+        int mapsOffset = (bytes + 63) & ~63;
+        if (tensorMaps.Length > 0)
+        {
+            bytes = mapsOffset + tensorMaps.Length * 128;
+        }
+
         var packed = new byte[Math.Max(16, (bytes + 15) & ~15)];
+        var addresses = new ulong[pointers];
         fixed (byte* p = packed)
         {
             int offset = 0;
@@ -533,7 +550,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             {
                 if (arg is PointerArg pointer)
                 {
-                    *(ulong*)(p + offset) = _alloc[pointer.Buffer].Pointer + (ulong)pointer.ByteOffset;
+                    addresses[offset / 8] = _alloc[pointer.Buffer].Pointer + (ulong)pointer.ByteOffset;
+                    *(ulong*)(p + offset) = addresses[offset / 8];
                     offset += 8;
                 }
             }
@@ -556,9 +574,41 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
                         break;
                 }
             }
+
+            for (int m = 0; m < tensorMaps.Length; m++)
+            {
+                EncodeTensorMap(p + mapsOffset + m * 128, tensorMaps[m], addresses[tensorMaps[m].Pointer], launch.Name);
+            }
         }
 
         return packed;
+    }
+
+    /// <summary>Encodes a tensor map of byte elements with 128-byte swizzled boxes over <paramref name="address"/>.</summary>
+    private static void EncodeTensorMap(byte* map, CudaTensorMapSpec spec, ulong address, string launch)
+    {
+        int rank = spec.Dims.Length;
+        var dims = stackalloc ulong[rank];
+        var strides = stackalloc ulong[Math.Max(1, rank - 1)];
+        var box = stackalloc uint[rank];
+        var elementStrides = stackalloc uint[rank];
+        for (int d = 0; d < rank; d++)
+        {
+            dims[d] = spec.Dims[d];
+            box[d] = spec.Box[d];
+            elementStrides[d] = 1;
+            if (d > 0)
+            {
+                strides[d - 1] = spec.Strides[d - 1];
+            }
+        }
+
+        int result = CudaApi.cuTensorMapEncodeTiled(map, CudaApi.TensorMapUInt8, (uint)rank, address, dims, strides, box, elementStrides, 0,
+            CudaApi.TensorMapSwizzle128, CudaApi.TensorMapL2Promotion256, 0);
+        if (result != 0)
+        {
+            throw new CudaException(result, $"Tensor map of {launch} (address 0x{address:x}, dims {string.Join(',', spec.Dims)}) could not be encoded: {CudaApi.ErrorText(result)}");
+        }
     }
 
     /// <summary>Launches <paramref name="launches"/> on the segment's stream, waits for them and returns the GPU time in ms.</summary>
@@ -694,7 +744,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
 
         if (_runtimeSlots != null)
         {
-            CudaApi.cuMemFreeHost(_runtimeSlots);
+            _dev.FreeHost((byte*)_runtimeSlots, RuntimeSlots * sizeof(uint), _runtimeSlotsPinned);
         }
 
         if (_start != 0)

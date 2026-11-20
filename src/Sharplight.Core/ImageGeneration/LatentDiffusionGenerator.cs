@@ -151,7 +151,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         // Models that barely fit (FLUX with bf16 weights on a 32 GB GPU: a 24 GB transformer and a 9.5 GB T5) do not keep the text
         // encoders resident during denoising: they are compiled again (from the cached kernels) for the next request.
         long weightBytes = model.Definition.Weights.Values.Sum(w => w.ByteSize);
-        long deviceBytes = model.Options.Devices.Sum(slot => slot.Device.Info.TotalMemory);
+        // What the devices can hold for this process (others' use taken off), not their total memory.
+        long deviceBytes = model.Options.Devices.Sum(slot => slot.MemoryLimit ?? slot.Device.GetMemoryInfo().Capacity);
         _releaseTextEncoders = deviceBytes > 0 && weightBytes > deviceBytes * 0.8;
         Metadata = TaskClientMetadata.For(model.Definition);
     }

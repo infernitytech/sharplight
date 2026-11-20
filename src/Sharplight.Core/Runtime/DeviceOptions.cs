@@ -20,6 +20,11 @@ public sealed class DeviceOptions
     /// features are not enabled in the driver at all (e.g. no extension is requested).
     /// </summary>
     public ISet<string> DisabledFeatures { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Caps on the device's memory below the hardware's (device heap, host-visible device memory, largest allocation, pinned host
+    /// memory), combined with the <c>SHARPLIGHT_LIMIT_*</c> environment variables; see <see cref="DeviceMemoryLimits"/>.
+    /// </summary>
+    public DeviceMemoryLimits MemoryLimits { get; } = new();
     /// <summary>Free-form provider settings (e.g. CPU "threads").</summary>
     public Dictionary<string, string> Settings { get; } = new(StringComparer.OrdinalIgnoreCase);
 }

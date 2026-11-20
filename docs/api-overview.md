@@ -45,7 +45,7 @@ they need no extra `using`):
 | `Sharplight.Import.Snac` | `AddSnacImporter()` | SNAC audio codec checkpoint folders (the decoding half; auxiliary `vocoder` of Orpheus) |
 | `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
 | `Sharplight.Import.StableAudio` | `AddStableAudioImporter()` | Stable Audio 3 checkpoint folders (`model_config.json`, `model.safetensors`, the T5Gemma folder) |
-| `Sharplight.Import.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts` | `AddChatterboxImporter()`, `AddCosyVoiceImporter()`, `AddF5TtsImporter()`, `AddXttsImporter()` | the text-to-speech checkpoint layouts (F5-TTS also its Vocos vocoder) |
+| `Sharplight.Import.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.VoxCpm`, `.Xtts` | `AddChatterboxImporter()`, `AddCosyVoiceImporter()`, `AddF5TtsImporter()`, `AddVoxCpmImporter()`, `AddXttsImporter()` | the text-to-speech checkpoint layouts (F5-TTS also its Vocos vocoder, VoxCPM its AudioVAE `audiovae.pth`) |
 | `Sharplight.Import.SileroVad` | `AddSileroVadImporter()` | Silero VAD checkpoints (voice activity detection) |
 | `Sharplight.Import.Ultralytics` | `AddUltralyticsImporter()` | Ultralytics YOLO checkpoints and their graph adapter (AGPL-3.0 weights: see the model's license) |
 | `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
@@ -926,7 +926,11 @@ foreach (var set in store?.ArtifactSets ?? [])
   `RerankerLoadOptions`, `SpanScorerLoadOptions`, plus `AdapterOptions`, the provider and importer options and `SharplightServerOptions`.
   Only `Devices` is required (checked when the model is compiled or loaded).
 - Failures that a caller can act on are typed exceptions: `EngineException` and its subclasses for admission, `ModelHostException`
-  and its subclasses for hosting.
+  and its subclasses for hosting, `DeviceOutOfMemoryException` (an `OutOfMemoryException`) when a device has no memory left after
+  every fallback.
+- No provider assumes a memory topology or size: memory types, staging sizes and blocks adapt to the device, and
+  `DeviceOptions.MemoryLimits` (or `SHARPLIGHT_LIMIT_*`) simulates smaller hardware; see [hardware.md](hardware.md) for each
+  provider's requirements and fallbacks.
 - The CPU provider's kernels do not depend on the application's JIT settings. By default .NET first compiles a method with loops as
   unoptimized tier-0 code and switches to optimized code only after on-stack replacement and tiering catch up, so the first runs of a
   model (and short benchmarks) would measure unoptimized kernels. Every method with a loop in `Sharplight.Cpu` is marked
