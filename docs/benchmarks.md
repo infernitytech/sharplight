@@ -7709,6 +7709,25 @@ while no other process computes on the GPU and is repeated, up to three tries, w
   a leftover server on the same port. `s16_serve.sh` now refuses to start while the port is in use or another server runs, stops
   its server's process group on any exit (trap), and marks a round `.contaminated` after three disturbed tries.
 
+### 56.6 Correctness and tests
+
+* Greedy output of gpt-oss-20b on CUDA (200 tokens; prompts of 666 and ~260 tokens, both on the native GEMM): byte-identical with
+  `native_gemm_moe` on and off. New: `CudaCodeTests.NativeMoeGemmMatchesTheCpu` (150 / 700 tokens, 8 MXFP4 experts, 1-3 tiles per
+  expert with partial tiles and a partial column tile, K = 576; dual halves with bias and SiLU·mul, down with bias and router weight):
+  within 2e-2 of the CPU's scale and within 1e-5 of the generated grouped GEMM on the same device.
+* Vulkan: the kernel inputs (source and macros, `SHARPLIGHT_DUMP_KERNELS`) of the 136 kernels Vulkan compiles for an MXFP4 gpt-oss
+  (71 with expert epilogues, written by the refactored generators) are byte-identical to `develop` (`7b107d4e`), so its SPIR-V is too.
+
+After merging `develop` (`7b107d4e`), on GPU 0:
+
+| suite | total / failed / skipped |
+|---|---|
+| Sharplight.Cuda.Tests | 19 / 0 / 1 (cuBLASLt not installed) |
+| Sharplight.Vulkan.Tests on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, 62 classes) | 1624 / 0 / 46 (as in §54) |
+| Sharplight.Vulkan.Tests on Vulkan (one process per class) | 1624 / 0 / 26 |
+| CudaParityTests (`SHARPLIGHT_TEST_CUDA=1`) | 4 / 0 / 0 |
+| FamilyGenerationTests.Generation_matches_reference_on_cuda | 315 / 0 / 100 (models not on the machine) |
+
 ### 56.7 Reproduce
 
 ```bash
