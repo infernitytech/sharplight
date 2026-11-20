@@ -8227,8 +8227,8 @@ reads its results at once, so the host waits exactly where `develop` waited.
   p50 at 64 streams is 12.9-13.3 ms against our 18.7-19.0, so vLLM's decode steps at ~54 running sequences take ~13 ms: **the serving gap
   is device time of the decode steps and of the prompt rows, not host time** (median GPU idle between replayed decode steps 0.14 ms,
   graph launch to first kernel included).
-* GC: 18 collections (2 of generation 2) in a 6-second 64-stream run of a tiny model on the CPU (the same HTTP / SSE load per token), 40 ms
-  of pauses in all, at most 11 ms (`gc_pause_ms` column). A handful of 50-80 ms stalls in the GPU runs (read-back far longer than the
+* GC: 37-40 ms of pauses in a whole Qwen3-8B-FP8 16 + 64-stream run (1,172 steps, no generation-2 collection, at most 11 ms; `gc_pause_ms`
+  column), and 40 ms in a 6-second 64-stream run of a tiny model on the CPU (the same HTTP / SSE load per token). A handful of 50-80 ms stalls in the GPU runs (read-back far longer than the
   step's GPU time, 73 of ~4,000 steps, ~5 % of a 16-stream round) coincide with neither GC nor recording; they look like the scheduler
   thread being descheduled on the shared host (model-feed build).
 * Per-token streaming work (detokenization, stop strings, the channel write that wakes the SSE writer) is 0.1-0.15 ms per step at 64
@@ -8272,6 +8272,17 @@ gpt-oss-20b serving (two rounds each, mean; aggregate output tok/s / TTFT p50 ms
 |---:|---|---|---|---:|
 | 16 | 1138 / 110 / 13.1 | **1141 / 111 / 13.1** | 1424 / 183 / 9.9 | 0.80 → **0.80** |
 | 64 | 2381 / 255 / 23.8 | **2395 / 266 / 23.6** | 3154 / 413 / 17.0 | 0.75 → **0.76** |
+
+Qwen3-8B-FP8 (no window layers), `SHARPLIGHT_ASYNC_EMIT=0` / `=1` alternated twice, one round each, mean (vLLM: §58.4, same machine):
+
+| streams | emission at once | **overlapped** | vLLM | CUDA / vLLM (§58.4 → now) |
+|---:|---|---|---|---:|
+| 16 | 988 / 115 / 15.3 | **991 / 119 / 15.2** | 1115 / 168 / 12.9 | 0.87 → **0.89** |
+| 64 | 2440 / 276 / 23.5 | **2447 / 287 / 23.4** | 2691 / 400 / 20.2 | 0.87 → **0.91** |
+
+(A first Qwen pair in a busier slot measured 730 / 2206 against 964 / 2358 tok/s with a 640-tok/s round, rounds 22 % apart; the
+alternated pairs above agree within 0.5 % and replace it. Both variants include the asynchronous executions and the overlapped first
+recordings; against §58.4's 974 / 2345 on `develop` they are +1.7 % / +4.4 %.)
 
 The earlier single-round pair of 60.1 measured 2330 → 2410 tok/s (+3.4 %); across the session our rounds spread by ±2 %, so the gain
 of the host-side work is 0.5-3 %, as its share of the round predicts.
