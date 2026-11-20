@@ -211,6 +211,9 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   up pair with the SiLU·mul group (any group of plain elementwise operations) as its epilogue, which the library path ran as two GEMMs
   and a separate launch; a row-ranged f16 copy of x (massive activations) keeps the separate path, as its scaling must be undone before
   a nonlinear epilogue. Used from `SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS` (256) rows, like the library.
+  With `H_BIAS` the store adds a bias row, and with `H_XRS` it first undoes the row scales of a row-ranged copy (exact), so projections
+  with biases (gpt-oss, Qwen2) take it from 1024 rows instead of gemm_cm2 (gpt-oss-20b prefill +2 % at 2048 / 8192 tokens,
+  [benchmarks.md §61.5](benchmarks.md#61-llm-round-15-decode-step-projections-and-expert-gemms-the-native-f16-gemm-with-a-bias-store-2026-11-20)).
 - **`gemm_fp8_native.cu`** (`native_gemm_fp8`, compute capability 8.9+): the block-scaled E4M3 GEMM of `gemm_fp8.slang` on operands
   whose scales it can copy densely: the weights in the 128-row groups of `WeightRepack.Fp8B128Grouped` (`f8e4m3_b128g`: [128 rows of
   K codes][K / 128 blocks of the 128 rows' f32 scales], the same bytes as the split rows, repacked at upload, so a precompiled package
@@ -305,6 +308,11 @@ fall back to plain launches. A launch is a dependent only when it and the previo
 resident blocks of the driver's occupancy query). Launching every kernel early cost Qwen3-8B-FP8 up to 2 % at 16-64 sequences:
 waiting blocks take SM slots. Decode steps change by -0.7 to +0.2 % ([benchmarks.md §58.3](benchmarks.md)), because CUDA graphs had
 already left few gaps. Disabling the feature launches every kernel after the previous one.
+
+**Launch bounds** of generated kernels. The translator adds `__launch_bounds__(threads, blocks)` to the kernels a rule names (source
+file and entry; `NvrtcTranslator.DefaultMinBlocks`): by default one block per SM for the expert-grouped skinny GEMMs (`gemm_sk` of the
+MoE sources). Without the bounds ptxas schedules them for full occupancy and their weight stream stalls; with them gpt-oss-20b's decode
+steps at 16 / 64 sequences went from 12.0 / 17.7 to 10.1 / 16.1 ms (the Vulkan provider's: 9.9 / 16.7-17.3 ms). The rules are part of the translator's cache key (`SHARPLIGHT_CUDA_MIN_BLOCKS` replaces them).
 
 **Decode attention batch** (`DEC_R`). `develop` round 11 set the key rows per lane group and batch of the decode attention to 1 for
 batched decode on Vulkan. The lowering now picks it per target: 1 on SPIR-V and MSL, 4 on PTX, where the CUDA form keeps more loads in
@@ -684,7 +692,10 @@ cost of a 128-row FP8 block in the tile choice), `SHARPLIGHT_ATTN_DECODE_FUSED_W
 its split partials in the last workgroup),
 `SHARPLIGHT_DISABLE_FEATURES=native_gemm_f16,native_gemm_fp8,native_gemm_moe,tensor_copies,launch_graphs` (back to the phase-2 kernels and per-launch
 submission),
-`SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
+`SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2), `SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]`
+(`__launch_bounds__` for matching generated kernels, replacing the default one block per SM for the MoE skinny GEMMs; `none`: no bounds),
+`SHARPLIGHT_MULTI_GEMM=0` (no multi-output q / k / v GEMM), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
+`SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, benchmarks.md §61.4); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
 ## Roadmap

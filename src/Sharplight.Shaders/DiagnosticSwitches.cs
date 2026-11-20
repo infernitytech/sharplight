@@ -563,6 +563,52 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool SplitKReduceEpilogue { get; } = IsNotZero("SHARPLIGHT_SPLITK_EPILOGUE");
 
+    /// <summary>
+    /// True (<c>SHARPLIGHT_SPLITK_FUSED=1</c>) runs the split-K reduction of gemm_cm2 and the fp8 GEMM in the last workgroup of each
+    /// output tile (splitk.slang) instead of its own launch (<c>splitk_reduce</c>). Off by default: on the RTX PRO 4500 the last
+    /// workgroup's serial read of the tile's slices cost more than the launch it saves (benchmarks.md section 61).
+    /// </summary>
+    public static bool SplitKFused { get; } = Read("SHARPLIGHT_SPLITK_FUSED") == "1";
+
+    /// <summary>
+    /// True (<c>SHARPLIGHT_MULTI_FUSED=1</c>) reduces the multi-output GEMM in its last workgroups instead of a <c>splitk_reduce</c>
+    /// launch over its partials.
+    /// </summary>
+    public static bool MultiGemmFused { get; } = Read("SHARPLIGHT_MULTI_FUSED") == "1";
+
+    /// <summary><c>SHARPLIGHT_MULTI_DEBUG=1</c>: report on stderr why a multi-output group got no GEMM.</summary>
+    public static bool MultiGemmDebug { get; } = Read("SHARPLIGHT_MULTI_DEBUG") == "1";
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MULTI_GEMM=0</c>) lowers sibling projections sharing their activations (q / k / v) as separate GEMMs
+    /// instead of one multi-output GEMM (splitk.slang, MULTI) at the row counts that split K.
+    /// </summary>
+    public static bool MultiGemm { get; } = IsNotZero("SHARPLIGHT_MULTI_GEMM");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_SPLIT_FILL=1</c>: grids of one token tile row choose their K split by wave fill (see GraphLowerer.WaveFillSplit)
+    /// instead of aiming for 4/3 waves.
+    /// </summary>
+    public static bool SplitWaveFill { get; } = Read("SHARPLIGHT_SPLIT_FILL") == "1";
+
+    /// <summary><c>SHARPLIGHT_FP8_DUAL_SPLIT=1</c>: the dual fp8 GEMM splits K at decode sizes (see GraphLowerer.DualFp8Split).</summary>
+    public static bool Fp8DualSplit { get; } = Read("SHARPLIGHT_FP8_DUAL_SPLIT") == "1";
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_BN=n</c>: weight rows per tile of the grouped MXFP4 GEMM (experiment), or null for the chosen width.</summary>
+    public static int? NativeMoeColumns { get; } = Read("SHARPLIGHT_NATIVE_MOE_BN") is { } c ? int.Parse(c, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_SHORT=n</c>: the grouped MXFP4 GEMM routes 64-row tiles up to n items per expert (experiment).</summary>
+    public static long? NativeMoeShortItems { get; } = Read("SHARPLIGHT_NATIVE_MOE_SHORT") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
+    public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_NATIVE_GEMM_BIAS=0</c>) keeps matmuls with a bias row on the generated GEMMs at prefill sizes instead of the
+    /// hand-written f16 GEMM with the bias in its store.
+    /// </summary>
+    public static bool NativeGemmBias { get; } = IsNotZero("SHARPLIGHT_NATIVE_GEMM_BIAS");
+
     /// <summary>Opt-in (<c>SHARPLIGHT_FP8_SHORT_TILES=1</c>): the fp8 GEMM takes 64-row tiles above 64 rows where they pad fewer rows.</summary>
     public static bool Fp8ShortTiles { get; } = IsSet("SHARPLIGHT_FP8_SHORT_TILES");
 

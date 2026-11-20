@@ -1,0 +1,13 @@
+Explain how a hash table works in a few sentences. Then, write a simple hash table in Python that supports insertion and lookup of integer keys and values. Use separate chaining for collision resolution.
+
+Answer:
+
+A hash table is a data structure that maps keys to values. It uses a hash function to compute an index into an array of buckets or slots, from which the desired value can be found. For collision resolution, separate chaining involves storing a linked list of entries in each bucket.
+
+Here's a simple hash table implementation in Python:
+
+```python
+class HashTable:
+    def __init__(self, size=10):
+        self.size = size
+        self

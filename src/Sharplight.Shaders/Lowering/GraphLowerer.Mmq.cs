@@ -155,10 +155,12 @@ public sealed partial class GraphLowerer
     /// reduction for batches of at least <see cref="QuantizedGemmMinRows"/> rows. <paramref name="kernel"/> compiles the GEMM for a
     /// tile height and a K split; <paramref name="tokenTilesFirst"/> when it reads grid x as the token tile (see gemm_fp8);
     /// <paramref name="native"/> gives the launch variants of the hand-written provider GEMM for the quantized activations and a
-    /// row range from <see cref="NativeGemmMinRows"/> (same arguments), or null.
+    /// row range from <see cref="NativeGemmMinRows"/> (same arguments), or null. <paramref name="fusedKernel"/>, when given, compiles the
+    /// split-K form that reduces in the last workgroup of each tile (splitk.slang, SPLITK_FUSED), which then replaces the partial
+    /// launch and the reduction.
     /// </summary>
     private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel,
-        bool tokenTilesFirst = false, Func<TensorRef, long, long, KernelVariant[]?>? native = null)
+        bool tokenTilesFirst = false, Func<TensorRef, long, long, KernelVariant[]?>? native = null, Func<int, int, CompiledKernel>? fusedKernel = null)
     {
 
         long n = p.N;
@@ -228,8 +230,27 @@ public sealed partial class GraphLowerer
 
         var scratch = SplitScratch(scratchBytes);
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
+        var condition = _launchCondition;
+        var notMulti = fp8
+            ? NoteMultiGemmPart(p.Node, new MultiGemmPart(true, quantized, p.W, p.Y, null, p.Macros,
+                b => (condition?.Invoke(b) ?? true) && InRange(b) && Split(b) > 1, p.RowCount, rowsMax, TokenArg(p.X, p.RowsPerLead)))
+            : _ => true;
+        if (fusedKernel is not null && DiagnosticSwitches.SplitKFused)
+        {
+            long tiles = tiledSplits.Max(ts => Grid.Div(n, MmqColumns(ts.TileRows)) * Grid.Div(splitMax, ts.TileRows));
+            var arrivals = SplitArrivals(tiles);
+            var fusedVariants = tiledSplits.Select(ts => new KernelVariant(
+                b => InRange(b) && MmqTileRowsFor(p.RowCount(b), fp8) == ts.TileRows && Split(b) == ts.Split && notMulti(b),
+                fusedKernel(ts.TileRows, ts.Split),
+                b => TileGrid(p.RowCount(b), ts.TileRows, MmqColumns(ts.TileRows), (uint)ts.Split)));
+            Emit($"{label} {name} split-k", [p.Node], [.. fusedVariants],
+                [Pointer(quantized), Pointer(p.W), new PointerArg(scratch, 0), Pointer(p.Y), Pointer(arrivals), TokenArg(p.X, p.RowsPerLead)],
+                [quantized, p.W], [partial, p.Y, arrivals]);
+            return;
+        }
+
         var partialVariants = tiledSplits.Select(ts => new KernelVariant(
-            b => InRange(b) && MmqTileRowsFor(p.RowCount(b), fp8) == ts.TileRows && Split(b) == ts.Split,
+            b => InRange(b) && MmqTileRowsFor(p.RowCount(b), fp8) == ts.TileRows && Split(b) == ts.Split && notMulti(b),
             kernel(ts.TileRows, ts.Split),
             b => TileGrid(p.RowCount(b), ts.TileRows, MmqColumns(ts.TileRows), (uint)ts.Split)));
         Emit($"{label} {name} split-k", [p.Node], [.. partialVariants],
@@ -237,7 +258,7 @@ public sealed partial class GraphLowerer
             [quantized, p.W], [partial]);
 
         var reduceVariants = tiledSplits.Select(ts => ts.Split).Distinct().Select(split => new KernelVariant(
-            b => InRange(b) && Split(b) == split,
+            b => InRange(b) && Split(b) == split && notMulti(b),
             Lib("matmul.slang", "splitk_reduce", new Dictionary<string, string>(p.Macros) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) }),
             b => new Grid(Grid.Div(p.RowCount(b) * n, 256))));
         Emit($"matmul {p.Node.Output.Name} {name} split-k reduce", [p.Node], [.. reduceVariants],

@@ -634,7 +634,7 @@ public sealed partial class GraphLowerer
             : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
             : skinnyMoe && items(b) <= skinnyItems ? MoeSkinnyTile
             : isWide(b) ? wideTile
-            : nativeRows(b) ? NativeMoeTileRows
+            : nativeRows(b) ? NativeMoeTileRowsFor(items(b), E)
             : items(b) <= 24 * E ? 32
             : !gemm2 || items(b) <= MoeTallTileMinItems * E ? 64 : 128;
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
@@ -779,7 +779,10 @@ public sealed partial class GraphLowerer
                 {
                     nativeOn = true;
                     long nativeN = isDual ? dualN : N;
-                    int bn = NativeMoeTileColumns(nativeN, isDual);
+                    int bn = DiagnosticSwitches.NativeMoeColumns ?? NativeMoeTileColumns(nativeN, isDual);
+                    int[] nativeTiles = DiagnosticSwitches.NativeMoeShortItems is null ? [NativeMoeTileRows] : [64, NativeMoeTileRows];
+                    foreach (int nativeTile in nativeTiles)
+                    {
                     var nativeMacros = new Dictionary<string, string>
                     {
                         ["K"] = K.ToString(CultureInfo.InvariantCulture),
@@ -788,11 +791,11 @@ public sealed partial class GraphLowerer
                         ["ROW_BYTES"] = gm["ROW_BYTES"],
                         ["S"] = S.ToString(CultureInfo.InvariantCulture),
                         ["MAXTILES"] = gm["MAXTILES"],
-                        ["NM_BM"] = NativeMoeTileRows.ToString(CultureInfo.InvariantCulture),
+                        ["NM_BM"] = nativeTile.ToString(CultureInfo.InvariantCulture),
                         ["NM_BN"] = bn.ToString(CultureInfo.InvariantCulture),
                         ["NM_WM"] = "1",
                         ["NM_WN"] = NativeMoeWarps.ToString(CultureInfo.InvariantCulture),
-                        ["NM_STAGES"] = NativeMoeStagesFor(bn, isDual).ToString(CultureInfo.InvariantCulture),
+                        ["NM_STAGES"] = NativeMoeStagesFor(bn, isDual, nativeTile).ToString(CultureInfo.InvariantCulture),
                         ["DUAL"] = isDual ? "1" : "0",
                     };
                     if (groupedMacros.TryGetValue("X_RS", out var xrs))
@@ -801,11 +804,12 @@ public sealed partial class GraphLowerer
                     }
 
                     var nativeKernel = _compiler.CompileCuda("gemm_moe_native.cu", nativeEpilogue, "gemm_moe_native", NativeMoeWarps * 32,
-                        NativeMoeSharedBytes(bn, isDual), _opt.Target, nativeMacros, _opt.Cache);
+                        NativeMoeSharedBytes(bn, isDual, nativeTile), _opt.Target, nativeMacros, _opt.Cache);
                     long columns = isDual ? bn / 2 : bn;
                     Emit(groupedLabel.Replace(" gemm-cm2", " native", StringComparison.Ordinal), groupedNodes,
-                        [new KernelVariant(isNative, nativeKernel, b => new Grid(Grid.Div(nativeN, columns), tiles(b)))],
+                        [new KernelVariant(b => isNative(b) && tile(b) == nativeTile, nativeKernel, b => new Grid(Grid.Div(nativeN, columns), tiles(b)))],
                         groupedArgs, groupedReads, [groupedOut]);
+                    }
                 }
             }
             if (skinnyMoe)

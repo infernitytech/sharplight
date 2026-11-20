@@ -23,6 +23,7 @@
 // F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GROUPED, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE and DENSE_XCAP
 // (quantize_fp8). Requires K % 128 == 0 and 32-lane subgroups.
 #include "common.slang"
+#include "splitk.slang"
 using namespace linalg;
 
 // Quantized activation row: K codes, then K / 128 f32 scales.
@@ -91,8 +92,8 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 #ifndef F8_GROUPED
 #define F8_GROUPED 0
 #endif
-#if DUAL && (SPLITK != 1 || F8_FN % 2 != 0)
-#error "the dual fp8 GEMM needs SPLITK = 1 and an even F8_FN"
+#if DUAL && ((SPLITK != 1 && !SPLITK_FUSED) || F8_FN % 2 != 0)
+#error "the dual fp8 GEMM needs SPLITK = 1 (or the fused split-K reduction) and an even F8_FN"
 #endif
 
 #define F8_THREADS (F8_WM * F8_WN * 32)
@@ -121,6 +122,29 @@ struct Params
     uint8_t* w2;
 #endif
     float* y;
+#if SPLITK_FUSED || MULTI > 1
+    float* yout;      // SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+#endif
+#if SPLITK_FUSED
+    uint* arrivals;   // per output tile: the split workgroups arrived so far (zero between launches)
+#endif
+#if MULTI > 1
+    uint8_t* mw1;     // MULTI (splitk.slang): the second and third weight matrices, their outputs and (MULTI_BIAS) the bias rows
+#if MULTI > 2
+    uint8_t* mw2;
+#endif
+    float* yout1;
+#if MULTI > 2
+    float* yout2;
+#endif
+#if MULTI_BIAS
+    float* mb0;
+    float* mb1;
+#if MULTI > 2
+    float* mb2;
+#endif
+#endif
+#endif
     uint T;
 };
 
@@ -129,10 +153,27 @@ struct Params
 #define F8_BN_OUT (F8_BN / 2)
 #define F8_WPTR(r) ((((r) / 16) & 1) != 0 ? p.w2 : p.w)
 #define F8_WROW(n0, r) ((n0) + ((r) / 32) * 16 + (r) % 16)
+#elif MULTI > 1
+#define F8_BN_OUT F8_BN
+#define F8_WPTR(r) wbaseM
+#define F8_WROW(n0, r) ((n0) + (r))
 #else
 #define F8_BN_OUT F8_BN
 #define F8_WPTR(r) p.w
 #define F8_WROW(n0, r) ((n0) + (r))
+#endif
+#if SPLITK_FUSED
+#if SPLITK < 2 || (DUAL && MULTI > 1)
+#error "the fused split-K reduction of gemm_fp8 needs SPLITK > 1 (and DUAL without MULTI)"
+#endif
+// DUAL: the partial slices hold both products of each output, [SPLITK][T][2N] (w's at column n, w2's at N + n).
+#define SPLITK_STORE2(p, g, u, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = epi2(g, u); }
+#if MULTI > 1
+#define SPLITK_STORE(p, s, t, n) MULTI_STORE(p, s, t, n)
+#else
+#define SPLITK_STORE(p, s, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = (s); }
+#endif
+#define SPLITK_ROW_SCALE(p, t) 1.0
 #endif
 
 #if SL_TARGET_CUDA
@@ -272,10 +313,13 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     uint wm = (sg / F8_WN) * (F8_FM * 16);
     uint wn = (sg % F8_WN) * (F8_FN * 16);
     uint r0 = uint(index[0]) >> 4, c0 = uint(index[0]) & 15;
+#if MULTI > 1
+    uint8_t* wbaseM = MULTI_WBASE(p, n0);
+#endif
 #if SPLITK > 1
     const uint KS = ((K / F8_BK + SPLITK - 1) / SPLITK) * F8_BK;
     uint kBeg = gid.z * KS, kEnd = min(uint(K), kBeg + KS);
-    float* yb = p.y + uint64_t(gid.z) * p.T * N;
+    float* yb = p.y + uint64_t(gid.z) * p.T * N * (DUAL ? 2 : 1);
 #else
     uint kBeg = 0, kEnd = K;
     float* yb = p.y;
@@ -420,7 +464,15 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             {
                 uint t = t0 + wm + i * 16 + (uint(index[e]) >> 4);
                 uint n = n0 + wn / 2 + (j / 2) * 16 + (uint(index[e]) & 15);
+#if SPLITK_FUSED
+                if (t < p.T && n < N)
+                {
+                    yb[uint64_t(t) * 2 * N + n] = acc[i][j][e];
+                    yb[uint64_t(t) * 2 * N + N + n] = acc[i][j + 1][e];
+                }
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = epi2(acc[i][j][e], acc[i][j + 1][e]);
+#endif
             }
         }
 #else
@@ -432,11 +484,22 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             {
                 uint t = t0 + wm + i * 16 + (uint(index[e]) >> 4);
                 uint n = n0 + wn + j * 16 + (uint(index[e]) & 15);
+#if SPLITK_FUSED
+                if (t < p.T && n < N) yb[uint64_t(t) * N + n] = acc[i][j][e];
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = acc[i][j][e];
+#endif
             }
         }
 #endif
     }
+#if SPLITK_FUSED && DUAL
+    // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces both products and applies epi2.
+    SPLITK_FINISH_DUAL(p, tid, F8_THREADS, F8_BM, F8_BN_OUT, gid.x * ((N + F8_BN_OUT - 1) / F8_BN_OUT) + gid.y, t0, n0)
+#elif SPLITK_FUSED
+    // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces it.
+    SPLITK_FINISH(p, tid, F8_THREADS, F8_BM, F8_BN, gid.x * ((N + F8_BN - 1) / F8_BN) + gid.y, t0, n0)
+#endif
 }
 
 [shader("compute")]

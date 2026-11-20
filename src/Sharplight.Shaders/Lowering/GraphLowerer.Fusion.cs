@@ -73,6 +73,7 @@ public sealed partial class GraphLowerer
         }
 
         FindFusedOutputs(units, consumers);
+        FindMultiGemmGroups(units);
         return units;
     }
 
