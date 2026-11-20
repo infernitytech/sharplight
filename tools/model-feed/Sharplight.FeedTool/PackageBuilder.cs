@@ -39,7 +39,7 @@ internal sealed class PackageBuilder(string storeRoot, Action<string> log)
         var inspection = PackageInspector.Inspect(packagePath);
         var described = await PackageFileHasher.DescribeAsync(packagePath, "pending.slm", cancellationToken: cancellationToken).ConfigureAwait(false);
         var engineVersion = EngineVersion();
-        var draft = ManifestFactory.Create(plan, inspection, described, "1.0.0", overlay.Packages.GetValueOrDefault(id), engineVersion, feedUrl, DateTimeOffset.UtcNow);
+        var draft = ManifestFactory.Create(plan, inspection, described, "1.0.0", overlay.For(plan.Entry.Id, id), engineVersion, feedUrl, DateTimeOffset.UtcNow);
         var versionPlan = VersionPlanner.Plan(feedFolder, draft);
         if (versionPlan is null)
         {

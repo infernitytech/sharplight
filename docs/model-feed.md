@@ -317,7 +317,8 @@ feedtool mirror   --feed <url|folder> --channel stable [--root ...] --out bundle
 - `build` downloads exactly the pinned files of the variant and its companions (checksums verified), converts them with companions
   merged, opens the result, hashes and chunks it and writes `manifest.json` from the catalog entry (license, publisher, verification,
   provenance) and the overlay `tools/model-feed/feed-overlay.json` (feed-only data: dependencies, summaries, languages, minimum host
-  version, listing state).
+  version, listing state; `models` holds defaults for every variant of a catalog entry, `packages` per-package entries that override
+  them field by field).
 - Versions are chosen by the tool against the stored versions of the feed (all channels): first build 1.0.0; another pinned revision `MAJOR`+1; the same pins rebuilt
   `MINOR`+1; the same package file with a different manifest (compared without version, file name, build time, converter and
   minimum engine, which a rebuild changes by itself) is a manifest-only `PATCH`+1 that reuses the file: the staging folder holds

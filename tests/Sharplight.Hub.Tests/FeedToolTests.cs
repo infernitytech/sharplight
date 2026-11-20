@@ -26,6 +26,32 @@ public sealed class FeedToolTests
         var overlay = Overlay();
         Assert.All(overlay.Packages.Keys, id => Assert.Contains(id, ids));
         Assert.All(overlay.Packages.Values.SelectMany(package => package.Dependencies), dependency => Assert.Contains(dependency.Id, ids));
+        var entries = catalog.Entries.Where(entry => entry.IsInstallable).Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+        Assert.All(overlay.Models.Keys, id => Assert.Contains(id, entries));
+    }
+
+    [Fact]
+    public void Overlay_PackageEntriesOverrideTheirModelDefaults()
+    {
+        var overlay = new FeedOverlay
+        {
+            Models = new Dictionary<string, FeedOverlayPackage>
+            {
+                ["m"] = new() { Summary = "Model.", Languages = ["en", "de"], Dependencies = [new PackageDependency { Id = "vad", Range = "1.0.0" }] },
+            },
+            Packages = new Dictionary<string, FeedOverlayPackage>
+            {
+                ["m.q8"] = new() { Summary = "Q8.", Listed = false, Dependencies = [new PackageDependency { Id = "draft", Range = "1.0.0" }] },
+            },
+        };
+
+        var q8 = overlay.For("m", "m.q8")!;
+        Assert.Equal("Q8.", q8.Summary);
+        Assert.Equal(["en", "de"], q8.Languages);
+        Assert.Equal(["vad", "draft"], q8.Dependencies.Select(dependency => dependency.Id));
+        Assert.False(q8.Listed);
+        Assert.Equal("Model.", overlay.For("m", "m.q4")!.Summary);
+        Assert.Null(overlay.For("other", "other.q4"));
     }
 
     [Fact]
