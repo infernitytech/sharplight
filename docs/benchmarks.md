@@ -8313,6 +8313,22 @@ Decode at long depth (`BatchBench --slots 4 --ctx D+512 --depth D --batch 2048`,
 | 32,768 | 6.43 ms: 155.5 / 150.7 tok/s (1.03) | 8.54 ms: 234 tok/s | 13.29 ms: 301 / 310.8 tok/s (0.97) |
 | ~128K | 10.04 ms: 99.6 / 107.3 (0.93) | 15.63 ms: 128 tok/s | **26.88 ms: 148.8 / 174.9 tok/s (0.85)**, did not fit before |
 
+Trade-off with prefix caching. The window pool is sized for the running slots, so window blocks that left a window are evicted much
+sooner than main blocks, and a cached prefix can only be attached while the window blocks at its end are still cached. Vulkan, gpt-oss-20b,
+64 streams (one round each, two alternated pairs; "off" = `SHARPLIGHT_DISABLE_FEATURES=window_kv SHARPLIGHT_ASYNC_EMIT=0`): the load
+generator repeats the prompts of the 16-stream round (same seeds), and with full-length window caches 16 of 192 prompts attached a
+cached prefix (3,840 of 48,003 prompt tokens), with window-sized caches none:
+
+| Vulkan, gpt-oss-20b | 16 streams | 64 streams | cached prompt tokens (64) |
+|---|---|---|---:|
+| `window_kv` off | 1234 / 138 / 11.8 | 2311 / 365 / 24.3 | 3,840 |
+| **on** (default) | **1241 / 139 / 11.7** | **2255 / 326 / 24.6** (-2.4 %) | 0 |
+
+Conversation turns that return to their slot keep their window blocks (the slot holds them), and recently finished prompts' blocks are the
+last evicted, so chat-style reuse is unaffected; reuse of prompts seen hundreds of requests earlier is not. The remedy is vLLM's layout,
+one block pool for both groups, so window blocks compete for eviction with full blocks instead of with each other (not built: it changes the
+pool accounting of admission and preemption). `window_kv` can be disabled where long-lived shared prefixes matter more than memory.
+
 Correctness: the window layers read the same K / V values through another table, so outputs are bit-identical:
 `WindowKvParityTests` (tiny random Cohere2 MoE GGUF / HF and Gemma 4 MoE, 8-key windows, 40-token outputs after prompts of 45-70 tokens,
 sequential and concurrent prompts with prefix hits, forks of three samples) is token-identical with and without `window_kv` on CPU,
