@@ -18,7 +18,7 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Groups single-matmul units that read the same activations with weights of one format and K, all with a bias row or none
     /// (<see cref="LoweringUnit.BiasAdd"/>): the q / k / v projections. At most one member's width is not a multiple of 128 (the
-    /// column tile of the multi-output GEMM); it goes last. Each member is still lowered on its own; see <see cref="EmitMultiGemm"/>.
+    /// column tile of the multi-output GEMM); it goes last. Each member is still lowered on its own; see <see cref="EmitMultiGemm(MultiGemmGroup)"/>.
     /// </summary>
     private void FindMultiGemmGroups(List<LoweringUnit> units)
     {
@@ -83,12 +83,12 @@ public sealed partial class GraphLowerer
             return _ => true;
         }
 
-        if (!group.Parts.TryAdd(matmul, part))
+        if (!group.Parts.TryAdd((matmul, part.Fp8), part))
         {
             group.Usable = false;
         }
 
-        return b => !(group.Serves?.Invoke(b) ?? false);
+        return b => !(group.Serves.TryGetValue(part.Fp8, out var serves) && serves(b));
     }
 
     /// <summary>The bias row of a split-K reduction epilogue that is a lone Add of a row vector, else null.</summary>
@@ -115,6 +115,25 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void EmitMultiGemm(MultiGemmGroup group)
     {
+        foreach (bool family in new[] { false, true })
+        {
+            // gemm_cm2's multi-output form only where the target compiles CUDA C++: on the NVIDIA Vulkan driver gpt-oss-20b's
+            // 64-sequence decode step lost 2.5 % with it (16.85 → 17.28 ms; benchmarks.md section 59), the fp8 form gained 1 %.
+            if (!family && !_compiler.CompilesCuda(_opt.Target))
+            {
+                continue;
+            }
+
+            if (group.Members.All(m => group.Parts.ContainsKey((m, family))))
+            {
+                EmitMultiGemm(group, family);
+            }
+        }
+    }
+
+    /// <summary>The multi-output GEMM of <paramref name="group"/> on one kernel family (see <see cref="EmitMultiGemm(MultiGemmGroup)"/>).</summary>
+    private void EmitMultiGemm(MultiGemmGroup group, bool family)
+    {
         void Skip(string why)
         {
             if (DiagnosticSwitches.MultiGemmDebug)
@@ -123,13 +142,13 @@ public sealed partial class GraphLowerer
             }
         }
 
-        if (!group.Usable || group.Parts.Count != group.Members.Count)
+        if (!group.Usable)
         {
-            Skip($"usable {group.Usable}, {group.Parts.Count} of {group.Members.Count} split launches");
+            Skip("a member's split launch does not fit");
             return;
         }
 
-        var parts = group.Members.Select(m => group.Parts[m]).ToList();
+        var parts = group.Members.Select(m => group.Parts[(m, family)]).ToList();
         var first = parts[0];
         bool fp8 = first.Fp8;
         bool bias = first.Bias is not null;
@@ -188,7 +207,7 @@ public sealed partial class GraphLowerer
 
         var rowsOf = first.Rows;
         var fits = tiledSplits.ToHashSet();
-        group.Serves = b =>
+        group.Serves[family] = b =>
         {
             long rows = rowsOf(b);
             return rows > MatvecMaxRows && rows <= rowsMax && fits.Contains((TileRows(rows), Split(rows))) && parts.All(pt => pt.Serves(b));
@@ -198,7 +217,7 @@ public sealed partial class GraphLowerer
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         bool fused = DiagnosticSwitches.MultiGemmFused && (!fp8 || _compiler.CompilesCuda(_opt.Target));
         var arrivals = fused ? SplitArrivals(tiles) : null;
-        var serves = group.Serves;
+        var serves = group.Serves[family];
         var variants = tiledSplits.Select(ts =>
         {
             var macros = fp8

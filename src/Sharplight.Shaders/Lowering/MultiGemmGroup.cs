@@ -12,8 +12,11 @@ internal sealed class MultiGemmGroup
     /// <summary>The matmul nodes in the order of the concatenated weight rows (every width but the last a multiple of the column tile).</summary>
     public required List<Node> Members { get; init; }
 
-    /// <summary>The split launches of the members, captured while they are lowered (in member order once complete).</summary>
-    public Dictionary<Node, MultiGemmPart> Parts { get; } = [];
+    /// <summary>
+    /// The split launches of the members, captured while they are lowered, per kernel family (true: the fp8 GEMM, false: gemm_cm2;
+    /// an fp8 matmul splits K on gemm_cm2 below the fp8 GEMM's rows and on the fp8 GEMM above).
+    /// </summary>
+    public Dictionary<(Node Member, bool Fp8), MultiGemmPart> Parts { get; } = [];
 
     /// <summary>Members lowered so far; the multi-output GEMM is emitted after the last.</summary>
     public int Lowered { get; set; }
@@ -21,6 +24,6 @@ internal sealed class MultiGemmGroup
     /// <summary>False once a member's split launches turned out not to fit the multi-output GEMM.</summary>
     public bool Usable { get; set; } = true;
 
-    /// <summary>The bindings the multi-output GEMM serves (null until it is emitted); the members' split launches skip them.</summary>
-    public Func<Bindings, bool>? Serves { get; set; }
+    /// <summary>The bindings each family's multi-output GEMM serves (absent until it is emitted); the members' split launches skip them.</summary>
+    public Dictionary<bool, Func<Bindings, bool>> Serves { get; } = [];
 }
