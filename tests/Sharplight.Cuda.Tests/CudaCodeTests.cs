@@ -244,6 +244,7 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(40)]
     [InlineData(150)]
     [InlineData(700)]
     public void NativeMoeGemmMatchesTheCpu(int tokens)
@@ -254,8 +255,8 @@ public sealed class CudaCodeTests
         Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmMoe), "The GPU has no hand-written grouped MXFP4 GEMM (compute capability below 8.0).");
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // A gpt-oss-style expert block on MXFP4 experts: 75 / 350 routed rows per expert (one to three 128-row tiles, the last
-        // partial), the fused gate / up halves with bias rows and SiLU·mul in the dual store (192 outputs: a partial column tile),
+        // A gpt-oss-style expert block on MXFP4 experts: 20 routed rows per expert on average (the short 64-row tiles, two blocks per
+        // SM; the skew gives some experts more than one), 75 / 350 (one to three 128-row tiles, the last partial), the fused gate / up halves with bias rows and SiLU·mul in the dual store (192 outputs: a partial column tile),
         // the down product with bias and router weight in its store, K = 576 (nine 64-value steps).
         var expected = RunExpertBlock(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), tokens);
         var actual = RunExpertBlock(provider.OpenDevice(info), tokens);

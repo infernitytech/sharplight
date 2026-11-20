@@ -19,7 +19,7 @@
 // their inverse scale before the epilogue.
 //
 // Specialization macros: K, N (outputs), EXPERT_BYTES (bytes per expert of w), ROW_BYTES (17 K / 32), S, MAXTILES, NM_BM (64 or
-// 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, DUAL, X_RS,
+// 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, DUAL, X_RS,
 // NM_EPI2 / NM_EPI1 and NM_EPI_FIELDS (the tables they read). Requires K % 64 == 0, N % 16 == 0. Grid: x = column tiles, y = routing
 // tiles (blocks past the tile count return).
 #ifndef DUAL
@@ -41,6 +41,10 @@
 #define NM_STAGES 4
 #endif
 #define NM_THREADS (NM_WM * NM_WN * 32)
+// Resident blocks per SM the register allocation is bounded for (__launch_bounds__): 2 for the short tiles whose stages fit twice.
+#ifndef NM_MINB
+#define NM_MINB 1
+#endif
 #define NM_TM (NM_BM / NM_WM)
 #define NM_TN (NM_BN / NM_WN)
 #define NM_FM (NM_TM / 16)
@@ -213,7 +217,7 @@ static __device__ __forceinline__ void nm_mmas(float (&acc)[NM_FM][NM_FN][4], nm
     }
 }
 
-extern "C" __global__ void __launch_bounds__(NM_THREADS, 1) gemm_moe_native(NmParams p)
+extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_native(NmParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
     // E8M0 byte -> its two half factors (s1 in the low half, s2 in the high one), built once per block.
