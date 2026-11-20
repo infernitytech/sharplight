@@ -87,9 +87,9 @@ public sealed class FeedToolTests
     public void Manifest_PlacesTheVariantInItsModelGroup()
     {
         var entry = Catalog().Entries.Single(candidate => candidate.Id == "qwen3.8-27b");
-        var variant = entry.Variants.Single(candidate => candidate.Id == "q4-k-m-gguf");
+        var variant = entry.Variants.Single(candidate => candidate.Id == "ud-iq3-xxs-gguf");
         var plan = CatalogInstallPlan.For(entry, variant);
-        var file = new PackageFile { Name = "qwen3.8-27b.q4-k-m-gguf.1.0.0.slm", Role = PackageFileRoles.Package, Size = 17_000_000_000, Sha256 = new string('a', 64) };
+        var file = new PackageFile { Name = "qwen3.8-27b.ud-iq3-xxs-gguf.1.0.0.slm", Role = PackageFileRoles.Package, Size = 17_000_000_000, Sha256 = new string('a', 64) };
         var context = new ContextMemory(65_536, 150_000_000, 4096, 418_435_456, 262_144, 17_329_717_248, 900_000_000);
         var inspection = new PackageInspection("Qwen3.8 27B", "text-generation", "qwen3_5", 262_144, 27_000_000_000, 16_500_000_000, 3, true)
         {
@@ -100,11 +100,11 @@ public sealed class FeedToolTests
 
         var group = manifest.Group!;
         Assert.Equal("qwen3.8-27b", group.Id);
-        Assert.Equal("q4-k-m-gguf", group.Variant);
+        Assert.Equal("ud-iq3-xxs-gguf", group.Variant);
         Assert.Equal($"{group.Id}.{group.Variant}", manifest.Id);
-        Assert.Equal("Q4_K_M", group.Quantization);
+        Assert.Equal("UD-IQ3_XXS", group.Quantization);
         Assert.Equal("gguf", group.Format);
-        Assert.Equal("good", group.Quality);
+        Assert.Equal("reduced", group.Quality);
         Assert.Equal("BF16", group.Reference);
         Assert.Equal(4.89, group.BitsPerWeight);
         Assert.False(group.Recommended);
