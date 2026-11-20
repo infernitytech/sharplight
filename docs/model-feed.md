@@ -205,7 +205,7 @@ are left out; yanked and deprecated ones stay, with their `state`).
         { "package": "qwen3.5-122b-a10b.ud-iq2-xxs-gguf", "version": "1.0.0", "variant": "ud-iq2-xxs-gguf",
           "label": "UD-IQ2_XXS GGUF + mmproj", "format": "gguf", "quantization": "UD-IQ2_XXS", "bitsPerWeight": 2.4,
           "recommended": false, "quality": "low", "qualityNote": "...", "reference": "BF16", "size": 37600000000,
-          "verification": "partial", "requirements": { ... the package's requirements ... }, "state": { "listed": true } }
+          "verification": "verified", "requirements": { ... the package's requirements ... }, "state": { "listed": true } }
       ]
     }
   ]
