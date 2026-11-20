@@ -8336,3 +8336,33 @@ sequence within 768-2048 rows (§50), chunks of the whole budget. vLLM 0.33.0 ru
 Prompt rows cost the same per row at every step size (57-62 µs from 107 to 2048 rows, 60.1), so the budget only moves time between TTFT
 and inter-token latency: smaller steps stream first tokens sooner at a small throughput cost, and no setting moves throughput beyond the
 ±2 % spread of rounds. The defaults stay; our TTFT p50 is already below vLLM's (266 against 413 ms at 64 streams, 111 against 183 at 16).
+
+### 60.5 Tests
+
+GPU 0, this branch (`develop` unchanged since `f3d279f0`):
+
+| suite | result |
+|---|---|
+| Sharplight.Serving.Tests (incl. the new `WindowKvCacheTests`, 10) | 384 / 1 failed / 13 skipped: `MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached` (an admission-timing assertion on the fake decoder; passes 3 / 3 alone) |
+| Sharplight.Families.Tests `WindowKvParityTests` (new), `PrefixCacheParityTests`, `StepStateSnapshotTests`, `SpeculativeDecodingTests` | CPU + Vulkan: 99 / 0 failed / 17 skipped; CPU + CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`): 99 / 0 / 17 |
+| Sharplight.Vulkan.Tests on Vulkan (one process per class, all 63 classes) | 1630 / 0 failed / 26 skipped |
+| Sharplight.Vulkan.Tests on CUDA: PagedAttention, FullAttention, BatchMatMul, Fusion, SparseAttention, CompressedKv | 152 / 0 failed |
+| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped (cuBLASLt not installed) |
+| Sharplight.Core.Tests | 1660 / 0 failed / 331 skipped |
+
+### 60.6 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+# serving profile (one CSV line per step) and its summary
+SHARPLIGHT_STEP_PROFILE=steps.csv QUIET_GPU=1 ROUNDS=1 SLOTS=64 bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "64" --provider cuda
+python3 bench/s60_steps.py steps.csv
+# before / after (same build)
+SHARPLIGHT_ASYNC_EMIT=0 SHARPLIGHT_DISABLE_FEATURES=window_kv QUIET_GPU=1 ROUNDS=2 SLOTS=64 bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 VLLM_VENV=<venv with vLLM 0.33.0> bench/s16_serve.sh vllm gpt-oss-20b ~/models/hf/gpt-oss-20b "16 64"
+# mixed-step kernels; four 128K streams
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 66 --ctx 512 --depth 256 --mixed 64+0,64+107x1,64+448x1 --modes greedy --reps 10 --profile 1
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 4 --ctx 131584 --depth 131072 --batch 2048 --sizes 1,2,4 --modes greedy --reps 5
+# budget sweep: add --step-tokens 1024 | --min-step-tokens 0 | --prefill-chunk 512 to the serve line
+```
