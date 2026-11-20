@@ -90,6 +90,14 @@ public sealed class CompileOptions
     /// </summary>
     public object? StateScope { get; init; }
 
+    /// <summary>
+    /// Whether the segment streams its weights instead of keeping them on the device: providers that support it
+    /// (<see cref="IComputeDevice.StreamsWeights"/>) give the weight buffers of the streamed segments of one graph (<see cref="StateScope"/>)
+    /// on a device the same memory and copy the weights in at every execution. <see cref="CompiledModel"/> compiles routed experts that the
+    /// placement put on the CPU so for the GPU as well, and runs that copy for large batches (prefill).
+    /// </summary>
+    public bool StreamWeights { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -142,8 +150,11 @@ public sealed class CompileOptions
     /// <summary>A copy with the state scope <paramref name="scope"/>.</summary>
     internal CompileOptions WithStateScope(object scope) => Copy(SymbolBounds, Progress, scope);
 
+    /// <summary>A copy that streams its weights (<see cref="StreamWeights"/>).</summary>
+    internal CompileOptions WithStreamedWeights() => Copy(SymbolBounds, Progress, streamWeights: true);
+
     private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null,
-        IReadOnlySet<string>? disabledFeatures = null) => new()
+        IReadOnlySet<string>? disabledFeatures = null, bool? streamWeights = null) => new()
     {
         MaxTokens = MaxTokens,
         ContextLength = ContextLength,
@@ -158,5 +169,6 @@ public sealed class CompileOptions
         CancellationToken = CancellationToken,
         SharedWeights = SharedWeights,
         StateScope = stateScope ?? StateScope,
+        StreamWeights = streamWeights ?? StreamWeights,
     };
 }

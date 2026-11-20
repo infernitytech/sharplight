@@ -10,6 +10,9 @@ namespace Sharplight.Runtime;
 public sealed class CompiledModel : IDisposable
 {
     private readonly ICompiledSegment[] _segments;
+    /// <summary>Per segment: the GPU compilation that streams its weights and runs it for large batches (<see cref="PlacementPlan.StreamedSegments"/>), or null.</summary>
+    private readonly ICompiledSegment?[] _streamed;
+    private readonly int _streamMinRows;
     private static readonly HashSet<Value> s_noSkips = [];
     private readonly Dictionary<Value, byte[]> _hostValues = [];
     /// <summary>Per segment: the inputs it reads from an earlier segment's device memory (<see cref="IDeviceForwardingSegment"/>).</summary>
@@ -28,12 +31,20 @@ public sealed class CompiledModel : IDisposable
     /// <summary>The compiled segments in execution order.</summary>
     public IReadOnlyList<ICompiledSegment> Segments => _segments;
 
-    private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments)
+    /// <summary>
+    /// Number of CPU segments of routed experts that also have a GPU compilation streaming their weights, which runs them for large batches
+    /// (<see cref="PlacementPlan.StreamedSegments"/>, <see cref="PlacementOptions.StreamExpertsMinRows"/>).
+    /// </summary>
+    public int StreamedSegmentCount => _streamed.Count(s => s is not null);
+
+    private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments, ICompiledSegment?[] streamed, int streamMinRows)
     {
         Graph = graph;
         Plan = plan;
         Options = options;
         _segments = segments;
+        _streamed = streamed;
+        _streamMinRows = streamMinRows;
         (_forwardedInputs, _deviceOnlyOutputs) = ForwardOnDevice(graph, segments);
     }
 
@@ -132,7 +143,51 @@ public sealed class CompiledModel : IDisposable
 
             throw;
         }
-        return new CompiledModel(graph, plan, placement.Compile, [.. compiled]);
+
+        var streamed = CompileStreamed(plan, segmentOptions, ct);
+        return new CompiledModel(graph, plan, placement.Compile, [.. compiled], streamed, placement.StreamExpertsMinRows);
+    }
+
+    /// <summary>
+    /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>). A segment that does not
+    /// compile (no memory left, an unsupported kernel) keeps running on the CPU only.
+    /// </summary>
+    private static ICompiledSegment?[] CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, CancellationToken ct)
+    {
+        var streamed = new ICompiledSegment?[plan.Segments.Count];
+        var options = segmentOptions.WithStreamedWeights();
+        foreach (var (index, slot) in plan.StreamedSegments)
+        {
+            ct.ThrowIfCancellationRequested();
+            var segment = plan.Segments[index];
+            var twin = new GraphSegment { Graph = segment.Graph, Index = segment.Index, Nodes = segment.Nodes, Inputs = segment.Inputs, Outputs = segment.Outputs, DeviceSlot = slot };
+            try
+            {
+                streamed[index] = plan.Slots[slot].Device.Compile(twin, options);
+            }
+            catch (Exception e) when (e is DeviceOutOfMemoryException or InsufficientMemoryException or NotSupportedException)
+            {
+                if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
+                {
+                    Console.Error.WriteLine($"[load] segment {index} is not streamed to {plan.Slots[slot].Device.Info.Name}: {e.Message}");
+                }
+            }
+        }
+
+        return streamed;
+    }
+
+    /// <summary>The segment that runs position <paramref name="i"/>: its streamed GPU version when the pass has enough rows, else the segment.</summary>
+    private ICompiledSegment Runner(int i, RunParameters parameters)
+    {
+        if (_streamed[i] is not { } streamed || _streamMinRows <= 0)
+        {
+            return _segments[i];
+        }
+
+        var inputs = _segments[i].Segment.Inputs;
+        long rows = inputs.Count > 0 && inputs[0].Shape.Rank > 0 ? inputs[0].Shape.Resolve(parameters.Symbols)[0] : 0;
+        return rows >= _streamMinRows ? streamed : _segments[i];
     }
 
     /// <summary>
@@ -249,7 +304,7 @@ public sealed class CompiledModel : IDisposable
 
         for (int i = 0; i < _segments.Length; i++)
         {
-            var seg = _segments[i];
+            var seg = Runner(i, parameters);
             // Forward activations produced by earlier segments.
             foreach (var v in seg.Segment.Inputs)
             {
@@ -420,6 +475,11 @@ public sealed class CompiledModel : IDisposable
         foreach (var s in _segments)
         {
             s.Dispose();
+        }
+
+        foreach (var s in _streamed)
+        {
+            s?.Dispose();
         }
     }
 }

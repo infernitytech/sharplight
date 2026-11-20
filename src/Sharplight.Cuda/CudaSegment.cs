@@ -29,6 +29,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private readonly HashSet<BufferDecl> _borrowedStates = [];
     /// <summary>Activation buffers shared with the model's other segments on this device (see <see cref="SharedArena{T}"/>).</summary>
     private readonly Dictionary<BufferDecl, SharedArenaBuffer<CudaBuffer>> _sharedArenas = [];
+    /// <summary>With <see cref="CompileOptions.StreamWeights"/>: the weight buffers, copied in at every execution (see <see cref="StreamWeights"/>).</summary>
+    private readonly List<BufferDecl> _streamedWeights = [];
     /// <summary>Inputs copied from an earlier segment's output buffer instead of from <see cref="SetInput"/> (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (CudaBuffer Source, long SourceOffset)> _forwarded = [];
     private readonly Dictionary<string, CudaRecordedLaunch[]> _recorded = [];
@@ -73,7 +75,10 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
 
             DeviceMemoryBytes = bytes;
             var uploadTimer = Stopwatch.StartNew();
-            UploadWeights();
+            if (_streamedWeights.Count == 0)
+            {
+                UploadWeights();
+            }
             if (DiagnosticSwitches.LoadTiming)
             {
                 Console.Error.WriteLine($"[load] upload segment {segment.Index}: {uploadTimer.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB; "
@@ -129,6 +134,14 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     /// <summary>Allocates (or borrows) the buffer of <paramref name="b"/>; returns the bytes this segment newly holds.</summary>
     private long AllocateBuffer(BufferDecl b)
     {
+        // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
+        if (b.Kind == BufferKind.Weight && _options.StreamWeights && _options.StateScope is { } streamScope)
+        {
+            string key = "stream:" + _streamedWeights.Count;
+            _streamedWeights.Add(b);
+            return ShareArena(streamScope, key, b);
+        }
+
         if (b.Kind == BufferKind.Weight && b.Weight is { } w && _options.SharedWeights is { } shared)
         {
             // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
@@ -141,16 +154,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         // The segments of one graph on this device run one after another and share their transient buffers.
         if (b.Kind == BufferKind.Activations && _options.StateScope is { } arenaScope && SharedArena<CudaBuffer>.Enabled)
         {
-            var arenas = _dev.SharedArenas.GetOrCreateValue(arenaScope);
-            if (!arenas.TryGetValue(b.Name, out var arena))
-            {
-                arenas[b.Name] = arena = new SharedArena<CudaBuffer>();
-            }
-
-            var sharedArena = arena.Acquire(b.Bytes, bytes => _dev.Allocate(bytes, Purpose(b)), _dev.Free, out bool allocated);
-            _sharedArenas[b] = sharedArena;
-            _alloc[b] = sharedArena.Buffer;
-            return allocated ? b.Bytes : 0;
+            return ShareArena(arenaScope, b.Name, b);
         }
 
         // The segments of one graph on this device share each state (its nodes may be split by other devices' nodes).
@@ -166,6 +170,44 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         _alloc[b] = _dev.Allocate(b.Bytes, Purpose(b));
         sharedStates?.Add(b.State!, _alloc[b]);
         return b.Bytes;
+    }
+
+    /// <summary>Takes the buffer of <paramref name="b"/> from the arena <paramref name="key"/> of <paramref name="scope"/> on this device; returns the bytes newly allocated.</summary>
+    private long ShareArena(object scope, string key, BufferDecl b)
+    {
+        var arenas = _dev.SharedArenas.GetOrCreateValue(scope);
+        if (!arenas.TryGetValue(key, out var arena))
+        {
+            arenas[key] = arena = new SharedArena<CudaBuffer>();
+        }
+
+        var sharedArena = arena.Acquire(b.Bytes, bytes => _dev.Allocate(bytes, Purpose(b)), _dev.Free, out bool allocated);
+        _sharedArenas[b] = sharedArena;
+        _alloc[b] = sharedArena.Buffer;
+        return allocated ? b.Bytes : 0;
+    }
+
+    /// <summary>
+    /// Copies the streamed weights into their shared buffers (<see cref="CompileOptions.StreamWeights"/>) on the upload stream and makes this
+    /// segment's stream wait for the copies.
+    /// </summary>
+    private void StreamWeights()
+    {
+        long total = _streamedWeights.Sum(b => b.Bytes);
+        long largestRow = _streamedWeights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
+        var timer = Stopwatch.StartNew();
+        using (var uploader = new CudaWeightUploader(_dev, total, largestRow))
+        {
+            foreach (var buffer in _streamedWeights)
+            {
+                uploader.Upload(buffer, _alloc[buffer]);
+            }
+        }
+
+        if (DiagnosticSwitches.LoadTiming)
+        {
+            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB in {timer.Elapsed.TotalMilliseconds:F1} ms");
+        }
     }
 
     /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>
@@ -293,6 +335,11 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         if (_program.ScalarSlots.Count > 0)
         {
             CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(_alloc[_program.RuntimeBuffer].Pointer, _runtimeSlots, RuntimeSlots * sizeof(uint), _stream), "cuMemcpyHtoDAsync");
+        }
+
+        if (_streamedWeights.Count > 0)
+        {
+            StreamWeights();
         }
 
         var bindings = new Bindings(RecordingSymbols(parameters));

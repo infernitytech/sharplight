@@ -88,7 +88,8 @@ public class MoeTests
 
     /// <summary>
     /// MatMulId with integer dots on quantized experts (two experts from a fixture's rows) against the dequantized weights in double
-    /// precision, within the error of 8-bit activations; a one-row run gives the first row of a five-row run bit for bit.
+    /// precision, within the error of 8-bit activations (experts with more than four items take the float path for the grid formats); a
+    /// one-row run gives the first row of a two-row run bit for bit.
     /// </summary>
     [Theory, MemberData(nameof(IntDotRecords))]
     public void QuantizedMatMulIdWithIntegerDotsMatchesTheDequantizedWeights(int index, string label)
@@ -134,6 +135,7 @@ public class MoeTests
             }
         }
 
-        Assert.Equal(all[..(s * n)], Run(1));
+        // Up to four items per expert every item is computed alone: one row gives the first row of a two-row run bit for bit.
+        Assert.Equal(Run(2)[..(s * n)], Run(1));
     }
 }

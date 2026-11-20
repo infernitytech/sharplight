@@ -24,4 +24,11 @@ public sealed class PlacementOptions
     /// turns it off (whole layers go to the fallback).
     /// </summary>
     public bool SplitExperts { get; init; } = true;
+    /// <summary>
+    /// With <see cref="SplitExperts"/> and a CPU fallback: from this many rows per forward pass (prefill) the routed experts that the
+    /// placement put on the CPU run on the GPU before them instead, their weights copied in for each pass
+    /// (<see cref="CompileOptions.StreamWeights"/>; the GPU keeps room for one layer's experts). 0 turns streaming off. Default 32;
+    /// <c>SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS</c> overrides it.
+    /// </summary>
+    public int StreamExpertsMinRows { get; init; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS"), out int rows) && rows >= 0 ? rows : 32;
 }

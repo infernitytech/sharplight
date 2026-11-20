@@ -108,6 +108,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// <inheritdoc />
     public bool SharesWeights => true;
 
+    /// <inheritdoc />
+    public bool StreamsWeights => true;
+
     /// <summary>
     /// Live memory figures of the largest device-local heap: VK_EXT_memory_budget when the driver has it (accounts for other
     /// processes), else our own tally against the configured budget. <see cref="DeviceMemoryLimits.DeviceMemory"/> caps the total.

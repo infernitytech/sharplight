@@ -11,6 +11,11 @@ public sealed class PlacementPlan
     public required IReadOnlyDictionary<string, int> GroupDevice { get; init; }
     /// <summary>Bytes of weights and state assigned to each slot.</summary>
     public required IReadOnlyDictionary<int, long> BytesPerSlot { get; init; }
+    /// <summary>
+    /// Segments of routed experts on the CPU fallback that a GPU runs instead for large batches, streaming their weights
+    /// (<see cref="PlacementOptions.StreamExpertsMinRows"/>): segment index to the slot of that GPU.
+    /// </summary>
+    public IReadOnlyDictionary<int, int> StreamedSegments { get; init; } = new Dictionary<int, int>();
 
     /// <summary>Multi-line, human-readable summary of the placement.</summary>
     public string Describe()

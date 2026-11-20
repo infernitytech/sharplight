@@ -156,14 +156,55 @@ internal sealed unsafe class MatMulIdOp : CpuOp
 
         if (_intDot)
         {
-            RunIntDot(ids, items, na);
-            return;
+            // Fused dots recompute the grid lookups for every item: experts with many items (prefill) dequantize their tiles once on the
+            // float path instead, after the experts with few items ran on the integer dots.
+            int many = _fusedDot ? PartitionByItems(na) : 0;
+            if (many < na)
+            {
+                RunIntDot(ids, items, na - many);
+            }
+
+            if (many == 0)
+            {
+                return;
+            }
+
+            // The float path's experts follow the integer-dot ones in _active.
+            new Span<int>(_active + (na - many), many).CopyTo(new Span<int>(_active, many));
+            na = many;
         }
+
         _groups = (_n + 3) / 4;
         _units = na * _groups;
         int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
         _per = (_units + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
+    }
+
+    /// <summary>
+    /// Orders <see cref="_active"/> so that the experts with at most <see cref="FusedRowsMax"/> items come first (in expert order, which
+    /// keeps every row's result the same whatever the other experts' counts); returns the number of experts with more.
+    /// </summary>
+    private int PartitionByItems(int activeExperts)
+    {
+        int few = 0;
+        int many = 0;
+        int* manyExperts = _cursor;   // free scratch until RunIntDot fills its cursors
+        for (int i = 0; i < activeExperts; i++)
+        {
+            int e = _active[i];
+            if (_cnt[e] <= FusedRowsMax)
+            {
+                _active[few++] = e;
+            }
+            else
+            {
+                manyExperts[many++] = e;
+            }
+        }
+
+        new Span<int>(manyExperts, many).CopyTo(new Span<int>(_active + few, many));
+        return many;
     }
 
     /// <summary>Quantizes every distinct activation row once, points each sorted item at its row and runs the units.</summary>

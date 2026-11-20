@@ -22,6 +22,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private readonly HashSet<BufferDecl> _borrowedStates = [];   // state buffers another segment of the same graph allocated (and frees)
     /// <summary>Activation buffers shared with the model's other segments on this device (see <see cref="SharedArena{T}"/>).</summary>
     private readonly Dictionary<BufferDecl, SharedArenaBuffer<Allocation>> _sharedArenas = [];
+    /// <summary>With <see cref="CompileOptions.StreamWeights"/>: the weight buffers, copied in at every execution (see <see cref="StreamWeights"/>).</summary>
+    private readonly List<BufferDecl> _streamedWeights = [];
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -127,6 +129,14 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             foreach (var b in program.Buffers)
             {
                 ulong size = (ulong)Math.Max(16, b.Bytes);
+                // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
+                if (b.Kind == BufferKind.Weight && options.StreamWeights && options.StateScope is { } streamScope)
+                {
+                    bytes += ShareArena(dev, streamScope, "stream:" + _streamedWeights.Count, b, size);
+                    _streamedWeights.Add(b);
+                    continue;
+                }
+
                 if (b.Kind == BufferKind.Weight && b.Weight is { } w && options.SharedWeights is { } shared)
                 {
                     // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
@@ -141,16 +151,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                 // The segments of one graph on this device run one after another and share their transient buffers.
                 if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope && SharedArena<Allocation>.Enabled)
                 {
-                    var arenas = dev.SharedArenas.GetOrCreateValue(arenaScope);
-                    if (!arenas.TryGetValue(b.Name, out var arena))
-                    {
-                        arenas[b.Name] = arena = new SharedArena<Allocation>();
-                    }
-
-                    var sharedArena = arena.Acquire((long)size, n => dev.Memory.Allocate((ulong)n, MemoryUsage.Device, Purpose(b)), dev.Memory.Free, out bool allocated);
-                    _sharedArenas[b] = sharedArena;
-                    _alloc[b] = sharedArena.Buffer;
-                    bytes += allocated ? b.Bytes : 0;
+                    bytes += ShareArena(dev, arenaScope, b.Name, b, size);
                     continue;
                 }
 
@@ -178,7 +179,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             }
             DeviceMemoryBytes = bytes;
             var swUp = Stopwatch.StartNew();
-            UploadWeights();
+            if (_streamedWeights.Count == 0)
+            {
+                UploadWeights();
+            }
             if (DiagnosticSwitches.LoadTiming)
             {
                 Console.Error.WriteLine($"[load] upload segment {segment.Index}: {swUp.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB");
@@ -293,6 +297,43 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>
     private static string LayoutName(BufferDecl b) => b.Repack == WeightRepack.None ? "" : $"vulkan:{b.Repack}:{b.RepackRowElements}";
 
+    /// <summary>Takes the buffer of <paramref name="b"/> from the arena <paramref name="key"/> of <paramref name="scope"/> on the device; returns the bytes newly allocated.</summary>
+    private long ShareArena(VulkanDevice dev, object scope, string key, BufferDecl b, ulong size)
+    {
+        var arenas = dev.SharedArenas.GetOrCreateValue(scope);
+        if (!arenas.TryGetValue(key, out var arena))
+        {
+            arenas[key] = arena = new SharedArena<Allocation>();
+        }
+
+        var sharedArena = arena.Acquire((long)size, n => dev.Memory.Allocate((ulong)n, MemoryUsage.Device, Purpose(b)), dev.Memory.Free, out bool allocated);
+        _sharedArenas[b] = sharedArena;
+        _alloc[b] = sharedArena.Buffer;
+        return allocated ? b.Bytes : 0;
+    }
+
+    /// <summary>Copies the streamed weights into their shared buffers (<see cref="CompileOptions.StreamWeights"/>) and waits for the copies.</summary>
+    private void StreamWeights()
+    {
+        long total = _streamedWeights.Sum(b => b.Bytes);
+        long largestRow = _streamedWeights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
+        var timer = Stopwatch.StartNew();
+        using (var uploader = new WeightUploader(_dev, _pool, total, largestRow))
+        {
+            foreach (var buffer in _streamedWeights)
+            {
+                uploader.Upload(buffer, _alloc[buffer]);
+            }
+
+            uploader.Complete();
+        }
+
+        if (DiagnosticSwitches.LoadTiming)
+        {
+            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB in {timer.Elapsed.TotalMilliseconds:F1} ms");
+        }
+    }
+
     // ---- I/O ---------------------------------------------------------------------------------
     /// <inheritdoc />
     /// <exception cref="ArgumentException">The data exceeds the size compiled for (see <see cref="CompileOptions.MaxTokens"/>).</exception>
@@ -396,6 +437,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
     {
         _dev.ThrowIfDisposed();
+        if (_streamedWeights.Count > 0)
+        {
+            StreamWeights();
+        }
+
         var rt = _staging[_program.RuntimeBuffer];
         var slots = new Span<uint>(rt.Mapped, 64);
         foreach (var (name, slot) in _program.ScalarSlots)

@@ -53,7 +53,9 @@ public static class PlacementPlanner
         var groupOf = GroupKeys(graph, fallbackSlot >= 0, splitExperts);
         var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile, groupOf);
         var transfers = splitExperts ? MeasureExpertTransfers(graph, options.Compile, groupOf) : [];
-        var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, options, slots.Count, fallbackSlot, out long[] used);
+        bool stream = splitExperts && options.StreamExpertsMinRows > 0 && slots[fallbackSlot].Device.Info.Kind == DeviceKind.Cpu
+            && options.Devices.Any(d => d.Device.StreamsWeights);
+        var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, options, slots.Count, fallbackSlot, out long[] used);
         var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot, groupOf);
         var segments = BuildSegments(graph, nodeSlot, slots, options.GroupDataDependentCounts);
         return new PlacementPlan
@@ -62,6 +64,7 @@ public static class PlacementPlanner
             Segments = segments,
             GroupDevice = groupDevice,
             BytesPerSlot = Enumerable.Range(0, slots.Count).ToDictionary(i => i, i => used[i]),
+            StreamedSegments = stream ? StreamedSegments(segments, slots, fallbackSlot, groupOf) : new Dictionary<int, int>(),
         };
     }
 
@@ -308,25 +311,51 @@ public static class PlacementPlanner
     /// (<see cref="TableGroupSuffix"/>) that does not fit the current device goes to the fallback slot and the fill continues where it was;
     /// tables larger than every device do not count toward the shares. <paramref name="used"/> receives the bytes placed on each slot.
     /// </summary>
-    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, Dictionary<string, long> transfers, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
+    /// <summary>
+    /// The fallback segments that hold only routed experts (and views of their values), each with the slot of the device before it when that device streams weights and
+    /// runs every node of the segment (<see cref="PlacementPlan.StreamedSegments"/>).
+    /// </summary>
+    private static Dictionary<int, int> StreamedSegments(List<GraphSegment> segments, List<DeviceSlot> slots, int fallbackSlot, Func<Node, string> groupOf)
+    {
+        var streamed = new Dictionary<int, int>();
+        for (int i = 1; i < segments.Count; i++)
+        {
+            var segment = segments[i];
+            int device = segments[i - 1].DeviceSlot;
+            if (segment.DeviceSlot != fallbackSlot || device == fallbackSlot || !slots[device].Device.StreamsWeights
+                || !segment.Nodes.All(n => (IsExpertGroup(groupOf(n)) || n.Op.Category == OpCategory.View) && slots[device].Device.Supports(n).IsSupported))
+            {
+                continue;
+            }
+
+            streamed[i] = device;
+        }
+
+        return streamed;
+    }
+
+    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, Dictionary<string, long> transfers, bool stream, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
     {
         var expertGroups = groupOrder.Where(IsExpertGroup).ToList();
         var pinned = new HashSet<string>();
         var groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, 0, out used);
         // Routed experts go to the fallback layer by layer, from the first layer on, until every other group fits the devices. Each moved
-        // group adds device buffers for the values it exchanges with its layer, and the devices then also hold the graph outputs.
+        // group adds device buffers for the values it exchanges with its layer, the devices then also hold the graph outputs, and with
+        // streaming (prefill on the GPU) the largest moved group's weights.
         for (int i = 0; i < expertGroups.Count && SpillsBesidesExperts(groupDevice, fallbackSlot); i++)
         {
             pinned.Add(expertGroups[i]);
-            long overhead = transfers.GetValueOrDefault(OutputsKey) + pinned.Sum(g => transfers.GetValueOrDefault(g));
+            long overhead = transfers.GetValueOrDefault(OutputsKey) + pinned.Sum(g => transfers.GetValueOrDefault(g))
+                + (stream ? pinned.Max(g => groupBytes[g]) : 0);
             groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, overhead, out used);
         }
 
         if (groupDevice.Any(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key) && !pinned.Contains(kv.Key)))
         {
             // Experts that spilled after the pinned ones exchange values too.
-            long overhead = transfers.GetValueOrDefault(OutputsKey)
-                + groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Sum(kv => transfers.GetValueOrDefault(kv.Key));
+            var moved = groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key).ToList();
+            long overhead = transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g))
+                + (stream ? moved.Max(g => groupBytes[g]) : 0);
             groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, overhead, out used);
         }
 
