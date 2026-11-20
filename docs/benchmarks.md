@@ -7719,6 +7719,7 @@ and not changed:
 | fused split-K combine for 4 x 128 head groups (`SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH=512`, new switch) | 64 sequences -0.6 % (CUDA) / -0.2 % (Vulkan), 1 and 16 sequences ±0.4 %; section 36 measured -1 % at 4096 tokens: not worth a default |
 | decode attention target workgroups 1024-4096, minimum keys 64-128, 1-4 rows per batch (`SHARPLIGHT_ATTN_DECODE_CFG`) | 16 sequences within ±0.3 %; 64 sequences -0.4 % to +1.5 % (slowest: 4096 workgroups, 2 rows) |
 | `__launch_bounds__` on every Slang kernel's CUDA form | -0.8 / +0.5 / -0.7 % at 1 / 16 / 64 sequences: noise |
+| two workgroups per SM for the CUDA forms of `gemm_fp8.slang` (`__launch_bounds__(256, 2)`, 128 registers) | 16 sequences +0.2 %, 64 sequences +10 % (spills) |
 | the split row layout instead of the 128-row groups on CUDA (`SHARPLIGHT_FP8_GROUPED=0`) | 64 sequences 17.87 against 17.91 ms: the grouped layout costs decode nothing |
 | the TMA kernel at decode sizes | does not apply (64 rows run the generated split-K GEMMs) |
 
@@ -7735,11 +7736,22 @@ and not changed:
 
 The changes are CUDA-only: the new kernel is compiled only by the CUDA provider's translator and selected only with
 `tensor_copies` (reported by CUDA from compute capability 9.0); the tile-cost change and the new switches are behind the native FP8
-GEMM (CUDA) or default-off. No `.slang` file changed. Kernel inputs on Vulkan: see 57.6.
+GEMM (CUDA) or default-off. No `.slang` file changed. The kernel inputs (source and macros, `SHARPLIGHT_DUMP_KERNELS`) of the 207
+kernels the Vulkan provider compiles for Qwen3-8B-FP8 and Qwen3-0.6B are byte-identical to `develop` (`8ca10b24`), so their SPIR-V
+is too; the Vulkan column of 57.1 is the same build.
 
 ### 57.6 Tests
 
-See the hand-back table in the commit (filled in below after the runs).
+GPU 0, this branch (develop unchanged since `8ca10b24`):
+
+| suite | result |
+|---|---|
+| Sharplight.Cuda.Tests (incl. `NativeFp8GemmMatchesTheCpu` at 1500 rows single and dual: the tensor-copy kernel against the CPU, the generated GEMM and, bit for bit, `gemm_fp8_native.cu`; `TensorMapHeaderParsesPerMap`) | 22 / 0 failed / 1 skipped |
+| Sharplight.Vulkan.Tests on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, all 63 classes) | 1630 / 0 failed / 52 skipped |
+| CudaParityTests (`SHARPLIGHT_TEST_CUDA=1`) | 4 / 0 / 0 |
+| FamilyGenerationTests.Generation_matches_reference_on_cuda | 315 / 0 failed / 100 skipped (models not on the machine) |
+| Qwen3-8B-FP8 on CUDA, 800-token prompt: last-token logits and 64 greedy tokens with `SHARPLIGHT_FP8_TMA=1` and `=0` | bit-identical |
+| Vulkan kernel inputs against `develop` (207 kernels) | identical |
 
 ### 57.7 Reproduce
 
