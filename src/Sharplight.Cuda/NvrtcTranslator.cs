@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using Sharplight.Cuda.Interop;
+using Sharplight.Runtime;
 using Sharplight.Shaders;
 
 namespace Sharplight.Cuda;
@@ -16,10 +18,10 @@ namespace Sharplight.Cuda;
 /// The floating-point headers the source may include (<c>cuda_fp16.h</c>, <c>cuda_bf16.h</c>, <c>cuda_fp8.h</c>) are passed from the files
 /// shipped next to NVRTC, so no CUDA toolkit is needed. Thread-safe.
 /// </summary>
-internal sealed class NvrtcTranslator : KernelTranslator
+internal sealed partial class NvrtcTranslator : KernelTranslator
 {
     /// <summary>Version of the options and the PTX post-processing; part of every cache key.</summary>
-    private const string OptionsVersion = "4";
+    private const string OptionsVersion = "5";
 
     /// <summary>The headers NVRTC needs for the half, bfloat16 and 8-bit float types (redistributable, see docs/cuda.md).</summary>
     private static readonly string[] s_headerNames = ["cuda_fp16.h", "cuda_fp16.hpp", "cuda_bf16.h", "cuda_bf16.hpp", "cuda_fp8.h", "cuda_fp8.hpp"];
@@ -93,10 +95,12 @@ internal sealed class NvrtcTranslator : KernelTranslator
 
         byte[] ptx;
         int dynamicShared = 0;
+        bool dependent = false;
         try
         {
             source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
             dynamicShared = Math.Max(dynamicShared, declaredShared);
+            dependent = ComputeCapability >= DependentLaunchCapability && WaitForPrevious(ref source);
             ptx = Compile(source, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu", Options(ComputeCapability), cubin: false);
         }
         catch (DllNotFoundException e)
@@ -115,8 +119,43 @@ internal sealed class NvrtcTranslator : KernelTranslator
         }
 
         string sharedLine = dynamicShared > 0 ? $"{CudaPtx.SharedHeader}{dynamicShared}\n" : "";
-        return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine), .. ptx];
+        string dependentLine = dependent ? CudaPtx.DependentHeader + "\n" : "";
+        return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine + dependentLine), .. ptx];
     }
+
+    /// <summary>Compute capability from which kernels wait for the previous launch themselves (<c>griddepcontrol</c>, PTX 7.8, sm_90).</summary>
+    internal const int DependentLaunchCapability = 90;
+
+    /// <summary>
+    /// Starts the body of every kernel (<c>extern "C" __global__</c>) of <paramref name="source"/> with <c>griddepcontrol.wait</c> (the
+    /// kernel waits for the completion and the memory of the launch it depends on) and <c>griddepcontrol.launch_dependents</c> (the next
+    /// launch may start its blocks, which then wait the same way). Without a programmatic dependency both are no-ops, so the PTX serves
+    /// plain launches alike; with one (<see cref="DeviceFeatures.DependentLaunches"/>) the next kernel's launch and block setup overlap
+    /// this kernel's last blocks. Returns false when the source has no kernel entry it recognizes.
+    /// </summary>
+    internal static bool WaitForPrevious(ref string source)
+    {
+        var text = new StringBuilder(source.Length + 256);
+        int at = 0, count = 0;
+        foreach (Match entry in KernelEntryPattern().Matches(source))
+        {
+            int body = entry.Index + entry.Length;
+            text.Append(source, at, body - at).Append("\n    asm volatile(\"griddepcontrol.wait;\\n\\tgriddepcontrol.launch_dependents;\" ::: \"memory\");\n");
+            at = body;
+            count++;
+        }
+
+        if (count == 0)
+        {
+            return false;
+        }
+
+        source = text.Append(source, at, source.Length - at).ToString();
+        return true;
+    }
+
+    [GeneratedRegex(@"extern\s+""C""\s+__global__[^{;]*\)\s*\{")]
+    private static partial Regex KernelEntryPattern();
 
     /// <summary>
     /// The NVRTC options of a kernel: PTX for the virtual architecture, no warnings (the Slang prelude has many). The half, bfloat16 and

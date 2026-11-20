@@ -647,8 +647,10 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         fixed (byte* arguments = launch.Arguments)
         {
             void* parameter = arguments;
-            int result = CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
-                (uint)kernel.SharedBytes, _stream, &parameter, null);
+            int result = kernel.WaitsForPrevious && _dev.DependentLaunches
+                ? LaunchDependent(kernel, launch, &parameter)
+                : CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
+                    (uint)kernel.SharedBytes, _stream, &parameter, null);
             if (result != 0)
             {
                 throw new CudaException(result, $"CUDA launch of {launch.Name} (grid {launch.GridX}x{launch.GridY}x{launch.GridZ}) failed: {CudaApi.ErrorText(result)}");
@@ -658,6 +660,39 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         if (DiagnosticSwitches.SyncEachLaunch)
         {
             Synchronize(launch.Name);
+        }
+    }
+
+    /// <summary>
+    /// Launches <paramref name="kernel"/> as a programmatic dependent of the previous launch in the stream (<see cref="CudaDevice.DependentLaunches"/>):
+    /// it may start while that launch's last blocks run and waits for it at its entry. A driver without <c>cuLaunchKernelEx</c> switches
+    /// the device back to plain launches.
+    /// </summary>
+    private int LaunchDependent(CudaKernel kernel, CudaRecordedLaunch launch, void** parameter)
+    {
+        var attribute = new CuLaunchAttribute { Id = CudaApi.LaunchAttributeProgrammaticStreamSerialization, Value = 1 };
+        var config = new CuLaunchConfig
+        {
+            GridX = launch.GridX,
+            GridY = launch.GridY,
+            GridZ = launch.GridZ,
+            BlockX = kernel.ThreadsX,
+            BlockY = kernel.ThreadsY,
+            BlockZ = kernel.ThreadsZ,
+            SharedMemoryBytes = (uint)kernel.SharedBytes,
+            Stream = _stream,
+            Attributes = &attribute,
+            AttributeCount = 1,
+        };
+        try
+        {
+            return CudaApi.cuLaunchKernelEx(&config, kernel.Function, parameter, null);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            _dev.DependentLaunches = false;
+            return CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
+                (uint)kernel.SharedBytes, _stream, parameter, null);
         }
     }
 
