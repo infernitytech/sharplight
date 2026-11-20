@@ -143,6 +143,9 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool NoExpertSum { get; } = IsSet("SHARPLIGHT_NO_EXPERT_SUM");
 
+    /// <summary>Keeps the router's softmax, top-k and weight normalization in separate launches (<c>SHARPLIGHT_NO_ROUTER_FUSION=1</c>).</summary>
+    public static bool NoRouterFusion { get; } = IsSet("SHARPLIGHT_NO_ROUTER_FUSION");
+
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");
 
