@@ -14,9 +14,10 @@ internal sealed partial class CudaPtx
     /// <summary>Start of the header line after the block size of a kernel that uses dynamic shared memory, followed by its bytes.</summary>
     public const string SharedHeader = "// sharplight-shared: ";
 
-    private CudaPtx(byte[] code, string function, uint x, uint y, uint z, int sharedBytes)
+    private CudaPtx(byte[] code, string function, uint x, uint y, uint z, int sharedBytes, CudaTensorMapSpec[] tensorMaps)
     {
         SharedBytes = sharedBytes;
+        TensorMaps = tensorMaps;
         Code = code;
         Function = function;
         ThreadsX = x;
@@ -38,6 +39,9 @@ internal sealed partial class CudaPtx
     /// <summary>Dynamic shared memory the kernel needs at launch (bytes), 0 for kernels with only static shared memory.</summary>
     public int SharedBytes { get; }
 
+    /// <summary>Tensor maps at the end of the kernel's parameters (empty for most kernels).</summary>
+    public CudaTensorMapSpec[] TensorMaps { get; }
+
     /// <summary>Parses the code of a kernel compiled for <see cref="ShaderTarget.Ptx"/> by the <see cref="NvrtcTranslator"/>.</summary>
     /// <param name="code">The kernel's code.</param>
     /// <param name="what">The kernel, for messages.</param>
@@ -56,7 +60,8 @@ internal sealed partial class CudaPtx
             uint.Parse(threads.Groups[1].Value, CultureInfo.InvariantCulture),
             uint.Parse(threads.Groups[2].Value, CultureInfo.InvariantCulture),
             uint.Parse(threads.Groups[3].Value, CultureInfo.InvariantCulture),
-            SharedPattern().Match(text) is { Success: true } shared ? int.Parse(shared.Groups[1].Value, CultureInfo.InvariantCulture) : 0);
+            SharedPattern().Match(text) is { Success: true } shared ? int.Parse(shared.Groups[1].Value, CultureInfo.InvariantCulture) : 0,
+            TensorMapsPattern().Match(text) is { Success: true } maps ? CudaTensorMapSpec.ParseList(maps.Groups[1].Value) : []);
     }
 
     [GeneratedRegex(@"^// sharplight-threads: (\d+) (\d+) (\d+)$", RegexOptions.Multiline)]
@@ -64,6 +69,9 @@ internal sealed partial class CudaPtx
 
     [GeneratedRegex(@"^// sharplight-shared: (\d+)$", RegexOptions.Multiline)]
     private static partial Regex SharedPattern();
+
+    [GeneratedRegex(@"^// sharplight-tensormaps: (.+)$", RegexOptions.Multiline)]
+    private static partial Regex TensorMapsPattern();
 
     [GeneratedRegex(@"\.entry\s+(\w+)\s*\(")]
     private static partial Regex EntryPattern();

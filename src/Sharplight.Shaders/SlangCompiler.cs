@@ -121,8 +121,11 @@ public sealed class SlangCompiler : IDisposable
     /// <param name="macros">Preprocessor macros specializing the kernel.</param>
     /// <param name="cache">Optional model-level cache, consulted first and given the kernel once compiled.</param>
     /// <exception cref="NotSupportedException">The target does not take CUDA C++.</exception>
+    /// <param name="tensorMaps">
+    /// Tensor maps the provider encodes into the kernel's parameters after its scalars (<see cref="CudaTensorMapsHeader"/>), or null.
+    /// </param>
     public CompiledKernel CompileCuda(string file, string prefix, string entryPoint, int threads, int dynamicSharedBytes, ShaderTarget target,
-        IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache = null)
+        IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache = null, string? tensorMaps = null)
     {
         if (!CompilesCuda(target))
         {
@@ -135,6 +138,11 @@ public sealed class SlangCompiler : IDisposable
         if (dynamicSharedBytes > 0)
         {
             text.Append(CultureInfo.InvariantCulture, $"{CudaSharedHeader}{dynamicSharedBytes}\n");
+        }
+
+        if (tensorMaps is not null)
+        {
+            text.Append(CudaTensorMapsHeader).Append(tensorMaps).Append('\n');
         }
 
         foreach (var (name, value) in macros.OrderBy(m => m.Key, StringComparer.Ordinal))
@@ -179,6 +187,15 @@ public sealed class SlangCompiler : IDisposable
     /// (<c>// sharplight-shared: 101376</c>); the translator keeps it in front of the PTX.
     /// </summary>
     public const string CudaSharedHeader = "// sharplight-shared: ";
+
+    /// <summary>
+    /// Start of the header line of a CUDA C++ kernel whose parameters end in tensor maps (<c>CUtensorMap</c>, 64-byte aligned after the
+    /// 32-bit scalars), followed by one description per map, separated by <c>;</c>: the index of the pointer argument it covers, the
+    /// rank, the dimensions innermost first, the byte strides of the outer dimensions and the box, each a comma-separated list
+    /// (<c>// sharplight-tensormaps: 0 2 4096,2048 4224 128,128</c>). Elements are bytes; the copies swizzle 128-byte rows. The
+    /// translator keeps the line in front of the PTX after the shared memory line.
+    /// </summary>
+    public const string CudaTensorMapsHeader = "// sharplight-tensormaps: ";
 
     private CompiledKernel Compile(string name, string source, string sourceDigest, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache)

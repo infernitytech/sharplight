@@ -115,6 +115,13 @@ public sealed partial class GraphLowerer
     private const double NativeFp8TallBlockCost = 1.75;
 
     /// <summary>
+    /// <see cref="NativeFp8TallBlockCost"/> when the 128-row tiles run on <c>gemm_fp8_tma.cu</c> (64-row tiles keep
+    /// <c>gemm_fp8_native.cu</c>): fitted to Qwen3-8B-FP8 prefill (8192 rows in 1024-row passes: 9,971 tok/s at 1.75, 10,515 at 1.3,
+    /// 10,486 at 1.0; 512 and 2048 rows within 1 %).
+    /// </summary>
+    private const double NativeFp8TmaTallBlockCost = 1.3;
+
+    /// <summary>
     /// Token rows of the hand-written FP8 GEMM's tile for a batch (64 or 128): the one with the fewest estimated block waves times
     /// block time on the GPU's SMs (one block per SM: both use the 99 KB of shared memory).
     /// </summary>
@@ -123,7 +130,7 @@ public sealed partial class GraphLowerer
         long sms = Math.Max(1, _opt.ComputeUnits);
         long columns = Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile);
         double Cost(int tileRows, double blockCost) => (Grid.Div(rows, tileRows) * columns + sms - 1) / sms * blockCost;
-        return Cost(64, 1.0) <= Cost(128, NativeFp8TallBlockCost) ? 64 : 128;
+        return Cost(64, 1.0) <= Cost(128, DiagnosticSwitches.NativeFp8TallCost ?? (NativeFp8TensorCopies ? NativeFp8TmaTallBlockCost : NativeFp8TallBlockCost)) ? 64 : 128;
     }
 
     /// <summary>
@@ -143,12 +150,56 @@ public sealed partial class GraphLowerer
         used.Add(NativeFp8TileRows(maxRows, n, dual));
         return [.. used.Select(tileRows =>
         {
+            if (tileRows == NativeFp8Tile && NativeFp8TensorCopies)
+            {
+                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, b => rows(b) >= minRows && NativeFp8TileRows(rows(b), n, dual) == tileRows, rows);
+            }
+
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("F8N_BM", tileRows), ("DUAL", dual ? 1 : 0));
             var kernel = _compiler.CompileCuda("gemm_fp8_native.cu", dualEpilogue ?? "", "gemm_fp8_native", NativeFp8Threads, NativeFp8SharedBytes,
                 _opt.Target, macros, _opt.Cache);
             return new KernelVariant(b => rows(b) >= minRows && NativeFp8TileRows(rows(b), n, dual) == tileRows, kernel,
                 b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile)));
         })];
+    }
+
+    /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c>: 2 x 4 computing warps and the copy warp.</summary>
+    private const int NativeFp8TmaThreads = 288;
+
+    /// <summary>Dynamic shared memory of <c>gemm_fp8_tma.cu</c>: three stages of 256 rows of 128 codes, two slots of 256 scales, eight barriers.</summary>
+    private const int NativeFp8TmaSharedBytes = 3 * 256 * 128 + 2 * 256 * 4 + 64;
+
+    /// <summary>
+    /// True when the hand-written FP8 GEMM's 128-row tiles run on its warp-specialized form with tensor copies (<c>gemm_fp8_tma.cu</c>,
+    /// <see cref="DeviceFeatures.TensorCopies"/>): persistent blocks, a copy warp and full / empty barriers instead of per-thread
+    /// asynchronous copies and a block barrier per K block (Qwen3-8B-FP8 prefill +8-9 % at 512-8192 rows on the RTX PRO 4500
+    /// Blackwell, benchmarks.md section 57). Disabling <c>tensor_copies</c> or <c>SHARPLIGHT_FP8_TMA=0</c> keeps
+    /// <c>gemm_fp8_native.cu</c>.
+    /// </summary>
+    private bool NativeFp8TensorCopies => DiagnosticSwitches.NativeFp8Tma && _opt.Has(DeviceFeatures.TensorCopies) && _opt.MaxSharedMemory >= NativeFp8TmaSharedBytes;
+
+    /// <summary>
+    /// The launch variant of <c>gemm_fp8_tma.cu</c> for the batches <paramref name="serves"/> selects: one block per SM at most, each
+    /// walking its share of the 128-row tiles, with the tensor maps over x (its <paramref name="xcap"/> rows) and the 128-row weight groups.
+    /// </summary>
+    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows)
+    {
+        bool dual = dualEpilogue is not null;
+        long rowBytes = k + k / 32;
+        var inv = CultureInfo.InvariantCulture;
+        string WeightMap(int pointer) => string.Create(inv, $"{pointer} 3 {k},128,{n / 128} {k},{128 * rowBytes} 128,{(dual ? 64 : 128)},1");
+        var maps = new List<string> { string.Create(inv, $"0 2 {k},{xcap} {rowBytes} 128,128"), WeightMap(1) };
+        if (dual)
+        {
+            maps.Add(WeightMap(2));
+        }
+
+        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
+        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", NativeFp8TmaThreads, NativeFp8TmaSharedBytes,
+            _opt.Target, macros, _opt.Cache, string.Join(';', maps));
+        long sms = Math.Max(1, _opt.ComputeUnits);
+        long columns = Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile);
+        return new KernelVariant(serves, kernel, b => new Grid((uint)Math.Min(sms, (long)Grid.Div(rows(b), NativeFp8Tile) * columns)));
     }
 
     /// <summary>Threads per block of <c>gemm_f16_native.cu</c> per tile configuration (0: 128 x 256, 1: 128 x 128).</summary>

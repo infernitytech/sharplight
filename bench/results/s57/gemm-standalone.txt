@@ -1,0 +1,42 @@
+== ../../src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu
+  check T=2048: max err 0.000183 of max 1.17e+03
+  sustained: 0.324 ms 212 TFLOPS, 204.6 W, 0.965 pJ/flop
+T= 2048 K= 4096 N= 4096 dual=0 split=1: 0.293 ms 235 TFLOPS 59 GB/s of weights
+  sustained: 1.252 ms 220 TFLOPS, 204.3 W, 0.931 pJ/flop
+T= 8192 K= 4096 N= 4096 dual=0 split=1: 1.204 ms 228 TFLOPS 14 GB/s of weights
+  check T=2048: max err 0.000183 of max 1.17e+03
+  sustained: 0.088 ms 195 TFLOPS, 190.4 W, 0.978 pJ/flop
+T= 2048 K= 4096 N= 1024 dual=0 split=1: 0.084 ms 205 TFLOPS 51 GB/s of weights
+  sustained: 0.332 ms 207 TFLOPS, 199.3 W, 0.964 pJ/flop
+T= 8192 K= 4096 N= 1024 dual=0 split=1: 0.315 ms 218 TFLOPS 14 GB/s of weights
+  check T=2048: max err 0.0781 of max 3.58e+05
+  sustained: 1.891 ms 218 TFLOPS, 189.0 W, 0.867 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.683 ms 245 TFLOPS 62 GB/s of weights
+  sustained: 7.567 ms 218 TFLOPS, 195.0 W, 0.895 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 7.470 ms 221 TFLOPS 14 GB/s of weights
+  check T=2048: max err 0.000488 of max 1.96e+03
+  sustained: 0.957 ms 215 TFLOPS, 204.3 W, 0.949 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.868 ms 237 TFLOPS 60 GB/s of weights
+  sustained: 3.636 ms 227 TFLOPS, 207.9 W, 0.917 pJ/flop
+T= 8192 K=12288 N= 4096 dual=0 split=1: 3.575 ms 231 TFLOPS 15 GB/s of weights
+== ../../src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu -DPERSIST=82 -DTMA -DKENTRY=gemm_fp8_tma
+  check T=2048: max err 0.000183 of max 1.17e+03
+  sustained: 0.306 ms 224 TFLOPS, 197.7 W, 0.881 pJ/flop
+T= 2048 K= 4096 N= 4096 dual=0 split=1: 0.268 ms 256 TFLOPS 64 GB/s of weights
+  sustained: 1.164 ms 236 TFLOPS, 204.1 W, 0.864 pJ/flop
+T= 8192 K= 4096 N= 4096 dual=0 split=1: 1.116 ms 246 TFLOPS 16 GB/s of weights
+  check T=2048: max err 0.000183 of max 1.17e+03
+  sustained: 0.083 ms 206 TFLOPS, 203.1 W, 0.985 pJ/flop
+T= 2048 K= 4096 N= 1024 dual=0 split=1: 0.080 ms 215 TFLOPS 54 GB/s of weights
+  sustained: 0.314 ms 219 TFLOPS, 197.1 W, 0.900 pJ/flop
+T= 8192 K= 4096 N= 1024 dual=0 split=1: 0.293 ms 235 TFLOPS 15 GB/s of weights
+  check T=2048: max err 0.0781 of max 3.58e+05
+  sustained: 1.740 ms 237 TFLOPS, 199.7 W, 0.842 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.534 ms 269 TFLOPS 68 GB/s of weights
+  sustained: 6.956 ms 237 TFLOPS, 195.0 W, 0.822 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 6.874 ms 240 TFLOPS 15 GB/s of weights
+  check T=2048: max err 0.000488 of max 1.96e+03
+  sustained: 0.895 ms 230 TFLOPS, 201.4 W, 0.874 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.799 ms 258 TFLOPS 65 GB/s of weights
+  sustained: 3.396 ms 243 TFLOPS, 207.7 W, 0.856 pJ/flop
+T= 8192 K=12288 N= 4096 dual=0 split=1: 3.327 ms 248 TFLOPS 16 GB/s of weights

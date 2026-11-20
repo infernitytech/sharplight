@@ -135,7 +135,8 @@ internal sealed class CudaDeviceProperties
     /// (Ampere) the tensor cores run the cooperative-matrix kernels through their CUDA forms (<c>cuda_mma.slang</c>: <c>ldmatrix</c> and
     /// <c>mma.sync</c> on f16, bf16 and int8 with the MMA register layout, <see cref="DeviceFeatures.MatrixMmaLayout"/>), and bfloat16
     /// is native; from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>), the 8-bit float types and the hand-written
-    /// FP8 GEMM (<see cref="DeviceFeatures.NativeGemmFp8"/>). Turing (7.5) has
+    /// FP8 GEMM (<see cref="DeviceFeatures.NativeGemmFp8"/>); from 9.0 (Hopper, Blackwell) tensor copies
+    /// (<see cref="DeviceFeatures.TensorCopies"/>). Turing (7.5) has
     /// <c>mma.sync</c> only in smaller shapes and keeps the SIMT kernels.
     /// </summary>
     public static IReadOnlySet<string> FeaturesFor(int computeCapability)
@@ -151,6 +152,12 @@ internal sealed class CudaDeviceProperties
         {
             // The hand-written FP8 GEMM (gemm_fp8_native.cu): 99 KB of dynamic shared memory, which every GPU from 8.9 has.
             features.UnionWith([DeviceFeatures.MatrixFp8, DeviceFeatures.Float8, DeviceFeatures.NativeGemmFp8]);
+        }
+
+        if (computeCapability >= 90)
+        {
+            // Tensor copies (cp.async.bulk.tensor with mbarriers): the warp-specialized FP8 GEMM (gemm_fp8_tma.cu).
+            features.Add(DeviceFeatures.TensorCopies);
         }
 
         return features;

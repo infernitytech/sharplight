@@ -518,18 +518,31 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
                 continue;
             }
 
-            recorded.Add(new CudaRecordedLaunch(launch.Name, ProfileName(launch.Name, variant.Kernel.EntryPoint), _dev.Kernel(variant.Kernel), grid.X, grid.Y, grid.Z, PackArguments(launch, bindings)));
+            var kernel = _dev.Kernel(variant.Kernel);
+            recorded.Add(new CudaRecordedLaunch(launch.Name, ProfileName(launch.Name, variant.Kernel.EntryPoint), kernel, grid.X, grid.Y, grid.Z,
+                PackArguments(launch, bindings, kernel.TensorMaps)));
         }
 
         return [.. recorded];
     }
 
-    /// <summary>The kernel's parameter struct: every pointer (8 bytes) first, then the 32-bit scalars, as the kernels declare them.</summary>
-    private byte[] PackArguments(KernelLaunch launch, Bindings bindings)
+    /// <summary>
+    /// The kernel's parameter struct: every pointer (8 bytes) first, then the 32-bit scalars, as the kernels declare them, then the
+    /// kernel's tensor maps (<paramref name="tensorMaps"/>, 128 bytes each from the next 64-byte boundary), encoded over the pointers
+    /// they describe.
+    /// </summary>
+    private byte[] PackArguments(KernelLaunch launch, Bindings bindings, CudaTensorMapSpec[] tensorMaps)
     {
         int pointers = launch.Args.Count(a => a is PointerArg);
         int bytes = pointers * 8 + (launch.Args.Count - pointers) * 4;
+        int mapsOffset = (bytes + 63) & ~63;
+        if (tensorMaps.Length > 0)
+        {
+            bytes = mapsOffset + tensorMaps.Length * 128;
+        }
+
         var packed = new byte[Math.Max(16, (bytes + 15) & ~15)];
+        var addresses = new ulong[pointers];
         fixed (byte* p = packed)
         {
             int offset = 0;
@@ -537,7 +550,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             {
                 if (arg is PointerArg pointer)
                 {
-                    *(ulong*)(p + offset) = _alloc[pointer.Buffer].Pointer + (ulong)pointer.ByteOffset;
+                    addresses[offset / 8] = _alloc[pointer.Buffer].Pointer + (ulong)pointer.ByteOffset;
+                    *(ulong*)(p + offset) = addresses[offset / 8];
                     offset += 8;
                 }
             }
@@ -560,9 +574,41 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
                         break;
                 }
             }
+
+            for (int m = 0; m < tensorMaps.Length; m++)
+            {
+                EncodeTensorMap(p + mapsOffset + m * 128, tensorMaps[m], addresses[tensorMaps[m].Pointer], launch.Name);
+            }
         }
 
         return packed;
+    }
+
+    /// <summary>Encodes a tensor map of byte elements with 128-byte swizzled boxes over <paramref name="address"/>.</summary>
+    private static void EncodeTensorMap(byte* map, CudaTensorMapSpec spec, ulong address, string launch)
+    {
+        int rank = spec.Dims.Length;
+        var dims = stackalloc ulong[rank];
+        var strides = stackalloc ulong[Math.Max(1, rank - 1)];
+        var box = stackalloc uint[rank];
+        var elementStrides = stackalloc uint[rank];
+        for (int d = 0; d < rank; d++)
+        {
+            dims[d] = spec.Dims[d];
+            box[d] = spec.Box[d];
+            elementStrides[d] = 1;
+            if (d > 0)
+            {
+                strides[d - 1] = spec.Strides[d - 1];
+            }
+        }
+
+        int result = CudaApi.cuTensorMapEncodeTiled(map, CudaApi.TensorMapUInt8, (uint)rank, address, dims, strides, box, elementStrides, 0,
+            CudaApi.TensorMapSwizzle128, CudaApi.TensorMapL2Promotion256, 0);
+        if (result != 0)
+        {
+            throw new CudaException(result, $"Tensor map of {launch} (address 0x{address:x}, dims {string.Join(',', spec.Dims)}) could not be encoded: {CudaApi.ErrorText(result)}");
+        }
     }
 
     /// <summary>Launches <paramref name="launches"/> on the segment's stream, waits for them and returns the GPU time in ms.</summary>

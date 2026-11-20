@@ -43,6 +43,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   attention one key row per batch). FP8 GEMMs run at 180-195 TFLOPS in prefill; the down projection's activation quantization cannot
   move into the gate / up store (its 128-value scale groups span two 64-column dual tiles). Next: FP8 prefill per row, a Q / K / V
   multi-output GEMM for decode batches (K / V latency bound at ~270-450 GB/s).
+  Round 13 (§57): the FP8 GEMMs run at the board's 200 W limit, so they are compared per SM cycle and sustained, not in bursts
+  (ours 65 % of the MMA peak per cycle, CUTLASS ~90 %); a warp-specialized persistent FP8 GEMM with tensor copies (CUDA, compute
+  capability 9.0+, 76 %) lifts Qwen3-8B-FP8 prefill 9-11 % to 0.99 / 0.88 / 0.86x of vLLM at 512 / 2048 / 8192 rows; Vulkan
+  unchanged. Decode at 64 sequences unchanged (CUDA 17.9, Vulkan 17.3, vLLM 15.6 ms per step; attention configurations, fused
+  combine and launch bounds measured at ±1 %). Next: the FP8 promotion (per-output scale products), the CUDA forms of
+  `gemm_fp8.slang` at decode sizes (0.7 ms per step behind their SPIR-V forms), a multi-output q / k / v GEMM, split-K reductions without a launch.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs

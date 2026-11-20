@@ -73,6 +73,14 @@ public static class DeviceFeatures
     public const string NativeGemmFp8 = "native_gemm_fp8";
 
     /// <summary>
+    /// The device copies tiles of a tensor from device memory into a workgroup's shared memory with one asynchronous instruction
+    /// described by a tensor map (CUDA: <c>cp.async.bulk.tensor</c>, compute capability 9.0 and later), completing on shared-memory
+    /// barriers. The provider's hand-written GEMMs use it for warp-specialized main loops (a copy warp and computing warps);
+    /// disabling it keeps their per-thread asynchronous copies.
+    /// </summary>
+    public const string TensorCopies = "tensor_copies";
+
+    /// <summary>
     /// Large matrix products of 16-bit float weights (f16, and bf16 stored as f16) run on a hand-written f16 tensor-core GEMM of the
     /// provider, with the operands and precision of <see cref="LibraryGemm"/> but without the vendor library (CUDA, compute capability
     /// 8.0 and later); preferred over the library where both exist. Disabling it leaves those products to the library or the
@@ -114,7 +122,7 @@ public static class DeviceFeatures
     public const string PagedKv = "paged_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, LaunchGraphs];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, TensorCopies, LaunchGraphs];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>
