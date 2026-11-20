@@ -216,8 +216,8 @@ public sealed class CudaCodeTests
             Assert.True(Math.Abs(reference[i] - actual[i]) <= 1e-4 * scale, $"y[{i}]: {actual[i]} vs the generated GEMM's {reference[i]}");
         }
 
-        // The warp-specialized form with tensor copies (128-row tiles, from compute capability 9.0; opt-in, run the suite with
-        // SHARPLIGHT_FP8_TMA=1 to cover it) sums like the per-thread copies' kernel: bit for bit the same results.
+        // The warp-specialized form with tensor copies (128-row tiles, from compute capability 9.0) sums like the per-thread copies'
+        // kernel: bit for bit the same results.
         if (info.Features.Contains(DeviceFeatures.TensorCopies))
         {
             var copies = new DeviceOptions();

@@ -115,6 +115,13 @@ public sealed partial class GraphLowerer
     private const double NativeFp8TallBlockCost = 1.75;
 
     /// <summary>
+    /// <see cref="NativeFp8TallBlockCost"/> when the 128-row tiles run on <c>gemm_fp8_tma.cu</c> (64-row tiles keep
+    /// <c>gemm_fp8_native.cu</c>): fitted to Qwen3-8B-FP8 prefill (8192 rows in 1024-row passes: 9,971 tok/s at 1.75, 10,515 at 1.3,
+    /// 10,486 at 1.0; 512 and 2048 rows within 1 %).
+    /// </summary>
+    private const double NativeFp8TmaTallBlockCost = 1.3;
+
+    /// <summary>
     /// Token rows of the hand-written FP8 GEMM's tile for a batch (64 or 128): the one with the fewest estimated block waves times
     /// block time on the GPU's SMs (one block per SM: both use the 99 KB of shared memory).
     /// </summary>
@@ -123,7 +130,7 @@ public sealed partial class GraphLowerer
         long sms = Math.Max(1, _opt.ComputeUnits);
         long columns = Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile);
         double Cost(int tileRows, double blockCost) => (Grid.Div(rows, tileRows) * columns + sms - 1) / sms * blockCost;
-        return Cost(64, 1.0) <= Cost(128, DiagnosticSwitches.NativeFp8TallCost ?? NativeFp8TallBlockCost) ? 64 : 128;
+        return Cost(64, 1.0) <= Cost(128, DiagnosticSwitches.NativeFp8TallCost ?? (NativeFp8TensorCopies ? NativeFp8TmaTallBlockCost : NativeFp8TallBlockCost)) ? 64 : 128;
     }
 
     /// <summary>
@@ -165,9 +172,9 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// True when the hand-written FP8 GEMM's 128-row tiles run on its warp-specialized form with tensor copies (<c>gemm_fp8_tma.cu</c>,
     /// <see cref="DeviceFeatures.TensorCopies"/>): persistent blocks, a copy warp and full / empty barriers instead of per-thread
-    /// asynchronous copies and a block barrier per K block (Qwen3-8B shapes at 1024-8192 rows: 7-10 % faster under the board's power
-    /// limit standalone, equal in a model's prefill: opt-in with <c>SHARPLIGHT_FP8_TMA=1</c>, see benchmarks.md section 57).
-    /// Disabling <c>tensor_copies</c> keeps <c>gemm_fp8_native.cu</c>.
+    /// asynchronous copies and a block barrier per K block (Qwen3-8B-FP8 prefill +8-9 % at 512-8192 rows on the RTX PRO 4500
+    /// Blackwell, benchmarks.md section 57). Disabling <c>tensor_copies</c> or <c>SHARPLIGHT_FP8_TMA=0</c> keeps
+    /// <c>gemm_fp8_native.cu</c>.
     /// </summary>
     private bool NativeFp8TensorCopies => DiagnosticSwitches.NativeFp8Tma && _opt.Has(DeviceFeatures.TensorCopies) && _opt.MaxSharedMemory >= NativeFp8TmaSharedBytes;
 

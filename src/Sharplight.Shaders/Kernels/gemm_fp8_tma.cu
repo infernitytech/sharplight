@@ -113,21 +113,29 @@ static __device__ __forceinline__ void f8n_mbar_wait(f8n_u32 bar, f8n_u32 parity
                  :: "r"(bar), "r"(parity) : "memory");
 }
 
+// Destination space of the bulk and tensor copies: the block's own shared memory (PTX 8.6, CUDA 12.8). The cluster form that older
+// compilers take makes ptxas check at run time that the address is the block's, with a fallback call that needs local memory.
+#if __CUDACC_VER_MAJOR__ > 12 || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 8)
+#define F8N_DST "shared::cta"
+#else
+#define F8N_DST "shared::cluster"
+#endif
+
 static __device__ __forceinline__ void f8n_tma2(f8n_u32 dst, const F8nTensorMap* map, int c0, int c1, f8n_u32 bar)
 {
-    asm volatile("cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1, {%2, %3}], [%4];\n"
+    asm volatile("cp.async.bulk.tensor.2d." F8N_DST ".global.mbarrier::complete_tx::bytes [%0], [%1, {%2, %3}], [%4];\n"
                  :: "r"(dst), "l"((f8n_u64)map), "r"(c0), "r"(c1), "r"(bar) : "memory");
 }
 
 static __device__ __forceinline__ void f8n_tma3(f8n_u32 dst, const F8nTensorMap* map, int c0, int c1, int c2, f8n_u32 bar)
 {
-    asm volatile("cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1, {%2, %3, %4}], [%5];\n"
+    asm volatile("cp.async.bulk.tensor.3d." F8N_DST ".global.mbarrier::complete_tx::bytes [%0], [%1, {%2, %3, %4}], [%5];\n"
                  :: "r"(dst), "l"((f8n_u64)map), "r"(c0), "r"(c1), "r"(c2), "r"(bar) : "memory");
 }
 
 static __device__ __forceinline__ void f8n_bulk(f8n_u32 dst, const void* src, f8n_u32 bytes, f8n_u32 bar)
 {
-    asm volatile("cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1], %2, [%3];\n"
+    asm volatile("{\n .reg .u64 g;\n cvta.to.global.u64 g, %1;\n cp.async.bulk." F8N_DST ".global.mbarrier::complete_tx::bytes [%0], [g], %2, [%3];\n}\n"
                  :: "r"(dst), "l"(src), "r"(bytes), "r"(bar) : "memory");
 }
 
@@ -163,7 +171,7 @@ static __device__ __forceinline__ f8n_u32 f8n_brow(f8n_u32 wn, f8n_u32 j)
 #endif
 }
 
-extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const __grid_constant__ F8nParams p)
+extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __grid_constant__ F8nParams p)
 {
     extern __shared__ __align__(1024) f8n_u8 smem[];
     const f8n_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
