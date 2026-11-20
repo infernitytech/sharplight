@@ -26,6 +26,14 @@ internal sealed class ConcatenatedWeightSource : IWeightSource
         }
     }
 
+    public void Release()
+    {
+        foreach (var part in _parts)
+        {
+            part.Release();
+        }
+    }
+
     public void Read(long offset, Span<byte> destination)
     {
         int i = Array.BinarySearch(_starts, offset);

@@ -1,0 +1,234 @@
+# One publication pass of the model feed (docs/model-feed.md, "Publishing the official feed"), called by model-feed.yml: once on a
+# GitHub-hosted runner for the small entries (and the re-sign), then on the self-hosted feed runner for the large ones. Never triggered
+# on its own; model-feed.yml holds the triggers, the concurrency group and the checks of event and branch.
+#
+# Per entry: build (download, convert, hash), publish into the local feed folder (the package file is moved, not copied), upload the
+# package objects (immutable; the package file before its manifest), delete the local package file. Disk peak: one entry's sources
+# plus its package. After all entries: promotions, re-sign both channels, verify, then upload the listings (package indexes, catalog
+# pages, catalog index, index.json and index.sig last).
+name: model-feed-publish
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner labels as JSON ("ubuntu-latest" or ["self-hosted","sharplight-feed"]).'
+        type: string
+        required: true
+      entries:
+        description: 'Catalog entries to build (entry or entry:variant), space separated.'
+        type: string
+        default: ''
+      promote:
+        description: 'Package versions to promote from unstable to stable, space separated.'
+        type: string
+        default: ''
+      validity:
+        description: 'Days until the published indexes expire.'
+        type: string
+        default: '30'
+      work-dir:
+        description: 'Working directory (store, staging, feed listings); empty: next to the workspace.'
+        type: string
+        default: ''
+      timeout-minutes:
+        description: 'Job timeout.'
+        type: number
+        default: 360
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    environment: studio-release
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      FEED_PREFIX: ${{ vars.MODEL_FEED_PREFIX || 'models' }}
+      FEED_URL: ${{ vars.MODEL_FEED_URL || 'https://download.sharplight.dev/models' }}
+      FEED_NAME: Sharplight verified models
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      WORK_DIR: ${{ inputs.work-dir }}
+      # The feed tool converts and opens packages (reader only) without a device; keep the shared GPU of a self-hosted machine hidden.
+      CUDA_VISIBLE_DEVICES: ''
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - name: Check secrets
+        id: secrets
+        env:
+          SIGNING_KEY: ${{ secrets.MODEL_FEED_SIGNING_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::The secret MODEL_FEED_SIGNING_KEY is not set in the studio-release environment; nothing is built or published (docs/model-feed.md, 'Publishing keys')."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$R2_BUCKET" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::warning::R2 secrets of the studio-release environment are incomplete; nothing is built or published."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare the work directory
+        if: steps.secrets.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          work="${WORK_DIR:-$GITHUB_WORKSPACE/../feed-work}"
+          mkdir -p "$work"
+          work=$(cd "$work" && pwd)
+          # Listings and staging come fresh from the bucket every run; the store is kept so an interrupted download resumes (the
+          # builder removes each model's store folder once its package is staged).
+          rm -rf "$work/feed" "$work/staging" "$work/staged.txt"
+          mkdir -p "$work/staging"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          # Bigger multipart parts for packages up to ~120 GB (the CLI also keeps uploads under 10,000 parts); a job-local config.
+          printf '[default]\ns3 =\n  multipart_threshold = 64MB\n  multipart_chunksize = 128MB\n  max_concurrent_requests = 8\n' > "$RUNNER_TEMP/aws-config"
+          echo "AWS_CONFIG_FILE=$RUNNER_TEMP/aws-config" >> "$GITHUB_ENV"
+          echo "DOTNET_INSTALL_DIR=$RUNNER_TOOL_CACHE/dotnet-feed" >> "$GITHUB_ENV" # setup-dotnet without root on a self-hosted runner
+          df -h "$work" | tail -1 | awk '{print "Work directory '"$work"': " $4 " free"}'
+
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.skip == 'false'
+        with:
+          fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the engine version
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.secrets.outputs.skip == 'false'
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Build the feed tool
+        if: steps.secrets.outputs.skip == 'false'
+        run: dotnet build tools/model-feed/Sharplight.FeedTool -c Release
+
+      - name: Write the signing key
+        if: steps.secrets.outputs.skip == 'false'
+        env:
+          SIGNING_KEY: ${{ secrets.MODEL_FEED_SIGNING_KEY }}
+          ROOT_PUBLIC_KEY: ${{ vars.MODEL_FEED_ROOT_PUBLIC_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/feed.key.pem"
+          # The root the published key set must verify against: the committed official key unless a variable overrides it.
+          if [ -n "$ROOT_PUBLIC_KEY" ]; then
+            printf '%s\n' "$ROOT_PUBLIC_KEY" > "$RUNNER_TEMP/root.pub.pem"
+          else
+            cp tools/model-feed/keys/sharplight-feed.pub.pem "$RUNNER_TEMP/root.pub.pem"
+          fi
+
+      - name: Fetch the published listings
+        if: steps.secrets.outputs.skip == 'false'
+        env:
+          RESIGN_ONLY: ${{ inputs.entries == '' && inputs.promote == '' }}
+        run: |
+          if [ "$RESIGN_ONLY" = "true" ] && ! aws s3api head-object --bucket "$R2_BUCKET" --key "$FEED_PREFIX/unstable/index.json" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
+            echo "::notice::No feed is published yet; a re-sign without entries or promotions has nothing to do."
+            echo "NOTHING_PUBLISHED=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          # Metadata only (no package files): versions are chosen against it and the new listings are written from it.
+          aws s3 sync "s3://$R2_BUCKET/$FEED_PREFIX/" "$WORK/feed/" --endpoint-url "$R2_ENDPOINT" --exclude "*.slm" --only-show-errors
+          if [ ! -f "$WORK/feed/keys/keyset.json" ]; then
+            echo "::notice::The bucket has no key set; writing one with the signing key as its own root (single-key setup)."
+            dotnet tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll keyset --feed "$WORK/feed" \
+              --root-key "$RUNNER_TEMP/feed.key.pem" --feed-key "$RUNNER_TEMP/feed.key.pem"
+            echo "NEW_KEYSET=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build, publish and upload packages
+        if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
+        env:
+          ENTRIES: ${{ inputs.entries }}
+          VALIDITY: ${{ inputs.validity }}
+        run: |
+          set -euo pipefail
+          tool=tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll
+          common=(--feed "$WORK/feed" --key "$RUNNER_TEMP/feed.key.pem" --name "$FEED_NAME" --validity-days "$VALIDITY")
+          touch "$WORK/staged.txt"
+          for spec in $ENTRIES; do
+            entry="${spec%%:*}"
+            args=(--entry "$entry")
+            if [ "$spec" != "$entry" ]; then
+              args+=(--variant "${spec#*:}")
+            fi
+            echo "::group::$spec"
+            df -h "$WORK" | tail -1 | awk '{print "free before: " $4}'
+            # Prints the staging folder (a full build, a manifest-only patch with reuse.json, or only the stored manifest when the
+            # feed already has this exact package, which lists it where a channel misses it).
+            folder=$(dotnet "$tool" build "${args[@]}" --work-dir "$WORK" --feed "$WORK/feed" --feed-url "$FEED_URL" | tail -1)
+            echo "$(basename "$folder")" >> "$WORK/staged.txt"
+            dotnet "$tool" publish "$folder" --channel unstable --move "${common[@]}"
+            id=$(jq -r .id "$folder/manifest.json")
+            version=$(jq -r .version "$folder/manifest.json")
+            tools/model-feed/upload-package.sh "$WORK" "$folder" "$id" "$version"
+            # Uploaded: the local package file is not needed for the listings or their verification.
+            rm -f "$WORK/feed/packages/$id/$version/"*.slm
+            echo "::endgroup::"
+          done
+
+      - name: Promote, re-sign and verify
+        if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
+        env:
+          VALIDITY: ${{ inputs.validity }}
+          PROMOTE: ${{ inputs.promote }}
+        run: |
+          set -euo pipefail
+          tool=tools/model-feed/Sharplight.FeedTool/bin/Release/net11.0/feedtool.dll
+          common=(--feed "$WORK/feed" --key "$RUNNER_TEMP/feed.key.pem" --name "$FEED_NAME" --validity-days "$VALIDITY")
+          # Both channels are re-signed on every run, so every run refreshes both expiries.
+          dotnet "$tool" reindex --channel unstable "${common[@]}"
+          if [ -n "$PROMOTE" ]; then
+            dotnet "$tool" promote $PROMOTE --to stable --from unstable "${common[@]}"
+          else
+            dotnet "$tool" reindex --channel stable "${common[@]}"
+          fi
+          # Listings, signatures and digests of both channels as a host checks them (package files were checked at publish).
+          for channel in unstable stable; do
+            dotnet "$tool" verify --feed "$WORK/feed" --channel "$channel" --root "$RUNNER_TEMP/root.pub.pem"
+          done
+
+      - name: Upload the listings to Cloudflare R2
+        if: steps.secrets.outputs.skip == 'false' && env.NOTHING_PUBLISHED != 'true'
+        run: |
+          set -euo pipefail
+          upload() { # file, cache-control
+            local type=application/octet-stream
+            case "$1" in
+              *.json) type=application/json ;;
+              *.sig) type=application/jose ;;
+            esac
+            aws s3 cp "$WORK/feed/$1" "s3://$R2_BUCKET/$FEED_PREFIX/$1" --endpoint-url "$R2_ENDPOINT" --only-show-errors \
+              --content-type "$type" --cache-control "$2"
+          }
+          # Package objects are uploaded already (previous step). Key set (only when written by this run); then per channel its
+          # package indexes, catalog pages, and the index and its signature last.
+          if [ "${NEW_KEYSET:-false}" = "true" ]; then
+            upload keys/keyset.json "no-cache"
+            upload keys/keyset.sig "no-cache"
+          fi
+          for channel in unstable stable; do
+            for file in $(cd "$WORK/feed" && ls "$channel"/packages/*/index.json "$channel"/catalog/page/*.json 2>/dev/null); do
+              upload "$file" "no-cache"
+            done
+            upload "$channel/catalog/index.json" "no-cache"
+            upload "$channel/index.json" "no-cache"
+            upload "$channel/index.sig" "no-cache"
+            echo "Published: $FEED_URL/$channel/index.json"
+          done
+
+      - name: Clean up
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/feed.key.pem" "$RUNNER_TEMP/root.pub.pem"
+          # Staged package files of a failed run are rebuilt next time; the store (resumable downloads) stays.
+          if [ -n "${WORK:-}" ]; then
+            rm -rf "$WORK/staging" "$WORK/feed"
+          fi

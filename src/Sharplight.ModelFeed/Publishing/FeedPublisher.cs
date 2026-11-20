@@ -102,8 +102,16 @@ public sealed class FeedPublisher
 
             var target = Path.Combine(feedFolder, FeedLayout.VersionFile(manifest.Id, manifest.Version, file.Name));
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(source, target + ".tmp", overwrite: true);
-            File.Move(target + ".tmp", target, overwrite: true);
+            if (options.MovePackageFiles)
+            {
+                File.Move(source, target, overwrite: true);
+            }
+            else
+            {
+                File.Copy(source, target + ".tmp", overwrite: true);
+                File.Move(target + ".tmp", target, overwrite: true);
+            }
+
             WriteAtomic(feedFolder, FeedLayout.Manifest(manifest.Id, manifest.Version), manifestBytes);
             WriteAtomic(feedFolder, FeedLayout.ManifestSignature(manifest.Id, manifest.Version), key.SignDocument(manifestBytes, "package-manifest"));
             packageIndex = AddVersion(packageIndex, Entry(manifest, digest, now));
