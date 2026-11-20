@@ -145,6 +145,16 @@ public sealed class CompiledModel : IDisposable
         }
 
         var streamed = CompileStreamed(plan, segmentOptions, ct);
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
+        {
+            foreach (var slot in plan.Slots.Where(s => s.Device.Info.Kind != DeviceKind.Cpu).Distinct())
+            {
+                var memory = slot.Device.GetMemoryInfo();
+                Console.Error.WriteLine($"[load] {slot.Device.Info.Name} after compiling '{graph.Name}': {memory.Available >> 20} MiB available, "
+                    + $"{plan.Segments.Count(s => plan.Slots[s.DeviceSlot] == slot)} segments, {streamed.Count(s => s is not null)} streamed");
+            }
+        }
+
         return new CompiledModel(graph, plan, placement.Compile, [.. compiled], streamed, placement.StreamExpertsMinRows);
     }
 

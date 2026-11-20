@@ -12,7 +12,7 @@ namespace Sharplight.Vulkan;
 /// decode). Per-step values (n_past) live in a small host-visible runtime buffer, so the decode
 /// command buffer is recorded once and re-submitted for every token.
 /// </summary>
-public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegment, IDeviceForwardingSegment
+public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
     private readonly VulkanDevice _dev;
     private readonly KernelProgram _program;
@@ -24,6 +24,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private readonly Dictionary<BufferDecl, SharedArenaBuffer<Allocation>> _sharedArenas = [];
     /// <summary>With <see cref="CompileOptions.StreamWeights"/>: the weight buffers, copied in at every execution (see <see cref="StreamWeights"/>).</summary>
     private readonly List<BufferDecl> _streamedWeights = [];
+    /// <summary>The copy of the streamed weights that <see cref="BeginStreaming"/> started on a worker thread, until an execution waits for it.</summary>
+    private Task? _streaming;
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -312,8 +314,33 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         return allocated ? b.Bytes : 0;
     }
 
-    /// <summary>Copies the streamed weights into their shared buffers (<see cref="CompileOptions.StreamWeights"/>) and waits for the copies.</summary>
+    /// <inheritdoc />
+    /// <remarks>The copy runs through the device's staging buffers on a worker thread, while the caller runs the segment before this one.</remarks>
+    public void BeginStreaming()
+    {
+        if (_streamedWeights.Count > 0 && _streaming is null)
+        {
+            _streaming = Task.Run(CopyStreamedWeights);
+        }
+    }
+
+    /// <summary>Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now.</summary>
     private void StreamWeights()
+    {
+        var streaming = _streaming;
+        _streaming = null;
+        if (streaming is null)
+        {
+            CopyStreamedWeights();
+        }
+        else
+        {
+            streaming.GetAwaiter().GetResult();
+        }
+    }
+
+    /// <summary>Copies the streamed weights into their shared buffers (<see cref="CompileOptions.StreamWeights"/>) and waits for the copies.</summary>
+    private void CopyStreamedWeights()
     {
         long total = _streamedWeights.Sum(b => b.Bytes);
         long largestRow = _streamedWeights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
@@ -1227,6 +1254,16 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         _disposed = true;
+        try
+        {
+            // A copy BeginStreaming started without an execution may still write the shared weight buffers.
+            _streaming?.Wait();
+        }
+        catch (AggregateException)
+        {
+            // Its failure belongs to the execution that never came.
+        }
+
         if (_dev.IsDisposed)
         {
             // The device was disposed first (out of order): destroying it released this segment's command buffers, pools, fences

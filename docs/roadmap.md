@@ -195,6 +195,13 @@ GPU (Vulkan):
   fragments; a subgroup-uniform skip of empty fragments made it 50 % slower).
   Earlier next: an expert GEMM fetching at ~800 GB/s for 16-48 rows per expert (raw MXFP4 stages in shared memory, 3 workgroups per SM);
   Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
+- **MoE with CPU offload** (§59): routed experts placed apart from their layer (the first layers' experts on the CPU, everything dense on
+  the GPU, llama.cpp's `--n-cpu-moe`), shared activation arenas, fused AVX2 integer dots for the IQ grid formats, and prefill with the
+  CPU experts streamed to the GPU (page-locked mapped weights, copied while the layer before runs). Next: decode still trails llama.cpp
+  on CUDA (GPU step ~9.7 ms of ~1350 launches, 8-9 expert layers on the CPU against llama.cpp's 6: the 1 GiB device reserve, the
+  512-row logits buffer and the per-segment buffers take ~2.5 GiB); stream two layers ahead (double-buffered expert memory) so the copies
+  hide behind the GPU's prefill work; asynchronous streaming on Vulkan (transfer queue); AVX-512 / VNNI and NEON fused grid dots;
+  Qwen3.8-Flash-Next and Qwen3-Coder-Next offloaded against llama.cpp.
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).

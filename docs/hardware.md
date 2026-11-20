@@ -69,6 +69,20 @@ have. The GPU providers' fallbacks into host memory are bounded: staging buffers
 per-input/output staging; weights and state never move to host memory behind the caller's back (offloading is placement's decision,
 on the CPU device).
 
+**Mixture-of-experts models with CPU offload** (`PlacementOptions.Fallback` on the CPU, `--cpu-offload`): the routed experts of a layer
+form a placement group of their own (`<layer>#experts`), and when the model does not fit, the experts of the first layers go to the CPU,
+as few as needed, while attention, shared experts, dense layers and the output head stay on the GPU (llama.cpp's `--n-cpu-moe`; a token
+reads its k experts but every dense row, so the CPU then reads the fewest bytes per token). The CPU reads those experts in place from the
+memory-mapped file. Every moved group keeps room on the GPU for the values it exchanges with its layer and for its extra segment
+(`PlacementOptions.ReservePerSegment`), and the segments of one model on a device share their activation buffers. From
+`StreamExpertsMinRows` rows per pass (default 32: prefill, large serving steps) the CPU experts run on the GPU instead, their weights
+copied in for each pass into one layer's worth of memory the placement keeps free; on CUDA the mapped pages of those weights are
+page-locked read-only (`cuMemHostRegister`) within `DeviceMemoryLimits.PinnedHostMemory`, or else a quarter of the process memory (locked
+file pages cannot be reclaimed), and copied asynchronously while the GPU runs the layer before; the rest, repacked weights and Vulkan
+go through one pair of staging buffers per device. A streamed compilation that does not fit leaves its experts on the CPU for every
+batch size. Switches: `SHARPLIGHT_SPLIT_EXPERTS=0` (whole layers to the CPU, as before), `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (no
+streaming), `SHARPLIGHT_STREAM_REGISTER=0` (no page locking), `SHARPLIGHT_SHARED_ARENA=0` (one activation buffer per segment).
+
 **When nothing works**, the allocation throws `DeviceOutOfMemoryException` (an `OutOfMemoryException`): which allocation (e.g. "weight
 buffer blk.0.attn_q.weight", "weight upload staging"), its size, every attempt (memory type and result), every heap's size, budget,
 process usage and Sharplight's share, the largest allocation and the active limits, followed by what to do. Placement refuses a model
