@@ -7914,3 +7914,66 @@ cd bench/s57_gemm && ./run.sh ../../src/Sharplight.Shaders/Kernels/gemm_fp8_tma.
 NVRTC_DIR=<dir with libnvrtc.so.13> ./nvrtc_check.sh ../../src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu -DK=4096 -DN=4096 -DDUAL=0 -DXCAP=1024 -DY_STRIDE=4096
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,64 --modes greedy --reps 12
 ```
+
+## 59. MoE with CPU offload: routed experts on the CPU, everything dense on the GPU, streamed prefill (2026-11-20)
+
+Branch `perf/offload-r1` (base `develop` at `9b341bb8`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, no resizable
+BAR), AMD EPYC 7443 (Zen 3: AVX2 + FMA, no AVX-512 / VNNI) with a ~10-core cgroup quota and 62 GB of memory, llama.cpp b11177 (CUDA
+and Vulkan builds). The GPU was shared with another perf agent (runs serialized with a lock) and the CPU with a model-feed build job
+and that agent's vLLM: decode numbers moved by 10-20 % between runs of one build (`cpu.stat` throttled 15 % of the periods); the
+tables give best / median of 64 steps, and the medians of "before" and "after" ran under comparable load. Sharplight: `sharplight
+<model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes, decode 64 steps after them).
+llama.cpp: `llama-bench -ngl 99 -ncmoe N -fa 1 -p 512 -n 64 -r 3 -t 10` (mean of 3), N swept, the best shown.
+
+### 59.1 What the time went to (before)
+
+Qwen3.5-122B-A10B UD-IQ2_XXS (36.6 GB) with `--cpu-offload` placed whole layers: 43 of 50 groups on the GPU, the last 6 layers
+and the output head on the CPU. A decode step took 38.4 ms: 8.4 ms on the GPU and 30 ms on the CPU, of which the 248320 x 3072 Q4_K
+output head (0.43 GB read every token) took 8.5 ms, the dense attention / delta-rule / shared-expert projections of the 6 layers 9 ms
+and the routed experts 11 ms (the float dequantize path at ~12 GB/s). A 512-token prefill spent 2.3 of its 2.4 s on the CPU.
+llama.cpp with `-ncmoe 6` (the experts of 6 layers on the CPU, the rest on the GPU) decoded at 72 tok/s; the 21.5 tok/s of
+docs/model-support.md was its layer split (`-ngl 38`).
+
+### 59.2 Changes
+
+* **Expert placement** (`PlacementPlanner`): with a CPU fallback the routed experts of a layer (the `MatMulId`s over a bank with more
+  experts than a token selects, the activation between them and the weighted sum over the k slots) are a placement group of their own;
+  when the model does not fit, the experts of the first layers go to the CPU, as few as needed, and attention, shared experts, dense
+  layers and the output head stay on the GPU. Only the normed hidden rows, the ids and the slot weights go to the CPU and one summed row
+  per token comes back. The planner keeps room for those transfer buffers, a segment's own overhead and the graph outputs
+  (`ReservePerSegment`). `PlacementOptions.SplitExperts`, `SHARPLIGHT_SPLIT_EXPERTS=0` for the old layer split.
+* **Shared activation arenas** (CUDA, Vulkan): the segments of one model on a device run one after another and now share their
+  transient buffers, so 20 segments do not hold 20 arenas (170-280 MiB each at 512 rows).
+* **CPU expert kernels**: `MatMulId` takes the integer-dot path (8-bit activations, as `MatMul`), with decoders for the IQ2 / IQ3 grid
+  formats and fused AVX2 dots for them (grid magnitudes times sign-flipped activations with `vpmaddubsw`, one sign-table lookup per
+  eight values, `vpsignb`): IQ2_XXS 2.80 ns and IQ2_S 3.67 ns per 32 values on one core; per decode call (8 experts, 1024 x 3072)
+  0.53 → ~0.3 ms (IQ2_XXS) and 0.79 → ~0.37 ms (IQ2_S). Experts with more than four rows in a pass keep the float path (it reuses a
+  dequantized tile over the rows). Other tiers decode and dot as before; MXFP4 / K-quants use their existing integer-dot decoders.
+* **Streamed prefill**: from 32 rows per pass (`StreamExpertsMinRows`) the CPU experts run on the GPU instead, their weights copied in
+  for each pass into one layer's worth of memory the placement keeps free (`CompileOptions.StreamWeights`; the streamed segments of a
+  model share it). On CUDA the mapped pages of the streamed weights are page-locked read-only (within the pinned-memory limit, else a
+  quarter of the process memory) and copied asynchronously while the GPU runs the layer before (`IStreamedSegment.BeginStreaming`):
+  0.67 GB per layer at 28 GB/s; a staged copy (one pair of staging buffers per device) reached 14 GB/s. Vulkan copies through staging
+  on a worker thread (23 GB/s). A streamed compilation that does not fit leaves its layer on the CPU.
+
+### 59.3 Qwen3.5-122B-A10B UD-IQ2_XXS (tok/s, best / median)
+
+| | CPU groups | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA before (layer split) | 7 (6 layers + head) | 26.0 / 25.5 | 211 / 207 |
+| CUDA, experts on the CPU, no streaming (`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`) | 8 | **56.9 / 54.7** | 102 / 101 |
+| CUDA, experts on the CPU + streamed prefill (default) | 10 | 51.1 / 47.9 | **929 / 928** |
+| llama.cpp CUDA `-ncmoe 6` / `8` | | 72.1 / 65.2 | 985 / 866 |
+| llama.cpp CUDA `-ngl 38` (layer split) | | 9.2 (shared GPU) / 21.5 (§ model-support) | 589 |
+| Vulkan before (layer split) | 10 | 17.8 (model-support) | |
+| Vulkan, experts on the CPU + streamed prefill | 14 | **42.2 / 41.4** | **715 / 706** |
+| llama.cpp Vulkan `-ncmoe 6` / `8` | | 44.7 / 40.2 | 751 / 643 |
+
+* Decode 2.0-2.2x on CUDA, 2.4x on Vulkan; prefill 4.4x on CUDA. Against llama.cpp: CUDA decode 0.71-0.79x, prefill 0.94x; Vulkan
+  decode 0.94x, prefill 0.95x.
+* The CUDA decode step of the default build: GPU 9.6 ms (llama.cpp's whole step is 13.9 ms) and ~1 ms per CPU expert layer. The GPU
+  part is ~1350 launches over 48 layers (the largest projections stream at ~720 GB/s, the rest are small kernels); llama.cpp fits 42
+  expert layers where this placement fits 38-40: the 1 GiB device reserve, the 512-row logits buffer (485 MiB), the streaming buffer
+  (0.67 GB) and the per-segment buffers take ~2.5 GiB. Vulkan budgets 92 % of the device and fits 3 GiB less.
+* Greedy output: the FamilyGenerationTests cases (raw prompt, chat turn, story; 32 tokens against llama.cpp b11177) pass on CUDA and
+  Vulkan with the new placement.

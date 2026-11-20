@@ -5,20 +5,20 @@ using Sharplight.Tensors.Grids;
 
 namespace Sharplight.Cpu;
 
-// Fused integer dots of ggml's grid formats with an 8-bit activation row (AVX2), llama.cpp's approach: per 32 values the grid magnitudes
+// Fused integer dots of ggml's grid formats (and MXFP4, at the end) with an 8-bit activation row (AVX2), llama.cpp's approach: per 32 values the grid magnitudes
 // (unsigned, below 64) are multiplied with the activations whose signs the sign pattern flipped (vpsignb; vpmaddubsw cannot saturate:
 // 2 * 62 * 127 < 32768), summed to int32 lanes and scaled once in float. No decoded row is written, unlike Decode + Dot.
 internal static unsafe partial class IntDot
 {
     /// <summary>Whether <paramref name="f"/> has a fused dot (<see cref="FusedDot"/>) on this host: the grid formats with AVX2.</summary>
     public static bool HasFusedDot(WeightFormat f) => CpuIsa.Use256 && Avx2.IsSupported
-        && f is WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS or WeightFormat.IQ3_S;
+        && f is WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS or WeightFormat.IQ3_S or WeightFormat.MXFP4;
 
     /// <summary>Dot product of one weight row in format <paramref name="f"/> (<see cref="HasFusedDot"/>) with a quantized activation row.</summary>
     /// <param name="f">The weight format.</param>
     /// <param name="row">The weight row, <paramref name="k"/> values.</param>
     /// <param name="x">The activation row.</param>
-    /// <param name="k">Row length, a multiple of 256.</param>
+    /// <param name="k">Row length, a multiple of the format's block (256; 32 for MXFP4).</param>
     public static float FusedDot(WeightFormat f, byte* row, Q8Row x, int k) => f switch
     {
         WeightFormat.IQ2_XXS => DotIq2XxsAvx2(row, x, k),
@@ -26,6 +26,7 @@ internal static unsafe partial class IntDot
         WeightFormat.IQ2_S => DotIq2SAvx2(row, x, k),
         WeightFormat.IQ3_XXS => DotIq3XxsAvx2(row, x, k),
         WeightFormat.IQ3_S => DotIq3SAvx2(row, x, k),
+        WeightFormat.MXFP4 => DotMxfp4Avx2(row, x, k),
         _ => throw new NotSupportedException($"{f} has no fused integer dot."),
     };
 
@@ -231,5 +232,34 @@ internal static unsafe partial class IntDot
 
             return Vector256.Sum(acc);
         }
+    }
+
+    /// <summary>The doubled E2M1 values of the 16 MXFP4 codes, signed (scaled by <see cref="Quant.E8M0Half"/>).</summary>
+    private static readonly Vector128<sbyte> s_fp4Values = Vector128.Create((sbyte)0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12);
+
+    /// <summary>
+    /// MXFP4 { u8 e; u8 qs[16] } per 32 values (low nibbles the first 16, high nibbles the next): the codes looked up as signed values
+    /// (<c>vpshufb</c>), multiplied as |w| times the activations with w's sign (<c>vpmaddubsw</c>, at most 2 * 12 * 127), one scale per block.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static float DotMxfp4Avx2(byte* p, Q8Row x, int k)
+    {
+        var table = Vector256.Create(s_fp4Values, s_fp4Values);
+        var low = Vector128.Create((byte)0x0F);
+        var ones = Vector256.Create((short)1);
+        var acc = Vector256<float>.Zero;
+        sbyte* q = x.Q;
+        float* scales = x.LaneScales;
+        for (int blk = 0; blk < k / 32; blk++, p += 17, q += 32, scales += 8)
+        {
+            var bits = Vector128.Load(p + 1);
+            var codes = Vector256.Create(bits & low, Vector128.ShiftRightLogical(bits, 4)).AsSByte();
+            var w = Avx2.Shuffle(table, codes);
+            var products = Avx2.MultiplyAddAdjacent(Avx2.Abs(w), Avx2.Sign(Vector256.Load(q), w));
+            var sums = Avx2.MultiplyAddAdjacent(products, ones);
+            acc = Accumulate(sums, Vector256.Create(Quant.E8M0Half(p[0]) * scales[0]), acc);
+        }
+
+        return Vector256.Sum(acc);
     }
 }

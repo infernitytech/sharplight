@@ -20,7 +20,7 @@ public sealed class PlacementExpertTests
     private const long DenseBytes = Hidden * Hidden * sizeof(float);
     private const long ExpertBytes = 2L * Experts * Inner * Hidden * sizeof(float);
 
-    private static ComputeGraph BuildGraph(out Value x, out Value ids, out Value slotWeights)
+    private static ComputeGraph BuildGraph(out Value x, out Value ids, out Value slotWeights, bool biases = false)
     {
         var tg = new TestGraph();
         x = tg.InF("x", TestGraph.T, Hidden);
@@ -33,8 +33,21 @@ public sealed class PlacementExpertTests
             h = tg.B.MatMul(h, tg.WF($"dense{layer}", Kit.Rand(Hidden * Hidden, layer, 0.5f), Hidden, Hidden));
             var slotWeightRows = tg.B.Reshape(slotWeights, 0, Slots, 1);   // before the experts, as the decoder's MoE block builds it
             var up = tg.B.Emit1("MatMulId", [h, tg.WF($"up{layer}", Kit.Rand(Experts * Inner * Hidden, 10 + layer, 0.5f), Experts, Inner, Hidden), ids]);
+            if (biases)
+            {
+                // Per-expert biases as the decoders add them: the selected experts' rows gathered, then added (gpt-oss).
+                var bias = tg.WF($"up_bias{layer}", Kit.Rand(Experts * Inner, 30 + layer, 0.5f), Experts, Inner);
+                up = tg.B.Add(up, tg.B.Emit1("GatherAxis", [bias, ids], Attributes.From(("axis", 0L))));
+            }
+
             var act = tg.B.Mul(up, up);
             var down = tg.B.Emit1("MatMulId", [act, tg.WF($"down{layer}", Kit.Rand(Experts * Hidden * Inner, 20 + layer, 0.5f), Experts, Hidden, Inner), ids]);
+            if (biases)
+            {
+                var bias = tg.WF($"down_bias{layer}", Kit.Rand(Experts * Hidden, 40 + layer, 0.5f), Experts, Hidden);
+                down = tg.B.Add(down, tg.B.Emit1("GatherAxis", [bias, ids], Attributes.From(("axis", 0L))));
+            }
+
             var weighted = tg.B.Mul(down, slotWeightRows);
             var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(weighted, 0, 2, 1)]);
             h = tg.B.Add(h, tg.B.Reshape(summed, 0, Hidden));
@@ -73,6 +86,43 @@ public sealed class PlacementExpertTests
         // The fallback returns the summed rows: the slot weighting and its sum run there.
         Assert.All(plan.Segments.Where(s => s.DeviceSlot == 1), s => Assert.Contains(s.Nodes, n => n.Op.Name == "ReduceSum"));
         Assert.Equal(5, plan.Segments.Count);   // device, experts 0, device, experts 2, device (the last residual add)
+
+        float[] input = Kit.Rand(3 * Hidden, 3);
+        int[] rows = [0, 3, 1, 1, 2, 0];
+        float[] weights = [0.75f, 0.25f, 0.5f, 0.5f, 1f, 0f];
+        float[] Run(CompiledModel m)
+        {
+            Kit.Set(m, x, input);
+            Kit.Set(m, ids, rows);
+            Kit.Set(m, slotWeights, weights);
+            var p = Kit.P(3);
+            m.Run(p);
+            return Kit.Out(m, "y", p);
+        }
+
+        using var split = CompiledModel.Compile(graph, options);
+        using var whole = Kit.Compile(graph);
+        Kit.AssertClose(Run(whole), Run(split));
+    }
+
+    /// <summary>Per-expert biases (a gather of the selected rows, then an add) join the experts: one fallback segment per moved layer.</summary>
+    [Fact]
+    public void ExpertBiasesStayWithTheirExperts()
+    {
+        var graph = BuildGraph(out var x, out var ids, out var slotWeights, biases: true);
+        using var device = Kit.Provider.OpenDevice(Kit.Provider.GetDevices()[0]);
+        using var fallback = Kit.Provider.OpenDevice(Kit.Provider.GetDevices()[0]);
+        long biasBytes = (Experts * Inner + Experts * Hidden) * sizeof(float);
+        var options = Options(device, fallback, Layers * DenseBytes + ExpertBytes + biasBytes + 2048);
+
+        var plan = PlacementPlanner.Plan(graph, options);
+
+        Assert.Equal(5, plan.Segments.Count);   // device, experts 0, device, experts 2, device
+        Assert.All(plan.Segments.Where(s => s.DeviceSlot == 1), s =>
+        {
+            Assert.Equal(2, s.Nodes.Count(n => n.Op.Name == "GatherAxis"));
+            Assert.Contains(s.Nodes, n => n.Op.Name == "ReduceSum");
+        });
 
         float[] input = Kit.Rand(3 * Hidden, 3);
         int[] rows = [0, 3, 1, 1, 2, 0];

@@ -184,6 +184,20 @@ public static class PlacementPlanner
 
         var graphOutputs = graph.Outputs.Values.ToHashSet();
         bool InRegionOrBoundary(Value v) => v.Weight is not null || boundary.Contains(v) || (v.Producer is { } p && region.Contains(p));
+        // A value of the layer that only `reader` reads, produced from weights and the region's inputs alone (collected into `side`).
+        bool IsSideInput(Value v, Node reader, List<Node> side)
+        {
+            if (v.Producer is not { } p || region.Contains(p) || !groups.Contains(p.Group) || p.Outputs.Length != 1 || p.Writes.Length > 0
+                || p.Op.Category == OpCategory.ControlFlow || graphOutputs.Contains(v) || !consumers.TryGetValue(v, out var users) || users.Any(u => u != reader)
+                || !p.Inputs.All(i => i.State is null && (i.Weight is not null || boundary.Contains(i))))
+            {
+                return false;
+            }
+
+            side.Add(p);
+            return true;
+        }
+
         bool changed = true;
         while (changed)
         {
@@ -196,17 +210,20 @@ public static class PlacementPlanner
                     continue;
                 }
 
-                if (!n.Inputs.All(InRegionOrBoundary))
-                {
-                    continue;
-                }
-
-                // Forward: a weightless node fed by the region (an activation). Backward: a node only the region reads (a bias gather).
-                bool fedByRegion = n.Inputs.All(v => v.Weight is null) && n.Inputs.Any(v => v.Producer is { } p && region.Contains(p));
-                bool onlyFeedsRegion = n.Outputs.All(o => consumers.TryGetValue(o, out var users) && users.All(region.Contains));
+                // Forward: a weightless node fed by the region (an activation, a bias add), with the side nodes that only it reads and that
+                // read only weights and the region's inputs (the per-expert bias gather before the add). Backward: a node only the region reads.
+                var side = new List<Node>();
+                bool fedByRegion = n.Inputs.All(v => v.Weight is null) && n.Inputs.Any(v => v.Producer is { } p && region.Contains(p))
+                    && n.Inputs.All(v => InRegionOrBoundary(v) || IsSideInput(v, n, side));
+                bool onlyFeedsRegion = n.Inputs.All(InRegionOrBoundary) && n.Outputs.All(o => consumers.TryGetValue(o, out var users) && users.All(region.Contains));
                 if (fedByRegion || onlyFeedsRegion)
                 {
                     region.Add(n);
+                    if (fedByRegion)
+                    {
+                        region.UnionWith(side);
+                    }
+
                     changed = true;
                 }
             }

@@ -153,6 +153,12 @@ public sealed class CompiledModel : IDisposable
                 Console.Error.WriteLine($"[load] {slot.Device.Info.Name} after compiling '{graph.Name}': {memory.Available >> 20} MiB available, "
                     + $"{plan.Segments.Count(s => plan.Slots[s.DeviceSlot] == slot)} segments, {streamed.Count(s => s is not null)} streamed");
             }
+
+            if (placement.Fallback is { } fallback)
+            {
+                int fallbackSlot = plan.Slots.Count - 1;
+                Console.Error.WriteLine($"[load] groups on {fallback.Device.Info.Name}: " + string.Join(", ", plan.GroupDevice.Where(kv => kv.Value == fallbackSlot).Select(kv => kv.Key)));
+            }
         }
 
         return new CompiledModel(graph, plan, placement.Compile, [.. compiled], streamed, placement.StreamExpertsMinRows);
