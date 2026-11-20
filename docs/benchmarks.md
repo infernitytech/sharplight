@@ -8241,8 +8241,8 @@ docs/model-support.md was its layer split (`-ngl 38`).
 | | CPU groups | decode | prefill 512 |
 |---|---:|---:|---:|
 | CUDA before (layer split) | 7 (6 layers + head) | 26.0 / 25.5 | 211 / 207 |
-| CUDA, experts on the CPU, no streaming (`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`) | 8 | **56.9 / 54.7** | 102 / 101 |
-| CUDA, experts on the CPU + streamed prefill (default) | 10 | 51.1 / 47.9 | **929 / 928** |
+| CUDA, experts on the CPU, no streaming (`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`) | 8 | **58.4 / 57.6** | 227 / 222 |
+| CUDA, experts on the CPU + streamed prefill (default) | 10 | 53.1 / 52.2 | **927 / 926** |
 | llama.cpp CUDA `-ncmoe 6` / `8` | | 72.1 / 65.2 | 985 / 866 |
 | llama.cpp CUDA `-ngl 38` (layer split) | | 9.2 (shared GPU) / 21.5 (§ model-support) | 589 |
 | Vulkan before (layer split, `develop`) | 10 | 15.6 / 8.3 (GPU shared during part of the run) | 142 / 140 |
@@ -8250,7 +8250,8 @@ docs/model-support.md was its layer split (`-ngl 38`).
 | llama.cpp Vulkan `-ncmoe 6` / `8` | | 44.7 / 40.2 | 751 / 643 |
 
 * Decode 2.0-2.2x on CUDA, 2.7x on Vulkan (17.8 in docs/model-support.md); prefill 4.4x on CUDA, 5.0x on Vulkan. Against llama.cpp:
-  CUDA decode 0.71-0.79x, prefill 0.94x; Vulkan decode 0.94x, prefill 0.95x.
+  CUDA decode 0.74x (0.81x without streaming), prefill 0.94x; Vulkan decode 0.94x, prefill 0.95x. The CUDA rows are the final build
+  (develop merged), run while the machine was otherwise quiet; earlier runs of the same placement under load gave 47-51 tok/s.
 * The CUDA decode step of the default build: GPU 9.6 ms (llama.cpp's whole step is 13.9 ms) and ~1 ms per CPU expert layer. The GPU
   part is ~1350 launches over 48 layers (the largest projections stream at ~720 GB/s, the rest are small kernels); llama.cpp fits 42
   expert layers where this placement fits 38-40: the 1 GiB device reserve, the 512-row logits buffer (485 MiB), the streaming buffer
@@ -8273,6 +8274,9 @@ prefill varies by ±40 % between its three runs).
 | llama.cpp CUDA `-ncmoe 20` / `22` / `24` | | 36.0 / 40.4 / 32.5 | 137 / 176 / 107 |
 
 * CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting.
+* Greedy text (`-p "The capital of France is" -n 32`): CUDA and Vulkan identical to each other and to `develop` (layer split, float CPU
+  experts): " Paris.\n\nGreat! If you have any more questions ..."; llama.cpp b11177 (CUDA, `-ncmoe 22`) repeats " Paris." after the
+  first sentence, so the difference predates this branch.
 
 ### 59.5 What did not work, and what limits it
 
