@@ -23,7 +23,7 @@ public sealed partial class GraphLowerer
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
             ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount) : null : null,
-        fusedKernel: (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8",
+        fusedKernel: !Fp8FusedSplitK ? null : (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8",
             new Dictionary<string, string>(Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)) { ["SPLITK_FUSED"] = "1" }));
 
     /// <summary>
@@ -62,6 +62,20 @@ public sealed partial class GraphLowerer
     /// <see cref="DualEpilogueCudaSource"/>) the hand-written dual GEMM serves batches from <see cref="NativeGemmMinRows"/> rows;
     /// <c>serves</c> tells the row counts the emitted launches cover.
     /// </summary>
+    /// <summary>
+    /// True (<c>SHARPLIGHT_FP8_DUAL_SPLIT=1</c>) when the dual fp8 GEMM splits K at decode sizes (one token tile row) by wave fill
+    /// (<see cref="WaveFillSplit"/>), reducing in the last workgroup of each tile (splitk.slang).
+    /// </summary>
+    private bool DualFp8Split => Fp8FusedSplitK && DiagnosticSwitches.Fp8DualSplit;
+
+    /// <summary>
+    /// True when the fp8 GEMM's split-K launches reduce in their last workgroups (splitk.slang): on targets that compile CUDA C++ only.
+    /// On the NVIDIA Vulkan driver the fused form of gemm_fp8 returned wrong outputs (a few elements, or NaN with cached SPIR-V) in
+    /// <c>FusionTests.SiblingProjections</c> while gemm_cm2's fused form passed; Vulkan keeps the reduction launch there (benchmarks.md
+    /// section 59).
+    /// </summary>
+    private bool Fp8FusedSplitK => DiagnosticSwitches.SplitKFused && _compiler.CompilesCuda(_opt.Target);
+
     private bool EmitDualFp8Gemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
         TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, string? cudaEpilogue, out Func<long, bool> serves)
     {
@@ -90,6 +104,10 @@ public sealed partial class GraphLowerer
             variants.AddRange(NativeFp8Variants(n, k, cudaEpilogue, xcap, nativeMin, rowsMax, rows));
         }
 
+        // One token tile row (decode): optionally K split with the reduction in the last workgroups (DualFp8Split).
+        int outputs64 = MmqColumns((int)DualFp8AlwaysMaxRows) / 2;
+        int DualSplit(long r) => DualFp8Split && r <= DualFp8AlwaysMaxRows && Generated(r)
+            ? WaveFillSplit(Grid.Div(n, outputs64), k / 128, GemmWaveTiles) : 1;
         foreach (int tileRows in tall ? new[] { 64, 128 } : [(int)DualFp8AlwaysMaxRows])
         {
             int outputs = MmqColumns(tileRows) / 2;
@@ -97,12 +115,42 @@ public sealed partial class GraphLowerer
             macros["DUAL"] = "1";
             macros["KERNEL_GEMM_FP8"] = "1";
             var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
-            variants.Add(new KernelVariant(b => Generated(rows(b)) && TileRows(rows(b)) == tileRows, kernel,
+            variants.Add(new KernelVariant(b => Generated(rows(b)) && TileRows(rows(b)) == tileRows && DualSplit(rows(b)) == 1, kernel,
                 b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, outputs))));
         }
 
         Emit($"{label} fp8", nodes, variants, [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [quantized, weightA, weightB], [y]);
+        var splits = new SortedSet<int>();
+        long scratchBytes = 0;
+        for (long r = minRows; r <= Math.Min(rowsMax, DualFp8AlwaysMaxRows); r++)
+        {
+            if (DualSplit(r) is > 1 and var s)
+            {
+                splits.Add(s);
+                scratchBytes = Math.Max(scratchBytes, s * r * 2 * n * 4);
+            }
+        }
+
+        if (splits.Count > 0)
+        {
+            var scratch = SplitScratch(scratchBytes);
+            var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
+            var arrivals = SplitArrivals(Grid.Div(n, outputs64));
+            var splitVariants = splits.Select(s =>
+            {
+                var macros = Fp8GemmMacros(weightA.Type, n, k, (int)DualFp8AlwaysMaxRows, s);
+                macros["DUAL"] = "1";
+                macros["KERNEL_GEMM_FP8"] = "1";
+                macros["SPLITK_FUSED"] = "1";
+                var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
+                return new KernelVariant(b => DualSplit(rows(b)) == s, kernel, b => new Grid(Grid.Div(rows(b), DualFp8AlwaysMaxRows), Grid.Div(n, outputs64), (uint)s));
+            });
+            Emit($"{label} fp8 split-k", nodes, [.. splitVariants],
+                [Pointer(quantized), Pointer(weightA), Pointer(weightB), new PointerArg(scratch, 0), Pointer(y), Pointer(arrivals), TokenArg(x, rowsPerLead)],
+                [quantized, weightA, weightB], [partial, y, arrivals]);
+        }
+
         return true;
     }
 

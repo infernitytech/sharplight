@@ -32,18 +32,19 @@ groupshared uint gSplitLast;
 
 // Publishes this workgroup's partial sums and counts its arrival at the tile's counter; true in the last workgroup of the tile
 // (after acquiring the others' partials), which also resets the counter. Called by every thread of the workgroup.
-bool splitk_arrive(uint* counter, uint tid)
+bool splitk_arrive(uint* arrivals, uint tile, uint tid)
 {
     DeviceMemoryBarrier();
     GroupMemoryBarrierWithGroupSync();
     if (tid == 0)
     {
         uint arrived;
-        InterlockedAdd(*counter, 1u, arrived);
+        // Indexed, not through a dereferenced pointer: Slang's SPIR-V of an atomic on `*ptr` does not reach the buffer.
+        InterlockedAdd(arrivals[tile], 1u, arrived);
         bool last = arrived + 1 == SPLITK;
         if (last)
         {
-            *counter = 0;
+            arrivals[tile] = 0;
         }
         gSplitLast = last ? 1u : 0u;
     }
@@ -95,7 +96,7 @@ bool splitk_arrive(uint* counter, uint tid)
 // row's sum before the store (1 or the inverse of a row-ranged copy's scale).
 #if SPLITK_FUSED
 #define SPLITK_FINISH(p, tid, THREADS, BM, BN, tile, t0, n0)                                                            \
-    if (splitk_arrive(p.arrivals + (tile), tid))                                                                        \
+    if (splitk_arrive(p.arrivals, tile, tid))                                                                        \
     {                                                                                                                   \
         uint64_t sliceElems = uint64_t(p.T) * N;                                                                       \
         if (N % 4 == 0)                                                                                                 \
@@ -126,6 +127,25 @@ bool splitk_arrive(uint* counter, uint tid)
                     [ForceUnroll] for (uint z = 0; z < SPLITK; z++) s += p.y[z * sliceElems + o];                       \
                     SPLITK_STORE(p, s * SPLITK_ROW_SCALE(p, t), t, n)                                                   \
                 }                                                                                                       \
+            }                                                                                                           \
+        }                                                                                                               \
+    }
+
+// The dual form: slices [SPLITK][T][2N] holding both products of output (t, n) at columns n and N + n; the last workgroup sums each
+// in slice order and stores SPLITK_STORE2(p, g, u, t, n) (the kernel's pair epilogue).
+#define SPLITK_FINISH_DUAL(p, tid, THREADS, BM, BN, tile, t0, n0)                                                       \
+    if (splitk_arrive(p.arrivals, tile, tid))                                                                        \
+    {                                                                                                                   \
+        uint64_t sliceElems = uint64_t(p.T) * 2 * N;                                                                   \
+        for (uint i = tid; i < (BM) * (BN); i += (THREADS))                                                             \
+        {                                                                                                               \
+            uint t = (t0) + i / (BN), n = (n0) + i % (BN);                                                              \
+            if (t < p.T && n < N)                                                                                       \
+            {                                                                                                           \
+                uint64_t o = uint64_t(t) * 2 * N + n;                                                                   \
+                float g = 0, u = 0;                                                                                     \
+                [ForceUnroll] for (uint z = 0; z < SPLITK; z++) { g += p.y[z * sliceElems + o]; u += p.y[z * sliceElems + o + N]; } \
+                SPLITK_STORE2(p, g, u, t, n)                                                                            \
             }                                                                                                           \
         }                                                                                                               \
     }

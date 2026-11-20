@@ -92,8 +92,8 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 #ifndef F8_GROUPED
 #define F8_GROUPED 0
 #endif
-#if DUAL && (SPLITK != 1 || F8_FN % 2 != 0)
-#error "the dual fp8 GEMM needs SPLITK = 1 and an even F8_FN"
+#if DUAL && ((SPLITK != 1 && !SPLITK_FUSED) || F8_FN % 2 != 0)
+#error "the dual fp8 GEMM needs SPLITK = 1 (or the fused split-K reduction) and an even F8_FN"
 #endif
 
 #define F8_THREADS (F8_WM * F8_WN * 32)
@@ -161,9 +161,11 @@ struct Params
 #define F8_WROW(n0, r) ((n0) + (r))
 #endif
 #if SPLITK_FUSED
-#if DUAL || SPLITK < 2
-#error "the fused split-K reduction of gemm_fp8 needs SPLITK > 1 and no DUAL"
+#if SPLITK < 2 || (DUAL && MULTI > 1)
+#error "the fused split-K reduction of gemm_fp8 needs SPLITK > 1 (and DUAL without MULTI)"
 #endif
+// DUAL: the partial slices hold both products of each output, [SPLITK][T][2N] (w's at column n, w2's at N + n).
+#define SPLITK_STORE2(p, g, u, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = epi2(g, u); }
 #if MULTI > 1
 #define SPLITK_STORE(p, s, t, n) MULTI_STORE(p, s, t, n)
 #else
@@ -315,7 +317,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
 #if SPLITK > 1
     const uint KS = ((K / F8_BK + SPLITK - 1) / SPLITK) * F8_BK;
     uint kBeg = gid.z * KS, kEnd = min(uint(K), kBeg + KS);
-    float* yb = p.y + uint64_t(gid.z) * p.T * N;
+    float* yb = p.y + uint64_t(gid.z) * p.T * N * (DUAL ? 2 : 1);
 #else
     uint kBeg = 0, kEnd = K;
     float* yb = p.y;
@@ -460,7 +462,15 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             {
                 uint t = t0 + wm + i * 16 + (uint(index[e]) >> 4);
                 uint n = n0 + wn / 2 + (j / 2) * 16 + (uint(index[e]) & 15);
+#if SPLITK_FUSED
+                if (t < p.T && n < N)
+                {
+                    yb[uint64_t(t) * 2 * N + n] = acc[i][j][e];
+                    yb[uint64_t(t) * 2 * N + N + n] = acc[i][j + 1][e];
+                }
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = epi2(acc[i][j][e], acc[i][j + 1][e]);
+#endif
             }
         }
 #else
@@ -481,7 +491,10 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
         }
 #endif
     }
-#if SPLITK_FUSED
+#if SPLITK_FUSED && DUAL
+    // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces both products and applies epi2.
+    SPLITK_FINISH_DUAL(p, tid, F8_THREADS, F8_BM, F8_BN_OUT, gid.x * ((N + F8_BN_OUT - 1) / F8_BN_OUT) + gid.y, t0, n0)
+#elif SPLITK_FUSED
     // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces it.
     SPLITK_FINISH(p, tid, F8_THREADS, F8_BM, F8_BN, gid.x * ((N + F8_BN - 1) / F8_BN) + gid.y, t0, n0)
 #endif

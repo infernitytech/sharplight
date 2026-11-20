@@ -1154,6 +1154,29 @@ public sealed partial class GraphLowerer
     private const long DefaultGemmWaveTiles = 192;
 
     /// <summary>
+    /// K split of a grid of one token tile row (decode-sized batches, whose GEMMs stream their weights): the split with the fewest
+    /// estimated K steps per workgroup times waves of <paramref name="wave"/> workgroups, so that the last wave is nearly full (e.g. 32
+    /// column tiles of 32 K steps: 4 splits run 128 workgroups in two waves of 82 with 8 steps each, 5 splits 160 workgroups in two
+    /// waves with 7 steps each). The smallest such split, keeping at least 2 K steps per workgroup.
+    /// </summary>
+    private static int WaveFillSplit(long tiles, long steps, long wave)
+    {
+        int best = 1;
+        long bestCost = long.MaxValue;
+        for (int split = 1; split <= 32 && steps / split >= 2; split++)
+        {
+            long cost = (tiles * split + wave - 1) / wave * ((steps + split - 1) / split);
+            if (cost < bestCost)
+            {
+                bestCost = cost;
+                best = split;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
     /// K split for the tensor-core GEMM tiles: aim for about 4/3 waves of <paramref name="wave"/> concurrent tiles, keep at least
     /// 4 K blocks per split and no empty splits.
     /// </summary>
@@ -1173,6 +1196,11 @@ public sealed partial class GraphLowerer
             // 61 % → 81 % of two / three waves).
             double Fill(long count) => (double)count / ((count + wave - 1) / wave * wave);
             return steps >= 8 && tiles < 4 * wave && Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
+        }
+
+        if (DiagnosticSwitches.SplitWaveFill && rows <= blockRows)
+        {
+            return WaveFillSplit(tiles, steps, wave);
         }
 
         int split = 1;

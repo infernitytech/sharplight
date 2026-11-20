@@ -149,8 +149,8 @@ public sealed partial class GraphLowerer
         int blockK = DiagnosticSwitches.GemmBlockK == 64 && k % 64 == 0 ? 64 : 32;
         int TileRows(long rows) => fp8 ? MmqTileRowsFor(rows, fp8: true) : Gemm2TileRowsFor(rows);
         int Columns(int tileRows) => fp8 ? MmqColumns(tileRows) : Gemm2Columns(tileRows);
-        int Split(long rows) => fp8 ? QuantizedGemmSplit(n, k, rows, 128, fp8: true)
-            : ChooseSplit(n, k, rows, TileRows(rows), Columns(TileRows(rows)), blockK, GemmWaveTiles);
+        int Split(long rows) => DiagnosticSwitches.MultiGemmSplit ?? (fp8 ? QuantizedGemmSplit(n, k, rows, 128, fp8: true)
+            : ChooseSplit(n, k, rows, TileRows(rows), Columns(TileRows(rows)), blockK, GemmWaveTiles));
 
         var tiledSplits = new SortedSet<(int TileRows, int Split)>();
         long scratchBytes = 0;

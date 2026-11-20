@@ -570,6 +570,18 @@ internal static class DiagnosticSwitches
     public static bool MultiGemm { get; } = IsNotZero("SHARPLIGHT_MULTI_GEMM");
 
     /// <summary>
+    /// <c>SHARPLIGHT_SPLIT_FILL=1</c>: grids of one token tile row choose their K split by wave fill (see GraphLowerer.WaveFillSplit)
+    /// instead of aiming for 4/3 waves.
+    /// </summary>
+    public static bool SplitWaveFill { get; } = Read("SHARPLIGHT_SPLIT_FILL") == "1";
+
+    /// <summary><c>SHARPLIGHT_FP8_DUAL_SPLIT=1</c>: the dual fp8 GEMM splits K at decode sizes (see GraphLowerer.DualFp8Split).</summary>
+    public static bool Fp8DualSplit { get; } = Read("SHARPLIGHT_FP8_DUAL_SPLIT") == "1";
+
+    /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
+    public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
     /// False (<c>SHARPLIGHT_NATIVE_GEMM_BIAS=0</c>) keeps matmuls with a bias row on the generated GEMMs at prefill sizes instead of the
     /// hand-written f16 GEMM with the bias in its store.
     /// </summary>
