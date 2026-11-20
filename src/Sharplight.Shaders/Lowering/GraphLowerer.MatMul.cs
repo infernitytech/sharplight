@@ -490,7 +490,8 @@ public sealed partial class GraphLowerer
             var beforeLibrary = _launchCondition;
             _launchCondition = outer;
             EmitLibraryGemm(plan, half, nativeBias ? epilogue : null);
-            _launchCondition = b => (beforeLibrary?.Invoke(b) ?? true) && plan.RowCount(b) < LibraryGemmMinRows;
+            long libraryMin = nativeBias ? NativeBiasGemmMinRows : LibraryGemmMinRows;
+            _launchCondition = b => (beforeLibrary?.Invoke(b) ?? true) && plan.RowCount(b) < libraryMin;
         }
 
         if (skinnyHere)
@@ -507,7 +508,7 @@ public sealed partial class GraphLowerer
         _launchCondition = outer;
         if (epilogue is not null && epilogueCode is null)
         {
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= LibraryGemmMinRows);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows);
             LowerElementwise(epilogue.Group, [epilogue.Output]);
             _launchCondition = outer;
         }
@@ -515,7 +516,7 @@ public sealed partial class GraphLowerer
         {
             // Row counts whose split-K reduction did not apply the group (no K split, or another launch served them), nor the
             // hand-written GEMM's bias store.
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false) && !(nativeBias && plan.RowCount(b) >= LibraryGemmMinRows);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows);
             LowerElementwise(epilogue.Group, [epilogue.Output]);
             _launchCondition = outer;
         }
