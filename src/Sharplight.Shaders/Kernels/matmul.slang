@@ -1,6 +1,7 @@
 // y[t, n] = sum_k x[t, k] * W[n, k]      (x: f32 rows with stride X_STRIDE, W: WFMT rows of K values)
 // Specialization macros: WFMT, K, N, X_STRIDE, Y_STRIDE, ROW_BYTES, SG
 #include "common.slang"
+#include "splitk.slang"
 
 // DUAL: two weight matrices of identical shape/format share x; the outputs are combined per element by
 // `float epi2(float a, float b)` (defined by the including generated source, e.g. silu(a) * b): the matvecs and gemm_cm2 (X_F16, no K
@@ -111,6 +112,27 @@ struct Params
 #endif
 #if MM_EPI && MM_EPI_ARGS > 2
     float* e2;
+#endif
+#if SPLITK_FUSED
+    float* yout;      // gemm_cm2 with SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+    uint* arrivals;   // per output tile: the split workgroups arrived so far (zero between launches)
+#endif
+#if MULTI > 1
+    uint8_t* mw1;     // MULTI (splitk.slang): the second and third weight matrices, their outputs and (MULTI_BIAS) the bias rows
+#if MULTI > 2
+    uint8_t* mw2;
+#endif
+    float* yout1;
+#if MULTI > 2
+    float* yout2;
+#endif
+#if MULTI_BIAS
+    float* mb0;
+    float* mb1;
+#if MULTI > 2
+    float* mb2;
+#endif
+#endif
 #endif
     uint T;
 };
@@ -1176,6 +1198,22 @@ groupshared uint gItem[GBM];
 groupshared float gRowInverse[GBM];
 #endif
 
+#if SPLITK_FUSED
+#if MOE || DUAL || GEMM_SPLIT || !defined(SPLITK) || SPLITK < 2 || (MULTI > 1 && MM_EPI)
+#error "the fused split-K reduction of gemm_cm2 needs SPLITK > 1, no MOE / DUAL / GEMM_SPLIT, and MULTI without MM_EPI"
+#endif
+#if MULTI > 1
+#define SPLITK_STORE(p, s, t, n) MULTI_STORE(p, s, t, n)
+#else
+#define SPLITK_STORE(p, s, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = MM_STORE(s, t, n); }
+#endif
+#ifdef X_RS
+#define SPLITK_ROW_SCALE(p, t) f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(t) * 4))
+#else
+#define SPLITK_ROW_SCALE(p, t) 1.0
+#endif
+#endif
+
 [shader("compute")]
 [numthreads(GTHREADS, 1, 1)]
 void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
@@ -1224,7 +1262,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #define ROWS_LIVE tileRows
 #else
     uint t0 = gid.y * GBM;
+#if MULTI > 1
+    uint8_t* wbase = MULTI_WBASE(p, n0);
+#else
     uint8_t* wbase = p.w;
+#endif
 #if DUAL
     uint8_t* wbase2 = p.w2;
 #endif
@@ -1754,10 +1796,19 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
     return;
 #endif
+#if SPLITK_FUSED
+    // The partial slices are dense rows of N (the reduction reads them so); the last workgroup of the tile reduces it.
+    #define GEMM_PART_STRIDE N
+    #define GEMM_FINISH SPLITK_FINISH(p, tid, GTHREADS, GBM, GBN, gid.y * ((N + GBN - 1) / GBN) + gid.x, t0, n0)
+#else
+    #define GEMM_PART_STRIDE Y_STRIDE
+    #define GEMM_FINISH
+#endif
     if (!MOE && t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
     {
         [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++)
-            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(t0 + wm + i * 16) * Y_STRIDE + n0 + wn + j * 16, 0u, Y_STRIDE);
+            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(t0 + wm + i * 16) * GEMM_PART_STRIDE + n0 + wn + j * 16, 0u, GEMM_PART_STRIDE);
+        GEMM_FINISH
         return;
     }
     // Partial tile: each subgroup stages its accumulators through its own shared slice.
@@ -1782,12 +1833,15 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = MOE_STORE1(gC[sg * 256 + w], expert, n, gItem[t]);
 #endif
 #else
-                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];
+                if (t < p.T && n < N) yb[uint64_t(t) * GEMM_PART_STRIDE + n] = gC[sg * 256 + w];
 #endif
             }
             GroupMemoryBarrierWithGroupSync();
         }
     }
+    GEMM_FINISH
+    #undef GEMM_FINISH
+    #undef GEMM_PART_STRIDE
 }
 #endif   // KERNEL_GEMM_CM2 entry
 #include "matmul_skinny.slang"

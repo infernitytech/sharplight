@@ -22,7 +22,9 @@ public sealed partial class GraphLowerer
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
-            ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount) : null : null);
+            ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount) : null : null,
+        fusedKernel: (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8",
+            new Dictionary<string, string>(Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)) { ["SPLITK_FUSED"] = "1" }));
 
     /// <summary>
     /// Largest batch for which the dual fp8 GEMM serves every row count (one 64-row tile). Larger batches use it only where the

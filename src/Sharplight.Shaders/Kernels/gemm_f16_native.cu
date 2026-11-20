@@ -11,13 +11,23 @@
 // thread holds both results of an output and stores H_EPI2(a, b) (the generated epilogue); a block covers half its weight rows of
 // outputs.
 //
-// Specialization macros: K, N, Y_STRIDE, H_CFG, DUAL, H_EPI2 (DUAL). Requires K % 64 == 0, 16-byte aligned operands and an even
-// Y_STRIDE. Grid: x = token tiles, y = weight tiles.
+// H_BIAS (single matrix): the store adds bias[n] (a projection's bias row). H_XRS (with H_BIAS): x is a row-ranged f16 copy whose
+// scale words start at byte H_XRS of x (common.slang, f16_range_scale); the store multiplies each row's products by the inverse of
+// its scale before the bias (exact: a power of two), as the unscale launch and the Add would.
+//
+// Specialization macros: K, N, Y_STRIDE, H_CFG, DUAL, H_EPI2 (DUAL), H_BIAS, H_XRS. Requires K % 64 == 0, 16-byte aligned operands
+// and an even Y_STRIDE. Grid: x = token tiles, y = weight tiles.
 #ifndef DUAL
 #define DUAL 0
 #endif
 #ifndef H_CFG
 #define H_CFG 0
+#endif
+#ifndef H_BIAS
+#define H_BIAS 0
+#endif
+#if H_BIAS && DUAL
+#error "the bias epilogue is for single matrices"
 #endif
 #if H_CFG == 0
 #define H_BN 256
@@ -55,6 +65,9 @@ struct HParams
     const unsigned char* w2;
 #endif
     float* y;
+#if H_BIAS
+    const float* bias;
+#endif
     h_u32 T;
 };
 
@@ -202,6 +215,10 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, 1) gemm_f16_native(HPara
             }
 
             float* yr = p.y + (h_u64)t * Y_STRIDE;
+#ifdef H_XRS
+            const h_u32 scaleWord = *(const h_u32*)(p.x + H_XRS + (h_u64)t * 4);
+            const float rowInverse = scaleWord == 0 ? 1.0f : __uint_as_float(scaleWord);
+#endif
 #if DUAL
 #pragma unroll
             for (int j = 0; j < H_FN; j += 2)
@@ -215,6 +232,14 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, 1) gemm_f16_native(HPara
             {
                 h_u32 n = n0 + wn * H_TN + j * 8 + c4 * 2;
                 float v0 = acc[i][j][h * 2], v1 = acc[i][j][h * 2 + 1];
+#ifdef H_XRS
+                v0 *= rowInverse;
+                v1 *= rowInverse;
+#endif
+#if H_BIAS
+                v0 += p.bias[min(n, (h_u32)N - 1)];
+                v1 += p.bias[min(n + 1, (h_u32)N - 1)];
+#endif
 #endif
                 if (n + 1 < N)
                 {

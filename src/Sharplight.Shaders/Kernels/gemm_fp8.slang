@@ -23,6 +23,7 @@
 // F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GROUPED, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE and DENSE_XCAP
 // (quantize_fp8). Requires K % 128 == 0 and 32-lane subgroups.
 #include "common.slang"
+#include "splitk.slang"
 using namespace linalg;
 
 // Quantized activation row: K codes, then K / 128 f32 scales.
@@ -121,6 +122,27 @@ struct Params
     uint8_t* w2;
 #endif
     float* y;
+#if SPLITK_FUSED
+    float* yout;      // SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+    uint* arrivals;   // per output tile: the split workgroups arrived so far (zero between launches)
+#endif
+#if MULTI > 1
+    uint8_t* mw1;     // MULTI (splitk.slang): the second and third weight matrices, their outputs and (MULTI_BIAS) the bias rows
+#if MULTI > 2
+    uint8_t* mw2;
+#endif
+    float* yout1;
+#if MULTI > 2
+    float* yout2;
+#endif
+#if MULTI_BIAS
+    float* mb0;
+    float* mb1;
+#if MULTI > 2
+    float* mb2;
+#endif
+#endif
+#endif
     uint T;
 };
 
@@ -129,10 +151,25 @@ struct Params
 #define F8_BN_OUT (F8_BN / 2)
 #define F8_WPTR(r) ((((r) / 16) & 1) != 0 ? p.w2 : p.w)
 #define F8_WROW(n0, r) ((n0) + ((r) / 32) * 16 + (r) % 16)
+#elif MULTI > 1
+#define F8_BN_OUT F8_BN
+#define F8_WPTR(r) wbaseM
+#define F8_WROW(n0, r) ((n0) + (r))
 #else
 #define F8_BN_OUT F8_BN
 #define F8_WPTR(r) p.w
 #define F8_WROW(n0, r) ((n0) + (r))
+#endif
+#if SPLITK_FUSED
+#if DUAL || SPLITK < 2
+#error "the fused split-K reduction of gemm_fp8 needs SPLITK > 1 and no DUAL"
+#endif
+#if MULTI > 1
+#define SPLITK_STORE(p, s, t, n) MULTI_STORE(p, s, t, n)
+#else
+#define SPLITK_STORE(p, s, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = (s); }
+#endif
+#define SPLITK_ROW_SCALE(p, t) 1.0
 #endif
 
 #if SL_TARGET_CUDA
@@ -272,6 +309,9 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     uint wm = (sg / F8_WN) * (F8_FM * 16);
     uint wn = (sg % F8_WN) * (F8_FN * 16);
     uint r0 = uint(index[0]) >> 4, c0 = uint(index[0]) & 15;
+#if MULTI > 1
+    uint8_t* wbaseM = MULTI_WBASE(p, n0);
+#endif
 #if SPLITK > 1
     const uint KS = ((K / F8_BK + SPLITK - 1) / SPLITK) * F8_BK;
     uint kBeg = gid.z * KS, kEnd = min(uint(K), kBeg + KS);
@@ -432,11 +472,19 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             {
                 uint t = t0 + wm + i * 16 + (uint(index[e]) >> 4);
                 uint n = n0 + wn + j * 16 + (uint(index[e]) & 15);
+#if SPLITK_FUSED
+                if (t < p.T && n < N) yb[uint64_t(t) * N + n] = acc[i][j][e];
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = acc[i][j][e];
+#endif
             }
         }
 #endif
     }
+#if SPLITK_FUSED
+    // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces it.
+    SPLITK_FINISH(p, tid, F8_THREADS, F8_BM, F8_BN, gid.x * ((N + F8_BN - 1) / F8_BN) + gid.y, t0, n0)
+#endif
 }
 
 [shader("compute")]

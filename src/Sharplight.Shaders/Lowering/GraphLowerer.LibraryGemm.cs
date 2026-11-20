@@ -28,6 +28,18 @@ public sealed partial class GraphLowerer
         => !epilogue && !p.SplitHalf && LibraryGemmUsable(p.W.Type, p.N, p.K, p.RowsPerLead, p.X.Shape[0]);
 
     /// <summary>
+    /// True when matmul <paramref name="p"/> with the epilogue <paramref name="epilogue"/> runs on the hand-written f16 GEMM with the
+    /// epilogue in its store from <see cref="LibraryGemmMinRows"/> rows: the epilogue adds a constant f32 bias row of the output's width
+    /// (the q / k / v / o biases of gpt-oss or Qwen2), and the matmul suits the library path. <c>SHARPLIGHT_NATIVE_GEMM_BIAS=0</c> keeps
+    /// such matmuls on the generated GEMMs.
+    /// </summary>
+    private bool UseNativeBiasGemm(MatMulPlan p, MatMulEpilogue? epilogue)
+        => epilogue is { Group: [{ Op.Name: "Add" } add] } && add.Output == epilogue.Output && DiagnosticSwitches.NativeGemmBias && NativeGemmF16
+           && !p.SplitHalf && LibraryGemmUsable(p.W.Type, p.N, p.K, p.RowsPerLead, p.X.Shape[0])
+           && add.Inputs[add.Inputs[0] == p.Node.Output ? 1 : 0] is { Kind: ValueKind.Weight, Shape.Rank: 1 } row && row.Type == DataType.F32
+           && row.Shape[0].Equals(p.Node.Inputs[1].Shape[0]) && (add.Inputs[0] == p.Node.Output || add.Inputs[1] == p.Node.Output);
+
+    /// <summary>
     /// True when a matmul of <paramref name="type"/> weights [<paramref name="n"/>, <paramref name="k"/>] with up to
     /// <paramref name="maxRows"/> activation rows can run on the vendor GEMM library (see <see cref="UseLibraryGemm"/>).
     /// </summary>
@@ -75,10 +87,24 @@ public sealed partial class GraphLowerer
     /// The library GEMM of <paramref name="p"/> for <see cref="LibraryGemmMinRows"/> rows and more, on the f16 copy of x the
     /// generated GEMMs read (<paramref name="half"/>, else converted here), with the row-range fix-up of that copy.
     /// </summary>
-    private void EmitLibraryGemm(MatMulPlan p, TensorRef? half)
+    private void EmitLibraryGemm(MatMulPlan p, TensorRef? half, MatMulEpilogue? bias = null)
     {
         string label = MatMulLabel(p);
         var x = half ?? QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, 1, p.K, LibraryGemmMinRows, p.X.Shape[0], ActivationCode.F16);
+        if (bias is not null)
+        {
+            // The hand-written GEMM adds the bias row in its store (and undoes the rows' range scales first).
+            var add = bias.Group[0];
+            var row = Ref(add.Inputs[add.Inputs[0] == p.Node.Output ? 1 : 0]);
+            var y = Produce(bias.Output);
+            long? rangeScales = _rangeScales.TryGetValue(x, out long xrs) ? xrs : null;
+            Emit($"{label} native fused[Add]", [p.Node, add],
+                NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), LibraryGemmMinRows, bias: true, rangeScales: rangeScales),
+                [Pointer(x), Pointer(p.W), Pointer(y), Pointer(row), TokenArg(p.X)],
+                [x, p.W, row], [y]);
+            return;
+        }
+
         // The provider's hand-written f16 GEMM where it has one, else the vendor library (same operands and output).
         KernelVariant[] variants = NativeGemmF16
             ? NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), LibraryGemmMinRows)

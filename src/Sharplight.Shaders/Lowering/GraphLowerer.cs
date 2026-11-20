@@ -144,6 +144,10 @@ public sealed partial class GraphLowerer
             var unit = units[index];
             FreeDeadValues(deferred, unit.Level);
             LowerUnit(unit);
+            if (unit.Node is { } lowered)
+            {
+                NoteMatMulLowered(lowered);
+            }
 
             foreach (var (root, lastUse) in _lastUse)
             {

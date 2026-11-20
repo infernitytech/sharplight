@@ -249,7 +249,8 @@ public sealed partial class GraphLowerer
     /// Launch variants of the hand-written f16 GEMM (single, or dual with <paramref name="dualEpilogue"/>) for batches of
     /// <paramref name="minRows"/> rows and more: one per tile configuration, each serving the row counts it is estimated fastest for.
     /// </summary>
-    private KernelVariant[] NativeF16Variants(long n, long k, long maxRows, string? dualEpilogue, Func<Bindings, long> rows, long minRows)
+    private KernelVariant[] NativeF16Variants(long n, long k, long maxRows, string? dualEpilogue, Func<Bindings, long> rows, long minRows,
+        bool bias = false, long? rangeScales = null)
     {
         bool dual = dualEpilogue is not null;
         var used = new SortedSet<int>();
@@ -262,6 +263,16 @@ public sealed partial class GraphLowerer
         return [.. used.Select(c =>
         {
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("DUAL", dual ? 1 : 0), ("H_CFG", c));
+            if (bias)
+            {
+                macros["H_BIAS"] = "1";
+            }
+
+            if (rangeScales is { } scales)
+            {
+                macros["H_XRS"] = scales.ToString(CultureInfo.InvariantCulture) + "ull";
+            }
+
             var kernel = _compiler.CompileCuda("gemm_f16_native.cu", dualEpilogue?.Replace("F8N_EPI2", "H_EPI2", StringComparison.Ordinal) ?? "",
                 "gemm_f16_native", s_nativeF16Threads[c], s_nativeF16Shared[c], _opt.Target, macros, _opt.Cache);
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];

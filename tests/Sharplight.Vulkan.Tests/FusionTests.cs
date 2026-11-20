@@ -117,6 +117,39 @@ public sealed class FusionTests
             maxTokens: Math.Max(32, t), what: $"T={t}");
     }
 
+    /// <summary>
+    /// Sibling projections reading the same rows (q / k / v, with or without biases): at the batches where each one splits K, one
+    /// multi-output GEMM over the concatenated weight rows reduces into every output in its last workgroups (the last width, 136,
+    /// is not a multiple of the column tile); other batches run each projection on its own (skinny GEMM, split-K or plain GEMM).
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 16, true)]
+    [InlineData("bf16", 40, true)]
+    [InlineData("bf16", 64, true)]
+    [InlineData("bf16", 200, true)]
+    [InlineData("f16", 100, false)]
+    [InlineData("f16", 300, false)]
+    [InlineData("q8_0", 64, false)]
+    [InlineData("f8e4m3_b128", 40, false)]
+    [InlineData("f8e4m3_b128", 64, true)]
+    public void SiblingProjections(string fmt, int t, bool bias)
+    {
+        Gpu.Require();
+        int K = 1536;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var xn = tg.B.Mul(x, x);
+        foreach (var (name, n) in new[] { ("q", 1024L), ("k", 256L), ("v", 136L) })
+        {
+            var y = tg.B.MatMul(xn, tg.RandW("w" + name, DataType.Get(fmt), 0.1f, n, K));
+            tg.B.Output(name, bias ? tg.B.Add(y, tg.RandW("b" + name, DataType.F32, 0.5f, n)) : y);
+        }
+
+        double atol = fmt == "f8e4m3_b128" ? 1.5 : 1e-1, rtol = fmt == "f8e4m3_b128" ? 5e-2 : 1e-2;
+        Diff.Check("Fusion.siblings." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 6))), atol: atol, rtol: rtol,
+            maxTokens: Math.Max(64, t), what: $"T={t} bias={bias}");
+    }
+
     [Theory]
     [InlineData(2, 4, 32, 16)]
     [InlineData(1, 2, 128, 128)]

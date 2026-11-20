@@ -557,6 +557,24 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool SplitKReduceEpilogue { get; } = IsNotZero("SHARPLIGHT_SPLITK_EPILOGUE");
 
+    /// <summary>
+    /// False (<c>SHARPLIGHT_SPLITK_FUSED=0</c>) runs the split-K reduction of gemm_cm2 and the fp8 GEMM as its own launch
+    /// (<c>splitk_reduce</c>) instead of in the last workgroup of each output tile (splitk.slang).
+    /// </summary>
+    public static bool SplitKFused { get; } = IsNotZero("SHARPLIGHT_SPLITK_FUSED");
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MULTI_GEMM=0</c>) lowers sibling projections sharing their activations (q / k / v) as separate GEMMs
+    /// instead of one multi-output GEMM (splitk.slang, MULTI) at the row counts that split K.
+    /// </summary>
+    public static bool MultiGemm { get; } = IsNotZero("SHARPLIGHT_MULTI_GEMM");
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_NATIVE_GEMM_BIAS=0</c>) keeps matmuls with a bias row on the generated GEMMs at prefill sizes instead of the
+    /// hand-written f16 GEMM with the bias in its store.
+    /// </summary>
+    public static bool NativeGemmBias { get; } = IsNotZero("SHARPLIGHT_NATIVE_GEMM_BIAS");
+
     /// <summary>Opt-in (<c>SHARPLIGHT_FP8_SHORT_TILES=1</c>): the fp8 GEMM takes 64-row tiles above 64 rows where they pad fewer rows.</summary>
     public static bool Fp8ShortTiles { get; } = IsSet("SHARPLIGHT_FP8_SHORT_TILES");
 
