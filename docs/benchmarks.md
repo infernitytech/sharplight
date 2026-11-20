@@ -7598,3 +7598,158 @@ export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> PY=<python with httpx>
 bench/s55_step_snapshots.sh bench/results/s55 ~/models/hf/Qwen3.5-0.8B    # vulkan and cuda: in-step, copy, off
 bench/s55_summarize.py bench/results/s55
 ```
+
+## 57. LLM round 13: FP8 GEMM under the power limit, tensor copies, warp-specialized persistent main loop; decode step at 16-64 sequences (2026-11-20)
+
+Branch `perf/llm-r13` (base `develop` at `8ca10b24`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, 200 W board
+limit), driver 595.112.07, NVRTC 13.0.88, vLLM 0.33.0 (`VLLM_USE_DEEP_GEMM=0`: CUTLASS's block-scaled kernel with the checkpoint's
+f32 scales, as in 54.1). Another agent's idle `sharplight serve` held 16 GB of the GPU throughout (no kernels running; vLLM ran with
+`--gpu-util 0.45`). "Before" is this branch with `SHARPLIGHT_FP8_TMA=0` (the phase-4 kernel), run in the same session. Raw output
+in [`bench/results/s57/`](../bench/results/s57).
+
+### 57.1 Qwen3-8B-FP8 per provider (tok/s; prefill median of 5 / decode median, procedure of section 51)
+
+| rows | Vulkan | CUDA before | **CUDA** | CUDA / before | CUDA / Vulkan | vLLM | CUDA / vLLM (before) |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 512 | 10,229 / 86.1 | 12,323 / 87.0 | **13,627 / 87.0** | 1.11 | 1.33 / 1.01 | 13,806 / 86.7 | **0.99** (0.89) / 1.00 |
+| 2048 | 10,238 / 85.2 | 11,811 / 85.5 | **13,150 / 85.6** | 1.11 | 1.28 / 1.01 | 14,957 | **0.88** (0.79) |
+| 8192 | 8,651 / 76.0 | 9,690 / 77.6 | **10,582 / 77.7** | 1.09 | 1.22 / 1.02 | 12,296 / 77.3 | **0.86** (0.79) / 1.00 |
+
+* FP8 prefill +9-11 % on CUDA: 0.99x of vLLM at 512 rows, 0.86-0.88x at 2048-8192 (before: 0.79-0.89x). Decode unchanged.
+* The phase-4 kernel measured 0.85-0.87x of vLLM on GPU 1 (54.1) and 0.79-0.89x here: the same build is 3-8 % slower on this board
+  at 2048-8192 rows, vLLM is not. Ratios below compare runs of the same session.
+* GEMM time of a 2048-row prefill (`SHARPLIGHT_CUDA_PROFILE=1`, two 1024-row passes, `profiles/`): 136.6 → 118.3 ms (gate / up
+  dual 873 → 765 µs minimum per launch, down 522 → 446, q / o 168 → 144, k / v 44 → 37).
+
+### 57.2 What limits the FP8 GEMM: the 200 W limit, not the copies
+
+The ablations of 53.4 / 54.3 timed short bursts. Sampled during a model's prefill the board sits at its 200 W limit at 2.1 GHz
+(8192-token prefill: 195-201 W, 2.09-2.25 GHz), and so does a standalone GEMM run back to back for 1.5 s. Two measurements that do
+not depend on the clock make the kernels comparable (`bench/s57_gemm`, `-DF8N_CYCLES`: FLOPs per SM cycle from `clock64()`;
+`SUSTAIN`: steady-state time and the board's NVML energy per FLOP):
+
+| kernel, [4096 → 4096] at 8192 rows | burst TFLOPS | sustained TFLOPS | SM clock (sustained) | FLOPs per SM cycle (of 2048) | pJ / FLOP |
+|---|---:|---:|---:|---:|---:|
+| phase 4 (`gemm_fp8_native.cu`) | 228 | 220 | 2.18 GHz | 1337 (65 %) | 0.93 |
+| ablation: no code copies (54.3's "no code loads") | 335 | 341 | 2.71 GHz | 1509 (74 %) | |
+| ablation: no code copies, no block barrier | | | | 1778 (87 %) | |
+| ablation: no code copies, no barrier, no promotion | | | | 1959 (96 %) | |
+| **warp-specialized with tensor copies (`gemm_fp8_tma.cu`)** | 246 | 236 | 2.14 GHz | 1565 (76 %) | 0.86 |
+| vLLM / CUTLASS block-scaled (`vllm_gemm.py`) | 302 | 289 | 1.90 GHz | ~1850 (~90 %) | ~0.69 |
+
+* The "no code loads" ablation was fast mostly because the tensor cores multiplied stale shared memory: with less switching the
+  board held 2.7 GHz instead of 2.2. Per cycle it gained 9 points, not the 50 % its TFLOPS suggested; the copies are not hidden
+  badly (with L2-resident data, `HOT`, the tensor-copy kernel runs at the same cycles).
+* What costs cycles is the block barrier per K block (13 points: all eight warps drain the tensor pipe together at the promotion
+  and the next block's first `ldmatrix`) and the promotion itself (9 points: 64 FMULs for the per-output scale products and 64
+  FFMAs per thread and K block; CUTLASS's 128 x 128 scales need one product per row).
+* CUTLASS runs at ~90 % of the MMA peak per cycle and so at a lower clock under the same 200 W: 0.69 against our 0.86-0.93 pJ per
+  FLOP. Under the limit a kernel is as fast as it is efficient in energy, and more work per cycle is the lever that pays.
+
+### 57.3 Warp-specialized persistent FP8 GEMM with tensor copies (kept, default from compute capability 9.0)
+
+`gemm_fp8_tma.cu` (`DeviceFeatures.TensorCopies`, the 128-row tiles; 64-row tiles keep `gemm_fp8_native.cu`):
+
+* **Persistent**: one block per SM walks its share of the 128 x 128 tiles in the grouped order, so the copies of a tile's first K
+  blocks overlap the previous tile's last blocks and its stores. On its own (per-thread copies with the copy pointers advanced
+  per K block instead of recomputed) +2-4 %; recomputing them per block made it 6 % slower: the main loop is sensitive to every
+  integer instruction.
+* **Tensor copies** (`cp.async.bulk.tensor`, 128-byte swizzle by the copy engine) of the activation and weight tiles, bulk copies of
+  the K block's 128 + 128 scales into a two-slot ring, all issued by one lane of a copy warp; full barriers (transaction counts)
+  and empty barriers (one arrival per computing warp) replace `__syncthreads`. The ring is 3 x 32 KB of codes, 2 x 1 KB of scales
+  and 64 bytes of barriers (100,416 of the 101,376 bytes a block may take).
+* **Tensor maps in the kernel parameters**: the lowering states them in a header line (`// sharplight-tensormaps:` pointer argument,
+  dimensions, strides, box); the CUDA provider encodes them with `cuTensorMapEncodeTiled` when it records a launch and appends them
+  (64-byte aligned) after the scalars, so CUDA graphs and precompiled packages carry nothing new.
+* Results are bit-identical to `gemm_fp8_native.cu` (same per-output order of MMAs and fused multiply-adds; dual form with the w and
+  w2 halves of the B tile instead of interleaved 8-row groups). 128-row tiles now cost 1.3 of a 64-row block in the tile choice
+  (was 1.75): 8192-row prefill 9,971 tok/s at 1.75, 10,515 at 1.3, 10,486 at 1.0.
+
+Per shape (`bench/s57_gemm/run.sh`, random codes, burst = best of 17 after an L2 flush / sustained = 1.5 s back to back, TFLOPS;
+vLLM: `vllm_gemm.py`, its gate / up is one [4096 → 24576] GEMM without the SiLU·mul):
+
+| shape | rows | phase 4 | **tensor copies** | vLLM / CUTLASS | ours / vLLM (sustained) |
+|---|---:|---|---|---|---:|
+| q / o [4096 → 4096] | 2048 | 235 / 212 | **256 / 224** | 305 / 280 | 0.80 |
+| | 8192 | 228 / 220 | **246 / 236** | 302 / 289 | 0.82 |
+| k / v [4096 → 1024] | 2048 | 205 / 195 | **215 / 206** | 240 / 252 | 0.82 |
+| | 8192 | 218 / 207 | **235 / 219** | 284 / 276 | 0.79 |
+| gate / up [4096 → 12288] x2, dual | 2048 | 245 / 218 | **269 / 237** | 291 / 282 | 0.84 |
+| | 8192 | 221 / 218 | **240 / 237** | 287 / 284 | 0.83 |
+| down [12288 → 4096] | 2048 | 237 / 215 | **258 / 230** | 281 / 275 | 0.84 |
+| | 8192 | 231 / 227 | **248 / 243** | 294 / 293 | 0.83 |
+
+Two compiler effects decided whether this reached a model (first in-model runs: no gain, then a launch failure):
+
+* **Spills under NVRTC**: with `__launch_bounds__(288, 1)` the provider's NVRTC 13.0 produced PTX that ptxas allocates at its 168-
+  register cap with 76-92 bytes of spills, 5-9 of them inside the MMA loop (nvcc 13.2 on the same source: none); the kernel was then
+  no faster than phase 4 in the model. `__launch_bounds__(288)` without the block minimum: 168 registers, no spills.
+  `bench/s57_gemm/nvrtc_check.sh` runs a kernel through the provider's NVRTC and counts local-memory accesses in the MMA loop.
+* **Local memory and "out of memory" at launch**: copies with a `shared::cluster` destination make ptxas check at run time that the
+  address is the block's own, with a fallback call (`__cuda_syscall_cp_async_bulk_*`) that needs an 8-byte stack; the first launch
+  then failed with `CUDA_ERROR_OUT_OF_MEMORY` when the KV cache had filled the GPU (BatchBench, 64 slots). `shared::cta`
+  destinations (PTX 8.6, chosen from CUDA 12.8 by `__CUDACC_VER_*`) and an explicit `cvta.to.global` for the bulk sources remove the
+  calls and the stack.
+
+Tried and not kept on the way (all measured in cycles as well as time): `kk`-outer promotion with all 16 fragment accumulators
+(same cycles, 242 registers); software-pipelined promotion of fragment i - 1 after fragment i's MMAs (ptxas reorders it back);
+TMA issued by a thread of a computing warp with a block barrier (69 %) or blocking on the empty barrier (65 %, dual 48 %); weight
+and activation scales read from global memory in the computing warps (66 %: their latency lands before the first promotion);
+64-row tiles in the TMA kernel (65 %); a warp-vote fast path for one weight scale per warp (one product per row, exact when the
+scales agree; +3.7 points without the vote, but at the 168-register cap the two promotion paths spill); a phase offset between the
+two warps of a scheduler (no effect); tile orders of 4-64 token tiles per group (±2 %); packed `fma.rn.f32x2` (split into scalar
+FFMAs on sm_120).
+
+### 57.4 Decode step at 16-64 sequences
+
+`BatchBench --slots 64 --ctx 512 --depth 256 --modes greedy --reps 12` (GPU ms per step, median / wall, minimum):
+
+| step | CUDA | Vulkan | vLLM (54.4) |
+|---|---|---|---|
+| 1 sequence | 11.41 / 11.50, 11.35 | 11.27 / 11.34, 11.19 | |
+| 16 sequences | 13.46 / 13.82, 13.39 | 13.62 / 14.08, 13.54 | |
+| 64 sequences | 17.93 / 18.08, 17.83 | 17.25 / 17.63, 17.14 | 14.08 + 1.55 LM head |
+
+Per layer at 64 sequences (CUDA profile, mean µs): gate / up 155 (670 GB/s of weights), decode attention 119 + combine 13 (64 MB of
+K / V at 540 GB/s), down 79, q and o 33 each (524 GB/s), k and v 12 each (357 GB/s), five split-K reductions 20, norms 16. Measured
+and not changed:
+
+| candidate | result |
+|---|---|
+| fused split-K combine for 4 x 128 head groups (`SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH=512`, new switch) | 64 sequences -0.6 % (CUDA) / -0.2 % (Vulkan), 1 and 16 sequences ±0.4 %; section 36 measured -1 % at 4096 tokens: not worth a default |
+| decode attention target workgroups 1024-4096, minimum keys 64-128, 1-4 rows per batch (`SHARPLIGHT_ATTN_DECODE_CFG`) | 16 sequences within ±0.3 %; 64 sequences -0.4 % to +1.5 % (slowest: 4096 workgroups, 2 rows) |
+| `__launch_bounds__` on every Slang kernel's CUDA form | -0.8 / +0.5 / -0.7 % at 1 / 16 / 64 sequences: noise |
+| the split row layout instead of the 128-row groups on CUDA (`SHARPLIGHT_FP8_GROUPED=0`) | 64 sequences 17.87 against 17.91 ms: the grouped layout costs decode nothing |
+| the TMA kernel at decode sizes | does not apply (64 rows run the generated split-K GEMMs) |
+
+* CUDA is 0.7 ms per step behind Vulkan at 64 sequences with the same Slang kernels: q / o 28.3 against 26.4 µs, down 74.6 against
+  70.5, gate / up 148.5 against 145.0 (minimum per launch), the split-K reductions 0.72 against 0.60 ms. Three of the CUDA forms of
+  `gemm_fp8.slang` take 255 registers with 84-byte spills under NVRTC; which variants serve decode is the next thing to settle.
+* Against vLLM (15.6 ms) the step is 2.3 ms longer: the weight GEMMs stream at 520-670 GB/s against vLLM's ~766 (1.3 ms), five
+  split-K reductions per layer (0.7 ms; vLLM overlaps its reduction with programmatic dependent launch), attention (0.4 ms). A fused
+  q / k / v GEMM needs a multi-output GEMM (separate outputs; the dual form combines its two products) and saves an estimated
+  0.5-0.8 ms per step with its reductions; it did not fit this round.
+
+### 57.5 Vulkan unchanged
+
+The changes are CUDA-only: the new kernel is compiled only by the CUDA provider's translator and selected only with
+`tensor_copies` (reported by CUDA from compute capability 9.0); the tile-cost change and the new switches are behind the native FP8
+GEMM (CUDA) or default-off. No `.slang` file changed. Kernel inputs on Vulkan: see 57.6.
+
+### 57.6 Tests
+
+See the hand-back table in the commit (filled in below after the runs).
+
+### 57.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+for n in 512 2048 8192; do $CLI ~/models/hf/Qwen3-8B-FP8 --provider cuda --bench $n --ctx $((n + 256)); done   # SHARPLIGHT_FP8_TMA=0: before
+VLLM_USE_DEEP_GEMM=0 VLLM_VENV=<venv with vLLM 0.33.0> VLLM_ARGS="--gpu-util 0.45" bench/s42_gap.sh bench/results/s57/vllm-nodg qwen3-8b-fp8 vllm ~/models/hf/Qwen3-8B-FP8
+SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B-FP8 --provider cuda --bench 2048 --ctx 2304
+cd bench/s57_gemm && ./run.sh ../../src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu -DPERSIST=82 -DTMA -DKENTRY=gemm_fp8_tma [-DF8N_CYCLES]
+./run.sh ../../src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu; $VLLM_VENV/bin/python -I vllm_gemm.py
+NVRTC_DIR=<dir with libnvrtc.so.13> ./nvrtc_check.sh ../../src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu -DK=4096 -DN=4096 -DDUAL=0 -DXCAP=1024 -DY_STRIDE=4096
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,64 --modes greedy --reps 12
+```
