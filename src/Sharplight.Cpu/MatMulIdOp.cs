@@ -7,6 +7,11 @@ namespace Sharplight.Cpu;
 /// MatMulId: items (token, slot) are grouped by expert; one unit computes four weight rows of one expert for all
 /// of that expert's items, so every dequantized weight tile is reused across the rows (batched per expert).
 /// </summary>
+/// <remarks>
+/// With integer dots (<see cref="Runtime.DeviceFeatures.IntDot"/> enabled and the format decodable, <see cref="IntDot"/>) the activation
+/// rows are quantized to 8 bits once and a unit decodes a run of weight rows of one expert, each once, for all of that expert's items;
+/// every (row, item) product is computed alone, so the result does not depend on how many items an expert has.
+/// </remarks>
 internal sealed unsafe class MatMulIdOp : CpuOp
 {
     private const int KB = 1024;
@@ -17,6 +22,12 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// bit for bit.
     /// </summary>
     private const int FusedRowsMax = 4;
+
+    /// <summary>Weight rows a unit of the integer-dot path decodes at most, and fewer when the units would not keep every thread busy.</summary>
+    private const int IntDotRowsPerUnit = 32;
+
+    /// <summary>Weight rows prefetched ahead of the one being decoded.</summary>
+    private const int PrefetchRows = 2;
     private readonly TRef _x;
     private readonly TRef _w;
     private readonly TRef _ids;
@@ -30,7 +41,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly int _slots;
     private readonly bool _perSlot;
     private readonly bool _fused;
+    private readonly bool _intDot;
+    private readonly bool _smallCodes;
     private readonly Action<int> _body;
+    private readonly Action<int> _intDotBody;
+    private readonly Action<int> _quantizeBody;
     // Scratch sized for the largest item count: per-expert counts/offsets, sorted x and y row pointers, active experts.
     private readonly int* _cnt;
     private readonly int* _start;
@@ -38,13 +53,18 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly int* _cursor;
     private readonly float** _xrows;
     private readonly float** _yrows;
+    // Integer-dot path: the quantized activation row of every sorted item, the quantized rows and the rows per unit.
+    private readonly byte** _qrows;
+    private byte* _activations;
+    private long _activationRows;
+    private long _rowsPerUnit;
     private long _units;
     private long _per;
     private long _groups;
     [ThreadStatic] private static float[]? s_acc;
     public override string Name => $"MatMulId.{_fmt}";
 
-    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt)
+    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false)
     {
         _x = x;
         _w = w;
@@ -64,6 +84,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _rowBytes = _k / Quant.BlockSize(fmt) * Quant.BlockBytes(fmt);
         _expertBytes = _rowBytes * _n;
         _fused = Quant.HasFusedKernel(fmt);
+        _intDot = intDot && IntDot.Supports(fmt) && _k % IntDot.BlockSize == 0 && _k <= int.MaxValue;
+        _smallCodes = IntDot.HasSmallCodes(fmt);
         long maxItems = Math.Max(1, ids.MaxElements);
         _cnt = (int*)Mem.Alloc(_experts * sizeof(int), false);
         _start = (int*)Mem.Alloc(_experts * sizeof(int), false);
@@ -71,7 +93,10 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _cursor = (int*)Mem.Alloc(_experts * sizeof(int), false);
         _xrows = (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _yrows = (float**)Mem.Alloc(maxItems * sizeof(float*), false);
+        _qrows = (byte**)Mem.Alloc(maxItems * sizeof(byte*), false);
         _body = Body;
+        _intDotBody = IntDotBody;
+        _quantizeBody = QuantizeBody;
     }
 
     public override void Dispose()
@@ -82,6 +107,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         Mem.Free((byte*)_cursor);
         Mem.Free((byte*)_xrows);
         Mem.Free((byte*)_yrows);
+        Mem.Free((byte*)_qrows);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -125,11 +151,97 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             _xrows[pos] = _x.F(_perSlot ? i : i / _slots);
             _yrows[pos] = (float*)_y.P + i * _n;
         }
+
+        if (_intDot)
+        {
+            RunIntDot(ids, items, na);
+            return;
+        }
         _groups = (_n + 3) / 4;
         _units = na * _groups;
         int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
         _per = (_units + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
+    }
+
+    /// <summary>Quantizes every distinct activation row once, points each sorted item at its row and runs the units.</summary>
+    private void RunIntDot(int* ids, long items, int activeExperts)
+    {
+        long rowBytes = IntDot.RowBytes(_k);
+        _activationRows = _perSlot ? items : items / _slots;
+        _activations = ThreadScratch.Get(ThreadScratch.Caller, _activationRows * rowBytes);
+        if (_activationRows > 1)
+        {
+            CpuParallel.For((int)Math.Min(_activationRows, CpuParallel.Threads * 2L), _quantizeBody);
+        }
+        else
+        {
+            IntDot.Quantize(_x.F(0), _k, IntDot.RowAt(_activations, _k));
+        }
+
+        new Span<int>(_cursor, _experts).Clear();
+        for (long i = 0; i < items; i++)
+        {
+            int e = ids[i];
+            long pos = _start[e] + _cursor[e]++;
+            _qrows[pos] = _activations + (_perSlot ? i : i / _slots) * rowBytes;
+        }
+
+        // Enough units for every thread, each a run of rows of one expert.
+        long target = CpuParallel.Threads * 4L;
+        long perExpert = Math.Max(1, (target + activeExperts - 1) / activeExperts);
+        _rowsPerUnit = Math.Clamp((_n + perExpert - 1) / perExpert, 1, IntDotRowsPerUnit);
+        _groups = (_n + _rowsPerUnit - 1) / _rowsPerUnit;
+        _units = activeExperts * _groups;
+        int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
+        _per = (_units + chunks - 1) / chunks;
+        CpuParallel.For(chunks, _intDotBody);
+    }
+
+    private void QuantizeBody(int c)
+    {
+        int chunks = (int)Math.Min(_activationRows, CpuParallel.Threads * 2L);
+        long per = (_activationRows + chunks - 1) / chunks;
+        long rowBytes = IntDot.RowBytes(_k);
+        for (long r = c * per; r < Math.Min(_activationRows, (c + 1) * per); r++)
+        {
+            IntDot.Quantize(_x.F(r), _k, IntDot.RowAt(_activations + r * rowBytes, _k));
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void IntDotBody(int c)
+    {
+        long u0 = c * _per;
+        long u1 = Math.Min(_units, u0 + _per);
+        int k = (int)_k;
+        var level = CpuIsa.Level;
+        byte* u = ThreadScratch.Get(ThreadScratch.Worker, IntDot.DecodedBytes(_k));
+        float* a = (float*)(u + ((_k + 63) & ~63L));
+        float* b = a + ((_k / IntDot.GroupSize + 15) & ~15L);
+        for (long unit = u0; unit < u1; unit++)
+        {
+            int e = _active[unit / _groups];
+            long n0 = unit % _groups * _rowsPerUnit;
+            long n1 = Math.Min(_n, n0 + _rowsPerUnit);
+            long m = _cnt[e];
+            byte** xr = _qrows + _start[e];
+            float** yr = _yrows + _start[e];
+            byte* wbase = _w.P + e * _expertBytes;
+            for (long n = n0; n < n1; n++)
+            {
+                if (n + PrefetchRows < n1)
+                {
+                    Simd.Prefetch(wbase + (n + PrefetchRows) * _rowBytes, _rowBytes);
+                }
+
+                IntDot.Decode(_fmt, wbase + n * _rowBytes, _k, u, a, b);
+                for (long t = 0; t < m; t++)
+                {
+                    yr[t][n] = IntDot.Dot(level, u, a, b, _smallCodes, IntDot.RowAt(xr[t], _k), k);
+                }
+            }
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

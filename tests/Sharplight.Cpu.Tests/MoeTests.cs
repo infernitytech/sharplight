@@ -72,4 +72,68 @@ public class MoeTests
 
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 1e-4, 1e-4);
     }
+    /// <summary>The ggml-quantized fixture records of every format the integer-dot MatMulId path decodes, with an even row count.</summary>
+    public static IEnumerable<object[]> IntDotRecords()
+    {
+        var records = GgmlDequantTests.Load();
+        for (int i = 0; i < records.Count; i++)
+        {
+            if (Quant.FormatOf(records[i].Type) is { } f && IntDot.Supports(f) && records[i].Rows >= 2 && records[i].Rows % 2 == 0
+                && records.FindIndex(r => r.Type == records[i].Type) == i)
+            {
+                yield return [i, records[i].Type.Name];
+            }
+        }
+    }
+
+    /// <summary>
+    /// MatMulId with integer dots on quantized experts (two experts from a fixture's rows) against the dequantized weights in double
+    /// precision, within the error of 8-bit activations; a one-row run gives the first row of a five-row run bit for bit.
+    /// </summary>
+    [Theory, MemberData(nameof(IntDotRecords))]
+    public void QuantizedMatMulIdWithIntegerDotsMatchesTheDequantizedWeights(int index, string label)
+    {
+        var record = GgmlDequantTests.Load()[index];
+        int e = 2, n = record.Rows / 2, k = record.Cols, s = 2, t = 5;
+        var x = Kit.Rand(t * k, 11);
+        var ids = Enumerable.Range(0, t * s).Select(i => (i * 7 + i / 2) % e).ToArray();
+        float[] Run(int rows)
+        {
+            var tg = new TestGraph();
+            var xin = tg.InF("x", TestGraph.T, k);
+            var idin = tg.In("ids", DataType.I32, TestGraph.T, s);
+            var w = tg.W("w", record.Type, new Shape(e, n, k), record.Blocks);
+            tg.B.Output("y", tg.B.Emit1("MatMulId", [xin, w, idin]));
+            using var m = Kit.Compile(tg.B.Build(), intDot: true);
+            Kit.Set(m, xin, x[..(rows * k)]);
+            Kit.Set(m, idin, ids[..(rows * s)]);
+            var p = Kit.P(rows);
+            m.Run(p);
+            return Kit.Out(m, "y", p);
+        }
+
+        var all = Run(t);
+        for (int row = 0; row < t; row++)
+        {
+            for (int slot = 0; slot < s; slot++)
+            {
+                for (int j = 0; j < n; j++)
+                {
+                    double acc = 0;
+                    double magnitude = 0;
+                    for (int c = 0; c < k; c++)
+                    {
+                        double product = (double)record.Expected[(ids[row * s + slot] * n + j) * k + c] * x[row * k + c];
+                        acc += product;
+                        magnitude += Math.Abs(product);
+                    }
+
+                    float got = all[(row * s + slot) * n + j];
+                    Assert.True(Math.Abs(got - acc) <= 0.02 * magnitude + 1e-6, $"{label} [{row}, {slot}, {j}]: {got} vs {acc} (magnitude {magnitude})");
+                }
+            }
+        }
+
+        Assert.Equal(all[..(s * n)], Run(1));
+    }
 }

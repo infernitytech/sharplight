@@ -456,6 +456,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// </summary>
     internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<Models.StateDefinition, Allocation>> SharedStates { get; } = new();
 
+    /// <summary>Per <see cref="CompileOptions.StateScope"/>: the activation buffers its segments on this device share, by buffer name.</summary>
+    internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<string, SharedArena<Allocation>>> SharedArenas { get; } = new();
+
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
         ThrowIfDisposed();

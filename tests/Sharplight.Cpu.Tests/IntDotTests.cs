@@ -13,6 +13,7 @@ public unsafe class IntDotTests
     [
         WeightFormat.Q8_0, WeightFormat.Q4_0, WeightFormat.Q4_1, WeightFormat.Q5_0, WeightFormat.Q5_1, WeightFormat.Q4_K,
         WeightFormat.Q5_K, WeightFormat.Q6_K, WeightFormat.IQ4_NL, WeightFormat.IQ4_XS, WeightFormat.MXFP4,
+        WeightFormat.IQ2_XXS, WeightFormat.IQ2_XS, WeightFormat.IQ2_S, WeightFormat.IQ3_XXS, WeightFormat.IQ3_S,
     ];
 
     /// <summary>The ggml-quantized fixture records of every format with an integer-dot decoder.</summary>

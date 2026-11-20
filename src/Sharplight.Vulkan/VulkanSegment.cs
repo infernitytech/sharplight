@@ -20,6 +20,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <summary>Weight buffers held through <see cref="CompileOptions.SharedWeights"/> (their allocations are freed by the lease).</summary>
     private readonly Dictionary<BufferDecl, SharedWeightLease<Allocation>> _leases = [];
     private readonly HashSet<BufferDecl> _borrowedStates = [];   // state buffers another segment of the same graph allocated (and frees)
+    /// <summary>Activation buffers shared with the model's other segments on this device (see <see cref="SharedArena{T}"/>).</summary>
+    private readonly Dictionary<BufferDecl, SharedArenaBuffer<Allocation>> _sharedArenas = [];
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -133,6 +135,22 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                     _leases[b] = lease;
                     _alloc[b] = lease.Buffer;
                     bytes += lease.MustFill ? b.Bytes : 0;
+                    continue;
+                }
+
+                // The segments of one graph on this device run one after another and share their transient buffers.
+                if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope && SharedArena<Allocation>.Enabled)
+                {
+                    var arenas = dev.SharedArenas.GetOrCreateValue(arenaScope);
+                    if (!arenas.TryGetValue(b.Name, out var arena))
+                    {
+                        arenas[b.Name] = arena = new SharedArena<Allocation>();
+                    }
+
+                    var sharedArena = arena.Acquire((long)size, n => dev.Memory.Allocate((ulong)n, MemoryUsage.Device, Purpose(b)), dev.Memory.Free, out bool allocated);
+                    _sharedArenas[b] = sharedArena;
+                    _alloc[b] = sharedArena.Buffer;
+                    bytes += allocated ? b.Bytes : 0;
                     continue;
                 }
 
@@ -1197,7 +1215,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         _plans.Clear();
         foreach (var (b, a) in _alloc)
         {
-            if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
+            if (_sharedArenas.TryGetValue(b, out var arena))
+            {
+                arena.Release();
+            }
+            else if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
             {
                 _dev.Memory.Free(a);
             }

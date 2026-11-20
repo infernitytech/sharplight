@@ -56,7 +56,8 @@ internal sealed unsafe partial class CpuCompiledSegment
 
         var format = Quant.FormatOf(w.Type)!.Value;
         var y = NewDense(n.Output);
-        AddStep(new MatMulIdOp(x, w, expertIndex, y, format), x, w, expertIndex, y);
+        bool intDot = _features.Contains(DeviceFeatures.IntDot) && (_options.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false));
+        AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot), x, w, expertIndex, y);
         _refs[n.Output] = y;
     }
 

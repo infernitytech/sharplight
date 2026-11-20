@@ -27,6 +27,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private readonly Dictionary<BufferDecl, SharedWeightLease<CudaBuffer>> _leases = [];
     /// <summary>State buffers another segment of the same graph allocated (and frees).</summary>
     private readonly HashSet<BufferDecl> _borrowedStates = [];
+    /// <summary>Activation buffers shared with the model's other segments on this device (see <see cref="SharedArena{T}"/>).</summary>
+    private readonly Dictionary<BufferDecl, SharedArenaBuffer<CudaBuffer>> _sharedArenas = [];
     /// <summary>Inputs copied from an earlier segment's output buffer instead of from <see cref="SetInput"/> (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (CudaBuffer Source, long SourceOffset)> _forwarded = [];
     private readonly Dictionary<string, CudaRecordedLaunch[]> _recorded = [];
@@ -74,7 +76,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             UploadWeights();
             if (DiagnosticSwitches.LoadTiming)
             {
-                Console.Error.WriteLine($"[load] upload segment {segment.Index}: {uploadTimer.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB");
+                Console.Error.WriteLine($"[load] upload segment {segment.Index}: {uploadTimer.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB; "
+                    + string.Join(", ", program.Buffers.Where(b => b.Kind != BufferKind.Weight).GroupBy(b => b.Kind).Select(g => $"{g.Key} {g.Sum(b => b.Bytes) / 1048576.0:F1} MiB")));
             }
 
             // Buffers are zeroed and weights copied on the device's upload stream; the segment's stream must see them.
@@ -133,6 +136,21 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             _leases[b] = lease;
             _alloc[b] = lease.Buffer;
             return lease.MustFill ? b.Bytes : 0;
+        }
+
+        // The segments of one graph on this device run one after another and share their transient buffers.
+        if (b.Kind == BufferKind.Activations && _options.StateScope is { } arenaScope && SharedArena<CudaBuffer>.Enabled)
+        {
+            var arenas = _dev.SharedArenas.GetOrCreateValue(arenaScope);
+            if (!arenas.TryGetValue(b.Name, out var arena))
+            {
+                arenas[b.Name] = arena = new SharedArena<CudaBuffer>();
+            }
+
+            var sharedArena = arena.Acquire(b.Bytes, bytes => _dev.Allocate(bytes, Purpose(b)), _dev.Free, out bool allocated);
+            _sharedArenas[b] = sharedArena;
+            _alloc[b] = sharedArena.Buffer;
+            return allocated ? b.Bytes : 0;
         }
 
         // The segments of one graph on this device share each state (its nodes may be split by other devices' nodes).
@@ -718,7 +736,11 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         _recorded.Clear();
         foreach (var (b, a) in _alloc)
         {
-            if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
+            if (_sharedArenas.TryGetValue(b, out var arena))
+            {
+                arena.Release();
+            }
+            else if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
             {
                 _dev.Free(a);
             }

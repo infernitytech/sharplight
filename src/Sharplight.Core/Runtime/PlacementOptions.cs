@@ -17,4 +17,11 @@ public sealed class PlacementOptions
     /// ending a segment each. Default true; <c>SHARPLIGHT_COUNT_LEVELS=0</c> also turns it off.
     /// </summary>
     public bool GroupDataDependentCounts { get; init; } = true;
+    /// <summary>
+    /// With a <see cref="Fallback"/> device, whether the routed experts of mixture-of-experts layers are placed apart from the rest of their
+    /// layer: when the model does not fit, the routed experts of the first layers go to the fallback (as llama.cpp's <c>--n-cpu-moe</c>), and
+    /// attention, shared experts, dense layers and the output head stay on the devices. Default true; <c>SHARPLIGHT_SPLIT_EXPERTS=0</c> also
+    /// turns it off (whole layers go to the fallback).
+    /// </summary>
+    public bool SplitExperts { get; init; } = true;
 }
