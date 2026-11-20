@@ -240,7 +240,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
         // The streamed and sparse compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to
         // its outputs read back (no device forwarding reaches them): they share their input and output buffers too.
-        if (b.Kind is BufferKind.Input or BufferKind.Output && _options.StreamWeights && _options.StateScope is { } ioScope && SharedArena<CudaBuffer>.Enabled)
+        if (b.Kind is BufferKind.Input or BufferKind.Output && _options.StreamWeights && _options.StateScope is { } ioScope && SharedArena<CudaBuffer>.Enabled
+            && SharesStreamedIo(_program, b))
         {
             // By ordinal: the layers' value names differ, their inputs and outputs correspond.
             return ShareArena(ioScope, $"streamed-{b.Kind}:{(b.Kind == BufferKind.Input ? _streamedInputs++ : _streamedOutputs++)}", b);
@@ -260,6 +261,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         sharedStates?.Add(b.State!, _alloc[b]);
         return b.Bytes;
     }
+
+    /// <summary>
+    /// Whether an input or output buffer of a streamed compilation can be shared with the other streamed compilations: it holds no graph input
+    /// (the caller sets those for every segment before a run, so a shared buffer would hold the last segment's).
+    /// </summary>
+    private static bool SharesStreamedIo(KernelProgram program, BufferDecl b)
+        => b.Kind == BufferKind.Output || program.InputRefs.All(kv => kv.Value.Buffer != b || kv.Key.Kind == ValueKind.Intermediate);
 
     /// <summary>
     /// Takes the buffer of <paramref name="b"/> (<paramref name="bytes"/>, default its size) from the arena <paramref name="key"/> of
