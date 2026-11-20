@@ -25,8 +25,6 @@ public sealed class AceStepImporter : IModelImporter
     /// <summary>The canonical architecture id.</summary>
     public const string Architecture = "acestep";
 
-    private const string Gain = ".weight_g";
-    private const string Direction = ".weight_v";
     private const string VaeFile = "diffusion_pytorch_model.safetensors";
 
     /// <inheritdoc/>
@@ -77,7 +75,7 @@ public sealed class AceStepImporter : IModelImporter
 
             var vae = SafetensorsFile.Open(Path.Combine(vaeDir, VaeFile));
             owned.Add(vae);
-            MapVae(vae, weights);
+            OobleckDecoderWeights.Map(vae.Tensors, "vae.", w => weights[w.Name] = w);
             HfTokenizerTranslator.AddTo(metadata, textDir, textConfig);
 
             var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
@@ -158,35 +156,6 @@ public sealed class AceStepImporter : IModelImporter
             else
             {
                 weights[canonical] = HfTransforms.Plain(info, canonical);
-            }
-        }
-    }
-
-    // The decoder of the Oobleck autoencoder: weight-normalized convolutions folded, snake parameters [1, C, 1] flattened to [C].
-    private static void MapVae(SafetensorsFile file, Dictionary<string, WeightInfo> weights)
-    {
-        foreach (var (name, tensor) in file.Tensors)
-        {
-            if (!name.StartsWith("decoder.", StringComparison.Ordinal) || name.EndsWith(Direction, StringComparison.Ordinal) || tensor.Type is null)
-            {
-                continue;
-            }
-
-            string canonical = "vae." + name;
-            var info = tensor.ToWeightInfo();
-            if (name.EndsWith(Gain, StringComparison.Ordinal))
-            {
-                string module = name[..^Gain.Length];
-                canonical = "vae." + module + ".weight";
-                weights[canonical] = HfWeightNormFolding.Fold(info, file.Tensors[module + Direction].ToWeightInfo(), canonical);
-            }
-            else if (name.EndsWith(".alpha", StringComparison.Ordinal) || name.EndsWith(".beta", StringComparison.Ordinal))
-            {
-                weights[canonical] = HfTransforms.ToF32(info, canonical, new Shape(info.Shape[1].Fixed));
-            }
-            else
-            {
-                weights[canonical] = HfTransforms.ToF32(info, canonical);
             }
         }
     }

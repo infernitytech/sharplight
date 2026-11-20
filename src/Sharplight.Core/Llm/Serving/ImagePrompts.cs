@@ -43,7 +43,7 @@ public sealed class ImagePrompts : IMediaEncoder, IDisposable
     public int EmbeddingWidth => _encoder.EmbeddingSize;
 
     /// <summary>Device memory of the vision encoder (its weights and activations).</summary>
-    public long DeviceMemoryBytes => _encoder.Compiled.AcceleratorMemoryBytes;
+    public long DeviceMemoryBytes => _encoder.Compiled.ResidentMemoryBytes;
 
     /// <summary>
     /// The request with its prompt's image placeholders expanded: <see cref="GenerationRequest.PromptTokens"/> holds one placeholder token per

@@ -1,0 +1,17 @@
+{
+ "workload": "shared",
+ "concurrency": 16,
+ "requests": 64,
+ "errors": 0,
+ "first_error": null,
+ "wall_s": 2.2369887469976675,
+ "output_tok_s": 3662.065806542272,
+ "prompt_tokens_mean": 1558.0,
+ "cached_tokens": 94800,
+ "prompt_tokens": 99712,
+ "hit_rate": 0.9507381258023107,
+ "ttft_p50_ms": 74.78276200708933,
+ "ttft_p99_ms": 96.50255188636947,
+ "ttft_mean_ms": 71.7970296554995,
+ "latency_p50_s": 0.5573900700110244
+}

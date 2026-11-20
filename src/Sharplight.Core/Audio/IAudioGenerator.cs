@@ -3,7 +3,7 @@ using Sharplight.Tasks;
 namespace Sharplight.Audio;
 
 /// <summary>
-/// Text-to-audio generation with a latent diffusion model (kind <see cref="Models.ModelKinds.AudioGeneration"/>: ACE-Step): a prompt (and lyrics) in, music or sound
+/// Text-to-audio generation with a latent diffusion model (kind <see cref="Models.ModelKinds.AudioGeneration"/>: ACE-Step, Stable Audio Open, Stable Audio 3): a prompt (and lyrics) in, music or sound
 /// out. Follows the task-client pattern of every model kind (<see cref="ITaskClient"/>). Generation runs off the caller's thread, one request at a time per client.
 /// </summary>
 public interface IAudioGenerator : ITaskClient
@@ -25,6 +25,18 @@ public interface IAudioGenerator : ITaskClient
 
     /// <summary>The number of denoising steps used when a request has none.</summary>
     public int DefaultSteps { get; }
+
+    /// <summary>The model sings lyrics (<see cref="AudioGenerationRequest.Lyrics"/> and <see cref="AudioGenerationRequest.Language"/>); other models ignore them.</summary>
+    public bool SupportsLyrics => false;
+
+    /// <summary>The model takes a negative prompt (<see cref="AudioGenerationRequest.NegativePrompt"/>); other models ignore it.</summary>
+    public bool SupportsNegativePrompt => false;
+
+    /// <summary>The classifier-free guidance scale used when a request has none, or <see langword="null"/> when the model runs without guidance (a distilled model).</summary>
+    public float? DefaultGuidanceScale => null;
+
+    /// <summary>The model's sampler shifts its timestep schedule (<see cref="AudioGenerationRequest.Shift"/>); other models ignore the shift.</summary>
+    public bool SupportsShift => false;
 
     /// <summary>Denoises the latents of the audio (the autoencoder's decoder not applied).</summary>
     /// <param name="request">The request.</param>

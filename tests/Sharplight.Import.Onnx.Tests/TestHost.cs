@@ -19,7 +19,7 @@ internal static class TestHost
     /// <summary>Opens and builds models.</summary>
     public static ModelLoader Loader => Services.GetRequiredService<ModelLoader>();
 
-    /// <summary>The execution providers (Vulkan, then CPU).</summary>
+    /// <summary>The execution providers of the container (GPU providers, then CPU).</summary>
     public static ExecutionProviderCatalog Providers => Services.GetRequiredService<ExecutionProviderCatalog>();
 
     /// <summary>Converts models to packages.</summary>

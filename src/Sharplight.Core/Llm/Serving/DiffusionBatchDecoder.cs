@@ -37,7 +37,7 @@ public sealed class DiffusionBatchDecoder : IBatchDecoder
     /// <inheritdoc/>
     public bool ReusesPrefixes => false;
     /// <inheritdoc/>
-    public long DeviceMemoryBytes => _runner.Compiled.AcceleratorMemoryBytes;
+    public long DeviceMemoryBytes => _runner.Compiled.ResidentMemoryBytes;
     /// <summary>The mask token a generated span starts from.</summary>
     public int MaskToken { get; }
     /// <summary>Whether logits row i predicts position i + 1 (Dream) instead of position i (LLaDA).</summary>

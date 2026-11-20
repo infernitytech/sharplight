@@ -49,6 +49,7 @@ public static class SharplightServiceCollectionExtensions
                 .AddWhisperCppImporter()
                 .AddKokoroImporter()
                 .AddAceStepImporter()
+                .AddStableAudioImporter()
                 .AddChatterboxImporter()
                 .AddF5TtsImporter()
                 .AddXttsImporter()

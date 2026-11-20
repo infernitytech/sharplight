@@ -3,7 +3,7 @@ using Sharplight.Tasks;
 
 namespace Sharplight.Studio.Tests.Fakes;
 
-/// <summary>A diffusion music generator (ACE-Step) that returns a tone and records the requests.</summary>
+/// <summary>A diffusion audio generator (ACE-Step by default; the traits are settable for Stable Audio) that returns a tone and records the requests.</summary>
 internal sealed class FakeAudioGenerator : IAudioGenerator
 {
     public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.AudioGeneration, "fake-acestep", "acestep");
@@ -18,7 +18,15 @@ internal sealed class FakeAudioGenerator : IAudioGenerator
 
     public TimeSpan MaxDuration { get; set; } = TimeSpan.FromSeconds(60);
 
-    public int DefaultSteps => 8;
+    public int DefaultSteps { get; set; } = 8;
+
+    public bool SupportsLyrics { get; set; } = true;
+
+    public bool SupportsNegativePrompt { get; set; }
+
+    public float? DefaultGuidanceScale { get; set; }
+
+    public bool SupportsShift { get; set; } = true;
 
     /// <summary>The requests received.</summary>
     public List<AudioGenerationRequest> Requests { get; } = [];

@@ -38,7 +38,9 @@ namespace Sharplight.Architectures;
 /// decoder, tokenizer and feature-extractor components, the filter bank and tokenizer as attachments).</para>
 /// <para>Conformer encoders (<c>encoder.type</c> "conformer", Canary): the <see cref="WellKnown.EncodeGraph"/> is the
 /// <see cref="ConformerEncoder"/> over a variable-length window of time-major log-mel features; the transformer encoder keys and weights
-/// do not apply.</para>
+/// do not apply. An encoder wider than the decoder (Cohere Transcribe) has <c>encoder.hidden_size</c> and the optional
+/// <c>encoder.projection.weight</c> [hidden_size, encoder.hidden_size] (with <c>.bias</c>), which projects the encoder output to the decoder
+/// width.</para>
 /// <para>Variable-length audio (<c>audio.variable_length</c>, with conformer encoders always): the encoder takes time-major features
 /// [<see cref="WellKnown.AudioFrameSymbol"/>, <c>audio.channels</c> (default <c>audio.mel_bins</c>)] of up to <c>audio.max_frames</c>
 /// frames, the cross states hold the rows of the longest window, and the decode graph's <see cref="InputRole.RowSpans"/> input
@@ -92,7 +94,8 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         };
         bool image = encoderInput == "image";
         bool imageText = encoderInput == "image_text";
-        int crossWidth = src.Arch("encoder.hidden_size", nEmbd);
+        bool encoderProjection = src.Weight("encoder.projection.weight") is not null;
+        int crossWidth = encoderProjection ? nEmbd : src.Arch("encoder.hidden_size", nEmbd);
         bool cachedCross = src.Arch("cross_attention.cached", false);
         var extraWeights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         bool conformerEncoder = audio && src.Arch("encoder.type", "transformer") == "conformer";
@@ -202,9 +205,10 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
 
             if (conformer is not null)
             {
+                var encoded = conformer.Build(b);
                 using (b.Group("output"))
                 {
-                    b.Output(WellKnown.EncoderOutput, conformer.Build(b));
+                    b.Output(WellKnown.EncoderOutput, encoderProjection ? Linear(b, encoded, "encoder.projection", "encoder_projection") : encoded);
                 }
 
                 return b.Build();

@@ -24,7 +24,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private static readonly SamplingRow?[] s_noSampling = [];
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _rows, _runs;
-    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput, _runEndRows;
+    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput, _runEndRows, _snapshots;
     // Multimodal graph: embedding rows [T, width] and their row mask [T, 1]; the media weight mask [T, 1] of models with visual experts.
     private readonly Value? _embeddings, _embeddingMask, _mediaWeightMask;
     private readonly int _embeddingWidth;
@@ -48,6 +48,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     // length before it, the rows of it to replay at the slot's next step and the record bank they are in.
     private readonly int[] _commitBuf = [];
     private readonly int[] _pendingRows = [], _pendingBase = [], _pendingKeep = [], _readBank = [];
+    // In-step snapshots (graph in snapshot form): the per-run table of the step, and per slot the snapshot row the last step stored a
+    // state into and the context length that state is after (-1: none).
+    private readonly int[] _snapBuf = [], _stagedRow = [], _stagedLength = [];
     // Hidden states: the "hidden" output [T, H] read after a step when captured; the draft-head input [T, H] when the graph has one.
     private readonly int _hiddenSize, _hiddenInputSize;
     private readonly string _hiddenOutput;
@@ -86,7 +89,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <inheritdoc/>
     bool IDeviceSamplingDecoder.SamplesOnDevice => _samplingParams is not null;
     /// <inheritdoc/>
-    public long DeviceMemoryBytes => _compiled.AcceleratorMemoryBytes;
+    public long DeviceMemoryBytes => _compiled.ResidentMemoryBytes;
     /// <inheritdoc/>
     public int KvBlockSize { get; }
     /// <inheritdoc/>
@@ -95,6 +98,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     public bool CachesKvBlocks => _pool?.CachesBlocks ?? false;
     /// <inheritdoc/>
     public int KvStateSnapshots => _pool?.SnapshotCapacity ?? 0;
+    /// <inheritdoc/>
+    public bool SnapshotsInsideSteps => _snapshots is not null && _pool is { SnapshotCapacity: > 0 } && DiagnosticSwitches.StepSnapshots;
     /// <inheritdoc/>
     public int KvBlocksCached => _pool?.Cached ?? 0;
     /// <inheritdoc/>
@@ -138,6 +143,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _commits = g.TryInput(InputRole.SequenceCommits);
         _hiddenInput = g.TryInput(InputRole.HiddenStates);
         _runEndRows = g.TryInput(InputRole.SequenceRunEndRows);
+        _snapshots = g.TryInput(InputRole.SequenceSnapshots);
         _hiddenInputSize = _hiddenInput is null ? 0 : (int)_hiddenInput.Shape[-1].Fixed;
         _hiddenOutput = hiddenOutput ?? WellKnown.HiddenOutput;
         _hiddenSize = g.Outputs.TryGetValue(_hiddenOutput, out var hidden) ? (int)hidden.Shape[-1].Fixed : 0;
@@ -176,6 +182,14 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _pendingBase = new int[slots];
             _pendingKeep = new int[slots];
             _readBank = new int[slots];
+        }
+
+        if (_snapshots is not null)
+        {
+            _snapBuf = new int[slots * RecurrentSnapshots.Columns];
+            _stagedRow = new int[slots];
+            _stagedLength = new int[slots];
+            Array.Fill(_stagedRow, -1);
         }
 
         _length = new int[slots];
@@ -425,6 +439,56 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         return _pool.SaveSnapshot(slot, hash, speculative);
     }
 
+    /// <inheritdoc/>
+    public bool SaveKvStateSnapshotAt(int slot, int length, UInt128 hash)
+    {
+        Check(slot);
+        if (_pool is null || _stagedRow.Length == 0 || _stagedRow[slot] < 0 || _stagedLength[slot] != length || length > _length[slot])
+        {
+            return false;
+        }
+
+        int row = _stagedRow[slot];
+        _stagedRow[slot] = -1;
+        return _pool.CommitSnapshot(row, hash);
+    }
+
+    /// <summary>
+    /// Fills the snapshots table of a step: an input asking for the state after some of its rows (<see cref="SequenceInput.StateSnapshotRows"/>,
+    /// ending on a block boundary) gets a reserved snapshot row, which <see cref="SaveKvStateSnapshotAt"/> keeps after the step. Rows the
+    /// previous step stored into and nobody kept are released first.
+    /// </summary>
+    private void FillSnapshots(IReadOnlyList<SequenceInput> inputs)
+    {
+        for (int s = 0; s < _stagedRow.Length; s++)
+        {
+            if (_stagedRow[s] >= 0)
+            {
+                _pool?.ReleaseSnapshot(_stagedRow[s]);
+                _stagedRow[s] = -1;
+            }
+        }
+
+        for (int u = 0; u < inputs.Count; u++)
+        {
+            var input = inputs[u];
+            int k = input.StateSnapshotRows;
+            int row = -1;
+            if (SnapshotsInsideSteps && k > 0 && k <= input.Tokens.Length && !input.Speculative && (_length[input.Slot] + k) % KvBlockSize == 0)
+            {
+                row = _pool!.ReserveSnapshot();
+            }
+
+            _snapBuf[u * RecurrentSnapshots.Columns] = row >= 0 ? k : 0;
+            _snapBuf[u * RecurrentSnapshots.Columns + 1] = Math.Max(0, row);
+            if (row >= 0)
+            {
+                _stagedRow[input.Slot] = row;
+                _stagedLength[input.Slot] = _length[input.Slot] + k;
+            }
+        }
+    }
+
     /// <summary>Copies every recurrent state's row <paramref name="from"/> to row <paramref name="to"/> (slots, then snapshot rows).</summary>
     private bool CopyStateRow(int from, int to) => _compiled.CopyStateRows(_recurrentStates, from, to);
 
@@ -564,6 +628,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         if (_commits is not null)
         {
             _compiled.SetInput<int>(_commits, _commitBuf.AsSpan(0, count * RecurrentRollback.CommitColumns));
+        }
+
+        if (_snapshots is not null)
+        {
+            FillSnapshots(inputs);
+            _compiled.SetInput<int>(_snapshots, _snapBuf.AsSpan(0, count * RecurrentSnapshots.Columns));
         }
 
         if (_outputRows is not null)

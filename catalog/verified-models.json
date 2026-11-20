@@ -9962,6 +9962,116 @@
       ]
     },
     {
+      "id": "cohere-transcribe-03-2026",
+      "name": "Cohere Transcribe 03-2026",
+      "kind": "speech-recognition",
+      "family": "Cohere Transcribe",
+      "architecture": "cohere_asr",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": true,
+      "publisher": {
+        "name": "Cohere Labs",
+        "countryOfOrigin": "CA",
+        "url": "https://cohere.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 5154295606,
+          "companions": [],
+          "repository": "CohereLabs/cohere-transcribe-03-2026",
+          "revision": "d552dadc2922ba6f6c1f994f8db904d52dcaf942",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "processor_config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer.model",
+            "tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 3998,
+              "gitOid": "69c9fbe224fa4027f6ee5c563ea5da4a584d9458"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 234,
+              "gitOid": "cec3eb17ebf2cd5bdac57101163d4b16bc8c912b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 4131862976,
+              "sha256": "987bd3e141c7bfdb5a78f5db11397ee7737308357e6cc0a3f36a4979b158137a"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 420,
+              "gitOid": "4f261dcb01c6cf62f7bb12a8debc54495d9a0dc6"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 131,
+              "gitOid": "fc14ee1e20351f89d07da5e15897444ee4c12818"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 4091,
+              "gitOid": "2554feeb7e14e1ce26fc28afc358df1ac7e67727"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 1816694,
+              "gitOid": "1f12795ce362a755e87b129659019dacab0b5898"
+            },
+            {
+              "path": "tokenizer.model",
+              "size": 492827,
+              "sha256": "6d21e6a83b2d0d3e1241a7817e4bef8eb63bcb7cfe4a2675af9a35ff3bbf0e14"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 48138,
+              "gitOid": "c689b7808900e860e4229fcb666792d311423c1a"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "ids identical to transformers\u0027 native cohere_asr (greedy, punctuation) on 7 recordings in English, German, French, Spanish and Japanese, incl. 45-60 s recordings split into 35 s chunks",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "14 languages, no language detection (requests without a language are English); punctuation always on; no timestamps",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "repositories": "CohereLabs/cohere-transcribe-03-2026",
+            "formats": "HF, \u0060.slm\u0060"
+          }
+        }
+      ]
+    },
+    {
       "id": "whisper-large-v3",
       "name": "Whisper large-v3",
       "kind": "speech-recognition",
@@ -25018,6 +25128,564 @@
           "cells": {
             "repositories": "ACE-Step/Ace-Step1.5",
             "kind": "audio generation (music)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stable-audio-open-1-0",
+      "name": "Stable Audio Open 1.0",
+      "kind": "audio-generation",
+      "family": "Stable Audio",
+      "architecture": "stable_audio",
+      "level": "verified",
+      "license": "other",
+      "gated": true,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp32-diffusers",
+          "label": "FP32 diffusers (transformer, T5 text encoder, timing conditioners, Oobleck VAE)",
+          "format": "diffusers",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 6488923819,
+          "companions": [],
+          "repository": "stabilityai/stable-audio-open-1.0",
+          "revision": "f21265c1e2710b3bd2386596943f0007f55f802e",
+          "include": [
+            "LICENSE.md",
+            "README.md",
+            "model_index.json",
+            "projection_model/config.json",
+            "projection_model/diffusion_pytorch_model.safetensors",
+            "scheduler/scheduler_config.json",
+            "text_encoder/config.json",
+            "text_encoder/model.safetensors",
+            "tokenizer/special_tokens_map.json",
+            "tokenizer/spiece.model",
+            "tokenizer/tokenizer.json",
+            "tokenizer/tokenizer_config.json",
+            "transformer/config.json",
+            "transformer/diffusion_pytorch_model.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "LICENSE.md",
+              "size": 11852,
+              "gitOid": "1d9ce2ee1067327543544de197291726e4fc57a4"
+            },
+            {
+              "path": "README.md",
+              "size": 8342,
+              "gitOid": "3d885b931f93cf475e68acc8ab41473b057ef2a5"
+            },
+            {
+              "path": "model_index.json",
+              "size": 498,
+              "gitOid": "a2e08e9778cc18fdc1c039092f5912abd687d3af"
+            },
+            {
+              "path": "projection_model/config.json",
+              "size": 181,
+              "gitOid": "1cbca1a6bfc87ee7ba4b427ae1a6567dbb7578fb"
+            },
+            {
+              "path": "projection_model/diffusion_pytorch_model.safetensors",
+              "size": 1586944,
+              "sha256": "032102e2b0e4b9b9e19c648dc476345157b97906752a7b4b7a0133900f340926"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 411,
+              "gitOid": "0b2751bbf251c66bcb66f985c7f01dcd0611b0d6"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 1497,
+              "gitOid": "0db501afad36254770a00fd59e338faa64fd7bbb"
+            },
+            {
+              "path": "text_encoder/model.safetensors",
+              "size": 438525864,
+              "sha256": "095878c81d21f17d235e1b4aa20e9595289177e2658ef4dcec69fa5aa3b07ca2"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 2201,
+              "gitOid": "2c19eb6e3b583f52d34b903b5978d3d30b6b7682"
+            },
+            {
+              "path": "tokenizer/spiece.model",
+              "size": 791656,
+              "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
+            },
+            {
+              "path": "tokenizer/tokenizer.json",
+              "size": 2422169,
+              "gitOid": "440e6b89375c688d05cd1d8d4b9d90ee52cdd6a7"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 20768,
+              "gitOid": "8186f3399223c5566a5cffd47d01fa26772d5f2d"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 391,
+              "gitOid": "886f818d47bbf280b5c273288b5f50c1d974bc79"
+            },
+            {
+              "path": "transformer/diffusion_pytorch_model.safetensors",
+              "size": 4227806200,
+              "sha256": "65ae9715febfeb2dc9f33aa506c2bda69fd2ddf8ebc483fb2df090df4ca506fd"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 350,
+              "gitOid": "b8419aca11a4ddd9dd4ce3ea26dd59dd563cb189"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 624490240,
+              "sha256": "2131cdb52020b2473707465449d8bdb4f6cca61c93150a947baca02bc58ffd7b"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "vs diffusers StableAudioPipeline (fp32, CPU) with the same initial and SDE step noise, 8 DPM-Solver\u002B\u002B(2M) SDE steps, guidance 7, a 10 s clip: one transformer evaluation 121.7 dB (CPU) / 111.3 dB (Vulkan) / 123.4 dB (CUDA) SNR, final latents 92.2 dB (CPU) / 80.2 dB (Vulkan) / 89.1 dB (CUDA), decoded 44.1 kHz stereo audio 74.7 dB (CPU) / 62.6 dB (Vulkan) / 70.8 dB (CUDA); T5 rows 120 dB, timing rows 137 dB",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "Text to 44.1 kHz stereo music and sound effects up to 47.5 s, \u0060IAudioGenerator\u0060: prompt, negative prompt, duration, steps (default 100), guidance (default 7), seed. The transformer always denoises its whole 1024-frame window; the duration conditions it and cuts the audio. Not covered: audio-to-audio (initial audio), a start offset other than 0, the original stable-audio-tools single-file layout (model.safetensors with model_config.json).",
+      "licenseNotice": "Stability AI Community License: free for research, non-commercial and commercial use while your annual revenue is below 1 million US dollars (commercial users register with Stability AI); above that you need an enterprise licence. Sharing the model or its outputs in a product requires the \u0022Powered by Stability AI\u0022 attribution.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "stabilityai/stable-audio-open-1.0",
+            "kind": "audio generation (music, sound effects)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stable-audio-3-small-music-base",
+      "name": "Stable Audio 3 small music (base)",
+      "kind": "audio-generation",
+      "family": "Stable Audio",
+      "architecture": "stable_audio_3",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp32-safetensors",
+          "label": "FP32 (diffusion transformer, SAME autoencoder, T5Gemma text encoder)",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 4374072250,
+          "companions": [],
+          "repository": "stabilityai/stable-audio-3-small-music-base",
+          "revision": "4249e9179cd64a03fc016919c88d0e6f2c5617f3",
+          "include": [
+            "LICENSE.md",
+            "LICENSE_GEMMA.md",
+            "NOTICE",
+            "README.md",
+            "model_config.json",
+            "model.safetensors",
+            "t5gemma-b-b-ul2/config.json",
+            "t5gemma-b-b-ul2/generation_config.json",
+            "t5gemma-b-b-ul2/model.safetensors",
+            "t5gemma-b-b-ul2/special_tokens_map.json",
+            "t5gemma-b-b-ul2/tokenizer.json",
+            "t5gemma-b-b-ul2/tokenizer.model",
+            "t5gemma-b-b-ul2/tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "LICENSE.md",
+              "size": 11852,
+              "gitOid": "1d9ce2ee1067327543544de197291726e4fc57a4"
+            },
+            {
+              "path": "LICENSE_GEMMA.md",
+              "size": 10541,
+              "gitOid": "d483de1f58e5de355d8d184f6a7bf42f05875b63"
+            },
+            {
+              "path": "NOTICE",
+              "size": 97,
+              "gitOid": "27fe1d325f98f3f4643f3ba5735584cffd2553dd"
+            },
+            {
+              "path": "README.md",
+              "size": 5232,
+              "gitOid": "e0f0c9385a52f5d13aa4a660b3126e3c62416583"
+            },
+            {
+              "path": "model_config.json",
+              "size": 8452,
+              "gitOid": "9193bd6c6508137e0641c2ff9650ad5315a327da"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 2270384940,
+              "sha256": "79691fac2a08a99a229b98963f8377ddc78c16f5c63f7e3a022375c311093ab4"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/config.json",
+              "size": 2540,
+              "gitOid": "f5282e2a2964d231e0f19cb2a23f39e08de83128"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/generation_config.json",
+              "size": 156,
+              "gitOid": "a1afbdafc25667679ab591fc9aca56d4a0b91c3d"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/model.safetensors",
+              "size": 1183022944,
+              "sha256": "9b05ea5a4f211d023832f706fb2c0e83e4fc721b6da35ab69ceb0b55eb7800d3"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/special_tokens_map.json",
+              "size": 636,
+              "gitOid": "8d6368f7e735fbe4781bf6e956b7c6ad0586df80"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.json",
+              "size": 34362429,
+              "sha256": "7794135caa3ea73918949c902a781cc61dab674a4b59c17d85931c77c1114cbd"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.model",
+              "size": 4241003,
+              "sha256": "61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer_config.json",
+              "size": 46437,
+              "gitOid": "4d625a54ce31c6629f25dadcc7d878e771b40ef7"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "stable-audio-3",
+        "summary": "vs the stable-audio-3 package (fp32, CPU) with the same initial noise, 8 Euler steps with adaptive projected guidance 7, a 10 s clip (174 latent frames): one transformer evaluation 107.0 dB (CPU) / 107.9 dB (Vulkan) / 110.3 dB (CUDA) SNR, final latents 65.8 dB (CPU) / 56.5 dB (Vulkan) / 74.1 dB (CUDA), decoded 44.1 kHz stereo audio (autoencoder dither off) 58.6 / 49.6 / 67.4 dB; T5Gemma rows 113 dB / 119 dB / 119 dB, 8 ping-pong steps (the post-trained models\u0027 sampler) on the same weights 91.5 / 92.6 / 94.9 dB; the guided trajectory amplifies the per-evaluation difference about 1000-fold, as it does between two runs of the reference",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "Text to 44.1 kHz stereo music up to 120 s, \u0060IAudioGenerator\u0060: prompt, negative prompt, duration, steps (default 50), guidance (default 7, adaptive projected guidance), seed. The latent length follows the duration (plus 6 s of headroom); the SAME decoder adds its own small random dither unless \u0060DecoderNoise\u0060 is 0. Not covered: inpainting and audio-to-audio (the SAME encoder is not imported), LoRA (svd_bases.pt is not installed).",
+      "licenseNotice": "Stability AI Community License: free for research, non-commercial and commercial use while your annual revenue is below 1 million US dollars (commercial users register with Stability AI); above that you need an enterprise licence. Sharing the model or its outputs in a product requires the \u0022Powered by Stability AI\u0022 attribution. The bundled T5Gemma text encoder is subject to the Gemma Terms of Use.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "stabilityai/stable-audio-3-small-music-base",
+            "kind": "audio generation (music)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stable-audio-3-small-sfx-base",
+      "name": "Stable Audio 3 small sound effects (base)",
+      "kind": "audio-generation",
+      "family": "Stable Audio",
+      "architecture": "stable_audio_3",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp32-safetensors",
+          "label": "FP32 (diffusion transformer, SAME autoencoder, T5Gemma text encoder)",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 4374072250,
+          "companions": [],
+          "repository": "stabilityai/stable-audio-3-small-sfx-base",
+          "revision": "b332479a012f83c24c4381f331ce594284ec8a81",
+          "include": [
+            "LICENSE.md",
+            "LICENSE_GEMMA.md",
+            "NOTICE",
+            "README.md",
+            "model_config.json",
+            "model.safetensors",
+            "t5gemma-b-b-ul2/config.json",
+            "t5gemma-b-b-ul2/generation_config.json",
+            "t5gemma-b-b-ul2/model.safetensors",
+            "t5gemma-b-b-ul2/special_tokens_map.json",
+            "t5gemma-b-b-ul2/tokenizer.json",
+            "t5gemma-b-b-ul2/tokenizer.model",
+            "t5gemma-b-b-ul2/tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "LICENSE.md",
+              "size": 11852,
+              "gitOid": "1d9ce2ee1067327543544de197291726e4fc57a4"
+            },
+            {
+              "path": "LICENSE_GEMMA.md",
+              "size": 10541,
+              "gitOid": "d483de1f58e5de355d8d184f6a7bf42f05875b63"
+            },
+            {
+              "path": "NOTICE",
+              "size": 97,
+              "gitOid": "27fe1d325f98f3f4643f3ba5735584cffd2553dd"
+            },
+            {
+              "path": "README.md",
+              "size": 5062,
+              "gitOid": "d0ecf652ceb51b09ec5bb0e2a05d33e1f303a1b2"
+            },
+            {
+              "path": "model_config.json",
+              "size": 8476,
+              "gitOid": "bcc43173b590e4ff34e995dff4201d1a0d164d43"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 2270384940,
+              "sha256": "0c7cddb22cd7bf5e8169c6731a9eb7690c27ef5b53e8a4f9b4b2aaf8afcdaea2"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/config.json",
+              "size": 2540,
+              "gitOid": "f5282e2a2964d231e0f19cb2a23f39e08de83128"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/generation_config.json",
+              "size": 156,
+              "gitOid": "a1afbdafc25667679ab591fc9aca56d4a0b91c3d"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/model.safetensors",
+              "size": 1183022944,
+              "sha256": "9b05ea5a4f211d023832f706fb2c0e83e4fc721b6da35ab69ceb0b55eb7800d3"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/special_tokens_map.json",
+              "size": 636,
+              "gitOid": "8d6368f7e735fbe4781bf6e956b7c6ad0586df80"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.json",
+              "size": 34362429,
+              "sha256": "7794135caa3ea73918949c902a781cc61dab674a4b59c17d85931c77c1114cbd"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.model",
+              "size": 4241003,
+              "sha256": "61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer_config.json",
+              "size": 46437,
+              "gitOid": "4d625a54ce31c6629f25dadcc7d878e771b40ef7"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "stable-audio-3",
+        "summary": "vs the stable-audio-3 package (fp32, CPU) with the same initial noise, 8 Euler steps with adaptive projected guidance 7, a 10 s clip (174 latent frames, prompt \u0022Heavy rain on a tin roof with distant rolling thunder\u0022): final latents 91.5 dB (CPU) / 92.6 dB (Vulkan) / 97.6 dB (CUDA) SNR, decoded 44.1 kHz stereo audio (autoencoder dither off) 86.1 / 82.1 / 84.4 dB; same architecture as small-music-base (see that entry for the per-stage numbers)",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "Text to 44.1 kHz stereo sound effects up to 120 s, \u0060IAudioGenerator\u0060: prompt, negative prompt, duration, steps (default 50), guidance (default 7, adaptive projected guidance), seed. The latent length follows the duration (plus 6 s of headroom); the SAME decoder adds its own small random dither unless \u0060DecoderNoise\u0060 is 0. Not covered: inpainting and audio-to-audio (the SAME encoder is not imported), LoRA (svd_bases.pt is not installed).",
+      "licenseNotice": "Stability AI Community License: free for research, non-commercial and commercial use while your annual revenue is below 1 million US dollars (commercial users register with Stability AI); above that you need an enterprise licence. Sharing the model or its outputs in a product requires the \u0022Powered by Stability AI\u0022 attribution. The bundled T5Gemma text encoder is subject to the Gemma Terms of Use.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "stabilityai/stable-audio-3-small-sfx-base",
+            "kind": "audio generation (sound effects)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "stable-audio-3-medium-base",
+      "name": "Stable Audio 3 medium (base)",
+      "kind": "audio-generation",
+      "family": "Stable Audio",
+      "architecture": "stable_audio_3",
+      "level": "verified",
+      "license": "other",
+      "gated": false,
+      "publisher": {
+        "name": "Stability AI",
+        "countryOfOrigin": "GB",
+        "url": "https://stability.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp32-safetensors",
+          "label": "FP32 (diffusion transformer with differential attention, SAME-L autoencoder, T5Gemma text encoder)",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 12368563728,
+          "companions": [],
+          "repository": "stabilityai/stable-audio-3-medium-base",
+          "revision": "c397d9a6912dc8b1f71a80e7b9673f4d307e7f8c",
+          "include": [
+            "LICENSE.md",
+            "LICENSE_GEMMA.md",
+            "NOTICE",
+            "README.md",
+            "model_config.json",
+            "model.safetensors",
+            "t5gemma-b-b-ul2/config.json",
+            "t5gemma-b-b-ul2/generation_config.json",
+            "t5gemma-b-b-ul2/model.safetensors",
+            "t5gemma-b-b-ul2/special_tokens_map.json",
+            "t5gemma-b-b-ul2/tokenizer.json",
+            "t5gemma-b-b-ul2/tokenizer.model",
+            "t5gemma-b-b-ul2/tokenizer_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "LICENSE.md",
+              "size": 11852,
+              "gitOid": "1d9ce2ee1067327543544de197291726e4fc57a4"
+            },
+            {
+              "path": "LICENSE_GEMMA.md",
+              "size": 10541,
+              "gitOid": "d483de1f58e5de355d8d184f6a7bf42f05875b63"
+            },
+            {
+              "path": "NOTICE",
+              "size": 97,
+              "gitOid": "27fe1d325f98f3f4643f3ba5735584cffd2553dd"
+            },
+            {
+              "path": "README.md",
+              "size": 5243,
+              "gitOid": "ecffdf926e53b860af3dc3b1f25645c30fef76c3"
+            },
+            {
+              "path": "model_config.json",
+              "size": 7842,
+              "gitOid": "262107d92fe0bdfd09db75d696fc6ce2357ccaed"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 9222116660,
+              "sha256": "c443fcc4d491475064cd0ff3eb92459b1e5f5060e86d96d016f048e528e24195"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/config.json",
+              "size": 2540,
+              "gitOid": "f5282e2a2964d231e0f19cb2a23f39e08de83128"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/generation_config.json",
+              "size": 156,
+              "gitOid": "a1afbdafc25667679ab591fc9aca56d4a0b91c3d"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/model.safetensors",
+              "size": 1183022944,
+              "sha256": "9b05ea5a4f211d023832f706fb2c0e83e4fc721b6da35ab69ceb0b55eb7800d3"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/special_tokens_map.json",
+              "size": 636,
+              "gitOid": "8d6368f7e735fbe4781bf6e956b7c6ad0586df80"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.json",
+              "size": 34362429,
+              "sha256": "7794135caa3ea73918949c902a781cc61dab674a4b59c17d85931c77c1114cbd"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer.model",
+              "size": 4241003,
+              "sha256": "61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2"
+            },
+            {
+              "path": "t5gemma-b-b-ul2/tokenizer_config.json",
+              "size": 46437,
+              "gitOid": "4d625a54ce31c6629f25dadcc7d878e771b40ef7"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "stable-audio-3",
+        "summary": "vs the stable-audio-3 package (fp32, CPU) with the same initial noise, 8 Euler steps with adaptive projected guidance 7, a 10 s clip (174 latent frames): final latents 85.6 dB (CPU) / 81.1 dB (Vulkan) / 84.6 dB (CUDA) SNR, decoded 44.1 kHz stereo audio (autoencoder dither off) 81.3 / 75.9 / 79.6 dB, the SAME-L decoder alone 104.1 / 97.0 / 103.2 dB; the differential attention and the sliding-window, sine-gated decoder are also checked on a tiny random checkpoint (CPU, Vulkan, CUDA)",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-19",
+        "tests": []
+      },
+      "notes": "Text to 44.1 kHz stereo music and sound effects up to 380 s, \u0060IAudioGenerator\u0060: prompt, negative prompt, duration, steps (default 50), guidance (default 7, adaptive projected guidance), seed. About 11 GB of device memory in f32 (the checkpoint is f32). The latent length follows the duration (plus 6 s of headroom); the SAME-L decoder adds its own small random dither unless \u0060DecoderNoise\u0060 is 0. Not covered: inpainting and audio-to-audio (the SAME encoder is not imported), LoRA (svd_bases.pt is not installed).",
+      "licenseNotice": "Stability AI Community License: free for research, non-commercial and commercial use while your annual revenue is below 1 million US dollars (commercial users register with Stability AI); above that you need an enterprise licence. Sharing the model or its outputs in a product requires the \u0022Powered by Stability AI\u0022 attribution. The bundled T5Gemma text encoder is subject to the Gemma Terms of Use.",
+      "doc": [
+        {
+          "section": "6",
+          "cells": {
+            "repositories": "stabilityai/stable-audio-3-medium-base",
+            "kind": "audio generation (music, sound effects)"
           }
         }
       ]

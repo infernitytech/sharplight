@@ -31,7 +31,17 @@ public sealed partial class GraphLowerer
         return count > baseInputs ? DenseInput(n.Inputs[count - 1], "seq-runs") : null;
     }
 
-    /// <summary>Tensors a recurrent launch reads besides its own inputs: runs, commits and records (each when present).</summary>
-    private static TensorRef[] SequenceTables(TensorRef? runs, TensorRef? commits, TensorRef? records)
-        => [.. new[] { runs, commits, records }.OfType<TensorRef>()];
+    /// <summary>Tensors a recurrent launch reads besides its own inputs: runs, commits, records and snapshots (each when present).</summary>
+    private static TensorRef[] SequenceTables(TensorRef? runs, TensorRef? commits, TensorRef? records, TensorRef? snapshots = null)
+        => [.. new[] { runs, commits, records, snapshots }.OfType<TensorRef>()];
+
+    /// <summary>
+    /// Snapshot form of a recurrent op (<see cref="RecurrentSnapshots"/>): the snapshots table the kernel binds last (after the runs table
+    /// and the rollback bindings) and the macro selecting the kernel's snapshot path (<c>SNAPSHOT</c>); null and empty for the other forms.
+    /// </summary>
+    private (TensorRef? Table, (string, object)[] Macros) SnapshotBindings(Node n)
+    {
+        int index = RecurrentSnapshots.TableIndex(n);
+        return index < 0 ? (null, []) : (DenseInput(n.Inputs[index], "seq-snapshots"), [("SNAPSHOT", true)]);
+    }
 }

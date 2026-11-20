@@ -880,26 +880,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
     {
         _dev.ThrowIfDisposed();
-        var regions = new List<(Allocation Buffer, ulong From, ulong To, ulong Bytes)>();
-        foreach (var b in _program.Buffers)
-        {
-            // A state shared by several segments of the graph is copied by the one that allocated it.
-            if (b.Kind != BufferKind.State || b.State is not { } st || !states.Contains(st.Name) || _borrowedStates.Contains(b))
-            {
-                continue;
-            }
-
-            // Rows of the outermost dimension: fixed for recurrent states, the compiled context for KV caches ([Ctx, ...]).
-            long row = st.Type.ByteSize(st.Shape.Dims.Skip(1).Aggregate(1L, (n, d) => n * d.Fixed));
-            long rows = st.Shape[0].IsSymbolic ? (long)(_alloc[b].Size / (ulong)row) : st.Shape[0].Fixed;
-            if (from < 0 || to < 0 || (long)from + count > rows || (long)to + count > rows)
-            {
-                throw new ArgumentOutOfRangeException(nameof(to), $"State '{st.Name}' has {rows} rows.");
-            }
-
-            regions.Add((_alloc[b], (ulong)(from * row), (ulong)(to * row), (ulong)(row * count)));
-        }
-
+        var regions = StateRowCopies.Regions(_program, _borrowedStates, states, from, to, count, b => (long)_alloc[b].Size);
         if (regions.Count == 0)
         {
             return;
@@ -909,9 +890,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         {
             // After the kernels of earlier submissions, before those of later ones.
             Barrier(cb, VkPipelineStageFlags.AllCommands, VkAccessFlags.MemoryWrite, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferRead | VkAccessFlags.TransferWrite);
-            foreach (var (a, src, dst, bytes) in regions)
+            foreach (var (b, src, dst, bytes) in regions)
             {
-                var region = new VkBufferCopy { srcOffset = a.Offset + src, dstOffset = a.Offset + dst, size = bytes };
+                var a = _alloc[b];
+                var region = new VkBufferCopy { srcOffset = a.Offset + (ulong)src, dstOffset = a.Offset + (ulong)dst, size = (ulong)bytes };
                 _dev.Api.vkCmdCopyBuffer(cb, a.Buffer, a.Buffer, 1, &region);
             }
 

@@ -8,13 +8,10 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// Emits ACE-Step 1.5 as graphs of generic ops over time-major signals: the Qwen3-style caption encoder and lyric embedding, the condition encoder (lyric encoder, timbre
 /// encoder and caption projection packed into one sequence), one evaluation of the diffusion transformer (patch embedding, adaptive-norm blocks of windowed self-attention,
-/// cross-attention over the condition rows and a feed-forward layer, rotary positions, two timestep embeddings) and the autoencoder's decoder (Oobleck: snake-activated
-/// residual units and transposed convolutions). Contract: <see cref="AudioGenerationGraphs"/>.
+/// cross-attention over the condition rows and a feed-forward layer, rotary positions, two timestep embeddings) and the autoencoder's decoder (<see cref="OobleckDecoderGraph"/>). Contract: <see cref="AudioGenerationGraphs"/>.
 /// </summary>
 internal static class AceStepGraph
 {
-    private const float SnakeEpsilon = 1e-9f;
-
     /// <summary>The caption encoder: token ids to the final hidden rows of a causal Qwen3 stack.</summary>
     /// <param name="p">The hyper-parameters.</param>
     /// <param name="weights">Finds a weight by name.</param>
@@ -147,23 +144,7 @@ internal static class AceStepGraph
     {
         var b = new GraphBuilder(AudioGenerationGraphs.DecodeGraph, weights);
         var x = b.Input(AudioGenerationGraphs.LatentInput, InputRole.Other, DataType.F32, new Shape(Dim.Sym(WellKnown.TokenSymbol), p.LatentChannels));
-        x = Conv(b, x, "vae.decoder.conv1", 3);
-        for (int i = 0; i < p.VaeUpsampling.Length; i++)
-        {
-            using var _ = b.Group($"vae.decoder.block.{i}");
-            string n = $"vae.decoder.block.{i}.";
-            long stride = p.VaeUpsampling[i];
-            x = Snake(b, x, n + "snake1");
-            long crop = (stride + 1) / 2;
-            x = b.Emit1("ConvTranspose1d", [x, b.Weight(n + "conv_t1.weight"), b.Weight(n + "conv_t1.bias")],
-                Attributes.From(("stride", stride), ("crop_left", crop), ("crop_right", crop)));
-            x = Residual(b, x, n + "res_unit1.", 1);
-            x = Residual(b, x, n + "res_unit2.", 3);
-            x = Residual(b, x, n + "res_unit3.", 9);
-        }
-
-        x = Snake(b, x, "vae.decoder.snake1");
-        x = Conv(b, x, "vae.decoder.conv2", 3);
+        x = OobleckDecoderGraph.Build(b, x, "vae.decoder.", p.VaeUpsampling);
         b.Output(AudioGenerationGraphs.AudioOutput, x);
         return b.Build();
     }
@@ -229,26 +210,5 @@ internal static class AceStepGraph
         temb = b.Linear(b.Silu(temb), n + "linear_2.weight", n + "linear_2.bias");
         var projection = b.Linear(b.Silu(temb), n + "time_proj.weight", n + "time_proj.bias");
         return (temb, b.Reshape(projection, 6, hidden));
-    }
-
-    private static Value Residual(GraphBuilder b, Value x, string name, long dilation)
-    {
-        var y = Conv(b, Snake(b, x, name + "snake1"), name + "conv1", 3 * dilation, dilation);
-        y = Conv(b, Snake(b, y, name + "snake2"), name + "conv2", 0);
-        return b.Add(x, y);
-    }
-
-    // x + sin²(exp(alpha) · x) / (exp(beta) + 1e-9) with per-channel log-scale parameters.
-    private static Value Snake(GraphBuilder b, Value x, string name)
-    {
-        var alpha = b.Unary("Exp", b.Weight(name + ".alpha"));
-        var inverse = b.Unary("Recip", b.Scale(b.Unary("Exp", b.Weight(name + ".beta")), 1f, SnakeEpsilon));
-        return b.Add(x, b.Mul(inverse, b.Unary("Square", b.Unary("Sin", b.Mul(alpha, x)))));
-    }
-
-    private static Value Conv(GraphBuilder b, Value x, string name, long pad, long dilation = 1)
-    {
-        var inputs = b.HasWeight(name + ".bias") ? new[] { x, b.Weight(name + ".weight"), b.Weight(name + ".bias") } : [x, b.Weight(name + ".weight")];
-        return b.Emit1("Conv1d", inputs, Attributes.From(("stride", 1L), ("dilation", dilation), ("pad_left", pad), ("pad_right", pad)));
     }
 }

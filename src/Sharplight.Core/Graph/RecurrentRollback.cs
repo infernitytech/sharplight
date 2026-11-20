@@ -51,8 +51,12 @@ public static class RecurrentRollback
     /// <summary>K: most rows of one tentative run of <paramref name="n"/> (0 when the node is not in rollback form).</summary>
     public static int Rows(Node n) => (int)n.Attributes.Get(RowsAttribute, 0L);
 
-    /// <summary>Number of inputs of <paramref name="n"/> without the rollback inputs (the multi-sequence form's inputs).</summary>
-    public static int BaseInputCount(Node n) => IsRollbackForm(n) ? n.Inputs.Length - TrailingInputs : n.Inputs.Length;
+    /// <summary>
+    /// Number of inputs of <paramref name="n"/> without the rollback inputs and the snapshots table (<see cref="RecurrentSnapshots"/>): the
+    /// multi-sequence form's inputs, the runs table last.
+    /// </summary>
+    public static int BaseInputCount(Node n)
+        => n.Inputs.Length - (IsRollbackForm(n) ? TrailingInputs : 0) - (RecurrentSnapshots.IsSnapshotForm(n) ? 1 : 0);
 
     /// <summary>
     /// Device bytes of the record states a rollback-form compilation of <paramref name="graph"/> adds: per recurrent op

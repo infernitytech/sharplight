@@ -275,6 +275,25 @@ public sealed class PrefixCacheTests
     }
 
     [Fact]
+    public async Task RecurrentModel_InsideStepSnapshots_CostNoPass()
+    {
+        // Where a pass costs more than recomputing, a decoder that keeps the state inside a step still snapshots turn one's prompt end
+        // (one block before its last full block) without cutting the chunk: one pass per prompt, and turn two restores the snapshot.
+        var d = new FakeBatchDecoder(1, canTruncate: false, kvBlockSize: 4, kvBlocks: 128, stateSnapshots: 4) { InsideSnapshots = true };
+        d.Script("0123");
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { StepCost = CheapRows() });
+        string turn1 = new('u', 47);
+        var r1 = await e.Submit(Req(turn1)).CompleteAsync();
+        Assert.Equal(1, d.Steps.Count(s => s.Any(x => x.Rows > 1)));
+        Assert.Equal(1, d.InsideSnapshotsKept);
+        await e.Submit(Req(new string('z', 30))).CompleteAsync();
+        var r2 = await e.Submit(Req(turn1 + "\u0001" + r1.Text + "next question")).CompleteAsync();
+        Assert.Equal("0123", r2.Text);
+        Assert.True(r2.Usage.CachedTokens >= 40, $"cached {r2.Usage.CachedTokens}");
+        Assert.Equal(3, d.Steps.Count(s => s.Any(x => x.Rows > 1)));
+    }
+
+    [Fact]
     public async Task RecurrentModel_WithoutSnapshots_SharesNothing()
     {
         var d = new FakeBatchDecoder(1, canTruncate: false, kvBlockSize: 4, kvBlocks: 128);

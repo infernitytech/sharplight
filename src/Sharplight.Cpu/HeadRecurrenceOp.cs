@@ -22,13 +22,15 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
     private int _rowChunks;
     private int _rowsPer;
     private readonly RollbackTables? _rollback;
+    private readonly StateSnapshotTable? _snapshots;
     private float* _scratch;        // tentative runs: per task, a copy of its state rows
     private long _scratchFloats;
 
     /// <summary>Creates the base for state [(S,) H, N, N] and a token-major input of rows [T, H, N].</summary>
-    protected HeadRecurrenceOp(TRef tokens, TRef state, TRef? runs, RollbackTables? rollback)
+    protected HeadRecurrenceOp(TRef tokens, TRef state, TRef? runs, RollbackTables? rollback, StateSnapshotTable? snapshots = null)
     {
         _rollback = rollback;
+        _snapshots = snapshots;
         _tokens = tokens;
         _state = state;
         _runs = runs;
@@ -148,6 +150,17 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
                 {
                     RecordRow(plan.WriteRecords + (t - t0) * _rollback!.Width, t, head, row0, row1, row0 == 0);
                 }
+            }
+
+            var (k, snapshotRow) = plan.Tentative || _snapshots is null ? default : _snapshots.At(u, t1 - t0, _state.Dims[0], Name);
+            if (k > 0)
+            {
+                // The state after the run's first k rows: this task's rows into the snapshot row.
+                RunRows(state, t0, t0 + k, head, row0, row1);
+                long bytes = (long)(row1 - row0) * _size * 4;
+                float* snapshot = (float*)_state.P + (snapshotRow * _heads + head) * _size * _size;
+                Buffer.MemoryCopy(state + (long)row0 * _size, snapshot + (long)row0 * _size, bytes, bytes);
+                t0 += k;
             }
 
             RunRows(state, t0, t1, head, row0, row1);

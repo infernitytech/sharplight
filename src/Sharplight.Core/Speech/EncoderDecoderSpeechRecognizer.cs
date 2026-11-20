@@ -26,6 +26,7 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
     private readonly IAudioFeatureExtractor _features;
     private readonly SpeechTokenProtocol _protocol;
     private readonly ITokenizer _tokenizer;
+    private readonly WaveformChunking? _chunking;
     private readonly IServiceProvider? _services;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SpeechEncoderDecoder? _network;
@@ -39,7 +40,9 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         _model = model;
         _services = services;
         _features = AudioFeatureExtractors.Create(model);
-        _protocol = SpeechTokenProtocol.From(model.Metadata(ModelComponentRoles.Decoder));
+        var metadata = model.Metadata(ModelComponentRoles.Decoder);
+        _protocol = SpeechTokenProtocol.From(metadata);
+        _chunking = WaveformChunking.From(metadata, _features.SampleRate);
         _tokenizer = model.CreateTokenizer(ModelComponentRoles.Tokenizer);
         Metadata = TaskClientMetadata.For(model.Definition);
     }
@@ -113,6 +116,16 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
             }
 
             var samples = audio.ToModelInput(SampleRate).Samples;
+            if (_chunking is not null)
+            {
+                await foreach (var segment in TranscribeChunksAsync(network, samples, _chunking, options, cancellationToken).ConfigureAwait(false))
+                {
+                    yield return segment;
+                }
+
+                yield break;
+            }
+
             var features = await Task.Run(() => _features.Extract(samples), cancellationToken).ConfigureAwait(false);
             var state = new RecognitionState(options, samples.Length / _features.HopLength, PromptHistory(options));
             while (state.Seek < state.ContentFrames)
@@ -141,6 +154,41 @@ internal sealed class EncoderDecoderSpeechRecognizer : ISpeechRecognizer
         _disposed = true;
         _network?.Dispose();
         _gate.Dispose();
+    }
+
+    /// <summary>
+    /// Recognizes a recording chunk by chunk (<see cref="WaveformChunking"/>): each chunk gets its own features and windows, its segments move to
+    /// the chunk's place in the recording, and the texts of later chunks start with the language's separator.
+    /// </summary>
+    private async IAsyncEnumerable<TranscriptionSegment> TranscribeChunksAsync(SpeechEncoderDecoder network, float[] samples, WaveformChunking chunking,
+        SpeechRecognitionOptions options, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var history = PromptHistory(options);
+        int? language = null;
+        bool first = true;
+        foreach (var (start, end) in chunking.Split(samples))
+        {
+            var features = await Task.Run(() => _features.Extract(samples.AsSpan(start, end - start)), cancellationToken).ConfigureAwait(false);
+            var state = new RecognitionState(options, (end - start) / _features.HopLength, history) { Language = language };
+            var offset = TimeSpan.FromSeconds((double)start / SampleRate);
+            while (state.Seek < state.ContentFrames)
+            {
+                var segments = await Task.Run(() => RecognizeWindow(network, features, state, cancellationToken), cancellationToken).ConfigureAwait(false);
+                foreach (var segment in segments)
+                {
+                    string text = segment.Text.Trim();
+                    yield return segment with
+                    {
+                        Start = segment.Start + offset,
+                        End = segment.End + offset,
+                        Text = first ? text : chunking.Separator(segment.Language) + text,
+                    };
+                    first = false;
+                }
+            }
+
+            language = state.Language;
+        }
     }
 
     private List<int> PromptHistory(SpeechRecognitionOptions options)

@@ -22,7 +22,7 @@ internal sealed class SurveyOptions
     /// <summary>The manifest JSON file.</summary>
     public string ManifestPath { get; }
 
-    /// <summary><c>cpu</c> or <c>vulkan</c>.</summary>
+    /// <summary><c>cpu</c>, <c>vulkan</c> or <c>cuda</c>.</summary>
     public string ProviderName { get; }
 
     /// <summary>The most timed runs.</summary>
@@ -43,7 +43,7 @@ internal sealed class SurveyOptions
     /// <summary>Whether reduced-precision kernels are allowed.</summary>
     public bool ReducedPrecision { get; }
 
-    /// <summary>Whether the Vulkan segments are profiled after timing.</summary>
+    /// <summary>Whether the GPU segments (Vulkan or CUDA) are profiled after timing.</summary>
     public bool Profile { get; }
 
     /// <summary>Parses <paramref name="args"/>.</summary>

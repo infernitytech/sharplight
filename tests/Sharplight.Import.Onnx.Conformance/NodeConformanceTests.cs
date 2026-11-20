@@ -28,20 +28,21 @@ public sealed class NodeConformanceTests
 
     [Theory]
     [MemberData(nameof(Tests))]
-    public void Vulkan(string test)
+    public void Gpu(string test)
     {
-        var (device, reason) = Devices.Vulkan;
+        var (device, reason) = Devices.Gpu;
         if (device is null)
         {
-            Assert.Skip("Vulkan unavailable: " + reason);
+            Assert.Skip($"{Devices.GpuProvider} unavailable: {reason}");
         }
 
-        Check("vulkan", test, device, Devices.Cpu);
+        Check(Devices.GpuProvider, test, device, Devices.Cpu);
     }
 
     /// <summary>
     /// Runs every node test and extra test (or those whose name matches the regular expression <c>SHARPLIGHT_CONFORMANCE_FILTER</c>) on the
-    /// providers in <c>SHARPLIGHT_CONFORMANCE_PROVIDERS</c> (default "cpu") and writes the report.
+    /// providers in <c>SHARPLIGHT_CONFORMANCE_PROVIDERS</c> (default "cpu"; any other name is the GPU under test, reported under its
+    /// provider name) and writes the report.
     /// </summary>
     [Fact]
     public void Report()
@@ -58,7 +59,13 @@ public sealed class NodeConformanceTests
         using var writer = new StreamWriter(path);
         foreach (var provider in providers)
         {
-            var (device, fallback) = provider == "cpu" ? (Devices.Cpu, null) : (Devices.Vulkan.Device!, Devices.Cpu);
+            if (provider != "cpu" && provider != Devices.GpuProvider)
+            {
+                throw new InvalidOperationException($"SHARPLIGHT_CONFORMANCE_PROVIDERS names '{provider}', but the GPU under test is "
+                    + $"'{Devices.GpuProvider}' (SHARPLIGHT_TEST_PROVIDER).");
+            }
+
+            var (device, fallback) = provider == "cpu" ? (Devices.Cpu, null) : (Devices.Gpu.Device ?? throw new InvalidOperationException(Devices.Gpu.Reason), Devices.Cpu);
             var tests = NodeTestSuite.Names().Select(t => (Test: t, Suite: "node", Directory: NodeTestSuite.DirectoryOf(t)))
                 .Concat(ExtraTestSuite.Names().Select(t => (Test: t, Suite: "extra", Directory: ExtraTestSuite.DirectoryOf(t))))
                 .Where(t => filter is null || filter.IsMatch(t.Test));

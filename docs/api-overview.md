@@ -44,6 +44,7 @@ they need no extra `using`):
 | `Sharplight.Import.Kokoro` | `AddKokoroImporter()` | Kokoro-82M checkpoint folders (`config.json`, `.pth` with weight normalization, `voices/*.pt`, `lexicon/*.json`) |
 | `Sharplight.Import.Snac` | `AddSnacImporter()` | SNAC audio codec checkpoint folders (the decoding half; auxiliary `vocoder` of Orpheus) |
 | `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
+| `Sharplight.Import.StableAudio` | `AddStableAudioImporter()` | Stable Audio 3 checkpoint folders (`model_config.json`, `model.safetensors`, the T5Gemma folder) |
 | `Sharplight.Import.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts` | `AddChatterboxImporter()`, `AddCosyVoiceImporter()`, `AddF5TtsImporter()`, `AddXttsImporter()` | the text-to-speech checkpoint layouts (F5-TTS also its Vocos vocoder) |
 | `Sharplight.Import.SileroVad` | `AddSileroVadImporter()` | Silero VAD checkpoints (voice activity detection) |
 | `Sharplight.Import.Ultralytics` | `AddUltralyticsImporter()` | Ultralytics YOLO checkpoints and their graph adapter (AGPL-3.0 weights: see the model's license) |
@@ -385,6 +386,34 @@ lyrics and language, duration, steps, shift, seed (or the initial noise itself) 
 ```csharp
 using var generator = clients.Create<IAudioGenerator>(model);
 AudioBuffer song = await generator.GenerateAsync(new AudioGenerationRequest { Prompt = "calm acoustic guitar with soft piano", Lyrics = "[Instrumental]", Duration = TimeSpan.FromSeconds(30), Seed = 1 });
+```
+
+Stable Audio Open 1.0 (architecture `stable_audio`, imported by `Sharplight.Import.Diffusers` from the diffusers `StableAudioPipeline` folders) is an `audio-generation` model with another graph contract,
+`TimedAudioDiffusionGraphs`: a `text-encoder` (`text_encode`, T5), an `encoder` (`timing_encode`: the start and total seconds as two conditioning rows), a `denoiser` (`denoise`: one v-prediction of the
+transformer on preconditioned latents) and the same `vae` graph (`audio_decode`). Its client samples with DPM-Solver++(2M) SDE and classifier-free guidance and returns 44.1 kHz stereo audio of up
+to 47.5 s; the request's `NegativePrompt` steers the unconditional side. `IAudioGenerator` tells what a model takes: `SupportsLyrics`, `SupportsNegativePrompt`, `SupportsShift` and
+`DefaultGuidanceScale` (null for a model without guidance).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);   // stable-audio-open-1.0
+AudioBuffer rain = await generator.GenerateAsync(new AudioGenerationRequest
+{
+    Prompt = "heavy rain on a tin roof, distant thunder", NegativePrompt = "music", Duration = TimeSpan.FromSeconds(20), Steps = 100, GuidanceScale = 7, Seed = 1,
+});
+```
+
+Stable Audio 3 (architecture `stable_audio_3`, imported by `Sharplight.Import.StableAudio` from the stable-audio-3 checkpoint folders: `model_config.json`, `model.safetensors`, `t5gemma-b-b-ul2/`)
+uses the rectified-flow form of `TimedAudioDiffusionGraphs` (the denoiser's `objective` is `rectified_flow` or `rf_denoiser`): a T5Gemma `text_encode`, a `timing_encode` of the total seconds, a
+`denoise` velocity network whose latent length follows the duration, and a SAME autoencoder `audio_decode` over fixed windows. The base models sample with Euler steps and adaptive projected
+guidance (50 steps, guidance 7 by default), the post-trained ones with ping-pong steps and no guidance (`DefaultGuidanceScale` null, no negative prompt). The SAME decoder adds a little random
+dither as the reference package does; `AudioGenerationRequest.DecoderNoise` scales it (0 decodes deterministically).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);   // stable-audio-3-small-music-base
+AudioBuffer loop = await generator.GenerateAsync(new AudioGenerationRequest
+{
+    Prompt = "lofi house loop, 120 BPM", Duration = TimeSpan.FromSeconds(30), Steps = 50, GuidanceScale = 7, Seed = 1,
+});
 ```
 
 `audio-separation` models (Demucs `htdemucs`; architecture `demucs`) have one component whose graph `separate` runs one fixed-length segment (the host computes the spectrogram and the

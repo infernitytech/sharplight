@@ -169,6 +169,56 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false)
         => _kv is not null && _ctx[slot].Count % KvBlockSize == 0 && _kv.SaveSnapshot(slot, hash, speculative);
 
+    /// <summary>Whether steps keep the state at a row inside an input (<see cref="SequenceInput.StateSnapshotRows"/>), like a graph in snapshot form.</summary>
+    public bool InsideSnapshots { get; set; }
+    public bool SnapshotsInsideSteps => InsideSnapshots && KvStateSnapshots > 0;
+    /// <summary>States kept inside a step (<see cref="SequenceInput.StateSnapshotRows"/>).</summary>
+    public int InsideSnapshotsKept { get; private set; }
+    private readonly Dictionary<int, (int Row, int Length)> _staged = [];
+
+    public bool SaveKvStateSnapshotAt(int slot, int length, UInt128 hash)
+    {
+        if (_kv is null || !_staged.Remove(slot, out var staged) || staged.Length != length)
+        {
+            return false;
+        }
+
+        bool kept = _kv.CommitSnapshot(staged.Row, hash);
+        InsideSnapshotsKept += kept ? 1 : 0;
+        return kept;
+    }
+
+    /// <summary>Reserves snapshot rows for the step's inputs that keep the state inside them; the fake state is the context up to there.</summary>
+    private void StageInsideSnapshots(IReadOnlyList<SequenceInput> inputs)
+    {
+        foreach (var (_, staged) in _staged)
+        {
+            _kv!.ReleaseSnapshot(staged.Row);
+        }
+
+        _staged.Clear();
+        foreach (var input in inputs)
+        {
+            int k = input.StateSnapshotRows;
+            int length = _ctx[input.Slot].Count + k;
+            if (!SnapshotsInsideSteps || k <= 0 || k > input.Tokens.Length || length % KvBlockSize != 0)
+            {
+                continue;
+            }
+
+            int row = _kv!.ReserveSnapshot();
+            if (row < 0)
+            {
+                continue;
+            }
+
+            _snapshotContext[row - SlotCount].Clear();
+            _snapshotContext[row - SlotCount].AddRange(_ctx[input.Slot]);
+            _snapshotContext[row - SlotCount].AddRange(input.Tokens.Span[..k].ToArray());
+            _staged[input.Slot] = (row, length);
+        }
+    }
+
     /// <summary>"Copies recurrent state" between slot rows and snapshot rows: the fake state is the context it belongs to.</summary>
     private bool CopyState(int from, int to)
     {
@@ -313,6 +363,7 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             }
 
             PeakBlocksHeld = Math.Max(PeakBlocksHeld, KvBlocksTotal - _kv.Free);
+            StageInsideSnapshots(inputs);
         }
 
         var res = new Memory<float>[inputs.Count];

@@ -66,6 +66,7 @@ public sealed class SpeechRealModelTests
     [Theory]
     [InlineData("moonshine-tiny", "ask not what your country can do for you")]
     [InlineData("parakeet-ctc-0.6b", "ask not what your country can do for you")]
+    [InlineData("cohere-transcribe-03-2026", "ask not what your country can do for you")]
     public async Task TranscribePage_RunsTheOtherSpeechFamilies_ThroughTheSameTaskClient(string name, string expected)
     {
         string path = Path.Combine(s_home, "models/hf", name);
@@ -171,7 +172,7 @@ public sealed class SpeechRealModelTests
         Assert.True(ModelInspector.Inspect(whisper).KindInferred);
         Assert.Equal(ModelKindCatalog.Other, ModelInspector.Inspect(other).Kind);
         Assert.Equal(ModelKinds.SpeechRecognition, ModelInspector.Inspect(hf).Kind);
-        foreach (string type in new[] { "moonshine", "parakeet_ctc", "parakeet_tdt", "canary" })
+        foreach (string type in new[] { "moonshine", "parakeet_ctc", "parakeet_tdt", "canary", "cohere_asr" })
         {
             string folder = dir.File(type);
             Directory.CreateDirectory(folder);

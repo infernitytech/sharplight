@@ -293,7 +293,9 @@ branch `macos/metal-r1`, round 2 (split-K `gemm_sg`, 8x8 flash attention, `int_d
 - **Execution.** Each distinct binding of the symbols is recorded once (variant, pipeline, packed arguments, grid, barrier
   placement from the shared `HazardTracker`); an execution encodes the recording into a concurrent compute encoder with
   `memoryBarrierWithScope:buffers` where the hazard tracker places barriers, makes every buffer resident with one
-  `useResources` call, commits and waits. Long steps are split into several command buffers.
+  `useResources` call, commits and waits. Long steps are split into several command buffers. Copies of state rows
+  (`ICompiledSegment.CopyStateRows`: recurrent-state snapshots for prefix caching and copy-on-write forks) are CPU copies in shared
+  storage, ordered by the waits (compiles and builds in CI; not yet run on Apple hardware).
 - **Device features** (neutral names): `fp16` and `subgroup_ops` on every listed GPU; `matrix_f16_8x8`
   (`DeviceFeatures.MatrixF16Small`) on Apple7 (M1) and later and the Mac2 family: `simdgroup_matrix` has only 8x8 fragments, so
   the kernels written for the 16x16 fragments of `matrix_f16` (Vulkan cooperative matrices) keep their SIMT fallbacks, and a
