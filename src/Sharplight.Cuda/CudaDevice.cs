@@ -57,6 +57,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             CudaCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options), properties.Multiprocessors);
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
         LaunchGraphs = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.LaunchGraphs) && !options.DisabledFeatures.Contains(DeviceFeatures.LaunchGraphs);
+        DependentLaunches = properties.ComputeCapability >= NvrtcTranslator.DependentLaunchCapability
+                            && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.DependentLaunches) && !options.DisabledFeatures.Contains(DeviceFeatures.DependentLaunches);
         ArtifactTargets = _kernelBinaries ? [Code.CreateCodeTarget(info.Provider), CreateCubinTarget()] : [Code.CreateCodeTarget(info.Provider)];
         Limits = DeviceMemoryLimits.For(options);
         _budget = options.MemoryBudget ?? DeviceMemoryLimits.Apply(info.TotalMemory, Limits.DeviceMemory);
@@ -335,6 +337,13 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// </summary>
     internal bool LaunchGraphs { get; }
 
+    /// <summary>
+    /// True when kernels that wait for the previous launch themselves (<see cref="CudaKernel.WaitsForPrevious"/>) are launched as its
+    /// programmatic dependents (<see cref="DeviceFeatures.DependentLaunches"/>: compute capability 9.0 and later, on unless disabled with
+    /// <c>SHARPLIGHT_DISABLE_FEATURES</c> or the device options; switched off for the device when the driver has no <c>cuLaunchKernelEx</c>).
+    /// </summary>
+    internal bool DependentLaunches { get; set; }
+
     /// <summary>The cuBLASLt handle of the library GEMMs, created on first use (null when cuBLASLt is not installed).</summary>
     internal CudaBlas? Blas => _blas.Value;
 
@@ -397,13 +406,18 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             }
         }
 
+        // Blocks of the kernel resident on the GPU at once (0 when unknown): a launch beyond them runs in several waves.
+        int perSm = 0;
+        int residentBlocks = CudaApi.cuOccupancyMaxActiveBlocksPerMultiprocessor(&perSm, function, (int)(ptx.ThreadsX * ptx.ThreadsY * ptx.ThreadsZ), (nuint)ptx.SharedBytes) == 0
+            ? perSm * Properties.Multiprocessors
+            : 0;
         Interlocked.Add(ref KernelLoadTicks, Stopwatch.GetTimestamp() - start);
         if (DiagnosticSwitches.Trace)
         {
             Console.Error.WriteLine($"[cuda] kernel {kernel.Name}:{kernel.EntryPoint} {kernel.CacheKey[..12]} block {ptx.ThreadsX}x{ptx.ThreadsY}x{ptx.ThreadsZ} (max {maxThreads}), dynamic shared {ptx.SharedBytes} B in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms");
         }
 
-        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ, ptx.SharedBytes) { TensorMaps = ptx.TensorMaps };
+        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ, ptx.SharedBytes) { TensorMaps = ptx.TensorMaps, WaitsForPrevious = ptx.WaitsForPrevious, ResidentBlocks = residentBlocks };
     }
 
     /// <summary>A library kernel: the library GEMM on cuBLASLt (no module).</summary>

@@ -7915,6 +7915,286 @@ NVRTC_DIR=<dir with libnvrtc.so.13> ./nvrtc_check.sh ../../src/Sharplight.Shader
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,64 --modes greedy --reps 12
 ```
 
+## 58. LLM round 14: a FlashAttention-2-style prefill kernel on CUDA, programmatic dependent launches (2026-11-20)
+
+Branch `perf/llm-r14` (base `develop` at `a494e881`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, 200 W board
+limit, shared with other agents' tests: every timed run started only once `nvidia-smi` showed no other compute process), driver
+595.112.07, NVRTC 13.0.88. "Before" is this branch with `SHARPLIGHT_DISABLE_FEATURES=native_attention,dependent_launches` (the
+kernels and launches of `develop`), run in the same session. The vLLM prefill figures are those of §56 / §57 (vLLM 0.33.0, same
+machine and checkpoints). The serving rows below ran fresh, in this session. Raw output in [`bench/results/s58/`](../bench/results/s58).
+
+### 58.1 Prefill (tok/s, best of the `--bench` runs; procedure of §53)
+
+| model | rows | CUDA before | **CUDA** | gain | vLLM | CUDA / vLLM before → after |
+|---|---:|---:|---:|---:|---:|---:|
+| gpt-oss-20b | 512 | 12,799 | **13,124** | +2.5 % | 11,436 | 1.12 → **1.15** |
+| | 2048 | 14,436 | **15,833** | +9.7 % | 16,379 | 0.88 → **0.97** |
+| | 8192 | 11,387 | **14,582** | +28 % | 15,812 | 0.72 → **0.92** |
+| Qwen3-8B-FP8 | 512 | 14,371 | **14,489** | +0.8 % | 13,806 | 1.04 → **1.05** |
+| | 2048 | 14,441 | **14,991** | +3.8 % | 14,957 | 0.97 → **1.00** |
+| | 8192 | 11,233 | **11,742** | +4.5 % | 12,296 | 0.91 → **0.95** |
+
+* gpt-oss-20b at 2048 tokens (`SHARPLIGHT_CUDA_PROFILE=1`): GPU time of the pass 140.3 → 123.5 ms (vLLM 118.4). Attention
+  16.4 → 3.5 ms (FlashInfer 4.4): `fa` took 250 µs on a sliding-window layer and ~1.1 ms on a full one. `attn_prefill_native` takes
+  51 µs and ~240 µs. The 8192-token prefill runs as four 2048-row passes against a growing cache, so attention was 30 % of it.
+* Qwen3-8B-FP8 (plain causal, which `fe` served): attention at 2048 tokens 12.7 → 9.6 ms.
+* This session's FP8 figures are 3-6 % above §57's for both "before" and "after" (board state). The ratios compare runs of one session.
+
+### 58.2 The kernel
+
+`attn_prefill_native.cu` (`native_attention`, CUDA compute capability 8.0+, [cuda.md](cuda.md#kernels-written-in-cuda-c)) works in the
+FlashAttention-2 form:
+
+* Each warp keeps its 16 query rows (Q · SCALE in f16), the scores, the online-softmax statistics and the output accumulators in
+  registers for the whole key loop. The probabilities become the A operands of P · V without shared memory.
+* The block shares 64-key K / V tiles in a two-stage `cp.async` ring (swizzled 16-byte chunks; `ldmatrix` / `ldmatrix.trans`).
+* Masks apply only on tiles crossing a row's limits, and warp-uniform skips drop tiles a warp cannot see. Blocks run longest first.
+* Head sizes 64 and 128. Sliding windows, chunks, soft caps, sinks, GQA, multi-sequence runs (also paged) and mixed steps.
+
+Standalone harness (`bench/s58_attn/bench_attn.cu`: one sequence, random Q / K / V, L2 flushed before each launch, minimum of 20;
+FLOPs of the visible scores only, Q·Kᵀ and P·V):
+
+| shape | form | ms | TFLOPS |
+|---|---|---:|---:|
+| gpt-oss (64 / 8 heads, D 64), 2048 queries, causal + sinks | 4 warps (first form) | 0.268 | 128 |
+| | 8 warps | 0.297 | 116 |
+| | 4 warps, 32 rows per warp (`FN_MR=2`) | 0.250 | 138 |
+| | **4 warps, no compare per probability (sentinel maximum)** | **0.252** | **136** |
+| same, window 128 | 4 warps | 0.102 | 41 (66 MB of f32 Q / O: ~650 GB/s) |
+| same, 2048 queries after 6144 cached keys | 4 warps | 1.554 | 155 |
+| Qwen3-8B (32 / 8 heads, D 128), 2048 queries, causal | 4 warps | 0.391 | 88 |
+| | **8 warps** | **0.266** | **129** |
+| | 4 warps, `FN_MR=2` | 0.449 | 77 (spills) |
+| same, after 6144 cached keys | 8 warps | 1.708 | 141 |
+
+Kept: 4 warps at head size 64 (three 32 KB blocks per SM), 8 at 128 (one 64 KB block per SM). Against an f32 reference over the
+f16-rounded Q · SCALE the outputs differ by at most 1.9e-4 (values in ±1); every edge case of the harness agrees, including partial
+tiles, windows after cached keys and 5-query chunks.
+
+### 58.3 Programmatic dependent launches
+
+From compute capability 9.0 the translator starts every kernel with `griddepcontrol.wait; griddepcontrol.launch_dependents;`, and
+the segment launches it with `cuLaunchKernelEx` and programmatic stream serialization (`dependent_launches`,
+[cuda.md](cuda.md#kernels-written-in-cuda-c)). Decode steps (`BatchBench --slots 64 --ctx 512 --depth 256 --modes greedy --reps 20`, GPU ms per
+step, minimum; runs alternated twice, `pdl-modes.txt`):
+
+| launches as dependents | Qwen3-8B-FP8 1 / 16 / 64 sequences | gpt-oss-20b 1 / 16 / 64 sequences |
+|---|---|---|
+| none (`dependent_launches` disabled) | 11.36 / 13.51 / 17.93 | 5.38 / 11.88 / 17.99 |
+| every kernel | 11.32 / 13.71 / 18.28 (-0.3 / +1.5 / +1.9 %) | 5.30 / 11.74 / 17.82 (-1.5 / -1.2 / -0.9 %) |
+| after a one-wave kernel | 11.34 / 13.38 / 18.10 (-0.2 / -1.0 / +0.9 %) | 5.32 / 11.89 / 17.98 (-1.1 / +0.1 / 0 %) |
+| **one-wave kernel after a one-wave kernel (kept)** | **11.33 / 13.45 / 17.90** (-0.2 / -0.4 / -0.2 %) | **5.34 / 11.90 / 18.00** (-0.7 / +0.2 / +0.1 %) |
+
+(Mean of the two runs' minima.) With every kernel launched early, gpt-oss gains ~1 % but Qwen3-8B-FP8 loses up to 2 % at 16-64
+sequences. A dependent's blocks are resident, waiting, while the previous kernel still runs. They take SM slots its later waves
+need, or they are placed before that kernel releases the SMs. The kept rule, with one-wave kernels from the driver's occupancy
+query, is neutral to slightly positive. Graph-replayed launches leave almost no gaps to remove: ~0.2 µs per launch at 679 launches
+per step.
+
+### 58.4 Serving and mixed steps (gpt-oss-20b)
+
+`bench/s16_serve.sh`, 64 slots of 512 tokens, ~250-token prompts, 128 output tokens, `QUIET_GPU=1`, two rounds (mean), same session.
+Aggregate output tok/s / TTFT p50 ms / mean inter-token latency ms:
+
+| streams | CUDA before | **CUDA** | vLLM | CUDA / vLLM before → after |
+|---:|---|---|---|---:|
+| 16 | 1115 / 116 / 13.4 | **1151 / 111 / 13.0** | 1398 / 185 / 10.1 | 0.80 → **0.82** |
+| 64 | 2329 / 271 / 24.3 | **2397 / 255 / 23.7** | 3184 / 416 / 16.8 | 0.73 → **0.75** |
+
+The rows above ran on the build before the last two commits, which changed when kernels launch as dependents and set the decode
+attention's 512-workgroup target. A rerun of "CUDA" on the final build, later in the session, measured 1210 / 71 / 12.7 and
+2288 / 259 / 24.9 (`serve-cuda-final/`; one 16-stream round showed a 33 ms TTFT p50). Between the session's runs, our serving
+moved by ±3-5 % ("before" 2305-2352 tok/s at 64 streams, vLLM 3160-3208), so the build difference is within that spread.
+
+Qwen3-8B-FP8 (the first CUDA serving runs of this model: the earlier rounds' "CUDA" serving ran on Vulkan, §56.5), final build,
+same procedure:
+
+| streams | CUDA before | **CUDA** | vLLM | CUDA / vLLM |
+|---:|---|---|---|---:|
+| 16 | 929 / 118 / 16.3 | **974 / 116 / 15.5** | 1115 / 168 / 12.9 | **0.87** |
+| 64 | 1927 / 336 / 29.8 (one round disturbed) | **2345 / 283 / 24.0** | 2691 / 400 / 20.2 | **0.87** |
+
+Mixed serving steps (`BatchBench --mixed`, GPU ms, minimum of 10): 64 decode rows + 107 prompt rows 25.32 → 24.87, + 448 rows
+45.73 → 44.23, 2048 prompt rows 146.33 → 132.88. Serving prompts are short, so a round is mostly 64-row decode steps (unchanged
+kernels, 17.9 against vLLM's ~16.2 ms). The decode step is the rest of the gap.
+
+### 58.5 Decode step
+
+All of this round at once (BatchBench as in 58.3, GPU ms per step, mean of two runs' minima; before: both features disabled and
+`SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64`; `decode-steps-final.txt`):
+
+| model | before 1 / 16 / 64 sequences | **after** | vLLM at 64 |
+|---|---|---|---|
+| gpt-oss-20b | 5.38 / 11.89 / 17.99 | **5.35 / 11.91 / 17.81** | ~16.2 (§56.4) |
+| Qwen3-8B-FP8 | 11.35 / 13.45 / 17.90 | **11.33 / 13.45 / 17.46** | 15.6 (§57.4) |
+
+What was measured and not changed:
+
+* At 64 sequences the step is kernel-bound, not launch-bound. Programmatic dependent launches gain ≤ 1 %, so the gaps between the
+  679 graph-replayed launches are ~0.2 µs.
+* Per layer at 64 sequences (gpt-oss, profile): q 37.9, k 10.9, v 10.9, o 42.8 µs (f16 split-K gemm_cm2, 600-680 GB/s; k / v ~320 GB/s).
+  Five split-K reductions take 21 µs and the f16 copy for o 4.3 µs, against vLLM's ~75 µs for qkv + o.
+* A fused q / k / v GEMM over the concatenated weight rows was not built. Each weight is its own device buffer with a single model
+  parameter as its source (`BufferDecl.Weight`), so one GEMM over all three needs either buffers holding several parameters (every
+  provider's uploader and the `.slm` layout) or a GEMM with several weight and output pointers. Estimated gain: ~0.6-0.8 ms per step
+  with one reduction instead of three.
+* Decode attention:
+  * The fused split-K combine for gpt-oss's 8 x 64 head groups (`SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH=512`) measured 17.90 → 17.97 ms
+    at 64 sequences and 11.90 → 11.92 at 16, so it was not made the default.
+  * Changed: on PTX the split count now aims for 512 workgroups instead of 1024 (`DEC_TARGET_WG`; Vulkan keeps 1024). A 64-sequence
+    step then runs one key range per row (64 rows x 8 KV-head groups) and skips the combine launch. GPU ms per step, mean of two
+    runs (`decode-target-workgroups*.txt`):
+
+| step | 1024 | **512** |
+|---|---:|---:|
+| gpt-oss-20b, 64 sequences, depth 256 | 18.15 | **17.95** (-1.1 %) |
+| Qwen3-8B-FP8, 64 sequences, depth 256 | 18.04 | **17.60** (-2.4 %) |
+| 16 sequences, depth 256 (both models) | | ±0.2 % |
+| Qwen3-8B-FP8, 16 sequences, depth 3500 | 23.54 | **23.15** (-1.7 %) |
+| gpt-oss-20b, 16 sequences, depth 3500 | 14.13 | 14.23 (+0.7 %) |
+| 1 and 4 sequences, depth 3500 | | ±0.5 % |
+
+### 58.6 Correctness and tests
+
+* The native kernel sums in another order and rounds the probabilities to f16, as `fa` and `fe` do (they differ from each other
+  the same way):
+  * Qwen3-8B-FP8, 1852-token prompt, last-token logits (|logit| ≤ 24): max |Δ| 0.58 against `fe`, 0.44 against `fa`. `fa` against
+    `fe` is 0.41.
+  * gpt-oss-20b, 1784-token prompt: max |Δ| 0.05. Short prompt: 0.004, same top-3.
+* Greedy text:
+  * Qwen3-8B-FP8, 100 tokens after the default and a ~370-token prompt: byte-identical.
+  * After the 1852-token prompt (200 tokens): diverges after ~230 characters (`fa` against `fe`: after 53).
+  * gpt-oss-20b diverges early: a few tokens into the outputs of the 5-token and ~370-token prompts, and ~100 characters after
+    the 1784-token one. Its logits are close: max |Δ| 0.004 on the short prompt, and top-3 tokens and values agree to 0.002.
+    The flips are near-ties under different f16 rounding, the same kind of difference as between `fa` and `fe` on Qwen3.
+* New `CudaCodeTests.NativeAttentionMatchesTheCpu` (head sizes 64 / 128, window 100, sinks, chunks of 150 / 70 / 5 queries against the
+  cache): within 5e-3 of the CPU and of the generated kernel. `PagedAttentionTests` on CUDA covers the paged multi-sequence form.
+* Vulkan: the kernel inputs (source and macros, `SHARPLIGHT_DUMP_KERNELS`) of the 337 kernels Vulkan compiles for gpt-oss-20b,
+  Qwen3-8B-FP8 and Qwen3-0.6B (`--batch 1024`) are byte-identical to `develop` (`a494e881`). The changes are CUDA-only: the new kernel is
+  selected only where the target compiles CUDA C++, and the dependent launches live in the CUDA translator and segment. The dump
+  predates the decode attention's 512-workgroup target, which applies only to PTX (SPIR-V and MSL keep `DEC_TARGET_WG` 1024).
+
+GPU 0, this branch (`develop` unchanged since `a494e881`):
+
+| suite | result |
+|---|---|
+| Sharplight.Cuda.Tests (incl. the new `NativeAttentionMatchesTheCpu`) | 27 / 0 failed / 1 skipped (cuBLASLt not installed) |
+| Sharplight.Vulkan.Tests on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, all 63 classes) | 1630 / 0 failed / 52 skipped (as in §57) |
+| Sharplight.Vulkan.Tests on Vulkan, the attention classes (BatchMatMul, FullAttention, Fusion, PagedAttention, SparseAttention) | 140 / 0 failed / 0 skipped |
+| Vulkan kernel inputs against `develop` (337 kernels of gpt-oss-20b, Qwen3-8B-FP8, Qwen3-0.6B) | identical |
+
+### 58.8 Long contexts against vLLM (16K-128K tokens)
+
+`bench/s58_long.sh` (new): our side `--bench N --ctx N+256` (prefill median of 5; its decode is one stream at depth N) and
+BatchBench (`--batch 2048`, deep slots prefilled in 2048-row chunks) for 4 streams; vLLM `bench/s58_long_vllm.py` (offline API,
+its default chunked prefill, prefix caching off, `--gpu-util 0.92`, median of 2). Same session, every run waited for a GPU without
+other compute processes, the vLLM runs held the verify lock. Qwen3-8B-FP8 runs with YaRN (factor 4 over its 32,768 positions:
+a copy of the checkpoint whose `config.json` sets `rope_scaling`, read by both engines); gpt-oss-20b has 131,072 positions
+(YaRN in its config). KV caches are 16-bit on both sides (ours f16, vLLM's `auto` = bf16); FP8 KV was not compared, since the
+CUDA provider has no FP8 cache format (q8_0 / q4_0 only). The longest point exceeds the checkpoints' limit by its 256 decode
+positions on our side; vLLM needed `VLLM_ALLOW_LONG_MAX_MODEL_LEN=1` for the same, and its decode at depth 131,072 hit a
+device-side assert (positions past 131,072), so its 128K decode ran at depth 130,560. Raw output in
+[`bench/results/s58/long/`](../bench/results/s58/long).
+
+Prefill (tok/s) and TTFT of one prompt (s; = the prefill time):
+
+| model | tokens | **CUDA** | vLLM | CUDA / vLLM | TTFT CUDA / vLLM |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b | 16,384 | 13,344 | 14,496 | 0.92 | 1.23 / 1.13 |
+| | 32,768 | 11,420 | 12,327 | 0.93 | 2.87 / 2.66 |
+| | 65,536 | 8,715 | 9,440 | 0.92 | 7.52 / 6.94 |
+| | 131,072 | 5,894 | 6,435 | 0.92 | 22.2 / 20.4 |
+| Qwen3-8B-FP8 (YaRN) | 16,384 | 9,604 | 9,874 | 0.97 | 1.71 / 1.66 |
+| | 32,768 | 6,965 | 7,152 | 0.97 | 4.70 / 4.58 |
+| | 65,536 | 4,559 | 4,553 | 1.00 | 14.4 / 14.4 |
+| | 131,072 | 2,445 | 2,639 | 0.93 | 53.6 / 49.7 |
+
+Decode at depth (tok/s per stream; 4 streams: aggregate):
+
+| model | depth | 1 stream CUDA / vLLM | 4 streams CUDA / vLLM |
+|---|---:|---|---|
+| gpt-oss-20b | 32,768 | 156.7 / 150.7 (1.04) | 305.8 / 310.8 (0.98) |
+| | ~128K | 98.7 / 107.3 (0.92) | **does not fit** (needs 36.9 GiB) / 174.9; 2 streams fit: 129.4 (15.46 ms per step) |
+| Qwen3-8B-FP8 (YaRN) | 32,768 | 58.2 / 57.8 (1.01) | 110.9 / 107.1 (1.04) |
+| | ~128K | 28.5 / 29.6 (0.96) | does not fit on either (4 x 19.3 GB of KV) |
+
+Where a long prefill goes (`SHARPLIGHT_CUDA_PROFILE=1`, `bench/profile_categories.py`, whole prompt in 2048-row passes):
+
+| model, tokens | total | attention | MoE / dense GEMMs | rest | attention TFLOPS (Q·Kᵀ + P·V of the visible keys) |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b, 32,768 | 2.87 s | 0.81 s (28 %) | 1.47 s MoE + 0.39 s dense | 0.19 s | 131 |
+| gpt-oss-20b, 131,072 | 22.2 s | 13.8 s (62 %) | 5.99 s MoE + 1.60 s dense | 0.79 s | 122 |
+| Qwen3-8B-FP8, 32,768 | 4.58 s | 2.43 s (53 %) | 1.84 s | 0.31 s | 130 |
+| Qwen3-8B-FP8, 131,072 | 53.3 s | 43.5 s (82 %) | 8.70 s | 1.10 s | 117 |
+
+* The attention kernel scales: 131 → 122 TFLOPS (gpt-oss) and 130 → 117 (Qwen3) from 32K to 128K, all in the FlashAttention-2
+  class. The prefill ratio to vLLM is flat for gpt-oss (0.92-0.93 from 16K to 128K; at 8192 it was 0.72 before this round).
+  Assuming vLLM's GEMMs and the rest cost what ours do, its attention takes ~12.0 s at 128K for gpt-oss (ours 13.8) and ~39.9 s
+  for Qwen3 (ours 43.5): 9-15 % ahead at the longest prompts.
+* No index overflow past 65K or in the KV offsets (64-bit element offsets throughout the kernel). The harness agrees with the
+  f32 reference for 1024 queries after 70,000 cached keys (max error 4.2e-4) and after 129,000 with a 128 window and sinks
+  (1.7e-4). Every length ran without errors on both models, and there is no chunk-size cliff: the 2048-row passes cost what their
+  attention predicts.
+* **Found: sliding-window layers keep full-length KV caches.** gpt-oss's 12 window layers (128 keys) hold as many cache rows as
+  its full layers, so four 128K streams need 36.9 GiB and do not fit. vLLM's hybrid allocator stores only the window for those
+  layers and fits them (175 tok/s). Window-sized caches would halve gpt-oss's KV memory: more concurrent long sequences, and more
+  slots in serving.
+* Decode at 128K is 0.92x of vLLM on gpt-oss: the decode attention takes ~4.8 of the 10.0 ms step. It reads 3.2 GB of K / V per
+  step (12 full layers), so ~670 GB/s against ~800 at the read limit.
+
+### 58.9 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes (ours against vLLM) |
+|---|---:|---|
+| gpt-oss-20b prefill 2048 | 0.97 | GPU 123.5 against 118.4 ms per pass: experts 79.8 against 85.6 and attention 3.5 against 4.4 are ahead; q / k / v / o 20.9 against 16.4 (q / k / v carry biases, and a matmul with an epilogue never takes the native f16 GEMM: `gemm_cm2` 382 µs for q); expert gather + slot sum 7.5 against 1.5; norms / rope / adds ~9 |
+| gpt-oss-20b prefill 8192 / 16K-128K | 0.92 / 0.92-0.93 | the same per pass, plus attention 9-15 % behind FlashInfer at 128K (122 against ~141 TFLOPS) |
+| Qwen3-8B-FP8 prefill 2048 / 8192 | 1.00 / 0.95 | FP8 GEMM main loop 76 % of the MMA peak per cycle against CUTLASS's ~90 % (§57.2); attention at 8192 |
+| Qwen3-8B-FP8 prefill 16K-128K | 0.93-1.00 | attention ~9 % behind at 128K (117 TFLOPS) |
+| gpt-oss-20b decode step, 64 sequences | ~0.91 (17.81 against ~16.2 ms) | expert GEMMs 11.7 against Marlin's 10.6; projections ~3.1 against 1.8 (three q / k / v GEMMs, five split-K reductions per layer); attention ~1.3 against 1.2 |
+| Qwen3-8B-FP8 decode step, 64 sequences | ~0.89 (17.46 against 15.6 ms) | weight GEMMs at 520-670 against ~766 GB/s (~1.3 ms); split-K reductions ~0.7 ms; CUDA forms of `gemm_fp8.slang` 0.7 ms behind their SPIR-V forms |
+| gpt-oss-20b serving 16 / 64 streams | 0.82 / 0.75 | decode steps (above) plus prompt rows in mixed steps (~60 µs per row) and ~0.4 ms host time per step (wall against GPU) |
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.87 / 0.87 | its decode step (above); TTFT p50 ahead of vLLM (116 / 283 against 168 / 400 ms) |
+| gpt-oss-20b decode at 32K / 128K (1 stream) | 1.04 / 0.92 | decode attention at long depth (~670 GB/s) |
+| gpt-oss-20b, 4 streams at 128K | does not fit | full-length caches for the window layers |
+
+Ranked levers (estimated saving; ordered by what they move on the headline numbers):
+
+1. **Decode-step GEMMs (serving at 16 / 64 streams).** A multi-output q / k / v GEMM plus split-K reductions in the GEMM's last
+   workgroup: gpt-oss ~0.6 + ~0.35 ms per step, Qwen3 ~0.5 + ~0.7 ms. The q / k / v GEMM needs weight buffers that hold several
+   parameters (uploader and `.slm` layout in every provider) or a GEMM with several weight pointers.
+2. **MXFP4 skinny expert GEMM at Marlin's level** (gpt-oss 64-sequence step 11.7 → 10.6 ms, ~1.1 ms), and the **FP8 decode GEMMs
+   at the read limit** (Qwen3 ~1.3 ms; their CUDA forms are 0.7 ms behind Vulkan's). With 1-2, gpt-oss's step reaches ~15.8 ms
+   (1.03x of vLLM) and Qwen3's ~15.0 ms (1.04x).
+3. **Host time and mixed steps in serving**: asynchronous step preparation (~0.4 ms per step) and the prompt rows of mixed steps.
+   Serving at 64 streams is 0.75x while the decode step is 0.91x, so this is the larger part of the serving gap. It needs a serving
+   profile to size (TTFT is already ahead of vLLM's at both concurrencies).
+4. **gpt-oss prefill GEMMs and MoE glue**: the bias epilogue in `gemm_f16_native.cu`, so q / k / v leave `gemm_cm2` (~2-3 ms per
+   2048-row pass), and the expert gather / slot sum fused into routing and the down GEMM's store (~5 ms per pass). Together
+   ~6 % → ~1.03x at 2048, ~0.98x at 8192+.
+5. **FP8 GEMM main loop** at CUTLASS's cycles (§57's open item): ~+7 % Qwen3 prefill → ~1.07x at 2048.
+6. **Attention at long prompts**: Q pre-scaled by log2(e), separate K and V waits, three stages at head size 64, 128-row tiles
+   with 8 warps at head size 64 (~10-15 % of attention, ~2 s of gpt-oss's 128K prefill and ~4 s of Qwen3's → ≥1.0x at 128K).
+   Also the decode attention at depth (~0.7 ms per step at 128K → 1.0x).
+7. **Window-sized KV caches for sliding-window layers** (memory, not speed): four 128K gpt-oss streams, and serving with more slots.
+
+### 58.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+for n in 512 2048 8192; do $CLI ~/models/hf/gpt-oss-20b --provider cuda --bench $n --ctx $((n + 256)); done   # before: SHARPLIGHT_DISABLE_FEATURES=native_attention,dependent_launches
+SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/gpt-oss-20b --provider cuda --bench 2048 --ctx 2304
+SHARPLIGHT_NATIVE_ATTN=2 SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B-FP8 --provider cuda --bench 2048 --ctx 2304   # fe for plain causal
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,64 --modes greedy --reps 20
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 OUT_DIR=bench/results/s58/serve-cuda bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --provider cuda   # before: --disable-features native_attention,dependent_launches
+# long contexts (58.8): Qwen3-8B-FP8 with YaRN = a copy of the checkpoint (weights linked) whose config.json sets
+# "rope_scaling": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 32768}, "max_position_embeddings": 131072
+VLLM_VENV=<venv with vLLM 0.33.0> bench/s58_long.sh bench/results/s58/long gpt-oss-20b ~/models/hf/gpt-oss-20b both
+VLLM_VENV=<venv with vLLM 0.33.0> bench/s58_long.sh bench/results/s58/long qwen3-8b-fp8-yarn ~/models/hf/Qwen3-8B-FP8-yarn both
+cd bench/s58_attn && nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=64 -DHKV=8 -DD=64 -DDV=64 -DWINDOW=0 -DHAS_SINKS=1 -DFN_WARPS=4 \
+  -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_prefill_native.cu"' bench_attn.cu -o b && ./b
+```
+
 ## 59. MoE with CPU offload: routed experts on the CPU, everything dense on the GPU, streamed prefill (2026-11-20)
 
 Branch `perf/offload-r1` (base `develop` at `9b341bb8`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, no resizable

@@ -97,12 +97,29 @@ public static class DeviceFeatures
     public const string NativeGemmMoe = "native_gemm_moe";
 
     /// <summary>
+    /// Causal attention of many queries against an f16 KV cache (prefill, prompt chunks of a serving step) runs on a hand-written
+    /// flash-attention kernel of the provider (query fragments, scores, softmax statistics and outputs in registers, key / value
+    /// tiles copied asynchronously into a two-stage ring of shared memory; CUDA, compute capability 8.0 and later), including
+    /// sliding windows, chunked attention, soft caps, attention sinks and grouped-query heads. Disabling it keeps the generated
+    /// flash-attention kernels.
+    /// </summary>
+    public const string NativeAttention = "native_attention";
+
+    /// <summary>
     /// A step whose launches repeat (the same kernels, grids and arguments, e.g. every decode step of a sequence) is recorded once
     /// into a device-side launch graph and replayed with one submission (CUDA graphs), instead of one host call per launch. Like
     /// <see cref="KernelBinaries"/> it does not change generated code, so it is not part of <see cref="DeviceInfo.Features"/>;
     /// disabling it launches every kernel from the host.
     /// </summary>
     public const string LaunchGraphs = "launch_graphs";
+
+    /// <summary>
+    /// A kernel may be launched before the previous one in its stream has finished: it waits for that kernel's completion and memory
+    /// itself at its start, so the launch and the setup of its blocks overlap the previous kernel's last blocks (CUDA: programmatic
+    /// dependent launch, compute capability 9.0 and later). Like <see cref="LaunchGraphs"/> it is not part of
+    /// <see cref="DeviceInfo.Features"/>; disabling it launches every kernel after the previous one has finished.
+    /// </summary>
+    public const string DependentLaunches = "dependent_launches";
 
     /// <summary>The device reports a live memory budget / usage that accounts for other processes (Vulkan: VK_EXT_memory_budget); without it memory figures are estimates from our own allocations.</summary>
     public const string MemoryBudget = "memory_budget";
@@ -130,7 +147,7 @@ public static class DeviceFeatures
     public const string PagedKv = "paged_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, TensorCopies, LaunchGraphs];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeAttention, TensorCopies, LaunchGraphs, DependentLaunches];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

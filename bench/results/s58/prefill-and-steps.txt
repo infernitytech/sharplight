@@ -1,0 +1,39 @@
+oss 512 disabled=native_attention,dependent_launches: prefill 512 tok: best 40 ms = 12798.7 tok/s | decode: best 183.89, median 182.84, mean 181.32 tok/s | GPU ms/step: best 5.32, median 5.32, wall best 5.44 | prefill median of 5: 42.3 ms = 12112.0 tok/s
+oss 512 disabled=none: prefill 512 tok: best 39 ms = 13124.3 tok/s | decode: best 186.26, median 185.71, mean 183.80 tok/s | GPU ms/step: best 5.26, median 5.26, wall best 5.37 | prefill median of 5: 40.9 ms = 12513.9 tok/s
+oss 2048 disabled=native_attention,dependent_launches: prefill 2048 tok: best 142 ms = 14435.6 tok/s | decode: best 182.05, median 181.50, mean 179.23 tok/s | GPU ms/step: best 5.38, median 5.38, wall best 5.49 | prefill median of 5: 144.8 ms = 14145.2 tok/s
+oss 2048 disabled=none: prefill 2048 tok: best 129 ms = 15832.8 tok/s | decode: best 184.95, median 183.56, mean 181.94 tok/s | GPU ms/step: best 5.30, median 5.30, wall best 5.41 | prefill median of 5: 131.6 ms = 15566.6 tok/s
+oss 8192 disabled=native_attention,dependent_launches: prefill 8192 tok: best 719 ms = 11386.8 tok/s | decode: best 174.31, median 173.87, mean 172.16 tok/s | GPU ms/step: best 5.60, median 5.61, wall best 5.74 | prefill median of 5: 724.4 ms = 11308.9 tok/s
+oss 8192 disabled=none: prefill 8192 tok: best 562 ms = 14582.4 tok/s | decode: best 176.55, median 175.62, mean 173.79 tok/s | GPU ms/step: best 5.55, median 5.56, wall best 5.66 | prefill median of 5: 565.4 ms = 14488.8 tok/s
+q8 512 disabled=native_attention,dependent_launches: prefill 512 tok: best 36 ms = 14370.6 tok/s | decode: best 87.39, median 87.01, mean 86.60 tok/s | GPU ms/step: best 11.31, median 11.36, wall best 11.44 | prefill median of 5: 37.5 ms = 13648.9 tok/s
+q8 512 disabled=none: prefill 512 tok: best 35 ms = 14488.5 tok/s | decode: best 87.73, median 87.34, mean 86.89 tok/s | GPU ms/step: best 11.27, median 11.32, wall best 11.40 | prefill median of 5: 37.4 ms = 13686.8 tok/s
+q8 2048 disabled=native_attention,dependent_launches: prefill 2048 tok: best 142 ms = 14441.2 tok/s | decode: best 86.06, median 85.85, mean 81.54 tok/s | GPU ms/step: best 11.51, median 11.52, wall best 11.62 | prefill median of 5: 149.4 ms = 13707.7 tok/s
+q8 2048 disabled=none: prefill 2048 tok: best 137 ms = 14991.2 tok/s | decode: best 86.77, median 86.43, mean 68.54 tok/s | GPU ms/step: best 11.43, median 11.45, wall best 11.53 | prefill median of 5: 145.4 ms = 14081.6 tok/s
+q8 8192 disabled=native_attention,dependent_launches: prefill 8192 tok: best 729 ms = 11233.1 tok/s | decode: best 78.04, median 77.80, mean 77.42 tok/s | GPU ms/step: best 12.73, median 12.75, wall best 12.81 | prefill median of 5: 738.2 ms = 11097.6 tok/s
+q8 8192 disabled=none: prefill 8192 tok: best 698 ms = 11742.1 tok/s | decode: best 78.41, median 77.76, mean 72.69 tok/s | GPU ms/step: best 12.65, median 12.75, wall best 12.75 | prefill median of 5: 702.1 ms = 11668.4 tok/s
+oss batchbench disabled=native_attention,dependent_launches
+| 1 | 13.9 | 485 / 0 | 5.41 / 5.42, 5.37 |
+| 16 | 16.3 | 654 / 0 | 11.97 / 12.71, 11.92 |
+| 64 | 24.7 | 679 / 0 | 18.05 / 18.37, 17.98 |
+oss batchbench disabled=none
+| 1 | 14.3 | 485 / 0 | 5.35 / 5.36, 5.30 |
+| 16 | 16.2 | 654 / 0 | 11.78 / 12.55, 11.73 |
+| 64 | 25.1 | 679 / 0 | 17.91 / 18.22, 17.85 |
+q8 batchbench disabled=native_attention,dependent_launches
+| 1 | 21.5 | 473 / 0 | 11.43 / 11.50, 11.36 |
+| 16 | 18.0 | 618 / 0 | 13.61 / 13.88, 13.53 |
+| 64 | 24.8 | 727 / 0 | 17.99 / 18.15, 17.87 |
+q8 batchbench disabled=none
+| 1 | 21.8 | 473 / 0 | 11.39 / 11.46, 11.33 |
+| 16 | 18.0 | 618 / 0 | 13.88 / 14.12, 13.81 |
+| 64 | 22.7 | 727 / 0 | 18.34 / 18.54, 18.25 |
+oss mixed disabled=native_attention,dependent_launches
+|---|---|---|---|---|---|
+| 64 | 107 (1) | 39.6 | 678 / 0 | 25.41 / 26.22, 25.32 |  |
+| 64 | 448 (1) | 48.9 | 678 / 0 | 45.82 / 46.22, 45.73 |  |
+| 0 | 2048 (1) | 149.8 | 678 / 0 | 146.52 / 146.93, 146.33 |  |
+oss mixed disabled=none
+|---|---|---|---|---|---|
+| 64 | 107 (1) | 39.2 | 678 / 0 | 24.98 / 25.82, 24.87 |  |
+| 64 | 448 (1) | 48.6 | 678 / 0 | 44.31 / 44.70, 44.23 |  |
+| 0 | 2048 (1) | 136.8 | 678 / 0 | 133.01 / 133.44, 132.88 |  |
+PREFILLDONE

@@ -249,6 +249,13 @@ internal static class DiagnosticSwitches
     public static bool NativeFp8Tma { get; } = IsNotZero("SHARPLIGHT_FP8_TMA");
 
     /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_ATTN</c>: which causal prefill attentions run on the hand-written flash-attention kernel
+    /// (<c>attn_prefill_native.cu</c>) where the device has <c>native_attention</c>: <c>0</c> none, <c>1</c> (default) all it serves,
+    /// <c>2</c> only those the generated <c>fe</c> kernel does not serve (windows, chunks, soft caps, sinks).
+    /// </summary>
+    public static int NativeAttention { get; } = Read("SHARPLIGHT_NATIVE_ATTN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : 1;
+
+    /// <summary>
     /// <c>SHARPLIGHT_FP8_TALL_COST</c>: time of a 128-row block of the hand-written FP8 GEMM relative to a 64-row one in its tile
     /// choice, or null for the default.
     /// </summary>
@@ -427,6 +434,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Split-K decode tuning: target workgroups, minimum keys per split, maximum splits, [rows per lane group and batch].</summary>
     public static int[] AttentionDecodeConfig { get; } = (Read("SHARPLIGHT_ATTN_DECODE_CFG") ?? "1024,128,64").Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>True when <c>SHARPLIGHT_ATTN_DECODE_CFG</c> is set (its target workgroups then apply on every target).</summary>
+    public static bool AttentionDecodeConfigSet { get; } = Read("SHARPLIGHT_ATTN_DECODE_CFG") is not null;
 
     /// <summary>
     /// True (default) when multi-sequence steps that mix decode rows with prompt chunks split attention between split-K decoding

@@ -134,7 +134,8 @@ internal sealed class CudaDeviceProperties
     /// packed int8 dot product (<c>dp4a</c>) and a fixed warp size of 32 (<see cref="DeviceFeatures.SubgroupSizeControl"/>). From 8.0
     /// (Ampere) the tensor cores run the cooperative-matrix kernels through their CUDA forms (<c>cuda_mma.slang</c>: <c>ldmatrix</c> and
     /// <c>mma.sync</c> on f16, bf16 and int8 with the MMA register layout, <see cref="DeviceFeatures.MatrixMmaLayout"/>), and bfloat16
-    /// is native; from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>), the 8-bit float types and the hand-written
+    /// is native, and causal prefill attention runs on the hand-written flash-attention kernel (<see cref="DeviceFeatures.NativeAttention"/>);
+    /// from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>), the 8-bit float types and the hand-written
     /// FP8 GEMM (<see cref="DeviceFeatures.NativeGemmFp8"/>); from 9.0 (Hopper, Blackwell) tensor copies
     /// (<see cref="DeviceFeatures.TensorCopies"/>). Turing (7.5) has
     /// <c>mma.sync</c> only in smaller shapes and keeps the SIMT kernels.
@@ -145,7 +146,7 @@ internal sealed class CudaDeviceProperties
         if (computeCapability >= 80)
         {
             features.UnionWith([DeviceFeatures.MatrixF16, DeviceFeatures.MatrixBF16, DeviceFeatures.MatrixInt8, DeviceFeatures.MatrixMmaLayout, DeviceFeatures.BFloat16,
-                DeviceFeatures.NativeGemmF16, DeviceFeatures.NativeGemmMoe]);
+                DeviceFeatures.NativeGemmF16, DeviceFeatures.NativeGemmMoe, DeviceFeatures.NativeAttention]);
         }
 
         if (computeCapability >= 89)
