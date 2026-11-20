@@ -8001,6 +8001,19 @@ Aggregate output tok/s / TTFT p50 ms / mean inter-token latency ms:
 | 16 | 1115 / 116 / 13.4 | **1151 / 111 / 13.0** | 1398 / 185 / 10.1 | 0.80 → **0.82** |
 | 64 | 2329 / 271 / 24.3 | **2397 / 255 / 23.7** | 3184 / 416 / 16.8 | 0.73 → **0.75** |
 
+The rows above ran on the build before the last two commits, which changed when kernels launch as dependents and set the decode
+attention's 512-workgroup target. A rerun of "CUDA" on the final build, later in the session, measured 1210 / 71 / 12.7 and
+2288 / 259 / 24.9 (`serve-cuda-final/`; one 16-stream round showed a 33 ms TTFT p50). Between the session's runs, our serving
+moved by ±3-5 % ("before" 2305-2352 tok/s at 64 streams, vLLM 3160-3208), so the build difference is within that spread.
+
+Qwen3-8B-FP8 (the first CUDA serving runs of this model: the earlier rounds' "CUDA" serving ran on Vulkan, §56.5), final build,
+same procedure:
+
+| streams | CUDA before | **CUDA** | vLLM | CUDA / vLLM |
+|---:|---|---|---|---:|
+| 16 | 929 / 118 / 16.3 | **974 / 116 / 15.5** | 1115 / 168 / 12.9 | **0.87** |
+| 64 | 1927 / 336 / 29.8 (one round disturbed) | **2345 / 283 / 24.0** | 2691 / 400 / 20.2 | **0.87** |
+
 Mixed serving steps (`BatchBench --mixed`, GPU ms, minimum of 10): 64 decode rows + 107 prompt rows 25.32 → 24.87, + 448 rows
 45.73 → 44.23, 2048 prompt rows 146.33 → 132.88. Serving prompts are short, so a round is mostly 64-row decode steps (unchanged
 kernels, 17.9 against vLLM's ~16.2 ms). The decode step is the rest of the gap.
@@ -8101,7 +8114,7 @@ Decode at depth (tok/s per stream; 4 streams: aggregate):
 | model | depth | 1 stream CUDA / vLLM | 4 streams CUDA / vLLM |
 |---|---:|---|---|
 | gpt-oss-20b | 32,768 | 156.7 / 150.7 (1.04) | 305.8 / 310.8 (0.98) |
-| | ~128K | 98.7 / 107.3 (0.92) | **does not fit** (needs 36.9 GiB) / 174.9 |
+| | ~128K | 98.7 / 107.3 (0.92) | **does not fit** (needs 36.9 GiB) / 174.9; 2 streams fit: 129.4 (15.46 ms per step) |
 | Qwen3-8B-FP8 (YaRN) | 32,768 | 58.2 / 57.8 (1.01) | 110.9 / 107.1 (1.04) |
 | | ~128K | 28.5 / 29.6 (0.96) | does not fit on either (4 x 19.3 GB of KV) |
 
@@ -8140,7 +8153,7 @@ Where a long prefill goes (`SHARPLIGHT_CUDA_PROFILE=1`, `bench/profile_categorie
 | gpt-oss-20b decode step, 64 sequences | ~0.91 (17.81 against ~16.2 ms) | expert GEMMs 11.7 against Marlin's 10.6; projections ~3.1 against 1.8 (three q / k / v GEMMs, five split-K reductions per layer); attention ~1.3 against 1.2 |
 | Qwen3-8B-FP8 decode step, 64 sequences | ~0.89 (17.46 against 15.6 ms) | weight GEMMs at 520-670 against ~766 GB/s (~1.3 ms); split-K reductions ~0.7 ms; CUDA forms of `gemm_fp8.slang` 0.7 ms behind their SPIR-V forms |
 | gpt-oss-20b serving 16 / 64 streams | 0.82 / 0.75 | decode steps (above) plus prompt rows in mixed steps (~60 µs per row) and ~0.4 ms host time per step (wall against GPU) |
-| Qwen3-8B-FP8 serving 16 / 64 streams | QWENSERVE | as its decode step |
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.87 / 0.87 | its decode step (above); TTFT p50 ahead of vLLM (116 / 283 against 168 / 400 ms) |
 | gpt-oss-20b decode at 32K / 128K (1 stream) | 1.04 / 0.92 | decode attention at long depth (~670 GB/s) |
 | gpt-oss-20b, 4 streams at 128K | does not fit | full-length caches for the window layers |
 
@@ -8174,6 +8187,10 @@ SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/gpt-oss-20b --provider cuda --bench 2
 SHARPLIGHT_NATIVE_ATTN=2 SHARPLIGHT_CUDA_PROFILE=1 $CLI ~/models/hf/Qwen3-8B-FP8 --provider cuda --bench 2048 --ctx 2304   # fe for plain causal
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,64 --modes greedy --reps 20
 QUIET_GPU=1 ROUNDS=2 SLOTS=64 OUT_DIR=bench/results/s58/serve-cuda bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --provider cuda   # before: --disable-features native_attention,dependent_launches
+# long contexts (58.8): Qwen3-8B-FP8 with YaRN = a copy of the checkpoint (weights linked) whose config.json sets
+# "rope_scaling": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 32768}, "max_position_embeddings": 131072
+VLLM_VENV=<venv with vLLM 0.33.0> bench/s58_long.sh bench/results/s58/long gpt-oss-20b ~/models/hf/gpt-oss-20b both
+VLLM_VENV=<venv with vLLM 0.33.0> bench/s58_long.sh bench/results/s58/long qwen3-8b-fp8-yarn ~/models/hf/Qwen3-8B-FP8-yarn both
 cd bench/s58_attn && nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=64 -DHKV=8 -DD=64 -DDV=64 -DWINDOW=0 -DHAS_SINKS=1 -DFN_WARPS=4 \
   -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_prefill_native.cu"' bench_attn.cu -o b && ./b
 ```
