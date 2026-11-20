@@ -91,7 +91,7 @@ public sealed partial class GraphLowerer
         long K = n.Attributes.Get<long>("k");
         var vals = Produce(norm is { } nd ? nd.Div.Output : n.Outputs[0]);
         var idxs = Produce(n.Outputs[1]);
-        var macros = Macros(("LEN", x.Shape[1]), ("K", K), ("INNER", 1), ("LARGEST", true), ("NORM", norm is not null),
+        var macros = Macros(("LEN", x.Shape[1]), ("K", K), ("INNER", 1), ("LARGEST", true), ("WG", TopKWorkgroup), ("P2", TopKSortSlots(K)), ("NORM", norm is not null),
             ("NORM_SCALE", norm?.Scale.Attributes.Get("scale", 1f) ?? 1f), ("NORM_BIAS", norm?.Scale.Attributes.Get("bias", 0f) ?? 0f));
         var kernel = Lib("topk.slang", "topk_softmax", macros);
         var tx = x;

@@ -403,6 +403,10 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         foreach (var (b, source, expertBytes) in _sparseWeights)
         {
             ulong destination = _alloc[b].Pointer;
+            // A copy must not span page-locked and pageable memory: the partial pages around the registered range go apart.
+            var registered = _registeredWeights.FirstOrDefault(r => r.Buffer == b);
+            long lockedStart = registered.Buffer is null ? 0 : registered.Offset;
+            long lockedEnd = registered.Buffer is null ? 0 : registered.Offset + registered.Bytes;
             for (int slot = 0; slot < _sparseSelected.Count; slot++)
             {
                 // Runs of consecutive experts go in one copy.
@@ -412,8 +416,20 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
                     run++;
                 }
 
-                CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination + (ulong)(slot * expertBytes), (byte*)source + _sparseSelected[slot] * expertBytes,
-                    (nuint)(run * expertBytes), _dev.Stream), "cuMemcpyHtoDAsync");
+                long from = _sparseSelected[slot] * expertBytes;
+                long to = from + run * expertBytes;
+                ulong target = destination + (ulong)(slot * expertBytes);
+                foreach (long cut in (ReadOnlySpan<long>)[lockedStart, lockedEnd, to])
+                {
+                    if (cut > from && from < to)
+                    {
+                        long end = Math.Min(cut, to);
+                        CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(target, (byte*)source + from, (nuint)(end - from), _dev.Stream), "cuMemcpyHtoDAsync");
+                        target += (ulong)(end - from);
+                        from = end;
+                    }
+                }
+
                 slot += run - 1;
             }
         }

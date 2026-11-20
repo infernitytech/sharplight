@@ -259,7 +259,7 @@ public sealed class CompiledModel : IDisposable
         var order = CompileOrder(plan);
         try
         {
-            for (int i = 0; i < order.Count; i++)
+            for (int i = 0; i < order.Indices.Count; i++)
             {
                 if (i == order.FirstCount)
                 {
@@ -317,7 +317,7 @@ public sealed class CompiledModel : IDisposable
     /// step holding its own (Qwen3.5-122B with the experts of 10 layers on the CPU: 166 + 174 + 274 MiB at 512 rows, now 274).
     /// </summary>
     /// <returns>The segment indices in compile order and how many of them come first (the largest of each accelerator).</returns>
-    private static (List<int> Indices, int FirstCount, int Count) CompileOrder(PlacementPlan plan)
+    private static (List<int> Indices, int FirstCount) CompileOrder(PlacementPlan plan)
     {
         var first = plan.Segments.Select((s, i) => (Segment: s, Index: i))
             .Where(x => plan.Slots[x.Segment.DeviceSlot].Device.Info.Kind != DeviceKind.Cpu && x.Segment.Nodes is not [{ Op.Category: OpCategory.ControlFlow }])
@@ -325,7 +325,7 @@ public sealed class CompiledModel : IDisposable
             .Select(g => g.MaxBy(x => x.Segment.Nodes.Count).Index)
             .ToHashSet();
         List<int> indices = [.. first.Order(), .. Enumerable.Range(0, plan.Segments.Count).Where(i => !first.Contains(i))];
-        return (indices, first.Count, indices.Count);
+        return (indices, first.Count);
     }
 
     /// <summary>
