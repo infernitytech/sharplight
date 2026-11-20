@@ -6,7 +6,7 @@ using Sharplight.Tensors.Grids;
 namespace Sharplight.Cpu;
 
 // Fused integer dots of ggml's grid formats with an 8-bit activation row (AVX2), llama.cpp's approach: per 32 values the grid magnitudes
-// (unsigned, below 64) are multiplied with the activations whose signs the sign pattern flipped (vpmaddubsw cannot saturate:
+// (unsigned, below 64) are multiplied with the activations whose signs the sign pattern flipped (vpsignb; vpmaddubsw cannot saturate:
 // 2 * 62 * 127 < 32768), summed to int32 lanes and scaled once in float. No decoded row is written, unlike Decode + Dot.
 internal static unsafe partial class IntDot
 {
@@ -29,12 +29,51 @@ internal static unsafe partial class IntDot
         _ => throw new NotSupportedException($"{f} has no fused integer dot."),
     };
 
-    /// <summary>The int32 sums per four values of 32 grid magnitudes times 32 activations negated where the mask is set.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector256<int> SignedSums(Vector256<byte> magnitudes, Vector256<sbyte> negate, sbyte* q)
+    /// <summary>[256]: per sign pattern eight bytes of +1, or -1 where its bit is set (the sign operand of <c>vpsignb</c>).</summary>
+    private static readonly ulong[] s_iqSignBytes = BuildSignBytes();
+
+    /// <summary>[128]: <see cref="s_iqSignBytes"/> of the eight-bit sign pattern that a seven-bit sign index selects (ggml's ksigns), one lookup.</summary>
+    private static readonly ulong[] s_iqSignBytes7 = BuildSignBytes7();
+
+    private static ulong SignBytes(int pattern)
     {
-        var values = Vector256.Load(q);
-        var signed = (values ^ negate) - negate;
+        ulong bytes = 0;
+        for (int j = 0; j < 8; j++)
+        {
+            bytes |= (((pattern >> j) & 1) != 0 ? 0xFFUL : 0x01UL) << (8 * j);
+        }
+
+        return bytes;
+    }
+
+    private static ulong[] BuildSignBytes()
+    {
+        var table = new ulong[256];
+        for (int i = 0; i < 256; i++)
+        {
+            table[i] = SignBytes(i);
+        }
+
+        return table;
+    }
+
+    private static ulong[] BuildSignBytes7()
+    {
+        var table = new ulong[128];
+        var ksigns = IqSigns.Values;
+        for (int i = 0; i < 128; i++)
+        {
+            table[i] = SignBytes(ksigns[i]);
+        }
+
+        return table;
+    }
+
+    /// <summary>The int32 sums per four values of 32 grid magnitudes times 32 activations with the signs applied (+1 / -1 bytes).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector256<int> SignedSums(Vector256<byte> magnitudes, Vector256<sbyte> signs, sbyte* q)
+    {
+        var signed = Avx2.Sign(Vector256.Load(q), signs);
         return Avx2.MultiplyAddAdjacent(Avx2.MultiplyAddAdjacent(magnitudes, signed), Vector256.Create((short)1));
     }
 
@@ -46,8 +85,7 @@ internal static unsafe partial class IntDot
     private static float DotIq2XxsAvx2(byte* p, Q8Row x, int k)
     {
         fixed (ulong* grid = Iq2XxsGrid.Values)
-        fixed (byte* ksigns = IqSigns.Values)
-        fixed (ulong* masks = s_iqSignMasks)
+        fixed (ulong* signs7 = s_iqSignBytes7)
         {
             var acc = Vector256<float>.Zero;
             sbyte* q = x.Q;
@@ -60,8 +98,8 @@ internal static unsafe partial class IntDot
                     uint indices = Unsafe.ReadUnaligned<uint>(p + 2 + 8 * ib32);
                     uint signsAndScale = Unsafe.ReadUnaligned<uint>(p + 6 + 8 * ib32);
                     var magnitudes = Vector256.Create(grid[indices & 0xFF], grid[(indices >> 8) & 0xFF], grid[(indices >> 16) & 0xFF], grid[indices >> 24]).AsByte();
-                    var negate = Vector256.Create(masks[ksigns[signsAndScale & 127]], masks[ksigns[(signsAndScale >> 7) & 127]],
-                        masks[ksigns[(signsAndScale >> 14) & 127]], masks[ksigns[(signsAndScale >> 21) & 127]]).AsSByte();
+                    var negate = Vector256.Create(signs7[signsAndScale & 127], signs7[(signsAndScale >> 7) & 127],
+                        signs7[(signsAndScale >> 14) & 127], signs7[(signsAndScale >> 21) & 127]).AsSByte();
                     float scale = d * (0.5f + (signsAndScale >> 28)) * scales[0];
                     acc = Accumulate(SignedSums(magnitudes, negate, q), Vector256.Create(scale), acc);
                 }
@@ -75,8 +113,7 @@ internal static unsafe partial class IntDot
     private static float DotIq2XsAvx2(byte* p, Q8Row x, int k)
     {
         fixed (ulong* grid = Iq2XsGrid.Values)
-        fixed (byte* ksigns = IqSigns.Values)
-        fixed (ulong* masks = s_iqSignMasks)
+        fixed (ulong* signs7 = s_iqSignBytes7)
         {
             var acc = Vector256<float>.Zero;
             sbyte* q = x.Q;
@@ -92,7 +129,7 @@ internal static unsafe partial class IntDot
                     int q2 = Unsafe.ReadUnaligned<ushort>(qs + 2);
                     int q3 = Unsafe.ReadUnaligned<ushort>(qs + 3);
                     var magnitudes = Vector256.Create(grid[q0 & 511], grid[q1 & 511], grid[q2 & 511], grid[q3 & 511]).AsByte();
-                    var negate = Vector256.Create(masks[ksigns[q0 >> 9]], masks[ksigns[q1 >> 9]], masks[ksigns[q2 >> 9]], masks[ksigns[q3 >> 9]]).AsSByte();
+                    var negate = Vector256.Create(signs7[q0 >> 9], signs7[q1 >> 9], signs7[q2 >> 9], signs7[q3 >> 9]).AsSByte();
                     int s = p[66 + ib32];
                     float dx = d * scales[0];
                     var scale = Vector256.Create(Vector128.Create(dx * (0.5f + (s & 0xF))), Vector128.Create(dx * (0.5f + (s >> 4))));
@@ -108,7 +145,7 @@ internal static unsafe partial class IntDot
     private static float DotIq2SAvx2(byte* p, Q8Row x, int k)
     {
         fixed (ulong* grid = Iq2SGrid.Values)
-        fixed (ulong* masks = s_iqSignMasks)
+        fixed (ulong* masks = s_iqSignBytes)
         {
             var acc = Vector256<float>.Zero;
             sbyte* q = x.Q;
@@ -140,8 +177,7 @@ internal static unsafe partial class IntDot
     private static float DotIq3XxsAvx2(byte* p, Q8Row x, int k)
     {
         fixed (uint* grid = Iq3XxsGrid.Values)
-        fixed (byte* ksigns = IqSigns.Values)
-        fixed (ulong* masks = s_iqSignMasks)
+        fixed (ulong* signs7 = s_iqSignBytes7)
         {
             var acc = Vector256<float>.Zero;
             sbyte* q = x.Q;
@@ -154,8 +190,7 @@ internal static unsafe partial class IntDot
                 {
                     uint word = Unsafe.ReadUnaligned<uint>(p + 66 + 4 * ib32);
                     var magnitudes = Vector256.Create(grid[qs[0]], grid[qs[1]], grid[qs[2]], grid[qs[3]], grid[qs[4]], grid[qs[5]], grid[qs[6]], grid[qs[7]]).AsByte();
-                    var negate = Vector256.Create(masks[ksigns[word & 127]], masks[ksigns[(word >> 7) & 127]],
-                        masks[ksigns[(word >> 14) & 127]], masks[ksigns[(word >> 21) & 127]]).AsSByte();
+                    var negate = Vector256.Create(signs7[word & 127], signs7[(word >> 7) & 127], signs7[(word >> 14) & 127], signs7[(word >> 21) & 127]).AsSByte();
                     float scale = d * (0.5f + (word >> 28)) * scales[0];
                     acc = Accumulate(SignedSums(magnitudes, negate, q), Vector256.Create(scale), acc);
                 }
@@ -169,7 +204,7 @@ internal static unsafe partial class IntDot
     private static float DotIq3SAvx2(byte* p, Q8Row x, int k)
     {
         fixed (uint* grid = Iq3SGrid.Values)
-        fixed (ulong* masks = s_iqSignMasks)
+        fixed (ulong* masks = s_iqSignBytes)
         {
             var acc = Vector256<float>.Zero;
             sbyte* q = x.Q;

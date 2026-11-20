@@ -341,8 +341,10 @@ public static class PlacementPlanner
         // Routed experts go to the fallback layer by layer, from the first layer on, until every other group fits the devices. Each moved
         // group adds device buffers for the values it exchanges with its layer, the devices then also hold the graph outputs, and with
         // streaming (prefill on the GPU) the largest moved group's weights; a fill is repeated with the room the groups it moved need.
+        // (A streamed compilation of a moved group holds its own copies of the exchanged values.)
         long Overhead(IReadOnlyCollection<string> moved) => moved.Count == 0 ? 0
-            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) + (stream ? moved.Max(g => groupBytes[g]) : 0);
+            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) * (stream ? 2 : 1)
+              + (stream ? moved.Max(g => groupBytes[g]) : 0);
         List<string> Moved(Dictionary<string, int> placed) => [.. placed.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
         Dictionary<string, int> groupDevice;
         while (true)
