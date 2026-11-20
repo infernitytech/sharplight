@@ -58,6 +58,8 @@ public sealed class CompiledModel : IDisposable
 
     /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the host time of its runs (inputs, execution, outputs) and the run count.</summary>
     private readonly (long Ticks, int Runs, bool Streamed)[]? _segmentTimes;
+    /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the split passes' GPU slots, CPU time and wait for the GPU, summed.</summary>
+    private readonly (long GpuSlots, double CpuMs, double WaitMs, int Runs)[]? _splitTimes;
     private static readonly HashSet<Value> s_noSkips = [];
     private readonly Dictionary<Value, byte[]> _hostValues = [];
     /// <summary>Per segment: the inputs it reads from an earlier segment's device memory (<see cref="IDeviceForwardingSegment"/>).</summary>
@@ -122,6 +124,7 @@ public sealed class CompiledModel : IDisposable
         _streamMinRows = streamMinRows;
         (_forwardedInputs, _deviceOnlyOutputs) = ForwardOnDevice(graph, segments);
         _segmentTimes = Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_TIMING") is "1" or "true" ? new (long, int, bool)[segments.Length] : null;
+        _splitTimes = _segmentTimes is null ? null : new (long, double, double, int)[segments.Length];
         _residentIn = new int[streamBuffers];
         _residentIn.AsSpan().Fill(-1);
         if (_keepsResident && streamMinRows > 0)
@@ -557,6 +560,12 @@ public sealed class CompiledModel : IDisposable
             }
         }
 
+        if (_splitTimes is not null)
+        {
+            ref var split = ref _splitTimes[i];
+            split = (split.GpuSlots + kg, split.CpuMs + cpuMs, split.WaitMs + waitMs, split.Runs + 1);
+        }
+
         if (DiagnosticSparseGpuSlots is null)
         {
             double cpuSlotMs = cpuMs / Math.Max(1, k - kg);
@@ -853,11 +862,19 @@ public sealed class CompiledModel : IDisposable
             double ms = runs == 0 ? 0 : ticks * 1000.0 / Stopwatch.Frequency / runs;
             total += ms;
             string device = streamed ? "streamed" : Plan.Slots[_segments[i].Segment.DeviceSlot].Device.Info.Kind.ToString();
-            lines.AppendLine(CultureInfo.InvariantCulture, $"  segment {i,3} {device,-8} {ms,8:F3} ms/run ({runs} runs)");
+            lines.Append(CultureInfo.InvariantCulture, $"  segment {i,3} {device,-8} {ms,8:F3} ms/run ({runs} runs)");
+            if (_splitTimes![i] is { Runs: > 0 } split)
+            {
+                lines.Append(CultureInfo.InvariantCulture,
+                    $", split: {(double)split.GpuSlots / split.Runs:F2} GPU slots, CPU {split.CpuMs / split.Runs:F3} ms, wait for the GPU {split.WaitMs / split.Runs:F3} ms");
+            }
+
+            lines.AppendLine();
         }
 
         lines.Append(CultureInfo.InvariantCulture, $"  total {total:F3} ms/run");
         Array.Clear(_segmentTimes);
+        Array.Clear(_splitTimes!);
         return lines.ToString();
     }
 
