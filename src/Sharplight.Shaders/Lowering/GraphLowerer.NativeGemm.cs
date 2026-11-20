@@ -270,6 +270,72 @@ public sealed partial class GraphLowerer
         })];
     }
 
+    /// <summary>Token rows of the routing tiles of <c>gemm_moe_native.cu</c> (one warp row of 8 row fragments).</summary>
+    private const int NativeMoeTileRows = 128;
+
+    /// <summary>Warps of a <c>gemm_moe_native.cu</c> block (all side by side along the weight rows).</summary>
+    private const int NativeMoeWarps = 8;
+
+    /// <summary>Stages of the <c>cp.async</c> ring of <c>gemm_moe_native.cu</c> where they fit (else 3).</summary>
+    private const int NativeMoeStages = 4;
+
+    /// <summary>Static shared memory of <c>gemm_moe_native.cu</c> (its E8M0 factor table) next to the dynamic stages.</summary>
+    private const int NativeMoeStaticShared = 1024;
+
+    /// <summary>
+    /// True when the expert products of <paramref name="w"/> ([E, <paramref name="n"/>, <paramref name="k"/>]) can run on the hand-written
+    /// grouped MXFP4 GEMM (<see cref="DeviceFeatures.NativeGemmMoe"/>, <c>gemm_moe_native.cu</c>): MXFP4 experts in the 16-row groups of
+    /// <see cref="WeightRepack.Mxfp4Split"/>, K a multiple of 64, on a target that takes CUDA C++ with room for three stages.
+    /// </summary>
+    private bool UseNativeMoeGemm(TensorRef w, long k, long n)
+        => _opt.Has(DeviceFeatures.NativeGemmMoe) && _compiler.CompilesCuda(_opt.Target) && w.Type == ShaderTypes.MXFP4R && k % 64 == 0 && n % 32 == 0
+           && DiagnosticSwitches.MoeSortedHalfActivations && _opt.MaxSharedMemory >= NativeMoeStageBytes(256, true) * 3 + NativeMoeStaticShared;
+
+    /// <summary>
+    /// Routed items (token, slot) from which the hand-written grouped MXFP4 GEMM serves a step of <paramref name="experts"/> experts:
+    /// 12 rows per expert on average (where the expert-grouped skinny GEMM hands over), or <c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c> per
+    /// expert. RTX PRO 4500, gpt-oss-20b mixed serving steps (64 decode rows plus a prompt, GPU ms): 171 rows 33.7 → 25.8, 256 rows
+    /// 40.2 → 29.6, 512 rows 58.2 → 45.6, 2048 rows 172.2 → 147.0 against gemm_cm2.
+    /// </summary>
+    private static long NativeMoeMinItems(long experts) => (DiagnosticSwitches.NativeMoeMinRows ?? 12) * experts;
+
+    /// <summary>Bytes of one stage of <c>gemm_moe_native.cu</c>: activation rows, codes and scales of its weight rows.</summary>
+    private static int NativeMoeStageBytes(int columns, bool dual)
+        => NativeMoeTileRows * 128 + 2 * columns * 16 + 2 * (dual ? 2 : 1) * (dual ? columns / 2 : columns) / 16 * 16;
+
+    /// <summary>Dynamic shared memory of <c>gemm_moe_native.cu</c> for weight tiles of <paramref name="columns"/> rows.</summary>
+    private int NativeMoeSharedBytes(int columns, bool dual)
+        => NativeMoeStageBytes(columns, dual) * NativeMoeStagesFor(columns, dual);
+
+    /// <summary>The stages of <c>gemm_moe_native.cu</c> that fit the device's shared memory (<see cref="NativeMoeStages"/> or 3).</summary>
+    private int NativeMoeStagesFor(int columns, bool dual)
+        => _opt.MaxSharedMemory >= NativeMoeStageBytes(columns, dual) * NativeMoeStages + NativeMoeStaticShared ? NativeMoeStages : 3;
+
+    /// <summary>
+    /// Weight rows per tile of <c>gemm_moe_native.cu</c> for <paramref name="n"/> outputs: the width (256, 192 or 128 rows; dual pairs
+    /// 256 or 128, their 8 warps each holding whole gate / up fragment pairs) with the most useful columns per estimated time.
+    /// RTX PRO 4500, gpt-oss-20b shapes at 2048 tokens: 192 and 256 rows equally fast per column, 128 rows ~10 % slower (more
+    /// activation traffic per product).
+    /// </summary>
+    private static int NativeMoeTileColumns(long n, bool dual)
+    {
+        int[] widths = dual ? [256, 128] : [256, 192, 128];
+        int best = widths[0];
+        double bestScore = 0;
+        foreach (int width in widths)
+        {
+            long outputs = dual ? width / 2 : width;
+            double score = (double)n / (Grid.Div(n, outputs) * outputs) * (width == 128 ? 0.9 : 1.0);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = width;
+            }
+        }
+
+        return best;
+    }
+
     /// <summary>
     /// The CUDA C++ form of the dual epilogue <c>epi2</c> (see <see cref="DualEpilogueSource"/>) for the hand-written dual GEMM, as the
     /// <c>F8N_EPI2</c> macro over a device function, or null when the group has an operation without a CUDA form here (the generated
@@ -313,6 +379,10 @@ public sealed partial class GraphLowerer
     /// <remarks><c>exp</c> becomes <c>__expf</c>, as in the CUDA form of the Slang kernels (<c>common.slang</c>), so the fused epilogue
     /// rounds like the elementwise launch it replaces.</remarks>
     private static string SinglePrecisionLiterals(string expression)
+        => CudaExpression(expression);
+
+    /// <summary>A generated elementwise expression in its CUDA C++ form: <c>float</c> literals and <c>__expf</c> (see <see cref="SinglePrecisionLiterals"/>).</summary>
+    internal static string CudaExpression(string expression)
         => ExpCall().Replace(FloatLiteral().Replace(expression, m => m.Value + "f"), "__expf(");
 
     [GeneratedRegex(@"(?<![\w])exp\(")]

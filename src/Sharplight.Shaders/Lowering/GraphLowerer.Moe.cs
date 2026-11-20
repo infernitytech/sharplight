@@ -112,7 +112,7 @@ public sealed partial class GraphLowerer
     // without int-dot only 16, and reusing the gate's routing left the down GEMM without one for 17-128 items) under the same
     // launch condition.
     private BufferDecl? _moeScratch;
-    private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, object? Condition)? _moeRouted;
+    private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, object? Condition, bool Native)? _moeRouted;
 
     // Expert-sorted f16 copy of the activations of the grouped GEMMs, shared by the MatMulIds that read the same x with the same
     // routing (gate and up of an expert block).
@@ -209,7 +209,7 @@ public sealed partial class GraphLowerer
             var y = Produce(output);
             var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
-            string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N);
+            string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N)!;
             long mv = IntDotPerItemMaxItems(w, K, S);
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id2 {output.Name} [{w.Shape[0]}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
@@ -226,8 +226,9 @@ public sealed partial class GraphLowerer
         var dualY = Produce(output);
         if (DiagnosticSwitches.MoeDual != 0 && dualY.IsDense)
         {
-            string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N, "matmul.slang");
-            fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group], false));
+            string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N, "matmul.slang")!;
+            fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group], false,
+                DualExpertEpilogueSource(a, bNode, gathers, group, output, N, cuda: true)));
         }
         else
         {
@@ -255,7 +256,7 @@ public sealed partial class GraphLowerer
         var outer = _launchCondition;
         var y = Produce(add.Output);
         var served = y.IsDense && DiagnosticSwitches.MoeBiasEpilogue
-            ? LowerMatMulId(product, single: (y, [Ref(gather.Inputs[0])], null, [gather, product, add]))
+            ? LowerMatMulId(product, single: (y, [Ref(gather.Inputs[0])], null, [gather, product, add], BiasEpilogueCudaSource(Ref(product.Inputs[1]).Shape[1])))
             : LowerMatMulId(product);
         if (served is not null)
         {
@@ -284,11 +285,12 @@ public sealed partial class GraphLowerer
         Func<Bindings, bool>? served = null;
         if (DiagnosticSwitches.MoeDual != 0 && gy.IsDense && (add is null) == (gather is null))
         {
-            string source = HalvesEpilogueSource(product, add, gather, halves, n);
+            string source = HalvesEpilogueSource(product, add, gather, halves, n)!;
             var w2 = w with { ByteOffset = w.ByteOffset + half * w.Type.ByteSize(w.Shape[2]) };
             Node[] nodes = [.. gather is null ? Array.Empty<Node>() : [gather], product, .. add is null ? Array.Empty<Node>() : [add], halves.Low, halves.High,
                 .. group.Fused!];
-            served = LowerMatMulId(product, (w2, gy, gather is null ? [] : [Ref(gather.Inputs[0])], source, nodes, true));
+            served = LowerMatMulId(product, (w2, gy, gather is null ? [] : [Ref(gather.Inputs[0])], source, nodes, true,
+                HalvesEpilogueSource(product, add, gather, halves, n, cuda: true)));
         }
         else if (add is not null && gather is not null)
         {
@@ -316,23 +318,32 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Source of the <c>MOE_EPI</c> epilogue of the dual grouped GEMM over the halves of an expert product (n outputs): the bias
-    /// Add of each half (rows e·n + c and e·n + n / 2 + c of the bias table), then the group over the two halves.
+    /// Add of each half (rows e·n + c and e·n + n / 2 + c of the bias table), then the group over the two halves. With
+    /// <paramref name="cuda"/>, the CUDA C++ form for <c>gemm_moe_native.cu</c> (<c>NM_EPI2</c>), or null when the group has an
+    /// operation without one.
     /// </summary>
-    private static string HalvesEpilogueSource(Node product, Node? add, Node? gather, (LoweringUnit Group, Node Low, Node High) halves, long n)
+    private static string? HalvesEpilogueSource(Node product, Node? add, Node? gather, (LoweringUnit Group, Node Low, Node High) halves, long n,
+        bool cuda = false)
     {
-        var src = new StringBuilder();
-        src.AppendLine("#include \"math_ext.slang\"");
-        if (gather is not null)
+        if (cuda && !CudaEpilogueOps([.. add is null ? Array.Empty<Node>() : [add], .. halves.Group.Fused!]))
         {
-            src.AppendLine("#define MOE_EPI_FIELDS float* gt0;");
+            return null;
         }
 
-        src.AppendLine("float epi2(float m0, float m1, float g0, float g1) {");
+        var src = new StringBuilder();
+        var e = new MoeEpilogueWriter(src, cuda);
+        e.Header();
+        if (gather is not null)
+        {
+            e.Fields("float* gt0;");
+        }
+
+        e.Function("epi2", "float m0, float m1, float g0, float g1");
         var name = new Dictionary<Value, string>();
         if (add is not null)
         {
-            src.AppendLine($"  float s0 = {OpExpr(add, [.. add.Inputs.Select(v => v == product.Output ? "m0" : "g0")])};");
-            src.AppendLine($"  float s1 = {OpExpr(add, [.. add.Inputs.Select(v => v == product.Output ? "m1" : "g1")])};");
+            e.Line("s0", OpExpr(add, [.. add.Inputs.Select(v => v == product.Output ? "m0" : "g0")]));
+            e.Line("s1", OpExpr(add, [.. add.Inputs.Select(v => v == product.Output ? "m1" : "g1")]));
             name[halves.Low.Output] = "s0";
             name[halves.High.Output] = "s1";
         }
@@ -345,15 +356,14 @@ public sealed partial class GraphLowerer
         foreach (var node in halves.Group.Fused!)
         {
             var local = "v" + name.Count;
-            src.AppendLine($"  float {local} = {OpExpr(node, [.. node.Inputs.Select(i => name[i])])};");
+            e.Line(local, OpExpr(node, [.. node.Inputs.Select(i => name[i])]));
             name[node.Output] = local;
         }
 
-        src.AppendLine($"  return {name[halves.Group.FusedOutputs![0]]};");
-        src.AppendLine("}");
-        src.AppendLine(gather is null ? "#define MOE_EPI(m0, m1, e, n) epi2(m0, m1, 0.0, 0.0)"
-            : $"#define MOE_EPI(m0, m1, e, n) epi2(m0, m1, p.gt0[uint64_t(e) * {n} + (n)], p.gt0[uint64_t(e) * {n} + {n / 2} + (n)])");
-        src.AppendLine("#include \"matmul.slang\"");
+        e.Return(name[halves.Group.FusedOutputs![0]]);
+        e.Dual(gather is null ? "epi2(m0, m1, 0.0, 0.0)"
+            : $"epi2(m0, m1, p.gt0[{e.U64("e")} * {n} + (n)], p.gt0[{e.U64("e")} * {n} + {n / 2} + (n)])");
+        e.Footer("matmul.slang");
         return src.ToString();
     }
 
@@ -390,7 +400,7 @@ public sealed partial class GraphLowerer
             var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = ExpertSumEpilogueSource(product, gathers, [.. group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v)
-                && !gathered.Contains(v)).Distinct()], scalars, group, summed, N);
+                && !gathered.Contains(v)).Distinct()], scalars, group, summed, N)!;
             long mv = IntDotPerItemMaxItems(w, K, S);
             var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id-sum {reduce.Output.Name} [{w.Shape[0]}x{K}→{N}] {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]+slot-sum",
@@ -412,8 +422,9 @@ public sealed partial class GraphLowerer
             var scalarRefs = scalarValues.Select(Ref).ToList();
             if (scalarRefs.All(r => r.Rank == 3 && r.Shape[2] == 1))
             {
-                string source = ExpertSumEpilogueSource(product, gathers, scalarValues, scalarRefs, group, summed, w.Shape[1], "matmul.slang");
-                served = LowerMatMulId(product, single: (ys, [.. gathers.Select(g => Ref(g.Inputs[0])), .. scalarRefs], source, [.. gathers, product, .. group]));
+                string source = ExpertSumEpilogueSource(product, gathers, scalarValues, scalarRefs, group, summed, w.Shape[1], "matmul.slang")!;
+                served = LowerMatMulId(product, single: (ys, [.. gathers.Select(g => Ref(g.Inputs[0])), .. scalarRefs], source, [.. gathers, product, .. group],
+                    ExpertSumEpilogueSource(product, gathers, scalarValues, scalarRefs, group, summed, w.Shape[1], cuda: true)));
             }
             else
             {
@@ -440,11 +451,17 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Source of the <c>MOE_EPI1</c> epilogue of the slot-sum expert matvec: the group over the product, the gathered rows and the
-    /// per-slot scalars (element (t, s) at t * stride0 + s * stride1).
+    /// per-slot scalars (element (t, s) at t * stride0 + s * stride1). With <paramref name="cuda"/>, the CUDA C++ form for
+    /// <c>gemm_moe_native.cu</c> (<c>NM_EPI1</c>), or null when the group has an operation without one.
     /// </summary>
-    private static string ExpertSumEpilogueSource(Node product, List<Node> gathers, List<Value> scalarValues, List<TensorRef> scalars, List<Node> group,
-        Value output, long n, string library = "mmvq.slang")
+    private static string? ExpertSumEpilogueSource(Node product, List<Node> gathers, List<Value> scalarValues, List<TensorRef> scalars, List<Node> group,
+        Value output, long n, string library = "mmvq.slang", bool cuda = false)
     {
+        if (cuda && !CudaEpilogueOps(group))
+        {
+            return null;
+        }
+
         var name = new Dictionary<Value, string> { [product.Output] = "m0" };
         for (int i = 0; i < gathers.Count; i++)
         {
@@ -457,32 +474,39 @@ public sealed partial class GraphLowerer
         }
 
         var src = new StringBuilder();
-        src.AppendLine("#include \"math_ext.slang\"");
-        src.AppendLine($"#define MOE_EPI_FIELDS {string.Concat(gathers.Select((_, i) => $"float* gt{i}; "))}{string.Concat(scalars.Select((_, i) => $"float* sc{i}; "))}");
-        src.AppendLine($"float epi1(float m0{string.Concat(gathers.Select((_, i) => $", float g{i}"))}{string.Concat(scalars.Select((_, i) => $", float c{i}"))}) {{");
+        var e = new MoeEpilogueWriter(src, cuda);
+        e.Header();
+        e.Fields($"{string.Concat(gathers.Select((_, i) => $"float* gt{i}; "))}{string.Concat(scalars.Select((_, i) => $"float* sc{i}; "))}");
+        e.Function("epi1", $"float m0{string.Concat(gathers.Select((_, i) => $", float g{i}"))}{string.Concat(scalars.Select((_, i) => $", float c{i}"))}");
         foreach (var node in group)
         {
             var local = "v" + name.Count;
-            src.AppendLine($"  float {local} = {OpExpr(node, [.. node.Inputs.Select(i => name[i])])};");
+            e.Line(local, OpExpr(node, [.. node.Inputs.Select(i => name[i])]));
             name[node.Output] = local;
         }
 
-        src.AppendLine($"  return {name[output]};");
-        src.AppendLine("}");
-        string rows = string.Concat(gathers.Select((_, i) => $", p.gt{i}[uint64_t(e) * {n} + (n)]"));
+        e.Return(name[output]);
+        string rows = string.Concat(gathers.Select((_, i) => $", p.gt{i}[{e.U64("e")} * {n} + (n)]"));
         string perSlot = string.Concat(scalars.Select((r, i) =>
-            $", p.sc{i}[uint64_t(t) * {r.Strides[0]} + uint64_t(s) * {r.Strides[1]}]"));
-        src.AppendLine($"#define MOE_EPI1(m0, e, n, t, s) epi1(m0{rows}{perSlot})");
-        src.AppendLine($"#include \"{library}\"");
+            $", p.sc{i}[{e.U64("t")} * {r.Strides[0]} + {e.U64("s")} * {r.Strides[1]}]"));
+        e.Single($"epi1(m0{rows}{perSlot})");
+        e.Footer(library);
         return src.ToString();
     }
 
     /// <summary>
     /// Source of the <c>MOE_EPI</c> epilogue of the dual expert matvec (<paramref name="library"/> mmvq.slang) or of the dual grouped
-    /// gemm_cm2 (matmul.slang): the group over both products and the gathered rows.
+    /// gemm_cm2 (matmul.slang): the group over both products and the gathered rows. With <paramref name="cuda"/>, the CUDA C++ form
+    /// for <c>gemm_moe_native.cu</c> (<c>NM_EPI2</c>), or null when the group has an operation without one.
     /// </summary>
-    private static string DualExpertEpilogueSource(Node a, Node bNode, List<Node> gathers, List<Node> group, Value output, long n, string library = "mmvq.slang")
+    private static string? DualExpertEpilogueSource(Node a, Node bNode, List<Node> gathers, List<Node> group, Value output, long n, string library = "mmvq.slang",
+        bool cuda = false)
     {
+        if (cuda && !CudaEpilogueOps(group))
+        {
+            return null;
+        }
+
         var name = new Dictionary<Value, string> { [a.Output] = "m0", [bNode.Output] = "m1" };
         for (int i = 0; i < gathers.Count; i++)
         {
@@ -490,23 +514,36 @@ public sealed partial class GraphLowerer
         }
 
         var src = new StringBuilder();
-        src.AppendLine("#include \"math_ext.slang\"");
-        src.AppendLine($"#define MOE_EPI_FIELDS {string.Concat(gathers.Select((_, i) => $"float* gt{i}; "))}");
-        src.AppendLine($"float epi2(float m0, float m1{string.Concat(gathers.Select((_, i) => $", float g{i}"))}) {{");
+        var e = new MoeEpilogueWriter(src, cuda);
+        e.Header();
+        e.Fields(string.Concat(gathers.Select((_, i) => $"float* gt{i}; ")));
+        e.Function("epi2", $"float m0, float m1{string.Concat(gathers.Select((_, i) => $", float g{i}"))}");
         foreach (var node in group)
         {
             var local = "v" + name.Count;
-            src.AppendLine($"  float {local} = {OpExpr(node, [.. node.Inputs.Select(i => name[i])])};");
+            e.Line(local, OpExpr(node, [.. node.Inputs.Select(i => name[i])]));
             name[node.Output] = local;
         }
 
-        src.AppendLine($"  return {name[output]};");
-        src.AppendLine("}");
-        string rows = string.Concat(gathers.Select((_, i) => $", p.gt{i}[uint64_t(e) * {n} + (n)]"));
-        src.AppendLine($"#define MOE_EPI(m0, m1, e, n) epi2(m0, m1{rows})");
-        src.AppendLine($"#include \"{library}\"");
+        e.Return(name[output]);
+        string rows = string.Concat(gathers.Select((_, i) => $", p.gt{i}[{e.U64("e")} * {n} + (n)]"));
+        e.Dual($"epi2(m0, m1{rows})");
+        e.Footer(library);
         return src.ToString();
     }
+
+    /// <summary>
+    /// The CUDA C++ epilogue of <c>gemm_moe_native.cu</c> that adds the bias row of each tile's expert (the table [E, <paramref name="n"/>]
+    /// after y), as <c>MOE_BIAS</c> of matmul.slang.
+    /// </summary>
+    private static string BiasEpilogueCudaSource(long n)
+        => $"#define NM_EPI_FIELDS float* moe_bias;\n#define NM_EPI1(m0, e, n, t, s) ((m0) + p.moe_bias[(unsigned long long)(e) * {n} + (n)])\n";
+
+    /// <summary>The elementwise operations the CUDA C++ epilogues of the hand-written GEMMs express (see <see cref="DualEpilogueCudaSource"/>).</summary>
+    private static bool CudaEpilogueOps(IEnumerable<Node> group) => group.All(node => s_cudaEpilogueOps.Contains(node.Op.Name));
+
+    private static readonly HashSet<string> s_cudaEpilogueOps = ["Neg", "Exp", "Log", "Sqrt", "Rsqrt", "Sigmoid", "Silu", "Gelu", "GeluTanh", "Tanh", "Relu", "Square",
+        "Recip", "Add", "Sub", "Mul", "Max", "Min", "Scale", "Cast", "Clip"];
 
     /// <summary>
     /// Lowers the expert product <paramref name="n"/>. With <paramref name="dual"/>, the grouped gemm_cm2 launches compute it together
@@ -517,8 +554,8 @@ public sealed partial class GraphLowerer
     /// tile's expert (table [E, N]); with one, its <c>MOE_EPI1</c> over the tables.
     /// Returns the batches the dual or biased grouped launches serve (null when there are none).
     /// </summary>
-    private Func<Bindings, bool>? LowerMatMulId(Node n, (TensorRef W2, TensorRef Y, TensorRef[] Tables, string Source, Node[] Nodes, bool Halves)? dual = null,
-        bool skipGrouped = false, (TensorRef Y, TensorRef[] Tables, string? Source, Node[] Nodes)? single = null)
+    private Func<Bindings, bool>? LowerMatMulId(Node n, (TensorRef W2, TensorRef Y, TensorRef[] Tables, string Source, Node[] Nodes, bool Halves, string? Cuda)? dual = null,
+        bool skipGrouped = false, (TensorRef Y, TensorRef[] Tables, string? Source, Node[] Nodes, string? Cuda)? single = null)
     {
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
@@ -583,6 +620,13 @@ public sealed partial class GraphLowerer
         long wideItems = wide is { } wc ? wc.ItemsPerExpert * E : 0;
         int wideTile = wide is { } wt ? 16 * wt.Fm : 0;
         Func<Bindings, bool> isWide = b => wide is not null && items(b) > skinnyItems && items(b) <= wideItems;
+        // Many rows per expert on the hand-written grouped MXFP4 GEMM (CUDA): its batches route NativeMoeTileRows-row tiles (which the
+        // gemm_cm2 tiles include, so a product whose epilogue has no CUDA form runs gemm_cm2 on the same routing).
+        bool nativeMoe = gemm2 && UseNativeMoeGemm(w, K, N);
+        long nativeMinItems = NativeMoeMinItems(E);
+        bool nativeOn = false;
+        Func<Bindings, bool> nativeRows = b => nativeMoe && items(b) > mv && items(b) >= nativeMinItems && !isWide(b) && (!skinnyMoe || items(b) > skinnyItems);
+        Func<Bindings, bool> isNative = b => nativeOn && nativeRows(b);
         int[] routeTiles = skinnyMoe ? [.. new[] { MoeSkinnyTile, wideTile }.Where(t => t > 0), .. coopTiles] : coopTiles;
         routeTiles = [.. routeTiles.Distinct()];
         Func<Bindings, int> tile = b => !coop ? 64
@@ -590,13 +634,14 @@ public sealed partial class GraphLowerer
             : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
             : skinnyMoe && items(b) <= skinnyItems ? MoeSkinnyTile
             : isWide(b) ? wideTile
+            : nativeRows(b) ? NativeMoeTileRows
             : items(b) <= 24 * E ? 32
             : !gemm2 || items(b) <= MoeTallTileMinItems * E ? 64 : 128;
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
         var scratchArg = new PointerArg(_moeScratch, 0);
 
         if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.Coop != coop || r.MatvecMaxItems != mv
-            || !ReferenceEquals(r.Condition, _launchCondition))
+            || !ReferenceEquals(r.Condition, _launchCondition) || r.Native != nativeMoe)
         {
             int[] tiling = coop ? routeTiles : [64];
             Emit($"moe-route {n.Inputs[2].Name} [{E} experts]", [n],
@@ -605,7 +650,7 @@ public sealed partial class GraphLowerer
                     _ => new Grid(1)))],
                 [Pointer(ids), scratchArg, TokenArg(ids)],
                 [ids], [scratch]);
-            _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition);
+            _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition, nativeMoe);
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };
@@ -714,20 +759,54 @@ public sealed partial class GraphLowerer
             {
                 _writeGroup = split ? new object() : null;
                 Emit(groupedLabel, groupedNodes,
-                    [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
+                    [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b) && !isNative(b),
                         Grouped(split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t)),
                         b => TileGrid(cm2TileMajor, Grid.Div(gridN, Columns(t)), tiles(b))))],
                     groupedArgs, groupedReads, [groupedOut]);
                 if (split)
                 {
                     Emit(groupedLabel + " half tiles", groupedNodes,
-                        [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b),
+                        [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t && !isWide(b) && !isNative(b),
                             Grouped(Rows(t / 2, "MOE_MAX_ROWS", t / 2)),
                             b => TileGrid(cm2TileMajor, Grid.Div(gridN, Columns(t / 2)), tiles(b))))],
                         groupedArgs, groupedReads, [groupedOut]);
                 }
 
                 _writeGroup = null;
+                // The hand-written grouped MXFP4 GEMM with the same epilogue (its CUDA form), when there is one.
+                string? nativeEpilogue = isDual ? d.Cuda : biased ? bb.Cuda : "";
+                if (nativeMoe && nativeEpilogue is not null)
+                {
+                    nativeOn = true;
+                    long nativeN = isDual ? dualN : N;
+                    int bn = NativeMoeTileColumns(nativeN, isDual);
+                    var nativeMacros = new Dictionary<string, string>
+                    {
+                        ["K"] = K.ToString(CultureInfo.InvariantCulture),
+                        ["N"] = nativeN.ToString(CultureInfo.InvariantCulture),
+                        ["EXPERT_BYTES"] = gm["EXPERT_BYTES"],
+                        ["ROW_BYTES"] = gm["ROW_BYTES"],
+                        ["S"] = S.ToString(CultureInfo.InvariantCulture),
+                        ["MAXTILES"] = gm["MAXTILES"],
+                        ["NM_BM"] = NativeMoeTileRows.ToString(CultureInfo.InvariantCulture),
+                        ["NM_BN"] = bn.ToString(CultureInfo.InvariantCulture),
+                        ["NM_WM"] = "1",
+                        ["NM_WN"] = NativeMoeWarps.ToString(CultureInfo.InvariantCulture),
+                        ["NM_STAGES"] = NativeMoeStagesFor(bn, isDual).ToString(CultureInfo.InvariantCulture),
+                        ["DUAL"] = isDual ? "1" : "0",
+                    };
+                    if (groupedMacros.TryGetValue("X_RS", out var xrs))
+                    {
+                        nativeMacros["X_RS"] = xrs;
+                    }
+
+                    var nativeKernel = _compiler.CompileCuda("gemm_moe_native.cu", nativeEpilogue, "gemm_moe_native", NativeMoeWarps * 32,
+                        NativeMoeSharedBytes(bn, isDual), _opt.Target, nativeMacros, _opt.Cache);
+                    long columns = isDual ? bn / 2 : bn;
+                    Emit(groupedLabel.Replace(" gemm-cm2", " native", StringComparison.Ordinal), groupedNodes,
+                        [new KernelVariant(isNative, nativeKernel, b => new Grid(Grid.Div(nativeN, columns), tiles(b)))],
+                        groupedArgs, groupedReads, [groupedOut]);
+                }
             }
             if (skinnyMoe)
             {

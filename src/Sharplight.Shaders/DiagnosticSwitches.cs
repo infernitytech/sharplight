@@ -237,6 +237,12 @@ internal static class DiagnosticSwitches
     public static long? NativeGemmMinRows { get; } = Read("SHARPLIGHT_NATIVE_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>
+    /// Average routed rows per expert from which the hand-written grouped MXFP4 expert GEMM serves an expert product
+    /// (<c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c>), or null for the default.
+    /// </summary>
+    public static long? NativeMoeMinRows { get; } = Read("SHARPLIGHT_NATIVE_MOE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
     /// <c>SHARPLIGHT_FP8_TMA=0</c> keeps the 128-row tiles of the hand-written FP8 GEMM on its per-thread-copy form
     /// (<c>gemm_fp8_native.cu</c>) where the device has <c>tensor_copies</c> (default: the warp-specialized <c>gemm_fp8_tma.cu</c>).
     /// </summary>

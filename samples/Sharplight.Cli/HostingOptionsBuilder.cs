@@ -60,8 +60,10 @@ internal static class HostingOptionsBuilder
     private static void ApplyDefaults(HostedModelDefaults defaults, ServeSettings settings, bool fromFile)
     {
         var runtime = settings.Runtime;
-        var device = runtime.UseCpu ? DeviceSpecifications.Cpu : runtime.DeviceIndex.ToString(CultureInfo.InvariantCulture);
-        bool explicitDevice = runtime.UseCpu || runtime.DeviceIndex != 0;
+        // --provider names the device by its id (e.g. cuda:0); without it the index is a GPU of the default provider.
+        string index = runtime.DeviceIndex.ToString(CultureInfo.InvariantCulture);
+        var device = runtime.UseCpu ? DeviceSpecifications.Cpu : runtime.ProviderName is { } provider ? $"{provider}:{index}" : index;
+        bool explicitDevice = runtime.UseCpu || runtime.DeviceIndex != 0 || runtime.ProviderName is not null;
         if (!fromFile || explicitDevice)
         {
             defaults.Device = device;

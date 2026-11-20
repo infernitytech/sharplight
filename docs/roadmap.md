@@ -185,6 +185,14 @@ GPU (Vulkan):
   decode step 18.0 → 17.4 ms). The LM head already reads at ~800 GB/s; the attention projections at 64 rows read at 580-650 GB/s and
   K / V at ~270 GB/s (latency bound; the skinny GEMM at 64 rows and more K splits were no faster). Next: prefill per row (vLLM runs
   a whole 16-prompt wave in ~180 ms), a Q / K / V multi-output GEMM, the expert-grouped skinny GEMMs (57 % of the decode step).
+  Round 12 (§56, CUDA): a hand-written grouped MXFP4 expert GEMM (`gemm_moe_native.cu`, feature `native_gemm_moe`: raw codes in a
+  `cp.async` ring, decoded per MMA, empty fragments of partial tiles skipped, generated epilogues in CUDA C++) from 12 rows per
+  expert: gpt-oss-20b expert GEMMs at 2048 tokens 108 → 83 ms (Marlin in vLLM: 87 ms), prefill 0.81 → 1.07x / 0.74 → 0.87x /
+  0.63 → 0.71x of vLLM at 512 / 2048 / 8192 tokens, mixed serving steps of 171-2048 rows 15-26 % faster, CUDA serving 0.75 → 0.79x /
+  0.70 → 0.75x of vLLM at 16 / 64 streams (TTFT below vLLM's); outputs identical to gemm_cm2. `serve --provider` was ignored (CUDA serving rows of §53.6 / §54.5 ran on Vulkan), fixed. Next: prefill attention
+  (`fa` 16.4 ms at 2048 tokens against FlashInfer's 4.4, 30 % of an 8192-token prefill), q / k / v as one GEMM, the 64-sequence
+  decode step (19.8 against ~16.2 ms; it is the rest of the 64-stream gap). Vulkan's gemm_cm2 cannot take the same form (no `cp.async`, opaque cooperative-matrix
+  fragments; a subgroup-uniform skip of empty fragments made it 50 % slower).
   Earlier next: an expert GEMM fetching at ~800 GB/s for 16-48 rows per expert (raw MXFP4 stages in shared memory, 3 workgroups per SM);
   Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's

@@ -89,6 +89,14 @@ public static class DeviceFeatures
     public const string NativeGemmF16 = "native_gemm_f16";
 
     /// <summary>
+    /// The expert-grouped products of a mixture-of-experts layer with MXFP4 expert weights run, for batches with many rows per expert,
+    /// on a hand-written grouped GEMM of the provider (asynchronous copies of the raw 4-bit codes into a multi-stage ring of dynamic
+    /// shared memory, decoded per tensor-core MMA; CUDA, compute capability 8.0 and later). Disabling it keeps the generated grouped
+    /// GEMMs.
+    /// </summary>
+    public const string NativeGemmMoe = "native_gemm_moe";
+
+    /// <summary>
     /// A step whose launches repeat (the same kernels, grids and arguments, e.g. every decode step of a sequence) is recorded once
     /// into a device-side launch graph and replayed with one submission (CUDA graphs), instead of one host call per launch. Like
     /// <see cref="KernelBinaries"/> it does not change generated code, so it is not part of <see cref="DeviceInfo.Features"/>;
@@ -122,7 +130,7 @@ public static class DeviceFeatures
     public const string PagedKv = "paged_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, TensorCopies, LaunchGraphs];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, TensorCopies, LaunchGraphs];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

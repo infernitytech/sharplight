@@ -242,6 +242,96 @@ public sealed class CudaCodeTests
         }
     }
 
+    [Theory]
+    [InlineData(150)]
+    [InlineData(700)]
+    public void NativeMoeGemmMatchesTheCpu(int tokens)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmMoe), "The GPU has no hand-written grouped MXFP4 GEMM (compute capability below 8.0).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // A gpt-oss-style expert block on MXFP4 experts: 75 / 350 routed rows per expert (one to three 128-row tiles, the last
+        // partial), the fused gate / up halves with bias rows and SiLU·mul in the dual store (192 outputs: a partial column tile),
+        // the down product with bias and router weight in its store, K = 576 (nine 64-value steps).
+        var expected = RunExpertBlock(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), tokens);
+        var actual = RunExpertBlock(provider.OpenDevice(info), tokens);
+        double scale = expected.Max(MathF.Abs);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 2e-2 * scale, $"y[{i}]: {actual[i]} vs {expected[i]}");
+        }
+
+        // The generated grouped GEMM decodes the same halves and sums the same 16-value MMAs in the same order: the same outputs.
+        var generated = new DeviceOptions();
+        generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmMoe);
+        var reference = RunExpertBlock(provider.OpenDevice(info, generated), tokens);
+        for (int i = 0; i < reference.Length; i++)
+        {
+            Assert.True(Math.Abs(reference[i] - actual[i]) <= 1e-5 * scale, $"y[{i}]: {actual[i]} vs the generated GEMM's {reference[i]}");
+        }
+    }
+
+    /// <summary>
+    /// The routed-expert block of <see cref="NativeMoeGemmMatchesTheCpu"/> on <paramref name="tokens"/> tokens (8 MXFP4 experts, 4 slots,
+    /// hidden size 576, expert size 192): silu(gate + b) · (up + b) of the fused gate / up product, then the down product plus its
+    /// bias times the router weight, summed over the slots.
+    /// </summary>
+    private static float[] RunExpertBlock(IComputeDevice device, int tokens)
+    {
+        const int E = 8, S = 4, K = 576, H = 192;
+        using (device)
+        {
+            var tg = new TG("cuda-native-moe");
+            var x = tg.InF("x", TG.T, K);
+            var ids = tg.In("ids", DataType.I32, TG.T, S);
+            var weights = tg.InF("weights", TG.T, S, 1);
+            Value Bias(string name, int n) => tg.B.Emit1("GatherAxis", [tg.RandW(name, DataType.F32, 0.5f, E, n), ids], Attributes.From(("axis", 0L)));
+            var gateUp = tg.B.Add(tg.B.Emit1("MatMulId", [x, tg.RandW("gate_up", DataType.MXFP4, 0.1f, E, 2 * H, K), ids]), Bias("gate_up_b", 2 * H));
+            var act = tg.B.Mul(tg.B.Silu(tg.B.Slice(gateUp, 2, 0, H)), tg.B.Slice(gateUp, 2, H, H));
+            var down = tg.B.Add(tg.B.Emit1("MatMulId", [act, tg.RandW("down", DataType.MXFP4, 0.1f, E, K, H), ids]), Bias("down_b", K));
+            tg.B.Output("y", tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, weights), 0, 2, 1)]));
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 1024, ContextLength = 1024 },
+                ReservePerDevice = 0,
+            });
+            var input = new float[tokens * K];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = MathF.Sin(i * 0.37f);
+            }
+
+            // Distinct experts per token, skewed toward the low experts so that some see several tiles.
+            var routes = new int[tokens * S];
+            var gates = new float[tokens * S];
+            var rng = new Random(tokens);
+            for (int t = 0; t < tokens; t++)
+            {
+                var chosen = Enumerable.Range(0, E).OrderBy(e => rng.NextDouble() * (1 + e * 0.3)).Take(S).ToArray();
+                for (int s = 0; s < S; s++)
+                {
+                    routes[t * S + s] = chosen[s];
+                    gates[t * S + s] = 0.1f + 0.2f * s;
+                }
+            }
+
+            model.SetInput<float>(x, input);
+            model.SetInput<int>(ids, routes);
+            model.SetInput<float>(weights, gates);
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = tokens;
+            model.Run(parameters);
+            var output = new float[tokens * K];
+            model.GetOutput<float>("y", output);
+            return output;
+        }
+    }
+
     /// <summary>
     /// y = x · Wᵀ with W [512, 1024] (bf16, or <paramref name="weightType"/>) on <paramref name="rows"/> rows, or with
     /// <paramref name="swiglu"/> the gated pair silu(x · Wgᵀ) · (x · Wuᵀ).
