@@ -439,6 +439,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, int runs)
     {
         CudaApi.Check(CudaApi.cuStreamBeginCapture(_stream, CudaApi.CaptureModeThreadLocal), "cuStreamBeginCapture");
+        _previousOneWave = false;   // the graph's first kernel follows whatever the stream ran before it
         nint graph = 0;
         try
         {
@@ -625,6 +626,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private double Run(ReadOnlySpan<CudaRecordedLaunch> launches)
     {
         CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
+        _previousOneWave = false;   // copies may precede the first kernel: it is never a dependent
         foreach (var launch in launches)
         {
             Launch(launch);
