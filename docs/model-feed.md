@@ -194,8 +194,8 @@ feedtool keygen   --out keys/root                                     # root.key
 feedtool keygen   --out keys/feed
 feedtool keyset   --feed out/ --root-key keys/root.key.json --feed-key keys/feed.pub.json [--revoke <kid>] [--version 2]
 feedtool plan     [--feed out/]                                       # variants without a package for their pinned revision
-feedtool build    --entry qwen3-0.6b [--variant q8-0-gguf] --out staging/ [--feed out/] [--store <model store>]
-feedtool publish  staging/<id>-<version> ... --feed out/ --key keys/feed.key.json --channel unstable [--validity-days 30]
+feedtool build    --entry qwen3-0.6b [--variant q8-0-gguf] (--out staging/ | --work-dir work/) [--feed out/] [--store <model store>] [--keep-store]
+feedtool publish  staging/<id>-<version> ... --feed out/ --key keys/feed.key.json --channel unstable [--validity-days 30] [--move]
 feedtool promote  <id>[@<version>] ... --feed out/ --key keys/feed.key.json [--to stable] [--from unstable]   # no file copies
 feedtool yank|deprecate|unlist <id> <version> --feed out/ --key keys/feed.key.json --channel <channel> --reason ...
 feedtool reindex  --feed out/ --key keys/feed.key.json --channel <channel>   # new sequence and expiry, no content change
@@ -215,8 +215,14 @@ feedtool mirror   --feed <url|folder> --channel stable [--root ...] --out bundle
   `manifest.json` and `reuse.json` (`{"version","file"}` of the earlier version), `publish` checks size and hashes against the earlier
   manifest and, on object storage, the workflow copies the earlier object server-side; an identical file with identical metadata is
   not built again. `promote <id>` then promotes the new latest version.
+- `build --work-dir` keeps the store (`<work-dir>/store`) and the staging root (`<work-dir>/staging`) on one volume. Unless
+  `--keep-store` is given (or the model was in the store before), the converted package is moved, not copied, into the staging folder
+  and the model's store folder is removed after each entry, so a build needs disk for one entry's sources plus its package. When the
+  feed already stores the exact package, the staging folder holds only the stored manifest: publishing it lists the version in a
+  channel that misses it (a run interrupted after the package objects were stored) and reports it unchanged otherwise.
 - `publish` signs each manifest and the new index; published versions are immutable (publishing other content under an existing
-  version fails). `keyset` needs the root key, nothing else does.
+  version fails). `--move` moves the package files into the feed folder instead of copying them. `keyset` needs the root key,
+  nothing else does.
 - The output folder is uploaded as is (package objects before `index.json`).
 
 ## Publishing the official feed
@@ -243,15 +249,35 @@ published to `unstable`. `promote` lists package versions (`id@version`, or `id`
 `channel`, which is `stable` (promotions go from unstable to stable). With neither, the run only re-signs. Manual dispatch (inputs
 `entries`, `promote`, `validity_days`) and the schedule work once the workflow is on the default branch. A run:
 
-1. Fetches the published listings (no package files), writes a key set if the bucket has none.
-2. Builds the requested catalog entries (`entry` or `entry:variant`; default: the first feed: Qwen3 0.6B Q8_0, all-MiniLM-L6-v2,
-   ms-marco-MiniLM-L6-v2, Whisper tiny q5_1, Silero VAD v5); versions are chosen against the published feed, an identical package
-   is not built again; a changed catalog kind, license or description republishes as the next patch version.
-3. Publishes the builds into `unstable`, promotes the listed versions into `stable`, re-signs both channels' indexes (so every run
-   refreshes both expiries), and verifies both channels against the official public key.
-4. Uploads new package versions first to `models/packages/` (`Cache-Control: public, max-age=31536000, immutable`; an existing
-   object is never replaced), then per channel (`models/unstable/`, then `models/stable/`) the package indexes, catalog pages,
-   `catalog/index.json`, `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
+A run has three jobs, one publication at a time (concurrency group `model-feed`, never cancelled halfway):
+
+1. **plan** (ubuntu-latest, no secrets): reads the request, and `tools/model-feed/split-request.py` splits the entries by the size of
+   their pinned files in the catalog (variant plus companions): above the repository variable `MODEL_FEED_LARGE_BYTES` (default
+   6 GB: the hosted runner has about 14 GB free and a build needs the sources plus the package, about twice that) or listed in
+   `MODEL_FEED_LARGE_ENTRIES` (entry, entry:variant or package ids), an entry is large. Promotions of packages that the large pass
+   builds go with it.
+2. **small** (ubuntu-latest) and then **large** (the self-hosted runner, see "Self-hosted feed runner"), both
+   `.github/workflows/model-feed-publish.yml` in the `studio-release` environment (the only place the signing key and R2 secrets
+   come from). Each pass:
+   1. fetches the published listings (no package files), writes a key set if the bucket has none;
+   2. per entry: builds it (`entry` or `entry:variant`; versions are chosen against the published feed, an identical package is not
+      built again, a changed catalog kind, license or description republishes as the next patch version), publishes it into
+      `unstable` in the local feed folder (the file is moved), uploads its objects to `models/packages/<id>/<version>/` (the package
+      file first, then `manifest.json` and `manifest.sig`; `Cache-Control: public, max-age=31536000, immutable`;
+      `tools/model-feed/upload-package.sh`) and deletes the local package file. An object that exists with the same content (package
+      files carry their SHA-256 as object metadata `sha256`) is kept, so a rerun after an interruption resumes; one with other content
+      fails the run (published objects are never replaced). A multipart upload becomes an object only when complete;
+   3. promotes the listed versions into `stable`, re-signs both channels' indexes (so every run refreshes both expiries) and verifies
+      both channels against the official public key;
+   4. uploads per channel (`models/unstable/`, then `models/stable/`) the package indexes, catalog pages, `catalog/index.json`,
+      `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
+
+   The large pass runs only after the small one succeeded, for a push or a dispatch on develop, when the repository variable
+   `MODEL_FEED_SELF_HOSTED` is `true`; when the optional secret `MODEL_FEED_RUNNER_TOKEN` (a token that may list runners: fine-grained
+   "Administration: read" on the repository, or "Self-hosted runners: read" on the organization for an organization runner) is set,
+   the plan also checks that a runner labelled `sharplight-feed` is online. Otherwise the large entries (and their promotions) are
+   skipped with a warning and the small ones publish as usual. Without the token, an enabled but offline runner leaves the large pass
+   queued (GitHub cancels it after 24 hours); the small pass is published before it either way.
 
 The first publication (`tools/model-feed/publish-request.json` as committed) builds the five first-feed packages into unstable and
 promotes all of them, so both channels list the same five packages.
@@ -294,3 +320,61 @@ Rotation without downtime:
 A separate offline root (TUF-style) is supported by the format: write the key set with `feedtool keyset --root-key <offline root>
 --feed-key <feed public key>` and upload it to `models/keys/`; the workflow then only signs with the feed key, and hosts trust the
 root (set the repository variable `MODEL_FEED_ROOT_PUBLIC_KEY` to the root's public key PEM so the workflow verifies against it).
+
+## Self-hosted feed runner
+
+Packages above about 6 GB (the large catalog variants are 18 to 111 GB) do not fit the disk of a GitHub-hosted runner, so the
+workflow's large pass runs on a self-hosted runner with the labels `self-hosted` and `sharplight-feed` (registered with
+`self-hosted, linux, x64, sharplight-feed`).
+
+**What a build needs** (measured with `feedtool build --work-dir`, 2026-11-20; times include the Hub download on a fast link):
+
+| Package | Sources | Package | Peak disk | Peak RAM (anonymous) | Time |
+|---|---|---|---|---|---|
+| Qwen3 0.6B Q8_0 GGUF | 0.64 GB | 0.65 GB | 0.6 GiB | 89 MiB | 8 s |
+| Qwen3.5 9B Q4_K_M GGUF | 5.7 GB | 6.6 GB | 12.3 GiB | 91 MiB | 29 s |
+| Qwen3.5 4B BF16 safetensors | 9.3 GB | 9.4 GB | 17.4 GiB | 159 MiB | 91 s |
+| gpt-oss-20b MXFP4 GGUF | 12.1 GB | 12.1 GB | 22.6 GiB | 116 MiB | 57 s |
+| gpt-oss-20b MXFP4 safetensors (repacked weights) | 13.8 GB | 13.8 GB | 25.0 GiB | 2.4 GiB | 119 s |
+
+- Disk: the sources plus the package, about twice the package (the sources are deleted after conversion; the package is moved, not
+  copied, into staging and into the feed folder, and deleted after its upload). The feed listings without package files are a few
+  MB. Extrapolated: 18 GB → about 37 GB, 63 GB (gpt-oss-120b) → about 127 GB, 111 GB → about 225 GB. Give the work directory at least
+  twice the largest package; about 250 GB of working space covers the current catalog.
+- RAM: GGUF and plain safetensors are memory-mapped and streamed into the package (the file-backed resident memory is page cache, which
+  the kernel reclaims). Weights the importer derives (repacked, dequantized or fused, e.g. MXFP4 safetensors) are produced one at a
+  time and released after they are written, so the peak is the largest derived weight plus a little: 16 GB of RAM is enough.
+- Time: the download (the Hub link), conversion at a few seconds per GB, two SHA-256 passes over the package (build and publish) and
+  the upload to R2 (the uplink; multipart with 128 MB parts, 8 in parallel). A 111 GB package takes tens of minutes on a fast link and
+  some hours on a slow uplink; the large pass has a 24-hour job timeout.
+- No GPU: the build converts and opens the package with the package reader only (no weights are loaded, `verification.packageCheck`
+  is `{ "loaded": true }` from that check), and the job hides GPUs (`CUDA_VISIBLE_DEVICES` empty), so a GPU shared with other work is
+  not touched. A load check on a device is not part of the feed build.
+
+**Installing a runner** (once per machine, by the owner; `tools/model-feed/runner/setup-runner.sh` does all of it):
+
+1. Get a registration token: the repository's (or, for an organization runner, the organization's) Settings → Actions → Runners →
+   New self-hosted runner. It expires after an hour. Agents and CI never fetch or create tokens.
+2. On the machine, as root: `RUNNER_URL=https://github.com/<organization or owner/repository> RUNNER_TOKEN=<token>
+   tools/model-feed/runner/setup-runner.sh --user ghrunner --feed-work /home/ghrunner/feed-work`. It creates the non-root user (no
+   sudo), installs jq, git, curl, python3, unzip and the AWS CLI v2, registers the runner with the labels above and installs it as a
+   systemd service under that user. .NET is installed by `actions/setup-dotnet` in each job into the runner's tool cache (no root).
+3. On GitHub: for an organization runner, allow this public repository in the runner group (Organization settings → Actions →
+   Runner groups → the group → Repository access; public repositories must be allowed explicitly) and, where the plan offers it,
+   restrict the group to the workflow `model-feed.yml` on `refs/heads/develop`. Then set the repository variables
+   `MODEL_FEED_SELF_HOSTED=true` and `MODEL_FEED_WORK_DIR=/home/ghrunner/feed-work` (default: next to the job's workspace), and
+   optionally the secret `MODEL_FEED_RUNNER_TOKEN` for the online check.
+
+**Security.** The repository is public: a self-hosted runner must only run trusted workflows of trusted branches, never code from pull
+requests.
+
+- `model-feed.yml` has no `pull_request` trigger; the large job runs only for `push` and `workflow_dispatch` on develop, in the
+  `studio-release` environment (which admits only develop and release/*, and holds the signing key and R2 credentials).
+- `setup-runner.sh` installs a job-started hook (`ACTIONS_RUNNER_HOOK_JOB_STARTED`) that fails every job on the machine whose event is
+  not `push` or `workflow_dispatch`, whose ref is not `refs/heads/develop`, or whose workflow is not `model-feed.yml` of the
+  repository, so a workflow added in a fork's pull request cannot run there even if it names the labels. A runner registered by hand
+  should get the same hook (copy `feed-job-guard.sh` and the `.env` line from the script).
+- Keep "Require approval for all outside collaborators" for fork pull request workflows in the repository's Actions settings, and do
+  not give the runner user sudo, cloud credentials or other secrets: the job receives its secrets from the environment only.
+- The runner is not ephemeral: the work directory keeps the model store (so an interrupted download resumes) but nothing secret;
+  the signing key is written to the job's temporary directory and removed at the end of every job.

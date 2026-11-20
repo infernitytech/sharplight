@@ -37,4 +37,12 @@ public interface IWeightSource
     public void Materialize()
     {
     }
+
+    /// <summary>
+    /// Drops data this source computed lazily (default: nothing to do); a later <see cref="Read"/> computes it again. Writers that
+    /// stream weights into a package call it after copying a weight, so a conversion holds one derived weight at a time.
+    /// </summary>
+    public void Release()
+    {
+    }
 }

@@ -21,6 +21,9 @@ internal sealed class HfColumnGroupPermutationSource(IWeightSource source, long 
     public void Materialize() => source.Materialize();
 
     /// <inheritdoc/>
+    public void Release() => source.Release();
+
+    /// <inheritdoc/>
     public void Read(long offset, Span<byte> destination)
     {
         if (offset < 0 || offset + destination.Length > ByteLength)
