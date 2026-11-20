@@ -27,6 +27,7 @@ internal sealed class KvBlockCache
     private readonly bool[] _snapSpeculative;
     private readonly bool[] _snapReserved;   // rows a step stores a state into before it is published (ReserveSnapshot)
     private readonly Dictionary<UInt128, int> _snapByKey = [];
+    private readonly KvWindowBlocks? _window;
     private long _tick;
 
     /// <param name="slots">Slots (rows of the block table).</param>
@@ -40,9 +41,14 @@ internal sealed class KvBlockCache
     /// Copies KV cache rows (first source row, first destination row, rows) of every paged cache; false when the device cannot. Needed
     /// to fork a slot (<see cref="Fork"/>): a block that two slots share and one of them writes into is copied first (copy-on-write).
     /// </param>
+    /// <param name="window">
+    /// The window-sized caches' blocks (<see cref="KvWindowBlocks"/>), managed alongside the main blocks: a slot attaches, shares, forks
+    /// and truncates only where its window blocks are held or cached too; null when every cache has a row per position of the pool.
+    /// </param>
     public KvBlockCache(int slots, int blockSize, int blocks, int blocksPerSlot, bool recurrent = false, int snapshotCapacity = 0, Func<int, int, bool>? copyState = null,
-        Func<int, int, int, bool>? copyKv = null)
+        Func<int, int, int, bool>? copyKv = null, KvWindowBlocks? window = null)
     {
+        _window = window;
         ArgumentOutOfRangeException.ThrowIfLessThan(blockSize, 1);
         BlockSize = blockSize;
         SlotCount = slots;
@@ -83,6 +89,8 @@ internal sealed class KvBlockCache
     public bool CachesBlocks => !_recurrent || SnapshotCapacity > 0;
     /// <summary>The block table [slots, blocks per slot] (-1 = unused).</summary>
     public int[] Table => _table;
+    /// <summary>The window-sized caches' blocks, or null.</summary>
+    public KvWindowBlocks? Window => _window;
     /// <summary>Set when <see cref="Table"/> changed; the owner clears it after uploading.</summary>
     public bool TableDirty { get; set; }
 
@@ -100,7 +108,7 @@ internal sealed class KvBlockCache
         => Math.Max(0, BlocksFor((long)length + tokens) - _blocks[slot].Count) + (tokens > 0 && SharesTail(slot, length) ? 1 : 0);
 
     /// <summary>Whether <see cref="Fork"/> works: the device copies KV rows (and recurrent state, for a recurrent model).</summary>
-    public bool CanFork => _copyKv is not null && (!_recurrent || _copyState is not null);
+    public bool CanFork => _copyKv is not null && (!_recurrent || _copyState is not null) && _window is not { CanCopy: false };
 
     /// <summary>
     /// Makes the empty <paramref name="slot"/> continue <paramref name="source"/>'s context: it shares all of the source's blocks,
@@ -123,6 +131,7 @@ internal sealed class KvBlockCache
             _table[slot * _blocksPerSlot + j] = from[j];
         }
 
+        _window?.Share(slot, source, from.Count);
         TableDirty = true;
         return true;
     }
@@ -135,6 +144,11 @@ internal sealed class KvBlockCache
     /// <exception cref="InvalidOperationException">The pool has no free block.</exception>
     public bool Unshare(int slot, int length)
     {
+        if (_window is not null && !_window.Unshare(slot, length))
+        {
+            return false;
+        }
+
         if (!SharesTail(slot, length))
         {
             return true;
@@ -189,7 +203,12 @@ internal sealed class KvBlockCache
             _table[slot * _blocksPerSlot + j] = b;
             TableDirty = true;
         }
+
+        _window?.Grow(slot, tokens);
     }
+
+    /// <summary>Returns the window blocks a slot of <paramref name="length"/> tokens no longer reaches (no-op without window-sized caches).</summary>
+    public void Trim(int slot, long length) => _window?.Trim(slot, length);
 
     /// <summary>Releases the slot's blocks from index <paramref name="keep"/> on, the last first (tails are evicted before prefixes).</summary>
     public void Release(int slot, int keep)
@@ -202,6 +221,8 @@ internal sealed class KvBlockCache
             list.RemoveAt(j);
             TableDirty = true;
         }
+
+        _window?.Release(slot, keep);
     }
 
     /// <summary>
@@ -222,13 +243,28 @@ internal sealed class KvBlockCache
             }
         }
 
+        if (_window is not null && length > 0 && !_window.Holds(slot, length))
+        {
+            // The window blocks before the cut are gone: the slot starts over.
+            keep = 0;
+            length = 0;
+        }
+
         Release(slot, keep);
         return length;
     }
 
-    /// <summary>Maps the first <paramref name="blocks"/> blocks of <paramref name="source"/> into the empty <paramref name="slot"/>.</summary>
-    public void Share(int slot, int source, int blocks)
+    /// <summary>
+    /// Maps the first <paramref name="blocks"/> blocks of <paramref name="source"/> into the empty <paramref name="slot"/>, or fewer when
+    /// the source no longer holds the window blocks after them; returns the blocks shared.
+    /// </summary>
+    public int Share(int slot, int source, int blocks)
     {
+        while (blocks > 0 && _window is not null && !_window.CanShare(source, blocks))
+        {
+            blocks--;
+        }
+
         var from = _blocks[source];
         for (int j = 0; j < blocks; j++)
         {
@@ -237,6 +273,9 @@ internal sealed class KvBlockCache
             _table[slot * _blocksPerSlot + j] = from[j];
             TableDirty = true;
         }
+
+        _window?.Share(slot, source, blocks);
+        return blocks;
     }
 
     /// <summary>
@@ -244,7 +283,13 @@ internal sealed class KvBlockCache
     /// start, for a recurrent model cut back to the last boundary with a state snapshot. <paramref name="inUse"/>: those blocks held by
     /// other slots (attaching them takes no free block).
     /// </summary>
-    public int Find(ReadOnlySpan<UInt128> hashes, out int inUse)
+    public int Find(ReadOnlySpan<UInt128> hashes, out int inUse) => Find(hashes, out inUse, -1, 0);
+
+    /// <summary>
+    /// <see cref="Find(ReadOnlySpan{UInt128}, out int)"/> for <paramref name="slot"/>, whose first <paramref name="start"/> blocks precede
+    /// <paramref name="hashes"/> (with window-sized caches the slot's own window blocks before them count; slot -1 assumes them held).
+    /// </summary>
+    private int Find(ReadOnlySpan<UInt128> hashes, out int inUse, int slot, int start)
     {
         inUse = 0;
         if (!CachesBlocks)
@@ -262,7 +307,7 @@ internal sealed class KvBlockCache
 
             run++;
             held += _pool.RefCount(b) > 0 ? 1 : 0;
-            if (!_recurrent || _snapByKey.ContainsKey(h))
+            if ((!_recurrent || _snapByKey.ContainsKey(h)) && (_window is null || _window.Reaches(slot, start, hashes, run)))
             {
                 best = run;
                 bestHeld = held;
@@ -286,7 +331,8 @@ internal sealed class KvBlockCache
             throw new InvalidOperationException($"Slot {slot} must hold whole blocks to attach cached ones ({length} tokens, {list.Count} blocks).");
         }
 
-        int n = Find(hashes, out _);
+        int start = list.Count;
+        int n = Find(hashes, out _, slot, start);
         if (n == 0 || list.Count + n > _blocksPerSlot)
         {
             return 0;
@@ -305,6 +351,7 @@ internal sealed class KvBlockCache
             list.Add(b);
         }
 
+        _window?.Attach(slot, start, hashes, n);
         TableDirty = true;
         return n;
     }
@@ -317,6 +364,8 @@ internal sealed class KvBlockCache
         {
             _pool.Publish(list[first + j], hashes[j]);
         }
+
+        _window?.Publish(slot, first, hashes);
     }
 
     /// <summary>Whether a snapshot of recurrent state exists for the block boundary <paramref name="hash"/>.</summary>

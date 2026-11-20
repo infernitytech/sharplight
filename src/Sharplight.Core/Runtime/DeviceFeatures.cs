@@ -146,8 +146,15 @@ public static class DeviceFeatures
     /// </summary>
     public const string PagedKv = "paged_kv";
 
+    /// <summary>
+    /// Window-sized KV caches with the paged cache: caches that only sliding-window attention reads keep the blocks a slot's window still
+    /// reaches, in a pool of their own (<see cref="Graph.MultiSequence.WindowedCaches"/>). Disabling it gives them a row per position of the
+    /// pool like every other cache. Not part of <see cref="DeviceInfo.Features"/> (it does not change generated code).
+    /// </summary>
+    public const string WindowKv = "window_kv";
+
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeAttention, TensorCopies, LaunchGraphs, DependentLaunches];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeAttention, TensorCopies, LaunchGraphs, DependentLaunches];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

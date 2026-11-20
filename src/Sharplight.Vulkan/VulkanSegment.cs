@@ -58,8 +58,71 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private readonly VkQueryPool _stepPool;
     private bool _disposed;
 
-    /// <summary>GPU time (first to last command) of the most recent non-profiled <see cref="Execute(RunParameters)"/>, in ms.</summary>
-    public double LastGpuMs { get; private set; }
+    /// <summary>GPU time (first to last command) of the most recent non-profiled <see cref="Execute(RunParameters)"/>, in ms (waits for it).</summary>
+    public double LastGpuMs
+    {
+        get
+        {
+            WaitForCompletion();
+            return _lastGpuMs;
+        }
+        private set => _lastGpuMs = value;
+    }
+
+    private double _lastGpuMs;
+    /// <summary>Whether a submitted execution has not been waited for yet (<see cref="WaitForCompletion"/>).</summary>
+    private volatile bool _pending;
+    private readonly object _completion = new();
+    private SegmentRunTimings _lastRunTimings;
+    private SegmentRunTimings _pendingTimings;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// True unless executions are profiled or split by a submission budget: an execution returns once its command buffers are submitted,
+    /// and the segment waits for its fence before it reads an output, takes an input or runs again.
+    /// </remarks>
+    public bool ExecutesAsynchronously => !Profile && _dev.SubmissionBudgetMs <= 0 && _program.ProducedSymbols.Count == 0;
+
+    /// <inheritdoc />
+    /// <remarks>Waits for the execution.</remarks>
+    public SegmentRunTimings LastRunTimings
+    {
+        get
+        {
+            WaitForCompletion();
+            return _lastRunTimings;
+        }
+    }
+
+    /// <summary>Waits for the submitted execution, if any, and reads its timestamps. Thread-safe.</summary>
+    private void WaitForCompletion()
+    {
+        if (!_pending)
+        {
+            return;
+        }
+
+        lock (_completion)
+        {
+            if (!_pending)
+            {
+                return;
+            }
+
+            long start = Stopwatch.GetTimestamp();
+            var fence = _fence;
+            _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
+            double waitMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            ulong* ts = stackalloc ulong[2];
+            if (_dev.Timestamps && _dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
+            {
+                _lastGpuMs = (ts[1] - ts[0]) * _dev.Phys.TimestampPeriod * 1e-6;
+            }
+
+            _lastRunTimings = _pendingTimings with { GpuMs = _lastGpuMs, WaitMs = waitMs };
+            _pending = false;
+        }
+    }
 
     /// <inheritdoc />
     public GraphSegment Segment { get; }
@@ -286,6 +349,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         _dev.ThrowIfDisposed();
+        WaitForCompletion();
         var a = _staging[r.Buffer];
         if ((ulong)data.Length > a.Size - (ulong)r.ByteOffset)
         {
@@ -327,6 +391,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     public void GetOutput(Value value, long byteOffset, Span<byte> destination)
     {
         _dev.ThrowIfDisposed();
+        WaitForCompletion();
         var r = _program.OutputRefs[value];
         var a = _staging[r.Buffer];
         byte* source = a.Mapped + r.ByteOffset + byteOffset;
@@ -378,6 +443,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
     {
         _dev.ThrowIfDisposed();
+        WaitForCompletion();
         var rt = _staging[_program.RuntimeBuffer];
         var slots = new Span<uint>(rt.Mapped, 64);
         foreach (var (name, slot) in _program.ScalarSlots)
@@ -434,7 +500,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             ExecuteBudgeted(key, bindings, skipDownloads);
             return;
         }
+        long recordStart = Stopwatch.GetTimestamp();
+        bool recorded = !_recorded.ContainsKey(key);
         var cbs = Recording(key, bindings, skipDownloads);
+        double recordMs = recorded ? Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds : 0;
+        long submitStart = Stopwatch.GetTimestamp();
         _lastUse[key] = ++_useClock;
         var fence = _fence;
         _dev.Api.vkResetFences(1, &fence).CheckResult();
@@ -447,11 +517,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             _dev.Submit(cbs, fence);
         }
 
-        _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
-        ulong* ts = stackalloc ulong[2];
-        if (_dev.Timestamps && _dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
+        _pendingTimings = new SegmentRunTimings(0, recordMs, Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds, 0, recorded, true);
+        _pending = true;
+        if (_program.ProducedSymbols.Count > 0)
         {
-            LastGpuMs = (ts[1] - ts[0]) * _dev.Phys.TimestampPeriod * 1e-6;
+            WaitForCompletion();   // the counts are read back now
         }
     }
 
@@ -871,7 +941,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     }
 
     /// <inheritdoc />
-    public void ResetState() => RunLaunches(_program.ResetLaunches);
+    public void ResetState()
+    {
+        WaitForCompletion();
+        RunLaunches(_program.ResetLaunches);
+    }
 
     /// <inheritdoc/>
     public bool CanCopyStateRows => true;
@@ -880,6 +954,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
     {
         _dev.ThrowIfDisposed();
+        WaitForCompletion();
         var regions = StateRowCopies.Regions(_program, _borrowedStates, states, from, to, count, b => (long)_alloc[b].Size);
         if (regions.Count == 0)
         {
@@ -1159,6 +1234,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         if (_disposed)
         {
             return;
+        }
+
+        if (!_dev.IsDisposed)
+        {
+            WaitForCompletion();
         }
 
         _disposed = true;
