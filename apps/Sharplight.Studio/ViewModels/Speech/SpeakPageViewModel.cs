@@ -141,6 +141,8 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
 
     private void ApplyTraits(SpeechModelTraits traits, IReadOnlyList<string> voices)
     {
+        // A model with another default guidance than the one before resets the guidance to its own (the user's value stays while the model does).
+        bool newGuidance = traits.DiffusionOptions && (Traits is not { DiffusionOptions: true } previous || previous.DefaultGuidance != traits.DefaultGuidance);
         Traits = traits;
         _builtInVoices = voices;
         Panel.SetVisible("diffsteps", traits.DiffusionOptions);
@@ -148,6 +150,11 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
         Panel.SetVisible("language", traits.Languages.Count > 0);
         Panel.SetVisible("design", traits.VoiceDesign);
         Panel.SetVisible("instructions", !traits.VoiceDesign);
+        if (newGuidance)
+        {
+            Panel.Parameters.OfType<NumberParameterViewModel>().First(candidate => candidate.Key == "guidance").Value = traits.DefaultGuidance;
+        }
+
         var language = Panel.Parameters.OfType<ChoiceParameterViewModel>().First(candidate => candidate.Key == "language");
         language.SetChoices(traits.Languages.Count == 0
             ? [new ParameterChoice("", "Automatic")]
@@ -779,12 +786,12 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
             new NumberParameterViewModel("topp", "Top-p", "Sample from the smallest set of tokens with this probability.", 0.1, 1, 0.05, 0.9),
             new NumberParameterViewModel("repetition", "Repetition penalty", "Above 1 discourages repeating audio tokens.", 1, 1.5, 0.05, 1.1),
             new ChoiceParameterViewModel("language", "Language", "The language of the text, for models that take one (OmniVoice speaks more than 600).", [new("", "Automatic")]),
-            new NumberParameterViewModel("diffsteps", "Diffusion steps", "Denoising steps per audio frame of models with a diffusion head (VibeVoice): more steps cost more time.", 1, 50, 1, 10),
-            new NumberParameterViewModel("guidance", "Guidance", "Classifier-free guidance of models with a diffusion head (VibeVoice); 1 turns it off.", 1, 5, 0.1, 1.3),
+            new NumberParameterViewModel("diffsteps", "Diffusion steps", "Denoising steps per audio frame of models with a diffusion head (VibeVoice, VoxCPM2): more steps cost more time.", 1, 50, 1, 10),
+            new NumberParameterViewModel("guidance", "Guidance", "Classifier-free guidance of models with a diffusion head (VibeVoice 1.3, VoxCPM2 2.0 by default); 1 turns it off.", 1, 5, 0.1, 1.3),
             new TextParameterViewModel("seed", "Seed", "A whole number for repeatable output; empty is random.", "Random"),
-            new TextParameterViewModel("reference", "Reference recording", "A WAV file of the voice to speak with (CosyVoice 3, F5-TTS, Chatterbox, XTTS, OmniVoice).", "Path to a .wav file"),
-            new TextParameterViewModel("referencetext", "Reference text", "The words spoken in the reference recording (CosyVoice 3 zero-shot, F5-TTS; OmniVoice needs them).", "Optional"),
-            new TextParameterViewModel("design", "Voice design", "Describes the voice to make instead of cloning one, e.g. \"female, young adult, british accent\" (OmniVoice); a reference recording or a saved voice replaces it.", "e.g. female, low pitch, british accent"),
+            new TextParameterViewModel("reference", "Reference recording", "A WAV file of the voice to speak with (CosyVoice 3, F5-TTS, Chatterbox, XTTS, OmniVoice, VoxCPM2).", "Path to a .wav file"),
+            new TextParameterViewModel("referencetext", "Reference text", "The words spoken in the reference recording (CosyVoice 3 zero-shot, F5-TTS; OmniVoice needs them; VoxCPM2 then also continues the recording).", "Optional"),
+            new TextParameterViewModel("design", "Voice design", "Describes the voice to make instead of cloning one, e.g. \"female, young adult, british accent\" (OmniVoice: a reference recording or a saved voice replaces it; VoxCPM2: with a reference recording it steers the style, e.g. \"slightly faster, cheerful tone\").", "e.g. female, low pitch, british accent"),
             new TextParameterViewModel("instructions", "Instructions", "How to speak, e.g. \"Please speak as fast as possible.\" (CosyVoice 3); the voice to design, e.g. \"female, british accent\" (OmniVoice).", "Optional"),
             new BoolParameterViewModel("stream", "Play while generating", "Speak chunk by chunk as the model generates them, for a short wait before the first sound (CosyVoice 3 and XTTS stream within a sentence, Chatterbox per clause)."),
         ];

@@ -190,7 +190,7 @@ public static class AudioApi
 
         using (lease)
         {
-            var options = new SpeechSynthesisOptions { Voice = body.Str("voice"), Speed = body.Float("speed") ?? 1f };
+            var options = new SpeechSynthesisOptions { Voice = body.Str("voice"), Speed = body.Float("speed") ?? 1f, Instructions = body.Str("instructions") is { Length: > 0 } instructions ? instructions : null };
             if (format == "pcm")
             {
                 http.Response.ContentType = "audio/L16; rate=" + synthesizer.SampleRate.ToString(CultureInfo.InvariantCulture) + "; channels=1";

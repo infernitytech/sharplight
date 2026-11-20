@@ -52,6 +52,10 @@ public sealed class InferenceSession : IDisposable
     public int VocabSize { get; }
     /// <summary>Capacity of the context in rows (prompt plus generated tokens).</summary>
     public int ContextLength { get; }
+    /// <summary>
+    /// The most rows one forward pass takes: longer prompts run in several passes, and <see cref="LastHidden"/> then holds the last pass's rows only.
+    /// </summary>
+    public int MaxBatchTokens => _maxTokens;
     /// <summary>Number of rows already in the context (cache positions; image rows count individually).</summary>
     public int Position { get; private set; }
     /// <summary>

@@ -91,13 +91,14 @@ public sealed class HostModelApiTests : IAsyncLifetime
     public async Task SpeaksAsWavAndAsStreamedPcm()
     {
         Add("tts", ModelKind.Task, () => new FakeTaskLoaded(_synthesizer));
-        using var wav = await Json("/v1/audio/speech", """{"model":"tts","input":"one two three","voice":"echo"}""");
+        using var wav = await Json("/v1/audio/speech", """{"model":"tts","input":"one two three","voice":"echo","instructions":"a calm voice"}""");
         Assert.Equal(HttpStatusCode.OK, wav.StatusCode);
         Assert.Equal("audio/wav", wav.Content.Headers.ContentType!.MediaType);
         var decoded = WavFile.Read(new MemoryStream(await wav.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken)));
         Assert.Equal(8000, decoded.SampleRate);
         Assert.Equal(300, decoded.FrameCount);
         Assert.Equal("echo", _synthesizer.LastOptions!.Voice);
+        Assert.Equal("a calm voice", _synthesizer.LastOptions.Instructions);
 
         using var pcm = await Json("/v1/audio/speech", """{"model":"tts","input":"one two","response_format":"pcm"}""");
         var bytes = await pcm.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);

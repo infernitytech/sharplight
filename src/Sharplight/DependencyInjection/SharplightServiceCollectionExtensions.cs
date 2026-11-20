@@ -51,6 +51,7 @@ public static class SharplightServiceCollectionExtensions
                 .AddAceStepImporter()
                 .AddStableAudioImporter()
                 .AddChatterboxImporter()
+                .AddVoxCpmImporter()
                 .AddF5TtsImporter()
                 .AddXttsImporter()
                 .AddCosyVoiceImporter()

@@ -322,6 +322,7 @@ public sealed class AudioModelsPageTests
     [InlineData("VibeVoice-ASR-HF", """{"model_type":"vibevoice_asr","architectures":["VibeVoiceAsrForConditionalGeneration"]}""", ModelKinds.TextGeneration)]
     [InlineData("csm-1b", """{"model_type":"csm","architectures":["CsmForConditionalGeneration"]}""", ModelKinds.SpeechSynthesis)]
     [InlineData("OmniVoice", """{"model_type":"omnivoice"}""", ModelKinds.SpeechSynthesis)]
+    [InlineData("VoxCPM2", """{"architecture":"voxcpm2","lm_config":{"hidden_size":2048},"patch_size":4}""", ModelKinds.SpeechSynthesis)]
     [InlineData("Dia-1.6B-0626", """{"model_type":"dia","architectures":["DiaForConditionalGeneration"]}""", ModelKinds.SpeechSynthesis)]
     [InlineData("Dia-1.6B", """{"data":{"channels":9,"delay_pattern":[0,8,9,10,11,12,13,14,15]},"model":{"decoder":{"n_layer":18},"encoder":{"n_layer":12}},"version":"0.1"}""", ModelKinds.SpeechSynthesis)]
     public void Inspector_RecognizesTheNewSpeechFolders_ByTheirConfiguration(string folder, string config, string kind)
@@ -469,6 +470,33 @@ public sealed class AudioModelsPageTests
         Assert.Equal(["Hello.", "Hi, you."], client.Requests.Select(request => request.Text));
         Assert.Equal(["1", "1"], client.Requests.Select(request => request.Options!.Voice));
         Assert.Contains("audio", page.Gallery.Items.Single().Facts.Select(fact => fact.Split(':')[0]));
+    }
+
+    [Fact]
+    public async Task Speak_VoxCpm2_OffersDiffusionOptionsWithItsGuidanceAndAVoiceDesignBox()
+    {
+        using var services = new TestServices();
+        var client = new FakeSynthesizer("voxcpm2");
+        Synthesizer(services, "voxcpm2", client);
+        var page = new SpeakPageViewModel(services.Services, new FakeNavigator());
+        await page.ActivateAsync();
+        await WaitFor(() => Visible(page.Panel, "diffsteps"));
+
+        Assert.True(Visible(page.Panel, "guidance"));
+        Assert.True(Visible(page.Panel, "design"));
+        Assert.False(Visible(page.Panel, "instructions"));
+        Assert.False(page.IsMultiSpeaker);
+        Assert.Equal(2.0, page.Panel.Parameters.OfType<NumberParameterViewModel>().First(parameter => parameter.Key == "guidance").Value);
+
+        page.Panel.Parameters.OfType<TextParameterViewModel>().First(parameter => parameter.Key == "design").Deserialize("a young woman, gentle voice");
+        page.InputText = "Hello.";
+        page.RunCommand.Execute(null);
+        await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
+
+        var (_, options, _) = Assert.Single(client.Requests);
+        Assert.Equal("a young woman, gentle voice", options!.Instructions);
+        Assert.Equal(2f, options.GuidanceScale);
+        Assert.Equal(10, options.DiffusionSteps);
     }
 
     [Fact]

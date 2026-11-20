@@ -71,6 +71,12 @@ internal static class TtsModels
     /// <summary>Reference sequences, logits and audio of transformers' Dia (raw arrays, see <c>DiaTests</c>); <c>dia-a</c> without and <c>dia-b</c> with an audio prompt.</summary>
     public static string DiaReference => Path.Combine(s_root, "dia-ref");
 
+    /// <summary>VoxCPM2 (OpenBMB's checkpoint directory: <c>model.safetensors</c>, <c>audiovae.pth</c>, <c>tokenizer.json</c>).</summary>
+    public static string VoxCpm2 => Path.Combine(s_root, "VoxCPM2");
+
+    /// <summary>Reference prompts, states, patches and audio of the official voxcpm package (raw arrays, see <c>VoxCpm2Tests</c>).</summary>
+    public static string VoxCpm2Reference => Path.Combine(s_root, "voxcpm2-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
