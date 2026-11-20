@@ -32,6 +32,16 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private readonly Dictionary<string, CudaRecordedLaunch[]> _recorded = [];
     /// <summary>Executions of each recording so far, and its instantiated CUDA graph once it has repeated (see <see cref="RunStep"/>).</summary>
     private readonly Dictionary<string, (int Runs, nint Graph, nint Exec)> _graphs = [];
+
+    /// <summary>
+    /// True when the stream's previous launch was a kernel whose grid the GPU holds at once (one wave). A kernel is launched as the
+    /// programmatic dependent of the previous one only when both fit in one wave: a dependent's waiting blocks take SM slots that a
+    /// kernel with further waves would need, and a multi-wave dependent's early blocks are placed while the previous kernel still
+    /// holds the SMs (RTX PRO 4500 decode steps at 1 / 16 / 64 sequences, mean of two runs, benchmarks.md §58.3: every kernel early:
+    /// Qwen3-8B-FP8 -0.3 / +1.5 / +1.9 %, gpt-oss-20b -1.5 / -1.2 / -0.9 %; after one-wave kernels: -0.2 / -1.0 / +0.9 % and
+    /// -1.1 / +0.1 / 0 %; both one wave: -0.2 / -0.4 / -0.2 % and -0.7 / +0.2 / +0.1 %).
+    /// </summary>
+    private bool _previousOneWave;
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
     private readonly nint _start;
@@ -429,6 +439,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, int runs)
     {
         CudaApi.Check(CudaApi.cuStreamBeginCapture(_stream, CudaApi.CaptureModeThreadLocal), "cuStreamBeginCapture");
+        _previousOneWave = false;   // the graph's first kernel follows whatever the stream ran before it
         nint graph = 0;
         try
         {
@@ -615,6 +626,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private double Run(ReadOnlySpan<CudaRecordedLaunch> launches)
     {
         CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
+        _previousOneWave = false;   // copies may precede the first kernel: it is never a dependent
         foreach (var launch in launches)
         {
             Launch(launch);
@@ -634,6 +646,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         {
             // Library GEMM: arguments x, w, y (device addresses), then the row count.
             var args = launch.Arguments;
+            _previousOneWave = false;
             _dev.Blas!.Gemm(_stream, gemm.Type, gemm.N, gemm.K, BitConverter.ToUInt32(args, 24),
                 BitConverter.ToUInt64(args, 0), BitConverter.ToUInt64(args, 8), BitConverter.ToUInt64(args, 16));
             if (DiagnosticSwitches.SyncEachLaunch)
@@ -647,8 +660,14 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         fixed (byte* arguments = launch.Arguments)
         {
             void* parameter = arguments;
-            int result = CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
-                (uint)kernel.SharedBytes, _stream, &parameter, null);
+            long blocks = (long)launch.GridX * launch.GridY * launch.GridZ;
+            bool oneWave = kernel.ResidentBlocks > 0 && blocks <= kernel.ResidentBlocks;
+            bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave;
+            _previousOneWave = oneWave;
+            int result = dependent
+                ? LaunchDependent(kernel, launch, &parameter)
+                : CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
+                    (uint)kernel.SharedBytes, _stream, &parameter, null);
             if (result != 0)
             {
                 throw new CudaException(result, $"CUDA launch of {launch.Name} (grid {launch.GridX}x{launch.GridY}x{launch.GridZ}) failed: {CudaApi.ErrorText(result)}");
@@ -658,6 +677,39 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         if (DiagnosticSwitches.SyncEachLaunch)
         {
             Synchronize(launch.Name);
+        }
+    }
+
+    /// <summary>
+    /// Launches <paramref name="kernel"/> as a programmatic dependent of the previous launch in the stream (<see cref="CudaDevice.DependentLaunches"/>):
+    /// it may start while that launch's last blocks run and waits for it at its entry. A driver without <c>cuLaunchKernelEx</c> switches
+    /// the device back to plain launches.
+    /// </summary>
+    private int LaunchDependent(CudaKernel kernel, CudaRecordedLaunch launch, void** parameter)
+    {
+        var attribute = new CuLaunchAttribute { Id = CudaApi.LaunchAttributeProgrammaticStreamSerialization, Value = 1 };
+        var config = new CuLaunchConfig
+        {
+            GridX = launch.GridX,
+            GridY = launch.GridY,
+            GridZ = launch.GridZ,
+            BlockX = kernel.ThreadsX,
+            BlockY = kernel.ThreadsY,
+            BlockZ = kernel.ThreadsZ,
+            SharedMemoryBytes = (uint)kernel.SharedBytes,
+            Stream = _stream,
+            Attributes = &attribute,
+            AttributeCount = 1,
+        };
+        try
+        {
+            return CudaApi.cuLaunchKernelEx(&config, kernel.Function, parameter, null);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            _dev.DependentLaunches = false;
+            return CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
+                (uint)kernel.SharedBytes, _stream, parameter, null);
         }
     }
 

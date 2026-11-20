@@ -159,6 +159,19 @@ internal static unsafe partial class CudaApi
     public static partial int cuLaunchKernel(nint function, uint gridX, uint gridY, uint gridZ, uint blockX, uint blockY, uint blockZ,
         uint sharedMemoryBytes, nint stream, void** parameters, void** extra);
 
+    /// <summary><c>CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION</c>.</summary>
+    public const int LaunchAttributeProgrammaticStreamSerialization = 6;
+
+    /// <summary>
+    /// <c>cuLaunchKernelEx</c> (CUDA 12.0 and later drivers): a launch with attributes (<see cref="CuLaunchConfig"/>). Resolved lazily: an older
+    /// driver throws <see cref="EntryPointNotFoundException"/> at the first call.
+    /// </summary>
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuLaunchKernelEx(CuLaunchConfig* config, nint function, void** parameters, void** extra);
+
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuOccupancyMaxActiveBlocksPerMultiprocessor(int* blocks, nint function, int blockSize, nuint dynamicSharedBytes);
+
     [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuLinkCreate_v2")]
     public static partial int cuLinkCreate(uint optionCount, CuJitOption* options, void** values, nint* state);
 

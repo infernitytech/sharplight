@@ -248,6 +248,20 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   `gemm_fp8_native.cu`, bit for bit the same results. Qwen3-8B-FP8 prefill +9-11 % (0.86-0.99x of vLLM, [benchmarks.md
   §57](benchmarks.md)). `SHARPLIGHT_FP8_TMA=0` or disabling `tensor_copies` keeps `gemm_fp8_native.cu`.
 
+- **`attn_prefill_native.cu`** (`native_attention`, compute capability 8.0+): causal attention of many queries against an f16 KV cache
+  (prefill, prompt runs of serving steps, mixed steps' long runs) in the FlashAttention-2 form. A block takes 16 query rows per warp
+  (4 warps for head size 64, 8 for 128) of one head; each warp keeps its Q · SCALE fragments (f16), its scores, the online-softmax
+  statistics and its output accumulators in registers for the whole key loop, and the probabilities become the A operands of P · V in
+  the accumulator layout. The block shares 64-key K / V tiles copied with `cp.async` into a two-stage ring (16-byte chunks, XOR
+  swizzle; `ldmatrix` for K, `ldmatrix.trans` for V), one block barrier per tile. Masks are applied only on tiles that cross a row's
+  limits (diagonal, window start), and tiles a warp's rows cannot see are skipped by a warp-uniform branch. Blocks run the longest query
+  tiles first. It serves sliding windows, chunked attention, soft caps, sinks, grouped-query heads, multi-sequence runs (also paged)
+  and the mixed steps' `MIX_RUN`, at head sizes 64 and 128; score biases, spans, masks, selections and other head sizes keep `fa` /
+  `fe`. gpt-oss-20b prefill attention at 2048 tokens 16.2 → 3.5 ms (FlashInfer 4.4), Qwen3-8B 12.7 → 9.6 ms against `fe`
+  ([benchmarks.md §58](benchmarks.md)). Results differ from `fa` / `fe` by f16 rounding of the probabilities in another summation
+  order (as `fa` and `fe` differ from each other). `SHARPLIGHT_NATIVE_ATTN=2` keeps plain causal attention on `fe`; `=0`, or
+  disabling the feature, keeps every attention on the generated kernels.
+
 **Tensor maps.** A CUDA C++ kernel can take tensor maps (`CUtensorMap`) after its scalars: the lowering states them in a header line
 (`// sharplight-tensormaps: <pointer argument> <rank> <dims> <strides> <box>; ...`, `SlangCompiler.CudaTensorMapsHeader`), the
 translator keeps it in front of the PTX, and `CudaSegment` encodes each map over the pointer argument it names
@@ -280,6 +294,17 @@ Qwen3-0.6B decode: 622 → 645 tok/s (GPU time per step 1.51 → 1.46 ms: the la
 gain under 1 % (19.38 → 19.27 ms per step). The host time per step (wall minus GPU time) was already ~0.1 ms with the recordings.
 Disabled with `launch_graphs` in `SHARPLIGHT_DISABLE_FEATURES` / `DeviceOptions.DisabledFeatures`, and in profile and per-launch sync
 modes.
+
+**Dependent launches** (`dependent_launches`, compute capability 9.0+). From 9.0 the translator starts every kernel (Slang output
+and CUDA C++) with `griddepcontrol.wait; griddepcontrol.launch_dependents;` and marks its PTX with a header line
+(`// sharplight-dependent`). The segment launches such kernels with `cuLaunchKernelEx` and the programmatic-stream-serialization
+attribute, so a kernel's launch and block setup overlap the previous kernel's last blocks. Each kernel then waits for that kernel's
+completion and memory at its entry. CUDA graph capture keeps the programmatic edges. Without the attribute both instructions are
+no-ops, so the code serves plain launches too. Kernels compiled before (no header line), and drivers without `cuLaunchKernelEx`,
+fall back to plain launches. A launch is a dependent only when it and the previous launch each fit in one wave (grid within the
+resident blocks of the driver's occupancy query). Launching every kernel early cost Qwen3-8B-FP8 up to 2 % at 16-64 sequences:
+waiting blocks take SM slots. Decode steps change by -0.7 to +0.2 % ([benchmarks.md §58.3](benchmarks.md)), because CUDA graphs had
+already left few gaps. Disabling the feature launches every kernel after the previous one.
 
 **Decode attention batch** (`DEC_R`). `develop` round 11 set the key rows per lane group and batch of the decode attention to 1 for
 batched decode on Vulkan. The lowering now picks it per target: 1 on SPIR-V and MSL, 4 on PTX, where the CUDA form keeps more loads in
@@ -706,6 +731,11 @@ phase-1 kernels as the fallback, and each flips the default for a device class o
    - the batched decode step (CUDA 17.9, Vulkan 17.3, vLLM 15.6 ms at 64 sequences): the CUDA forms of `gemm_fp8.slang` at decode
      sizes (0.7 ms behind their SPIR-V forms), weight streaming at 520-670 GB/s, a multi-output q / k / v GEMM, the split-K reductions in the GEMM's last
      workgroup or overlapped by programmatic dependent launch.
+   Round 14 (branch `perf/llm-r14`, [benchmarks.md §58](benchmarks.md)): the FlashAttention-2-style prefill kernel
+   (`attn_prefill_native.cu`, `native_attention`) and programmatic dependent launches (`dependent_launches`). Open from it: the
+   multi-output q / k / v GEMM (each weight is its own buffer with one source, so one GEMM over the concatenated rows needs buffers
+   holding several weights in every provider's uploader, or a kernel with several weight pointers); the split-K reductions in the
+   GEMM's last workgroup; the f32 Q / O of the attention (a window layer's 52 µs at 2048 tokens is mostly their 66 MB).
 4. **Phase 5: MoE.** Started on `perf/llm-r12` ([benchmarks.md §56](benchmarks.md)): the hand-written grouped MXFP4 expert GEMM
    (`gemm_moe_native.cu`, raw codes in a `cp.async` ring, decoded per MMA); gpt-oss-20b prefill 0.81-1.07x / 0.74-0.87x / 0.63-0.71x of
    vLLM at 512 / 2048 / 8192 tokens before / after. Open: the prefill attention (`fa` is 16 of 140 ms at 2048 tokens against

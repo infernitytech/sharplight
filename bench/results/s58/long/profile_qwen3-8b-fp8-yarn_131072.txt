@@ -1,0 +1,46 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [114 ms]
+Loaded Qwen3-8B-FP8-yarn (decoder): 400 tensors, 9.65 GB, vocab 151936 [2886 ms]
+Rows per forward pass: 512 (automatic, 30813 MiB available).
+Compiling 118 / 118, 118 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 9.65 / 9.65 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 31974 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 27.03 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+segment 0: 473 launches per step (cuda, one stream)
+--- prefill T=131072 profile, segment 0
+GPU time 53252.21 ms
+ 43459.035 ms  81.6%   9216x  min     25.4 us  attention attn_prefill_native T=512,R=1
+  3969.206 ms   7.5%   9216x  min    390.2 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_tma T=512,R=1
+  2276.063 ms   4.3%   9216x  min    214.0 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=512,R=1
+  1507.183 ms   2.8%  18432x  min     70.5 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=512,R=1
+   547.973 ms   1.0%  18432x  min     24.5 us  matmul [4096→1024] f8e4m3_b128g fp8 gemm_fp8_native T=512,R=1
+   395.820 ms   0.7%    256x  min   1542.8 us  matmul [4096→151936] f16 matvec_sk T=512,R=1
+   377.742 ms   0.7%  18432x  min     14.5 us  fused[Add]+RmsNorm main T=512,R=1
+   223.830 ms   0.4%   9216x  min     19.2 us  rope+norm rope_row T=512,R=1
+   203.185 ms   0.4%   9216x  min     19.1 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=512,R=1
+   114.095 ms   0.2%   9216x  min      7.0 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=512,R=1
+    84.965 ms   0.2%   9216x  min      7.0 us  rope+norm+cache_write rope_row T=512,R=1
+    80.186 ms   0.2%   9216x  min      6.0 us  cache_write cache_write T=512,R=1
+     8.151 ms   0.0%    512x  min      3.4 us  gather gather T=512,R=1
+     3.555 ms   0.0%    256x  min     11.2 us  RmsNorm main T=512,R=1
+     1.222 ms   0.0%    256x  min      2.7 us  sample sample T=512,R=1
+
+--- decode x64 profile, segment 0
+GPU time 2323.26 ms
+  1528.775 ms  65.8%   2304x  min    658.6 us  attention decode T=1,R=1
+   302.422 ms  13.0%   2304x  min    128.9 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] matvec_sk T=1,R=1
+   157.864 ms   6.8%   2304x  min     66.7 us  matmul [12288→4096] f8e4m3_b128g matvec_sk T=1,R=1
+   119.810 ms   5.2%   4608x  min     23.7 us  matmul [4096→4096] f8e4m3_b128g matvec_sk T=1,R=1
+    96.537 ms   4.2%     64x  min   1506.6 us  matmul [4096→151936] f16 matvec_sk T=1,R=1
+    47.331 ms   2.0%   4608x  min      8.0 us  matmul [4096→1024] f8e4m3_b128g matvec_sk T=1,R=1
+    22.495 ms   1.0%   4608x  min      3.0 us  fused[Add]+RmsNorm main T=1,R=1
+    15.249 ms   0.7%   2304x  min      4.3 us  attention combine decode_combine T=1,R=1
+    12.559 ms   0.5%   2304x  min      3.5 us  rope+norm+cache_write rope_row T=1,R=1
+    12.311 ms   0.5%   2304x  min      3.5 us  rope+norm rope_row T=1,R=1
+     6.629 ms   0.3%   2304x  min      1.7 us  cache_write cache_write T=1,R=1
+     0.686 ms   0.0%    128x  min      3.0 us  gather gather T=1,R=1
+     0.309 ms   0.0%     64x  min      3.4 us  RmsNorm main T=1,R=1
+     0.283 ms   0.0%     64x  min      2.1 us  sample sample T=1,R=1
+
+prefill 131072 tok: best 54386 ms = 2410.0 tok/s | decode: best 25.98, median 25.72, mean 25.74 tok/s | GPU ms/step: best 36.09, median 36.31, wall best 38.50 | prefill median of 5: 55040.3 ms = 2381.4 tok/s

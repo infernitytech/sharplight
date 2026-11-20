@@ -14,8 +14,16 @@ internal sealed partial class CudaPtx
     /// <summary>Start of the header line after the block size of a kernel that uses dynamic shared memory, followed by its bytes.</summary>
     public const string SharedHeader = "// sharplight-shared: ";
 
-    private CudaPtx(byte[] code, string function, uint x, uint y, uint z, int sharedBytes, CudaTensorMapSpec[] tensorMaps)
+    /// <summary>
+    /// Header line of a kernel whose entry starts with <c>griddepcontrol.wait</c> and <c>griddepcontrol.launch_dependents</c> (compute
+    /// capability 9.0 and later): it waits for the previous launch's completion and memory itself, so it may be launched as a
+    /// programmatic dependent of it (<see cref="CudaKernel.WaitsForPrevious"/>).
+    /// </summary>
+    public const string DependentHeader = "// sharplight-dependent";
+
+    private CudaPtx(byte[] code, string function, uint x, uint y, uint z, int sharedBytes, CudaTensorMapSpec[] tensorMaps, bool waitsForPrevious)
     {
+        WaitsForPrevious = waitsForPrevious;
         SharedBytes = sharedBytes;
         TensorMaps = tensorMaps;
         Code = code;
@@ -42,6 +50,9 @@ internal sealed partial class CudaPtx
     /// <summary>Tensor maps at the end of the kernel's parameters (empty for most kernels).</summary>
     public CudaTensorMapSpec[] TensorMaps { get; }
 
+    /// <summary>True when the kernel waits for the previous launch itself (<see cref="DependentHeader"/>).</summary>
+    public bool WaitsForPrevious { get; }
+
     /// <summary>Parses the code of a kernel compiled for <see cref="ShaderTarget.Ptx"/> by the <see cref="NvrtcTranslator"/>.</summary>
     /// <param name="code">The kernel's code.</param>
     /// <param name="what">The kernel, for messages.</param>
@@ -61,7 +72,8 @@ internal sealed partial class CudaPtx
             uint.Parse(threads.Groups[2].Value, CultureInfo.InvariantCulture),
             uint.Parse(threads.Groups[3].Value, CultureInfo.InvariantCulture),
             SharedPattern().Match(text) is { Success: true } shared ? int.Parse(shared.Groups[1].Value, CultureInfo.InvariantCulture) : 0,
-            TensorMapsPattern().Match(text) is { Success: true } maps ? CudaTensorMapSpec.ParseList(maps.Groups[1].Value) : []);
+            TensorMapsPattern().Match(text) is { Success: true } maps ? CudaTensorMapSpec.ParseList(maps.Groups[1].Value) : [],
+            DependentPattern().IsMatch(text));
     }
 
     [GeneratedRegex(@"^// sharplight-threads: (\d+) (\d+) (\d+)$", RegexOptions.Multiline)]
@@ -72,6 +84,9 @@ internal sealed partial class CudaPtx
 
     [GeneratedRegex(@"^// sharplight-tensormaps: (.+)$", RegexOptions.Multiline)]
     private static partial Regex TensorMapsPattern();
+
+    [GeneratedRegex(@"^// sharplight-dependent$", RegexOptions.Multiline)]
+    private static partial Regex DependentPattern();
 
     [GeneratedRegex(@"\.entry\s+(\w+)\s*\(")]
     private static partial Regex EntryPattern();

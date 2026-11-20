@@ -53,7 +53,15 @@ Console.WriteLine($"decoder: {dec.GetType().Name}, slots {dec.SlotCount}, vocab 
     + $"KV {(dec.KvBlockSize > 0 ? $"paged {dec.KvBlocksTotal} x {dec.KvBlockSize}" : "contiguous")}");
 var rng = new Random(1);
 int[] Toks(int n) => Enumerable.Range(0, n).Select(_ => rng.Next(1000, 30000)).ToArray();
-for (int s = 0; s < slots; s++) dec.Step([new SequenceInput(s, Toks(depth), false)]);   // prefill each slot
+// Prefill each slot, in chunks of the decoder's rows per step (long depths).
+int chunk = int.Parse(Opt("--batch", "512")!);
+for (int s = 0; s < slots; s++)
+{
+    for (int done = 0; done < depth; done += chunk)
+    {
+        dec.Step([new SequenceInput(s, Toks(Math.Min(chunk, depth - done)), false)]);
+    }
+}
 double Median(List<double> l)
 {
     l.Sort();

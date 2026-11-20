@@ -26,6 +26,12 @@ internal static class DiagnosticSwitches
 
     public static bool Profile { get; } = IsSet("SHARPLIGHT_CUDA_PROFILE");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_CUDA_PDL_TRIGGER=0</c>: kernels compiled for dependent launches only wait for the previous launch at their entry and
+    /// do not let the next launch start early (<c>griddepcontrol.launch_dependents</c>); it then starts when this kernel's blocks exit.
+    /// </summary>
+    public static bool DependentTrigger { get; } = Read("SHARPLIGHT_CUDA_PDL_TRIGGER") != "0";
+
     public static long? MaxSharedMemory { get; } = Read("SHARPLIGHT_CUDA_MAX_SHARED") is { } v ? long.Parse(v, System.Globalization.CultureInfo.InvariantCulture) : null;
 
     /// <summary><c>SHARPLIGHT_CUDA_SYNC=1</c>.</summary>
