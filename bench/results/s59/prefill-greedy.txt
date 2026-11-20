@@ -1,0 +1,18 @@
+gpt-oss-20b 512 off: prefill 512 tok: best 39 ms = 13203.4 tok/s | decode: best 184.84, median 184.24, mean 181.98 tok/s | GPU ms/step: best 5.30, median 5.30, wall best 5.41 | prefill median of 5: 40.9 ms = 12525.8 tok/s
+gpt-oss-20b 512 on: prefill 512 tok: best 40 ms = 12922.9 tok/s | decode: best 185.01, median 184.53, mean 182.77 tok/s | GPU ms/step: best 5.29, median 5.30, wall best 5.41 | prefill median of 5: 41.1 ms = 12466.3 tok/s
+gpt-oss-20b 2048 off: prefill 2048 tok: best 130 ms = 15769.5 tok/s | decode: best 183.29, median 182.75, mean 180.23 tok/s | GPU ms/step: best 5.35, median 5.35, wall best 5.46 | prefill median of 5: 131.8 ms = 15543.2 tok/s
+gpt-oss-20b 2048 on: prefill 2048 tok: best 127 ms = 16132.2 tok/s | decode: best 183.60, median 182.34, mean 180.83 tok/s | GPU ms/step: best 5.34, median 5.34, wall best 5.45 | prefill median of 5: 129.3 ms = 15834.1 tok/s
+gpt-oss-20b 8192 off: prefill 8192 tok: best 561 ms = 14593.6 tok/s | decode: best 175.79, median 175.34, mean 173.54 tok/s | GPU ms/step: best 5.58, median 5.59, wall best 5.69 | prefill median of 5: 566.2 ms = 14469.3 tok/s
+gpt-oss-20b 8192 on: prefill 8192 tok: best 551 ms = 14865.2 tok/s | decode: best 174.29, median 174.07, mean 172.33 tok/s | GPU ms/step: best 5.60, median 5.60, wall best 5.74 | prefill median of 5: 556.3 ms = 14725.1 tok/s
+gpt-oss-20b short: identical
+gpt-oss-20b mid: identical
+gpt-oss-20b long: DIFFER
+Qwen3-8B-FP8 512 off: prefill 512 tok: best 35 ms = 14459.4 tok/s | decode: best 87.72, median 87.27, mean 86.86 tok/s | GPU ms/step: best 11.28, median 11.33, wall best 11.40 | prefill median of 5: 37.5 ms = 13639.0 tok/s
+Qwen3-8B-FP8 512 on: prefill 512 tok: best 35 ms = 14491.7 tok/s | decode: best 87.84, median 87.35, mean 86.92 tok/s | GPU ms/step: best 11.28, median 11.33, wall best 11.38 | prefill median of 5: 37.6 ms = 13618.0 tok/s
+Qwen3-8B-FP8 2048 off: prefill 2048 tok: best 144 ms = 14207.4 tok/s | decode: best 86.23, median 85.96, mean 85.49 tok/s | GPU ms/step: best 11.49, median 11.52, wall best 11.60 | prefill median of 5: 146.5 ms = 13977.0 tok/s
+Qwen3-8B-FP8 2048 on: prefill 2048 tok: best 145 ms = 14159.3 tok/s | decode: best 86.01, median 85.83, mean 85.42 tok/s | GPU ms/step: best 11.50, median 11.53, wall best 11.63 | prefill median of 5: 146.8 ms = 13947.6 tok/s
+Qwen3-8B-FP8 8192 off: prefill 8192 tok: best 697 ms = 11747.4 tok/s | decode: best 78.07, median 77.94, mean 77.58 tok/s | GPU ms/step: best 12.71, median 12.73, wall best 12.81 | prefill median of 5: 702.8 ms = 11656.0 tok/s
+Qwen3-8B-FP8 8192 on: prefill 8192 tok: best 698 ms = 11730.3 tok/s | decode: best 77.97, median 77.79, mean 77.40 tok/s | GPU ms/step: best 12.71, median 12.73, wall best 12.82 | prefill median of 5: 704.3 ms = 11631.1 tok/s
+Qwen3-8B-FP8 short: identical
+Qwen3-8B-FP8 mid: identical
+Qwen3-8B-FP8 long: identical

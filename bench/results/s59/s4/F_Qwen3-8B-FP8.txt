@@ -1,0 +1,42 @@
+multi-output GEMM of matmul_2, matmul_6, matmul_7 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_26, matmul_30, matmul_31 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_50, matmul_54, matmul_55 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_74, matmul_78, matmul_79 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_98, matmul_102, matmul_103 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_122, matmul_126, matmul_127 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_146, matmul_150, matmul_151 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_170, matmul_174, matmul_175 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_194, matmul_198, matmul_199 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_218, matmul_222, matmul_223 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_242, matmul_246, matmul_247 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_266, matmul_270, matmul_271 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_290, matmul_294, matmul_295 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_314, matmul_318, matmul_319 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_338, matmul_342, matmul_343 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_362, matmul_366, matmul_367 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_386, matmul_390, matmul_391 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_410, matmul_414, matmul_415 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_434, matmul_438, matmul_439 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_458, matmul_462, matmul_463 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_482, matmul_486, matmul_487 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_506, matmul_510, matmul_511 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_530, matmul_534, matmul_535 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_554, matmul_558, matmul_559 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_578, matmul_582, matmul_583 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_602, matmul_606, matmul_607 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_626, matmul_630, matmul_631 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_650, matmul_654, matmul_655 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_674, matmul_678, matmul_679 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_698, matmul_702, matmul_703 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_722, matmul_726, matmul_727 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_746, matmul_750, matmul_751 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_770, matmul_774, matmul_775 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_794, matmul_798, matmul_799 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_818, matmul_822, matmul_823 not emitted: usable False, 3 of 3 split launches
+multi-output GEMM of matmul_842, matmul_846, matmul_847 not emitted: usable False, 3 of 3 split launches
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2048 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 16 | 23.9 | 618 / 0 | 13.49 / 13.82, 13.42 |
+| 64 | 22.6 | 727 / 0 | 17.50 / 17.71, 17.43 |
