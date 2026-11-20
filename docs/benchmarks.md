@@ -8272,8 +8272,14 @@ prefill varies by ±40 % between its three runs).
 | CUDA, first build of this branch (bias gathers split from their experts: ~190 segments) | 23 | 25.4 / 24.9 | 203 / 189 |
 | CUDA (default) | 20 | **48.1 / 47.5** | **278 / 232** |
 | llama.cpp CUDA `-ncmoe 20` / `22` / `24` | | 36.0 / 40.4 / 32.5 | 137 / 176 / 107 |
+| Vulkan (default) | 22 | **44.1 / 43.0** | 71 / 63 |
+| llama.cpp Vulkan `-ncmoe 22` | | 34.8 | 107 |
 
-* CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting.
+* CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting; Vulkan decode 1.27x, prefill 0.66x.
+* Vulkan prefill is bound by the streamed copies: 1.7 GB per layer in ~370 ms median (207 ms at best). Vulkan budgets less of the GPU, so
+  36 GB of experts stay on the CPU and are re-read for every pass; with the 63 GB file in a 62 GB cgroup part of them comes from disk
+  each time (the CUDA placement keeps 33 GB on the CPU and copies a layer in ~100 ms). Repacking MXFP4 into cached memory before the
+  write-combined staging buffer (this branch) cut the worst copies but not the median.
 * Greedy text (`-p "The capital of France is" -n 32`): CUDA and Vulkan identical to each other and to `develop` (layer split, float CPU
   experts): " Paris.\n\nGreat! If you have any more questions ..."; llama.cpp b11177 (CUDA, `-ncmoe 22`) repeats " Paris." after the
   first sentence, so the difference predates this branch.
