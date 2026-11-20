@@ -60,8 +60,8 @@ public sealed class StreamedExpertsTests
         var graph = BuildGraph(out var x, out var ids, out var slotWeights);
         var split = new PlacementOptions
         {
-            // The dense layers, one layer of experts, room to stream one more (two with two memories) and the transfer buffers.
-            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * DenseBytes + (1 + buffers) * ExpertBytes + (256 << 10) }],
+            // The dense layers, a quarter layer of experts beyond the streaming memories and the transfer buffers: some experts move to the CPU.
+            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * DenseBytes + buffers * ExpertBytes + ExpertBytes / 4 + (128 << 10) }],
             Fallback = new DeviceSlot { Device = Gpu.Cpu },
             Compile = Compile,
             ReservePerDevice = 0,

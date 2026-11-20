@@ -8274,6 +8274,21 @@ prefill varies by ±40 % between its three runs).
 
 * CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting.
 
+### 59.5 What did not work, and what limits it
+
+* The plain integer-dot path (decode a row into codes, then the generic dot) was slower than the float path for IQ2_XXS (0.66 against
+  0.53 ms per decode call): the per-16 scale and offset arithmetic outweighs the 8-bit products. The fused dots replaced it; an AVX2
+  gather of the grid entries (`vpgatherqq`) was slower than scalar loads (4.58 against 2.81 ns per 32 values); IQ2_S gained nothing from
+  the one-lookup sign table (it reads explicit sign bytes).
+* Pairing the gate and up products into one op (one quantization, one pass) is in (bit-identical results), but its effect on the decode
+  step was within the run-to-run noise of this machine.
+* A thread-count sweep (8 / 10 / default threads) was inconclusive: other jobs took 2-5 cores during most runs.
+* Copies through staging buffers reached 14 GB/s on CUDA (17 GB/s with the MXFP4 repack) against 28 GB/s from page-locked mapped
+  memory; on Vulkan the repack wrote out of order into write-combined staging memory (5 GB/s) until it went through cached memory first.
+* Decode on CUDA stays behind llama.cpp: the GPU part of a step (9.5 ms) and three to four more expert layers on the CPU. Each moved
+  layer costs a GPU segment boundary, a transfer buffer and the per-segment reserve; streaming costs one layer's memory (~10 % decode for
+  a 4.5x faster prefill; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` keeps it for decode-only use).
+
 ### 59.6 Reproduce
 
 ```bash
