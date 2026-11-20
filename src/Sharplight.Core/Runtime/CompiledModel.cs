@@ -47,6 +47,12 @@ public sealed class CompiledModel : IDisposable
     /// </summary>
     internal static int SparseExpertRows { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SPARSE_EXPERT_ROWS"), out int rows) && rows >= 0 ? rows : 4;
 
+    /// <summary>
+    /// Experts per slot of a sparse compilation at least (a pass of <see cref="SparseExpertRows"/> rows selects at most a quarter of the bank):
+    /// with fewer the copies of the selected experts approach a copy of the whole bank, which the streamed compilation already makes.
+    /// </summary>
+    internal const int SparseMinExpertsPerSlot = 4;
+
     /// <summary>A fixed number of slots per row for the GPU in split passes (<c>SHARPLIGHT_SPARSE_GPU_SLOTS</c>), or null to adapt it.</summary>
     private static int? DiagnosticSparseGpuSlots { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SPARSE_GPU_SLOTS"), out int slots) && slots >= 0 ? slots : null;
 
@@ -413,7 +419,8 @@ public sealed class CompiledModel : IDisposable
         foreach (var (index, slot) in plan.StreamedSegments.OrderBy(kv => kv.Key))
         {
             var segment = plan.Segments[index];
-            if (!plan.Slots[slot].Device.StreamsSelectedExperts || SparseExpertIds(segment) is not { } ids || !SumsOverSlots(segment))
+            if (!plan.Slots[slot].Device.StreamsSelectedExperts || SparseExpertIds(segment) is not { } ids || !SumsOverSlots(segment)
+                || segment.Nodes.Any(n => n.Op.Name == "MatMulId" && n.Inputs[1].Shape[0].Fixed / SparseMinExpertsPerSlot < SparseExpertRows * ids.Shape[1].Fixed))
             {
                 continue;
             }

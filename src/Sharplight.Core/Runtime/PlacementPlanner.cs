@@ -355,7 +355,8 @@ public static class PlacementPlanner
 
     /// <summary>
     /// Per routed-expert group: the bytes of its expert banks' share that a sparse GPU compilation holds (<see cref="CompileOptions.SparseExpertSlots"/>:
-    /// the experts <paramref name="rows"/> rows can select, at most all), which the devices keep free for the largest moved group.
+    /// the experts <paramref name="rows"/> rows can select, when that is a small part of the bank, see <see cref="CompiledModel.SparseMinExpertsPerSlot"/>),
+    /// which the devices keep free for the largest moved group.
     /// </summary>
     private static Dictionary<string, long> SparseExpertBytes(ComputeGraph graph, Func<Node, string> groupOf, int rows)
     {
@@ -365,8 +366,11 @@ public static class PlacementPlanner
             if (n.Op.Name == "MatMulId" && n.Inputs[1].Weight is { } w && IsExpertGroup(groupOf(n)) && n.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic
                 && w.Shape[0] is { IsSymbolic: false } experts && experts.Fixed > 0)
             {
-                long slots = Math.Min(experts.Fixed, rows * ids[1].Fixed);
-                bytes[groupOf(n)] = bytes.GetValueOrDefault(groupOf(n)) + w.ByteSize / experts.Fixed * slots;
+                long slots = rows * ids[1].Fixed;
+                if (slots <= experts.Fixed / CompiledModel.SparseMinExpertsPerSlot)
+                {
+                    bytes[groupOf(n)] = bytes.GetValueOrDefault(groupOf(n)) + w.ByteSize / experts.Fixed * slots;
+                }
             }
         }
 

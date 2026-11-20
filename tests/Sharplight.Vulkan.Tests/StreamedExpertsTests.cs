@@ -20,7 +20,7 @@ public sealed class StreamedExpertsTests
     private const long ExpertBytes = 2L * Experts * Inner * Hidden * sizeof(float);
     private const int MinRows = 16;
 
-    private static ComputeGraph BuildGraph(out Value x, out Value ids, out Value slotWeights, List<NativeSource>? mapped = null)
+    private static ComputeGraph BuildGraph(out Value x, out Value ids, out Value slotWeights, List<NativeSource>? mapped = null, int experts = Experts)
     {
         var tg = new TG();
         // Expert banks in native memory (as a mapped file's) when `mapped` collects their sources: the sparse GPU compilation copies single experts.
@@ -46,9 +46,9 @@ public sealed class StreamedExpertsTests
             using var _ = tg.B.Group($"layers.{layer}");
             h = tg.B.MatMul(h, tg.WF($"dense{layer}", Rnd.F(Hidden * Hidden, layer, 0.1f), Hidden, Hidden));
             var slotWeightRows = tg.B.Reshape(slotWeights, 0, Slots, 1);
-            var up = tg.B.Emit1("MatMulId", [h, ExpertBank($"up{layer}", Rnd.F(Experts * Inner * Hidden, 10 + layer, 0.1f), Experts, Inner, Hidden), ids]);
+            var up = tg.B.Emit1("MatMulId", [h, ExpertBank($"up{layer}", Rnd.F(experts * Inner * Hidden, 10 + layer, 0.1f), experts, Inner, Hidden), ids]);
             var act = tg.B.Mul(up, up);
-            var down = tg.B.Emit1("MatMulId", [act, ExpertBank($"down{layer}", Rnd.F(Experts * Hidden * Inner, 20 + layer, 0.1f), Experts, Hidden, Inner), ids]);
+            var down = tg.B.Emit1("MatMulId", [act, ExpertBank($"down{layer}", Rnd.F(experts * Hidden * Inner, 20 + layer, 0.1f), experts, Hidden, Inner), ids]);
             var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, slotWeightRows), 0, 2, 1)]);
             h = tg.B.Add(h, tg.B.Reshape(summed, 0, Hidden));
         }
@@ -77,10 +77,14 @@ public sealed class StreamedExpertsTests
         var mapped = new List<NativeSource>();
         try
         {
-            var graph = BuildGraph(out var x, out var ids, out var slotWeights, mapped);
+            // Enough experts that a sparse pass copies few of them (four rows of two slots select at most a quarter of 32).
+            const int experts = 32;
+            const long expertBytes = 2L * experts * Inner * Hidden * sizeof(float);
+            var graph = BuildGraph(out var x, out var ids, out var slotWeights, mapped, experts);
             var split = new PlacementOptions
             {
-                Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * DenseBytes + ExpertBytes + ExpertBytes / 4 + (128 << 10) }],
+                // The dense layers, the streaming memory, the sparse banks (a quarter layer) and a quarter layer more: some experts move to the CPU.
+                Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * DenseBytes + expertBytes + expertBytes / 2 + (128 << 10) }],
                 Fallback = new DeviceSlot { Device = Gpu.Cpu },
                 Compile = Compile,
                 ReservePerDevice = 0,
@@ -95,7 +99,7 @@ public sealed class StreamedExpertsTests
 
             using var cpu = CompiledModel.Compile(graph, new PlacementOptions { Devices = [new DeviceSlot { Device = Gpu.Cpu }], Compile = Compile });
             var input = Rnd.F(rows * Hidden, 3);
-            var rowIds = Rnd.I(rows * Slots, 5, Experts);
+            var rowIds = Rnd.I(rows * Slots, 5, experts);
             var weights = Rnd.Pos(rows * Slots, 7, 0.1f, 1f);
             float[] Run(CompiledModel m)
             {
