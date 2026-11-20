@@ -60,6 +60,19 @@ public sealed partial class GraphLowerer
                || k % 32 == 0 && DiagnosticSwitches.IntDotBlockFormats && s_intDotBlockFormats.Contains(type));
 
     /// <summary>
+    /// True when the integer-dot expert matvec (<c>moe_mmvq</c>) handles the expert products of weights of <paramref name="type"/>: the
+    /// formats of <see cref="UseIntDotMatvec"/>, and the grid formats of ggml's low-bit quantizations (IQ2_XXS / IQ2_XS / IQ2_S / IQ3_XXS /
+    /// IQ3_S, 256-value super-blocks), whose decode matvec otherwise runs in f32 at about half the memory bandwidth and computes gate and up
+    /// in separate launches. Dense matmuls of those formats keep the f32 kernels.
+    /// </summary>
+    private bool UseIntDotExpertMatvec(Node n, DataType type, long k)
+        => UseIntDotMatvec(n, type, k)
+           || k % 256 == 0 && DiagnosticSwitches.IntDotGridFormats && s_intDotGridFormats.Contains(type)
+              && QuantizedActivationsAllowed(n) && _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps);
+
+    private static readonly HashSet<DataType> s_intDotGridFormats = [DataType.IQ2_XXS, DataType.IQ2_XS, DataType.IQ2_S, DataType.IQ3_XXS, DataType.IQ3_S];
+
+    /// <summary>
     /// False for matmuls marked <see cref="StandardOps.F32ActivationsAttribute"/> (unless the compile allows reduced
     /// precision): their activations must not be quantized to int8 (int-dot matvec, int8 GEMM).
     /// </summary>

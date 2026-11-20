@@ -196,7 +196,7 @@ public sealed partial class GraphLowerer
         long N = w.Shape[1];
         long K = w.Shape[2];
         var outer = _launchCondition;
-        if (UseIntDotMatvec(a, w.Type, K))
+        if (UseIntDotExpertMatvec(a, w.Type, K))
         {
             var x = PrepareMatMulInput(Ref(a.Inputs[0]), "matmul-id", out long xs, out long rowsPerLead);
             var ids = Ref(a.Inputs[2]);
@@ -381,7 +381,7 @@ public sealed partial class GraphLowerer
         var summed = permute.Inputs[0];
         var outer = _launchCondition;
         // One subgroup per slot: the workgroup holds S subgroups.
-        if (UseIntDotMatvec(product, w.Type, K) && product.Inputs[2].Shape[1] is { IsSymbolic: false } slotDim
+        if (UseIntDotExpertMatvec(product, w.Type, K) && product.Inputs[2].Shape[1] is { IsSymbolic: false } slotDim
             && slotDim.Fixed * _opt.SubgroupSize <= 1024)
         {
             var x = PrepareMatMulInput(Ref(product.Inputs[0]), "matmul-id", out long xs, out long rowsPerLead);
@@ -583,7 +583,7 @@ public sealed partial class GraphLowerer
         bool coop = MoeTensorCoreGemm(w, K);
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
         // later, the int-dot matvec only from about 16 items per expert).
-        bool intDot = UseIntDotMatvec(n, w.Type, K);
+        bool intDot = UseIntDotExpertMatvec(n, w.Type, K);
         long mv = intDot ? IntDotPerItemMaxItems(w, K, S) : InvariantMatvecItems(coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E), S);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
