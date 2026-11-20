@@ -379,7 +379,7 @@ A run has three jobs, one publication at a time (concurrency group `model-feed`,
       fails the run (published objects are never replaced). A multipart upload becomes an object only when complete;
    3. promotes the listed versions into `stable`, re-signs both channels' indexes (so every run refreshes both expiries) and verifies
       both channels against the official public key;
-   4. uploads per channel (`models/unstable/`, then `models/stable/`) the package indexes, catalog pages, `catalog/index.json`,
+   4. uploads per channel (`models/unstable/`, then `models/stable/`) the package indexes, catalog pages, `catalog/index.json`, `catalog/models.json`,
       `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
 
    The large pass runs only after the small one succeeded, for a push or a dispatch on develop, when the repository variable

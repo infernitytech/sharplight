@@ -209,7 +209,7 @@ jobs:
               --content-type "$type" --cache-control "$2"
           }
           # Package objects are uploaded already (previous step). Key set (only when written by this run); then per channel its
-          # package indexes, catalog pages, and the index and its signature last.
+          # package indexes, catalog pages, catalog index, model listing, and the index and its signature last.
           if [ "${NEW_KEYSET:-false}" = "true" ]; then
             upload keys/keyset.json "no-cache"
             upload keys/keyset.sig "no-cache"
@@ -219,6 +219,9 @@ jobs:
               upload "$file" "no-cache"
             done
             upload "$channel/catalog/index.json" "no-cache"
+            if [ -f "$WORK/feed/$channel/catalog/models.json" ]; then
+              upload "$channel/catalog/models.json" "no-cache"
+            fi
             upload "$channel/index.json" "no-cache"
             upload "$channel/index.sig" "no-cache"
             echo "Published: $FEED_URL/$channel/index.json"
