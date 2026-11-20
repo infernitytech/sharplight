@@ -364,6 +364,12 @@ public sealed class CompiledModel : IDisposable
     public void GetOutput<T>(string name, Span<T> destination) where T : unmanaged
         => GetOutput(name, MemoryMarshal.AsBytes(destination));
 
+    /// <summary>
+    /// Whether <see cref="Run"/> can return before the device finishes: the last segment executes asynchronously
+    /// (<see cref="ICompiledSegment.ExecutesAsynchronously"/>), so work between <see cref="Run"/> and the first <see cref="GetOutput(string, Span{byte})"/> overlaps it.
+    /// </summary>
+    public bool RunsAsynchronously => _segments.Length > 0 && _segments[^1].ExecutesAsynchronously;
+
     /// <summary>Where the most recent <see cref="Run"/> spent its time, summed over the segments (diagnostics).</summary>
     public SegmentRunTimings LastRunTimings
     {

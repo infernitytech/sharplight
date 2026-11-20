@@ -10,7 +10,7 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 internal sealed class StepProfiler : IDisposable
 {
-    private const string Header = "start_ms,decode_rows,prompt_rows,prompt_inputs,active,admit_ms,schedule_ms,pack_ms,upload_ms,run_ms,gpu_ms,record_ms,submit_ms,wait_ms,recorded,replayed,read_ms,process_ms";
+    private const string Header = "start_ms,decode_rows,prompt_rows,prompt_inputs,active,admit_ms,schedule_ms,pack_ms,upload_ms,run_ms,gpu_ms,record_ms,submit_ms,wait_ms,recorded,replayed,overlap_ms,read_ms,process_ms";
     private readonly StreamWriter _out;
     private readonly long _origin = Stopwatch.GetTimestamp();
     private int _lines;
@@ -32,7 +32,7 @@ internal sealed class StepProfiler : IDisposable
     {
         var c = CultureInfo.InvariantCulture;
         var t = phases.Segments;
-        _out.WriteLine(string.Create(c, $"{Stopwatch.GetElapsedTime(_origin, start).TotalMilliseconds:F3},{decodeRows},{promptRows},{promptInputs},{active},{AdmitMs:F3},{scheduleMs:F3},{phases.PackMs:F3},{phases.UploadMs:F3},{phases.RunMs:F3},{t.GpuMs:F3},{t.RecordMs:F3},{t.SubmitMs:F3},{t.WaitMs:F3},{(t.Recorded ? 1 : 0)},{(t.Replayed ? 1 : 0)},{phases.ReadMs:F3},{processMs:F3}"));
+        _out.WriteLine(string.Create(c, $"{Stopwatch.GetElapsedTime(_origin, start).TotalMilliseconds:F3},{decodeRows},{promptRows},{promptInputs},{active},{AdmitMs:F3},{scheduleMs:F3},{phases.PackMs:F3},{phases.UploadMs:F3},{phases.RunMs:F3},{t.GpuMs:F3},{t.RecordMs:F3},{t.SubmitMs:F3},{t.WaitMs:F3},{(t.Recorded ? 1 : 0)},{(t.Replayed ? 1 : 0)},{phases.OverlapMs:F3},{phases.ReadMs:F3},{processMs:F3}"));
         AdmitMs = 0;
         if (++_lines % 256 == 0)
         {

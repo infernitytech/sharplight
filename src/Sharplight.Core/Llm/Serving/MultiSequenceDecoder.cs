@@ -86,6 +86,15 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <inheritdoc/>
     public bool CaptureHiddenStates { get; set; }
 
+    /// <summary>
+    /// Host work to do while a step runs on the device (<see cref="RunsAsynchronously"/>): invoked after the step is submitted and before
+    /// its results are read. It must not use this decoder.
+    /// </summary>
+    internal Action? WhileRunning { get; set; }
+
+    /// <summary>Whether a step's run returns before the device finishes it (<see cref="CompiledModel.RunsAsynchronously"/>).</summary>
+    internal bool RunsAsynchronously => _compiled.RunsAsynchronously;
+
     /// <summary>Host-side phases of the most recent <see cref="Step(IReadOnlyList{SequenceInput}, IReadOnlyList{SamplingRow?}, Span{int}, Span{float})"/> (diagnostics).</summary>
     internal StepPhaseTimes LastStepPhases { get; private set; }
     /// <summary>Width of the graph's <see cref="InputRole.HiddenStates"/> input (a draft head's), 0 when it has none.</summary>
@@ -710,6 +719,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         long t2 = Stopwatch.GetTimestamp();
         _compiled.Run(_run);
         long t3 = Stopwatch.GetTimestamp();
+        WhileRunning?.Invoke();
+        long t4 = Stopwatch.GetTimestamp();
         for (int u = 0; u < count; u++)
         {
             var input = inputs[u];
@@ -755,7 +766,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             r += rows;
         }
         LastStepPhases = new StepPhaseTimes(Stopwatch.GetElapsedTime(t0, t1).TotalMilliseconds, Stopwatch.GetElapsedTime(t1, t2).TotalMilliseconds,
-            Stopwatch.GetElapsedTime(t2, t3).TotalMilliseconds, Stopwatch.GetElapsedTime(t3).TotalMilliseconds, _compiled.LastRunTimings);
+            Stopwatch.GetElapsedTime(t2, t3).TotalMilliseconds, Stopwatch.GetElapsedTime(t4).TotalMilliseconds, _compiled.LastRunTimings,
+            Stopwatch.GetElapsedTime(t3, t4).TotalMilliseconds);
         return new ArraySegment<Memory<float>>(_results, 0, count);
     }
 

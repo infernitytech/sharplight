@@ -9,7 +9,9 @@ namespace Sharplight.Cuda;
 /// <summary>
 /// A compiled segment on a CUDA device: owns the device buffers of its <see cref="KernelProgram"/> and launches its kernels on a stream of
 /// its own, from a recording per distinct binding of the symbolic dimensions (kernels, arguments and grids resolved once). Launches on one
-/// stream run in order, so no barriers are needed. Inputs and outputs are copied synchronously; an execution waits for its stream.
+/// stream run in order, so no barriers are needed. Inputs and outputs are copied synchronously. An execution returns once its work is
+/// submitted (the host can prepare the next step meanwhile); the segment waits for it before it reads an output, takes an input, copies
+/// state or runs again, and before another segment of the device runs (<see cref="CudaDevice.Pending"/>). Profiled executions wait at once.
 /// </summary>
 public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
@@ -104,16 +106,41 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     /// <inheritdoc />
     public long DeviceMemoryBytes { get; }
 
-    /// <summary>GPU time (first to last launch) of the most recent <see cref="Execute(RunParameters)"/>, in ms.</summary>
-    public double LastGpuMs { get; private set; }
+    /// <summary>GPU time (first to last launch) of the most recent <see cref="Execute(RunParameters)"/>, in ms (waits for it).</summary>
+    public double LastGpuMs
+    {
+        get
+        {
+            WaitForCompletion();
+            return _lastGpuMs;
+        }
+        private set => _lastGpuMs = value;
+    }
 
     /// <inheritdoc />
-    public SegmentRunTimings LastRunTimings { get; private set; }
+    /// <remarks>Waits for the execution.</remarks>
+    public SegmentRunTimings LastRunTimings
+    {
+        get
+        {
+            WaitForCompletion();
+            return _lastRunTimings;
+        }
+    }
 
-    /// <summary>Timestamps of the current execution's wait for its stream (<see cref="WaitForStream"/>).</summary>
-    private long _waitStart;
-    private long _waitEnd;
+    private double _lastGpuMs;
+    private SegmentRunTimings _lastRunTimings;
+    private readonly object _completion = new();
+    /// <summary>What the submitted, not yet waited for execution ran (for error messages); null when none is in flight.</summary>
+    private string? _pending;
+    /// <summary>Whether the pending execution's GPU time comes from the <see cref="_start"/> / <see cref="_end"/> events.</summary>
+    private bool _pendingTimed;
+    private SegmentRunTimings _pendingTimings;
     private bool _replayed;
+
+    /// <inheritdoc />
+    /// <remarks>True unless every execution is profiled (<see cref="Profile"/>) or synchronized per launch.</remarks>
+    public bool ExecutesAsynchronously => !Profile && !DiagnosticSwitches.SyncEachLaunch && _program.ProducedSymbols.Count == 0;
 
     /// <summary>Per-launch GPU timing with events. Defaults to on with <c>SHARPLIGHT_CUDA_PROFILE=1</c>.</summary>
     public bool Profile { get; set; } = DiagnosticSwitches.Profile;
@@ -228,6 +255,8 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             return;
         }
 
+        WaitForCompletion();
+
         var a = _alloc[r.Buffer];
         if (data.Length > a.Bytes - r.ByteOffset)
         {
@@ -272,6 +301,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
 
         var r = _program.OutputRefs[value];
+        WaitForCompletion();
         _dev.Enter();
         fixed (byte* target = destination)
         {
@@ -287,6 +317,12 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         {
             _runtimeSlots[slot] = parameters.Scalars.TryGetValue(name, out var v) ? (uint)v
                 : throw new ArgumentException($"Runtime scalar '{name}' not provided.");
+        }
+
+        WaitForCompletion();
+        if (_dev.Pending is { } other && other != this)
+        {
+            other.WaitForCompletion();   // its outputs may be this segment's forwarded inputs or shared state
         }
 
         long started = Stopwatch.GetTimestamp();
@@ -316,23 +352,66 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
 
         long recordEnd = Stopwatch.GetTimestamp();
-        _waitStart = _waitEnd = 0;
         _replayed = false;
+        double recordMs = recorded ? Stopwatch.GetElapsedTime(recordStart, recordEnd).TotalMilliseconds : 0;
         if (Profile)
         {
+            long profiledStart = Stopwatch.GetTimestamp();
             RunProfiled(recording, key);
+            _lastRunTimings = new SegmentRunTimings(_lastGpuMs, recordMs, Stopwatch.GetElapsedTime(started, profiledStart).TotalMilliseconds - recordMs,
+                Stopwatch.GetElapsedTime(profiledStart).TotalMilliseconds, recorded, false);
+            PublishProducedSymbols(parameters);
+            return;
         }
-        else
+
+        RunStep(recording, key);
+        _pendingTimings = new SegmentRunTimings(0, recordMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds - recordMs, 0, recorded, _replayed);
+        _dev.Pending = this;
+        if (_program.ProducedSymbols.Count > 0 || DiagnosticSwitches.SyncEachLaunch)
         {
-            LastGpuMs = RunStep(recording, key);
+            WaitForCompletion();   // the counts are read back now
         }
 
         PublishProducedSymbols(parameters);
-        long finished = Stopwatch.GetTimestamp();
-        double recordMs = recorded ? Stopwatch.GetElapsedTime(recordStart, recordEnd).TotalMilliseconds : 0;
-        double waitMs = _waitStart == 0 ? 0 : Stopwatch.GetElapsedTime(_waitStart, _waitEnd).TotalMilliseconds;
-        double submitMs = Stopwatch.GetElapsedTime(started, finished).TotalMilliseconds - recordMs - waitMs;
-        LastRunTimings = new SegmentRunTimings(LastGpuMs, recordMs, submitMs, waitMs, recorded, _replayed);
+    }
+
+    /// <summary>
+    /// Waits for the submitted execution, if any: checks it for errors and records its GPU time and the host's wait
+    /// (<see cref="LastRunTimings"/>). Thread-safe (several threads may read outputs at once).
+    /// </summary>
+    private void WaitForCompletion()
+    {
+        if (Volatile.Read(ref _pending) is null)
+        {
+            return;
+        }
+
+        lock (_completion)
+        {
+            if (_pending is not { } what)
+            {
+                return;
+            }
+
+            long start = Stopwatch.GetTimestamp();
+            _dev.Enter();
+            Synchronize(what);
+            double waitMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            float ms = 0;
+            if (_pendingTimed)
+            {
+                CudaApi.Check(CudaApi.cuEventElapsedTime(&ms, _start, _end), "cuEventElapsedTime");
+            }
+
+            _lastGpuMs = ms;
+            _lastRunTimings = _pendingTimings with { GpuMs = ms, WaitMs = waitMs };
+            if (_dev.Pending == this)
+            {
+                _dev.Pending = null;
+            }
+
+            Volatile.Write(ref _pending, null);
+        }
     }
 
     /// <summary>
@@ -426,11 +505,12 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     /// their recording: positions and lengths are runtime scalars uploaded before the launches). Steps that run once (prefill
     /// chunks of new lengths) are not captured, so they pay no instantiation.
     /// </summary>
-    private double RunStep(CudaRecordedLaunch[] recording, string key)
+    private void RunStep(CudaRecordedLaunch[] recording, string key)
     {
         if (!_dev.LaunchGraphs || DiagnosticSwitches.SyncEachLaunch || recording.Length < 2)
         {
-            return Run(recording);
+            Submit(recording, "the launches of segment " + Segment.Index);
+            return;
         }
 
         _graphs.TryGetValue(key, out var entry);
@@ -443,17 +523,31 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         _graphs[key] = entry;
         if (entry.Exec == 0)
         {
-            return Run(recording);
+            Submit(recording, "the launches of segment " + Segment.Index);
+            return;
         }
 
         CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
         CudaApi.Check(CudaApi.cuGraphLaunch(entry.Exec, _stream), "cuGraphLaunch");
         CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
         _replayed = true;
-        WaitForStream("the graph of segment " + Segment.Index);
-        float ms;
-        CudaApi.Check(CudaApi.cuEventElapsedTime(&ms, _start, _end), "cuEventElapsedTime");
-        return ms;
+        _pendingTimed = true;
+        _pending = "the graph of segment " + Segment.Index;
+    }
+
+    /// <summary>Launches a recording between the timing events without waiting for it (<see cref="WaitForCompletion"/> does).</summary>
+    private void Submit(ReadOnlySpan<CudaRecordedLaunch> launches, string what)
+    {
+        CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
+        _previousOneWave = false;   // copies may precede the first kernel: it is never a dependent
+        foreach (var launch in launches)
+        {
+            Launch(launch);
+        }
+
+        CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
+        _pendingTimed = true;
+        _pending = what;
     }
 
     /// <summary>Captures the launches of a recording into an instantiated graph (or none, when the driver refuses the capture).</summary>
@@ -501,6 +595,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     /// <inheritdoc />
     public void ResetState()
     {
+        WaitForCompletion();
         _dev.Enter();
         RunLaunches(_program.ResetLaunches);
     }
@@ -516,6 +611,12 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         if (regions.Count == 0)
         {
             return;
+        }
+
+        WaitForCompletion();
+        if (_dev.Pending is { } other && other != this)
+        {
+            other.WaitForCompletion();   // the state may be another segment's (borrowed)
         }
 
         _dev.Enter();
@@ -654,7 +755,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
 
         CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
-        WaitForStream("the launches of segment " + Segment.Index);
+        Synchronize("the launches of segment " + Segment.Index);
         float ms;
         CudaApi.Check(CudaApi.cuEventElapsedTime(&ms, _start, _end), "cuEventElapsedTime");
         return ms;
@@ -734,19 +835,6 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
     }
 
-    /// <summary><see cref="Synchronize"/> at the end of an execution, timed for <see cref="LastRunTimings"/>.</summary>
-    private void WaitForStream(string what)
-    {
-        long start = Stopwatch.GetTimestamp();
-        Synchronize(what);
-        if (_waitStart == 0)
-        {
-            _waitStart = start;
-        }
-
-        _waitEnd = Stopwatch.GetTimestamp();
-    }
-
     private void Synchronize(string what)
     {
         int result = CudaApi.cuStreamSynchronize(_stream);
@@ -799,8 +887,19 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             return;
         }
 
+        if (!_dev.IsDisposed)
+        {
+            try
+            {
+                WaitForCompletion();
+            }
+            catch (CudaException)
+            {
+                // The failure was the execution's; the buffers are freed regardless.
+            }
+        }
+
         _disposed = true;
-        // Every execution waits for its stream, so no work of this segment is in flight.
         _recorded.Clear();
         foreach (var (b, a) in _alloc)
         {

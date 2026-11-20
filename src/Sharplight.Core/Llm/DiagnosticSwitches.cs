@@ -14,6 +14,8 @@ namespace Sharplight.Llm;
 /// chunks with the reason they end, prefix-cache attaches and state snapshots).</item>
 /// <item><c>SHARPLIGHT_STEP_PROFILE=&lt;file&gt;</c>: the serving scheduler writes one CSV line per step to the file (rows, scheduler phases,
 /// device time; see <see cref="Serving.StepProfiler"/>).</item>
+/// <item><c>SHARPLIGHT_ASYNC_EMIT=0</c>: the serving scheduler decodes and streams each step's tokens before it schedules the next step,
+/// also when the decoder runs steps asynchronously (by default that work overlaps the next step on the device).</item>
 /// <item><c>SHARPLIGHT_STEP_SNAPSHOTS=0</c>: recurrent-state snapshots for prefix caching are only copied after a step, so a snapshot
 /// inside a prompt chunk cuts the chunk (<see cref="Serving.IBatchDecoder.SnapshotsInsideSteps"/> is false; for A/B measurements).</item>
 /// </list>
@@ -25,6 +27,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when the serving scheduler traces its steps.</summary>
     public static bool SchedulerTrace { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_SCHED_TRACE") == "1";
+
+    /// <summary>False when token emission must not overlap the next step (<c>SHARPLIGHT_ASYNC_EMIT=0</c>).</summary>
+    public static bool DeferEmits { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_ASYNC_EMIT") != "0";
 
     /// <summary>The file of the serving step profile, or null.</summary>
     public static string? StepProfile { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_PROFILE");
