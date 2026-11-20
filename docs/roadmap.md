@@ -210,8 +210,8 @@ GPU (Vulkan):
   the GPU, llama.cpp's `--n-cpu-moe`), shared activation arenas, fused AVX2 integer dots for the IQ grid formats, and prefill with the
   CPU experts streamed to the GPU (page-locked mapped weights, copied while the layer before runs). Next: decode still trails llama.cpp
   on CUDA (GPU step ~9.7 ms of ~1350 launches, 8-9 expert layers on the CPU against llama.cpp's 6: the 1 GiB device reserve, the
-  512-row logits buffer and the per-segment buffers take ~2.5 GiB); stream two layers ahead (double-buffered expert memory) so the copies
-  hide behind the GPU's prefill work; asynchronous streaming on Vulkan (transfer queue); AVX-512 / VNNI and NEON fused grid dots;
+  512-row logits buffer and the per-segment buffers take ~2.5 GiB); hide more of the streamed copies without giving up a layer (two
+  memories cost more than they saved, §59.5); copies on Vulkan's transfer queue; gpt-oss on Vulkan (page-cache-bound streaming); AVX-512 / VNNI and NEON fused grid dots;
   Qwen3.8-Flash-Next and Qwen3-Coder-Next offloaded against llama.cpp.
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of

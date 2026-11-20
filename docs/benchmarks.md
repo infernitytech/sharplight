@@ -8292,6 +8292,9 @@ prefill varies by ±40 % between its three runs).
   the one-lookup sign table (it reads explicit sign bytes).
 * Pairing the gate and up products into one op (one quantization, one pass) is in (bit-identical results), but its effect on the decode
   step was within the run-to-run noise of this machine.
+* Two streaming memories (`SHARPLIGHT_STREAM_BUFFERS=2`, the next layer's copy overlapping the current layer) made the 122B prefill
+  slower, 831 against 927 tok/s, and decode 47.8 against 53.1: the extra layer of experts it moves to the CPU costs more in each pass than
+  the overlap saves. It stays an option, off by default.
 * A thread-count sweep (8 / 10 / default threads) was inconclusive: other jobs took 2-5 cores during most runs.
 * Copies through staging buffers reached 14 GB/s on CUDA (17 GB/s with the MXFP4 repack) against 28 GB/s from page-locked mapped
   memory; on Vulkan the repack wrote out of order into write-combined staging memory (5 GB/s) until it went through cached memory first.
