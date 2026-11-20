@@ -118,6 +118,9 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// <inheritdoc />
     public bool StreamsWeights => true;
 
+    /// <inheritdoc />
+    public bool StreamsSelectedExperts => true;
+
     /// <summary>The submission budget in ms (0 = unlimited).</summary>
     public double SubmissionBudgetMs => Code.SubmissionBudgetMs;
 

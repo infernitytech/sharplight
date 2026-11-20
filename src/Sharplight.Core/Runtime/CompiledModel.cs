@@ -26,6 +26,29 @@ public sealed class CompiledModel : IDisposable
     /// </summary>
     private readonly int[] _residentIn;
     private readonly bool _keepsResident = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_RESIDENT") is not ("0" or "false");
+    /// <summary>
+    /// Per CPU segment of routed experts: its GPU compilation that copies in only the experts a pass selects
+    /// (<see cref="CompileOptions.SparseExpertSlots"/>), or null. Small passes (decode) run the slots of every row partly there and partly on the
+    /// CPU at the same time (<see cref="RunSplit"/>).
+    /// </summary>
+    private readonly ICompiledSegment?[] _sparse;
+    /// <summary>Per segment with a sparse compilation: the expert ids input of its expert products.</summary>
+    private readonly Value?[] _sparseIds;
+    /// <summary>Per segment with a sparse compilation: how many of a row's slots (expert choices) the GPU takes, adapted after every split pass.</summary>
+    private readonly int[] _gpuSlots;
+    /// <summary>Per segment: reused id buffers of the GPU's and the CPU's share of a split pass, and the GPU's outputs.</summary>
+    private readonly Dictionary<int, (byte[] Gpu, byte[] Cpu, byte[] Out)> _splitBuffers = [];
+
+    /// <summary>
+    /// Rows per pass up to which the routed experts of a CPU layer run split between the CPU and the GPU (<c>SHARPLIGHT_SPARSE_EXPERT_ROWS</c>,
+    /// default 4; 0 turns the split off): the GPU copies the few experts its share of the slots selects (a decode step of Qwen3.5-122B: 8 of
+    /// 256, 21 MB) while the CPU computes the others.
+    /// </summary>
+    internal static int SparseExpertRows { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SPARSE_EXPERT_ROWS"), out int rows) && rows >= 0 ? rows : 4;
+
+    /// <summary>A fixed number of slots per row for the GPU in split passes (<c>SHARPLIGHT_SPARSE_GPU_SLOTS</c>), or null to adapt it.</summary>
+    private static int? DiagnosticSparseGpuSlots { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SPARSE_GPU_SLOTS"), out int slots) && slots >= 0 ? slots : null;
+
     /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the host time of its runs (inputs, execution, outputs) and the run count.</summary>
     private readonly (long Ticks, int Runs, bool Streamed)[]? _segmentTimes;
     private static readonly HashSet<Value> s_noSkips = [];
@@ -52,8 +75,27 @@ public sealed class CompiledModel : IDisposable
     /// </summary>
     public int StreamedSegmentCount => _streamed.Count(s => s is not null);
 
-    private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments, ICompiledSegment?[] streamed, int streamMinRows, int streamBuffers)
+    /// <summary>
+    /// Number of those CPU segments that also have a GPU compilation copying in only the selected experts (<see cref="CompileOptions.SparseExpertSlots"/>):
+    /// passes of up to <c>SHARPLIGHT_SPARSE_EXPERT_ROWS</c> rows (default 4) run their slots split between it and the CPU.
+    /// </summary>
+    public int SparseSegmentCount => _sparse.Count(s => s is not null);
+
+    private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments, ICompiledSegment?[] streamed, int streamMinRows, int streamBuffers,
+        ICompiledSegment?[] sparse)
     {
+        _sparse = sparse;
+        _sparseIds = new Value?[segments.Length];
+        _gpuSlots = new int[segments.Length];
+        for (int i = 0; i < sparse.Length; i++)
+        {
+            if (sparse[i] is not null && SparseExpertIds(segments[i].Segment) is { } ids)
+            {
+                _sparseIds[i] = ids;
+                _gpuSlots[i] = DiagnosticSparseGpuSlots ?? (int)Math.Max(1, ids.Shape[1].Fixed / 2);
+            }
+        }
+
         _streamBuffers = streamBuffers;
         _streamBufferOf = new int[streamed.Length];
         int ordinal = 0;
@@ -170,7 +212,7 @@ public sealed class CompiledModel : IDisposable
         {
             try
             {
-                return CompilePlaced(graph, placement);
+                return CompilePlaced(graph, placement, retryOnStreamingOom: attempt < MaxMemoryRetries);
             }
             catch (DeviceOutOfMemoryException e) when (placement.Fallback is not null && attempt < MaxMemoryRetries)
             {
@@ -194,8 +236,13 @@ public sealed class CompiledModel : IDisposable
     /// <summary>The least extra memory a placement after an out-of-memory failure reserves on every device.</summary>
     private const long MinRetryReserve = 256L << 20;
 
-    /// <summary>Places the graph (its dynamic bounds already added) and compiles every segment on its device.</summary>
-    private static CompiledModel CompilePlaced(ComputeGraph graph, PlacementOptions placement)
+    /// <summary>
+    /// Places the graph (its dynamic bounds already added) and compiles every segment on its device: the largest segment of each accelerator
+    /// first (<see cref="CompileOrder"/>), then the streamed compilations, then the rest. With <paramref name="retryOnStreamingOom"/> a streamed
+    /// compilation that runs out of memory fails the compilation (the caller places the graph again with more memory kept free) instead of
+    /// leaving its segment to the CPU for prefill.
+    /// </summary>
+    private static CompiledModel CompilePlaced(ComputeGraph graph, PlacementOptions placement, bool retryOnStreamingOom)
     {
         var ct = placement.Compile.CancellationToken;
         ct.ThrowIfCancellationRequested();
@@ -206,11 +253,22 @@ public sealed class CompiledModel : IDisposable
         var progress = placement.Compile.Progress is { } target ? new SegmentProgress(target) : null;
         var segmentOptions = (progress is null ? placement.Compile : placement.Compile.WithProgress(progress)).WithStateScope(new object());
         var compiled = new ICompiledSegment[plan.Segments.Count];
+        int buffers = Math.Clamp(placement.StreamBuffers, 1, 2);
+        var streamed = new ICompiledSegment?[plan.Segments.Count];
+        var sparse = new ICompiledSegment?[plan.Segments.Count];
+        var order = CompileOrder(plan);
         try
         {
-            foreach (int index in CompileOrder(plan))
+            for (int i = 0; i < order.Count; i++)
             {
+                if (i == order.FirstCount)
+                {
+                    CompileStreamed(plan, segmentOptions, buffers, retryOnStreamingOom, streamed, ct);
+                    CompileSparse(plan, segmentOptions, sparse, ct);
+                }
+
                 ct.ThrowIfCancellationRequested();
+                int index = order.Indices[i];
                 var seg = plan.Segments[index];
                 compiled[index] = seg.Nodes switch
                 {
@@ -223,23 +281,22 @@ public sealed class CompiledModel : IDisposable
         }
         catch
         {
-            foreach (var c in compiled)
+            foreach (var c in compiled.Concat(streamed).Concat(sparse))
             {
                 c?.Dispose();
             }
 
             throw;
         }
-
-        int buffers = Math.Clamp(placement.StreamBuffers, 1, 2);
-        var streamed = CompileStreamed(plan, segmentOptions, buffers, ct);
         if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
         {
             foreach (var slot in plan.Slots.Where(s => s.Device.Info.Kind != DeviceKind.Cpu).Distinct())
             {
                 var memory = slot.Device.GetMemoryInfo();
                 Console.Error.WriteLine($"[load] {slot.Device.Info.Name} after compiling '{graph.Name}': {memory.Available >> 20} MiB available, "
-                    + $"{plan.Segments.Count(s => plan.Slots[s.DeviceSlot] == slot)} segments, {streamed.Count(s => s is not null)} streamed");
+                    + $"{memory.UsedByUs >> 20} MiB held, {plan.Segments.Count(s => plan.Slots[s.DeviceSlot] == slot)} segments, {streamed.Count(s => s is not null)} streamed, "
+                    + $"{sparse.Count(s => s is not null)} sparse, "
+                    + $"{placement.ReservePerDevice >> 20} MiB reserved");
             }
 
             if (placement.Fallback is { } fallback)
@@ -249,7 +306,7 @@ public sealed class CompiledModel : IDisposable
             }
         }
 
-        return new CompiledModel(graph, plan, placement.Compile, compiled, streamed, placement.StreamExpertsMinRows, buffers);
+        return new CompiledModel(graph, plan, placement.Compile, compiled, streamed, placement.StreamExpertsMinRows, buffers, sparse);
     }
 
     /// <summary>
@@ -259,23 +316,189 @@ public sealed class CompiledModel : IDisposable
     /// one with the most nodes, e.g. the layers between routed experts on the CPU) lets the smaller ones share its arena instead of each size
     /// step holding its own (Qwen3.5-122B with the experts of 10 layers on the CPU: 166 + 174 + 274 MiB at 512 rows, now 274).
     /// </summary>
-    private static IEnumerable<int> CompileOrder(PlacementPlan plan)
+    /// <returns>The segment indices in compile order and how many of them come first (the largest of each accelerator).</returns>
+    private static (List<int> Indices, int FirstCount, int Count) CompileOrder(PlacementPlan plan)
     {
         var first = plan.Segments.Select((s, i) => (Segment: s, Index: i))
             .Where(x => plan.Slots[x.Segment.DeviceSlot].Device.Info.Kind != DeviceKind.Cpu && x.Segment.Nodes is not [{ Op.Category: OpCategory.ControlFlow }])
             .GroupBy(x => x.Segment.DeviceSlot)
             .Select(g => g.MaxBy(x => x.Segment.Nodes.Count).Index)
             .ToHashSet();
-        return [.. first.Order(), .. Enumerable.Range(0, plan.Segments.Count).Where(i => !first.Contains(i))];
+        List<int> indices = [.. first.Order(), .. Enumerable.Range(0, plan.Segments.Count).Where(i => !first.Contains(i))];
+        return (indices, first.Count, indices.Count);
     }
 
     /// <summary>
-    /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>). A segment that does not
-    /// compile (no memory left, an unsupported kernel) keeps running on the CPU only.
+    /// Compiles, for the streamed segments (<see cref="PlacementPlan.StreamedSegments"/>) whose expert products read one ids input and whose
+    /// outputs are sums over the slots, a GPU version for passes of up to <see cref="SparseExpertRows"/> rows that copies only the selected
+    /// experts in (<see cref="CompileOptions.SparseExpertSlots"/>) into <paramref name="sparse"/>. Devices that cannot leave the segment out.
     /// </summary>
-    private static ICompiledSegment?[] CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, int buffers, CancellationToken ct)
+    private static void CompileSparse(PlacementPlan plan, CompileOptions segmentOptions, ICompiledSegment?[] sparse, CancellationToken ct)
     {
-        var streamed = new ICompiledSegment?[plan.Segments.Count];
+        if (SparseExpertRows <= 0)
+        {
+            return;
+        }
+
+        foreach (var (index, slot) in plan.StreamedSegments.OrderBy(kv => kv.Key))
+        {
+            var segment = plan.Segments[index];
+            if (!plan.Slots[slot].Device.StreamsSelectedExperts || SparseExpertIds(segment) is not { } ids || !SumsOverSlots(segment))
+            {
+                continue;
+            }
+
+            ct.ThrowIfCancellationRequested();
+            var twin = new GraphSegment { Graph = segment.Graph, Index = segment.Index, Nodes = segment.Nodes, Inputs = segment.Inputs, Outputs = segment.Outputs, DeviceSlot = slot };
+            try
+            {
+                sparse[index] = plan.Slots[slot].Device.Compile(twin, segmentOptions.WithSparseExperts(SparseExpertRows, SparseExpertRows * (int)ids.Shape[1].Fixed));
+            }
+            catch (Exception e) when (e is DeviceOutOfMemoryException or InsufficientMemoryException or NotSupportedException)
+            {
+                if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
+                {
+                    Console.Error.WriteLine($"[load] segment {index} has no sparse expert version on {plan.Slots[slot].Device.Info.Name}: {e.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>The ids input that every expert product (<c>MatMulId</c>) of the segment reads, when there is exactly one with a fixed slot count.</summary>
+    private static Value? SparseExpertIds(GraphSegment segment)
+    {
+        var ids = segment.Nodes.Where(n => n.Op.Name == "MatMulId").Select(n => n.Inputs[2]).Distinct().ToList();
+        return ids is [{ Shape.Rank: 2 } only] && !only.Shape[1].IsSymbolic && segment.Inputs.Contains(only) ? only : null;
+    }
+
+    /// <summary>
+    /// Whether every output of the segment is an f32 sum over the slot axis (a <c>ReduceSum</c>, possibly behind views), so that the sums of
+    /// two passes over disjoint slots add up to the pass over all.
+    /// </summary>
+    private static bool SumsOverSlots(GraphSegment segment)
+    {
+        foreach (var output in segment.Outputs)
+        {
+            var producer = output.Producer;
+            while (producer is { Op.Category: OpCategory.View } && segment.Nodes.Contains(producer))
+            {
+                producer = producer.Inputs[0].Producer;
+            }
+
+            if (output.Type != Tensors.DataType.F32 || producer is not { Op.Name: "ReduceSum" } || !segment.Nodes.Contains(producer))
+            {
+                return false;
+            }
+        }
+
+        return segment.Outputs.Count > 0;
+    }
+
+    /// <summary>
+    /// Runs segment <paramref name="i"/> split between its CPU compilation and its sparse GPU compilation when the pass is small enough: the
+    /// GPU takes the first <see cref="_gpuSlots"/> slots of every row (it copies in the experts they select), the CPU the others (ids of -1
+    /// select no expert), both at the same time; the outputs, sums over the slots, are added. Afterwards the GPU's share moves by one slot
+    /// toward the balance: down when the CPU waited for the GPU longer than half a CPU slot takes, up when it did not wait.
+    /// </summary>
+    /// <returns>False, running nothing, when the segment has no sparse compilation or the pass does not qualify.</returns>
+    private bool RunSplit(int i, RunParameters parameters)
+    {
+        if (_sparse[i] is not { } gpu || _sparseIds[i] is not { } idsValue || _residentIn[_streamBufferOf[i]] == i
+            || !_hostValues.TryGetValue(idsValue, out var hostIds))
+        {
+            return false;
+        }
+
+        var cpu = _segments[i];
+        int k = (int)idsValue.Shape[1].Fixed;
+        long rows = idsValue.Shape.Resolve(parameters.Symbols)[0];
+        if (rows > SparseExpertRows || rows <= 0)
+        {
+            return false;
+        }
+
+        int bytes = (int)ByteCount(idsValue, parameters);
+        long outBytes = cpu.Segment.Outputs.Where(o => IsConsumedAfter(i, o)).Select(o => ByteCount(o, parameters)).DefaultIfEmpty(0).Max();
+        if (!_splitBuffers.TryGetValue(i, out var buffers) || buffers.Gpu.Length < bytes || buffers.Out.Length < outBytes)
+        {
+            _splitBuffers[i] = buffers = (new byte[bytes], new byte[bytes], new byte[outBytes]);
+        }
+
+        int kg = Math.Clamp(_gpuSlots[i], 1, k);
+        var all = MemoryMarshal.Cast<byte, int>(hostIds.AsSpan(0, bytes));
+        var gpuIds = MemoryMarshal.Cast<byte, int>(buffers.Gpu.AsSpan(0, bytes));
+        var cpuIds = MemoryMarshal.Cast<byte, int>(buffers.Cpu.AsSpan(0, bytes));
+        for (int j = 0; j < all.Length; j++)
+        {
+            bool onGpu = j % k < kg;
+            gpuIds[j] = onGpu ? all[j] : -1;
+            cpuIds[j] = onGpu ? -1 : all[j];
+        }
+
+        foreach (var v in cpu.Segment.Inputs)
+        {
+            if (v == idsValue)
+            {
+                gpu.SetInput(v, buffers.Gpu.AsSpan(0, bytes));
+                cpu.SetInput(v, buffers.Cpu.AsSpan(0, bytes));
+            }
+            else if (v.Kind == ValueKind.Intermediate && _hostValues.TryGetValue(v, out var input))
+            {
+                var data = input.AsSpan(0, (int)ByteCount(v, parameters));
+                gpu.SetInput(v, data);
+                cpu.SetInput(v, data);
+            }
+        }
+
+        gpu.Execute(parameters);
+        long cpuStart = Stopwatch.GetTimestamp();
+        cpu.Execute(parameters);
+        double cpuMs = Stopwatch.GetElapsedTime(cpuStart).TotalMilliseconds;
+        double waitMs = 0;
+        foreach (var o in cpu.Segment.Outputs)
+        {
+            if (!IsConsumedAfter(i, o))
+            {
+                continue;
+            }
+
+            int n = (int)ByteCount(o, parameters);
+            if (!_hostValues.TryGetValue(o, out var sum) || sum.Length < n)
+            {
+                _hostValues[o] = sum = new byte[n];
+            }
+
+            cpu.GetOutput(o, sum.AsSpan(0, n));
+            long waitStart = Stopwatch.GetTimestamp();
+            gpu.GetOutput(o, buffers.Out.AsSpan(0, n));
+            waitMs += Stopwatch.GetElapsedTime(waitStart).TotalMilliseconds;
+            var total = MemoryMarshal.Cast<byte, float>(sum.AsSpan(0, n));
+            var part = MemoryMarshal.Cast<byte, float>(buffers.Out.AsSpan(0, n));
+            for (int j = 0; j < total.Length; j++)
+            {
+                total[j] += part[j];
+            }
+        }
+
+        if (DiagnosticSparseGpuSlots is null)
+        {
+            double cpuSlotMs = cpuMs / Math.Max(1, k - kg);
+            _gpuSlots[i] = waitMs > cpuSlotMs / 2 ? Math.Max(1, kg - 1) : waitMs < SplitBalancedWaitMs ? Math.Min(k, kg + 1) : kg;
+        }
+
+        return true;
+    }
+
+    /// <summary>A wait for the GPU's share of a split pass below which the GPU takes one more slot next time (ms).</summary>
+    private const double SplitBalancedWaitMs = 0.02;
+
+    /// <summary>
+    /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>) into
+    /// <paramref name="streamed"/>. A segment that does not compile (an unsupported kernel; no memory left unless <paramref name="throwOnOom"/>)
+    /// keeps running on the CPU only.
+    /// </summary>
+    private static void CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, int buffers, bool throwOnOom, ICompiledSegment?[] streamed, CancellationToken ct)
+    {
         int ordinal = 0;
         foreach (var (index, slot) in plan.StreamedSegments.OrderBy(kv => kv.Key))
         {
@@ -288,7 +511,7 @@ public sealed class CompiledModel : IDisposable
                 streamed[index] = plan.Slots[slot].Device.Compile(twin, options);
                 ordinal++;
             }
-            catch (Exception e) when (e is DeviceOutOfMemoryException or InsufficientMemoryException or NotSupportedException)
+            catch (Exception e) when (e is DeviceOutOfMemoryException && !throwOnOom || e is InsufficientMemoryException or NotSupportedException)
             {
                 if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
                 {
@@ -296,8 +519,6 @@ public sealed class CompiledModel : IDisposable
                 }
             }
         }
-
-        return streamed;
     }
 
     /// <summary>
@@ -404,7 +625,7 @@ public sealed class CompiledModel : IDisposable
             }
         }
 
-        foreach (var s in _streamed)
+        foreach (var s in _streamed.Concat(_sparse))
         {
             if (s is not null && s.Segment.Inputs.Contains(input))
             {
@@ -470,6 +691,17 @@ public sealed class CompiledModel : IDisposable
         for (int i = 0; i < _segments.Length; i++)
         {
             long started = _segmentTimes is null ? 0 : Stopwatch.GetTimestamp();
+            if (RunSplit(i, parameters))
+            {
+                if (_segmentTimes is not null)
+                {
+                    ref var split = ref _segmentTimes[i];
+                    split = (split.Ticks + Stopwatch.GetTimestamp() - started, split.Runs + 1, true);
+                }
+
+                continue;
+            }
+
             var seg = Runner(i, parameters);
             if (seg is IStreamedSegment streamed && seg == _streamed[i])
             {
@@ -704,7 +936,7 @@ public sealed class CompiledModel : IDisposable
             s.Dispose();
         }
 
-        foreach (var s in _streamed)
+        foreach (var s in _streamed.Concat(_sparse))
         {
             s?.Dispose();
         }
