@@ -36,6 +36,12 @@ public sealed class PlacementOptions
     /// <c>SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS</c> overrides it.
     /// </summary>
     public int StreamExpertsMinRows { get; init; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS"), out int rows) && rows >= 0 ? rows : 32;
+    /// <summary>
+    /// Memories for streamed experts the GPU keeps, 1 or 2 (default 1; <c>SHARPLIGHT_STREAM_BUFFERS</c>): with two, alternate layers use
+    /// alternate memories and the copy of a layer starts while the layer streamed before it still runs, which hides more of the copies
+    /// behind prefill work for one more layer's worth of GPU memory (one more expert layer on the CPU in decode).
+    /// </summary>
+    public int StreamBuffers { get; init; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_BUFFERS") == "2" ? 2 : 1;
 
     /// <summary>A copy with the compile options <paramref name="compile"/> and every other setting kept.</summary>
     internal PlacementOptions WithCompile(CompileOptions compile) => new()
@@ -48,5 +54,6 @@ public sealed class PlacementOptions
         GroupDataDependentCounts = GroupDataDependentCounts,
         SplitExperts = SplitExperts,
         StreamExpertsMinRows = StreamExpertsMinRows,
+        StreamBuffers = StreamBuffers,
     };
 }

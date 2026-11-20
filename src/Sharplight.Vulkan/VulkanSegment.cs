@@ -134,7 +134,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
                 if (b.Kind == BufferKind.Weight && options.StreamWeights && options.StateScope is { } streamScope)
                 {
-                    bytes += ShareArena(dev, streamScope, "stream:" + _streamedWeights.Count, b, size);
+                    bytes += ShareArena(dev, streamScope, $"stream{options.StreamBuffer}:" + _streamedWeights.Count, b, size);
                     _streamedWeights.Add(b);
                     continue;
                 }

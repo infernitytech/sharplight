@@ -146,7 +146,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
         if (b.Kind == BufferKind.Weight && _options.StreamWeights && _options.StateScope is { } streamScope)
         {
-            string key = "stream:" + _streamedWeights.Count;
+            string key = $"stream{_options.StreamBuffer}:" + _streamedWeights.Count;
             _streamedWeights.Add(b);
             return ShareArena(streamScope, key, b);
         }

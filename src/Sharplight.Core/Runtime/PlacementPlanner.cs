@@ -363,7 +363,7 @@ public static class PlacementPlanner
         int perGroup = stream ? 2 : 1;
         long Overhead(IReadOnlyCollection<string> moved) => moved.Count == 0 ? 0
             : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g) + options.ReservePerSegment) * perGroup
-              + (stream ? moved.Max(g => groupBytes[g]) : 0);
+              + (stream ? Math.Clamp(options.StreamBuffers, 1, 2) * moved.Max(g => groupBytes[g]) : 0);
         List<string> Moved(Dictionary<string, int> placed) => [.. placed.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
         Dictionary<string, int> groupDevice;
         while (true)

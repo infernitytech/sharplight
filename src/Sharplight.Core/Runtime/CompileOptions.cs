@@ -98,6 +98,12 @@ public sealed class CompileOptions
     /// </summary>
     public bool StreamWeights { get; init; }
 
+    /// <summary>
+    /// With <see cref="StreamWeights"/>: which of the graph's streamed-weight memories the segment uses (0 or 1, see
+    /// <see cref="PlacementOptions.StreamBuffers"/>); segments with different buffers can copy at the same time.
+    /// </summary>
+    public int StreamBuffer { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -150,11 +156,11 @@ public sealed class CompileOptions
     /// <summary>A copy with the state scope <paramref name="scope"/>.</summary>
     internal CompileOptions WithStateScope(object scope) => Copy(SymbolBounds, Progress, scope);
 
-    /// <summary>A copy that streams its weights (<see cref="StreamWeights"/>).</summary>
-    internal CompileOptions WithStreamedWeights() => Copy(SymbolBounds, Progress, streamWeights: true);
+    /// <summary>A copy that streams its weights (<see cref="StreamWeights"/>) through the streamed-weight memory <paramref name="buffer"/>.</summary>
+    internal CompileOptions WithStreamedWeights(int buffer) => Copy(SymbolBounds, Progress, streamWeights: true, streamBuffer: buffer);
 
     private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null,
-        IReadOnlySet<string>? disabledFeatures = null, bool? streamWeights = null) => new()
+        IReadOnlySet<string>? disabledFeatures = null, bool? streamWeights = null, int? streamBuffer = null) => new()
     {
         MaxTokens = MaxTokens,
         ContextLength = ContextLength,
@@ -170,5 +176,6 @@ public sealed class CompileOptions
         SharedWeights = SharedWeights,
         StateScope = stateScope ?? StateScope,
         StreamWeights = streamWeights ?? StreamWeights,
+        StreamBuffer = streamBuffer ?? StreamBuffer,
     };
 }

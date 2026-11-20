@@ -13,6 +13,10 @@ public sealed class CompiledModel : IDisposable
     /// <summary>Per segment: the GPU compilation that streams its weights and runs it for large batches (<see cref="PlacementPlan.StreamedSegments"/>), or null.</summary>
     private readonly ICompiledSegment?[] _streamed;
     private readonly int _streamMinRows;
+    /// <summary>Streamed-weight memories (<see cref="PlacementOptions.StreamBuffers"/>): streamed segment k uses memory k mod this.</summary>
+    private readonly int _streamBuffers;
+    /// <summary>Per segment with a streamed compilation: its streamed-weight memory (the compilations alternate between them in segment order).</summary>
+    private readonly int[] _streamBufferOf;
     private static readonly HashSet<Value> s_noSkips = [];
     private readonly Dictionary<Value, byte[]> _hostValues = [];
     /// <summary>Per segment: the inputs it reads from an earlier segment's device memory (<see cref="IDeviceForwardingSegment"/>).</summary>
@@ -37,8 +41,19 @@ public sealed class CompiledModel : IDisposable
     /// </summary>
     public int StreamedSegmentCount => _streamed.Count(s => s is not null);
 
-    private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments, ICompiledSegment?[] streamed, int streamMinRows)
+    private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments, ICompiledSegment?[] streamed, int streamMinRows, int streamBuffers)
     {
+        _streamBuffers = streamBuffers;
+        _streamBufferOf = new int[streamed.Length];
+        int ordinal = 0;
+        for (int i = 0; i < streamed.Length; i++)
+        {
+            if (streamed[i] is not null)
+            {
+                _streamBufferOf[i] = ordinal++ % streamBuffers;
+            }
+        }
+
         Graph = graph;
         Plan = plan;
         Options = options;
@@ -144,7 +159,8 @@ public sealed class CompiledModel : IDisposable
             throw;
         }
 
-        var streamed = CompileStreamed(plan, segmentOptions, ct);
+        int buffers = Math.Clamp(placement.StreamBuffers, 1, 2);
+        var streamed = CompileStreamed(plan, segmentOptions, buffers, ct);
         if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
         {
             foreach (var slot in plan.Slots.Where(s => s.Device.Info.Kind != DeviceKind.Cpu).Distinct())
@@ -161,25 +177,27 @@ public sealed class CompiledModel : IDisposable
             }
         }
 
-        return new CompiledModel(graph, plan, placement.Compile, [.. compiled], streamed, placement.StreamExpertsMinRows);
+        return new CompiledModel(graph, plan, placement.Compile, [.. compiled], streamed, placement.StreamExpertsMinRows, buffers);
     }
 
     /// <summary>
     /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>). A segment that does not
     /// compile (no memory left, an unsupported kernel) keeps running on the CPU only.
     /// </summary>
-    private static ICompiledSegment?[] CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, CancellationToken ct)
+    private static ICompiledSegment?[] CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, int buffers, CancellationToken ct)
     {
         var streamed = new ICompiledSegment?[plan.Segments.Count];
-        var options = segmentOptions.WithStreamedWeights();
-        foreach (var (index, slot) in plan.StreamedSegments)
+        int ordinal = 0;
+        foreach (var (index, slot) in plan.StreamedSegments.OrderBy(kv => kv.Key))
         {
             ct.ThrowIfCancellationRequested();
+            var options = segmentOptions.WithStreamedWeights(ordinal % buffers);
             var segment = plan.Segments[index];
             var twin = new GraphSegment { Graph = segment.Graph, Index = segment.Index, Nodes = segment.Nodes, Inputs = segment.Inputs, Outputs = segment.Outputs, DeviceSlot = slot };
             try
             {
                 streamed[index] = plan.Slots[slot].Device.Compile(twin, options);
+                ordinal++;
             }
             catch (Exception e) when (e is DeviceOutOfMemoryException or InsufficientMemoryException or NotSupportedException)
             {
@@ -192,6 +210,38 @@ public sealed class CompiledModel : IDisposable
 
         return streamed;
     }
+
+    /// <summary>
+    /// Before segment <paramref name="i"/> runs, starts the copies of the streamed segments after it whose memory is free: in order, until
+    /// one needs a memory that the segment running now or a streamed segment before it still uses (<see cref="PlacementOptions.StreamBuffers"/>).
+    /// </summary>
+    private void BeginStreamingAhead(int i, RunParameters parameters)
+    {
+        Span<bool> busy = stackalloc bool[_streamBuffers];
+        if (_streamed[i] is not null && Runner(i, parameters) == _streamed[i])
+        {
+            busy[StreamBufferOf(i)] = true;
+        }
+
+        for (int j = i + 1; j < _segments.Length; j++)
+        {
+            if (_streamed[j] is null)
+            {
+                continue;
+            }
+
+            if (Runner(j, parameters) is not IStreamedSegment next || busy[StreamBufferOf(j)])
+            {
+                return;
+            }
+
+            next.BeginStreaming();
+            busy[StreamBufferOf(j)] = true;
+        }
+    }
+
+    /// <summary>The streamed-weight memory of streamed segment <paramref name="i"/> (alternating in segment order).</summary>
+    private int StreamBufferOf(int i) => _streamBufferOf[i];
 
     /// <summary>The segment that runs position <paramref name="i"/>: its streamed GPU version when the pass has enough rows, else the segment.</summary>
     private ICompiledSegment Runner(int i, RunParameters parameters)
@@ -323,11 +373,7 @@ public sealed class CompiledModel : IDisposable
         for (int i = 0; i < _segments.Length; i++)
         {
             var seg = Runner(i, parameters);
-            // The next segment streams its weights: start the copies while this one runs.
-            if (i + 1 < _segments.Length && _streamed[i + 1] is not null && Runner(i + 1, parameters) is IStreamedSegment next)
-            {
-                next.BeginStreaming();
-            }
+            BeginStreamingAhead(i, parameters);
 
             // Forward activations produced by earlier segments.
             foreach (var v in seg.Segment.Inputs)

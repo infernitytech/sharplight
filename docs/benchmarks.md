@@ -7965,12 +7965,12 @@ docs/model-support.md was its layer split (`-ngl 38`).
 | CUDA, experts on the CPU + streamed prefill (default) | 10 | 51.1 / 47.9 | **929 / 928** |
 | llama.cpp CUDA `-ncmoe 6` / `8` | | 72.1 / 65.2 | 985 / 866 |
 | llama.cpp CUDA `-ngl 38` (layer split) | | 9.2 (shared GPU) / 21.5 (§ model-support) | 589 |
-| Vulkan before (layer split) | 10 | 17.8 (model-support) | |
+| Vulkan before (layer split, `develop`) | 10 | 15.6 / 8.3 (GPU shared during part of the run) | 142 / 140 |
 | Vulkan, experts on the CPU + streamed prefill | 14 | **42.2 / 41.4** | **715 / 706** |
 | llama.cpp Vulkan `-ncmoe 6` / `8` | | 44.7 / 40.2 | 751 / 643 |
 
-* Decode 2.0-2.2x on CUDA, 2.4x on Vulkan; prefill 4.4x on CUDA. Against llama.cpp: CUDA decode 0.71-0.79x, prefill 0.94x; Vulkan
-  decode 0.94x, prefill 0.95x.
+* Decode 2.0-2.2x on CUDA, 2.7x on Vulkan (17.8 in docs/model-support.md); prefill 4.4x on CUDA, 5.0x on Vulkan. Against llama.cpp:
+  CUDA decode 0.71-0.79x, prefill 0.94x; Vulkan decode 0.94x, prefill 0.95x.
 * The CUDA decode step of the default build: GPU 9.6 ms (llama.cpp's whole step is 13.9 ms) and ~1 ms per CPU expert layer. The GPU
   part is ~1350 launches over 48 layers (the largest projections stream at ~720 GB/s, the rest are small kernels); llama.cpp fits 42
   expert layers where this placement fits 38-40: the 1 GiB device reserve, the 512-row logits buffer (485 MiB), the streaming buffer

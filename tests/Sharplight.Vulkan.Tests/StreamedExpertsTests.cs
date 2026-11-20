@@ -51,21 +51,23 @@ public sealed class StreamedExpertsTests
     };
 
     [Theory]
-    [InlineData(40)]
-    [InlineData(3)]
-    public void StreamedAndCpuExpertsMatchTheCpu(int rows)
+    [InlineData(40, 1)]
+    [InlineData(40, 2)]
+    [InlineData(3, 1)]
+    public void StreamedAndCpuExpertsMatchTheCpu(int rows, int buffers)
     {
         Gpu.Require();
         var graph = BuildGraph(out var x, out var ids, out var slotWeights);
         var split = new PlacementOptions
         {
-            // The dense layers, one layer of experts, room to stream one more and the transfer buffers.
-            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * DenseBytes + 2 * ExpertBytes + (256 << 10) }],
+            // The dense layers, one layer of experts, room to stream one more (two with two memories) and the transfer buffers.
+            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * DenseBytes + (1 + buffers) * ExpertBytes + (256 << 10) }],
             Fallback = new DeviceSlot { Device = Gpu.Cpu },
             Compile = Compile,
             ReservePerDevice = 0,
         ReservePerSegment = 0,
             StreamExpertsMinRows = MinRows,
+            StreamBuffers = buffers,
         };
         using var model = CompiledModel.Compile(graph, split);
         Assert.Contains(model.Plan.GroupDevice, kv => kv.Key.EndsWith(PlacementPlanner.ExpertGroupSuffix, StringComparison.Ordinal) && kv.Value == 1);
@@ -94,7 +96,8 @@ public sealed class StreamedExpertsTests
         using var gpu = CompiledModel.Compile(graph, new PlacementOptions { Devices = [new DeviceSlot { Device = Gpu.Device! }], Compile = Compile });
         var cpuResult = Run(cpu);
         var gpuResult = Run(gpu);
-        // Twice: the second pass copies the streamed weights into buffers the first one already used.
+        // Twice: the second pass copies the streamed weights into buffers the first one already used (with two memories, the second layer's
+        // copy starts while the first runs).
         Run(model);
         var actual = Run(model);
         bool streamed = rows >= MinRows;
