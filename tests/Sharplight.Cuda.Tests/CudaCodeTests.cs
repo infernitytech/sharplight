@@ -1,5 +1,6 @@
 using System.Text;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Shaders;
 using Sharplight.Tensors;
@@ -271,6 +272,97 @@ public sealed class CudaCodeTests
         for (int i = 0; i < reference.Length; i++)
         {
             Assert.True(Math.Abs(reference[i] - actual[i]) <= 1e-5 * scale, $"y[{i}]: {actual[i]} vs the generated GEMM's {reference[i]}");
+        }
+    }
+
+    [Theory]
+    [InlineData(64, 0, true)]
+    [InlineData(64, 100, true)]
+    [InlineData(128, 0, false)]
+    public void NativeAttentionMatchesTheCpu(int headSize, int window, bool sinks)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeAttention), "The GPU has no hand-written flash attention (compute capability below 8.0).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // Prompt chunks of 150, 70 and 5 queries against the f16 cache of the earlier ones (8 query heads on 2 KV heads): partial query
+        // and key tiles, the diagonal and, with a window, the tiles before it; the generated flash kernel serves the same attention
+        // with the feature disabled.
+        var expected = RunCachedAttention(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), headSize, window, sinks);
+        var actual = RunCachedAttention(provider.OpenDevice(info), headSize, window, sinks);
+        var generated = new DeviceOptions();
+        generated.DisabledFeatures.Add(DeviceFeatures.NativeAttention);
+        var reference = RunCachedAttention(provider.OpenDevice(info, generated), headSize, window, sinks);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 5e-3 + 5e-3 * Math.Abs(expected[i]), $"o[{i}]: {actual[i]} vs {expected[i]}");
+            Assert.True(Math.Abs(reference[i] - actual[i]) <= 5e-3 + 5e-3 * Math.Abs(reference[i]), $"o[{i}]: {actual[i]} vs the generated kernel's {reference[i]}");
+        }
+    }
+
+    /// <summary>
+    /// Causal attention of <see cref="NativeAttentionMatchesTheCpu"/>: three prompt chunks written to f16 caches and attended, the outputs of
+    /// all chunks concatenated.
+    /// </summary>
+    private static float[] RunCachedAttention(IComputeDevice device, int headSize, int window, bool sinks)
+    {
+        const int Hq = 8, Hkv = 2;
+        int[] chunks = [150, 70, 5];
+        int total = chunks.Sum();
+        using (device)
+        {
+            var tg = new TG("cuda-native-attention");
+            var qi = tg.InF("q", TG.T, Hq, headSize);
+            var ki = tg.InF("k", TG.T, Hkv, headSize);
+            var vi = tg.InF("v", TG.T, Hkv, headSize);
+            var kc = tg.State("kc", DataType.F16, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, headSize);
+            var vc = tg.State("vc", DataType.F16, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, headSize);
+            tg.B.CacheWrite(kc, ki);
+            tg.B.CacheWrite(vc, vi);
+            tg.B.RuntimeScalar("n_past");
+            var attrs = new List<(string, object)> { ("scale", 1f / MathF.Sqrt(headSize)), ("offset", "n_past") };
+            if (window > 0)
+            {
+                attrs.Add(("window", window));
+            }
+
+            Value[] inputs = [qi, kc, vc];
+            if (sinks)
+            {
+                attrs.Add(("sinks", true));
+                inputs = [.. inputs, tg.WF("sinks", [1.5f, -2f, 0.7f, 4f, 0f, -1f, 2.5f, 0.3f], Hq)];
+            }
+
+            tg.B.Output("o", tg.B.Emit1("CachedAttention", inputs, Attributes.From([.. attrs])));
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 256, ContextLength = 256 },
+                ReservePerDevice = 0,
+            });
+            float[] Values(int count, float step, float amplitude) => [.. Enumerable.Range(0, count).Select(i => amplitude * MathF.Sin(i * step))];
+            var q = Values(total * Hq * headSize, 0.37f, 2f);
+            var k = Values(total * Hkv * headSize, 0.53f, 2f);
+            var v = Values(total * Hkv * headSize, 0.71f, 1f);
+            var output = new float[total * Hq * headSize];
+            int past = 0;
+            foreach (int c in chunks)
+            {
+                model.SetInput<float>(qi, q.AsSpan(past * Hq * headSize, c * Hq * headSize));
+                model.SetInput<float>(ki, k.AsSpan(past * Hkv * headSize, c * Hkv * headSize));
+                model.SetInput<float>(vi, v.AsSpan(past * Hkv * headSize, c * Hkv * headSize));
+                var parameters = new RunParameters();
+                parameters.Symbols["T"] = c;
+                parameters.Scalars["n_past"] = past;
+                model.Run(parameters);
+                model.GetOutput<float>("o", output.AsSpan(past * Hq * headSize, c * Hq * headSize));
+                past += c;
+            }
+
+            return output;
         }
     }
 
