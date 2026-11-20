@@ -97,6 +97,15 @@ public static class DeviceFeatures
     public const string NativeGemmMoe = "native_gemm_moe";
 
     /// <summary>
+    /// Causal attention of many queries against an f16 KV cache (prefill, prompt chunks of a serving step) runs on a hand-written
+    /// flash-attention kernel of the provider (query fragments, scores, softmax statistics and outputs in registers, key / value
+    /// tiles copied asynchronously into a two-stage ring of shared memory; CUDA, compute capability 8.0 and later), including
+    /// sliding windows, chunked attention, soft caps, attention sinks and grouped-query heads. Disabling it keeps the generated
+    /// flash-attention kernels.
+    /// </summary>
+    public const string NativeAttention = "native_attention";
+
+    /// <summary>
     /// A step whose launches repeat (the same kernels, grids and arguments, e.g. every decode step of a sequence) is recorded once
     /// into a device-side launch graph and replayed with one submission (CUDA graphs), instead of one host call per launch. Like
     /// <see cref="KernelBinaries"/> it does not change generated code, so it is not part of <see cref="DeviceInfo.Features"/>;
@@ -130,7 +139,7 @@ public static class DeviceFeatures
     public const string PagedKv = "paged_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, TensorCopies, LaunchGraphs];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeAttention, TensorCopies, LaunchGraphs];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

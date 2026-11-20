@@ -198,6 +198,11 @@ public sealed partial class GraphLowerer
 
             if (slice == 0 && flash)
             {
+                if (keySplits == 1 && NativeFlashAttention(plan))
+                {
+                    variants.Add(NativeFlashVariant(plan, FlashWhen(plan)));
+                }
+
                 variants.Add(FlashVariant(plan, keySplits));
             }
 
@@ -915,7 +920,14 @@ public sealed partial class GraphLowerer
             }
         }
 
-        return (new KernelVariant(when, Lib("attention.slang", "decode", decodeMacros), b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1)),
+        var decodeVariant = new KernelVariant(when, Lib("attention.slang", "decode", decodeMacros), b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1));
+        if (NativeFlashAttention(plan))
+        {
+            // The kernel of the flash variant (see LowerAttention), so a prompt's rows sum alike in mixed and prompt-only steps.
+            return (decodeVariant, NativeFlashVariant(plan, when, MixedFlashMinRunRows));
+        }
+
+        return (decodeVariant,
             new KernelVariant(when, Lib("attention.slang", causal ? "fe" : "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), causal ? FeBlockRows(plan) : 32), (uint)Rows(b, runs))));
     }
 
