@@ -15,6 +15,9 @@ internal sealed record StarterRecommendation
     /// <summary>The memory a chat model may need on this machine.</summary>
     public long MemoryBudgetBytes { get; init; }
 
+    /// <summary>Why the chat model was chosen, e.g. <c>Fits in 7.2 GB free of 8 GB GPU memory, with room for a 4096-token context.</c>; empty without a recommendation.</summary>
+    public string Reason { get; init; } = "";
+
     /// <summary>Explains an empty result, or notes what was left out; empty otherwise.</summary>
     public string Message { get; init; } = "";
 

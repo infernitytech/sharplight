@@ -51,6 +51,7 @@
         <Border Classes="card" IsVisible="{Binding HasItems}">
           <StackPanel Spacing="10">
             <TextBlock Classes="h3" Text="Recommended for you" />
+            <TextBlock x:Name="WelcomeReason" Classes="caption" TextWrapping="Wrap" Text="{Binding Reason}" IsVisible="{Binding HasReason}" />
             <TextBlock Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsCpuOnly}"
                        Text="No GPU was found, so these models are small enough to run on the CPU. Answers will be slower than on a GPU." />
             <ItemsControl x:Name="WelcomeItems" ItemsSource="{Binding Items}">
