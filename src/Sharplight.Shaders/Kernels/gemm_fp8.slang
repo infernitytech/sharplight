@@ -122,8 +122,10 @@ struct Params
     uint8_t* w2;
 #endif
     float* y;
-#if SPLITK_FUSED
+#if SPLITK_FUSED || MULTI > 1
     float* yout;      // SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+#endif
+#if SPLITK_FUSED
     uint* arrivals;   // per output tile: the split workgroups arrived so far (zero between launches)
 #endif
 #if MULTI > 1

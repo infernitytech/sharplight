@@ -23,9 +23,7 @@
 #ifndef MULTI_BIAS
 #define MULTI_BIAS 0
 #endif
-#if MULTI > 1 && !SPLITK_FUSED
-#error "the multi-output GEMM stores through the fused split-K reduction"
-#endif
+// Without SPLITK_FUSED, a MULTI GEMM writes the partial slices of the concatenation (its y) and splitk_reduce with MULTI stores them.
 
 #if SPLITK_FUSED
 groupshared uint gSplitLast;

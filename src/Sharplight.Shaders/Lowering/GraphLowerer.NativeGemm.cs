@@ -311,16 +311,24 @@ public sealed partial class GraphLowerer
     private static long NativeMoeMinItems(long experts) => (DiagnosticSwitches.NativeMoeMinRows ?? 12) * experts;
 
     /// <summary>Bytes of one stage of <c>gemm_moe_native.cu</c>: activation rows, codes and scales of its weight rows.</summary>
-    private static int NativeMoeStageBytes(int columns, bool dual)
-        => NativeMoeTileRows * 128 + 2 * columns * 16 + 2 * (dual ? 2 : 1) * (dual ? columns / 2 : columns) / 16 * 16;
+    private static int NativeMoeStageBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)
+        => tileRows * 128 + 2 * columns * 16 + 2 * (dual ? 2 : 1) * (dual ? columns / 2 : columns) / 16 * 16;
 
     /// <summary>Dynamic shared memory of <c>gemm_moe_native.cu</c> for weight tiles of <paramref name="columns"/> rows.</summary>
-    private int NativeMoeSharedBytes(int columns, bool dual)
-        => NativeMoeStageBytes(columns, dual) * NativeMoeStagesFor(columns, dual);
+    private int NativeMoeSharedBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)
+        => NativeMoeStageBytes(columns, dual, tileRows) * NativeMoeStagesFor(columns, dual, tileRows);
 
     /// <summary>The stages of <c>gemm_moe_native.cu</c> that fit the device's shared memory (<see cref="NativeMoeStages"/> or 3).</summary>
-    private int NativeMoeStagesFor(int columns, bool dual)
-        => _opt.MaxSharedMemory >= NativeMoeStageBytes(columns, dual) * NativeMoeStages + NativeMoeStaticShared ? NativeMoeStages : 3;
+    private int NativeMoeStagesFor(int columns, bool dual, int tileRows = NativeMoeTileRows)
+        => _opt.MaxSharedMemory >= NativeMoeStageBytes(columns, dual, tileRows) * NativeMoeStages + NativeMoeStaticShared ? NativeMoeStages : 3;
+
+    /// <summary>
+    /// Routing tile rows of the hand-written grouped MXFP4 GEMM for a step of <paramref name="items"/> routed items over
+    /// <paramref name="experts"/> experts: 64 up to <c>SHARPLIGHT_NATIVE_MOE_SHORT</c> items per expert (experiment, default off), else
+    /// <see cref="NativeMoeTileRows"/>.
+    /// </summary>
+    private static int NativeMoeTileRowsFor(long items, long experts)
+        => DiagnosticSwitches.NativeMoeShortItems is { } shortItems && items <= shortItems * experts ? 64 : NativeMoeTileRows;
 
     /// <summary>
     /// Weight rows per tile of <c>gemm_moe_native.cu</c> for <paramref name="n"/> outputs: the width (256, 192 or 128 rows; dual pairs

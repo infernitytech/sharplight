@@ -113,8 +113,10 @@ struct Params
 #if MM_EPI && MM_EPI_ARGS > 2
     float* e2;
 #endif
-#if SPLITK_FUSED
+#if SPLITK_FUSED || MULTI > 1
     float* yout;      // gemm_cm2 with SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+#endif
+#if SPLITK_FUSED
     uint* arrivals;   // per output tile: the split workgroups arrived so far (zero between launches)
 #endif
 #if MULTI > 1
@@ -1862,7 +1864,12 @@ void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     // The GEMM read a row-ranged f16 copy of its activations (common.slang, f16_range_scale), bound as w here.
     s *= f16_range_inverse(*(uint*)(uint64_t(p.w) + X_RS + (i / N) * 4));
 #endif
+#if MULTI > 1
+    // The partials of a multi-output GEMM (splitk.slang): each column goes to its matrix's output, with its bias.
+    MULTI_STORE(p, s, i / N, uint(i % N))
+#else
     p.y[(i / N) * Y_STRIDE + i % N] = MM_STORE(s, i / N, uint(i % N));
+#endif
 }
 #endif
 

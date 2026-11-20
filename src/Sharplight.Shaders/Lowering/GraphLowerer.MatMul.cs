@@ -1006,9 +1006,23 @@ public sealed partial class GraphLowerer
         var scratch = SplitScratch(scratchBytes);
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var splitMacros = (int split) => new Dictionary<string, string>(WithoutSplit(p.Macros)) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) };
+        // A member of a multi-output group (q / k / v) leaves the batches its group's GEMM serves to it.
+        Func<Bindings, bool> notMulti = _ => true;
+        if (MultiGemmCandidate(p))
+        {
+            var y0 = epilogue?.Output ?? p.Y;
+            var condition0 = _launchCondition;
+            notMulti = NoteMultiGemmPart(p.Node, new MultiGemmPart(false, activations, p.W, y0, EpilogueBias(epilogue), p.Macros,
+                b => (condition0?.Invoke(b) ?? true) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1, p.RowCount, rowsMax, TokenArg(p.X, rowsPerLead)));
+            if (epilogue is not null && EpilogueBias(epilogue) is null && _multiGemmOf.TryGetValue(p.Node, out var group))
+            {
+                group.Usable = false;
+            }
+        }
+
         if (FusedSplitKUsable(p))
         {
-            EmitFusedSplitKMatMul(p, activations, epilogue, tiledSplits, scratch, partial);
+            EmitFusedSplitKMatMul(p, activations, epilogue, tiledSplits, scratch, partial, notMulti);
             var fusedCondition = _launchCondition;
             return b => (fusedCondition?.Invoke(b) ?? true) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1;
         }
@@ -1017,7 +1031,8 @@ public sealed partial class GraphLowerer
             ? new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split,
                 Lib("matmul.slang", "gemm_nv2", splitMacros(ts.Split)),
                 b => new Grid(Grid.Div(N, NvTileColumns), Grid.Div(p.RowCount(b), NvTileTokens), (uint)ts.Split))
-            : new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split && Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == ts.TileRows,
+            : new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split && Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == ts.TileRows
+                                     && notMulti(b),
                 Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(Gemm2Macros(p.Macros, ts.TileRows))
                 {
                     ["SPLITK"] = ts.Split.ToString(CultureInfo.InvariantCulture),
@@ -1030,7 +1045,7 @@ public sealed partial class GraphLowerer
             [Pointer(activations), Pointer(p.WeightParts ?? p.W), new PointerArg(scratch, 0), .. scaleArgs, TokenArg(p.X, rowsPerLead)],
             [activations, p.WeightParts ?? p.W, .. scaleReads], [partial]);
 
-        var reduceVariants = splits.Select(split => new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
+        var reduceVariants = splits.Select(split => new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split && notMulti(b),
             epilogue is null ? Lib("matmul.slang", "splitk_reduce", splitMacros(split)) : MatMulEpilogueKernel(epilogue, "splitk_reduce", splitMacros(split)),
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
         var y = epilogue?.Output ?? p.Y;
@@ -1055,28 +1070,23 @@ public sealed partial class GraphLowerer
     /// True when the split-K launches of <paramref name="p"/> reduce in the GEMM's last workgroup per tile (splitk.slang,
     /// SPLITK_FUSED) instead of a <c>splitk_reduce</c> launch: gemm_cm2 on f16 activations, not the split-f16 or expert forms.
     /// </summary>
-    private static bool FusedSplitKUsable(MatMulPlan p)
-        => DiagnosticSwitches.SplitKFused && !p.WorkgroupMatrix && !p.SplitHalf && !p.Macros.ContainsKey("MOE") && !p.Macros.ContainsKey("DUAL");
+    private static bool FusedSplitKUsable(MatMulPlan p) => DiagnosticSwitches.SplitKFused && MultiGemmCandidate(p);
+
+    /// <summary>True for the split-K GEMMs whose kernel has the fused and multi-output forms: gemm_cm2 on f16 activations, not split-f16 or expert forms.</summary>
+    private static bool MultiGemmCandidate(MatMulPlan p)
+        => !p.WorkgroupMatrix && !p.SplitHalf && !p.Macros.ContainsKey("MOE") && !p.Macros.ContainsKey("DUAL");
 
     /// <summary>
     /// The split-K GEMM of <paramref name="p"/> with the reduction (and <paramref name="epilogue"/>) in the last workgroup of each
     /// output tile: one launch instead of the partial GEMM and <c>splitk_reduce</c>, bit-identical to them (same slice order).
     /// </summary>
     private void EmitFusedSplitKMatMul(MatMulPlan p, TensorRef activations, MatMulEpilogueCode? epilogue, SortedSet<(int TileRows, int Split)> tiledSplits,
-        BufferDecl scratch, TensorRef partial)
+        BufferDecl scratch, TensorRef partial, Func<Bindings, bool> notMulti)
     {
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
         long tiles = tiledSplits.Max(ts => Grid.Div(p.N, Gemm2Columns(ts.TileRows)) * Grid.Div(rowsMax, ts.TileRows));
         var arrivals = SplitArrivals(tiles);
         var y = epilogue?.Output ?? p.Y;
-        var condition = _launchCondition;
-        var notMulti = NoteMultiGemmPart(p.Node, new MultiGemmPart(false, activations, p.W, y, EpilogueBias(epilogue), p.Macros,
-            b => (condition?.Invoke(b) ?? true) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1, p.RowCount, rowsMax, TokenArg(p.X, p.RowsPerLead)));
-        if (epilogue is not null && EpilogueBias(epilogue) is null && _multiGemmOf.TryGetValue(p.Node, out var group))
-        {
-            group.Usable = false;
-        }
-
         var variants = tiledSplits.Select(ts =>
         {
             var macros = new Dictionary<string, string>(Gemm2Macros(p.Macros, ts.TileRows))

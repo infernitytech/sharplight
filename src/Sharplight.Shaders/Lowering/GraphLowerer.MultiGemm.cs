@@ -22,7 +22,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void FindMultiGemmGroups(List<LoweringUnit> units)
     {
-        if (!DiagnosticSwitches.MultiGemm || !DiagnosticSwitches.SplitKFused)
+        if (!DiagnosticSwitches.MultiGemm)
         {
             return;
         }
@@ -115,8 +115,17 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void EmitMultiGemm(MultiGemmGroup group)
     {
+        void Skip(string why)
+        {
+            if (DiagnosticSwitches.MultiGemmDebug)
+            {
+                Console.Error.WriteLine($"multi-output GEMM of {string.Join(", ", group.Members.Select(m => m.Output.Name))} not emitted: {why}");
+            }
+        }
+
         if (!group.Usable || group.Parts.Count != group.Members.Count)
         {
+            Skip($"usable {group.Usable}, {group.Parts.Count} of {group.Members.Count} split launches");
             return;
         }
 
@@ -129,6 +138,7 @@ public sealed partial class GraphLowerer
                             || pt.Weight.Shape[1] != first.Weight.Shape[1] || !DenseRowsOf(pt.Output, pt.Weight.Shape[0]))
             || (fp8 && bias))
         {
+            Skip("members differ (kernel, bias, activations, weights or output layout)");
             return;
         }
 
@@ -136,6 +146,7 @@ public sealed partial class GraphLowerer
         {
             if (parts.Any(pt => pt.Macros.GetValueOrDefault(key) != first.Macros.GetValueOrDefault(key)))
             {
+                Skip("macro " + key + " differs");
                 return;
             }
         }
@@ -171,6 +182,7 @@ public sealed partial class GraphLowerer
 
         if (tiledSplits.Count == 0)
         {
+            Skip("no batch splits K");
             return;
         }
 
@@ -184,7 +196,8 @@ public sealed partial class GraphLowerer
 
         var scratch = SplitScratch(scratchBytes);
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
-        var arrivals = SplitArrivals(tiles);
+        bool fused = DiagnosticSwitches.MultiGemmFused && (!fp8 || _compiler.CompilesCuda(_opt.Target));
+        var arrivals = fused ? SplitArrivals(tiles) : null;
         var serves = group.Serves;
         var variants = tiledSplits.Select(ts =>
         {
@@ -195,7 +208,11 @@ public sealed partial class GraphLowerer
                     ["N"] = n.ToString(CultureInfo.InvariantCulture),
                     ["Y_STRIDE"] = n.ToString(CultureInfo.InvariantCulture),
                 }, ts.TileRows)) { ["SPLITK"] = ts.Split.ToString(CultureInfo.InvariantCulture) };
-            macros["SPLITK_FUSED"] = "1";
+            if (fused)
+            {
+                macros["SPLITK_FUSED"] = "1";
+            }
+
             macros["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture);
             macros["MULTI_O1"] = o1.ToString(CultureInfo.InvariantCulture);
             macros["MULTI_O2"] = o2.ToString(CultureInfo.InvariantCulture);
@@ -211,10 +228,43 @@ public sealed partial class GraphLowerer
         KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
         KernelArg[] biases = bias ? [.. parts.Select(pt => Pointer(pt.Bias!))] : [];
         Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} split-k", group.Members, [.. variants],
-            [Pointer(first.Activations), Pointer(first.Weight), new PointerArg(scratch, 0), Pointer(first.Output), Pointer(arrivals),
+            [Pointer(first.Activations), Pointer(first.Weight), new PointerArg(scratch, 0), Pointer(first.Output), .. arrivals is null ? (KernelArg[])[] : [Pointer(arrivals)],
              .. weights, .. outputs, .. biases, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []],
-            [partial, .. parts.Select(pt => pt.Output), arrivals]);
+            fused ? [partial, .. parts.Select(pt => pt.Output), arrivals!] : [partial]);
+        if (fused)
+        {
+            return;
+        }
+
+        // The reduction of the concatenated partials, each column stored to its member's output (with its bias); w is the row-ranged
+        // f16 copy of the activations where the GEMM read one (its row scales are undone here), else the first weight.
+        bool ranged = first.Macros.ContainsKey("X_RS");
+        var reduceVariants = tiledSplits.Select(ts => ts.Split).Distinct().Select(split =>
+        {
+            var macros = new Dictionary<string, string>(WithoutSplit(first.Macros))
+            {
+                ["N"] = n.ToString(CultureInfo.InvariantCulture),
+                ["Y_STRIDE"] = n.ToString(CultureInfo.InvariantCulture),
+                ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture),
+                ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+                ["MULTI_O1"] = o1.ToString(CultureInfo.InvariantCulture),
+                ["MULTI_O2"] = o2.ToString(CultureInfo.InvariantCulture),
+                ["MULTI_BIAS"] = bias ? "1" : "0",
+            };
+            if (fp8)
+            {
+                macros.Remove("X_RS");
+            }
+
+            return new KernelVariant(b => serves(b) && Split(rowsOf(b)) == split, Lib("matmul.slang", "splitk_reduce", macros),
+                b => new Grid(Grid.Div(rowsOf(b) * n, 256)));
+        });
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] split-k reduce", group.Members, [.. reduceVariants],
+            [new PointerArg(scratch, 0), ranged && !fp8 ? Pointer(first.Activations) : Pointer(first.Weight), Pointer(first.Output), Pointer(first.Output),
+             .. weights, .. outputs, .. biases, first.Tokens],
+            [partial, .. ranged && !fp8 ? [first.Activations] : (TensorRef[])[], .. bias ? parts.Select(pt => pt.Bias!) : []],
+            [.. parts.Select(pt => pt.Output)]);
     }
 
     /// <summary>True when <paramref name="r"/> holds dense rows of <paramref name="width"/> values.</summary>

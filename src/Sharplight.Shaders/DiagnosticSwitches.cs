@@ -558,10 +558,20 @@ internal static class DiagnosticSwitches
     public static bool SplitKReduceEpilogue { get; } = IsNotZero("SHARPLIGHT_SPLITK_EPILOGUE");
 
     /// <summary>
-    /// False (<c>SHARPLIGHT_SPLITK_FUSED=0</c>) runs the split-K reduction of gemm_cm2 and the fp8 GEMM as its own launch
-    /// (<c>splitk_reduce</c>) instead of in the last workgroup of each output tile (splitk.slang).
+    /// True (<c>SHARPLIGHT_SPLITK_FUSED=1</c>) runs the split-K reduction of gemm_cm2 and the fp8 GEMM in the last workgroup of each
+    /// output tile (splitk.slang) instead of its own launch (<c>splitk_reduce</c>). Off by default: on the RTX PRO 4500 the last
+    /// workgroup's serial read of the tile's slices cost more than the launch it saves (benchmarks.md section 59).
     /// </summary>
-    public static bool SplitKFused { get; } = IsNotZero("SHARPLIGHT_SPLITK_FUSED");
+    public static bool SplitKFused { get; } = Read("SHARPLIGHT_SPLITK_FUSED") == "1";
+
+    /// <summary>
+    /// True (<c>SHARPLIGHT_MULTI_FUSED=1</c>) reduces the multi-output GEMM in its last workgroups instead of a <c>splitk_reduce</c>
+    /// launch over its partials.
+    /// </summary>
+    public static bool MultiGemmFused { get; } = Read("SHARPLIGHT_MULTI_FUSED") == "1";
+
+    /// <summary><c>SHARPLIGHT_MULTI_DEBUG=1</c>: report on stderr why a multi-output group got no GEMM.</summary>
+    public static bool MultiGemmDebug { get; } = Read("SHARPLIGHT_MULTI_DEBUG") == "1";
 
     /// <summary>
     /// False (<c>SHARPLIGHT_MULTI_GEMM=0</c>) lowers sibling projections sharing their activations (q / k / v) as separate GEMMs
@@ -577,6 +587,12 @@ internal static class DiagnosticSwitches
 
     /// <summary><c>SHARPLIGHT_FP8_DUAL_SPLIT=1</c>: the dual fp8 GEMM splits K at decode sizes (see GraphLowerer.DualFp8Split).</summary>
     public static bool Fp8DualSplit { get; } = Read("SHARPLIGHT_FP8_DUAL_SPLIT") == "1";
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_BN=n</c>: weight rows per tile of the grouped MXFP4 GEMM (experiment), or null for the chosen width.</summary>
+    public static int? NativeMoeColumns { get; } = Read("SHARPLIGHT_NATIVE_MOE_BN") is { } c ? int.Parse(c, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_SHORT=n</c>: the grouped MXFP4 GEMM routes 64-row tiles up to n items per expert (experiment).</summary>
+    public static long? NativeMoeShortItems { get; } = Read("SHARPLIGHT_NATIVE_MOE_SHORT") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
     public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
