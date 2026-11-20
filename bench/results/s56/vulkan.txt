@@ -1,0 +1,3 @@
+[gpt-oss-20b N=512] prefill 512 tok: best 48 ms = 10593.1 tok/s | decode: best 171.82, median 167.36, mean 168.25 tok/s | GPU ms/step: best 5.72, median 5.83, wall best 5.82 | prefill median of 5: 49.9 ms = 10254.3 tok/s
+[gpt-oss-20b N=2048] prefill 2048 tok: best 162 ms = 12608.5 tok/s | decode: best 170.56, median 166.38, mean 166.57 tok/s | GPU ms/step: best 5.75, median 5.86, wall best 5.86 | prefill median of 5: 170.3 ms = 12024.2 tok/s
+[gpt-oss-20b N=8192] prefill 8192 tok: best 820 ms = 9987.7 tok/s | decode: best 163.04, median 159.39, mean 160.45 tok/s | GPU ms/step: best 6.01, median 6.12, wall best 6.13 | prefill median of 5: 831.1 ms = 9857.0 tok/s

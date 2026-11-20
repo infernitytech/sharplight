@@ -1,0 +1,32 @@
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+  81.545 ms  73.6%   48.0x  void marlin_moe_wna16::Marlin<1125899906909960l, 562949953487106l, 1125899906909960l, 2814749767106568l, 256, 4, 16, 4, false, 4, 2, false>(int4 const
+   8.492 ms   7.7%   24.0x  void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x128_32x4_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x128_32x4
+   7.864 ms   7.1%   24.0x  void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x64_64x3_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x64_64x3_t
+   4.358 ms   3.9%   24.0x  void flashinfer::BatchPrefillWithPagedKVCacheKernel<false, flashinfer::KernelTraits<(flashinfer::MaskMode)1, 128u, 2u, 4u, 4u, 4u, 4u, 1u, (flashinfer
+   4.067 ms   3.7%   24.0x  void vllm::swigluoai_and_mul_kernel<c10::BFloat16, &(c10::BFloat16 vllm::swigluoai_and_mul<c10::BFloat16>(c10::BFloat16 const&, c10::BFloat16 const&, 
+   1.255 ms   1.1%   24.0x  void vllm::moe::moe_sum_vec_kernel<c10::BFloat16, int, 4, false>(c10::BFloat16*, c10::BFloat16 const*, long, int, long, long, int const*, int const*, 
+   0.860 ms   0.8%   24.0x  triton_red_fused_fused_add_rms_norm_slice_2
+   0.507 ms   0.5%   24.0x  void vllm::reshape_and_cache_flash_kernel<__nv_bfloat16, __nv_bfloat16, (vllm::Fp8KVCacheDataType)0>(__nv_bfloat16 const*, __nv_bfloat16 const*, __nv_
+   0.500 ms   0.5%   24.0x  triton_red_fused_fused_add_rms_norm_0
+   0.456 ms   0.4%   24.0x  void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_t
+   0.378 ms   0.3%   23.0x  triton_poi_fused__to_copy_add_cat_index_select_mul_split_split_with_sizes_sub_unsqueeze_view_4
+   0.119 ms   0.1%   24.0x  void vllm::moe::moe_align_block_size_kernel<int>(int const*, int*, int*, int*, int*, int, int, int, int, unsigned long, int*, int, int, bool)
+   0.106 ms   0.1%   23.0x  triton_poi_fused__to_copy_add_cat_index_select_mul_split_split_with_sizes_sub_unsqueeze_view_3
+   0.091 ms   0.1%   24.0x  void vllm::moe::count_and_sort_expert_tokens_kernel<int>(int const*, int*, int*, int*, unsigned long, int, int, int, bool, int*)
+   0.057 ms   0.1%   24.0x  void vllm::moe::topkGating<8, 32, 4, 16, 32, int, __nv_bfloat16, (vllm::moe::ScoringFunc)0>(__nv_bfloat16 const*, bool const*, float*, int, int*, int*
+   0.041 ms   0.0%   24.0x  triton_poi_fused_constant_pad_nd_fused_add_rms_norm_1
+   0.020 ms   0.0%    1.0x  triton_red_fused__to_copy_embedding_rms_norm_0
+   0.017 ms   0.0%    1.0x  triton_poi_fused__to_copy_add_cat_index_select_mul_split_split_with_sizes_sub_unsqueeze_view_2
+   0.008 ms   0.0%    4.0x  _apply_write_kernel
+   0.004 ms   0.0%    1.0x  triton_poi_fused__to_copy_add_cat_index_select_mul_split_split_with_sizes_sub_unsqueeze_view_1
+   0.003 ms   0.0%    1.0x  _prepare_prefill_inputs_kernel
+   0.003 ms   0.0%    1.0x  _compute_slot_mappings_kernel
+   0.002 ms   0.0%    1.0x  _gather_block_tables_kernel
+   0.002 ms   0.0%    2.0x  _copy_page_indices_kernel
+   0.002 ms   0.0%    1.0x  _combine_sampled_and_draft_tokens_kernel
+   0.001 ms   0.0%    1.0x  _prepare_pos_seq_lens_kernel
+   0.001 ms   0.0%    1.0x  void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<int>, std::array<char*, 1ul>, false>(int, at::native::FillFunctor<int>, std:
+   0.001 ms   0.0%    1.0x  void (anonymous namespace)::elementwise_kernel_with_index<int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&,
+   0.001 ms   0.0%    1.0x  void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<bool>, std::array<char*, 1ul>, false>(int, at::native::FillFunctor<bool>, st

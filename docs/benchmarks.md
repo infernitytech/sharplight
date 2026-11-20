@@ -7598,3 +7598,133 @@ export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> PY=<python with httpx>
 bench/s55_step_snapshots.sh bench/results/s55 ~/models/hf/Qwen3.5-0.8B    # vulkan and cuda: in-step, copy, off
 bench/s55_summarize.py bench/results/s55
 ```
+
+## 56. LLM round 12: a hand-written grouped MXFP4 expert GEMM on CUDA, gpt-oss-20b against vLLM's Marlin MoE (2026-11-19)
+
+Branch `perf/llm-r12` ([cuda.md](cuda.md#kernels-written-in-cuda-c)). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, shared
+with other agents' short GPU tests: every run below started only when `nvidia-smi` showed no other compute process), driver
+595.112.07, NVRTC 13.0.88, vLLM 0.33.0 fresh in the same session (its MXFP4 MoE backend on this GPU is Marlin, W4A16: bf16
+activations, `moe_wna16_marlin_gemm`), identical checkpoint (openai/gpt-oss-20b) on both sides. "Before" is this branch with
+`native_gemm_moe` disabled (the generated kernels of `develop`, which this round leaves unchanged). Raw output in
+[`bench/results/s56/`](../bench/results/s56).
+
+### 56.1 Prefill and decode (procedure of §53: `bench/s53_providers.sh`, prefill median of 5 / decode median, tok/s)
+
+| rows | Vulkan | CUDA before | **CUDA** | vLLM | CUDA / vLLM before → after |
+|---:|---:|---:|---:|---:|---:|
+| 512 | 10,254 / 167.4 | 9,208 / 183.5 | **12,221 / 183.1** | 11,436 / 172.8 | 0.81 → **1.07** (decode 1.06) |
+| 2048 | 12,024 / 166.4 | 12,057 / 181.1 | **14,223 / 181.4** | 16,379 | 0.74 → **0.87** |
+| 8192 | 9,857 / 159.4 | 9,916 / 173.4 | **11,297 / 174.1** | 15,812 / 166.0 | 0.63 → **0.71** |
+
+vLLM's decode columns are its `tg128` at depth 16 and 8192 (`bench/s42_gap.sh`). The 8192-token prefill runs as four 2048-row passes on
+our side; the gap that is left there is attention (56.3).
+
+### 56.2 Where a 2048-token prefill goes (GPU ms, `SHARPLIGHT_CUDA_PROFILE=1`; vLLM: `s54_vllm_decode_profile.py --prefill 2048`)
+
+| | CUDA before | **CUDA** | vLLM |
+|---|---:|---:|---:|
+| GPU time of the pass | 164.1 | **139.8** | 118.4 (kernel sum 110.8) |
+| expert gate / up (dual, clamped SwiGLU and bias rows in the store) | 70.0 (gemm_cm2 + half tiles) | **54.3** | 81.5 (Marlin, both products) + 4.1 SwiGLU |
+| expert down (bias, router weight in the store) | 38.2 | **28.8** | |
+| gather into sorted f16 rows, slot sum | 4.3 + 2.9 | 4.8 + 2.7 | 1.3 (moe_sum) + 0.2 routing |
+| prefill attention (`fa` / FlashInfer) | 16.3 | 16.4 | **4.4** |
+| q / k / v / o projections | 9.6 + 3.2 + 8.6 | 9.6 + 3.2 + 8.5 | 8.5 (qkv) + 7.9 (o) |
+
+Per layer the grouped gate / up product (8192 routed rows x 2880 → 2 x 2880) takes 2.26 ms (120 TFLOPS; before 2.92 ms, 93 TFLOPS) and
+the down product 1.20 ms (113 TFLOPS; before 1.59 ms, 85), against Marlin's 3.40 ms for both (120 TFLOPS) plus its separate SwiGLU.
+The expert part of the pass is now at vLLM's level (91 against 87 ms); the remaining 21 ms are attention (12 ms), the projections
+(4.5 ms) and norms / rope / small kernels.
+
+### 56.3 The kernel and what limited it
+
+`gemm_moe_native.cu` (selected through `native_gemm_moe`, CUDA compute capability 8.0+, MXFP4 experts in the 16-row groups of
+`WeightRepack.Mxfp4Split`, K a multiple of 64; the generated kernels stay the fallback): one block per 128-row routing tile and 256 (dual)
+or 192 weight rows, a four-stage `cp.async` ring of 64-value K steps holding the sorted f16 activation rows and the raw codes and E8M0
+scales (25 KB per stage instead of 48 KB for f16 weights), eight warps of 128 x 32 that decode the codes of the B fragment they
+multiply right before `mma.sync.m16n8k16`, and the expert group's epilogue in the store (CUDA C++ generated from the same nodes as the
+Slang epilogue, `MoeEpilogueWriter`). Development steps in the standalone harness (`bench/s56_moe/bench_moe.cu`: 32 experts, gpt-oss
+shapes, uniform routing, L2 evicted before each launch; gate / up ms at 128 / 2048 tokens):
+
+| step | 128 tokens | 2048 tokens |
+|---|---:|---:|
+| first form: 2 x 4 warps of 64 x 64, scale factors converted per decode | 1.05 | 2.56 |
+| one warp row (each decoded fragment serves 8 row fragments), E8M0 factor table per block, dead rows not copied | 0.94 | 2.38 |
+| `L2::256B` prefetch on the code copies (a stage takes only 32 bytes of each weight row) | 0.80 | 2.44 |
+| decode of the next 32-value block software-pipelined against the MMAs | 0.83 | 2.42 |
+| a partial tile's empty fragments skipped by a warp-uniform branch (predicated-off MMAs still take the tensor pipe's time) | **0.46** | **2.29** |
+| the next block's decode issued between the current block's MMAs | 0.46 | **2.26** |
+
+The last one is the shipped form; the down product (single, 192 weight rows per tile) takes 1.14 ms at 2048 tokens. Ablations at 2048
+tokens: without the in-loop copies 1.86 ms, without the decode arithmetic 2.16 ms, with constant scales 2.25 ms; the copies' waits
+are ~2 % of a K step and the barrier ~0 (clock64 instrumentation), so what is left is the shared-memory traffic and power-limited
+clocks the f16 GEMM also has (our f16 GEMM on the dense equivalent [8192 x 2880 → 5760]: 1.78 ms, 153 TFLOPS). The f16 `mma.sync`
+peak of this GPU measures 235 TFLOPS.
+
+Tried and not kept:
+
+| variant | result (gate / up, 2048 tokens) |
+|---|---|
+| 16 warps (2 x 8, 64 x 32 warp tiles, 128 registers) | 2.78 ms |
+| 2 x 4 warps with the final loop | 2.63 ms (faster only at 128 tokens: 0.60 against 0.46 before the skip) |
+| three stages | 2.31 ms |
+| 128-row weight tiles for the down product | 1.26 against 1.14 ms |
+| E2M1 decode through a `prmt` byte table (one multiply by the scale instead of two, bit-identical including every E8M0 value) | 8 % fewer cycles per decode in a micro benchmark; not integrated (decode is ~4 % of the kernel) |
+| Vulkan: the same skip of empty fragments in gemm_cm2's MoE tiles (subgroup-uniform branch around the cooperative-matrix loads and MMAs) | gate / up 2.44 → 3.69 ms per layer on the NVIDIA Vulkan driver: reverted |
+
+### 56.4 Serving steps (BatchBench `--provider cuda`, GPU ms, minimum of 10, `SHARPLIGHT_DISABLE_FEATURES=native_gemm_moe` for "before")
+
+| step | before | **after** |
+|---|---:|---:|
+| 64 decode rows | 19.19 | 19.20 (expert-grouped skinny GEMM, unchanged) |
+| 64 + 32 prompt rows (12 per expert) | 24.12 | 24.08 (skinny GEMM, unchanged) |
+| 64 + 107 | 33.69 | **25.75** |
+| 64 + 192 | 40.16 | **29.61** |
+| 64 + 448 | 58.15 | **45.64** |
+| 2048 prompt rows | 172.22 | **146.96** |
+| 64 slots of 512: 64 + 250 / 8 prompts of 250 | 43.81 / 154.30 | **32.44 / 132.42** |
+
+The native GEMM serves from 12 routed rows per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`), where the skinny expert GEMM hands
+over; 4, 8 and 12 measured the same. At 64 sequences the decode step (19.8 ms with LM head and sampling in the profile) is not
+changed: its expert GEMMs (11.8 ms) already stream the MXFP4 weights at ~800 GB/s, Marlin takes 10.6 ms for the same step, and vLLM's
+whole step is 14.6 ms without its LM head (projections 1.8 against our 3.2 ms, attention 1.2 against 1.6 ms).
+
+### 56.5 Serving against vLLM (procedure of §43: `bench/s16_serve.sh`, 64 slots of 512 tokens, median of 2 rounds, same session)
+
+Aggregate output tok/s / TTFT p50 ms / mean inter-token latency ms. The rounds ran with `QUIET_GPU=1` (new: a round starts only
+while no other process computes on the GPU and is repeated, up to three tries, when one appeared during it; none was needed here):
+
+| streams | CUDA before | **CUDA** | vLLM | CUDA / vLLM before → after |
+|---:|---|---|---|---:|
+| 16 | 1065 / 144 / 13.8 | **1119 / 114 / 13.3** | 1413 / 178 / 10.0 | 0.75 → **0.79** |
+| 64 | 2194 / 319 / 25.4 | **2351 / 270 / 24.0** | 3152 / 421 / 16.8 | 0.70 → **0.75** |
+
+* **`serve --provider` was ignored** (only `--disable-features` reached the hosting options), so `sharplight serve --provider cuda`
+  ran on the default provider, Vulkan: the "CUDA" serving rows of §53.6 and §54.5 are Vulkan's (which is why they matched it within
+  0.5 %). `serve` now maps `--provider` and `--device` to the device id (`cuda:0`). The figures above are the first CUDA serving runs;
+  `SHARPLIGHT_DISABLE_FEATURES` in the environment does not reach `serve` either, so "before" passes `--disable-features native_gemm_moe`.
+* The gain at 64 streams (+7 %) comes from the prompt steps (23 of a round's 396 steps carry 1025-2048 rows, 56.4); TTFT p50 is below
+  vLLM's at both concurrencies. 364 of the 396 steps are decode steps of up to 64 rows, unchanged by this round, and they are the
+  rest of the gap: mean inter-token latency 24.0 against 16.8 ms (56.4: our 64-sequence step 19.8 ms against vLLM's ~16.2 ms).
+* Earlier attempts of this measurement were discarded: other agents' tests ran on the GPU during them, and one long run measured
+  a leftover server on the same port. `s16_serve.sh` now refuses to start while the port is in use or another server runs, stops
+  its server's process group on any exit (trap), and marks a round `.contaminated` after three disturbed tries.
+
+### 56.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=0 SHARPLIGHT_VK_DEVICES=0 VLLM_VENV=<venv with vLLM 0.33.0> MODELS=<dir with hf/gpt-oss-20b>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+ONLY=gpt-oss-20b bench/s53_providers.sh bench/results/s56/cuda.txt $CLI cuda                    # likewise vulkan
+SHARPLIGHT_DISABLE_FEATURES=native_gemm_moe ONLY=gpt-oss-20b bench/s53_providers.sh bench/results/s56/cuda-before.txt $CLI cuda
+bench/s42_gap.sh bench/results/s56/vllm gpt-oss-20b vllm $MODELS/hf/gpt-oss-20b
+SHARPLIGHT_CUDA_PROFILE=1 $CLI $MODELS/hf/gpt-oss-20b --provider cuda --bench 2048 --ctx 2304 [--disable-features native_gemm_moe]
+$VLLM_VENV/bin/python bench/s54_vllm_decode_profile.py $MODELS/hf/gpt-oss-20b --seqs 1 --prefill 2048 --ctx 2304   # and --seqs 64
+bench/BatchBench/bin/Release/net11.0/BatchBench $MODELS/hf/gpt-oss-20b --provider cuda --slots 68 --ctx 2560 --batch 2048 --depth 256 \
+  --sizes 16 --mixed 16+0,32+0,64+0,64+32x1,64+107x1,64+192x1,64+448x1,0+2048x1 --modes greedy --reps 10   # env switch for "before"
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 OUT_DIR=bench/results/s56/serve-cuda bench/s16_serve.sh sharplight gpt-oss-20b-hf $MODELS/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 OUT_DIR=bench/results/s56/serve-cuda-before bench/s16_serve.sh sharplight gpt-oss-20b-hf $MODELS/hf/gpt-oss-20b "16 64" --provider cuda --disable-features native_gemm_moe
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 OUT_DIR=bench/results/s56/serve-vllm bench/s16_serve.sh vllm gpt-oss-20b-hf $MODELS/hf/gpt-oss-20b "16 64"
+# kernel harness (gate / up dual; the down product: -DN=2880 -DDUAL=0 -DNM_BN=192)
+cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DNM_WM=1 -DNM_WN=8 \
+  -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o b && ./b
+```
