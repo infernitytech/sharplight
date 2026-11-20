@@ -8,7 +8,7 @@
 #      VLLM_VENV, VLLM_ARGS (e.g. "--gpu-util 0.92 --kv fp8"), SL_ARGS, RUN_TIMEOUT (1800 s), QUIET_MAX (900 s), LOCK.
 HERE="$(cd "$(dirname "$0")" && pwd)"; OUT=${1:?out dir}; NAME=${2:?name}; MODEL=${3:?model}; WHICH=${4:-both}; mkdir -p "$OUT"
 LENS=${LENS:-"16384 32768 65536 131072"}; DEPTHS=${DEPTHS:-"32768 131072"}; STREAMS=${STREAMS:-"4"}; PROFILE_LENS=${PROFILE_LENS:-"32768 131072"}
-T=${RUN_TIMEOUT:-1800}; LOCK=${LOCK:-/root/.sl-verify.lock}
+T=${RUN_TIMEOUT:-1800}; LOCK=${LOCK:-$HOME/.sl-verify.lock}
 CLI=$HERE/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight
 BB=$HERE/BatchBench/bin/Release/net11.0/BatchBench
 quiet() { local t=0; while [ -n "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]; do sleep 10; t=$((t + 10)); [ $t -ge "${QUIET_MAX:-900}" ] && { echo "(GPU busy)"; return 1; }; done; return 0; }
