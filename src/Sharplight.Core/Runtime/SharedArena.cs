@@ -12,7 +12,8 @@ namespace Sharplight.Runtime;
 /// segments keep theirs. Every holder calls <see cref="SharedArenaBuffer{T}.Release"/> once; the last one frees the buffer. Thread-safe.
 /// <c>SHARPLIGHT_SHARED_ARENA=0</c> turns sharing off (<see cref="Enabled"/>).
 /// </remarks>
-public sealed class SharedArena<T> where T : class
+public sealed class SharedArena<T>
+    where T : class
 {
     private readonly Lock _lock = new();
     private SharedArenaBuffer<T>? _current;

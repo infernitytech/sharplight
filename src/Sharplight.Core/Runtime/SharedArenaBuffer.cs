@@ -2,7 +2,8 @@ namespace Sharplight.Runtime;
 
 /// <summary>A buffer of a <see cref="SharedArena{T}"/> and the count of its holders; the last <see cref="Release"/> frees it.</summary>
 /// <typeparam name="T">The provider's buffer handle.</typeparam>
-public sealed class SharedArenaBuffer<T> where T : class
+public sealed class SharedArenaBuffer<T>
+    where T : class
 {
     private readonly Action<T> _free;
     private readonly Lock _lock;
