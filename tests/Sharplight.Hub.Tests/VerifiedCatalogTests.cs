@@ -150,6 +150,41 @@ public sealed class VerifiedCatalogTests
     }
 
     [Fact]
+    public void ValidatorChecksVariantLevelsAndQuality()
+    {
+        var partialWithoutNote = CatalogSamples.Entry("no-note", CatalogSamples.Variant() with { Level = CatalogLevel.Partial });
+        var above = CatalogSamples.Entry("above", CatalogSamples.Variant() with { Level = CatalogLevel.Verified }) with { Level = CatalogLevel.Partial };
+        var loads = CatalogSamples.Entry("loads", CatalogSamples.Variant() with { Level = CatalogLevel.Loads });
+        var quality = CatalogSamples.Entry("quality", CatalogSamples.Variant() with { Quality = "excellent" });
+        var fine = CatalogSamples.Entry("fine", CatalogSamples.Variant() with { Level = CatalogLevel.Partial, Verification = "Not run on this file.", Quality = "good", QualityNote = "4 bit." }) with { ReferencePrecision = "BF16" };
+
+        var problems = CatalogValidator.Validate(CatalogSamples.Catalog(partialWithoutNote, above, loads, quality, fine));
+
+        Assert.Contains(problems, problem => problem.StartsWith("no-note:", StringComparison.Ordinal) && problem.Contains("verification note", StringComparison.Ordinal));
+        Assert.Contains(problems, problem => problem.StartsWith("above:", StringComparison.Ordinal) && problem.Contains("not above", StringComparison.Ordinal));
+        Assert.Contains(problems, problem => problem.StartsWith("loads:", StringComparison.Ordinal));
+        Assert.Contains(problems, problem => problem.StartsWith("quality:", StringComparison.Ordinal) && problem.Contains("unknown quality", StringComparison.Ordinal));
+        Assert.DoesNotContain(problems, problem => problem.StartsWith("fine:", StringComparison.Ordinal));
+        Assert.Equal(CatalogLevel.Partial, fine.LevelOf(fine.Variants[0]));
+        Assert.Equal(CatalogLevel.Verified, above.Variants[0].Level);
+    }
+
+    [Fact]
+    public void CommittedVariantLaddersMarkUnverifiedFilesPartial()
+    {
+        var catalog = Committed();
+        foreach (var id in new[] { "qwen3-coder-next", "qwen3.8-flash-next", "qwen3.5-122b-a10b", "gemma-4-31b-it", "qwen3.8-27b", "gpt-oss-120b" })
+        {
+            var entry = catalog.Entries.Single(candidate => candidate.Id == id);
+            Assert.True(entry.Variants.Count >= 3, id);
+            Assert.Single(entry.Variants, variant => variant.Recommended);
+            Assert.All(entry.Variants, variant => Assert.NotNull(variant.Quality));
+            Assert.NotNull(entry.ReferencePrecision);
+            Assert.All(entry.Variants.Where(variant => entry.LevelOf(variant) == CatalogLevel.Partial && entry.Level == CatalogLevel.Verified), variant => Assert.False(string.IsNullOrWhiteSpace(variant.Verification)));
+        }
+    }
+
+    [Fact]
     public void CompanionsAreResolvedPerVariant()
     {
         var companion = new CatalogCompanion

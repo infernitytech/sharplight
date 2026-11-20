@@ -144,6 +144,7 @@ differing token is a near tie of the reference itself (llama.cpp's own CPU and V
 | SmolLM2 135M | HuggingFaceTB/SmolLM2-135M, prithivMLmods/SmolLM2-135M-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
 | MiniCPM5 2B | openbmb/MiniCPM5-2B, bartowski/MiniCPM5-2B-GGUF | safetensors, GGUF Q8_0 | CPU, Vulkan | ids identical to transformers; GGUF identical to llama.cpp | | 2026-11-16 |
 | Qwen3 30B-A3B (MoE) | Qwen/Qwen3-30B-A3B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy identical to llama.cpp (CPU build) | | 2026-11-16 |
+| Qwen3.5 122B-A10B | unsloth/Qwen3.5-122B-A10B-GGUF, Qwen/Qwen3.5-122B-A10B-FP8, Qwen/Qwen3.5-122B-A10B-GPTQ-Int4, nvidia/Qwen3.5-122B-A10B-NVFP4 | GGUF UD-IQ2_XXS (37 GB); FP8, GPTQ-Int4, NVFP4 (cut-down checkpoints) | CUDA, Vulkan (1 GPU) + CPU | greedy text identical to llama.cpp; cut-down HF checkpoints vs transformers | | 2026-11-20 |
 <!-- verified-catalog:end -->
 
 ### 1.2 Language models that load (header check and import, output not compared)

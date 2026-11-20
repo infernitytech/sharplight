@@ -33,7 +33,7 @@ public sealed class WeightInfo
     /// <param name="name">Weight name.</param>
     /// <param name="type">Storage type.</param>
     /// <param name="shape">Logical shape.</param>
-    /// <param name="produce">Computes the bytes on first read; the result is cached for the lifetime of the weight.</param>
+    /// <param name="produce">Computes the bytes on first read; the result is cached until <see cref="IWeightSource.Release"/> (a package writer releases it after writing the weight).</param>
     public static WeightInfo Derived(string name, DataType type, Shape shape, Func<byte[]> produce)
         => new() { Name = name, Type = type, Shape = shape, Source = new DerivedWeightSource(type.ByteSize(shape.Elements()), produce) };
 

@@ -162,6 +162,20 @@ public static partial class CatalogValidator
             }
 
             ValidateFiles($"variant {variant.Id}", variant, Problem);
+            if (variant.Level is { } level && (level is not (CatalogLevel.Verified or CatalogLevel.Partial) || level < entry.Level))
+            {
+                Problem($"variant {variant.Id}: level {level} must be verified or partial and not above the entry's level {entry.Level}");
+            }
+
+            if (variant.Level == CatalogLevel.Partial && entry.Level != CatalogLevel.Partial && string.IsNullOrWhiteSpace(variant.Verification))
+            {
+                Problem($"variant {variant.Id}: a partial variant of a verified entry needs a verification note (what was and was not checked)");
+            }
+
+            if (variant.Quality is { } quality && !CatalogQualityTiers.All.Contains(quality, StringComparer.Ordinal))
+            {
+                Problem($"variant {variant.Id}: unknown quality '{quality}' ({string.Join(", ", CatalogQualityTiers.All)})");
+            }
         }
 
         if (companionIds.Count != entry.Companions.Count)

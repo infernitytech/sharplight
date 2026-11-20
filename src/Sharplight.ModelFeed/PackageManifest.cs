@@ -15,6 +15,9 @@ public sealed record PackageManifest
     /// <summary>Names and summary for listings.</summary>
     public PackageDisplay? Display { get; init; }
 
+    /// <summary>The model this package is a variant of, or <see langword="null"/> for a package outside any group (docs/model-feed.md "Model groups").</summary>
+    public PackageGroup? Group { get; init; }
+
     /// <summary>Who made the model.</summary>
     public PackagePublisher? Publisher { get; init; }
 
@@ -50,6 +53,14 @@ public sealed record PackageManifest
 
     /// <summary>Free text notes.</summary>
     public string? Notes { get; init; }
+
+    /// <summary>
+    /// The group of the package: <see cref="Group"/>, else one derived from the provenance (catalog entry and variant) of manifests
+    /// written before groups existed, else <see langword="null"/>.
+    /// </summary>
+    public PackageGroup? EffectiveGroup => Group ?? (Provenance is { CatalogEntry: { Length: > 0 } entry, CatalogVariant: { Length: > 0 } variant } && Id == $"{entry}.{variant}"
+        ? new PackageGroup { Id = entry, Name = Display?.Name, Variant = variant, Label = Display?.Variant, Quantization = Model?.Quantization, Size = PrimaryFile?.Size ?? 0 }
+        : null);
 
     /// <summary>The <c>.slm</c> file (role <see cref="PackageFileRoles.Package"/>), or <see langword="null"/>.</summary>
     public PackageFile? PrimaryFile => Files.FirstOrDefault(file => file.Role is null or PackageFileRoles.Package);

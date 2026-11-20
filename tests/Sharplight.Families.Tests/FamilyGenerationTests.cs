@@ -176,6 +176,31 @@ public class FamilyGenerationTests
             " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
         new("Qwen3-Coder-Next Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", Large: true, Tokens: 16),
+        // Qwen3.8 27B (qwen35 dense hybrid) Q4_K_M: the model feed's 4-bit variant, against llama.cpp b11177 CUDA and Vulkan (identical); its CPU
+        // build takes the other side of a near-tie after 33 tokens ("getting dirtier and dirt").
+        new("Qwen3.8-27B Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf", P1, "text", [],
+            " a young boy named Tom. Tom was a curious and adventurous kid who loved to explore the world around him.\n\nOne day, Tom noticed that the sea near his village was getting a bit strange.", Large: true),
+        // Qwen3.5-122B-A10B (qwen35moe, 48 layers, 256 experts top-8), Unsloth's UD-IQ2_XXS mix (36.6 GB): on a 32 GB GPU the layers that do
+        // not fit run on the CPU. llama.cpp b11177 gives these texts on CUDA (-ngl 38) and on the CPU alike.
+        new("Qwen3.5-122B-A10B UD-IQ2_XXS GGUF (llama.cpp)", "gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf", "The capital of France is", "text", [],
+            " Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is",
+            NeedsCpuFallback: true, Large: true, Tokens: 32),
+        new("Qwen3.5-122B-A10B UD-IQ2_XXS GGUF, chat turn (llama.cpp)", "gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf",
+            "<|im_start|>user\nList the first ten prime numbers, separated by commas.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n", "text", [],
+            "2, 3, 5, 7, 11, 13, 17, 19, 23,", NeedsCpuFallback: true, Large: true, Tokens: 32),
+        // The story: llama.cpp's CPU text; its CUDA run (-ngl 38) leaves it at a near-tie (" ocean" instead of " mysteries of the ocean").
+        new("Qwen3.5-122B-A10B UD-IQ2_XXS GGUF, story (llama.cpp CPU)", "gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf", P1, "text", [],
+            " a curious young boy named Tom. Tom loved to explore the world around him, especially the mysteries of the ocean.\n\nOne day, Tom decided to go on",
+            NeedsCpuFallback: true, Large: true, Tokens: 32),
+        // Qwen3.5-122B-A10B's official FP8 / GPTQ-Int4 and NVIDIA's NVFP4 checkpoints cut to layers 0-3 (three gated-delta layers and one
+        // attention layer) and experts 0-31 (router rows sliced to match), text-only (tools/qwen35moe-truncate.py); the reference is transformers
+        // in fp32 on the dequantized weights (tools/qwen35moe-truncated-reference.py, which also writes reference_logits.json).
+        new("Qwen3.5-122B-A10B FP8 truncated (transformers)", "hf/Qwen3.5-122B-A10B-trunc-FP8", "The capital of France is", "ids",
+            [346, 111324, 4979, 1388, 785, 2405, 2405, 122390, 4979, 90035, 90035, 90035, 90035, 21693, 21693, 3035], ""),
+        new("Qwen3.5-122B-A10B GPTQ-Int4 truncated (transformers)", "hf/Qwen3.5-122B-A10B-trunc-GPTQ-Int4", "The capital of France is", "ids",
+            [346, 111324, 4979, 1388, 785, 470, 470, 92969, 2022, 1815, 287, 57870, 17881, 793, 858, 7023], ""),
+        new("Qwen3.5-122B-A10B NVFP4 truncated (transformers)", "hf/Qwen3.5-122B-A10B-trunc-NVFP4", "The capital of France is", "ids",
+            [346, 111324, 4979, 1388, 785, 2405, 2405, 122390, 4979, 90035, 90035, 90035, 90035, 21693, 21693, 3035], ""),
         // Qwen3.8-Flash-Next (qwen4exp, 111 GB): the layers that do not fit on the GPU run on the CPU; the 28.8 GB n-gram table
         // exercises weight rows beyond 4 GiB.
         new("Qwen3.8-Flash-Next UD-Q4_K_XL GGUF (llama.cpp)",

@@ -26,6 +26,32 @@ public sealed class FeedToolTests
         var overlay = Overlay();
         Assert.All(overlay.Packages.Keys, id => Assert.Contains(id, ids));
         Assert.All(overlay.Packages.Values.SelectMany(package => package.Dependencies), dependency => Assert.Contains(dependency.Id, ids));
+        var entries = catalog.Entries.Where(entry => entry.IsInstallable).Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+        Assert.All(overlay.Models.Keys, id => Assert.Contains(id, entries));
+    }
+
+    [Fact]
+    public void Overlay_PackageEntriesOverrideTheirModelDefaults()
+    {
+        var overlay = new FeedOverlay
+        {
+            Models = new Dictionary<string, FeedOverlayPackage>
+            {
+                ["m"] = new() { Summary = "Model.", Languages = ["en", "de"], Dependencies = [new PackageDependency { Id = "vad", Range = "1.0.0" }] },
+            },
+            Packages = new Dictionary<string, FeedOverlayPackage>
+            {
+                ["m.q8"] = new() { Summary = "Q8.", Listed = false, Dependencies = [new PackageDependency { Id = "draft", Range = "1.0.0" }] },
+            },
+        };
+
+        var q8 = overlay.For("m", "m.q8")!;
+        Assert.Equal("Q8.", q8.Summary);
+        Assert.Equal(["en", "de"], q8.Languages);
+        Assert.Equal(["vad", "draft"], q8.Dependencies.Select(dependency => dependency.Id));
+        Assert.False(q8.Listed);
+        Assert.Equal("Model.", overlay.For("m", "m.q4")!.Summary);
+        Assert.Null(overlay.For("other", "other.q4"));
     }
 
     [Fact]
@@ -56,6 +82,70 @@ public sealed class FeedToolTests
         var parsed = FeedJson.ReadManifest(FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest));
         Assert.Equal(manifest.Id, parsed.Id);
     }
+
+    [Fact]
+    public void Manifest_PlacesTheVariantInItsModelGroup()
+    {
+        var entry = Catalog().Entries.Single(candidate => candidate.Id == "qwen3.8-27b");
+        var variant = entry.Variants.Single(candidate => candidate.Id == "ud-iq3-xxs-gguf");
+        var plan = CatalogInstallPlan.For(entry, variant);
+        var file = new PackageFile { Name = "qwen3.8-27b.ud-iq3-xxs-gguf.1.0.0.slm", Role = PackageFileRoles.Package, Size = 17_000_000_000, Sha256 = new string('a', 64) };
+        var context = new ContextMemory(65_536, 150_000_000, 4096, 418_435_456, 262_144, 17_329_717_248, 900_000_000);
+        var inspection = new PackageInspection("Qwen3.8 27B", "text-generation", "qwen3_5", 262_144, 27_000_000_000, 16_500_000_000, 3, true)
+        {
+            WeightTypes = [KeyValuePair.Create("q4_k", 12_000_000_000L), KeyValuePair.Create("q6_k", 4_400_000_000L), KeyValuePair.Create("f32", 100_000_000L), KeyValuePair.Create("i32", 10L)],
+            Context = context,
+        };
+        var manifest = ManifestFactory.Create(plan, inspection, file, "1.0.0", null, "0.4.2-alpha", null, DateTimeOffset.UnixEpoch);
+
+        var group = manifest.Group!;
+        Assert.Equal("qwen3.8-27b", group.Id);
+        Assert.Equal("ud-iq3-xxs-gguf", group.Variant);
+        Assert.Equal($"{group.Id}.{group.Variant}", manifest.Id);
+        Assert.Equal("UD-IQ3_XXS", group.Quantization);
+        Assert.Equal("gguf", group.Format);
+        Assert.Equal("reduced", group.Quality);
+        Assert.Equal("BF16", group.Reference);
+        Assert.Equal(4.89, group.BitsPerWeight);
+        Assert.False(group.Recommended);
+        Assert.Equal(file.Size, group.Size);
+        Assert.Equal(variant.TotalBytes, group.SourceSize);
+        Assert.Equal("partial", manifest.Verification!.Level);
+        Assert.StartsWith(variant.Verification!, manifest.Verification.Summary, StringComparison.Ordinal);
+
+        Assert.Equal(["q4_k", "q6_k", "f32"], manifest.Requirements!.Kernels.Select(kernel => kernel.WeightType));
+        Assert.All(manifest.Requirements.Kernels, kernel => Assert.True(kernel.Fallback));
+        var gpu = manifest.Requirements.Memory.Single(memory => memory.Device == "gpu");
+        Assert.Equal(16_500_000_000, gpu.Weights);
+        Assert.Equal(65_536, gpu.KvBytesPerToken);
+        Assert.Equal(150_000_000, gpu.StateBytesPerSlot);
+        Assert.Equal(4096, gpu.PerSlotContext!.Tokens);
+        Assert.Equal(262_144, gpu.PerSlotContextMax!.Tokens);
+        Assert.True(gpu.Overhead >= context.ActivationBytes);
+        Assert.Equal(gpu.Weights + gpu.Overhead + (2 * (150_000_000 + (65_536L * 32_768))), gpu.TotalFor(2, 32_768));
+    }
+
+    [Fact]
+    public void Inspector_SizesTheDecoderStateOfARealPackage()
+    {
+        // A built package from the local store when present (feedtool build --entry qwen3-0.6b); skipped otherwise.
+        var path = Environment.GetEnvironmentVariable("SHARPLIGHT_FEED_TEST_PACKAGE");
+        if (path is null || !File.Exists(path))
+        {
+            Assert.Skip("SHARPLIGHT_FEED_TEST_PACKAGE (a built qwen3-0.6b .slm) is not set.");
+        }
+
+        var inspection = PackageInspector.Inspect(path);
+        var context = inspection.Context!;
+        // Qwen3 0.6B: 28 layers x 8 KV heads x 128 x (K + V) x 2 bytes.
+        Assert.Equal(28L * 8 * 128 * 2 * 2, context.KvBytesPerToken);
+        Assert.Equal(0, context.StateBytesPerSlot);
+        Assert.Equal(context.KvBytesPerToken * context.DefaultTokens, context.DefaultBytes);
+        Assert.Equal("q8_0", inspection.WeightTypes[0].Key);
+    }
+
+    [Fact]
+    public void QualityTiersAreTheSameInCatalogAndFeed() => Assert.Equal(CatalogQualityTiers.All, PackageQualityTiers.All);
 
     [Theory]
     [InlineData("qwen3-0.6b", "chat")]

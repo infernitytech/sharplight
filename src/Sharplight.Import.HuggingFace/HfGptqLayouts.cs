@@ -9,6 +9,8 @@ namespace Sharplight.Import.HuggingFace;
 /// [K] (the group of each column; act-order when it is not k / group_size). value = (code - zero) * scale. The original GPTQ
 /// format (<c>checkpoint_format</c> <c>gptq</c> or absent) stores every zero point minus one, so the stored value plus one is the
 /// zero point (a zero point of 0 thus reads as 2^bits, as auto-gptq and gptqmodel decode it); <c>gptq_v2</c> stores them as they are.
+/// A symmetric checkpoint (<c>sym: true</c>) has the zero point 2^(bits-1) whatever <c>qzeros</c> holds, as vLLM's GPTQ-Marlin kernels
+/// read it: Qwen's official GPTQ-Int4 checkpoints (Qwen3.5-122B-A10B) store 8 in the original format, which would read as 9.
 /// </summary>
 internal static unsafe class HfGptqLayouts
 {
@@ -30,6 +32,9 @@ internal static unsafe class HfGptqLayouts
         }
 
         int zeroOffset = format == "gptq" ? 1 : 0;
+        int? symmetricZero = settings.ValueKind == JsonValueKind.Object && settings.TryGetProperty("sym", out var sym) && sym.ValueKind == JsonValueKind.True
+            ? 1 << (bits - 1)
+            : null;
         var layouts = new List<HfIntegerLayout>();
         foreach (var (name, qweight) in tensors)
         {
@@ -72,7 +77,7 @@ internal static unsafe class HfGptqLayouts
                     for (long g = 0; g < groups; g++)
                     {
                         rowScales[(int)g] = HfPackedBits.Float(scales, g * rows + n);
-                        rowZeros[(int)g] = HfPackedBits.Code((byte*)zeroWords + g * zeroRowWords * 4, 1, n * bits, bits) + zeroOffset;
+                        rowZeros[(int)g] = symmetricZero ?? HfPackedBits.Code((byte*)zeroWords + g * zeroRowWords * 4, 1, n * bits, bits) + zeroOffset;
                     }
                 },
             });

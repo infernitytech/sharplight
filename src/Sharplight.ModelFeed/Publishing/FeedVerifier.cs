@@ -25,7 +25,8 @@ public static class FeedVerifier
             return [$"index: {exception.Message}"];
         }
 
-        log?.Invoke($"Index sequence {snapshot.Index.Sequence}, {snapshot.Packages.Count} package(s), expires {snapshot.Index.Expires:u}, {(snapshot.Verified ? "signed" : "unsigned")}");
+        log?.Invoke($"Index sequence {snapshot.Index.Sequence}, {snapshot.Packages.Count} package(s), {snapshot.Models.Models.Count} model(s), expires {snapshot.Index.Expires:u}, {(snapshot.Verified ? "signed" : "unsigned")}");
+        problems.AddRange(await VerifyModelsAsync(client, snapshot, cancellationToken).ConfigureAwait(false));
         foreach (var summary in snapshot.Packages)
         {
             try
@@ -46,6 +47,39 @@ public static class FeedVerifier
             {
                 problems.Add($"{summary.Id}: {exception.Message}");
             }
+        }
+
+        return problems;
+    }
+
+    // The published model listing must be the one the pages give, and a model has at most one recommended variant.
+    private static async Task<IReadOnlyList<string>> VerifyModelsAsync(FeedClient client, FeedSnapshot snapshot, CancellationToken cancellationToken)
+    {
+        var problems = new List<string>();
+        try
+        {
+            var published = await client.GetModelListingAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            var expected = snapshot.Models;
+            var publishedText = System.Text.Encoding.UTF8.GetString(FeedJson.Write(published, FeedJsonContext.Default.FeedModelListing));
+            var expectedText = System.Text.Encoding.UTF8.GetString(FeedJson.Write(expected, FeedJsonContext.Default.FeedModelListing));
+            if (publishedText != expectedText)
+            {
+                problems.Add("models: the model listing does not match the catalog pages.");
+            }
+
+            if (snapshot.Index.Catalog.ModelsDigest is not null && snapshot.Index.Catalog.Models != published.Models.Count)
+            {
+                problems.Add($"models: the index counts {snapshot.Index.Catalog.Models} model(s), the listing has {published.Models.Count}.");
+            }
+        }
+        catch (Exception exception) when (exception is FeedVerificationException or FeedFormatException or IOException)
+        {
+            problems.Add($"models: {exception.Message}");
+        }
+
+        foreach (var model in snapshot.Models.Models.Where(model => model.Variants.Count(variant => variant.Recommended) > 1))
+        {
+            problems.Add($"{model.Id}: {model.Variants.Count(variant => variant.Recommended)} variants are marked recommended (at most one).");
         }
 
         return problems;

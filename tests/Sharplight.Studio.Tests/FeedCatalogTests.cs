@@ -311,6 +311,37 @@ public sealed class FeedCatalogTests
     }
 
     [Fact]
+    public async Task VariantsOfAModel_AreListedTogether_SmallestFirst_WithRecommendedAndPartialBadges()
+    {
+        using var rig = new Rig();
+        Func<PackageManifest, PackageManifest> Variant(string variant, double bits, bool recommended, string level) => manifest => manifest with
+        {
+            Group = new PackageGroup { Id = "model", Name = "Model", Variant = variant, BitsPerWeight = bits, Recommended = recommended, Quality = PackageQualityTiers.Good, QualityNote = "4 bit.", Reference = "BF16" },
+            Verification = new PackageVerification { Level = level, Summary = level == "partial" ? "Not run on this file." : "Identical." },
+        };
+        var folders = new[]
+        {
+            await rig.Feed.StageAsync("model.q8", "1.0.0", customize: Variant("q8", 8.5, false, "verified")),
+            await rig.Feed.StageAsync("model.iq2", "1.0.0", customize: Variant("iq2", 2.4, false, "partial")),
+            await rig.Feed.StageAsync("model.q4", "1.0.0", customize: Variant("q4", 4.8, true, "verified")),
+            await rig.Feed.StageAsync("aaa.f16", "1.0.0"),
+        };
+        await rig.Feed.Publisher.PublishAsync(rig.Feed.Folder, folders, rig.Feed.FeedKey, s_stable, TestContext.Current.CancellationToken);
+
+        await rig.Catalog.LoadAsync();
+
+        Assert.Equal(["aaa.f16", "model.iq2", "model.q4", "model.q8"], rig.Catalog.Entries.Select(package => package.Id));
+        var iq2 = rig.Catalog.Entries[1];
+        Assert.True(iq2.IsPartial);
+        Assert.Equal("Not run on this file.", iq2.PartialText);
+        Assert.False(iq2.IsRecommended);
+        Assert.True(rig.Catalog.Entries[2].IsRecommended);
+        Assert.False(rig.Catalog.Entries[2].IsPartial);
+        Assert.Contains("2.4 bits per weight", iq2.Details, StringComparison.Ordinal);
+        Assert.Contains("good vs BF16: 4 bit.", iq2.Details, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Filters_NarrowTheListing()
     {
         using var rig = new Rig();

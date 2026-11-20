@@ -12,8 +12,11 @@ public sealed record PackageRequirements
     /// <summary><c>.slm</c> container version.</summary>
     public int? PackageFormat { get; init; }
 
-    /// <summary>Neutral engine feature names a device must have.</summary>
+    /// <summary>Neutral engine feature names a device must have (a device without one of them cannot run the package at all).</summary>
     public IReadOnlyList<string> DeviceFeatures { get; init; } = [];
+
+    /// <summary>The weight types of the package, largest share first, with the device features that accelerate them and whether a generic path exists.</summary>
+    public IReadOnlyList<PackageKernel> Kernels { get; init; } = [];
 
     /// <summary>Memory needed per device kind (first-pass placement filter).</summary>
     public IReadOnlyList<MemoryRequirement> Memory { get; init; } = [];
