@@ -32,6 +32,7 @@ other devices, and the CPU always remains.
 | `memory_budget` | `VK_EXT_memory_budget`; CUDA `cuMemGetInfo` | memory figures from Sharplight's own tally (other processes are not seen) |
 | `kernel_binaries` | `VK_KHR_pipeline_binary`, cubins, Metal binary archives | the driver's whole pipeline cache blob |
 | `paged_kv` | paged KV kernel forms | the contiguous per-slot KV cache |
+| `window_kv` | window-sized caches for sliding-window layers with the paged cache (host side only) | those caches hold a row per position of the pool |
 | Vulkan sparse binding (not a named feature) | `sparseBinding` on the compute queue | a buffer larger than one allocation fails with a clear error |
 | Vulkan timestamps (not a named feature) | `timestampValidBits` of the compute queue | no GPU step time (`LastGpuMs` is 0); the submission-budget calibration times launches on the host |
 | Vulkan transfer queue (not a named feature) | a transfer-only queue family | downloads on the compute queue |

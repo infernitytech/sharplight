@@ -10,10 +10,14 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 internal sealed class StepProfiler : IDisposable
 {
-    private const string Header = "start_ms,decode_rows,prompt_rows,prompt_inputs,active,admit_ms,schedule_ms,pack_ms,upload_ms,run_ms,gpu_ms,record_ms,submit_ms,wait_ms,recorded,replayed,overlap_ms,read_ms,process_ms";
+    private const string Header = "start_ms,decode_rows,prompt_rows,prompt_inputs,active,admit_ms,schedule_ms,pack_ms,upload_ms,run_ms,gpu_ms,record_ms,submit_ms,wait_ms,recorded,replayed,overlap_ms,read_ms,process_ms,gc_pause_ms,gc0,gc1,gc2";
     private readonly StreamWriter _out;
     private readonly long _origin = Stopwatch.GetTimestamp();
     private int _lines;
+    private TimeSpan _gcPause = GC.GetTotalPauseDuration();
+    private int _gc0 = GC.CollectionCount(0);
+    private int _gc1 = GC.CollectionCount(1);
+    private int _gc2 = GC.CollectionCount(2);
 
     private StepProfiler(string path)
     {
@@ -32,12 +36,30 @@ internal sealed class StepProfiler : IDisposable
     {
         var c = CultureInfo.InvariantCulture;
         var t = phases.Segments;
-        _out.WriteLine(string.Create(c, $"{Stopwatch.GetElapsedTime(_origin, start).TotalMilliseconds:F3},{decodeRows},{promptRows},{promptInputs},{active},{AdmitMs:F3},{scheduleMs:F3},{phases.PackMs:F3},{phases.UploadMs:F3},{phases.RunMs:F3},{t.GpuMs:F3},{t.RecordMs:F3},{t.SubmitMs:F3},{t.WaitMs:F3},{(t.Recorded ? 1 : 0)},{(t.Replayed ? 1 : 0)},{phases.OverlapMs:F3},{phases.ReadMs:F3},{processMs:F3}"));
+        _out.WriteLine(string.Create(c, $"{Stopwatch.GetElapsedTime(_origin, start).TotalMilliseconds:F3},{decodeRows},{promptRows},{promptInputs},{active},{AdmitMs:F3},{scheduleMs:F3},{phases.PackMs:F3},{phases.UploadMs:F3},{phases.RunMs:F3},{t.GpuMs:F3},{t.RecordMs:F3},{t.SubmitMs:F3},{t.WaitMs:F3},{(t.Recorded ? 1 : 0)},{(t.Replayed ? 1 : 0)},{phases.OverlapMs:F3},{phases.ReadMs:F3},{processMs:F3},{GcSince():F3},{Collections(0, ref _gc0)},{Collections(1, ref _gc1)},{Collections(2, ref _gc2)}"));
         AdmitMs = 0;
         if (++_lines % 256 == 0)
         {
             _out.Flush();
         }
+    }
+
+    /// <summary>Time the process spent paused in garbage collections since the previous step, in ms.</summary>
+    private double GcSince()
+    {
+        var now = GC.GetTotalPauseDuration();
+        double ms = (now - _gcPause).TotalMilliseconds;
+        _gcPause = now;
+        return ms;
+    }
+
+    /// <summary>Collections of generation <paramref name="generation"/> since the previous step.</summary>
+    private static int Collections(int generation, ref int seen)
+    {
+        int now = GC.CollectionCount(generation);
+        int n = now - seen;
+        seen = now;
+        return n;
     }
 
     /// <summary>Flushes and closes the file.</summary>
