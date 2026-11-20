@@ -435,6 +435,9 @@ internal static class DiagnosticSwitches
     /// <summary>Split-K decode tuning: target workgroups, minimum keys per split, maximum splits, [rows per lane group and batch].</summary>
     public static int[] AttentionDecodeConfig { get; } = (Read("SHARPLIGHT_ATTN_DECODE_CFG") ?? "1024,128,64").Split(',').Select(int.Parse).ToArray();
 
+    /// <summary>True when <c>SHARPLIGHT_ATTN_DECODE_CFG</c> is set (its target workgroups then apply on every target).</summary>
+    public static bool AttentionDecodeConfigSet { get; } = Read("SHARPLIGHT_ATTN_DECODE_CFG") is not null;
+
     /// <summary>
     /// True (default) when multi-sequence steps that mix decode rows with prompt chunks split attention between split-K decoding
     /// (short runs) and flash attention (long runs); <c>SHARPLIGHT_ATTN_MIXED=0</c> keeps one kernel for the whole step.

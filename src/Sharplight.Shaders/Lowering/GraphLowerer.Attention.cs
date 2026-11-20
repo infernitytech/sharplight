@@ -712,6 +712,15 @@ public sealed partial class GraphLowerer
     /// </summary>
     private long DecodeRowsPerBatch => _opt.Target == ShaderTarget.Ptx ? 4 : 1;
 
+    /// <summary>
+    /// Workgroups the split count of the decode attention aims for (<c>DEC_TARGET_WG</c>) unless <c>SHARPLIGHT_ATTN_DECODE_CFG</c> sets
+    /// it: 1024 on SPIR-V and MSL, 512 on PTX, where batched decode at 64 sequences then runs one key range per row and skips the
+    /// combine (RTX PRO 4500, 64 sequences at depth 256: gpt-oss-20b 18.15 → 17.93 ms, Qwen3-8B-FP8 18.00 → 17.56 ms per step; 16
+    /// sequences at 3500-token contexts: Qwen3-8B-FP8 23.54 → 23.15 ms, gpt-oss-20b 14.13 → 14.23 ms; single sequences unchanged,
+    /// benchmarks.md §58).
+    /// </summary>
+    private long DecodeTargetWorkgroups(int[] cfg) => !DiagnosticSwitches.AttentionDecodeConfigSet && _opt.Target == ShaderTarget.Ptx ? 512 : cfg[0];
+
     private DecodeAttentionPlan? DecodeAttention(AttentionPlan plan, bool flash, long sliceRows)
     {
         const long threads = 128;
@@ -759,7 +768,7 @@ public sealed partial class GraphLowerer
         (string Name, long Value)[] decodeMacros =
         [
             ("HPW", headsPerGroup), ("KLANES", keyLanes), ("DEC_WG", threads), ("DEC_R", rowsPerBatch), ("DEC_BC", batch),
-            ("DEC_MAX_SPLITS", cfg[2]), ("DEC_MIN_KEYS", minKeys), ("DEC_TARGET_WG", cfg[0]),
+            ("DEC_MAX_SPLITS", cfg[2]), ("DEC_MIN_KEYS", minKeys), ("DEC_TARGET_WG", DecodeTargetWorkgroups(cfg)),
         ];
         foreach (var (name, value) in decodeMacros)
         {
@@ -776,7 +785,7 @@ public sealed partial class GraphLowerer
             Macros = macros,
             Groups = groups,
             MaxRows = maxRows,
-            TargetWorkgroups = cfg[0],
+            TargetWorkgroups = DecodeTargetWorkgroups(cfg),
             MaxSplitCount = cfg[2],
             InvariantRows = InvariantRows,
             When = b => Rows(b, q) <= maxRows && (flashWhen is null || !flashWhen(b)),

@@ -22,4 +22,7 @@ internal sealed record CudaKernel(nint Module, nint Function, uint ThreadsX, uin
     /// <see cref="CudaPtx.DependentHeader"/>), so it may be launched before that launch ends (<see cref="DeviceFeatures.DependentLaunches"/>).
     /// </summary>
     public bool WaitsForPrevious { get; init; }
+
+    /// <summary>Blocks of the kernel the GPU holds at once (occupancy times multiprocessors), 0 when unknown.</summary>
+    public int ResidentBlocks { get; init; }
 }

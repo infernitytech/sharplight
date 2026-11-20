@@ -1,7 +1,7 @@
 // Causal prefill attention against an f16 KV cache written in CUDA C++ for the CUDA provider (DeviceFeatures.NativeAttention, compute
-// capability 8.0 and later), in the FlashAttention-2 form: a block handles FN_BR = 16 * FN_WARPS consecutive queries of one head; each
-// warp owns 16 query rows for the whole key loop, so its query fragments (Q · SCALE in f16), score accumulators, softmax statistics and
-// output accumulators stay in registers. The block shares tiles of FN_BC = 64 keys and values, copied with cp.async into a two-stage
+// capability 8.0 and later), in the FlashAttention-2 form: a block handles FN_BR = 16 * FN_MR * FN_WARPS consecutive queries of one head;
+// each warp owns 16 * FN_MR query rows for the whole key loop, so its query fragments (Q · SCALE in f16), score accumulators,
+// softmax statistics and output accumulators stay in registers. The block shares tiles of FN_BC = 64 keys and values, copied with cp.async into a two-stage
 // ring of dynamic shared memory (rows of 16-byte chunks, XOR swizzle so the copies and ldmatrix are free of bank conflicts) while the
 // previous tile is multiplied: one block barrier per tile. Per tile a warp computes S = Q · Kᵀ (mma.sync.m16n8k16, f32), applies the
 // mask only on tiles that cross a row's limits (the diagonal, a window's start), runs the online softmax on the accumulators (row maxima
@@ -15,7 +15,8 @@
 // row count, first position), optionally PAGED; MIX_RUN skips runs shorter than MIX_RUN rows (mixed steps).
 //
 // Macros: HQ, HKV, D, DV (multiples of 64 up to 128), VRS (value row stride), QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP,
-// HAS_SINKS, MULTI_SEQ, SLOT_CTX, PAGED, PAGE_BS, PAGE_MB, RT_N_PAST, MIX_RUN, FN_WARPS (4 or 8).
+// HAS_SINKS, MULTI_SEQ, SLOT_CTX, PAGED, PAGE_BS, PAGE_MB, RT_N_PAST, MIX_RUN, FN_WARPS (4 or 8), FN_MR (16-row fragments per
+// warp, default 1: 2 measured the same at head size 64 and spilled at 128).
 // Grid: x = HQ, y = query tiles (of the longest run), z = runs (1 without MULTI_SEQ).
 #ifndef FN_WARPS
 #define FN_WARPS 4

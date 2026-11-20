@@ -169,6 +169,9 @@ internal static unsafe partial class CudaApi
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuLaunchKernelEx(CuLaunchConfig* config, nint function, void** parameters, void** extra);
 
+    [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuOccupancyMaxActiveBlocksPerMultiprocessor(int* blocks, nint function, int blockSize, nuint dynamicSharedBytes);
+
     [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuLinkCreate_v2")]
     public static partial int cuLinkCreate(uint optionCount, CuJitOption* options, void** values, nint* state);
 

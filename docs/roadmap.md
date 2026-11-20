@@ -49,6 +49,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   unchanged. Decode at 64 sequences unchanged (CUDA 17.9, Vulkan 17.3, vLLM 15.6 ms per step; attention configurations, fused
   combine and launch bounds measured at ±1 %). Next: the FP8 promotion (per-output scale products), the CUDA forms of
   `gemm_fp8.slang` at decode sizes (0.7 ms per step behind their SPIR-V forms), a multi-output q / k / v GEMM, split-K reductions without a launch.
+  Round 14 (§58): a FlashAttention-2-style prefill attention kernel on CUDA (`attn_prefill_native.cu`, `native_attention`, compute
+  capability 8.0+: register softmax, `cp.async` K / V ring, windows, sinks, GQA, multi-sequence runs) replaces `fa` / `fe` for causal
+  attention over f16 caches. gpt-oss-20b attention at 2048 tokens 16.4 → 3.5 ms (FlashInfer 4.4); prefill 0.88 → 0.97x / 0.72 → 0.92x of vLLM
+  at 2048 / 8192 tokens; Qwen3-8B-FP8 1.00x / 0.95x. Serving gpt-oss 0.82x / 0.75x of vLLM at 16 / 64 streams (was 0.80x / 0.73x
+  in the same session). Programmatic dependent launches (`dependent_launches`, 9.0+) are worth ±1 % on decode steps: graph-replayed
+  launches leave almost no gaps. Vulkan unchanged. Next: the multi-output q / k / v GEMM (needs weight buffers holding several
+  parameters, or a GEMM with several weight pointers), split-K reductions in the GEMM, and the decode attention at 64 sequences.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs

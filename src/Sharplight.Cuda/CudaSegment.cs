@@ -32,6 +32,16 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private readonly Dictionary<string, CudaRecordedLaunch[]> _recorded = [];
     /// <summary>Executions of each recording so far, and its instantiated CUDA graph once it has repeated (see <see cref="RunStep"/>).</summary>
     private readonly Dictionary<string, (int Runs, nint Graph, nint Exec)> _graphs = [];
+
+    /// <summary>
+    /// True when the stream's previous launch was a kernel whose grid the GPU holds at once (one wave). A kernel is launched as the
+    /// programmatic dependent of the previous one only when both fit in one wave: a dependent's waiting blocks take SM slots that a
+    /// kernel with further waves would need, and a multi-wave dependent's early blocks are placed while the previous kernel still
+    /// holds the SMs (RTX PRO 4500 decode steps at 1 / 16 / 64 sequences, mean of two runs, benchmarks.md §58.3: every kernel early:
+    /// Qwen3-8B-FP8 -0.3 / +1.5 / +1.9 %, gpt-oss-20b -1.5 / -1.2 / -0.9 %; after one-wave kernels: -0.2 / -1.0 / +0.9 % and
+    /// -1.1 / +0.1 / 0 %; both one wave: -0.2 / -0.4 / -0.2 % and -0.7 / +0.2 / +0.1 %).
+    /// </summary>
+    private bool _previousOneWave;
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
     private readonly nint _start;
@@ -634,6 +644,7 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         {
             // Library GEMM: arguments x, w, y (device addresses), then the row count.
             var args = launch.Arguments;
+            _previousOneWave = false;
             _dev.Blas!.Gemm(_stream, gemm.Type, gemm.N, gemm.K, BitConverter.ToUInt32(args, 24),
                 BitConverter.ToUInt64(args, 0), BitConverter.ToUInt64(args, 8), BitConverter.ToUInt64(args, 16));
             if (DiagnosticSwitches.SyncEachLaunch)
@@ -647,7 +658,11 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         fixed (byte* arguments = launch.Arguments)
         {
             void* parameter = arguments;
-            int result = kernel.WaitsForPrevious && _dev.DependentLaunches
+            long blocks = (long)launch.GridX * launch.GridY * launch.GridZ;
+            bool oneWave = kernel.ResidentBlocks > 0 && blocks <= kernel.ResidentBlocks;
+            bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave;
+            _previousOneWave = oneWave;
+            int result = dependent
                 ? LaunchDependent(kernel, launch, &parameter)
                 : CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
                     (uint)kernel.SharedBytes, _stream, &parameter, null);
