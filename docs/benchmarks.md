@@ -8070,6 +8070,100 @@ GPU 0, this branch (`develop` unchanged since `a494e881`):
 | Sharplight.Vulkan.Tests on Vulkan, the attention classes (BatchMatMul, FullAttention, Fusion, PagedAttention, SparseAttention) | 140 / 0 failed / 0 skipped |
 | Vulkan kernel inputs against `develop` (337 kernels of gpt-oss-20b, Qwen3-8B-FP8, Qwen3-0.6B) | identical |
 
+### 58.8 Long contexts against vLLM (16K-128K tokens)
+
+`bench/s58_long.sh` (new): our side `--bench N --ctx N+256` (prefill median of 5; its decode is one stream at depth N) and
+BatchBench (`--batch 2048`, deep slots prefilled in 2048-row chunks) for 4 streams; vLLM `bench/s58_long_vllm.py` (offline API,
+its default chunked prefill, prefix caching off, `--gpu-util 0.92`, median of 2). Same session, every run waited for a GPU without
+other compute processes, the vLLM runs held the verify lock. Qwen3-8B-FP8 runs with YaRN (factor 4 over its 32,768 positions:
+a copy of the checkpoint whose `config.json` sets `rope_scaling`, read by both engines); gpt-oss-20b has 131,072 positions
+(YaRN in its config). KV caches are 16-bit on both sides (ours f16, vLLM's `auto` = bf16); FP8 KV was not compared, since the
+CUDA provider has no FP8 cache format (q8_0 / q4_0 only). The longest point exceeds the checkpoints' limit by its 256 decode
+positions on our side; vLLM needed `VLLM_ALLOW_LONG_MAX_MODEL_LEN=1` for the same, and its decode at depth 131,072 hit a
+device-side assert (positions past 131,072), so its 128K decode ran at depth 130,560. Raw output in
+[`bench/results/s58/long/`](../bench/results/s58/long).
+
+Prefill (tok/s) and TTFT of one prompt (s; = the prefill time):
+
+| model | tokens | **CUDA** | vLLM | CUDA / vLLM | TTFT CUDA / vLLM |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b | 16,384 | 13,344 | 14,496 | 0.92 | 1.23 / 1.13 |
+| | 32,768 | 11,420 | 12,327 | 0.93 | 2.87 / 2.66 |
+| | 65,536 | 8,715 | 9,440 | 0.92 | 7.52 / 6.94 |
+| | 131,072 | 5,894 | 6,435 | 0.92 | 22.2 / 20.4 |
+| Qwen3-8B-FP8 (YaRN) | 16,384 | 9,604 | 9,874 | 0.97 | 1.71 / 1.66 |
+| | 32,768 | 6,965 | 7,152 | 0.97 | 4.70 / 4.58 |
+| | 65,536 | 4,559 | 4,553 | 1.00 | 14.4 / 14.4 |
+| | 131,072 | 2,445 | 2,639 | 0.93 | 53.6 / 49.7 |
+
+Decode at depth (tok/s per stream; 4 streams: aggregate):
+
+| model | depth | 1 stream CUDA / vLLM | 4 streams CUDA / vLLM |
+|---|---:|---|---|
+| gpt-oss-20b | 32,768 | 156.7 / 150.7 (1.04) | 305.8 / 310.8 (0.98) |
+| | ~128K | 98.7 / 107.3 (0.92) | **does not fit** (needs 36.9 GiB) / 174.9 |
+| Qwen3-8B-FP8 (YaRN) | 32,768 | 58.2 / 57.8 (1.01) | 110.9 / 107.1 (1.04) |
+| | ~128K | 28.5 / 29.6 (0.96) | does not fit on either (4 x 19.3 GB of KV) |
+
+Where a long prefill goes (`SHARPLIGHT_CUDA_PROFILE=1`, `bench/profile_categories.py`, whole prompt in 2048-row passes):
+
+| model, tokens | total | attention | MoE / dense GEMMs | rest | attention TFLOPS (Q·Kᵀ + P·V of the visible keys) |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b, 32,768 | 2.87 s | 0.81 s (28 %) | 1.47 s MoE + 0.39 s dense | 0.19 s | 131 |
+| gpt-oss-20b, 131,072 | 22.2 s | 13.8 s (62 %) | 5.99 s MoE + 1.60 s dense | 0.79 s | 122 |
+| Qwen3-8B-FP8, 32,768 | 4.58 s | 2.43 s (53 %) | 1.84 s | 0.31 s | 130 |
+| Qwen3-8B-FP8, 131,072 | 53.3 s | 43.5 s (82 %) | 8.70 s | 1.10 s | 117 |
+
+* The attention kernel scales: 131 → 122 TFLOPS (gpt-oss) and 130 → 117 (Qwen3) from 32K to 128K, all in the FlashAttention-2
+  class. The prefill ratio to vLLM is flat for gpt-oss (0.92-0.93 from 16K to 128K; at 8192 it was 0.72 before this round).
+  Assuming vLLM's GEMMs and the rest cost what ours do, its attention takes ~12.0 s at 128K for gpt-oss (ours 13.8) and ~39.9 s
+  for Qwen3 (ours 43.5): 9-15 % ahead at the longest prompts.
+* No index overflow past 65K or in the KV offsets (64-bit element offsets throughout the kernel). The harness agrees with the
+  f32 reference for 1024 queries after 70,000 cached keys (max error 4.2e-4) and after 129,000 with a 128 window and sinks
+  (1.7e-4). Every length ran without errors on both models, and there is no chunk-size cliff: the 2048-row passes cost what their
+  attention predicts.
+* **Found: sliding-window layers keep full-length KV caches.** gpt-oss's 12 window layers (128 keys) hold as many cache rows as
+  its full layers, so four 128K streams need 36.9 GiB and do not fit. vLLM's hybrid allocator stores only the window for those
+  layers and fits them (175 tok/s). Window-sized caches would halve gpt-oss's KV memory: more concurrent long sequences, and more
+  slots in serving.
+* Decode at 128K is 0.92x of vLLM on gpt-oss: the decode attention takes ~4.8 of the 10.0 ms step. It reads 3.2 GB of K / V per
+  step (12 full layers), so ~670 GB/s against ~800 at the read limit.
+
+### 58.9 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes (ours against vLLM) |
+|---|---:|---|
+| gpt-oss-20b prefill 2048 | 0.97 | GPU 123.5 against 118.4 ms per pass: experts 79.8 against 85.6 and attention 3.5 against 4.4 are ahead; q / k / v / o 20.9 against 16.4 (q / k / v carry biases, and a matmul with an epilogue never takes the native f16 GEMM: `gemm_cm2` 382 µs for q); expert gather + slot sum 7.5 against 1.5; norms / rope / adds ~9 |
+| gpt-oss-20b prefill 8192 / 16K-128K | 0.92 / 0.92-0.93 | the same per pass, plus attention 9-15 % behind FlashInfer at 128K (122 against ~141 TFLOPS) |
+| Qwen3-8B-FP8 prefill 2048 / 8192 | 1.00 / 0.95 | FP8 GEMM main loop 76 % of the MMA peak per cycle against CUTLASS's ~90 % (§57.2); attention at 8192 |
+| Qwen3-8B-FP8 prefill 16K-128K | 0.93-1.00 | attention ~9 % behind at 128K (117 TFLOPS) |
+| gpt-oss-20b decode step, 64 sequences | ~0.91 (17.81 against ~16.2 ms) | expert GEMMs 11.7 against Marlin's 10.6; projections ~3.1 against 1.8 (three q / k / v GEMMs, five split-K reductions per layer); attention ~1.3 against 1.2 |
+| Qwen3-8B-FP8 decode step, 64 sequences | ~0.89 (17.46 against 15.6 ms) | weight GEMMs at 520-670 against ~766 GB/s (~1.3 ms); split-K reductions ~0.7 ms; CUDA forms of `gemm_fp8.slang` 0.7 ms behind their SPIR-V forms |
+| gpt-oss-20b serving 16 / 64 streams | 0.82 / 0.75 | decode steps (above) plus prompt rows in mixed steps (~60 µs per row) and ~0.4 ms host time per step (wall against GPU) |
+| Qwen3-8B-FP8 serving 16 / 64 streams | QWENSERVE | as its decode step |
+| gpt-oss-20b decode at 32K / 128K (1 stream) | 1.04 / 0.92 | decode attention at long depth (~670 GB/s) |
+| gpt-oss-20b, 4 streams at 128K | does not fit | full-length caches for the window layers |
+
+Ranked levers (estimated saving; ordered by what they move on the headline numbers):
+
+1. **Decode-step GEMMs (serving at 16 / 64 streams).** A multi-output q / k / v GEMM plus split-K reductions in the GEMM's last
+   workgroup: gpt-oss ~0.6 + ~0.35 ms per step, Qwen3 ~0.5 + ~0.7 ms. The q / k / v GEMM needs weight buffers that hold several
+   parameters (uploader and `.slm` layout in every provider) or a GEMM with several weight pointers.
+2. **MXFP4 skinny expert GEMM at Marlin's level** (gpt-oss 64-sequence step 11.7 → 10.6 ms, ~1.1 ms), and the **FP8 decode GEMMs
+   at the read limit** (Qwen3 ~1.3 ms; their CUDA forms are 0.7 ms behind Vulkan's). With 1-2, gpt-oss's step reaches ~15.8 ms
+   (1.03x of vLLM) and Qwen3's ~15.0 ms (1.04x).
+3. **Host time and mixed steps in serving**: asynchronous step preparation (~0.4 ms per step) and the prompt rows of mixed steps.
+   Serving at 64 streams is 0.75x while the decode step is 0.91x, so this is the larger part of the serving gap. It needs a serving
+   profile to size (TTFT is already ahead of vLLM's at both concurrencies).
+4. **gpt-oss prefill GEMMs and MoE glue**: the bias epilogue in `gemm_f16_native.cu`, so q / k / v leave `gemm_cm2` (~2-3 ms per
+   2048-row pass), and the expert gather / slot sum fused into routing and the down GEMM's store (~5 ms per pass). Together
+   ~6 % → ~1.03x at 2048, ~0.98x at 8192+.
+5. **FP8 GEMM main loop** at CUTLASS's cycles (§57's open item): ~+7 % Qwen3 prefill → ~1.07x at 2048.
+6. **Attention at long prompts**: Q pre-scaled by log2(e), separate K and V waits, three stages at head size 64, 128-row tiles
+   with 8 warps at head size 64 (~10-15 % of attention, ~2 s of gpt-oss's 128K prefill and ~4 s of Qwen3's → ≥1.0x at 128K).
+   Also the decode attention at depth (~0.7 ms per step at 128K → 1.0x).
+7. **Window-sized KV caches for sliding-window layers** (memory, not speed): four 128K gpt-oss streams, and serving with more slots.
+
 ### 58.7 Reproduce
 
 ```bash

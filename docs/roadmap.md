@@ -54,8 +54,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   attention over f16 caches. gpt-oss-20b attention at 2048 tokens 16.4 → 3.5 ms (FlashInfer 4.4); prefill 0.88 → 0.97x / 0.72 → 0.92x of vLLM
   at 2048 / 8192 tokens; Qwen3-8B-FP8 1.00x / 0.95x. Serving gpt-oss 0.82x / 0.75x of vLLM at 16 / 64 streams (was 0.80x / 0.73x
   in the same session). Programmatic dependent launches (`dependent_launches`, 9.0+) are worth ±1 % on decode steps: graph-replayed
-  launches leave almost no gaps. Vulkan unchanged. Next: the multi-output q / k / v GEMM (needs weight buffers holding several
-  parameters, or a GEMM with several weight pointers), split-K reductions in the GEMM, and the decode attention at 64 sequences.
+  launches leave almost no gaps. Vulkan unchanged. Long contexts against vLLM, 16K-128K (§58.8, `bench/s58_long.sh`, run every
+  round): prefill 0.92-0.93x (gpt-oss) and 0.93-1.00x (Qwen3-8B-FP8 with YaRN), attention flat at 117-131 TFLOPS; decode
+  0.92-1.04x. Four 128K gpt-oss streams do not fit, because the window layers keep full-length caches (vLLM sizes them to the
+  window). The ranked plan to ≥1.0x is §58.9: decode-step GEMMs (multi-output q / k / v, split-K in the GEMM, MXFP4 and FP8 skinny
+  GEMMs at the read limit), serving host time and mixed steps, the native f16 GEMM with bias epilogues and fused MoE glue for
+  gpt-oss prefill, the FP8 main loop, attention efficiency at 128K, window-sized KV caches.
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs

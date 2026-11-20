@@ -1,2 +1,2 @@
-gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 15915 MiB, 43.06 W, 2820 MHz, 13365 MHz, 43, P1
-1162641, <worktree>/bench/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15896 MiB
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 15913 MiB, 30.99 W, 2400 MHz, 13365 MHz, 36, P1
+1229006, /root/sl-worktrees/perf-r14/bench/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15894 MiB

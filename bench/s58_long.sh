@@ -36,8 +36,9 @@ fi
 if [ "$WHICH" != sharplight ]; then
   quiet > /dev/null
   MAXN=0; for N in $LENS $DEPTHS; do [ "$N" -gt "$MAXN" ] && MAXN=$N; done
+  # The longest prompt plus its tokens may pass the checkpoint's max_position_embeddings by up to 512, as on the Sharplight side.
   # shellcheck disable=SC2086
-  flock -w 1800 "$LOCK" timeout $((T * 2)) "$VLLM_VENV/bin/python" -I "$HERE/s58_long_vllm.py" "$MODEL" "$NAME" --lens "$(echo $LENS | tr ' ' ,)" \
+  flock -w 1800 "$LOCK" env VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 timeout $((T * 2)) "$VLLM_VENV/bin/python" -I "$HERE/s58_long_vllm.py" "$MODEL" "$NAME" --lens "$(echo $LENS | tr ' ' ,)" \
     --depths "$(echo $DEPTHS | tr ' ' ,)" --streams "1,$(echo $STREAMS | tr ' ' ',')" --max-len $((MAXN + 512)) ${VLLM_ARGS:---gpu-util 0.92} \
     --out "$OUT/vllm_$NAME.json" > "$OUT/vllm_$NAME.log" 2>&1
   echo "vllm exit $?" >> "$OUT/vllm_$NAME.log"
