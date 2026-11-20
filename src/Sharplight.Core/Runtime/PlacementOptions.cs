@@ -11,9 +11,10 @@ public sealed class PlacementOptions
     public long ReservePerDevice { get; init; } = 1L << 30;
     /// <summary>
     /// Bytes reserved on a device for every extra segment that moving routed experts to the <see cref="Fallback"/> creates
-    /// (<see cref="SplitExperts"/>, <see cref="StreamExpertsMinRows"/>): a compiled segment's stream, launch recordings and library workspace.
+    /// (<see cref="SplitExperts"/>, <see cref="StreamExpertsMinRows"/>): a compiled segment's stream, launch recordings and library workspace
+    /// (its input and output buffers are counted apart). Default 8 MiB; <c>SHARPLIGHT_SEGMENT_RESERVE_MIB</c> overrides it.
     /// </summary>
-    public long ReservePerSegment { get; init; } = long.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_RESERVE_MIB"), out long mib) && mib >= 0 ? mib << 20 : 32L << 20;
+    public long ReservePerSegment { get; init; } = long.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_RESERVE_MIB"), out long mib) && mib >= 0 ? mib << 20 : 8L << 20;
     /// <summary>Bounds and feature switches used to compile every segment.</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>

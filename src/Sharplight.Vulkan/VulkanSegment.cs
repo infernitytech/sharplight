@@ -189,6 +189,8 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
         _stepPool = qp;
 
         long bytes = 0;
+        int streamedInputs = 0;
+        int streamedOutputs = 0;
         try
         {
             foreach (var b in program.Buffers)
@@ -217,6 +219,18 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope && SharedArena<Allocation>.Enabled)
                 {
                     bytes += ShareArena(dev, arenaScope, b.Name, b, size);
+                    continue;
+                }
+
+                // The streamed compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to its
+                // outputs read back: their device-side input and output buffers are shared too (by ordinal: the layers' value names differ);
+                // each keeps its own staging memory.
+                if (b.Kind is BufferKind.Input or BufferKind.Output && options.StreamWeights && options.StateScope is { } ioScope && SharedArena<Allocation>.Enabled)
+                {
+                    bytes += ShareArena(dev, ioScope, $"streamed-{b.Kind}:{(b.Kind == BufferKind.Input ? streamedInputs++ : streamedOutputs++)}", b, size);
+                    _staging[b] = b.Kind == BufferKind.Input
+                        ? dev.Memory.Allocate(size, MemoryUsage.Upload, "upload staging of " + Purpose(b))
+                        : dev.Memory.Allocate(size, MemoryUsage.Readback, "readback staging of " + Purpose(b));
                     continue;
                 }
 

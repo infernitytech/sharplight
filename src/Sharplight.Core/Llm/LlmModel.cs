@@ -510,7 +510,14 @@ public sealed class LlmModel : IDisposable
             Definition.Property(WellKnown.DraftConvTaps, 0), Definition.Property(WellKnown.DraftLatticeCandidates, 0), tokenMap);
     }
 
-    private static long DefaultReserve => DiagnosticSwitches.DeviceReserve ?? 1L << 30;
+    /// <summary>
+    /// Device memory a placement keeps free when <see cref="TaskLoadOptions.ReservePerDevice"/> is not set: 1 GiB, or 512 MiB with a fallback
+    /// device (CPU offload), where every 640 MiB is another layer of routed experts on the GPU and a compilation that runs out of memory is
+    /// placed again with the shortfall kept free (<see cref="CompiledModel.Compile"/>). Measured on Qwen3.5-122B-A10B (CUDA, 512 rows per
+    /// pass): the activation arena, library workspaces and driver allocations the plan does not count leave ~60-570 MiB of the reserve unused
+    /// (benchmarks.md §61).
+    /// </summary>
+    private long DefaultReserve => DiagnosticSwitches.DeviceReserve ?? (_options.Fallback is null ? 1L << 30 : 512L << 20);
 
     /// <summary>Largest rows per forward pass chosen automatically (<see cref="TaskLoadOptions.MaxBatchTokens"/> 0).</summary>
     public const int AutomaticMaxBatchTokens = 2048;
