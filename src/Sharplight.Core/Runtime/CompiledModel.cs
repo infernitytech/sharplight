@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
 
@@ -210,16 +211,18 @@ public sealed class CompiledModel : IDisposable
         placement = WithDynamicBounds(graph, placement);
         for (int attempt = 0; ; attempt++)
         {
+            var shortfall = new StrongBox<long>();
             try
             {
-                return CompilePlaced(graph, placement, retryOnStreamingOom: attempt < MaxMemoryRetries);
+                return CompilePlaced(graph, placement, retryOnStreamingOom: attempt < MaxMemoryRetries, shortfall);
             }
             catch (DeviceOutOfMemoryException e) when (placement.Fallback is not null && attempt < MaxMemoryRetries)
             {
                 // The plan's estimate of what a device holds besides weights and state (activations, library workspaces, driver
-                // overhead, other processes' allocations since the plan) fell short: plan again with that much more kept free, so
+                // overhead, other processes' allocations since the plan) fell short: plan again with what the rest of the plan
+                // still needed beyond the free memory kept free in addition (at least MinRetryReserve when that is unknown), so
                 // more of the model goes to the fallback.
-                long reserve = placement.ReservePerDevice + Math.Max(MinRetryReserve, e.RequestedBytes);
+                long reserve = placement.ReservePerDevice + (shortfall.Value > 0 ? shortfall.Value + RetryMargin : Math.Max(MinRetryReserve, e.RequestedBytes));
                 if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
                 {
                     Console.Error.WriteLine($"[load] {e.Device}: out of memory for {e.What} ({e.RequestedBytes >> 20} MiB); placing '{graph.Name}' again with {reserve >> 20} MiB reserved");
@@ -233,8 +236,63 @@ public sealed class CompiledModel : IDisposable
     /// <summary>How often <see cref="Compile"/> places a graph again with a larger reserve after a device ran out of memory.</summary>
     private const int MaxMemoryRetries = 3;
 
-    /// <summary>The least extra memory a placement after an out-of-memory failure reserves on every device.</summary>
+    /// <summary>The extra memory a placement after an out-of-memory failure reserves on every device when the shortfall is unknown.</summary>
     private const long MinRetryReserve = 256L << 20;
+
+    /// <summary>Added to a measured shortfall (<see cref="MemoryShortfall"/>) when a graph is placed again after an out-of-memory failure.</summary>
+    private const long RetryMargin = 64L << 20;
+
+    /// <summary>Per segment still to compile in <see cref="MemoryShortfall"/>: its input and output buffers, stream and launch recordings.</summary>
+    private const long SegmentOverheadEstimate = 32L << 20;
+
+    /// <summary>
+    /// After an out-of-memory failure during <see cref="CompilePlaced"/>: how many bytes the accelerators lacked for the rest of the plan, the
+    /// weights and state of the segments not compiled yet (and the streamed and sparse expert memories when they were not reached) less the
+    /// memory still free, the largest over the devices (0 when it does not show a lack).
+    /// </summary>
+    private static long MemoryShortfall(PlacementPlan plan, CompileOptions options, ICompiledSegment?[] compiled, bool twinsCompiled)
+    {
+        long worst = 0;
+        foreach (var device in plan.Slots.Where(s => s.Device.Info.Kind != DeviceKind.Cpu).Select(s => s.Device).Distinct())
+        {
+            var weights = new HashSet<Models.WeightInfo>();
+            var states = new HashSet<Models.StateDefinition>();
+            long remaining = 0;
+            for (int i = 0; i < plan.Segments.Count; i++)
+            {
+                var segment = plan.Segments[i];
+                if (compiled[i] is not null || plan.Slots[segment.DeviceSlot].Device != device)
+                {
+                    continue;
+                }
+
+                remaining += SegmentOverheadEstimate;
+                foreach (var v in segment.Nodes.SelectMany(n => n.Inputs))
+                {
+                    if (v.Weight is { } w && weights.Add(w))
+                    {
+                        remaining += w.ByteSize;
+                    }
+                    else if (v.State is { } st && states.Add(st))
+                    {
+                        remaining += PlacementPlanner.StateBytes(st, options);
+                    }
+                }
+            }
+
+            if (!twinsCompiled)
+            {
+                // One layer's streamed experts and the sparse banks: at most the largest streamed segment's weights twice.
+                remaining += 2 * plan.StreamedSegments.Where(kv => plan.Slots[kv.Value].Device == device)
+                    .Select(kv => plan.Segments[kv.Key].Nodes.SelectMany(n => n.Inputs).Where(v => v.Weight is not null).Select(v => v.Weight!).Distinct().Sum(w => w.ByteSize))
+                    .DefaultIfEmpty(0).Max();
+            }
+
+            worst = Math.Max(worst, remaining - device.GetMemoryInfo().Available);
+        }
+
+        return worst;
+    }
 
     /// <summary>
     /// Places the graph (its dynamic bounds already added) and compiles every segment on its device: the largest segment of each accelerator
@@ -242,7 +300,11 @@ public sealed class CompiledModel : IDisposable
     /// compilation that runs out of memory fails the compilation (the caller places the graph again with more memory kept free) instead of
     /// leaving its segment to the CPU for prefill.
     /// </summary>
-    private static CompiledModel CompilePlaced(ComputeGraph graph, PlacementOptions placement, bool retryOnStreamingOom)
+    /// <param name="graph">The graph to compile.</param>
+    /// <param name="placement">Devices, fallback, memory reserve and compile options.</param>
+    /// <param name="retryOnStreamingOom">Whether a streamed compilation that runs out of memory fails the compilation.</param>
+    /// <param name="shortfall">Set, when a device runs out of memory, to what the rest of the plan lacked (<see cref="MemoryShortfall"/>).</param>
+    private static CompiledModel CompilePlaced(ComputeGraph graph, PlacementOptions placement, bool retryOnStreamingOom, StrongBox<long> shortfall)
     {
         var ct = placement.Compile.CancellationToken;
         ct.ThrowIfCancellationRequested();
@@ -257,6 +319,7 @@ public sealed class CompiledModel : IDisposable
         var streamed = new ICompiledSegment?[plan.Segments.Count];
         var sparse = new ICompiledSegment?[plan.Segments.Count];
         var order = CompileOrder(plan);
+        bool twinsCompiled = false;
         try
         {
             for (int i = 0; i < order.Indices.Count; i++)
@@ -265,6 +328,7 @@ public sealed class CompiledModel : IDisposable
                 {
                     CompileStreamed(plan, segmentOptions, buffers, retryOnStreamingOom, streamed, ct);
                     CompileSparse(plan, segmentOptions, sparse, ct);
+                    twinsCompiled = true;
                 }
 
                 ct.ThrowIfCancellationRequested();
@@ -279,8 +343,13 @@ public sealed class CompiledModel : IDisposable
                 progress?.NextSegment();
             }
         }
-        catch
+        catch (Exception e)
         {
+            if (e is DeviceOutOfMemoryException)
+            {
+                shortfall.Value = MemoryShortfall(plan, placement.Compile, compiled, twinsCompiled);
+            }
+
             foreach (var c in compiled.Concat(streamed).Concat(sparse))
             {
                 c?.Dispose();
@@ -288,6 +357,7 @@ public sealed class CompiledModel : IDisposable
 
             throw;
         }
+
         if (Environment.GetEnvironmentVariable("SHARPLIGHT_LOAD_TIMING") is "1" or "true")
         {
             foreach (var slot in plan.Slots.Where(s => s.Device.Info.Kind != DeviceKind.Cpu).Distinct())

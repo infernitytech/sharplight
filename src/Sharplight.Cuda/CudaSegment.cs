@@ -47,6 +47,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly List<int> _sparseSelected = [];
     /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming"/>).</summary>
     private nint _streamDone;
+    /// <summary>Input and output buffers allocated so far by a streamed or sparse compilation (their ordinals key the shared buffers).</summary>
+    private int _streamedInputs;
+    private int _streamedOutputs;
     private bool _streaming;
     /// <summary>Inputs copied from an earlier segment's output buffer instead of from <see cref="SetInput"/> (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (CudaBuffer Source, long SourceOffset)> _forwarded = [];
@@ -233,6 +236,14 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         if (b.Kind == BufferKind.Activations && _options.StateScope is { } arenaScope && SharedArena<CudaBuffer>.Enabled)
         {
             return ShareArena(arenaScope, b.Name, b);
+        }
+
+        // The streamed and sparse compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to
+        // its outputs read back (no device forwarding reaches them): they share their input and output buffers too.
+        if (b.Kind is BufferKind.Input or BufferKind.Output && _options.StreamWeights && _options.StateScope is { } ioScope && SharedArena<CudaBuffer>.Enabled)
+        {
+            // By ordinal: the layers' value names differ, their inputs and outputs correspond.
+            return ShareArena(ioScope, $"streamed-{b.Kind}:{(b.Kind == BufferKind.Input ? _streamedInputs++ : _streamedOutputs++)}", b);
         }
 
         // The segments of one graph on this device share each state (its nodes may be split by other devices' nodes).
