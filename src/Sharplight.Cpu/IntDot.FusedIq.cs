@@ -82,31 +82,43 @@ internal static unsafe partial class IntDot
     private static Vector256<float> Accumulate(Vector256<int> sums, Vector256<float> scale, Vector256<float> acc) =>
         Vector256.FusedMultiplyAdd(Vector256.ConvertToSingle(sums), scale, acc);
 
+    /// <summary>Four 64-bit table entries (grid magnitudes or sign bytes) as one vector, built from two 128-bit halves.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector256<byte> Entries(ulong* table, uint i0, uint i1, uint i2, uint i3) =>
+        Vector256.Create(Vector128.Create(table[i0], table[i1]), Vector128.Create(table[i2], table[i3])).AsByte();
+
+    /// <summary>IQ2_XXS, two sub-blocks of 32 per iteration with their own accumulators (one 64-bit read of indices and signs each).</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotIq2XxsAvx2(byte* p, Q8Row x, int k)
     {
         fixed (ulong* grid = Iq2XxsGrid.Values)
         fixed (ulong* signs7 = s_iqSignBytes7)
         {
-            var acc = Vector256<float>.Zero;
+            var acc0 = Vector256<float>.Zero;
+            var acc1 = Vector256<float>.Zero;
             sbyte* q = x.Q;
             float* scales = x.LaneScales;
             for (int blk = 0; blk < k / 256; blk++, p += 66)
             {
                 float d = Quant.H(p) * 0.25f;
-                for (int ib32 = 0; ib32 < 8; ib32++, q += 32, scales += 8)
+                for (int ib32 = 0; ib32 < 8; ib32 += 2, q += 64, scales += 16)
                 {
-                    uint indices = Unsafe.ReadUnaligned<uint>(p + 2 + 8 * ib32);
-                    uint signsAndScale = Unsafe.ReadUnaligned<uint>(p + 6 + 8 * ib32);
-                    var magnitudes = Vector256.Create(grid[indices & 0xFF], grid[(indices >> 8) & 0xFF], grid[(indices >> 16) & 0xFF], grid[indices >> 24]).AsByte();
-                    var negate = Vector256.Create(signs7[signsAndScale & 127], signs7[(signsAndScale >> 7) & 127],
-                        signs7[(signsAndScale >> 14) & 127], signs7[(signsAndScale >> 21) & 127]).AsSByte();
-                    float scale = d * (0.5f + (signsAndScale >> 28)) * scales[0];
-                    acc = Accumulate(SignedSums(magnitudes, negate, q), Vector256.Create(scale), acc);
+                    ulong w0 = Unsafe.ReadUnaligned<ulong>(p + 2 + 8 * ib32);
+                    ulong w1 = Unsafe.ReadUnaligned<ulong>(p + 10 + 8 * ib32);
+                    uint i0 = (uint)w0;
+                    uint s0 = (uint)(w0 >> 32);
+                    uint i1 = (uint)w1;
+                    uint s1 = (uint)(w1 >> 32);
+                    var m0 = Entries(grid, i0 & 0xFF, (i0 >> 8) & 0xFF, (i0 >> 16) & 0xFF, i0 >> 24);
+                    var g0 = Entries(signs7, s0 & 127, (s0 >> 7) & 127, (s0 >> 14) & 127, (s0 >> 21) & 127).AsSByte();
+                    var m1 = Entries(grid, i1 & 0xFF, (i1 >> 8) & 0xFF, (i1 >> 16) & 0xFF, i1 >> 24);
+                    var g1 = Entries(signs7, s1 & 127, (s1 >> 7) & 127, (s1 >> 14) & 127, (s1 >> 21) & 127).AsSByte();
+                    acc0 = Accumulate(SignedSums(m0, g0, q), Vector256.Create(d * (0.5f + (s0 >> 28)) * scales[0]), acc0);
+                    acc1 = Accumulate(SignedSums(m1, g1, q + 32), Vector256.Create(d * (0.5f + (s1 >> 28)) * scales[8]), acc1);
                 }
             }
 
-            return Vector256.Sum(acc);
+            return Vector256.Sum(acc0 + acc1);
         }
     }
 
@@ -142,13 +154,15 @@ internal static unsafe partial class IntDot
         }
     }
 
+    /// <summary>IQ2_S, two sub-blocks of 32 per iteration with their own accumulators.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotIq2SAvx2(byte* p, Q8Row x, int k)
     {
         fixed (ulong* grid = Iq2SGrid.Values)
         fixed (ulong* masks = s_iqSignBytes)
         {
-            var acc = Vector256<float>.Zero;
+            var acc0 = Vector256<float>.Zero;
+            var acc1 = Vector256<float>.Zero;
             sbyte* q = x.Q;
             float* scales = x.LaneScales;
             for (int blk = 0; blk < k / 256; blk++, p += 82)
@@ -156,21 +170,24 @@ internal static unsafe partial class IntDot
                 float d = Quant.H(p) * 0.25f;
                 byte* qs = p + 2;
                 byte* signs = qs + 32;
-                for (int ib32 = 0; ib32 < 8; ib32++, q += 32, scales += 8, qs += 4, signs += 4)
+                for (int ib32 = 0; ib32 < 8; ib32 += 2, q += 64, scales += 16, qs += 8, signs += 8)
                 {
-                    int high = p[66 + ib32];
-                    var magnitudes = Vector256.Create(
-                        grid[qs[0] | ((high << 8) & 0x300)], grid[qs[1] | ((high << 6) & 0x300)],
-                        grid[qs[2] | ((high << 4) & 0x300)], grid[qs[3] | ((high << 2) & 0x300)]).AsByte();
-                    var negate = Vector256.Create(masks[signs[0]], masks[signs[1]], masks[signs[2]], masks[signs[3]]).AsSByte();
-                    int s = p[74 + ib32];
-                    float dx = d * scales[0];
-                    var scale = Vector256.Create(Vector128.Create(dx * (0.5f + (s & 0xF))), Vector128.Create(dx * (0.5f + (s >> 4))));
-                    acc = Accumulate(SignedSums(magnitudes, negate, q), scale, acc);
+                    uint h0 = p[66 + ib32];
+                    uint h1 = p[67 + ib32];
+                    var m0 = Entries(grid, qs[0] | ((h0 << 8) & 0x300), qs[1] | ((h0 << 6) & 0x300), qs[2] | ((h0 << 4) & 0x300), qs[3] | ((h0 << 2) & 0x300));
+                    var m1 = Entries(grid, qs[4] | ((h1 << 8) & 0x300), qs[5] | ((h1 << 6) & 0x300), qs[6] | ((h1 << 4) & 0x300), qs[7] | ((h1 << 2) & 0x300));
+                    var g0 = Entries(masks, signs[0], signs[1], signs[2], signs[3]).AsSByte();
+                    var g1 = Entries(masks, signs[4], signs[5], signs[6], signs[7]).AsSByte();
+                    int sc0 = p[74 + ib32];
+                    int sc1 = p[75 + ib32];
+                    float dx0 = d * scales[0];
+                    float dx1 = d * scales[8];
+                    acc0 = Accumulate(SignedSums(m0, g0, q), Vector256.Create(Vector128.Create(dx0 * (0.5f + (sc0 & 0xF))), Vector128.Create(dx0 * (0.5f + (sc0 >> 4)))), acc0);
+                    acc1 = Accumulate(SignedSums(m1, g1, q + 32), Vector256.Create(Vector128.Create(dx1 * (0.5f + (sc1 & 0xF))), Vector128.Create(dx1 * (0.5f + (sc1 >> 4)))), acc1);
                 }
             }
 
-            return Vector256.Sum(acc);
+            return Vector256.Sum(acc0 + acc1);
         }
     }
 

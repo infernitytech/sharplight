@@ -8273,3 +8273,19 @@ prefill varies by ±40 % between its three runs).
 | llama.cpp CUDA `-ncmoe 20` / `22` / `24` | | 36.0 / 40.4 / 32.5 | 137 / 176 / 107 |
 
 * CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting.
+
+### 59.6 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf     # or gpt-oss-120b/gpt-oss-120b-MXFP4.gguf
+for p in cuda vulkan; do SHARPLIGHT_LOAD_TIMING=1 $CLI $M --provider $p --cpu-offload --bench 512; done
+SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --bench 512    # no streamed prefill (more GPU room)
+SHARPLIGHT_STREAM_BUFFERS=2 $CLI $M --provider cuda --cpu-offload --bench 512             # two streaming memories
+SHARPLIGHT_SPLIT_EXPERTS=0 $CLI $M --provider cuda --cpu-offload --bench 512              # whole layers on the CPU (before)
+SHARPLIGHT_CPU_PROFILE=1 SHARPLIGHT_CUDA_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
+for n in 6 8; do $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe $n -fa 1 -p 512 -n 64 -r 3 -t 10; done
+HOME=<model mirror> SHARPLIGHT_TEST_LARGE=1 SHARPLIGHT_TEST_CUDA=1 SHARPLIGHT_TEST_CASE="Qwen3.5-122B-A10B UD-IQ2_XXS" \
+  dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*Generation_matches_reference_on_cuda"
+```
