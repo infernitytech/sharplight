@@ -18,21 +18,37 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     private readonly KvBlockCache? _kv;
     private readonly int[][] _blockTokens;   // tokens each physical block was computed from
     private readonly List<int>[] _snapshotContext;   // per snapshot row: the context its "state" belongs to (checked on restore)
+    private readonly KvWindowBlocks? _window;
+    private readonly int[] _windowRows = [];   // window-sized cache: the token each row of the window pool was written from (-1: never)
+    private readonly int _blocksPerSlot;
 
     public FakeBatchDecoder(int slots, int contextLength = 4096, int maxBatchTokens = 64, bool batches = true, bool canTruncate = true, int maxLogitsRows = 0,
-        int kvBlockSize = 0, int kvBlocks = 0, int stateSnapshots = 0)
+        int kvBlockSize = 0, int kvBlocks = 0, int stateSnapshots = 0, int kvWindow = 0, int windowMargin = 8)
     {
         KvBlockSize = kvBlockSize;
+        _blocksPerSlot = kvBlockSize > 0 ? (contextLength + kvBlockSize - 1) / kvBlockSize : 0;
+        if (kvBlockSize > 0 && kvWindow > 0)
+        {
+            int windowBlocks = KvWindowBlocks.PoolBlocks(slots, kvBlockSize, kvWindow, windowMargin, maxBatchTokens);
+            _windowRows = new int[windowBlocks * kvBlockSize];
+            Array.Fill(_windowRows, -1);
+            _window = new KvWindowBlocks(slots, kvBlockSize, windowBlocks, _blocksPerSlot, kvWindow, windowMargin, (from, to, count) =>
+            {
+                Array.Copy(_windowRows, from, _windowRows, to, count);
+                return true;
+            });
+        }
+
         _blockTokens = new int[kvBlocks][];
         _snapshotContext = [.. Enumerable.Range(0, stateSnapshots).Select(_ => new List<int>())];
         if (kvBlockSize > 0)
         {
-            _kv = new KvBlockCache(slots, kvBlockSize, kvBlocks, (contextLength + kvBlockSize - 1) / kvBlockSize, !canTruncate, stateSnapshots, CopyState,
+            _kv = new KvBlockCache(slots, kvBlockSize, kvBlocks, _blocksPerSlot, !canTruncate, stateSnapshots, CopyState,
                 (from, to, count) =>
                 {
                     KvRowCopies += count;
                     return true;
-                });
+                }, _window);
         }
 
         SlotCount = slots;
@@ -102,6 +118,10 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     public long KvBlocksEvicted => _kv?.Evictions ?? 0;
     public bool CachesKvBlocks => _kv?.CachesBlocks ?? false;
     public int KvStateSnapshots => _kv?.SnapshotCapacity ?? 0;
+    /// <summary>Window-sized cache: keys whose window-pool row was checked against the context (every step checks all its queries' windows).</summary>
+    public long WindowKeysChecked { get; private set; }
+    /// <summary>Window-sized cache: most window blocks held at once.</summary>
+    public int PeakWindowBlocksHeld { get; private set; }
     /// <summary>Most blocks held at once.</summary>
     public int PeakBlocksHeld { get; private set; }
     /// <summary>KV rows copied (copy-on-write of a block shared by forked slots).</summary>
@@ -356,10 +376,23 @@ public sealed class FakeBatchDecoder : IBatchDecoder
                 throw new InvalidOperationException($"KV blocks exhausted: need {need}, {_kv.Free} free");
             }
 
+            if (_window is not null)
+            {
+                for (int s = 0; s < SlotCount; s++)
+                {
+                    _kv.Trim(s, _ctx[s].Count);
+                }
+            }
+
             foreach (var i in inputs)
             {
                 _kv.Unshare(i.Slot, _ctx[i.Slot].Count);
                 _kv.Grow(i.Slot, _ctx[i.Slot].Count + i.Tokens.Length);
+            }
+
+            if (_window is not null)
+            {
+                PeakWindowBlocksHeld = Math.Max(PeakWindowBlocksHeld, _window.Total - _window.Free);
             }
 
             PeakBlocksHeld = Math.Max(PeakBlocksHeld, KvBlocksTotal - _kv.Free);
@@ -379,6 +412,7 @@ public sealed class FakeBatchDecoder : IBatchDecoder
 
             int rows = inputs[i].OutputRows;
             res[i] = _logits.AsMemory(r * VocabSize, rows * VocabSize);
+            CheckWindow(inputs[i].Slot, c, toks);
             for (int k = 0; k < toks.Length; k++)
             {
                 c.Add(toks[k]);
@@ -413,6 +447,41 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             }
         }
         return res;
+    }
+
+    /// <summary>
+    /// Window-sized cache: writes the input's rows into the window pool, then checks that every query of the input finds, through the window
+    /// block table, rows written from its context's tokens at every key position of its window (what the attention kernels would read).
+    /// </summary>
+    private void CheckWindow(int slot, List<int> context, int[] tokens)
+    {
+        if (_window is null)
+        {
+            return;
+        }
+
+        int bs = KvBlockSize;
+        int start = context.Count;
+        int Row(int position) => _window.Table[slot * _blocksPerSlot + position / bs] * bs + position % bs;
+        for (int k = 0; k < tokens.Length; k++)
+        {
+            _windowRows[Row(start + k)] = tokens[k];
+        }
+
+        for (int k = 0; k < tokens.Length; k++)
+        {
+            int query = start + k;
+            for (int key = Math.Max(0, query - _window.Window + 1); key <= query; key++)
+            {
+                int expected = key < start ? context[key] : tokens[key - start];
+                if (_windowRows[Row(key)] != expected)
+                {
+                    throw new InvalidOperationException($"Slot {slot}: the window row of position {key} (query {query}) holds token {_windowRows[Row(key)]}, not {expected}.");
+                }
+
+                WindowKeysChecked++;
+            }
+        }
     }
 
     public void Dispose()

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Models;
@@ -24,7 +25,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private static readonly SamplingRow?[] s_noSampling = [];
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _rows, _runs;
-    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput, _runEndRows, _snapshots;
+    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _windowTable, _commits, _hiddenInput, _runEndRows, _snapshots;
+    private readonly string[] _windowStates = [];      // window-sized KV caches (rows of the window pool)
     // Multimodal graph: embedding rows [T, width] and their row mask [T, 1]; the media weight mask [T, 1] of models with visual experts.
     private readonly Value? _embeddings, _embeddingMask, _mediaWeightMask;
     private readonly int _embeddingWidth;
@@ -83,6 +85,18 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     public int TextPositionAxes => Math.Min(PositionAxes, _textPositionAxes);
     /// <inheritdoc/>
     public bool CaptureHiddenStates { get; set; }
+
+    /// <summary>
+    /// Host work to do while a step runs on the device (<see cref="RunsAsynchronously"/>): invoked after the step is submitted and before
+    /// its results are read. It must not use this decoder.
+    /// </summary>
+    internal Action? WhileRunning { get; set; }
+
+    /// <summary>Whether a step's run returns before the device finishes it (<see cref="CompiledModel.RunsAsynchronously"/>).</summary>
+    internal bool RunsAsynchronously => _compiled.RunsAsynchronously;
+
+    /// <summary>Host-side phases of the most recent <see cref="Step(IReadOnlyList{SequenceInput}, IReadOnlyList{SamplingRow?}, Span{int}, Span{float})"/> (diagnostics).</summary>
+    internal StepPhaseTimes LastStepPhases { get; private set; }
     /// <summary>Width of the graph's <see cref="InputRole.HiddenStates"/> input (a draft head's), 0 when it has none.</summary>
     internal int HiddenInputSize => _hiddenInputSize;
     internal CompiledModel Compiled => _compiled;
@@ -110,6 +124,32 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <summary>Default rows per block of a paged cache (a multiple of the attention kernels' key tiles' granularity).</summary>
     public const int DefaultKvBlockSize = 16;
 
+    /// <summary>
+    /// Positions a window-sized cache keeps before a slot's window (<see cref="KvWindowBlocks.Margin"/>), so the slot can still be cut back
+    /// by this many rows (rejected drafts of speculative decoding).
+    /// </summary>
+    internal const int WindowKvMargin = 64;
+
+    /// <summary>The window-sized caches' keys per query (0: every cache has a row per position of the pool).</summary>
+    public int KvWindow => _pool?.Window?.Window ?? 0;
+
+    /// <summary>
+    /// Rows of each window-sized cache of a paged decoder compiled from <paramref name="graph"/> (<see cref="MultiSequence.WindowedCaches"/>):
+    /// enough window blocks for every slot (<see cref="KvWindowBlocks.PoolBlocks"/>), or 0 when the graph has no window-sized caches or they
+    /// would not be smaller than the pool of <paramref name="kvBlocks"/> blocks.
+    /// </summary>
+    internal static int WindowCacheRows(ComputeGraph graph, int slots, int maxBatchTokens, long kvBlocks, int blockSize = DefaultKvBlockSize)
+    {
+        var (window, caches) = MultiSequence.WindowedCaches(graph);
+        if (caches.Count == 0 || blockSize <= 0)
+        {
+            return 0;
+        }
+
+        long blocks = KvWindowBlocks.PoolBlocks(slots, blockSize, window, WindowKvMargin, maxBatchTokens);
+        return blocks < kvBlocks ? checked((int)blocks * blockSize) : 0;
+    }
+
     /// <param name="compiled">A model compiled from <see cref="MultiSequence.Transform(ComputeGraph, int, int, int)"/>'s graph with context length
     /// <paramref name="slots"/> · <paramref name="contextLength"/> and symbol bounds U = slots, R ≥ slots.</param>
     /// <param name="slots">Number of sequence slots.</param>
@@ -127,9 +167,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// Names of the paged KV caches when every one has a row per token (copied block by block to fork slots, <see cref="ForkKv"/>; empty
     /// for a model without attention); null when some cache is laid out otherwise (compressed), which leaves forking off.
     /// </param>
+    /// <param name="window">Keys per query of the window-sized caches (<see cref="MultiSequence.Result.Window"/>); 0 for none.</param>
+    /// <param name="windowStates">Names of the window-sized caches (<see cref="MultiSequence.Result.WindowStates"/>).</param>
     internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows, int kvBlockSize = 0, int kvBlocks = 0,
         int rollbackRows = 0, string? hiddenOutput = null, int textPositionAxes = WellKnown.DefaultTextPositionAxes, int snapshotRows = 0,
-        IReadOnlyList<string>? recurrentStates = null, IReadOnlyList<string>? kvStates = null)
+        IReadOnlyList<string>? recurrentStates = null, IReadOnlyList<string>? kvStates = null, int window = 0, IReadOnlyList<string>? windowStates = null)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -140,6 +182,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _outputRows = g.TryInput(InputRole.OutputRows);
         _samplingParams = g.TryInput(InputRole.SamplingParameters);
         _blockTable = g.TryInput(InputRole.KvBlockTable);
+        _windowTable = g.TryInput(InputRole.KvWindowBlockTable);
         _commits = g.TryInput(InputRole.SequenceCommits);
         _hiddenInput = g.TryInput(InputRole.HiddenStates);
         _runEndRows = g.TryInput(InputRole.SequenceRunEndRows);
@@ -154,8 +197,17 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _kvStates = [.. kvStates ?? []];
             bool snapshots = hasRecurrentState && snapshotRows > 0 && _recurrentStates.Length > 0 && compiled.CanCopyStateRows;
             bool fork = kvStates is not null && compiled.CanCopyStateRows && (!hasRecurrentState || _recurrentStates.Length > 0);
+            KvWindowBlocks? windowBlocks = null;
+            if (_windowTable is not null && window > 0)
+            {
+                _windowStates = [.. windowStates ?? []];
+                long rows = compiled.Graph.States.Select(v => v.State!).First(st => _windowStates.Contains(st.Name)).Shape[0].Fixed;
+                windowBlocks = new KvWindowBlocks(slots, kvBlockSize, (int)(rows / kvBlockSize), (int)_windowTable.Shape[1].Fixed, window, WindowKvMargin,
+                    compiled.CanCopyStateRows ? CopyWindowRows : null);
+            }
+
             _pool = new KvBlockCache(slots, kvBlockSize, kvBlocks, (int)_blockTable.Shape[1].Fixed, hasRecurrentState, snapshots ? snapshotRows : 0,
-                snapshots || (fork && hasRecurrentState) ? CopyStateRow : null, fork ? CopyKvRows : null);
+                snapshots || (fork && hasRecurrentState) ? CopyStateRow : null, fork ? CopyKvRows : null, windowBlocks);
         }
 
         _embeddings = g.TryInput(InputRole.Embeddings);
@@ -239,15 +291,20 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// Steps of up to this many rows compute every row bit-identically to a single-row step (<see cref="CompileOptions.RowInvariantRows"/>):
     /// speculative verification rows then reproduce the logits of plain decoding.
     /// </param>
+    /// <param name="windowKv">
+    /// Paged only: caches that only sliding-window attention reads keep just the blocks a slot's window reaches, in a pool of their own
+    /// (<see cref="WindowCacheRows"/>; <see cref="Runtime.DeviceFeatures.WindowKv"/>).
+    /// </param>
     internal static MultiSequenceDecoder Create(ComputeGraph graph, int slots, int contextLength, int maxBatchTokens, PlacementOptions placement, bool deviceSampling,
         long kvCacheTokens = 0, int rollbackRows = 0, string? hiddenOutput = null, int textPositionAxes = WellKnown.DefaultTextPositionAxes, int invariantRows = 0,
-        int stateSnapshots = 0)
+        int stateSnapshots = 0, bool windowKv = true)
     {
         int blockSize = kvCacheTokens > 0 ? DefaultKvBlockSize : 0;
         int blocksPerSlot = blockSize > 0 ? (contextLength + blockSize - 1) / blockSize : 0;
         int kvBlocks = blockSize > 0 ? (int)Math.Min(int.MaxValue / blockSize, (kvCacheTokens + blockSize - 1) / blockSize) : 0;
         int spare = blockSize > 0 ? Math.Max(0, stateSnapshots) : 0;
-        var ms = MultiSequence.Transform(graph, slots, blockSize, blocksPerSlot, rollbackRows, spare);
+        int windowRows = blockSize > 0 && windowKv ? WindowCacheRows(graph, slots, maxBatchTokens, kvBlocks, blockSize) : 0;
+        var ms = MultiSequence.Transform(graph, slots, blockSize, blocksPerSlot, rollbackRows, spare, windowRows);
         var decoderGraph = deviceSampling && SamplingHead.CanAppend(ms.Graph) ? SamplingHead.Append(ms.Graph) : ms.Graph;
         var c = placement.Compile;
         int maxLogitsRows = (int)Math.Min(maxBatchTokens, Math.Max(slots, c.SymbolBounds.GetValueOrDefault("R", 1)));
@@ -270,10 +327,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             SharedWeights = c.SharedWeights,
         }));
         var recurrentStates = ms.States.Where(p => !MultiSequence.IsKvState(p.Key)).Select(p => p.Value.Name).ToList();
-        var kv = ms.States.Where(p => MultiSequence.IsKvState(p.Key)).ToList();
+        var kv = ms.States.Where(p => MultiSequence.IsKvState(p.Key) && !ms.WindowStates.Contains(p.Value.Name)).ToList();
         var kvStates = kv.All(p => p.Key.Compression <= 1) ? kv.Select(p => p.Value.Name).ToList() : null;
         return new MultiSequenceDecoder(compiled, slots, contextLength, recurrentStates.Count > 0, maxLogitsRows, blockSize, kvBlocks, ms.RollbackRows, hiddenOutput,
-            textPositionAxes, spare, recurrentStates, kvStates);
+            textPositionAxes, spare, recurrentStates, kvStates, ms.Window, ms.WindowStates);
     }
 
     /// <inheritdoc/>
@@ -372,8 +429,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             return 0;   // the source's recurrent state is not the state after the shared blocks
         }
 
-        int blocks = Math.Min(tokens, _length[source]) / KvBlockSize;
-        _pool.Share(slot, source, blocks);
+        int blocks = _pool.Share(slot, source, Math.Min(tokens, _length[source]) / KvBlockSize);
         _length[slot] = blocks * KvBlockSize;
         return _length[slot];
     }
@@ -511,8 +567,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         return SlotCount;
     }
 
-    /// <summary>Copies <paramref name="count"/> token rows of every paged KV cache (copy-on-write of a shared block).</summary>
+    /// <summary>Copies <paramref name="count"/> token rows of every paged KV cache with a row per position (copy-on-write of a shared block).</summary>
     private bool CopyKvRows(int from, int to, int count) => _compiled.CopyStateRows(_kvStates, from, to, count);
+
+    /// <summary>Copies <paramref name="count"/> rows of every window-sized KV cache (copy-on-write of a shared window block).</summary>
+    private bool CopyWindowRows(int from, int to, int count) => _compiled.CopyStateRows(_windowStates, from, to, count);
 
     /// <inheritdoc/>
     public bool ForkKv(int slot, int source)
@@ -583,6 +642,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             throw new ArgumentException("More inputs than slots.");
         }
 
+        long t0 = Stopwatch.GetTimestamp();
         var (T, R) = PackInputs(inputs);
         if (_pool is not null)
         {
@@ -601,6 +661,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             throw new ArgumentException($"The step samples {R} rows on the device; the token and log-probability spans are shorter.");
         }
 
+        long t1 = Stopwatch.GetTimestamp();
         _compiled.SetInput(_tokens, _tokBuf.AsSpan(0, T));
         if (_positions is not null)
         {
@@ -649,7 +710,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _run.SkipOutputs.Add(_hiddenOutput);
         }
 
+        long t2 = Stopwatch.GetTimestamp();
         _compiled.Run(_run);
+        long t3 = Stopwatch.GetTimestamp();
+        WhileRunning?.Invoke();
+        long t4 = Stopwatch.GetTimestamp();
         for (int u = 0; u < count; u++)
         {
             var input = inputs[u];
@@ -694,6 +759,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
             r += rows;
         }
+        LastStepPhases = new StepPhaseTimes(Stopwatch.GetElapsedTime(t0, t1).TotalMilliseconds, Stopwatch.GetElapsedTime(t1, t2).TotalMilliseconds,
+            Stopwatch.GetElapsedTime(t2, t3).TotalMilliseconds, Stopwatch.GetElapsedTime(t4).TotalMilliseconds, _compiled.LastRunTimings,
+            Stopwatch.GetElapsedTime(t3, t4).TotalMilliseconds);
         return new ArraySegment<Memory<float>>(_results, 0, count);
     }
 
@@ -959,6 +1027,15 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     {
         var pool = _pool!;
         int count = inputs.Count;
+        if (pool.Window is not null)
+        {
+            // Window blocks the slots' next queries no longer reach go back first (published ones stay cached), then the step takes new ones.
+            for (int s = 0; s < SlotCount; s++)
+            {
+                pool.Trim(s, _length[s]);
+            }
+        }
+
         int need = 0;
         for (int u = 0; u < count; u++)
         {
@@ -985,6 +1062,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         {
             _compiled.SetInput<int>(_blockTable!, pool.Table);
             pool.TableDirty = false;
+        }
+
+        if (pool.Window is { TableDirty: true } window)
+        {
+            _compiled.SetInput<int>(_windowTable!, window.Table);
+            window.TableDirty = false;
         }
     }
 

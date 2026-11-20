@@ -331,8 +331,9 @@ public sealed class LlmModel : IDisposable
         int snapshots = paged > 0 ? stateSnapshots ?? DefaultStateSnapshots(slots, paged) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged,
             rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0,
-            stateSnapshots: snapshots);
-        string kv = paged > 0 ? $", paged KV cache of {paged} tokens{(dec.KvStateSnapshots > 0 ? $" with {dec.KvStateSnapshots} recurrent-state snapshots" : "")}" : ", contiguous KV cache";
+            stateSnapshots: snapshots, windowKv: !IsWindowKvDisabled);
+        string window = dec.KvWindow > 0 ? $", window-sized caches for the {dec.KvWindow}-key window layers" : "";
+        string kv = paged > 0 ? $", paged KV cache of {paged} tokens{window}{(dec.KvStateSnapshots > 0 ? $" with {dec.KvStateSnapshots} recurrent-state snapshots" : "")}" : ", contiguous KV cache";
         _options.Log?.Invoke($"Compiled '{graphName}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(graphName);
         return dec;
@@ -378,7 +379,10 @@ public sealed class LlmModel : IDisposable
     public long RecurrentStateBytesPerSlot => Definition.Graph(WellKnown.DecodeGraph).States.Select(v => v.State!)
         .Where(s => !Graph.MultiSequence.IsKvState(s) && s.Shape.IsStatic).Sum(s => s.Type.ByteSize(s.Shape.Elements()));
 
-    /// <summary>Device bytes one token of a paged KV cache takes over all layers (from the graph's cache states; 0 without KV caches).</summary>
+    /// <summary>
+    /// Device bytes one token of a paged KV cache takes over all layers (from the graph's cache states; 0 without KV caches). Window-sized
+    /// caches (<see cref="DeviceFeatures.WindowKv"/>) hold a fixed number of rows and do not count.
+    /// </summary>
     public long KvBytesPerToken
     {
         get
@@ -386,14 +390,20 @@ public sealed class LlmModel : IDisposable
             var graph = Definition.Graph(WellKnown.DecodeGraph);
             var options = new CompileOptions { MaxTokens = 1, ContextLength = 1, SymbolBounds = new Dictionary<string, long> { ["R"] = 1 } };
             long rows = 64 * Serving.MultiSequenceDecoder.DefaultKvBlockSize;
-            long large = PlacementPlanner.Estimate(graph, options, 2, 2 * rows).StateBytes;
-            long small = PlacementPlanner.Estimate(graph, options, 2, rows).StateBytes;
+            // Window-sized caches (when on) take a fixed number of rows, so they add nothing per token.
+            long window = IsWindowKvDisabled ? 0 : rows;
+            long large = PlacementPlanner.Estimate(graph, options, 2, 2 * rows, window).StateBytes;
+            long small = PlacementPlanner.Estimate(graph, options, 2, rows, window).StateBytes;
             return Math.Max(0, (large - small) / rows);
         }
     }
 
     private bool IsPagedKvDisabled => _options.DisabledFeatures.Contains(DeviceFeatures.PagedKv, StringComparer.OrdinalIgnoreCase)
         || DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.PagedKv);
+
+    /// <summary>Whether window-sized caches (<see cref="DeviceFeatures.WindowKv"/>) are disabled for the load or the process.</summary>
+    private bool IsWindowKvDisabled => _options.DisabledFeatures.Contains(DeviceFeatures.WindowKv, StringComparer.OrdinalIgnoreCase)
+        || DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.WindowKv);
 
     /// <summary>
     /// Whether the paged forms of the decode graph's cache ops run on the configured devices (<see cref="DeviceFeatures.PagedKv"/>): every
@@ -666,12 +676,15 @@ public sealed class LlmModel : IDisposable
         kvCacheTokens ??= DefaultKvCacheTokens(slots, ctx);
         long paged = multi && kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
         long rows = maxLogitsRows ?? (long)slots * (Math.Max(0, draftTokens) + 1);
+        long windowRows = paged > 0 && !IsWindowKvDisabled
+            ? Serving.MultiSequenceDecoder.WindowCacheRows(graph, slots, BatchTokens, paged / Serving.MultiSequenceDecoder.DefaultKvBlockSize)
+            : 0;
         var fp = PlacementPlanner.Estimate(graph, new CompileOptions
         {
             MaxTokens = BatchTokens,
             ContextLength = ctx,
             SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? Math.Min(rows, BatchTokens) : BatchTokens },
-        }, multi ? slots : 1, paged);
+        }, multi ? slots : 1, paged, windowRows);
         if (paged > 0)
         {
             fp = fp with { StateBytes = fp.StateBytes + RecurrentStateBytesPerSlot * (stateSnapshots ?? DefaultStateSnapshots(slots, paged)) };

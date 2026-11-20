@@ -453,6 +453,35 @@ Qwen3.5-0.8B and GLM-OCR, CPU and Vulkan; GLM-OCR's MTP head speculating on imag
 `AudioLanguageBatchedTests` (Speech: Qwen3-ASR prompts with audio rows, batched, equal the recognizer's session path),
 `MultimodalEngineTests` (Serving: layout, positions, encoder stage, cache hits, preemption and validation on the fake decoder).
 
+### 2.8 Window-sized caches for sliding-window layers (implemented, the default)
+
+Models that alternate full and sliding-window attention (gpt-oss: 12 of 24 layers attend to the last 128 keys; Gemma 2-4, Cohere2,
+Granite SWA, Mistral-style windows) do not need every position in the window layers' caches. With the paged cache,
+`MultiSequence.WindowedCaches` finds the caches only sliding-window attention reads (every `CachedAttention` of the cache causal, with the
+same `window`, without chunks or a selection) and `MultiSequence.Transform(..., windowRows)` gives them a pool of their own, addressed
+through a second block table (`InputRole.KvWindowBlockTable`, input `kv_window_block_table`). The kernels are the paged forms already
+used (only the table and the cache's row count differ), so CPU, Vulkan, CUDA and Metal run them unchanged.
+
+- `KvWindowBlocks` (inside `KvBlockCache`) keeps, per slot, the blocks a query at the slot's next position reads (the last `window`
+  positions) plus a margin of 64 positions (`MultiSequenceDecoder.WindowKvMargin`) so rejected drafts can be cut back. A step first trims
+  every slot (after the engine has published the blocks the previous step filled), then grows the slots it feeds. Entries of blocks a
+  slot no longer holds name block 0 (the kernels never read them: they lie before every query's window).
+- Prefix caching: a full window block is published under the hash of the main block at its index, so when it leaves the window it stays
+  cached (evictable, least recently released first) like main blocks. `Find` / `Attach` take a run of cached blocks only up to a boundary
+  whose window blocks (the last `window` positions before it) are held by the slot or cached; the window blocks before them are not
+  attached.
+- Forks share the held window blocks (copy-on-write of the partly filled one, through the window caches' own row copies); followers share
+  a leader's prefix only as far as the leader still holds its window; `Truncate` to a length whose window was already trimmed starts the
+  slot over (length 0); preemption recomputes as before.
+- Size: `KvWindowBlocks.PoolBlocks` = slots × (ceil((window + margin) / block) + 3) + one step's rows, so the window pool never runs out
+  and admission, preemption and the block gauges stay those of the main pool. The feature is used when that is smaller than the main
+  pool (`MultiSequenceDecoder.WindowCacheRows`). `EstimateFootprint` and `KvBytesPerToken` count the window caches at that fixed size, so
+  hosted models fit more context in the same memory.
+- `DeviceFeatures.WindowKv` = `window_kv` (`LlmLoadOptions.DisabledFeatures`, `SHARPLIGHT_DISABLE_FEATURES=window_kv`) turns it off.
+- Tests: `WindowKvCacheTests` (Serving.Tests: the fake decoder checks every query's window rows through the window table, with prefix
+  hits, forks, preemption and drafts) and `WindowKvParityTests` (Families.Tests: tiny Cohere2 / Gemma 4 MoE with 8-key windows decode
+  token-identically with and without the feature on CPU, Vulkan and CUDA). Measured in benchmarks.md section 60.
+
 ## 3. Steps
 
 1. Done: quantised KV in the contiguous layout (independent of paging): Q8_0 and Q4_0 `CacheWrite` + `CachedAttention` for

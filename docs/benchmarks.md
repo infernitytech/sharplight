@@ -8325,4 +8325,191 @@ SHARPLIGHT_CPU_PROFILE=1 SHARPLIGHT_CUDA_PROFILE=1 $CLI $M --provider cuda --cpu
 for n in 6 8; do $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe $n -fa 1 -p 512 -n 64 -r 3 -t 10; done
 HOME=<model mirror> SHARPLIGHT_TEST_LARGE=1 SHARPLIGHT_TEST_CUDA=1 SHARPLIGHT_TEST_CASE="Qwen3.5-122B-A10B UD-IQ2_XXS" \
   dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*Generation_matches_reference_on_cuda"
+
+## 60. Serving round 1: a serving step profile, asynchronous executions, window-sized KV caches (2026-11-20)
+
+Branch `perf/serving-r1` (base `develop` at `f3d279f0`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell), shared with other agents:
+every timed run held the verify lock and `QUIET_GPU=1` repeated rounds during which another process computed on the GPU. vLLM 0.33.0
+(same venv as §56-58), rerun in this session. Raw output in [`bench/results/s60/`](../bench/results/s60).
+
+### 60.1 Where a 64-stream serving round goes
+
+`SHARPLIGHT_STEP_PROFILE=<file>` (new, `StepProfiler`) writes one CSV line per engine step: rows, the scheduler thread's phases (admission,
+scheduling, the decoder's packing / upload / run / read-back, result processing, GC pauses) and the device time of the step
+(`ICompiledSegment.LastRunTimings`, new: GPU ms, host record / submit / wait ms, recorded or replayed). The gap between two steps' starts minus
+the device time is the time the GPU waited for the host. `bench/s60_steps.py` summarizes a file. gpt-oss-20b, `bench/s16_serve.sh` at
+64 streams (64 slots of 512 tokens, ~250-token prompts, 128 output tokens), one round (192 requests), excluding the gaps between
+rounds. "develop-equivalent" is this branch with `SHARPLIGHT_ASYNC_EMIT=0`: the CUDA execution returns at submission, but the decoder
+reads its results at once, so the host waits exactly where `develop` waited.
+
+| | steps | rows (decode + prompt) | period ms | GPU ms | GPU idle ms | host phases while the GPU waits (ms) |
+|---|---:|---|---:|---:|---:|---|
+| **develop-equivalent**, decode-only steps | 489 | 48 + 0 | 16.71 | 15.59 | 1.12 (p50 at 64 rows 0.19) | schedule 0.01, pack 0.05, upload 0.02, submit 0.14, process (sampling, stop checks, detokenization, streaming) 0.15 |
+| mixed (prompt-wave) steps | 35 | 40 + 1400 | 109.6 | 96.3 | 13.2 | admission 0.93, schedule 0.35, pack 1.05, record 2.46 + launch 1.88 (a new row count: no graph), process 1.32 |
+| whole round | 524 | | 22.91 | 20.98 | 1.93 (8.4 %) | |
+| **this branch**, decode-only steps | 490 | 48 + 0 | 16.16 | 15.83 | 0.32 (p50 at 64 rows 0.14) | process work runs during the next step (overlap 0.03 ms) |
+| mixed steps | 34 | 41 + 1441 | 105.3 | 99.5 | 5.9 | (record not yet overlapped in this run, see 60.2) |
+| whole round | 524 | | 21.94 | 21.26 | 0.68 (3.1 %) | |
+
+* The round is GPU-bound: the GPU is busy 91.6 % (develop-equivalent) and 96.9 % (this branch) of the time. Prompts arrive in waves (the
+  closed-loop clients finish together), so prompt rows come as ~8 steps of up to 2048 rows per wave, not as a few rows in every step.
+* Device time per step: a decode-only step of 64 rows costs 18.7 ms GPU (p50 over 1,056 serving steps), of 16 rows 11.9 ms. Prompt rows
+  add 57.8 µs each (least-squares fit over the steps with ≥ 48 decode rows: 19.6 ms + 57.8 µs per prompt row). vLLM's inter-token latency
+  p50 at 64 streams is 12.9-13.3 ms against our 18.7-19.0, so vLLM's decode steps at ~54 running sequences take ~13 ms: **the serving gap
+  is device time of the decode steps and of the prompt rows, not host time** (median GPU idle between replayed decode steps 0.14 ms,
+  graph launch to first kernel included).
+* GC: 37-40 ms of pauses in a whole Qwen3-8B-FP8 16 + 64-stream run (1,172 steps, no generation-2 collection, at most 11 ms; `gc_pause_ms`
+  column), and 40 ms in a 6-second 64-stream run of a tiny model on the CPU (the same HTTP / SSE load per token). A handful of 50-80 ms stalls in the GPU runs (read-back far longer than the
+  step's GPU time, 73 of ~4,000 steps, ~5 % of a 16-stream round) coincide with neither GC nor recording; they look like the scheduler
+  thread being descheduled on the shared host (model-feed build).
+* Per-token streaming work (detokenization, stop strings, the channel write that wakes the SSE writer) is 0.1-0.15 ms per step at 64
+  streams; the JSON per chunk is written on the request's thread, not the scheduler's.
+
+Mixed-step kernels (`BatchBench --mixed`, CUDA profile, ms per step; 64 decode rows at depth 256 + one 107-row prompt against 64 rows alone):
+
+| | 64 rows | 64 + 107 rows | |
+|---|---:|---:|---|
+| whole step (GPU, min of 10) | 18.41 | 25.07 | +62 µs per prompt row |
+| expert gate / up | 9.04 (skinny `gemm_sk`) | 10.38 (`gemm_moe_native`) | the grouped MXFP4 GEMM leaves the skinny form above 64 rows; at ~21 rows per expert it is not at the read limit |
+| expert down | 3.64 (skinny) | 5.79 (native) | |
+| q / k / v / o (`gemm_cm2` split-K) | 2.44 | 3.64 | |
+| decode attention | 1.28 | 1.81 | |
+| prefill attention (`attn_prefill_native`) | | 0.56 | |
+
+So the prompt-row cost of a mixed step is mostly the expert GEMMs (3.5 of 6.7 ms), which belong to the kernel work of perf/llm-r15
+(GEMM kernels and their selection were out of scope for this round).
+
+### 60.2 Asynchronous executions and step preparation
+
+* `ICompiledSegment.ExecutesAsynchronously` (new) / `CompiledModel.RunsAsynchronously`: the CUDA and Vulkan segments return from `Execute`
+  once the work is submitted. A segment waits for its own execution before it reads an output, takes an input, copies state, resets or
+  runs again; on CUDA also before another segment of the device runs (`CudaDevice.Pending`: forwarded inputs and borrowed states).
+  Profiled executions, data-dependent counts and submission budgets keep waiting at once. `LastGpuMs` / `LastRunTimings` wait first.
+* The engine uses the window between submission and read-back (`MultiSequenceDecoder.WhileRunning`): tokens whose text cannot end the
+  sequence (no stop strings, no log-probabilities, no constraint) are committed at once (stop tokens, lengths, the next input) and
+  detokenized and streamed while the next step runs (`InferenceEngine.FlushEmits`; a sequence's deferred tokens are flushed before it
+  completes). `SHARPLIGHT_ASYNC_EMIT=0` turns it off. Provider-neutral: a provider whose executions wait (CPU, Metal) streams at once.
+* A shape's first run (mixed steps of a new row count) is launched launch by launch while it is recorded, so the GPU starts after the
+  first launch instead of after ~700 launches have been resolved, and the CUDA recorder no longer runs the Vulkan hazard tracking
+  (one stream needs no barriers). Mixed-step GPU idle 5.9 → 1.7 ms (record 3.1 → 1.0 ms, now overlapped with the GPU).
+* What was not built: scheduling step N+1 before step N's tokens are known (vLLM's async scheduling, which feeds sampled tokens to the
+  next step on the device). With the GPU busy 97 % of a round after the changes above, it could gain at most the remaining ~3 %; the
+  serving gap is device time (60.1).
+
+gpt-oss-20b serving (two rounds each, mean; aggregate output tok/s / TTFT p50 ms / mean inter-token latency ms; "before" =
+`SHARPLIGHT_ASYNC_EMIT=0 SHARPLIGHT_DISABLE_FEATURES=window_kv` on the same build, run right after "after"):
+
+| streams | before | **after** | vLLM | CUDA / vLLM before → after |
+|---:|---|---|---|---:|
+| 16 | 1138 / 110 / 13.1 | **1141 / 111 / 13.1** | 1424 / 183 / 9.9 | 0.80 → **0.80** |
+| 64 | 2381 / 255 / 23.8 | **2395 / 266 / 23.6** | 3154 / 413 / 17.0 | 0.75 → **0.76** |
+
+Qwen3-8B-FP8 (no window layers), `SHARPLIGHT_ASYNC_EMIT=0` / `=1` alternated twice, one round each, mean (vLLM: §58.4, same machine):
+
+| streams | emission at once | **overlapped** | vLLM | CUDA / vLLM (§58.4 → now) |
+|---:|---|---|---|---:|
+| 16 | 988 / 115 / 15.3 | **991 / 119 / 15.2** | 1115 / 168 / 12.9 | 0.87 → **0.89** |
+| 64 | 2440 / 276 / 23.5 | **2447 / 287 / 23.4** | 2691 / 400 / 20.2 | 0.87 → **0.91** |
+
+(A first Qwen pair in a busier slot measured 730 / 2206 against 964 / 2358 tok/s with a 640-tok/s round, rounds 22 % apart; the
+alternated pairs above agree within 0.5 % and replace it. Both variants include the asynchronous executions and the overlapped first
+recordings; against §58.4's 974 / 2345 on `develop` they are +1.7 % / +4.4 %.)
+
+The earlier single-round pair of 60.1 measured 2330 → 2410 tok/s (+3.4 %); across the session our rounds spread by ±2 %, so the gain
+of the host-side work is 0.5-3 %, as its share of the round predicts.
+
+### 60.3 Window-sized KV caches
+
+gpt-oss-20b alternates full layers and layers that attend to the last 128 keys; until now both kept a row per position of the paged
+pool. Window-sized caches ([kv-cache.md 2.8](kv-cache.md#28-window-sized-caches-for-sliding-window-layers-implemented-the-default),
+`window_kv`, on by default) keep only the blocks each slot's window reaches, in a pool of their own with a second block table; the
+attention and cache-write kernels are the paged forms already used, so CPU, Vulkan, CUDA and Metal run them unchanged. Prefix caching
+(window blocks stay cached under the main blocks' hashes), forks, follower prefixes, truncation by rejected drafts (64-position margin),
+preemption and attention sinks (gpt-oss's are a per-head logit, not cached positions) work as before.
+
+| gpt-oss-20b KV cache (f16) | full layers | window layers | total |
+|---|---:|---:|---:|
+| 4 streams x 131,584 positions, before | 12.05 GiB | 12.05 GiB | 24.09 GiB (+ 12.8 GiB weights: does not fit in 32 GB) |
+| **after** | 12.05 GiB | **0.07 GiB** (3,008 rows) | **12.12 GiB** (fits) |
+| 64 slots x 512 (serving), before | 0.75 GiB | 0.75 GiB | 1.50 GiB |
+| **after** | 0.75 GiB | 0.40 GiB (17,408 rows) | 1.15 GiB |
+
+The pool is sized so it never runs out (slots x (window + margin + 3 blocks) + one step's rows), so its share shrinks as contexts
+grow; `EstimateFootprint` / `KvBytesPerToken` count it at that size, so hosted models fit more context, or more slots, in the same memory.
+
+Decode at long depth (`BatchBench --slots 4 --ctx D+512 --depth D --batch 2048`, GPU ms per step, tok/s; vLLM as §58.8):
+
+| depth | 1 stream CUDA / vLLM | 2 streams | **4 streams CUDA / vLLM** |
+|---:|---|---|---|
+| 32,768 | 6.43 ms: 155.5 / 150.7 tok/s (1.03) | 8.54 ms: 234 tok/s | 13.29 ms: 301 / 310.8 tok/s (0.97) |
+| ~128K | 10.04 ms: 99.6 / 107.3 (0.93) | 15.63 ms: 128 tok/s | **26.88 ms: 148.8 / 174.9 tok/s (0.85)**, did not fit before |
+
+Trade-off with prefix caching. The window pool is sized for the running slots, so window blocks that left a window are evicted much
+sooner than main blocks, and a cached prefix can only be attached while the window blocks at its end are still cached. Vulkan, gpt-oss-20b,
+64 streams (one round each, two alternated pairs; "off" = `SHARPLIGHT_DISABLE_FEATURES=window_kv SHARPLIGHT_ASYNC_EMIT=0`): the load
+generator repeats the prompts of the 16-stream round (same seeds), and with full-length window caches 16 of 192 prompts attached a
+cached prefix (3,840 of 48,003 prompt tokens), with window-sized caches none:
+
+| Vulkan, gpt-oss-20b | 16 streams | 64 streams | cached prompt tokens (64) |
+|---|---|---|---:|
+| `window_kv` off | 1234 / 138 / 11.8 | 2311 / 365 / 24.3 | 3,840 |
+| **on** (default) | **1241 / 139 / 11.7** | **2255 / 326 / 24.6** (-2.4 %) | 0 |
+
+Conversation turns that return to their slot keep their window blocks (the slot holds them), and recently finished prompts' blocks are the
+last evicted, so chat-style reuse is unaffected; reuse of prompts seen hundreds of requests earlier is not. The remedy is vLLM's layout,
+one block pool for both groups, so window blocks compete for eviction with full blocks instead of with each other (not built: it changes the
+pool accounting of admission and preemption). `window_kv` can be disabled where long-lived shared prefixes matter more than memory.
+
+Correctness: the window layers read the same K / V values through another table, so outputs are bit-identical:
+`WindowKvParityTests` (tiny random Cohere2 MoE GGUF / HF and Gemma 4 MoE, 8-key windows, 40-token outputs after prompts of 45-70 tokens,
+sequential and concurrent prompts with prefix hits, forks of three samples) is token-identical with and without `window_kv` on CPU,
+Vulkan and CUDA; `WindowKvCacheTests` checks every query's window rows through the window table in the engine's paged scenarios
+(prefix hits, forks, preemption, speculative drafts, a small shared pool).
+
+### 60.4 Mixed-step budget and chunk size
+
+gpt-oss-20b, 64 streams, one round each (aggregate tok/s / TTFT p50 ms / mean ITL ms); defaults: step budget 32 rows per running
+sequence within 768-2048 rows (§50), chunks of the whole budget. vLLM 0.33.0 runs with its default chunked prefill and
+`max_num_batched_tokens=8192`.
+
+| setting | tok/s | TTFT p50 | ITL |
+|---|---:|---:|---:|
+| defaults (60.2, mean of two rounds) | 2395 | 266 | 23.6 |
+| `--step-tokens 1024` | 2324 (-3 %) | **182** | 24.6 |
+| `--min-step-tokens 0` (always the full budget) | 2439 (+1.8 %) | 281 | 23.2 |
+| `--prefill-chunk 512` | 2430 (+1.5 %) | 262 | 23.3 |
+| `--step-tokens 4096` (capped at the 2048 compiled rows) | 2399 | 264 | 23.4 |
+
+Prompt rows cost the same per row at every step size (57-62 µs from 107 to 2048 rows, 60.1), so the budget only moves time between TTFT
+and inter-token latency: smaller steps stream first tokens sooner at a small throughput cost, and no setting moves throughput beyond the
+±2 % spread of rounds. The defaults stay; our TTFT p50 is already below vLLM's (266 against 413 ms at 64 streams, 111 against 183 at 16).
+
+### 60.5 Tests
+
+GPU 0, this branch (`develop` unchanged since `f3d279f0`):
+
+| suite | result |
+|---|---|
+| Sharplight.Serving.Tests (incl. the new `WindowKvCacheTests`, 10) | 384 / 1 failed / 13 skipped: `MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached` (an admission-timing assertion on the fake decoder; passes 3 / 3 alone) |
+| Sharplight.Families.Tests `WindowKvParityTests` (new), `PrefixCacheParityTests`, `StepStateSnapshotTests`, `SpeculativeDecodingTests` | CPU + Vulkan: 99 / 0 failed / 17 skipped; CPU + CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`): 99 / 0 / 17 |
+| Sharplight.Vulkan.Tests on Vulkan (one process per class, all 63 classes) | 1630 / 0 failed / 26 skipped |
+| Sharplight.Vulkan.Tests on CUDA: PagedAttention, FullAttention, BatchMatMul, Fusion, SparseAttention, CompressedKv | 152 / 0 failed |
+| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped (cuBLASLt not installed) |
+| Sharplight.Core.Tests | 1660 / 0 failed / 331 skipped |
+
+### 60.6 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+# serving profile (one CSV line per step) and its summary
+SHARPLIGHT_STEP_PROFILE=steps.csv QUIET_GPU=1 ROUNDS=1 SLOTS=64 bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "64" --provider cuda
+python3 bench/s60_steps.py steps.csv
+# before / after (same build)
+SHARPLIGHT_ASYNC_EMIT=0 SHARPLIGHT_DISABLE_FEATURES=window_kv QUIET_GPU=1 ROUNDS=2 SLOTS=64 bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 bench/s16_serve.sh sharplight gpt-oss-20b-hf ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 SLOTS=64 VLLM_VENV=<venv with vLLM 0.33.0> bench/s16_serve.sh vllm gpt-oss-20b ~/models/hf/gpt-oss-20b "16 64"
+# mixed-step kernels; four 128K streams
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 66 --ctx 512 --depth 256 --mixed 64+0,64+107x1,64+448x1 --modes greedy --reps 10 --profile 1
+bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 4 --ctx 131584 --depth 131072 --batch 2048 --sizes 1,2,4 --modes greedy --reps 5
+# budget sweep: add --step-tokens 1024 | --min-step-tokens 0 | --prefill-chunk 512 to the serve line
 ```

@@ -459,6 +459,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// </summary>
     internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<Models.StateDefinition, Allocation>> SharedStates { get; } = new();
 
+    /// <summary>
+    /// The segment that last submitted work using buffers shared with other segments (activation arenas, streamed weights), until a later
+    /// such segment waits for it: executions are asynchronous and the queue does not order separate submissions.
+    /// </summary>
+    internal VulkanSegment? PendingShared { get; set; }
+
     private WeightUploader? _streamUploader;
     private long _streamLargestRow;
     private VkCommandPool _streamPool;
