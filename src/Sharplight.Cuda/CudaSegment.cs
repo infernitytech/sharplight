@@ -342,7 +342,9 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             recorded = true;
             CheckWithinCompiledBounds(bindings);
             EvictOldestRecording();
-            recording = Record(_program.Launches, bindings);
+            // A shape's first run is launched launch by launch anyway: each launch goes out as soon as it is resolved, so the device
+            // starts while the rest is still being recorded (mixed serving steps of a new row count record ~700 launches).
+            recording = Record(_program.Launches, bindings, launch: !Profile);
             _recorded[key] = recording;
             _recordOrder.Enqueue(key);
             if (DiagnosticSwitches.Trace)
@@ -364,7 +366,19 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             return;
         }
 
-        RunStep(recording, key);
+        if (recorded)
+        {
+            _graphs.TryGetValue(key, out var first);
+            _graphs[key] = first with { Runs = first.Runs + 1 };
+            CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
+            _pendingTimed = true;
+            _pending = "the launches of segment " + Segment.Index;
+        }
+        else
+        {
+            RunStep(recording, key);
+        }
+
         _pendingTimings = new SegmentRunTimings(0, recordMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds - recordMs, 0, recorded, _replayed);
         _dev.Pending = this;
         if (_program.ProducedSymbols.Count > 0 || DiagnosticSwitches.SyncEachLaunch)
@@ -640,11 +654,26 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     }
 
     /// <summary>Resolves the launches for <paramref name="bindings"/>: variant, kernel, packed arguments and grid, in program order.</summary>
-    private CudaRecordedLaunch[] Record(IReadOnlyList<KernelLaunch> launches, Bindings bindings)
+    /// <param name="launches">The program's launches.</param>
+    /// <param name="bindings">Symbol values.</param>
+    /// <param name="launch">Also launch each recorded launch at once, after the start event (the caller records the end event).</param>
+    private CudaRecordedLaunch[] Record(IReadOnlyList<KernelLaunch> launches, Bindings bindings, bool launch = false)
     {
         var recorded = new List<CudaRecordedLaunch>(launches.Count);
-        foreach (var (launch, _, variant, _) in HazardTracker.Order(launches, bindings, reorder: false))
+        if (launch)
         {
+            CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
+            _previousOneWave = false;
+        }
+
+        // Program order; one stream needs no barriers, so the hazard tracking of the Vulkan recorder is skipped.
+        foreach (var item in launches)
+        {
+            if (item.Select(bindings) is not { } variant)
+            {
+                continue;
+            }
+
             var grid = variant.Grid(bindings);
             if (grid.X == 0 || grid.Y == 0 || grid.Z == 0)
             {
@@ -652,8 +681,12 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             }
 
             var kernel = _dev.Kernel(variant.Kernel);
-            recorded.Add(new CudaRecordedLaunch(launch.Name, ProfileName(launch.Name, variant.Kernel.EntryPoint), kernel, grid.X, grid.Y, grid.Z,
-                PackArguments(launch, bindings, kernel.TensorMaps)));
+            recorded.Add(new CudaRecordedLaunch(item.Name, ProfileName(item.Name, variant.Kernel.EntryPoint), kernel, grid.X, grid.Y, grid.Z,
+                PackArguments(item, bindings, kernel.TensorMaps)));
+            if (launch)
+            {
+                Launch(recorded[^1]);
+            }
         }
 
         return [.. recorded];
