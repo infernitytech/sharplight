@@ -64,6 +64,7 @@ public sealed class StreamedExpertsTests
             Fallback = new DeviceSlot { Device = Gpu.Cpu },
             Compile = Compile,
             ReservePerDevice = 0,
+        ReservePerSegment = 0,
             StreamExpertsMinRows = MinRows,
         };
         using var model = CompiledModel.Compile(graph, split);

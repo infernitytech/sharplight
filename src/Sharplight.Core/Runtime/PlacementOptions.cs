@@ -9,6 +9,11 @@ public sealed class PlacementOptions
     public DeviceSlot? Fallback { get; init; }
     /// <summary>Bytes reserved on every device for activations, scratch and driver overhead.</summary>
     public long ReservePerDevice { get; init; } = 1L << 30;
+    /// <summary>
+    /// Bytes reserved on a device for every extra segment that moving routed experts to the <see cref="Fallback"/> creates
+    /// (<see cref="SplitExperts"/>, <see cref="StreamExpertsMinRows"/>): a compiled segment's stream, launch recordings and library workspace.
+    /// </summary>
+    public long ReservePerSegment { get; init; } = 32L << 20;
     /// <summary>Bounds and feature switches used to compile every segment.</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>
@@ -31,4 +36,17 @@ public sealed class PlacementOptions
     /// <c>SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS</c> overrides it.
     /// </summary>
     public int StreamExpertsMinRows { get; init; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS"), out int rows) && rows >= 0 ? rows : 32;
+
+    /// <summary>A copy with the compile options <paramref name="compile"/> and every other setting kept.</summary>
+    internal PlacementOptions WithCompile(CompileOptions compile) => new()
+    {
+        Devices = Devices,
+        Fallback = Fallback,
+        ReservePerDevice = ReservePerDevice,
+        ReservePerSegment = ReservePerSegment,
+        Compile = compile,
+        GroupDataDependentCounts = GroupDataDependentCounts,
+        SplitExperts = SplitExperts,
+        StreamExpertsMinRows = StreamExpertsMinRows,
+    };
 }

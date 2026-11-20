@@ -209,13 +209,7 @@ public sealed class CompiledModel : IDisposable
             compile = compile.WithSymbolBounds([new(name, Math.Max(1, value))]);
         }
 
-        return new PlacementOptions
-        {
-            Devices = placement.Devices,
-            Fallback = placement.Fallback,
-            ReservePerDevice = placement.ReservePerDevice,
-            Compile = compile,
-        };
+        return placement.WithCompile(compile);
     }
 
     /// <summary>

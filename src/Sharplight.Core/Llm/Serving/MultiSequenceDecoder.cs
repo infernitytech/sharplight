@@ -256,25 +256,19 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             [WellKnown.RunSymbol] = slots,
             ["R"] = maxLogitsRows,
         };
-        var compiled = CompiledModel.Compile(decoderGraph, new PlacementOptions
+        var compiled = CompiledModel.Compile(decoderGraph, placement.WithCompile(new CompileOptions
         {
-            Devices = placement.Devices,
-            Fallback = placement.Fallback,
-            ReservePerDevice = placement.ReservePerDevice,
-            Compile = new CompileOptions
-            {
-                MaxTokens = maxBatchTokens,
-                ContextLength = blockSize > 0 ? (long)kvBlocks * blockSize : (long)slots * contextLength,
-                SymbolBounds = bounds,
-                DisabledFeatures = c.DisabledFeatures,
-                AllowReducedPrecision = c.AllowReducedPrecision,
-                RowInvariantRows = Math.Max(c.RowInvariantRows, invariantRows),
-                CacheFor = c.CacheFor,
-                Progress = c.Progress,
-                CancellationToken = c.CancellationToken,
-                SharedWeights = c.SharedWeights,
-            },
-        });
+            MaxTokens = maxBatchTokens,
+            ContextLength = blockSize > 0 ? (long)kvBlocks * blockSize : (long)slots * contextLength,
+            SymbolBounds = bounds,
+            DisabledFeatures = c.DisabledFeatures,
+            AllowReducedPrecision = c.AllowReducedPrecision,
+            RowInvariantRows = Math.Max(c.RowInvariantRows, invariantRows),
+            CacheFor = c.CacheFor,
+            Progress = c.Progress,
+            CancellationToken = c.CancellationToken,
+            SharedWeights = c.SharedWeights,
+        }));
         var recurrentStates = ms.States.Where(p => !MultiSequence.IsKvState(p.Key)).Select(p => p.Value.Name).ToList();
         var kv = ms.States.Where(p => MultiSequence.IsKvState(p.Key)).ToList();
         var kvStates = kv.All(p => p.Key.Compression <= 1) ? kv.Select(p => p.Value.Name).ToList() : null;

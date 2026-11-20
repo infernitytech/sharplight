@@ -50,6 +50,7 @@ public sealed class PlacementExpertTests
         Fallback = new DeviceSlot { Device = fallback },
         Compile = new CompileOptions { MaxTokens = 4, ContextLength = 4, DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot } },
         ReservePerDevice = 0,
+        ReservePerSegment = 0,
         SplitExperts = splitExperts,
     };
 
