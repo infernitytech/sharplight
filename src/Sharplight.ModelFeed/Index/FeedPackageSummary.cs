@@ -15,6 +15,9 @@ public sealed record FeedPackageSummary
     /// <summary>Display data.</summary>
     public PackageDisplay? Display { get; init; }
 
+    /// <summary>The model this package is a variant of (the manifest's group, or one derived from its provenance), or <see langword="null"/>.</summary>
+    public PackageGroup? Group { get; init; }
+
     /// <summary>Publisher and country of origin.</summary>
     public PackagePublisher? Publisher { get; init; }
 
@@ -26,6 +29,9 @@ public sealed record FeedPackageSummary
 
     /// <summary>Requirements.</summary>
     public PackageRequirements? Requirements { get; init; }
+
+    /// <summary>Verification level, reference, providers and date of the latest version.</summary>
+    public PackageVerification? Verification { get; init; }
 
     /// <summary>Dependencies.</summary>
     public IReadOnlyList<PackageDependency> Dependencies { get; init; } = [];

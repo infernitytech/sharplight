@@ -147,6 +147,28 @@ public sealed class FeedClient
         return new FeedSnapshot(_transport.Location, channel, index, indexDigest, keySet, keySet is not null, [.. packages.OrderBy(package => package.Id, StringComparer.Ordinal)], warnings);
     }
 
+    /// <summary>
+    /// Reads the channel's model listing (<c>catalog/models.json</c>), verified against the snapshot's index digest. A feed published
+    /// before model listings existed has none; then the listing is derived from the verified catalog pages
+    /// (<see cref="FeedSnapshot.Models"/>), which carry the same data.
+    /// </summary>
+    /// <param name="snapshot">A snapshot of this feed.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The listing.</returns>
+    /// <exception cref="FeedVerificationException">The listing does not match its digest.</exception>
+    public async Task<FeedModelListing> GetModelListingAsync(FeedSnapshot snapshot, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Index.Resources.Models is not { } path || snapshot.Index.Catalog.ModelsDigest is not { } digest)
+        {
+            return snapshot.Models;
+        }
+
+        var bytes = await RequireAsync(path, cancellationToken).ConfigureAwait(false);
+        FeedDigest.Require(bytes, digest, "The model listing");
+        return FeedJson.Read(bytes, FeedJsonContext.Default.FeedModelListing, "The model listing");
+    }
+
     /// <summary>Reads a package's version list, verified against the snapshot.</summary>
     /// <param name="snapshot">A snapshot of this feed.</param>
     /// <param name="id">Package id.</param>

@@ -57,6 +57,7 @@ public sealed class FeedPublisher
             var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(folder, FeedLayout.ManifestFileName), cancellationToken).ConfigureAwait(false);
             var manifest = FeedJson.ReadManifest(manifestBytes);
             var label = $"{manifest.Id}@{manifest.Version}";
+            RequireValidGroup(manifest, label);
             var packageIndex = ReadPackageIndex(feedFolder, options.Channel, manifest.Id) ?? new FeedPackageIndex { Id = manifest.Id };
             var version = SemanticVersion.Parse(manifest.Version);
             var digest = FeedDigest.Of(manifestBytes);
@@ -257,10 +258,12 @@ public sealed class FeedPublisher
                 LatestVersion = latest.Version,
                 Versions = [.. packageIndex.Versions.Select(entry => entry.Version)],
                 Display = manifest.Display,
+                Group = manifest.EffectiveGroup,
                 Publisher = manifest.Publisher,
                 License = manifest.License,
                 Model = manifest.Model,
                 Requirements = manifest.Requirements,
+                Verification = manifest.Verification is { } verification ? verification with { PackageCheck = null } : null,
                 Dependencies = manifest.Dependencies,
                 Size = latest.Size,
                 State = latest.State,
@@ -279,6 +282,10 @@ public sealed class FeedPublisher
         }
 
         RemoveStalePages(feedFolder, channel, pages.Count);
+        var models = FeedModelListing.From(summaries);
+        var modelsPath = FeedLayout.InChannel(channel, FeedLayout.ModelListing);
+        var modelsBytes = FeedJson.Write(models, FeedJsonContext.Default.FeedModelListing);
+        WriteAtomic(feedFolder, modelsPath, modelsBytes);
         var catalogBytes = FeedJson.Write(new FeedCatalogIndex { Pages = pages }, FeedJsonContext.Default.FeedCatalogIndex);
         WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.CatalogIndex), catalogBytes);
 
@@ -298,8 +305,16 @@ public sealed class FeedPublisher
             {
                 Catalog = FeedLayout.InChannel(channel, FeedLayout.CatalogIndex),
                 Packages = FeedLayout.InChannel(channel, FeedLayout.PackageIndexTemplate),
+                Models = modelsPath,
             },
-            Catalog = new FeedCatalogSummary { Pages = pages.Count, Packages = summaries.Count, Digest = FeedDigest.Of(catalogBytes) },
+            Catalog = new FeedCatalogSummary
+            {
+                Pages = pages.Count,
+                Packages = summaries.Count,
+                Digest = FeedDigest.Of(catalogBytes),
+                Models = models.Models.Count,
+                ModelsDigest = FeedDigest.Of(modelsBytes),
+            },
         };
         var indexBytesOut = FeedJson.Write(index, FeedJsonContext.Default.FeedServiceIndex);
         WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndex), indexBytesOut);
@@ -339,6 +354,29 @@ public sealed class FeedPublisher
 
         WriteAtomic(feedFolder, FeedLayout.Manifest(manifest.Id, manifest.Version), manifestBytes);
         WriteAtomic(feedFolder, FeedLayout.ManifestSignature(manifest.Id, manifest.Version), key.SignDocument(manifestBytes, "package-manifest"));
+    }
+
+    private static void RequireValidGroup(PackageManifest manifest, string label)
+    {
+        if (manifest.Group is not { } group)
+        {
+            return;
+        }
+
+        if (!FeedLayout.IsValidId(group.Id) || string.IsNullOrWhiteSpace(group.Variant) || manifest.Id != $"{group.Id}.{group.Variant}")
+        {
+            throw new FeedFormatException($"{label}: the group ('{group.Id}', variant '{group.Variant}') must name the package id as <group>.<variant>.");
+        }
+
+        if (group.Quality is { } quality && !PackageQualityTiers.All.Contains(quality, StringComparer.Ordinal))
+        {
+            throw new FeedFormatException($"{label}: unknown quality tier '{quality}' ({string.Join(", ", PackageQualityTiers.All)}).");
+        }
+
+        if (group.BitsPerWeight is { } bits && (bits <= 0 || bits > 64))
+        {
+            throw new FeedFormatException($"{label}: bits per weight {bits} is out of range.");
+        }
     }
 
     private static FeedPackageVersion Latest(IReadOnlyList<FeedPackageVersion> versions)

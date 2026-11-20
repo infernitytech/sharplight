@@ -24,6 +24,9 @@ public static partial class FeedLayout
     /// <summary>The catalog index.</summary>
     public const string CatalogIndex = "catalog/index.json";
 
+    /// <summary>The model listing: every model group with its variants (<see cref="Index.FeedModelListing"/>).</summary>
+    public const string ModelListing = "catalog/models.json";
+
     /// <summary>The package index template.</summary>
     public const string PackageIndexTemplate = "packages/{id}/index.json";
 
