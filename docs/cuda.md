@@ -213,7 +213,7 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   a nonlinear epilogue. Used from `SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS` (256) rows, like the library.
   With `H_BIAS` the store adds a bias row, and with `H_XRS` it first undoes the row scales of a row-ranged copy (exact), so projections
   with biases (gpt-oss, Qwen2) take it from 1024 rows instead of gemm_cm2 (gpt-oss-20b prefill +2 % at 2048 / 8192 tokens,
-  [benchmarks.md §59.5](benchmarks.md#59-llm-round-15-decode-step-projections-and-expert-gemms-the-native-f16-gemm-with-a-bias-store-2026-11-20)).
+  [benchmarks.md §61.5](benchmarks.md#61-llm-round-15-decode-step-projections-and-expert-gemms-the-native-f16-gemm-with-a-bias-store-2026-11-20)).
 - **`gemm_fp8_native.cu`** (`native_gemm_fp8`, compute capability 8.9+): the block-scaled E4M3 GEMM of `gemm_fp8.slang` on operands
   whose scales it can copy densely: the weights in the 128-row groups of `WeightRepack.Fp8B128Grouped` (`f8e4m3_b128g`: [128 rows of
   K codes][K / 128 blocks of the 128 rows' f32 scales], the same bytes as the split rows, repacked at upload, so a precompiled package
@@ -695,7 +695,7 @@ submission),
 `SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2), `SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]`
 (`__launch_bounds__` for matching generated kernels, replacing the default one block per SM for the MoE skinny GEMMs; `none`: no bounds),
 `SHARPLIGHT_MULTI_GEMM=0` (no multi-output q / k / v GEMM), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
-`SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, §59.4); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
+`SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, benchmarks.md §61.4); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
 ## Roadmap

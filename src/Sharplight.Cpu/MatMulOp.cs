@@ -51,6 +51,7 @@ internal sealed unsafe class MatMulOp : CpuOp
     private readonly long _rowBytes;
     private readonly bool _fused;
     private readonly bool _intDot;
+    private readonly bool _fusedDot;
     private readonly bool _smallCodes;
     private readonly float** _xrows;
     private readonly Action<int> _body;
@@ -103,6 +104,7 @@ internal sealed unsafe class MatMulOp : CpuOp
         _fused = Quant.HasFusedKernel(fmt);
         _intDot = intDot && IntDot.Supports(fmt) && _k % IntDot.BlockSize == 0 && _k <= int.MaxValue;
         _smallCodes = IntDot.HasSmallCodes(fmt);
+        _fusedDot = _intDot && IntDot.HasFusedDot(fmt);
         _xrows = (float**)Mem.Alloc(maxRows * sizeof(float*), false);
         _body = Body;
         _intDotBody = IntDotBody;
@@ -202,6 +204,16 @@ internal sealed unsafe class MatMulOp : CpuOp
             if (n + PrefetchRows < n1)
             {
                 Simd.Prefetch(_w.P + (n + PrefetchRows) * _rowBytes, _rowBytes);
+            }
+
+            if (_fusedDot)
+            {
+                for (long t = 0; t < _m; t++)
+                {
+                    y[t * _n + n] = IntDot.FusedDot(_fmt, _w.P + n * _rowBytes, IntDot.RowAt(_activations + t * rowBytes, _k), k);
+                }
+
+                continue;
             }
 
             IntDot.Decode(_fmt, _w.P + n * _rowBytes, _k, u, a, b);

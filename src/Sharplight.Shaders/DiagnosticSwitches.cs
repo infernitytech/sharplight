@@ -560,7 +560,7 @@ internal static class DiagnosticSwitches
     /// <summary>
     /// True (<c>SHARPLIGHT_SPLITK_FUSED=1</c>) runs the split-K reduction of gemm_cm2 and the fp8 GEMM in the last workgroup of each
     /// output tile (splitk.slang) instead of its own launch (<c>splitk_reduce</c>). Off by default: on the RTX PRO 4500 the last
-    /// workgroup's serial read of the tile's slices cost more than the launch it saves (benchmarks.md section 59).
+    /// workgroup's serial read of the tile's slices cost more than the launch it saves (benchmarks.md section 61).
     /// </summary>
     public static bool SplitKFused { get; } = Read("SHARPLIGHT_SPLITK_FUSED") == "1";
 

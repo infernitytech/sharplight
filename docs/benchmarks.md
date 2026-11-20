@@ -8195,215 +8195,136 @@ cd bench/s58_attn && nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=64 -DHKV=8 -DD=64 -DD
   -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_prefill_native.cu"' bench_attn.cu -o b && ./b
 ```
 
-## 59. LLM round 15: decode-step projections and expert GEMMs, the native f16 GEMM with a bias store (2026-11-20)
+## 59. MoE with CPU offload: routed experts on the CPU, everything dense on the GPU, streamed prefill (2026-11-20)
 
-Branch `perf/llm-r15` (base `develop` at `f3d279f0`, `develop` at `120cdcb8` merged before the final runs). GPU 0 of the RunPod machine
-(RTX PRO 4500 Blackwell, 82 SMs, 200 W), shared with other agents: every timed run held the verify lock and started without another
-compute process on the GPU. "Before" is this branch with `SHARPLIGHT_MULTI_GEMM=0 SHARPLIGHT_NATIVE_GEMM_BIAS=0
-SHARPLIGHT_CUDA_MIN_BLOCKS=none` (the kernels and launches of `develop`), alternated with "after" in the same session. vLLM figures are
-those of §56-58 and §60 (vLLM 0.33.0, same machine and checkpoints). Raw output in [`bench/results/s59/`](../bench/results/s59).
+Branch `perf/offload-r1` (base `develop` at `9b341bb8`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, no resizable
+BAR), AMD EPYC 7443 (Zen 3: AVX2 + FMA, no AVX-512 / VNNI) with a ~10-core cgroup quota and 62 GB of memory, llama.cpp b11177 (CUDA
+and Vulkan builds). The GPU was shared with another perf agent (runs serialized with a lock) and the CPU with a model-feed build job
+and that agent's vLLM: decode numbers moved by 10-20 % between runs of one build (`cpu.stat` throttled 15 % of the periods); the
+tables give best / median of 64 steps, and the medians of "before" and "after" ran under comparable load. Sharplight: `sharplight
+<model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes, decode 64 steps after them).
+llama.cpp: `llama-bench -ngl 99 -ncmoe N -fa 1 -p 512 -n 64 -r 3 -t 10` (mean of 3), N swept, the best shown.
 
-### 59.1 Decode step (BatchBench `--slots 64 --ctx 512 --depth 256 --modes greedy --reps 20`, GPU ms per step, mean of two runs' minima)
+### 59.1 What the time went to (before)
 
-| model | provider | before 1 / 16 / 64 sequences | **after** | vLLM at 64 | ours / vLLM at 64 before → after |
-|---|---|---|---|---:|---:|
-| gpt-oss-20b | CUDA | 5.34 / 11.89 / 17.79 | **5.34 / 10.06 / 16.12** | ~16.2 | 0.91 → **1.00** |
-| Qwen3-8B-FP8 | CUDA | 11.33 / 13.43 / 17.39 | **11.33 / 13.42 / 16.92** | 15.6 | 0.90 → **0.92** |
-| gpt-oss-20b | Vulkan | 5.33 / 9.93 / 17.26 | 5.32 / 9.92 / 17.21 | | |
-| Qwen3-8B-FP8 | Vulkan | 11.18 / 13.50 / 17.25 | 11.19 / 13.53 / 17.28 | | |
+Qwen3.5-122B-A10B UD-IQ2_XXS (36.6 GB) with `--cpu-offload` placed whole layers: 43 of 50 groups on the GPU, the last 6 layers
+and the output head on the CPU. A decode step took 38.4 ms: 8.4 ms on the GPU and 30 ms on the CPU, of which the 248320 x 3072 Q4_K
+output head (0.43 GB read every token) took 8.5 ms, the dense attention / delta-rule / shared-expert projections of the 6 layers 9 ms
+and the routed experts 11 ms (the float dequantize path at ~12 GB/s). A 512-token prefill spent 2.3 of its 2.4 s on the CPU.
+llama.cpp with `-ncmoe 6` (the experts of 6 layers on the CPU, the rest on the GPU) decoded at 72 tok/s; the 21.5 tok/s of
+docs/model-support.md was its layer split (`-ngl 38`).
 
-What changed, by size of the effect:
+### 59.2 Changes
 
-* **Launch bounds for the expert-grouped skinny GEMMs (CUDA)**: gpt-oss-20b at 16 / 64 sequences -1.83 / -1.53 ms. 59.2.
-* **Multi-output q / k / v GEMM**: gpt-oss-20b -0.17 ms and Qwen3-8B-FP8 -0.45 ms at 64 sequences. 59.3.
-* The fused split-K reduction (in the GEMM's last workgroup) was built and measured slower; it is opt-in (59.4).
+* **Expert placement** (`PlacementPlanner`): with a CPU fallback the routed experts of a layer (the `MatMulId`s over a bank with more
+  experts than a token selects, the activation between them and the weighted sum over the k slots) are a placement group of their own;
+  when the model does not fit, the experts of the first layers go to the CPU, as few as needed, and attention, shared experts, dense
+  layers and the output head stay on the GPU. Only the normed hidden rows, the ids and the slot weights go to the CPU and one summed row
+  per token comes back. The planner keeps room for those transfer buffers, a segment's own overhead and the graph outputs
+  (`ReservePerSegment`). `PlacementOptions.SplitExperts`, `SHARPLIGHT_SPLIT_EXPERTS=0` for the old layer split.
+* **Shared activation arenas** (CUDA, Vulkan): the segments of one model on a device run one after another and now share their
+  transient buffers, so 20 segments do not hold 20 arenas (170-280 MiB each at 512 rows).
+* **CPU expert kernels**: `MatMulId` takes the integer-dot path (8-bit activations, as `MatMul`), with decoders for the IQ2 / IQ3 grid
+  formats and fused AVX2 dots for them (grid magnitudes times sign-flipped activations with `vpmaddubsw`, one sign-table lookup per
+  eight values, `vpsignb`): IQ2_XXS 2.80 ns and IQ2_S 3.67 ns per 32 values on one core; per decode call (8 experts, 1024 x 3072)
+  0.53 → ~0.3 ms (IQ2_XXS) and 0.79 → ~0.37 ms (IQ2_S). Experts with more than four rows in a pass keep the float path (it reuses a
+  dequantized tile over the rows). Other tiers decode and dot as before; MXFP4 / K-quants use their existing integer-dot decoders.
+* **Streamed prefill**: from 32 rows per pass (`StreamExpertsMinRows`) the CPU experts run on the GPU instead, their weights copied in
+  for each pass into one layer's worth of memory the placement keeps free (`CompileOptions.StreamWeights`; the streamed segments of a
+  model share it). On CUDA the mapped pages of the streamed weights are page-locked read-only (within the pinned-memory limit, else a
+  quarter of the process memory) and copied asynchronously while the GPU runs the layer before (`IStreamedSegment.BeginStreaming`):
+  0.67 GB per layer at 28 GB/s; a staged copy (one pair of staging buffers per device) reached 14 GB/s. Vulkan copies through staging
+  on a worker thread (23 GB/s). A streamed compilation that does not fit leaves its layer on the CPU.
 
-### 59.2 The expert-grouped skinny GEMM on CUDA: launch bounds
+### 59.3 Qwen3.5-122B-A10B UD-IQ2_XXS (tok/s, best / median)
 
-Profiled side by side (`--profile`, gpt-oss-20b, minimum per launch), the skinny MXFP4 expert GEMMs were slower in their CUDA form than
-in their SPIR-V form: at 16 sequences gate / up 108.5 against 67.4 µs, down 47.3 against 42.8 µs, and the whole CUDA step 12.0 against
-10.0 ms on Vulkan (64 sequences: 17.5 against 16.7 ms). NVRTC / ptxas gave the dual kernel 160 registers without spills for its 128
-threads. Stating the block size and one resident block per SM (`__launch_bounds__(128, 1)`, added by the CUDA translator to the
-`gemm_sk` entries of the MoE sources, `NvrtcTranslator.DefaultMinBlocks`) changes how ptxas schedules the weight stream:
+| | CPU groups | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA before (layer split) | 7 (6 layers + head) | 26.0 / 25.5 | 211 / 207 |
+| CUDA, experts on the CPU, no streaming (`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`) | 8 | **58.4 / 57.6** | 227 / 222 |
+| CUDA, experts on the CPU + streamed prefill (default) | 10 | 53.1 / 52.2 | **927 / 926** |
+| llama.cpp CUDA `-ncmoe 6` / `8` | | 72.1 / 65.2 | 985 / 866 |
+| llama.cpp CUDA `-ngl 38` (layer split) | | 9.2 (shared GPU) / 21.5 (§ model-support) | 589 |
+| Vulkan before (layer split, `develop`) | 10 | 15.6 / 8.3 (GPU shared during part of the run) | 142 / 140 |
+| Vulkan, experts on the CPU + streamed prefill | 14 | **43.5 / 42.8** | **705 / 688** |
+| llama.cpp Vulkan `-ncmoe 6` / `8` | | 44.7 / 40.2 | 751 / 643 |
 
-| `__launch_bounds__(128, n)` on the MoE skinny GEMMs (gpt-oss-20b, GPU ms per step, 16 / 64 sequences) | |
-|---|---|
-| none (before) | 12.04 / 17.69 |
-| n = 1 | **10.05 / 16.22** |
-| n = 2 | 10.15 / 16.29 |
-| n = 4 (≤ 128 registers) | 12.75 / 21.55 |
-| n = 5 | 17.11 / 32.51 |
-| n = 2 on every `gemm_sk` (also the dense skinny GEMMs and the LM head) | 10.06 / 16.28; Qwen3-8B-FP8 13.66 / 17.04 (+0.2 ms at 16) |
+* Decode 2.0-2.2x on CUDA, 2.8x on Vulkan (17.8 in docs/model-support.md); prefill 4.4x on CUDA, 5.0x on Vulkan. Against llama.cpp:
+  CUDA decode 0.74x (0.81x without streaming), prefill 0.94x; Vulkan decode 0.97x, prefill 0.94x. The CUDA rows are the final build
+  (develop merged), run while the machine was otherwise quiet; earlier runs of the same placement under load gave 47-51 tok/s.
+* The CUDA decode step of the default build: GPU 9.6 ms (llama.cpp's whole step is 13.9 ms) and ~1 ms per CPU expert layer. The GPU
+  part is ~1350 launches over 48 layers (the largest projections stream at ~720 GB/s, the rest are small kernels); llama.cpp fits 42
+  expert layers where this placement fits 38-40: the 1 GiB device reserve, the 512-row logits buffer (485 MiB), the streaming buffer
+  (0.67 GB) and the per-segment buffers take ~2.5 GiB. Vulkan budgets 92 % of the device and fits 3 GiB less.
+* Greedy output: the FamilyGenerationTests cases (raw prompt, chat turn, story; 32 tokens against llama.cpp b11177) pass on CUDA and
+  Vulkan with the new placement.
 
-So the bounds stay on the expert kernels only. `SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]` (or `none`) replaces the default and
-is part of the translator's cache key; the translator options version is 6 (cached PTX of version 5 is recompiled). Bounds change only
-ptxas's register allocation and scheduling, not the arithmetic: greedy outputs are byte-identical (59.6).
+### 59.4 gpt-oss-120b MXFP4 (ggml-org GGUF, 63.4 GB; tok/s, best / median)
 
-At 64 sequences the step is now at vLLM's (16.12 against ~16.2 ms). The coordinator's finding from §60 (the grouped MXFP4 GEMM below the
-read limit at ~21 rows per expert in mixed steps) was measured but not solved: 64-row native tiles (`SHARPLIGHT_NATIVE_MOE_SHORT=48` /
-`96`, new), 128-row weight tiles (`SHARPLIGHT_NATIVE_MOE_BN=128`, new), the skinny GEMM up to 24 items per expert
-(`SHARPLIGHT_MOE_SKINNY=24`) and the native GEMM from 24 items per expert all cost 0.1-1.6 ms per 64 + 107-row step (`s3/`, `s4/`).
+36 layers of 128 experts (top 4) with biases, MXFP4 experts of 1.69 GB per layer. On the CPU the MXFP4 experts use a fused AVX2 dot
+(codes looked up as signed doubled E2M1 values with `vpshufb`, |w| times the sign-applied activations): 1.58 ns per 32 values against
+3.06 ns for decode + dot. The CUDA MXFP4 expert layout is repacked, so its streamed copies go through staging (0.56 GB per layer in
+~27 ms); the file is 1.4 GB larger than the cgroup's memory, so the CPU's share is read from the page cache with some eviction (llama.cpp's
+prefill varies by ±40 % between its three runs).
 
-### 59.3 Multi-output q / k / v GEMM
+| | CPU expert layers | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA, first build of this branch (bias gathers split from their experts: ~190 segments) | 23 | 25.4 / 24.9 | 203 / 189 |
+| CUDA (default) | 20 | **48.1 / 47.5** | **278 / 232** |
+| llama.cpp CUDA `-ncmoe 20` / `22` / `24` | | 36.0 / 40.4 / 32.5 | 137 / 176 / 107 |
+| Vulkan (default) | 22 | **44.1 / 43.0** | 71 / 63 |
+| llama.cpp Vulkan `-ncmoe 22` | | 34.8 | 107 |
 
-Sibling matmuls that read the same activations with weights of one format and K (`FindMultiGemmGroups`: q / k / v, all with a bias row or
-none, at most one width that is not a multiple of 128, placed last) keep their own launches and, at the batches where each of them splits
-K (9-256 rows), are served by one GEMM over the concatenated weight rows instead (`EmitMultiGemm`, splitk.slang `MULTI`): each matrix
-stays its own buffer, a tile's weight base is chosen by its first row (every tile reads one matrix), and the split-K reduction stores each
-column into its member's output with its bias. Nothing in the `.slm` layout or the uploaders changes. Both families: gemm_cm2 (16-bit and
-other generated formats) and the fp8 GEMM (an fp8 matmul splits K on gemm_cm2 at 9-16 rows and on the fp8 GEMM from 17 rows, so a group
-gets one multi-output GEMM per family).
+* CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting; Vulkan decode 1.27x, prefill 0.66x.
+* Vulkan prefill is bound by the streamed copies: 1.7 GB per layer in ~370 ms median (207 ms at best). Vulkan budgets less of the GPU, so
+  36 GB of experts stay on the CPU and are re-read for every pass; with the 63 GB file in a 62 GB cgroup part of them comes from disk
+  each time (the CUDA placement keeps 33 GB on the CPU and copies a layer in ~100 ms). Repacking MXFP4 into cached memory before the
+  write-combined staging buffer (this branch) cut the worst copies but not the median.
+* Greedy text (`-p "The capital of France is" -n 32`): CUDA and Vulkan identical to each other and to `develop` (layer split, float CPU
+  experts): " Paris.\n\nGreat! If you have any more questions ..."; llama.cpp b11177 (CUDA, `-ncmoe 22`) repeats " Paris." after the
+  first sentence, so the difference predates this branch.
 
-| per layer at 64 sequences (CUDA profile, minimum µs) | before | **after** |
-|---|---|---|
-| gpt-oss-20b q / k / v (bf16 as f16, biases) | 35.0 + 9.0 + 9.0 + 3 x 1.8 reductions = 58.4 | **41.4 + 3.9 = 45.3** (one split-K GEMM [2880 → 4096 + 512 + 512], 712 GB/s, and one reduction) |
-| Qwen3-8B-FP8 q / k / v | 28.6 + 10.4 + 10.4 + 3 x 2.1 = 55.7 | **40.9 + 4.0 = 44.9** |
-
-* The 512- and 1024-row k / v matrices ran 4-8 column tiles each, split 8-16 ways; in the concatenation they share the 40-48 column
-  tiles of q. Each output sums its K slices in the concatenation's split order, so where that split differs from the member's own split
-  the partial sums round differently (as between any two split counts); greedy outputs are byte-identical on the prompts of 59.6.
-* Vulkan: the fp8 form is used (Qwen3-8B-FP8 at 64 sequences 17.25 → 17.28 / 17.09 in two pairs: neutral), the gemm_cm2 form only on
-  CUDA C++ targets, because on the NVIDIA Vulkan driver gpt-oss-20b's 64-sequence step lost 2.5 % with it (16.85 → 17.28 ms).
-* `SHARPLIGHT_MULTI_GEMM=0` disables it; `SHARPLIGHT_MULTI_DEBUG=1` reports groups that got no GEMM and why.
-
-### 59.4 Split-K reduction in the GEMM's last workgroup (built, measured slower, opt-in)
-
-`splitk.slang`: the workgroups of a tile write their partial slices, publish them (device-scope release) and count their arrival in a
-per-tile counter; the last one acquires the slices, sums them in slice order (bit-identical to `splitk_reduce`) and stores the result with
-the epilogue, then resets the counter. Forms for gemm_cm2 (with its `MM_EPI` epilogues and row-ranged copies), the fp8 GEMM and the dual fp8
-GEMM, and for the multi-output GEMM. GPU µs per launch at 64 sequences (CUDA profile, minimum):
-
-| GEMM | split | separate reduction | **fused** |
-|---|---:|---|---:|
-| gpt-oss o [4096 → 2880] | 8 | 39.2 + 1.8 | 46.4 |
-| gpt-oss q [2880 → 4096] +bias | 4 | 35.0 + 1.8 | 42.3 |
-| gpt-oss k / v [2880 → 512] +bias | 16 | 9.0 + 1.8 | 14.4 |
-| gpt-oss router [2880 → 32] +bias | 16+ | 5.8 + 3.5 | 9.2 |
-| Qwen3 q / o [4096 → 4096] (fp8) | 4 | 28.6 + 2.1 | 32.0 |
-| Qwen3 k / v [4096 → 1024] (fp8) | 8 | 10.4 + 2.1 | 14.2 |
-| Qwen3 down [12288 → 4096] (fp8) | 4 | 75.1 + 2.1 | 77.8 |
-| multi-output q / k / v, gpt-oss | 4 | 41.4 + 3.9 | 49.0 |
-
-The last workgroup of each tile reads all its slices alone (k / v: 16 slices of 32 KB per tile), at the bandwidth of one SM, at the end
-of the launch, where the separate reduction spreads the same reads over the whole GPU; graph-replayed launches leave ~0.2 µs between
-kernels (§58.3), so the saved launch is worth less than the tail. Whole steps at 64 sequences: gpt-oss-20b 17.80 → 18.26 ms, Qwen3-8B-FP8
-17.27 → 17.80 ms. `SHARPLIGHT_SPLITK_FUSED=1` (single GEMMs) and `SHARPLIGHT_MULTI_FUSED=1` (the multi-output GEMM) switch it on.
-On the NVIDIA Vulkan driver the fused fp8 GEMM returned a few wrong outputs in `FusionTests.SiblingProjections` (gemm_cm2's passed), so
-the fp8 form is used only on CUDA C++ targets; an atomic through a dereferenced pointer (`InterlockedAdd(*ptr, ...)`) also never counted
-there, so the counters are indexed. Two related experiments, also opt-in and slower: a K split chosen by wave fill for one-token-row grids
-(`SHARPLIGHT_SPLIT_FILL=1`: gpt-oss o 39.2 → 49.3 µs; the 64-row gemm_cm2 tiles run two workgroups per SM, so the 82-tile wave it assumes
-is wrong) and a K-split dual fp8 gate / up GEMM at decode sizes (`SHARPLIGHT_FP8_DUAL_SPLIT=1`: Qwen3-8B-FP8 step 17.3 → 22.6 ms).
-
-### 59.5 gpt-oss prefill: the native f16 GEMM with a bias store
-
-`gemm_f16_native.cu` takes `H_BIAS` (the store adds the bias row) and `H_XRS` (the rows of a row-ranged f16 copy are multiplied by
-their inverse scale first, exact, as the unscale launch did), so q / k / v / o with biases leave gemm_cm2 (`UseNativeBiasGemm`, from 1024
-rows: at 256-512 rows gemm_cm2's split-K reduction with the bias epilogue was faster).
-
-| | before | **after** |
-|---|---:|---:|
-| gpt-oss-20b prefill 512 / 2048 / 8192 tokens (tok/s, best of the `--bench` runs) | 13,203 / 15,770 / 14,594 | 12,923 / **16,132 / 14,865** (512: unchanged path, noise) |
-| ours / vLLM (11,436 / 16,379 / 15,812) | 1.15 / 0.96 / 0.92 | 1.13 / **0.98 / 0.94** |
-| mixed step 64 + 960 rows (ms) | 74.57 | **73.73** |
-| Qwen3-8B-FP8 prefill 512 / 2048 / 8192 (no biases: unchanged) | 14,459 / 14,207 / 11,747 | 14,492 / 14,159 / 11,730 |
-
-Not done: the expert gather / slot sum fused into the routing and the down GEMM (§58.9 lever 4b). The gather of the gate / up input could
-be done on load by the native MoE GEMM (indexed `cp.async` rows of an unsorted f16 copy), but the larger part is the down projection's
-gather of the gate / up output, which needs the dual GEMM to store its f16 output in sorted order with the range guard of an unbounded
-product (a fix-up pass like `f16_range_fixup`); a fused slot sum by atomics would make the outputs depend on the order of arrival.
-
-### 59.6 Correctness and tests
-
-* Greedy text, 120 tokens, the round's features on and off (CUDA): Qwen3-8B-FP8 byte-identical after a short, a ~170-token and a
-  ~1000-token prompt; gpt-oss-20b byte-identical after the short and ~170-token prompts. After the ~1000-token prompt (prefill rows on the
-  native bias GEMM) it diverges ~300 characters into the answer, a near-tie as in §58.6 (a different f16 GEMM sums in another order).
-  The launch bounds alone leave it byte-identical.
-* New tests: `FusionTests.SiblingProjections` (q / k / v of 1024 / 256 / 136 rows over K = 1536 with and without biases, bf16 / f16 /
-  q8_0 / E4M3 weights at 16-300 rows: the multi-output GEMM, its last member unaligned, and the batches it does not serve) and a 1100-row
-  `FusionTests.MatMulBias` case (the native bias GEMM). The sibling test also passes with `SHARPLIGHT_MULTI_FUSED=1` and
-  `SHARPLIGHT_SPLITK_FUSED=1` on CUDA.
-
-GPU 0, this branch after merging `develop` (`120cdcb8`):
+### 59.5 Tests, what did not work, and what limits it
 
 | suite | result |
 |---|---|
-| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped (cuBLASLt not installed) |
-| Sharplight.Vulkan.Tests on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, 63 classes without BenchTests) | 1508 / 0 failed / 23 skipped (one MoeTests case first failed with "model does not fit" while the GPU was full, and passed on rerun with the class) |
-| Sharplight.Vulkan.Tests on Vulkan, the GEMM / MoE / fusion classes (MatMul, Fusion, DualGemm, Moe, Mmq, SkinnyGemm, MatMulEpilogue, SplitHalfGemm, SimtGemm, BatchMatMul, RowInvariance, NormHalfCopy) | 608 / 0 failed / 0 skipped |
+| Sharplight.Cpu.Tests (incl. new PlacementExpertTests, IntDot IQ / MXFP4 decoders and fused dots, MatMulId integer dots and pairs) | 1358 / 0 failed / 36 skipped |
+| Sharplight.Vulkan.Tests affected classes on CUDA and on Vulkan (StateHandoff, StreamedExperts, Moe, RowInvariance, QuantFormat, F16Range), one class per process | 419 / 0 failed each |
+| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped |
+| FamilyGenerationTests, Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan, after merging `develop` | 3 / 0 each |
+| gpt-oss-120b greedy text, CUDA and Vulkan against `develop` | identical |
 
-Vulkan: the kernel sources changed (splitk.slang, the `MULTI` / `SPLITK_FUSED` forms, both off by default except the fp8 multi-output
-GEMM), so Vulkan was benchmarked instead of diffed: decode steps in 59.1 (within ±0.3 %).
 
-### 59.7 Serving and long contexts
+* The plain integer-dot path (decode a row into codes, then the generic dot) was slower than the float path for IQ2_XXS (0.66 against
+  0.53 ms per decode call): the per-16 scale and offset arithmetic outweighs the 8-bit products. The fused dots replaced it; an AVX2
+  gather of the grid entries (`vpgatherqq`) was slower than scalar loads (4.58 against 2.81 ns per 32 values); IQ2_S gained nothing from
+  the one-lookup sign table (it reads explicit sign bytes).
+* Pairing the gate and up products into one op (one quantization, one pass) is in (bit-identical results), but its effect on the decode
+  step was within the run-to-run noise of this machine.
+* Two streaming memories (`SHARPLIGHT_STREAM_BUFFERS=2`, the next layer's copy overlapping the current layer) made the 122B prefill
+  slower, 831 against 927 tok/s, and decode 47.8 against 53.1: the extra layer of experts it moves to the CPU costs more in each pass than
+  the overlap saves. It stays an option, off by default.
+* A thread-count sweep (8 / 10 / default threads) was inconclusive: other jobs took 2-5 cores during most runs.
+* Copies through staging buffers reached 14 GB/s on CUDA (17 GB/s with the MXFP4 repack) against 28 GB/s from page-locked mapped
+  memory; on Vulkan the repack wrote out of order into write-combined staging memory (5 GB/s) until it went through cached memory first.
+* Decode on CUDA stays behind llama.cpp: the GPU part of a step (9.5 ms) and three to four more expert layers on the CPU. Each moved
+  layer costs a GPU segment boundary, a transfer buffer and the per-segment reserve; streaming costs one layer's memory (~10 % decode for
+  a 4.5x faster prefill; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` keeps it for decode-only use).
 
-`bench/s16_serve.sh`, 64 slots of 512 tokens, ~250-token prompts, 128 output tokens, `QUIET_GPU=1`; aggregate output tok/s / TTFT p50 ms /
-mean inter-token latency ms. gpt-oss: mean of four "after" rounds in two sessions and of the undisturbed "before" rounds (a second "before"
-session measured 972 and 1475 tok/s in one round each while another process used the GPU: discarded). vLLM: §60.
-
-| model | streams | before | **after** | vLLM | ours / vLLM before → after |
-|---|---:|---|---|---|---:|
-| gpt-oss-20b | 16 | 1141 / 114 / 13.1 | **1295 / 112 / 11.4** | 1424 / 183 / 9.9 | 0.80 → **0.91** |
-| | 64 | 2400 / 267 / 23.6 | **2514 / 260 / 22.5** | 3154 / 413 / 17.0 | 0.76 → **0.80** |
-| Qwen3-8B-FP8 | 16 | 991 / 119 / 15.2 (§60) | **988 / 117 / 15.2** | 1115 / 168 / 12.9 | 0.89 → **0.89** |
-| | 64 | 2447 / 287 / 23.4 (§60) | **2403 / 288 / 23.3** | 2691 / 400 / 20.2 | 0.91 → **0.89** |
-
-At 64 streams a round is dominated by mixed steps (prompt waves of up to 2048 rows, §60.1), which this round changed little (59.2);
-the decode-only steps gained 9 %.
-
-Long contexts (`bench/s58_long.sh`, our side only, this session; vLLM: §58.8):
-
-| model | tokens | prefill tok/s CUDA | / vLLM | §58.8 |
-|---|---:|---:|---:|---:|
-| gpt-oss-20b | 16,384 / 32,768 / 65,536 / 131,072 | 13,552 / 11,578 / 8,788 / 5,931 | 0.93 / 0.94 / 0.93 / 0.92 | 0.92 / 0.93 / 0.92 / 0.92 |
-| Qwen3-8B-FP8 (YaRN) | same | 9,616 / 6,988 / 4,547 / 2,444 | 0.97 / 0.98 / 1.00 / 0.93 | 0.97 / 0.97 / 1.00 / 0.93 |
-
-| decode | depth | 1 stream tok/s CUDA / vLLM | 4 streams (aggregate) CUDA / vLLM |
-|---|---:|---|---|
-| gpt-oss-20b | 32,768 | 154.6 / 150.7 (1.03) | 337.6 (11.85 ms per step) / 310.8 (**1.09**; §58.8: 0.98) |
-| | ~128K | 98.9 / 107.3 (0.92) | 156.6 (25.54 ms) / 174.9 (0.90; fits since `window_kv`, §60.3: 26.88 ms) |
-| Qwen3-8B-FP8 (YaRN) | 32,768 | 57.9 / 57.8 (1.00) | 110.9 / 107.1 (1.04) |
-| | ~128K | 28.5 / 29.6 (0.96) | does not fit (on either) |
-
-Long prefill is attention-bound (gpt-oss at 32K: MoE 52 %, attention 29 %; Qwen3 attention 53 %) and moved only within noise.
-
-### 59.8 Gap to vLLM and plan (state after this round)
-
-| benchmark | CUDA / vLLM | where the time goes |
-|---|---:|---|
-| gpt-oss-20b decode step, 64 sequences | **1.00** (16.12 against ~16.2 ms) | expert GEMMs ~10.2, projections 2.6 (q / k / v 45 + o 41 µs per layer), attention ~1.3 |
-| Qwen3-8B-FP8 decode step, 64 sequences | 0.92 (16.92 against 15.6 ms) | FP8 gate / up dual GEMM 147.5 µs per layer at ~680 GB/s (192 workgroups at one per SM: 2.3 waves), down 75, q / k / v 45, o 31 |
-| gpt-oss-20b serving 16 / 64 streams | 0.91 / 0.80 | 64: mixed steps (prompt rows ~60 µs each; the grouped MXFP4 GEMM at 16-48 rows per expert below the read limit) |
-| Qwen3-8B-FP8 serving 16 / 64 streams | 0.89 / 0.89 | its decode step |
-| gpt-oss-20b prefill 512 / 2048 / 8192 | 1.13 / 0.98 / 0.94 | experts and attention ahead at 2048; expert gather + slot sum 7.5 against 1.5 ms per pass; norms / rope ~9 ms |
-| Qwen3-8B-FP8 prefill 512 / 2048 / 8192 | 1.05 / 0.95 / 0.95 | FP8 GEMM main loop at 76 % of the MMA peak per cycle against CUTLASS's ~90 % (§57.2) |
-| long prefill 16K-128K | 0.92-0.94 (gpt-oss), 0.93-1.00 (Qwen3) | attention 9-15 % behind FlashInfer at 128K |
-| long decode, 1 / 4 streams | 0.92-1.03 / 0.90-1.09 | decode attention at depth |
-
-Ranked levers:
-
-1. **Mixed-step expert GEMMs** (gpt-oss serving at 64 streams, 0.80x): the grouped MXFP4 GEMM at 16-48 rows per expert (§60.1: 3.5 of
-   the 6.7 ms a 107-row prompt adds); 64-row tiles, narrower tiles and the skinny form were measured slower (59.2). Candidates: split K
-   over two blocks per tile at these sizes (more blocks per SM and a stream that reaches the read limit), or the skinny form's
-   register-direct fetch with the native kernel's `cp.async` ring.
-2. **FP8 decode GEMMs at one workgroup per SM** (Qwen3 decode 0.92x): gate / up runs 192 workgroups in 2.3 waves of 82; a decode
-   form with a smaller register budget or a hand-written `cp.async` skinny FP8 GEMM (CUDA), ~1.2 ms per step → ~15.7 ms.
-3. **gpt-oss prefill MoE glue**: the down projection's gather of the gate / up output and the slot sum (~5 ms per 2048-row pass), see 59.5.
-4. **FP8 GEMM main loop** (§57): ~+7 % Qwen3 prefill.
-5. **Attention at long prompts and decode at depth** (§58.9 lever 6).
-
-### 59.9 Reproduce
+### 59.6 Reproduce
 
 ```bash
-export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
-BB=bench/BatchBench/bin/Release/net11.0/BatchBench; CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
-OFF="SHARPLIGHT_MULTI_GEMM=0 SHARPLIGHT_NATIVE_GEMM_BIAS=0 SHARPLIGHT_CUDA_MIN_BLOCKS=none"   # before
-$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,64 --modes greedy --reps 20      # env $OFF for before
-$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 64 --modes greedy --reps 5 --profile 64 --profile-mode greedy
-$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 68 --ctx 2560 --batch 2048 --depth 256 --sizes 16 --mixed 64+0,64+107x1,64+192x1,64+448x1,64+960x1 --modes greedy --reps 10
-for n in 512 2048 8192; do $CLI ~/models/hf/gpt-oss-20b --provider cuda --bench $n --ctx $((n + 256)); done
-SHARPLIGHT_COMPILATION_CACHE=off SHARPLIGHT_CUDA_MIN_BLOCKS="matmul_moe_dual:gemm_sk:2;matmul_moe_epi:gemm_sk:2" $BB ...   # launch-bounds sweep
-SHARPLIGHT_SPLITK_FUSED=1 / SHARPLIGHT_MULTI_FUSED=1 / SHARPLIGHT_SPLIT_FILL=1 / SHARPLIGHT_FP8_DUAL_SPLIT=1 $BB ...          # 59.4
-```
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf     # or gpt-oss-120b/gpt-oss-120b-MXFP4.gguf
+for p in cuda vulkan; do SHARPLIGHT_LOAD_TIMING=1 $CLI $M --provider $p --cpu-offload --bench 512; done
+SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --bench 512    # no streamed prefill (more GPU room)
+SHARPLIGHT_STREAM_BUFFERS=2 $CLI $M --provider cuda --cpu-offload --bench 512             # two streaming memories
+SHARPLIGHT_SPLIT_EXPERTS=0 $CLI $M --provider cuda --cpu-offload --bench 512              # whole layers on the CPU (before)
+SHARPLIGHT_CPU_PROFILE=1 SHARPLIGHT_CUDA_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
+for n in 6 8; do $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe $n -fa 1 -p 512 -n 64 -r 3 -t 10; done
+HOME=<model mirror> SHARPLIGHT_TEST_LARGE=1 SHARPLIGHT_TEST_CUDA=1 SHARPLIGHT_TEST_CASE="Qwen3.5-122B-A10B UD-IQ2_XXS" \
+  dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*Generation_matches_reference_on_cuda"
 
 ## 60. Serving round 1: a serving step profile, asynchronous executions, window-sized KV caches (2026-11-20)
 
@@ -8591,4 +8512,214 @@ QUIET_GPU=1 ROUNDS=2 SLOTS=64 VLLM_VENV=<venv with vLLM 0.33.0> bench/s16_serve.
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 66 --ctx 512 --depth 256 --mixed 64+0,64+107x1,64+448x1 --modes greedy --reps 10 --profile 1
 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 4 --ctx 131584 --depth 131072 --batch 2048 --sizes 1,2,4 --modes greedy --reps 5
 # budget sweep: add --step-tokens 1024 | --min-step-tokens 0 | --prefill-chunk 512 to the serve line
+```
+
+## 61. LLM round 15: decode-step projections and expert GEMMs, the native f16 GEMM with a bias store (2026-11-20)
+
+Branch `perf/llm-r15` (base `develop` at `f3d279f0`, `develop` at `120cdcb8` merged before the final runs). GPU 0 of the RunPod machine
+(RTX PRO 4500 Blackwell, 82 SMs, 200 W), shared with other agents: every timed run held the verify lock and started without another
+compute process on the GPU. "Before" is this branch with `SHARPLIGHT_MULTI_GEMM=0 SHARPLIGHT_NATIVE_GEMM_BIAS=0
+SHARPLIGHT_CUDA_MIN_BLOCKS=none` (the kernels and launches of `develop`), alternated with "after" in the same session. vLLM figures are
+those of §56-58 and §60 (vLLM 0.33.0, same machine and checkpoints). Raw output in [`bench/results/s61/`](../bench/results/s61).
+
+### 61.1 Decode step (BatchBench `--slots 64 --ctx 512 --depth 256 --modes greedy --reps 20`, GPU ms per step, mean of two runs' minima)
+
+| model | provider | before 1 / 16 / 64 sequences | **after** | vLLM at 64 | ours / vLLM at 64 before → after |
+|---|---|---|---|---:|---:|
+| gpt-oss-20b | CUDA | 5.34 / 11.89 / 17.79 | **5.34 / 10.06 / 16.12** | ~16.2 | 0.91 → **1.00** |
+| Qwen3-8B-FP8 | CUDA | 11.33 / 13.43 / 17.39 | **11.33 / 13.42 / 16.92** | 15.6 | 0.90 → **0.92** |
+| gpt-oss-20b | Vulkan | 5.33 / 9.93 / 17.26 | 5.32 / 9.92 / 17.21 | | |
+| Qwen3-8B-FP8 | Vulkan | 11.18 / 13.50 / 17.25 | 11.19 / 13.53 / 17.28 | | |
+
+What changed, by size of the effect:
+
+* **Launch bounds for the expert-grouped skinny GEMMs (CUDA)**: gpt-oss-20b at 16 / 64 sequences -1.83 / -1.53 ms. 61.2.
+* **Multi-output q / k / v GEMM**: gpt-oss-20b -0.17 ms and Qwen3-8B-FP8 -0.45 ms at 64 sequences. 61.3.
+* The fused split-K reduction (in the GEMM's last workgroup) was built and measured slower; it is opt-in (61.4).
+
+### 61.2 The expert-grouped skinny GEMM on CUDA: launch bounds
+
+Profiled side by side (`--profile`, gpt-oss-20b, minimum per launch), the skinny MXFP4 expert GEMMs were slower in their CUDA form than
+in their SPIR-V form: at 16 sequences gate / up 108.5 against 67.4 µs, down 47.3 against 42.8 µs, and the whole CUDA step 12.0 against
+10.0 ms on Vulkan (64 sequences: 17.5 against 16.7 ms). NVRTC / ptxas gave the dual kernel 160 registers without spills for its 128
+threads. Stating the block size and one resident block per SM (`__launch_bounds__(128, 1)`, added by the CUDA translator to the
+`gemm_sk` entries of the MoE sources, `NvrtcTranslator.DefaultMinBlocks`) changes how ptxas schedules the weight stream:
+
+| `__launch_bounds__(128, n)` on the MoE skinny GEMMs (gpt-oss-20b, GPU ms per step, 16 / 64 sequences) | |
+|---|---|
+| none (before) | 12.04 / 17.69 |
+| n = 1 | **10.05 / 16.22** |
+| n = 2 | 10.15 / 16.29 |
+| n = 4 (≤ 128 registers) | 12.75 / 21.55 |
+| n = 5 | 17.11 / 32.51 |
+| n = 2 on every `gemm_sk` (also the dense skinny GEMMs and the LM head) | 10.06 / 16.28; Qwen3-8B-FP8 13.66 / 17.04 (+0.2 ms at 16) |
+
+So the bounds stay on the expert kernels only. `SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]` (or `none`) replaces the default and
+is part of the translator's cache key; the translator options version is 6 (cached PTX of version 5 is recompiled). Bounds change only
+ptxas's register allocation and scheduling, not the arithmetic: greedy outputs are byte-identical (61.6).
+
+At 64 sequences the step is now at vLLM's (16.12 against ~16.2 ms). The coordinator's finding from §60 (the grouped MXFP4 GEMM below the
+read limit at ~21 rows per expert in mixed steps) was measured but not solved: 64-row native tiles (`SHARPLIGHT_NATIVE_MOE_SHORT=48` /
+`96`, new), 128-row weight tiles (`SHARPLIGHT_NATIVE_MOE_BN=128`, new), the skinny GEMM up to 24 items per expert
+(`SHARPLIGHT_MOE_SKINNY=24`) and the native GEMM from 24 items per expert all cost 0.1-1.6 ms per 64 + 107-row step (`s3/`, `s4/`).
+
+### 61.3 Multi-output q / k / v GEMM
+
+Sibling matmuls that read the same activations with weights of one format and K (`FindMultiGemmGroups`: q / k / v, all with a bias row or
+none, at most one width that is not a multiple of 128, placed last) keep their own launches and, at the batches where each of them splits
+K (9-256 rows), are served by one GEMM over the concatenated weight rows instead (`EmitMultiGemm`, splitk.slang `MULTI`): each matrix
+stays its own buffer, a tile's weight base is chosen by its first row (every tile reads one matrix), and the split-K reduction stores each
+column into its member's output with its bias. Nothing in the `.slm` layout or the uploaders changes. Both families: gemm_cm2 (16-bit and
+other generated formats) and the fp8 GEMM (an fp8 matmul splits K on gemm_cm2 at 9-16 rows and on the fp8 GEMM from 17 rows, so a group
+gets one multi-output GEMM per family).
+
+| per layer at 64 sequences (CUDA profile, minimum µs) | before | **after** |
+|---|---|---|
+| gpt-oss-20b q / k / v (bf16 as f16, biases) | 35.0 + 9.0 + 9.0 + 3 x 1.8 reductions = 58.4 | **41.4 + 3.9 = 45.3** (one split-K GEMM [2880 → 4096 + 512 + 512], 712 GB/s, and one reduction) |
+| Qwen3-8B-FP8 q / k / v | 28.6 + 10.4 + 10.4 + 3 x 2.1 = 55.7 | **40.9 + 4.0 = 44.9** |
+
+* The 512- and 1024-row k / v matrices ran 4-8 column tiles each, split 8-16 ways; in the concatenation they share the 40-48 column
+  tiles of q. Each output sums its K slices in the concatenation's split order, so where that split differs from the member's own split
+  the partial sums round differently (as between any two split counts); greedy outputs are byte-identical on the prompts of 61.6.
+* Vulkan: the fp8 form is used (Qwen3-8B-FP8 at 64 sequences 17.25 → 17.28 / 17.09 in two pairs: neutral), the gemm_cm2 form only on
+  CUDA C++ targets, because on the NVIDIA Vulkan driver gpt-oss-20b's 64-sequence step lost 2.5 % with it (16.85 → 17.28 ms).
+* `SHARPLIGHT_MULTI_GEMM=0` disables it; `SHARPLIGHT_MULTI_DEBUG=1` reports groups that got no GEMM and why.
+
+### 61.4 Split-K reduction in the GEMM's last workgroup (built, measured slower, opt-in)
+
+`splitk.slang`: the workgroups of a tile write their partial slices, publish them (device-scope release) and count their arrival in a
+per-tile counter; the last one acquires the slices, sums them in slice order (bit-identical to `splitk_reduce`) and stores the result with
+the epilogue, then resets the counter. Forms for gemm_cm2 (with its `MM_EPI` epilogues and row-ranged copies), the fp8 GEMM and the dual fp8
+GEMM, and for the multi-output GEMM. GPU µs per launch at 64 sequences (CUDA profile, minimum):
+
+| GEMM | split | separate reduction | **fused** |
+|---|---:|---|---:|
+| gpt-oss o [4096 → 2880] | 8 | 39.2 + 1.8 | 46.4 |
+| gpt-oss q [2880 → 4096] +bias | 4 | 35.0 + 1.8 | 42.3 |
+| gpt-oss k / v [2880 → 512] +bias | 16 | 9.0 + 1.8 | 14.4 |
+| gpt-oss router [2880 → 32] +bias | 16+ | 5.8 + 3.5 | 9.2 |
+| Qwen3 q / o [4096 → 4096] (fp8) | 4 | 28.6 + 2.1 | 32.0 |
+| Qwen3 k / v [4096 → 1024] (fp8) | 8 | 10.4 + 2.1 | 14.2 |
+| Qwen3 down [12288 → 4096] (fp8) | 4 | 75.1 + 2.1 | 77.8 |
+| multi-output q / k / v, gpt-oss | 4 | 41.4 + 3.9 | 49.0 |
+
+The last workgroup of each tile reads all its slices alone (k / v: 16 slices of 32 KB per tile), at the bandwidth of one SM, at the end
+of the launch, where the separate reduction spreads the same reads over the whole GPU; graph-replayed launches leave ~0.2 µs between
+kernels (§58.3), so the saved launch is worth less than the tail. Whole steps at 64 sequences: gpt-oss-20b 17.80 → 18.26 ms, Qwen3-8B-FP8
+17.27 → 17.80 ms. `SHARPLIGHT_SPLITK_FUSED=1` (single GEMMs) and `SHARPLIGHT_MULTI_FUSED=1` (the multi-output GEMM) switch it on.
+On the NVIDIA Vulkan driver the fused fp8 GEMM returned a few wrong outputs in `FusionTests.SiblingProjections` (gemm_cm2's passed), so
+the fp8 form is used only on CUDA C++ targets; an atomic through a dereferenced pointer (`InterlockedAdd(*ptr, ...)`) also never counted
+there, so the counters are indexed. Two related experiments, also opt-in and slower: a K split chosen by wave fill for one-token-row grids
+(`SHARPLIGHT_SPLIT_FILL=1`: gpt-oss o 39.2 → 49.3 µs; the 64-row gemm_cm2 tiles run two workgroups per SM, so the 82-tile wave it assumes
+is wrong) and a K-split dual fp8 gate / up GEMM at decode sizes (`SHARPLIGHT_FP8_DUAL_SPLIT=1`: Qwen3-8B-FP8 step 17.3 → 22.6 ms).
+
+### 61.5 gpt-oss prefill: the native f16 GEMM with a bias store
+
+`gemm_f16_native.cu` takes `H_BIAS` (the store adds the bias row) and `H_XRS` (the rows of a row-ranged f16 copy are multiplied by
+their inverse scale first, exact, as the unscale launch did), so q / k / v / o with biases leave gemm_cm2 (`UseNativeBiasGemm`, from 1024
+rows: at 256-512 rows gemm_cm2's split-K reduction with the bias epilogue was faster).
+
+| | before | **after** |
+|---|---:|---:|
+| gpt-oss-20b prefill 512 / 2048 / 8192 tokens (tok/s, best of the `--bench` runs) | 13,203 / 15,770 / 14,594 | 12,923 / **16,132 / 14,865** (512: unchanged path, noise) |
+| ours / vLLM (11,436 / 16,379 / 15,812) | 1.15 / 0.96 / 0.92 | 1.13 / **0.98 / 0.94** |
+| mixed step 64 + 960 rows (ms) | 74.57 | **73.73** |
+| Qwen3-8B-FP8 prefill 512 / 2048 / 8192 (no biases: unchanged) | 14,459 / 14,207 / 11,747 | 14,492 / 14,159 / 11,730 |
+
+Not done: the expert gather / slot sum fused into the routing and the down GEMM (§58.9 lever 4b). The gather of the gate / up input could
+be done on load by the native MoE GEMM (indexed `cp.async` rows of an unsorted f16 copy), but the larger part is the down projection's
+gather of the gate / up output, which needs the dual GEMM to store its f16 output in sorted order with the range guard of an unbounded
+product (a fix-up pass like `f16_range_fixup`); a fused slot sum by atomics would make the outputs depend on the order of arrival.
+
+### 61.6 Correctness and tests
+
+* Greedy text, 120 tokens, the round's features on and off (CUDA): Qwen3-8B-FP8 byte-identical after a short, a ~170-token and a
+  ~1000-token prompt; gpt-oss-20b byte-identical after the short and ~170-token prompts. After the ~1000-token prompt (prefill rows on the
+  native bias GEMM) it diverges ~300 characters into the answer, a near-tie as in §58.6 (a different f16 GEMM sums in another order).
+  The launch bounds alone leave it byte-identical.
+* New tests: `FusionTests.SiblingProjections` (q / k / v of 1024 / 256 / 136 rows over K = 1536 with and without biases, bf16 / f16 /
+  q8_0 / E4M3 weights at 16-300 rows: the multi-output GEMM, its last member unaligned, and the batches it does not serve) and a 1100-row
+  `FusionTests.MatMulBias` case (the native bias GEMM). The sibling test also passes with `SHARPLIGHT_MULTI_FUSED=1` and
+  `SHARPLIGHT_SPLITK_FUSED=1` on CUDA.
+
+GPU 0, this branch after merging `develop` (`120cdcb8`):
+
+| suite | result |
+|---|---|
+| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped (cuBLASLt not installed) |
+| Sharplight.Vulkan.Tests on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`, one process per class, 63 classes without BenchTests) | 1508 / 0 failed / 23 skipped (one MoeTests case first failed with "model does not fit" while the GPU was full, and passed on rerun with the class) |
+| Sharplight.Vulkan.Tests on Vulkan, the GEMM / MoE / fusion classes (MatMul, Fusion, DualGemm, Moe, Mmq, SkinnyGemm, MatMulEpilogue, SplitHalfGemm, SimtGemm, BatchMatMul, RowInvariance, NormHalfCopy) | 608 / 0 failed / 0 skipped |
+
+Vulkan: the kernel sources changed (splitk.slang, the `MULTI` / `SPLITK_FUSED` forms, both off by default except the fp8 multi-output
+GEMM), so Vulkan was benchmarked instead of diffed: decode steps in 61.1 (within ±0.3 %).
+
+### 61.7 Serving and long contexts
+
+`bench/s16_serve.sh`, 64 slots of 512 tokens, ~250-token prompts, 128 output tokens, `QUIET_GPU=1`; aggregate output tok/s / TTFT p50 ms /
+mean inter-token latency ms. gpt-oss: mean of four "after" rounds in two sessions and of the undisturbed "before" rounds (a second "before"
+session measured 972 and 1475 tok/s in one round each while another process used the GPU: discarded). vLLM: §60.
+
+| model | streams | before | **after** | vLLM | ours / vLLM before → after |
+|---|---:|---|---|---|---:|
+| gpt-oss-20b | 16 | 1141 / 114 / 13.1 | **1295 / 112 / 11.4** | 1424 / 183 / 9.9 | 0.80 → **0.91** |
+| | 64 | 2400 / 267 / 23.6 | **2514 / 260 / 22.5** | 3154 / 413 / 17.0 | 0.76 → **0.80** |
+| Qwen3-8B-FP8 | 16 | 991 / 119 / 15.2 (§60) | **988 / 117 / 15.2** | 1115 / 168 / 12.9 | 0.89 → **0.89** |
+| | 64 | 2447 / 287 / 23.4 (§60) | **2403 / 288 / 23.3** | 2691 / 400 / 20.2 | 0.91 → **0.89** |
+
+At 64 streams a round is dominated by mixed steps (prompt waves of up to 2048 rows, §60.1), which this round changed little (61.2);
+the decode-only steps gained 9 %.
+
+Long contexts (`bench/s58_long.sh`, our side only, this session; vLLM: §58.8):
+
+| model | tokens | prefill tok/s CUDA | / vLLM | §58.8 |
+|---|---:|---:|---:|---:|
+| gpt-oss-20b | 16,384 / 32,768 / 65,536 / 131,072 | 13,552 / 11,578 / 8,788 / 5,931 | 0.93 / 0.94 / 0.93 / 0.92 | 0.92 / 0.93 / 0.92 / 0.92 |
+| Qwen3-8B-FP8 (YaRN) | same | 9,616 / 6,988 / 4,547 / 2,444 | 0.97 / 0.98 / 1.00 / 0.93 | 0.97 / 0.97 / 1.00 / 0.93 |
+
+| decode | depth | 1 stream tok/s CUDA / vLLM | 4 streams (aggregate) CUDA / vLLM |
+|---|---:|---|---|
+| gpt-oss-20b | 32,768 | 154.6 / 150.7 (1.03) | 337.6 (11.85 ms per step) / 310.8 (**1.09**; §58.8: 0.98) |
+| | ~128K | 98.9 / 107.3 (0.92) | 156.6 (25.54 ms) / 174.9 (0.90; fits since `window_kv`, §60.3: 26.88 ms) |
+| Qwen3-8B-FP8 (YaRN) | 32,768 | 57.9 / 57.8 (1.00) | 110.9 / 107.1 (1.04) |
+| | ~128K | 28.5 / 29.6 (0.96) | does not fit (on either) |
+
+Long prefill is attention-bound (gpt-oss at 32K: MoE 52 %, attention 29 %; Qwen3 attention 53 %) and moved only within noise.
+
+### 61.8 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b decode step, 64 sequences | **1.00** (16.12 against ~16.2 ms) | expert GEMMs ~10.2, projections 2.6 (q / k / v 45 + o 41 µs per layer), attention ~1.3 |
+| Qwen3-8B-FP8 decode step, 64 sequences | 0.92 (16.92 against 15.6 ms) | FP8 gate / up dual GEMM 147.5 µs per layer at ~680 GB/s (192 workgroups at one per SM: 2.3 waves), down 75, q / k / v 45, o 31 |
+| gpt-oss-20b serving 16 / 64 streams | 0.91 / 0.80 | 64: mixed steps (prompt rows ~60 µs each; the grouped MXFP4 GEMM at 16-48 rows per expert below the read limit) |
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.89 / 0.89 | its decode step |
+| gpt-oss-20b prefill 512 / 2048 / 8192 | 1.13 / 0.98 / 0.94 | experts and attention ahead at 2048; expert gather + slot sum 7.5 against 1.5 ms per pass; norms / rope ~9 ms |
+| Qwen3-8B-FP8 prefill 512 / 2048 / 8192 | 1.05 / 0.95 / 0.95 | FP8 GEMM main loop at 76 % of the MMA peak per cycle against CUTLASS's ~90 % (§57.2) |
+| long prefill 16K-128K | 0.92-0.94 (gpt-oss), 0.93-1.00 (Qwen3) | attention 9-15 % behind FlashInfer at 128K |
+| long decode, 1 / 4 streams | 0.92-1.03 / 0.90-1.09 | decode attention at depth |
+
+Ranked levers:
+
+1. **Mixed-step expert GEMMs** (gpt-oss serving at 64 streams, 0.80x): the grouped MXFP4 GEMM at 16-48 rows per expert (§60.1: 3.5 of
+   the 6.7 ms a 107-row prompt adds); 64-row tiles, narrower tiles and the skinny form were measured slower (61.2). Candidates: split K
+   over two blocks per tile at these sizes (more blocks per SM and a stream that reaches the read limit), or the skinny form's
+   register-direct fetch with the native kernel's `cp.async` ring.
+2. **FP8 decode GEMMs at one workgroup per SM** (Qwen3 decode 0.92x): gate / up runs 192 workgroups in 2.3 waves of 82; a decode
+   form with a smaller register budget or a hand-written `cp.async` skinny FP8 GEMM (CUDA), ~1.2 ms per step → ~15.7 ms.
+3. **gpt-oss prefill MoE glue**: the down projection's gather of the gate / up output and the slot sum (~5 ms per 2048-row pass), see 61.5.
+4. **FP8 GEMM main loop** (§57): ~+7 % Qwen3 prefill.
+5. **Attention at long prompts and decode at depth** (§58.9 lever 6).
+
+### 61.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench; CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+OFF="SHARPLIGHT_MULTI_GEMM=0 SHARPLIGHT_NATIVE_GEMM_BIAS=0 SHARPLIGHT_CUDA_MIN_BLOCKS=none"   # before
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,64 --modes greedy --reps 20      # env $OFF for before
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 64 --modes greedy --reps 5 --profile 64 --profile-mode greedy
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 68 --ctx 2560 --batch 2048 --depth 256 --sizes 16 --mixed 64+0,64+107x1,64+192x1,64+448x1,64+960x1 --modes greedy --reps 10
+for n in 512 2048 8192; do $CLI ~/models/hf/gpt-oss-20b --provider cuda --bench $n --ctx $((n + 256)); done
+SHARPLIGHT_COMPILATION_CACHE=off SHARPLIGHT_CUDA_MIN_BLOCKS="matmul_moe_dual:gemm_sk:2;matmul_moe_epi:gemm_sk:2" $BB ...   # launch-bounds sweep
+SHARPLIGHT_SPLITK_FUSED=1 / SHARPLIGHT_MULTI_FUSED=1 / SHARPLIGHT_SPLIT_FILL=1 / SHARPLIGHT_FP8_DUAL_SPLIT=1 $BB ...          # 61.4
 ```

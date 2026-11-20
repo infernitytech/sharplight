@@ -60,13 +60,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   window). The ranked plan to ≥1.0x is §58.9: decode-step GEMMs (multi-output q / k / v, split-K in the GEMM, MXFP4 and FP8 skinny
   GEMMs at the read limit), serving host time and mixed steps, the native f16 GEMM with bias epilogues and fused MoE glue for
   gpt-oss prefill, the FP8 main loop, attention efficiency at 128K, window-sized KV caches.
-  Round 15 (§59): decode-step GEMMs. Launch bounds for the expert-grouped skinny GEMMs on CUDA (ptxas scheduled them for full occupancy)
+  Round 15 (§61): decode-step GEMMs. Launch bounds for the expert-grouped skinny GEMMs on CUDA (ptxas scheduled them for full occupancy)
   take gpt-oss-20b's decode step at 16 / 64 sequences from 11.9 / 17.8 to 10.1 / 16.1 ms (vLLM ~16.2 at 64); a multi-output q / k / v
   GEMM over the separate weight buffers (no `.slm` change; gemm_cm2 on CUDA, the fp8 GEMM on both providers) takes Qwen3-8B-FP8's from
   17.4 to 16.9 ms (vLLM 15.6). The native f16 GEMM stores biases (gpt-oss prefill +2 % at 2048 / 8192 tokens: 0.98x / 0.94x of vLLM).
   The split-K reduction in the GEMM's last workgroup was built and measured slower than the separate launch (opt-in). Serving gpt-oss
   0.91x / 0.80x of vLLM at 16 / 64 streams (was 0.80x / 0.76x); the 64-stream gap is now the prompt rows of mixed steps (the grouped
-  MXFP4 GEMM at 16-48 rows per expert) and the FP8 decode GEMMs (gate / up at 1 workgroup per SM, 2.3 waves). Next: §59.8.
+  MXFP4 GEMM at 16-48 rows per expert) and the FP8 decode GEMMs (gate / up at 1 workgroup per SM, 2.3 waves). Next: §61.8.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:
@@ -221,6 +221,13 @@ GPU (Vulkan):
   fragments; a subgroup-uniform skip of empty fragments made it 50 % slower).
   Earlier next: an expert GEMM fetching at ~800 GB/s for 16-48 rows per expert (raw MXFP4 stages in shared memory, 3 workgroups per SM);
   Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
+- **MoE with CPU offload** (§59): routed experts placed apart from their layer (the first layers' experts on the CPU, everything dense on
+  the GPU, llama.cpp's `--n-cpu-moe`), shared activation arenas, fused AVX2 integer dots for the IQ grid formats, and prefill with the
+  CPU experts streamed to the GPU (page-locked mapped weights, copied while the layer before runs). Next: decode still trails llama.cpp
+  on CUDA (GPU step ~9.7 ms of ~1350 launches, 8-9 expert layers on the CPU against llama.cpp's 6: the 1 GiB device reserve, the
+  512-row logits buffer and the per-segment buffers take ~2.5 GiB); hide more of the streamed copies without giving up a layer (two
+  memories cost more than they saved, §59.5); copies on Vulkan's transfer queue; gpt-oss on Vulkan (page-cache-bound streaming); AVX-512 / VNNI and NEON fused grid dots;
+  Qwen3.8-Flash-Next and Qwen3-Coder-Next offloaded against llama.cpp.
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).

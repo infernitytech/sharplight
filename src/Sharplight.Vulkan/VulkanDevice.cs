@@ -108,6 +108,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// <inheritdoc />
     public bool SharesWeights => true;
 
+    /// <inheritdoc />
+    public bool StreamsWeights => true;
+
     /// <summary>
     /// Live memory figures of the largest device-local heap: VK_EXT_memory_budget when the driver has it (accounts for other
     /// processes), else our own tally against the configured budget. <see cref="DeviceMemoryLimits.DeviceMemory"/> caps the total.
@@ -455,6 +458,44 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// (and frees) its buffer, the later ones reuse it.
     /// </summary>
     internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<Models.StateDefinition, Allocation>> SharedStates { get; } = new();
+
+    /// <summary>
+    /// The segment that last submitted work using buffers shared with other segments (activation arenas, streamed weights), until a later
+    /// such segment waits for it: executions are asynchronous and the queue does not order separate submissions.
+    /// </summary>
+    internal VulkanSegment? PendingShared { get; set; }
+
+    private WeightUploader? _streamUploader;
+    private long _streamLargestRow;
+    private VkCommandPool _streamPool;
+
+    /// <summary>Serializes the use of the streaming uploader (<see cref="StreamUploader"/>).</summary>
+    internal Lock StreamLock { get; } = new();
+
+    /// <summary>
+    /// The uploader that segments streaming their weights (<see cref="CompileOptions.StreamWeights"/>) share, with its own command pool;
+    /// its staging buffers are allocated on first use and kept. Hold <see cref="StreamLock"/> while using it and call
+    /// <see cref="WeightUploader.Complete"/> before releasing the lock.
+    /// </summary>
+    internal WeightUploader StreamUploader(long largestRow)
+    {
+        if (_streamUploader is { } uploader && _streamLargestRow >= largestRow)
+        {
+            return uploader;
+        }
+
+        _streamUploader?.Dispose();
+        if (_streamPool.Handle == 0)
+        {
+            _streamPool = CreateCommandPool();
+        }
+
+        _streamLargestRow = Math.Max(1, largestRow);
+        return _streamUploader = new WeightUploader(this, _streamPool, long.MaxValue, _streamLargestRow);
+    }
+
+    /// <summary>Per <see cref="CompileOptions.StateScope"/>: the activation buffers its segments on this device share, by buffer name.</summary>
+    internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<string, SharedArena<Allocation>>> SharedArenas { get; } = new();
 
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
@@ -1034,6 +1075,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         if (_pipelineCache != VkPipelineCache.Null)
         {
             Api.vkDestroyPipelineCache(_pipelineCache, null);
+        }
+
+        _streamUploader?.Dispose();
+        if (_streamPool.Handle != 0)
+        {
+            Api.vkDestroyCommandPool(_streamPool, null);
         }
 
         Memory.Dispose();

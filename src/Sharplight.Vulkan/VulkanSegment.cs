@@ -12,7 +12,7 @@ namespace Sharplight.Vulkan;
 /// decode). Per-step values (n_past) live in a small host-visible runtime buffer, so the decode
 /// command buffer is recorded once and re-submitted for every token.
 /// </summary>
-public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegment, IDeviceForwardingSegment
+public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
     private readonly VulkanDevice _dev;
     private readonly KernelProgram _program;
@@ -20,6 +20,12 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <summary>Weight buffers held through <see cref="CompileOptions.SharedWeights"/> (their allocations are freed by the lease).</summary>
     private readonly Dictionary<BufferDecl, SharedWeightLease<Allocation>> _leases = [];
     private readonly HashSet<BufferDecl> _borrowedStates = [];   // state buffers another segment of the same graph allocated (and frees)
+    /// <summary>Activation buffers shared with the model's other segments on this device (see <see cref="SharedArena{T}"/>).</summary>
+    private readonly Dictionary<BufferDecl, SharedArenaBuffer<Allocation>> _sharedArenas = [];
+    /// <summary>With <see cref="CompileOptions.StreamWeights"/>: the weight buffers, copied in at every execution (see <see cref="StreamWeights"/>).</summary>
+    private readonly List<BufferDecl> _streamedWeights = [];
+    /// <summary>The copy of the streamed weights that <see cref="BeginStreaming"/> started on a worker thread, until an execution waits for it.</summary>
+    private Task? _streaming;
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -95,7 +101,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     }
 
     /// <summary>Waits for the submitted execution, if any, and reads its timestamps. Thread-safe.</summary>
-    private void WaitForCompletion()
+    internal void WaitForCompletion()
     {
         if (!_pending)
         {
@@ -188,6 +194,14 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             foreach (var b in program.Buffers)
             {
                 ulong size = (ulong)Math.Max(16, b.Bytes);
+                // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
+                if (b.Kind == BufferKind.Weight && options.StreamWeights && options.StateScope is { } streamScope)
+                {
+                    bytes += ShareArena(dev, streamScope, $"stream{options.StreamBuffer}:" + _streamedWeights.Count, b, size);
+                    _streamedWeights.Add(b);
+                    continue;
+                }
+
                 if (b.Kind == BufferKind.Weight && b.Weight is { } w && options.SharedWeights is { } shared)
                 {
                     // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
@@ -196,6 +210,13 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                     _leases[b] = lease;
                     _alloc[b] = lease.Buffer;
                     bytes += lease.MustFill ? b.Bytes : 0;
+                    continue;
+                }
+
+                // The segments of one graph on this device run one after another and share their transient buffers.
+                if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope && SharedArena<Allocation>.Enabled)
+                {
+                    bytes += ShareArena(dev, arenaScope, b.Name, b, size);
                     continue;
                 }
 
@@ -223,7 +244,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             }
             DeviceMemoryBytes = bytes;
             var swUp = Stopwatch.StartNew();
-            UploadWeights();
+            if (_streamedWeights.Count == 0)
+            {
+                UploadWeights();
+            }
             if (DiagnosticSwitches.LoadTiming)
             {
                 Console.Error.WriteLine($"[load] upload segment {segment.Index}: {swUp.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB");
@@ -338,6 +362,69 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>
     private static string LayoutName(BufferDecl b) => b.Repack == WeightRepack.None ? "" : $"vulkan:{b.Repack}:{b.RepackRowElements}";
 
+    /// <summary>Takes the buffer of <paramref name="b"/> from the arena <paramref name="key"/> of <paramref name="scope"/> on the device; returns the bytes newly allocated.</summary>
+    private long ShareArena(VulkanDevice dev, object scope, string key, BufferDecl b, ulong size)
+    {
+        var arenas = dev.SharedArenas.GetOrCreateValue(scope);
+        if (!arenas.TryGetValue(key, out var arena))
+        {
+            arenas[key] = arena = new SharedArena<Allocation>();
+        }
+
+        var sharedArena = arena.Acquire((long)size, n => dev.Memory.Allocate((ulong)n, MemoryUsage.Device, Purpose(b)), dev.Memory.Free, out bool allocated);
+        _sharedArenas[b] = sharedArena;
+        _alloc[b] = sharedArena.Buffer;
+        return allocated ? b.Bytes : 0;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>The copy runs through the device's staging buffers on a worker thread, while the caller runs the segment before this one.</remarks>
+    public void BeginStreaming()
+    {
+        if (_streamedWeights.Count > 0 && _streaming is null)
+        {
+            _streaming = Task.Run(CopyStreamedWeights);
+        }
+    }
+
+    /// <summary>Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now.</summary>
+    private void StreamWeights()
+    {
+        var streaming = _streaming;
+        _streaming = null;
+        if (streaming is null)
+        {
+            CopyStreamedWeights();
+        }
+        else
+        {
+            streaming.GetAwaiter().GetResult();
+        }
+    }
+
+    /// <summary>Copies the streamed weights into their shared buffers (<see cref="CompileOptions.StreamWeights"/>) and waits for the copies.</summary>
+    private void CopyStreamedWeights()
+    {
+        long total = _streamedWeights.Sum(b => b.Bytes);
+        long largestRow = _streamedWeights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
+        var timer = Stopwatch.StartNew();
+        lock (_dev.StreamLock)
+        {
+            var uploader = _dev.StreamUploader(largestRow);
+            foreach (var buffer in _streamedWeights)
+            {
+                uploader.Upload(buffer, _alloc[buffer]);
+            }
+
+            uploader.Complete();
+        }
+
+        if (DiagnosticSwitches.LoadTiming)
+        {
+            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB in {timer.Elapsed.TotalMilliseconds:F1} ms");
+        }
+    }
+
     // ---- I/O ---------------------------------------------------------------------------------
     /// <inheritdoc />
     /// <exception cref="ArgumentException">The data exceeds the size compiled for (see <see cref="CompileOptions.MaxTokens"/>).</exception>
@@ -444,6 +531,22 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     {
         _dev.ThrowIfDisposed();
         WaitForCompletion();
+        if (_sharedArenas.Count > 0)
+        {
+            // Another segment of the device may still run on the same shared buffers.
+            if (_dev.PendingShared is { } previous && previous != this)
+            {
+                previous.WaitForCompletion();
+            }
+
+            _dev.PendingShared = this;
+        }
+
+        if (_streamedWeights.Count > 0)
+        {
+            StreamWeights();
+        }
+
         var rt = _staging[_program.RuntimeBuffer];
         var slots = new Span<uint>(rt.Mapped, 64);
         foreach (var (name, slot) in _program.ScalarSlots)
@@ -1242,6 +1345,21 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         _disposed = true;
+        try
+        {
+            if (_dev.PendingShared == this)
+            {
+                _dev.PendingShared = null;
+            }
+
+            // A copy BeginStreaming started without an execution may still write the shared weight buffers.
+            _streaming?.Wait();
+        }
+        catch (AggregateException)
+        {
+            // Its failure belongs to the execution that never came.
+        }
+
         if (_dev.IsDisposed)
         {
             // The device was disposed first (out of order): destroying it released this segment's command buffers, pools, fences
@@ -1277,7 +1395,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         _plans.Clear();
         foreach (var (b, a) in _alloc)
         {
-            if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
+            if (_sharedArenas.TryGetValue(b, out var arena))
+            {
+                arena.Release();
+            }
+            else if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
             {
                 _dev.Memory.Free(a);
             }

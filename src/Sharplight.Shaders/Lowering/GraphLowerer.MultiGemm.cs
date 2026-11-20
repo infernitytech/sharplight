@@ -118,7 +118,7 @@ public sealed partial class GraphLowerer
         foreach (bool family in new[] { false, true })
         {
             // gemm_cm2's multi-output form only where the target compiles CUDA C++: on the NVIDIA Vulkan driver gpt-oss-20b's
-            // 64-sequence decode step lost 2.5 % with it (16.85 → 17.28 ms; benchmarks.md section 59), the fp8 form gained 1 %.
+            // 64-sequence decode step lost 2.5 % with it (16.85 → 17.28 ms; benchmarks.md section 61), the fp8 form gained 1 %.
             if (!family && !_compiler.CompilesCuda(_opt.Target))
             {
                 continue;

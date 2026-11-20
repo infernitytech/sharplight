@@ -115,6 +115,9 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// <inheritdoc />
     public bool SharesWeights => true;
 
+    /// <inheritdoc />
+    public bool StreamsWeights => true;
+
     /// <summary>The submission budget in ms (0 = unlimited).</summary>
     public double SubmissionBudgetMs => Code.SubmissionBudgetMs;
 
@@ -163,6 +166,93 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// (and frees) its buffer, the later ones reuse it.
     /// </summary>
     internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<Models.StateDefinition, CudaBuffer>> SharedStates { get; } = new();
+
+    private CudaWeightUploader? _streamUploader;
+    /// <summary>Host ranges registered for streamed weights (start address to length and holders), and their total.</summary>
+    private readonly Dictionary<nint, (long Bytes, int Holders)> _registered = [];
+    private long _registeredBytes;
+
+    /// <summary>
+    /// Bytes of mapped weight files that streamed segments may page-lock for direct copies (<see cref="TryRegisterHost"/>): the pinned host
+    /// memory limit when one is set, else a quarter of the memory available to the process (the pages cannot be reclaimed while locked).
+    /// </summary>
+    private long RegisterBudget => Limits.PinnedHostMemory ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 4;
+
+    /// <summary>
+    /// Page-locks <paramref name="bytes"/> of read-only host memory at <paramref name="start"/> (page aligned; a mapped weight file) so the
+    /// device copies from it directly, within <see cref="RegisterBudget"/>; a range registered before gains a holder. False when the budget or
+    /// the driver refuses (the caller then copies through staging memory).
+    /// </summary>
+    internal bool TryRegisterHost(byte* start, long bytes)
+    {
+        lock (_registered)
+        {
+            if (_registered.TryGetValue((nint)start, out var entry) && entry.Bytes == bytes)
+            {
+                _registered[(nint)start] = (bytes, entry.Holders + 1);
+                return true;
+            }
+
+            if (_registeredBytes + bytes > RegisterBudget)
+            {
+                return false;
+            }
+
+            Enter();
+            if (CudaApi.cuMemHostRegister(start, (nuint)bytes, CudaApi.MemHostRegisterReadOnly) != 0)
+            {
+                return false;
+            }
+
+            _registered[(nint)start] = (bytes, 1);
+            _registeredBytes += bytes;
+            return true;
+        }
+    }
+
+    /// <summary>Gives up a hold from <see cref="TryRegisterHost"/>; the last one unregisters the range.</summary>
+    internal void UnregisterHost(byte* start)
+    {
+        lock (_registered)
+        {
+            if (!_registered.TryGetValue((nint)start, out var entry))
+            {
+                return;
+            }
+
+            if (entry.Holders > 1)
+            {
+                _registered[(nint)start] = (entry.Bytes, entry.Holders - 1);
+                return;
+            }
+
+            _registered.Remove((nint)start);
+            _registeredBytes -= entry.Bytes;
+            Enter();
+            CudaApi.cuMemHostUnregister(start);
+        }
+    }
+
+    /// <summary>Serializes the use of the streaming uploader (<see cref="StreamUploader"/>).</summary>
+    internal Lock StreamLock { get; } = new();
+
+    /// <summary>
+    /// The uploader that segments streaming their weights (<see cref="CompileOptions.StreamWeights"/>) share, created on first use with
+    /// full-size staging buffers; hold <see cref="StreamLock"/> while using it. The context must be current.
+    /// </summary>
+    internal CudaWeightUploader StreamUploader(long largestRow)
+    {
+        if (_streamUploader is { } uploader && uploader.StagingSize >= largestRow)
+        {
+            return uploader;
+        }
+
+        _streamUploader?.Dispose();
+        return _streamUploader = new CudaWeightUploader(this, long.MaxValue, largestRow);
+    }
+
+    /// <summary>Per <see cref="CompileOptions.StateScope"/>: the activation buffers its segments on this device share, by buffer name.</summary>
+    internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<string, SharedArena<CudaBuffer>>> SharedArenas { get; } = new();
 
     /// <inheritdoc />
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
@@ -569,6 +659,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         }
 
         _kernels.Clear();
+        _streamUploader?.Dispose();
+        _streamUploader = null;
         CudaApi.cuStreamDestroy(Stream);
         _disposed = true;
         CudaApi.cuDevicePrimaryCtxRelease(Properties.Ordinal);

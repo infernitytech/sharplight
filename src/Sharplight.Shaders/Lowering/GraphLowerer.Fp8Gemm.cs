@@ -72,7 +72,7 @@ public sealed partial class GraphLowerer
     /// True when the fp8 GEMM's split-K launches reduce in their last workgroups (splitk.slang): on targets that compile CUDA C++ only.
     /// On the NVIDIA Vulkan driver the fused form of gemm_fp8 returned wrong outputs (a few elements, or NaN with cached SPIR-V) in
     /// <c>FusionTests.SiblingProjections</c> while gemm_cm2's fused form passed; Vulkan keeps the reduction launch there (benchmarks.md
-    /// section 59).
+    /// section 61).
     /// </summary>
     private bool Fp8FusedSplitK => DiagnosticSwitches.SplitKFused && _compiler.CompilesCuda(_opt.Target);
 

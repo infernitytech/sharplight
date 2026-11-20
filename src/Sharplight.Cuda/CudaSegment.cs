@@ -13,7 +13,7 @@ namespace Sharplight.Cuda;
 /// submitted (the host can prepare the next step meanwhile); the segment waits for it before it reads an output, takes an input, copies
 /// state or runs again, and before another segment of the device runs (<see cref="CudaDevice.Pending"/>). Profiled executions wait at once.
 /// </summary>
-public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment, IDeviceForwardingSegment
+public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
     /// <summary>Most steps kept recorded per segment (one per distinct symbol binding).</summary>
     private const int MaxRecordings = 64;
@@ -29,6 +29,15 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     private readonly Dictionary<BufferDecl, SharedWeightLease<CudaBuffer>> _leases = [];
     /// <summary>State buffers another segment of the same graph allocated (and frees).</summary>
     private readonly HashSet<BufferDecl> _borrowedStates = [];
+    /// <summary>Activation buffers shared with the model's other segments on this device (see <see cref="SharedArena{T}"/>).</summary>
+    private readonly Dictionary<BufferDecl, SharedArenaBuffer<CudaBuffer>> _sharedArenas = [];
+    /// <summary>With <see cref="CompileOptions.StreamWeights"/>: the weight buffers, copied in at every execution (see <see cref="StreamWeights"/>).</summary>
+    private readonly List<BufferDecl> _streamedWeights = [];
+    /// <summary>Streamed weights read from page-locked mapped memory: the buffer, its source and the registered (page-aligned) byte range.</summary>
+    private readonly List<(BufferDecl Buffer, nint Source, long Offset, long Bytes)> _registeredWeights = [];
+    /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming"/>).</summary>
+    private nint _streamDone;
+    private bool _streaming;
     /// <summary>Inputs copied from an earlier segment's output buffer instead of from <see cref="SetInput"/> (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (CudaBuffer Source, long SourceOffset)> _forwarded = [];
     private readonly Dictionary<string, CudaRecordedLaunch[]> _recorded = [];
@@ -83,10 +92,18 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
 
             DeviceMemoryBytes = bytes;
             var uploadTimer = Stopwatch.StartNew();
-            UploadWeights();
+            if (_streamedWeights.Count == 0)
+            {
+                UploadWeights();
+            }
+            else
+            {
+                RegisterStreamedSources();
+            }
             if (DiagnosticSwitches.LoadTiming)
             {
-                Console.Error.WriteLine($"[load] upload segment {segment.Index}: {uploadTimer.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB");
+                Console.Error.WriteLine($"[load] upload segment {segment.Index}: {uploadTimer.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB; "
+                    + string.Join(", ", program.Buffers.Where(b => b.Kind != BufferKind.Weight).GroupBy(b => b.Kind).Select(g => $"{g.Key} {g.Sum(b => b.Bytes) / 1048576.0:F1} MiB")));
             }
 
             // Buffers are zeroed and weights copied on the device's upload stream; the segment's stream must see them.
@@ -171,6 +188,14 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
     /// <summary>Allocates (or borrows) the buffer of <paramref name="b"/>; returns the bytes this segment newly holds.</summary>
     private long AllocateBuffer(BufferDecl b)
     {
+        // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
+        if (b.Kind == BufferKind.Weight && _options.StreamWeights && _options.StateScope is { } streamScope)
+        {
+            string key = $"stream{_options.StreamBuffer}:" + _streamedWeights.Count;
+            _streamedWeights.Add(b);
+            return ShareArena(streamScope, key, b);
+        }
+
         if (b.Kind == BufferKind.Weight && b.Weight is { } w && _options.SharedWeights is { } shared)
         {
             // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
@@ -178,6 +203,12 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
             _leases[b] = lease;
             _alloc[b] = lease.Buffer;
             return lease.MustFill ? b.Bytes : 0;
+        }
+
+        // The segments of one graph on this device run one after another and share their transient buffers.
+        if (b.Kind == BufferKind.Activations && _options.StateScope is { } arenaScope && SharedArena<CudaBuffer>.Enabled)
+        {
+            return ShareArena(arenaScope, b.Name, b);
         }
 
         // The segments of one graph on this device share each state (its nodes may be split by other devices' nodes).
@@ -193,6 +224,117 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         _alloc[b] = _dev.Allocate(b.Bytes, Purpose(b));
         sharedStates?.Add(b.State!, _alloc[b]);
         return b.Bytes;
+    }
+
+    /// <summary>Takes the buffer of <paramref name="b"/> from the arena <paramref name="key"/> of <paramref name="scope"/> on this device; returns the bytes newly allocated.</summary>
+    private long ShareArena(object scope, string key, BufferDecl b)
+    {
+        var arenas = _dev.SharedArenas.GetOrCreateValue(scope);
+        if (!arenas.TryGetValue(key, out var arena))
+        {
+            arenas[key] = arena = new SharedArena<CudaBuffer>();
+        }
+
+        var sharedArena = arena.Acquire(b.Bytes, bytes => _dev.Allocate(bytes, Purpose(b)), _dev.Free, out bool allocated);
+        _sharedArenas[b] = sharedArena;
+        _alloc[b] = sharedArena.Buffer;
+        return allocated ? b.Bytes : 0;
+    }
+
+    /// <summary>
+    /// Page-locks the mapped source of every streamed weight stored as is (no repack), the whole pages inside it, so that
+    /// <see cref="BeginStreaming"/> copies it asynchronously; weights the budget or the driver refuses go through staging memory.
+    /// </summary>
+    private void RegisterStreamedSources()
+    {
+        nint done;
+        CudaApi.Check(CudaApi.cuEventCreate(&done, CudaApi.EventDisableTiming), "cuEventCreate");
+        _streamDone = done;
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_REGISTER") is "0" or "false")
+        {
+            return;
+        }
+
+        const long Page = 4096;
+        foreach (var b in _streamedWeights)
+        {
+            nint source = b.Repack == WeightRepack.None && b.InitialData is null ? b.Weight?.Source.TryGetPointer() ?? 0 : 0;
+            if (source == 0)
+            {
+                continue;
+            }
+
+            long start = ((source + Page - 1) & ~(Page - 1)) - source;
+            long end = ((source + b.Bytes) & ~(Page - 1)) - source;
+            if (end - start >= Page && _dev.TryRegisterHost((byte*)source + start, end - start))
+            {
+                _registeredWeights.Add((b, source, start, end - start));
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Weights in page-locked mapped memory are queued as asynchronous copies on the upload stream (they overlap the work running on the
+    /// other streams); the others pass through the device's staging buffers, which takes the calling thread.
+    /// </remarks>
+    public void BeginStreaming()
+    {
+        if (_streamedWeights.Count == 0 || _streaming)
+        {
+            return;
+        }
+
+        var timer = Stopwatch.StartNew();
+        _dev.Enter();
+        lock (_dev.StreamLock)
+        {
+            var registered = _registeredWeights.Select(r => r.Buffer).ToHashSet();
+            var staged = _streamedWeights.Where(b => !registered.Contains(b)).ToList();
+            if (staged.Count > 0)
+            {
+                long largestRow = staged.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
+                var uploader = _dev.StreamUploader(largestRow);
+                foreach (var buffer in staged)
+                {
+                    uploader.Upload(buffer, _alloc[buffer]);
+                }
+            }
+
+            foreach (var (buffer, source, offset, bytes) in _registeredWeights)
+            {
+                ulong destination = _alloc[buffer].Pointer;
+                long tail = buffer.Bytes - offset - bytes;
+                // The partial pages around the registered range are copied from pageable memory, still on the upload stream.
+                if (offset > 0)
+                {
+                    CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination, (void*)source, (nuint)offset, _dev.Stream), "cuMemcpyHtoDAsync");
+                }
+
+                CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination + (ulong)offset, (byte*)source + offset, (nuint)bytes, _dev.Stream), "cuMemcpyHtoDAsync");
+                if (tail > 0)
+                {
+                    CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination + (ulong)(offset + bytes), (byte*)source + offset + bytes, (nuint)tail, _dev.Stream), "cuMemcpyHtoDAsync");
+                }
+            }
+
+            CudaApi.Check(CudaApi.cuEventRecord(_streamDone, _dev.Stream), "cuEventRecord");
+        }
+
+        _streaming = true;
+        if (DiagnosticSwitches.LoadTiming)
+        {
+            long total = _streamedWeights.Sum(b => b.Bytes);
+            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB queued in {timer.Elapsed.TotalMilliseconds:F1} ms ({_registeredWeights.Sum(r => r.Bytes) / 1e9:F2} GB direct)");
+        }
+    }
+
+    /// <summary>Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not.</summary>
+    private void StreamWeights()
+    {
+        BeginStreaming();
+        CudaApi.Check(CudaApi.cuStreamWaitEvent(_stream, _streamDone, 0), "cuStreamWaitEvent");
+        _streaming = false;
     }
 
     /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>
@@ -330,6 +472,11 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         if (_program.ScalarSlots.Count > 0)
         {
             CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(_alloc[_program.RuntimeBuffer].Pointer, _runtimeSlots, RuntimeSlots * sizeof(uint), _stream), "cuMemcpyHtoDAsync");
+        }
+
+        if (_streamedWeights.Count > 0)
+        {
+            StreamWeights();
         }
 
         var bindings = new Bindings(RecordingSymbols(parameters));
@@ -933,10 +1080,26 @@ public sealed unsafe class CudaSegment : ICompiledSegment, IPartialOutputSegment
         }
 
         _disposed = true;
+        if (_streamDone != 0)
+        {
+            // Copies queued by BeginStreaming without an execution may still be running.
+            CudaApi.cuEventSynchronize(_streamDone);
+            CudaApi.cuEventDestroy(_streamDone);
+        }
+
+        foreach (var (_, source, offset, _) in _registeredWeights)
+        {
+            _dev.UnregisterHost((byte*)source + offset);
+        }
+
         _recorded.Clear();
         foreach (var (b, a) in _alloc)
         {
-            if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
+            if (_sharedArenas.TryGetValue(b, out var arena))
+            {
+                arena.Release();
+            }
+            else if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
             {
                 _dev.Free(a);
             }

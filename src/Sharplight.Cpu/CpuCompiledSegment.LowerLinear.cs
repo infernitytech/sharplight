@@ -56,7 +56,20 @@ internal sealed unsafe partial class CpuCompiledSegment
 
         var format = Quant.FormatOf(w.Type)!.Value;
         var y = NewDense(n.Output);
-        AddStep(new MatMulIdOp(x, w, expertIndex, y, format), x, w, expertIndex, y);
+        bool intDot = _features.Contains(DeviceFeatures.IntDot) && (_options.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false));
+        if (IsStatic(ins[1]) && PairedMatMulId(n) is { } pair)
+        {
+            // Gate and up projections of the experts: one pass over both.
+            var w2 = Ref(pair.Inputs[1]);
+            var y2 = NewDense(pair.Output);
+            AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, w2, y2), x, w, expertIndex, y, w2, y2);
+            _refs[n.Output] = y;
+            _refs[pair.Output] = y2;
+            _absorbed.Add(pair);
+            return;
+        }
+
+        AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot), x, w, expertIndex, y);
         _refs[n.Output] = y;
     }
 
@@ -68,5 +81,30 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         AddStep(new BatchMatMulOp(x, z, y, a.Get("trans_a", false), a.Get("trans_b", false), a.Get("alpha", 1f)), x, z, y);
         _refs[n.Output] = y;
+    }
+
+    /// <summary>
+    /// Another MatMulId of this segment not lowered yet that reads the same rows and ids as <paramref name="n"/> with a static weight of the same
+    /// shape, type and precision switches (the gate and up projections of a layer's experts), or null. <c>SHARPLIGHT_CPU_NO_PAIR=1</c> turns it off.
+    /// </summary>
+    private Node? PairedMatMulId(Node n)
+    {
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_NO_PAIR") is "1" or "true" || !_consumers.TryGetValue(n.Inputs[0], out var readers))
+        {
+            return null;
+        }
+
+        var weight = n.Inputs[1];
+        foreach (var m in readers)
+        {
+            if (m != n && m.Op.Name == "MatMulId" && !_absorbed.Contains(m) && !_refs.ContainsKey(m.Output) && m.Inputs[2] == n.Inputs[2]
+                && IsStatic(m.Inputs[1]) && m.Inputs[1].Type == weight.Type && m.Inputs[1].Shape.Equals(weight.Shape)
+                && m.Attributes.Get(StandardOps.F32ActivationsAttribute, false) == n.Attributes.Get(StandardOps.F32ActivationsAttribute, false))
+            {
+                return m;
+            }
+        }
+
+        return null;
     }
 }
