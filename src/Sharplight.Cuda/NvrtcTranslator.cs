@@ -98,6 +98,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         bool dependent = false;
         try
         {
+            source = WithMinBlocks(source, name, entryPoint, threadsLine);
             source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
             dynamicShared = Math.Max(dynamicShared, declaredShared);
             dependent = ComputeCapability >= DependentLaunchCapability && WaitForPrevious(ref source);
@@ -121,6 +122,30 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         string sharedLine = dynamicShared > 0 ? $"{CudaPtx.SharedHeader}{dynamicShared}\n" : "";
         string dependentLine = dependent ? CudaPtx.DependentHeader + "\n" : "";
         return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine + dependentLine), .. ptx];
+    }
+
+    /// <summary>
+    /// <c>SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]</c> (experiment): kernels whose file name contains <c>file</c> and whose entry
+    /// is <c>entry</c> get <c>__launch_bounds__(threads, blocks)</c>, so ptxas caps their registers for that many resident blocks per SM.
+    /// </summary>
+    private static string WithMinBlocks(string source, string name, string entryPoint, string threadsLine)
+    {
+        if (DiagnosticSwitches.MinBlocks is not { } rules || threadsLine.Length == 0)
+        {
+            return source;
+        }
+
+        foreach (var rule in rules.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = rule.Split(':');
+            if (parts.Length == 3 && name.Contains(parts[0], StringComparison.Ordinal) && entryPoint == parts[1])
+            {
+                int threads = int.Parse(threadsLine[SlangCompiler.CudaThreadsHeader.Length..].Split(' ')[0], CultureInfo.InvariantCulture);
+                return KernelEntryPattern().Replace(source, m => m.Value.Replace("__global__", $"__global__ __launch_bounds__({threads}, {parts[2]})", StringComparison.Ordinal), 1);
+            }
+        }
+
+        return source;
     }
 
     /// <summary>Compute capability from which kernels wait for the previous launch themselves (<c>griddepcontrol</c>, PTX 7.8, sm_90).</summary>
