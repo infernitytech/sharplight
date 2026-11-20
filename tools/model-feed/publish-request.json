@@ -1,11 +1,9 @@
 {
   "entries": [
-    "ms-marco-minilm-l6-v2:f32-safetensors"
+    "gemma-4-31b-it:q4-k-m-gguf"
   ],
-  "channel": "stable",
-  "promote": [
-    "ms-marco-minilm-l6-v2.f32-safetensors"
-  ],
+  "channel": "unstable",
+  "promote": [],
   "validityDays": 30,
-  "reason": "Republish ms-marco-MiniLM-L6-v2 as 1.0.1 with catalog kind reranker (manifest-only patch reusing the 1.0.0 payload)."
+  "reason": "First package built on the self-hosted feed runner: Gemma 4 31B Q4_K_M (pipeline check before the other large variants)."
 }
