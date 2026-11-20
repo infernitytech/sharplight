@@ -83,13 +83,15 @@ public sealed class FusionTests
 
     /// <summary>
     /// Matmul + bias row (q / k / v / o projections with biases): single rows add the bias in the split-K matvec's store, row counts
-    /// whose f16 tensor-core GEMM splits K add it in the split-K reduction, other row counts run the matmul and the Add; a bias
+    /// whose f16 tensor-core GEMM splits K add it in the split-K reduction, from 1024 rows the hand-written f16 GEMM (CUDA) adds it in its
+    /// store, other row counts run the matmul and the Add; a bias
     /// added to a matmul output that is also read elsewhere is not folded.
     /// </summary>
     [Theory]
     [InlineData("bf16", 20)]
     [InlineData("bf16", 171)]
     [InlineData("f16", 300)]
+    [InlineData("bf16", 1100)]
     [InlineData("mxfp4", 100)]
     [InlineData("f32", 1)]
     [InlineData("f16", 1)]
@@ -115,6 +117,39 @@ public sealed class FusionTests
         double atol = intDot ? 6e-1 : t > 1 ? 1e-1 : 2e-3, rtol = intDot || t > 1 ? 1e-2 : 1e-3;
         Diff.Check("Fusion.bias." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 5))), atol: atol, rtol: rtol,
             maxTokens: Math.Max(32, t), what: $"T={t}");
+    }
+
+    /// <summary>
+    /// Sibling projections reading the same rows (q / k / v, with or without biases): at the batches where each one splits K, one
+    /// multi-output GEMM over the concatenated weight rows reduces into every output in its last workgroups (the last width, 136,
+    /// is not a multiple of the column tile); other batches run each projection on its own (skinny GEMM, split-K or plain GEMM).
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 16, true)]
+    [InlineData("bf16", 40, true)]
+    [InlineData("bf16", 64, true)]
+    [InlineData("bf16", 200, true)]
+    [InlineData("f16", 100, false)]
+    [InlineData("f16", 300, false)]
+    [InlineData("q8_0", 64, false)]
+    [InlineData("f8e4m3_b128", 40, false)]
+    [InlineData("f8e4m3_b128", 64, true)]
+    public void SiblingProjections(string fmt, int t, bool bias)
+    {
+        Gpu.Require();
+        int K = 1536;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var xn = tg.B.Mul(x, x);
+        foreach (var (name, n) in new[] { ("q", 1024L), ("k", 256L), ("v", 136L) })
+        {
+            var y = tg.B.MatMul(xn, tg.RandW("w" + name, DataType.Get(fmt), 0.1f, n, K));
+            tg.B.Output(name, bias ? tg.B.Add(y, tg.RandW("b" + name, DataType.F32, 0.5f, n)) : y);
+        }
+
+        double atol = fmt == "f8e4m3_b128" ? 1.5 : 1e-1, rtol = fmt == "f8e4m3_b128" ? 5e-2 : 1e-2;
+        Diff.Check("Fusion.siblings." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 6))), atol: atol, rtol: rtol,
+            maxTokens: Math.Max(64, t), what: $"T={t} bias={bias}");
     }
 
     [Theory]

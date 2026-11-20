@@ -26,6 +26,9 @@ internal static class DiagnosticSwitches
 
     public static bool Profile { get; } = IsSet("SHARPLIGHT_CUDA_PROFILE");
 
+    /// <summary><c>SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]</c>: launch bounds for matching kernels (see NvrtcTranslator.WithMinBlocks).</summary>
+    public static string? MinBlocks { get; } = Read("SHARPLIGHT_CUDA_MIN_BLOCKS");
+
     /// <summary>
     /// <c>SHARPLIGHT_CUDA_PDL_TRIGGER=0</c>: kernels compiled for dependent launches only wait for the previous launch at their entry and
     /// do not let the next launch start early (<c>griddepcontrol.launch_dependents</c>); it then starts when this kernel's blocks exit.

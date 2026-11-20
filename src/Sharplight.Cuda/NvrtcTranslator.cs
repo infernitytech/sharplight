@@ -21,7 +21,7 @@ namespace Sharplight.Cuda;
 internal sealed partial class NvrtcTranslator : KernelTranslator
 {
     /// <summary>Version of the options and the PTX post-processing; part of every cache key.</summary>
-    private const string OptionsVersion = "5";
+    private const string OptionsVersion = "6";
 
     /// <summary>The headers NVRTC needs for the half, bfloat16 and 8-bit float types (redistributable, see docs/cuda.md).</summary>
     private static readonly string[] s_headerNames = ["cuda_fp16.h", "cuda_fp16.hpp", "cuda_bf16.h", "cuda_bf16.hpp", "cuda_fp8.h", "cuda_fp8.hpp"];
@@ -46,7 +46,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     public override ShaderTarget SourceTarget => ShaderTarget.CudaSource;
 
     /// <inheritdoc />
-    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.DependentTrigger ? "" : "|pdl-wait")}";
+    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.DependentTrigger ? "" : "|pdl-wait")}{(DiagnosticSwitches.MinBlocks is { } bounds ? "|bounds=" + bounds : "")}";
 
     /// <summary>Kernels this process compiled with NVRTC and the time spent (diagnostics).</summary>
     public static (int Kernels, TimeSpan Time) Statistics => (Volatile.Read(ref s_compiled), Stopwatch.GetElapsedTime(0, Volatile.Read(ref s_ticks)));
@@ -98,6 +98,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         bool dependent = false;
         try
         {
+            source = WithMinBlocks(source, name, entryPoint, threadsLine);
             source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
             dynamicShared = Math.Max(dynamicShared, declaredShared);
             dependent = ComputeCapability >= DependentLaunchCapability && WaitForPrevious(ref source);
@@ -121,6 +122,40 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         string sharedLine = dynamicShared > 0 ? $"{CudaPtx.SharedHeader}{dynamicShared}\n" : "";
         string dependentLine = dependent ? CudaPtx.DependentHeader + "\n" : "";
         return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine + dependentLine), .. ptx];
+    }
+
+    /// <summary>
+    /// Launch bounds of the generated kernels by default (see <see cref="WithMinBlocks"/>): the expert-grouped skinny GEMMs (gemm_sk of
+    /// the MoE sources) as one 128-thread block per SM. Without the bounds ptxas schedules them for full occupancy, and their weight
+    /// stream stalls: gpt-oss-20b decode steps at 16 / 64 sequences 12.04 / 17.69 → 10.05 / 16.22 ms on the RTX PRO 4500 (the same
+    /// kernels' SPIR-V forms take 10.0 / 16.7 ms on the NVIDIA Vulkan driver; benchmarks.md section 61). The dense skinny GEMMs keep
+    /// none (Qwen3-8B-FP8 at 16 sequences +0.2 ms with them).
+    /// </summary>
+    private const string DefaultMinBlocks = "matmul_moe_dual:gemm_sk:1;matmul_moe_epi:gemm_sk:1;matmul_moe:gemm_sk:1";
+
+    /// <summary>
+    /// <c>SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]</c> (replaces the defaults; `none` = no bounds): kernels whose file name contains <c>file</c> and whose entry
+    /// is <c>entry</c> get <c>__launch_bounds__(threads, blocks)</c>, so ptxas caps their registers for that many resident blocks per SM.
+    /// </summary>
+    private static string WithMinBlocks(string source, string name, string entryPoint, string threadsLine)
+    {
+        string rules = DiagnosticSwitches.MinBlocks ?? DefaultMinBlocks;
+        if (threadsLine.Length == 0)
+        {
+            return source;
+        }
+
+        foreach (var rule in rules.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = rule.Split(':');
+            if (parts.Length == 3 && name.Contains(parts[0], StringComparison.Ordinal) && entryPoint == parts[1])
+            {
+                int threads = int.Parse(threadsLine[SlangCompiler.CudaThreadsHeader.Length..].Split(' ')[0], CultureInfo.InvariantCulture);
+                return KernelEntryPattern().Replace(source, m => m.Value.Replace("__global__", $"__global__ __launch_bounds__({threads}, {parts[2]})", StringComparison.Ordinal), 1);
+            }
+        }
+
+        return source;
     }
 
     /// <summary>Compute capability from which kernels wait for the previous launch themselves (<c>griddepcontrol</c>, PTX 7.8, sm_90).</summary>

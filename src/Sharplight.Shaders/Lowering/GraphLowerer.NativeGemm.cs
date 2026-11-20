@@ -249,7 +249,8 @@ public sealed partial class GraphLowerer
     /// Launch variants of the hand-written f16 GEMM (single, or dual with <paramref name="dualEpilogue"/>) for batches of
     /// <paramref name="minRows"/> rows and more: one per tile configuration, each serving the row counts it is estimated fastest for.
     /// </summary>
-    private KernelVariant[] NativeF16Variants(long n, long k, long maxRows, string? dualEpilogue, Func<Bindings, long> rows, long minRows)
+    private KernelVariant[] NativeF16Variants(long n, long k, long maxRows, string? dualEpilogue, Func<Bindings, long> rows, long minRows,
+        bool bias = false, long? rangeScales = null)
     {
         bool dual = dualEpilogue is not null;
         var used = new SortedSet<int>();
@@ -262,6 +263,16 @@ public sealed partial class GraphLowerer
         return [.. used.Select(c =>
         {
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("DUAL", dual ? 1 : 0), ("H_CFG", c));
+            if (bias)
+            {
+                macros["H_BIAS"] = "1";
+            }
+
+            if (rangeScales is { } scales)
+            {
+                macros["H_XRS"] = scales.ToString(CultureInfo.InvariantCulture) + "ull";
+            }
+
             var kernel = _compiler.CompileCuda("gemm_f16_native.cu", dualEpilogue?.Replace("F8N_EPI2", "H_EPI2", StringComparison.Ordinal) ?? "",
                 "gemm_f16_native", s_nativeF16Threads[c], s_nativeF16Shared[c], _opt.Target, macros, _opt.Cache);
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
@@ -300,16 +311,24 @@ public sealed partial class GraphLowerer
     private static long NativeMoeMinItems(long experts) => (DiagnosticSwitches.NativeMoeMinRows ?? 12) * experts;
 
     /// <summary>Bytes of one stage of <c>gemm_moe_native.cu</c>: activation rows, codes and scales of its weight rows.</summary>
-    private static int NativeMoeStageBytes(int columns, bool dual)
-        => NativeMoeTileRows * 128 + 2 * columns * 16 + 2 * (dual ? 2 : 1) * (dual ? columns / 2 : columns) / 16 * 16;
+    private static int NativeMoeStageBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)
+        => tileRows * 128 + 2 * columns * 16 + 2 * (dual ? 2 : 1) * (dual ? columns / 2 : columns) / 16 * 16;
 
     /// <summary>Dynamic shared memory of <c>gemm_moe_native.cu</c> for weight tiles of <paramref name="columns"/> rows.</summary>
-    private int NativeMoeSharedBytes(int columns, bool dual)
-        => NativeMoeStageBytes(columns, dual) * NativeMoeStagesFor(columns, dual);
+    private int NativeMoeSharedBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)
+        => NativeMoeStageBytes(columns, dual, tileRows) * NativeMoeStagesFor(columns, dual, tileRows);
 
     /// <summary>The stages of <c>gemm_moe_native.cu</c> that fit the device's shared memory (<see cref="NativeMoeStages"/> or 3).</summary>
-    private int NativeMoeStagesFor(int columns, bool dual)
-        => _opt.MaxSharedMemory >= NativeMoeStageBytes(columns, dual) * NativeMoeStages + NativeMoeStaticShared ? NativeMoeStages : 3;
+    private int NativeMoeStagesFor(int columns, bool dual, int tileRows = NativeMoeTileRows)
+        => _opt.MaxSharedMemory >= NativeMoeStageBytes(columns, dual, tileRows) * NativeMoeStages + NativeMoeStaticShared ? NativeMoeStages : 3;
+
+    /// <summary>
+    /// Routing tile rows of the hand-written grouped MXFP4 GEMM for a step of <paramref name="items"/> routed items over
+    /// <paramref name="experts"/> experts: 64 up to <c>SHARPLIGHT_NATIVE_MOE_SHORT</c> items per expert (experiment, default off), else
+    /// <see cref="NativeMoeTileRows"/>.
+    /// </summary>
+    private static int NativeMoeTileRowsFor(long items, long experts)
+        => DiagnosticSwitches.NativeMoeShortItems is { } shortItems && items <= shortItems * experts ? 64 : NativeMoeTileRows;
 
     /// <summary>
     /// Weight rows per tile of <c>gemm_moe_native.cu</c> for <paramref name="n"/> outputs: the width (256, 192 or 128 rows; dual pairs
