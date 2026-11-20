@@ -8284,7 +8284,16 @@ prefill varies by ±40 % between its three runs).
   experts): " Paris.\n\nGreat! If you have any more questions ..."; llama.cpp b11177 (CUDA, `-ncmoe 22`) repeats " Paris." after the
   first sentence, so the difference predates this branch.
 
-### 59.5 What did not work, and what limits it
+### 59.5 Tests, what did not work, and what limits it
+
+| suite | result |
+|---|---|
+| Sharplight.Cpu.Tests (incl. new PlacementExpertTests, IntDot IQ / MXFP4 decoders and fused dots, MatMulId integer dots and pairs) | 1358 / 0 failed / 36 skipped |
+| Sharplight.Vulkan.Tests affected classes on CUDA and on Vulkan (StateHandoff, StreamedExperts, Moe, RowInvariance, QuantFormat, F16Range), one class per process | 419 / 0 failed each |
+| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped |
+| FamilyGenerationTests, Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan, after merging `develop` | 3 / 0 each |
+| gpt-oss-120b greedy text, CUDA and Vulkan against `develop` | identical |
+
 
 * The plain integer-dot path (decode a row into codes, then the generic dot) was slower than the float path for IQ2_XXS (0.66 against
   0.53 ms per decode call): the per-16 scale and offset arithmetic outweighs the 8-bit products. The fused dots replaced it; an AVX2
