@@ -94,4 +94,10 @@ public enum InputRole
     /// <see cref="Graph.RecurrentSnapshots"/>).
     /// </summary>
     SequenceSnapshots,
+    /// <summary>
+    /// Paged multi-sequence graphs with window-sized caches (<see cref="Graph.MultiSequence"/> with window rows): the block table [S, B] i32 of
+    /// the caches only sliding-window attention reads; entry (s, j) is the block of the window pool holding positions [j · block size,
+    /// (j + 1) · block size) of slot s while the slot's window still reaches them (other entries name any block of the pool).
+    /// </summary>
+    KvWindowBlockTable,
 }

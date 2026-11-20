@@ -82,6 +82,14 @@ public sealed class InferenceEngine : IDisposable
     private long _loadTimestamp;
     /// <summary>A step this long after the previous one sees the load of its own sequences only (see <see cref="StepTokens"/>).</summary>
     private static readonly TimeSpan LoadHoldTime = TimeSpan.FromSeconds(1);
+    private readonly StepProfiler? _profiler = StepProfiler.Create();
+    /// <summary>
+    /// Whether committed tokens are decoded and streamed while the next step runs on the device (an asynchronous decoder, see
+    /// <see cref="FlushEmits()"/>), instead of before it is scheduled.
+    /// </summary>
+    private readonly bool _deferEmits;
+    /// <summary>Sequences with deferred tokens (<see cref="EngineSequence.PendingEmits"/>).</summary>
+    private readonly List<EngineSequence> _emitPending = [];
     private readonly int _prefillChunk;
     private long _nextId, _tick;
     private int _rr, _transit;
@@ -210,6 +218,12 @@ public sealed class InferenceEngine : IDisposable
             {
                 Console.Error.WriteLine($"[sched] prepared {shapes} decode step shapes in {PrepareTime.TotalMilliseconds:F0} ms");
             }
+        }
+
+        if (decoder is MultiSequenceDecoder { RunsAsynchronously: true } asynchronous && DiagnosticSwitches.DeferEmits)
+        {
+            _deferEmits = true;
+            asynchronous.WhileRunning = FlushEmits;
         }
 
         _thread = new Thread(Run) { Name = "sharplight-scheduler", IsBackground = true };
@@ -514,6 +528,7 @@ public sealed class InferenceEngine : IDisposable
 
         _speculator?.Dispose();
         _decoder.Dispose();
+        _profiler?.Dispose();
     }
 
     // ---- scheduler --------------------------------------------------------------------------------------------------
@@ -540,10 +555,16 @@ public sealed class InferenceEngine : IDisposable
             }
             try
             {
+                long admitStart = Stopwatch.GetTimestamp();
                 Reap();
                 if (!Volatile.Read(ref _admissionPaused))
                 {
                     Admit();
+                }
+
+                if (_profiler is not null)
+                {
+                    _profiler.AdmitMs += Stopwatch.GetElapsedTime(admitStart).TotalMilliseconds;
                 }
 
                 if (_active.Count > 0)
@@ -1512,6 +1533,7 @@ public sealed class InferenceEngine : IDisposable
             return;
         }
 
+        long stepStart = Stopwatch.GetTimestamp();
         _inputs.Clear();
         _stepSeqs.Clear();
         _stepBaseLength.Clear();
@@ -1531,6 +1553,7 @@ public sealed class InferenceEngine : IDisposable
 
         if (_inputs.Count == 0)
         {
+            FlushEmits();
             // Paged cache: every running sequence waits for blocks the others hold; the newest gives its blocks back.
             if (Paged && _active.Count > 1)
             {
@@ -1559,6 +1582,8 @@ public sealed class InferenceEngine : IDisposable
             TraceStep(elapsed, stepTokens - budget.Tokens);
         }
 
+        long processStart = Stopwatch.GetTimestamp();
+        var profileRows = _profiler is null ? default : ProfileRows();
         ProcessResults(results);
         if (observe)
         {
@@ -1566,6 +1591,46 @@ public sealed class InferenceEngine : IDisposable
         }
 
         UpdateKvGauges();
+        if (_deferEmits)
+        {
+            foreach (var s in _stepSeqs)
+            {
+                if (s.PendingEmits.Count > 0 && (_emitPending.Count == 0 || _emitPending[^1] != s))
+                {
+                    _emitPending.Add(s);
+                }
+            }
+        }
+
+        if (_profiler is not null)
+        {
+            _profiler.Write(stepStart, profileRows.Decode, profileRows.Prompt, profileRows.PromptInputs, _active.Count, Stopwatch.GetElapsedTime(stepStart, t0).TotalMilliseconds,
+                (_decoder as MultiSequenceDecoder)?.LastStepPhases ?? new StepPhaseTimes(0, 0, elapsed.TotalMilliseconds, 0, default),
+                Stopwatch.GetElapsedTime(processStart).TotalMilliseconds);
+        }
+    }
+
+    /// <summary>The decode rows, prompt rows and prompt inputs of the step being processed (<see cref="StepProfiler"/>).</summary>
+    private (int Decode, int Prompt, int PromptInputs) ProfileRows()
+    {
+        int decode = 0;
+        int prompt = 0;
+        int promptInputs = 0;
+        for (int i = 0; i < _inputs.Count; i++)
+        {
+            int n = _inputs[i].Tokens.Length;
+            if (_stepReplay[i] || _stepSeqs[i].Prefilling)
+            {
+                prompt += n;
+                promptInputs++;
+            }
+            else
+            {
+                decode += n;
+            }
+        }
+
+        return (decode, prompt, promptInputs);
     }
 
     /// <summary>Writes one line about the step that just ran (<see cref="DiagnosticSwitches.SchedulerTrace"/>).</summary>
@@ -2460,10 +2525,18 @@ public sealed class InferenceEngine : IDisposable
 
         Metrics.Token(s.Generated == 1 ? null : Stopwatch.GetElapsedTime(s.LastTokenTicks, now));
         s.LastTokenTicks = now;
-        string text = s.Filter.Push(s.Decoder.Push(tok));
-        if (text.Length > 0 || lps is not null)
+        if (_deferEmits && lps is null && !s.Filter.CanStop)
         {
-            s.Writer.TryWrite(new GenerationChunk(text, lps));
+            // Nothing in the text can end the sequence: it is decoded and streamed while the next step runs (FlushEmits).
+            s.PendingEmits.Add(tok);
+        }
+        else
+        {
+            string text = s.Filter.Push(s.Decoder.Push(tok));
+            if (text.Length > 0 || lps is not null)
+            {
+                s.Writer.TryWrite(new GenerationChunk(text, lps));
+            }
         }
 
         if (s.Filter.Stopped)
@@ -2483,6 +2556,41 @@ public sealed class InferenceEngine : IDisposable
 
         s.Pending = tok;
         return null;
+    }
+
+    /// <summary>
+    /// Decodes and streams the tokens deferred by <see cref="Commit"/> (called while the next step runs on the device, before a sequence
+    /// completes, and when no step follows), in commit order per sequence.
+    /// </summary>
+    private void FlushEmits()
+    {
+        foreach (var s in _emitPending)
+        {
+            FlushEmits(s);
+        }
+
+        _emitPending.Clear();
+    }
+
+    /// <summary>Decodes and streams one sequence's deferred tokens.</summary>
+    private static void FlushEmits(EngineSequence s)
+    {
+        if (s.PendingEmits.Count == 0)
+        {
+            return;
+        }
+
+        var text = new System.Text.StringBuilder();
+        foreach (int tok in s.PendingEmits)
+        {
+            text.Append(s.Filter.Push(s.Decoder.Push(tok)));
+        }
+
+        s.PendingEmits.Clear();
+        if (text.Length > 0)
+        {
+            s.Writer.TryWrite(new GenerationChunk(text.ToString(), null));
+        }
     }
 
     /// <summary>Makes the tokens that would end <paramref name="s"/> unselectable (<see cref="GenerationRequest.MinTokens"/>).</summary>
@@ -2536,6 +2644,7 @@ public sealed class InferenceEngine : IDisposable
             return;
         }
 
+        FlushEmits(s);
         if (flush)
         {
             string tail = s.Filter.Push(s.Decoder.Flush());

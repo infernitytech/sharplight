@@ -11,6 +11,8 @@ internal sealed class StopStringFilter(IReadOnlyList<string> stops)
     private readonly StringBuilder _pending = new();
     private readonly string[] _stops = [.. stops.Where(s => s.Length > 0)];
     public bool Stopped { get; private set; }
+    /// <summary>Whether any stop string can end the stream (otherwise <see cref="Push"/> passes the text through).</summary>
+    public bool CanStop => _stops.Length > 0;
     /// <summary>The stop string that ended the stream.</summary>
     public string? Matched { get; private set; }
 

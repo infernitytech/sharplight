@@ -537,6 +537,9 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         Interlocked.Add(ref _used, -buffer.Bytes);
     }
 
+    /// <summary>The segment whose submitted execution has not been waited for yet (one at a time per device), or null.</summary>
+    internal CudaSegment? Pending { get; set; }
+
     /// <summary>Waits for the uploads and initializations queued on <see cref="Stream"/>.</summary>
     internal void Synchronize()
     {

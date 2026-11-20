@@ -39,4 +39,11 @@ public interface ICompiledSegment : IDisposable
     public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count) => throw new NotSupportedException("This segment cannot copy state rows.");
     /// <summary>Device memory held by this segment (weights, state, activations).</summary>
     public long DeviceMemoryBytes { get; }
+    /// <summary>
+    /// Whether <see cref="Execute(RunParameters)"/> returns once the work is submitted, before the device finishes it (the segment waits
+    /// before it reads an output or takes an input), so the host can do other work meanwhile. The default is false.
+    /// </summary>
+    public bool ExecutesAsynchronously => false;
+    /// <summary>Where the most recent execution spent its time (diagnostics). The default reports zeros.</summary>
+    public SegmentRunTimings LastRunTimings => default;
 }

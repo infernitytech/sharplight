@@ -73,6 +73,8 @@ internal sealed class EngineSequence
     public RequestSampler Sampler { get; set; } = null!;
     public StreamingDecoder Decoder { get; set; } = null!;
     public StopStringFilter Filter { get; set; } = null!;
+    /// <summary>Tokens committed but not yet decoded and streamed (deferred to overlap the next step, see InferenceEngine.FlushEmits).</summary>
+    public List<int> PendingEmits { get; } = [];
     public HashSet<int> StopIds { get; set; } = null!;
     public IConstraintMatcher? Matcher { get; set; }
     /// <summary>Scratch for the constraint's allowed tokens (allocated on first use).</summary>
