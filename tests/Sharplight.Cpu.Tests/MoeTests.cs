@@ -138,4 +138,54 @@ public class MoeTests
         // Up to four items per expert every item is computed alone: one row gives the first row of a two-row run bit for bit.
         Assert.Equal(Run(2)[..(s * n)], Run(1));
     }
+
+    /// <summary>Two products over the same rows and ids (gate and up) run as one op and give each product's single-op result bit for bit.</summary>
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(37, true)]
+    [InlineData(5, false)]
+    public void PairedProductsMatchSingleOnes(int t, bool intDot)
+    {
+        var record = GgmlDequantTests.Load().First(r => r.Type == DataType.IQ2_XXS && r.Rows >= 4 && r.Rows % 4 == 0);
+        int e = 2, n = record.Rows / 2, k = record.Cols, s = 3;
+        var x = Kit.Rand(t * k, 13);
+        var ids = Enumerable.Range(0, t * s).Select(i => (i * 5 + i / 3) % e).ToArray();
+        var other = record.Blocks.Reverse().ToArray();
+        float[][] Run(bool both)
+        {
+            var tg = new TestGraph();
+            var xin = tg.InF("x", TestGraph.T, k);
+            var idin = tg.In("ids", DataType.I32, TestGraph.T, s);
+            tg.B.Output("y1", tg.B.Emit1("MatMulId", [xin, tg.W("w1", record.Type, new Shape(e, n, k), record.Blocks), idin]));
+            if (both)
+            {
+                tg.B.Output("y2", tg.B.Emit1("MatMulId", [xin, tg.W("w2", record.Type, new Shape(e, n, k), other), idin]));
+            }
+
+            using var m = Kit.Compile(tg.B.Build(), intDot: intDot);
+            Kit.Set(m, xin, x);
+            Kit.Set(m, idin, ids);
+            var p = Kit.P(t);
+            m.Run(p);
+            return both ? [Kit.Out(m, "y1", p), Kit.Out(m, "y2", p)] : [Kit.Out(m, "y1", p)];
+        }
+
+        float[][] RunSecond()
+        {
+            var tg = new TestGraph();
+            var xin = tg.InF("x", TestGraph.T, k);
+            var idin = tg.In("ids", DataType.I32, TestGraph.T, s);
+            tg.B.Output("y2", tg.B.Emit1("MatMulId", [xin, tg.W("w2", record.Type, new Shape(e, n, k), other), idin]));
+            using var m = Kit.Compile(tg.B.Build(), intDot: intDot);
+            Kit.Set(m, xin, x);
+            Kit.Set(m, idin, ids);
+            var p = Kit.P(t);
+            m.Run(p);
+            return [Kit.Out(m, "y2", p)];
+        }
+
+        var paired = Run(true);
+        Assert.Equal(Run(false)[0], paired[0]);
+        Assert.Equal(RunSecond()[0], paired[1]);
+    }
 }

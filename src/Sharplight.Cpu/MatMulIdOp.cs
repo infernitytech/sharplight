@@ -5,7 +5,8 @@ namespace Sharplight.Cpu;
 
 /// <summary>
 /// MatMulId: items (token, slot) are grouped by expert; one unit computes four weight rows of one expert for all
-/// of that expert's items, so every dequantized weight tile is reused across the rows (batched per expert).
+/// of that expert's items, so every dequantized weight tile is reused across the rows (batched per expert). Two products over the same
+/// rows and ids (an MLP's gate and up projections) can run as one op: one quantization, one sort, one parallel pass.
 /// </summary>
 /// <remarks>
 /// With integer dots (<see cref="Runtime.DeviceFeatures.IntDot"/> enabled and the format decodable, <see cref="IntDot"/>) the activation
@@ -32,6 +33,10 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly TRef _w;
     private readonly TRef _ids;
     private readonly TRef _y;
+    /// <summary>Optional second product over the same rows and ids (an MLP's gate and up projections): weight and output, or null.</summary>
+    private readonly TRef? _w2;
+    private readonly TRef? _y2;
+    private readonly int _products;
     private readonly WeightFormat _fmt;
     private readonly long _n;
     private readonly long _k;
@@ -54,23 +59,37 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly int* _cursor;
     private readonly float** _xrows;
     private readonly float** _yrows;
+    private readonly float** _yrows2;
     // Integer-dot path: the quantized activation row of every sorted item, the quantized rows and the rows per unit.
     private readonly byte** _qrows;
     private byte* _activations;
     private long _activationRows;
     private long _rowsPerUnit;
     private long _units;
+    /// <summary>Units per product (the units of the second product follow those of the first).</summary>
+    private long _unitsPerProduct;
     private long _per;
     private long _groups;
     [ThreadStatic] private static float[]? s_acc;
-    public override string Name => $"MatMulId.{_fmt}";
+    public override string Name => _products == 2 ? $"MatMulId.{_fmt} x2" : $"MatMulId.{_fmt}";
 
-    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false)
+    /// <param name="x">Rows [T, K] or [T, S, K].</param>
+    /// <param name="w">Expert weights [E, N, K].</param>
+    /// <param name="ids">Expert per (row, slot) [T, S].</param>
+    /// <param name="y">Output [T, S, N].</param>
+    /// <param name="fmt">Weight format.</param>
+    /// <param name="intDot">Integer dots with 8-bit activations where the format has them.</param>
+    /// <param name="w2">A second weight of the same shape and format over the same rows and ids (computed in the same pass), or null.</param>
+    /// <param name="y2">The second product's output.</param>
+    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false, TRef? w2 = null, TRef? y2 = null)
     {
         _x = x;
         _w = w;
         _ids = ids;
         _y = y;
+        _w2 = w2;
+        _y2 = y2;
+        _products = w2 is null ? 1 : 2;
         _fmt = fmt;
         _experts = (int)w.Dims[0];
         _n = w.Dims[1];
@@ -95,6 +114,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _cursor = (int*)Mem.Alloc(_experts * sizeof(int), false);
         _xrows = (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _yrows = (float**)Mem.Alloc(maxItems * sizeof(float*), false);
+        _yrows2 = w2 is null ? null : (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _qrows = (byte**)Mem.Alloc(maxItems * sizeof(byte*), false);
         _body = Body;
         _intDotBody = IntDotBody;
@@ -109,6 +129,10 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         Mem.Free((byte*)_cursor);
         Mem.Free((byte*)_xrows);
         Mem.Free((byte*)_yrows);
+        if (_yrows2 != null)
+        {
+            Mem.Free((byte*)_yrows2);
+        }
         Mem.Free((byte*)_qrows);
     }
 
@@ -152,6 +176,10 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             long pos = _start[e] + _cursor[e]++;
             _xrows[pos] = _x.F(_perSlot ? i : i / _slots);
             _yrows[pos] = (float*)_y.P + i * _n;
+            if (_yrows2 != null)
+            {
+                _yrows2[pos] = (float*)_y2!.P + i * _n;
+            }
         }
 
         if (_intDot)
@@ -175,7 +203,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         }
 
         _groups = (_n + 3) / 4;
-        _units = na * _groups;
+        _unitsPerProduct = na * _groups;
+        _units = _unitsPerProduct * _products;
         int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
         _per = (_units + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
@@ -232,10 +261,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
 
         // Enough units for every thread, each a run of rows of one expert.
         long target = CpuParallel.Threads * 4L;
-        long perExpert = Math.Max(1, (target + activeExperts - 1) / activeExperts);
+        long perExpert = Math.Max(1, (target + activeExperts * _products - 1) / (activeExperts * _products));
         _rowsPerUnit = Math.Clamp((_n + perExpert - 1) / perExpert, 1, IntDotRowsPerUnit);
         _groups = (_n + _rowsPerUnit - 1) / _rowsPerUnit;
-        _units = activeExperts * _groups;
+        _unitsPerProduct = activeExperts * _groups;
+        _units = _unitsPerProduct * _products;
         int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
         _per = (_units + chunks - 1) / chunks;
         CpuParallel.For(chunks, _intDotBody);
@@ -264,13 +294,15 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         float* b = a + ((_k / IntDot.GroupSize + 15) & ~15L);
         for (long unit = u0; unit < u1; unit++)
         {
-            int e = _active[unit / _groups];
-            long n0 = unit % _groups * _rowsPerUnit;
+            bool second = unit >= _unitsPerProduct;
+            long local = second ? unit - _unitsPerProduct : unit;
+            int e = _active[local / _groups];
+            long n0 = local % _groups * _rowsPerUnit;
             long n1 = Math.Min(_n, n0 + _rowsPerUnit);
             long m = _cnt[e];
             byte** xr = _qrows + _start[e];
-            float** yr = _yrows + _start[e];
-            byte* wbase = _w.P + e * _expertBytes;
+            float** yr = (second ? _yrows2 : _yrows) + _start[e];
+            byte* wbase = (second ? _w2!.P : _w.P) + e * _expertBytes;
             for (long n = n0; n < n1; n++)
             {
                 if (n + PrefetchRows < n1)
@@ -311,19 +343,21 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         int bb = Quant.BlockBytes(_fmt);
         for (long u = u0; u < u1; u++)
         {
-            int e = _active[u / _groups];
-            long g = u % _groups;
+            bool second = u >= _unitsPerProduct;
+            long local = second ? u - _unitsPerProduct : u;
+            int e = _active[local / _groups];
+            long g = local % _groups;
             long m = _cnt[e];
             long m0 = _start[e];
             float** xr = _xrows + m0;
-            float** yr = _yrows + m0;
+            float** yr = (second ? _yrows2 : _yrows) + m0;
             var accArr = s_acc;
             if (accArr is null || accArr.Length < m * 4)
             {
                 s_acc = accArr = new float[Math.Max(m * 4, 4096)];
             }
 
-            byte* wbase = _w.P + e * _expertBytes;
+            byte* wbase = (second ? _w2!.P : _w.P) + e * _expertBytes;
             long n0 = g * 4;
             int nr = (int)Math.Min(4, _n - n0);
             for (int r = 0; r < 4; r++)
