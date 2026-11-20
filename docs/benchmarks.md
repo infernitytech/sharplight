@@ -8257,3 +8257,19 @@ docs/model-support.md was its layer split (`-ngl 38`).
   (0.67 GB) and the per-segment buffers take ~2.5 GiB. Vulkan budgets 92 % of the device and fits 3 GiB less.
 * Greedy output: the FamilyGenerationTests cases (raw prompt, chat turn, story; 32 tokens against llama.cpp b11177) pass on CUDA and
   Vulkan with the new placement.
+
+### 59.4 gpt-oss-120b MXFP4 (ggml-org GGUF, 63.4 GB; tok/s, best / median)
+
+36 layers of 128 experts (top 4) with biases, MXFP4 experts of 1.69 GB per layer. On the CPU the MXFP4 experts use a fused AVX2 dot
+(codes looked up as signed doubled E2M1 values with `vpshufb`, |w| times the sign-applied activations): 1.58 ns per 32 values against
+3.06 ns for decode + dot. The CUDA MXFP4 expert layout is repacked, so its streamed copies go through staging (0.56 GB per layer in
+~27 ms); the file is 1.4 GB larger than the cgroup's memory, so the CPU's share is read from the page cache with some eviction (llama.cpp's
+prefill varies by ±40 % between its three runs).
+
+| | CPU expert layers | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA, first build of this branch (bias gathers split from their experts: ~190 segments) | 23 | 25.4 / 24.9 | 203 / 189 |
+| CUDA (default) | 20 | **48.1 / 47.5** | **278 / 232** |
+| llama.cpp CUDA `-ncmoe 20` / `22` / `24` | | 36.0 / 40.4 / 32.5 | 137 / 176 / 107 |
+
+* CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting.
