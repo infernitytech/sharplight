@@ -6,7 +6,8 @@ namespace Sharplight.Cuda;
 
 /// <summary>
 /// Streams weight and constant buffers to device memory through up to two host staging buffers: while the GPU copies one, the CPU
-/// fills the other (reading mapped files, repacking rows). The copies run on the device's upload stream. Single use, not thread-safe.
+/// fills the other (reading mapped files, repacking rows). The copies run on the device's upload stream. Not thread-safe; reusable after
+/// <see cref="Wait"/> (the streaming uploader of <see cref="CudaDevice.StreamUploader"/>).
 /// </summary>
 /// <remarks>
 /// The staging buffers are page-locked when possible, at most <see cref="MaxStagingSize"/> and no more than the uploads need. When the
@@ -124,6 +125,9 @@ internal sealed unsafe class CudaWeightUploader : IDisposable
         pinned = false;
         return (byte*)System.Runtime.InteropServices.NativeMemory.AlignedAlloc((nuint)StagingSize, 4096);
     }
+
+    /// <summary>Waits for the queued copies; the uploader can be used again.</summary>
+    internal void Wait() => CudaApi.Check(CudaApi.cuStreamSynchronize(_dev.Stream), "cuStreamSynchronize");
 
     /// <summary>Frees the staging buffers and events after waiting for the queued copies.</summary>
     public void Dispose()

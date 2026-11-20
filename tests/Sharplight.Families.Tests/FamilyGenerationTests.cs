@@ -180,8 +180,9 @@ public class FamilyGenerationTests
         // build takes the other side of a near-tie after 33 tokens ("getting dirtier and dirt").
         new("Qwen3.8-27B Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf", P1, "text", [],
             " a young boy named Tom. Tom was a curious and adventurous kid who loved to explore the world around him.\n\nOne day, Tom noticed that the sea near his village was getting a bit strange.", Large: true),
-        // Qwen3.5-122B-A10B (qwen35moe, 48 layers, 256 experts top-8), Unsloth's UD-IQ2_XXS mix (36.6 GB): on a 32 GB GPU the layers that do
-        // not fit run on the CPU. llama.cpp b11177 gives these texts on CUDA (-ngl 38) and on the CPU alike.
+        // Qwen3.5-122B-A10B (qwen35moe, 48 layers, 256 experts top-8), Unsloth's UD-IQ2_XXS mix (36.6 GB): on a 32 GB GPU the routed experts
+        // that do not fit run on the CPU (the first layers'), the rest on the GPU. llama.cpp b11177 gives these texts on CUDA (-ngl 38) and on the
+        // CPU alike.
         new("Qwen3.5-122B-A10B UD-IQ2_XXS GGUF (llama.cpp)", "gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf", "The capital of France is", "text", [],
             " Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is",
             NeedsCpuFallback: true, Large: true, Tokens: 32),

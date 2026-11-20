@@ -90,6 +90,20 @@ public sealed class CompileOptions
     /// </summary>
     public object? StateScope { get; init; }
 
+    /// <summary>
+    /// Whether the segment streams its weights instead of keeping them on the device: providers that support it
+    /// (<see cref="IComputeDevice.StreamsWeights"/>) give the weight buffers of the streamed segments of one graph (<see cref="StateScope"/>)
+    /// on a device the same memory and copy the weights in at every execution. <see cref="CompiledModel"/> compiles routed experts that the
+    /// placement put on the CPU so for the GPU as well, and runs that copy for large batches (prefill).
+    /// </summary>
+    public bool StreamWeights { get; init; }
+
+    /// <summary>
+    /// With <see cref="StreamWeights"/>: which of the graph's streamed-weight memories the segment uses (0 or 1, see
+    /// <see cref="PlacementOptions.StreamBuffers"/>); segments with different buffers can copy at the same time.
+    /// </summary>
+    public int StreamBuffer { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -142,8 +156,11 @@ public sealed class CompileOptions
     /// <summary>A copy with the state scope <paramref name="scope"/>.</summary>
     internal CompileOptions WithStateScope(object scope) => Copy(SymbolBounds, Progress, scope);
 
+    /// <summary>A copy that streams its weights (<see cref="StreamWeights"/>) through the streamed-weight memory <paramref name="buffer"/>.</summary>
+    internal CompileOptions WithStreamedWeights(int buffer) => Copy(SymbolBounds, Progress, streamWeights: true, streamBuffer: buffer);
+
     private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null,
-        IReadOnlySet<string>? disabledFeatures = null) => new()
+        IReadOnlySet<string>? disabledFeatures = null, bool? streamWeights = null, int? streamBuffer = null) => new()
     {
         MaxTokens = MaxTokens,
         ContextLength = ContextLength,
@@ -158,5 +175,7 @@ public sealed class CompileOptions
         CancellationToken = CancellationToken,
         SharedWeights = SharedWeights,
         StateScope = stateScope ?? StateScope,
+        StreamWeights = streamWeights ?? StreamWeights,
+        StreamBuffer = streamBuffer ?? StreamBuffer,
     };
 }

@@ -8195,6 +8195,137 @@ cd bench/s58_attn && nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=64 -DHKV=8 -DD=64 -DD
   -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_prefill_native.cu"' bench_attn.cu -o b && ./b
 ```
 
+## 59. MoE with CPU offload: routed experts on the CPU, everything dense on the GPU, streamed prefill (2026-11-20)
+
+Branch `perf/offload-r1` (base `develop` at `9b341bb8`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, no resizable
+BAR), AMD EPYC 7443 (Zen 3: AVX2 + FMA, no AVX-512 / VNNI) with a ~10-core cgroup quota and 62 GB of memory, llama.cpp b11177 (CUDA
+and Vulkan builds). The GPU was shared with another perf agent (runs serialized with a lock) and the CPU with a model-feed build job
+and that agent's vLLM: decode numbers moved by 10-20 % between runs of one build (`cpu.stat` throttled 15 % of the periods); the
+tables give best / median of 64 steps, and the medians of "before" and "after" ran under comparable load. Sharplight: `sharplight
+<model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes, decode 64 steps after them).
+llama.cpp: `llama-bench -ngl 99 -ncmoe N -fa 1 -p 512 -n 64 -r 3 -t 10` (mean of 3), N swept, the best shown.
+
+### 59.1 What the time went to (before)
+
+Qwen3.5-122B-A10B UD-IQ2_XXS (36.6 GB) with `--cpu-offload` placed whole layers: 43 of 50 groups on the GPU, the last 6 layers
+and the output head on the CPU. A decode step took 38.4 ms: 8.4 ms on the GPU and 30 ms on the CPU, of which the 248320 x 3072 Q4_K
+output head (0.43 GB read every token) took 8.5 ms, the dense attention / delta-rule / shared-expert projections of the 6 layers 9 ms
+and the routed experts 11 ms (the float dequantize path at ~12 GB/s). A 512-token prefill spent 2.3 of its 2.4 s on the CPU.
+llama.cpp with `-ncmoe 6` (the experts of 6 layers on the CPU, the rest on the GPU) decoded at 72 tok/s; the 21.5 tok/s of
+docs/model-support.md was its layer split (`-ngl 38`).
+
+### 59.2 Changes
+
+* **Expert placement** (`PlacementPlanner`): with a CPU fallback the routed experts of a layer (the `MatMulId`s over a bank with more
+  experts than a token selects, the activation between them and the weighted sum over the k slots) are a placement group of their own;
+  when the model does not fit, the experts of the first layers go to the CPU, as few as needed, and attention, shared experts, dense
+  layers and the output head stay on the GPU. Only the normed hidden rows, the ids and the slot weights go to the CPU and one summed row
+  per token comes back. The planner keeps room for those transfer buffers, a segment's own overhead and the graph outputs
+  (`ReservePerSegment`). `PlacementOptions.SplitExperts`, `SHARPLIGHT_SPLIT_EXPERTS=0` for the old layer split.
+* **Shared activation arenas** (CUDA, Vulkan): the segments of one model on a device run one after another and now share their
+  transient buffers, so 20 segments do not hold 20 arenas (170-280 MiB each at 512 rows).
+* **CPU expert kernels**: `MatMulId` takes the integer-dot path (8-bit activations, as `MatMul`), with decoders for the IQ2 / IQ3 grid
+  formats and fused AVX2 dots for them (grid magnitudes times sign-flipped activations with `vpmaddubsw`, one sign-table lookup per
+  eight values, `vpsignb`): IQ2_XXS 2.80 ns and IQ2_S 3.67 ns per 32 values on one core; per decode call (8 experts, 1024 x 3072)
+  0.53 → ~0.3 ms (IQ2_XXS) and 0.79 → ~0.37 ms (IQ2_S). Experts with more than four rows in a pass keep the float path (it reuses a
+  dequantized tile over the rows). Other tiers decode and dot as before; MXFP4 / K-quants use their existing integer-dot decoders.
+* **Streamed prefill**: from 32 rows per pass (`StreamExpertsMinRows`) the CPU experts run on the GPU instead, their weights copied in
+  for each pass into one layer's worth of memory the placement keeps free (`CompileOptions.StreamWeights`; the streamed segments of a
+  model share it). On CUDA the mapped pages of the streamed weights are page-locked read-only (within the pinned-memory limit, else a
+  quarter of the process memory) and copied asynchronously while the GPU runs the layer before (`IStreamedSegment.BeginStreaming`):
+  0.67 GB per layer at 28 GB/s; a staged copy (one pair of staging buffers per device) reached 14 GB/s. Vulkan copies through staging
+  on a worker thread (23 GB/s). A streamed compilation that does not fit leaves its layer on the CPU.
+
+### 59.3 Qwen3.5-122B-A10B UD-IQ2_XXS (tok/s, best / median)
+
+| | CPU groups | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA before (layer split) | 7 (6 layers + head) | 26.0 / 25.5 | 211 / 207 |
+| CUDA, experts on the CPU, no streaming (`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`) | 8 | **58.4 / 57.6** | 227 / 222 |
+| CUDA, experts on the CPU + streamed prefill (default) | 10 | 53.1 / 52.2 | **927 / 926** |
+| llama.cpp CUDA `-ncmoe 6` / `8` | | 72.1 / 65.2 | 985 / 866 |
+| llama.cpp CUDA `-ngl 38` (layer split) | | 9.2 (shared GPU) / 21.5 (§ model-support) | 589 |
+| Vulkan before (layer split, `develop`) | 10 | 15.6 / 8.3 (GPU shared during part of the run) | 142 / 140 |
+| Vulkan, experts on the CPU + streamed prefill | 14 | **43.5 / 42.8** | **705 / 688** |
+| llama.cpp Vulkan `-ncmoe 6` / `8` | | 44.7 / 40.2 | 751 / 643 |
+
+* Decode 2.0-2.2x on CUDA, 2.8x on Vulkan (17.8 in docs/model-support.md); prefill 4.4x on CUDA, 5.0x on Vulkan. Against llama.cpp:
+  CUDA decode 0.74x (0.81x without streaming), prefill 0.94x; Vulkan decode 0.97x, prefill 0.94x. The CUDA rows are the final build
+  (develop merged), run while the machine was otherwise quiet; earlier runs of the same placement under load gave 47-51 tok/s.
+* The CUDA decode step of the default build: GPU 9.6 ms (llama.cpp's whole step is 13.9 ms) and ~1 ms per CPU expert layer. The GPU
+  part is ~1350 launches over 48 layers (the largest projections stream at ~720 GB/s, the rest are small kernels); llama.cpp fits 42
+  expert layers where this placement fits 38-40: the 1 GiB device reserve, the 512-row logits buffer (485 MiB), the streaming buffer
+  (0.67 GB) and the per-segment buffers take ~2.5 GiB. Vulkan budgets 92 % of the device and fits 3 GiB less.
+* Greedy output: the FamilyGenerationTests cases (raw prompt, chat turn, story; 32 tokens against llama.cpp b11177) pass on CUDA and
+  Vulkan with the new placement.
+
+### 59.4 gpt-oss-120b MXFP4 (ggml-org GGUF, 63.4 GB; tok/s, best / median)
+
+36 layers of 128 experts (top 4) with biases, MXFP4 experts of 1.69 GB per layer. On the CPU the MXFP4 experts use a fused AVX2 dot
+(codes looked up as signed doubled E2M1 values with `vpshufb`, |w| times the sign-applied activations): 1.58 ns per 32 values against
+3.06 ns for decode + dot. The CUDA MXFP4 expert layout is repacked, so its streamed copies go through staging (0.56 GB per layer in
+~27 ms); the file is 1.4 GB larger than the cgroup's memory, so the CPU's share is read from the page cache with some eviction (llama.cpp's
+prefill varies by ±40 % between its three runs).
+
+| | CPU expert layers | decode | prefill 512 |
+|---|---:|---:|---:|
+| CUDA, first build of this branch (bias gathers split from their experts: ~190 segments) | 23 | 25.4 / 24.9 | 203 / 189 |
+| CUDA (default) | 20 | **48.1 / 47.5** | **278 / 232** |
+| llama.cpp CUDA `-ncmoe 20` / `22` / `24` | | 36.0 / 40.4 / 32.5 | 137 / 176 / 107 |
+| Vulkan (default) | 22 | **44.1 / 43.0** | 71 / 63 |
+| llama.cpp Vulkan `-ncmoe 22` | | 34.8 | 107 |
+
+* CUDA decode 1.19x and prefill 1.6x of llama.cpp's best setting; Vulkan decode 1.27x, prefill 0.66x.
+* Vulkan prefill is bound by the streamed copies: 1.7 GB per layer in ~370 ms median (207 ms at best). Vulkan budgets less of the GPU, so
+  36 GB of experts stay on the CPU and are re-read for every pass; with the 63 GB file in a 62 GB cgroup part of them comes from disk
+  each time (the CUDA placement keeps 33 GB on the CPU and copies a layer in ~100 ms). Repacking MXFP4 into cached memory before the
+  write-combined staging buffer (this branch) cut the worst copies but not the median.
+* Greedy text (`-p "The capital of France is" -n 32`): CUDA and Vulkan identical to each other and to `develop` (layer split, float CPU
+  experts): " Paris.\n\nGreat! If you have any more questions ..."; llama.cpp b11177 (CUDA, `-ncmoe 22`) repeats " Paris." after the
+  first sentence, so the difference predates this branch.
+
+### 59.5 Tests, what did not work, and what limits it
+
+| suite | result |
+|---|---|
+| Sharplight.Cpu.Tests (incl. new PlacementExpertTests, IntDot IQ / MXFP4 decoders and fused dots, MatMulId integer dots and pairs) | 1358 / 0 failed / 36 skipped |
+| Sharplight.Vulkan.Tests affected classes on CUDA and on Vulkan (StateHandoff, StreamedExperts, Moe, RowInvariance, QuantFormat, F16Range), one class per process | 419 / 0 failed each |
+| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped |
+| FamilyGenerationTests, Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan, after merging `develop` | 3 / 0 each |
+| gpt-oss-120b greedy text, CUDA and Vulkan against `develop` | identical |
+
+
+* The plain integer-dot path (decode a row into codes, then the generic dot) was slower than the float path for IQ2_XXS (0.66 against
+  0.53 ms per decode call): the per-16 scale and offset arithmetic outweighs the 8-bit products. The fused dots replaced it; an AVX2
+  gather of the grid entries (`vpgatherqq`) was slower than scalar loads (4.58 against 2.81 ns per 32 values); IQ2_S gained nothing from
+  the one-lookup sign table (it reads explicit sign bytes).
+* Pairing the gate and up products into one op (one quantization, one pass) is in (bit-identical results), but its effect on the decode
+  step was within the run-to-run noise of this machine.
+* Two streaming memories (`SHARPLIGHT_STREAM_BUFFERS=2`, the next layer's copy overlapping the current layer) made the 122B prefill
+  slower, 831 against 927 tok/s, and decode 47.8 against 53.1: the extra layer of experts it moves to the CPU costs more in each pass than
+  the overlap saves. It stays an option, off by default.
+* A thread-count sweep (8 / 10 / default threads) was inconclusive: other jobs took 2-5 cores during most runs.
+* Copies through staging buffers reached 14 GB/s on CUDA (17 GB/s with the MXFP4 repack) against 28 GB/s from page-locked mapped
+  memory; on Vulkan the repack wrote out of order into write-combined staging memory (5 GB/s) until it went through cached memory first.
+* Decode on CUDA stays behind llama.cpp: the GPU part of a step (9.5 ms) and three to four more expert layers on the CPU. Each moved
+  layer costs a GPU segment boundary, a transfer buffer and the per-segment reserve; streaming costs one layer's memory (~10 % decode for
+  a 4.5x faster prefill; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` keeps it for decode-only use).
+
+### 59.6 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf     # or gpt-oss-120b/gpt-oss-120b-MXFP4.gguf
+for p in cuda vulkan; do SHARPLIGHT_LOAD_TIMING=1 $CLI $M --provider $p --cpu-offload --bench 512; done
+SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --bench 512    # no streamed prefill (more GPU room)
+SHARPLIGHT_STREAM_BUFFERS=2 $CLI $M --provider cuda --cpu-offload --bench 512             # two streaming memories
+SHARPLIGHT_SPLIT_EXPERTS=0 $CLI $M --provider cuda --cpu-offload --bench 512              # whole layers on the CPU (before)
+SHARPLIGHT_CPU_PROFILE=1 SHARPLIGHT_CUDA_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
+for n in 6 8; do $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe $n -fa 1 -p 512 -n 64 -r 3 -t 10; done
+HOME=<model mirror> SHARPLIGHT_TEST_LARGE=1 SHARPLIGHT_TEST_CUDA=1 SHARPLIGHT_TEST_CASE="Qwen3.5-122B-A10B UD-IQ2_XXS" \
+  dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*Generation_matches_reference_on_cuda"
+
 ## 60. Serving round 1: a serving step profile, asynchronous executions, window-sized KV caches (2026-11-20)
 
 Branch `perf/serving-r1` (base `develop` at `f3d279f0`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell), shared with other agents:

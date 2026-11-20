@@ -53,6 +53,21 @@ internal static unsafe partial class IntDot
             case WeightFormat.MXFP4:
                 DecodeMxfp4(src, nb, u, a, b);
                 break;
+            case WeightFormat.IQ2_XXS:
+                DecodeIq2Xxs(src, nb, u, a, b);
+                break;
+            case WeightFormat.IQ2_XS:
+                DecodeIq2Xs(src, nb, u, a, b);
+                break;
+            case WeightFormat.IQ2_S:
+                DecodeIq2S(src, nb, u, a, b);
+                break;
+            case WeightFormat.IQ3_XXS:
+                DecodeIq3Xxs(src, nb, u, a, b);
+                break;
+            case WeightFormat.IQ3_S:
+                DecodeIq3S(src, nb, u, a, b);
+                break;
             default:
                 throw new NotSupportedException($"{f} has no integer-dot decoder.");
         }

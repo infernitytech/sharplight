@@ -27,6 +27,12 @@ public interface IComputeDevice : IDisposable
     /// <see cref="Runtime.SharedWeights"/> for the provider contract). False (the default): each compiled segment holds its own copy.
     /// </summary>
     public bool SharesWeights => false;
+
+    /// <summary>
+    /// Whether compilations on this device honour <see cref="CompileOptions.StreamWeights"/> (weights copied in at every execution, the
+    /// streamed segments of one graph sharing the memory). False (the default): the device keeps every weight it compiles.
+    /// </summary>
+    public bool StreamsWeights => false;
     /// <summary>Whether the device can execute the node; unsupported nodes go to the placement fallback.</summary>
     public OpSupport Supports(Node node);
     /// <summary>
