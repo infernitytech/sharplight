@@ -59,10 +59,25 @@ internal sealed unsafe partial class CpuCompiledSegment
         bool intDot = _features.Contains(DeviceFeatures.IntDot) && (_options.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false));
         if (IsStatic(ins[1]) && PairedMatMulId(n) is { } pair)
         {
-            // Gate and up projections of the experts: one pass over both.
+            // Gate and up projections of the experts: one pass over both, with the gated activation SiLU(gate) * up when it follows.
             var w2 = Ref(pair.Inputs[1]);
             var y2 = NewDense(pair.Output);
-            AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, w2, y2), x, w, expertIndex, y, w2, y2);
+            if (GatedActivation(n, pair) is { } gated)
+            {
+                bool gateFirst = gated.Gate == n;
+                var h = NewDense(gated.Mul.Output);
+                var (gateWeight, gateOut, upWeight, upOut) = gateFirst ? (w, y, w2, y2) : (w2, y2, w, y);
+                AddStep(new MatMulIdOp(x, gateWeight, expertIndex, gateOut, format, intDot, upWeight, upOut, h), x, w, expertIndex, y, w2, y2, h);
+                _refs[gated.Silu.Output] = gateOut;
+                _refs[gated.Mul.Output] = h;
+                _absorbed.Add(gated.Silu);
+                _absorbed.Add(gated.Mul);
+            }
+            else
+            {
+                AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, w2, y2), x, w, expertIndex, y, w2, y2);
+            }
+
             _refs[n.Output] = y;
             _refs[pair.Output] = y2;
             _absorbed.Add(pair);
@@ -71,6 +86,24 @@ internal sealed unsafe partial class CpuCompiledSegment
 
         AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot), x, w, expertIndex, y);
         _refs[n.Output] = y;
+    }
+
+    /// <summary>
+    /// The MLP gating of an expert pair <paramref name="a"/> / <paramref name="b"/>: <c>Mul(Silu(gate), up)</c> (either operand order), each
+    /// product read only by it and the SiLU only by the Mul, with the products' shape; null when the pair is not followed by it.
+    /// </summary>
+    private (Node Gate, Node Silu, Node Mul)? GatedActivation(Node a, Node b)
+    {
+        foreach (var (gate, up) in new[] { (a, b), (b, a) })
+        {
+            if (SoleConsumer(gate.Output) is { Op.Name: "Silu" } silu && SoleConsumer(silu.Output) is { Op.Name: "Mul" } mul
+                && SoleConsumer(up.Output) == mul && mul.Output.Shape.Equals(gate.Output.Shape) && silu.Output.Shape.Equals(gate.Output.Shape))
+            {
+                return (gate, silu, mul);
+            }
+        }
+
+        return null;
     }
 
     private void LowerBatchMatMul(Node n)

@@ -13,6 +13,8 @@ namespace Sharplight.Cpu;
 /// rows are quantized to 8 bits once and a unit decodes a run of weight rows of one expert, each once, for all of that expert's items;
 /// every (row, item) product is computed alone, so the result does not depend on how many items an expert has.
 /// An expert id of -1 selects no expert: the item's output rows are zero (the slot runs on another device).
+/// A gate / up pair can also write the gated activation <c>SiLU(gate) * up</c> of an MLP (the expert layer's next two nodes): the integer-dot
+/// units compute it for their rows right after the products, so a decode step runs one parallel pass instead of three.
 /// </remarks>
 internal sealed unsafe class MatMulIdOp : CpuOp
 {
@@ -39,6 +41,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// <summary>Optional second product over the same rows and ids (an MLP's gate and up projections): weight and output, or null.</summary>
     private readonly TRef? _w2;
     private readonly TRef? _y2;
+    /// <summary>With a pair: the output of <c>SiLU(y) * y2</c>, or null.</summary>
+    private readonly TRef? _gated;
     private readonly int _products;
     private readonly WeightFormat _fmt;
     private readonly long _n;
@@ -55,6 +59,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly Action<int> _body;
     private readonly Action<int> _intDotBody;
     private readonly Action<int> _quantizeBody;
+    private readonly Action<int> _gatedBody;
     // Scratch sized for the largest item count: per-expert counts/offsets, sorted x and y row pointers, active experts.
     private readonly int* _cnt;
     private readonly int* _start;
@@ -63,10 +68,13 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly float** _xrows;
     private readonly float** _yrows;
     private readonly float** _yrows2;
+    private readonly float** _hrows;
     // Integer-dot path: the quantized activation row of every sorted item, the quantized rows and the rows per unit.
     private readonly byte** _qrows;
     private byte* _activations;
     private long _activationRows;
+    /// <summary>Sorted items of the float path's gated activation pass.</summary>
+    private long _gatedItems;
     private long _rowsPerUnit;
     private long _units;
     /// <summary>Units per product (the units of the second product follow those of the first).</summary>
@@ -84,7 +92,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// <param name="intDot">Integer dots with 8-bit activations where the format has them.</param>
     /// <param name="w2">A second weight of the same shape and format over the same rows and ids (computed in the same pass), or null.</param>
     /// <param name="y2">The second product's output.</param>
-    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false, TRef? w2 = null, TRef? y2 = null)
+    /// <param name="gated">With a second product: the output of <c>SiLU(y) * y2</c> ([T, S, N], dense), or null.</param>
+    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false, TRef? w2 = null, TRef? y2 = null, TRef? gated = null)
     {
         _x = x;
         _w = w;
@@ -92,6 +101,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _y = y;
         _w2 = w2;
         _y2 = y2;
+        _gated = w2 is null ? null : gated;
         _products = w2 is null ? 1 : 2;
         _fmt = fmt;
         _experts = (int)w.Dims[0];
@@ -118,10 +128,12 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _xrows = (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _yrows = (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _yrows2 = w2 is null ? null : (float**)Mem.Alloc(maxItems * sizeof(float*), false);
+        _hrows = _gated is null ? null : (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _qrows = (byte**)Mem.Alloc(maxItems * sizeof(byte*), false);
         _body = Body;
         _intDotBody = IntDotBody;
         _quantizeBody = QuantizeBody;
+        _gatedBody = GatedBody;
     }
 
     public override void Dispose()
@@ -135,6 +147,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         if (_yrows2 != null)
         {
             Mem.Free((byte*)_yrows2);
+        }
+
+        if (_hrows != null)
+        {
+            Mem.Free((byte*)_hrows);
         }
         Mem.Free((byte*)_qrows);
     }
@@ -160,6 +177,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                 if (_y2 is { } y2)
                 {
                     new Span<float>((float*)y2.P + i * _n, (int)_n).Clear();
+                }
+
+                if (_gated is { } h)
+                {
+                    new Span<float>((float*)h.P + i * _n, (int)_n).Clear();
                 }
 
                 continue;
@@ -205,6 +227,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             {
                 _yrows2[pos] = (float*)_y2!.P + i * _n;
             }
+
+            if (_hrows != null)
+            {
+                _hrows[pos] = (float*)_gated!.P + i * _n;
+            }
         }
 
         if (_intDot)
@@ -233,6 +260,36 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
         _per = (_units + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
+        if (_gated is not null)
+        {
+            // The float path's products are complete only now: the gated activation of every item (the integer-dot units' items again,
+            // with the same values).
+            _gatedItems = off;
+            CpuParallel.For((int)Math.Min(off, CpuParallel.Threads * 2L), _gatedBody);
+        }
+    }
+
+    /// <summary>The gated activation of a share of the sorted items, whole rows.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void GatedBody(int c)
+    {
+        int chunks = (int)Math.Min(_gatedItems, CpuParallel.Threads * 2L);
+        long per = (_gatedItems + chunks - 1) / chunks;
+        for (long item = c * per; item < Math.Min(_gatedItems, (c + 1) * per); item++)
+        {
+            GatedActivation(_yrows[item], _yrows2![item], _hrows[item], _n);
+        }
+    }
+
+    /// <summary><c>h = SiLU(gate) * up</c> over <paramref name="count"/> values, the arithmetic of the separate SiLU and Mul ops.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void GatedActivation(float* gate, float* up, float* h, long count)
+    {
+        ScalarMath.Unary(UnaryKind.Silu, gate, h, count, 1, 0);
+        for (long i = 0; i < count; i++)
+        {
+            h[i] *= up[i];
+        }
     }
 
     /// <summary>
@@ -290,12 +347,14 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         }
 
         // Enough units for every thread, each a run of rows of one expert.
+        // A gated pair's units compute both products of their rows.
+        int unitProducts = _gated is null ? _products : 1;
         long target = CpuParallel.Threads * 4L;
-        long perExpert = Math.Max(1, (target + activeExperts * _products - 1) / (activeExperts * _products));
+        long perExpert = Math.Max(1, (target + activeExperts * unitProducts - 1) / (activeExperts * unitProducts));
         _rowsPerUnit = Math.Clamp((_n + perExpert - 1) / perExpert, 1, IntDotRowsPerUnit);
         _groups = (_n + _rowsPerUnit - 1) / _rowsPerUnit;
         _unitsPerProduct = activeExperts * _groups;
-        _units = _unitsPerProduct * _products;
+        _units = _unitsPerProduct * unitProducts;
         int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
         _per = (_units + chunks - 1) / chunks;
         CpuParallel.For(chunks, _intDotBody);
@@ -331,31 +390,51 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             long n1 = Math.Min(_n, n0 + _rowsPerUnit);
             long m = _cnt[e];
             byte** xr = _qrows + _start[e];
-            float** yr = (second ? _yrows2 : _yrows) + _start[e];
-            byte* wbase = (second ? _w2!.P : _w.P) + e * _expertBytes;
-            for (long n = n0; n < n1; n++)
+            if (_gated is null)
             {
-                if (n + PrefetchRows < n1)
-                {
-                    Simd.Prefetch(wbase + (n + PrefetchRows) * _rowBytes, _rowBytes);
-                }
+                IntDotRows(second ? _w2!.P : _w.P, e, n0, n1, m, xr, (second ? _yrows2 : _yrows) + _start[e], k, level, u, a, b);
+                continue;
+            }
 
-                byte* row = wbase + n * _rowBytes;
-                if (_fusedDot)
-                {
-                    for (long t = 0; t < m; t++)
-                    {
-                        yr[t][n] = IntDot.FusedDot(_fmt, row, IntDot.RowAt(xr[t], _k), k);
-                    }
+            float** gate = _yrows + _start[e];
+            float** up = _yrows2! + _start[e];
+            float** h = _hrows + _start[e];
+            IntDotRows(_w.P, e, n0, n1, m, xr, gate, k, level, u, a, b);
+            IntDotRows(_w2!.P, e, n0, n1, m, xr, up, k, level, u, a, b);
+            for (long t = 0; t < m; t++)
+            {
+                GatedActivation(gate[t] + n0, up[t] + n0, h[t] + n0, n1 - n0);
+            }
+        }
+    }
 
-                    continue;
-                }
+    /// <summary>Rows <paramref name="n0"/> to <paramref name="n1"/> of expert <paramref name="e"/> of a weight against the expert's quantized items.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void IntDotRows(byte* weights, int e, long n0, long n1, long m, byte** xr, float** yr, int k, CpuIsaLevel level, byte* u, float* a, float* b)
+    {
+        byte* wbase = weights + e * _expertBytes;
+        for (long n = n0; n < n1; n++)
+        {
+            if (n + PrefetchRows < n1)
+            {
+                Simd.Prefetch(wbase + (n + PrefetchRows) * _rowBytes, _rowBytes);
+            }
 
-                IntDot.Decode(_fmt, row, _k, u, a, b);
+            byte* row = wbase + n * _rowBytes;
+            if (_fusedDot)
+            {
                 for (long t = 0; t < m; t++)
                 {
-                    yr[t][n] = IntDot.Dot(level, u, a, b, _smallCodes, IntDot.RowAt(xr[t], _k), k);
+                    yr[t][n] = IntDot.FusedDot(_fmt, row, IntDot.RowAt(xr[t], _k), k);
                 }
+
+                continue;
+            }
+
+            IntDot.Decode(_fmt, row, _k, u, a, b);
+            for (long t = 0; t < m; t++)
+            {
+                yr[t][n] = IntDot.Dot(level, u, a, b, _smallCodes, IntDot.RowAt(xr[t], _k), k);
             }
         }
     }

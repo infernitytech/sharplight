@@ -182,6 +182,72 @@ public class MoeTests
         Assert.Equal(Run(2)[..(s * n)], Run(1));
     }
 
+    /// <summary>
+    /// A gate / up pair followed by <c>Mul(Silu(gate), up)</c> writes the gated activation in its units (integer dots) or after the float
+    /// path: the same values as the separate SiLU and Mul (kept apart here by making the SiLU's output a graph output), with -1 ids giving zeros.
+    /// </summary>
+    [Theory]
+    [InlineData(1, true, false)]
+    [InlineData(1, true, true)]
+    [InlineData(9, true, false)]
+    [InlineData(5, false, false)]
+    public void GatedPairMatchesSeparateActivation(int t, bool intDot, bool upFirst)
+    {
+        int e = 2, n = 64, k = 512, s = 3;
+        var gateBlocks = RandomQ4K(e * n, k, 1);
+        var upBlocks = RandomQ4K(e * n, k, 2);
+        var x = Kit.Rand(t * k, 13);
+        var ids = Enumerable.Range(0, t * s).Select(i => i % 4 == 3 ? -1 : (i * 5 + i / 3) % e).ToArray();
+        float[] Run(bool separate)
+        {
+            var tg = new TestGraph();
+            var xin = tg.InF("x", TestGraph.T, k);
+            var idin = tg.In("ids", DataType.I32, TestGraph.T, s);
+            var gateWeight = tg.W("gate", DataType.Q4_K, new Shape(e, n, k), gateBlocks);
+            var upWeight = tg.W("up", DataType.Q4_K, new Shape(e, n, k), upBlocks);
+            var up = upFirst ? tg.B.Emit1("MatMulId", [xin, upWeight, idin]) : null;
+            var gate = tg.B.Emit1("MatMulId", [xin, gateWeight, idin]);
+            up ??= tg.B.Emit1("MatMulId", [xin, upWeight, idin]);
+            var silu = tg.B.Silu(gate);
+            tg.B.Output("h", upFirst ? tg.B.Mul(up, silu) : tg.B.Mul(silu, up));
+            if (separate)
+            {
+                tg.B.Output("silu", silu);
+            }
+
+            using var m = Kit.Compile(tg.B.Build(), intDot: intDot);
+            Kit.Set(m, xin, x);
+            Kit.Set(m, idin, ids);
+            var p = Kit.P(t);
+            m.Run(p);
+            return Kit.Out(m, "h", p);
+        }
+
+        var fused = Run(false);
+        Assert.Equal(Run(true), fused);
+        for (int item = 0; item < t * s; item++)
+        {
+            if (ids[item] == -1)
+            {
+                Assert.Equal(new float[n], fused.AsSpan(item * n, n).ToArray());
+            }
+        }
+    }
+
+    /// <summary>Random Q4_K rows with small positive scales (d, dmin).</summary>
+    private static byte[] RandomQ4K(int rows, int k, int seed)
+    {
+        var data = new byte[rows * DataType.Q4_K.ByteSize(k)];
+        new Random(seed).NextBytes(data);
+        for (int block = 0; block < data.Length / 144; block++)
+        {
+            BitConverter.TryWriteBytes(data.AsSpan(block * 144, 2), (Half)(0.01f + 0.002f * (block % 7)));
+            BitConverter.TryWriteBytes(data.AsSpan(block * 144 + 2, 2), (Half)0.004f);
+        }
+
+        return data;
+    }
+
     /// <summary>Two products over the same rows and ids (gate and up) run as one op and give each product's single-op result bit for bit.</summary>
     [Theory]
     [InlineData(1, true)]
