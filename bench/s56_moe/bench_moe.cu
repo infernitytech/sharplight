@@ -6,7 +6,8 @@
 // times the launch with events (best of 20, L2 evicted before each launch: by a memset, or with EVICT=read by reading a 256 MB
 // buffer, which leaves no dirty lines to write back). LOOP=n: also n launches back to back at T = 2048 (the
 // power-limited steady state, section 64; sample the SM clock with nvidia-smi meanwhile). ROUTES=file replays recorded routings, also
-// back to back over distinct weight copies (LAYERS=n, the sustained clocks of a decode step; see routes()).
+// back to back over distinct weight copies (LAYERS=n, the sustained clocks of a decode step; see routes()); SUSTAINED_ONLY=1 skips the
+// isolated launches (a clean window for bench/s73_clock_sampler.py).
 // nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DKFILE='"gemm_moe_native.cu"' bench_moe.cu -o b
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
@@ -144,6 +145,7 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
     unsigned routeM = getenv("ROUTE_M") ? atoi(getenv("ROUTE_M")) : NM_BM;
     unsigned minRows = getenv("MIN_ROWS") ? atoi(getenv("MIN_ROWS")) : 1, maxRows = getenv("MAX_ROWS") ? atoi(getenv("MAX_ROWS")) : routeM;
     bool clamp = getenv("CLAMP") != nullptr;
+    bool sustainedOnly = getenv("SUSTAINED_ONLY") != nullptr;
     int limit = getenv("LINES") ? atoi(getenv("LINES")) : 1 << 30;
     cudaEvent_t e0, e1; cudaEventCreate(&e0); cudaEventCreate(&e1);
     double total = 0;
@@ -171,6 +173,7 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
         sc[0] = tiles;
         lines++;
         if (tiles == 0) continue;
+        if (sustainedOnly) { launched++; continue; }
         cudaMemcpy(dscratch, sc.data(), sc.size() * 4, cudaMemcpyHostToDevice);
         NmParams p;
         p.x = dx; p.w = dw;
