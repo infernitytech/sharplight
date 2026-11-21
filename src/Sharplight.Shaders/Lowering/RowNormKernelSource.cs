@@ -102,7 +102,9 @@ internal sealed class RowNormKernelSource
         _sb.AppendLine($"groupshared float red[{Threads}];");
         if (Fp8Output is not null || Q8Output is not null)
         {
-            _sb.AppendLine($"groupshared float qrow[{_rowLength}];");
+            // One padding word per 32 values: the quantization's lanes read four consecutive values each (a stride of four words),
+            // which without it fall into the same banks four ways.
+            _sb.AppendLine($"groupshared float qrow[{_rowLength + _rowLength / 32}];");
         }
 
         _sb.AppendLine($"[shader(\"compute\")] [numthreads({Threads}, 1, 1)]");
@@ -141,7 +143,7 @@ internal sealed class RowNormKernelSource
         _sb.AppendLine($"    for (uint c0 = 0; c0 < {quads}u; c0 += {Threads}u) {{");
         _sb.AppendLine("      uint c = c0 + lt.x;");
         _sb.AppendLine($"      bool live = c < {quads}u;");
-        _sb.AppendLine("      float4 v = live ? float4(qrow[c * 4], qrow[c * 4 + 1], qrow[c * 4 + 2], qrow[c * 4 + 3]) : float4(0.0, 0.0, 0.0, 0.0);");
+        _sb.AppendLine($"      float4 v = live ? {QuadLoad} : float4(0.0, 0.0, 0.0, 0.0);");
         _sb.AppendLine("      float amax = max(max(abs(v.x), abs(v.y)), max(abs(v.z), abs(v.w)));");
         _sb.AppendLine("      [ForceUnroll] for (uint m = 1; m < 8; m <<= 1) amax = max(amax, WaveReadLaneAt(amax, lane ^ m));");
         _sb.AppendLine("      float d = amax / 127.0;");
@@ -157,6 +159,9 @@ internal sealed class RowNormKernelSource
         _sb.AppendLine("  }");
     }
 
+    /// <summary>Values 4c .. 4c + 3 of the row from <c>qrow</c> (value i at word i + i / 32).</summary>
+    private static string QuadLoad => "float4(qrow[c * 4 + c / 8], qrow[c * 4 + 1 + c / 8], qrow[c * 4 + 2 + c / 8], qrow[c * 4 + 3 + c / 8])";
+
     /// <summary>The E4M3 rows of <see cref="Fp8Output"/> from the values pass 2 left in <c>qrow</c>.</summary>
     private void AppendFp8Quantization()
     {
@@ -170,8 +175,12 @@ internal sealed class RowNormKernelSource
         _sb.AppendLine($"  if (p.rows >= {fp8.MinRows}u) {{");
         _sb.AppendLine("    GroupMemoryBarrierWithGroupSync();");
         _sb.AppendLine($"    uint* qr = (uint*)p.out{output} + row * {words}u;");
-        _sb.AppendLine($"    for (uint c = lt.x; c < {_rowLength / 4}u; c += {Threads}u) {{");
-        _sb.AppendLine("      float4 v = float4(qrow[c * 4], qrow[c * 4 + 1], qrow[c * 4 + 2], qrow[c * 4 + 3]);");
+        // Unrolled where every lane has the same quads (4096-wide rows: four), so the groups' subgroup maxima overlap.
+        long quads = _rowLength / 4;
+        _sb.AppendLine(quads % Threads == 0
+            ? $"    [ForceUnroll] for (uint q = 0; q < {quads / Threads}u; q++) {{ uint c = lt.x + q * {Threads}u;"
+            : $"    for (uint c = lt.x; c < {quads}u; c += {Threads}u) {{");
+        _sb.AppendLine($"      float4 v = {QuadLoad};");
         _sb.AppendLine("      float d = e4m3_group_scale(v);");
         _sb.AppendLine("      qr[c] = e4m3_pack4(v, d);");
         _sb.AppendLine($"      if ((c & 31u) == 0) qr[{_rowLength / 4}u + c / 32u] = asuint(d);");
@@ -340,13 +349,13 @@ internal sealed class RowNormKernelSource
             var (output, expression) = Pass2Outputs[i];
             if (Fp8Output is { } fp8 && fp8.Index == i)
             {
-                sb.AppendLine($"    if (p.rows >= {fp8.MinRows}u) qrow[i] = {expression};");
+                sb.AppendLine($"    if (p.rows >= {fp8.MinRows}u) qrow[i + (i >> 5)] = {expression};");
                 continue;
             }
 
             if (Q8Output is { } q8 && q8.Index == i)
             {
-                sb.AppendLine($"    if ({q8.Guard}) qrow[i] = {expression};");
+                sb.AppendLine($"    if ({q8.Guard}) qrow[i + (i >> 5)] = {expression};");
                 continue;
             }
 

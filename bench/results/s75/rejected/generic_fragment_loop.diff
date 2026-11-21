@@ -1,0 +1,87 @@
+--- k_base.cu	2026-11-21 15:58:40.671405512 +0000
++++ k_gen.cu	2026-11-21 16:02:52.538012729 +0000
+@@ -200,25 +200,31 @@
+ // The MMAs of the first F row fragments of a warp (rows r0 ..) for 32-value block b of a stage at sa, with the block's decoded B
+ // fragments of the warp's columns; dec(j) (the decode of unit j of the next block) is issued between them, so its shared-memory
+ // latency and arithmetic fill the tensor pipe's gaps instead of stalling both warps of a scheduler at once.
+-template <int F, typename Dec>
++// The MMAs of the warp's live row fragments (rows r0 .., the first `live` of NM_FM) for 32-value block b of a stage at sa, with the
++// block's decoded B fragments of the warp's columns; dec(j) (the decode of unit j of the next block) is issued between them, so its
++// shared-memory latency and arithmetic fill the tensor pipe's gaps. One loop for every fragment count: a fragment past the tile's
++// rows is skipped by a warp-uniform branch (predicated-off MMAs still take the tensor pipe's time).
++template <typename Dec>
+ static __device__ __forceinline__ void nm_mmas(float (&acc)[NM_FM][NM_FN][4], nm_u32 sa, nm_u32 r0, nm_u32 b, nm_u32 lane,
+-                                               const nm_u32 (&bf)[NM_FN][4], Dec dec)
++                                               const nm_u32 (&bf)[NM_FN][4], int live, Dec dec)
+ {
+ #pragma unroll
+     for (int h = 0; h < 2; h++)
+     {
+ #pragma unroll
+-        for (int i = 0; i < F; i++)
++        for (int i = 0; i < NM_FM; i++)
+         {
+-            nm_u32 a[4];
+-            nm_u32 r = r0 + i * 16 + (lane & 15);
+-            nm_ldsm4(sa + nm_swz(r, b * 4 + h * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
+-#pragma unroll
+-            for (int j = 0; j < NM_FN; j++)
++            if (i < live)
+             {
+-                nm_mma(acc[i][j], a, bf[j][h * 2], bf[j][h * 2 + 1]);
++                nm_u32 a[4];
++                nm_u32 r = r0 + i * 16 + (lane & 15);
++                nm_ldsm4(sa + nm_swz(r, b * 4 + h * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
++#pragma unroll
++                for (int j = 0; j < NM_FN; j++)
++                {
++                    nm_mma(acc[i][j], a, bf[j][h * 2], bf[j][h * 2 + 1]);
++                }
+             }
+-            // Unit u of the next block after fragment u's MMAs (the first half), the rest after the last fragment.
+             if (h == 0 && i < NM_FN)
+             {
+                 dec(i);
+@@ -227,7 +233,7 @@
+         if (h == 0)
+         {
+ #pragma unroll
+-            for (int j = F; j < NM_FN; j++)
++            for (int j = NM_FM; j < NM_FN; j++)
+             {
+                 dec(j);
+             }
+@@ -417,32 +423,7 @@
+     // fragments past its rows are skipped by a warp-uniform branch (predicated-off MMAs still take the tensor pipe's time).
+     auto mmas = [&](nm_u32 s, nm_u32 b, const nm_u32 (&bf)[NM_FN][4], auto dec) {
+         const nm_u32 sa = smem0 + s * NM_STAGE_BYTES;
+-        switch (liveFrags)
+-        {
+-#define NM_CASE(F) case F: nm_mmas<F>(acc, sa, wm * NM_TM, b, lane, bf, dec); break;
+-        NM_CASE(1)
+-#if NM_FM > 1
+-        NM_CASE(2)
+-#endif
+-#if NM_FM > 2
+-        NM_CASE(3)
+-        NM_CASE(4)
+-#endif
+-#if NM_FM > 4
+-        NM_CASE(5)
+-        NM_CASE(6)
+-        NM_CASE(7)
+-        NM_CASE(8)
+-#endif
+-#undef NM_CASE
+-        default:
+-#pragma unroll
+-            for (int j = 0; j < NM_FN; j++)
+-            {
+-                dec(j);
+-            }
+-            break;
+-        }
++        nm_mmas(acc, sa, wm * NM_TM, b, lane, bf, liveFrags, dec);
+     };
+ 
+     // Software pipeline: the copies wait for two stages ahead (stage kb + 1 is complete at step kb), so the decode of the next

@@ -1,0 +1,38 @@
+== check gu_t64: 0.119 0.0605 0.0801 0.0801 0.117 0.0986 0.113 0.104 
+== check dn_t64: 0.000641 0.000671 0.000656 0.000763 0.000839 0.000824 0.000824 0.00087 
+== check gu_t64c: 0.119 0.0605 0.0801 0.0801 0.117 0.0986 0.113 0.104 
+== check dn_t64c: 0.000641 0.000671 0.000656 0.000763 0.000839 0.000824 0.000824 0.00087 
+r1 vllm gu b32 0.3407
+r1 vllm dn b32 0.1755
+r1 vllm gu t32 0.3414
+r1 vllm dn t32 0.1766
+r1 vllm gu t64s 0.3610
+r1 vllm dn t64s 0.1926
+r1 vllm gu t64 0.3440
+r1 vllm dn t64 0.1847
+r1 vllm gu t64cs 0.3526
+r1 vllm dn t64cs 0.1886
+r1 vllm gu t64c 0.3426
+r1 vllm dn t64c 0.1852
+r1 vllm gu b64t3s 0.3671
+r1 vllm dn b64t3s 0.1826
+r1 vllm gu b64t3 0.3500
+r1 vllm dn b64t3 0.1805
+r2 vllm gu b32 0.3419
+r2 vllm dn b32 0.1775
+r2 vllm gu t32 0.3411
+r2 vllm dn t32 0.1776
+r2 vllm gu t64s 0.3631
+r2 vllm dn t64s 0.1934
+r2 vllm gu t64 0.3455
+r2 vllm dn t64 0.1855
+r2 vllm gu t64cs 0.3532
+r2 vllm dn t64cs 0.1890
+r2 vllm gu t64c 0.3433
+r2 vllm dn t64c 0.1850
+r2 vllm gu b64t3s 0.3677
+r2 vllm dn b64t3s 0.1801
+r2 vllm gu b64t3 0.3458
+r2 vllm dn b64t3 0.1806
+
+[exited with code 0]

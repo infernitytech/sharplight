@@ -10641,3 +10641,172 @@ $PY bench/s73_clock_sampler.py --gpu <i> --out marlin.csv -- $PY bench/s73_marli
 python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --seqs 64 --words --skip 5
 VLLM_VENV=$VLLM_VENV bench/s58_long.sh out gptoss ~/models/hf/gpt-oss-20b both   # decode points with --feedback
 ```
+
+## 75. LLM round 24: one expert-GEMM main loop per fragment count; gpt-oss-20b on CUDA repaired after perf/offload-r5; 64-row expert tiles measured (2026-11-21)
+
+Branch `perf/llm-r24` (base `develop` at `ff3b70b1`, perf/offload-r5 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs,
+200 W cap, performance counters blocked), shared with perf/feed-r1, a server agent and a model-feed publish job: every timed run held the
+verify lock, before and after alternated in the same hold, vLLM 0.33.0 (§56's CUDA build) profiled inside the final hold. Raw output in
+[`bench/results/s75/`](../bench/results/s75).
+
+**`develop` was broken for gpt-oss-20b on CUDA.** Since the perf/offload-r5 merge its greedy text is garbage from the first generated
+token ("I, given that the pathwise values, the next of the overall ... atposyn"), and its 64-sequence decode step looked 35 % faster (10.8-11.5
+against 17.7 ms: the garbage hidden states route to few experts, gate / up 102 µs per layer against ~340). Vulkan is unaffected. Bisected
+(`bisect/`): `b4ed568e` and `9c69ca35` are correct, `572eeb80` ("elementwise groups after int-dot matmuls in the matvec's store") is not,
+and with its lowering reverted (its kernels kept) the text is correct again; none of the new `SHARPLIGHT_NO_*` switches restores it, nor a
+fresh compilation cache. The commit limited the GEMM store / split-K reduction epilogue to f32 weights, so that epilogues folded for
+int-dot weights run as their own launch; that also moved the biases of gpt-oss's f16 projections (q / k / v as one multi-output matmul,
+o, the router) to the separate launch path, which produces wrong results on CUDA. The fix keeps the exclusion for int-dot weights only
+(`GraphLowerer.MatMul.cs`); gpt-oss-20b's greedy text is then byte-identical to the §73 build's (`060d579c`). Why the separate path is
+wrong on CUDA is not found: the new `MatMulEpilogueTests.HalfWeightsBias` (q / k / v + router shapes, f16 weights with biases, 1-300
+rows) passes on the broken build too, so the failure needs more of gpt-oss's graph. All "before" numbers below are `develop` with this
+fix.
+
+### 75.1 Against vLLM (final hold)
+
+| benchmark (CUDA) | `develop` (fixed) | this round | vLLM | ours / vLLM (before → after) |
+|---|---:|---:|---:|---:|
+| gpt-oss-20b decode step, 64 sequences, `--text` (GPU ms; vLLM's `--words` profile, steps 6-61, + 1.6 ms LM head and sampling, §64) | 17.58-17.73 | 17.38-17.47 | 15.47 + 1.6 = 17.07 | 0.96-0.97 → **0.98** |
+| gpt-oss-20b decode step, 64 sequences, `--feedback` | 16.41-16.48 | 16.26-16.29 | 16.3 (§64, random-token prompts) | 0.99 → **1.00** |
+| gpt-oss-20b decode step, 1 / 16 sequences, `--text` | 5.27 / 12.57-12.59 | 5.27-5.28 / 12.51 | | |
+| Qwen3-8B-FP8 decode step, 64 sequences, `--text` | 15.93-15.95 | 15.93 | 14.14 + 1.55 = 15.69 | 0.98 → 0.98 |
+| gpt-oss-20b prefill 16K / 32K / 64K / 128K (tok/s, median of 5) | 13,786 / 11,923 / 9,319 / 6,497 | 14,006 / 12,087 / 9,404 / 6,528 | 14,479 / 12,286 / 9,393 / 6,419 | 0.95 / 0.97 / 0.99 / 1.01 → **0.97 / 0.98 / 1.00 / 1.02** |
+| gpt-oss-20b decode at depth 32K, 1 / 4 streams, fed back (GPU ms per step; tok/s) | 6.28 / 12.43 | 6.29 / 12.43 (159.0 / 321.8) | 158.9 / 303.9 | 1.00 / 1.06 → 1.00 / 1.06 |
+| gpt-oss-20b decode at depth 128K, 1 / 4 streams, fed back | 9.31 / 24.47 | 9.32 / 24.55 (107.3 / 162.9) | 107.3 / 174.9 (§64; this session's run hit the device assert past 131,072 positions again) | 1.00 / 0.93 → 1.00 / 0.93 |
+| gpt-oss-20b / Qwen3-8B-FP8 serving 16 / 64 streams | not re-measured (§72: 0.95 / 0.92, 0.94 / 0.93) | | | |
+| Qwen3-8B-FP8 prefill 128K | unchanged code (§70: 2,477 tok/s) | | 2,639 | 0.94 |
+
+* Steps: BatchBench `--slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 20`, GPU ms (min of 20), two alternated
+  pairs in the final hold (`final/steps1`, `steps2`) with the vLLM profiles between them (`final/vllm/`, `s54_vllm_decode_profile.py
+  --seqs 64 --words --skip 5`). vLLM's gpt-oss step over steps 6-61 is 15.47 ms here (15.53 in §73), Qwen3's 14.14 (14.08).
+* Long contexts (`final/long/`): `s58_long.sh` with `--feedback` decode points, this round with vLLM, then `develop` (fixed) on the Sharplight
+  side only, in the same hold. The prefill gains are the 128-row expert tiles of 75.2 (-3 % gate / up at 2048 tokens); the decode points
+  at depth are unchanged (attention and the 16-row expert GEMMs of few streams, not the tiles this round changed).
+
+### 75.2 The expert GEMM: one main loop per live fragment count
+
+`gemm_moe_native.cu` skips a partial tile's row fragments past its rows (predicated-off MMAs still take the tensor pipe's time) through a
+switch over the warp's live fragment count, which sat inside the K loop: twice per K step, around the MMAs of each 32-value block. The
+switch now selects one of `NM_FM` + 1 copies of the whole software pipeline, each a tight loop with its fragment count fixed at compile
+time (the products are unchanged: same MMAs, same order). Sustained replay of §67.2 / §73.3 (24 layer copies back to back, ms per layer,
+`harness/r4_hoisted_loop.txt`, `r6_*`; ranges over 3-7 alternated runs in four holds):
+
+| routing | gate / up `develop` → new | down `develop` → new |
+|---|---:|---:|
+| vLLM's (`vllm64_words.txt`, 24.2 experts, 26.5 32-row tiles per layer) | 0.3385-0.3419 → 0.3371-0.3400 | 0.1755-0.1775 → 0.1718-0.1734 |
+| ours (`--text`, 27.2 experts, 28.3 tiles) | 0.3426-0.3459 → 0.3390-0.3402 | 0.1747-0.1769 → 0.1723-0.1734 |
+
+The prefill tile configurations gain more (isolated launches, read eviction, uniform routing, ms, `harness/r5_prefill_tiles.txt`, two
+passes):
+
+| tile (engine config) | 256 tokens | 512 | 1024 | 2048 |
+|---|---:|---:|---:|---:|
+| gate / up, 128 rows x 256 weight rows, 3 stages | 0.516-0.518 → 0.485-0.487 | 0.735-0.741 → 0.682-0.684 | 1.227-1.249 → 1.188-1.214 | 2.248-2.338 → 2.179-2.266 |
+| down, 128 x 192, 4 stages | 0.270-0.272 → 0.250 | 0.356-0.358 → 0.344 | 0.604-0.606 → 0.594 | 1.120 → 1.106 |
+| gate / up, 64 x 128 (short tiles), 4 stages, no table | 0.449-0.452 → 0.432-0.436 | 0.741-0.743 → 0.717-0.721 | 1.284-1.288 → 1.243-1.251 | 2.410-2.569 → 2.348-2.500 |
+| down, 64 x 192, 3 stages | 0.223-0.225 → 0.221 | 0.358-0.360 → 0.348 | 0.598 → 0.580-0.582 | 1.124-1.128 → 1.092-1.096 |
+
+Engine, BatchBench `--slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 20`, GPU ms (min), fixed `develop` → new, two
+alternated pairs (`steps/gptoss_fixed_develop_vs_new.txt`):
+
+| gpt-oss-20b | 1 | 16 | 64 |
+|---|---:|---:|---:|
+| `--text` | 5.28 → 5.28 | 12.46-12.59 → 12.43-12.51 | 17.44-17.69 → 17.17-17.38 (-1.6 %) |
+| `--feedback` | 5.27-5.28 → 5.29 | 11.09-11.10 → 11.01-11.02 | 16.45-16.48 → 16.28-16.29 (-1.1 %) |
+
+### 75.3 64-row expert tiles (lever 1 of §73.6), measured and not kept
+
+On vLLM's routing 2.27 experts per layer have more than 32 items and cost a second 32-row tile. Variants of one launch with 64-row
+routing tiles (each expert's weights read once up to 64 items), sustained replay as 75.2, ms per layer (gate / up, down; "small tiles" = the
+same build on 32-row routing, i.e. the cost of the 64-row build where no expert needs it):
+
+| variant | vLLM routing, 64-row tiles | small tiles | our routing, 64-row tiles |
+|---|---:|---:|---:|
+| 32-row `develop` | 0.3385-0.3419, 0.1755-0.1775 (32-row tiles) | | 0.3426-0.3459, 0.1747-0.1769 |
+| 32-row, hoisted loop (75.2) | 0.3371-0.3400, 0.1718-0.1734 | | 0.3390-0.3402, 0.1723-0.1734 |
+| §73's 64-row build (gate / up without the factor table, down in 3 stages) | 0.3482-0.3488, 0.1785-0.1790 | 0.3642-0.3665, 0.1807-0.1815 | 0.3499-0.3733, 0.1839-0.1858 |
+| one loop over the fragments with a warp-uniform branch per fragment instead of the switch | | 0.4435, 0.2256 | |
+| activations one stage behind the weights in a 3-slot ring (64-row stages fit twice per SM with the table; down at 128 weight rows), switch in the loop | 0.3440-0.3455, 0.1847-0.1855 | 0.3610-0.3631, 0.1926-0.1934 | |
+| the same without the 3-fragment case (rounded up to 4) | 0.3426-0.3433, 0.1850-0.1852 | 0.3526-0.3532, 0.1886-0.1890 | |
+| hoisted loop + split ring | 0.3295-0.3303, 0.1739-0.1762 | 0.3411-0.3427, 0.1805-0.1829 | 0.3560-0.3571, 0.1815-0.1816 |
+| hoisted loop, no split ring, no table (down at 128 weight rows) | 0.3328, 0.1777 | 0.3470, 0.1849 | 0.3515, 0.1799 |
+| 32-row, hoisted loop + split ring | | 0.3391, 0.1750 (vLLM routing) | 0.3421, 0.1790 |
+
+* The best 64-row form (hoisted + split ring) takes 2.3 % off gate / up on vLLM's routing but adds 1.2 % on down there and 5 % on gate /
+  up on ours, so the gain needs a per-expert choice. Per tile, its 64-row tiles cost 21.3 µs against 12.9 µs for a 32-row one (gate /
+  up on vLLM's routing: 0.3303 ms = 21.9 small tiles x 12.9 µs + 2.27 large ones): the second 32 rows cost two thirds of a tile, not the
+  little the weight-read model of §73.3 suggested, so even a free per-expert choice gains 4.4 µs per large expert (~3 % of gate / up on
+  vLLM's routing, ~1.5 % on ours).
+* What makes the 64-row build dearer for small tiles: code size inside the loop (dropping one switch case gains 2.3 %, hoisting the switch
+  out of the loop 5 %), the split ring's shallower activation pipeline (+0.9 % gate / up, +3.9 % down even at 32 rows) and, without the ring,
+  the decode without the factor table. Registers (102-126 of 128) and occupancy (two blocks per SM in every variant) are not it.
+* A per-expert tile height in one launch therefore needs either two launches (32-row tiles, then 64-row tiles of the experts above 32
+  items, a second routing list) or a kernel whose 64-row code path costs nothing when unused; with the gain bounded at ~3 % of the expert
+  GEMMs on vLLM-like routing it moves down the plan.
+
+### 75.4 Qwen3-8B-FP8's norms with the FP8 quantization
+
+The row norm's shared copy of the row (read four consecutive values per lane by the E4M3 and q8_1 quantizations, a stride of four words:
+4-way bank conflicts, offload-r5's note) gets one padding word per 32 values, and the FP8 quantization loop is unrolled where every lane
+has the same groups (four for 4096-wide rows). Same arithmetic, same codes. Profile of the 64-sequence step (`profiles/`): the fused Add +
+RmsNorm + E4M3 launch 11.41 → 11.19 ms over 1440 launches (7.92 → 7.77 µs mean, min 5.2 → 5.1); the step is within noise (15.81-15.99
+against 15.91-15.94 ms). The launch is not bound by its quantization: it moves ~4.3 MB per 64-row launch (f32 residual and hidden rows in,
+the f32 sum and the f32 normalized rows out, the E4M3 rows), where vLLM's fused kernel moves bf16 rows (~1.8 MB). What would help is the
+residual stream in bf16 / f16 or the normalized f32 rows skipped when every reader takes the E4M3 copy (the norm's skip variant exists for
+the half copies, `ReadersUseCopy`); not done this round.
+
+### 75.5 Correctness and tests
+
+* Greedy text, 120 tokens, the ~40-word prompt of §65 (`greedy/`, `vulkan/`): gpt-oss-20b and Qwen3-8B-FP8 byte-identical between
+  `develop` (fixed) and this round on CUDA and on Vulkan; gpt-oss-20b on CUDA byte-identical to the §73 build's. The longer §65 prompts
+  were not rerun. The expert GEMM's products are unchanged by construction (same MMAs in the same order); the harness's product check
+  gives the same maximum errors for every variant kept or measured (`harness/`).
+* Sharplight.Cuda.Tests: 39 / 0 failed / 1 skipped (cuBLASLt).
+* Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers: Moe 119, Fusion 97, NormHalfCopy 16, Norm 10, Fp8Gemm 31,
+  QuantFormat 197, RowInvariance 77, StreamedExperts 5, MatMul 164, SkinnyGemm 42, MatMulEpilogue 6 (with the new HalfWeightsBias):
+  764 / 0 failed / 0 skipped on each provider (`tests/tests.txt`).
+* Vulkan, BatchBench `--text`, 1 / 64 sequences, two alternated pairs (`vulkan/summary.txt`): gpt-oss-20b 5.27-5.28 / 20.39-20.52 →
+  5.28-5.29 / 20.37-20.44 ms, Qwen3-8B-FP8 11.03 / 17.08-17.19 → 11.00-11.02 / 17.13-17.14 ms: unchanged.
+
+### 75.6 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b decode step, 64 sequences (`--text` / `--feedback`) | 0.98 / 1.00 | expert GEMMs ~12.3 ms (24 x 0.51 ms on the harness) against Marlin's 11.5 (per weight byte Marlin is ~10 % more efficient, §73.2); a 64-row tile costs 1.65x a 32-row one |
+| Qwen3-8B-FP8 decode step, 64 sequences | 0.98 | norms with the E4M3 rows (0.56 ms, f32 rows in and out), the o / down inputs' own quantization (0.37 ms), q / k norm + rope |
+| gpt-oss-20b serving 16 / 64 streams | 0.95 / 0.92 (§72, not re-measured) | prompt waves on full expert tiles, decode steps |
+| gpt-oss-20b long prefill 16K-128K | 0.97 / 0.98 / 1.00 / 1.02 | MoE and attention at 16K-32K |
+| gpt-oss-20b decode at depth 32K / 128K, 1 / 4 streams, fed back | 1.00 / 1.06, 1.00 / 0.93 | 4 x 128K: the 16-row expert GEMMs and the LM head per step, attention at the read rate |
+| Qwen3-8B-FP8 long prefill 128K | 0.94 | attention at head size 128 |
+
+Ranked levers:
+
+1. **Marlin's memory path** (§73.6 item 2, now first): a repacked weight layout read in contiguous 16-byte-per-thread blocks with an
+   explicit deep L2 prefetch instead of a hint on every copy, judged by energy per byte with the sampler. It is the larger part of the
+   gap at 64 sequences (Marlin -10 % per byte on both routings), where 64-row tiles are worth at most ~3 % of the expert GEMMs (75.3).
+2. **Qwen3-8B-FP8's small launches**: the residual stream's norm launches move f32 rows (75.4); skip the normalized f32 rows when every
+   reader takes the E4M3 copy, quantize the o / down inputs in their producers (attention combine, gate / up epilogue), q / k norm +
+   rope in one launch (~0.5-0.8 ms per 64-sequence step together).
+3. **Long-context 4-stream decode at 128K (0.93x)**: the 16-row expert GEMMs on fed-back routing and the LM head.
+4. **Per-expert tile height in two launches** (32-row tiles, then 64-row tiles of the experts above 32 items from a second routing list):
+   ≤ ~3 % of the expert GEMMs on vLLM-like routing, ~1.5 % on ours (75.3).
+5. **The separate epilogue launch path on CUDA**: the bias of f16 projections run as its own launch gave garbage for gpt-oss-20b; the fix
+   avoids the path for those weights, but why it is wrong on CUDA (and right on Vulkan) is not found, and HalfWeightsBias (q / k / v
+   and router shapes) does not reproduce it: a failing test from gpt-oss's own graph is still needed.
+6. **Fused combine in `attn_decode_native.cu`** for narrow groups; **head size 128 prefill attention** (Qwen3 128K 0.94x).
+
+### 75.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# harness (bench/s56_moe): the engine's decode tile configs, sustained replay on both routings
+R1=bench/results/s73/routing/vllm64_words.txt; R2=bench/results/s67/harness/routes64_text.txt
+cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DBIAS=1 -DNM_BM=32 -DNM_WM=1 -DNM_WN=8 \
+  -DNM_BN=128 -DNM_STAGES=4 -DNM_MINB=2 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o gu
+for R in $R1 $R2; do ROUTES=$R LAYERS=24 PASSES=30 SUSTAINED_ONLY=1 ./gu; done      # ROUTE_M=64 with -DNM_BM=64 for 64-row tiles
+# 64-row variants: patch -p1 < bench/results/s75/rejected/split_activation_ring.diff (-DNM_ASPLIT=1; the harness then sizes its
+# shared memory with NM_SMEM_BYTES), bench/results/s75/harness/build.sh has the configurations
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 20 --text   # and --feedback
+sharplight ~/models/hf/gpt-oss-20b --provider cuda -n 120 -p "Write a detailed essay about the role of water and power in modern history. Explain the history, give concrete examples and discuss open questions."
+```

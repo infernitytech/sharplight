@@ -448,12 +448,13 @@ public sealed partial class GraphLowerer
         var outer = _launchCondition;
         // The split-f16 GEMM applies the epilogue in its store; the f16 tensor-core path in its split-K reduction (the bias / residual of
         // projections at 9-256 rows, whose grids split K), the group's own launch covering the other row counts.
-        // Epilogues over quantized weights (folded for the int-dot matvec's store) run as their own launch on the other paths.
-        bool f32Weights = n.Inputs[1].Type == DataType.F32;
-        bool reduceEpilogue = epilogue is not null && f32Weights && !plan.SplitHalf && plan.Coop && !plan.WorkgroupMatrix && DiagnosticSwitches.Gemm2
-                              && DiagnosticSwitches.GemmHalfActivations && DiagnosticSwitches.SplitKReduceEpilogue;
-        var epilogueCode = epilogue is not null && f32Weights && (plan.SplitHalf || reduceEpilogue) ? MatMulEpilogueSource(n, epilogue) : null;
+        // Epilogues over int-dot weights (folded for the int-dot matvec's store) run as their own launch on the other paths; f16 / bf16
+        // weights keep theirs in the split-K reduction (the biases of gpt-oss's projections).
         bool intDot = UseIntDotMatvec(n, plan.W.Type, plan.K);
+        bool gemmEpilogue = n.Inputs[1].Type == DataType.F32 || !intDot;
+        bool reduceEpilogue = epilogue is not null && gemmEpilogue && !plan.SplitHalf && plan.Coop && !plan.WorkgroupMatrix && DiagnosticSwitches.Gemm2
+                              && DiagnosticSwitches.GemmHalfActivations && DiagnosticSwitches.SplitKReduceEpilogue;
+        var epilogueCode = epilogue is not null && gemmEpilogue && (plan.SplitHalf || reduceEpilogue) ? MatMulEpilogueSource(n, epilogue) : null;
         Func<Bindings, bool> intDotEpilogue = _ => false;
         bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
