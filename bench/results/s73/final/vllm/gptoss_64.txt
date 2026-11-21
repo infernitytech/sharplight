@@ -1,0 +1,272 @@
+W1121 15:13:55.710000 2261936 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 15:13:55.711000 2261936 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 15:13:55.711000 2261936 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+(MainProcess pid=2261936) INFO 11-21 15:14:02 [startup.py:96] non-default args: {'max_model_len': 1024, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.85, 'max_num_seqs': 64, 'disable_log_stats': True, 'profiler_config': ProfilerConfig(profiler='torch', torch_profiler_dir='<path>', torch_profiler_activities=None, proton_profiler_dir='', proton_context='shadow', proton_data='tree', proton_backend=None, proton_mode=None, proton_hook=None, proton_output_format=None, proton_graph_attribution=False, torch_profiler_with_stack=True, torch_profiler_with_flops=False, torch_profiler_use_gzip=True, torch_profiler_dump_cuda_time_total=True, torch_profiler_record_shapes=False, torch_profiler_with_memory=False, capture_torch_profiler=False, detailed_trace_annotation=False, ignore_frontend=False, delay_iterations=0, max_iterations=0, warmup_iterations=0, active_iterations=5, wait_iterations=0), 'model': '~/test-home/models/hf/gpt-oss-20b'}
+(MainProcess pid=2261936) INFO 11-21 15:14:02 [model.py:744] Resolved architecture: GptOssForCausalLM
+(MainProcess pid=2261936) INFO 11-21 15:14:02 [model.py:2170] Using max model len 1024
+(MainProcess pid=2261936) INFO 11-21 15:14:04 [scheduler.py:310] Chunked prefill is enabled with max_num_batched_tokens=8192.
+(MainProcess pid=2261936) INFO 11-21 15:14:04 [config.py:560] Overriding max cuda graph capture size to 1024 for performance.
+(MainProcess pid=2261936) INFO 11-21 15:14:04 [kernel.py:480] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['triton', 'native'])
+(EngineCore pid=2262365) INFO 11-21 15:14:08 [core.py:139] Initializing a V1 LLM engine (v0.33.0) with config: model='~/test-home/models/hf/gpt-oss-20b', speculative_config=None, tokenizer='~/test-home/models/hf/gpt-oss-20b', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=1024, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=gpt_oss_mxfp4, quantization_config=None, enforce_eager=False, aux_output_config=AuxOutputConfig(enable_return_routed_experts=False, max_bytes=None), kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='openai_gptoss', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, per_request_spec_decode_metrics='none', kv_cache_metrics=False, kv_cache_metrics_sample=0.01, custom_histogram_buckets=None, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=~/test-home/models/hf/gpt-oss-20b, enable_prefix_caching=False, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'ir_enable_torch_wrap': True, 'splitting_ops': ['vllm::unified_attention_with_output', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::qwen4_exp_ple_short_conv', 'vllm::qwen4_exp_qsa_with_output', 'vllm::qwen4_exp_qsa_prepare_with_output', 'vllm::linear_attention', 'vllm::qwen_gdn_attention_core', 'vllm::qwen_gdn_attention_core_fused_norm_packed', 'vllm::gdn_attention_core_xpu', 'vllm::olmo_hybrid_gdn_full_forward', 'vllm::sparse_attn_indexer', 'vllm::rocm_aiter_sparse_attn_indexer', 'vllm::deepseek_v4_attention', 'vllm::hpc_rope_norm_forward', 'vllm::unified_kv_cache_update', 'vllm::unified_mla_kv_cache_update'], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'cudagraph_decoder_replay': True, 'decoder_replay_cudagraph_capture_sizes': [], 'decoder_replay_trim_threshold': 768, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512, 528, 544, 560, 576, 592, 608, 624, 640, 656, 672, 688, 704, 720, 736, 752, 768, 784, 800, 816, 832, 848, 864, 880, 896, 912, 928, 944, 960, 976, 992, 1008, 1024], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 1024, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['triton', 'native']), enable_flashinfer_autotune=True, enable_rocm_segmented_attn_autotune=False, enable_cutedsl_warmup=True, enable_jit_warmup=True, monokernel=False, moe_backend='auto', sparse_indexer_topk_backend='auto', linear_backend='auto', linear_backend_per_quant=None)
+(EngineCore pid=2262365) INFO 11-21 15:14:08 [parallel_state.py:1929] world_size=1 rank=0 local_rank=0 distributed_init_method=file://<path> backend=nccl
+(EngineCore pid=2262365) INFO 11-21 15:14:09 [parallel_state.py:2385] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, ETP rank 0, EP rank 0, EPLB rank N/A
+(EngineCore pid=2262365) INFO 11-21 15:14:09 [gpu_worker.py:513] Using V2 Model Runner
+(EngineCore pid=2262365) WARNING 11-21 15:14:09 [flashinfer.py:143] FlashInfer's precompiled kernels are missing or do not match flashinfer-python 0.7.2.post1 (flashinfer-cubin not installed, flashinfer-jit-cache not installed). FlashInfer then downloads and compiles kernels at startup, which can take several minutes, or fails to import mismatched ones. Run `vllm download-kernels` in this Python environment to install them.
+(EngineCore pid=2262365) INFO 11-21 15:14:10 [model_runner.py:399] Loading model from scratch...
+(EngineCore pid=2262365) INFO 11-21 15:14:11 [cuda.py:508] Using FLASHINFER attention backend out of potential backends: ['FLASHINFER', 'TRITON_ATTN'].
+(EngineCore pid=2262365) INFO 11-21 15:14:11 [mxfp4.py:730] Using 'MARLIN' Mxfp4 MoE backend.
+(EngineCore pid=2262365) INFO 11-21 15:14:12 [base_loader.py:82] Initializing model took 1.820199 seconds
+(EngineCore pid=2262365) INFO 11-21 15:14:12 [weight_utils.py:1144] Filesystem type for checkpoints: FUSE. Checkpoint size: 12.82 GiB. Available RAM: 6.30 GiB.
+(EngineCore pid=2262365) INFO 11-21 15:14:12 [weight_utils.py:1174] Auto-prefetch is disabled because the filesystem (FUSE) is not a recognized network FS (NFS/Lustre) and the checkpoint size (12.82 GiB) exceeds 90% of available RAM (6.30 GiB).
+
+Loading safetensors checkpoint shards:   0% Completed | 0/3 [00:00<?, ?it/s]
+
+Loading safetensors checkpoint shards:  33% Completed | 1/3 [00:00<00:01,  1.56it/s]
+
+Loading safetensors checkpoint shards:  67% Completed | 2/3 [00:01<00:00,  1.34it/s]
+
+Loading safetensors checkpoint shards: 100% Completed | 3/3 [00:02<00:00,  1.37it/s]
+
+Loading safetensors checkpoint shards: 100% Completed | 3/3 [00:02<00:00,  1.38it/s]
+
+(EngineCore pid=2262365) INFO 11-21 15:14:14 [default_loader.py:506] Loading weights took 2.33 seconds
+(EngineCore pid=2262365) INFO 11-21 15:14:14 [mxfp4.py:2303] Using MoEPrepareAndFinalizeNoDPEPModular
+(EngineCore pid=2262365) INFO 11-21 15:14:14 [mxfp4.py:2304] Using MarlinExperts
+(EngineCore pid=2262365) INFO 11-21 15:14:16 [model_runner.py:428] Model loading took 13.8 GiB memory and 6.485525 seconds
+(EngineCore pid=2262365) INFO 11-21 15:14:16 [topk_topp_sampler.py:149] Using FlashInfer for top-p & top-k sampling.
+(EngineCore pid=2262365) INFO 11-21 15:14:16 [torch_utils.py:281] Reducing Torch threads from 10 to 1 for serving. Set OMP_NUM_THREADS in the external environment to override.
+(EngineCore pid=2262365) INFO 11-21 15:14:16 [utils.py:381] Using LBNHC KV cache layout.
+(EngineCore pid=2262365) INFO 11-21 15:14:17 [monitor.py:40] [backbone] Starting torch.compile
+(EngineCore pid=2262365) INFO 11-21 15:14:22 [backends.py:1125] [backbone] Using cache directory: ~/.cache/vllm/torch_compile_cache/18c10716a7/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore pid=2262365) INFO 11-21 15:14:22 [backends.py:1187] [backbone] Dynamo bytecode transform time: 5.12 s
+(EngineCore pid=2262365) INFO 11-21 15:14:28 [backends.py:417] [backbone] Compiling a graph for compile range (1, 8192) takes 6.11 s
+(EngineCore pid=2262365) INFO 11-21 15:14:32 [backends.py:948] collected artifacts: 25 entries, 3 artifacts, 4007317 bytes total
+(EngineCore pid=2262365) INFO 11-21 15:14:32 [decorators.py:752] [backbone] saved AOT compiled function to ~/.cache/vllm/torch_compile_cache/torch_aot_compile/0efacf217314e13d3367b918f4f33e95a9be0c4d6de862cb154a0d8cce3afb95/rank_0_0/model
+(EngineCore pid=2262365) INFO 11-21 15:14:32 [monitor.py:62] [backbone] torch.compile took 14.52 s in total
+(EngineCore pid=2262365) INFO 11-21 15:14:32 [monitor.py:91] [backbone] Initial profiling/warmup run took 0.06 s
+(EngineCore pid=2262365) INFO 11-21 15:14:37 [flashinfer.py:1106] FlashInfer resolved query dtypes: prefill=torch.bfloat16, decode=torch.bfloat16, decode_backend=xqa, kv_cache_dtype=torch.bfloat16, arch=sm120
+
+Capturing CUDA graphs (PIECEWISE):   0%|          | 0/83 [00:00<?, ?it/s]
+Capturing CUDA graphs (PIECEWISE):   1%|          | 1/83 [00:00<00:25,  3.15it/s]
+Capturing CUDA graphs (PIECEWISE):   5%|▍         | 4/83 [00:00<00:07, 10.44it/s]
+Capturing CUDA graphs (PIECEWISE):   8%|▊         | 7/83 [00:00<00:05, 14.80it/s]
+Capturing CUDA graphs (PIECEWISE):  12%|█▏        | 10/83 [00:00<00:04, 17.47it/s]
+Capturing CUDA graphs (PIECEWISE):  16%|█▌        | 13/83 [00:00<00:03, 19.19it/s]
+Capturing CUDA graphs (PIECEWISE):  19%|█▉        | 16/83 [00:00<00:03, 20.38it/s]
+Capturing CUDA graphs (PIECEWISE):  23%|██▎       | 19/83 [00:01<00:03, 21.21it/s]
+Capturing CUDA graphs (PIECEWISE):  27%|██▋       | 22/83 [00:01<00:02, 21.86it/s]
+Capturing CUDA graphs (PIECEWISE):  30%|███       | 25/83 [00:01<00:02, 22.12it/s]
+Capturing CUDA graphs (PIECEWISE):  34%|███▎      | 28/83 [00:01<00:02, 22.46it/s]
+Capturing CUDA graphs (PIECEWISE):  37%|███▋      | 31/83 [00:01<00:02, 22.66it/s]
+Capturing CUDA graphs (PIECEWISE):  41%|████      | 34/83 [00:01<00:02, 22.78it/s]
+Capturing CUDA graphs (PIECEWISE):  45%|████▍     | 37/83 [00:01<00:02, 22.95it/s]
+Capturing CUDA graphs (PIECEWISE):  48%|████▊     | 40/83 [00:02<00:01, 23.00it/s]
+Capturing CUDA graphs (PIECEWISE):  52%|█████▏    | 43/83 [00:02<00:01, 22.21it/s]
+Capturing CUDA graphs (PIECEWISE):  55%|█████▌    | 46/83 [00:02<00:01, 22.19it/s]
+Capturing CUDA graphs (PIECEWISE):  59%|█████▉    | 49/83 [00:02<00:01, 22.45it/s]
+Capturing CUDA graphs (PIECEWISE):  63%|██████▎   | 52/83 [00:02<00:01, 22.70it/s]
+Capturing CUDA graphs (PIECEWISE):  66%|██████▋   | 55/83 [00:02<00:01, 22.97it/s]
+Capturing CUDA graphs (PIECEWISE):  70%|██████▉   | 58/83 [00:02<00:01, 22.99it/s]
+Capturing CUDA graphs (PIECEWISE):  73%|███████▎  | 61/83 [00:02<00:00, 23.00it/s]
+Capturing CUDA graphs (PIECEWISE):  77%|███████▋  | 64/83 [00:03<00:00, 22.99it/s]
+Capturing CUDA graphs (PIECEWISE):  81%|████████  | 67/83 [00:03<00:00, 18.26it/s]
+Capturing CUDA graphs (PIECEWISE):  84%|████████▍ | 70/83 [00:03<00:00, 19.04it/s]
+Capturing CUDA graphs (PIECEWISE):  88%|████████▊ | 73/83 [00:03<00:00, 19.61it/s]
+Capturing CUDA graphs (PIECEWISE):  92%|█████████▏| 76/83 [00:03<00:00, 20.56it/s]
+Capturing CUDA graphs (PIECEWISE):  95%|█████████▌| 79/83 [00:03<00:00, 20.58it/s]
+Capturing CUDA graphs (PIECEWISE):  99%|█████████▉| 82/83 [00:03<00:00, 21.40it/s]
+Capturing CUDA graphs (PIECEWISE): 100%|██████████| 83/83 [00:04<00:00, 20.41it/s]
+
+Capturing CUDA graphs (FULL):   0%|          | 0/2 [00:00<?, ?it/s]
+Capturing CUDA graphs (FULL): 100%|██████████| 2/2 [00:00<00:00, 26.46it/s]
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [model_runner.py:1163] Graph capturing finished in 5 secs, took 0.83 GiB
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [gpu_worker.py:772] Available KV cache memory: 10.61 GiB
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [gpu_worker.py:787] CUDA graph memory profiling is enabled (default since v0.21.0). The current --gpu-memory-utilization=0.8500 is equivalent to --gpu-memory-utilization=0.8225 without CUDA graph memory profiling. To maintain the same effective KV cache size as before, increase --gpu-memory-utilization to 0.8775. To disable, set VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0.
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [kv_cache_utils.py:1147] GPU KV cache size: 230,082 tokens, Maximum concurrency for 1,024 tokens per request: 224.69x
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [kv_cache_utils.py:865] kv cache group sizes (16, 16)
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [kv_cache_utils.py:866] kv lcm block sizes 16
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [kernel_warmup.py:179] JIT kernel warmup starting.
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [kernel_warmup.py:192] JIT kernel warmup finished in 0.00s.
+(EngineCore pid=2262365) INFO 11-21 15:14:42 [kernel_warmup.py:100] Warming up ll_bf16 router GEMM kernels for shapes: ((2880, 32),).
+(EngineCore pid=2262365) INFO 11-21 15:14:44 [kernel_warmup.py:485] Using FlashInfer managed autotune cache (root=flashinfer default). Pass --disable-flashinfer-autotune to skip autotuning.
+2026-11-21 15:14:44,611 - INFO - autotuner.py:1048 - flashinfer.jit: [Autotuner]: Autotuning process starts ...
+2026-11-21 15:14:44,755 - INFO - autotune_cache.py:495 - flashinfer.jit: [Autotuner]: Managed autotune cache attached for this process: ManagedAutotuneCache(env_dir='~/.cache/flashinfer/autotune/v2/9487dda881f0494d', hits=0, misses=0)
+(EngineCore pid=2262365) INFO 11-21 15:14:44 [kernel_warmup.py:371] Running FlashInfer autotune with 8192 tokens and token buckets (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 768, 1024, 1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096, 8192).
+2026-11-21 15:14:44,782 - INFO - autotuner.py:1071 - flashinfer.jit: [Autotuner]: Autotuning process ends
+(EngineCore pid=2262365) INFO 11-21 15:14:44 [kernel_warmup.py:295] Warming up FlashInfer attention.
+
+Capturing CUDA graphs (PIECEWISE):   0%|          | 0/83 [00:00<?, ?it/s]
+Capturing CUDA graphs (PIECEWISE):   4%|▎         | 3/83 [00:00<00:03, 22.97it/s]
+Capturing CUDA graphs (PIECEWISE):   7%|▋         | 6/83 [00:00<00:03, 23.89it/s]
+Capturing CUDA graphs (PIECEWISE):  11%|█         | 9/83 [00:00<00:03, 24.10it/s]
+Capturing CUDA graphs (PIECEWISE):  14%|█▍        | 12/83 [00:00<00:02, 24.10it/s]
+Capturing CUDA graphs (PIECEWISE):  18%|█▊        | 15/83 [00:00<00:02, 24.23it/s]
+Capturing CUDA graphs (PIECEWISE):  22%|██▏       | 18/83 [00:00<00:02, 24.28it/s]
+Capturing CUDA graphs (PIECEWISE):  25%|██▌       | 21/83 [00:00<00:02, 24.23it/s]
+Capturing CUDA graphs (PIECEWISE):  29%|██▉       | 24/83 [00:00<00:02, 24.24it/s]
+Capturing CUDA graphs (PIECEWISE):  33%|███▎      | 27/83 [00:01<00:02, 24.32it/s]
+Capturing CUDA graphs (PIECEWISE):  36%|███▌      | 30/83 [00:01<00:02, 24.31it/s]
+Capturing CUDA graphs (PIECEWISE):  40%|███▉      | 33/83 [00:01<00:02, 24.04it/s]
+Capturing CUDA graphs (PIECEWISE):  43%|████▎     | 36/83 [00:01<00:01, 23.77it/s]
+Capturing CUDA graphs (PIECEWISE):  47%|████▋     | 39/83 [00:01<00:01, 23.52it/s]
+Capturing CUDA graphs (PIECEWISE):  51%|█████     | 42/83 [00:01<00:01, 23.83it/s]
+Capturing CUDA graphs (PIECEWISE):  54%|█████▍    | 45/83 [00:01<00:01, 24.03it/s]
+Capturing CUDA graphs (PIECEWISE):  58%|█████▊    | 48/83 [00:01<00:01, 24.10it/s]
+Capturing CUDA graphs (PIECEWISE):  61%|██████▏   | 51/83 [00:02<00:01, 23.87it/s]
+Capturing CUDA graphs (PIECEWISE):  65%|██████▌   | 54/83 [00:02<00:01, 24.05it/s]
+Capturing CUDA graphs (PIECEWISE):  69%|██████▊   | 57/83 [00:02<00:01, 23.85it/s]
+Capturing CUDA graphs (PIECEWISE):  72%|███████▏  | 60/83 [00:02<00:00, 23.53it/s]
+Capturing CUDA graphs (PIECEWISE):  76%|███████▌  | 63/83 [00:02<00:00, 23.36it/s]
+Capturing CUDA graphs (PIECEWISE):  80%|███████▉  | 66/83 [00:02<00:00, 22.79it/s]
+Capturing CUDA graphs (PIECEWISE):  83%|████████▎ | 69/83 [00:02<00:00, 21.92it/s]
+Capturing CUDA graphs (PIECEWISE):  87%|████████▋ | 72/83 [00:03<00:00, 21.50it/s]
+Capturing CUDA graphs (PIECEWISE):  90%|█████████ | 75/83 [00:03<00:00, 21.90it/s]
+Capturing CUDA graphs (PIECEWISE):  94%|█████████▍| 78/83 [00:03<00:00, 22.19it/s]
+Capturing CUDA graphs (PIECEWISE):  98%|█████████▊| 81/83 [00:03<00:00, 22.42it/s]
+Capturing CUDA graphs (PIECEWISE): 100%|██████████| 83/83 [00:03<00:00, 23.37it/s]
+
+Capturing CUDA graphs (FULL):   0%|          | 0/11 [00:00<?, ?it/s]
+Capturing CUDA graphs (FULL):  27%|██▋       | 3/11 [00:00<00:00, 26.66it/s]
+Capturing CUDA graphs (FULL):  55%|█████▍    | 6/11 [00:00<00:00, 26.88it/s]
+Capturing CUDA graphs (FULL):  82%|████████▏ | 9/11 [00:00<00:00, 27.27it/s]
+Capturing CUDA graphs (FULL): 100%|██████████| 11/11 [00:00<00:00, 27.41it/s]
+(EngineCore pid=2262365) INFO 11-21 15:14:51 [model_runner.py:1163] Graph capturing finished in 5 secs, took 0.15 GiB
+(EngineCore pid=2262365) INFO 11-21 15:14:51 [gpu_worker.py:1003] CUDA graph pool memory: 0.15 GiB (actual), 0.86 GiB (estimated), difference: 0.71 GiB (458.2%).
+(EngineCore pid=2262365) INFO 11-21 15:14:51 [gpu_worker.py:1066] Free memory on device (31.02/31.37 GiB) on startup. Desired GPU memory utilization is (0.85, 26.67 GiB). Actual usage is 14.6 GiB for consumed memory (weights + non-torch), 1.45 GiB for peak activation, and 0.15 GiB for CUDAGraph memory. Replace gpu_memory_utilization config with `--kv-cache-memory=11074594304` (10.31 GiB) to fit into requested memory, or `--kv-cache-memory=15751013888` (14.67 GiB) to fully utilize gpu memory. Current kv cache memory in use is 10.61 GiB.
+(EngineCore pid=2262365) INFO 11-21 15:14:52 [jit_monitor.py:84] Kernel JIT monitor activated; monitored JIT compilations during inference will use mode=warn.
+(EngineCore pid=2262365) INFO 11-21 15:14:53 [core.py:405] init engine (profile, create kv cache, warmup model) took 36.58 s (compilation: 14.52 s)
+(EngineCore pid=2262365) INFO 11-21 15:14:53 [kernel.py:480] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'], gelu_and_mul_sparse=['triton', 'native'])
+(MainProcess pid=2261936) INFO 11-21 15:14:54 [hf.py:736] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+(EngineCore pid=2262365) INFO 11-21 15:14:56 [wrapper.py:248] Torch profiling enabled. Traces will be saved to: <path>
+USDT:2026-11-21 15:14:56 2262365:2262365 SyncActivityProfilerHandler.cpp:39] profiler_start
+USDT:2026-11-21 15:14:59 2262365:2262365 SyncActivityProfilerHandler.cpp:46] profiler_stop
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                 execute_context_0(0)_generation_64(64)         0.00%       0.000us         0.00%       0.000us       0.000us     929.989ms        46.86%     929.989ms      15.246ms            61  
+void marlin_moe_wna16::Marlin<1125899906909960l, 562...         0.00%       0.000us         0.00%       0.000us       0.000us     700.965ms        35.32%     700.965ms     235.539us          2976  
+                          _moe_C::moe_wna16_marlin_gemm         0.17%       2.248ms         0.42%       5.649ms      58.840us     632.754ms        31.88%     632.754ms       6.591ms            96  
+void marlin_moe_wna16::Marlin<1125899906909960l, 562...         0.00%       0.000us         0.00%       0.000us       0.000us     632.754ms        31.88%     632.754ms       6.591ms            96  
+             execute_context_32(7937)_generation_32(32)         0.00%       0.000us         0.00%       0.000us       0.000us     457.703ms        23.06%     457.703ms     457.703ms             1  
+               execute_context_32(8191)_generation_1(1)         0.00%       0.000us         0.00%       0.000us       0.000us     455.863ms        22.97%     455.863ms     455.863ms             1  
+                                            aten::addmm         0.23%       3.131ms         0.37%       4.906ms      34.069us     180.960ms         9.12%     180.960ms       1.257ms           144  
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s1681...         0.00%       0.000us         0.00%       0.000us       0.000us     152.715ms         7.69%     152.715ms      93.575us          1632  
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s1681...         0.00%       0.000us         0.00%       0.000us       0.000us     138.017ms         6.95%     138.017ms       1.243ms           111  
+                                               aten::mm         0.17%       2.337ms         0.22%       2.898ms      43.904us      96.239ms         4.85%      96.239ms       1.458ms            66  
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s1681...         0.00%       0.000us         0.00%       0.000us       0.000us      60.650ms         3.06%      60.650ms      40.732us          1489  
+void vllm::swigluoai_and_mul_kernel<c10::BFloat16, &...         0.00%       0.000us         0.00%       0.000us       0.000us      45.411ms         2.29%      45.411ms      28.669us          1584  
+kernel_mha(unsigned int, float, float const*, Vec<__...         0.00%       0.000us         0.00%       0.000us       0.000us      44.307ms         2.23%      44.307ms      56.803us           780  
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s1681...         0.00%       0.000us         0.00%       0.000us       0.000us      36.241ms         1.83%      36.241ms       1.510ms            24  
+                                  _C::swigluoai_and_mul         0.03%     336.520us         0.05%     668.431us      13.926us      34.609ms         1.74%      34.609ms     721.015us            48  
+                 execute_context_1(256)_generation_0(0)         0.00%       0.000us         0.00%       0.000us       0.000us      33.423ms         1.68%      33.423ms      33.423ms             1  
+kernel_mha(unsigned int, unsigned int, float, float ...         0.00%       0.000us         0.00%       0.000us       0.000us      31.881ms         1.61%      31.881ms      40.873us           780  
+            triton_red_fused_fused_add_rms_norm_slice_2         0.00%       0.000us         0.00%       0.000us       0.000us      17.704ms         0.89%      17.704ms      11.177us          1584  
+void vllm::moe::moe_sum_vec_kernel<c10::BFloat16, in...         0.00%       0.000us         0.00%       0.000us       0.000us      16.555ms         0.83%      16.555ms      10.451us          1584  
+void marlin_moe_wna16::Marlin<1125899906909960l, 562...         0.00%       0.000us         0.00%       0.000us       0.000us      16.525ms         0.83%      16.525ms     344.267us            48  
+                 execute_context_0(0)_generation_63(63)         0.00%       0.000us         0.00%       0.000us       0.000us      16.043ms         0.81%      16.043ms      16.043ms             1  
+            triton_red_fused_fused_add_rms_norm_slice_2         0.03%     405.162us         0.12%       1.636ms      34.082us      14.338ms         0.72%      14.338ms     298.715us            48  
+                 execute_context_0(0)_generation_32(32)         0.00%       0.000us         0.00%       0.000us       0.000us      14.109ms         0.71%      14.109ms      14.109ms             1  
+                                        _moe_C::moe_sum         0.02%     257.572us         0.04%     564.363us      11.758us      13.197ms         0.66%      13.197ms     274.945us            48  
+                    vllm::unified_attention_with_output         0.03%     389.471us         2.16%      28.971ms     402.373us      12.584ms         0.63%      12.584ms     174.784us            72  
+void flashinfer::BatchPrefillWithPagedKVCacheKernel<...         0.00%       0.000us         0.00%       0.000us       0.000us      11.638ms         0.59%      11.638ms     161.641us            72  
+void marlin_moe_wna16::Marlin<1125899906909960l, 562...         0.00%       0.000us         0.00%       0.000us       0.000us      10.578ms         0.53%      10.578ms     220.381us            48  
+                  triton_red_fused_fused_add_rms_norm_0         0.00%       0.000us         0.00%       0.000us       0.000us      10.480ms         0.53%      10.480ms       6.616us          1584  
+void vllm::moe::moe_align_block_size_small_batch_exp...         0.00%       0.000us         0.00%       0.000us       0.000us       9.765ms         0.49%       9.765ms       6.458us          1512  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.00%       0.000us         0.00%       0.000us       0.000us       9.133ms         0.46%       9.133ms       6.017us          1518  
+void vllm::reshape_and_cache_flash_kernel<__nv_bfloa...         0.00%       0.000us         0.00%       0.000us       0.000us       7.804ms         0.39%       7.804ms       4.927us          1584  
+                  triton_red_fused_fused_add_rms_norm_0         0.03%     416.253us         0.11%       1.498ms      31.203us       6.891ms         0.35%       6.891ms     143.567us            48  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.02%     271.521us         0.08%       1.045ms      22.716us       6.763ms         0.34%       6.763ms     147.014us            46  
+void vllm::moe::topkGating<8, 32, 4, 16, 32, int, __...         0.00%       0.000us         0.00%       0.000us       0.000us       6.185ms         0.31%       6.185ms       3.905us          1584  
+                  _C_cache_ops::reshape_and_cache_flash         0.06%     865.836us         0.13%       1.680ms      23.338us       4.967ms         0.25%       4.967ms      68.986us            72  
+void cublasLt::splitKreduce_kernel<32, 16, int, floa...         0.00%       0.000us         0.00%       0.000us       0.000us       4.536ms         0.23%       4.536ms       2.953us          1536  
+                                  _gumbel_sample_kernel         0.00%       0.000us         0.00%       0.000us       0.000us       4.231ms         0.21%       4.231ms      64.108us            66  
+                               cudaEventRecordWithFlags         0.05%     651.540us         0.05%     651.540us       1.445us       4.209ms         0.21%       4.209ms       9.333us           451  
+void cutlass::Kernel2<cutlass_80_tensorop_s16816gemm...         0.00%       0.000us         0.00%       0.000us       0.000us       3.434ms         0.17%       3.434ms       2.271us          1512  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.00%       0.000us         0.00%       0.000us       0.000us       2.273ms         0.11%       2.273ms       1.497us          1518  
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_...         0.00%       0.000us         0.00%       0.000us       0.000us       1.453ms         0.07%       1.453ms       1.453ms             1  
+std::enable_if<!(false), void>::type internal::gemvx...         0.00%       0.000us         0.00%       0.000us       0.000us       1.450ms         0.07%       1.450ms       1.450ms             1  
+                           _moe_C::moe_align_block_size         0.06%     749.160us         0.14%       1.916ms      39.924us       1.229ms         0.06%       1.229ms      25.614us            48  
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s1681...         0.00%       0.000us         0.00%       0.000us       0.000us       1.144ms         0.06%       1.144ms      47.671us            24  
+triton_poi_fused_constant_pad_nd_fused_add_rms_norm_...         0.00%       0.000us         0.00%       0.000us       0.000us       1.130ms         0.06%       1.130ms       0.713us          1584  
+                                        Memset (Device)         0.00%       0.000us         0.00%       0.000us       0.000us       1.072ms         0.05%       1.072ms       0.657us          1632  
+                                  cudaStreamIsCapturing         0.03%     367.365us         0.03%     367.365us       0.439us     779.975us         0.04%     779.975us       0.933us           836  
+void vllm::moe::moe_align_block_size_kernel<int>(int...         0.00%       0.000us         0.00%       0.000us       0.000us     682.855us         0.03%     682.855us       9.484us            72  
+void vllm::moe::count_and_sort_expert_tokens_kernel<...         0.00%       0.000us         0.00%       0.000us       0.000us     667.498us         0.03%     667.498us       9.271us            72  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.03%     348.564us         0.10%       1.307ms      28.410us     497.386us         0.03%     497.386us      10.813us            46  
+         triton_red_fused__to_copy_embedding_rms_norm_0         0.00%       0.000us         0.00%       0.000us       0.000us     423.999us         0.02%     423.999us       6.424us            66  
+                                            aten::index         0.31%       4.142ms         0.59%       7.867ms      23.986us     404.232us         0.02%     404.232us       1.232us           328  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.00%       0.000us         0.00%       0.000us       0.000us     397.542us         0.02%     397.542us       6.023us            66  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.00%      12.800us         0.00%      53.650us      26.825us     308.804us         0.02%     308.804us     154.402us             2  
+                            _gather_block_tables_kernel         0.00%       0.000us         0.00%       0.000us       0.000us     271.052us         0.01%     271.052us       4.107us            66  
+                                            aten::copy_         0.19%       2.503ms         0.40%       5.354ms       8.405us     216.844us         0.01%     216.844us       0.340us           637  
+         triton_red_fused__to_copy_embedding_rms_norm_0         0.00%      20.391us         0.01%      97.721us      48.860us     212.227us         0.01%     212.227us     106.113us             2  
+                                           aten::argmax         0.09%       1.149ms         0.12%       1.662ms      23.745us     203.139us         0.01%     203.139us       2.902us            70  
+void at::native::reduce_kernel<512, 1, at::native::R...         0.00%       0.000us         0.00%       0.000us       0.000us     203.139us         0.01%     203.139us       3.078us            66  
+                   _get_num_sampled_and_rejected_kernel         0.00%       0.000us         0.00%       0.000us       0.000us     182.590us         0.01%     182.590us       2.767us            66  
+                                            aten::fill_         0.11%       1.498ms         0.24%       3.282ms       5.434us     180.679us         0.01%     180.679us       0.299us           604  
+               _combine_sampled_and_draft_tokens_kernel         0.00%       0.000us         0.00%       0.000us       0.000us     179.787us         0.01%     179.787us       2.724us            66  
+                                    _post_update_kernel         0.00%       0.000us         0.00%       0.000us       0.000us     178.753us         0.01%     178.753us       2.708us            66  
+                          _compute_slot_mappings_kernel         0.00%       0.000us         0.00%       0.000us       0.000us     167.934us         0.01%     167.934us       2.544us            66  
+                                   _moe_C::topk_softmax         0.05%     666.560us         0.10%       1.374ms      28.621us     158.080us         0.01%     158.080us       3.293us            48  
+                                       cuLaunchKernelEx         0.31%       4.209ms         0.31%       4.209ms       8.537us     157.473us         0.01%     157.473us       0.319us           493  
+triton_poi_fused_constant_pad_nd_fused_add_rms_norm_...         0.02%     300.324us         0.08%       1.040ms      21.668us     153.729us         0.01%     153.729us       3.203us            48  
+void at::native::index_elementwise_kernel<128, 4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     144.165us         0.01%     144.165us       2.184us            66  
+void at::native::index_elementwise_kernel<128, 4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     142.526us         0.01%     142.526us       2.159us            66  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     126.117us         0.01%     126.117us       0.955us           132  
+                         Memcpy HtoD (Pinned -> Device)         0.00%       0.000us         0.00%       0.000us       0.000us     121.443us         0.01%     121.443us       0.629us           193  
+void at::native::vectorized_gather_kernel<16, long>(...         0.00%       0.000us         0.00%       0.000us       0.000us     112.037us         0.01%     112.037us       1.724us            65  
+                                           aten::gather         0.07%     967.775us         0.11%       1.520ms      23.026us     108.416us         0.01%     108.416us       1.643us            66  
+void at::native::_scatter_gather_elementwise_kernel<...         0.00%       0.000us         0.00%       0.000us       0.000us     108.416us         0.01%     108.416us       1.643us            66  
+                         Memcpy DtoH (Device -> Pinned)         0.00%       0.000us         0.00%       0.000us       0.000us     100.329us         0.01%     100.329us       0.760us           132  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.00%       0.000us         0.00%       0.000us       0.000us      94.271us         0.00%      94.271us       1.428us            66  
+                                    _apply_write_kernel         0.00%       0.000us         0.00%       0.000us       0.000us      85.537us         0.00%      85.537us       3.888us            22  
+void cutlass::Kernel2<cutlass_80_wmma_tensorop_s1616...         0.00%       0.000us         0.00%       0.000us       0.000us      81.023us         0.00%      81.023us       3.376us            24  
+                           _prepare_pos_seq_lens_kernel         0.00%       0.000us         0.00%       0.000us       0.000us      72.478us         0.00%      72.478us       1.098us            66  
+                                          memcpy32_post         0.00%       0.000us         0.00%       0.000us       0.000us      72.004us         0.00%      72.004us       1.143us            63  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us      53.826us         0.00%      53.826us       0.816us            66  
+                                           aten::arange         0.05%     716.434us         0.25%       3.346ms      25.347us      47.776us         0.00%      95.552us       0.724us           132  
+void (anonymous namespace)::elementwise_kernel_with_...         0.00%       0.000us         0.00%       0.000us       0.000us      47.776us         0.00%      47.776us       0.724us            66  
+triton_poi_fused__to_copy_add_cat_index_select_mul_s...         0.00%      18.149us         0.01%      68.360us      34.180us      21.632us         0.00%      21.632us      10.816us             2  
+                                       Memset (Unknown)         0.00%       0.000us         0.00%       0.000us       0.000us      15.967us         0.00%      15.967us       0.665us            24  
+                         _prepare_prefill_inputs_kernel         0.00%       0.000us         0.00%       0.000us       0.000us      12.352us         0.00%      12.352us       4.117us             3  
+                              _copy_page_indices_kernel         0.00%       0.000us         0.00%       0.000us       0.000us       6.848us         0.00%       6.848us       1.141us             6  
+void at::native::index_elementwise_kernel<128, 4, at...         0.00%       0.000us         0.00%       0.000us       0.000us       5.504us         0.00%       5.504us       5.504us             1  
+                                        cudaGraphLaunch         2.58%      34.587ms         2.75%      36.831ms     418.535us       3.680us         0.00%       3.680us       0.042us            88  
+void at::native::unrolled_elementwise_kernel<at::nat...         0.00%       0.000us         0.00%       0.000us       0.000us       0.736us         0.00%       0.736us       0.736us             1  
+                 execute_context_1(256)_generation_0(0)         0.03%     349.220us         2.31%      30.908ms      30.908ms       0.000us         0.00%     437.351us     437.351us             1  
+                                            aten::slice         0.48%       6.434ms         0.64%       8.554ms       2.180us       0.000us         0.00%       0.000us       0.000us          3924  
+                                       aten::as_strided         0.22%       2.985ms         0.22%       2.985ms       0.551us       0.000us         0.00%       0.000us       0.000us          5418  
+                                            aten::empty         0.49%       6.603ms         1.03%      13.748ms       7.550us       0.000us         0.00%       0.000us       0.000us          1821  
+                                Activity Buffer Request         0.41%       5.513ms         0.51%       6.851ms       2.284ms       0.000us         0.00%       1.469ms     489.754us             3  
+                                         cudaEventQuery         0.40%       5.385ms         0.40%       5.385ms       8.990us       0.000us         0.00%       0.000us       0.000us           599  
+                                               aten::to         0.04%     498.211us         0.51%       6.793ms      10.451us       0.000us         0.00%     164.847us       0.254us           650  
+                                       aten::lift_fresh         0.01%      72.940us         0.01%      72.940us       0.209us       0.000us         0.00%       0.000us       0.000us           349  
+                                          aten::detach_         0.00%       4.560us         0.00%       4.560us       0.240us       0.000us         0.00%       0.000us       0.000us            19  
+                                         aten::_to_copy         0.08%       1.110ms         0.47%       6.295ms      16.351us       0.000us         0.00%     164.847us       0.428us           385  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 1.340s
+Self CUDA time total: 1.985s
+
+(EngineCore pid=2262365) INFO 11-21 15:15:48 [wrapper.py:98] Profiler stopped successfully.
+50 distinct generations of 64; most common (4x): ' hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand hand'
+(MainProcess pid=2261936) INFO 11-21 15:15:48 [utils.py:628] [shutdown] Process manager: send sigterm to process EngineCore
+(EngineCore pid=2262365) INFO 11-21 15:15:48 [core.py:1525] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=2262365) INFO 11-21 15:15:48 [core.py:1712] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=2262365) INFO 11-21 15:15:48 [core.py:1743] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=2262365) INFO 11-21 15:15:48 [core.py:1573] [shutdown] EngineCore: exiting busy loop
+(EngineCore pid=2262365) INFO 11-21 15:15:48 [wrapper.py:194] Shutting down profiler
+(MainProcess pid=2261936) WARNING 11-21 15:15:53 [utils.py:648] [shutdown] Process manager: force killing remaining processes count=1
+(MainProcess pid=2261936) WARNING 11-21 15:15:53 [utils.py:653] [shutdown] Process manager: force killing remaining process EngineCore pid 2262365
+61 decode steps of 64 sequences (first 0 left out): GPU time per step 15.25 ms (annotated range), kernel sum 15.12 ms
+  11.293 ms  74.7%   48.0x  void marlin_moe_wna16::Marlin<1125899906909960l, 562949953487106l, 1125899906909960l, 2814749767106568l, 128, 1, 8, 4, false, 4, 2, false>(int4 const*
+   0.954 ms   6.3%   24.0x  void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x10_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x10_t
+   0.822 ms   5.4%   24.0x  void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_
+   0.699 ms   4.6%   12.0x  kernel_mha(unsigned int, float, float const*, Vec<__nv_bfloat16, 64u>*, Vec<__nv_bfloat16, 64u> const*, float const*, KVCacheList<true>, unsigned int,
+   0.503 ms   3.3%   12.0x  kernel_mha(unsigned int, unsigned int, float, float const*, Vec<__nv_bfloat16, 64u>*, Vec<__nv_bfloat16, 64u> const*, float const*, KVCacheList<true>,
+   0.165 ms   1.1%   24.0x  void vllm::swigluoai_and_mul_kernel<c10::BFloat16, &(c10::BFloat16 vllm::swigluoai_and_mul<c10::BFloat16>(c10::BFloat16 const&, c10::BFloat16 const&, 
+   0.156 ms   1.0%   24.0x  void vllm::moe::moe_align_block_size_small_batch_expert_kernel<int, 256>(int const*, int*, int*, int*, int*, int, int, unsigned long, int, int, bool, 
+   0.094 ms   0.6%   24.0x  void vllm::moe::topkGating<8, 32, 4, 16, 32, int, __nv_bfloat16, (vllm::moe::ScoringFunc)0>(__nv_bfloat16 const*, bool const*, float*, int, int*, int*
+   0.071 ms   0.5%   24.0x  void cublasLt::splitKreduce_kernel<32, 16, int, float, __nv_bfloat16, float, __nv_bfloat16, false, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, true, 
+   0.056 ms   0.4%   24.0x  triton_red_fused_fused_add_rms_norm_0
+   0.055 ms   0.4%   24.0x  void cutlass::Kernel2<cutlass_80_tensorop_s16816gemm_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_s16816gemm_bf16_64x64_32x6_tn_align8::Params)
+   0.052 ms   0.3%   24.0x  triton_red_fused_fused_add_rms_norm_slice_2

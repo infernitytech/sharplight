@@ -1,0 +1,88 @@
+== vllm_gu_base
+back to back over 24 layer copies: 0.3388 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2651 busy samples of 3408 over 5.50 s: SM 1770 MHz, memory 13365 MHz, power 192.0 W (medians), max 54 C, reasons 0x4 100%
+== vllm_dn_base
+back to back over 24 layer copies: 0.1767 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1433 busy samples of 1916 over 3.98 s: SM 1845 MHz, memory 13365 MHz, power 186.1 W (medians), max 55 C, reasons 0x4 100%
+== vllm_marlin_gu
+W1121 14:11:00.573000 2210175 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:11:00.574000 2210175 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:11:00.574000 2210175 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin gate_up: block_m 16, 1464 routings over 24 layer copies: 0.3079 ms per routing (best of 10)
+marlin gate_up: sustained 16 replays: 0.3091 ms per routing
+sampler: 6361 busy samples of 12708 over 25.78 s: SM 1965 MHz, memory 13365 MHz, power 200.0 W (medians), max 60 C, reasons 0x4 93%
+== vllm_marlin_dn
+W1121 14:11:26.675000 2210547 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:11:26.675000 2210547 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:11:26.676000 2210547 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin down: block_m 16, 1464 routings over 24 layer copies: 0.1573 ms per routing (best of 10)
+marlin down: sustained 28 replays: 0.1583 ms per routing
+sampler: 4554 busy samples of 10451 over 9.50 s: SM 1972 MHz, memory 13365 MHz, power 200.0 W (medians), max 61 C, reasons 0x4 95%
+== ours_gu_base
+back to back over 24 layer copies: 0.3528 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2688 busy samples of 3593 over 5.60 s: SM 1732 MHz, memory 13365 MHz, power 188.2 W (medians), max 61 C, reasons 0x4 100%
+== ours_dn_base
+back to back over 24 layer copies: 0.1771 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1745 busy samples of 1985 over 4.12 s: SM 1822 MHz, memory 13365 MHz, power 186.8 W (medians), max 61 C, reasons 0x4 86%
+== ours_marlin_gu
+W1121 14:12:00.830000 2211044 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:12:00.830000 2211044 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:12:00.831000 2211044 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin gate_up: block_m 16, 216 routings over 24 layer copies: 0.3354 ms per routing (best of 10)
+marlin gate_up: sustained 84 replays: 0.3395 ms per routing
+sampler: 3576 busy samples of 9157 over 18.50 s: SM 2017 MHz, memory 13365 MHz, power 200.0 W (medians), max 62 C, reasons 0x4 88%
+== ours_marlin_dn
+W1121 14:12:19.994000 2211505 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:12:19.995000 2211505 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:12:19.995000 2211505 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin down: block_m 16, 216 routings over 24 layer copies: 0.1717 ms per routing (best of 10)
+marlin down: sustained 160 replays: 0.1743 ms per routing
+sampler: 3118 busy samples of 8578 over 6.50 s: SM 2047 MHz, memory 13365 MHz, power 200.0 W (medians), max 61 C, reasons 0x4 92%
+== vllm_gu_base
+back to back over 24 layer copies: 0.3404 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2645 busy samples of 3389 over 5.53 s: SM 1770 MHz, memory 13365 MHz, power 193.7 W (medians), max 62 C, reasons 0x4 100%
+== vllm_dn_base
+back to back over 24 layer copies: 0.1731 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1436 busy samples of 1918 over 4.03 s: SM 1852 MHz, memory 13365 MHz, power 187.8 W (medians), max 62 C, reasons 0x4 100%
+== vllm_marlin_gu
+W1121 14:12:49.600000 2212159 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:12:49.601000 2212159 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:12:49.601000 2212159 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin gate_up: block_m 16, 1464 routings over 24 layer copies: 0.3087 ms per routing (best of 10)
+marlin gate_up: sustained 16 replays: 0.3096 ms per routing
+sampler: 5656 busy samples of 11817 over 24.67 s: SM 1965 MHz, memory 13365 MHz, power 200.0 W (medians), max 64 C, reasons 0x4 93%
+== vllm_marlin_dn
+W1121 14:13:18.206000 2212616 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:13:18.206000 2212616 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:13:18.207000 2212616 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin down: block_m 16, 1464 routings over 24 layer copies: 0.1574 ms per routing (best of 10)
+marlin down: sustained 28 replays: 0.1594 ms per routing
+sampler: 4313 busy samples of 12299 over 9.45 s: SM 1972 MHz, memory 13365 MHz, power 200.0 W (medians), max 63 C, reasons 0x4 98%
+== ours_gu_base
+back to back over 24 layer copies: 0.3390 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2149 busy samples of 3052 over 7.50 s: SM 1875 MHz, memory 13365 MHz, power 167.4 W (medians), max 62 C, reasons 0x4 100%
+== ours_dn_base
+back to back over 24 layer copies: 0.1734 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1285 busy samples of 2455 over 3.11 s: SM 2010 MHz, memory 13365 MHz, power 171.6 W (medians), max 61 C, reasons 0x4 100%
+== ours_marlin_gu
+W1121 14:14:01.571000 2213415 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:14:01.571000 2213415 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:14:01.572000 2213415 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin gate_up: block_m 16, 216 routings over 24 layer copies: 0.3353 ms per routing (best of 10)
+marlin gate_up: sustained 80 replays: 0.3477 ms per routing
+sampler: 3131 busy samples of 9982 over 20.65 s: SM 2055 MHz, memory 13365 MHz, power 199.9 W (medians), max 62 C, reasons 0x4 86%
+== ours_marlin_dn
+W1121 14:14:23.701000 2214197 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:14:23.702000 2214197 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:14:23.703000 2214197 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin down: block_m 16, 216 routings over 24 layer copies: 0.1717 ms per routing (best of 10)
+marlin down: sustained 160 replays: 0.1743 ms per routing
+sampler: 3130 busy samples of 8857 over 6.50 s: SM 2047 MHz, memory 13365 MHz, power 200.0 W (medians), max 61 C, reasons 0x4 92%

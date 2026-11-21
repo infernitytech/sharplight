@@ -12,7 +12,7 @@ With --prefill N (section 56) it profiles instead the prefill of --seqs prompts 
 ranges annotated "execute_context_<seqs>(<N * seqs>)_generation_0(0)", kernels summed per prefill step.
 
 usage: CUDA_VISIBLE_DEVICES=1 python s54_vllm_decode_profile.py <model dir> [--seqs 64] [--depth 256] [--steps 64] [--top 40]
-       [--prefill N]
+       [--prefill N] [--skip N]
 """
 import argparse
 import glob
@@ -78,6 +78,8 @@ def main():
     ap.add_argument("--trace", help="parse this torch trace (.json.gz) instead of running vLLM")
     ap.add_argument("--words", action="store_true", help="random-word prompts (the serving benchmark's) instead of random token ids")
     ap.add_argument("--prefill", type=int, default=0, help="profile the prefill of --seqs prompts of this many tokens instead")
+    ap.add_argument("--skip", type=int, default=0,
+                    help="leave out the first N decode steps (their routing is more concentrated: section 73; BatchBench warms up 5)")
     a = ap.parse_args()
 
     if a.trace:
@@ -90,7 +92,8 @@ def main():
     # Decode steps: the GPU ranges vLLM annotates "execute_context_0(0)_generation_<seqs>(<seqs>)" (no prompt rows).
     marker = (f"execute_context_{a.seqs}({a.prefill * a.seqs})_generation_0(0)" if a.prefill
               else f"execute_context_0(0)_generation_{a.seqs}({a.seqs})")
-    steps = [e for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation" and e.get("name") == marker]
+    steps = sorted((e for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation" and e.get("name") == marker),
+                   key=lambda e: e["ts"])[a.skip:]
     per = defaultdict(float)
     count = defaultdict(int)
     for st in steps:
@@ -105,7 +108,8 @@ def main():
         names = sorted({e.get("name") for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation"})
         print("no range named", marker, "; annotated ranges:", names[:20])
         return
-    print(f"{n} {'prefill' if a.prefill else 'decode'} steps of {a.seqs} sequences: GPU time per step {span / 1000:.2f} ms (annotated range), kernel sum {total / 1000:.2f} ms")
+    print(f"{n} {'prefill' if a.prefill else 'decode'} steps of {a.seqs} sequences (first {a.skip} left out): GPU time per step "
+          f"{span / 1000:.2f} ms (annotated range), kernel sum {total / 1000:.2f} ms")
     for name, us in sorted(per.items(), key=lambda kv: -kv[1])[: a.top]:
         print(f"{us / n / 1000:8.3f} ms {100 * us / n / total:5.1f}% {count[name] / n:6.1f}x  {name[:150]}")
 
