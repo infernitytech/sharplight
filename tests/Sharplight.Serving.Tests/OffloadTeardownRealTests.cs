@@ -1,4 +1,5 @@
 using Sharplight.Cpu;
+using Sharplight.Cuda;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
@@ -25,6 +26,8 @@ public sealed class OffloadTeardownRealTests
     private const long MiB = 1L << 20;
     /// <summary>A third of the model's 4 GiB: most experts run on the CPU.</summary>
     private const long GpuBudget = 1400 * MiB;
+    /// <summary>Upper bound of the staging buffers a device keeps for streamed weights after the streamed model is gone.</summary>
+    private const long DeviceStreamingStaging = 128 * MiB;
 
     /// <summary>How the host is torn down after the model decoded.</summary>
     public enum Teardown
@@ -55,8 +58,10 @@ public sealed class OffloadTeardownRealTests
         Assert.SkipUnless(File.Exists(path), "model not found");
         var cpuProvider = new CpuExecutionProvider();
         using var cpu = cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]);
+        // Disposed last: the provider after the devices, the devices after the models (the order of a stopping process).
+        using var cuda = providerName == CudaProvider.ProviderName ? new CudaProvider() : null;
         using var pool = new DevicePool();
-        var device = offloaded ? OpenGpu(pool, providerName) : cpu;
+        var device = offloaded ? OpenGpu(pool, cuda ?? TestHost.Providers.Discover().FirstOrDefault(x => x.Provider.Name == providerName)?.Provider, providerName) : cpu;
         var options = new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }],
@@ -99,7 +104,8 @@ public sealed class OffloadTeardownRealTests
             Assert.Equal(ModelState.Unloaded, host.Get(Name)!.State);
             if (offloaded)
             {
-                Assert.Equal(0, device.GetMemoryInfo().UsedByUs);
+                // What stays is the device's streaming staging, which it keeps for the next streamed model until it is disposed.
+                Assert.InRange(device.GetMemoryInfo().UsedByUs, 0, DeviceStreamingStaging);
             }
         }
         finally
@@ -108,10 +114,10 @@ public sealed class OffloadTeardownRealTests
         }
     }
 
-    private static IComputeDevice OpenGpu(DevicePool pool, string providerName)
+    /// <summary>Opens the first device of <paramref name="provider"/> (the default catalog has no CUDA provider: the test creates it).</summary>
+    private static IComputeDevice OpenGpu(DevicePool pool, IExecutionProvider? provider, string providerName)
     {
-        var provider = TestHost.Providers.Discover().FirstOrDefault(x => x.Provider.Name == providerName && x.Availability.IsAvailable)?.Provider;
-        Assert.SkipUnless(provider is not null && provider.GetDevices().Count > 0, $"no {providerName} device");
+        Assert.SkipUnless(provider is not null && provider.CheckAvailability().IsAvailable && provider.GetDevices().Count > 0, $"no {providerName} device");
         return pool.Open(provider, provider.GetDevices()[0], new DeviceOptions { MemoryBudget = GpuBudget });
     }
 
