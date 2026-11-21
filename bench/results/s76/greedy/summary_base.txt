@@ -1,0 +1,10 @@
+[lock acquired 22:11:48]
+gpt-oss-20b cuda p40 base rc=0 e733f049
+gpt-oss-20b cuda p1000 base rc=0 8cb648ed
+gpt-oss-20b vulkan p40 base rc=0 35319991
+gpt-oss-20b vulkan p1000 base rc=0 dfb8e9fc
+Qwen3-8B-FP8 cuda p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 base rc=0 b9666631
+Qwen3-8B-FP8 vulkan p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 vulkan p1000 base rc=0 b9666631
+[lock released 22:13:39 rc=0]

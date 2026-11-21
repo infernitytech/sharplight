@@ -10,7 +10,8 @@ namespace Sharplight.Shaders.Lowering;
 /// </summary>
 internal sealed class RowNormKernelSource
 {
-    private const int Threads = 256;
+    /// <summary>Threads per workgroup (one workgroup per row): 256, or up to 1024 for long rows.</summary>
+    public int Threads { get; init; } = 256;
 
     /// <summary>Unrolling (all loads issued first) is used up to this many elements per thread.</summary>
     private const long MaxUnrolledIterations = 32;
