@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Sharplight.Cuda.Interop;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Shaders.Lowering;
 
@@ -41,8 +42,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// model's other sparse segments on the device), their mapped source and the bytes of one expert.
     /// </summary>
     private readonly List<(BufferDecl Buffer, nint Source, long ExpertBytes)> _sparseWeights = [];
-    /// <summary>With <see cref="CompileOptions.SparseExpertSlots"/>: the expert ids input (rewritten to slots) and the experts of the bank.</summary>
-    private readonly (Value Ids, int Experts)? _sparse;
+    /// <summary>
+    /// With <see cref="CompileOptions.SparseExpertSlots"/>: the expert ids input (rewritten to slots), the experts of the bank and the
+    /// per-expert tables the segment gathers rows of by those ids (e.g. the experts' biases).
+    /// </summary>
+    private readonly (Value Ids, int Experts, HashSet<WeightInfo> Tables)? _sparse;
     /// <summary>The experts the last <see cref="SetInput"/> of the ids selected, in slot order (their weights are copied in at the next execution).</summary>
     private readonly List<int> _sparseSelected = [];
     /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming"/>).</summary>
@@ -212,7 +216,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     {
         if (b.Kind == BufferKind.Weight && _sparse is { } sparse && _options.StateScope is { } sparseScope)
         {
-            return AllocateSparseWeight(b, sparse.Experts, sparseScope);
+            return AllocateSparseWeight(b, sparse.Experts, sparse.Tables, sparseScope);
         }
 
         // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
@@ -289,30 +293,40 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     }
 
     /// <summary>
-    /// The expert ids input of a segment compiled with <see cref="CompileOptions.SparseExpertSlots"/> and the experts of its banks: every weight
-    /// the segment reads must be the bank of a <c>MatMulId</c> (input 1, [experts, ...]) indexed by one ids input of the segment.
+    /// The expert ids input of a segment compiled with <see cref="CompileOptions.SparseExpertSlots"/>, the experts of its banks and the tables
+    /// it gathers rows of: every weight the segment reads must be the bank of a <c>MatMulId</c> (input 1, [experts, ...]) or a table of a
+    /// <c>GatherAxis</c> on axis 0 ([experts, N]), indexed by one ids input of the segment.
     /// </summary>
     /// <exception cref="NotSupportedException">The segment reads other weights or more than one ids value.</exception>
-    private static (Value Ids, int Experts) SparseExpertIds(GraphSegment segment)
+    private static (Value Ids, int Experts, HashSet<WeightInfo> Tables) SparseExpertIds(GraphSegment segment)
     {
         Value? ids = null;
         int experts = 0;
+        HashSet<WeightInfo> tables = [];
         foreach (var n in segment.Nodes)
         {
             for (int i = 0; i < n.Inputs.Length; i++)
             {
-                if (n.Inputs[i].Weight is null)
+                if (n.Inputs[i].Weight is not { } weight)
                 {
                     continue;
                 }
 
-                if (n.Op.Name != "MatMulId" || i != 1 || ids is not null && n.Inputs[2] != ids || experts > 0 && n.Inputs[1].Shape[0].Fixed != experts)
+                bool bank = n.Op.Name == "MatMulId" && i == 1;
+                bool table = n.Op.Name == "GatherAxis" && i == 0 && n.Attributes.Get("axis", 0L) == 0 && n.Inputs[0].Shape.Rank == 2;
+                var nodeIds = n.Inputs[bank ? 2 : 1];
+                if (!bank && !table || ids is not null && nodeIds != ids || experts > 0 && n.Inputs[i].Shape[0].Fixed != experts)
                 {
                     throw new NotSupportedException($"Sparse expert streaming: {n.Op.Name} reads a weight that is not an expert bank of the segment's ids (output {n.Outputs[0].Name}).");
                 }
 
-                ids = n.Inputs[2];
-                experts = (int)n.Inputs[1].Shape[0].Fixed;
+                if (table)
+                {
+                    tables.Add(weight);
+                }
+
+                ids = nodeIds;
+                experts = (int)n.Inputs[i].Shape[0].Fixed;
             }
         }
 
@@ -321,15 +335,17 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             throw new NotSupportedException("Sparse expert streaming: the segment has no expert banks indexed by an i32 input.");
         }
 
-        return (ids, experts);
+        return (ids, experts, tables);
     }
 
     /// <summary>
     /// Allocates a weight buffer of a sparse segment: an expert bank holds <see cref="CompileOptions.SparseExpertSlots"/> experts (shared with
-    /// the model's other sparse segments on the device, by bank ordinal); constant tables (decoding grids) are the segment's own.
+    /// the model's other sparse segments on the device, by bank ordinal); constant tables (decoding grids) are the segment's own. A gathered
+    /// per-expert table keeps all its rows (it is small): gathers clamp the ids to the table, and the rows past the slots stay zero, so the ids
+    /// of -1 (no expert) read zeros.
     /// </summary>
     /// <exception cref="NotSupportedException">A bank is repacked or not memory-mapped.</exception>
-    private long AllocateSparseWeight(BufferDecl b, int experts, object scope)
+    private long AllocateSparseWeight(BufferDecl b, int experts, HashSet<WeightInfo> tables, object scope)
     {
         if (b.Weight is null)
         {
@@ -346,7 +362,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         long expertBytes = b.Bytes / experts;
         string key = "sparse:" + _sparseWeights.Count;
         _sparseWeights.Add((b, source, expertBytes));
-        return ShareArena(scope, key, b, _options.SparseExpertSlots * expertBytes);
+        return ShareArena(scope, key, b, tables.Contains(b.Weight) ? b.Bytes : _options.SparseExpertSlots * expertBytes);
     }
 
     /// <summary>
@@ -557,6 +573,14 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     /// <inheritdoc />
     public bool WeightsResident { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// A sparse compilation copies asynchronously when the mapped sources of all its expert banks are page-locked (copies from pageable
+    /// memory return only after the driver staged them); the small per-expert tables may stay pageable.
+    /// </remarks>
+    public bool CopiesAsynchronously => _sparse is not { } sparse
+        || _sparseWeights.All(w => sparse.Tables.Contains(w.Buffer.Weight!) || _registeredWeights.Any(r => r.Buffer == w.Buffer));
 
     /// <summary>
     /// Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not and the
