@@ -1041,6 +1041,8 @@ public sealed partial class GraphLowerer
         // Decode batches of f16 projections on the hand-written f16 GEMM's decode form: one launch for the split GEMM and its reduction.
         var notMultiAlone = notMulti;
         var decode = EmitNativeF16DecodeGemm(p, activations, epilogue, b => notMultiAlone(b) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1);
+        // K-quant projections likewise on the hand-written K-quant decode GEMM.
+        decode ??= EmitNativeKQuantDecodeGemm(p, activations, epilogue, b => notMultiAlone(b) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1);
         if (decode is not null)
         {
             notMulti = b => notMultiAlone(b) && !decode(b);

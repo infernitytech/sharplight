@@ -97,6 +97,13 @@ public static class DeviceFeatures
     public const string NativeGemmMoe = "native_gemm_moe";
 
     /// <summary>
+    /// Matrix products of K-quant weights (Q4_K, Q5_K, Q6_K) at decode batch sizes (17-64 activation rows) run on a hand-written GEMM of
+    /// the provider that copies the raw blocks into shared memory and dequantizes each tensor-core MMA's weight fragments in registers
+    /// (CUDA, compute capability 8.0 and later). Disabling it keeps the generated GEMMs on dequantized tiles.
+    /// </summary>
+    public const string NativeGemmKQuant = "native_gemm_kquant";
+
+    /// <summary>
     /// Causal attention of many queries against an f16 KV cache (prefill, prompt chunks of a serving step) runs on a hand-written
     /// flash-attention kernel of the provider (query fragments, scores, softmax statistics and outputs in registers, key / value
     /// tiles copied asynchronously into a two-stage ring of shared memory; CUDA, compute capability 8.0 and later), including
@@ -156,13 +163,14 @@ public static class DeviceFeatures
 
     /// <summary>
     /// Window-sized KV caches with the paged cache: caches that only sliding-window attention reads keep the blocks a slot's window still
-    /// reaches, in a pool of their own (<see cref="Graph.MultiSequence.WindowedCaches"/>). Disabling it gives them a row per position of the
-    /// pool like every other cache. Not part of <see cref="DeviceInfo.Features"/> (it does not change generated code).
+    /// reaches, in a pool of their own (<see cref="Graph.MultiSequence.WindowedCaches"/>); a single-sequence session runs the one-slot paged
+    /// form with a ring of window rows for them (<c>InferenceSession</c>). Disabling it gives them a row per position of the pool (the
+    /// context) like every other cache. Not part of <see cref="DeviceInfo.Features"/> (it does not change generated code).
     /// </summary>
     public const string WindowKv = "window_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeAttention, TensorCopies, LaunchGraphs, DependentLaunches];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeGemmKQuant, NativeAttention, TensorCopies, LaunchGraphs, DependentLaunches];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

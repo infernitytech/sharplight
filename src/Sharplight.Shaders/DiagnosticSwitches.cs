@@ -645,6 +645,15 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS=n</c>: fewest rows the hand-written f16 GEMM's decode form serves, or null for the default.</summary>
     public static long? NativeF16DecodeMinRows { get; } = Read("SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_MIN_ROWS=n</c>: fewest rows the hand-written K-quant decode GEMM serves, or null for the default (the first batch past the matvec).</summary>
+    public static long? NativeKQuantMinRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_BM=32|64</c>: token rows per tile of the hand-written K-quant decode GEMM, or null for the default.</summary>
+    public static int? NativeKQuantTileRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_BM") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_SPLIT=n</c>: K split of the hand-written K-quant decode GEMM, or null for the default (chosen per matrix and batch).</summary>
+    public static int? NativeKQuantSplit { get; } = Read("SHARPLIGHT_NATIVE_KQ_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
     public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
