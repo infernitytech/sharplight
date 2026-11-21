@@ -9906,3 +9906,115 @@ $BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --
 cd bench/s68_f16dec && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DW0=4096 -DW1=512 -DW2=512 -DMULTI=3 -DH_BIAS=1 -DH_CFG=2 \
   -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_f16_native.cu"' bench_f16dec.cu -o b && ./b 64
 ```
+
+## 69. MoE with CPU offload, round 4: Qwen3-Coder-Next on CUDA, CPU expert layers in two passes, K-quant dots, one graph per CUDA step (2026-11-21)
+
+Branch `perf/offload-r4` (base `develop` at `65642c1c`, §66 merged; `develop` merged again at `5d4a04e4` (§68), the suites, the greedy checks
+and the benches below after that merge). Same machine and methodology as §66: GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB),
+AMD EPYC 7443 with a 10.2-CPU cgroup quota shared by every job on the pod (AVX2), 62 GB cgroup, llama.cpp b11177; the GPU shared with
+another perf agent (runs serialized with a lock), the CPU with that agent's builds and serving benches and a model-feed upload (the cgroup
+throttled ~13 % of all periods; medians move by 5-10 % between identical runs, so every row gives two runs). Sharplight:
+`sharplight <model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes; decode 64 steps, best /
+median tok/s); llama.cpp: `llama-bench -ngl 99 -ncmoe N -fa 1 -p 512 -n 64 -r 3 -t 10`, run in the same hour as ours on CUDA (Vulkan and
+gpt-oss: §66's numbers).
+
+### 69.1 Results against llama.cpp (tok/s)
+
+| model, provider | decode §66 | decode now (2 runs, best / median) | llama.cpp decode | prefill §66 | prefill now | llama.cpp prefill |
+|---|---:|---:|---:|---:|---:|---:|
+| Qwen3-Coder-Next Q4_K_M, CUDA | 74.2 / 70.1, 74.9 / 67.1 | **91.7 / 83.2, 88.9 / 79.5** | 89.5 ± 2.2 (`-ncmoe 16`, same hour; 87.2 at 18; §66: 97.0) | 665 | **664** | 595 ± 22 |
+| Qwen3-Coder-Next Q4_K_M, Vulkan | 76.9 / 74.5, 76.6 / 74.0 | **88.8 / 85.5**, 79.9 / 77.4 | 55.2 ± 1.7 (`-ncmoe 20`) | 543 | 520, 497 | 385 ± 4 |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | 74.5 / 70.1, 73.3 / 70.4 | **73.8 / 71.6, 73.8 / 70.6** | 72.0 ± 0.2 (`-ncmoe 6`, same hour) | 998 | **997** | 942 ± 68 |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, Vulkan | 63.6 / 56.7, 62.4 / 54.9 | 56.2 / 55.6, **64.9 / 60.4** | 45.9 ± 0.5 | 1031 | **1015**, 1023 | 745 ± 9 |
+| gpt-oss-120b MXFP4, CUDA | 51.7 / 46.0, 53.0 / 44.9 | **53.4 / 49.9**, 52.1 / 49.5 | 36.4 ± 6.4 (`-ncmoe 20`) | 305 | 303, 291 | 109 ± 65 |
+| gpt-oss-120b MXFP4, Vulkan | 50.3 / 48.9, 51.1 / 49.7 | 50.8 / 49.9, 49.2 / 46.8 | 33.6 ± 3.5 (`-ncmoe 22`) | 311 | **321**, 316 | 110 ± 32 |
+
+* Qwen3-Coder-Next CUDA decode: 0.77x → 1.0x of llama.cpp's same-hour run by best step (91.7 / 88.9 against 89.5; medians 0.89-0.93x),
+  but llama.cpp reaches 97-98 in its good windows: interleaved pairs (llama.cpp `-p 0 -n 64 -r 5`, then ours `--bench 64`) gave 97.9 ± 3.8
+  / 89.6 (median 79.1), 45.6 ± 18.3 (a disturbed run) / 82.9 (77.4), 97.6 ± 3.6 / 86.6 (82.1, 10 threads), so ~0.9x against llama.cpp's
+  best and below the 1.0x target; 8 threads: 81.6 (76.4). Prefill 1.12x. Vulkan decode 1.45-1.6x (was 1.39x).
+* The 122B on CUDA stays at 1.02x by best step (its IQ2_XXS expert dots are unchanged; the CPU passes and the CUDA handoffs below are
+  ~2 % of its step), 1.0x by median; the 1.1x lever, the GPU part of its step, was not reached this round (69.4).
+* gpt-oss-120b: 1.37-1.47x on CUDA, 1.4-1.5x on Vulkan, as in §66; its expert layers (bias adds after the products) keep separate ops.
+
+### 69.2 Where the Coder-Next step went
+
+At the start (§66, CUDA): 17 CPU expert layers (layers 0-16; layer 17 resident in the streaming memory, 30 on the GPU, as llama.cpp's
+`-ncmoe 16` minus one) at 0.49-0.60 ms per split pass, 18 GPU segments of one layer's attention at 0.15 ms of host time each (0.09 ms on
+the device), and 3.8 ms of device time for the 30 GPU layers: ~14 ms per step. In the CPU segments the Q4_K / Q6_K dots ran at 2.5 / 3.4 ns
+per 32 values (about the throughput of the memory bus for ten threads, so the products ran at 25-30 GB/s with the threads waiting on each
+other), SiLU took 30-45 µs for 5120 values, and every layer ran seven parallel ops. A GPU segment made 9 driver calls around its graph
+launch (nsys: scalar upload, two forwarded inputs, two events, two downloads and a synchronous upload and download of the
+[512, 2048]-sized values), ~60 µs of host time per layer. The split balance had settled on 5-6 GPU slots, slower than the CPU alone once
+the CPU got faster (sweeps: 68-69 against 79-84 tok/s), since it only compared neighbouring shares.
+
+Now (quiet minute, `SHARPLIGHT_SEGMENT_TIMING=1`): CPU expert layers 0.29-0.33 ms of per-op minima (gate / up 0.19 ms at 62 GB/s, the
+down product with the slot sum 0.10-0.15 ms) and 0.37-0.47 ms mean per split pass; GPU segments 0.11-0.13 ms of host time (one graph
+launch, 0.03 ms submit); 10.8-10.9 ms best step. A 20 MB read of random 1.8 MB chunks by 8-11 threads takes 0.21-0.27 ms on this machine
+(a C probe), so the CPU passes are within ~1.4x of the bus.
+
+### 69.3 Changes
+
+* **Q4_K and Q6_K fused dots, llama.cpp's form** (AVX2): the code-activation pair sums are weighted by the 6-bit sub-block scales in int16
+  lanes (`vpmaddwd`) instead of scaling every 32 values in float, the scales unpacked once per block, the mins / offset terms of a block in
+  one vector: 1.30 / 1.51 against 2.51 / 3.36 ns per 32 values at K = 2048 (single thread, cache-resident). Two rows per call for rows of
+  K <= 512 (the down products): 1.40 / 1.64 against 2.07 / 2.33 ns, the same result as one row bit for bit; at K = 2048 a pair spills
+  registers and is not used.
+* **The CPU expert MLP in two passes**: a gate / up `MatMulId` pair followed by `Mul(Silu(gate), up)` writes the gated activation in its
+  integer-dot units (after the float path for prefill), and the down product followed by `ReduceSum(Permute(Mul(y, w), 0, 2, 1))` writes the
+  weighted slot sum (a unit takes 32 output rows of one token over every slot; more rows sum after the products), the slot products
+  added in slot order like the separate ops. Up to 16k activation values are quantized on the calling thread. Seven parallel ops per layer
+  became two, with the same results as before (tests compare with the separate nodes bit for bit).
+* **CUDA steps as one graph**: a segment's small inputs and outputs (up to 1 MiB) go through page-locked staging buffers; the downloads, the
+  runtime scalar upload, the inputs forwarded from other segments and the timing events are captured in the step's graph (the uploads are
+  queued on the segment's stream), so a GPU segment of a CPU-offloaded layer costs one `cuGraphLaunch` and one wait: 0.15 → 0.11-0.13 ms of
+  host time per segment. A split pass's expert copies from page-locked memory go in one `cuMemcpyBatchAsync` (drivers from 13.0), host time
+  before the CPU starts 0.05-0.07 → 0.025-0.045 ms.
+* **Split balance**: every third probe tries the CPU alone (a share of one GPU slot pays the GPU's fixed costs, so a search over neighbours
+  stayed at 5-6 slots); with the faster CPU it settles at 2-4 slots.
+* **Unary kernels**: tanh (Cephes `tanhf`), softplus (`max(x, 0) + log1p(e^-|x|)`, log1p from Cephes `logf` with Goldberg's correction) and
+  mish (`x n / (n + 2)`, n = e^x (e^x + 2)) on `VectorExp`, within 4 ulp of double precision. Inside one large switch the JIT ran out of
+  inlining budget and called `VectorExp` out of line in the later cases; the vector loops now have methods of their own. Per 8192 values:
+  SiLU 34 → 6.4 µs, tanh 100 → 7.6, softplus 83 → 15, mish 258 → 7.0, GELU 57 → 25, erf 24 (unchanged: its double-precision vector
+  form meets the 2e-7 bound the tests set).
+* Diagnostics: segment timing shows each GPU segment's device, submit and wait times and a split pass's host time before its CPU work;
+  `BenchTests.ExpertLayerThroughput`, `FusedDotThroughput` and `UnaryKernelThroughput` (`SHARPLIGHT_BENCH=1`).
+
+### 69.4 What did not work or was not done
+
+* **The split for Coder-Next** is worth little: its GPU slots copy 1.8 MB experts over a 23 GB/s bus while the CPU, which shares the memory
+  bandwidth with those copies, slows down by ~50 % per slot (0.075 against 0.05 ms). Fixed 5 slots: 73 tok/s against 79-84 for the CPU
+  alone in the same hour; the balancer's best shares are now within noise of the CPU alone.
+* **Thread count and spin** (`SHARPLIGHT_CPU_THREADS` 8 / 10 / 11, `SHARPLIGHT_CPU_SPIN_US` 0 / 50 / 200): 10 threads 86.6 / 82.1 and 8
+  threads 81.6 / 76.4 against 82.9-89.6 / 77-79 at the default in the interleaved runs, not separable from the pod's load (spin 0 lost
+  40 % of the mean to wake-ups); the default stays (11 threads = the rounded-up quota, 200 µs).
+* **Prefetch distance** in the expert units (0-8 rows ahead): no difference above the noise.
+* **One layer fewer on the CPU**: llama.cpp's best `-ncmoe 16` holds 32 layers on the GPU; we hold 30 + 1 resident in the streaming memory,
+  which keeps a whole layer for prefill streaming. Not changed.
+* **The GPU part of the step** (Coder-Next: 29 launches per layer at ~2-4 µs, the q8 quantizations of the activations, two L2 norms, a tile
+  and a sigmoid among them; the 122B's 8.6 ms): kernel fusion in the shader lowering is the next lever for both models; not started.
+
+### 69.5 Tests
+
+| suite | result |
+|---|---|
+| Sharplight.Cpu.Tests (new `VectorActivationsTests`, `MoeTests.GatedPairMatchesSeparateActivation` / `WeightedSlotSumMatchesSeparateNodes`, `IntDotTests.TwoRowFusedDotMatchesOneRow`) | 1395 / 0 failed / 48 skipped |
+| Sharplight.Core.Tests | 1660 / 0 failed / 331 skipped |
+| Sharplight.Cuda.Tests | 39 / 0 failed / 1 skipped |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StateHandoff, StreamedExperts, Moe, RowInvariance, QuantFormat, F16Range, TopK, Fusion | 523 / 0 failed each |
+| FamilyGenerationTests Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan | 3 / 0 failed each |
+| gpt-oss-120b greedy text (`-p "The capital of France is" -n 32`), CUDA and Vulkan | identical to §66 |
+| Qwen3-Coder-Next greedy text (16 tokens, `--cpu-offload`), CUDA and Vulkan | identical to the llama.cpp reference |
+
+### 69.6 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf   # or Qwen3.5-122B-A10B/..UD-IQ2_XXS.gguf, gpt-oss-120b/gpt-oss-120b-MXFP4.gguf
+for p in cuda vulkan; do SHARPLIGHT_SEGMENT_TIMING=1 $CLI $M --provider $p --cpu-offload --bench 512; done
+SHARPLIGHT_SPARSE_GPU_SLOTS=0 SHARPLIGHT_CPU_PROFILE=min $CLI $M --provider cuda --cpu-offload --bench 64   # CPU alone, per-op minima
+SHARPLIGHT_BENCH=1 SHARPLIGHT_THREADS=10 dotnet run --project tests/Sharplight.Cpu.Tests -c Release -- -method "*ExpertLayerThroughput"
+SHARPLIGHT_BENCH=1 dotnet run --project tests/Sharplight.Cpu.Tests -c Release -- -method "*FusedDotThroughput"
+$LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe 16 -fa 1 -p 512 -n 64 -r 3 -t 10
+```

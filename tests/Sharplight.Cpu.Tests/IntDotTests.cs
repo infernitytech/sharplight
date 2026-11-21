@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
 
@@ -114,6 +115,43 @@ public unsafe class IntDotTests
                 }
 
                 Assert.True(Math.Abs(expected - actual) <= 1e-5 * magnitude + 1e-6, $"{label} row {r}: {actual} vs {expected} (magnitude {magnitude})");
+            }
+        }
+    }
+
+    /// <summary>The two-row fused dots give each row's one-row result bit for bit.</summary>
+    [Theory]
+    [InlineData("q4_k", 512), InlineData("q4_k", 2048), InlineData("q6_k", 512), InlineData("q6_k", 1024)]
+    public void TwoRowFusedDotMatchesOneRow(string type, int k)
+    {
+        var dt = DataType.Get(type);
+        var format = Quant.FormatOf(dt)!.Value;
+        if (!IntDot.HasFusedDot2(format))
+        {
+            return;
+        }
+
+        long rowBytes = dt.ByteSize(k);
+        const int Rows = 6;
+        var weights = new byte[Rows * rowBytes];
+        new Random(4).NextBytes(weights);
+        for (long b = 0; b < weights.Length / dt.BlockBytes; b++)
+        {
+            int at = (int)(b * dt.BlockBytes) + (format == WeightFormat.Q6_K ? 208 : 0);
+            BitConverter.TryWriteBytes(weights.AsSpan(at, 2), (Half)(0.01f + 0.001f * (b % 9)));
+        }
+
+        var x = Kit.Rand(k, 5, 2f);
+        using var row = new Row(k);
+        fixed (float* px = x)
+        fixed (byte* w = weights)
+        {
+            IntDot.Quantize(px, k, row.Q8);
+            for (int r = 0; r + 1 < Rows; r += 2)
+            {
+                IntDot.FusedDot2(format, w + r * rowBytes, w + (r + 1) * rowBytes, row.Q8, k, out float first, out float second);
+                Assert.Equal(IntDot.FusedDot(format, w + r * rowBytes, row.Q8, k), first);
+                Assert.Equal(IntDot.FusedDot(format, w + (r + 1) * rowBytes, row.Q8, k), second);
             }
         }
     }

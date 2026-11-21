@@ -89,7 +89,7 @@ split on CUDA, and on Vulkan where it imports the mapped pages: the GPU copies t
 page-locked mapped file, into banks of 32 expert slots shared by the layers, stored layout; gathered per-expert tables such as gpt-oss's
 biases are kept whole) while the CPU computes the other slots (slots of the other side get zero weights where the layer adds per-expert
 biases); the share per layer and row count is the one with the fastest measured passes, from 0 (the CPU alone, when the bus is slower
-than the CPU for these experts) to all slots. Layers whose banks are not page-locked or imported are not split. A compilation that runs
+than the CPU for these experts) to all slots, the CPU alone probed every 24 passes. Layers whose banks are not page-locked or imported are not split. On CUDA a split pass's copies from page-locked memory go in one `cuMemcpyBatchAsync` (drivers from 13.0), and every segment's small inputs and outputs (up to 1 MiB) go through page-locked staging buffers: the uploads are queued on the segment's stream, the downloads, the runtime scalars and the forwarded inputs are part of the step's CUDA graph, so handing a layer to the CPU and back costs one graph launch and one wait. The CPU computes a layer's experts in two passes: gate and up with the gated activation, then the down product with the weighted slot sum. A compilation that runs
 out of device memory is placed again with the measured shortfall kept free (more experts on the CPU), up to three times; a streamed
 compilation's failure takes the same path while retries remain, then leaves its experts on the CPU for every batch size. With a fallback
 device the default reserve is 512 MiB (1 GiB without). Vulkan takes the driver's memory budget (VK_EXT_memory_budget) as the limit where it

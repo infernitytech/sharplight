@@ -277,6 +277,7 @@ internal static unsafe class ScalarMath
                 }
                 break;
             case UnaryKind.Mish:
+                i = UnaryVectorLoops.Mish(x, y, n);
                 for (; i < n; i++)
                 {
                     float v = x[i];
@@ -332,14 +333,7 @@ internal static unsafe class ScalarMath
                 }
                 break;
             case UnaryKind.Erf:
-                if (CpuIsa.Use256)
-                {
-                    for (; i + 8 <= n; i += 8)
-                    {
-                        ErfV(Vector256.Load(x + i)).Store(y + i);
-                    }
-                }
-
+                i = UnaryVectorLoops.Erf(x, y, n);
                 for (; i < n; i++)
                 {
                     y[i] = ErfF(x[i]);
@@ -490,28 +484,7 @@ internal static unsafe class ScalarMath
 
                 break;
             case UnaryKind.Exp:
-                if (CpuIsa.Use512)
-                {
-                    for (; i + 16 <= n; i += 16)
-                    {
-                        VectorExp.Exp(Vector512.Load(x + i)).Store(y + i);
-                    }
-                }
-                if (CpuIsa.Use256)
-                {
-                    for (; i + 8 <= n; i += 8)
-                    {
-                        VectorExp.Exp(Vector256.Load(x + i)).Store(y + i);
-                    }
-                }
-                else if (CpuIsa.UseNeon)
-                {
-                    for (; i + 4 <= n; i += 4)
-                    {
-                        VectorExp.Exp(Vector128.Load(x + i)).Store(y + i);
-                    }
-                }
-
+                i = UnaryVectorLoops.Exp(x, y, n);
                 for (; i < n; i++)
                 {
                     y[i] = MathF.Exp(x[i]);
@@ -519,30 +492,7 @@ internal static unsafe class ScalarMath
 
                 break;
             case UnaryKind.Sigmoid:
-                if (CpuIsa.Use512)
-                {
-                    var one = Vector512<float>.One;
-                    for (; i + 16 <= n; i += 16)
-                    {
-                        (one / (one + VectorExp.Exp(-Vector512.Load(x + i)))).Store(y + i);
-                    }
-                }
-                if (CpuIsa.Use256)
-                {
-                    var one = Vector256<float>.One;
-                    for (; i + 8 <= n; i += 8)
-                    {
-                        (one / (one + VectorExp.Exp(-Vector256.Load(x + i)))).Store(y + i);
-                    }
-                }
-                else if (CpuIsa.UseNeon)
-                {
-                    var one = Vector128<float>.One;
-                    for (; i + 4 <= n; i += 4)
-                    {
-                        (one / (one + VectorExp.Exp(-Vector128.Load(x + i)))).Store(y + i);
-                    }
-                }
+                i = UnaryVectorLoops.Sigmoid(x, y, n);
                 for (; i < n; i++)
                 {
                     y[i] = 1f / (1f + MathF.Exp(-x[i]));
@@ -550,33 +500,7 @@ internal static unsafe class ScalarMath
 
                 break;
             case UnaryKind.Silu:
-                if (CpuIsa.Use512)
-                {
-                    var one = Vector512<float>.One;
-                    for (; i + 16 <= n; i += 16)
-                    {
-                        var v = Vector512.Load(x + i);
-                        (v / (one + VectorExp.Exp(-v))).Store(y + i);
-                    }
-                }
-                if (CpuIsa.Use256)
-                {
-                    var one = Vector256<float>.One;
-                    for (; i + 8 <= n; i += 8)
-                    {
-                        var v = Vector256.Load(x + i);
-                        (v / (one + VectorExp.Exp(-v))).Store(y + i);
-                    }
-                }
-                else if (CpuIsa.UseNeon)
-                {
-                    var one = Vector128<float>.One;
-                    for (; i + 4 <= n; i += 4)
-                    {
-                        var v = Vector128.Load(x + i);
-                        (v / (one + VectorExp.Exp(-v))).Store(y + i);
-                    }
-                }
+                i = UnaryVectorLoops.Silu(x, y, n);
                 for (; i < n; i++)
                 {
                     y[i] = x[i] / (1f + MathF.Exp(-x[i]));
@@ -584,6 +508,7 @@ internal static unsafe class ScalarMath
 
                 break;
             case UnaryKind.Tanh:
+                i = UnaryVectorLoops.Tanh(x, y, n);
                 for (; i < n; i++)
                 {
                     y[i] = MathF.Tanh(x[i]);
@@ -592,30 +517,7 @@ internal static unsafe class ScalarMath
                 break;
             case UnaryKind.GeluTanh:
                 // 0.5 x (1 + tanh(sqrt(2/pi)(x + 0.044715 x^3))) = x * sigmoid(2u), u = sqrt(2/pi)(x + 0.044715 x^3)
-                if (CpuIsa.Use256)
-                {
-                    var one = Vector256<float>.One;
-                    var c0 = Vector256.Create(0.7978845608028654f * 2f);
-                    var c1 = Vector256.Create(0.044715f);
-                    for (; i + 8 <= n; i += 8)
-                    {
-                        var v = Vector256.Load(x + i);
-                        var u = c0 * Vector256.FusedMultiplyAdd(c1 * v, v * v, v);
-                        (v / (one + VectorExp.Exp(-u))).Store(y + i);
-                    }
-                }
-                else if (CpuIsa.UseNeon)
-                {
-                    var one = Vector128<float>.One;
-                    var c0 = Vector128.Create(0.7978845608028654f * 2f);
-                    var c1 = Vector128.Create(0.044715f);
-                    for (; i + 4 <= n; i += 4)
-                    {
-                        var v = Vector128.Load(x + i);
-                        var u = c0 * Vector128.FusedMultiplyAdd(c1 * v, v * v, v);
-                        (v / (one + VectorExp.Exp(-u))).Store(y + i);
-                    }
-                }
+                i = UnaryVectorLoops.GeluTanh(x, y, n);
                 for (; i < n; i++)
                 {
                     float v = x[i];
@@ -623,17 +525,7 @@ internal static unsafe class ScalarMath
                 }
                 break;
             case UnaryKind.Gelu:
-                if (CpuIsa.Use256)
-                {
-                    var half = Vector256.Create(0.5f);
-                    var one = Vector256<float>.One;
-                    var r2 = Vector256.Create(0.7071067811865476f);
-                    for (; i + 8 <= n; i += 8)
-                    {
-                        var v = Vector256.Load(x + i);
-                        (half * v * (one + ErfV(v * r2))).Store(y + i);
-                    }
-                }
+                i = UnaryVectorLoops.Gelu(x, y, n);
                 for (; i < n; i++)
                 {
                     double v = x[i];
@@ -641,6 +533,7 @@ internal static unsafe class ScalarMath
                 }
                 break;
             case UnaryKind.Softplus:
+                i = UnaryVectorLoops.Softplus(x, y, n);
                 for (; i < n; i++)
                 {
                     float v = x[i];
