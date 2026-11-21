@@ -101,6 +101,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   is one launch: gpt-oss-20b 64-sequence step 0.88 / 0.89 → 0.90 / 0.91x (`--text` / `--feedback`), serving at 64 streams 0.88 → 0.89x.
   32-row token tiles for the FP8 decode form (two blocks per SM) and the FP8 GEMM from 9 rows: Qwen3-8B-FP8 steps at 12-32 sequences
   -5-7 %, serving at 16 streams 0.89 → 0.93x. Greedy text byte-identical; Vulkan 64-sequence step -1.5 % (routing, router). Next: §68.7.
+  Round 21 (§70): the decode attention's combine is launched only where a row can split (none for Qwen3-8B-FP8 at 64 rows, none for
+  gpt-oss's sliding-window layers), and the split count follows the key count (one 320-key range instead of 256 + 44 at 64 rows; one
+  range more where a launch has few workgroups): gpt-oss-20b 64-sequence step -1.3-1.6 % (`--feedback` / `--text`), Qwen3-8B-FP8 -0.6-0.9 %
+  at 48-64 rows and one row, Vulkan unchanged. Measured and not kept: the expert GEMM's activation copies are worth at most 0.5-2 %
+  (wider tiles lose), the router's logits in its top-k launch (72 launches fewer, step unchanged), 32-row FP8 token tiles at 64 rows,
+  decode-attention workgroup shapes and split targets for long contexts. Next: §70.6.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

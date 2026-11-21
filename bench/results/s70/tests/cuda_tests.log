@@ -1,0 +1,10 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Cuda.Tests
+[0m[37m  Discovered:  Sharplight.Cuda.Tests
+[0m[37m  Starting:    Sharplight.Cuda.Tests
+[0m[93m    Sharplight.Cuda.Tests.CudaCodeTests.LibraryGemmMatchesTheCpu [SKIP]
+[0m[37m      cuBLASLt is not installed (Sharplight.Cuda.Blas or SHARPLIGHT_CUDA_BLAS_DIR).
+[0m[37m  Finished:    Sharplight.Cuda.Tests (ID = 'c4fec482be64e03647c9d34d8f664474fda5df61ebc8804b6de16b88a980d2b0')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Cuda.Tests  Total: 39, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 34.659s
+[0m[0m

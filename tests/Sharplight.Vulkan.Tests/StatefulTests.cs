@@ -33,6 +33,14 @@ public sealed class StatefulTests
     public void CachedAttentionLongPrefill(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [70, 33, 1, 5], 120);
 
+    /// <summary>
+    /// Decode steps of a few rows over ~3000 keys with many KV heads: each row's keys split into a few ranges (decode_split_keys:
+    /// from the key count, at most the workgroup target's count), merged by the combine.
+    /// </summary>
+    [Fact]
+    public void CachedAttentionFewLongRows()
+        => CachedAttention("f16", 16, 16, 128, 128, [2048, 1024, 4, 3, 2], 4096);
+
     private static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)
     {
         Gpu.Require();
