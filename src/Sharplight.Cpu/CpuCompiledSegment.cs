@@ -39,7 +39,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     private long _ownedBytes;
     private long _weightBytes;
     private RunParameters? _last;
-    private bool _disposed;
+    private int _disposed;
 
     internal CpuCompiledSegment(GraphSegment segment, CompileOptions options, CpuDevice device)
     {
@@ -112,7 +112,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     /// <inheritdoc />
     public void Execute(RunParameters parameters)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
         foreach (var (symbol, bound) in _symbolBounds)
         {
             if (SymbolicExpression.TryEvaluate(symbol, parameters.Symbols, out var v) && v > bound)
@@ -292,12 +292,12 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void Dispose()
     {
-        if (_disposed)
+        // Claimed atomically: a second (concurrent) call must not free the arena and the owned buffers again.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
         foreach (var (op, _) in _steps)
         {
             op.Dispose();

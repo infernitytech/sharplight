@@ -67,9 +67,20 @@ put() { # relative path in the feed folder
   case "$key" in
     *.slm) metadata=(--metadata "sha256=$(jq -r '.files[] | select(.role == null or .role == "package") | .sha256' "$work/feed/$version_dir/manifest.json" | head -1)") ;;
   esac
-  aws s3 cp "$work/feed/$key" "s3://$R2_BUCKET/$FEED_PREFIX/$key" --endpoint-url "$R2_ENDPOINT" --only-show-errors \
-    --content-type "$(content_type "$key")" --cache-control "$immutable" "${metadata[@]}"
-  echo "$key: uploaded ($local_size bytes)."
+  # A whole-object retry on top of the CLI's per-request retries: one failed part of a 100+ GB multipart upload (a throughput or
+  # connection error) fails the copy, and the object only exists once the upload completes, so starting it again is safe.
+  local attempt
+  for attempt in 1 2 3 4; do
+    if aws s3 cp "$work/feed/$key" "s3://$R2_BUCKET/$FEED_PREFIX/$key" --endpoint-url "$R2_ENDPOINT" --only-show-errors \
+      --content-type "$(content_type "$key")" --cache-control "$immutable" "${metadata[@]}"; then
+      echo "$key: uploaded ($local_size bytes)."
+      return 0
+    fi
+    echo "::warning::$key: upload attempt $attempt failed."
+    [ "$attempt" -lt 4 ] && sleep $((attempt * 60))
+  done
+  echo "::error::$key: upload failed after 4 attempts."
+  return 1
 }
 
 package_file=$(jq -r '.files[] | select(.role == null or .role == "package") | .name' "$work/feed/$version_dir/manifest.json" | head -1)

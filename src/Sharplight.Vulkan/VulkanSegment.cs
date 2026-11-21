@@ -70,7 +70,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// <summary>Download command buffers on the transfer queue per recording key, for recordings that download on it (see <see cref="UsesTransferQueue"/>).</summary>
     private readonly Dictionary<string, VkCommandBuffer> _downloads = [];
     private readonly VkQueryPool _stepPool;
-    private bool _disposed;
+    private int _disposed;
 
     /// <summary>GPU time (first to last command) of the most recent non-profiled <see cref="Execute(RunParameters)"/>, in ms (waits for it).</summary>
     public double LastGpuMs
@@ -1484,7 +1484,8 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_disposed)
+        // Claimed before waiting for the device: a second (concurrent) call must not free the buffers and host registrations again.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
@@ -1494,7 +1495,6 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
             WaitForCompletion();
         }
 
-        _disposed = true;
         try
         {
             if (_dev.PendingShared == this)
