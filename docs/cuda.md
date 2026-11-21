@@ -323,7 +323,7 @@ steps at 16 / 64 sequences went from 12.0 / 17.7 to 10.1 / 16.1 ms (the Vulkan p
 batched decode on Vulkan. The lowering now picks it per target: 1 on SPIR-V and MSL, 4 on PTX, where the CUDA form keeps more loads in
 flight (Qwen3-0.6B single-sequence decode 1.68 → 1.46 ms per step with graphs; `SHARPLIGHT_ATTN_DECODE_CFG=...,rows` overrides it).
 The split configuration differs per target too: 1024 target workgroups, 128 minimum keys per range and 64 ranges on SPIR-V and
-MSL, 1024 / 256 / 128 on PTX, where the 256-key minimum keeps short batched contexts on one range per row (no combine) while long
+MSL, 1024 / 256 / 128 on PTX up to head size 64 (512 / 128 / 64 above: the larger configuration cost Qwen3-8B-FP8 1.5-4.4 %), where the 256-key minimum keeps short batched contexts on one range per row (no combine) while long
 contexts spread over twice the workgroups of the 512-workgroup target before (gpt-oss-20b at 128K keys, 1 / 4 streams 9.99 / 25.52
 → 9.42 / 24.69 ms per step, [benchmarks.md §65.4](benchmarks.md)).
 
