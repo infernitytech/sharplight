@@ -9531,8 +9531,8 @@ range; the cgroup throttled 14 % of all periods during this round), so its rows 
   probes one import when it opens and leaves the imports off when the driver refuses. On this machine the NVIDIA driver refuses every import,
   even 64 KiB of anonymous memory (`ErrorOutOfDeviceMemory`): it pins through the locked-memory limit, 8 MiB in this container without
   `CAP_IPC_LOCK`, while `cuMemHostRegister` is not bound by it. Before the probe, the failed imports cost device memory (three
-  out-of-memory re-placements and an unstreamed layer: 122B Vulkan prefill 496-779 against 1065). The Vulkan split is therefore untested
-  at scale here (the `StreamedExpertsTests` split cases skip on Vulkan).
+  out-of-memory re-placements and an unstreamed layer: 122B Vulkan prefill 496-779 against 1065). The Vulkan split is therefore not
+  exercised on this machine (the `StreamedExpertsTests` split cases run without sparse compilations on Vulkan).
 
 ### 66.3 What did not work
 
