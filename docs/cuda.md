@@ -214,6 +214,10 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   With `H_BIAS` the store adds a bias row, and with `H_XRS` it first undoes the row scales of a row-ranged copy (exact), so projections
   with biases (gpt-oss, Qwen2) take it from 1024 rows instead of gemm_cm2 (gpt-oss-20b prefill +2 % at 2048 / 8192 tokens,
   [benchmarks.md §61.5](benchmarks.md#61-llm-round-15-decode-step-projections-and-expert-gemms-the-native-f16-gemm-with-a-bias-store-2026-11-20)).
+  A decode form (`H_CFG` 2: 64 tokens x 64 or 32 weight rows, the narrower where 64-row tiles would leave a quarter of the SMs idle,
+  four stages, no K split) serves 33-64 rows where gemm_cm2 split K and reduced, with the bias store, and a multi-output form of it
+  (`MULTI`) runs q / k / v as one launch, each weight tile in one member's matrix: gpt-oss-20b at 64 sequences q / k / v + o 102 → 79 µs
+  per layer, step -0.5 ms ([benchmarks.md §68](benchmarks.md)); `SHARPLIGHT_NATIVE_F16_DECODE_BN=0` turns it off.
 - **`gemm_fp8_native.cu`** (`native_gemm_fp8`, compute capability 8.9+): the block-scaled E4M3 GEMM of `gemm_fp8.slang` on operands
   whose scales it can copy densely: the weights in the 128-row groups of `WeightRepack.Fp8B128Grouped` (`f8e4m3_b128g`: [128 rows of
   K codes][K / 128 blocks of the 128 rows' f32 scales], the same bytes as the split rows, repacked at upload, so a precompiled package
@@ -223,9 +227,10 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   96-99 KB: 128 x 128 tiles with three stages or 64 x 128 tiles with four, chosen per batch by estimated block waves; 2 x 4 warps, per K
   block the B fragments loaded once and each 16-row fragment's MMAs summed in a fresh accumulator and added with one fused
   multiply-add scaled by `sx · sw`; dual form with the generated epilogue; grouped rasterization. From
-  `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (65) rows, K a multiple of 512, N of 128; from 32 rows in a decode form (64 x 64 tiles, four
-  stages: twice the blocks, so the last wave is short) for matmuls outside a multi-output q / k / v GEMM and for dual gate / up pairs
-  (Qwen3-8B-FP8 at 64 sequences 17.2 → 16.4 ms, [benchmarks.md §63.3](benchmarks.md); `SHARPLIGHT_NATIVE_FP8_DECODE_BN=128` turns it off). 225-240 TFLOPS on the Qwen3-8B shapes at 2048 rows
+  `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (65) rows, K a multiple of 512, N of 128; from 9 rows in a decode form (64-row weight tiles; 64-row
+  token tiles with four stages above 32 rows, 32-row token tiles with three stages, two blocks per SM, up to 32) for single matmuls,
+  dual gate / up pairs and multi-output q / k / v (Qwen3-8B-FP8 at 64 sequences 17.2 → 16.4 ms, [benchmarks.md §63.3](benchmarks.md);
+  at 12-32 sequences -5-7 %, [§68](benchmarks.md); `SHARPLIGHT_NATIVE_FP8_DECODE_BN=128` turns it off). 225-240 TFLOPS on the Qwen3-8B shapes at 2048 rows
   in the model (phase 3: 187-227). The generated kernels that read FP8 weights (decode matvecs, skinny and fp8 GEMMs) decode the
   grouped layout too (`FP8_GROUPED`, `F8_GROUPED`), so the layout costs decode nothing measurable; on Vulkan it is off
   (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)).

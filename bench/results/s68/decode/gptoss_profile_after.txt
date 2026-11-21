@@ -1,0 +1,34 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 201088, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 64 | 21.4 | 535 / 0 | 17.60 / 18.60, 17.52 |
+--- profile batch 64 (greedy)
+GPU time 393.77 ms
+   165.653 ms  42.1%    480x  min    284.1 us  matmul-id [32x2880→5760] mxfp4rx2 fused native gemm_moe_native T=64,U=64,R=64
+    87.464 ms  22.2%    480x  min    154.0 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=64,U=64,R=64
+    30.718 ms   7.8%     20x  min   1528.3 us  matmul [2880→201088] f16 gemm_cm2 T=64,U=64,R=64
+    25.297 ms   6.4%    480x  min     34.6 us  attention decode T=64,U=64,R=64
+    20.776 ms   5.3%    480x  min     40.6 us  matmul [2880→4096+512+512] f16 native decode gemm_f16_native T=64,U=64,R=64
+    17.075 ms   4.3%    480x  min     32.9 us  matmul [4096→2880] f16 native decode gemm_f16_native T=64,U=64,R=64
+     7.219 ms   1.8%    480x  min      5.6 us  attention combine decode_combine T=64,U=64,R=64
+     6.248 ms   1.6%    960x  min      3.7 us  moe-gather x→ranged f16 moe_gather_x16 T=64,U=64,R=64
+     3.908 ms   1.0%    960x  min      2.7 us  moe-route [32 experts] moe_route T=64,U=64,R=64
+     3.881 ms   1.0%    480x  min      6.1 us  matmul [2880→32] f16 split-k gemm_cm2 T=64,U=64,R=64
+     2.968 ms   0.8%    480x  min      3.7 us  fused[Add]+RmsNorm main T=64,U=64,R=64
+     2.680 ms   0.7%    480x  min      3.6 us  fused[Add,Add]+RmsNorm main T=64,U=64,R=64
+     2.528 ms   0.6%    480x  min      3.7 us  rope main T=64,U=64,R=64
+     2.243 ms   0.6%    480x  min      3.3 us  ReduceSum rowreduce_narrow T=64,U=64,R=64
+     2.222 ms   0.6%    480x  min      2.9 us  rope+cache_write rope_row T=64,U=64,R=64
+     2.021 ms   0.5%    480x  min      2.7 us  matmul [4096→2880] f16 x→ranged f16 to_f16_ranged T=64,U=64,R=64
+     1.918 ms   0.5%    480x  min      2.6 us  cache_write cache_write T=64,U=64,R=64
+     1.786 ms   0.5%    480x  min      2.4 us  matmul [2880→32] f16 x→f16 to_f16 T=64,U=64,R=64
+     1.765 ms   0.4%    480x  min      1.8 us  matmul split-k reduce fused[Add] splitk_reduce T=64,U=64,R=64
+     1.762 ms   0.4%    480x  min      2.0 us  softmax softmax T=64,U=64,R=64
+     1.615 ms   0.4%    480x  min      1.8 us  topk topk_subgroup T=64,U=64,R=64
+     1.406 ms   0.4%     20x  min     69.0 us  sample sample T=64,U=64,R=64
+     0.290 ms   0.1%     40x  min      4.6 us  gather gather T=64,U=64,R=64
+     0.133 ms   0.0%     20x  min      5.1 us  matmul [2880→201088] f16 f16 range f16_range_unscale T=64,U=64,R=64
+     0.104 ms   0.0%     20x  min      4.2 us  RmsNorm main T=64,U=64,R=64
+     0.094 ms   0.0%     20x  min      3.6 us  matmul [2880→201088] f16 x→ranged f16 to_f16_ranged T=64,U=64,R=64
+
