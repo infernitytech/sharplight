@@ -1,0 +1,13 @@
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 16.5 | 473 / 0 | 11.39 / 11.47, 11.32 |
+| 16 | 14.7 | 618 / 0 | 13.62 / 13.86, 13.55 |
+| 64 | 16.8 | 547 / 0 | 16.54 / 16.69, 16.46 |
+--- profile batch 64 (greedy)
+   100.704 ms  28.0%    720x  min    134.1 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_native T=64,U=64,R=64
+    52.410 ms  14.6%    720x  min     69.1 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64
+    40.289 ms  11.2%   1440x  min     24.4 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64
+    31.878 ms   8.9%     20x  min   1591.6 us  matmul [4096→151936] f16 gemm_cm2 T=64,U=64,R=64
+    22.443 ms   6.2%   1440x  min     13.8 us  matmul [4096→1024] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64
+     3.946 ms   1.1%    720x  min      3.8 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64
+     3.104 ms   0.9%    720x  min      2.8 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64
