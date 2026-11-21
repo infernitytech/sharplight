@@ -10772,7 +10772,38 @@ fallbacks there (74.3). Gemma's 32K prefill and 128K decode are missing on our s
   The K-quant decode matvec (mmvq, int8 dot products on q8_1 activations) reads Qwen3-8B's 4.7 GB in 7.0 ms per token, ~670 GB/s
   of the card's 896, where llama.cpp's is 6.99 ms.
 
-VLLM_HERE
+### 74.3.1 Against vLLM (equivalent 4-bit checkpoints)
+
+vLLM 0.33.0 (`vllm-r12`) cannot load these GGUFs: its GGUF loader needs the `gguf` package, which the venv lacks, and it maps neither
+`qwen35` nor `gemma4`. The comparison therefore uses the closest vLLM-native 4-bit checkpoints of the same models: **Qwen/Qwen3-8B-AWQ**
+(`4da05a8e`, AWQ int4 g128, Marlin kernels) and **RedHatAI/Qwen3.8-27B-INT4** (`71dface3`, compressed-tensors W4A16 g128). They are not
+the same weights or bit layout as Q4_K_M (Q4_K is 4.5 bits per weight with 6-bit sub-block scales and mins, plus Q6_K down / v
+projections), so these are engine-to-engine figures on comparable 4-bit models, not like-for-like kernels. vLLM ran in the hold right
+after the final Sharplight / llama.cpp runs (`vllm_single.py --depth 8192`, `s58_long_vllm.py` at 32K and for 1 / 16 / 64 streams at
+depth 256: prefill median of 5 with `max_tokens=1`, decode (t(129) − t(1)) / 128 over generated tokens).
+
+| Qwen3-8B (tok/s) | Sharplight Q4_K_M, CUDA | vLLM AWQ | ratio |
+|---|---:|---:|---:|
+| prefill 512 / 2K / 8K / 32K | 7274 / 7264 / 6583 / 4738 | 8407 / 8471 / 7525 / 5206 | 0.87 / 0.86 / 0.87 / 0.91 |
+| decode, 1 stream (depth 16-512) | 144.4 | 137.7 | 1.05 |
+| decode at 32K | 79.1 | 75.5 | 1.05 |
+| decode, 16 / 64 sequences at depth 256 | 1404 / 2785 | 1909 / 4243 | 0.74 / 0.66 |
+
+| Qwen3.8 27B (tok/s) | Sharplight Q4_K_M, CUDA | vLLM INT4 (W4A16) | ratio |
+|---|---:|---:|---:|
+| prefill 512 / 2K / 8K / 32K | 1910 / 1958 / 1910 / 1774 | 2511 / 2542 / 2450 / 2186 | 0.76 / 0.77 / 0.78 / 0.81 |
+| decode, 1 stream | 45.7 | 47.4 | 0.96 |
+| decode at 32K / 128K | 39.2 / 27.9 | 44.0 / 38.1 | 0.89 / 0.73 |
+| decode, 16 / 64 sequences at depth 256 | 371 / 687 | 601 / 880 | 0.62 / 0.78 |
+
+The 27B's W4A16 checkpoint keeps its linear layers at ~4.1 bits per weight, where Q4_K_M has 4.5 (Q4_K) and 6.6 (Q6_K for the QKV,
+down and output projections), so part of the decode gap is bytes read per token; at 128K most of it is the decode attention at head
+size 256 (our split-K `decode` reads the cache at ~620 GB/s).
+
+Against vLLM the K-quant prefill GEMM (f16 tensor cores on dequantized Q4_K tiles, ~0.86x) and above all the batched decode GEMMs at
+16-64 rows (0.66-0.74x: Marlin's int4 GEMM reads the weights once per step at those batch sizes, our `gemm_cm2` does not reach the read
+rate, 74.6 lever 1) are the gaps for Qwen3-8B, whose single-stream and 32K decode are ahead (1.05x); the 27B trails vLLM everywhere
+(0.62-0.96x).
 ### 74.4 Correctness
 
 * Greedy text (`--chat --temp 0 -n 64`, a 25-token prompt and a 1,600-token one) of the round's start (`ff3b70b1`) against this branch,
@@ -10811,6 +10842,9 @@ Large enough to promote (like for like, same hour, both engines interleaved):
   Vulkan at every length (32K from 0.84 / 0.87x), single-stream decode 1.05x (CUDA) / 1.26x (Vulkan, llama.cpp's tg128 moved between
   35.7 and 40.2 over the day).
 * **Prefill at 32K on CUDA**: Qwen3-8B 1.19x, Qwen3.8 27B 1.19x.
+
+Against vLLM (74.3.1, comparable but not identical 4-bit checkpoints) nothing here is a lead to promote except Qwen3-8B's single-stream
+and 32K decode (1.05x); vLLM leads prefill (0.76-0.91x) and batched decode (0.62-0.78x).
 
 Parity, not a lead: single-stream decode of Qwen3-8B (0.99-1.01x) and Gemma 4 on Vulkan (1.03x), decode at 32K (1.01-1.06x, Qwen),
 Qwen3-8B CUDA prefill at 512-8K (1.06-1.09x) and its CUDA batched decode (0.99x), Gemma 4 CUDA prefill at 2K / 8K (1.02 / 0.98x).

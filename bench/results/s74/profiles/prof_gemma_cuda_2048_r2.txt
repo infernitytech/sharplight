@@ -1,0 +1,73 @@
+Graph optimization (sharplight-ir/1): decode 1678 -> 1668 nodes, decode_embeddings 1676 -> 1666 nodes, embed 1555 -> 1545 nodes, classify 1558 -> 1548 nodes [163 ms]
+Loaded Gemma-4-31B-It (decoder): 833 tensors, 18.31 GB, vocab 262144 [1162 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Uploading weights 18.31 / 18.31 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 213 / 213, 205 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 7475 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 62 groups, 18.98 GiB weights+state
+1 segment(s): [0@0: 1669 nodes]
+Ready (decode)
+segment 0: 1076 launches per step (cuda, one stream)
+--- prefill T=2048 profile, segment 0
+GPU time 1209.16 ms
+   485.575 ms  40.2%     60x  min   7489.5 us  matmul2 [5376→21504]x2 q4_k fused[GeluTanh,Mul] gemm2 gemm_cm2 T=2048,R=1|1,2,3
+   157.388 ms  13.0%     30x  min   4884.3 us  matmul [21504→5376] q6_k gemm_cm2 T=2048,R=1|1,2,3
+   144.256 ms  11.9%     30x  min   4703.0 us  matmul [21504→5376] q4_k gemm_cm2 T=2048,R=1|1,2,3
+    83.234 ms   6.9%     50x  min   1555.4 us  matmul [8192→5376] q4_k gemm_cm2 T=2048,R=1|1,2,3
+    77.512 ms   6.4%     50x  min   1443.9 us  matmul [5376→8192] q4_k gemm_cm2 T=2048,R=1|1,2,3
+    63.707 ms   5.3%     75x  min    799.1 us  matmul [5376→4096] q4_k gemm_cm2 T=2048,R=1|1,2,3
+    37.920 ms   3.1%     60x  min    445.1 us  attention attn_prefill_native T=2048,R=1|1,2,3
+    35.029 ms   2.9%     10x  min   3414.8 us  matmul [16384→5376] q4_k gemm_cm2 T=2048,R=1|1,2,3
+    31.105 ms   2.6%     10x  min   3023.5 us  matmul [5376→16384] q4_k gemm_cm2 T=2048,R=1|1,2,3
+    23.159 ms   1.9%     25x  min    867.2 us  matmul [5376→4096] q6_k gemm_cm2 T=2048,R=1|1,2,3
+    12.947 ms   1.1%    180x  min     48.2 us  RmsNorm main T=2048,R=1|1,2,3
+    12.043 ms   1.0%     60x  min    197.5 us  fused[Add]+RmsNorm main T=2048,R=1|1,2,3
+    11.697 ms   1.0%     60x  min    144.2 us  fused[Add,Mul]+RmsNorm main T=2048,R=1|1,2,3
+    11.513 ms   1.0%     60x  min    157.8 us  rope+norm rope_row T=2048,R=1|1,2,3
+     4.569 ms   0.4%     10x  min    453.4 us  matmul [5376→2048] q4_k gemm_cm2 T=2048,R=1|1,2,3
+     4.145 ms   0.3%     60x  min     23.3 us  rope+norm+cache_write rope_row T=2048,R=1|1,2,3
+     4.047 ms   0.3%     60x  min     38.4 us  cache_write cache_write T=2048,R=1|1,2,3
+     3.910 ms   0.3%     50x  min     75.3 us  matmul [8192→5376] q4_k x→ranged f16 to_f16_ranged T=2048,R=1|1,2,3
+     2.667 ms   0.2%     10x  min    263.2 us  matmul [16384→5376] q4_k x→ranged f16 to_f16_ranged T=2048,R=1|1,2,3
+     1.015 ms   0.1%      1x  min   1015.3 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] int-dot mmvq T=2048,R=1|1,2,3
+     0.518 ms   0.0%     60x  min      5.3 us  matmul2 [5376→21504]x2 q4_k fused[GeluTanh,Mul] f16 range f16_range_fixup T=2048,R=1|1,2,3
+     0.377 ms   0.0%     50x  min      4.6 us  matmul [8192→5376] q4_k f16 range f16_range_unscale T=2048,R=1|1,2,3
+     0.238 ms   0.0%     30x  min      4.8 us  matmul [21504→5376] q4_k f16 range f16_range_unscale T=2048,R=1|1,2,3
+     0.233 ms   0.0%     30x  min      4.7 us  matmul [21504→5376] q6_k f16 range f16_range_unscale T=2048,R=1|1,2,3
+     0.134 ms   0.0%      2x  min      7.0 us  gather gather T=2048,R=1|1,2,3
+     0.119 ms   0.0%      1x  min    119.3 us  fused[Scale]+RmsNorm main T=2048,R=1|1,2,3
+     0.084 ms   0.0%     10x  min      5.2 us  matmul [16384→5376] q4_k f16 range f16_range_unscale T=2048,R=1|1,2,3
+     0.009 ms   0.0%      1x  min      8.8 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] x→q8 quantize_q8_1 T=2048,R=1|1,2,3
+     0.007 ms   0.0%      1x  min      7.2 us  sample sample T=2048,R=1|1,2,3
+
+--- decode x64 profile, segment 0
+GPU time 1920.83 ms
+   648.322 ms  33.8%   3840x  min    164.9 us  matmul2 [5376→21504]x2 q4_k fused[GeluTanh,Mul] int-dot mmvq T=1,R=1
+   237.383 ms  12.4%   1920x  min    120.7 us  matmul [21504→5376] q6_k int-dot mmvq T=1,R=1
+   167.177 ms   8.7%   1920x  min     83.6 us  matmul [21504→5376] q4_k int-dot mmvq T=1,R=1
+   122.320 ms   6.4%   3840x  min     24.4 us  attention decode T=1,R=1
+   116.141 ms   6.0%   3200x  min     34.3 us  matmul [5376→8192] q4_k int-dot mmvq T=1,R=1
+   111.422 ms   5.8%   3200x  min     32.7 us  matmul [8192→5376] q4_k int-dot mmvq T=1,R=1
+   105.233 ms   5.5%   4800x  min     19.7 us  matmul [5376→4096] q4_k int-dot mmvq T=1,R=1
+    61.918 ms   3.2%     64x  min    964.3 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] int-dot mmvq T=1,R=1
+    50.183 ms   2.6%  11520x  min      2.7 us  RmsNorm main T=1,R=1
+    43.955 ms   2.3%   1600x  min     25.4 us  matmul [5376→4096] q6_k int-dot mmvq T=1,R=1
+    43.457 ms   2.3%    640x  min     66.1 us  matmul [16384→5376] q4_k int-dot mmvq T=1,R=1
+    41.990 ms   2.2%    640x  min     64.2 us  matmul [5376→16384] q4_k int-dot mmvq T=1,R=1
+    31.886 ms   1.7%   3840x  min      4.1 us  fused[Add,Mul]+RmsNorm main T=1,R=1
+    31.258 ms   1.6%   3840x  min      6.1 us  fused[Add]+RmsNorm main T=1,R=1
+    21.411 ms   1.1%   3840x  min      3.4 us  rope+norm+cache_write rope_row T=1,R=1
+    20.464 ms   1.1%   3840x  min      3.3 us  rope+norm rope_row T=1,R=1
+    19.585 ms   1.0%   3840x  min      3.0 us  attention combine decode_combine T=1,R=1
+     9.925 ms   0.5%   3200x  min      1.9 us  matmul [8192→5376] q4_k x→q8 quantize_q8_1 T=1,R=1
+     9.910 ms   0.5%   3840x  min      1.6 us  cache_write cache_write T=1,R=1
+     8.148 ms   0.4%    640x  min     11.0 us  matmul [5376→2048] q4_k int-dot mmvq T=1,R=1
+     7.282 ms   0.4%   1920x  min      2.2 us  matmul [21504→5376] q6_k x→q8 quantize_q8_1 T=1,R=1
+     7.269 ms   0.4%   1920x  min      2.2 us  matmul [21504→5376] q4_k x→q8 quantize_q8_1 T=1,R=1
+     2.146 ms   0.1%    640x  min      2.0 us  matmul [16384→5376] q4_k x→q8 quantize_q8_1 T=1,R=1
+     0.805 ms   0.0%    128x  min      3.2 us  gather gather T=1,R=1
+     0.572 ms   0.0%     64x  min      6.4 us  fused[Scale]+RmsNorm main T=1,R=1
+     0.353 ms   0.0%     64x  min      3.3 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] x→q8 quantize_q8_1 T=1,R=1
+     0.316 ms   0.0%     64x  min      2.8 us  sample sample T=1,R=1
+
+prefill 2048 tok: best 1216 ms = 1683.6 tok/s | decode: best 28.49, median 28.20, mean 28.12 tok/s | GPU ms/step: best 29.76, median 29.93, wall best 35.10 | prefill median of 5: 1228.0 ms = 1667.7 tok/s

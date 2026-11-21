@@ -1,0 +1,53 @@
+--- rendered prompt ---
+<|im_start|>system
+Reasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>
+<|im_start|>user
+# Public API overview
+
+This is a short tour of the types an application uses. Every public type and member carries XML documentation (shipped as
+`*.xml` next to the assemblies), which is the reference; this page shows how the pieces fit together.
+
+## Assemblies
+
+The core engine and everything an application calls to run a model live in `Sharplight.Core`, including the graph generation for
+model architectures (adapters, namespace `Sharplight.Architectures`) and the `.slm` package format (namespace `Sharplight.Package`).
+Model formats (importers) are separate assemblies, so the core never knows a file format: format names (GGUF, safetensors, ONNX,
+diffusers, whisper.cpp, ...) appear only in `Sharplight.Import.*`. Most applications reference only the `Sharplight` package and
+call `services.AddSharplight()`.
+
+| Assembly | Role | Main entry points |
+|---|---|---|
+| `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
+| `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.Diffusers`, `.PyTorch`, `.Kokoro`, `.Snac`, `.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts`, `.SileroVad`, `.Ultralytics` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `DiffusersImporter`, `services.AddXxxImporter()` |
+| `Sharplight.Video` | Video encoding and decoding through Sharplight's own LGPL FFmpeg build (shared libraries shipped with the package, bound with FFmpeg.AutoGen): MP4, WebM, MOV, Matroska, GIF, APNG; H.264, AV1, VP9, VP8, ProRes, FFV1 and the machine's hardware encoders; the core adds managed animated PNG and GIF as the fallback | `VideoEncoderCatalog`, `VideoDecoderCatalog`, `IVideoEncoder`, `IVideoDecoder`, `VideoClip`, `services.AddSharplightVideo()` |
+| `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal`, `Sharplight.Cuda` (+ `Sharplight.Shaders`) | Execution providers (Metal: Apple GPUs on macOS, the same Slang kernels compiled to MSL; CUDA: NVIDIA GPUs through the driver API, the Slang kernels compiled to PTX with NVRTC from `Sharplight.Cuda.Runtime`, bf16 GEMMs optionally on cuBLASLt from `Sharplight.Cuda.Blas.<rid>`, see [cuda.md](cuda.md)) | `CpuExecutionProvider`, `VulkanProvider`, `MetalProvider`, `CudaProvider` |
+| `Sharplight.Vulkan.MoltenVK` | MoltenVK for the Vulkan provider on macOS (native library only; inactive elsewhere) | none (referenced by `Sharplight.Vulkan`) |
+| `Sharplight.Audio` | Native audio: decoders (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), encoders (WAV, Ogg Opus), playback and capture devices | `IAudioDecoder`, `IAudioEncoder`, `IAudioDeviceProvider`, `services.AddSharplightAudio()` |
+| `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
+| `Sharplight.Hosting` | Model hosting for servers and apps: a `ModelHost` from options or JSON (chat, embedding, reranker and task models on shared devices), placement, fit planning, status for health checks and cluster coordinators ([hosting.md](hosting.md)) | `IModelHostManager`, `ModelHostingOptions`, `HostedModelOptions`, `ModelHostingJson`, `HostStatus`, `FitPlanner`, `services.AddSharplightHosting()` |
+| `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
+| `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
+| `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
+
+## Registration
+
+Composition goes through Microsoft.Extensions.DependencyInjection; there is no static registry and no process-wide wiring. Every
+library ships `IServiceCollection` extensions (C# 14 extension blocks, in the `Microsoft.Extensions.DependencyInjection` namespace, so
+they need no extra `using`):
+
+| package | registration | registers |
+|---|---|---|
+| `Sharplight.Core` | `AddSharplightTasks()` | `TaskClientProvider`, the built-in factories (text generation, speech recognition: prompted encoder-decoders such as Whisper, Moonshine and Canary, and frame-aligned CTC / transducer models such as Parakeet, image classification/embedding, object detection, depth estimation, latent-diffusion image generation, video diffusion generation), the `ModelLoader` |
+| | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
+| | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
+| | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
+| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageSegmenter`, `AddTextRecognizer`, `AddImageUpscaler`, `AddImageGenerator`, `AddVideoGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
+| `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
+| `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => .
+
+Summarize the text above in two sentences.<|im_end|>
+<|im_start|>assistant
+<think>
+
+-----------------------
+We need answer user's request: "Summarize the text above in two sentences." Need produce final two sentences. Need likely in English? User request English. Need summarize public API overview. Two sentences exactly? "Summarize ... in two sentences." We should output exactly two sentences. Need be concise. Need

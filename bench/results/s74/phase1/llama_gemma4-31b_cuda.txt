@@ -1,0 +1,3 @@
+| gemma4 31B Q4_K - Medium       |  17.05 GiB |    30.70 B | CUDA       |  99 |   1 |           pp512 |      1646.74 ± 89.62 |
+| gemma4 31B Q4_K - Medium       |  17.05 GiB |    30.70 B | CUDA       |  99 |   1 |          pp2048 |       1646.44 ± 6.66 |
+| gemma4 31B Q4_K - Medium       |  17.05 GiB |    30.70 B | CUDA       |  99 |   1 |          pp8192 |       1569.46 ± 1.50 |

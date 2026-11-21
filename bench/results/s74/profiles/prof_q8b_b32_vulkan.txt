@@ -1,0 +1,31 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 1536 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 32 | 84.5 | 871 / 582 | 15.71 / 16.64, 15.53 |
+--- profile batch 32 (greedy)
+GPU time 369.61 ms
+   129.794 ms  35.1%   1440x  min     88.5 us  matmul [4096→12288] q4_k split-k gemm_cm2 T=32,32,32
+    44.078 ms  11.9%    720x  min     55.1 us  attention decode T=32,32,32
+    42.685 ms  11.5%   1440x  min     27.9 us  matmul [4096→4096] q4_k split-k gemm_cm2 T=32,32,32
+    41.973 ms  11.4%    360x  min    115.0 us  matmul [12288→4096] q6_k split-k gemm_cm2 T=32,32,32
+    29.068 ms   7.9%    360x  min     79.1 us  matmul [12288→4096] q4_k split-k gemm_cm2 T=32,32,32
+    18.232 ms   4.9%     20x  min    907.8 us  matmul [4096→151936] q6_k gemm_cm2 T=32,32,32
+    15.223 ms   4.1%   5040x  min      2.0 us  matmul split-k reduce splitk_reduce T=32,32,32
+    11.509 ms   3.1%   1080x  min      9.8 us  matmul [4096→1024] q4_k split-k gemm_cm2 T=32,32,32
+     5.912 ms   1.6%   1440x  min      3.1 us  fused[Add]+RmsNorm main T=32,32,32
+     5.888 ms   1.6%    720x  min      7.2 us  attention combine decode_combine T=32,32,32
+     5.133 ms   1.4%    360x  min     12.9 us  matmul [4096→1024] q6_k split-k gemm_cm2 T=32,32,32
+     2.948 ms   0.8%    720x  min      3.1 us  matmul [4096→4096] q4_k x→ranged f16 to_f16_ranged T=32,32,32
+     2.948 ms   0.8%    720x  min      3.1 us  rope+norm+cache_write rope_row T=32,32,32
+     2.947 ms   0.8%    720x  min      3.1 us  fused[Silu,Mul] main T=32,32,32
+     2.947 ms   0.8%    720x  min      3.0 us  rope+norm rope_row T=32,32,32
+     2.914 ms   0.8%    720x  min      2.0 us  cache_write cache_write T=32,32,32
+     2.211 ms   0.6%    360x  min      5.1 us  matmul [12288→4096] q4_k x→ranged f16 to_f16_ranged T=32,32,32
+     2.210 ms   0.6%    360x  min      5.1 us  matmul [12288→4096] q6_k x→ranged f16 to_f16_ranged T=32,32,32
+     0.532 ms   0.1%     20x  min     26.6 us  sample sample T=32,32,32
+     0.166 ms   0.0%     40x  min      3.6 us  gather gather T=32,32,32
+     0.123 ms   0.0%     20x  min      6.1 us  matmul [4096→151936] q6_k f16 range f16_range_unscale T=32,32,32
+     0.082 ms   0.0%     20x  min      4.1 us  RmsNorm main T=32,32,32
+     0.082 ms   0.0%     20x  min      4.1 us  matmul [4096→151936] q6_k x→ranged f16 to_f16_ranged T=32,32,32
+

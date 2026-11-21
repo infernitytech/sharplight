@@ -1,0 +1,34 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 1536 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 32 | 25.3 | 763 / 0 | 19.91 / 20.13, 19.84 |
+--- profile batch 32 (greedy)
+GPU time 413.78 ms
+   150.268 ms  36.3%   1440x  min     99.3 us  matmul [4096→12288] q4_k split-k gemm_cm2 T=32,U=32,R=32|2,3
+    46.801 ms  11.3%    360x  min    127.3 us  matmul [12288→4096] q6_k split-k gemm_cm2 T=32,U=32,R=32|2,3
+    38.974 ms   9.4%    720x  min     50.0 us  attention attn_decode_native T=32,U=32,R=32|2,3
+    35.938 ms   8.7%    360x  min     95.9 us  matmul [12288→4096] q4_k split-k gemm_cm2 T=32,U=32,R=32|2,3
+    26.632 ms   6.4%     20x  min   1317.4 us  matmul [4096→151936] q6_k gemm_cm2 T=32,U=32,R=32|2,3
+    25.416 ms   6.1%    720x  min     31.5 us  matmul [4096→4096] q4_k split-k gemm_cm2 T=32,U=32,R=32|2,3
+    18.418 ms   4.5%    360x  min     45.1 us  matmul [4096→4096+1024+1024] q4_k split-k gemm_cm2 T=32,U=32,R=32|2,3
+    14.084 ms   3.4%   3240x  min      2.2 us  matmul split-k reduce splitk_reduce T=32,U=32,R=32|2,3
+    13.415 ms   3.2%    360x  min     32.4 us  matmul [4096→4096+1024] q4_k split-k gemm_cm2 T=32,U=32,R=32|2,3
+     7.429 ms   1.8%   1440x  min      3.0 us  fused[Add]+RmsNorm main T=32,U=32,R=32|2,3
+     6.167 ms   1.5%    720x  min      6.9 us  attention combine decode_combine T=32,U=32,R=32|2,3
+     5.884 ms   1.4%    360x  min     13.6 us  matmul [4096→1024] q6_k split-k gemm_cm2 T=32,U=32,R=32|2,3
+     4.175 ms   1.0%    720x  min      3.4 us  fused[Silu,Mul] main T=32,U=32,R=32|2,3
+     3.437 ms   0.8%    720x  min      3.0 us  rope+norm+cache_write rope_row T=32,U=32,R=32|2,3
+     3.265 ms   0.8%    720x  min      3.0 us  rope+norm rope_row T=32,U=32,R=32|2,3
+     3.013 ms   0.7%    720x  min      2.8 us  matmul [4096→4096] q4_k x→ranged f16 to_f16_ranged T=32,U=32,R=32|2,3
+     2.263 ms   0.5%    720x  min      1.8 us  cache_write cache_write T=32,U=32,R=32|2,3
+     2.014 ms   0.5%    360x  min      3.6 us  matmul [12288→4096] q6_k x→ranged f16 to_f16_ranged T=32,U=32,R=32|2,3
+     1.855 ms   0.4%    360x  min      4.0 us  matmul [12288→4096] q4_k x→ranged f16 to_f16_ranged T=32,U=32,R=32|2,3
+     1.598 ms   0.4%    360x  min      2.8 us  matmul [4096→4096+1024+1024] split-k reduce splitk_reduce T=32,U=32,R=32|2,3
+     1.550 ms   0.4%    360x  min      2.9 us  matmul [4096→4096+1024] split-k reduce splitk_reduce T=32,U=32,R=32|2,3
+     0.641 ms   0.2%     20x  min     30.7 us  sample sample T=32,U=32,R=32|2,3
+     0.229 ms   0.1%     40x  min      3.7 us  gather gather T=32,U=32,R=32|2,3
+     0.124 ms   0.0%     20x  min      4.6 us  matmul [4096→151936] q6_k f16 range f16_range_unscale T=32,U=32,R=32|2,3
+     0.103 ms   0.0%     20x  min      3.8 us  RmsNorm main T=32,U=32,R=32|2,3
+     0.083 ms   0.0%     20x  min      2.8 us  matmul [4096→151936] q6_k x→ranged f16 to_f16_ranged T=32,U=32,R=32|2,3
+
