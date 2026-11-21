@@ -8,15 +8,12 @@ namespace Sharplight.Cpu;
 /// </summary>
 /// <remarks>
 /// Diagnostic environment switches: <c>SHARPLIGHT_CPU_THREADS</c> (initial degree of parallelism, default: logical
-/// processors), <c>SHARPLIGHT_CPU_SPIN_US</c> (how long idle workers spin before blocking, default 200 µs),
-/// <c>SHARPLIGHT_CPU_WAKE_US</c> (how long they spin after <see cref="Wake"/>, default 1000 µs; 0 makes it a no-op) and
+/// processors), <c>SHARPLIGHT_CPU_SPIN_US</c> (how long idle workers spin before blocking, default 200 µs) and
 /// <c>SHARPLIGHT_CPU_POOL=0</c> (always use <see cref="Parallel"/>, for comparisons).
 /// </remarks>
 internal static class CpuParallel
 {
     private const int DefaultSpinMicroseconds = 200;
-    private const int DefaultWakeMicroseconds = 1000;
-    private static readonly int s_wakeMicroseconds = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_WAKE_US"), out var w) && w >= 0 ? w : DefaultWakeMicroseconds;
     private static readonly Lazy<CpuThreadPool> s_pool = new(CreatePool);
     private static int s_threads = InitialThreads();
     private static ParallelOptions s_opts = new() { MaxDegreeOfParallelism = s_threads };
@@ -68,18 +65,6 @@ internal static class CpuParallel
         Parallel.For(0, n, s_opts, body);
     }
 
-    /// <summary>
-    /// Tells the workers that parallel loops follow soon (a CPU segment after the GPU segment running now): they spin instead of blocking
-    /// for the wake time (<c>SHARPLIGHT_CPU_WAKE_US</c>). Does nothing before the pool exists or with one thread.
-    /// </summary>
-    public static void Wake()
-    {
-        if (s_threads > 1 && DiagnosticSwitches.UsePool && s_wakeMicroseconds > 0)
-        {
-            s_pool.Value.Wake();
-        }
-    }
-
     /// <summary>Number of chunks for <paramref name="total"/> work items of which each chunk should have at least <paramref name="minChunk"/>.</summary>
     public static int Chunks(long total, long minChunk)
     {
@@ -98,6 +83,6 @@ internal static class CpuParallel
     private static CpuThreadPool CreatePool()
     {
         int spin = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_SPIN_US"), out var s) && s >= 0 ? s : DefaultSpinMicroseconds;
-        return new CpuThreadPool(Math.Max(Environment.ProcessorCount, s_threads) - 1, spin, s_wakeMicroseconds);
+        return new CpuThreadPool(Math.Max(Environment.ProcessorCount, s_threads) - 1, spin);
     }
 }
