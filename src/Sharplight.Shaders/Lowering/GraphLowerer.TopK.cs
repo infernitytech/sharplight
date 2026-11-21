@@ -1,5 +1,6 @@
 using Sharplight.Graph;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
@@ -16,8 +17,97 @@ public sealed partial class GraphLowerer
     /// Top-k along one axis. Small k with subgroup operations: one subgroup per row. Otherwise one workgroup per row
     /// (radix select + bitonic sort in shared memory, portable), and for k beyond its shared-memory sort the serial kernel.
     /// </summary>
+    /// <summary>
+    /// Router top-k units with the softmax they read (and the normalization of the selected weights, when the values only feed it): the
+    /// softmax, the ReduceSum, the Scale and the Div computed in the top-k launch (<see cref="FuseRouterTopK"/>).
+    /// </summary>
+    private readonly Dictionary<Node, (Node Softmax, (Node Reduce, Node Scale, Node Div)? Norm)> _routerTopK = [];
+
+    /// <summary>
+    /// Finds mixture-of-experts routers: a TopK (k up to <see cref="TopKSubgroupMaxK"/>, largest, last axis of [rows, experts]) of a Softmax
+    /// it alone reads, optionally followed by the renormalization of the selected values (ReduceSum, Scale and Div by the scaled sum, the
+    /// values read by nothing else). The top-k unit absorbs them: one launch instead of up to five per layer (decode: ~13 µs to ~4 µs).
+    /// </summary>
+    private void FuseRouterTopK(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        if (!_opt.Has(DeviceFeatures.SubgroupOps))
+        {
+            return;
+        }
+
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            foreach (var node in unit.Fused ?? (unit.Node is { } single ? [single] : []))
+            {
+                unitOf[node] = unit;
+            }
+        }
+
+        bool Alone(Node node) => unitOf.TryGetValue(node, out var unit) && (unit.Node == node || unit.Fused is [var only] && only == node)
+            && unit.Absorbed is null && unit.NormHead is null && unit.NormTail is null && unit.Gathers is null && unit.MatMulHead is null && unit.ConvHead is null;
+        List<Node> Readers(Value v) => consumers.TryGetValue(v, out var readers) ? readers : [];
+        bool Internal(Value v) => !_segmentOutputs.Contains(v);
+
+        var removed = new HashSet<LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not { Op.Name: "TopK" } topk || !Alone(topk) || topk.Attributes.Has("k_symbol") || !topk.Attributes.Get("largest", true)
+                || topk.Inputs[0] is not { Shape.Rank: 2 } logits || NormAxis(topk.Attributes.Get("axis", -1L), 2) != 1 || logits.Shape[1].IsSymbolic
+                || topk.Attributes.Get<long>("k") is var k && (k > TopKSubgroupMaxK || k > _opt.SubgroupSize || k > logits.Shape[1].Fixed)
+                || logits.Producer is not { Op.Name: "Softmax" } softmax || !Alone(softmax) || Readers(logits) is not [_] || !Internal(logits)
+                || softmax.Attributes.Get("scale", 1f) != 1f || softmax.Attributes.Get("log", false) || softmax.Inputs[0].Type != DataType.F32)
+            {
+                continue;
+            }
+
+            (Node, Node, Node)? norm = null;
+            var values = topk.Outputs[0];
+            if (Readers(values) is [var first, var second] && Internal(values)
+                && (first.Op.Name == "ReduceSum" ? (first, second) : (second, first)) is ({ Op.Name: "ReduceSum" } reduce, { Op.Name: "Div" } div)
+                && reduce.Inputs[0] == values && div.Inputs[0] == values && Alone(reduce) && Alone(div)
+                && Readers(reduce.Output) is [{ Op.Name: "Scale" } scale] && Internal(reduce.Output) && Alone(scale)
+                && Readers(scale.Output) is [var divReader] && divReader == div && div.Inputs[1] == scale.Output && Internal(scale.Output)
+                && div.Output.Shape.Equals(values.Shape))
+            {
+                norm = (reduce, scale, div);
+                removed.Add(unitOf[reduce]);
+                removed.Add(unitOf[scale]);
+                removed.Add(unitOf[div]);
+            }
+
+            removed.Add(unitOf[softmax]);
+            unit.Absorbed = norm is var (r, sc, d) ? [softmax, r, sc, d] : [softmax];
+            _routerTopK[topk] = (softmax, norm);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>Lowers a router top-k with its absorbed softmax and normalization (<see cref="FuseRouterTopK"/>) as one launch.</summary>
+    private void LowerRouterTopK(Node n, Node softmax, (Node Reduce, Node Scale, Node Div)? norm)
+    {
+        var x = AsDenseF32(Ref(softmax.Inputs[0]), "topk");
+        long K = n.Attributes.Get<long>("k");
+        var vals = Produce(norm is { } nd ? nd.Div.Output : n.Outputs[0]);
+        var idxs = Produce(n.Outputs[1]);
+        var macros = Macros(("LEN", x.Shape[1]), ("K", K), ("INNER", 1), ("LARGEST", true), ("WG", TopKWorkgroup), ("P2", TopKSortSlots(K)), ("NORM", norm is not null),
+            ("NORM_SCALE", norm?.Scale.Attributes.Get("scale", 1f) ?? 1f), ("NORM_BIAS", norm?.Scale.Attributes.Get("bias", 0f) ?? 0f));
+        var kernel = Lib("topk.slang", "topk_softmax", macros);
+        var tx = x;
+        Emit($"router topk {n.Outputs[1].Name}", [softmax, n, .. norm is var (r, s, d) ? new[] { r, s, d } : []],
+            [Always(kernel, b => TopKGrid(Rows(b, tx)))],
+            [Pointer(x), Pointer(vals), Pointer(idxs), TopKRowCount(x, 1, 1)], [x], [vals, idxs]);
+    }
+
     private void LowerTopK(Node n)
     {
+        if (_routerTopK.TryGetValue(n, out var router))
+        {
+            LowerRouterTopK(n, router.Softmax, router.Norm);
+            return;
+        }
+
         if (n.Attributes.Get("k_symbol", "") is { Length: > 0 } kSymbol)
         {
             LowerTopKDynamic(n, kSymbol);

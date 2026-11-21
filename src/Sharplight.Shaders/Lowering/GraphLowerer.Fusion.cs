@@ -36,6 +36,11 @@ public sealed partial class GraphLowerer
         }
 
         AbsorbIntoConsumers(units, consumers);
+        if (!DiagnosticSwitches.NoRouterFusion)
+        {
+            FuseRouterTopK(units, consumers);
+        }
+
         if (!DiagnosticSwitches.NoGatherFold)
         {
             FoldRowGathers(units, consumers);

@@ -229,11 +229,15 @@ GPU (Vulkan):
   Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
 - **MoE with CPU offload** (§59): routed experts placed apart from their layer (the first layers' experts on the CPU, everything dense on
   the GPU, llama.cpp's `--n-cpu-moe`), shared activation arenas, fused AVX2 integer dots for the IQ grid formats, and prefill with the
-  CPU experts streamed to the GPU (page-locked mapped weights, copied while the layer before runs). Next: decode still trails llama.cpp
-  on CUDA (GPU step ~9.7 ms of ~1350 launches, 8-9 expert layers on the CPU against llama.cpp's 6: the 1 GiB device reserve, the
-  512-row logits buffer and the per-segment buffers take ~2.5 GiB); hide more of the streamed copies without giving up a layer (two
-  memories cost more than they saved, §59.5); copies on Vulkan's transfer queue; gpt-oss on Vulkan (page-cache-bound streaming); AVX-512 / VNNI and NEON fused grid dots;
-  Qwen3.8-Flash-Next and Qwen3-Coder-Next offloaded against llama.cpp.
+  CPU experts streamed to the GPU (page-locked mapped weights, copied while the layer before runs). Round 2 (§62): decode passes split each
+  CPU layer's experts between the CPU and the GPU (the GPU copies only the experts of its share of the slots), the streaming memory keeps a
+  layer resident for decode, integer dots for the IQ grid formats in the GPU expert matvec, router fusion, a 512 MiB reserve with
+  shortfall-driven retries, Vulkan on the driver's budget: Qwen3.5-122B IQ2_XXS at llama.cpp's decode on CUDA (1.0x, prefill 1.03x) and 1.5x on
+  Vulkan. Next: sparse expert copies on Vulkan (VK_EXT_external_memory_host imports of the mapped file); the CPU part of a split layer has a
+  fixed ~0.3 ms (thread wake-ups after the GPU segment, the small ops of the layer); caching recently used experts on the GPU; gpt-oss's
+  repacked MXFP4 and bias gathers in sparse compilations; hide more of the streamed copies without giving up a layer; gpt-oss on Vulkan
+  (page-cache-bound streaming); AVX-512 / VNNI and NEON fused grid dots; Qwen3.8-Flash-Next (66 GB IQ1_S, larger than the cgroup memory) and
+  Qwen3-Coder-Next offloaded against llama.cpp.
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).

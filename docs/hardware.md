@@ -80,9 +80,17 @@ memory-mapped file. Every moved group keeps room on the GPU for the values it ex
 copied in for each pass into one layer's worth of memory the placement keeps free; on CUDA the mapped pages of those weights are
 page-locked read-only (`cuMemHostRegister`) within `DeviceMemoryLimits.PinnedHostMemory`, or else a quarter of the process memory (locked
 file pages cannot be reclaimed), and copied asynchronously while the GPU runs the layer before; the rest, repacked weights and Vulkan
-go through one pair of staging buffers per device. A streamed compilation that does not fit leaves its experts on the CPU for every
-batch size. Switches: `SHARPLIGHT_SPLIT_EXPERTS=0` (whole layers to the CPU, as before), `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (no
-streaming), `SHARPLIGHT_STREAM_REGISTER=0` (no page locking), `SHARPLIGHT_SHARED_ARENA=0` (one activation buffer per segment).
+go through one pair of staging buffers per device. The streaming memory keeps the last streamed layer between prefills, so that layer
+runs on the GPU in decode as well. Small passes (decode, up to `SHARPLIGHT_SPARSE_EXPERT_ROWS` rows, default 4) run each CPU layer's experts
+split on CUDA: the GPU copies the few experts its share of the slots selects (from the page-locked mapped file, into banks of 32 expert
+slots shared by the layers) while the CPU computes the other slots, and the share adapts to the balance of the two. A compilation that runs
+out of device memory is placed again with the measured shortfall kept free (more experts on the CPU), up to three times; a streamed
+compilation's failure takes the same path while retries remain, then leaves its experts on the CPU for every batch size. With a fallback
+device the default reserve is 512 MiB (1 GiB without). Vulkan takes the driver's memory budget (VK_EXT_memory_budget) as the limit where it
+exists, else 92 % of the device-local heap. Switches: `SHARPLIGHT_SPLIT_EXPERTS=0` (whole layers to the CPU, as before),
+`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (no streaming), `SHARPLIGHT_STREAM_RESIDENT=0` (no resident layer), `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`
+(no split), `SHARPLIGHT_STREAM_REGISTER=0` (no page locking), `SHARPLIGHT_SHARED_ARENA=0` (one activation buffer per segment),
+`SHARPLIGHT_DEVICE_RESERVE_MIB` / `SHARPLIGHT_SEGMENT_RESERVE_MIB` (reserves).
 
 **When nothing works**, the allocation throws `DeviceOutOfMemoryException` (an `OutOfMemoryException`): which allocation (e.g. "weight
 buffer blk.0.attn_q.weight", "weight upload staging"), its size, every attempt (memory type and result), every heap's size, budget,

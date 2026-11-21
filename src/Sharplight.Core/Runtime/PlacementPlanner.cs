@@ -55,7 +55,9 @@ public static class PlacementPlanner
         var transfers = splitExperts ? MeasureExpertTransfers(graph, options.Compile, groupOf) : [];
         bool stream = splitExperts && options.StreamExpertsMinRows > 0 && slots[fallbackSlot].Device.Info.Kind == DeviceKind.Cpu
             && options.Devices.Any(d => d.Device.StreamsWeights);
-        var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, options, slots.Count, fallbackSlot, out long[] used);
+        var sparseBytes = stream && CompiledModel.SparseExpertRows > 0 && options.Devices.Any(d => d.Device.StreamsSelectedExperts)
+            ? SparseExpertBytes(graph, groupOf, CompiledModel.SparseExpertRows) : [];
+        var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out long[] used);
         var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot, groupOf);
         var segments = BuildSegments(graph, nodeSlot, slots, options.GroupDataDependentCounts);
         return new PlacementPlan
@@ -351,19 +353,47 @@ public static class PlacementPlanner
         return streamed;
     }
 
-    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, Dictionary<string, long> transfers, bool stream, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
+    /// <summary>
+    /// Per routed-expert group: the bytes of its expert banks' share that a sparse GPU compilation holds (<see cref="CompileOptions.SparseExpertSlots"/>:
+    /// the experts <paramref name="rows"/> rows can select, when that is a small part of the bank, see <see cref="CompiledModel.SparseMinExpertsPerSlot"/>),
+    /// which the devices keep free for the largest moved group.
+    /// </summary>
+    private static Dictionary<string, long> SparseExpertBytes(ComputeGraph graph, Func<Node, string> groupOf, int rows)
+    {
+        var bytes = new Dictionary<string, long>();
+        foreach (var n in graph.Nodes)
+        {
+            if (n.Op.Name == "MatMulId" && n.Inputs[1].Weight is { } w && IsExpertGroup(groupOf(n)) && n.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic
+                && w.Shape[0] is { IsSymbolic: false } experts && experts.Fixed > 0)
+            {
+                long slots = rows * ids[1].Fixed;
+                if (slots <= experts.Fixed / CompiledModel.SparseMinExpertsPerSlot)
+                {
+                    bytes[groupOf(n)] = bytes.GetValueOrDefault(groupOf(n)) + w.ByteSize / experts.Fixed * slots;
+                }
+            }
+        }
+
+        return bytes;
+    }
+
+    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, Dictionary<string, long> transfers, bool stream,
+        Dictionary<string, long> sparseBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
     {
         var expertGroups = groupOrder.Where(IsExpertGroup).ToList();
         var pinned = new HashSet<string>();
         // Routed experts go to the fallback layer by layer, from the first layer on, until every other group fits the devices. Each moved
         // group adds device buffers for the values it exchanges with its layer, the devices then also hold the graph outputs, and with
-        // streaming (prefill on the GPU) the largest moved group's weights; a fill is repeated with the room the groups it moved need.
+        // streaming (prefill on the GPU) the largest moved group's weights, and with sparse compilations (decode split between the CPU and the
+        // GPU) the experts a small pass selects; a fill is repeated with the room the groups it moved need.
         // A moved group splits its layer into one more device segment (its own stream, launch recordings and library workspace) and, with
-        // streaming, adds a streamed compilation, which holds its own copies of the exchanged values.
+        // streaming, adds a streamed compilation with copies of the exchanged values; the streamed compilations share those buffers (they
+        // run one at a time), so they count once.
         int perGroup = stream ? 2 : 1;
         long Overhead(IReadOnlyCollection<string> moved) => moved.Count == 0 ? 0
-            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g) + options.ReservePerSegment) * perGroup
-              + (stream ? Math.Clamp(options.StreamBuffers, 1, 2) * moved.Max(g => groupBytes[g]) : 0);
+            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) + moved.Count * options.ReservePerSegment * perGroup
+              + (stream ? moved.Max(g => transfers.GetValueOrDefault(g)) + Math.Clamp(options.StreamBuffers, 1, 2) * moved.Max(g => groupBytes[g]) : 0)
+              + moved.Select(g => sparseBytes.GetValueOrDefault(g)).DefaultIfEmpty(0).Max();
         List<string> Moved(Dictionary<string, int> placed) => [.. placed.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
         Dictionary<string, int> groupDevice;
         while (true)

@@ -52,6 +52,11 @@ internal sealed class BenchmarkRunner
 
         var decode = MeasureDecode(cancellationToken);
         PrintProfiles($"decode x{DecodeSteps}");
+        if (_session.Compiled.TakeSegmentTimings() is { } timings)
+        {
+            _log.WriteLine($"--- decode host time per segment\n{timings}");
+        }
+
         return FormatSummary(prefillSeconds, decode);
     }
 
@@ -95,6 +100,7 @@ internal sealed class BenchmarkRunner
         _session.Reset();
         _session.Process(_promptTokens);
         ResetProfiles();
+        _session.Compiled.TakeSegmentTimings();
 
         var stepSeconds = new List<double>(DecodeSteps);
         var gpuMilliseconds = new List<double>(DecodeSteps);

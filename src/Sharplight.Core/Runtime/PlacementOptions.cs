@@ -11,9 +11,10 @@ public sealed class PlacementOptions
     public long ReservePerDevice { get; init; } = 1L << 30;
     /// <summary>
     /// Bytes reserved on a device for every extra segment that moving routed experts to the <see cref="Fallback"/> creates
-    /// (<see cref="SplitExperts"/>, <see cref="StreamExpertsMinRows"/>): a compiled segment's stream, launch recordings and library workspace.
+    /// (<see cref="SplitExperts"/>, <see cref="StreamExpertsMinRows"/>): a compiled segment's stream, launch recordings and library workspace
+    /// (its input and output buffers are counted apart). Default 8 MiB; <c>SHARPLIGHT_SEGMENT_RESERVE_MIB</c> overrides it.
     /// </summary>
-    public long ReservePerSegment { get; init; } = 32L << 20;
+    public long ReservePerSegment { get; init; } = long.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_RESERVE_MIB"), out long mib) && mib >= 0 ? mib << 20 : 8L << 20;
     /// <summary>Bounds and feature switches used to compile every segment.</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>
@@ -44,11 +45,16 @@ public sealed class PlacementOptions
     public int StreamBuffers { get; init; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_BUFFERS") == "2" ? 2 : 1;
 
     /// <summary>A copy with the compile options <paramref name="compile"/> and every other setting kept.</summary>
-    internal PlacementOptions WithCompile(CompileOptions compile) => new()
+    internal PlacementOptions WithCompile(CompileOptions compile) => With(compile, ReservePerDevice);
+
+    /// <summary>A copy that reserves <paramref name="reservePerDevice"/> bytes on every device, every other setting kept.</summary>
+    internal PlacementOptions WithReserve(long reservePerDevice) => With(Compile, reservePerDevice);
+
+    private PlacementOptions With(CompileOptions compile, long reservePerDevice) => new()
     {
         Devices = Devices,
         Fallback = Fallback,
-        ReservePerDevice = ReservePerDevice,
+        ReservePerDevice = reservePerDevice,
         ReservePerSegment = ReservePerSegment,
         Compile = compile,
         GroupDataDependentCounts = GroupDataDependentCounts,
