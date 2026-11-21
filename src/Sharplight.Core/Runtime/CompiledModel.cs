@@ -61,10 +61,10 @@ public sealed class CompiledModel : IDisposable
     /// <summary>A fixed number of slots per row for the GPU in split passes (<c>SHARPLIGHT_SPARSE_GPU_SLOTS</c>), or null to adapt it.</summary>
     private static int? DiagnosticSparseGpuSlots { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SPARSE_GPU_SLOTS"), out int slots) && slots >= 0 ? slots : null;
 
-    /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the host time of its runs (inputs, execution, outputs), the run count and the device time its provider measured.</summary>
-    private readonly (long Ticks, int Runs, bool Streamed, double GpuMs)[]? _segmentTimes;
-    /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the split passes' GPU slots, CPU time and wait for the GPU, summed.</summary>
-    private readonly (long GpuSlots, double CpuMs, double WaitMs, int Runs)[]? _splitTimes;
+    /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the host time of its runs (inputs, execution, outputs), the run count and the device, submission and wait times its provider measured.</summary>
+    private readonly (long Ticks, int Runs, bool Streamed, SegmentRunTimings Device)[]? _segmentTimes;
+    /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the split passes' GPU slots, CPU time, wait for the GPU and host time before the CPU starts, summed.</summary>
+    private readonly (long GpuSlots, double CpuMs, double WaitMs, double BeforeMs, int Runs)[]? _splitTimes;
     private static readonly HashSet<Value> s_noSkips = [];
     private readonly Dictionary<Value, byte[]> _hostValues = [];
     /// <summary>Per segment: the inputs it reads from an earlier segment's device memory (<see cref="IDeviceForwardingSegment"/>).</summary>
@@ -128,8 +128,8 @@ public sealed class CompiledModel : IDisposable
         _streamed = streamed;
         _streamMinRows = streamMinRows;
         (_forwardedInputs, _deviceOnlyOutputs) = ForwardOnDevice(graph, segments);
-        _segmentTimes = Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_TIMING") is "1" or "true" ? new (long, int, bool, double)[segments.Length] : null;
-        _splitTimes = _segmentTimes is null ? null : new (long, double, double, int)[segments.Length];
+        _segmentTimes = Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_TIMING") is "1" or "true" ? new (long, int, bool, SegmentRunTimings)[segments.Length] : null;
+        _splitTimes = _segmentTimes is null ? null : new (long, double, double, double, int)[segments.Length];
         _residentIn = new int[streamBuffers];
         _residentIn.AsSpan().Fill(-1);
         if (_keepsResident && streamMinRows > 0)
@@ -636,6 +636,7 @@ public sealed class CompiledModel : IDisposable
         }
 
         long cpuStart = Stopwatch.GetTimestamp();
+        double beforeMs = Stopwatch.GetElapsedTime(passStart, cpuStart).TotalMilliseconds;
         cpu.Execute(parameters);
         double cpuMs = Stopwatch.GetElapsedTime(cpuStart).TotalMilliseconds;
         double waitMs = 0;
@@ -672,7 +673,7 @@ public sealed class CompiledModel : IDisposable
         if (_splitTimes is not null)
         {
             ref var split = ref _splitTimes[i];
-            split = (split.GpuSlots + kg, split.CpuMs + cpuMs, split.WaitMs + waitMs, split.Runs + 1);
+            split = (split.GpuSlots + kg, split.CpuMs + cpuMs, split.WaitMs + waitMs, split.BeforeMs + beforeMs, split.Runs + 1);
         }
 
         balance.Record(kg, Stopwatch.GetElapsedTime(passStart).TotalMilliseconds);
@@ -883,7 +884,7 @@ public sealed class CompiledModel : IDisposable
                 if (_segmentTimes is not null)
                 {
                     ref var split = ref _segmentTimes[i];
-                    split = (split.Ticks + Stopwatch.GetTimestamp() - started, split.Runs + 1, true, split.GpuMs);
+                    split = (split.Ticks + Stopwatch.GetTimestamp() - started, split.Runs + 1, true, split.Device);
                 }
 
                 continue;
@@ -939,7 +940,7 @@ public sealed class CompiledModel : IDisposable
             if (_segmentTimes is not null)
             {
                 ref var time = ref _segmentTimes[i];
-                time = (time.Ticks + Stopwatch.GetTimestamp() - started, time.Runs + 1, seg != _segments[i], time.GpuMs + seg.LastRunTimings.GpuMs);
+                time = (time.Ticks + Stopwatch.GetTimestamp() - started, time.Runs + 1, seg != _segments[i], time.Device + seg.LastRunTimings);
             }
         }
     }
@@ -959,20 +960,20 @@ public sealed class CompiledModel : IDisposable
         double total = 0;
         for (int i = 0; i < _segmentTimes.Length; i++)
         {
-            var (ticks, runs, streamed, gpuMs) = _segmentTimes[i];
+            var (ticks, runs, streamed, timings) = _segmentTimes[i];
             double ms = runs == 0 ? 0 : ticks * 1000.0 / Stopwatch.Frequency / runs;
             total += ms;
             string device = streamed ? "streamed" : Plan.Slots[_segments[i].Segment.DeviceSlot].Device.Info.Kind.ToString();
             lines.Append(CultureInfo.InvariantCulture, $"  segment {i,3} {device,-8} {ms,8:F3} ms/run ({runs} runs)");
-            if (gpuMs > 0)
+            if (timings.GpuMs > 0)
             {
-                lines.Append(CultureInfo.InvariantCulture, $", device {gpuMs / runs:F3} ms");
+                lines.Append(CultureInfo.InvariantCulture, $", device {timings.GpuMs / runs:F3} ms, submit {timings.SubmitMs / runs:F3} ms, wait {timings.WaitMs / runs:F3} ms");
             }
 
             if (_splitTimes![i] is { Runs: > 0 } split)
             {
                 lines.Append(CultureInfo.InvariantCulture,
-                    $", split: {(double)split.GpuSlots / split.Runs:F2} GPU slots, CPU {split.CpuMs / split.Runs:F3} ms, wait for the GPU {split.WaitMs / split.Runs:F3} ms");
+                    $", split: {(double)split.GpuSlots / split.Runs:F2} GPU slots, before the CPU {split.BeforeMs / split.Runs:F3} ms, CPU {split.CpuMs / split.Runs:F3} ms, wait for the GPU {split.WaitMs / split.Runs:F3} ms");
             }
 
             lines.AppendLine();

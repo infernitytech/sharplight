@@ -596,7 +596,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         _dev.Enter();
-        if (!_stagedInputs.Contains(value) && _staging.Get(value, r.MaxBytes) is var staged && staged != null)
+        long capacity = 0;
+        byte* staged = _stagedInputs.Contains(value) ? null : _staging.Get(value, r.MaxBytes, out capacity);
+        if (staged != null && data.Length <= capacity)
         {
             // The input buffer may be memory another segment's pending execution uses (shared activations): the synchronous copy below
             // waits for every stream, the asynchronous one only for this segment's.
@@ -646,7 +648,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         WaitForCompletion();
         if (_stagedOutputs.TryGetValue(value, out long staged) && byteOffset + destination.Length <= staged)
         {
-            new ReadOnlySpan<byte>(_staging.Get(value, r.MaxBytes) + byteOffset, destination.Length).CopyTo(destination);
+            new ReadOnlySpan<byte>(_staging.Get(value, r.MaxBytes, out _) + byteOffset, destination.Length).CopyTo(destination);
             return;
         }
 
@@ -681,23 +683,20 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         _stagedOutputs.Clear();
         long started = Stopwatch.GetTimestamp();
         _dev.Enter();
-        if (_program.ScalarSlots.Count > 0)
-        {
-            CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(_alloc[_program.RuntimeBuffer].Pointer, _runtimeSlots, RuntimeSlots * sizeof(uint), _stream), "cuMemcpyHtoDAsync");
-        }
-
         if (_streamedWeights.Count > 0 || _sparse is not null)
         {
             StreamWeights();
         }
 
         var bindings = new Bindings(RecordingSymbols(parameters));
-        CopyForwardedInputs(bindings);
-        var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
+        var downloads = Downloads(bindings, skipDownloads);
+        // The downloads are part of a step's graph: the skipped outputs are part of its key.
+        var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}")) + DownloadKey(downloads);
         long recordStart = Stopwatch.GetTimestamp();
         bool recorded = false;
         if (!_recorded.TryGetValue(key, out var recording))
         {
+            QueueInputCopies(bindings);
             recorded = true;
             CheckWithinCompiledBounds(bindings);
             EvictOldestRecording();
@@ -717,6 +716,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         double recordMs = recorded ? Stopwatch.GetElapsedTime(recordStart, recordEnd).TotalMilliseconds : 0;
         if (Profile)
         {
+            if (!recorded)
+            {
+                QueueInputCopies(bindings);
+            }
+
             long profiledStart = Stopwatch.GetTimestamp();
             RunProfiled(recording, key);
             _lastRunTimings = new SegmentRunTimings(_lastGpuMs, recordMs, Stopwatch.GetElapsedTime(started, profiledStart).TotalMilliseconds - recordMs,
@@ -730,15 +734,20 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             _graphs.TryGetValue(key, out var first);
             _graphs[key] = first with { Runs = first.Runs + 1 };
             CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
+            QueueDownloads(downloads);
             _pendingTimed = true;
             _pending = "the launches of segment " + Segment.Index;
         }
         else
         {
-            RunStep(recording, key);
+            RunStep(recording, key, bindings, downloads);
         }
 
-        DownloadOutputs(bindings, skipDownloads);
+        foreach (var (value, _, bytes) in downloads)
+        {
+            _stagedOutputs[value] = bytes;
+        }
+
         _pendingTimings = new SegmentRunTimings(0, recordMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds - recordMs, 0, recorded, _replayed);
         _dev.Pending = this;
         if (_program.ProducedSymbols.Count > 0 || DiagnosticSwitches.SyncEachLaunch)
@@ -749,9 +758,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         PublishProducedSymbols(parameters);
     }
 
-    /// <summary>Queues the downloads of the small outputs the caller reads into their staging buffers, after the execution's launches.</summary>
-    private void DownloadOutputs(Bindings bindings, IReadOnlySet<Value> skipDownloads)
+    /// <summary>
+    /// The small outputs the caller reads (not in <paramref name="skipDownloads"/>) that fit their staging buffers, each with the buffer and
+    /// the bytes the execution downloads into it after its launches.
+    /// </summary>
+    private List<(Value Value, nint Staging, long Bytes)> Downloads(Bindings bindings, IReadOnlySet<Value> skipDownloads)
     {
+        var downloads = new List<(Value, nint, long)>(_program.OutputRefs.Count);
         foreach (var (value, r) in _program.OutputRefs)
         {
             if (skipDownloads.Contains(value))
@@ -760,14 +773,51 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             }
 
             long bytes = Math.Min(UsedBytes(r, bindings), _alloc[r.Buffer].Bytes - r.ByteOffset);
-            if (bytes <= 0 || _staging.Get(value, r.MaxBytes) is var staged && staged == null)
+            long capacity = 0;
+            byte* staged = bytes > 0 ? _staging.Get(value, r.MaxBytes, out capacity) : null;
+            if (staged != null && bytes <= capacity)
             {
-                continue;
+                downloads.Add((value, (nint)staged, bytes));
             }
-
-            CudaApi.Check(CudaApi.cuMemcpyDtoHAsync(staged, _alloc[r.Buffer].Pointer + (ulong)r.ByteOffset, (nuint)bytes, _stream), "cuMemcpyDtoHAsync");
-            _stagedOutputs[value] = bytes;
         }
+
+        return downloads;
+    }
+
+    /// <summary>The recording key's part for the downloads: the indices of the outputs downloaded, when that is not every output.</summary>
+    private string DownloadKey(List<(Value Value, nint Staging, long Bytes)> downloads)
+    {
+        if (downloads.Count == _program.OutputRefs.Count)
+        {
+            return "";
+        }
+
+        var downloaded = downloads.Select(d => d.Value).ToHashSet();
+        return "|" + string.Join(",", _program.OutputRefs.Keys.Select((v, i) => (v, i)).Where(p => downloaded.Contains(p.v)).Select(p => p.i));
+    }
+
+    /// <summary>Queues the downloads into the staging buffers, on the stream after the launches.</summary>
+    private void QueueDownloads(List<(Value Value, nint Staging, long Bytes)> downloads)
+    {
+        foreach (var (value, staging, bytes) in downloads)
+        {
+            var r = _program.OutputRefs[value];
+            CudaApi.Check(CudaApi.cuMemcpyDtoHAsync((void*)staging, _alloc[r.Buffer].Pointer + (ulong)r.ByteOffset, (nuint)bytes, _stream), "cuMemcpyDtoHAsync");
+        }
+    }
+
+    /// <summary>
+    /// Queues the copies an execution makes before its launches: the runtime scalars from their page-locked slots, then the inputs forwarded
+    /// from other segments' outputs (a step's graph holds them, see <see cref="RunStep"/>).
+    /// </summary>
+    private void QueueInputCopies(Bindings bindings)
+    {
+        if (_program.ScalarSlots.Count > 0)
+        {
+            CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(_alloc[_program.RuntimeBuffer].Pointer, _runtimeSlots, RuntimeSlots * sizeof(uint), _stream), "cuMemcpyHtoDAsync");
+        }
+
+        CopyForwardedInputs(bindings);
     }
 
     /// <summary>
@@ -900,25 +950,27 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// their recording: positions and lengths are runtime scalars uploaded before the launches). Steps that run once (prefill
     /// chunks of new lengths) are not captured, so they pay no instantiation.
     /// </summary>
-    private void RunStep(CudaRecordedLaunch[] recording, string key)
+    private void RunStep(CudaRecordedLaunch[] recording, string key, Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads)
     {
-        if (!_dev.LaunchGraphs || DiagnosticSwitches.SyncEachLaunch || recording.Length < 2)
+        // A graph's scalar upload must read page-locked memory (a capture refuses pageable copies).
+        bool scalarsCapturable = _program.ScalarSlots.Count == 0 || _runtimeSlotsPinned;
+        if (!_dev.LaunchGraphs || DiagnosticSwitches.SyncEachLaunch || recording.Length < 2 || !scalarsCapturable)
         {
-            Submit(recording, "the launches of segment " + Segment.Index);
+            Submit(recording, bindings, downloads, "the launches of segment " + Segment.Index);
             return;
         }
 
         _graphs.TryGetValue(key, out var entry);
         if (entry.Exec == 0 && entry.Runs >= 1)
         {
-            entry = Capture(recording, entry.Runs);
+            entry = Capture(recording, bindings, downloads, entry.Runs);
         }
 
         entry.Runs++;
         _graphs[key] = entry;
         if (entry.Exec == 0)
         {
-            Submit(recording, "the launches of segment " + Segment.Index);
+            Submit(recording, bindings, downloads, "the launches of segment " + Segment.Index);
             return;
         }
 
@@ -930,9 +982,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         _pending = "the graph of segment " + Segment.Index;
     }
 
-    /// <summary>Launches a recording between the timing events without waiting for it (<see cref="WaitForCompletion"/> does).</summary>
-    private void Submit(ReadOnlySpan<CudaRecordedLaunch> launches, string what)
+    /// <summary>
+    /// Launches a recording between the timing events, after its input copies and before its downloads, without waiting for it
+    /// (<see cref="WaitForCompletion"/> does).
+    /// </summary>
+    private void Submit(ReadOnlySpan<CudaRecordedLaunch> launches, Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads, string what)
     {
+        QueueInputCopies(bindings);
         CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
         _previousOneWave = false;   // copies may precede the first kernel: it is never a dependent
         foreach (var launch in launches)
@@ -941,22 +997,31 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
+        QueueDownloads(downloads);
         _pendingTimed = true;
         _pending = what;
     }
 
-    /// <summary>Captures the launches of a recording into an instantiated graph (or none, when the driver refuses the capture).</summary>
-    private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, int runs)
+    /// <summary>
+    /// Captures a step into an instantiated graph (or none, when the driver refuses the capture): its input copies, the launches of its
+    /// recording and its downloads, so a replay is one <c>cuGraphLaunch</c>. The copies read the page-locked scalar slots and staging
+    /// buffers, and the other segments' output buffers, at the replay.
+    /// </summary>
+    private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads, int runs)
     {
         CudaApi.Check(CudaApi.cuStreamBeginCapture(_stream, CudaApi.CaptureModeThreadLocal), "cuStreamBeginCapture");
         _previousOneWave = false;   // the graph's first kernel follows whatever the stream ran before it
         nint graph = 0;
         try
         {
+            QueueInputCopies(bindings);
+            _previousOneWave = false;
             foreach (var launch in recording)
             {
                 Launch(launch);
             }
+
+            QueueDownloads(downloads);
         }
         finally
         {
