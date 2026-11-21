@@ -115,11 +115,6 @@ public sealed partial class GraphLowerer
     private BufferDecl? _moeScratch;
     private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, object? Condition, bool Native)? _moeRouted;
 
-    // The launch conditions of the grouped expert products behind an int-dot expert matvec (MoeGroupedCondition), one per outer
-    // condition, token rows and matvec bound: the products of one expert block (gate / up, down) get the same delegate, so the
-    // down product reuses the gate / up routing, whose cache compares conditions by reference.
-    private readonly Dictionary<(Func<Bindings, bool>? Outer, string? Symbol, long Rows, long S, long MatvecMaxItems), Func<Bindings, bool>> _moeGroupedConditions = [];
-
     // Expert-sorted f16 copy of the activations of the grouped GEMMs, shared by the MatMulIds that read the same x with the same
     // routing (gate and up of an expert block).
     private BufferDecl? _moeHalfActivations;
@@ -191,22 +186,6 @@ public sealed partial class GraphLowerer
            && k % 32 == 0 && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
 
     /// <summary>
-    /// <paramref name="outer"/> and more than <paramref name="matvecMaxItems"/> routed items (<paramref name="ids"/>' rows times
-    /// <paramref name="slots"/>): the batches an int-dot expert matvec leaves to the grouped expert products (see <see cref="_moeGroupedConditions"/>).
-    /// </summary>
-    private Func<Bindings, bool> MoeGroupedCondition(Func<Bindings, bool>? outer, TensorRef ids, long slots, long matvecMaxItems)
-    {
-        var key = (outer, ids.Symbol, ids.Shape[0], slots, matvecMaxItems);
-        if (!_moeGroupedConditions.TryGetValue(key, out var condition))
-        {
-            condition = b => (outer?.Invoke(b) ?? true) && Rows(b, ids) * slots > matvecMaxItems;
-            _moeGroupedConditions[key] = condition;
-        }
-
-        return condition;
-    }
-
-    /// <summary>
     /// Two expert products of the same activations and routing (gate / up) whose outputs only feed one elementwise group, which
     /// may also read per-expert rows of f32 tables through the same routing (<paramref name="gathers"/>, e.g. the experts' biases):
     /// batches on the int-dot expert matvec (decode) run one launch that computes both products and applies the group in its
@@ -233,11 +212,12 @@ public sealed partial class GraphLowerer
                 ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N)!;
             long mv = IntDotPerItemMaxItems(w, K, S);
+            var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id2 {output.Name} [{w.Shape[0]}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
                 [.. gathers, a, bNode, .. group], a, x, xs, rowsPerLead, [w, Ref(bNode.Inputs[1])], ids, y, m, mv, S,
                 [.. gathers.Select(g => Ref(g.Inputs[0]))],
                 macros => _compiler.Compile("mmvq_moe_dual.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache));
-            _launchCondition = MoeGroupedCondition(outer, ids, S, mv);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
         }
 
         // Batches on the grouped gemm_cm2: one dual launch multiplies both expert matrices (their 16-row fragments alternate in
@@ -423,11 +403,12 @@ public sealed partial class GraphLowerer
             string source = ExpertSumEpilogueSource(product, gathers, [.. group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v)
                 && !gathered.Contains(v)).Distinct()], scalars, group, summed, N)!;
             long mv = IntDotPerItemMaxItems(w, K, S);
+            var tids = ids;
             EmitIntDotExpertMatvec($"matmul-id-sum {reduce.Output.Name} [{w.Shape[0]}x{K}→{N}] {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]+slot-sum",
                 [.. gathers, product, .. group, permute, reduce], product, x, xs, rowsPerLead, [w], ids, y, m, mv, S,
                 [.. gathers.Select(g => Ref(g.Inputs[0])), .. scalars],
                 macros => _compiler.Compile("mmvq_moe_sum.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache), slotSum: true);
-            _launchCondition = MoeGroupedCondition(outer, ids, S, mv);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
         }
 
         // Batches on the grouped GEMMs apply the group (bias rows, router weights) in their store; the slot sum follows as usual.
