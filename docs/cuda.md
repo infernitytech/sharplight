@@ -322,6 +322,15 @@ gain under 1 % (19.38 → 19.27 ms per step). The host time per step (wall minus
 Disabled with `launch_graphs` in `SHARPLIGHT_DISABLE_FEATURES` / `DeviceOptions.DisabledFeatures`, and in profile and per-launch sync
 modes.
 
+**Parallel branches in captured graphs** ([benchmarks.md §74](benchmarks.md)). The recording takes the Vulkan recorder's launch order and
+hazard batches (`HazardTracker.Order`: independent launches moved into one batch, a batch boundary where a launch reads or writes what an
+earlier launch of the batch touches), and the capture runs a batch's launches side by side: the first on the segment's stream, the others
+on three side streams forked from it by an event and joined back before the next batch (`CudaConcurrentLanes`), so the graph has parallel
+branches where the program has independent launches (sibling matmuls and their activation copies, split-K parts). Launches of a batch of
+several are not programmatic dependents. Uncaptured runs keep one stream. Qwen3-8B Q4_K_M decode steps at 1 / 16 / 32 / 64 sequences
+-2.6 / -2 / -4 / -6.7 % (64: 24.69 → 23.03 ms), Qwen3.8 27B -1.5-2 %, Gemma 4 31B -1.2-2.7 %; greedy text byte-identical.
+`SHARPLIGHT_CUDA_CONCURRENT=0` keeps the captured launches on one stream.
+
 **Dependent launches** (`dependent_launches`, compute capability 9.0+). From 9.0 the translator starts every kernel (Slang output
 and CUDA C++) with `griddepcontrol.wait; griddepcontrol.launch_dependents;` and marks its PTX with a header line
 (`// sharplight-dependent`). The segment launches such kernels with `cuLaunchKernelEx` and the programmatic-stream-serialization
