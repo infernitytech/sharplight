@@ -177,10 +177,23 @@ internal sealed unsafe class HostMemoryImports : IDisposable
             return false;
         }
 
-        var import = new VkImportMemoryHostPointerInfoEXT { handleType = VkExternalMemoryHandleTypeFlags.HostAllocationEXT, pHostPointer = start };
-        var allocateInfo = new VkMemoryAllocateInfo { pNext = &import, allocationSize = (ulong)bytes, memoryTypeIndex = (uint)System.Numerics.BitOperations.TrailingZeroCount(types) };
-        VkDeviceMemory allocated;
-        if (api.vkAllocateMemory(&allocateInfo, null, &allocated) != VkResult.Success)
+        // Host memory types first: drivers offer the device-local host-visible window (BAR) for imports too, and refuse it.
+        var candidates = Enumerable.Range(0, 32).Where(t => (types & (1u << t)) != 0)
+            .OrderBy(t => (_dev.Memory.TypeFlags((uint)t) & VkMemoryPropertyFlags.DeviceLocal) != 0).ToList();
+        VkDeviceMemory allocated = VkDeviceMemory.Null;
+        foreach (int type in candidates)
+        {
+            var import = new VkImportMemoryHostPointerInfoEXT { handleType = VkExternalMemoryHandleTypeFlags.HostAllocationEXT, pHostPointer = start };
+            var allocateInfo = new VkMemoryAllocateInfo { pNext = &import, allocationSize = (ulong)bytes, memoryTypeIndex = (uint)type };
+            VkDeviceMemory memoryOfType;
+            if (api.vkAllocateMemory(&allocateInfo, null, &memoryOfType) == VkResult.Success)
+            {
+                allocated = memoryOfType;
+                break;
+            }
+        }
+
+        if (allocated == VkDeviceMemory.Null)
         {
             api.vkDestroyBuffer(created, null);
             return false;
