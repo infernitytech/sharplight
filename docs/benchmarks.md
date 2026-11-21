@@ -10215,14 +10215,14 @@ Qwen3-Coder-Next Q4_K_M on CUDA, decode, interleaved rounds (llama.cpp first in 
 |---|---:|---:|---:|---:|---:|
 | Qwen3-Coder-Next Q4_K_M, CUDA | 91.7 / 83.2, 88.9 / 79.5 | **89-96 / 78-89** (table above) | 94.8-99.3 undisturbed | 664 (§69; prefill paths unchanged but the router and the chunked delta rule) | 595 ± 22 |
 | Qwen3-Coder-Next Q4_K_M, Vulkan | 88.8 / 85.5, 79.9 / 77.4 | **93.7 / 86.2**, 84.2 / 80.2 | 55.2 ± 1.7 (§66) | **540**, 512 | 385 ± 4 |
-| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | 73.8 / 71.6, 73.8 / 70.6 | **75.6 / 72.9, 78.5 / 78.0** | 72.6 ± 1.0, 71.2 ± 0.8 (same rounds) | 990 (fusions off, same binary) | 942 ± 68 (§69) |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | 73.8 / 71.6, 73.8 / 70.6 | **75.6 / 72.9, 78.5 / 78.0**, 75.9 / 71.4 | 72.6 ± 1.0, 71.2 ± 0.8, 71.4 ± 2.4 (same rounds) | **997** | 951 ± 56 (same round) |
 | Qwen3.5-122B-A10B UD-IQ2_XXS, Vulkan | 56.2 / 55.6, 64.9 / 60.4 | **68.6 / 65.9**, 66.3 / 63.3 | 45.9 ± 0.5 (§66) | **997**, 964 | 745 ± 9 |
 | gpt-oss-120b MXFP4, CUDA | 53.4 / 49.9, 52.1 / 49.5 | 50.1 / 45.6 (CPU-only passes: 51.8 / 48.8) | 18.5 ± 7.3 (same hour, disturbed; §69: 36.4 ± 6.4) | | |
 
 * Coder-Next CUDA: the same binary with this round's four fusions switched off runs 82-89 best (median 74-78); with them 89-96 (median
   78-89), +5-9 % by best step. Against llama.cpp's undisturbed runs (94.8-99.3) that is 0.91-0.97x by best step, ~0.98x for the best single
   run, so the round's target (1.0x robustly) is not reached; the medians of both sides move with the pod's load by more than the gap.
-* Qwen3.5-122B on CUDA: 1.04x / 1.10x of the same-hour llama.cpp runs (was 1.02x).
+* Qwen3.5-122B on CUDA: 1.04x / 1.10x / 1.06x of the same-hour llama.cpp runs by best step (was 1.02x), 1.0-1.1x by median; prefill 1.05x.
 * Vulkan: Coder-Next 1.5-1.7x, the 122B 1.45-1.5x of §66's llama.cpp numbers (both faster than §69).
 
 ### 71.2 Where the GPU part of the step went
