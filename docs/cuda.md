@@ -275,6 +275,18 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   order (as `fa` and `fe` differ from each other). `SHARPLIGHT_NATIVE_ATTN=2` keeps plain causal attention on `fe`; `=0`, or
   disabling the feature, keeps every attention on the generated kernels.
 
+- **`attn_decode_native.cu`** (`native_attention`, compute capability 8.0+): the split-K decode attention (`decode` in attention.slang:
+  same grid, key ranges and partials, so `decode_combine` merges them) on tensor cores for f16 caches at head sizes 64 and 128. The
+  up to 8 query heads of a KV group are the rows of `mma.sync.m16n8k16`; each of a block's 4 warps takes every fourth tile of 32 keys
+  (16 at head size 128) and runs its own online softmax in registers, with no shared memory or barriers in the key loop: a lane group
+  loads its key and value rows straight from the cache in 16-byte chunks, which are the B operands of Q · Kᵀ as loaded (the head
+  dimensions permuted alike in Q and K), the score accumulators become the A operands of P · V (f16), and the value words become B
+  operands by an in-register transpose (`movmatrix`). The warps' states merge in shared memory at the end. It serves windows, chunks,
+  soft caps, sinks, multi-sequence and paged caches and mixed steps' `MIX_RUN`; groups narrow enough for the fused combine (heads per
+  block times head size up to 256) keep `decode`. gpt-oss-20b decode attention at 64 sequences 1.32 → 1.03 ms per step (vLLM 1.20,
+  [benchmarks.md §72](benchmarks.md)). Q · SCALE and the probabilities are rounded to f16, as in the prefill kernel.
+  `SHARPLIGHT_NATIVE_DECODE=0` keeps `decode`.
+
 **Tensor maps.** A CUDA C++ kernel can take tensor maps (`CUtensorMap`) after its scalars: the lowering states them in a header line
 (`// sharplight-tensormaps: <pointer argument> <rank> <dims> <strides> <box>; ...`, `SlangCompiler.CudaTensorMapsHeader`), the
 translator keeps it in front of the PTX, and `CudaSegment` encodes each map over the pointer argument it names

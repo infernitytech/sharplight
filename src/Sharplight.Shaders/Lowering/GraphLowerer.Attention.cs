@@ -186,8 +186,10 @@ public sealed partial class GraphLowerer
             if (slice == 0 && decode is not null)
             {
                 var decodeMacros = arrivals is null ? decode.Macros : new Dictionary<string, string>(decode.Macros) { ["DEC_FUSED_COMBINE"] = "1" };
-                variants.Add(new KernelVariant(decode.When, Lib("attention.slang", "decode", decodeMacros),
-                    b => new Grid((uint)decode.Groups, (uint)Rows(b, q), (uint)decode.MaxSplits(Rows(b, q)))));
+                Func<Bindings, Grid> decodeGrid = b => new Grid((uint)decode.Groups, (uint)Rows(b, q), (uint)decode.MaxSplits(Rows(b, q)));
+                var decodeKernel = arrivals is null && NativeDecodeAttention(plan, decode) ? NativeDecodeKernel(decodeMacros)
+                    : Lib("attention.slang", "decode", decodeMacros);
+                variants.Add(new KernelVariant(decode.When, decodeKernel, decodeGrid));
             }
 
             if (slice == 0 && split)
@@ -940,7 +942,8 @@ public sealed partial class GraphLowerer
             }
         }
 
-        var decodeVariant = new KernelVariant(when, Lib("attention.slang", "decode", decodeMacros), b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1));
+        var decodeKernel = NativeDecodeAttention(plan, decode) ? NativeDecodeKernel(decodeMacros) : Lib("attention.slang", "decode", decodeMacros);
+        var decodeVariant = new KernelVariant(when, decodeKernel, b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1));
         if (NativeFlashAttention(plan))
         {
             // The kernel of the flash variant (see LowerAttention), so a prompt's rows sum alike in mixed and prompt-only steps.

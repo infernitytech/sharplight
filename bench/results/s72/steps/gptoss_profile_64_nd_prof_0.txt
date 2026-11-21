@@ -1,0 +1,10 @@
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 10.8 | 449 / 0 | 5.38 / 5.40, 5.35 |
+| 16 | 11.2 | 594 / 0 | 12.66 / 14.16, 12.61 |
+| 64 | 16.7 | 475 / 0 | 18.19 / 18.87, 18.12 |
+GPU time 397.61 ms
+   172.387 ms  43.4%    480x  min    310.1 us  matmul-id [32x2880→5760] mxfp4rx2 fused native gemm_moe_native T=64,U=64,R=64|2,3
+    90.352 ms  22.7%    480x  min    160.6 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=64,U=64,R=64|2,3
+    26.492 ms   6.7%    480x  min     35.5 us  attention decode T=64,U=64,R=64|2,3
+     1.911 ms   0.5%    240x  min      6.8 us  attention combine decode_combine T=64,U=64,R=64|2,3

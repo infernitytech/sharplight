@@ -107,6 +107,11 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   at 48-64 rows and one row, Vulkan unchanged. Measured and not kept: the expert GEMM's activation copies are worth at most 0.5-2 %
   (wider tiles lose), the router's logits in its top-k launch (72 launches fewer, step unchanged), 32-row FP8 token tiles at 64 rows,
   decode-attention workgroup shapes and split targets for long contexts. Next: §70.6.
+  Round 22 (§72): a tensor-core split-K decode attention on CUDA (`attn_decode_native.cu`: a KV group's heads as MMA rows, K / V
+  chunks loaded straight into operands, `movmatrix` for V, no shared memory in the key loop): gpt-oss-20b decode attention at 64
+  sequences 1.32 → 1.03 ms per step (vLLM 1.20), 64-sequence step 0.97 → 0.99x of vLLM in the same hold, 4 x 128K decode 0.93 → 0.95x,
+  32K 1.12x; Qwen3-8B-FP8 -1.8 % at 48 rows. Measured and not kept: the expert GEMM's operand swap (40 % fewer MMAs, step unchanged)
+  and a contiguous weight layout (slower). The 4 x 128K gap is outside attention (at the read rate). Next: §72.6.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:
