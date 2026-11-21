@@ -118,6 +118,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   averaged (15.25 ms over all, 15.53 without the first five); long-context decode now fed back on both engines (32K 1.06 / 1.05x,
   128K 1.00 / 0.93x). Measured and not kept: constant / integer-made E8M0 factors, 64-row tiles, prefetch-hint variants, zeroed
   partial rows. Next: §73.6.
+  Round 24 (§75): `develop` produced garbage on CUDA for gpt-oss-20b since the perf/offload-r5 merge (its 64-sequence step looked 35 %
+  faster on garbage routing): bisected to the f32-only matmul epilogue rule of `572eeb80`, fixed (only int-dot weights take the separate
+  launch; the root cause of the separate path on CUDA is still open). The expert GEMM runs one pipelined K loop per live fragment count instead of a switch
+  inside the loop: decode gate / up -1 %, down -2 %, prefill tiles -1-8 %; gpt-oss-20b 64-sequence step -1.6 / -1.1 % (`--text` /
+  `--feedback`). Measured and not kept: 64-row expert tiles in several forms (a 64-row tile costs 1.65x a 32-row one, so a per-expert
+  choice gains at most ~3 % of the expert GEMMs on vLLM's routing). Qwen3's norm + E4M3 launch is bound by its f32 rows, not by its
+  quantization (bank-conflict padding: -2 % of the launch). Next: §75.6.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

@@ -28,8 +28,7 @@ public sealed class MatMulEpilogueTests
 
     /// <summary>
     /// q / k / v = x·Wᵀ + b with f16 weights reading the same rows (gpt-oss's attention projections, one multi-output matmul) and a
-    /// 32-wide router with its bias, for single-row, skinny, split-K and plain GEMM row counts: the biases stay in the split-K
-    /// reduction for these weights (a change that ran them as their own launch broke gpt-oss-20b on CUDA).
+    /// 32-wide router with its bias, for single-row, skinny, split-K and plain GEMM row counts (the biases in the split-K reduction).
     /// </summary>
     [Fact]
     public void HalfWeightsBias()
