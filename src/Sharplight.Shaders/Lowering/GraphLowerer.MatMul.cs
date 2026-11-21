@@ -262,7 +262,7 @@ public sealed partial class GraphLowerer
         LowerMatMul(matmul, DiagnosticSwitches.NoMatMulEpilogue ? null : new MatMulEpilogue([add], add.Output));
         if (DiagnosticSwitches.NoMatMulEpilogue)
         {
-            LowerElementwise([add], [add.Output]);
+            LowerSeparateEpilogue(matmul, new MatMulEpilogue([add], add.Output), _launchCondition);
         }
 
         _launchCondition = outer;
@@ -524,9 +524,7 @@ public sealed partial class GraphLowerer
         _launchCondition = outer;
         if (epilogue is not null && epilogueCode is null)
         {
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b);
-            LowerElementwise(epilogue.Group, [epilogue.Output]);
-            _launchCondition = outer;
+            LowerSeparateEpilogue(n, epilogue, b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b));
         }
         else if (epilogue is not null && !plan.SplitHalf)
         {

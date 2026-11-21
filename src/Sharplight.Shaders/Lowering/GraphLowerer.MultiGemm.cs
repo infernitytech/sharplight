@@ -101,7 +101,49 @@ public sealed partial class GraphLowerer
         if (_multiGemmOf.TryGetValue(matmul, out var group) && ++group.Lowered == group.Members.Count)
         {
             EmitMultiGemm(group);
+            foreach (var emit in group.AfterEmit)
+            {
+                emit();
+            }
+
+            group.AfterEmit.Clear();
         }
+    }
+
+    /// <summary>
+    /// Lowers the elementwise group <paramref name="epilogue"/> that reads matmul <paramref name="matmul"/>'s product as its own launch
+    /// under <paramref name="condition"/>. For a member of a multi-output group, the bindings the group's GEMM serves are lowered
+    /// after that GEMM (<see cref="MultiGemmGroup.AfterEmit"/>): it is emitted after the group's last member, so a launch emitted
+    /// with this member would read the product before it is written (gpt-oss-20b's q / k / v biases on CUDA when the split-K
+    /// reduction did not add them, 572eeb80). The other bindings keep their launch in place.
+    /// </summary>
+    private void LowerSeparateEpilogue(Node matmul, MatMulEpilogue epilogue, Func<Bindings, bool>? condition)
+    {
+        var outer = _launchCondition;
+        if (!_multiGemmOf.TryGetValue(matmul, out var group) || group.Lowered >= group.Members.Count)
+        {
+            _launchCondition = condition;
+            LowerElementwise(epilogue.Group, [epilogue.Output]);
+            _launchCondition = outer;
+            return;
+        }
+
+        Func<Bindings, bool> served = b => group.Serves.Values.Any(serves => serves(b));
+        _launchCondition = b => (condition?.Invoke(b) ?? true) && !served(b);
+        LowerElementwise(epilogue.Group, [epilogue.Output]);
+        _launchCondition = outer;
+        group.AfterEmit.Add(() =>
+        {
+            if (group.Serves.Count == 0)
+            {
+                return;
+            }
+
+            var before = _launchCondition;
+            _launchCondition = b => (condition?.Invoke(b) ?? true) && served(b);
+            LowerElementwise(epilogue.Group, [epilogue.Output]);
+            _launchCondition = before;
+        });
     }
 
     /// <summary>
@@ -212,6 +254,12 @@ public sealed partial class GraphLowerer
             long rows = rowsOf(b);
             return rows > MatvecMaxRows && rows <= rowsMax && fits.Contains((TileRows(rows), Split(rows))) && parts.All(pt => pt.Serves(b));
         };
+
+        if (DiagnosticSwitches.MultiGemmDebug)
+        {
+            Console.Error.WriteLine($"multi-output GEMM of {string.Join(", ", group.Members.Select(m => m.Output.Name))} ({(fp8 ? "fp8" : "gemm_cm2")}, "
+                                    + $"bias {bias}): splits {string.Join(" ", tiledSplits)}");
+        }
 
         var scratch = SplitScratch(scratchBytes);
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
