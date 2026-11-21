@@ -118,6 +118,9 @@ internal static unsafe partial class CudaApi
     public static partial int cuEventRecord(nint evt, nint stream);
 
     [LibraryImport(CudaLibraries.Driver)]
+    public static partial int cuEventRecordWithFlags(nint evt, nint stream, uint flags);
+
+    [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuEventSynchronize(nint evt);
 
     [LibraryImport(CudaLibraries.Driver)]
@@ -210,6 +213,9 @@ internal static unsafe partial class CudaApi
 
     /// <summary><c>CU_EVENT_DISABLE_TIMING</c>.</summary>
     public const uint EventDisableTiming = 2;
+
+    /// <summary><c>CU_EVENT_RECORD_EXTERNAL</c>: a record during stream capture becomes an event record node of the graph.</summary>
+    public const uint EventRecordExternal = 1;
 
     /// <summary><c>CU_MEMHOSTREGISTER_READ_ONLY</c>: the device only reads the registered memory (allows read-only file mappings).</summary>
     public const uint MemHostRegisterReadOnly = 8;

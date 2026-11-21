@@ -234,6 +234,49 @@ public class MoeTests
         }
     }
 
+    /// <summary>
+    /// An expert product followed by the weighted slot sum <c>ReduceSum(Permute(Mul(y, w), 0, 2, 1))</c> writes the sum itself (from the
+    /// fused dots for a few rows, after the products for more): the same values as the separate nodes (kept apart here by making the
+    /// Mul's output a graph output), slots of id -1 adding nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(3, true)]
+    [InlineData(9, true)]
+    [InlineData(2, false)]
+    public void WeightedSlotSumMatchesSeparateNodes(int t, bool intDot)
+    {
+        int e = 3, n = 96, k = 512, s = 4;
+        var blocks = RandomQ4K(e * n, k, 3);
+        var x = Kit.Rand(t * s * k, 17);
+        var weights = Kit.Rand(t * s, 19);
+        var ids = Enumerable.Range(0, t * s).Select(i => i % 5 == 2 ? -1 : (i * 7 + i / 3) % e).ToArray();
+        float[] Run(bool separate)
+        {
+            var tg = new TestGraph();
+            var xin = tg.InF("x", TestGraph.T, s, k);
+            var idin = tg.In("ids", DataType.I32, TestGraph.T, s);
+            var win = tg.InF("w", TestGraph.T, s, 1);
+            var down = tg.B.Emit1("MatMulId", [xin, tg.W("down", DataType.Q4_K, new Shape(e, n, k), blocks), idin]);
+            var weighted = tg.B.Mul(down, win);
+            tg.B.Output("y", tg.B.Emit1("ReduceSum", [tg.B.Permute(weighted, 0, 2, 1)]));
+            if (separate)
+            {
+                tg.B.Output("weighted", weighted);
+            }
+
+            using var m = Kit.Compile(tg.B.Build(), intDot: intDot);
+            Kit.Set(m, xin, x);
+            Kit.Set(m, idin, ids);
+            Kit.Set(m, win, weights);
+            var p = Kit.P(t);
+            m.Run(p);
+            return Kit.Out(m, "y", p);
+        }
+
+        Assert.Equal(Run(true), Run(false));
+    }
+
     /// <summary>Random Q4_K rows with small positive scales (d, dmin).</summary>
     private static byte[] RandomQ4K(int rows, int k, int seed)
     {

@@ -974,9 +974,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             return;
         }
 
-        CudaApi.Check(CudaApi.cuEventRecord(_start, _stream), "cuEventRecord");
+        // The graph records the timing events itself (event record nodes around its launches).
         CudaApi.Check(CudaApi.cuGraphLaunch(entry.Exec, _stream), "cuGraphLaunch");
-        CudaApi.Check(CudaApi.cuEventRecord(_end, _stream), "cuEventRecord");
         _replayed = true;
         _pendingTimed = true;
         _pending = "the graph of segment " + Segment.Index;
@@ -1004,8 +1003,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     /// <summary>
     /// Captures a step into an instantiated graph (or none, when the driver refuses the capture): its input copies, the launches of its
-    /// recording and its downloads, so a replay is one <c>cuGraphLaunch</c>. The copies read the page-locked scalar slots and staging
-    /// buffers, and the other segments' output buffers, at the replay.
+    /// recording and its downloads, with the timing events recorded around the launches, so a replay is one <c>cuGraphLaunch</c>. The
+    /// copies read the page-locked scalar slots and staging buffers, and the other segments' output buffers, at the replay.
     /// </summary>
     private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads, int runs)
     {
@@ -1015,12 +1014,14 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         try
         {
             QueueInputCopies(bindings);
+            CudaApi.Check(CudaApi.cuEventRecordWithFlags(_start, _stream, CudaApi.EventRecordExternal), "cuEventRecordWithFlags");
             _previousOneWave = false;
             foreach (var launch in recording)
             {
                 Launch(launch);
             }
 
+            CudaApi.Check(CudaApi.cuEventRecordWithFlags(_end, _stream, CudaApi.EventRecordExternal), "cuEventRecordWithFlags");
             QueueDownloads(downloads);
         }
         finally

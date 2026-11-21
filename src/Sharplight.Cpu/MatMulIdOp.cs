@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -15,6 +16,10 @@ namespace Sharplight.Cpu;
 /// An expert id of -1 selects no expert: the item's output rows are zero (the slot runs on another device).
 /// A gate / up pair can also write the gated activation <c>SiLU(gate) * up</c> of an MLP (the expert layer's next two nodes): the integer-dot
 /// units compute it for their rows right after the products, so a decode step runs one parallel pass instead of three.
+/// A single product can also write the weighted sum over the slots of an MoE layer's output, <c>sum_s w[t, s] * y[t, s, :]</c> (the
+/// layer's next three nodes: the Mul by the slot weights, the Permute and the ReduceSum), added in slot order like the separate ops: up to
+/// <see cref="FusedRowsMax"/> rows with fused integer dots a unit takes a run of output rows of one row over every slot, else the slot
+/// products are summed after the pass.
 /// </remarks>
 internal sealed unsafe class MatMulIdOp : CpuOp
 {
@@ -32,6 +37,12 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// <summary>Weight rows a unit of the integer-dot path decodes at most, and fewer when the units would not keep every thread busy.</summary>
     private const int IntDotRowsPerUnit = 32;
 
+    /// <summary>
+    /// Longest rows taken in pairs (<see cref="IntDot.FusedDot2"/>): at K = 512 a pair costs 1.40 / 1.64 ns per 32 values against 2.07 / 2.33
+    /// alone (Q4_K / Q6_K, the loop and final sums paid once), at K = 2048 1.29 / 1.63 against 1.32 / 1.51 (the pair's registers spill).
+    /// </summary>
+    private const int PairedDotMaxK = 512;
+
     /// <summary>Weight rows prefetched ahead of the one being decoded.</summary>
     private const int PrefetchRows = 2;
     private readonly TRef _x;
@@ -43,6 +54,12 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly TRef? _y2;
     /// <summary>With a pair: the output of <c>SiLU(y) * y2</c>, or null.</summary>
     private readonly TRef? _gated;
+    /// <summary>With a single product: the slot weights [T, S] and the weighted slot sum [T, N], or null.</summary>
+    private readonly TRef? _slotWeights;
+    private readonly TRef? _slotSum;
+    private readonly Action<int> _slotSumBody;
+    private readonly Action<int> _sumSlotsBody;
+    private long _slotSumRows;
     private readonly int _products;
     private readonly WeightFormat _fmt;
     private readonly long _n;
@@ -56,6 +73,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly bool _intDot;
     private readonly bool _smallCodes;
     private readonly bool _fusedDot;
+    /// <summary>The format has a two-row fused dot (<see cref="IntDot.FusedDot2"/>): an expert's single item takes its rows in pairs.</summary>
+    private readonly bool _fusedDot2;
     private readonly Action<int> _body;
     private readonly Action<int> _intDotBody;
     private readonly Action<int> _quantizeBody;
@@ -93,7 +112,10 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// <param name="w2">A second weight of the same shape and format over the same rows and ids (computed in the same pass), or null.</param>
     /// <param name="y2">The second product's output.</param>
     /// <param name="gated">With a second product: the output of <c>SiLU(y) * y2</c> ([T, S, N], dense), or null.</param>
-    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false, TRef? w2 = null, TRef? y2 = null, TRef? gated = null)
+    /// <param name="slotWeights">Without a second product: the weights of the slots ([T, S] values, dense), or null.</param>
+    /// <param name="slotSum">With <paramref name="slotWeights"/>: the output of the weighted slot sum ([T, N], dense); <paramref name="y"/> is then scratch.</param>
+    public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false, TRef? w2 = null, TRef? y2 = null, TRef? gated = null,
+        TRef? slotWeights = null, TRef? slotSum = null)
     {
         _x = x;
         _w = w;
@@ -102,6 +124,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _w2 = w2;
         _y2 = y2;
         _gated = w2 is null ? null : gated;
+        _slotWeights = w2 is null && slotSum is not null ? slotWeights : null;
+        _slotSum = _slotWeights is null ? null : slotSum;
         _products = w2 is null ? 1 : 2;
         _fmt = fmt;
         _experts = (int)w.Dims[0];
@@ -120,6 +144,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _intDot = intDot && IntDot.Supports(fmt) && _k % IntDot.BlockSize == 0 && _k <= int.MaxValue;
         _smallCodes = IntDot.HasSmallCodes(fmt);
         _fusedDot = _intDot && IntDot.HasFusedDot(fmt) && _k % Quant.BlockSize(fmt) == 0;
+        _fusedDot2 = _fusedDot && IntDot.HasFusedDot2(fmt) && _k <= PairedDotMaxK;
         long maxItems = Math.Max(1, ids.MaxElements);
         _cnt = (int*)Mem.Alloc(_experts * sizeof(int), false);
         _start = (int*)Mem.Alloc(_experts * sizeof(int), false);
@@ -134,6 +159,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _intDotBody = IntDotBody;
         _quantizeBody = QuantizeBody;
         _gatedBody = GatedBody;
+        _slotSumBody = SlotSumBody;
+        _sumSlotsBody = SumSlotsBody;
     }
 
     public override void Dispose()
@@ -159,12 +186,31 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
-        long items = _ids.Dim(0, p) * _slots;
+        long rows = _ids.Dim(0, p);
+        long items = rows * _slots;
         if (items == 0)
         {
             return;
         }
 
+        if (_slotSum is not null && _fusedDot && rows <= FusedRowsMax)
+        {
+            RunSlotSum(rows, items);
+            return;
+        }
+
+        RunProducts(items);
+        if (_slotSum is not null)
+        {
+            _slotSumRows = rows;
+            CpuParallel.For((int)Math.Min(rows, CpuParallel.Threads * 2L), _sumSlotsBody);
+        }
+    }
+
+    /// <summary>The products of every item (y), sorted by expert; a pair's second product and gated activation with them.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void RunProducts(long items)
+    {
         int* ids = (int*)_ids.P;
         new Span<int>(_cnt, _experts).Clear();
         for (long i = 0; i < items; i++)
@@ -292,6 +338,151 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         }
     }
 
+    /// <summary>Rows <paramref name="n0"/> to <paramref name="n1"/> of one expert against one item, two rows per fused dot.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void FusedRowPairs(byte* wbase, long n0, long n1, Q8Row xq, float* y, int k)
+    {
+        long n = n0;
+        for (; n + 1 < n1; n += 2)
+        {
+            if (n + 2 + PrefetchRows <= n1)
+            {
+                Simd.Prefetch(wbase + (n + 2) * _rowBytes, PrefetchRows * _rowBytes);
+            }
+
+            IntDot.FusedDot2(_fmt, wbase + n * _rowBytes, wbase + (n + 1) * _rowBytes, xq, k, out float first, out float second);
+            y[n] = first;
+            y[n + 1] = second;
+        }
+
+        if (n < n1)
+        {
+            y[n] = IntDot.FusedDot(_fmt, wbase + n * _rowBytes, xq, k);
+        }
+    }
+
+    /// <summary>
+    /// The weighted slot sum of a few rows straight from the fused dots: the item rows quantized once, then units of
+    /// <see cref="IntDotRowsPerUnit"/> output rows of one row, each over every slot in order (slots with id -1 add nothing).
+    /// </summary>
+    private void RunSlotSum(long rows, long items)
+    {
+        int* ids = (int*)_ids.P;
+        for (long i = 0; i < items; i++)
+        {
+            if (ids[i] != NoExpert && (uint)ids[i] >= (uint)_experts)
+            {
+                throw new InvalidOperationException($"MatMulId: expert id {ids[i]} outside [0, {_experts}).");
+            }
+        }
+
+        long rowBytes = IntDot.RowBytes(_k);
+        _activationRows = _perSlot ? items : rows;
+        _activations = ThreadScratch.Get(ThreadScratch.Caller, _activationRows * rowBytes);
+        if (_activationRows > 1)
+        {
+            CpuParallel.For((int)Math.Min(_activationRows, CpuParallel.Threads * 2L), _quantizeBody);
+        }
+        else
+        {
+            IntDot.Quantize(_x.F(0), _k, IntDot.RowAt(_activations, _k));
+        }
+
+        _slotSumRows = rows;
+        _rowsPerUnit = IntDotRowsPerUnit;
+        _groups = (_n + _rowsPerUnit - 1) / _rowsPerUnit;
+        _units = rows * _groups;
+        int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
+        _per = (_units + chunks - 1) / chunks;
+        CpuParallel.For(chunks, _slotSumBody);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void SlotSumBody(int c)
+    {
+        long u0 = c * _per;
+        long u1 = Math.Min(_units, u0 + _per);
+        int k = (int)_k;
+        long rowBytes = IntDot.RowBytes(_k);
+        int* ids = (int*)_ids.P;
+        float* weights = (float*)_slotWeights!.P;
+        float* acc = stackalloc float[IntDotRowsPerUnit];
+        float* products = stackalloc float[IntDotRowsPerUnit];
+        for (long unit = u0; unit < u1; unit++)
+        {
+            long t = unit / _groups;
+            long n0 = unit % _groups * _rowsPerUnit;
+            long n1 = Math.Min(_n, n0 + _rowsPerUnit);
+            new Span<float>(acc, (int)(n1 - n0)).Clear();
+            for (int s = 0; s < _slots; s++)
+            {
+                long item = t * _slots + s;
+                int e = ids[item];
+                if (e == NoExpert)
+                {
+                    continue;
+                }
+
+                float weight = weights[item];
+                var xq = IntDot.RowAt(_activations + (_perSlot ? item : t) * rowBytes, _k);
+                byte* wbase = _w.P + e * _expertBytes;
+                if (_fusedDot2)
+                {
+                    FusedRowPairs(wbase, n0, n1, xq, products - n0, k);
+                }
+                else
+                {
+                    for (long n = n0; n < n1; n++)
+                    {
+                        if (n + PrefetchRows < n1)
+                        {
+                            Simd.Prefetch(wbase + (n + PrefetchRows) * _rowBytes, _rowBytes);
+                        }
+
+                        products[n - n0] = IntDot.FusedDot(_fmt, wbase + n * _rowBytes, xq, k);
+                    }
+                }
+
+                for (long n = 0; n < n1 - n0; n++)
+                {
+                    acc[n] += weight * products[n];
+                }
+            }
+
+            new Span<float>(acc, (int)(n1 - n0)).CopyTo(new Span<float>((float*)_slotSum!.P + t * _n + n0, (int)(n1 - n0)));
+        }
+    }
+
+    /// <summary>The weighted slot sum of a share of the rows from the slot products, slots in order.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void SumSlotsBody(int c)
+    {
+        int chunks = (int)Math.Min(_slotSumRows, CpuParallel.Threads * 2L);
+        long per = (_slotSumRows + chunks - 1) / chunks;
+        float* weights = (float*)_slotWeights!.P;
+        for (long t = c * per; t < Math.Min(_slotSumRows, (c + 1) * per); t++)
+        {
+            float* sum = (float*)_slotSum!.P + t * _n;
+            new Span<float>(sum, (int)_n).Clear();
+            for (int s = 0; s < _slots; s++)
+            {
+                float weight = weights[t * _slots + s];
+                float* product = (float*)_y.P + (t * _slots + s) * _n;
+                long n = 0;
+                // A product, then a sum (no fused multiply-add), as the separate Mul and slot sum compute it.
+                for (; n + 8 <= _n; n += 8)
+                {
+                    (Vector256.Load(sum + n) + Vector256.Create(weight) * Vector256.Load(product + n)).Store(sum + n);
+                }
+
+                for (; n < _n; n++)
+                {
+                    sum[n] += weight * product[n];
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// Orders <see cref="_active"/> so that the experts with at most <see cref="FusedRowsMax"/> items come first (in expert order, which
     /// keeps every row's result the same whatever the other experts' counts); returns the number of experts with more.
@@ -413,6 +604,12 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private void IntDotRows(byte* weights, int e, long n0, long n1, long m, byte** xr, float** yr, int k, CpuIsaLevel level, byte* u, float* a, float* b)
     {
         byte* wbase = weights + e * _expertBytes;
+        if (_fusedDot2 && m == 1)
+        {
+            FusedRowPairs(wbase, n0, n1, IntDot.RowAt(xr[0], _k), yr[0], k);
+            return;
+        }
+
         for (long n = n0; n < n1; n++)
         {
             if (n + PrefetchRows < n1)

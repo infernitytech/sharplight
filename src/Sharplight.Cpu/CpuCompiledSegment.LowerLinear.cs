@@ -84,8 +84,52 @@ internal sealed unsafe partial class CpuCompiledSegment
             return;
         }
 
+        if (WeightedSlotSum(n) is { } sum && RefF32(sum.Weights) is { IsDense: true } slotWeights)
+        {
+            // The weighted sum over the slots that follows (an MoE layer's output): written by the product, y is its scratch.
+            var summed = NewDense(sum.ReduceSum.Output);
+            AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, slotWeights: slotWeights, slotSum: summed), x, w, expertIndex, y, slotWeights, summed);
+            _refs[n.Output] = y;
+            _refs[sum.Mul.Output] = y;
+            _refs[sum.Permute.Output] = y;
+            _refs[sum.ReduceSum.Output] = summed;
+            _absorbed.Add(sum.Mul);
+            _absorbed.Add(sum.Permute);
+            _absorbed.Add(sum.ReduceSum);
+            return;
+        }
+
         AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot), x, w, expertIndex, y);
         _refs[n.Output] = y;
+    }
+
+    /// <summary>
+    /// The weighted slot sum after an expert product <paramref name="n"/> ([T, S, N]): <c>ReduceSum(Permute(Mul(y, w), 0, 2, 1))</c> with slot
+    /// weights w of [T, S, 1], each node the sole consumer of the previous one; null when the product is not followed by it.
+    /// </summary>
+    private (Value Weights, Node Mul, Node Permute, Node ReduceSum)? WeightedSlotSum(Node n)
+    {
+        var shape = n.Output.Shape;
+        if (shape.Rank != 3 || SoleConsumer(n.Output) is not { Op.Name: "Mul" } mul || !mul.Output.Shape.Equals(shape))
+        {
+            return null;
+        }
+
+        var weights = mul.Inputs[0] == n.Output ? mul.Inputs[1] : mul.Inputs[0];
+        if (weights.Shape.Rank != 3 || !weights.Shape[0].Equals(shape[0]) || !weights.Shape[1].Equals(shape[1]) || weights.Shape[2] is not { IsSymbolic: false, Fixed: 1 }
+            || !_refs.ContainsKey(weights) && !IsStatic(weights))
+        {
+            return null;
+        }
+
+        if (SoleConsumer(mul.Output) is not { Op.Name: "Permute" } permute || !permute.Attributes.Get("perm", Array.Empty<int>()).AsSpan().SequenceEqual([0, 2, 1])
+            || SoleConsumer(permute.Output) is not { Op.Name: "ReduceSum" } reduce || reduce.Inputs.Length != 1
+            || reduce.Output.Shape.Rank != 3 || !reduce.Output.Shape[1].Equals(shape[2]) || reduce.Output.Shape[2] is not { IsSymbolic: false, Fixed: 1 })
+        {
+            return null;
+        }
+
+        return (weights, mul, permute, reduce);
     }
 
     /// <summary>

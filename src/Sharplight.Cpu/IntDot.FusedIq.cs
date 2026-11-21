@@ -10,6 +10,25 @@ namespace Sharplight.Cpu;
 // 2 * 62 * 127 < 32768), summed to int32 lanes and scaled once in float. No decoded row is written, unlike Decode + Dot.
 internal static unsafe partial class IntDot
 {
+    /// <summary>Whether <paramref name="f"/> has a two-row fused dot (<see cref="FusedDot2"/>): Q4_K and Q6_K with AVX2.</summary>
+    public static bool HasFusedDot2(WeightFormat f) => HasFusedDot(f) && f is WeightFormat.Q4_K or WeightFormat.Q6_K;
+
+    /// <summary>
+    /// <see cref="FusedDot"/> of two weight rows with one activation row in one pass, each result the same bit for bit as alone
+    /// (<see cref="HasFusedDot2"/> formats only).
+    /// </summary>
+    public static void FusedDot2(WeightFormat f, byte* row0, byte* row1, Q8Row x, int k, out float r0, out float r1)
+    {
+        if (f == WeightFormat.Q4_K)
+        {
+            DotQ4KAvx2x2(row0, row1, x, k, out r0, out r1);
+        }
+        else
+        {
+            DotQ6KAvx2x2(row0, row1, x, k, out r0, out r1);
+        }
+    }
+
     /// <summary>Whether <paramref name="f"/> has a fused dot (<see cref="FusedDot"/>) on this host: the grid formats with AVX2.</summary>
     public static bool HasFusedDot(WeightFormat f) => CpuIsa.Use256 && Avx2.IsSupported
         && f is WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS or WeightFormat.IQ3_S or WeightFormat.MXFP4
@@ -291,43 +310,68 @@ internal static unsafe partial class IntDot
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotQ4KAvx2(byte* p, Q8Row x, int k)
     {
-        var low = Vector256.Create((byte)0x0F);
-        var pick0 = Vector256.Create((ushort)0x0100).AsByte();
-        var pick1 = Vector256.Create((ushort)0x0302).AsByte();
-        var pick2 = Vector256.Create((ushort)0x0504).AsByte();
-        var pick3 = Vector256.Create((ushort)0x0706).AsByte();
-        var pick4 = Vector256.Create((ushort)0x0908).AsByte();
-        var pick5 = Vector256.Create((ushort)0x0B0A).AsByte();
-        var pick6 = Vector256.Create((ushort)0x0D0C).AsByte();
-        var pick7 = Vector256.Create((ushort)0x0F0E).AsByte();
         var total = Vector256<float>.Zero;
         var mins = Vector256<float>.Zero;
-        sbyte* q = x.Q;
-        float* laneScales = x.LaneScales;
-        float* groupSums = x.GroupSums;
-        for (int blk = 0; blk < k / 256; blk++, p += 144, q += 256, laneScales += 64, groupSums += 16)
+        for (int blk = 0; blk < k / 256; blk++)
         {
-            float d = Quant.H(p);
-            float dmin = Quant.H(p + 2);
-            KScales(p + 4, out ulong scaleBytes, out ulong minBytes);
-            var scales128 = Sse41.ConvertToVector128Int16(Vector128.CreateScalar(scaleBytes).AsByte());
-            var scales = Vector256.Create(scales128, scales128).AsByte();
-            var minValues = Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Vector128.CreateScalar(minBytes).AsByte()));
-            // Sums of the activations per 32-value sub-block, in sub-block order.
-            var pairs = Avx.HorizontalAdd(Vector256.Load(groupSums), Vector256.Load(groupSums + 8));
-            var subBlockSums = Avx2.Permute4x64(pairs.AsDouble(), 0b11_01_10_00).AsSingle();
-            mins = Vector256.FusedMultiplyAdd(minValues * dmin, subBlockSums, mins);
-            byte* qs = p + 16;
-            var acc0 = Vector256<float>.Zero;
-            var acc1 = Vector256<float>.Zero;
-            acc0 = Q4KPair(Vector256.Load(qs), q, laneScales, Avx2.Shuffle(scales, pick0), Avx2.Shuffle(scales, pick1), low, acc0, ref acc1);
-            acc0 = Q4KPair(Vector256.Load(qs + 32), q + 64, laneScales + 16, Avx2.Shuffle(scales, pick2), Avx2.Shuffle(scales, pick3), low, acc0, ref acc1);
-            acc0 = Q4KPair(Vector256.Load(qs + 64), q + 128, laneScales + 32, Avx2.Shuffle(scales, pick4), Avx2.Shuffle(scales, pick5), low, acc0, ref acc1);
-            acc0 = Q4KPair(Vector256.Load(qs + 96), q + 192, laneScales + 48, Avx2.Shuffle(scales, pick6), Avx2.Shuffle(scales, pick7), low, acc0, ref acc1);
-            total = Vector256.FusedMultiplyAdd(acc0 + acc1, Vector256.Create(d), total);
+            Q4KBlock(p + blk * 144, x, blk, ref total, ref mins);
         }
 
         return Vector256.Sum(total - mins);
+    }
+
+    /// <summary>
+    /// Two rows of <see cref="DotQ4KAvx2"/> in one pass (each row's arithmetic as alone, so the results are the same bit for bit): rows with
+    /// few blocks (K = 512) pay the loop and the final sums once for both, and the two rows' chains overlap.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void DotQ4KAvx2x2(byte* p0, byte* p1, Q8Row x, int k, out float r0, out float r1)
+    {
+        var total0 = Vector256<float>.Zero;
+        var mins0 = Vector256<float>.Zero;
+        var total1 = Vector256<float>.Zero;
+        var mins1 = Vector256<float>.Zero;
+        for (int blk = 0; blk < k / 256; blk++)
+        {
+            Q4KBlock(p0 + blk * 144, x, blk, ref total0, ref mins0);
+            Q4KBlock(p1 + blk * 144, x, blk, ref total1, ref mins1);
+        }
+
+        r0 = Vector256.Sum(total0 - mins0);
+        r1 = Vector256.Sum(total1 - mins1);
+    }
+
+    /// <summary>One 256-value block of a Q4_K dot into the row's scaled sums and mins term.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void Q4KBlock(byte* p, Q8Row x, int blk, ref Vector256<float> total, ref Vector256<float> mins)
+    {
+        var low = Vector256.Create((byte)0x0F);
+        sbyte* q = x.Q + blk * 256;
+        float* laneScales = x.LaneScales + blk * 64;
+        float* groupSums = x.GroupSums + blk * 16;
+        float d = Quant.H(p);
+        float dmin = Quant.H(p + 2);
+        KScales(p + 4, out ulong scaleBytes, out ulong minBytes);
+        var scales128 = Sse41.ConvertToVector128Int16(Vector128.CreateScalar(scaleBytes).AsByte());
+        var scales = Vector256.Create(scales128, scales128).AsByte();
+        var minValues = Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Vector128.CreateScalar(minBytes).AsByte()));
+        // Sums of the activations per 32-value sub-block, in sub-block order.
+        var pairs = Avx.HorizontalAdd(Vector256.Load(groupSums), Vector256.Load(groupSums + 8));
+        var subBlockSums = Avx2.Permute4x64(pairs.AsDouble(), 0b11_01_10_00).AsSingle();
+        mins = Vector256.FusedMultiplyAdd(minValues * dmin, subBlockSums, mins);
+        byte* qs = p + 16;
+        var acc0 = Vector256<float>.Zero;
+        var acc1 = Vector256<float>.Zero;
+        // The sub-block scales as int16 lanes: picks of bytes (2j, 2j + 1) broadcast sub-block j's.
+        acc0 = Q4KPair(Vector256.Load(qs), q, laneScales, Avx2.Shuffle(scales, Vector256.Create((ushort)0x0100).AsByte()),
+            Avx2.Shuffle(scales, Vector256.Create((ushort)0x0302).AsByte()), low, acc0, ref acc1);
+        acc0 = Q4KPair(Vector256.Load(qs + 32), q + 64, laneScales + 16, Avx2.Shuffle(scales, Vector256.Create((ushort)0x0504).AsByte()),
+            Avx2.Shuffle(scales, Vector256.Create((ushort)0x0706).AsByte()), low, acc0, ref acc1);
+        acc0 = Q4KPair(Vector256.Load(qs + 64), q + 128, laneScales + 32, Avx2.Shuffle(scales, Vector256.Create((ushort)0x0908).AsByte()),
+            Avx2.Shuffle(scales, Vector256.Create((ushort)0x0B0A).AsByte()), low, acc0, ref acc1);
+        acc0 = Q4KPair(Vector256.Load(qs + 96), q + 192, laneScales + 48, Avx2.Shuffle(scales, Vector256.Create((ushort)0x0D0C).AsByte()),
+            Avx2.Shuffle(scales, Vector256.Create((ushort)0x0F0E).AsByte()), low, acc0, ref acc1);
+        total = Vector256.FusedMultiplyAdd(acc0 + acc1, Vector256.Create(d), total);
     }
 
     /// <summary>
@@ -374,51 +418,87 @@ internal static unsafe partial class IntDot
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotQ6KAvx2(byte* p, Q8Row x, int k)
     {
-        var low = Vector256.Create((byte)0x0F);
-        var two = Vector256.Create((byte)3);
-        // Per 32 values the scales of their two 16-value groups: group 2i in the low 128-bit lane, 2i + 1 in the high one.
-        var pick0 = Vector256.Create(Vector128.Create((ushort)0x0100), Vector128.Create((ushort)0x0302)).AsByte();
-        var pick1 = Vector256.Create(Vector128.Create((ushort)0x0504), Vector128.Create((ushort)0x0706)).AsByte();
-        var pick2 = Vector256.Create(Vector128.Create((ushort)0x0908), Vector128.Create((ushort)0x0B0A)).AsByte();
-        var pick3 = Vector256.Create(Vector128.Create((ushort)0x0D0C), Vector128.Create((ushort)0x0F0E)).AsByte();
         var total = Vector256<float>.Zero;
         var offset = Vector256<float>.Zero;
-        sbyte* q = x.Q;
-        float* laneScales = x.LaneScales;
-        float* groupSums = x.GroupSums;
-        for (int blk = 0; blk < k / 256; blk++, p += 210, q += 256, laneScales += 64, groupSums += 16)
+        var picks = Q6KPicks(out var pick1, out var pick2, out var pick3);
+        for (int blk = 0; blk < k / 256; blk++)
         {
-            float d = Quant.H(p + 208);
-            var scaleBytes = Vector128.Load(p + 192);
-            var groupScales = Vector256.FusedMultiplyAdd(
-                Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(scaleBytes.AsSByte())), Vector256.Load(groupSums),
-                Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Sse2.ShiftRightLogical128BitLane(scaleBytes, 8).AsSByte())) * Vector256.Load(groupSums + 8));
-            offset = Vector256.FusedMultiplyAdd(groupScales, Vector256.Create(32 * d), offset);
-            var scales16 = Avx2.ConvertToVector256Int16(scaleBytes.AsSByte()).AsByte();
-            var acc0 = Vector256<float>.Zero;
-            var acc1 = Vector256<float>.Zero;
-            for (int n = 0; n < 2; n++)
-            {
-                // The eight scales of these 128 values in both 128-bit lanes.
-                var scales = n == 0 ? Avx2.Permute2x128(scales16, scales16, 0x00) : Avx2.Permute2x128(scales16, scales16, 0x11);
-                var ql0 = Vector256.Load(p + 64 * n);
-                var ql1 = Vector256.Load(p + 64 * n + 32);
-                var qh = Vector256.Load(p + 128 + 32 * n);
-                var high0 = Vector256.ShiftLeft((qh & two).AsUInt16(), 4).AsByte();
-                var high1 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 2).AsByte() & two).AsUInt16(), 4).AsByte();
-                var high2 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 4).AsByte() & two).AsUInt16(), 4).AsByte();
-                var high3 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 6).AsByte() & two).AsUInt16(), 4).AsByte();
-                int base0 = 128 * n;
-                acc0 = Q6Part((ql0 & low) | high0, q + base0, laneScales + base0 / 4, Avx2.Shuffle(scales, pick0), acc0);
-                acc1 = Q6Part((ql1 & low) | high1, q + base0 + 32, laneScales + base0 / 4 + 8, Avx2.Shuffle(scales, pick1), acc1);
-                acc0 = Q6Part((Vector256.ShiftRightLogical(ql0.AsUInt16(), 4).AsByte() & low) | high2, q + base0 + 64, laneScales + base0 / 4 + 16, Avx2.Shuffle(scales, pick2), acc0);
-                acc1 = Q6Part((Vector256.ShiftRightLogical(ql1.AsUInt16(), 4).AsByte() & low) | high3, q + base0 + 96, laneScales + base0 / 4 + 24, Avx2.Shuffle(scales, pick3), acc1);
-            }
-
-            total = Vector256.FusedMultiplyAdd(acc0 + acc1, Vector256.Create(d), total);
+            Q6KBlock(p + blk * 210, x, blk, picks, pick1, pick2, pick3, ref total, ref offset);
         }
 
         return Vector256.Sum(total - offset);
+    }
+
+    /// <summary>Two rows of <see cref="DotQ6KAvx2"/> in one pass (each row's arithmetic as alone; see <see cref="DotQ4KAvx2x2"/>).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void DotQ6KAvx2x2(byte* p0, byte* p1, Q8Row x, int k, out float r0, out float r1)
+    {
+        var total0 = Vector256<float>.Zero;
+        var offset0 = Vector256<float>.Zero;
+        var total1 = Vector256<float>.Zero;
+        var offset1 = Vector256<float>.Zero;
+        var picks = Q6KPicks(out var pick1, out var pick2, out var pick3);
+        for (int blk = 0; blk < k / 256; blk++)
+        {
+            Q6KBlock(p0 + blk * 210, x, blk, picks, pick1, pick2, pick3, ref total0, ref offset0);
+            Q6KBlock(p1 + blk * 210, x, blk, picks, pick1, pick2, pick3, ref total1, ref offset1);
+        }
+
+        r0 = Vector256.Sum(total0 - offset0);
+        r1 = Vector256.Sum(total1 - offset1);
+    }
+
+    /// <summary>
+    /// The shuffles that give, per 32 values of a Q6_K block, the scales of their two 16-value groups: group 2i in the low 128-bit lane,
+    /// 2i + 1 in the high one (created by the callers, outside their block loops).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector256<byte> Q6KPicks(out Vector256<byte> pick1, out Vector256<byte> pick2, out Vector256<byte> pick3)
+    {
+        pick1 = Vector256.Create(Vector128.Create((ushort)0x0504), Vector128.Create((ushort)0x0706)).AsByte();
+        pick2 = Vector256.Create(Vector128.Create((ushort)0x0908), Vector128.Create((ushort)0x0B0A)).AsByte();
+        pick3 = Vector256.Create(Vector128.Create((ushort)0x0D0C), Vector128.Create((ushort)0x0F0E)).AsByte();
+        return Vector256.Create(Vector128.Create((ushort)0x0100), Vector128.Create((ushort)0x0302)).AsByte();
+    }
+
+    /// <summary>One 256-value block of a Q6_K dot into the row's scaled sums and offset term (<see cref="Q6KPicks"/>: the scale shuffles).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void Q6KBlock(byte* p, Q8Row x, int blk, Vector256<byte> pick0, Vector256<byte> pick1, Vector256<byte> pick2, Vector256<byte> pick3,
+        ref Vector256<float> total, ref Vector256<float> offset)
+    {
+        var low = Vector256.Create((byte)0x0F);
+        var two = Vector256.Create((byte)3);
+        sbyte* q = x.Q + blk * 256;
+        float* laneScales = x.LaneScales + blk * 64;
+        float* groupSums = x.GroupSums + blk * 16;
+        float d = Quant.H(p + 208);
+        var scaleBytes = Vector128.Load(p + 192);
+        var groupScales = Vector256.FusedMultiplyAdd(
+            Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(scaleBytes.AsSByte())), Vector256.Load(groupSums),
+            Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Sse2.ShiftRightLogical128BitLane(scaleBytes, 8).AsSByte())) * Vector256.Load(groupSums + 8));
+        offset = Vector256.FusedMultiplyAdd(groupScales, Vector256.Create(32 * d), offset);
+        var scales16 = Avx2.ConvertToVector256Int16(scaleBytes.AsSByte()).AsByte();
+        var acc0 = Vector256<float>.Zero;
+        var acc1 = Vector256<float>.Zero;
+        for (int n = 0; n < 2; n++)
+        {
+            // The eight scales of these 128 values in both 128-bit lanes.
+            var scales = n == 0 ? Avx2.Permute2x128(scales16, scales16, 0x00) : Avx2.Permute2x128(scales16, scales16, 0x11);
+            var ql0 = Vector256.Load(p + 64 * n);
+            var ql1 = Vector256.Load(p + 64 * n + 32);
+            var qh = Vector256.Load(p + 128 + 32 * n);
+            var high0 = Vector256.ShiftLeft((qh & two).AsUInt16(), 4).AsByte();
+            var high1 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 2).AsByte() & two).AsUInt16(), 4).AsByte();
+            var high2 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 4).AsByte() & two).AsUInt16(), 4).AsByte();
+            var high3 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 6).AsByte() & two).AsUInt16(), 4).AsByte();
+            int base0 = 128 * n;
+            acc0 = Q6Part((ql0 & low) | high0, q + base0, laneScales + base0 / 4, Avx2.Shuffle(scales, pick0), acc0);
+            acc1 = Q6Part((ql1 & low) | high1, q + base0 + 32, laneScales + base0 / 4 + 8, Avx2.Shuffle(scales, pick1), acc1);
+            acc0 = Q6Part((Vector256.ShiftRightLogical(ql0.AsUInt16(), 4).AsByte() & low) | high2, q + base0 + 64, laneScales + base0 / 4 + 16, Avx2.Shuffle(scales, pick2), acc0);
+            acc1 = Q6Part((Vector256.ShiftRightLogical(ql1.AsUInt16(), 4).AsByte() & low) | high3, q + base0 + 96, laneScales + base0 / 4 + 24, Avx2.Shuffle(scales, pick3), acc1);
+        }
+
+        total = Vector256.FusedMultiplyAdd(acc0 + acc1, Vector256.Create(d), total);
     }
 
     /// <summary>

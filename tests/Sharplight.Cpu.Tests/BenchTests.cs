@@ -99,7 +99,7 @@ public class BenchTests
         Report($"MatMul {type,-5} {N}x{K} T={tokens,-4} {sec * 1e3,8:F3} ms  weights {data.Length / 1e6:F1} MB  {gbps,7:F1} GB/s  {gflops,8:F1} GFLOP/s  (p10 of {iters} runs, threads {CpuParallel.Threads}, {CpuIsa.Name(CpuIsa.Level)}{(intDot ? "" : ", no int-dot")})");
     }
     /// <summary>
-    /// One decode token through a routed-expert layer on the CPU (gate and up products, SiLU, the down product) with new random experts every run, so
+    /// One decode token through a routed-expert layer on the CPU (gate and up products, SiLU, the down product, the weighted slot sum) with new random experts every run, so
     /// the selected experts come from memory: Qwen3-Coder-Next's shape (512 experts of 512 x 2048, top 10, Q4_K gate / up, Q6_K down) by default.
     /// </summary>
     [Theory]
@@ -121,9 +121,12 @@ public class BenchTests
         var gate = tg.B.Emit1("MatMulId", [x, tg.W("gate", up, new Shape(experts, n, k), RandomBlocks(up, (long)experts * n, k, 1)), ids]);
         var upProduct = tg.B.Emit1("MatMulId", [x, tg.W("up", up, new Shape(experts, n, k), RandomBlocks(up, (long)experts * n, k, 2)), ids]);
         var hidden = tg.B.Mul(tg.B.Silu(gate), upProduct);
-        tg.B.Output("y", tg.B.Emit1("MatMulId", [hidden, tg.W("down", down, new Shape(experts, k, n), RandomBlocks(down, (long)experts * k, n, 3)), ids]));
+        var slotWeights = tg.InF("w", TestGraph.T, slots, 1);
+        var downProduct = tg.B.Emit1("MatMulId", [hidden, tg.W("down", down, new Shape(experts, k, n), RandomBlocks(down, (long)experts * k, n, 3)), ids]);
+        tg.B.Output("y", tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(downProduct, slotWeights), 0, 2, 1)]));
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 1, intDot: true);
         Kit.Set(m, x, Kit.Rand(k, 4));
+        Kit.Set(m, slotWeights, Kit.Rand(slots, 6));
         var p = Kit.P(1);
         var rng = new Random(5);
         const int Iters = 400;
@@ -160,6 +163,7 @@ public class BenchTests
         var activation = new byte[IntDot.RowBytes(k) + 64];
         float sink = 0;
         double best = double.MaxValue;
+        double bestPairs = double.MaxValue;
         fixed (byte* w = weights, a = activation)
         fixed (float* px = x)
         {
@@ -175,9 +179,21 @@ public class BenchTests
 
                 best = Math.Min(best, Stopwatch.GetElapsedTime(t0).TotalSeconds);
             }
+
+            for (int round = 0; IntDot.HasFusedDot2(format) && round < 50; round++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                for (int r = 0; r + 1 < rows; r += 2)
+                {
+                    IntDot.FusedDot2(format, w + r * rowBytes, w + (r + 1) * rowBytes, row, k, out float first, out float second);
+                    sink += first + second;
+                }
+
+                bestPairs = Math.Min(bestPairs, Stopwatch.GetElapsedTime(t0).TotalSeconds);
+            }
         }
 
-        Report($"FusedDot {type} k={k}: {best * 1e9 / ((double)rows * k / 32):F3} ns per 32 values ({rows} rows, sum {sink:G3})");
+        Report($"FusedDot {type} k={k}: {best * 1e9 / ((double)rows * k / 32):F3} ns per 32 values, {bestPairs * 1e9 / ((double)rows * k / 32):F3} in row pairs ({rows} rows, sum {sink:G3})");
     }
 
     /// <summary>Single-thread time of unary kernels over 8192 values (L1-resident).</summary>
