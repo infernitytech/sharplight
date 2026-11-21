@@ -8824,10 +8824,11 @@ each larger segment compiled later allocated its own). On the GPU, the routed ex
 
 | suite | result |
 |---|---|
-| Sharplight.Cpu.Tests (incl. new `MoeTests.NoExpertIdsGiveZeroProducts`) | CPUTESTS |
-| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StateHandoff, StreamedExperts (new `SplitExpertsMatchTheCpu`), Moe, RowInvariance, QuantFormat (IQ grid formats now on the int-dot expert matvec), F16Range, TopK, Fusion | VKTESTS |
-| Sharplight.Cuda.Tests | CUDATESTS |
-| FamilyGenerationTests, Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan, after merging `develop` | FAMTESTS |
+| Sharplight.Cpu.Tests (incl. new `MoeTests.NoExpertIdsGiveZeroProducts`) | 1360 / 0 failed / 36 skipped |
+| Sharplight.Core.Tests | 1660 / 0 failed / 331 skipped |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StateHandoff, StreamedExperts (new `SplitExpertsMatchTheCpu`), Moe, RowInvariance, QuantFormat (IQ grid formats now on the int-dot expert matvec), F16Range, TopK (new `Router`), Fusion | 523 / 0 failed on CUDA; 523 / 0 failed / 2 skipped on Vulkan (no sparse compilations) |
+| Sharplight.Cuda.Tests | 27 / 0 failed / 1 skipped |
+| FamilyGenerationTests, Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan, after merging `develop` | 3 / 0 failed each |
 | gpt-oss-120b greedy text, CUDA and Vulkan | identical to §59 |
 
 * Tightening the reserve before the planner counted the sparse banks ran out of memory while compiling; the first retry added a fixed
