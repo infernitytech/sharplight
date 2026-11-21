@@ -235,6 +235,13 @@ static __device__ __forceinline__ void nm_mmas(float (&acc)[NM_FM][NM_FN][4], nm
     }
 }
 
+// A live row fragment count as a type (the main loop's template argument).
+template <int F>
+struct NmFrags
+{
+    static constexpr int value = F;
+};
+
 extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_native(NmParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
@@ -413,62 +420,74 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
             decodeUnit(s, b, j, bf);
         }
     };
-    // The MMAs of 32-value block b of stage s with its decoded B fragments, for the warp's live row fragments only: a partial tile's
-    // fragments past its rows are skipped by a warp-uniform branch (predicated-off MMAs still take the tensor pipe's time).
-    auto mmas = [&](nm_u32 s, nm_u32 b, const nm_u32 (&bf)[NM_FN][4], auto dec) {
-        const nm_u32 sa = smem0 + s * NM_STAGE_BYTES;
-        switch (liveFrags)
+    // The MMAs of 32-value block b of stage s with its decoded B fragments for the warp's F live row fragments (F = 0: the decode
+    // only).
+    auto mmas = [&](auto f, nm_u32 s, nm_u32 b, const nm_u32 (&bf)[NM_FN][4], auto dec) {
+        constexpr int F = decltype(f)::value;
+        if constexpr (F > 0)
         {
-#define NM_CASE(F) case F: nm_mmas<F>(acc, sa, wm * NM_TM, b, lane, bf, dec); break;
-        NM_CASE(1)
-#if NM_FM > 1
-        NM_CASE(2)
-#endif
-#if NM_FM > 2
-        NM_CASE(3)
-        NM_CASE(4)
-#endif
-#if NM_FM > 4
-        NM_CASE(5)
-        NM_CASE(6)
-        NM_CASE(7)
-        NM_CASE(8)
-#endif
-#undef NM_CASE
-        default:
+            nm_mmas<F>(acc, smem0 + s * NM_STAGE_BYTES, wm * NM_TM, b, lane, bf, dec);
+        }
+        else
+        {
 #pragma unroll
             for (int j = 0; j < NM_FN; j++)
             {
                 dec(j);
             }
-            break;
         }
     };
 
     // Software pipeline: the copies wait for two stages ahead (stage kb + 1 is complete at step kb), so the decode of the next
     // block (block 1 of this stage, then block 0 of the next one) is issued before the MMAs of the current block and its shared
-    // memory latency hides under them.
-    asm volatile("cp.async.wait_group %0;\n" :: "n"(NM_STAGES - 3));
-    __syncthreads();
-    nm_u32 bf0[NM_FN][4], bf1[NM_FN][4];
-    decode(0, 0, bf0);
-    for (nm_u32 kb = 0; kb < nk; kb++)
-    {
-        const nm_u32 cur = kb % NM_STAGES;
-        mmas(cur, 0, bf0, [&](int j) { decodeUnit(cur, 1, j, bf1); });
-        // Stage kb + 1 complete (own copies, then every thread's) before its decode; the slot of stage kb - 1 is free for
-        // the copies of stage kb + NM_STAGES - 1.
+    // memory latency hides under them. One loop per live fragment count of the warp: a partial tile's fragments past its rows are
+    // skipped (predicated-off MMAs still take the tensor pipe's time), and each count runs a tight loop of its own, which a switch
+    // inside the loop did not (RTX PRO 4500, gpt-oss-20b decode routings, 32-row tiles: gate / up -1-2 %, down -2 %).
+    auto mainLoop = [&](auto f) {
         asm volatile("cp.async.wait_group %0;\n" :: "n"(NM_STAGES - 3));
         __syncthreads();
-        nm_u32 next = kb + NM_STAGES - 1;
-        if (next < nk)
+        nm_u32 bf0[NM_FN][4], bf1[NM_FN][4];
+        decode(0, 0, bf0);
+        for (nm_u32 kb = 0; kb < nk; kb++)
         {
-            load(next % NM_STAGES, next);
+            const nm_u32 cur = kb % NM_STAGES;
+            mmas(f, cur, 0, bf0, [&](int j) { decodeUnit(cur, 1, j, bf1); });
+            // Stage kb + 1 complete (own copies, then every thread's) before its decode; the slot of stage kb - 1 is free for
+            // the copies of stage kb + NM_STAGES - 1.
+            asm volatile("cp.async.wait_group %0;\n" :: "n"(NM_STAGES - 3));
+            __syncthreads();
+            nm_u32 next = kb + NM_STAGES - 1;
+            if (next < nk)
+            {
+                load(next % NM_STAGES, next);
+            }
+            asm volatile("cp.async.commit_group;\n" ::);
+            const nm_u32 nextStage = (kb + 1) % NM_STAGES;
+            const bool more = kb + 1 < nk;
+            mmas(f, cur, 1, bf1, [&](int j) { if (more) { decodeUnit(nextStage, 0, j, bf0); } });
         }
-        asm volatile("cp.async.commit_group;\n" ::);
-        const nm_u32 nextStage = (kb + 1) % NM_STAGES;
-        const bool more = kb + 1 < nk;
-        mmas(cur, 1, bf1, [&](int j) { if (more) { decodeUnit(nextStage, 0, j, bf0); } });
+    };
+    switch (liveFrags)
+    {
+#define NM_CASE(F) case F: mainLoop(NmFrags<F>{}); break;
+    NM_CASE(1)
+#if NM_FM > 1
+    NM_CASE(2)
+#endif
+#if NM_FM > 2
+    NM_CASE(3)
+    NM_CASE(4)
+#endif
+#if NM_FM > 4
+    NM_CASE(5)
+    NM_CASE(6)
+    NM_CASE(7)
+    NM_CASE(8)
+#endif
+#undef NM_CASE
+    default:
+        mainLoop(NmFrags<0>{});
+        break;
     }
     asm volatile("cp.async.wait_group 0;\n" ::);
 
