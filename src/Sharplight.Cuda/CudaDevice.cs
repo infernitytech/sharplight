@@ -177,9 +177,10 @@ internal sealed unsafe class CudaDevice : IComputeDevice
 
     /// <summary>
     /// Bytes of mapped weight files that streamed segments may page-lock for direct copies (<see cref="TryRegisterHost"/>): the pinned host
-    /// memory limit when one is set, else a quarter of the memory available to the process (the pages cannot be reclaimed while locked).
+    /// memory limit when one is set, else half of the memory available to the process. The pages cannot be reclaimed while locked; they are
+    /// the experts the CPU reads at every step of an offloaded model, which must stay in memory for it to run at speed anyway.
     /// </summary>
-    private long RegisterBudget => Limits.PinnedHostMemory ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 4;
+    private long RegisterBudget => Limits.PinnedHostMemory ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2;
 
     /// <summary>
     /// Page-locks <paramref name="bytes"/> of read-only host memory at <paramref name="start"/> (page aligned; a mapped weight file) so the

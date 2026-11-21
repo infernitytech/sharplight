@@ -5,8 +5,8 @@ namespace Sharplight.Vulkan;
 /// <summary>
 /// Host memory the device imports (VK_EXT_external_memory_host), so that copies read it directly, without staging on the host: the mapped
 /// pages of streamed weights, from which the streamed layers and the selected experts of split passes are copied at every execution. An
-/// import pins its pages like page-locked memory, so the imports stay within the pinned-memory limit (else a quarter of the memory
-/// available to the process). Ranges are imported once and shared by their holders. Thread-safe.
+/// import pins its pages like page-locked memory, so the imports stay within the pinned-memory limit (else half of the memory available
+/// to the process, as CUDA's page-locked weights). Ranges are imported once and shared by their holders. Thread-safe.
 /// </summary>
 internal sealed unsafe class HostMemoryImports : IDisposable
 {
@@ -26,7 +26,7 @@ internal sealed unsafe class HostMemoryImports : IDisposable
     /// <summary>The alignment of imported addresses and sizes.</summary>
     internal long Alignment { get; }
 
-    private long Budget => _dev.Limits.PinnedHostMemory ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 4;
+    private long Budget => _dev.Limits.PinnedHostMemory ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2;
 
     /// <summary>
     /// Imports the aligned part of [<paramref name="start"/>, + <paramref name="bytes"/>) (the whole aligned units inside it), or gains a hold
