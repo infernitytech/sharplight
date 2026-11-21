@@ -9409,7 +9409,9 @@ for it): 989 / 117 / 15.2 and 2436 / 290 / 22.9 at 16 / 64 streams against §64'
   ~3000 / ~8000 tokens: gpt-oss-20b identical at ~40 and ~1000; at ~3000 and ~8000 the decode rows now sum their keys over half as
   many ranges (13 instead of 25 at 3,100 keys), so the partials combine in another order, and the text diverges: at ~3000 after 534
   characters of generated text ("**Historical Context**" / "**Historical Overview**"), at ~8000 at the second generated token, on a prompt that is
-  the same 40 words repeated (both continuations are degenerate). TIENOTE Qwen3-8B-FP8 (head size 128, whose decode keeps develop's
+  the same 40 words repeated (both continuations are degenerate). Both are near-ties: with the text up to the divergence as the
+  prompt, the top logits are " Context" 19.323 / " Overview" 19.286 (~3000) and '"' 12.621 / "…" 12.287 (~8000), and the two decode
+  paths picked one each (`greedy2/tie_*`). Qwen3-8B-FP8 (head size 128, whose decode keeps develop's
   split; at the time of this check it still ran the larger configuration): identical at ~1000 / ~3000 / ~8000.
 * Sharplight.Cuda.Tests: 31 / 0 failed / 1 skipped (cuBLASLt not installed); `CudaCodeTests.NativeAttentionMatchesTheCpu` (head size 64,
   with and without a window, sinks: now on two fragments, prompt chunks of 150 / 70 / 5 rows, so partial 128-row query tiles) and
@@ -9417,6 +9419,9 @@ for it): 989 / 117 / 15.2 and 2436 / 290 / 22.9 at 16 / 64 streams against §64'
 * Sharplight.Vulkan.Tests, one process per class (Moe, StreamedExperts, DualGemm, MatMul, Fusion, RowInvariance, FullAttention,
   PagedAttention, PackedSequence, Stateful, StateHandoff, SparseAttention, CompressedKv): CUDA provider 605 / 0 failed / 0 skipped,
   Vulkan provider 605 / 0 failed / 2 skipped (StreamedExperts) (`tests.txt`).
+  These ran with the larger decode split at every head size; after it was limited to head size 64, Cuda.Tests and the CUDA provider's
+  FullAttention, PagedAttention, PackedSequence, Stateful, SparseAttention and RowInvariance classes ran again on the final build:
+  31 / 0 / 1 and 211 / 0 failed / 0 skipped (`tests_final_build.txt`).
 * Vulkan: no Vulkan kernel, selection or default changed (the three changes are a CUDA C++ kernel's macros and the PTX defaults of
   the decode split).
 
