@@ -94,6 +94,7 @@ public sealed class InferenceEngine : IDisposable
     private long _nextId, _tick;
     private int _rr, _transit;
     private bool _stop, _draining;
+    private int _disposed;
     private bool _admissionPaused;   // tests: queued requests wait until ResumeAdmission (running ones keep stepping)
     private volatile int _kvTokens, _kvActiveTokens, _kvBlocksCached;
     private long _kvBlocksEvicted;
@@ -507,9 +508,17 @@ public sealed class InferenceEngine : IDisposable
         }
     }
 
-    /// <summary>Cancels all requests, stops the scheduler thread and disposes the decoder (and the speculator).</summary>
+    /// <summary>
+    /// Cancels all requests, stops the scheduler thread and disposes the decoder (and the speculator). Only the first call does this; later
+    /// ones (also concurrent ones) return at once, so the owner must not dispose from two threads when it needs to know the memory is freed.
+    /// </summary>
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         lock (_gate)
         {
             _draining = true;
