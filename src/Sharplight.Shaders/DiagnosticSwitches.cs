@@ -21,6 +21,8 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_GEMM_SG=0</c>: devices with only 8x8 subgroup matrices (Metal) run prefill matmuls on the SIMT GEMM instead of
 /// <c>gemm_sg</c>.</item>
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
+/// <item><c>SHARPLIGHT_NORM_WIDE=0</c>: fused row norms of 4096 values and more keep 256-thread workgroups at decode-size steps on
+/// CUDA instead of 1024; <c>SHARPLIGHT_NORM_THREADS=n</c>: threads per workgroup of every fused row norm (experiments).</item>
 /// <item><c>SHARPLIGHT_NO_CONV_EPILOGUE=1</c>: run the elementwise group consuming a convolution (activation, residual add) as its
 /// own launch instead of in the convolution's store.</item>
 /// <item><c>SHARPLIGHT_NO_MATMUL_EPILOGUE=1</c>: run the elementwise group consuming a weight matmul (bias, activation, residual
@@ -645,6 +647,12 @@ internal static class DiagnosticSwitches
 
     /// <summary><c>SHARPLIGHT_ATTN_MR=n</c>: 16-row query fragments per warp (1 or 2) of the hand-written prefill attention, or null for the default.</summary>
     public static int? NativeAttentionFragments { get; } = Read("SHARPLIGHT_ATTN_MR") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NORM_THREADS=n</c>: threads per workgroup of the fused row norms (experiments), or null for the default.</summary>
+    public static int? RowNormThreads { get; } = Read("SHARPLIGHT_NORM_THREADS") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>False (<c>SHARPLIGHT_NORM_WIDE=0</c>): fused row norms of decode-size steps keep 256-thread workgroups instead of 1024.</summary>
+    public static bool RowNormWide { get; } = IsNotZero("SHARPLIGHT_NORM_WIDE");
 
     /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
     public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;

@@ -142,6 +142,20 @@ public sealed partial class GraphLowerer
         return table.Type == DataType.F16 ? $"h2f({element})" : table.Type == DataType.BF16 ? $"bf2f({element})" : element;
     }
 
+    /// <summary>Threads per workgroup of the fused row norms (<c>SHARPLIGHT_NORM_THREADS</c>, default 256).</summary>
+    private static int RowNormThreads => DiagnosticSwitches.RowNormThreads ?? 256;
+
+    /// <summary>
+    /// Threads per workgroup of the fused row norm of <paramref name="rowLength"/>-value rows for steps whose rows fit in one wave
+    /// (one workgroup per row, so a decode step leaves most of each SM idle and the row's latency is the launch's time), or 0 for the
+    /// <see cref="RowNormThreads"/> workgroups at every step: 1024 threads (four or more values each) for rows of 4096 values and
+    /// more where the target compiles CUDA C++ (every CUDA device runs 1024-thread blocks; Vulkan guarantees 256 invocations).
+    /// RTX PRO 4500, Qwen3-8B-FP8 64-sequence decode step (BatchBench <c>--text</c>, GPU ms, two alternated runs): 15.73 / 15.73 →
+    /// 15.55 / 15.53; gpt-oss-20b's 2880-value rows: unchanged at 1024 threads, so they keep 256.
+    /// </summary>
+    private int RowNormWideThreads(long rowLength)
+        => DiagnosticSwitches.RowNormThreads is null && DiagnosticSwitches.RowNormWide && rowLength >= 4096 && _compiler.CompilesCuda(_opt.Target) ? 1024 : 0;
+
     /// <summary>
     /// Row normalization over the innermost axis fused with elementwise work before and/or after it (see
     /// <see cref="RowNormKernelSource"/> for the two-pass scheme), launched with one workgroup per row.
@@ -158,8 +172,11 @@ public sealed partial class GraphLowerer
         int? fp8Output = AddFp8CopyOutput(pass2Values, pass2Outputs, valueOutputs, prefill);
         var q8Output = fp8Output is null ? AddQ8CopyOutput(pass2Values, pass2Outputs, valueOutputs) : null;
         long prefillRows = NormCopyPrefillMinRows;
-        RowNormKernelSource Source(IReadOnlyDictionary<int, string> pass2Guards) => new()
+        long rowLength = shape[^1];
+        int wideThreads = RowNormWideThreads(rowLength);
+        RowNormKernelSource Source(IReadOnlyDictionary<int, string> pass2Guards, int threads) => new()
         {
+            Threads = threads,
             Shape = shape,
             Inputs = inputs,
             PreStatements = preStmts,
@@ -177,13 +194,26 @@ public sealed partial class GraphLowerer
             UseSubgroupOps = _opt.Has(DeviceFeatures.SubgroupOps),
         };
         var outputs = pass1Outputs.Concat(pass2Outputs).ToList();
-        var kernel = _compiler.Compile("elementwise.slang", Source(guards).Build(), "main", _opt.Target, Macros(), _opt.Cache);
-
-        long rowLength = shape[^1];
         long rowsPerSymbol = ElementwiseCodegen.Pitches(shape)[0] / rowLength;
         KernelArg rows = symbol is null ? new UIntArg((uint)(ElementwiseCodegen.ElementCount(shape) / rowLength)) : new SymbolArg(symbol, rowsPerSymbol);
-        Func<Bindings, Grid> grid = b => new Grid((uint)((symbol is null ? shape[0] : b[symbol]) * rowsPerSymbol));
-        var variants = new List<KernelVariant> { Always(kernel, grid) };
+        Func<Bindings, long> rowCount = b => (symbol is null ? shape[0] : b[symbol]) * rowsPerSymbol;
+        Func<Bindings, Grid> grid = b => new Grid((uint)rowCount(b));
+        // Steps whose rows fit in one wave of workgroups (decode batches) take the wide workgroups, larger steps the 256-thread ones.
+        long wideMaxRows = Math.Max(_opt.ComputeUnits, 1);
+        Func<Bindings, bool> wide = b => wideThreads > 0 && rowCount(b) <= wideMaxRows;
+        List<KernelVariant> Variants(IReadOnlyDictionary<int, string> pass2Guards, Func<Bindings, bool> when)
+        {
+            var normal = _compiler.Compile("elementwise.slang", Source(pass2Guards, RowNormThreads).Build(), "main", _opt.Target, Macros(), _opt.Cache);
+            if (wideThreads == 0)
+            {
+                return [new KernelVariant(when, normal, grid)];
+            }
+
+            var wideKernel = _compiler.Compile("elementwise.slang", Source(pass2Guards, wideThreads).Build(), "main", _opt.Target, Macros(), _opt.Cache);
+            return [new KernelVariant(b => when(b) && wide(b), wideKernel, grid), new KernelVariant(b => when(b) && !wide(b), normal, grid)];
+        }
+
+        var variants = Variants(guards, _ => true);
         if (prefill.Count > 0)
         {
             // From prefillRows rows the norm writes the GEMMs' copies; it also skips the f32 rows of those values when every reader
@@ -197,11 +227,10 @@ public sealed partial class GraphLowerer
                 }
             }
 
-            var skipKernel = _compiler.Compile("elementwise.slang", Source(skipGuards).Build(), "main", _opt.Target, Macros(), _opt.Cache);
             bool skip = false;
             var values = prefill.ToArray();
             _deferredCopyChecks.Add(() => skip = values.All(v => ReadersUseCopy(v, prefillRows)));
-            variants = [new KernelVariant(_ => !skip, kernel, grid), new KernelVariant(_ => skip, skipKernel, grid)];
+            variants = [.. Variants(guards, _ => !skip), .. Variants(skipGuards, _ => skip)];
         }
 
         var weightOrFirstOutput = w ?? outputs[0].Ref;
