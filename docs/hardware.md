@@ -37,6 +37,12 @@ other devices, and the CPU always remains.
 | Vulkan timestamps (not a named feature) | `timestampValidBits` of the compute queue | no GPU step time (`LastGpuMs` is 0); the submission-budget calibration times launches on the host |
 | Vulkan transfer queue (not a named feature) | a transfer-only queue family | downloads on the compute queue |
 
+The fused decode kernels of the generated path take subgroup operations, and for the int-dot matvecs `int_dot`: the router top-k that keeps
+its row in registers (rows of a multiple of the subgroup size, up to 32 values per lane), row norms that write the q8_1 rows of the int-dot
+matvecs reading them (subgroups of at least 8 lanes), elementwise groups in the int-dot matvec's store, the delta rule reading repeated key
+heads in place. Without them, or past those sizes, the separate launches run (per-lane top-k lists, a quantization launch per activation
+row set, the group's own launch, a materialized repeat).
+
 ## Memory: what falls back to what
 
 **Vulkan** (`MemoryAllocator`, `WeightUploader`):
