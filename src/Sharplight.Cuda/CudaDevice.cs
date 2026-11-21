@@ -57,6 +57,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             CudaCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options), properties.Multiprocessors);
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
         LaunchGraphs = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.LaunchGraphs) && !options.DisabledFeatures.Contains(DeviceFeatures.LaunchGraphs);
+        BatchesCopies = properties.DriverVersion >= CudaApi.BatchCopyDriverVersion;
         DependentLaunches = properties.ComputeCapability >= NvrtcTranslator.DependentLaunchCapability
                             && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.DependentLaunches) && !options.DisabledFeatures.Contains(DeviceFeatures.DependentLaunches);
         ArtifactTargets = _kernelBinaries ? [Code.CreateCodeTarget(info.Provider), CreateCubinTarget()] : [Code.CreateCodeTarget(info.Provider)];
@@ -340,6 +341,15 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// <c>SHARPLIGHT_DISABLE_FEATURES</c> or the device options).
     /// </summary>
     internal bool LaunchGraphs { get; }
+
+    /// <summary>
+    /// True while copies from page-locked memory may go in one batched call (<c>cuMemcpyBatchAsync</c>, drivers from CUDA 13.0); turned
+    /// off for the device when the driver refuses one (<see cref="RefuseBatchedCopies"/>).
+    /// </summary>
+    internal bool BatchesCopies { get; private set; }
+
+    /// <summary>Stops batching copies after the driver refused a batch.</summary>
+    internal void RefuseBatchedCopies() => BatchesCopies = false;
 
     /// <summary>
     /// True when kernels that wait for the previous launch themselves (<see cref="CudaKernel.WaitsForPrevious"/>) are launched as its

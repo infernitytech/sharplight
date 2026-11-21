@@ -120,6 +120,17 @@ internal static unsafe partial class CudaApi
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuEventRecordWithFlags(nint evt, nint stream, uint flags);
 
+    /// <summary>CUDA 13's batched copies (<c>cuMemcpyBatchAsync_v2</c>; drivers before 13.0 export another signature).</summary>
+    [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuMemcpyBatchAsync_v2")]
+    public static partial int cuMemcpyBatchAsync(ulong* destinations, ulong* sources, nuint* sizes, nuint count, MemcpyAttributes* attributes,
+        nuint* attributeIndices, nuint attributeCount, nint stream);
+
+    /// <summary>The first driver version with <see cref="cuMemcpyBatchAsync"/> in this form (13.0).</summary>
+    public const int BatchCopyDriverVersion = 13000;
+
+    /// <summary><c>CU_MEMCPY_SRC_ACCESS_ORDER_STREAM</c>: a batched copy reads its source in stream order.</summary>
+    public const int MemcpySourceAccessOrderStream = 1;
+
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuEventSynchronize(nint evt);
 

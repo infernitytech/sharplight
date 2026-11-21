@@ -48,6 +48,10 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly SparseExpertLayout? _sparse;
     /// <summary>The experts the last <see cref="SetInput"/> of the ids selected, in slot order (their weights are copied in at the next execution).</summary>
     private readonly SparseExpertSelection? _sparseSelection;
+    /// <summary>The copies of the selected experts of an execution (destination, source, bytes, from page-locked memory), reused.</summary>
+    private readonly List<(ulong Destination, ulong Source, nuint Bytes, bool Locked)> _sparseCopies = [];
+    /// <summary>Most copies in one batched call.</summary>
+    private const int MaxBatchedCopies = 256;
     /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming"/>).</summary>
     private nint _streamDone;
     /// <summary>Input and output buffers allocated so far by a streamed or sparse compilation (their ordinals key the shared buffers).</summary>
@@ -359,6 +363,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// <summary>Queues the copies of the selected experts (<see cref="SparseExpertSelection.Selected"/>) of every bank into their slots on the upload stream.</summary>
     private void QueueSparseCopies()
     {
+        _sparseCopies.Clear();
         foreach (var (b, source, expertBytes) in _sparseWeights)
         {
             ulong destination = _alloc[b].Pointer;
@@ -384,7 +389,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
                     if (cut > from && from < to)
                     {
                         long end = Math.Min(cut, to);
-                        CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(target, (byte*)source + from, (nuint)(end - from), _dev.Stream), "cuMemcpyHtoDAsync");
+                        bool locked = from >= lockedStart && end <= lockedEnd;
+                        _sparseCopies.Add((target, (ulong)((byte*)source + from), (nuint)(end - from), locked));
                         target += (ulong)(end - from);
                         from = end;
                     }
@@ -392,6 +398,59 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
                 slot += run - 1;
             }
+        }
+
+        SubmitSparseCopies();
+    }
+
+    /// <summary>
+    /// Queues <see cref="_sparseCopies"/> on the upload stream: the page-locked ones in one batched call where the driver has it (a decode
+    /// step's split pass copies 3 banks x ~4 experts; one call per copy cost ~4 µs of the host's critical path each), the others one by one.
+    /// </summary>
+    private void SubmitSparseCopies()
+    {
+        int batched = 0;
+        Span<ulong> destinations = stackalloc ulong[MaxBatchedCopies];
+        Span<ulong> sources = stackalloc ulong[MaxBatchedCopies];
+        Span<nuint> sizes = stackalloc nuint[MaxBatchedCopies];
+        foreach (var (destination, source, bytes, locked) in _sparseCopies)
+        {
+            if (!locked || !_dev.BatchesCopies || batched == MaxBatchedCopies)
+            {
+                CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination, (void*)source, bytes, _dev.Stream), "cuMemcpyHtoDAsync");
+                continue;
+            }
+
+            destinations[batched] = destination;
+            sources[batched] = source;
+            sizes[batched] = bytes;
+            batched++;
+        }
+
+        if (batched == 0)
+        {
+            return;
+        }
+
+        var attributes = new MemcpyAttributes { SourceAccessOrder = CudaApi.MemcpySourceAccessOrderStream };
+        nuint attributeIndex = 0;
+        int result;
+        fixed (ulong* d = destinations, s = sources)
+        fixed (nuint* n = sizes)
+        {
+            result = CudaApi.cuMemcpyBatchAsync(d, s, n, (nuint)batched, &attributes, &attributeIndex, 1, _dev.Stream);
+        }
+
+        if (result == 0)
+        {
+            return;
+        }
+
+        // A driver without batched copies of this form: copy one by one from now on.
+        _dev.RefuseBatchedCopies();
+        for (int i = 0; i < batched; i++)
+        {
+            CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destinations[i], (void*)sources[i], sizes[i], _dev.Stream), "cuMemcpyHtoDAsync");
         }
     }
 
