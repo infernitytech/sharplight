@@ -1,15 +1,16 @@
 // K-quant decode GEMM written in CUDA C++ for the CUDA provider (DeviceFeatures.NativeGemmKQuant, compute capability 8.0 and later):
-// y[t, n] = sum_k x[t, k] * W[n, k] for batches of at most KQ_BM token rows per token tile (decode steps of 17-64 sequences), with f16
+// y[t, n] = sum_k x[t, k] * W[n, k] for batches of at most KQ_BM token rows per token tile (decode steps of 9-64 sequences), with f16
 // activations (the generated GEMMs' f16 copy of x) and Q4_K / Q5_K / Q6_K weights in the GGUF block layout (KQ_FMT 4 / 5 / 6), f32
 // accumulation and output. Compiled by NVRTC from this file.
 //
-// A block covers KQ_BM token rows and 64 weight rows; each of its eight warps takes 8 weight rows and every token row, so each weight
-// value is dequantized once. A K step is one
-// 256-value superblock: cp.async copies the step's activation rows (four 64-value sub-tiles of 128-byte rows, XOR swizzle, read by
-// ldmatrix) and the raw blocks of the 64 weight rows (each row's 16-byte-aligned window around its block) into a ring of KQ_STAGES
-// stages in dynamic shared memory. Each thread dequantizes the weight values of its mma.sync.m16n8k16 B fragments straight from the
-// raw blocks into f16 pairs (exact integer codes times the f16 sub-block scale, minus the f16 sub-block minimum for Q4_K / Q5_K), so
-// the weights are read from memory once and never written back as f16.
+// A block covers KQ_BM (16, 32 or 64) token rows and 64 weight rows; each of its eight warps takes 8 weight rows and every token row, so
+// each weight value is dequantized once. cp.async copies two rings into dynamic shared memory: KQ_XST stages of activations (64 values
+// of every token row per x-step, 128-byte rows with an XOR swizzle, read by ldmatrix) and KQ_WST slots of raw weight blocks (one 256-value
+// superblock of the 64 rows per slot, each row's 16-byte-aligned window around its block), the weights KQ_WL superblocks ahead of the
+// products, so the weight stream (the bytes that come from memory) runs deeper than the activations (re-read from L2 by every block).
+// Each thread dequantizes the weight values of its mma.sync.m16n8k16 B fragments straight from the raw blocks into f16 pairs (exact
+// integer codes times the f16 sub-block scale, minus the f16 sub-block minimum for Q4_K / Q5_K), so the weights are read from memory
+// once and never written back as f16.
 //
 // KQ_SPLIT > 1 splits the superblocks between the blocks of grid z: each writes its partial sums to slice z of part ([KQ_SPLIT][T][N]),
 // publishes them and counts its arrival in arrivals[tile]; the last block of a tile sums the slices in slice order (z = 0 first, from
@@ -23,8 +24,8 @@
 // H_BIAS: the store adds bias[n]. H_XRS: x is a row-ranged f16 copy whose scale words start at byte H_XRS of x (common.slang,
 // f16_range_scale); the store multiplies each row's sums by the inverse of its scale (before the bias).
 //
-// Specialization macros: K (a multiple of 256), N (all rows with MULTI), Y_STRIDE, KQ_FMT, MULTI, MULTI_O1, MULTI_O2, KQ_BM (32 or 64), KQ_STAGES, KQ_SPLIT, H_BIAS, H_XRS. Requires
-// 16-byte aligned x and weights; weight rows may start at any even byte (Q6_K rows of 210-byte blocks). Grid: x = token tiles,
+// Specialization macros: K (a multiple of 256), N (all rows with MULTI), Y_STRIDE, KQ_FMT, MULTI, MULTI_O1, MULTI_O2, KQ_BM, KQ_XST, KQ_WL,
+// KQ_SPLIT, H_BIAS, H_XRS. Requires 16-byte aligned x and weights; weight rows may start at any even byte (Q6_K rows of 210-byte blocks). Grid: x = token tiles,
 // y = weight tiles (64 rows), z = K splits.
 #ifndef H_BIAS
 #define H_BIAS 0
@@ -38,8 +39,11 @@
 #ifndef KQ_BM
 #define KQ_BM 64
 #endif
-#ifndef KQ_STAGES
-#define KQ_STAGES 2
+#ifndef KQ_XST
+#define KQ_XST 4
+#endif
+#ifndef KQ_WL
+#define KQ_WL 2
 #endif
 #if KQ_FMT == 4
 #define KQ_BB 144
@@ -64,8 +68,12 @@
 #else
 #define KQ_WCH ((KQ_BB + 14 + 15) / 16)
 #endif
-#define KQ_XBYTES (KQ_BM * 512)
-#define KQ_STAGE_BYTES (KQ_XBYTES + KQ_BN * KQ_WCH * 16)
+#define KQ_XSTAGE (KQ_BM * 128)
+#define KQ_WSLOT (KQ_BN * KQ_WCH * 16)
+// Weight slots: a superblock's slot is rewritten KQ_WST superblocks later, once every x-step reading it has passed the barrier of the
+// iteration that issues the copy: 4 (KQ_WST - KQ_WL) >= KQ_XST + 3.
+#define KQ_WST (KQ_WL + (KQ_XST + 3 + 3) / 4)
+#define KQ_SHARED (KQ_XST * KQ_XSTAGE + KQ_WST * KQ_WSLOT)
 #define KQ_XRS_BYTES ((unsigned long long)K * 2)
 
 typedef unsigned int kq_u32;
@@ -134,18 +142,44 @@ static __device__ __forceinline__ kq_u32 kq_spread(kq_u32 v)
     return __byte_perm(v, 0u, 0x4140u);
 }
 
-// f16 pair of two integer codes c0, c1 < 1024 held in the low bits of the halves of v, as (1024 + c).
-static __device__ __forceinline__ __half2 kq_biased(kq_u32 v)
+// f16 pairs as 32-bit words (lo in the low half); NVRTC compiles this file without the CUDA headers.
+// The f16 pair of two integer codes c0, c1 < 1024 held in the low bits of the halves of v, minus `bias` (an f16 pair): exact.
+static __device__ __forceinline__ kq_u32 kq_codes(kq_u32 v, kq_u32 bias)
 {
-    kq_u32 h = v | 0x64006400u;
-    return *(__half2*)&h;
+    kq_u32 r;
+    asm("sub.rn.f16x2 %0, %1, %2;\n" : "=r"(r) : "r"(v | 0x64006400u), "r"(bias));
+    return r;
 }
 
-static __device__ __forceinline__ kq_u32 kq_bits(__half2 h)
+// Both halves set to f, round to nearest.
+static __device__ __forceinline__ kq_u32 kq_splat(float f)
 {
-    return *(kq_u32*)&h;
+    kq_u32 r;
+    asm("cvt.rn.f16x2.f32 %0, %1, %1;\n" : "=r"(r) : "f"(f));
+    return r;
 }
 
+static __device__ __forceinline__ kq_u32 kq_fma2(kq_u32 a, kq_u32 b, kq_u32 c)
+{
+    kq_u32 r;
+    asm("fma.rn.f16x2 %0, %1, %2, %3;\n" : "=r"(r) : "r"(a), "r"(b), "r"(c));
+    return r;
+}
+
+static __device__ __forceinline__ kq_u32 kq_mul2(kq_u32 a, kq_u32 b)
+{
+    kq_u32 r;
+    asm("mul.rn.f16x2 %0, %1, %2;\n" : "=r"(r) : "r"(a), "r"(b));
+    return r;
+}
+
+// The f16 at p (2-byte aligned) as a float.
+static __device__ __forceinline__ float kq_half(const unsigned char* p)
+{
+    float f;
+    asm("cvt.f32.f16 %0, %1;\n" : "=f"(f) : "h"(*(const unsigned short*)p));
+    return f;
+}
 
 // The matrix a block's weight tile lies in (MULTI: its member's), with that member's output, bias, row count and output row stride.
 struct KqMember
@@ -220,21 +254,38 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
     const kq_u32 sb0 = blockIdx.z * KQ_SB / KQ_SPLIT, sb1 = (blockIdx.z + 1) * KQ_SB / KQ_SPLIT, steps = sb1 - sb0;
     const unsigned char* wend = m.w + (kq_u64)m.rows * KQ_ROWB;
 
-    auto load = [&](kq_u32 s, kq_u32 sb) {
-        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_STAGE_BYTES);
-#pragma unroll
-        for (kq_u32 i = 0; i < KQ_BM * 32 / KQ_THREADS; i++)
-        {
-            kq_u32 idx = tid + i * KQ_THREADS, r = idx >> 5, c = idx & 31;
-            kq_cp16(base + (c >> 3) * (KQ_BM * 128) + kq_swz(r, c & 7), p.x + (kq_u64)min(t0 + r, p.T - 1) * KQ_XRS_BYTES + sb * 512 + c * 16, 16);
-        }
+    // Copies x-step e (64 values of every token row) into its x stage, and with it, at the first step of a superblock, the raw blocks of
+    // the superblock KQ_WL ahead into its weight slot.
+    auto loadWeights = [&](kq_u32 sb) {
+        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + KQ_XST * KQ_XSTAGE + (sb % KQ_WST) * KQ_WSLOT);
         for (kq_u32 idx = tid; idx < KQ_BN * KQ_WCH; idx += KQ_THREADS)
         {
             kq_u32 r = idx / KQ_WCH, c = idx % KQ_WCH;
-            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)sb * KQ_BB;
+            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)(sb0 + sb) * KQ_BB;
             const unsigned char* src = (const unsigned char*)((kq_u64)block & ~15ull) + c * 16;
             long long left = wend - src;
-            kq_cp16(base + KQ_XBYTES + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
+            kq_cp16(base + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
+        }
+    };
+    auto load = [&](kq_u32 e) {
+        if (e >= steps * 4)
+        {
+            return;
+        }
+
+        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + (e % KQ_XST) * KQ_XSTAGE);
+#pragma unroll
+        for (kq_u32 i = 0; i < (KQ_BM * 8 + KQ_THREADS - 1) / KQ_THREADS; i++)
+        {
+            kq_u32 idx = tid + i * KQ_THREADS, r = idx >> 3, c = idx & 7;
+            if (KQ_BM * 8 % KQ_THREADS == 0 || idx < KQ_BM * 8)
+            {
+                kq_cp16(base + kq_swz(r, c), p.x + (kq_u64)min(t0 + r, p.T - 1) * KQ_XRS_BYTES + (kq_u64)(sb0 * 4 + e) * 128 + c * 16, 16);
+            }
+        }
+        if ((e & 3) == 0 && e / 4 + KQ_WL < steps)
+        {
+            loadWeights(e / 4 + KQ_WL);
         }
     };
 
@@ -253,64 +304,78 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         }
     }
 
-#pragma unroll
-    for (int s = 0; s < KQ_STAGES - 1; s++)
+    for (kq_u32 sb = 0; sb < KQ_WL && sb < steps; sb++)
     {
-        if (s < (int)steps)
-        {
-            load(s, sb0 + s);
-        }
+        loadWeights(sb);
+    }
+#pragma unroll
+    for (int e = 0; e < KQ_XST - 1; e++)
+    {
+        load(e);
         asm volatile("cp.async.commit_group;\n" ::);
     }
 
-    for (kq_u32 step = 0; step < steps; step++)
+    for (kq_u32 sbl = 0; sbl < steps; sbl++)
     {
-        asm volatile("cp.async.wait_group %0;\n" :: "n"(KQ_STAGES - 2));
-        __syncthreads();
-        kq_u32 next = step + KQ_STAGES - 1;
-        if (next < steps)
-        {
-            load(next % KQ_STAGES, sb0 + next);
-        }
-        asm volatile("cp.async.commit_group;\n" ::);
-
-        const unsigned char* stage = smem + (step % KQ_STAGES) * KQ_STAGE_BYTES;
-        const kq_u32 sa = (kq_u32)__cvta_generic_to_shared(stage);
+        const unsigned char* slot = smem + KQ_XST * KQ_XSTAGE + (sbl % KQ_WST) * KQ_WSLOT;
         const unsigned char* blk[KQ_FN];
 #pragma unroll
         for (int j = 0; j < KQ_FN; j++)
         {
             kq_u32 r = wn * 8 * KQ_FN + j * 8 + g;
-            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)(sb0 + step) * KQ_BB;
-            blk[j] = stage + KQ_XBYTES + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
+            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)(sb0 + sbl) * KQ_BB;
+            blk[j] = slot + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
         }
 
-        // The A fragments of chunk q (16 values of the superblock) and the products with the B fragments b[j][0..1].
-        auto mma = [&](int q, const kq_u32 (*b)[2]) {
+#if KQ_FMT == 6
+        float d[KQ_FN];
+#else
+        float dd[KQ_FN], dm[KQ_FN];
+        kq_u32 scales[KQ_FN][4];   // the eight 6-bit scales and minimums, four to a word (sc[0..3], sc[4..7], m[0..3], m[4..7])
+#endif
 #pragma unroll
-            for (int i = 0; i < KQ_FM; i++)
+        for (int u = 0; u < 4; u++)
+        {
+            const kq_u32 s = sbl * 4 + u;
+            asm volatile("cp.async.wait_group %0;\n" :: "n"(KQ_XST - 2));
+            __syncthreads();
+            load(s + KQ_XST - 1);
+            asm volatile("cp.async.commit_group;\n" ::);
+            if (u == 0)
             {
-                kq_u32 a[4];
-                kq_u32 r = wm * KQ_TM + i * 16 + (lane & 15);
-                kq_ldsm4(sa + (q >> 2) * (KQ_BM * 128) + kq_swz(r, (q & 3) * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
 #pragma unroll
                 for (int j = 0; j < KQ_FN; j++)
                 {
-                    kq_mma(acc[i][j], a, b[j][0], b[j][1]);
+#if KQ_FMT == 6
+                    d[j] = kq_half(blk[j] + 208);
+#else
+                    dd[j] = kq_half(blk[j]);
+                    dm[j] = kq_half(blk[j] + 2);
+                    kq_scales_mins(blk[j] + 4, scales[j]);
+#endif
                 }
             }
-        };
+
+            const kq_u32 sa = (kq_u32)__cvta_generic_to_shared(smem + (s % KQ_XST) * KQ_XSTAGE);
+            // The A fragments of chunk cq (16 values) of this x-step and the products with the B fragments b[j][0..1].
+            auto mma = [&](int cq, const kq_u32 (*b)[2]) {
+#pragma unroll
+                for (int i = 0; i < KQ_FM; i++)
+                {
+                    kq_u32 a[4];
+                    kq_u32 r = i * 16 + (lane & 15);
+                    kq_ldsm4(sa + kq_swz(r, cq * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
+#pragma unroll
+                    for (int j = 0; j < KQ_FN; j++)
+                    {
+                        kq_mma(acc[i][j], a, b[j][0], b[j][1]);
+                    }
+                }
+            };
 
 #if KQ_FMT == 6
-        __half2 d[KQ_FN];
-#pragma unroll
-        for (int j = 0; j < KQ_FN; j++)
-        {
-            d[j] = __half2half2(*(const __half*)(blk[j] + 208));
-        }
-#pragma unroll
-        for (int jj = 0; jj < 2; jj++)
-        {
+            // Values [64u, 64u + 64): half jj, quarters qq = 2 nib + qd, chunks 2 qd + h.
+            const int jj = u >> 1, nib = u & 1;
 #pragma unroll
             for (int h = 0; h < 2; h++)
             {
@@ -328,46 +393,33 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                     }
                 }
 #pragma unroll
-                for (int qq = 0; qq < 4; qq++)
+                for (int qd = 0; qd < 2; qd++)
                 {
-                    const int q = 8 * jj + 2 * qq + h;
+                    const int qq = 2 * nib + qd, q = 8 * jj + 2 * qq + h;
                     kq_u32 b[KQ_FN][2];
 #pragma unroll
                     for (int j = 0; j < KQ_FN; j++)
                     {
-                        const __half2 scale = __hmul2(d[j], __half2half2(__int2half_rn((int)(signed char)blk[j][192 + q])));
+                        const kq_u32 scale = kq_splat(d[j] * (float)(signed char)blk[j][192 + q]);
 #pragma unroll
                         for (int o = 0; o < 2; o++)
                         {
-                            kq_u32 code = ((ql[j][qq & 1][o] >> (4 * (qq >> 1))) & 0x000F000Fu) | (((qh[j][o] >> (2 * qq)) & 0x00030003u) << 4);
-                            const __half2 value = __hsub2(kq_biased(code), __float2half2_rn(1056.0f));
-                            b[j][o] = kq_bits(__hmul2(value, scale));
+                            kq_u32 code = ((ql[j][qd][o] >> (4 * nib)) & 0x000F000Fu) | (((qh[j][o] >> (2 * qq)) & 0x00030003u) << 4);
+                            b[j][o] = kq_mul2(kq_codes(code, 0x64206420u), scale);   // (q - 32) * d * sc
                         }
                     }
-                    mma(q, b);
+                    mma(2 * qd + h, b);
                 }
             }
-        }
 #else
 #if KQ_FMT == 5
-        const kq_u32 qsOffset = 48;
+            const kq_u32 qsOffset = 48;
 #else
-        const kq_u32 qsOffset = 16;
+            const kq_u32 qsOffset = 16;
 #endif
-        // The eight 6-bit scales and minimums of each row's block, unpacked four to a word (sc[0..3], sc[4..7], m[0..3], m[4..7]).
-        kq_u32 scales[KQ_FN][4];
-        float dd[KQ_FN], dm[KQ_FN];
-#pragma unroll
-        for (int j = 0; j < KQ_FN; j++)
-        {
-            dd[j] = __half2float(*(const __half*)blk[j]);
-            dm[j] = __half2float(*(const __half*)(blk[j] + 2));
-            kq_scales_mins(blk[j] + 4, scales[j]);
-        }
-#pragma unroll
-        for (int jj = 0; jj < 4; jj++)
-        {
-            __half2 dsc[KQ_FN][2], dmn[KQ_FN][2];
+            // Values [64u, 64u + 64): sub-blocks 2u (low nibbles) and 2u + 1 (high), chunks 2 hi + h.
+            const int jj = u;
+            kq_u32 dsc[KQ_FN][2], dmn[KQ_FN][2];
 #pragma unroll
             for (int j = 0; j < KQ_FN; j++)
             {
@@ -376,8 +428,8 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 {
                     const int sub = 2 * jj + hi;
                     const kq_u32 sc = (scales[j][sub >> 2] >> (8 * (sub & 3))) & 0xFFu, mn = (scales[j][2 + (sub >> 2)] >> (8 * (sub & 3))) & 0xFFu;
-                    dsc[j][hi] = __float2half2_rn(dd[j] * (float)sc);
-                    dmn[j][hi] = __float2half2_rn(-dm[j] * (float)mn);
+                    dsc[j][hi] = kq_splat(dd[j] * (float)sc);
+                    dmn[j][hi] = kq_splat(-dm[j] * (float)mn);
                 }
             }
 #pragma unroll
@@ -414,15 +466,14 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 #if KQ_FMT == 5
                             code |= ((qh[j][o] >> (2 * jj + hi)) & 0x00010001u) << 4;
 #endif
-                            const __half2 value = __hsub2(kq_biased(code), __float2half2_rn(1024.0f));
-                            b[j][o] = kq_bits(__hfma2(value, dsc[j][hi], dmn[j][hi]));
+                            b[j][o] = kq_fma2(kq_codes(code, 0x64006400u), dsc[j][hi], dmn[j][hi]);   // q * d * sc - dmin * m
                         }
                     }
-                    mma(4 * jj + 2 * hi + h, b);
+                    mma(2 * hi + h, b);
                 }
             }
-        }
 #endif
+        }
     }
     asm volatile("cp.async.wait_group 0;\n" ::);
 

@@ -12,7 +12,7 @@ public sealed partial class GraphLowerer
     /// <summary>Weight rows per block of <c>gemm_kq_native.cu</c>.</summary>
     private const int NativeKQuantColumns = 64;
 
-    /// <summary>Largest batch the hand-written K-quant decode GEMM serves (two token tiles of 32 rows, or one of 64).</summary>
+    /// <summary>Largest batch the hand-written K-quant decode GEMM serves (one token tile of 64 rows).</summary>
     private const long NativeKQuantMaxRows = 64;
 
     /// <summary>
@@ -27,32 +27,56 @@ public sealed partial class GraphLowerer
     private static int NativeKQuantFormat(DataType type) => type == DataType.Q4_K ? 4 : type == DataType.Q5_K ? 5 : 6;
 
     /// <summary>
-    /// Dynamic shared memory of one stage of <c>gemm_kq_native.cu</c>: <paramref name="tileRows"/> activation rows of 256 f16 values and
-    /// the 16-byte windows of 64 weight rows' blocks (the block itself when every block starts 16-byte aligned, else 14 bytes more).
+    /// Bytes of one weight slot of <c>gemm_kq_native.cu</c>: the 16-byte windows of 64 weight rows' blocks (the block itself when every
+    /// block starts 16-byte aligned, else 14 bytes more).
     /// </summary>
-    private static int NativeKQuantStageBytes(int tileRows, int blockBytes, long k)
+    private static int NativeKQuantSlotBytes(int blockBytes, long k)
     {
         bool aligned = blockBytes % 16 == 0 && k / 256 * blockBytes % 16 == 0;
         int chunks = aligned ? blockBytes / 16 : (blockBytes + 14 + 15) / 16;
-        return tileRows * 512 + NativeKQuantColumns * chunks * 16;
+        return NativeKQuantColumns * chunks * 16;
     }
 
+    /// <summary>Activation stages of <c>gemm_kq_native.cu</c>'s copy ring (64 values of every token row each).</summary>
+    private const int NativeKQuantActivationStages = 4;
+
     /// <summary>
-    /// Stages of <c>gemm_kq_native.cu</c>'s copy ring: as many as fit the device's shared memory (2 to 4), at most 96 KiB so that the
-    /// L1 cache keeps some room.
+    /// Dynamic shared memory of <c>gemm_kq_native.cu</c> with weight copies <paramref name="lookahead"/> superblocks ahead:
+    /// <see cref="NativeKQuantActivationStages"/> activation stages of <paramref name="tileRows"/> rows of 64 f16 values and the weight
+    /// slots the lookahead needs (KQ_WST).
     /// </summary>
-    private int NativeKQuantStages(int tileRows, int blockBytes, long k)
+    private static int NativeKQuantSharedBytes(int tileRows, int blockBytes, long k, int lookahead)
     {
-        int stage = NativeKQuantStageBytes(tileRows, blockBytes, k);
-        long limit = Math.Min(_opt.MaxSharedMemory, 96L * 1024);
-        return (int)Math.Clamp(limit / stage, 0, 4);
+        int slots = lookahead + (NativeKQuantActivationStages + 3 + 3) / 4;
+        return NativeKQuantActivationStages * tileRows * 128 + slots * NativeKQuantSlotBytes(blockBytes, k);
     }
 
     /// <summary>
-    /// Token rows of the hand-written K-quant decode GEMM's tile for <paramref name="rows"/> rows (<c>SHARPLIGHT_NATIVE_KQ_BM</c>): 32 up to
-    /// 32 rows (three stages), else 64 (two stages).
+    /// Superblocks the weight copies of <c>gemm_kq_native.cu</c> run ahead of the products (KQ_WL): as many as fit the device's shared
+    /// memory up to 3, at most 96 KiB so that the L1 cache keeps some room; 0 when not even one fits.
     /// </summary>
-    private static int NativeKQuantTileRows(long rows) => DiagnosticSwitches.NativeKQuantTileRows ?? (rows <= 32 ? 32 : 64);
+    private int NativeKQuantLookahead(int tileRows, int blockBytes, long k)
+    {
+        long limit = Math.Min(_opt.MaxSharedMemory, 96L * 1024);
+        for (int lookahead = 3; lookahead >= 1; lookahead--)
+        {
+            if (NativeKQuantSharedBytes(tileRows, blockBytes, k, lookahead) <= limit)
+            {
+                return lookahead;
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Token rows of the hand-written K-quant decode GEMM's tile for <paramref name="rows"/> rows (<c>SHARPLIGHT_NATIVE_KQ_BM</c>): 16 up to 16
+    /// rows (four stages), 32 up to 32 (three), else 64 (two). bench/s77_kq, RTX PRO 4500, sustained µs (Q4_K [4096 → 12288] / Q6_K
+    /// [12288 → 4096]): 16 rows 43.8 / 58.8 on 16-row tiles against 58.2 / 65.6 on 32-row tiles; 32 rows 52.4 / 60.4 on 32-row tiles
+    /// against 67.0 / 93.1 on 16-row tiles and 96.3 / 106.6 on 64-row tiles; 64 rows 82.1 / 89.7 on 64-row tiles against 89.5 / 115.1
+    /// on two 32-row tiles (each reads the weights).
+    /// </summary>
+    private static int NativeKQuantTileRows(long rows) => DiagnosticSwitches.NativeKQuantTileRows ?? (rows <= 16 ? 16 : rows <= 32 ? 32 : 64);
 
     /// <summary>
     /// True when K-quant weights of <paramref name="type"/> [<paramref name="n"/>, <paramref name="k"/>] read by the f16 copy of x
@@ -62,15 +86,27 @@ public sealed partial class GraphLowerer
     private bool UseNativeKQuantDecode(DataType type, long n, long k, IReadOnlyDictionary<string, string> macros)
         => _opt.Has(DeviceFeatures.NativeGemmKQuant) && _compiler.CompilesCuda(_opt.Target) && NativeKQuantBlockBytes(type) > 0 && k % 256 == 0
            && n >= NativeKQuantColumns && macros.GetValueOrDefault("X_F16") == "1" && macros.GetValueOrDefault("X_STRIDE") == k.ToString(CultureInfo.InvariantCulture)
-           && NativeKQuantStages(NativeKQuantTileRows(NativeKQuantMaxRows), NativeKQuantBlockBytes(type), k) >= 2;
+           && NativeKQuantLookahead(NativeKQuantTileRows(NativeKQuantMaxRows), NativeKQuantBlockBytes(type), k) >= 1;
 
     /// <summary>
-    /// K split of the hand-written K-quant decode GEMM for <paramref name="tiles"/> blocks of <paramref name="steps"/> superblocks: the
-    /// fewest estimated superblocks per block times waves of blocks (<see cref="WaveFillSplit"/>, one block per SM: a block takes most of
-    /// an SM's shared memory), at most 8.
+    /// K split of the hand-written K-quant decode GEMM for <paramref name="tiles"/> blocks of <paramref name="steps"/> superblocks
+    /// (<c>SHARPLIGHT_NATIVE_KQ_SPLIT</c>), one block per SM (a block takes most of an SM's shared memory): grids of less than half the SMs
+    /// split to fill them (at most 4 ways), grids whose last wave would hold less than a quarter of the SMs split in two; otherwise none
+    /// (the blocks stream their weights, so a partly filled last wave runs faster than a full one). bench/s77_kq, sustained µs at 16 / 32
+    /// rows: Q6_K [21504 → 5376] (84 blocks on 82 SMs) 220.4 / 217.3 → 182.5 / 179.7 split in two; Q4_K [4096 → 12288] (192 blocks)
+    /// 43.8 / 52.4 unsplit against 44.9 / 55.4; [4096 → 4096] (64 blocks) 14.1 / 17.8 against 17.5 / 20.8.
     /// </summary>
     private int NativeKQuantSplit(long tiles, long steps)
-        => DiagnosticSwitches.NativeKQuantSplit ?? Math.Min(8, WaveFillSplit(tiles, steps, Math.Max(1, _opt.ComputeUnits)));
+    {
+        if (DiagnosticSwitches.NativeKQuantSplit is { } forced)
+        {
+            return forced;
+        }
+
+        long sms = Math.Max(1, _opt.ComputeUnits);
+        int split = tiles * 2 <= sms ? (int)Math.Min(4, sms / tiles) : tiles >= sms && tiles % sms != 0 && tiles % sms * 4 < sms ? 2 : 1;
+        return (int)Math.Max(1, Math.Min(split, steps / 2));
+    }
 
     /// <summary>
     /// The hand-written K-quant decode GEMM for the batches of <see cref="NativeKQuantMinRows"/> to <see cref="NativeKQuantMaxRows"/> rows that
@@ -181,9 +217,9 @@ public sealed partial class GraphLowerer
         var arrivals = SplitArrivals(columns * Grid.Div(rowsMax, configs.Min(c => c.TileRows)));
         var variants = configs.Select(c =>
         {
-            int stages = NativeKQuantStages(c.TileRows, blockBytes, k);
-            var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("KQ_FMT", NativeKQuantFormat(type)), ("KQ_BM", c.TileRows), ("KQ_STAGES", stages),
-                ("KQ_SPLIT", c.Split));
+            int lookahead = NativeKQuantLookahead(c.TileRows, blockBytes, k);
+            var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("KQ_FMT", NativeKQuantFormat(type)), ("KQ_BM", c.TileRows),
+                ("KQ_XST", NativeKQuantActivationStages), ("KQ_WL", lookahead), ("KQ_SPLIT", c.Split));
             if (bias)
             {
                 macros["H_BIAS"] = "1";
@@ -199,7 +235,7 @@ public sealed partial class GraphLowerer
                 macros[name] = value;
             }
 
-            var kernel = _compiler.CompileCuda("gemm_kq_native.cu", "", "gemm_kq_native", NativeKQuantThreads, stages * NativeKQuantStageBytes(c.TileRows, blockBytes, k),
+            var kernel = _compiler.CompileCuda("gemm_kq_native.cu", "", "gemm_kq_native", NativeKQuantThreads, NativeKQuantSharedBytes(c.TileRows, blockBytes, k, lookahead),
                 _opt.Target, macros, _opt.Cache);
             Func<Bindings, bool> pick = b => decode(b) && NativeKQuantTileRows(rowsOf(b)) == c.TileRows && Split(rowsOf(b)) == c.Split;
             return new KernelVariant(pick, kernel, b => new Grid(Grid.Div(rowsOf(b), c.TileRows), (uint)columns, (uint)c.Split));
