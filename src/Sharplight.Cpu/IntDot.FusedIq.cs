@@ -283,18 +283,25 @@ internal static unsafe partial class IntDot
         return Vector256.Sum(acc);
     }
     /// <summary>
-    /// Q4_K { f16 d; f16 dmin; u8 scales[12]; u8 qs[128] } per 256 values: per 32-value sub-block the 4-bit codes (unsigned) times the
-    /// activations (<c>vpmaddubsw</c>, at most 2 * 15 * 127), scaled by d * sc in float; the mins term dmin * m * sum(x) comes from the
-    /// activation row's group sums. Two sub-blocks per 32 code bytes (low and high nibbles), each with its own accumulator.
+    /// Q4_K { f16 d; f16 dmin; u8 scales[12]; u8 qs[128] } per 256 values, llama.cpp's AVX2 approach: the 4-bit codes (unsigned) times the
+    /// activations (<c>vpmaddubsw</c>, at most 2 * 15 * 127) are summed in pairs weighted by the sub-block's 6-bit scale (<c>vpmaddwd</c>),
+    /// scaled by the activation lanes in float and by d once per 256 values; the mins term dmin * m * sum(x) comes from the activation
+    /// row's group sums, eight sub-blocks per vector. Two sub-blocks per 32 code bytes (low and high nibbles), each with its own accumulator.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotQ4KAvx2(byte* p, Q8Row x, int k)
     {
         var low = Vector256.Create((byte)0x0F);
-        var ones = Vector256.Create((short)1);
-        var acc0 = Vector256<float>.Zero;
-        var acc1 = Vector256<float>.Zero;
-        float mins = 0;
+        var pick0 = Vector256.Create((ushort)0x0100).AsByte();
+        var pick1 = Vector256.Create((ushort)0x0302).AsByte();
+        var pick2 = Vector256.Create((ushort)0x0504).AsByte();
+        var pick3 = Vector256.Create((ushort)0x0706).AsByte();
+        var pick4 = Vector256.Create((ushort)0x0908).AsByte();
+        var pick5 = Vector256.Create((ushort)0x0B0A).AsByte();
+        var pick6 = Vector256.Create((ushort)0x0D0C).AsByte();
+        var pick7 = Vector256.Create((ushort)0x0F0E).AsByte();
+        var total = Vector256<float>.Zero;
+        var mins = Vector256<float>.Zero;
         sbyte* q = x.Q;
         float* laneScales = x.LaneScales;
         float* groupSums = x.GroupSums;
@@ -302,53 +309,98 @@ internal static unsafe partial class IntDot
         {
             float d = Quant.H(p);
             float dmin = Quant.H(p + 2);
-            byte* scales = p + 4;
+            KScales(p + 4, out ulong scaleBytes, out ulong minBytes);
+            var scales128 = Sse41.ConvertToVector128Int16(Vector128.CreateScalar(scaleBytes).AsByte());
+            var scales = Vector256.Create(scales128, scales128).AsByte();
+            var minValues = Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Vector128.CreateScalar(minBytes).AsByte()));
+            // Sums of the activations per 32-value sub-block, in sub-block order.
+            var pairs = Avx.HorizontalAdd(Vector256.Load(groupSums), Vector256.Load(groupSums + 8));
+            var subBlockSums = Avx2.Permute4x64(pairs.AsDouble(), 0b11_01_10_00).AsSingle();
+            mins = Vector256.FusedMultiplyAdd(minValues * dmin, subBlockSums, mins);
             byte* qs = p + 16;
-            for (int j = 0; j < 4; j++)
-            {
-                var bits = Vector256.Load(qs + 32 * j);
-                var codes0 = bits & low;
-                var codes1 = Vector256.ShiftRightLogical(bits.AsUInt16(), 4).AsByte() & low;
-                var sums0 = Avx2.MultiplyAddAdjacent(Avx2.MultiplyAddAdjacent(codes0, Vector256.Load(q + 64 * j)), ones);
-                var sums1 = Avx2.MultiplyAddAdjacent(Avx2.MultiplyAddAdjacent(codes1, Vector256.Load(q + 64 * j + 32)), ones);
-                Quant.ScaleMin(2 * j, scales, out int sc0, out int m0);
-                Quant.ScaleMin(2 * j + 1, scales, out int sc1, out int m1);
-                acc0 = Accumulate(sums0, Vector256.Load(laneScales + 16 * j) * (d * sc0), acc0);
-                acc1 = Accumulate(sums1, Vector256.Load(laneScales + 16 * j + 8) * (d * sc1), acc1);
-                mins += dmin * (m0 * (groupSums[4 * j] + groupSums[4 * j + 1]) + m1 * (groupSums[4 * j + 2] + groupSums[4 * j + 3]));
-            }
+            var acc0 = Vector256<float>.Zero;
+            var acc1 = Vector256<float>.Zero;
+            acc0 = Q4KPair(Vector256.Load(qs), q, laneScales, Avx2.Shuffle(scales, pick0), Avx2.Shuffle(scales, pick1), low, acc0, ref acc1);
+            acc0 = Q4KPair(Vector256.Load(qs + 32), q + 64, laneScales + 16, Avx2.Shuffle(scales, pick2), Avx2.Shuffle(scales, pick3), low, acc0, ref acc1);
+            acc0 = Q4KPair(Vector256.Load(qs + 64), q + 128, laneScales + 32, Avx2.Shuffle(scales, pick4), Avx2.Shuffle(scales, pick5), low, acc0, ref acc1);
+            acc0 = Q4KPair(Vector256.Load(qs + 96), q + 192, laneScales + 48, Avx2.Shuffle(scales, pick6), Avx2.Shuffle(scales, pick7), low, acc0, ref acc1);
+            total = Vector256.FusedMultiplyAdd(acc0 + acc1, Vector256.Create(d), total);
         }
 
-        return Vector256.Sum(acc0 + acc1) - mins;
+        return Vector256.Sum(total - mins);
     }
+
     /// <summary>
-    /// Q6_K { u8 ql[128]; u8 qh[64]; i8 scales[16]; f16 d } per 256 values: the 6-bit codes (unsigned, below 64) times the activations
-    /// (<c>vpmaddubsw</c>, at most 2 * 63 * 127), scaled by d * sc per 16 values in float; the offset of 32 comes from the activation row's
-    /// group sums.
+    /// Two 32-value sub-blocks of a Q4_K block from one 32-byte load of codes (low nibbles, then high nibbles): the code-activation pair sums
+    /// weighted by the sub-blocks' scales (int16 lanes, broadcast), converted and scaled by the activation lanes.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector256<float> Q4KPair(Vector256<byte> bits, sbyte* q, float* laneScales, Vector256<byte> scale0, Vector256<byte> scale1, Vector256<byte> low,
+        Vector256<float> acc0, ref Vector256<float> acc1)
+    {
+        var codes0 = bits & low;
+        var codes1 = Vector256.ShiftRightLogical(bits.AsUInt16(), 4).AsByte() & low;
+        var sums0 = Avx2.MultiplyAddAdjacent(Avx2.MultiplyAddAdjacent(codes0, Vector256.Load(q)), scale0.AsInt16());
+        var sums1 = Avx2.MultiplyAddAdjacent(Avx2.MultiplyAddAdjacent(codes1, Vector256.Load(q + 32)), scale1.AsInt16());
+        acc1 = Accumulate(sums1, Vector256.Load(laneScales + 8), acc1);
+        return Accumulate(sums0, Vector256.Load(laneScales), acc0);
+    }
+
+    /// <summary>
+    /// The eight 6-bit scales and the eight 6-bit mins of a Q4_K / Q5_K block's 12 packed bytes, one byte each (llama.cpp's unpacking):
+    /// sub-blocks 0-3 keep the low six bits of bytes 0-7, sub-blocks 4-7 take four bits from bytes 8-11 and the top two of bytes 0-7.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void KScales(byte* packed, out ulong scales, out ulong mins)
+    {
+        const uint Low6 = 0x3F3F3F3F;
+        const uint Low4 = 0x0F0F0F0F;
+        const uint Low2 = 0x03030303;
+        uint u0 = Unsafe.ReadUnaligned<uint>(packed);
+        uint u1 = Unsafe.ReadUnaligned<uint>(packed + 4);
+        uint u2 = Unsafe.ReadUnaligned<uint>(packed + 8);
+        uint scalesHigh = (u2 & Low4) | (((u0 >> 6) & Low2) << 4);
+        uint minsHigh = ((u2 >> 4) & Low4) | (((u1 >> 6) & Low2) << 4);
+        scales = (u0 & Low6) | ((ulong)scalesHigh << 32);
+        mins = (u1 & Low6) | ((ulong)minsHigh << 32);
+    }
+
+    /// <summary>
+    /// Q6_K { u8 ql[128]; u8 qh[64]; i8 scales[16]; f16 d } per 256 values, llama.cpp's AVX2 approach: the 6-bit codes (unsigned, below 64)
+    /// times the activations (<c>vpmaddubsw</c>, at most 2 * 63 * 127) are summed in pairs weighted by the 16-value groups' scales
+    /// (<c>vpmaddwd</c>), scaled by the activation lanes in float and by d once per 256 values; the offset of 32 comes from the activation
+    /// row's group sums, eight groups per vector.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotQ6KAvx2(byte* p, Q8Row x, int k)
     {
         var low = Vector256.Create((byte)0x0F);
         var two = Vector256.Create((byte)3);
-        var ones = Vector256.Create((short)1);
-        var acc0 = Vector256<float>.Zero;
-        var acc1 = Vector256<float>.Zero;
-        float offset = 0;
+        // Per 32 values the scales of their two 16-value groups: group 2i in the low 128-bit lane, 2i + 1 in the high one.
+        var pick0 = Vector256.Create(Vector128.Create((ushort)0x0100), Vector128.Create((ushort)0x0302)).AsByte();
+        var pick1 = Vector256.Create(Vector128.Create((ushort)0x0504), Vector128.Create((ushort)0x0706)).AsByte();
+        var pick2 = Vector256.Create(Vector128.Create((ushort)0x0908), Vector128.Create((ushort)0x0B0A)).AsByte();
+        var pick3 = Vector256.Create(Vector128.Create((ushort)0x0D0C), Vector128.Create((ushort)0x0F0E)).AsByte();
+        var total = Vector256<float>.Zero;
+        var offset = Vector256<float>.Zero;
         sbyte* q = x.Q;
         float* laneScales = x.LaneScales;
         float* groupSums = x.GroupSums;
         for (int blk = 0; blk < k / 256; blk++, p += 210, q += 256, laneScales += 64, groupSums += 16)
         {
             float d = Quant.H(p + 208);
-            sbyte* sc = (sbyte*)(p + 192);
-            for (int g = 0; g < 16; g++)
-            {
-                offset += 32 * d * sc[g] * groupSums[g];
-            }
-
+            var scaleBytes = Vector128.Load(p + 192);
+            var groupScales = Vector256.FusedMultiplyAdd(
+                Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(scaleBytes.AsSByte())), Vector256.Load(groupSums),
+                Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Sse2.ShiftRightLogical128BitLane(scaleBytes, 8).AsSByte())) * Vector256.Load(groupSums + 8));
+            offset = Vector256.FusedMultiplyAdd(groupScales, Vector256.Create(32 * d), offset);
+            var scales16 = Avx2.ConvertToVector256Int16(scaleBytes.AsSByte()).AsByte();
+            var acc0 = Vector256<float>.Zero;
+            var acc1 = Vector256<float>.Zero;
             for (int n = 0; n < 2; n++)
             {
+                // The eight scales of these 128 values in both 128-bit lanes.
+                var scales = n == 0 ? Avx2.Permute2x128(scales16, scales16, 0x00) : Avx2.Permute2x128(scales16, scales16, 0x11);
                 var ql0 = Vector256.Load(p + 64 * n);
                 var ql1 = Vector256.Load(p + 64 * n + 32);
                 var qh = Vector256.Load(p + 128 + 32 * n);
@@ -357,22 +409,26 @@ internal static unsafe partial class IntDot
                 var high2 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 4).AsByte() & two).AsUInt16(), 4).AsByte();
                 var high3 = Vector256.ShiftLeft((Vector256.ShiftRightLogical(qh.AsUInt16(), 6).AsByte() & two).AsUInt16(), 4).AsByte();
                 int base0 = 128 * n;
-                acc0 = Q6Part((ql0 & low) | high0, q + base0, laneScales + base0 / 4, d, sc + base0 / 16, ones, acc0);
-                acc1 = Q6Part((ql1 & low) | high1, q + base0 + 32, laneScales + base0 / 4 + 8, d, sc + base0 / 16 + 2, ones, acc1);
-                acc0 = Q6Part((Vector256.ShiftRightLogical(ql0.AsUInt16(), 4).AsByte() & low) | high2, q + base0 + 64, laneScales + base0 / 4 + 16, d, sc + base0 / 16 + 4, ones, acc0);
-                acc1 = Q6Part((Vector256.ShiftRightLogical(ql1.AsUInt16(), 4).AsByte() & low) | high3, q + base0 + 96, laneScales + base0 / 4 + 24, d, sc + base0 / 16 + 6, ones, acc1);
+                acc0 = Q6Part((ql0 & low) | high0, q + base0, laneScales + base0 / 4, Avx2.Shuffle(scales, pick0), acc0);
+                acc1 = Q6Part((ql1 & low) | high1, q + base0 + 32, laneScales + base0 / 4 + 8, Avx2.Shuffle(scales, pick1), acc1);
+                acc0 = Q6Part((Vector256.ShiftRightLogical(ql0.AsUInt16(), 4).AsByte() & low) | high2, q + base0 + 64, laneScales + base0 / 4 + 16, Avx2.Shuffle(scales, pick2), acc0);
+                acc1 = Q6Part((Vector256.ShiftRightLogical(ql1.AsUInt16(), 4).AsByte() & low) | high3, q + base0 + 96, laneScales + base0 / 4 + 24, Avx2.Shuffle(scales, pick3), acc1);
             }
+
+            total = Vector256.FusedMultiplyAdd(acc0 + acc1, Vector256.Create(d), total);
         }
 
-        return Vector256.Sum(acc0 + acc1) - offset;
+        return Vector256.Sum(total - offset);
     }
 
-    /// <summary>One 32-value part of a Q6_K dot: the codes against the activations, the lanes of each 16 values scaled by d times their scale.</summary>
+    /// <summary>
+    /// One 32-value part of a Q6_K dot: the code-activation pair sums weighted by the scales of the two 16-value groups (int16 lanes: the first
+    /// group's in the low 128-bit lane, the second's in the high one), converted and scaled by the activation lanes.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector256<float> Q6Part(Vector256<byte> codes, sbyte* q, float* laneScales, float d, sbyte* sc, Vector256<short> ones, Vector256<float> acc)
+    private static Vector256<float> Q6Part(Vector256<byte> codes, sbyte* q, float* laneScales, Vector256<byte> scales, Vector256<float> acc)
     {
-        var sums = Avx2.MultiplyAddAdjacent(Avx2.MultiplyAddAdjacent(codes, Vector256.Load(q)), ones);
-        var scale = Vector256.Create(Vector128.Create(d * sc[0]), Vector128.Create(d * sc[1]));
-        return Accumulate(sums, Vector256.Load(laneScales) * scale, acc);
+        var sums = Avx2.MultiplyAddAdjacent(Avx2.MultiplyAddAdjacent(codes, Vector256.Load(q)), scales.AsInt16());
+        return Accumulate(sums, Vector256.Load(laneScales), acc);
     }
 }
