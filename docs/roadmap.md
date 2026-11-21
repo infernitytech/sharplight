@@ -89,6 +89,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   text. Twice the decode-attention splits at depth on CUDA for head sizes up to 64: decode at 128K 0.93x / 0.89x → 0.99x / 0.93x
   (1 / 4 streams), ~0.5 % on short-context steps. Table-free four-stage short expert tiles (mixed steps -0.6-1.1 %). Qwen3 and Vulkan
   unchanged. Next: §65.7.
+  Round 19 (§67): a routing histogram of text decode steps has ~1.1 split experts per layer at 64 sequences (none at 16-32), so a
+  per-expert tile class is worth at most 0.26 ms. Replayed back to back, the expert GEMMs equal Marlin's 0.473 ms per layer isolated but
+  run at the 200 W limit in a step (SM clock ~1.78 GHz): they are energy-bound. The MXFP4 decode now takes one shift and one logic
+  operation per code pair and skips the scale's second factor where it is 1 (bit-identical): gpt-oss-20b 64-sequence step 0.87 →
+  0.88x (`--text` / `--feedback`), serving at 64 streams 0.86 → 0.88x. A multi-output form of the FP8 decode GEMM for q / k / v at
+  48-64 rows: Qwen3-8B-FP8 step 0.94 → 0.95x, serving at 64 streams 0.91 → 0.92x. 32-key prefill-attention tiles at head size 128 lose (withdrawn). Vulkan unchanged. Next: §67.7.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

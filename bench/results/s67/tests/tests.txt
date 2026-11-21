@@ -1,0 +1,15 @@
+[0m[37m   Sharplight.Cuda.Tests  Total: 33, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 15.406s
+cuda MoeTests: Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 10.067s
+cuda StreamedExpertsTests: Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.169s
+cuda DualGemmTests: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.180s
+cuda MatMulTests: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.650s
+cuda MatMulEpilogueTests: Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.485s
+cuda FusionTests: Total: 80, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.761s
+cuda RowInvarianceTests: Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.392s
+vulkan MoeTests: Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 24.546s
+vulkan StreamedExpertsTests: Total: 5, Errors: 0, Failed: 0, Skipped: 2, Not Run: 0, Time: 3.418s
+vulkan DualGemmTests: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 14.449s
+vulkan MatMulTests: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 17.870s
+vulkan MatMulEpilogueTests: Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.999s
+vulkan FusionTests: Total: 80, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 17.857s
+vulkan RowInvarianceTests: Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 19.159s

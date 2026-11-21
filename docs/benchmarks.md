@@ -9470,3 +9470,173 @@ cd bench/s58_attn && nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=64 -DHKV=8 -DD=64 -DD
 cd ../s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DBIAS=1 -DNM_BM=32 -DNM_WM=1 -DNM_WN=8 -DNM_BN=128 \
   -DNM_STAGES=4 -DNM_MINB=2 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o b && EVICT=read ./b
 ```
+
+## 67. LLM round 19: the expert GEMMs at the power limit, the real-text routing histogram, a multi-output FP8 decode GEMM (2026-11-21)
+
+Branch `perf/llm-r19` (base `develop` at `9ceeaeea`, round 18 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, 200 W),
+shared with other agents and a model-feed job: every timed run held the verify lock, before / after alternated in the same hold. "Before" is
+a build of `9ceeaeea`. vLLM figures are §58.8, §60 and §64's (vLLM 0.33.0, same machine and checkpoints; decode steps: the annotated step
+plus our 1.6 ms LM head and sampling, §64). Raw output in [`bench/results/s67/`](../bench/results/s67).
+
+### 67.1 Before / after against vLLM
+
+| benchmark (CUDA) | before | **after** | vLLM | ours / vLLM before → after |
+|---|---|---|---|---:|
+| gpt-oss-20b decode step, 64 sequences, `--text` / `--feedback` (GPU ms) | 19.78-19.81 / 18.65-18.73 | **19.49-19.53 / 18.40-18.47** | 17.2 / 16.3 | 0.87 / 0.87 → **0.88 / 0.88** |
+| gpt-oss-20b decode step, 48 / 32 / 16 sequences, `--text` | 18.63-18.70 / 16.64-16.66 / 12.84-12.91 | 18.46 / 16.50 / 12.74-12.78 | | |
+| Qwen3-8B-FP8 decode step, 64 / 48 sequences, `--text` | 16.63-16.64 / 15.57-15.59 | **16.48-16.50 / 15.46-15.47** | 15.6 | 0.94 → 0.95 |
+| gpt-oss-20b serving, 16 / 64 streams (tok/s, two alternated pairs) | 1323 / 2712-2730 | 1304-1334 / **2762-2766** | 1424 / 3154 | 0.93 / 0.86 → 0.93 / **0.88** |
+| Qwen3-8B-FP8 serving, 16 / 64 streams (one pair) | 989 / 2454 | 988 / 2479 | (§64) | 0.89 / 0.91 → 0.89 / 0.92 |
+| gpt-oss-20b prefill 16K / 32K / 64K / 128K (tok/s, median of 5; before: §65, same procedure) | 13,610-13,743 / 11,782-11,860 / 9,240-9,263 / 6,473 | 13,920 / 12,004 / 9,355 / 6,466 | 14,496 / 12,327 / 9,440 / 6,435 | 0.94-0.95 / 0.96 / 0.98 / 1.01 → 0.96 / 0.97 / 0.99 / 1.00 |
+| gpt-oss-20b decode at depth 32K, 1 / 4 streams (tok/s) | 156.0-156.5 / 342.8-343.9 (§65) | 156.5 / 343.9 | 150.7 / 310.8 | 1.04 / 1.10 → 1.04 / 1.11 |
+| gpt-oss-20b decode at depth 128K, 1 / 4 streams | 106.0-106.2 / 161.9-162.1 (§65) | 106.2 / 162.1 | 107.3 / 174.9 | 0.99 / 0.93 (unchanged) |
+| Qwen3-8B-FP8 prefill 128K / decode at 32K, 1 / 4 streams (GPU ms) | 2,477 (§63) / 17.13 / 36.04 (§65) | 2,475 / 17.16 / 36.06 | 2,639 | 0.94 (unchanged code) |
+
+* Serving: `bench/s16_serve.sh sharplight <model> <dir> "16 64" --provider cuda`, `QUIET_GPU=1 ROUNDS=2`, before / after alternated (`serve/`):
+  gpt-oss-20b at 64 streams +1.2-2.0 % (inter-token latency mean 20.46-20.56 → 20.14-20.18 ms), at 16 within noise; Qwen3-8B-FP8 at 64
+  +1.0 % (its decode steps at 64 rows take the multi-output q / k / v form). Long contexts: `bench/s58_long.sh` on the final build (`long/`):
+  the 16K-32K prefill gains 1.2-2.3 % over §65 (the full 128-row expert tiles decode with the same instructions; one session, not alternated).
+* Decode steps: BatchBench `--slots 64 --ctx 640 --depth 256 --sizes 1,16,32,48,64 --modes greedy --reps 20`, two alternated pairs on the
+  final build (`final/`); the first pairs of the MoE change alone are in `decode/` (64 sequences `--text` 19.68-19.78 → 19.54-19.56,
+  `--feedback` 18.70-18.76 → 18.17-18.37). One sequence is unchanged (5.38 ms: the int-dot expert matvec).
+
+### 67.2 Real-text routing: few split experts, and the tile class is worth at most 0.26 ms
+
+§65.7's first lever was a per-expert tile class (experts with 33-64 items on one 64-row tile instead of two 32-row tiles). A routing
+histogram of BatchBench `--text` decode steps (the 32-row tiles of every gate / up launch, 9 steps x 24 layers per batch size; a temporary
+print in the kernel, `harness/routing_histogram_text.txt`):
+
+| sequences (items) | experts touched per layer | experts with 17-32 / 33-48 / 49-64 items | split experts per layer (> 32 items) | > 64 items |
+|---|---:|---|---:|---:|
+| 16 (64) | 17.9 | 0 / 0 / 0 | 0 | 0 |
+| 32 (128) | 23.8 | 1.23 / 0 / 0 | 0 | 0 |
+| 48 (192) | 27.0 | 2.50 / 0.48 / 0 | 0.48 | 0 |
+| 64 (256) | 27.2 | 3.38 / 0.80 / 0.31 | 1.11 | 0 |
+
+The 216 per-layer routings of the 64-sequence steps replayed in the harness (`bench/s56_moe`, new `ROUTES=file`: each routing one launch,
+read eviction, best of 10, ms per layer; `harness/tile_class_routes.txt`):
+
+| product | 32-row tiles (`develop`) | 64-row routing: <= 32 items on 32-row tiles + 33-64 on a second, 64-row launch | read-once bound (`CLAMP=1`: split tiles cut to 32 rows) | uniform 64-row tiles |
+|---|---:|---:|---:|---:|
+| gate / up (dual) | 0.309 | 0.279 + 0.043 = 0.322 | 0.300 | 0.313 |
+| down | 0.164 | 0.148 + 0.040 = 0.188 | 0.162 | 0.174 |
+
+Reading every expert once would save 11 µs per layer (0.26 ms per step, 1.4 %); a second launch for the 33-64-item class loses (its
+handful of blocks runs alone), so the class would have to live in one launch with both tile heights. §65's "62 % of a fresh read" holds
+when every expert is split (`SPLIT=1`); on text routing one expert in 27 is. Not built; it moves down the plan.
+
+The same replay also shows that the harness's 0.473 ms per layer for both products equals vLLM's Marlin in its own step (11.36 ms for 48
+launches, §64), while the engine's profile has ~0.53 ms. The difference is the clock: back to back over the 216 routings and 24 distinct
+weight copies (`LAYERS=24`, new; distinct copies make no difference to the same copy, so page-table reach is not it), gate / up takes
+0.365-0.372 ms per layer against 0.326 isolated, at the 200 W limit with the SM clock at ~1.78 GHz instead of 2.5-2.6 GHz
+(`harness/clocks_gate_up_sustained.txt`); down 0.181 against 0.172 (~1.86 GHz). So in a decode step the expert GEMMs are energy-bound,
+and the instructions per weight byte are what is left to cut.
+
+### 67.3 The E2M1 decode in fewer instructions
+
+The decode of the MXFP4 codes is most of the K loop's instructions (per 8 weights: a 16-byte shared load, five byte permutes, ~20 masks,
+shifts and ors, eight f16 multiplications; the MMAs and copies are a fraction). Two changes, both giving the same halves bit for bit:
+
+* Each code pair was masked into the low bits of a word and then shifted into the half layout of `fp4_h2` (magnitude at bits 9..11, sign at
+  15). Now two byte permutes put the four code bytes into bytes 1 and 3 of two words, so each half holds its byte in bits 8..15, and each
+  pair is one shift and one three-input logic operation (`nm_e2m1_hi` / `nm_e2m1_lo`), as Marlin's FP4 dequantization does.
+* The second scale factor `s2` (the E8M0 factor split in two halves for the range of f16) is exactly 1.0 for every E8M0 byte up to 127,
+  i.e. every factor up to 1 (all of gpt-oss's); it is now multiplied only above, behind a branch that is uniform where a block's scales are.
+
+Sustained replay (216 routings over 24 weight copies, ms per layer, three alternated passes; `harness/decode_variants_sustained.txt`):
+
+| gate / up variant | sustained | isolated |
+|---|---:|---:|
+| `develop` | 0.365-0.372 | 0.326-0.328 |
+| shared loads of the two used words instead of 16 bytes (`lds32`) | 0.368-0.369 | 0.326-0.327 |
+| without the `s2` multiplication | 0.357-0.363 | 0.324-0.325 |
+| **new decode, `s2` above 127 only (this round)** | **0.355-0.357** | 0.323-0.324 |
+| down: `develop` → this round | 0.181 → 0.177 | 0.172 → 0.170 |
+
+What is left: without any MMAs the sustained gate / up takes 0.327 ms, without the decode 0.342, without both 0.318 against 0.348-0.352
+for the kernel (`harness/diag_and_attn128.txt`): the copies and the memory read are ~90 % of it now. The harness checks the products against
+its reference also with E8M0 bytes 126-133 (`-DSCALE_BASE=126`, new: the `s2` path), and its reference decode no longer uses the kernel's.
+
+### 67.4 A multi-output form of the FP8 decode GEMM (q / k / v)
+
+Qwen3-8B-FP8's q / k / v [4096 → 4096 + 1024 + 1024] ran the K-split multi-output GEMM (40.6 + 2.8 µs per layer at 64 rows, §63.3); on the
+hand-written decode form each matrix alone ran 24.4 + 2 x 13.7 µs (k and v: 16 blocks, ~300 GB/s). `gemm_fp8_native.cu` takes `MULTI`
+(2 or 3 members, `MULTI_O1` / `MULTI_O2`): each 64-row weight tile lies in one member's matrix (the boundaries are multiples of 128) and
+stores to that member's output, one launch over the 96 tiles; each output sums its K blocks as its own decode-form launch would.
+Decode steps (`--text`, GPU ms, two alternated pairs; `decode/qwen_*`): 64 sequences 16.65 → 16.48, 48: 15.58-15.59 → 15.45-15.48, but
+32: 14.66-14.67 → 14.92-14.98. The launch takes 42.0 µs (min) at 64 rows: 96 blocks at one per SM run two waves, so it saves the reduction
+and not much of the read. It serves 48-64 rows (`NativeFp8MultiMinRows`); final build in 67.1. `CudaCodeTests.NativeFp8MultiGemmMatchesTheCpu`
+(48 and 64 rows, 512 + 128 + 128 outputs, against the CPU and the generated fp8 GEMM).
+
+### 67.5 What did not work
+
+* **32-key tiles for two query fragments per warp at head size 128** (§65.7 item 2; `FN_BC=32`, which halves the score registers):
+  Qwen3 shapes in `bench/s58_attn` (32 query heads on 8 KV heads, 2048 causal queries, ms; `harness/diag_and_attn128.txt`):
+
+  | n_past | 0 | 30,720 | 126,976 |
+  |---|---:|---:|---:|
+  | 8 warps x 1 fragment, 64 keys, 3 stages (`develop`) | **0.268** | **7.67** | **30.8 (139 TFLOPS)** |
+  | 4 x 2, 32 keys, 3 stages | 0.279 | 7.93 | 31.9 |
+  | 8 x 2, 32 keys, 3 stages | 0.291 | 8.72 | 35.1 |
+  | 4 x 2, 32 keys, 4 stages | 0.342 | 9.81 | 39.4 |
+  | 8 x 1, 32 keys, 4 stages | 0.283 | 8.34 | 33.5 |
+
+  Two fragments still take 255 registers with 32-key tiles (68-byte spill), and the halved tiles double the block barriers and softmax
+  rescales per key. Withdrawn.
+* **Sharing the gate / up routing with the down product**: the profile shows two `moe_route` launches per expert block (960 per 20
+  steps). Giving both products' grouped-launch conditions the same delegate (the routing cache compares them by reference) did not change
+  the count, so another key of the cache differs; reverted (~3 µs x 24 per step, not found this round).
+* The tile class of 67.2 as a second launch (loses), uniform 64-row decode tiles (lose, as §65).
+
+### 67.6 Correctness and tests
+
+* Greedy text, 120 tokens, CUDA, prompts of ~40 / ~1000 / ~3000 words (§65's): gpt-oss-20b and Qwen3-8B-FP8 byte-identical to `develop`
+  on all six (`greedy/`; Qwen3's ~40-token prompt runs its q / k / v on the multi-output form).
+* Sharplight.Cuda.Tests: 33 / 0 failed / 1 skipped (cuBLASLt), with the new `NativeFp8MultiGemmMatchesTheCpu` (2 cases), on the final build.
+* Sharplight.Vulkan.Tests, one process per class (Moe, StreamedExperts, DualGemm, MatMul, MatMulEpilogue, Fusion, RowInvariance): CUDA
+  provider 463 / 0 failed / 0 skipped, Vulkan provider 463 / 0 failed / 2 skipped (StreamedExperts) (`tests/tests.txt`).
+* Vulkan: no Vulkan kernel or selection changed (both changes are CUDA C++ kernels and the CUDA-only multi-output form); gpt-oss-20b
+  decode on the Vulkan provider, `--text`, 1 / 16 / 64 sequences: 5.33 / 13.03 / 21.47 → 5.32 / 13.01 / 21.19 ms (`vulkan/`).
+
+### 67.7 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b decode step, 64 sequences (`--text` / `--feedback`) | 0.88 / 0.88 (19.5 / 18.4 against 17.2 / 16.3 ms) | expert GEMMs ~12.5 ms, energy-bound at the power limit (copies and reads ~90 % of them now); dense projections with split-K reductions; ~20 small launches per layer |
+| Qwen3-8B-FP8 decode step, 64 sequences | 0.95 (16.49 against 15.6 ms) | q / k / v 42 µs per layer (two block waves), gate / up / down at 92-96 % of the read limit |
+| gpt-oss-20b serving 16 / 64 streams | 0.93 / 0.88 | prompt waves on full expert tiles (power-limited), decode steps as above |
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.89 / 0.92 | 16 streams: the generated fp8 GEMMs below 32 rows |
+| Qwen3-8B-FP8 long prefill 128K | 0.94 | attention at head size 128 (one fragment per warp) |
+| gpt-oss-20b long prefill 16K / 32K / 64K / 128K | 0.96 / 0.97 / 0.99 / 1.00 | MoE and attention at 16K-32K |
+| gpt-oss-20b decode at depth 32K / 128K, 1 / 4 streams | 1.04 / 1.11, 0.99 / 0.93 | decode attention at ~87 % of the read limit |
+
+Ranked levers:
+
+1. **gpt-oss dense projections at decode sizes**: q / k / v [2880 → 5120] and o [4096 → 2880] run the split-K gemm_cm2 plus a reduction
+   (and o a ranged-f16 conversion), ~89 µs per layer in the profile against vLLM's ~74 µs of CUTLASS tiles. A decode form of
+   `gemm_f16_native.cu` (64-row token and weight tiles, no K split, as the FP8 decode form of §63.3) and the q / k / v multi-output form of
+   67.4 on it: estimated 0.3-0.4 ms per 64-sequence step.
+2. **Fewer small launches in the gpt-oss step** (~20 per layer of 2-7 µs: two routings per expert block, two gathers, the router's
+   to_f16 + split-K + reduce, topk, softmax, rope, norms): find why the down product re-routes (67.5: not the launch condition), fuse the
+   router GEMM's chain. ~0.1-0.3 ms.
+3. **Qwen3 decode below 32 rows** (serving at 16 streams): a decode form of the FP8 GEMM whose K split fills the GPU at 16-31 rows, and
+   q / k / v at 32-47 rows (the multi-output form lost there: two waves of 96 blocks; 32-row weight tiles or a K split of 2).
+4. **Per-expert tile class in one launch** (67.2): at most 0.26 ms per 64-sequence step on text routing (1.4 %), both tile heights in one
+   kernel (template on the tile rows, smem of the larger).
+5. **Expert GEMM copies**: each 32-row decode tile copies its expert's activation rows once per column block (45 blocks per expert for
+   gate / up); with the decode now cheaper, the copies and their L2 traffic are what the power limit pays for. Wider column tiles per
+   block with two weight tiles in flight, or a cluster-shared activation tile (distributed shared memory, sm_90+).
+6. **Head size 128 prefill attention** (Qwen3 128K 0.94x): 32-key tiles lose (67.5); left: two fragments with the output accumulators
+   split over two warps along DV, or the Q fragments of the second fragment re-read from shared memory.
+7. **Decode attention split by key count** (~0.5 % at short contexts, ~1 % at 128K x 4 streams, §65.4).
+
+### 67.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,16,32,48,64 --modes greedy --reps 20 --text
+cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DBIAS=1 -DNM_BM=32 -DNM_WM=1 -DNM_WN=8 -DNM_BN=128 \
+  -DNM_STAGES=4 -DNM_MINB=2 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o b
+ROUTES=../results/s67/harness/routes64_text.txt LAYERS=24 PASSES=30 ./b x   # isolated and sustained ms per layer on real text routing
+```
