@@ -8726,7 +8726,7 @@ SHARPLIGHT_SPLITK_FUSED=1 / SHARPLIGHT_MULTI_FUSED=1 / SHARPLIGHT_SPLIT_FILL=1 /
 
 ## 62. MoE with CPU offload, round 2: CPU expert layers split with the GPU, resident streamed experts, integer dots for the IQ grid formats (2026-11-20)
 
-Branch `perf/offload-r2` (base `develop` at `fef12123`, §59 merged; `develop` merged again at `2e10734b`). Same machine and methodology as
+Branch `perf/offload-r2` (base `develop` at `fef12123`, §59 merged; `develop` merged again at `2e10734b` and `164f4ebc`, the suites below rerun after the last merge for Moe, QuantFormat, StreamedExperts, TopK and the 122B FamilyGenerationTests: all pass, CUDA decode 70.9 / 69.7, prefill 999). Same machine and methodology as
 §59: GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, no resizable BAR), AMD EPYC 7443 with a ~10-core cgroup quota (AVX2, no
 AVX-512), llama.cpp b11177, the GPU shared with another perf agent (runs serialized with a lock) and the CPU with a model-feed job and that
 agent's tests. Sharplight: `sharplight <model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes,
