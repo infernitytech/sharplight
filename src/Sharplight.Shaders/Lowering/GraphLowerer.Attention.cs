@@ -771,6 +771,8 @@ public sealed partial class GraphLowerer
 
         var q = plan.Q;
         long maxRows = plan.Seq is null ? SplitMaxRows : Math.Min(DecodeMaxSequenceRows, sliceRows);
+        // Sliding-window layers whose window fits one key range never split (decode_split_keys: a range has DEC_MIN_KEYS keys at least).
+        long window = long.Parse(plan.Macros.GetValueOrDefault("WINDOW", "0"), CultureInfo.InvariantCulture);
         var flashWhen = flash ? FlashWhen(plan) : null;
         var macros = new Dictionary<string, string>(plan.Macros);
         (string Name, long Value)[] decodeMacros =
@@ -796,6 +798,7 @@ public sealed partial class GraphLowerer
             TargetWorkgroups = DecodeTargetWorkgroups(cfg),
             MaxSplitCount = cfg[2],
             InvariantRows = InvariantRows,
+            SingleRange = window > 0 && window <= minKeys,
             When = b => Rows(b, q) <= maxRows && (flashWhen is null || !flashWhen(b)),
         };
     }
@@ -956,7 +959,8 @@ public sealed partial class GraphLowerer
         var sinks = plan.Sinks;
         var seq = plan.Seq;
         Emit($"attention {plan.Node.Output.Name} combine", [plan.Node],
-            [new KernelVariant(decode.When, Lib("attention.slang", "decode_combine", decode.Macros), b => new Grid((uint)plan.HQ, (uint)Rows(b, q)))],
+            [new KernelVariant(b => decode.When(b) && decode.Combines(Rows(b, q)), Lib("attention.slang", "decode_combine", decode.Macros),
+                b => new Grid((uint)plan.HQ, (uint)Rows(b, q)))],
             [Pointer(part), Pointer(o), Pointer(sinks ?? o), new PointerArg(_runtime, 0), .. SeqArgs(seq), TokenArg(q)],
             [part, .. sinks is null ? [] : (TensorRef[])[sinks], .. seq is null ? [] : (TensorRef[])[seq]], [o]);
     }

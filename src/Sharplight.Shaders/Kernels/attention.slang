@@ -332,13 +332,33 @@ uint decode_max_splits(uint T)
     return clamp(uint(DEC_TARGET_WG) / max(T * DEC_GROUPS, 1u), 1u, uint(DEC_MAX_SPLITS));
 }
 
-// Keys per split range of a row with `span` keys (a multiple of DEC_BC).
+// Keys per split range of a row with `span` keys (a multiple of DEC_BC). With ranges of several batches (DEC_MIN_KEYS > DEC_BC):
+// as many ranges as hold DEC_MIN_KEYS keys each, at most decode_max_splits(T), the keys spread evenly over them; rounding the
+// range up to DEC_MIN_KEYS instead left a short last range (300 keys in 256 + 44: a second workgroup and the combine for little
+// work). Launches with few workgroups (under an eighth of DEC_TARGET_WG) take one range more instead (the count rounded up), since
+// there the latency of a range, not the work, sets the time (RTX PRO 4500, one Qwen3-8B-FP8 row at ~280 keys: 2 ranges 11.40 ms
+// per step, 3 ranges 11.23). Ranges of one batch: the even split rounded up to whole batches.
 uint decode_split_keys(uint span, uint T)
 {
     uint ms = decode_max_splits(T);
+#if DEC_MIN_KEYS > DEC_BC
+    uint ns = clamp(span / uint(DEC_MIN_KEYS), 1u, ms);
+#ifdef DEC_INVARIANT_ROWS
+    uint rows = T <= DEC_INVARIANT_ROWS ? 1u : T;
+#else
+    uint rows = T;
+#endif
+    if (rows * DEC_GROUPS * ns < uint(DEC_TARGET_WG) / 8)
+    {
+        ns = clamp((span + DEC_MIN_KEYS - 1) / uint(DEC_MIN_KEYS), 1u, ms);   // few workgroups: one range more, shorter ones
+    }
+    uint per = (span + ns - 1) / ns;
+    return (per + DEC_BC - 1) / DEC_BC * DEC_BC;
+#else
     uint per = (span + ms - 1) / ms;
     per = (per + DEC_BC - 1) / DEC_BC * DEC_BC;
     return max(per, uint(DEC_MIN_KEYS));
+#endif
 }
 
 // Key range [jLo, L) of query row t and the cache base of its sequence (see kv_base).

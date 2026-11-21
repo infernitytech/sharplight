@@ -1,0 +1,20 @@
+serve_after_Qwen3-8B-FP8:
+  c16 r1: 1046 tok/s, itl mean 14.34 ms, ttft p50 119 ms
+  c16 r2: 1041 tok/s, itl mean 14.37 ms, ttft p50 116 ms
+  c64 r1: 2502 tok/s, itl mean 22.27 ms, ttft p50 288 ms
+  c64 r2: 2482 tok/s, itl mean 22.39 ms, ttft p50 291 ms
+serve_after_gpt-oss-20b:
+  c16 r1: 1373 tok/s, itl mean 10.73 ms, ttft p50 113 ms
+  c16 r2: 1343 tok/s, itl mean 10.95 ms, ttft p50 110 ms
+  c64 r1: 2859 tok/s, itl mean 19.42 ms, ttft p50 253 ms
+  c64 r2: 2837 tok/s, itl mean 19.54 ms, ttft p50 258 ms
+serve_before_Qwen3-8B-FP8:
+  c16 r1: 1043 tok/s, itl mean 14.37 ms, ttft p50 120 ms
+  c16 r2: 1040 tok/s, itl mean 14.39 ms, ttft p50 115 ms
+  c64 r1: 2497 tok/s, itl mean 22.35 ms, ttft p50 288 ms
+  c64 r2: 2473 tok/s, itl mean 22.50 ms, ttft p50 291 ms
+serve_before_gpt-oss-20b:
+  c16 r1: 1356 tok/s, itl mean 10.88 ms, ttft p50 113 ms
+  c16 r2: 1334 tok/s, itl mean 11.04 ms, ttft p50 109 ms
+  c64 r1: 2842 tok/s, itl mean 19.59 ms, ttft p50 253 ms
+  c64 r2: 2815 tok/s, itl mean 19.71 ms, ttft p50 258 ms

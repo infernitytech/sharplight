@@ -1,0 +1,48 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 201088, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 64 | 20.8 | 403 / 0 | 17.34 / 18.01, 17.24 |
+--- profile batch 64 (greedy)
+GPU time 380.73 ms
+   164.505 ms  43.2%    480x  min    281.2 us  matmul-id [32x2880→5760] mxfp4rx2 fused native gemm_moe_native T=64,U=64,R=64
+    88.293 ms  23.2%    480x  min    152.0 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=64,U=64,R=64
+    30.823 ms   8.1%     20x  min   1534.3 us  matmul [2880→201088] f16 gemm_cm2 T=64,U=64,R=64
+    26.058 ms   6.8%    480x  min     35.2 us  attention decode T=64,U=64,R=64
+    20.810 ms   5.5%    480x  min     40.7 us  matmul [2880→4096+512+512] f16 native decode gemm_f16_native T=64,U=64,R=64
+    17.122 ms   4.5%    480x  min     33.5 us  matmul [4096→2880] f16 native decode gemm_f16_native T=64,U=64,R=64
+     6.269 ms   1.6%    960x  min      3.8 us  moe-gather x→ranged f16 moe_gather_x16 T=64,U=64,R=64
+     2.873 ms   0.8%    480x  min      4.0 us  fused[Add]+RmsNorm main T=64,U=64,R=64
+     2.541 ms   0.7%    480x  min      3.7 us  fused[Add,Add]+RmsNorm main T=64,U=64,R=64
+     2.475 ms   0.7%    480x  min      3.7 us  rope main T=64,U=64,R=64
+     2.292 ms   0.6%    480x  min      3.4 us  ReduceSum rowreduce_narrow T=64,U=64,R=64
+     2.203 ms   0.6%    480x  min      2.9 us  rope+cache_write rope_row T=64,U=64,R=64
+     1.999 ms   0.5%    480x  min      2.8 us  moe-route [32 experts] moe_route T=64,U=64,R=64
+     1.984 ms   0.5%    480x  min      2.8 us  matmul [4096→2880] f16 x→ranged f16 to_f16_ranged T=64,U=64,R=64
+     1.858 ms   0.5%    480x  min      2.0 us  cache_write cache_write T=64,U=64,R=64
+     1.837 ms   0.5%    240x  min      6.0 us  attention combine decode_combine T=64,U=64,R=64
+     1.407 ms   0.4%     20x  min     69.1 us  sample sample T=64,U=64,R=64
+     0.269 ms   0.1%     40x  min      3.9 us  gather gather T=64,U=64,R=64
+     0.209 ms   0.1%     20x  min      8.8 us  router topk_23 router_topk T=64,U=64,R=64
+     0.206 ms   0.1%     20x  min      8.6 us  router topk_68 router_topk T=64,U=64,R=64
+     0.205 ms   0.1%     20x  min      8.8 us  router topk_1013 router_topk T=64,U=64,R=64
+     0.203 ms   0.1%     20x  min      8.7 us  router topk_293 router_topk T=64,U=64,R=64
+     0.202 ms   0.1%     20x  min      9.2 us  router topk_473 router_topk T=64,U=64,R=64
+     0.202 ms   0.1%     20x  min      8.7 us  router topk_833 router_topk T=64,U=64,R=64
+     0.201 ms   0.1%     20x  min      8.6 us  router topk_653 router_topk T=64,U=64,R=64
+     0.201 ms   0.1%     20x  min      8.7 us  router topk_923 router_topk T=64,U=64,R=64
+     0.200 ms   0.1%     20x  min      8.6 us  router topk_608 router_topk T=64,U=64,R=64
+     0.200 ms   0.1%     20x  min      8.6 us  router topk_203 router_topk T=64,U=64,R=64
+     0.200 ms   0.1%     20x  min      8.7 us  router topk_878 router_topk T=64,U=64,R=64
+     0.200 ms   0.1%     20x  min      8.8 us  router topk_248 router_topk T=64,U=64,R=64
+     0.200 ms   0.1%     20x  min      8.8 us  router topk_788 router_topk T=64,U=64,R=64
+     0.199 ms   0.1%     20x  min      8.8 us  router topk_158 router_topk T=64,U=64,R=64
+     0.198 ms   0.1%     20x  min      8.5 us  router topk_113 router_topk T=64,U=64,R=64
+     0.198 ms   0.1%     20x  min      8.5 us  router topk_698 router_topk T=64,U=64,R=64
+     0.198 ms   0.1%     20x  min      8.6 us  router topk_338 router_topk T=64,U=64,R=64
+     0.198 ms   0.1%     20x  min      8.8 us  router topk_428 router_topk T=64,U=64,R=64
+     0.197 ms   0.1%     20x  min      8.0 us  router topk_383 router_topk T=64,U=64,R=64
+     0.196 ms   0.1%     20x  min      8.7 us  router topk_563 router_topk T=64,U=64,R=64
+     0.196 ms   0.1%     20x  min      8.6 us  router topk_743 router_topk T=64,U=64,R=64
+     0.195 ms   0.1%     20x  min      8.6 us  router topk_518 router_topk T=64,U=64,R=64
+
