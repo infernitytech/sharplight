@@ -5,7 +5,8 @@
 // gpt-oss-20b's does; PREFETCH=1 with the epilogue's L1 prefetches. Checks against a reference kernel (same decode, f32 sums) and
 // times the launch with events (best of 20, L2 evicted before each launch: by a memset, or with EVICT=read by reading a 256 MB
 // buffer, which leaves no dirty lines to write back). LOOP=n: also n launches back to back at T = 2048 (the
-// power-limited steady state, section 64; sample the SM clock with nvidia-smi meanwhile).
+// power-limited steady state, section 64; sample the SM clock with nvidia-smi meanwhile). ROUTES=file replays recorded routings, also
+// back to back over distinct weight copies (LAYERS=n, the sustained clocks of a decode step; see routes()).
 // nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DKFILE='"gemm_moe_native.cu"' bench_moe.cu -o b
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
@@ -25,6 +26,9 @@
 #endif
 #ifndef BIAS
 #define BIAS 0
+#endif
+#ifndef SCALE_BASE
+#define SCALE_BASE 120
 #endif
 #ifndef NFULL
 #define NFULL N
@@ -72,7 +76,8 @@ __device__ float wval(const unsigned char* w, int e, int n, int k)
     unsigned es = g[16 * (size_t)(K / 2) + (k / 32) * 16 + (n & 15)];
     unsigned s1, s2;
     nm_scale(es, s1, s2);
-    unsigned h = nm_fp4_h2(code, s1, s2);
+    // The code's magnitude bits at half bits 9..11 and its sign at bit 15 (fp4_h2 of matmul.slang), then * s1 * s2.
+    unsigned h = nm_hmul2(nm_hmul2(((code & 7u) << 9) | ((code & 8u) << 12), s1), s2);
     return __half2float(__ushort_as_half((unsigned short)(h & 0xFFFF)));
 }
 
@@ -127,17 +132,152 @@ static T* upload(const std::vector<T>& v)
     return d;
 }
 
+// ROUTES=file: one routing per line (the items of each of the E experts, e.g. a decode step's layers on text), each timed as one
+// launch (read eviction, best of 10) and summed. ROUTE_M: the routing tile height (default NM_BM); MIN_ROWS / MAX_ROWS: launch
+// only the tiles with that many rows (a tile class); CLAMP=1: tiles of more than NM_BM rows run NM_BM of them (the time of one
+// read per expert, wrong products).
+static int routes(const char* file, const unsigned char* dx, const unsigned char* dw, const unsigned char* dw2, unsigned* dscratch, float* y,
+                  float* dbias, void* flush, size_t flushBytes, size_t smemBytes)
+{
+    FILE* f = fopen(file, "r");
+    if (!f) { printf("cannot open %s\n", file); return 1; }
+    unsigned routeM = getenv("ROUTE_M") ? atoi(getenv("ROUTE_M")) : NM_BM;
+    unsigned minRows = getenv("MIN_ROWS") ? atoi(getenv("MIN_ROWS")) : 1, maxRows = getenv("MAX_ROWS") ? atoi(getenv("MAX_ROWS")) : routeM;
+    bool clamp = getenv("CLAMP") != nullptr;
+    int limit = getenv("LINES") ? atoi(getenv("LINES")) : 1 << 30;
+    cudaEvent_t e0, e1; cudaEventCreate(&e0); cudaEventCreate(&e1);
+    double total = 0;
+    int lines = 0, launched = 0;
+    unsigned counts[E];
+    while (lines < limit)
+    {
+        int got = 0;
+        for (int e = 0; e < E; e++) got += fscanf(f, "%u", &counts[e]);
+        if (got != E) break;
+        std::vector<unsigned> sc(1 + 3 * MAXTILES + MAXITEMS, 0);
+        unsigned tiles = 0, o = 0;
+        for (int e = 0; e < E; e++)
+        {
+            for (unsigned i = 0; i < counts[e]; i += routeM)
+            {
+                unsigned rows = std::min(routeM, counts[e] - i);
+                if (rows >= minRows && rows <= maxRows)
+                {
+                    sc[1 + 3 * tiles] = e; sc[2 + 3 * tiles] = o + i; sc[3 + 3 * tiles] = clamp ? std::min(rows, (unsigned)NM_BM) : rows; tiles++;
+                }
+            }
+            for (unsigned i = 0; i < counts[e]; i++, o++) sc[1 + 3 * MAXTILES + o] = o;
+        }
+        sc[0] = tiles;
+        lines++;
+        if (tiles == 0) continue;
+        cudaMemcpy(dscratch, sc.data(), sc.size() * 4, cudaMemcpyHostToDevice);
+        NmParams p;
+        p.x = dx; p.w = dw;
+#if DUAL
+        p.w2 = dw2;
+#endif
+        p.scratch = dscratch; p.y = y; p.T = o / S;
+#if BIAS && DUAL
+        p.gt0 = dbias;
+#elif BIAS
+        p.moe_bias = dbias;
+#endif
+        dim3 grid((N + NM_BOUT - 1) / NM_BOUT, tiles);
+        float best = 1e9;
+        for (int it = 0; it < 10; it++)
+        {
+            evict_read<<<1024, 256>>>((const uint4*)flush, flushBytes / 16, (unsigned*)y);
+            cudaEventRecord(e0);
+            gemm_moe_native<<<grid, NM_THREADS, smemBytes>>>(p);
+            cudaEventRecord(e1); cudaEventSynchronize(e1);
+            float ms; cudaEventElapsedTime(&ms, e0, e1); if (it > 1 && ms < best) best = ms;
+        }
+        total += best;
+        launched++;
+    }
+    // LAYERS=n: the routings again back to back without eviction, each on the weights of layer (line % n) (n distinct copies, as
+    // a decode step's layers read theirs: page-table reach and the sustained clocks of a step).
+    if (getenv("LAYERS"))
+    {
+        int layers = atoi(getenv("LAYERS"));
+        std::vector<unsigned char*> copies(layers);
+        for (int l = 0; l < layers; l++)
+        {
+            if (cudaMalloc(&copies[l], (size_t)E * EXPERT_BYTES)) { printf("cannot allocate layer %d\n", l); return 1; }
+            cudaMemcpy(copies[l], dw, (size_t)E * EXPERT_BYTES, cudaMemcpyDeviceToDevice);
+        }
+        std::vector<std::vector<unsigned>> all;
+        rewind(f);
+        for (int l = 0; l < lines; l++)
+        {
+            std::vector<unsigned> sc(1 + 3 * MAXTILES + MAXITEMS, 0);
+            unsigned tiles = 0, o = 0;
+            for (int e = 0; e < E; e++) { if (fscanf(f, "%u", &counts[e]) != 1) counts[e] = 0; }
+            for (int e = 0; e < E; e++)
+            {
+                for (unsigned i = 0; i < counts[e]; i += routeM)
+                {
+                    unsigned rows = std::min(routeM, counts[e] - i);
+                    if (rows >= minRows && rows <= maxRows)
+                    {
+                        sc[1 + 3 * tiles] = e; sc[2 + 3 * tiles] = o + i; sc[3 + 3 * tiles] = clamp ? std::min(rows, (unsigned)NM_BM) : rows; tiles++;
+                    }
+                }
+                for (unsigned i = 0; i < counts[e]; i++, o++) sc[1 + 3 * MAXTILES + o] = o;
+            }
+            sc[0] = tiles;
+            all.push_back(sc);
+        }
+        size_t words = 1 + 3 * MAXTILES + MAXITEMS;
+        unsigned* dall; cudaMalloc(&dall, all.size() * words * 4);
+        for (size_t l = 0; l < all.size(); l++) cudaMemcpy(dall + l * words, all[l].data(), words * 4, cudaMemcpyHostToDevice);
+        float best = 1e9;
+        int passes = getenv("PASSES") ? atoi(getenv("PASSES")) : 6;
+        for (int it = 0; it < passes; it++)
+        {
+            evict_read<<<1024, 256>>>((const uint4*)flush, flushBytes / 16, (unsigned*)y);
+            cudaEventRecord(e0);
+            for (size_t l = 0; l < all.size(); l++)
+            {
+                NmParams p;
+                p.x = dx; p.w = copies[l % layers];
+#if DUAL
+                p.w2 = copies[l % layers] + (size_t)N * ROW_BYTES;
+#endif
+                p.scratch = dall + l * words; p.y = y; p.T = 64;
+#if BIAS && DUAL
+                p.gt0 = dbias;
+#elif BIAS
+                p.moe_bias = dbias;
+#endif
+                dim3 grid((N + NM_BOUT - 1) / NM_BOUT, std::max(1u, all[l][0]));
+                gemm_moe_native<<<grid, NM_THREADS, smemBytes>>>(p);
+            }
+            cudaEventRecord(e1); cudaEventSynchronize(e1);
+            float ms; cudaEventElapsedTime(&ms, e0, e1); if (it > 0 && ms < best) best = ms;
+        }
+        printf("back to back over %d layer copies: %.4f ms per routing\n", layers, best / lines);
+    }
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err) { printf("error %s\n", cudaGetErrorString(err)); return 1; }
+    printf("routes %d (%d launched), ROUTE_M=%u rows %u-%u clamp=%d BM=%d BN=%d stages=%d: %.4f ms per routing\n", lines, launched, routeM, minRows,
+           maxRows, clamp ? 1 : 0, NM_BM, NM_BN, NM_STAGES, total / lines);
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     size_t smemBytes = (size_t)NM_STAGES * NM_STAGE_BYTES;
     if (cudaFuncSetAttribute(gemm_moe_native, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes)) { printf("smem %zu too large\n", smemBytes); return 1; }
     std::vector<unsigned char> wh((size_t)E * EXPERT_BYTES);
     for (size_t i = 0; i < wh.size(); i++) wh[i] = (unsigned char)hash((unsigned)i);
-    // Scales: E8M0 120..127 (2^-7 .. 1) in the scale part of every 16-row group.
+    // Scales: E8M0 SCALE_BASE .. SCALE_BASE + 7 (default 120 .. 127: 2^-7 .. 1; 126 also checks the factors above 1) in the scale part
+    // of every 16-row group.
     for (size_t e = 0; e < E; e++)
         for (size_t g = 0; g < NFULL / 16; g++)
             for (size_t i = 0; i < (K / 32) * 16; i++)
-                wh[e * EXPERT_BYTES + g * 16 * ROW_BYTES + 16 * (K / 2) + i] = (unsigned char)(120 + hash((unsigned)(e * 7919 + g * 131 + i)) % 8);
+                wh[e * EXPERT_BYTES + g * 16 * ROW_BYTES + 16 * (K / 2) + i] = (unsigned char)(SCALE_BASE + hash((unsigned)(e * 7919 + g * 131 + i)) % 8);
     unsigned char* dw = upload(wh);
     const unsigned char* dw2 = dw + (size_t)N * ROW_BYTES;   // DUAL: the upper half of each expert's rows
     std::vector<__half> xh((size_t)MAXITEMS * K);
@@ -153,6 +293,11 @@ int main(int argc, char** argv)
     // BIAS: zero bias rows (E x NFULL f32), read by the epilogue as gpt-oss's are.
     float* dbias; cudaMalloc(&dbias, (size_t)E * NFULL * 4); cudaMemset(dbias, 0, (size_t)E * NFULL * 4);
     unsigned* dscratch; cudaMalloc(&dscratch, (1 + 3 * MAXTILES + MAXITEMS) * 4);
+
+    if (getenv("ROUTES"))
+    {
+        return routes(getenv("ROUTES"), dx, dw, dw2, dscratch, y, dbias, flush, flushBytes, smemBytes);
+    }
 
     int Ts[] = { 32, 64, 128, 171, 256, 512, 1024, 2048 };
     for (int T : Ts)

@@ -152,12 +152,18 @@ static __device__ __forceinline__ nm_u32 nm_hmul2(nm_u32 a, nm_u32 b)
     return r;
 }
 
-// Two E2M1 codes (the low nibbles of bytes 0 and 1 of v, already masked) as packed halves times the block scale's factors: the
-// code's magnitude bits at half bits 9..11 and its sign at bit 15 (fp4_h2 of matmul.slang), then * s1 * s2.
-static __device__ __forceinline__ nm_u32 nm_fp4_h2(nm_u32 v, nm_u32 s1, nm_u32 s2)
+// The E2M1 codes in the high nibbles of bytes 1 and 3 of x as packed halves in the bits of fp4_h2 (matmul.slang): each code's
+// magnitude at half bits 9..11 and its sign at bit 15 (the other bytes of x are ignored). One shift and one three-input logic
+// operation per pair, where masking each code into the low bits first took five.
+static __device__ __forceinline__ nm_u32 nm_e2m1_hi(nm_u32 x)
 {
-    nm_u32 h = ((v & 0x00070007u) << 9) | ((v & 0x00080008u) << 12);
-    return nm_hmul2(nm_hmul2(h, s1), s2);
+    return (x & 0x80008000u) | ((x >> 3) & 0x0E000E00u);
+}
+
+// The E2M1 codes in the low nibbles of bytes 1 and 3 of x, as nm_e2m1_hi.
+static __device__ __forceinline__ nm_u32 nm_e2m1_lo(nm_u32 x)
+{
+    return ((x << 4) & 0x80008000u) | ((x << 1) & 0x0E000E00u);
 }
 
 // The low and the high half of v, each in both halves. Written as a half-pair move, which ptxas folds into the half-broadcast
@@ -382,11 +388,23 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
 #else
         nm_scale(e8, s1, s2);
 #endif
-        nm_u32 lo = u & 0x0F0F0F0Fu, hi = (u >> 4) & 0x0F0F0F0Fu;
-        bf[j][0] = nm_fp4_h2(nm_prmt(lo, 0u, 0x4140u), s1, s2);
-        bf[j][1] = nm_fp4_h2(nm_prmt(lo, 0u, 0x4342u), s1, s2);
-        bf[j][2] = nm_fp4_h2(nm_prmt(hi, 0u, 0x4140u), s1, s2);
-        bf[j][3] = nm_fp4_h2(nm_prmt(hi, 0u, 0x4342u), s1, s2);
+        // Code bytes 2c, 2c + 1 (and 2c + 8, 2c + 9) into bytes 1 and 3, one per half; the low nibbles are the first 16-value chunk.
+        nm_u32 x01 = nm_prmt(u, 0u, 0x1404u), x23 = nm_prmt(u, 0u, 0x3424u);
+        bf[j][0] = nm_hmul2(nm_e2m1_lo(x01), s1);
+        bf[j][1] = nm_hmul2(nm_e2m1_lo(x23), s1);
+        bf[j][2] = nm_hmul2(nm_e2m1_hi(x01), s1);
+        bf[j][3] = nm_hmul2(nm_e2m1_hi(x23), s1);
+        // s2 is exactly 1 up to E8M0 127 (a factor of 1): the second multiplication only above, so the halves are those of the two
+        // multiplications. The branch is uniform where a block's scales are (gpt-oss's are all below 128); the decode is most of a
+        // decode-sized step's instructions, and the step runs at the power limit (RTX PRO 4500, 200 W, ~1.8 GHz).
+        if (e8 > 127u)
+        {
+#pragma unroll
+            for (int q = 0; q < 4; q++)
+            {
+                bf[j][q] = nm_hmul2(bf[j][q], s2);
+            }
+        }
     };
     auto decode = [&](nm_u32 s, nm_u32 b, nm_u32 (&bf)[NM_FN][4]) {
 #pragma unroll
