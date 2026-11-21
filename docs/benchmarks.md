@@ -9260,17 +9260,17 @@ output in [`bench/results/s65/`](../bench/results/s65).
 | gpt-oss-20b decode step, 64 sequences, `--feedback` / `--text` (GPU ms) | 18.50-18.58 / 19.55-19.71 | 18.50-18.53 / 19.66-19.73 | 16.3 / 17.2 (§64) | 0.88 / 0.87-0.88 → 0.88 / 0.87 |
 | Qwen3-8B-FP8 decode step, 64 sequences, `--text` / `--feedback` / fixed ids | | 16.64 / 16.64 / 16.65 (unchanged code) | 15.6 | 0.94 |
 | gpt-oss-20b mixed step, 64 decode + 107 prompt rows (GPU ms) | 23.33-23.36 | **23.07-23.21** | | |
-| gpt-oss-20b serving, 16 / 64 streams (tok/s) | SERVEB | SERVEA | 1424 / 3154 | SERVER |
-| gpt-oss-20b prefill 16K / 32K / 64K / 128K (tok/s, median of 5) | 13,606 / 11,584 / 8,767 / 5,920 | **13,743 / 11,860 / 9,263 / 6,473** | 14,496 / 12,327 / 9,440 / 6,435 | 0.94 / 0.94 / 0.93 / 0.92 → **0.95 / 0.96 / 0.98 / 1.01** |
-| gpt-oss-20b decode at depth 32K, 1 / 4 streams (tok/s) | 157.0 / 336.7 (§64) | 156.5 / **342.8** | 150.7 / 310.8 | 1.04 / 1.08 → 1.04 / **1.10** |
-| gpt-oss-20b decode at depth 128K, 1 / 4 streams | 100.1 / 156.4 (§64) | **106.2 / 161.9** | 107.3 / 174.9 | 0.93 / 0.89 → **0.99 / 0.93** |
+| gpt-oss-20b serving, 16 / 64 streams (tok/s) | 1312-1322 / 2721-2730 | 1320-1321 / 2712-2718 | 1424 / 3154 | 0.93 / 0.86 → 0.93 / 0.86 |
+| gpt-oss-20b prefill 16K / 32K / 64K / 128K (tok/s, median of 5) | 13,606 / 11,584 / 8,767 / 5,920 | **13,610-13,743 / 11,782-11,860 / 9,240-9,263 / 6,473** | 14,496 / 12,327 / 9,440 / 6,435 | 0.94 / 0.94 / 0.93 / 0.92 → **0.94-0.95 / 0.96 / 0.98 / 1.01** |
+| gpt-oss-20b decode at depth 32K, 1 / 4 streams (tok/s) | 157.0 / 336.7 (§64) | 156.0-156.5 / **342.8-343.9** | 150.7 / 310.8 | 1.04 / 1.08 → 1.04 / **1.10** |
+| gpt-oss-20b decode at depth 128K, 1 / 4 streams | 100.1 / 156.4 (§64) | **106.0-106.2 / 161.9-162.1** | 107.3 / 174.9 | 0.93 / 0.89 → **0.99 / 0.93** |
 | Qwen3-8B-FP8 (YaRN) prefill 16K-128K, decode at depth | §63 | unchanged code (head size 128) | | 0.97 / 0.98 / 1.01 / 0.94 |
 
 * Decode steps: BatchBench `--slots 64 --ctx 640 --depth 256 --sizes 1,16,32,48,64 --modes greedy --reps 20`, two alternated pairs
   (`decode/`, before / after of 65.2-65.3; 65.4's split change measured separately there). The decode steps carry no prefill
   attention and no short expert tiles, so 65.2-65.3 do not move them; 65.4's decode split costs ~0.5 % at 64 sequences. Qwen3's step is the same on generated tokens, fed-back
   random ids and fixed ids (a dense model), so §63-64's 0.94x stands on the like-for-like workloads too.
-* Long contexts: `bench/s58_long.sh` (after; `long/sl_gpt-oss-20b.txt`), the prefill before / after pairs of 65.3; decode at depth before
+* Long contexts: `bench/s58_long.sh` (after, two passes; `long/sl_gpt-oss-20b_pass*.txt`), the prefill before / after pairs of 65.3; decode at depth before
   from §64 (same procedure), tok/s = rows x 1000 / GPU ms per step.
 
 ### 65.2 The expert GEMMs at decode sizes are at the read limit; what is left is split experts
@@ -9286,7 +9286,7 @@ routing, T = 32 tokens, ms; `harness/ablation.txt`):
 | copies only, no scale copies | 0.379 | |
 | copies only, no activation / scale copies, no routing reads, no factor table | 0.377 | |
 | ... and no epilogue (no stores) | 0.352 | |
-| the kernel without its stores | 0.377-0.379 | 0.356 |
+| the kernel without its stores | 0.377-0.379 | (no eviction at all: 0.356, the kernel 0.360) |
 | `read_pattern.cu` (code bytes only), 1-5 blocks per SM | 0.346-0.360 | |
 
 * The harness evicted the L2 before each launch with a 256 MB `cudaMemsetAsync`, which leaves it full of dirty lines that the
@@ -9294,7 +9294,7 @@ routing, T = 32 tokens, ms; `harness/ablation.txt`):
   they mix writes into the write-back stream). Evicted by a read of the same 256 MB (`EVICT=read`, closer to a decode step, where
   the preceding kernels read weights), the unchanged kernel reads 788 GB/s at 32-64 tokens (gate / up) and 767 GB/s (down, 0.184 ms),
   the read limit. So "650 GB/s" was a property of the harness, not of the kernel's copy issue. `read_pattern.cu` with an occupancy
-  cap reads 762-767 GB/s from one block per SM up (`rp_occ.txt`), so neither occupancy nor the number of resident blocks limits it.
+  cap reads 762-767 GB/s from one block per SM up (`harness/read_pattern.txt`), so neither occupancy nor the number of resident blocks limits it.
 * Rejected on the way (harness, memset eviction unless noted): **persistent blocks** that walk (routing tile, column tile) units with
   one copy ring across unit boundaries (the fill and drain of each block's 45-step ring were the suspect): decode tiles +2-4 % at
   2 blocks per SM, +15 % at 3, the 128-row tiles +7-14 % (more registers: 79 → 112 / 255 with spills) (`rejected/persistent_h1.txt`);
@@ -9349,6 +9349,10 @@ one at 128 (`NativeAttentionFragments`; `SHARPLIGHT_ATTN_MR=n`). gpt-oss-20b pre
 | vLLM (§58.8) | 14,496 | 12,327 | 9,440 | 6,435 |
 | ours / vLLM | 0.93 → **0.95** | 0.94 → **0.96** | 0.93 → **0.98** | 0.92 → **1.01** |
 
+The CUDA profile of the 128K prefill (`long/profile_gpt-oss-20b_131072.categories.txt`) has attention at 12.07 s of 20.25 s (§64: 13.85
+of 22.04 s), 59.6 % of the prefill; the MoE (5.96 s) and the dense GEMMs (1.55 s) are unchanged. At 16K-32K, where attention is a
+smaller share, the gap that is left (0.95-0.96x) is mostly the MoE glue and full tiles (§64.7).
+
 ### 65.4 Decode at depth: twice the split-KV workgroups on CUDA
 
 A gpt-oss-20b decode step at 128K keys (1 stream, 10.0 ms GPU; `long/decode_128k_profile.txt`) spends 4.82 ms in `decode` attention:
@@ -9382,13 +9386,31 @@ lose ~0.5 % (one sequence at 256 keys now runs one range of 256 instead of two o
 
 ### 65.5 Serving
 
-SERVESECTION
+`bench/s16_serve.sh sharplight gpt-oss-20b <dir> "16 64" --provider cuda`, `QUIET_GPU=1 ROUNDS=2`, before / after alternated twice
+(eight rounds per point); aggregate output tok/s (mean of the rounds) / TTFT p50 ms / inter-token latency mean and p50 ms (`serve/`):
+
+| gpt-oss-20b | before | after | vLLM | ours / vLLM |
+|---|---|---|---|---:|
+| 16 streams | 1312-1322 / 112-113 / 11.2, 10.0-10.1 | 1320-1321 / 113 / 11.2, 10.0 | 1424 / 183 / 9.9 | 0.93 |
+| 64 streams | 2721-2730 / 258 / 20.4-20.5, 15.5 | 2712-2718 / 257-260 / 20.5-20.6, 15.6 | 3154 / 413 / 17.0, 12.9-13.3 | 0.86 |
+
+Unchanged, as expected: the serving prompts average 250 tokens (no deep attention), their waves run the full 128-row expert tiles
+(65.2's short-tile change is for 12-24 items per expert), and the decode steps at 16-64 streams and ~250-380 keys keep one key range
+per row. Qwen3-8B-FP8 (after only, but measured with the build that still gave head size 128 the larger decode split, since reverted
+for it): 989 / 117 / 15.2 and 2436 / 290 / 22.9 at 16 / 64 streams against §64's 988 / 2462 (its final code path is `develop`'s:
+0.89 / 0.91). gpt-oss-20b on the Vulkan provider: 1252 / 138 and 2239 / 331 (§64: 1250 / 2222; no Vulkan change).
 
 ### 65.6 Correctness and tests
 
 * Greedy text, 120 tokens, gpt-oss-20b on CUDA, prompts of ~40, ~170, ~1000 and ~3000 tokens, `SHARPLIGHT_ATTN_MR=1
   SHARPLIGHT_NATIVE_MOE_TABLE=1` against this round: byte-identical (all four; `greedy/`). The two-fragment attention computes
   every row's scores and softmax as before, and the table-free decode converts the same E8M0 bytes to the same factors.
+* With 65.4's decode split as well (before adds `SHARPLIGHT_ATTN_DECODE_CFG=512,128,64`; `greedy2/`), prompts of ~40 / ~1000 /
+  ~3000 / ~8000 tokens: gpt-oss-20b identical at ~40 and ~1000; at ~3000 and ~8000 the decode rows now sum their keys over half as
+  many ranges (13 instead of 25 at 3,100 keys), so the partials combine in another order, and the text diverges: at ~3000 after 534
+  characters of generated text ("**Historical Context**" / "**Historical Overview**"), at ~8000 at the second generated token, on a prompt that is
+  the same 40 words repeated (both continuations are degenerate). TIENOTE Qwen3-8B-FP8 (head size 128, whose decode keeps develop's
+  split; at the time of this check it still ran the larger configuration): identical at ~1000 / ~3000 / ~8000.
 * Sharplight.Cuda.Tests: 31 / 0 failed / 1 skipped (cuBLASLt not installed); `CudaCodeTests.NativeAttentionMatchesTheCpu` (head size 64,
   with and without a window, sinks: now on two fragments, prompt chunks of 150 / 70 / 5 rows, so partial 128-row query tiles) and
   `NativeMoeGemmMatchesTheCpu` (the 40-token case runs the 64-row tiles, now table-free) cover the changed forms.
@@ -9404,11 +9426,11 @@ SERVESECTION
 |---|---:|---|
 | gpt-oss-20b decode step, 64 sequences, generated tokens (`--feedback` / `--text`) | 0.88 / 0.87 (18.5 / 19.7 against 16.3 / 17.2 ms) | expert GEMMs ~12 ms at the read limit per tile; split experts (33-64 items on 32-row tiles) read twice |
 | Qwen3-8B-FP8 decode step, 64 sequences (`--text` = `--feedback` = fixed ids: dense) | 0.94 (16.64 against 15.6 ms) | unchanged (§63.7) |
-| gpt-oss-20b serving 16 / 64 streams | SERVEGAP | prompt waves on full tiles (power-limited, §64.7), decode steps as above |
+| gpt-oss-20b serving 16 / 64 streams | 0.93 / 0.86 | prompt waves on full tiles (power-limited, §64.7), decode steps as above |
 | Qwen3-8B-FP8 serving 16 / 64 streams | 0.89 / 0.91 (§64) | its decode step; at 16 the generated fp8 GEMM below 32 rows |
 | gpt-oss-20b long prefill 16K / 32K / 64K / 128K | 0.95 / 0.96 / 0.98 / 1.01 | MoE (52 % at 32K) and the 16K-32K attention |
 | Qwen3-8B-FP8 long prefill (§63) | 0.97 / 0.98 / 1.01 / 0.94 | attention at head size 128 (one fragment per warp: two spill, Q in shared memory is slower, 65.3) |
-| gpt-oss-20b decode at depth 32K / 128K, 1 / 4 streams | DEPTHGAP | decode attention at ~87 % of the read limit (1 stream) |
+| gpt-oss-20b decode at depth 32K / 128K, 1 / 4 streams | 1.04 / 1.10, 0.99 / 0.93 | decode attention at ~87 % of the read limit (1 stream) |
 
 Ranked levers:
 
