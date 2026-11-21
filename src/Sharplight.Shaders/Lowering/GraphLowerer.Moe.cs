@@ -26,6 +26,7 @@ public sealed partial class GraphLowerer
     /// (token, slot) items up to which the expert-grouped skinny GEMM serves a step of <paramref name="w"/> (<see cref="MoeSkinnyTile"/>-row
     /// tiles; above, gemm_cm2's 32-128-row tiles), or 0 when it does not serve the matrix: 12 per expert where the skinny GEMM loads
     /// the operands straight into the fragments (<see cref="UseDirectSkinny"/>), 1 per expert on its staged path.
+    /// Where the hand-written grouped MXFP4 GEMM serves the matrix it takes over earlier (<see cref="NativeMoeMinItems"/>).
     /// <c>SHARPLIGHT_MOE_SKINNY=n</c> sets the items per expert, 0 disables the skinny form. RTX PRO 4500, ms per decode step:
     /// gpt-oss-20b (MXFP4, direct, 32 experts) at 8 / 16 / 32 / 64 sequences 11.05 / 11.78 / 14.16 / 18.85 → 9.53 / 10.07 / 12.91 /
     /// 18.62, uniform routing at 96 sequences (12 per expert) 731 → 615 us per expert block, at 128 level; Qwen3-30B-A3B (Q4_K,
@@ -614,7 +615,10 @@ public sealed partial class GraphLowerer
         int[] coopTiles = gemm2 ? [32, 64, 128] : SmallFragments ? [32] : [32, 64];
         // Few items per expert (batched decode): 16-row expert tiles on the expert-grouped skinny GEMM, which reads the weights
         // at the matvec's bandwidth instead of through gemm_cm2's 32-row tiles.
-        long skinnyItems = MoeSkinnyItems(w, K);
+        // The hand-written grouped MXFP4 GEMM (CUDA, many rows per expert) takes over from the skinny GEMM at nativeMinItems.
+        bool nativeMoe = gemm2 && UseNativeMoeGemm(w, K, N);
+        long nativeMinItems = NativeMoeMinItems(E);
+        long skinnyItems = nativeMoe ? Math.Min(MoeSkinnyItems(w, K), nativeMinItems - 1) : MoeSkinnyItems(w, K);
         bool skinnyMoe = gemm2 && skinnyItems > 0;
         var wide = skinnyMoe ? MoeWideTiles(w, K) : null;
         long wideItems = wide is { } wc ? wc.ItemsPerExpert * E : 0;
@@ -622,8 +626,6 @@ public sealed partial class GraphLowerer
         Func<Bindings, bool> isWide = b => wide is not null && items(b) > skinnyItems && items(b) <= wideItems;
         // Many rows per expert on the hand-written grouped MXFP4 GEMM (CUDA): its batches route NativeMoeTileRows-row tiles (which the
         // gemm_cm2 tiles include, so a product whose epilogue has no CUDA form runs gemm_cm2 on the same routing).
-        bool nativeMoe = gemm2 && UseNativeMoeGemm(w, K, N);
-        long nativeMinItems = NativeMoeMinItems(E);
         bool nativeOn = false;
         Func<Bindings, bool> nativeRows = b => nativeMoe && items(b) > mv && items(b) >= nativeMinItems && !isWide(b) && (!skinnyMoe || items(b) > skinnyItems);
         Func<Bindings, bool> isNative = b => nativeOn && nativeRows(b);

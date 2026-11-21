@@ -18,7 +18,7 @@
 // X_RS: x is row-ranged (common.slang, f16_range_scale; the scale word of sorted row o at byte X_RS + 4 o): rows are multiplied by
 // their inverse scale before the epilogue.
 //
-// Specialization macros: K, N (outputs), EXPERT_BYTES (bytes per expert of w), ROW_BYTES (17 K / 32), S, MAXTILES, NM_BM (64 or
+// Specialization macros: K, N (outputs), EXPERT_BYTES (bytes per expert of w), ROW_BYTES (17 K / 32), S, MAXTILES, NM_BM (32, 64 or
 // 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, DUAL, X_RS,
 // NM_EPI2 / NM_EPI1 and NM_EPI_FIELDS (the tables they read). Requires K % 64 == 0, N % 16 == 0. Grid: x = column tiles, y = routing
 // tiles (blocks past the tile count return).
@@ -103,8 +103,8 @@ static __device__ __forceinline__ uint4 nm_lds128(nm_u32 addr)
     return v;
 }
 
-// The copy of weight codes: with an L2 prefetch of the surrounding NM_PF bytes (a row's next K steps), so the weights stream from
-// memory in whole bursts although a stage takes only 32 bytes of each row.
+// The copy of weight codes and scales: with an L2 prefetch of the surrounding NM_PF bytes (a row's next K steps), so the weights
+// stream from memory in whole bursts although a stage takes only 32 bytes of each row (and of each 16-row group's scale rows).
 #ifndef NM_PF
 #define NM_PF 256
 #endif
@@ -153,6 +153,13 @@ static __device__ __forceinline__ nm_u32 nm_fp4_h2(nm_u32 v, nm_u32 s1, nm_u32 s
 {
     nm_u32 h = ((v & 0x00070007u) << 9) | ((v & 0x00080008u) << 12);
     return nm_hmul2(nm_hmul2(h, s1), s2);
+}
+
+// The low and the high half of v, each in both halves. Written as a half-pair move, which ptxas folds into the half-broadcast
+// operands (.H0_H0 / .H1_H1) of the multiplications that use them instead of issuing two byte permutes.
+static __device__ __forceinline__ void nm_halves(nm_u32 v, nm_u32& lo, nm_u32& hi)
+{
+    asm("{\n .reg .b16 l, h;\n mov.b32 {l, h}, %2;\n mov.b32 %0, {l, l};\n mov.b32 %1, {h, h};\n}\n" : "=r"(lo), "=r"(hi) : "r"(v));
 }
 
 // f32 to f16 bits, rounded to nearest even (the kernel is compiled without cuda_fp16.h).
@@ -309,7 +316,7 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
         }
         if (sLive)
         {
-            nm_cp16(base + NM_A_BYTES + NM_C_BYTES + tid * 16, sSrc + kb * 32);
+            nm_cp16w(base + NM_A_BYTES + NM_C_BYTES + tid * 16, sSrc + kb * 32);
         }
     };
 
@@ -360,7 +367,8 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
         nm_u32 m = 0, orow = row;
 #endif
         nm_u32 sp = sScale[nm_lds8(ss + ((b * NM_MATS + m) * (NM_BOUT / 16) + orow / 16) * 16 + orow % 16)];
-        nm_u32 s1 = nm_prmt(sp, sp, 0x1010u), s2 = nm_prmt(sp, sp, 0x3232u);
+        nm_u32 s1, s2;
+        nm_halves(sp, s1, s2);
         nm_u32 lo = u & 0x0F0F0F0Fu, hi = (u >> 4) & 0x0F0F0F0Fu;
         bf[j][0] = nm_fp4_h2(nm_prmt(lo, 0u, 0x4140u), s1, s2);
         bf[j][1] = nm_fp4_h2(nm_prmt(lo, 0u, 0x4342u), s1, s2);

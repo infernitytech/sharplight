@@ -351,11 +351,21 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Routed items (token, slot) from which the hand-written grouped MXFP4 GEMM serves a step of <paramref name="experts"/> experts:
-    /// 12 rows per expert on average (where the expert-grouped skinny GEMM hands over), or <c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c> per
+    /// <see cref="NativeMoeDecodeMinItemsPerExpert"/> rows per expert on average (the expert-grouped skinny GEMM serves fewer), or <c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c> per
     /// expert. RTX PRO 4500, gpt-oss-20b mixed serving steps (64 decode rows plus a prompt, GPU ms): 171 rows 33.7 → 25.8, 256 rows
     /// 40.2 → 29.6, 512 rows 58.2 → 45.6, 2048 rows 172.2 → 147.0 against gemm_cm2.
     /// </summary>
-    private static long NativeMoeMinItems(long experts) => (DiagnosticSwitches.NativeMoeMinRows ?? 12) * experts;
+    private static long NativeMoeMinItems(long experts) => (DiagnosticSwitches.NativeMoeMinRows ?? NativeMoeDecodeMinItemsPerExpert) * experts;
+
+    /// <summary>
+    /// Routed items per expert from which the hand-written grouped MXFP4 GEMM takes a step over from the expert-grouped skinny GEMM
+    /// (<see cref="NativeMoeMinItems"/>, on its <see cref="NativeMoeDecodeTileRows"/>-row tiles). RTX PRO 4500, gpt-oss-20b decode steps
+    /// on text routing (BatchBench <c>--text</c>, GPU ms, two runs): from 12 → 3 per expert 24 sequences 15.92-16.07 → 15.67-15.71,
+    /// 32: 17.13 → 16.56, 48: 19.16-19.32 → 18.19-18.22, 64: 20.32-21.06 → 19.52-19.55; from 3 → 1 per expert 8 sequences 10.91-10.92
+    /// → 10.72-10.74, 16: 15.20-15.23 → 14.71-14.77, 20: 15.22-15.27 → 14.82-14.84 (likewise with fed-back random-id prompts and with
+    /// fixed random ids). Fewer items than one per expert (up to 7 sequences of 4 slots) stay on the skinny GEMM or the matvec.
+    /// </summary>
+    private const long NativeMoeDecodeMinItemsPerExpert = 1;
 
     /// <summary>Bytes of one stage of <c>gemm_moe_native.cu</c>: activation rows, codes and scales of its weight rows.</summary>
     private static int NativeMoeStageBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)
@@ -376,17 +386,37 @@ public sealed partial class GraphLowerer
     /// <summary>Token rows of the short routing tiles of <c>gemm_moe_native.cu</c> (see <see cref="NativeMoeShortItemsPerExpert"/>).</summary>
     private const int NativeMoeShortTileRows = 64;
 
-    /// <summary>The routing tile rows the hand-written grouped MXFP4 GEMM is compiled for: the short tile when it is on, and the full one.</summary>
+    /// <summary>
+    /// Routed items per expert up to which the hand-written grouped MXFP4 GEMM runs <see cref="NativeMoeDecodeTileRows"/>-row routing tiles
+    /// (batched decode steps; on when the short tiles are). An expert's 32-row tile holds the 4-30 items of a decode step's
+    /// skewed routing in one pass over its weights, where the skinny GEMM's 16-row tiles read a busy expert two or three times.
+    /// </summary>
+    private const long NativeMoeDecodeItemsPerExpert = 12;
+
+    /// <summary>Token rows of the decode routing tiles of <c>gemm_moe_native.cu</c> (see <see cref="NativeMoeDecodeItemsPerExpert"/>).</summary>
+    private const int NativeMoeDecodeTileRows = 32;
+
+    /// <summary>The routing tile rows the hand-written grouped MXFP4 GEMM is compiled for: the decode and short tiles when they are on, and the full one.</summary>
     private static int[] NativeMoeTiles
-        => (DiagnosticSwitches.NativeMoeShortItems ?? NativeMoeShortItemsPerExpert) > 0 ? [NativeMoeShortTileRows, NativeMoeTileRows] : [NativeMoeTileRows];
+        => (DiagnosticSwitches.NativeMoeShortItems ?? NativeMoeShortItemsPerExpert) > 0
+            ? [NativeMoeDecodeTileRows, NativeMoeShortTileRows, NativeMoeTileRows]
+            : [NativeMoeTileRows];
 
     /// <summary>
     /// Routing tile rows of the hand-written grouped MXFP4 GEMM for a step of <paramref name="items"/> routed items over
-    /// <paramref name="experts"/> experts: <see cref="NativeMoeShortTileRows"/> up to <see cref="NativeMoeShortItemsPerExpert"/> items per
-    /// expert, else <see cref="NativeMoeTileRows"/>.
+    /// <paramref name="experts"/> experts: <see cref="NativeMoeDecodeTileRows"/> up to <see cref="NativeMoeDecodeItemsPerExpert"/> items per
+    /// expert, <see cref="NativeMoeShortTileRows"/> up to <see cref="NativeMoeShortItemsPerExpert"/>, else <see cref="NativeMoeTileRows"/>.
     /// </summary>
     private static int NativeMoeTileRowsFor(long items, long experts)
-        => items <= (DiagnosticSwitches.NativeMoeShortItems ?? NativeMoeShortItemsPerExpert) * experts ? NativeMoeShortTileRows : NativeMoeTileRows;
+    {
+        long shortItems = DiagnosticSwitches.NativeMoeShortItems ?? NativeMoeShortItemsPerExpert;
+        if (shortItems > 0 && items <= Math.Min(shortItems, NativeMoeDecodeItemsPerExpert) * experts)
+        {
+            return NativeMoeDecodeTileRows;
+        }
+
+        return items <= shortItems * experts ? NativeMoeShortTileRows : NativeMoeTileRows;
+    }
 
     /// <summary>
     /// Weight rows per tile, stages and resident blocks per SM (<c>NM_BN</c>, <c>NM_STAGES</c>, <c>NM_MINB</c>) of <c>gemm_moe_native.cu</c>
@@ -404,14 +434,17 @@ public sealed partial class GraphLowerer
             => 2 * (NativeMoeStageBytes(width, dual, tileRows) * 3L + NativeMoeStaticShared + 1024) <= _opt.MaxSharedMemory + 1024;
         if (tileRows < NativeMoeTileRows && DiagnosticSwitches.NativeMoeBlocks != 1)
         {
-            if (!TwoFit(columns) && dual && DiagnosticSwitches.NativeMoeColumns is null && TwoFit(128))
+            // Decode tiles: dual tiles of 128 weight rows (twice the blocks: the step reads few weights per expert) and a fourth stage.
+            if (dual && DiagnosticSwitches.NativeMoeColumns is null && TwoFit(128) && (!TwoFit(columns) || tileRows == NativeMoeDecodeTileRows))
             {
                 columns = 128;
             }
 
             if (TwoFit(columns))
             {
-                return (columns, 3, 2);
+                bool fourStages = tileRows == NativeMoeDecodeTileRows
+                                  && 2 * (NativeMoeStageBytes(columns, dual, tileRows) * 4L + NativeMoeStaticShared + 1024) <= _opt.MaxSharedMemory + 1024;
+                return (columns, fourStages ? 4 : 3, 2);
             }
         }
 

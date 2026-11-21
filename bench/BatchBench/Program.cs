@@ -1,5 +1,5 @@
 // BatchBench <model> [--slots 64] [--ctx 512] [--depth 256] [--sizes 1,2,4,8,16,32,64] [--reps 30] [--profile B[,B...]] [--profile-mode logits|greedy|sampled]
-//            [--modes logits,greedy,sampled,no-logits] [--profile-top 40] [--batch 512] [--mixed D+P[x N],...]
+//            [--modes logits,greedy,sampled,no-logits] [--profile-top 40] [--batch 512] [--mixed D+P[x N],...] [--text] [--feedback]
 // <model> is a GGUF, a .slm package or a Hugging Face safetensors directory.
 // Prefills every slot with --depth random tokens, then times decode steps of the multi-sequence decoder for each batch size
 // (rows = batch size). Modes per step: "logits" = logits downloaded for every row and arg-max taken on the CPU (the path without a
@@ -12,6 +12,10 @@
 // --mixed D+P,... times steps that mix D decode rows (slots 0..D-1) with prompt chunks of P rows (a fresh sequence from position 0
 // in each of the last slots, as the serving engine's chunked prefill feeds them); "D+PxN" splits P*N prompt rows over N sequences.
 // --batch sets the decoder's rows per step (default 512). With --mixed, --profile takes the index of the mixed entry instead.
+// --text: real-text routing instead of random tokens. Each slot is prefilled with a tokenized prompt of random English words (the
+// vocabulary of bench/loadgen.py, the serving benchmark's prompts) and, in the greedy / sampled modes, every decode step feeds back the
+// tokens the previous step chose for its rows (the serving engine's decode steps), so mixture-of-experts layers route as they do on text.
+// --feedback: random-token prompts, but the chosen tokens fed back as with --text (the workload of bench/s54_vllm_decode_profile.py).
 // --provider vulkan|cuda picks the GPU provider (default: the first available one, Vulkan); profiles of CUDA steps need
 // SHARPLIGHT_CUDA_PROFILE-style per-launch timing, which --profile switches on per segment like on Vulkan.
 using System.Diagnostics;
@@ -52,7 +56,24 @@ var sampler = (IDeviceSamplingDecoder)dec;
 Console.WriteLine($"decoder: {dec.GetType().Name}, slots {dec.SlotCount}, vocab {dec.VocabSize}, device sampling: {sampler.SamplesOnDevice}, "
     + $"KV {(dec.KvBlockSize > 0 ? $"paged {dec.KvBlocksTotal} x {dec.KvBlockSize}" : "contiguous")}");
 var rng = new Random(1);
-int[] Toks(int n) => Enumerable.Range(0, n).Select(_ => rng.Next(1000, 30000)).ToArray();
+bool text = argv.Contains("--text");
+bool feedback = text || argv.Contains("--feedback");
+string[] words = ("time year people way day man thing woman life child world school state family student group country problem hand part "
+    + "place case week company system program question work government number night point home water room mother area money story "
+    + "fact month lot right study book eye job word business issue side kind head house service friend father power hour game line "
+    + "end member law car city community name president team minute idea kid body information back parent face others level office "
+    + "door health person art war history party result change morning reason research girl guy moment air teacher force education").Split(' ');
+int[] Words(int n)
+{
+    var ids = new List<int>();
+    while (ids.Count < n)
+    {
+        ids.AddRange(model.Tokenizer.Encode(string.Join(' ', Enumerable.Range(0, 64).Select(_ => words[rng.Next(words.Length)])) + " ", addSpecial: false));
+    }
+
+    return [.. ids.Take(n)];
+}
+int[] Toks(int n) => text ? Words(n) : Enumerable.Range(0, n).Select(_ => rng.Next(1000, 30000)).ToArray();
 // Prefill each slot, in chunks of the decoder's rows per step (long depths).
 int chunk = int.Parse(Opt("--batch", "512")!);
 for (int s = 0; s < slots; s++)
@@ -90,6 +111,17 @@ void Step(string mode, List<SequenceInput> inputs)
         default:
             var row = mode == "greedy" ? SamplingRow.Greedy() : new SamplingRow { Temperature = 0.8f, TopK = 40, TopP = 0.95f, Seed = 7, Counter = counter++ };
             sampler.Step(inputs, [.. inputs.Select(_ => (SamplingRow?)row)], tokens, logprobs);
+            if (feedback)
+            {
+                // Feed the chosen tokens back as the rows' next inputs (single-token decode rows only).
+                for (int i = 0; i < inputs.Count; i++)
+                {
+                    if (inputs[i].Tokens.Length == 1)
+                    {
+                        inputs[i] = inputs[i] with { Tokens = new[] { tokens[i] } };
+                    }
+                }
+            }
             break;
     }
 }

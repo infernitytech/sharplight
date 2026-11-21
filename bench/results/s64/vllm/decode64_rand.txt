@@ -1,0 +1,7 @@
+43 distinct generations of 64; most common (7x): ' 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0'
+61 decode steps of 64 sequences: GPU time per step 14.72 ms (annotated range), kernel sum 14.51 ms
+  10.705 ms  73.8%   48.0x  void marlin_moe_wna16::Marlin<1125899906909960l, 562949953487106l, 1125899906909960l, 2814749767106568l, 128, 1, 8, 4, false, 4, 2, false>(int4 const*
+   0.956 ms   6.6%   24.0x  void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x10_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x10_t
+   0.820 ms   5.7%   24.0x  void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x64_32x6_tn_
+   0.702 ms   4.8%   12.0x  kernel_mha(unsigned int, float, float const*, Vec<__nv_bfloat16, 64u>*, Vec<__nv_bfloat16, 64u> const*, float const*, KVCacheList<true>, unsigned int,
+   0.500 ms   3.4%   12.0x  kernel_mha(unsigned int, unsigned int, float, float const*, Vec<__nv_bfloat16, 64u>*, Vec<__nv_bfloat16, 64u> const*, float const*, KVCacheList<true>,

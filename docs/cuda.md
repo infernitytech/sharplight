@@ -231,9 +231,9 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)).
 
 - **`gemm_moe_native.cu`** (`native_gemm_moe`, compute capability 8.0+): the expert-grouped product of a MatMulId with MXFP4 experts
-  (the 16-row groups of `WeightRepack.Mxfp4Split`) from 12 routed rows per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;
-  below, the expert-grouped skinny GEMM serves). One block per routing tile of 128 rows (`moe_route`) and 256 (dual) or 192 weight
-  rows (up to 24 routed items per expert: 64-row tiles, two blocks per SM of three stages where they fit, dual tiles narrowed to 128
+  (the 16-row groups of `WeightRepack.Mxfp4Split`) from 1 routed row per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;
+  below, the expert-grouped skinny GEMM serves; [benchmarks.md §64.2](benchmarks.md)). One block per routing tile of 128 rows (`moe_route`) and 256 (dual) or 192 weight
+  rows (up to 12 routed items per expert: 32-row tiles of four stages, up to 24: 64-row tiles of three, both two blocks per SM where they fit, dual tiles narrowed to 128
   weight rows for it, [benchmarks.md §63.2](benchmarks.md); `SHARPLIGHT_NATIVE_MOE_SHORT`, `SHARPLIGHT_NATIVE_MOE_BLOCKS`): a four-stage `cp.async` ring of 64-value K steps holds the expert-sorted f16 activation rows (swizzled 128-byte rows) and
   the raw codes and E8M0 scales (4.25 bits per weight; codes stored [block][row] so a fragment's 8 rows are one 128-byte line, with
   an `L2::256B` prefetch hint so the 32 bytes a stage takes of each row still stream from memory in whole bursts). Eight warps side
