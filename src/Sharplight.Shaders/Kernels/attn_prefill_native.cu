@@ -17,7 +17,8 @@
 //
 // Macros: HQ, HKV, D, DV (multiples of 64 up to 128), VRS (value row stride), QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP,
 // HAS_SINKS, MULTI_SEQ, SLOT_CTX, PAGED, PAGE_BS, PAGE_MB, RT_N_PAST, MIX_RUN, FN_WARPS (4 or 8), FN_MR (16-row fragments per
-// warp, default 1: 2 measured the same at head size 64 and spilled at 128), FN_STAGES (2 or 3, default 2).
+// warp, default 1; the lowering takes 2 at head size 64, where deep contexts gain 7-12 %, and 1 at 128, where 2 spills), FN_STAGES
+// (2 or 3, default 2).
 // Grid: x = HQ, y = query tiles (of the longest run), z = runs (1 without MULTI_SEQ).
 #ifndef FN_WARPS
 #define FN_WARPS 4

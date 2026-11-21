@@ -1,0 +1,87 @@
+# copies-only ablation chain (ab_native.cu: AB_* macros), dual 32-row tiles, T = 32 / 128, memset eviction
+full 0.408 ms 10.4 TFLOPS | 0.432 ms 39.3 TFLOPS
+full_s3 0.430 ms 9.9 TFLOPS | 0.451 ms 37.7 TFLOPS
+full_notab_noroute 0.401 ms 10.6 TFLOPS | 0.403 ms 42.1 TFLOPS
+c 0.395 ms 10.7 TFLOPS | 0.414 ms 41.1 TFLOPS
+c_s6 0.399 ms 10.6 TFLOPS | 0.418 ms 40.7 TFLOPS
+c_w2 0.403 ms 10.5 TFLOPS | 0.422 ms 40.3 TFLOPS
+c_noa 0.393 ms 10.8 TFLOPS | 0.410 ms 41.5 TFLOPS
+c_nos 0.379 ms 11.2 TFLOPS | 0.395 ms 43.0 TFLOPS
+c_noas 0.377 ms 11.3 TFLOPS | 0.391 ms 43.4 TFLOPS
+c_noas_w2 0.377 ms 11.3 TFLOPS | 0.391 ms 43.4 TFLOPS
+c_notab_noroute 0.397 ms 10.7 TFLOPS | 0.399 ms 42.5 TFLOPS
+c_noas_notab_noroute_w2 0.377 ms 11.3 TFLOPS | 0.377 ms 45.1 TFLOPS
+occ 2 C= 32 S=4 PF=1 smem  49152: 0.350 ms 758 GB/s (code bytes)
+full 0.406 ms 10.5 TFLOPS | 0.434 ms 39.1 TFLOPS
+full_s3 0.430 ms 9.9 TFLOPS | 0.453 ms 37.5 TFLOPS
+full_notab_noroute 0.403 ms 10.5 TFLOPS | 0.401 ms 42.3 TFLOPS
+c 0.397 ms 10.7 TFLOPS | 0.416 ms 40.9 TFLOPS
+c_s6 0.401 ms 10.6 TFLOPS | 0.418 ms 40.7 TFLOPS
+c_w2 0.403 ms 10.5 TFLOPS | 0.420 ms 40.5 TFLOPS
+c_noa 0.395 ms 10.7 TFLOPS | 0.408 ms 41.7 TFLOPS
+c_nos 0.379 ms 11.2 TFLOPS | 0.395 ms 43.0 TFLOPS
+c_noas 0.377 ms 11.3 TFLOPS | 0.389 ms 43.7 TFLOPS
+c_noas_w2 0.377 ms 11.3 TFLOPS | 0.389 ms 43.7 TFLOPS
+c_notab_noroute 0.397 ms 10.7 TFLOPS | 0.399 ms 42.5 TFLOPS
+c_noas_notab_noroute_w2 0.377 ms 11.3 TFLOPS | 0.377 ms 45.1 TFLOPS
+occ 2 C= 32 S=4 PF=1 smem  49152: 0.348 ms 762 GB/s (code bytes)
+
+# epilogue / launch bounds / smem
+ab2_base occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.377 ms 11.3 TFLOPS
+ab2_noepi occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.352 ms 12.1 TFLOPS
+ab2_minb1 occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.375 ms 11.3 TFLOPS
+base smem49152 occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.375 ms 11.3 TFLOPS
+base smem 24000 
+full smem 49152 occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.408 ms 10.4 TFLOPS
+occ 2 C= 32 S=4 PF=1 smem  49152: 0.348 ms 762 GB/s (code bytes)
+ab2_base occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.375 ms 11.3 TFLOPS
+ab2_noepi occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.352 ms 12.1 TFLOPS
+ab2_minb1 occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.377 ms 11.3 TFLOPS
+base smem49152 occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.375 ms 11.3 TFLOPS
+base smem 24000 
+full smem 49152 occ 2 T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.406 ms 10.5 TFLOPS
+occ 2 C= 32 S=4 PF=1 smem  49152: 0.348 ms 762 GB/s (code bytes)
+
+# no-epilogue variants (T = 32..256)
+ab2_full 0.406 0.414 0.432 0.436 0.524 
+ab3_full_noepi 0.375 0.375 0.377 0.381 0.424 
+ab3_c_noepi 0.373 0.375 0.377 0.379 0.424 
+ab3_c_nos_noepi 0.352 0.354 0.356 0.358 0.403 
+ab3_c_noas 0.375 0.385 0.391 0.393 0.418 
+ab3_c_noas_noepi 0.352 0.352 0.352 0.352 0.381 
+ab2_base 0.377 0.377 0.379 0.377 
+ab2_noepi 0.350 0.354 0.352 0.352 
+ab2_full 0.406 0.414 0.432 0.438 0.524 
+ab3_full_noepi 0.375 0.377 0.377 0.379 0.424 
+ab3_c_noepi 0.375 0.377 0.379 0.381 0.422 
+ab3_c_nos_noepi 0.354 0.354 0.356 0.358 0.403 
+ab3_c_noas 0.377 0.383 0.391 0.393 0.418 
+ab3_c_noas_noepi 0.352 0.352 0.352 0.352 0.381 
+ab2_base 0.377 0.377 0.379 0.377 
+ab2_noepi 0.352 0.352 0.352 0.352 
+
+# stores split
+ab2_full 0.406 0.416 0.432 0.438 0.524  occ 2
+ab4_nostore 0.379 0.379 0.391 0.397 0.504  occ 2
+ab4_small 0.412 0.414 0.426 0.432 0.516  occ 2
+ab3_full_noepi 0.375 0.375 0.377 0.379 0.422  occ 2
+ab4_3blk 0.412 0.416 0.426 0.432 0.528  occ 3
+ab2_full 0.408 0.416 0.430 0.436 0.524  occ 2
+ab4_nostore 0.377 0.379 0.391 0.397 0.506  occ 2
+ab4_small 0.412 0.414 0.428 0.432 0.518  occ 2
+ab3_full_noepi 0.375 0.375 0.377 0.379 0.424  occ 2
+ab4_3blk 0.412 0.416 0.426 0.434 0.530  occ 3
+
+# L2-resident stores, no eviction
+ab5_full 0.408 0.414 0.432 0.438 0.524 
+ab5_full noflush 0.360 0.364 0.385 0.411 0.557 
+ab5_mod 0.403 0.412 0.426 0.430 0.520 
+ab5_mod noflush 0.360 0.362 0.382 0.409 0.542 
+ab5_nostore 0.377 0.381 0.391 0.397 0.506 
+ab5_nostore noflush 0.356 0.360 0.378 0.405 0.528 
+ab5_full 0.406 0.414 0.432 0.438 0.524 
+ab5_full noflush 0.361 0.365 0.385 0.411 0.536 
+ab5_mod 0.403 0.412 0.428 0.428 0.518 
+ab5_mod noflush 0.360 0.362 0.383 0.411 0.540 
+ab5_nostore 0.379 0.379 0.391 0.397 0.506 
+ab5_nostore noflush 0.356 0.359 0.380 0.406 0.529 

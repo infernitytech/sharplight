@@ -1,0 +1,12 @@
+after_1        c16:    1320 tok/s (rounds 1330, 1310) ttft p50 113 itl mean 11.2 p50 10.0 errors 0
+after_1        c64:    2712 tok/s (rounds 2735, 2689) ttft p50 260 itl mean 20.6 p50 15.6 errors 0
+after_2        c16:    1321 tok/s (rounds 1329, 1314) ttft p50 113 itl mean 11.2 p50 10.0 errors 0
+after_2        c64:    2703 tok/s (rounds 2718, 2689) ttft p50 259 itl mean 20.6 p50 15.7 errors 0
+before_1       c16:    1322 tok/s (rounds 1343, 1302) ttft p50 112 itl mean 11.2 p50 10.0 errors 0
+before_1       c64:    2730 tok/s (rounds 2756, 2703) ttft p50 258 itl mean 20.4 p50 15.5 errors 0
+before_2       c16:    1312 tok/s (rounds 1328, 1297) ttft p50 113 itl mean 11.2 p50 10.1 errors 0
+before_2       c64:    2721 tok/s (rounds 2747, 2694) ttft p50 258 itl mean 20.5 p50 15.5 errors 0
+qwen3_after    c16:     989 tok/s (rounds 991, 988) ttft p50 117 itl mean 15.2 p50 14.0 errors 0
+qwen3_after    c64:    2436 tok/s (rounds 2445, 2428) ttft p50 290 itl mean 22.9 p50 17.3 errors 0
+vulkan_after   c16:    1252 tok/s (rounds 1241, 1262) ttft p50 138 itl mean 11.6 p50 10.1 errors 0
+vulkan_after   c64:    2239 tok/s (rounds 2239, 2239) ttft p50 331 itl mean 24.7 p50 18.4 errors 0

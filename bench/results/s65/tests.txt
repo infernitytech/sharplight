@@ -1,0 +1,29 @@
+    0 Error(s)
+    0 Error(s)
+Cuda.Tests:    Sharplight.Cuda.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 22.579s
+cuda Moe:    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 20.276s
+cuda StreamedExperts:    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.365s
+cuda DualGemm:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 11.500s
+cuda MatMul:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.053s
+cuda Fusion:    Sharplight.Vulkan.Tests  Total: 80, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 11.521s
+cuda RowInvariance:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.989s
+cuda FullAttention:    Sharplight.Vulkan.Tests  Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.920s
+cuda PagedAttention:    Sharplight.Vulkan.Tests  Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.891s
+cuda PackedSequence:    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.074s
+cuda Stateful:    Sharplight.Vulkan.Tests  Total: 61, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 37.992s
+cuda StateHandoff:    Sharplight.Vulkan.Tests  Total: 1, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.905s
+cuda SparseAttention:    Sharplight.Vulkan.Tests  Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.985s
+cuda CompressedKv:    Sharplight.Vulkan.Tests  Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.083s
+vulkan Moe:    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 24.045s
+vulkan StreamedExperts:    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 2, Not Run: 0, Time: 3.303s
+vulkan DualGemm:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 14.129s
+vulkan MatMul:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 19.782s
+vulkan Fusion:    Sharplight.Vulkan.Tests  Total: 80, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 18.135s
+vulkan RowInvariance:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 18.312s
+vulkan FullAttention:    Sharplight.Vulkan.Tests  Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 10.002s
+vulkan PagedAttention:    Sharplight.Vulkan.Tests  Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.994s
+vulkan PackedSequence:    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.220s
+vulkan Stateful:    Sharplight.Vulkan.Tests  Total: 61, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 22.137s
+vulkan StateHandoff:    Sharplight.Vulkan.Tests  Total: 1, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.887s
+vulkan SparseAttention:    Sharplight.Vulkan.Tests  Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.278s
+vulkan CompressedKv:    Sharplight.Vulkan.Tests  Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.811s

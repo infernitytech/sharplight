@@ -603,11 +603,17 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_MOE_BLOCKS=1</c>: the short tiles of the grouped MXFP4 GEMM keep one block per SM, or null for the default.</summary>
     public static int? NativeMoeBlocks { get; } = Read("SHARPLIGHT_NATIVE_MOE_BLOCKS") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_TABLE=1</c>: the short dual tiles of the grouped MXFP4 GEMM keep the E8M0 factor table (three stages), or null for the default.</summary>
+    public static int? NativeMoeTable { get; } = Read("SHARPLIGHT_NATIVE_MOE_TABLE") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
     public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary><c>SHARPLIGHT_ATTN_STAGES=n</c>: stages of the key / value ring of the hand-written prefill attention, or null for the default.</summary>
     public static int? NativeAttentionStages { get; } = Read("SHARPLIGHT_ATTN_STAGES") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_ATTN_MR=n</c>: 16-row query fragments per warp (1 or 2) of the hand-written prefill attention, or null for the default.</summary>
+    public static int? NativeAttentionFragments { get; } = Read("SHARPLIGHT_ATTN_MR") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
     public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;

@@ -1,0 +1,34 @@
+bench/s56_moe harness (gemm_moe_native.cu), gpt-oss-20b shapes (K = 2880; gate / up dual N = 2880 x 2, down N = 2880), E = 32, S = 4,
+L2 evicted before each launch, best of 20 (ms), unless "sustained" (2000 launches back to back at T = 2048, no eviction: the
+power-limited steady state; SM clock and board power sampled with nvidia-smi while it runs).
+
+f16 mma.sync m16n8k16 (f32 accumulation) peak, same registers every MMA: 237 TFLOPS (8 or 16 warps per SM, 4-32 accumulators).
+
+Full 128-row tiles, gate / up (BM128 BN256, 8 warps of 128 x 32, 4 stages), T = 2048:
+  cold best of 20                      2.176-2.260 ms (120-125 TFLOPS)
+  sustained                            2.39-2.42 ms at 2235-2257 MHz, 200 W (the board's power limit)
+  ablations, sustained (ms / MHz):     no in-loop copies 2.03 / 2497; no code copies 2.15 / 2332; no activation copies 2.32 / 2302;
+                                       one A fragment load per block 2.27 / 2317; no decode arithmetic 2.18 / 2227
+  (stale shared data also lowers the switching power, so these over-state what each part costs)
+  2 x 4 warps (64 x 64 warp tiles)     2.570 cold (decode work doubles; 255 registers)
+  L2 prefetch hint variants on the code copies (b = 0 only / every 4th / every 8th step / 128 B): 2.43-2.45 sustained (all slower)
+  half-broadcast scale factors (this round: 152 fewer PRMT of ~4,000 instructions)  2.39 / 2.42 -> 2.375 / 2.382 sustained;
+                                       down 1.259 / 1.263 -> 1.247 / 1.251
+
+Decode sizes, gate / up dual, uniform routing (all 32 experts touched), T = 32 / 64 / 128 / 171 / 256 (ms):
+  BM64 BN128 3 stages 2 blocks (round 16's short tile)   0.444 0.449 0.467 0.477 0.506
+  BM32 BN128 4 stages 2 blocks                           0.414 0.422 0.438 0.444 0.528
+  + L2 prefetch hint on the scale copies (this round)    0.408 0.416 0.432 0.438 0.526
+  BM32 BN256 3 / 4 stages 2 blocks                       0.440 0.446 ... / 0.414 0.420 0.442 0.447 0.586
+  BM32 BN128 6 stages                                    0.428 0.436 0.475 0.522
+  BM16 BN128 6 stages 2 blocks / 4 stages 3 blocks       0.422 0.430 0.475 / 0.432 0.438 0.473
+  BM16 BN256 6 stages 1 block / 4 stages 2 blocks        0.424 0.430 0.510 / 0.436 0.442 0.490
+  skewed (SKEW=0.6) BM32 BN128 4 stages 2 blocks         0.340 0.397 0.432 0.490 0.574   (BM64 BN128: 0.379 0.428 0.459 0.492 0.553)
+  K-tiled code layout (each 16-row group's stage contiguous, 512 B): BM64 0.494 0.500 0.512 (slower)
+  copies only (no MMA, no decode), BM64 3 stages / 6 stages: 0.436 0.442 / 0.408 0.416
+Down, uniform, T = 32 / 64 / 128: BM64 BN192 3 stages 2 blocks 0.219 0.221 0.227 (+ scale prefetch 0.211 0.215 0.221); BM32 0.215 0.219 0.234
+
+Read limits (282 MB after the same eviction): streaming __ldcs 0.379 ms (780 GB/s). The expert layout read with cp.async into a
+shared ring (rdp.cu: 128 rows per block, C code bytes per row and stage, S stages, L2::256B hint), code bytes only (265 MB):
+  C = 32: S = 3 / 4 / 8  0.365 / 0.362 / 0.354 ms (728-749 GB/s); without the hint 0.881
+  C = 64: S = 3 / 4 / 8  0.350 / 0.348 / 0.336 ms (758-790 GB/s); C = 128: S = 3 / 4  0.342 / 0.336

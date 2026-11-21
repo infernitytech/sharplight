@@ -1,0 +1,7 @@
+# Hand-over at 3 / 2 / 1 items per expert, --text, sizes 8,16,20 (GPU ms), two runs.
+min=3  11.45   14.72   15.76  
+min=2  11.44   14.32   15.26  
+min=1  11.13   14.30   15.22  
+min=3  11.45   14.75   15.75  
+min=2  11.47   14.30   15.27  
+min=1  11.13   14.34   15.23  

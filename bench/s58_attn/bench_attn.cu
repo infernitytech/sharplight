@@ -1,5 +1,5 @@
 // Harness of attn_prefill_native.cu: random Q (f32) and f16 K / V cache, single sequence, n_past = NPAST, T = TQ query rows.
-// Checks against a naive f32 reference kernel and times the kernel (minimum of REPS launches, L2 flushed before each).
+// Checks against a naive f32 reference kernel (NOREF=1: timing only) and times the kernel (minimum of REPS launches, L2 flushed before each).
 // nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=64 -DHKV=8 -DD=64 -DDV=64 -DTQ=2048 -DNPAST=0 -DWINDOW=0 -DHAS_SINKS=1 \
 //   -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_prefill_native.cu"' bench_attn.cu -o b && ./b
 #include <cstdio>
@@ -98,18 +98,23 @@ int main()
     FnParams p{};
     p.q = q; p.kc = (const unsigned short*)kc; p.vc = (const unsigned short*)vc; p.o = o; p.part = o; p.sinks = sinks; p.rt = rt;
     p.arrivals = (fn_u32*)o; p.T = T; p.row0 = 0;
-    int shared = 2 * FN_STAGE * 2;
+    int shared = FN_STAGES * FN_STAGE * 2;
     CK(cudaFuncSetAttribute(attn_prefill_native, cudaFuncAttributeMaxDynamicSharedMemorySize, shared));
     dim3 grid(HQ, (T + FN_BR - 1) / FN_BR, 1);
     attn_prefill_native<<<grid, FN_THREADS, shared>>>(p);
     CK(cudaGetLastError());
-    reference<<<(T * HQ + 127) / 128, 128>>>(q, kc, vc, sinks, oref, T, nPast);
+    // NOREF=1: timing only (the reference takes minutes at long contexts).
+    bool checked = getenv("NOREF") == nullptr;
+    if (checked)
+    {
+        reference<<<(T * HQ + 127) / 128, 128>>>(q, kc, vc, sinks, oref, T, nPast);
+    }
     CK(cudaDeviceSynchronize());
     std::vector<float> a((size_t)T * HQ * DV), b(a.size());
     CK(cudaMemcpy(a.data(), o, a.size() * 4, cudaMemcpyDeviceToHost));
     CK(cudaMemcpy(b.data(), oref, b.size() * 4, cudaMemcpyDeviceToHost));
     double maxErr = 0, sumErr = 0;
-    for (size_t i = 0; i < a.size(); i++)
+    for (size_t i = 0; checked && i < a.size(); i++)
     {
         double e = fabs(a[i] - b[i]);
         if (!(e <= 1e9)) e = 1e9;
@@ -146,7 +151,7 @@ int main()
         pairs += end - beg;
     }
     double flops = pairs * HQ * 2.0 * (D + DV);
-    printf("HQ %d HKV %d D %d T %u nPast %u window %d warps %d: max err %.3g mean %.3g | %.3f ms %.1f TFLOPS\n", HQ, HKV, D, T, nPast, WINDOW,
-           FN_WARPS, maxErr, sumErr / a.size(), best, flops / best / 1e9);
+    printf("HQ %d HKV %d D %d T %u nPast %u window %d warps %d mr %d stages %d: max err %.3g mean %.3g | %.3f ms %.1f TFLOPS\n", HQ, HKV, D, T, nPast, WINDOW,
+           FN_WARPS, FN_MR, FN_STAGES, maxErr, sumErr / a.size(), best, flops / best / 1e9);
     return 0;
 }
