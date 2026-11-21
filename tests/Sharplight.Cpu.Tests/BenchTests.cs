@@ -180,6 +180,30 @@ public class BenchTests
         Report($"FusedDot {type} k={k}: {best * 1e9 / ((double)rows * k / 32):F3} ns per 32 values ({rows} rows, sum {sink:G3})");
     }
 
+    /// <summary>Single-thread time of unary kernels over 8192 values (L1-resident).</summary>
+    [Theory]
+    [InlineData("Silu"), InlineData("Tanh"), InlineData("Softplus"), InlineData("Mish"), InlineData("Erf"), InlineData("Gelu")]
+    public unsafe void UnaryKernelThroughput(string op)
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
+        const int Count = 8192;
+        var kind = Enum.Parse<UnaryKind>(op);
+        var x = Kit.Rand(Count, 3, 6f);
+        var y = new float[Count];
+        double best = double.MaxValue;
+        fixed (float* px = x, py = y)
+        {
+            for (int round = 0; round < 200; round++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                ScalarMath.Unary(kind, px, py, Count, 1, 0);
+                best = Math.Min(best, Stopwatch.GetElapsedTime(t0).TotalSeconds);
+            }
+        }
+
+        Report($"Unary {op}: {best * 1e6:F1} us per {Count} values");
+    }
+
     /// <summary>Cached attention (Qwen3-0.6B shape: 16 query heads, 8 KV heads, head size 128, f16 cache) after <paramref name="past"/> tokens.</summary>
     [Theory]
     [InlineData(1, 512), InlineData(1, 4096), InlineData(512, 0)]
