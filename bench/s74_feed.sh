@@ -5,7 +5,7 @@
 #   decode of one stream (Sharplight: the `--bench 512` decode; llama.cpp: tg128),
 #   decode at DEPTHS (Sharplight: BatchBench, one row of a two-slot paged decoder sized for one sequence, tokens fed back; llama.cpp: llama-bench tg64 at -d D),
 #   batched decode at SEQS sequences (Sharplight: BatchBench `--feedback`, GPU ms per step at depth BDEPTH; llama.cpp:
-#   llama-batched-bench -npp BDEPTH -ntg 64, S_TG).
+#   llama-batched-bench -npp BDEPTH -ntg 64, S_TG of the second pass).
 # Dense models compute the same work for any token id, so fixed and fed-back ids measure the same thing here; BatchBench feeds back anyway.
 # usage: s74_feed.sh <out dir> <name> <gguf> <cuda|vulkan> [sharplight|llama|both]
 # env: LENS ("512 2048 8192 32768"), DEPTHS ("32768"), SEQS ("16 64"), BDEPTH (256), BCTX (BDEPTH + 128), SL_ARGS, LLAMA_ARGS,
@@ -58,7 +58,8 @@ if [ -n "$SEQS" ]; then
   fi
   if [ "$WHICH" != sharplight ]; then
     # shellcheck disable=SC2086
-    llama llama-batched-bench -c $((maxseq * (BDEPTH + 64))) -b 2048 -ub 512 -npp "$BDEPTH" -ntg 64 -npl "1,$(echo $SEQS | tr ' ' ,)" $LLAMA_ARGS 2>&1 \
+    # The sequence counts twice: the first pass warms up (llama.cpp's Vulkan backend compiles pipelines for new shapes while timing).
+    llama llama-batched-bench -c $((maxseq * (BDEPTH + 64))) -b 2048 -ub 512 -npp "$BDEPTH" -ntg 64 -npl "1,$(echo $SEQS | tr ' ' ,),1,$(echo $SEQS | tr ' ' ,)" $LLAMA_ARGS 2>&1 \
       | grep -E '^\|[ ]+[0-9]|rror' >> "$L"
   fi
 fi

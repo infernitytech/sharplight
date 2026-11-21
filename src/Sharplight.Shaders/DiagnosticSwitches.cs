@@ -405,6 +405,9 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool AttentionWideRegisterSoftmax { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_WIDE");
 
+    /// <summary>False keeps causal sliding-window attention on <c>fa</c> instead of the causal <c>fe</c> (<c>SHARPLIGHT_ATTN_FE_WINDOW=0</c>).</summary>
+    public static bool AttentionCausalFlashWindow { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_WINDOW");
+
     /// <summary>True when tensor-core flash attention may be used.</summary>
     public static bool AttentionFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FA");
 

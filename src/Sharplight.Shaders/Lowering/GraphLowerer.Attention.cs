@@ -570,14 +570,15 @@ public sealed partial class GraphLowerer
     /// 128, unless <c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c> (its sums round differently from <c>fa</c>'s). RTX PRO 4500, pp2048 in
     /// 512-token chunks: Qwen3-0.6B Q8_0 +38 %, Qwen3-8B +7.5 %, Llama-3.2-1B +7 %, Mistral-7B +6 %. Multi-sequence steps run
     /// it per run (also in mixed steps), with the tiles of the single-sequence form, so a prompt's rows sum alike in the session
-    /// and the batch decoder (speculative decoding reproduces plain decoding). Windows, chunks, score biases, soft caps and
-    /// sinks keep <c>fa</c>.
+    /// and the batch decoder (speculative decoding reproduces plain decoding). Sliding windows run it too (its key loop starts at
+    /// the block's first window; <c>SHARPLIGHT_ATTN_FE_WINDOW=0</c> keeps them on <c>fa</c>: Gemma 4 31B on Vulkan, 50 window layers
+    /// at head size 256, pp2048: 1.84 → see docs/benchmarks.md section 74); chunks, score biases, soft caps and sinks keep <c>fa</c>.
     /// </summary>
     private bool CausalFlash(AttentionPlan plan)
     {
         var a = plan.Node.Attributes;
         bool plain = !plan.Full && (plan.Seq is null || plan.Runs is not null) && plan.Spans is null && plan.Sinks is null && plan.Selection is null
-                     && plan.Compressed is null && plan.RelativeBias is null && a.Get("causal", true) && a.Get("window", 0) == 0
+                     && plan.Compressed is null && plan.RelativeBias is null && a.Get("causal", true) && (a.Get("window", 0) == 0 || DiagnosticSwitches.AttentionCausalFlashWindow)
                      && a.Get("chunk", 0) == 0 && a.Get("softcap", 0f) <= 0 && a.Get<float[]?>("alibi_slopes", null) is null
                      && a.Get<float[]?>("position_bias", null) is null;
         return DiagnosticSwitches.AttentionCausalFlash && plain && FlashTileFits(plan) && !SmallFragments;
@@ -808,17 +809,29 @@ public sealed partial class GraphLowerer
         int[] cfg = DecodeConfig(_opt.Target, Math.Max(plan.D, plan.DV));
         long rowsPerBatch = cfg.Length > 3 ? cfg[3] : DecodeRowsPerBatch;
         long batch = rowsPerBatch * threads / keyLanes;
+        long subgroups = threads / sg;
+        // The subgroups' merged states take 4 bytes per head and value: wide heads take fewer heads per workgroup where they do not
+        // fit (Gemma 4's 512-wide global heads, 8 per KV head, in Vulkan's 48 KiB: 4 heads per workgroup).
+        long SharedBytes(long heads) => 4 * subgroups * heads * (2 + valueSlices * keyLanes * 8);
+        while (SharedBytes(headsPerGroup) > _opt.MaxSharedMemory && headsPerGroup > 1)
+        {
+            headsPerGroup--;
+            while (group % headsPerGroup != 0)
+            {
+                headsPerGroup--;
+            }
+        }
+
+        if (SharedBytes(headsPerGroup) > _opt.MaxSharedMemory)
+        {
+            return null;
+        }
+
         // Fewer than 8 workgroups per key range (few KV heads, e.g. Gemma-3-1B's single one): shorter ranges, so short
         // (sliding-window) contexts still spread over enough workgroups.
         long groups = plan.HKV * (group / headsPerGroup);
         long minKeysTarget = Math.Clamp(cfg[1] * groups / 8, 1, cfg[1]);
         long minKeys = Math.Max(batch, (minKeysTarget + batch - 1) / batch * batch);
-        long subgroups = threads / sg;
-        long sharedBytes = 4 * subgroups * headsPerGroup * (2 + valueSlices * keyLanes * 8);
-        if (sharedBytes > _opt.MaxSharedMemory)
-        {
-            return null;
-        }
 
         var q = plan.Q;
         long maxRows = plan.Seq is null ? SplitMaxRows : Math.Min(DecodeMaxSequenceRows, sliceRows);

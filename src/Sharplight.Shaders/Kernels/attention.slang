@@ -1383,9 +1383,11 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 // registers and its scores and probabilities only pass through its own shared slices (subgroup barriers). The workgroup shares
 // the K/V tiles of FE_BC keys, fetched into registers one tile ahead: two workgroup barriers per tile. FA_SPLIT: Q, K, V and P
 // in two f16 parts (three products each, near-f32 accuracy); otherwise single f16 products. SCALE multiplies the f32 scores; P
-// is scaled by 2^12 before its f16 conversion. Head sizes are zero-padded to 16 (D % 8 == DV % 8 == 0, padded sizes <= 128);
+// is scaled by 2^12 before its f16 conversion. Head sizes are zero-padded to 16 (D % 8 == DV % 8 == 0, padded sizes <= 128; with
+// FE_REG up to 512, FE_DS above 256);
 // 32-wide subgroups.
-// FE_CAUSAL (not FULL_ATTN; prefill against a KV cache): query t sees keys [0, n_past + t]; a block reads only the keys its
+// FE_CAUSAL (not FULL_ATTN; prefill against a KV cache): query t sees keys [0, n_past + t] (WINDOW: its last WINDOW of them, the
+// block's key loop starting at its first query's window); a block reads only the keys its
 // last query sees. One sequence: the blocks run longest first. MULTI_SEQ: grid z = runs (optionally paged, MIX_RUN).
 // FE_REG (not FA_SPLIT; DeviceFeatures.MatrixMmaLayout): the fragments hold their elements in the layout of the 16x8x16 MMA
 // instructions (lane l: rows l / 4 and l / 4 + 8, columns 2 (l % 4) + {0, 1, 8, 9}; accumulators and A operands alike), so
@@ -1708,7 +1710,7 @@ void fe_reg_tile(FeA qa[FE_NDW], inout FeC o[FE_NOW], inout float2 m2, inout flo
             uint hr = e >> 2, tq = tq0 + 8 * hr, j = j0 + kh * 16 + c2 + (e & 1) + 8 * ((e >> 1) & 1);
             float v = sc[kh][e] * SCALE;
 #if FE_CAUSAL
-            bool visible = tq < qT && j <= nPast + tq;
+            bool visible = tq < qT && j <= nPast + tq && (WINDOW == 0 || j + WINDOW > nPast + tq);
 #else
             bool visible = tq < qT && j < jStop;
 #endif
@@ -1798,6 +1800,10 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint ksplit = gid.z % FA_KSPLIT;
     uint kPer = ((L + FA_KSPLIT - 1) / FA_KSPLIT + FE_BC - 1) / FE_BC * FE_BC;
     uint jStart = min(L, ksplit * kPer), jStop = min(L, jStart + kPer);
+#if FE_CAUSAL && WINDOW
+    // Sliding window: the block's keys start at its first query's window (whole tiles, so the tiles match the unwindowed form's).
+    jStart = max(jStart, nPast + t0 + 1 > WINDOW ? (nPast + t0 + 1 - WINDOW) / FE_BC * FE_BC : 0);
+#endif
 
 #if FE_REG
     // The fragment layout FE_REG relies on, verified once (as in matmul_skinny's sk_direct_layout): a wrong detection gives NaN
@@ -1964,7 +1970,7 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             float sc = feS[sBase + row * FE_SS + c] * SCALE;
 #endif
 #if FE_CAUSAL
-            bool visible = rowValid && j <= nPast + tq;
+            bool visible = rowValid && j <= nPast + tq && (WINDOW == 0 || j + WINDOW > nPast + tq);
 #else
             bool visible = rowValid && j < jStop;
 #endif
