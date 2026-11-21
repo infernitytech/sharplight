@@ -76,6 +76,15 @@ internal sealed unsafe partial class CpuCompiledSegment
     {
         var a = n.Attributes;
         var ins = n.Inputs;
+        if (kind == RowKind.ReduceSum && ins.Length == 1 && RefF32(ins[0]) is { Rank: 3 } view && view.Strides[1] == 1 && view.Dims[2] > 1 && view.Strides[2] != 1)
+        {
+            // A sum over a non-innermost axis of the data (a permuted view): added as rows, without copying the view.
+            var sum = NewDense(n.Output);
+            AddStep(new AxisSumOp(view, sum), Touched(view, sum));
+            _refs[n.Output] = sum;
+            return;
+        }
+
         var x = RowContig(RefF32(ins[0]));
         TRef? weight = ins.Length > 1 ? RefF32(ins[1]) : null;
         TRef? bias = ins.Length > 2 ? RefF32(ins[2]) : null;

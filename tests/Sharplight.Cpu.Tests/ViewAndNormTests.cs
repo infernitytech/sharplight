@@ -272,4 +272,36 @@ public class ViewAndNormTests
         b += 0x7FFF + ((b >> 16) & 1);
         return BitConverter.UInt32BitsToSingle(b & 0xFFFF0000);
     }
+    /// <summary>ReduceSum over the slot axis of a permuted [T, k, H] tensor (the routed experts' sum) sums rows of the data in place.</summary>
+    [Theory]
+    [InlineData(1, 8, 3072)]
+    [InlineData(5, 4, 2883)]
+    [InlineData(3, 2, 7)]
+    public void SumOverPermutedSlots(int rows, int slots, int width)
+    {
+        var x = Kit.Rand(rows * slots * width, 11, 2f);
+        var tg = new TestGraph();
+        var xin = tg.InF("x", TestGraph.T, slots, width);
+        tg.B.Output("sum", tg.B.Emit1("ReduceSum", [tg.B.Permute(xin, 0, 2, 1)]));
+        using var m = Kit.Compile(tg.B.Build());
+        Kit.Set(m, xin, x);
+        var p = Kit.P(rows);
+        m.Run(p);
+        var expected = new float[rows * width];
+        for (int t = 0; t < rows; t++)
+        {
+            for (int h = 0; h < width; h++)
+            {
+                double sum = 0;
+                for (int s = 0; s < slots; s++)
+                {
+                    sum += x[(t * slots + s) * width + h];
+                }
+
+                expected[t * width + h] = (float)sum;
+            }
+        }
+
+        Kit.AssertClose(expected, Kit.Out(m, "sum", p), 1e-5, 1e-5);
+    }
 }
