@@ -34,8 +34,6 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     private readonly List<(BufferDecl Buffer, long ExpertBytes)> _sparseWeights = [];
     /// <summary>The mapped weight sources this segment imported (<see cref="VulkanDevice.HostImports"/>), released on dispose.</summary>
     private readonly List<nint> _imports = [];
-    /// <summary>Whether every expert bank of a sparse compilation is imported (see <see cref="CopiesAsynchronously"/>).</summary>
-    private readonly bool _banksImported = true;
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -212,6 +210,15 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
 
                 _sparse = SparseExpertLayout.Of(segment);
                 _sparseSelection = new SparseExpertSelection(_sparse.Experts, options.SparseExpertSlots);
+                // Import the banks' sources before allocating anything: drivers may refuse some memory (file mappings), and a sparse
+                // compilation that would copy through staging is not used.
+                foreach (var b in program.Buffers.Where(b => b.Kind == BufferKind.Weight && b.Weight is not null && !_sparse.Tables.Contains(b.Weight)))
+                {
+                    if (!TryImportSource(b))
+                    {
+                        throw new NotSupportedException($"Sparse expert streaming: the device does not import the mapped source of {b.Name}.");
+                    }
+                }
             }
 
             foreach (var b in program.Buffers)
@@ -219,7 +226,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 ulong size = (ulong)Math.Max(16, b.Bytes);
                 if (b.Kind == BufferKind.Weight && b.Weight is not null && _sparse is { } sparse && options.StateScope is { } sparseScope)
                 {
-                    bytes += AllocateSparseWeight(b, sparse, sparseScope, ref _banksImported);
+                    bytes += AllocateSparseWeight(b, sparse, sparseScope);
                     continue;
                 }
 
@@ -309,11 +316,11 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// Allocates a weight buffer of a sparse segment and imports its mapped source: an expert bank holds
     /// <see cref="CompileOptions.SparseExpertSlots"/> experts (shared with the model's other sparse segments on the device, by bank ordinal);
     /// a gathered per-expert table keeps all its rows, zeroed once: gathers clamp the ids to the table, so the ids of -1 (no expert) read
-    /// the rows past the slots, which stay zero. Returns the bytes newly allocated; clears <paramref name="banksImported"/> when a bank's
-    /// source could not be imported.
+    /// the rows past the slots, which stay zero. Returns the bytes newly allocated (the banks' sources are imported
+    /// before).
     /// </summary>
     /// <exception cref="NotSupportedException">The weight is repacked or not memory-mapped.</exception>
-    private long AllocateSparseWeight(BufferDecl b, SparseExpertLayout sparse, object scope, ref bool banksImported)
+    private long AllocateSparseWeight(BufferDecl b, SparseExpertLayout sparse, object scope)
     {
         nint source = b.Repack == WeightRepack.None && b.InitialData is null ? b.Weight!.Source.TryGetPointer() : 0;
         if (source == 0 || b.Bytes % sparse.Experts != 0 || b.Bytes != b.Weight!.ByteSize)
@@ -332,9 +339,9 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
             _dev.Immediate(cb => _dev.Api.vkCmdFillBuffer(cb, target.Buffer, target.Offset, size & ~3UL, 0));
         }
 
-        if (!TryImportSource(b) && !table)
+        if (table)
         {
-            banksImported = false;
+            TryImportSource(b);
         }
 
         return allocated ? (long)size : 0;
@@ -512,10 +519,6 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
 
     /// <inheritdoc />
     public bool WeightsResident { get; set; }
-
-    /// <inheritdoc />
-    /// <remarks>A sparse compilation copies asynchronously when the device imported the mapped sources of all its expert banks.</remarks>
-    public bool CopiesAsynchronously => _sparse is null || _banksImported;
 
     /// <summary>
     /// Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now unless they are <see cref="WeightsResident"/>.
