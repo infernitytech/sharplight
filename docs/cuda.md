@@ -732,7 +732,7 @@ its split partials in the last workgroup),
 submission),
 `SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2), `SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]`
 (`__launch_bounds__` for matching generated kernels, replacing the default one block per SM for the MoE skinny GEMMs; `none`: no bounds),
-`SHARPLIGHT_MULTI_GEMM=0` (no multi-output q / k / v GEMM), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
+`SHARPLIGHT_MULTI_GEMM=0` (no multi-output q / k / v GEMM; `SHARPLIGHT_MULTI_DEBUG=1` lists the groups emitted and skipped), `SHARPLIGHT_NORM_WIDE=0` (fused row norms of 4096+ values keep 256-thread blocks at decode-size steps instead of 1024, benchmarks.md §76.3), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
 `SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, benchmarks.md §61.4); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 

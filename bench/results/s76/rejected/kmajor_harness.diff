@@ -1,0 +1,49 @@
+--- bench/s56_moe/bench_moe.cu	2026-11-21 20:09:11.807269483 +0000
++++ bench_moe.cu	2026-11-21 20:37:58.000000000 +0000
+@@ -284,6 +284,25 @@
+                 wh[e * EXPERT_BYTES + g * 16 * ROW_BYTES + 16 * (K / 2) + i] = (unsigned char)(SCALE_BASE + hash((unsigned)(e * 7919 + g * 131 + i)) % 8);
+     unsigned char* dw = upload(wh);
+     const unsigned char* dw2 = dw + (size_t)N * ROW_BYTES;   // DUAL: the upper half of each expert's rows
++#if NM_KMAJOR
++    // K-major 16-row groups: [K / 64 steps][16 rows x 32 code bytes][2 blocks x 16 scales] (544 bytes per step).
++    std::vector<unsigned char> whk(wh.size());
++    for (size_t e = 0; e < E; e++)
++        for (size_t g = 0; g < NFULL / 16; g++)
++        {
++            const unsigned char* src = wh.data() + e * EXPERT_BYTES + g * 16 * ROW_BYTES;
++            unsigned char* dst = whk.data() + e * EXPERT_BYTES + g * 16 * ROW_BYTES;
++            for (size_t kb = 0; kb < K / 64; kb++)
++            {
++                for (size_t r = 0; r < 16; r++) memcpy(dst + kb * 544 + r * 32, src + r * (K / 2) + kb * 32, 32);
++                memcpy(dst + kb * 544 + 512, src + 16 * (K / 2) + kb * 32, 32);
++            }
++        }
++    unsigned char* dwk = upload(whk);
++#else
++    unsigned char* dwk = dw;
++#endif
++    const unsigned char* dwk2 = dwk + (size_t)N * ROW_BYTES;
+     std::vector<__half> xh((size_t)MAXITEMS * K);
+     for (size_t i = 0; i < xh.size(); i++) xh[i] = __float2half((int)(hash((unsigned)i * 3 + 1) % 2001 - 1000) / 1000.0f);
+     // Range words after the rows (all 0: unscaled), as the gather writes them.
+@@ -300,7 +319,7 @@
+ 
+     if (getenv("ROUTES"))
+     {
+-        return routes(getenv("ROUTES"), dx, dw, dw2, dscratch, y, dbias, flush, flushBytes, smemBytes);
++        return routes(getenv("ROUTES"), dx, dwk, dwk2, dscratch, y, dbias, flush, flushBytes, smemBytes);
+     }
+ 
+     int Ts[] = { 32, 64, 128, 171, 256, 512, 1024, 2048 };
+@@ -337,9 +356,9 @@
+         cudaMemcpy(dscratch, sc.data(), sc.size() * 4, cudaMemcpyHostToDevice);
+         int items = T * S;
+         NmParams p;
+-        p.x = dx; p.w = dw;
++        p.x = dx; p.w = dwk;
+ #if DUAL
+-        p.w2 = dw2;
++        p.w2 = dwk2;
+ #endif
+         p.scratch = dscratch; p.y = y; p.T = T;
+ #if BIAS && DUAL

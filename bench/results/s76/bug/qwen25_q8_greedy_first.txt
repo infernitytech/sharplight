@@ -1,0 +1,10 @@
+[lock acquired 21:20:54]
+qwen2.5-1.5b-instruct-q8_0 cuda p40 base rc=0 5644359b
+qwen2.5-1.5b-instruct-q8_0 cuda p1000 base rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 vulkan p40 base rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 vulkan p1000 base rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 cuda p40 new rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 cuda p1000 new rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 vulkan p40 new rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 vulkan p1000 new rc=0 b9666631
+[lock released 21:21:47 rc=0]

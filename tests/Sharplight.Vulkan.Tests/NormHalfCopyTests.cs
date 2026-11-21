@@ -71,4 +71,34 @@ public sealed class NormHalfCopyTests
         Diff.Check("NormPrefillCopy", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (r, Rnd.F((long)t * K, 4))), atol: 2e-2, rtol: 2e-2,
             maxTokens: 320, what: $"{fmt} T={t} keepNorm={keepNorm}");
     }
+
+    /// <summary>
+    /// Residual add + norm of 4096-value rows (the 1024-thread norm of decode-size steps on CUDA, the 256-thread one above one wave of
+    /// rows and on Vulkan) writing E4M3 rows, q8_1 rows (Q8_0 int-dot readers) or the f16 copy, at single-row, decode and prefill sizes.
+    /// </summary>
+    [Theory]
+    [InlineData("f8e4m3_b128", 1)]
+    [InlineData("f8e4m3_b128", 40)]
+    [InlineData("f8e4m3_b128", 64)]
+    [InlineData("f8e4m3_b128", 130)]
+    [InlineData("q8_0", 1)]
+    [InlineData("q8_0", 16)]
+    [InlineData("bf16", 64)]
+    public void WideRowsNormThenGemms(string fmt, int t)
+    {
+        const int K = 4096;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var r = tg.InF("r", TG.T, K);
+        var sum = tg.B.Add(x, r);
+        var n = tg.B.RmsNorm(sum, tg.RandW("nw", DataType.F32, 1f, K), 1e-6f);
+        var type = DataType.Get(fmt);
+        tg.B.Output("s", sum);
+        tg.B.Output("y", tg.B.MatMul(n, tg.RandW("w", type, 0.05f, 1024, K)));
+        var g = tg.B.MatMul(n, tg.RandW("wg", type, 0.05f, 1024, K));
+        var u = tg.B.MatMul(n, tg.RandW("wu", type, 0.05f, 1024, K));
+        tg.B.Output("h", tg.B.Mul(tg.B.Silu(g), u));
+        Diff.Check("NormWideRows", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (r, Rnd.F((long)t * K, 4))), atol: 4e-2, rtol: 2e-2,
+            maxTokens: 160, what: $"{fmt} T={t}");
+    }
 }
