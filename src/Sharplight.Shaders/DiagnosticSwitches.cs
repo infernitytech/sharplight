@@ -280,6 +280,9 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static int NativeAttention { get; } = Read("SHARPLIGHT_NATIVE_ATTN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : 1;
 
+    /// <summary><c>SHARPLIGHT_NATIVE_DECODE=0</c>: split-K decode attention stays on the generated <c>decode</c> kernel instead of <c>attn_decode_native.cu</c>.</summary>
+    public static bool NativeDecodeAttention { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE");
+
     /// <summary>
     /// <c>SHARPLIGHT_FP8_TALL_COST</c>: time of a 128-row block of the hand-written FP8 GEMM relative to a 64-row one in its tile
     /// choice, or null for the default.
