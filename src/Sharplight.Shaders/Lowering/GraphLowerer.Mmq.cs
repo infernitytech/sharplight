@@ -54,12 +54,14 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Activation rows from which the fp8 GEMM serves a matmul: from 17 rows (above the skinny GEMM) its E4M3 operands read the
     /// weights at about the 1-row matvec's speed, ahead of gemm_cm2 on f16-decoded weights (Blackwell, FP8 [5120→17408] at
-    /// 64 rows: 80 vs 116 µs).
+    /// 64 rows: 80 vs 116 µs). With the hand-written FP8 GEMM's decode form, from <see cref="NativeFp8DecodeMinRows"/> rows: its
+    /// 32-row token tiles beat the skinny GEMM at 9-16 rows (Qwen3-8B-FP8 decode steps, RTX PRO 4500: 12 sequences 13.06-13.18 →
+    /// 12.44-12.52 GPU ms, 16: 13.53-13.69 → 12.91-12.95; 8 unchanged).
     /// </summary>
-    private static long Fp8GemmMinRows => DiagnosticSwitches.Fp8GemmMinRows ?? 17;
+    private long Fp8GemmMinRows => DiagnosticSwitches.Fp8GemmMinRows ?? (NativeGemmFp8 && NativeFp8DecodeColumns != NativeFp8Tile ? NativeFp8DecodeMinRows : 17);
 
     /// <summary>First row count served by the 8-bit GEMM with activations encoded as <paramref name="code"/>.</summary>
-    private static long QuantizedGemmMinRows(ActivationCode code) => code == ActivationCode.Fp8 ? Fp8GemmMinRows : MmqMinRows;
+    private long QuantizedGemmMinRows(ActivationCode code) => code == ActivationCode.Fp8 ? Fp8GemmMinRows : MmqMinRows;
 
     /// <summary>
     /// K values staged per step of the int8 GEMM: the largest of 128, 64 and 32 dividing K (longer steps amortize the

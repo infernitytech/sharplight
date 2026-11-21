@@ -163,7 +163,8 @@ public sealed partial class GraphLowerer
         }).ToList();
         if (decodeForm)
         {
-            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)), rows));
+            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) > NativeFp8ShortTileMaxRows, rows));
+            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 32, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) <= NativeFp8ShortTileMaxRows, rows));
         }
 
         return [.. variants];
@@ -179,11 +180,20 @@ public sealed partial class GraphLowerer
     private static int NativeFp8DecodeColumns => DiagnosticSwitches.NativeFp8DecodeColumns ?? 64;
 
     /// <summary>
-    /// Rows from which the hand-written FP8 GEMM's decode form (<see cref="NativeFp8DecodeColumns"/>) serves: below, the generated fp8
-    /// GEMM's K split fills the GPU better. RTX PRO 4500, Qwen3-8B-FP8 decode steps (GPU ms, decode form off → on): 24 sequences 14.22 →
-    /// 14.61, 32: 14.90 → 14.71, 48: 16.32 → 15.65, 64: 17.53 → 16.77.
+    /// Rows from which the hand-written FP8 GEMM's decode form (<see cref="NativeFp8DecodeColumns"/>) serves: below, the skinny GEMM.
+    /// RTX PRO 4500, Qwen3-8B-FP8 decode steps (GPU ms): with 64-row token tiles from 32 rows (§63-67) 24 sequences 14.22 → 14.61
+    /// (from 17 rows), 32: 14.90 → 14.71; with the 32-row token tiles (<see cref="NativeFp8ShortTileMaxRows"/>) from 9 rows, against
+    /// the skinny GEMM and the generated fp8 GEMM's K split: 12 sequences 13.06-13.18 → 12.44-12.52, 16: 13.53-13.69 → 12.91-12.95,
+    /// 20: 13.98 → 12.97, 24: 14.15-14.18 → 13.17-13.18 (with the q / k / v multi-output form), 32: 14.74-14.78 → 13.77-13.78.
     /// </summary>
-    private const long NativeFp8DecodeMinRows = 32;
+    private const long NativeFp8DecodeMinRows = 9;
+
+    /// <summary>
+    /// Most rows the hand-written FP8 GEMM's decode form runs on 32-row token tiles (three stages, 38 KB: two blocks per SM) instead of
+    /// 64-row tiles. bench/s57_gemm at 16 / 32 rows (µs, after an L2 flush, 64-row → 32-row token tiles): [4096 → 4096] 41 / 35 → 29 / 29,
+    /// gate / up [4096 → 2 x 12288] 170 / 162 → 141 / 143, down [12288 → 4096] 92 / 84 → 84 / 82.
+    /// </summary>
+    private const long NativeFp8ShortTileMaxRows = 32;
 
     /// <summary>
     /// Rows from which the hand-written FP8 GEMM serves a matmul: from <see cref="NativeFp8DecodeMinRows"/> on its decode form when
