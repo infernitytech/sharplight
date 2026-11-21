@@ -1,0 +1,4 @@
+[lock acquired 22:56:01]
+cuda    Sharplight.Vulkan.Tests  Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 14.289s
+vulkan    Sharplight.Vulkan.Tests  Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 16.102s
+[lock released 22:56:34 rc=0]

@@ -1,0 +1,51 @@
+[lock acquired 21:51:38]
+UNFIXED
+== cuda
+      1 [0m[37m      [0m[37m      MatMul(f16) q/k/v/router + bias 2880->1024+128+128 step 2 output q[0]: vulkan -0.208539084 vs cpu -0.0975409299 (|d|=1.11E-001, tol=2.20E-003)
+      1 [0m[37m      [0m[37m      MatMul(f16) q/k/v/router + bias 2880->4096+512+512 step 3 output q[0]: vulkan -0.20691818 vs cpu -0.0949500203 (|d|=1.12E-001, tol=2.19E-003)
+      1 [0m[37m      [0m[37m      MatMul(q4_k) q/k/v/router + bias 3584->3584+512+512 step 2 output q[0]: vulkan 0.16584526 vs cpu 1.18365252 (|d|=1.02E+000, tol=1.31E-001)
+      1 [0m[37m      [0m[37m      MatMul(q8_0) q/k/v/router + bias 1536->1536+256+256 step 2 output q[0]: vulkan 0.238801807 vs cpu 0.771849751 (|d|=5.33E-001, tol=1.06E-001)
+      1 [0m[37m      [0m[37m      MatMul(q8_0) q/k/v/router + bias 2880->4096+512+512 step 3 output q[0]: vulkan -0.0435644984 vs cpu -0.545534968 (|d|=5.02E-001, tol=9.27E-002)
+      1 [0m[37m      [0m[37m      MatMul(q8_0) q/k/v/router + bias 3584->3584+512+512 step 2 output q[0]: vulkan 0.16584526 vs cpu 0.441086888 (|d|=2.75E-001, tol=8.65E-002)
+      1 [0m[37m      [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 6, Skipped: 0, Not Run: 0, Time: 6.825s
+      1 [0m[37m      [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "f16", k: 2880, qWidth: 1024, kvWidth: 128) [FAIL]
+      1 [0m[37m      [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "f16", k: 2880, qWidth: 4096, kvWidth: 512) [FAIL]
+      1 [0m[37m      [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q4_k", k: 3584, qWidth: 3584, kvWidth: 512) [FAIL]
+      1 [0m[37m      [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q8_0", k: 1536, qWidth: 1536, kvWidth: 256) [FAIL]
+      1 [0m[37m      [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q8_0", k: 2880, qWidth: 4096, kvWidth: 512) [FAIL]
+      1 [0m[37m      [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q8_0", k: 3584, qWidth: 3584, kvWidth: 512) [FAIL]
+      1 [0m[37m      MatMul(q4_k) q/k/v/router + bias 3584->3584+512+512 step 2 output q[0]: vulkan 0.16584526 vs cpu 1.18365252 (|d|=1.02E+000, tol=1.31E-001)
+      1 [0m[37m      MatMul(q8_0) q/k/v/router + bias 1536->1536+256+256 step 2 output q[0]: vulkan 0.238801807 vs cpu 0.771849751 (|d|=5.33E-001, tol=1.06E-001)
+      1 [0m[37m      MatMul(q8_0) q/k/v/router + bias 2880->4096+512+512 step 3 output q[0]: vulkan -0.0435644984 vs cpu -0.545534968 (|d|=5.02E-001, tol=9.27E-002)
+      1 [0m[37m      MatMul(q8_0) q/k/v/router + bias 3584->3584+512+512 step 2 output q[0]: vulkan 0.16584526 vs cpu 0.441086888 (|d|=2.75E-001, tol=8.65E-002)
+      2 [0m[37m      multi-output GEMM of matmul_1, matmul_3, matmul_7 not emitted: members differ (kernel, bias, activations, weights or output layout)
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 5, Skipped: 0, Not Run: 0, Time: 40.750s
+      1 [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q4_k", k: 3584, qWidth: 3584, kvWidth: 512) [FAIL]
+      1 [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q8_0", k: 1536, qWidth: 1536, kvWidth: 256) [FAIL]
+      1 [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q8_0", k: 2880, qWidth: 4096, kvWidth: 512) [FAIL]
+      1 [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "q8_0", k: 3584, qWidth: 3584, kvWidth: 512) [FAIL]
+      1 [0mmulti-output GEMM of matmul_1, matmul_3, matmul_7 not emitted: members differ (kernel, bias, activations, weights or output layout)
+      1 [91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiasesSeparateEpilogue [FAIL]
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_7 not emitted: members differ (kernel, bias, activations, weights or output layout)
+== vulkan
+      1 [0m[37m      [0m[37m      MatMul(f8e4m3_b128) q/k/v/router + bias 3584->3584+512+512 step 3 output q[0]: vulkan -0.120498106 vs cpu 0.215741038 (|d|=3.36E-001, tol=1.61E-001)
+      1 [0m[37m      [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 9.487s
+      1 [0m[37m      [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "f8e4m3_b128", k: 3584, qWidth: 3584, kvWidth: 512) [FAIL]
+      1 [0m[37m      MatMul(f8e4m3_b128) q/k/v/router + bias 3584->3584+512+512 step 3 output q[6]: vulkan -0.412461221 vs cpu -0.145552635 (|d|=2.67E-001, tol=1.57E-001)
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 2, Skipped: 0, Not Run: 0, Time: 34.078s
+      1 [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "f8e4m3_b128", k: 3584, qWidth: 3584, kvWidth: 512) [FAIL]
+      1 [0m[91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiasesSeparateEpilogue [FAIL]
+FIXED
+== cuda
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.760s
+      1 [0mmulti-output GEMM of matmul_1, matmul_3, matmul_7 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+      3 multi-output GEMM of matmul_1, matmul_3, matmul_7 (gemm_cm2, bias False): splits (32, 4) (64, 4) (128, 2) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_7 (gemm_cm2, bias False): splits (32, 4) (64, 4) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_7 (gemm_cm2, bias True): splits (32, 8) (64, 8) (128, 8)
+      2 multi-output GEMM of matmul_1, matmul_3, matmul_7 not emitted: members differ (kernel, bias, activations, weights or output layout)
+== vulkan
+      1 [0m[37m      MatMul(f8e4m3_b128) q/k/v/router + bias 3584->3584+512+512 step 3 output q[6]: vulkan -0.412461221 vs cpu -0.145552635 (|d|=2.67E-001, tol=1.57E-001)
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 17.296s
+      1 [0mmulti-output GEMM of matmul_1, matmul_3, matmul_7 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      1 [91m    Sharplight.Vulkan.Tests.MatMulEpilogueTests.ProjectionBiases(type: "f8e4m3_b128", k: 3584, qWidth: 3584, kvWidth: 512) [FAIL]
+[lock released 21:53:19 rc=0]

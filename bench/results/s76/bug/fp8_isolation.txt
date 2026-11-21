@@ -1,0 +1,18 @@
+[lock acquired 21:59:25]
+r25-unfixed-bin3 vulkan X=1: [0m[37m      MatMul(f8e4m3_b128) q/k/v/router + bias 3584->3584+512+512 step 3 output q[6]: vulkan -0.412461221 vs cpu -0.145552635 (|d|=2.67E-001, tol=1.57E-001) [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 6.970s 
+r25-unfixed-bin3 vulkan SHARPLIGHT_MULTI_GEMM=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.911s 
+r25-unfixed-bin3 vulkan SHARPLIGHT_NORM_PREFILL_COPY=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.208s 
+r25-unfixed-bin3 vulkan SHARPLIGHT_SPLITK_FUSED=0: [0m[37m      MatMul(f8e4m3_b128) q/k/v/router + bias 3584->3584+512+512 step 3 output q[6]: vulkan -0.412461221 vs cpu -0.145552635 (|d|=2.67E-001, tol=1.57E-001) [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 6.912s 
+r25-unfixed-bin3 cuda X=1: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 4, Skipped: 0, Not Run: 0, Time: 2.391s 
+r25-unfixed-bin3 cuda SHARPLIGHT_MULTI_GEMM=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.319s 
+r25-unfixed-bin3 cuda SHARPLIGHT_NORM_PREFILL_COPY=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 4, Skipped: 0, Not Run: 0, Time: 4.881s 
+r25-unfixed-bin3 cuda SHARPLIGHT_SPLITK_FUSED=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 4, Skipped: 0, Not Run: 0, Time: 2.140s 
+r25-fixed-bin3 vulkan X=1: [0m[37m      MatMul(f8e4m3_b128) q/k/v/router + bias 3584->3584+512+512 step 3 output q[6]: vulkan -0.412461221 vs cpu -0.145552635 (|d|=2.67E-001, tol=1.57E-001) [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 6.821s 
+r25-fixed-bin3 vulkan SHARPLIGHT_MULTI_GEMM=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.799s 
+r25-fixed-bin3 vulkan SHARPLIGHT_NORM_PREFILL_COPY=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.766s 
+r25-fixed-bin3 vulkan SHARPLIGHT_SPLITK_FUSED=0: [0m[37m      MatMul(f8e4m3_b128) q/k/v/router + bias 3584->3584+512+512 step 3 output q[6]: vulkan -0.412461221 vs cpu -0.145552635 (|d|=2.67E-001, tol=1.57E-001) [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 6.997s 
+r25-fixed-bin3 cuda X=1: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.463s 
+r25-fixed-bin3 cuda SHARPLIGHT_MULTI_GEMM=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.280s 
+r25-fixed-bin3 cuda SHARPLIGHT_NORM_PREFILL_COPY=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.357s 
+r25-fixed-bin3 cuda SHARPLIGHT_SPLITK_FUSED=0: [0m[37m   Sharplight.Vulkan.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.697s 
+[lock released 22:00:55 rc=0]

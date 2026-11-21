@@ -11053,3 +11053,150 @@ BB=bench/BatchBench/bin/Release/net11.0/BatchBench
 $BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 20 --text   # and --feedback
 sharplight ~/models/hf/gpt-oss-20b --provider cuda -n 120 -p "Write a detailed essay about the role of water and power in modern history. Explain the history, give concrete examples and discuss open questions."
 ```
+
+## 76. LLM round 25: the separate matmul epilogue's root cause (q / k / v biases read before the multi-output GEMM wrote them); wide row norms for decode steps; a K-major expert weight layout measured (2026-11-21)
+
+Branch `perf/llm-r25` (base `develop` at `bae54776`, `2a6c6611` with perf/feed-r1 merged before the final hold). GPU 0 of the RunPod
+machine (RTX PRO 4500 Blackwell, 82 SMs, 200 W cap), shared with perf/feed-r1: every timed run held the verify lock, `develop` and this
+round alternated in the same hold, vLLM 0.33.0 (§56's CUDA build) profiled inside it. Raw output in [`bench/results/s76/`](../bench/results/s76).
+
+### 76.1 Root cause of §75's gpt-oss-20b garbage: the separate epilogue launch ran before the multi-output GEMM
+
+A matmul whose epilogue (a bias row) is not applied in its own split-K reduction gets it as an elementwise launch emitted right after the
+matmul's launches (`GraphLowerer.LowerMatMul`). q / k / v projections that read the same rows also form a multi-output group
+(`GraphLowerer.MultiGemm.cs`): each member is lowered on its own, and the group's one GEMM over the concatenated weights, which serves
+9-256 rows in place of the members' split launches, is emitted **after the group's last member**. For those batches the members' bias
+adds therefore read their products before the multi-output GEMM wrote them (left-over values of an earlier launch), and nothing in the
+recorded hazards could reorder them: the add precedes the write in program order. Before `572eeb80` every f16 / bf16 bias was applied in
+the reduction (the multi-output GEMM's `MULTI_BIAS` store), so only paths without a fused bias hit it:
+
+| path | weights | providers | on `develop` |
+|---|---|---|---|
+| int-dot weights (since `572eeb80` their epilogues run as their own launch; the gemm_cm2 multi-output GEMM is CUDA-only) | Q8_0, K-quants, ... | CUDA | **broken**: Qwen2.5 0.5B-7B GGUF, gpt-oss-20b Q4_K_M GGUF (all in the verified catalog), any GGUF model with separate biased q / k / v |
+| the fp8 GEMM's batches (its multi-output form has no bias store; the member's reduction epilogue does not cover them) | E4M3 | CUDA and Vulkan | **broken** for FP8 checkpoints with q / k / v biases (none verified) |
+| f16 / bf16 with `SHARPLIGHT_SPLITK_EPILOGUE=0` or `SHARPLIGHT_NO_MATMUL_EPILOGUE=1` | f16 / bf16 | CUDA | broken (the switch paths); gpt-oss-20b on `572eeb80` |
+
+Evidence (`bug/`): gpt-oss-20b (safetensors) on `develop` with `SHARPLIGHT_SPLITK_EPILOGUE=0` gives §75's garbage ("I, given that the
+pathwise values ..."), with `SHARPLIGHT_MULTI_GEMM=0` as well it is correct, and this round's build with `SHARPLIGHT_SPLITK_EPILOGUE=0`
+gives the default text. Greedy, CUDA, the ~40-word prompt: Qwen2.5-1.5B-Instruct Q8_0 "-vehicle-ase-los-los-los ..." → the Vulkan text
+byte for byte; Qwen2.5-7B-Instruct Q4_K_M "pione g but with a change in perspective ..." → "Water and power have played a significant
+role ..."; gpt-oss-20b Q4_K_M "!!!!!!!!..." → a coherent continuation. The ~1000-token prompt was correct before too (its prefill rows are
+above the multi-output GEMM's 256) and is unchanged.
+
+**Fix** (`LowerSeparateEpilogue`): the separate epilogue launch of a multi-output group's member runs, for the bindings the group's GEMM
+serves, as a launch emitted right after that GEMM (`MultiGemmGroup.AfterEmit`); other bindings keep their launch in place, so batches the
+GEMM does not serve, and every model whose biases were fused, run the same launches in the same order as before. Both separate paths (no
+reduction epilogue; bindings the reduction did not cover, e.g. the fp8 GEMM's) use it. 8f4a8727's fusion for f16 / bf16 weights stays (it
+is the faster form), and int-dot weights keep their own bias launch (now after the GEMM).
+
+**Why §75's test passed on the broken build:** `MatMulEpilogueTests.HalfWeightsBias` read the graph's input directly, which lives
+outside the activation arena, so each projection made its own f16 copy and the multi-output group was skipped ("members differ"); and its
+biases were constants, not weights, so no bias unit formed. `ProjectionBiases` (replacing it) reads a norm's rows with weight biases, in
+gpt-oss-20b, Qwen2.5-1.5B and Qwen2.5-7B shapes, f16 / Q8_0 / Q4_K / FP8 weights, 1-300 rows; `ProjectionBiasesSeparateEpilogue` reruns
+it with `SHARPLIGHT_SPLITK_EPILOGUE=0`. On `develop` (`bug/projection_biases_develop_vs_fix.txt`): CUDA Q8_0 x3, Q4_K and both f16
+shapes with the switch fail (q off by 0.1-1.0), Vulkan FP8 fails; this round: 13 / 13 on both providers. `SHARPLIGHT_MULTI_DEBUG=1` now
+also lists the groups emitted.
+
+### 76.2 Against vLLM (final hold, `develop` = `2a6c6611`)
+
+| benchmark (CUDA) | `develop` | this round | vLLM | ours / vLLM (before → after) |
+|---|---:|---:|---:|---:|
+| gpt-oss-20b decode step, 64 sequences, `--text` (GPU ms; vLLM's `--words` profile, steps 6-61, + 1.6 ms LM head and sampling, §64) | 17.39 / 17.54 | 17.39 / 17.40 | 15.48 + 1.6 = 17.08 | 0.98 → 0.98 |
+| gpt-oss-20b decode step, 64 sequences, `--feedback` | 15.74 / 16.12 | 16.14 / 16.10 | 16.3 (§64) | 1.01 → 1.01 |
+| gpt-oss-20b decode step, 1 / 16 sequences, `--text` | 5.16-5.17 / 12.19-12.21 | 5.15-5.17 / 12.16-12.22 | | |
+| Qwen3-8B-FP8 decode step, 64 sequences, `--text` | 15.85 / 15.85 | **15.67 / 15.59** | 14.07 + 1.55 = 15.62 | 0.99 → **1.00** |
+| Qwen3-8B-FP8 decode step, 1 / 16 sequences, `--text` | 10.96 / 12.59-12.62 | 10.96 / 12.59-12.62 | | |
+| long-context points (gpt-oss-20b 16K-128K prefill, 32K / 128K decode) | not re-measured: no code path of gpt-oss-20b changed (its 2880-wide norms keep 256 threads) | | | §75: 0.97-1.02, 1.00 / 1.06, 1.00 / 0.93 |
+
+* BatchBench `--slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 20`, GPU ms (min of 20), two alternated pairs
+  (`final/steps1`: develop then this round, `final/steps2`: the reverse) with the vLLM profiles between them (`final/vllm/`,
+  `s54_vllm_decode_profile.py --seqs 64 --words --skip 5`). `develop`'s first gpt-oss `--feedback` value (15.74) is one fast minimum
+  (wall 16.16 / 16.57, the other three runs 16.10-16.14).
+* perf/feed-r1's concurrent graph branches are in both builds; Qwen3-8B-FP8's step moved from §75's 15.93 to 15.85 with them.
+
+### 76.3 Wide row norms for decode steps
+
+The fused Add + RmsNorm (+ E4M3 rows) launch runs one 256-thread workgroup per row: at a 64-sequence step, 64 workgroups on 82 SMs, each
+thread holding 16 values of a 4096-wide row, so the launch's time is one row's latency (load, block reduction, normalized row through
+shared memory, E4M3 quantization). With 1024 threads (four values each) the phases are 4x shorter per thread. Lowering: on targets that
+compile CUDA C++ (every CUDA device runs 1024-thread blocks; Vulkan only guarantees 256 invocations, so it keeps 256), rows of 4096
+values and more, steps of at most `ComputeUnits` rows (one wave) take the 1024-thread kernel, larger steps the 256-thread one
+(`SHARPLIGHT_NORM_WIDE=0` turns it off, `SHARPLIGHT_NORM_THREADS=n` sets every norm's width for experiments). Profiles
+(`profiles/`, two runs each, 64 sequences, 20 steps): Qwen3-8B-FP8's fused norms 10.84-10.89 → 9.54-9.55 ms, step 15.73 → 15.53-15.55 ms
+in profile mode; gpt-oss-20b's 2880-wide norms at 1024 threads 2.89-2.99 → 2.99-3.05 ms (slower, so they keep 256). Greedy text
+byte-identical on CUDA (76.5): the norm's sum of squares is a different order of the same f32 additions, which on these prompts changes
+no token.
+
+The other Qwen3 small-launch levers of §75.6 measured or checked: the norm already skips its f32 normalized rows at 17+ rows when every
+reader takes the E4M3 copy (all 72 norms of Qwen3-8B-FP8 take the skip variant: `ReadersUseCopy` is true for each), so §75.4's "f32 rows
+out" was the residual sum only; q / k norm + rope (two `rope_row` launches and a cache write per layer, 0.53 ms per step) and the o / down
+input quantization in their producers (0.37 ms) are not done.
+
+### 76.4 A K-major expert weight layout with bulk L2 prefetches (lever 1 of §75.6), measured and not kept
+
+Marlin reads a repacked weight layout in contiguous blocks with a deep prefetch. In the harness (`bench/s56_moe`, sustained replay of
+§73.3, 24 layer copies, ms per layer, two rounds, `harness/kmajor_bulk_prefetch.txt`; `rejected/kmajor_*.diff`), each 16-row MXFP4 group
+is stored K-step-major ([K / 64 steps][16 rows x 32 code bytes][32 scale bytes], 544 contiguous bytes per step instead of 16 rows 1440
+bytes apart), so a stage's codes are 8 (gate / up) or 12 (down) contiguous 512-byte runs; optionally one thread per group issues
+`cp.async.bulk.prefetch.L2` of the group's step `kb + D` (`NM_BPF=D`, `NM_BPF_N` steps at once). Products identical to the reference
+(same maxima as `develop`'s layout).
+
+| variant | gate / up, vLLM routing | down, vLLM routing | gate / up, our routing | down, our routing |
+|---|---:|---:|---:|---:|
+| `develop` layout, 256-byte hints | 0.3389-0.3405 | 0.1737-0.1746 | 0.3393-0.3411 | 0.1720-0.1733 |
+| K-major, 256-byte hints | 0.3433-0.3435 | 0.1818-0.1820 | 0.3680-0.3683 | 0.1897 |
+| K-major + bulk prefetch 4 steps ahead | 0.3499-0.3500 | 0.1812 | 0.3608-0.3662 | 0.1816-0.1821 |
+| K-major + bulk prefetch 8 ahead, 4 steps per prefetch | 0.3495-0.3504 | 0.1848-0.1849 | 0.3610-0.3644 | 0.1887-0.1891 |
+| K-major + bulk prefetch 4 ahead, no hints | 0.3503-0.3505 | 0.1812-0.1816 | 0.3605-0.3636 | 0.1816-0.1841 |
+
+Every K-major form is slower (1-8 %). The current layout's 256-byte hint on each row's 32-byte copy fetches the row's next seven K steps,
+a prefetch depth of eight steps on every row for free; the K-major layout puts the next steps 544 bytes away, where the hint no longer
+reaches, and one bulk prefetch per group and step (issued by 8-12 threads) does not replace it. So the remaining per-byte gap to Marlin
+is not its layout as such; candidates are its larger blocks (up to 64 rows of an expert per pass, §75.3) and the clock it holds at the
+power limit (§73.2).
+
+### 76.5 Correctness and tests
+
+* Greedy text, 120 tokens, the ~40-word prompt of §65 and a ~1000-token prompt, `develop` (`2a6c6611`) against this round (`greedy/`):
+  gpt-oss-20b and Qwen3-8B-FP8 byte-identical on CUDA and on Vulkan, both prompts; Qwen2.5-1.5B-Instruct Q8_0 byte-identical on
+  Vulkan, and on CUDA repaired to the Vulkan text (~40 words) / identical (~1000 tokens); Qwen2.5-7B Q4_K_M and gpt-oss-20b Q4_K_M on
+  CUDA repaired (~40 words) / identical (~1000 tokens).
+* Sharplight.Cuda.Tests: 43 / 0 failed / 1 skipped (cuBLASLt). Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan
+  providers: MatMulEpilogue 13, Fusion 97, NormHalfCopy 16, Norm 10, Fp8Gemm 31, QuantFormat 197, RowInvariance 77, MatMul 164,
+  SkinnyGemm 42, Moe 119, Mmq 48, DualGemm 13, SplitHalfGemm 15, F16Range 22, StreamedExperts 5: 869 / 0 failed on each provider
+  (`tests/tests.txt`); NormHalfCopy again with the new `WideRowsNormThenGemms` (4096-value rows, 1-130 rows, E4M3 / q8_1 / f16
+  copies): 23 / 0 failed on each.
+
+### 76.6 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b decode step, 64 sequences (`--text` / `--feedback`) | 0.98 / 1.01 | expert GEMMs (~12.3 ms against Marlin's 11.5; per weight byte Marlin ~10 % ahead, not by its layout, 76.4) |
+| Qwen3-8B-FP8 decode step, 64 sequences | 1.00 | q / k norm + rope and v cache write (0.53 ms, three launches per layer), the o / down inputs' quantization (0.37 ms) |
+| gpt-oss-20b long prefill 16K-128K, decode at depth | §75: 0.97-1.02; 1.00 / 1.06 (32K), 1.00 / 0.93 (128K, 4 streams) | 4 x 128K: 16-row expert GEMMs and the LM head |
+| gpt-oss-20b / Qwen3-8B-FP8 serving 16 / 64 streams | §72: 0.95 / 0.92, 0.94 / 0.93 | prompt waves on full expert tiles, decode steps |
+
+Ranked levers:
+
+1. **Long-context 4-stream decode at 128K (0.93x)**: the 16-row expert GEMMs on fed-back routing and the LM head per step.
+2. **Qwen3 small launches**: q / k norm + rope (and the v cache write) in one launch per layer; the o / down inputs' E4M3 rows written
+   by their producers (attention's combine, the gate / up epilogue).
+3. **The expert GEMM's per-byte efficiency against Marlin**: not the layout (76.4); try Marlin's own blocking (one pass over up to 64 rows
+   of an expert, two launches by tile height, §75.3) with energy per token from the sampler, and its clock behaviour.
+4. **Int-dot q / k / v biases in the multi-output GEMM's store** (now a separate launch after it; Qwen2.5 GGUF batched decode).
+5. **Fused combine in `attn_decode_native.cu`**; **head size 128 prefill attention** (Qwen3 128K 0.94x).
+
+### 76.7 Reproduce
+
+```bash
+# the bug: develop with the separate path forced (garbage), the multi-output GEMM off (correct), this round with the separate path
+SHARPLIGHT_SPLITK_EPILOGUE=0 sharplight ~/models/hf/gpt-oss-20b --provider cuda -n 60 -p "Write a detailed essay about ..."
+SHARPLIGHT_SPLITK_EPILOGUE=0 SHARPLIGHT_MULTI_GEMM=0 sharplight ~/models/hf/gpt-oss-20b --provider cuda -n 60 -p "..."
+sharplight qwen2.5-1.5b-instruct-q8_0.gguf --provider cuda -n 120 -p "Write a detailed essay about ..."
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class "Sharplight.Vulkan.Tests.MatMulEpilogueTests"
+# wide norms: SHARPLIGHT_NORM_WIDE=0 for the 256-thread form
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 20 --text
+# K-major harness: patch bench/s56_moe/bench_moe.cu and a copy of gemm_moe_native.cu with bench/results/s76/rejected/*.diff, then
+# bench/results/s76/harness/build.sh <suffix> -DNM_KMAJOR=1 [-DNM_BPF=4 [-DNM_BPF_N=4]]; run.sh replays both routings
+```

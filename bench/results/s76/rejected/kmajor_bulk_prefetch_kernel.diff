@@ -1,0 +1,88 @@
+--- src/Sharplight.Shaders/Kernels/gemm_moe_native.cu	2026-11-21 20:09:12.321270585 +0000
++++ k.cu	2026-11-21 20:38:17.000000000 +0000
+@@ -67,6 +67,18 @@
+ #define NM_S_BYTES (2 * NM_MATS * (NM_BOUT / 16) * 16)
+ #define NM_STAGE_BYTES (NM_A_BYTES + NM_C_BYTES + NM_S_BYTES)
+ #define NM_XRS ((unsigned long long)K * 2)
++#ifndef NM_KMAJOR
++#define NM_KMAJOR 0
++#endif
++// Bytes a row's codes / a group's scales advance per 64-value K step: 32 in the row-major groups, 544 in K-major ones.
++#if NM_KMAJOR
++#define NM_KSTEP 544u
++#else
++#define NM_KSTEP 32u
++#endif
++#ifndef NM_BPF
++#define NM_BPF 0
++#endif
+ #define NM_CODE_BYTES ((unsigned long long)K / 2)
+ 
+ typedef unsigned int nm_u32;
+@@ -302,7 +314,11 @@
+         const unsigned char* m = wb;
+         nm_u32 n = min(n0 + r, (nm_u32)N - 1);
+ #endif
++#if NM_KMAJOR
++        cSrc[i] = m + (nm_u64)(n >> 4) * 16 * ROW_BYTES + (nm_u64)(n & 15) * 32 + b * 16;
++#else
+         cSrc[i] = m + (nm_u64)(n >> 4) * 16 * ROW_BYTES + (nm_u64)(n & 15) * NM_CODE_BYTES + b * 16;
++#endif
+     }
+     const bool sLive = tid < 2 * NM_MATS * (NM_BOUT / 16);
+     const unsigned char* sSrc;
+@@ -314,8 +330,31 @@
+         const unsigned char* mat = wb;
+ #endif
+         nm_u32 gi = min(n0 / 16 + q, (nm_u32)N / 16 - 1);
++#if NM_KMAJOR
++        sSrc = mat + (nm_u64)gi * 16 * ROW_BYTES + 512 + b * 16;
++#else
+         sSrc = mat + (nm_u64)gi * 16 * ROW_BYTES + 16 * NM_CODE_BYTES + b * 16;
++#endif
++    }
++#if NM_BPF
++    // One thread per 16-row group of the tile: a bulk L2 prefetch of the group's K step NM_BPF steps ahead (NM_BPF_N steps at once).
++#ifndef NM_BPF_N
++#define NM_BPF_N 1
++#endif
++    const bool pfLive = tid < NM_MATS * (NM_BOUT / 16);
++    const unsigned char* pfSrc;
++    {
++        nm_u32 q = tid % (NM_BOUT / 16), m = tid / (NM_BOUT / 16) % NM_MATS;
++#if DUAL
++        const unsigned char* mat = m ? wb2 : wb;
++#else
++        const unsigned char* mat = wb;
++#endif
++        nm_u32 gi = min(n0 / 16 + q, (nm_u32)N / 16 - 1);
++        pfSrc = mat + (nm_u64)gi * 16 * ROW_BYTES;
+     }
++#endif
++
+ 
+     auto load = [&](nm_u32 s, nm_u32 kb) {
+         nm_u32 base = (nm_u32)__cvta_generic_to_shared(smem + s * NM_STAGE_BYTES);
+@@ -333,13 +372,20 @@
+             if ((NM_BN * 2) % NM_THREADS == 0 || tid + i * NM_THREADS < NM_BN * 2)
+             {
+                 nm_u32 idx = tid + i * NM_THREADS;
+-                nm_cp16w(base + NM_A_BYTES + ((idx & 1) * NM_BN + (idx >> 1)) * 16, cSrc[i] + kb * 32);
++                nm_cp16w(base + NM_A_BYTES + ((idx & 1) * NM_BN + (idx >> 1)) * 16, cSrc[i] + kb * NM_KSTEP);
+             }
+         }
+         if (sLive)
+         {
+-            nm_cp16w(base + NM_A_BYTES + NM_C_BYTES + tid * 16, sSrc + kb * 32);
++            nm_cp16w(base + NM_A_BYTES + NM_C_BYTES + tid * 16, sSrc + kb * NM_KSTEP);
+         }
++#if NM_BPF
++        if (pfLive && kb % NM_BPF_N == 0 && kb + NM_BPF < nk)
++        {
++            nm_u32 steps = min((nm_u32)NM_BPF_N, nk - kb - NM_BPF);
++            asm volatile("cp.async.bulk.prefetch.L2.global [%0], %1;\n" :: "l"(pfSrc + (nm_u64)(kb + NM_BPF) * 544u), "r"(steps * 544u) : "memory");
++        }
++#endif
+     };
+ 
+     float acc[NM_FM][NM_FN][4];

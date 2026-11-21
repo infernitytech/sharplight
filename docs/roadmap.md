@@ -120,11 +120,17 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   partial rows. Next: §73.6.
   Round 24 (§75): `develop` produced garbage on CUDA for gpt-oss-20b since the perf/offload-r5 merge (its 64-sequence step looked 35 %
   faster on garbage routing): bisected to the f32-only matmul epilogue rule of `572eeb80`, fixed (only int-dot weights take the separate
-  launch; the root cause of the separate path on CUDA is still open). The expert GEMM runs one pipelined K loop per live fragment count instead of a switch
+  launch; the root cause was found in round 25). The expert GEMM runs one pipelined K loop per live fragment count instead of a switch
   inside the loop: decode gate / up -1 %, down -2 %, prefill tiles -1-8 %; gpt-oss-20b 64-sequence step -1.6 / -1.1 % (`--text` /
   `--feedback`). Measured and not kept: 64-row expert tiles in several forms (a 64-row tile costs 1.65x a 32-row one, so a per-expert
   choice gains at most ~3 % of the expert GEMMs on vLLM's routing). Qwen3's norm + E4M3 launch is bound by its f32 rows, not by its
   quantization (bank-conflict padding: -2 % of the launch). Next: §75.6.
+  Round 25 (§76): the root cause of round 24's bug: a q / k / v member's separate bias launch was emitted before the multi-output
+  GEMM that writes the members' products (emitted after the group's last member), so for 9-256 rows it read stale values; this also
+  broke Qwen2.5 and gpt-oss-20b Q4_K_M GGUF models on CUDA (int-dot weights) and FP8 checkpoints with biases on both providers. The
+  launches now follow that GEMM; `ProjectionBiases` reproduces it. Fused row norms of 4096+ values take 1024-thread blocks at decode
+  steps on CUDA: Qwen3-8B-FP8 64-sequence step 15.85 → 15.59-15.67 ms (1.00x of vLLM). Measured and not kept: a K-major expert weight
+  layout with bulk L2 prefetches (1-8 % slower: the per-row 256-byte hints already prefetch eight K steps). Next: §76.6.
 - **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
   31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
   the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models

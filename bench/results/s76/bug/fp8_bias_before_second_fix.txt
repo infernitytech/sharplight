@@ -1,0 +1,34 @@
+[lock acquired 22:07:35]
+== vulkan X=1
+      1 [0m[37m      fp8 multi bias=True  step 0 output q[3]: vulkan -0.322046787 vs cpu -0.596090674 (|d|=2.74E-001, tol=1.80E-001)
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 5.377s
+      2 [0mmulti-output GEMM of matmul_1, matmul_2, matmul_3 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      1 [91m    Sharplight.Vulkan.Tests.TmpFp8MultiTests.Fp8Multi(bias: True, rows: 40) [FAIL]
+      2 multi-output GEMM of matmul_1, matmul_2, matmul_3 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_5 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+== vulkan SHARPLIGHT_MULTI_GEMM=0
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.695s
+== vulkan SHARPLIGHT_NORM_PREFILL_COPY=0
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.988s
+      1 [0mmulti-output GEMM of matmul_1, matmul_2, matmul_3 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      3 multi-output GEMM of matmul_1, matmul_2, matmul_3 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_5 not emitted: members differ (kernel, bias, activations, weights or output layout)
+== cuda X=1
+      1 [0m[37m      fp8 multi bias=True  step 0 output q[3]: vulkan -0.322046787 vs cpu -0.596090674 (|d|=2.74E-001, tol=1.80E-001)
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 7.259s
+      2 [0mmulti-output GEMM of matmul_1, matmul_2, matmul_3 (gemm_cm2, bias False): splits (32, 4) (64, 4) (128, 2) (128, 4)
+      1 [91m    Sharplight.Vulkan.Tests.TmpFp8MultiTests.Fp8Multi(bias: True, rows: 40) [FAIL]
+      4 multi-output GEMM of matmul_1, matmul_2, matmul_3 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      2 multi-output GEMM of matmul_1, matmul_2, matmul_3 (gemm_cm2, bias False): splits (32, 4) (64, 4) (128, 2) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_5 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_5 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+== cuda SHARPLIGHT_MULTI_GEMM=0
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.470s
+== cuda SHARPLIGHT_NORM_PREFILL_COPY=0
+      1 [0m[37m   Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.642s
+      1 [0mmulti-output GEMM of matmul_1, matmul_2, matmul_3 (gemm_cm2, bias False): splits (32, 4) (64, 4) (128, 2) (128, 4)
+      4 multi-output GEMM of matmul_1, matmul_2, matmul_3 (fp8, bias False): splits (64, 4) (128, 2) (128, 4)
+      3 multi-output GEMM of matmul_1, matmul_2, matmul_3 (gemm_cm2, bias False): splits (32, 4) (64, 4) (128, 2) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_5 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+      1 multi-output GEMM of matmul_1, matmul_3, matmul_5 not emitted: members differ (kernel, bias, activations, weights or output layout)
+[lock released 22:08:02 rc=0]

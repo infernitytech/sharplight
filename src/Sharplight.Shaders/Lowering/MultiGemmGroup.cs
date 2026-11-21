@@ -26,4 +26,10 @@ internal sealed class MultiGemmGroup
 
     /// <summary>The bindings each family's multi-output GEMM serves (absent until it is emitted); the members' split launches skip them.</summary>
     public Dictionary<bool, Func<Bindings, bool>> Serves { get; } = [];
+
+    /// <summary>
+    /// Launches that read a member's product and must follow the multi-output GEMM that writes it (the bias add of a member whose
+    /// epilogue runs as its own launch), emitted right after it; see <see cref="GraphLowerer"/>'s epilogue lowering.
+    /// </summary>
+    public List<Action> AfterEmit { get; } = [];
 }
