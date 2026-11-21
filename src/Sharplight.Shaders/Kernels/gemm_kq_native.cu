@@ -3,7 +3,8 @@
 // activations (the generated GEMMs' f16 copy of x) and Q4_K / Q5_K / Q6_K weights in the GGUF block layout (KQ_FMT 4 / 5 / 6), f32
 // accumulation and output. Compiled by NVRTC from this file.
 //
-// A block covers KQ_BM token rows and 64 weight rows; its eight warps are 2 (token halves) x 4 (16 weight rows each). A K step is one
+// A block covers KQ_BM token rows and 64 weight rows; each of its eight warps takes 8 weight rows and every token row, so each weight
+// value is dequantized once. A K step is one
 // 256-value superblock: cp.async copies the step's activation rows (four 64-value sub-tiles of 128-byte rows, XOR swizzle, read by
 // ldmatrix) and the raw blocks of the 64 weight rows (each row's 16-byte-aligned window around its block) into a ring of KQ_STAGES
 // stages in dynamic shared memory. Each thread dequantizes the weight values of its mma.sync.m16n8k16 B fragments straight from the
@@ -51,7 +52,8 @@
 #endif
 #define KQ_BN 64
 #define KQ_THREADS 256
-#define KQ_TM (KQ_BM / 2)
+#define KQ_FN 1
+#define KQ_TM KQ_BM
 #define KQ_FM (KQ_TM / 16)
 #define KQ_SB (K / 256)
 #define KQ_ROWB ((unsigned long long)KQ_SB * KQ_BB)
@@ -194,19 +196,15 @@ static __device__ __forceinline__ KqMember kq_member(const KqParams& p, kq_u32& 
 }
 
 #if KQ_FMT != 6
-// Scale and minimum of sub-block j of a Q4_K / Q5_K block's 12 scale bytes (6 bits each).
-static __device__ __forceinline__ void kq_scale_min(const unsigned char* q, int j, float& sc, float& mn)
+// The 6-bit scales and minimums of a Q4_K / Q5_K block's 12 scale bytes q (2-byte aligned), one byte each: out[0] = sc[0..3],
+// out[1] = sc[4..7], out[2] = m[0..3], out[3] = m[4..7].
+static __device__ __forceinline__ void kq_scales_mins(const unsigned char* q, kq_u32* out)
 {
-    if (j < 4)
-    {
-        sc = (float)(q[j] & 63);
-        mn = (float)(q[j + 4] & 63);
-    }
-    else
-    {
-        sc = (float)((q[j + 4] & 0xF) | ((q[j - 4] >> 6) << 4));
-        mn = (float)((q[j + 4] >> 4) | ((q[j] >> 6) << 4));
-    }
+    const kq_u32 u0 = kq_ld16(q) | (kq_ld16(q + 2) << 16), u1 = kq_ld16(q + 4) | (kq_ld16(q + 6) << 16), u2 = kq_ld16(q + 8) | (kq_ld16(q + 10) << 16);
+    out[0] = u0 & 0x3F3F3F3Fu;
+    out[1] = (u2 & 0x0F0F0F0Fu) | (((u0 >> 6) & 0x03030303u) << 4);
+    out[2] = u1 & 0x3F3F3F3Fu;
+    out[3] = ((u2 >> 4) & 0x0F0F0F0Fu) | (((u1 >> 6) & 0x03030303u) << 4);
 }
 #endif
 
@@ -214,7 +212,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const kq_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
-    const kq_u32 wm = warp >> 2, wn = warp & 3;
+    const kq_u32 wm = 0, wn = warp;
     const kq_u32 g = lane >> 2, c4 = lane & 3;
     const kq_u32 t0 = blockIdx.x * KQ_BM, ng = blockIdx.y * KQ_BN;
     kq_u32 n0 = ng;
@@ -240,12 +238,12 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         }
     };
 
-    float acc[KQ_FM][2][4];
+    float acc[KQ_FM][KQ_FN][4];
 #pragma unroll
     for (int i = 0; i < KQ_FM; i++)
     {
 #pragma unroll
-        for (int j = 0; j < 2; j++)
+        for (int j = 0; j < KQ_FN; j++)
         {
 #pragma unroll
             for (int e = 0; e < 4; e++)
@@ -278,11 +276,11 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 
         const unsigned char* stage = smem + (step % KQ_STAGES) * KQ_STAGE_BYTES;
         const kq_u32 sa = (kq_u32)__cvta_generic_to_shared(stage);
-        const unsigned char* blk[2];
+        const unsigned char* blk[KQ_FN];
 #pragma unroll
-        for (int j = 0; j < 2; j++)
+        for (int j = 0; j < KQ_FN; j++)
         {
-            kq_u32 r = wn * 16 + j * 8 + g;
+            kq_u32 r = wn * 8 * KQ_FN + j * 8 + g;
             const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)(sb0 + step) * KQ_BB;
             blk[j] = stage + KQ_XBYTES + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
         }
@@ -296,7 +294,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 kq_u32 r = wm * KQ_TM + i * 16 + (lane & 15);
                 kq_ldsm4(sa + (q >> 2) * (KQ_BM * 128) + kq_swz(r, (q & 3) * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
 #pragma unroll
-                for (int j = 0; j < 2; j++)
+                for (int j = 0; j < KQ_FN; j++)
                 {
                     kq_mma(acc[i][j], a, b[j][0], b[j][1]);
                 }
@@ -304,9 +302,9 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         };
 
 #if KQ_FMT == 6
-        __half2 d[2];
+        __half2 d[KQ_FN];
 #pragma unroll
-        for (int j = 0; j < 2; j++)
+        for (int j = 0; j < KQ_FN; j++)
         {
             d[j] = __half2half2(*(const __half*)(blk[j] + 208));
         }
@@ -316,9 +314,9 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 #pragma unroll
             for (int h = 0; h < 2; h++)
             {
-                kq_u32 ql[2][2][2], qh[2][2];
+                kq_u32 ql[KQ_FN][2][2], qh[KQ_FN][2];
 #pragma unroll
-                for (int j = 0; j < 2; j++)
+                for (int j = 0; j < KQ_FN; j++)
                 {
                     const kq_u32 l = 16 * h + 2 * c4;
 #pragma unroll
@@ -333,9 +331,9 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 for (int qq = 0; qq < 4; qq++)
                 {
                     const int q = 8 * jj + 2 * qq + h;
-                    kq_u32 b[2][2];
+                    kq_u32 b[KQ_FN][2];
 #pragma unroll
-                    for (int j = 0; j < 2; j++)
+                    for (int j = 0; j < KQ_FN; j++)
                     {
                         const __half2 scale = __hmul2(d[j], __half2half2(__int2half_rn((int)(signed char)blk[j][192 + q])));
 #pragma unroll
@@ -356,32 +354,41 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 #else
         const kq_u32 qsOffset = 16;
 #endif
+        // The eight 6-bit scales and minimums of each row's block, unpacked four to a word (sc[0..3], sc[4..7], m[0..3], m[4..7]).
+        kq_u32 scales[KQ_FN][4];
+        float dd[KQ_FN], dm[KQ_FN];
+#pragma unroll
+        for (int j = 0; j < KQ_FN; j++)
+        {
+            dd[j] = __half2float(*(const __half*)blk[j]);
+            dm[j] = __half2float(*(const __half*)(blk[j] + 2));
+            kq_scales_mins(blk[j] + 4, scales[j]);
+        }
 #pragma unroll
         for (int jj = 0; jj < 4; jj++)
         {
-            __half2 dsc[2][2], dmn[2][2];
+            __half2 dsc[KQ_FN][2], dmn[KQ_FN][2];
 #pragma unroll
-            for (int j = 0; j < 2; j++)
+            for (int j = 0; j < KQ_FN; j++)
             {
-                const float dd = __half2float(*(const __half*)blk[j]), dm = __half2float(*(const __half*)(blk[j] + 2));
 #pragma unroll
                 for (int hi = 0; hi < 2; hi++)
                 {
-                    float sc, mn;
-                    kq_scale_min(blk[j] + 4, 2 * jj + hi, sc, mn);
-                    dsc[j][hi] = __float2half2_rn(dd * sc);
-                    dmn[j][hi] = __float2half2_rn(-dm * mn);
+                    const int sub = 2 * jj + hi;
+                    const kq_u32 sc = (scales[j][sub >> 2] >> (8 * (sub & 3))) & 0xFFu, mn = (scales[j][2 + (sub >> 2)] >> (8 * (sub & 3))) & 0xFFu;
+                    dsc[j][hi] = __float2half2_rn(dd[j] * (float)sc);
+                    dmn[j][hi] = __float2half2_rn(-dm[j] * (float)mn);
                 }
             }
 #pragma unroll
             for (int h = 0; h < 2; h++)
             {
-                kq_u32 qs[2][2];
+                kq_u32 qs[KQ_FN][2];
 #if KQ_FMT == 5
-                kq_u32 qh[2][2];
+                kq_u32 qh[KQ_FN][2];
 #endif
 #pragma unroll
-                for (int j = 0; j < 2; j++)
+                for (int j = 0; j < KQ_FN; j++)
                 {
                     const kq_u32 l = 16 * h + 2 * c4;
 #pragma unroll
@@ -396,9 +403,9 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 #pragma unroll
                 for (int hi = 0; hi < 2; hi++)
                 {
-                    kq_u32 b[2][2];
+                    kq_u32 b[KQ_FN][2];
 #pragma unroll
-                    for (int j = 0; j < 2; j++)
+                    for (int j = 0; j < KQ_FN; j++)
                     {
 #pragma unroll
                         for (int o = 0; o < 2; o++)
@@ -436,9 +443,9 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 
             float* pr = p.part + ((kq_u64)blockIdx.z * p.T + t) * N;
 #pragma unroll
-            for (int j = 0; j < 2; j++)
+            for (int j = 0; j < KQ_FN; j++)
             {
-                kq_u32 n = ng + wn * 16 + j * 8 + c4 * 2;
+                kq_u32 n = ng + wn * 8 * KQ_FN + j * 8 + c4 * 2;
                 if (n + 1 < N)
                 {
                     __stcg((float2*)(pr + n), make_float2(acc[i][j][hrow * 2], acc[i][j][hrow * 2 + 1]));
@@ -488,11 +495,11 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
             const float rowInverse = scaleWord == 0 ? 1.0f : __uint_as_float(scaleWord);
 #endif
 #pragma unroll
-            for (int j = 0; j < 2; j++)
+            for (int j = 0; j < KQ_FN; j++)
             {
-                kq_u32 n = n0 + wn * 16 + j * 8 + c4 * 2;
+                kq_u32 n = n0 + wn * 8 * KQ_FN + j * 8 + c4 * 2;
 #if KQ_SPLIT > 1
-                const kq_u32 column = ng + wn * 16 + j * 8 + c4 * 2;
+                const kq_u32 column = ng + wn * 8 * KQ_FN + j * 8 + c4 * 2;
                 float v0 = 0.0f, v1 = 0.0f;
                 for (kq_u32 z = 0; z < KQ_SPLIT; z++)
                 {
