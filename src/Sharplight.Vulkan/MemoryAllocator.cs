@@ -162,6 +162,9 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         }
     }
 
+    /// <summary>The property flags of memory type <paramref name="typeIndex"/>.</summary>
+    internal VkMemoryPropertyFlags TypeFlags(uint typeIndex) => _props.memoryTypes[(int)typeIndex].propertyFlags;
+
     /// <summary>The live per-heap budget and usage (VK_EXT_memory_budget), or empty figures when the extension is not enabled.</summary>
     public MemoryHeapBudgets ReadHeapBudgets()
     {

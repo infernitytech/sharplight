@@ -164,7 +164,7 @@ internal static unsafe partial class Simd
         var acc = Vector128<float>.Zero;
         for (; i + 4 <= n; i += 4)
         {
-            var e = Vector128.Exp(Vector128.Load(x + i) - sv);
+            var e = VectorExp.Exp(Vector128.Load(x + i) - sv);
             e.Store(x + i);
             acc += e;
         }
