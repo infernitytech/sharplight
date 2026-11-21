@@ -19,14 +19,16 @@ public sealed partial class GraphLowerer
     /// </summary>
     /// <summary>
     /// Router top-k units with the softmax they read (and the normalization of the selected weights, when the values only feed it): the
-    /// softmax, the ReduceSum, the Scale and the Div computed in the top-k launch (<see cref="FuseRouterTopK"/>).
+    /// softmax, the ReduceSum, the Scale and the Div computed in the top-k launch (<see cref="FuseRouterTopK"/>). Selected: the softmax
+    /// reads the top-k values instead (top-k of the logits first).
     /// </summary>
-    private readonly Dictionary<Node, (Node Softmax, (Node Reduce, Node Scale, Node Div)? Norm)> _routerTopK = [];
+    private readonly Dictionary<Node, (Node Softmax, bool Selected, (Node Reduce, Node Scale, Node Div)? Norm)> _routerTopK = [];
 
     /// <summary>
     /// Finds mixture-of-experts routers: a TopK (k up to <see cref="TopKSubgroupMaxK"/>, largest, last axis of [rows, experts]) of a Softmax
     /// it alone reads, optionally followed by the renormalization of the selected values (ReduceSum, Scale and Div by the scaled sum, the
     /// values read by nothing else). The top-k unit absorbs them: one launch instead of up to five per layer (decode: ~13 µs to ~4 µs).
+    /// Also the other order (gpt-oss): a TopK of the logits whose values only a Softmax over the k selected reads.
     /// </summary>
     private void FuseRouterTopK(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
     {
@@ -54,9 +56,23 @@ public sealed partial class GraphLowerer
         {
             if (unit.Node is not { Op.Name: "TopK" } topk || !Alone(topk) || topk.Attributes.Has("k_symbol") || !topk.Attributes.Get("largest", true)
                 || topk.Inputs[0] is not { Shape.Rank: 2 } logits || NormAxis(topk.Attributes.Get("axis", -1L), 2) != 1 || logits.Shape[1].IsSymbolic
-                || topk.Attributes.Get<long>("k") is var k && (k > TopKSubgroupMaxK || k > _opt.SubgroupSize || k > logits.Shape[1].Fixed)
-                || logits.Producer is not { Op.Name: "Softmax" } softmax || !Alone(softmax) || Readers(logits) is not [_] || !Internal(logits)
-                || softmax.Attributes.Get("scale", 1f) != 1f || softmax.Attributes.Get("log", false) || softmax.Inputs[0].Type != DataType.F32)
+                || topk.Attributes.Get<long>("k") is var k && (k > TopKSubgroupMaxK || k > _opt.SubgroupSize || k > logits.Shape[1].Fixed))
+            {
+                continue;
+            }
+
+            bool PlainSoftmax(Node softmax) => Alone(softmax) && softmax.Attributes.Get("scale", 1f) == 1f && !softmax.Attributes.Get("log", false)
+                                               && softmax.Inputs[0].Type == DataType.F32;
+            if (logits.Type == DataType.F32 && Readers(topk.Outputs[0]) is [{ Op.Name: "Softmax" } selected] && selected.Inputs[0] == topk.Outputs[0]
+                && PlainSoftmax(selected) && Internal(topk.Outputs[0]))
+            {
+                removed.Add(unitOf[selected]);
+                unit.Absorbed = [selected];
+                _routerTopK[topk] = (selected, true, null);
+                continue;
+            }
+
+            if (logits.Producer is not { Op.Name: "Softmax" } softmax || !PlainSoftmax(softmax) || Readers(logits) is not [_] || !Internal(logits))
             {
                 continue;
             }
@@ -78,21 +94,21 @@ public sealed partial class GraphLowerer
 
             removed.Add(unitOf[softmax]);
             unit.Absorbed = norm is var (r, sc, d) ? [softmax, r, sc, d] : [softmax];
-            _routerTopK[topk] = (softmax, norm);
+            _routerTopK[topk] = (softmax, false, norm);
         }
 
         units.RemoveAll(removed.Contains);
     }
 
     /// <summary>Lowers a router top-k with its absorbed softmax and normalization (<see cref="FuseRouterTopK"/>) as one launch.</summary>
-    private void LowerRouterTopK(Node n, Node softmax, (Node Reduce, Node Scale, Node Div)? norm)
+    private void LowerRouterTopK(Node n, Node softmax, bool selected, (Node Reduce, Node Scale, Node Div)? norm)
     {
-        var x = AsDenseF32(Ref(softmax.Inputs[0]), "topk");
+        var x = AsDenseF32(Ref(selected ? n.Inputs[0] : softmax.Inputs[0]), "topk");
         long K = n.Attributes.Get<long>("k");
-        var vals = Produce(norm is { } nd ? nd.Div.Output : n.Outputs[0]);
+        var vals = Produce(norm is { } nd ? nd.Div.Output : selected ? softmax.Output : n.Outputs[0]);
         var idxs = Produce(n.Outputs[1]);
         var macros = Macros(("LEN", x.Shape[1]), ("K", K), ("INNER", 1), ("LARGEST", true), ("WG", TopKWorkgroup), ("P2", TopKSortSlots(K)), ("NORM", norm is not null),
-            ("NORM_SCALE", norm?.Scale.Attributes.Get("scale", 1f) ?? 1f), ("NORM_BIAS", norm?.Scale.Attributes.Get("bias", 0f) ?? 0f));
+            ("NORM_SCALE", norm?.Scale.Attributes.Get("scale", 1f) ?? 1f), ("NORM_BIAS", norm?.Scale.Attributes.Get("bias", 0f) ?? 0f), ("SELECTED_SOFTMAX", selected));
         var kernel = Lib("topk.slang", "topk_softmax", macros);
         var tx = x;
         Emit($"router topk {n.Outputs[1].Name}", [softmax, n, .. norm is var (r, s, d) ? new[] { r, s, d } : []],
@@ -104,7 +120,7 @@ public sealed partial class GraphLowerer
     {
         if (_routerTopK.TryGetValue(n, out var router))
         {
-            LowerRouterTopK(n, router.Softmax, router.Norm);
+            LowerRouterTopK(n, router.Softmax, router.Selected, router.Norm);
             return;
         }
 

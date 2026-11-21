@@ -214,9 +214,14 @@ void topk_subgroup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifor
 // Mixture-of-experts routing in one launch: the softmax of a row of LEN router logits (as rows.slang's softmax: same lanes, same
 // sums, so the same probabilities), the top K of the probabilities (as topk_subgroup) and, with NORM, the selected probabilities
 // divided by NORM_SCALE * their sum + NORM_BIAS (ReduceSum, Scale and Div of the router). One subgroup per row; INNER = 1.
+// SELECTED_SOFTMAX (not with NORM): the other order (gpt-oss): the top K of the logits, then the softmax of the K selected logits (as
+// rows.slang's softmax of the [rows, K] values: the same lanes hold the same values, so the same sums).
 // Writes vals [rows, K] (normalized with NORM) and idx [rows, K].
 #ifndef NORM
 #define NORM 0
+#endif
+#ifndef SELECTED_SOFTMAX
+#define SELECTED_SOFTMAX 0
 #endif
 [shader("compute")]
 [numthreads(SG, 1, 1)]
@@ -230,6 +235,7 @@ void topk_softmax(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
 
     uint lane = ltid.x;
     float* xr = p.x + uint64_t(row) * LEN;
+#if !SELECTED_SOFTMAX
     float m = -3.4028235e38;
     for (uint j = lane; j < LEN; j += SG) m = max(m, xr[j]);
     m = WaveActiveMax(m);
@@ -237,6 +243,7 @@ void topk_softmax(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
     for (uint j = lane; j < LEN; j += SG) sum += exp(xr[j] - m);
     sum = WaveActiveSum(sum);
     float inv = 1.0 / sum;
+#endif
 
     uint keys[K];
     uint ids[K];
@@ -250,7 +257,11 @@ void topk_softmax(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
     uint count = 0u;
     for (uint j = lane; j < LEN; j += SG)
     {
+#if SELECTED_SOFTMAX
+        float v = xr[j];
+#else
         float v = exp(xr[j] - m) * inv;
+#endif
         uint k = topk_key(v);
         if (count == K && k <= keys[K - 1])
         {
@@ -300,6 +311,14 @@ void topk_softmax(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
     for (uint r = 0; r < K; r++) total += picked[r];
     denominator = total * NORM_SCALE + NORM_BIAS;
 #endif
+#if SELECTED_SOFTMAX
+    // rows.slang's softmax over the K values, lane r holding the r-th (the other lanes contribute its initial values).
+    float selected = picked[0];
+    for (uint r = 1; r < K; r++) selected = lane == r ? picked[r] : selected;
+    float selectedMax = WaveActiveMax(lane < K ? selected : -3.4028235e38);
+    float selectedSum = WaveActiveSum(lane < K ? exp(selected - selectedMax) : 0.0);
+    float selectedInv = 1.0 / selectedSum;
+#endif
     if (lane < K)
     {
         uint64_t o = uint64_t(row) * K + lane;
@@ -307,6 +326,9 @@ void topk_softmax(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
         for (uint r = 1; r < K; r++) v = lane == r ? picked[r] : v;
         uint id = pickedIds[0];
         for (uint r = 1; r < K; r++) id = lane == r ? pickedIds[r] : id;
+#if SELECTED_SOFTMAX
+        v = exp(v - selectedMax) * selectedInv;
+#endif
 #if NORM
         p.vals[o] = v / denominator;
 #else
