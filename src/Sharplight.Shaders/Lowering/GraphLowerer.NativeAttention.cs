@@ -90,4 +90,47 @@ public sealed partial class GraphLowerer
             ? new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), 1))
             : new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), (uint)Rows(b, runs)));
     }
+
+    /// <summary>Warps of an <c>attn_decode_native.cu</c> block (each runs its own key tiles and softmax).</summary>
+    private const int NativeDecodeWarps = 4;
+
+    /// <summary>
+    /// True when the split-K decode attention of <paramref name="plan"/> runs on the hand-written tensor-core kernel
+    /// (<see cref="DeviceFeatures.NativeAttention"/>, <c>attn_decode_native.cu</c>) in place of <c>decode</c>: f16 caches, equal key and
+    /// value head sizes of 64 or 128, at most 8 heads per block, the forms <see cref="NativeFlashAttention"/> serves (no score biases,
+    /// spans, masks, selections, compressed entries or relative biases). The caller keeps <c>decode</c> where it merges its partials
+    /// itself (the fused combine of narrow groups). <c>SHARPLIGHT_NATIVE_DECODE=0</c> keeps <c>decode</c> everywhere.
+    /// </summary>
+    private bool NativeDecodeAttention(AttentionPlan plan, DecodeAttentionPlan decode)
+    {
+        var a = plan.Node.Attributes;
+        bool shapes = plan.K.Type == DataType.F16 && plan.V.Type == DataType.F16 && plan.D == plan.DV && (plan.D == 64 || plan.D == 128)
+                      && plan.V.Shape[2] % 8 == 0 && plan.Q.Strides[0] % 2 == 0 && plan.Q.Strides[1] % 2 == 0 && plan.Q.ByteOffset % 8 == 0
+                      && long.Parse(decode.Macros["HPW"], CultureInfo.InvariantCulture) <= 8;
+        bool form = !plan.Full && !plan.Cross && plan.Spans is null && plan.Mask is null && plan.Selection is null && plan.Compressed is null
+                    && plan.RelativeBias is null && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
+        return DiagnosticSwitches.NativeDecodeAttention && DiagnosticSwitches.NativeAttention > 0 && _opt.Has(DeviceFeatures.NativeAttention)
+               && _compiler.CompilesCuda(_opt.Target) && shapes && form;
+    }
+
+    /// <summary>
+    /// <c>attn_decode_native.cu</c> for the macros <paramref name="decodeMacros"/> of <c>decode</c> (the plan's and the split rule's); it
+    /// takes the launch grid and the argument block of <c>decode</c>.
+    /// </summary>
+    private CompiledKernel NativeDecodeKernel(Dictionary<string, string> decodeMacros)
+    {
+        var macros = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var name in (string[])["HQ", "HKV", "D", "VRS", "QS0", "QS1", "SCALE", "WINDOW", "CHUNK", "HAS_SOFTCAP", "SOFTCAP", "HAS_SINKS",
+                     "MULTI_SEQ", "SLOT_CTX", "PAGED", "PAGE_BS", "PAGE_MB", "RT_N_PAST", "MIX_RUN", "HPW", "DEC_BC", "DEC_MIN_KEYS", "DEC_MAX_SPLITS",
+                     "DEC_TARGET_WG", "DEC_INVARIANT_ROWS", "DEC_SPLIT_ROWS"])
+        {
+            if (decodeMacros.TryGetValue(name, out var value))
+            {
+                macros[name] = value;
+            }
+        }
+
+        macros["ND_WARPS"] = NativeDecodeWarps.ToString(CultureInfo.InvariantCulture);
+        return _compiler.CompileCuda("attn_decode_native.cu", "", "attn_decode_native", NativeDecodeWarps * 32, 0, _opt.Target, macros, _opt.Cache);
+    }
 }

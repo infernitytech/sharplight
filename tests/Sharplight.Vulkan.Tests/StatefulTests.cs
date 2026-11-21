@@ -41,6 +41,17 @@ public sealed class StatefulTests
     public void CachedAttentionFewLongRows()
         => CachedAttention("f16", 16, 16, 128, 128, [2048, 1024, 4, 3, 2], 4096);
 
+    /// <summary>
+    /// Decode steps of grouped-query heads whose merged width (heads per block times the head size) takes the separate combine: on CUDA
+    /// the tensor-core decode kernel (attn_decode_native.cu), with a row's ~3000 keys in several ranges and in one.
+    /// </summary>
+    [Theory]
+    [InlineData(64, 16, 2)]
+    [InlineData(64, 64, 8)]
+    [InlineData(128, 16, 4)]
+    public void CachedAttentionGroupedDecode(int D, int Hq, int Hkv)
+        => CachedAttention("f16", D, D, Hq, Hkv, [2048, 1024, 4, 3, 2, 1], 4096);
+
     private static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)
     {
         Gpu.Require();
@@ -184,14 +195,15 @@ public sealed class StatefulTests
 
     // Attention sinks: decode (split-K + combine), short chunks, and long prefill chunks (flash kernel), full and windowed.
     [Theory]
-    [InlineData("f16", 0)]
-    [InlineData("f16", 17)]
-    [InlineData("f32", 0)]
-    [InlineData("f32", 40)]
-    public void CachedAttentionSinks(string cacheType, int window)
+    [InlineData("f16", 0, 8)]
+    [InlineData("f16", 17, 8)]
+    [InlineData("f32", 0, 8)]
+    [InlineData("f32", 40, 8)]
+    [InlineData("f16", 0, 16)]   // 8 heads per KV head: the tensor-core decode kernel on CUDA
+    [InlineData("f16", 40, 16)]
+    public void CachedAttentionSinks(string cacheType, int window, int Hq)
     {
         Gpu.Require();
-        int Hq = 8;
         int Hkv = 2;
         int D = 64;
         int ctx = 256;
@@ -227,7 +239,7 @@ public sealed class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
             past += c;
         }
-        Diff.Check("CachedAttention.sinks", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 160, ctx: ctx, what: $"{cacheType} window={window}");
+        Diff.Check("CachedAttention.sinks", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 160, ctx: ctx, what: $"{cacheType} window={window} Hq={Hq}");
     }
 
     [Fact]
