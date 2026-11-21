@@ -612,7 +612,8 @@ public sealed partial class GraphLowerer
     /// A plain elementwise group whose inputs are one weight MatMul's output (read nowhere else) and at most
     /// <see cref="MaxMatMulEpilogueArgs"/> other f32 values, each a scalar, a row vector over the matmul's output columns (a bias,
     /// a per-channel scale) or a tensor of the output's shape (a residual), becomes the matmul's store epilogue
-    /// (<see cref="LoweringUnit.MatMulHead"/>). The matmul then runs at the group's place, so no unit in between may write state.
+    /// (<see cref="LoweringUnit.MatMulHead"/>): f32 weights in the split-f16 GEMM, weights of the int-dot matvec in its decode store
+    /// (e.g. the sigmoid of a linear-attention beta projection). The matmul then runs at the group's place, so no unit in between may write state.
     /// </summary>
     private void FoldMatMulEpilogues(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
     {
@@ -646,7 +647,9 @@ public sealed partial class GraphLowerer
 
             var w = matmul.Inputs[1];
             var shape = matmul.Output.Shape;
-            if (w.Kind is not (ValueKind.Weight or ValueKind.Constant) || w.Type != DataType.F32 || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic
+            bool intDotWeights = w.Type != DataType.F32 && w.Shape.Rank == 2 && w.Shape[1] is { IsSymbolic: false } k && !DiagnosticSwitches.NoIntDotEpilogue
+                                 && UseIntDotMatvec(matmul, w.Type, k.Fixed);
+            if (w.Kind is not (ValueKind.Weight or ValueKind.Constant) || (w.Type != DataType.F32 && !intDotWeights) || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic
                 || group.Any(n => !n.Output.Shape.Equals(shape) || n.Output.Type != DataType.F32 || n.Inputs.Any(i => i.Type != DataType.F32))
                 || external.Any(v => v != matmul.Output && MatMulEpilogueArgKind(v, shape, w.Shape[0]) < 0))
             {

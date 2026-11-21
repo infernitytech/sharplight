@@ -95,11 +95,13 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Emits the activation quantization and the integer-dot matvec launches of a matmul (or of a dual matmul when
     /// <paramref name="weights"/> holds two matrices), both conditioned on the row count being in the int-dot range.
-    /// <paramref name="compile"/> builds the matvec entry from its macros (library or generated dual source).
+    /// <paramref name="compile"/> builds the matvec entry from its macros (library or generated dual or store-epilogue source);
+    /// <paramref name="epilogueArgs"/> are the tensors a store epilogue reads (<c>e0</c> .. <c>e2</c>).
     /// </summary>
     private void EmitIntDotMatvec(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights, TensorRef y,
-        long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile)
+        long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef[]? epilogueArgs = null)
     {
+        epilogueArgs ??= [];
         var w = weights[0];
         long minRows = IntDotFirstRow(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
@@ -130,8 +132,8 @@ public sealed partial class GraphLowerer
         }
 
         Emit($"{label} int-dot", nodes, variants,
-            [Pointer(quantized), .. weights.Select(Pointer), Pointer(y), TokenArg(x, rowsPerLead)],
-            [quantized, .. weights], [y]);
+            [Pointer(quantized), .. weights.Select(Pointer), Pointer(y), .. epilogueArgs.Select(Pointer), TokenArg(x, rowsPerLead)],
+            [quantized, .. weights, .. epilogueArgs], [y]);
     }
 
     /// <summary>

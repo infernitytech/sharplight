@@ -82,6 +82,34 @@ public sealed class FusionTests
     }
 
     /// <summary>
+    /// Elementwise groups after matmuls of int-dot weights run in the matvec's store at decode sizes: a sigmoid gate, a gate with
+    /// two row vectors (softplus(x + bias) * a, the linear-attention decay), a residual add of a tensor; other row counts run the
+    /// matmul and the group's own launch.
+    /// </summary>
+    [Theory]
+    [InlineData("q4_k", 1)]
+    [InlineData("q4_k", 3)]
+    [InlineData("q4_k", 8)]
+    [InlineData("q4_k", 9)]
+    [InlineData("q6_k", 2)]
+    [InlineData("q8_0", 12)]
+    [InlineData("q8_0", 40)]
+    public void IntDotMatvecEpilogue(string fmt, int t)
+    {
+        Gpu.Require();
+        int K = 1024;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var r = tg.InF("r", TG.T, 256);
+        tg.B.Output("beta", tg.B.Sigmoid(tg.B.MatMul(x, tg.RandW("wb", DataType.Get(fmt), 0.1f, 32, K))));
+        var alpha = tg.B.MatMul(x, tg.RandW("wa", DataType.Get(fmt), 0.1f, 32, K));
+        tg.B.Output("g", tg.B.Mul(tg.B.Softplus(tg.B.Add(alpha, tg.RandW("dt", DataType.F32, 1f, 32))), tg.RandW("a", DataType.F32, 1f, 32)));
+        tg.B.Output("res", tg.B.Add(tg.B.MatMul(x, tg.RandW("wr", DataType.Get(fmt), 0.1f, 256, K)), r));
+        Diff.Check("Fusion.intdot-epi." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 11)), (r, Rnd.F((long)t * 256, 12))),
+            atol: 6e-1, rtol: 1e-2, maxTokens: 64, what: $"T={t}");
+    }
+
+    /// <summary>
     /// Row norms read by integer-dot matvecs: at decode sizes the norm writes their q8_1 rows (a residual Add + RmsNorm read by two
     /// projections; a per-head RmsNorm gated by SiLU, read as [T, heads * D] by a third), larger steps of the q8_0 range quantize into
     /// the same rows, larger ones take the other kernels.
