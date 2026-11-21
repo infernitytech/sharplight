@@ -16,11 +16,39 @@ internal sealed unsafe class HostMemoryImports : IDisposable
     private readonly VulkanDevice _dev;
     private readonly Dictionary<nint, Entry> _entries = [];
     private long _importedBytes;
+    /// <summary>Set by the first import the driver refuses: later ones are not tried (a refused import can cost the driver memory).</summary>
+    private bool _refused;
 
-    internal HostMemoryImports(VulkanDevice dev)
+    private HostMemoryImports(VulkanDevice dev)
     {
         _dev = dev;
         Alignment = dev.Phys.HostPointerAlignment;
+    }
+
+    /// <summary>
+    /// The imports of <paramref name="dev"/> when the driver imports a small test buffer of host memory, else null: the extension can be
+    /// present while the driver refuses every import (it pins through the process's locked-memory limit, e.g. 8 MiB in containers without
+    /// <c>CAP_IPC_LOCK</c>), and then the device copies through staging and splits no expert passes.
+    /// </summary>
+    internal static HostMemoryImports? TryCreate(VulkanDevice dev)
+    {
+        var imports = new HostMemoryImports(dev);
+        long bytes = 16 * imports.Alignment;
+        byte* probe = (byte*)System.Runtime.InteropServices.NativeMemory.AlignedAlloc((nuint)bytes, (nuint)imports.Alignment);
+        try
+        {
+            if (!imports.TryImport(probe, bytes))
+            {
+                return null;
+            }
+
+            imports.Release(probe);
+            return imports;
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.AlignedFree(probe);
+        }
     }
 
     /// <summary>The alignment of imported addresses and sizes.</summary>
@@ -45,7 +73,7 @@ internal sealed unsafe class HostMemoryImports : IDisposable
 
             long first = ((long)start + Alignment - 1) & ~(Alignment - 1);
             long end = ((long)start + bytes) & ~(Alignment - 1);
-            if (end - first < Alignment || _importedBytes + (end - first) > Budget)
+            if (_refused || end - first < Alignment || _importedBytes + (end - first) > Budget)
             {
                 return false;
             }
@@ -57,6 +85,7 @@ internal sealed unsafe class HostMemoryImports : IDisposable
                 if (!TryImportChunk((byte*)chunk, size, out var buffer, out var memory))
                 {
                     Destroy(entry);
+                    _refused = true;
                     return false;
                 }
 

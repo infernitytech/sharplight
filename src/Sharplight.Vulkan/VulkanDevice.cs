@@ -199,7 +199,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         ArtifactTargets = CreateArtifactTargets();
 
         Memory = new MemoryAllocator(this);
-        HostImports = hostImport ? new HostMemoryImports(this) : null;
+        HostImports = hostImport ? HostMemoryImports.TryCreate(this) : null;
         _configuredBudget = options.MemoryBudget;
         _budget = options.MemoryBudget ?? (long)(DeviceMemoryLimits.Apply(phys.DeviceLocalBytes, Limits.DeviceMemory) * 0.92);
     }
