@@ -35,10 +35,15 @@ public sealed class CompiledModel : IDisposable
     private readonly ICompiledSegment?[] _sparse;
     /// <summary>Per segment with a sparse compilation: the expert ids input of its expert products.</summary>
     private readonly Value?[] _sparseIds;
-    /// <summary>Per segment with a sparse compilation: how many of a row's slots (expert choices) the GPU takes, adapted after every split pass.</summary>
-    private readonly int[] _gpuSlots;
+    /// <summary>
+    /// Per segment with a sparse compilation whose slots without an expert still produce values (it gathers per-expert table rows by the ids,
+    /// e.g. biases): the input of the slot weights that scale every slot before the sum, zeroed for the other side's slots in a split pass.
+    /// </summary>
+    private readonly Value?[] _slotWeights;
+    /// <summary>Per segment with a sparse compilation and rows per pass: how many of a row's slots (expert choices) the GPU takes.</summary>
+    private readonly Dictionary<(int Segment, long Rows), SplitBalance> _balances = [];
     /// <summary>Per segment: reused id buffers of the GPU's and the CPU's share of a split pass, and the GPU's outputs.</summary>
-    private readonly Dictionary<int, (byte[] Gpu, byte[] Cpu, byte[] Out)> _splitBuffers = [];
+    private readonly Dictionary<int, SplitBuffers> _splitBuffers = [];
 
     /// <summary>
     /// Rows per pass up to which the routed experts of a CPU layer run split between the CPU and the GPU (<c>SHARPLIGHT_SPARSE_EXPERT_ROWS</c>,
@@ -95,13 +100,13 @@ public sealed class CompiledModel : IDisposable
     {
         _sparse = sparse;
         _sparseIds = new Value?[segments.Length];
-        _gpuSlots = new int[segments.Length];
+        _slotWeights = new Value?[segments.Length];
         for (int i = 0; i < sparse.Length; i++)
         {
             if (sparse[i] is not null && SparseExpertIds(segments[i].Segment) is { } ids)
             {
                 _sparseIds[i] = ids;
-                _gpuSlots[i] = DiagnosticSparseGpuSlots ?? (int)Math.Max(1, ids.Shape[1].Fixed / 2);
+                _slotWeights[i] = SlotWeights(segments[i].Segment, ids).Weights;
             }
         }
 
@@ -423,7 +428,7 @@ public sealed class CompiledModel : IDisposable
         {
             var segment = plan.Segments[index];
             if (!plan.Slots[slot].Device.StreamsSelectedExperts || SparseExpertIds(segment) is not { } ids || !SumsOverSlots(segment)
-                || segment.Nodes.Any(n => n.Op.Name == "MatMulId" && n.Inputs[1].Shape[0].Fixed / SparseMinExpertsPerSlot < SparseExpertRows * ids.Shape[1].Fixed))
+                || !SlotWeights(segment, ids).Qualifies || segment.Nodes.Any(n => n.Op.Name == "MatMulId" && n.Inputs[1].Shape[0].Fixed / SparseMinExpertsPerSlot < SparseExpertRows * ids.Shape[1].Fixed))
             {
                 continue;
             }
@@ -432,7 +437,15 @@ public sealed class CompiledModel : IDisposable
             var twin = new GraphSegment { Graph = segment.Graph, Index = segment.Index, Nodes = segment.Nodes, Inputs = segment.Inputs, Outputs = segment.Outputs, DeviceSlot = slot };
             try
             {
-                sparse[index] = plan.Slots[slot].Device.Compile(twin, segmentOptions.WithSparseExperts(SparseExpertRows, SparseExpertRows * (int)ids.Shape[1].Fixed));
+                var compiled = plan.Slots[slot].Device.Compile(twin, segmentOptions.WithSparseExperts(SparseExpertRows, SparseExpertRows * (int)ids.Shape[1].Fixed));
+                if (compiled is IStreamedSegment { CopiesAsynchronously: false })
+                {
+                    // Its copies would take the host thread before the CPU's share starts: the split would be slower than the CPU alone.
+                    compiled.Dispose();
+                    throw new NotSupportedException("the expert banks are not page-locked");
+                }
+
+                sparse[index] = compiled;
             }
             catch (Exception e) when (e is DeviceOutOfMemoryException or InsufficientMemoryException or NotSupportedException)
             {
@@ -449,6 +462,57 @@ public sealed class CompiledModel : IDisposable
     {
         var ids = segment.Nodes.Where(n => n.Op.Name == "MatMulId").Select(n => n.Inputs[2]).Distinct().ToList();
         return ids is [{ Shape.Rank: 2 } only] && !only.Shape[1].IsSymbolic && segment.Inputs.Contains(only) ? only : null;
+    }
+
+    /// <summary>
+    /// Whether a split pass of the segment gives the sum of its two shares, and the slot weights to zero for that. Slots without an expert
+    /// (id -1) give zero rows in expert products; when the segment also reads the ids elsewhere (rows of per-expert tables such as biases),
+    /// such a slot has a value, and the pass qualifies only when one input of slot weights ([rows, k] or [rows, k, 1], f32) multiplies the
+    /// slots right before a <c>ReduceSum</c> (possibly behind views): zero weights then drop those slots.
+    /// </summary>
+    private static (bool Qualifies, Value? Weights) SlotWeights(GraphSegment segment, Value ids)
+    {
+        if (segment.Nodes.All(n => !n.Inputs.Contains(ids) || n.Op.Name == "MatMulId" && n.Inputs[2] == ids))
+        {
+            return (true, null);
+        }
+
+        long k = ids.Shape[1].Fixed;
+        var candidates = segment.Inputs.Where(v => v != ids && v.Type == Tensors.DataType.F32 && v.Shape.Rank is 2 or 3 && v.Shape[1] is { IsSymbolic: false } slots
+            && slots.Fixed == k && (v.Shape.Rank == 2 || v.Shape[2] is { IsSymbolic: false, Fixed: 1 }) && ScalesSlotsBeforeSum(segment, v)).ToList();
+        return candidates is [var weights] ? (true, weights) : (false, null);
+    }
+
+    /// <summary>Whether <paramref name="weights"/> reaches, through views, a <c>Mul</c> whose product reaches a <c>ReduceSum</c> through views.</summary>
+    private static bool ScalesSlotsBeforeSum(GraphSegment segment, Value weights)
+    {
+        foreach (var mul in Consumers(segment, weights).Where(n => n.Op.Name == "Mul"))
+        {
+            if (Consumers(segment, mul.Outputs[0]).Any(n => n.Op.Name == "ReduceSum"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The nodes of the segment that read <paramref name="value"/>, directly or through views (the views themselves excluded).</summary>
+    private static IEnumerable<Node> Consumers(GraphSegment segment, Value value)
+    {
+        foreach (var n in segment.Nodes.Where(n => n.Inputs.Contains(value)))
+        {
+            if (n.Op.Category != OpCategory.View)
+            {
+                yield return n;
+                continue;
+            }
+
+            foreach (var behind in Consumers(segment, n.Outputs[0]))
+            {
+                yield return behind;
+            }
+        }
     }
 
     /// <summary>
@@ -476,9 +540,9 @@ public sealed class CompiledModel : IDisposable
 
     /// <summary>
     /// Runs segment <paramref name="i"/> split between its CPU compilation and its sparse GPU compilation when the pass is small enough: the
-    /// GPU takes the first <see cref="_gpuSlots"/> slots of every row (it copies in the experts they select), the CPU the others (ids of -1
-    /// select no expert), both at the same time; the outputs, sums over the slots, are added. Afterwards the GPU's share moves by one slot
-    /// toward the balance: down when the CPU waited for the GPU longer than half a CPU slot takes, up when it did not wait.
+    /// GPU takes the first slots of every row (it copies in the experts they select), the CPU the others (ids of -1 select no expert), both
+    /// at the same time; the outputs, sums over the slots, are added. The GPU's share per segment and row count comes from a
+    /// <see cref="SplitBalance"/> fed with the pass times (0: the CPU alone).
     /// </summary>
     /// <returns>False, running nothing, when the segment has no sparse compilation or the pass does not qualify.</returns>
     private bool RunSplit(int i, RunParameters parameters)
@@ -499,15 +563,28 @@ public sealed class CompiledModel : IDisposable
 
         int bytes = (int)ByteCount(idsValue, parameters);
         long outBytes = cpu.Segment.Outputs.Where(o => IsConsumedAfter(i, o)).Select(o => ByteCount(o, parameters)).DefaultIfEmpty(0).Max();
-        if (!_splitBuffers.TryGetValue(i, out var buffers) || buffers.Gpu.Length < bytes || buffers.Out.Length < outBytes)
+        var weightsValue = _slotWeights[i];
+        byte[]? hostWeights = null;
+        if (weightsValue is not null && (!_hostValues.TryGetValue(weightsValue, out hostWeights) || ByteCount(weightsValue, parameters) != bytes))
         {
-            _splitBuffers[i] = buffers = (new byte[bytes], new byte[bytes], new byte[outBytes]);
+            return false;
         }
 
-        int kg = Math.Clamp(_gpuSlots[i], 1, k);
+        if (!_splitBuffers.TryGetValue(i, out var buffers) || buffers.GpuIds.Length < bytes || buffers.Out.Length < outBytes)
+        {
+            _splitBuffers[i] = buffers = new SplitBuffers(bytes, outBytes);
+        }
+
+        long passStart = Stopwatch.GetTimestamp();
+        if (!_balances.TryGetValue((i, rows), out var balance))
+        {
+            _balances[(i, rows)] = balance = new SplitBalance(k, k / 2);
+        }
+
+        int kg = Math.Clamp(DiagnosticSparseGpuSlots ?? balance.Current, 0, k);
         var all = MemoryMarshal.Cast<byte, int>(hostIds.AsSpan(0, bytes));
-        var gpuIds = MemoryMarshal.Cast<byte, int>(buffers.Gpu.AsSpan(0, bytes));
-        var cpuIds = MemoryMarshal.Cast<byte, int>(buffers.Cpu.AsSpan(0, bytes));
+        var gpuIds = MemoryMarshal.Cast<byte, int>(buffers.GpuIds.AsSpan(0, bytes));
+        var cpuIds = MemoryMarshal.Cast<byte, int>(buffers.CpuIds.AsSpan(0, bytes));
         for (int j = 0; j < all.Length; j++)
         {
             bool onGpu = j % k < kg;
@@ -515,22 +592,49 @@ public sealed class CompiledModel : IDisposable
             cpuIds[j] = onGpu ? -1 : all[j];
         }
 
+        if (hostWeights is not null)
+        {
+            var weights = MemoryMarshal.Cast<byte, float>(hostWeights.AsSpan(0, bytes));
+            var gpuWeights = MemoryMarshal.Cast<byte, float>(buffers.GpuWeights.AsSpan(0, bytes));
+            var cpuWeights = MemoryMarshal.Cast<byte, float>(buffers.CpuWeights.AsSpan(0, bytes));
+            for (int j = 0; j < weights.Length; j++)
+            {
+                bool onGpu = j % k < kg;
+                gpuWeights[j] = onGpu ? weights[j] : 0f;
+                cpuWeights[j] = onGpu ? 0f : weights[j];
+            }
+        }
+
         foreach (var v in cpu.Segment.Inputs)
         {
-            if (v == idsValue)
+            // With no GPU slots the pass runs on the CPU alone (the inputs as they are).
+            if (v == idsValue && kg > 0)
             {
-                gpu.SetInput(v, buffers.Gpu.AsSpan(0, bytes));
-                cpu.SetInput(v, buffers.Cpu.AsSpan(0, bytes));
+                gpu.SetInput(v, buffers.GpuIds.AsSpan(0, bytes));
+                cpu.SetInput(v, buffers.CpuIds.AsSpan(0, bytes));
             }
-            else if (v.Kind == ValueKind.Intermediate && _hostValues.TryGetValue(v, out var input))
+            else if (v == weightsValue && kg > 0)
+            {
+                gpu.SetInput(v, buffers.GpuWeights.AsSpan(0, bytes));
+                cpu.SetInput(v, buffers.CpuWeights.AsSpan(0, bytes));
+            }
+            else if ((v.Kind == ValueKind.Intermediate || v == idsValue || v == weightsValue) && _hostValues.TryGetValue(v, out var input))
             {
                 var data = input.AsSpan(0, (int)ByteCount(v, parameters));
-                gpu.SetInput(v, data);
+                if (kg > 0)
+                {
+                    gpu.SetInput(v, data);
+                }
+
                 cpu.SetInput(v, data);
             }
         }
 
-        gpu.Execute(parameters);
+        if (kg > 0)
+        {
+            gpu.Execute(parameters);
+        }
+
         long cpuStart = Stopwatch.GetTimestamp();
         cpu.Execute(parameters);
         double cpuMs = Stopwatch.GetElapsedTime(cpuStart).TotalMilliseconds;
@@ -549,6 +653,11 @@ public sealed class CompiledModel : IDisposable
             }
 
             cpu.GetOutput(o, sum.AsSpan(0, n));
+            if (kg == 0)
+            {
+                continue;
+            }
+
             long waitStart = Stopwatch.GetTimestamp();
             gpu.GetOutput(o, buffers.Out.AsSpan(0, n));
             waitMs += Stopwatch.GetElapsedTime(waitStart).TotalMilliseconds;
@@ -566,17 +675,9 @@ public sealed class CompiledModel : IDisposable
             split = (split.GpuSlots + kg, split.CpuMs + cpuMs, split.WaitMs + waitMs, split.Runs + 1);
         }
 
-        if (DiagnosticSparseGpuSlots is null)
-        {
-            double cpuSlotMs = cpuMs / Math.Max(1, k - kg);
-            _gpuSlots[i] = waitMs > cpuSlotMs / 2 ? Math.Max(1, kg - 1) : waitMs < SplitBalancedWaitMs ? Math.Min(k, kg + 1) : kg;
-        }
-
+        balance.Record(kg, Stopwatch.GetElapsedTime(passStart).TotalMilliseconds);
         return true;
     }
-
-    /// <summary>A wait for the GPU's share of a split pass below which the GPU takes one more slot next time (ms).</summary>
-    private const double SplitBalancedWaitMs = 0.02;
 
     /// <summary>
     /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>) into

@@ -414,7 +414,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     var acc = Vector256<float>.Zero;
                     for (; i + 8 <= n; i += 8)
                     {
-                        var ev = Vector256.Exp(Vector256.Load(sc + i) - mv);
+                        var ev = VectorExp.Exp(Vector256.Load(sc + i) - mv);
                         ev.Store(sc + i);
                         acc += ev;
                     }
@@ -426,7 +426,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     var acc = Vector128<float>.Zero;
                     for (; i + 4 <= n; i += 4)
                     {
-                        var ev = Vector128.Exp(Vector128.Load(sc + i) - mv);
+                        var ev = VectorExp.Exp(Vector128.Load(sc + i) - mv);
                         ev.Store(sc + i);
                         acc += ev;
                     }

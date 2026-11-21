@@ -329,6 +329,37 @@ public sealed partial class GraphLowerer
         return w.Type == DataType.F8E4M3_B32 && k % 128 == 0 ? WeightRepack.Fp8B32Split : null;
     }
 
+    /// <summary>Sets the device-friendly layout of weight buffer <paramref name="wb"/> of <paramref name="v"/> where one applies (aligned quants for wide loads, same byte size).</summary>
+    private void ChooseRepack(Value v, BufferDecl wb)
+    {
+        var w = v.Weight!;
+        if (!DiagnosticSwitches.NoWeightRepack && w.Type == DataType.Q8_0 && w.Shape.Rank >= 1 && !w.Shape[-1].IsSymbolic && w.Shape[-1].Fixed % 128 == 0)
+        {
+            wb.Repack = WeightRepack.Q8_0Split;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (UseMxfp4Repack(w))
+        {
+            wb.Repack = WeightRepack.Mxfp4Split;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (NativeFp8GroupedWeight(v))
+        {
+            wb.Repack = WeightRepack.Fp8B128Grouped;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (Fp8SplitRepack(w) is { } fp8Split)
+        {
+            wb.Repack = fp8Split;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (LibraryHalfWeight(v))
+        {
+            wb.Repack = WeightRepack.Bf16ToF16;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+    }
+
     /// <summary>Returns the tensor reference of a value, materializing leaves (weights, states, inputs) on demand.</summary>
 
     private TensorRef Ref(Value v)
@@ -345,33 +376,14 @@ public sealed partial class GraphLowerer
                 if (!_weightBuffers.TryGetValue(w, out var wb))
                 {
                     _weightBuffers[w] = wb = NewBuffer(BufferKind.Weight, w.Name, w.ByteSize, w: w);
-                    // Device-friendly layout: aligned int8 quants for wide loads (same byte size).
-                    if (!DiagnosticSwitches.NoWeightRepack && w.Type == DataType.Q8_0 && w.Shape.Rank >= 1 && !w.Shape[-1].IsSymbolic && w.Shape[-1].Fixed % 128 == 0)
+                    // Streamed and sparse expert compilations keep the stored layout: they copy their weights from the mapped file at every
+                    // execution, which page-locked or imported pages allow without the host (repacking would take it, and staging).
+                    if (!_opt.Compile.StreamWeights)
                     {
-                        wb.Repack = WeightRepack.Q8_0Split;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
-                    }
-                    else if (UseMxfp4Repack(w))
-                    {
-                        wb.Repack = WeightRepack.Mxfp4Split;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
-                    }
-                    else if (NativeFp8GroupedWeight(v))
-                    {
-                        wb.Repack = WeightRepack.Fp8B128Grouped;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
-                    }
-                    else if (Fp8SplitRepack(w) is { } fp8Split)
-                    {
-                        wb.Repack = fp8Split;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
-                    }
-                    else if (LibraryHalfWeight(v))
-                    {
-                        wb.Repack = WeightRepack.Bf16ToF16;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
+                        ChooseRepack(v, wb);
                     }
                 }
+
                 r = Dense(wb, v);
                 if (wb.Repack == WeightRepack.Q8_0Split)
                 {

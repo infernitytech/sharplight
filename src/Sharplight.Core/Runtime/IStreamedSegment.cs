@@ -17,4 +17,10 @@ public interface IStreamedSegment : ICompiledSegment
     /// sets it before it starts or runs the segment; false (the default) copies the weights in for every execution.
     /// </summary>
     public bool WeightsResident { get; set; }
+
+    /// <summary>
+    /// Whether <see cref="BeginStreaming"/> leaves the copies to the device (they overlap the host's work) rather than making them on the
+    /// calling thread, for instance from page-locked sources. <see cref="CompiledModel"/> splits expert passes only onto segments that do.
+    /// </summary>
+    public bool CopiesAsynchronously => true;
 }

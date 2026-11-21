@@ -78,12 +78,18 @@ memory-mapped file. Every moved group keeps room on the GPU for the values it ex
 (`PlacementOptions.ReservePerSegment`), and the segments of one model on a device share their activation buffers. From
 `StreamExpertsMinRows` rows per pass (default 32: prefill, large serving steps) the CPU experts run on the GPU instead, their weights
 copied in for each pass into one layer's worth of memory the placement keeps free; on CUDA the mapped pages of those weights are
-page-locked read-only (`cuMemHostRegister`) within `DeviceMemoryLimits.PinnedHostMemory`, or else a quarter of the process memory (locked
-file pages cannot be reclaimed), and copied asynchronously while the GPU runs the layer before; the rest, repacked weights and Vulkan
-go through one pair of staging buffers per device. The streaming memory keeps the last streamed layer between prefills, so that layer
+page-locked read-only (`cuMemHostRegister`) within `DeviceMemoryLimits.PinnedHostMemory`, or else half of the process memory (locked
+file pages cannot be reclaimed; they are the experts the CPU reads at every decode step, which must stay in memory anyway), and copied
+asynchronously while the GPU runs the layer before. Vulkan imports the same pages where the driver allows it (VK_EXT_external_memory_host,
+feature `host_memory_import`, same budget; drivers that pin through the locked-memory limit refuse imports beyond `RLIMIT_MEMLOCK`, e.g. in
+containers without `CAP_IPC_LOCK`) and copies from them on the device queue; the rest goes through one pair of staging buffers per device.
+Streamed compilations keep the stored weight layout (no repack on the host, so the copies need no CPU). The streaming memory keeps the last streamed layer between prefills, so that layer
 runs on the GPU in decode as well. Small passes (decode, up to `SHARPLIGHT_SPARSE_EXPERT_ROWS` rows, default 4) run each CPU layer's experts
-split on CUDA: the GPU copies the few experts its share of the slots selects (from the page-locked mapped file, into banks of 32 expert
-slots shared by the layers) while the CPU computes the other slots, and the share adapts to the balance of the two. A compilation that runs
+split on CUDA, and on Vulkan where it imports the mapped pages: the GPU copies the few experts its share of the slots selects (from the
+page-locked mapped file, into banks of 32 expert slots shared by the layers, stored layout; gathered per-expert tables such as gpt-oss's
+biases are kept whole) while the CPU computes the other slots (slots of the other side get zero weights where the layer adds per-expert
+biases); the share per layer and row count is the one with the fastest measured passes, from 0 (the CPU alone, when the bus is slower
+than the CPU for these experts) to all slots. Layers whose banks are not page-locked or imported are not split. A compilation that runs
 out of device memory is placed again with the measured shortfall kept free (more experts on the CPU), up to three times; a streamed
 compilation's failure takes the same path while retries remain, then leaves its experts on the CPU for every batch size. With a fallback
 device the default reserve is 512 MiB (1 GiB without). Vulkan takes the driver's memory budget (VK_EXT_memory_budget) as the limit where it

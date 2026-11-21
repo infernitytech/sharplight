@@ -140,6 +140,13 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         return new DeviceMemoryInfo(total, Math.Min(_configuredBudget ?? total, heapBudget), Math.Max(ours, heapUsage), ours, true);
     }
 
+    /// <summary>Imports of mapped host memory (VK_EXT_external_memory_host), or null when the device has no import.</summary>
+    internal HostMemoryImports? HostImports { get; }
+
+    /// <inheritdoc />
+    /// <remarks>Where the device imports host memory: the selected experts are copied from the imported pages of the mapped file.</remarks>
+    public bool StreamsSelectedExperts => HostImports is not null;
+
     /// <summary>VK_EXT_memory_budget is enabled: <see cref="MemoryAllocator.ReadHeapBudgets"/> reports live per-heap figures.</summary>
     internal bool MemoryBudgetEnabled => _budgetExt;
 
@@ -168,7 +175,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         SparseBinding = phys.SparseBinding && (computeFamily.queueFlags & VkQueueFlags.SparseBinding) != 0;
         TransferFamily = DiagnosticSwitches.TransferQueue ? SelectTransferQueueFamily(inst.Api, phys) : -1;
         SharingFamilies = TransferFamily >= 0 ? [QueueFamily, (uint)TransferFamily] : [];
-        var device = CreateLogicalDevice(inst.Api, out _budgetExt, out _pipelineStats);
+        var device = CreateLogicalDevice(inst.Api, out _budgetExt, out _pipelineStats, out bool hostImport);
         Handle = device;
         Api = new VkDeviceApi(inst.Api, device);
         VkQueue queue;
@@ -192,6 +199,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         ArtifactTargets = CreateArtifactTargets();
 
         Memory = new MemoryAllocator(this);
+        HostImports = hostImport ? HostMemoryImports.TryCreate(this) : null;
         _configuredBudget = options.MemoryBudget;
         _budget = options.MemoryBudget ?? (long)(DeviceMemoryLimits.Apply(phys.DeviceLocalBytes, Limits.DeviceMemory) * 0.92);
     }
@@ -199,9 +207,10 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// <summary>Prefers a dedicated compute queue (async compute), else any queue with compute.</summary>
     /// <summary>
     /// Creates the logical device with the enabled features and extensions chained into one feature structure.
-    /// <paramref name="memoryBudgetExt"/> reports whether VK_EXT_memory_budget was enabled. <paramref name="pipelineStats"/> reports whether pipeline statistics capture was enabled (diagnostic switch).
+    /// <paramref name="memoryBudgetExt"/> reports whether VK_EXT_memory_budget was enabled, <paramref name="hostImport"/> whether
+    /// VK_EXT_external_memory_host was. <paramref name="pipelineStats"/> reports whether pipeline statistics capture was enabled (diagnostic switch).
     /// </summary>
-    private VkDevice CreateLogicalDevice(VkInstanceApi instanceApi, out bool memoryBudgetExt, out bool pipelineStats)
+    private VkDevice CreateLogicalDevice(VkInstanceApi instanceApi, out bool memoryBudgetExt, out bool pipelineStats, out bool hostImport)
     {
         var f13 = new VkPhysicalDeviceVulkan13Features
         {
@@ -286,6 +295,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         if (memoryBudgetExt)
         {
             exts.Add("VK_EXT_memory_budget");
+        }
+
+        hostImport = Phys.HostPointerAlignment > 0 && Phys.ApiVersion >= VkVersion.Version_1_1 && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.HostMemoryImport) && !Options.DisabledFeatures.Contains(DeviceFeatures.HostMemoryImport);
+        if (hostImport)
+        {
+            exts.Add("VK_EXT_external_memory_host");
         }
 
         if (coopMat)
@@ -1088,6 +1103,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             Api.vkDestroyCommandPool(_streamPool, null);
         }
 
+        HostImports?.Dispose();
         Memory.Dispose();
         Api.vkDestroyPipelineLayout(PipelineLayout, null);
         Api.vkDestroyCommandPool(CommandPool, null);
