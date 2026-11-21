@@ -591,8 +591,17 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_MOE_BN=n</c>: weight rows per tile of the grouped MXFP4 GEMM (experiment), or null for the chosen width.</summary>
     public static int? NativeMoeColumns { get; } = Read("SHARPLIGHT_NATIVE_MOE_BN") is { } c ? int.Parse(c, CultureInfo.InvariantCulture) : null;
 
-    /// <summary><c>SHARPLIGHT_NATIVE_MOE_SHORT=n</c>: the grouped MXFP4 GEMM routes 64-row tiles up to n items per expert (experiment).</summary>
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_SHORT=n</c>: the grouped MXFP4 GEMM routes 64-row tiles up to n items per expert (0: never), or null for the default.</summary>
     public static long? NativeMoeShortItems { get; } = Read("SHARPLIGHT_NATIVE_MOE_SHORT") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_BLOCKS=1</c>: the short tiles of the grouped MXFP4 GEMM keep one block per SM, or null for the default.</summary>
+    public static int? NativeMoeBlocks { get; } = Read("SHARPLIGHT_NATIVE_MOE_BLOCKS") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
+    public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_ATTN_STAGES=n</c>: stages of the key / value ring of the hand-written prefill attention, or null for the default.</summary>
+    public static int? NativeAttentionStages { get; } = Read("SHARPLIGHT_ATTN_STAGES") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
     public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;

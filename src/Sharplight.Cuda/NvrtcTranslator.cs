@@ -129,7 +129,9 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     /// the MoE sources) as one 128-thread block per SM. Without the bounds ptxas schedules them for full occupancy, and their weight
     /// stream stalls: gpt-oss-20b decode steps at 16 / 64 sequences 12.04 / 17.69 → 10.05 / 16.22 ms on the RTX PRO 4500 (the same
     /// kernels' SPIR-V forms take 10.0 / 16.7 ms on the NVIDIA Vulkan driver; benchmarks.md section 61). The dense skinny GEMMs keep
-    /// none (Qwen3-8B-FP8 at 16 sequences +0.2 ms with them).
+    /// none (Qwen3-8B-FP8 at 16 sequences +0.2 ms with them). The defaults reach the cache keys only through <see cref="OptionsVersion"/>
+    /// (unlike <c>SHARPLIGHT_CUDA_MIN_BLOCKS</c>, which is in <see cref="Id"/>): changing them changes the PTX of kernels whose source
+    /// does not change, so it needs a version bump, or cached and precompiled PTX of the old bounds would still be served.
     /// </summary>
     private const string DefaultMinBlocks = "matmul_moe_dual:gemm_sk:1;matmul_moe_epi:gemm_sk:1;matmul_moe:gemm_sk:1";
 

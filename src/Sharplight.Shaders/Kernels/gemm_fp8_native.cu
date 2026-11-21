@@ -28,7 +28,10 @@
 #ifndef F8N_BM
 #define F8N_BM 128
 #endif
+// Weight rows per block: 128, or 64 for decode batches (twice the blocks for the same weights, so the last wave is shorter).
+#ifndef F8N_BN
 #define F8N_BN 128
+#endif
 // 64-row tiles (batches of 65 to a few hundred rows: twice the blocks) keep four stages in the same 99 KB.
 #if F8N_BM == 64
 #define F8N_STAGES 4

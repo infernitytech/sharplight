@@ -67,6 +67,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   The split-K reduction in the GEMM's last workgroup was built and measured slower than the separate launch (opt-in). Serving gpt-oss
   0.91x / 0.80x of vLLM at 16 / 64 streams (was 0.80x / 0.76x); the 64-stream gap is now the prompt rows of mixed steps (the grouped
   MXFP4 GEMM at 16-48 rows per expert) and the FP8 decode GEMMs (gate / up at 1 workgroup per SM, 2.3 waves). Next: §61.8.
+  Round 16 (§63): a decode form of the hand-written FP8 GEMM (64-row weight tiles from 32 rows, outside the multi-output q / k / v
+  GEMM) takes Qwen3-8B-FP8's 64-sequence decode step from 17.2 to 16.4 ms (0.91x → 0.95x of vLLM) and its 64-stream serving from 0.89x
+  to 0.92x; 64-row routing tiles at two blocks per SM for the grouped MXFP4 GEMM up to 24 items per expert cut a 64 + 107-row gpt-oss
+  mixed step by 0.64 ms (its expert GEMMs at 82-87 % of the 785 GB/s read limit); a three-stage K / V ring in the prefill attention at
+  head size 128 (+0.5-1 % at 16K-128K). gpt-oss serving stays 0.91x / 0.81x: its prompt waves run full 128-row expert tiles, which reach
+  122 of the 236 TFLOPS MMA peak. Long prefill 0.92-0.94x (gpt-oss) / 0.94-1.01x (Qwen3). Vulkan unchanged. Next: §63.7.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

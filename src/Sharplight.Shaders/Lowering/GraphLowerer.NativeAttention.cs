@@ -16,8 +16,22 @@ public sealed partial class GraphLowerer
     /// </summary>
     private static int NativeAttentionWarps(long headSize) => headSize <= 64 ? 4 : 8;
 
-    /// <summary>Dynamic shared memory of <c>attn_prefill_native.cu</c>: two stages of a key and a value tile in f16.</summary>
-    private static int NativeAttentionSharedBytes(AttentionPlan plan) => (int)(2 * NativeAttentionKeys * (plan.D + plan.DV) * 2);
+    /// <summary>
+    /// Stages of the key / value ring of <c>attn_prefill_native.cu</c> (<c>FN_STAGES</c>): three above head size 64, where one block has
+    /// the SM to itself and a tile's copy takes about as long as its multiplication, when they fit the shared memory; else two (at head
+    /// size 64 a third stage would leave room for two blocks per SM instead of three). <c>SHARPLIGHT_ATTN_STAGES=n</c> sets the count.
+    /// </summary>
+    private int NativeAttentionStages(AttentionPlan plan)
+    {
+        int stages = DiagnosticSwitches.NativeAttentionStages ?? (Math.Max(plan.D, plan.DV) > 64 ? 3 : 2);
+        return stages > 2 && NativeAttentionStageBytes(plan) * stages > _opt.MaxSharedMemory ? 2 : stages;
+    }
+
+    /// <summary>Bytes of one stage of <c>attn_prefill_native.cu</c>: a key and a value tile in f16.</summary>
+    private static int NativeAttentionStageBytes(AttentionPlan plan) => (int)(NativeAttentionKeys * (plan.D + plan.DV) * 2);
+
+    /// <summary>Dynamic shared memory of <c>attn_prefill_native.cu</c>: <see cref="NativeAttentionStages"/> stages of a key and a value tile in f16.</summary>
+    private int NativeAttentionSharedBytes(AttentionPlan plan) => NativeAttentionStageBytes(plan) * NativeAttentionStages(plan);
 
     /// <summary>
     /// True when causal attention of many queries against a KV cache runs on the hand-written flash-attention kernel
@@ -37,7 +51,7 @@ public sealed partial class GraphLowerer
                     && plan.Compressed is null && plan.RelativeBias is null && a.Get("causal", true)
                     && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
         return mode > 0 && _opt.Has(DeviceFeatures.NativeAttention) && _compiler.CompilesCuda(_opt.Target) && shapes && form
-               && NativeAttentionSharedBytes(plan) <= _opt.MaxSharedMemory && (mode == 1 || !CausalFlash(plan));
+               && NativeAttentionStageBytes(plan) * 2 <= _opt.MaxSharedMemory && (mode == 1 || !CausalFlash(plan));
     }
 
     /// <summary>
@@ -58,6 +72,7 @@ public sealed partial class GraphLowerer
 
         macros["MIX_RUN"] = mixRun.ToString(CultureInfo.InvariantCulture);
         macros["FN_WARPS"] = warps.ToString(CultureInfo.InvariantCulture);
+        macros["FN_STAGES"] = NativeAttentionStages(plan).ToString(CultureInfo.InvariantCulture);
         var kernel = _compiler.CompileCuda("attn_prefill_native.cu", "", "attn_prefill_native", warps * 32, NativeAttentionSharedBytes(plan), _opt.Target,
             macros, _opt.Cache);
         uint rows = (uint)(16 * warps);

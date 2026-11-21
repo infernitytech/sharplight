@@ -141,6 +141,9 @@ public sealed partial class GraphLowerer
     private KernelVariant[] NativeFp8Variants(long n, long k, string? dualEpilogue, long xcap, long minRows, long maxRows, Func<Bindings, long> rows)
     {
         bool dual = dualEpilogue is not null;
+        int decodeColumns = NativeFp8DecodeColumns;
+        bool decodeForm = decodeColumns != NativeFp8Tile && minRows <= 64;
+        bool Decode(long r) => decodeForm && r <= 64;
         var used = new SortedSet<int>();
         for (long r = minRows; r <= maxRows; r += 64)
         {
@@ -148,19 +151,63 @@ public sealed partial class GraphLowerer
         }
 
         used.Add(NativeFp8TileRows(maxRows, n, dual));
-        return [.. used.Select(tileRows =>
+        var variants = used.Select(tileRows =>
         {
+            bool Serves(Bindings b) => rows(b) >= minRows && !Decode(rows(b)) && NativeFp8TileRows(rows(b), n, dual) == tileRows;
             if (tileRows == NativeFp8Tile && NativeFp8TensorCopies)
             {
-                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, b => rows(b) >= minRows && NativeFp8TileRows(rows(b), n, dual) == tileRows, rows);
+                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, Serves, rows);
             }
 
-            var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("F8N_BM", tileRows), ("DUAL", dual ? 1 : 0));
-            var kernel = _compiler.CompileCuda("gemm_fp8_native.cu", dualEpilogue ?? "", "gemm_fp8_native", NativeFp8Threads, NativeFp8SharedBytes,
-                _opt.Target, macros, _opt.Cache);
-            return new KernelVariant(b => rows(b) >= minRows && NativeFp8TileRows(rows(b), n, dual) == tileRows, kernel,
-                b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile)));
-        })];
+            return NativeFp8Variant(n, k, dualEpilogue, xcap, tileRows, NativeFp8Tile, Serves, rows);
+        }).ToList();
+        if (decodeForm)
+        {
+            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)), rows));
+        }
+
+        return [.. variants];
+    }
+
+    /// <summary>
+    /// Weight rows per tile of the hand-written FP8 GEMM's decode form: batches of at most 64 rows (one token tile) on 64-row weight
+    /// tiles, twice the blocks of the 128-row tiles for the same weights, so the last of the 2-5 block waves is shorter. RTX PRO 4500,
+    /// Qwen3-8B-FP8 at 64 sequences (GPU µs per layer against the generated fp8 GEMM with split-K): gate / up 147.5 → 134.6, down
+    /// 75.3 + 2.8 → 69.4, o 30.1 + 2.8 → 24.4; step 17.06 → 16.47 ms. 128-row weight tiles from 17 rows: 17.10 ms.
+    /// <c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=128</c> turns the decode form off.
+    /// </summary>
+    private static int NativeFp8DecodeColumns => DiagnosticSwitches.NativeFp8DecodeColumns ?? 64;
+
+    /// <summary>
+    /// Rows from which the hand-written FP8 GEMM's decode form (<see cref="NativeFp8DecodeColumns"/>) serves: below, the generated fp8
+    /// GEMM's K split fills the GPU better. RTX PRO 4500, Qwen3-8B-FP8 decode steps (GPU ms, decode form off → on): 24 sequences 14.22 →
+    /// 14.61, 32: 14.90 → 14.71, 48: 16.32 → 15.65, 64: 17.53 → 16.77.
+    /// </summary>
+    private const long NativeFp8DecodeMinRows = 32;
+
+    /// <summary>
+    /// Rows from which the hand-written FP8 GEMM serves a matmul: from <see cref="NativeFp8DecodeMinRows"/> on its decode form when
+    /// <paramref name="decode"/> (not a member of a multi-output q / k / v GEMM, which is faster at decode sizes: 43.4 against 51.8 µs per
+    /// Qwen3-8B layer), else from <see cref="NativeGemmMinRows"/>.
+    /// </summary>
+    private static long NativeFp8MinRows(bool decode)
+        => decode && NativeFp8DecodeColumns != NativeFp8Tile && DiagnosticSwitches.NativeGemmMinRows is null ? NativeFp8DecodeMinRows : NativeGemmMinRows;
+
+    /// <summary>A launch variant of <c>gemm_fp8_native.cu</c> with tiles of <paramref name="tileRows"/> tokens and <paramref name="columns"/> weight rows.</summary>
+    private KernelVariant NativeFp8Variant(long n, long k, string? dualEpilogue, long xcap, int tileRows, int columns, Func<Bindings, bool> serves,
+        Func<Bindings, long> rows)
+    {
+        bool dual = dualEpilogue is not null;
+        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("F8N_BM", tileRows), ("DUAL", dual ? 1 : 0));
+        if (columns != NativeFp8Tile)
+        {
+            macros["F8N_BN"] = columns.ToString(CultureInfo.InvariantCulture);
+        }
+
+        int stages = tileRows == 64 ? 4 : 3;
+        var kernel = _compiler.CompileCuda("gemm_fp8_native.cu", dualEpilogue ?? "", "gemm_fp8_native", NativeFp8Threads, stages * (tileRows + columns) * 132,
+            _opt.Target, macros, _opt.Cache);
+        return new KernelVariant(serves, kernel, b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, dual ? columns / 2 : columns)));
     }
 
     /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c>: 2 x 4 computing warps and the copy warp.</summary>
@@ -314,21 +361,62 @@ public sealed partial class GraphLowerer
     private static int NativeMoeStageBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)
         => tileRows * 128 + 2 * columns * 16 + 2 * (dual ? 2 : 1) * (dual ? columns / 2 : columns) / 16 * 16;
 
-    /// <summary>Dynamic shared memory of <c>gemm_moe_native.cu</c> for weight tiles of <paramref name="columns"/> rows.</summary>
-    private int NativeMoeSharedBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)
-        => NativeMoeStageBytes(columns, dual, tileRows) * NativeMoeStagesFor(columns, dual, tileRows);
-
     /// <summary>The stages of <c>gemm_moe_native.cu</c> that fit the device's shared memory (<see cref="NativeMoeStages"/> or 3).</summary>
     private int NativeMoeStagesFor(int columns, bool dual, int tileRows = NativeMoeTileRows)
         => _opt.MaxSharedMemory >= NativeMoeStageBytes(columns, dual, tileRows) * NativeMoeStages + NativeMoeStaticShared ? NativeMoeStages : 3;
 
     /// <summary>
+    /// Routed items per expert up to which the hand-written grouped MXFP4 GEMM runs <see cref="NativeMoeShortTileRows"/>-row routing
+    /// tiles (<c>SHARPLIGHT_NATIVE_MOE_SHORT=n</c>, 0 for none). The 128-row tile's activation stages are mostly empty there, so the
+    /// short tile's smaller stages let it run two blocks per SM (<see cref="NativeMoeConfig"/>). RTX PRO 4500, gpt-oss-20b mixed steps
+    /// (BatchBench, GPU ms): 64 + 107 rows (21 items per expert) 24.72 → 24.22, but 64 + 192 rows (32 per expert) 28.72 → 29.25.
+    /// </summary>
+    private const long NativeMoeShortItemsPerExpert = 24;
+
+    /// <summary>Token rows of the short routing tiles of <c>gemm_moe_native.cu</c> (see <see cref="NativeMoeShortItemsPerExpert"/>).</summary>
+    private const int NativeMoeShortTileRows = 64;
+
+    /// <summary>The routing tile rows the hand-written grouped MXFP4 GEMM is compiled for: the short tile when it is on, and the full one.</summary>
+    private static int[] NativeMoeTiles
+        => (DiagnosticSwitches.NativeMoeShortItems ?? NativeMoeShortItemsPerExpert) > 0 ? [NativeMoeShortTileRows, NativeMoeTileRows] : [NativeMoeTileRows];
+
+    /// <summary>
     /// Routing tile rows of the hand-written grouped MXFP4 GEMM for a step of <paramref name="items"/> routed items over
-    /// <paramref name="experts"/> experts: 64 up to <c>SHARPLIGHT_NATIVE_MOE_SHORT</c> items per expert (experiment, default off), else
-    /// <see cref="NativeMoeTileRows"/>.
+    /// <paramref name="experts"/> experts: <see cref="NativeMoeShortTileRows"/> up to <see cref="NativeMoeShortItemsPerExpert"/> items per
+    /// expert, else <see cref="NativeMoeTileRows"/>.
     /// </summary>
     private static int NativeMoeTileRowsFor(long items, long experts)
-        => DiagnosticSwitches.NativeMoeShortItems is { } shortItems && items <= shortItems * experts ? 64 : NativeMoeTileRows;
+        => items <= (DiagnosticSwitches.NativeMoeShortItems ?? NativeMoeShortItemsPerExpert) * experts ? NativeMoeShortTileRows : NativeMoeTileRows;
+
+    /// <summary>
+    /// Weight rows per tile, stages and resident blocks per SM (<c>NM_BN</c>, <c>NM_STAGES</c>, <c>NM_MINB</c>) of <c>gemm_moe_native.cu</c>
+    /// for <paramref name="n"/> outputs and routing tiles of <paramref name="tileRows"/> rows. A short tile runs two blocks of three stages
+    /// per SM where they fit the shared memory of an SM (taken as the per-block limit plus the 1 KB the hardware reserves per block, as on
+    /// compute capability 8.x-12.x; where fewer fit, the bound only caps the registers), narrowing a dual tile to 128 weight rows for it;
+    /// otherwise one block with <see cref="NativeMoeTileColumns"/> and <see cref="NativeMoeStagesFor"/>. <c>SHARPLIGHT_NATIVE_MOE_BN</c>
+    /// fixes the width, <c>SHARPLIGHT_NATIVE_MOE_BLOCKS=1</c> keeps one block. RTX PRO 4500, gpt-oss-20b shapes (bench/s56_moe, 171
+    /// tokens, skewed routing): gate / up 0.510 → 0.492 ms (64 rows, 128-row dual tiles, two blocks), down 0.307 → 0.266 ms.
+    /// </summary>
+    private (int Columns, int Stages, int MinBlocks) NativeMoeConfig(long n, bool dual, int tileRows)
+    {
+        int columns = DiagnosticSwitches.NativeMoeColumns ?? NativeMoeTileColumns(n, dual);
+        bool TwoFit(int width)
+            => 2 * (NativeMoeStageBytes(width, dual, tileRows) * 3L + NativeMoeStaticShared + 1024) <= _opt.MaxSharedMemory + 1024;
+        if (tileRows < NativeMoeTileRows && DiagnosticSwitches.NativeMoeBlocks != 1)
+        {
+            if (!TwoFit(columns) && dual && DiagnosticSwitches.NativeMoeColumns is null && TwoFit(128))
+            {
+                columns = 128;
+            }
+
+            if (TwoFit(columns))
+            {
+                return (columns, 3, 2);
+            }
+        }
+
+        return (columns, NativeMoeStagesFor(columns, dual, tileRows), 1);
+    }
 
     /// <summary>
     /// Weight rows per tile of <c>gemm_moe_native.cu</c> for <paramref name="n"/> outputs: the width (256, 192 or 128 rows; dual pairs

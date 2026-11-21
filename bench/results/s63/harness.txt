@@ -1,0 +1,29 @@
+bench/s56_moe harness, gpt-oss-20b shapes (K = 2880; gate / up dual N = 2880 x 2, down N = 2880), E = 32, S = 4, best of 20 launches with L2 evicted, ms.
+Read limit (streaming __ldcs read of 282 MB after the same eviction): 0.377 ms = 785 GB/s; gate / up weights 282 MB, down 141 MB.
+f16 mma.sync m16n8k16 peak (bench/s53_gemm/peak2.cu with f16 operands): 236 TFLOPS.
+
+uniform routing, T = 128 / 171 / 256 / 512 tokens
+gate/up BM128 BN256 3 stages 1 block (develop)   0.512 / 0.528 / 0.563 / 0.731
+gate/up BM128 BN256 3 stages, NM_PF=0            0.913 / 0.920 / 0.926 / 0.958
+gate/up BM64  BN256 4 stages                     0.457 / 0.467 / 0.508 / 0.834
+gate/up BM64  BN256 5 stages                     0.463 / 0.475 / 0.512 / 0.840
+gate/up BM64  BN256 3 stages, min 2 blocks       0.512 / 0.524 / 0.563 / 0.887   (two do not fit: still one block)
+gate/up BM32  BN256 3 stages, min 2 blocks       0.465 / 0.473 / 0.549 / 0.915
+gate/up BM32  BN256 6 stages                     0.459 / 0.463 / 0.608 / 1.069
+gate/up BM64  BN128 4 warps 5 stages             0.559 / 0.621 / 0.676 / 1.094
+down    BM128 BN192 3 stages 1 block (develop)   0.301 / 0.307 / 0.326 / 0.385
+down    BM64  BN192 4 stages                     0.238 / 0.252 / 0.274 / 0.438
+down    BM64  BN192 5 / 6 stages                 0.240 / 0.256 / 0.279 / 0.436 ; 0.242 / 0.258 / 0.281 / 0.438
+down    BM64  BN192 3 stages, 2 blocks           0.227 / 0.231 / 0.248 / 0.381
+down    BM32  BN192 3 stages, 2 blocks           0.227 / 0.231 / 0.309 / 0.459
+down    BM64  BN128 4 warps 6 stages             0.293 / 0.309 / 0.338 / 0.555
+T = 1024 / 2048 (develop): gate/up 1.210 / 2.215 ms (112 / 123 TFLOPS), down 0.637 / 1.157 ms (107 / 117 TFLOPS)
+
+skewed routing -DSKEW=0.15 / 0.6, T = 128 / 171 / 256 / 512
+gate/up develop                      0.502 / 0.510 / 0.555 / 0.756 ; 0.496 / 0.545 / 0.596 / 0.805
+gate/up BM64 BN128 8 warps 2 blocks  0.461 / 0.492 / 0.530 / 0.741 ; 0.471 / 0.506 / 0.565 / 0.782   (this round's short tile)
+gate/up BM64 BN128 4 warps 4 blocks  0.481 / 0.520 / 0.571 / 0.838 ; 0.496 / 0.539 / 0.610 / 0.875
+gate/up BM128 BN128 8 warps          0.627 / 0.645 / 0.686 / 0.879 ; 0.627 / 0.668 / 0.713 / 0.936
+down    develop                      0.301 / 0.307 / 0.322 / 0.412 ; 0.299 / 0.326 / 0.348 / 0.444
+down    BM64 BN192 2 blocks          0.229 / 0.266 / 0.274 / 0.360 ; 0.256 / 0.270 / 0.287 / 0.387   (this round's short tile)
+down    BM32 BN192 2 blocks          0.252 / 0.272 / 0.301 / 0.455 (share 1 / (1 + 0.15 i), the earlier form)

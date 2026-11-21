@@ -1,6 +1,6 @@
 // Harness of the hand-written grouped MXFP4 expert GEMM (src/Sharplight.Shaders/Kernels/gemm_moe_native.cu, or the file in KFILE):
 // E experts of MXFP4R weights (WeightRepack.Mxfp4Split: 16-row groups of [16 rows x K / 2 code bytes][K / 32 blocks x 16 E8M0
-// scales]), T tokens routed to S experts each (uniform random, or SKEW: a power-law share per expert), the routing tiles and the
+// scales]), T tokens routed to S experts each (uniform random, or -DSKEW=a: share (1 + a i)^-1.5 for expert i, e.g. 0.15 or 0.6), the routing tiles and the
 // expert-sorted f16 rows as moe_route / moe_gather_x16 build them. Checks against a reference kernel (same decode, f32 sums) and
 // times the launch with events (best of 20, L2 evicted before each launch).
 // nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DKFILE='"gemm_moe_native.cu"' bench_moe.cu -o b
@@ -125,7 +125,7 @@ int main(int argc, char** argv)
             std::vector<int> ex(E);
             for (int i = 0; i < E; i++) ex[i] = i;
 #ifdef SKEW
-            std::vector<double> wt(E); for (int i = 0; i < E; i++) wt[i] = 1.0 / (1 + i * 0.15);
+            std::vector<double> wt(E); for (int i = 0; i < E; i++) wt[i] = 1.0 / pow(1 + i * SKEW, 1.5);
             for (int s = 0; s < S; s++) { std::discrete_distribution<int> d(wt.begin(), wt.end()); int i = d(rng); per[i].push_back(t * S + s); wt[i] = 0; }
 #else
             std::shuffle(ex.begin(), ex.end(), rng);

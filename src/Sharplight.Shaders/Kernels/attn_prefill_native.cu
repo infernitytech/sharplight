@@ -3,7 +3,8 @@
 // each warp owns 16 * FN_MR query rows for the whole key loop, so its query fragments (Q · SCALE in f16), score accumulators,
 // softmax statistics and output accumulators stay in registers. The block shares tiles of FN_BC = 64 keys and values, copied with cp.async into a two-stage
 // ring of dynamic shared memory (rows of 16-byte chunks, XOR swizzle so the copies and ldmatrix are free of bank conflicts) while the
-// previous tile is multiplied: one block barrier per tile. Per tile a warp computes S = Q · Kᵀ (mma.sync.m16n8k16, f32), applies the
+// previous tile is multiplied: one block barrier per tile. FN_STAGES = 3 keeps two tiles in flight (one block per SM at head size 128,
+// where a tile's copy takes about as long as its multiplication). Per tile a warp computes S = Q · Kᵀ (mma.sync.m16n8k16, f32), applies the
 // mask only on tiles that cross a row's limits (the diagonal, a window's start), runs the online softmax on the accumulators (row maxima
 // and sums over the four lanes of a row, exp2 with log2(e) folded in), and multiplies the probabilities, converted to f16 in the
 // accumulator layout that is the A-operand layout of the next MMA, with the value tile (ldmatrix.trans). Tiles a warp's rows cannot see
@@ -16,7 +17,7 @@
 //
 // Macros: HQ, HKV, D, DV (multiples of 64 up to 128), VRS (value row stride), QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP,
 // HAS_SINKS, MULTI_SEQ, SLOT_CTX, PAGED, PAGE_BS, PAGE_MB, RT_N_PAST, MIX_RUN, FN_WARPS (4 or 8), FN_MR (16-row fragments per
-// warp, default 1: 2 measured the same at head size 64 and spilled at 128).
+// warp, default 1: 2 measured the same at head size 64 and spilled at 128), FN_STAGES (2 or 3, default 2).
 // Grid: x = HQ, y = query tiles (of the longest run), z = runs (1 without MULTI_SEQ).
 #ifndef FN_WARPS
 #define FN_WARPS 4
@@ -47,6 +48,9 @@
 #endif
 #ifndef FN_MR
 #define FN_MR 1
+#endif
+#ifndef FN_STAGES
+#define FN_STAGES 2
 #endif
 #define FN_THREADS (FN_WARPS * 32)
 #define FN_WR (FN_MR * 16)          // query rows per warp
@@ -221,8 +225,15 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
 #endif
 
     const fn_u32 sbase = fn_smem(smem);
-    fn_load(p, sbase, kvBase, hk, jFirst, jEnd, tid);
-    asm volatile("cp.async.commit_group;\n" ::);
+#pragma unroll
+    for (fn_u32 st = 0; st < FN_STAGES - 1; st++)
+    {
+        if (jFirst + st * FN_BC < jEnd)
+        {
+            fn_load(p, sbase + st * FN_STAGE * 2, kvBase, hk, jFirst + st * FN_BC, jEnd, tid);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+    }
 
     // This warp's rows: tw0 + 16 mr + g (a) and + 8 (b); Q · SCALE as A fragments.
     const fn_u32 tw0 = t0 + warp * FN_WR;
@@ -276,18 +287,21 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
     fn_u32 stage = 0;
     for (fn_u32 j0 = jFirst; j0 < jEnd; j0 += FN_BC)
     {
-        asm volatile("cp.async.wait_group 0;\n" ::);
+        // Tile j0 complete (the FN_STAGES - 2 later tiles may still be in flight); the slot of the previous tile, which every warp
+        // has finished reading, takes the tile FN_STAGES - 1 ahead.
+        asm volatile("cp.async.wait_group %0;\n" :: "n"(FN_STAGES - 2));
         __syncthreads();
-        if (j0 + FN_BC < jEnd)
+        const fn_u32 ahead = j0 + (FN_STAGES - 1) * FN_BC;
+        if (ahead < jEnd)
         {
-            fn_load(p, sbase + (stage ^ 1) * FN_STAGE * 2, kvBase, hk, j0 + FN_BC, jEnd, tid);
+            fn_load(p, sbase + ((stage + FN_STAGES - 1) % FN_STAGES) * FN_STAGE * 2, kvBase, hk, ahead, jEnd, tid);
         }
         asm volatile("cp.async.commit_group;\n" ::);
 
         // Tiles none of the warp's rows sees: past the last row's end, or before the first row's window / chunk.
         if (!warpLive || j0 >= warpEndMax || j0 + FN_BC <= warpBegMin)
         {
-            stage ^= 1;
+            stage = (stage + 1) % FN_STAGES;
             continue;
         }
 
@@ -433,7 +447,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
                 }
             }
         }
-        stage ^= 1;
+        stage = (stage + 1) % FN_STAGES;
     }
     asm volatile("cp.async.wait_group 0;\n" ::);
 
