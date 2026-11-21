@@ -1,0 +1,5 @@
+decoder: MultiSequenceDecoder, slots 4, vocab 201088, device sampling: True, KV paged 32896 x 16
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 15.2 | 449 / 0 | 9.32 / 9.33, 9.29 |
+| 4 | 24.9 | 570 / 0 | 24.11 / 24.14, 24.06 |

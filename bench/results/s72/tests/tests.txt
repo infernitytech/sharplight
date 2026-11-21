@@ -1,0 +1,27 @@
+cuda-tests    Sharplight.Cuda.Tests  Total: 39, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 14.526s
+cuda MoeTests    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.855s
+cuda StreamedExpertsTests    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.242s
+cuda MatMulTests    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.576s
+cuda FusionTests    Sharplight.Vulkan.Tests  Total: 80, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.825s
+cuda RowInvarianceTests    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.003s
+cuda TopKTests    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.041s
+cuda FullAttentionTests    Sharplight.Vulkan.Tests  Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.233s
+cuda PagedAttentionTests    Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.181s
+cuda PackedSequenceTests    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.995s
+cuda SparseAttentionTests    Sharplight.Vulkan.Tests  Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.069s
+cuda StatefulTests    Sharplight.Vulkan.Tests  Total: 67, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.138s
+cuda StateHandoffTests    Sharplight.Vulkan.Tests  Total: 1, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.833s
+cuda CompressedKvTests    Sharplight.Vulkan.Tests  Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.128s
+vulkan MoeTests    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 34.671s
+vulkan StreamedExpertsTests    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.062s
+vulkan MatMulTests    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 27.450s
+vulkan FusionTests    Sharplight.Vulkan.Tests  Total: 80, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 26.888s
+vulkan RowInvarianceTests    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 42.270s
+vulkan TopKTests    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 12.153s
+vulkan FullAttentionTests    Sharplight.Vulkan.Tests  Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 14.787s
+vulkan PagedAttentionTests    Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.159s
+vulkan PackedSequenceTests    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 12.042s
+vulkan SparseAttentionTests    Sharplight.Vulkan.Tests  Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.340s
+vulkan StatefulTests    Sharplight.Vulkan.Tests  Total: 67, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 47.767s
+vulkan StateHandoffTests    Sharplight.Vulkan.Tests  Total: 1, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.215s
+vulkan CompressedKvTests    Sharplight.Vulkan.Tests  Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.408s

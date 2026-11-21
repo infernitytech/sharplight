@@ -1,0 +1,12 @@
+| batch | first ms | dispatches / barriers | greedy |
+| 1 | 15.4 | 449 / 0 | 9.46 / 9.47, 9.42 |
+| 4 | 25.5 | 570 / 0 | 25.07 / 25.51, 25.03 |
+GPU time 547.82 ms
+   341.512 ms  62.3%    480x  min      8.9 us  attention decode T=4,U=4,R=4|2,3
+    69.125 ms  12.6%    480x  min     94.5 us  matmul-id [32x2880→5760] mxfp4rx2 fused skinny gemm_sk T=4,U=4,R=4|2,3
+    32.749 ms   6.0%    480x  min     45.4 us  matmul-id [32x2880→2880] mxfp4r skinny +epilogue gemm_sk T=4,U=4,R=4|2,3
+    28.365 ms   5.2%     20x  min   1416.0 us  matmul [2880→201088] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+    17.089 ms   3.1%    480x  min     33.0 us  matmul [4096→2880] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+    16.115 ms   2.9%    480x  min     32.0 us  matmul [2880→4096] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+     8.288 ms   1.5%    960x  min      6.5 us  matmul [2880→512] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+     1.807 ms   0.3%    240x  min      5.6 us  attention combine decode_combine T=4,U=4,R=4|2,3

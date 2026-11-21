@@ -1,0 +1,81 @@
+== gu0
+  check T=32: max err 0.119 of max 1.94e+04
+  check T=64: max err 0.0605 of max 1.72e+04
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.416 ms 20.4 TFLOPS
+  check T=128: max err 0.0801 of max 1.84e+04
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.434 ms 39.1 TFLOPS
+  check T=171: max err 0.0801 of max 2.37e+04
+  check T=256: max err 0.117 of max 2.27e+04
+  check T=512: max err 0.0986 of max 1.95e+04
+== gu1
+  check T=32: max err 0.119 of max 1.94e+04
+  check T=64: max err 0.0605 of max 1.72e+04
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.412 ms 20.6 TFLOPS
+  check T=128: max err 0.0801 of max 1.84e+04
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.430 ms 39.5 TFLOPS
+  check T=171: max err 0.0801 of max 2.37e+04
+  check T=256: max err 0.117 of max 2.27e+04
+  check T=512: max err 0.0986 of max 1.95e+04
+== dn0
+  check T=32: max err 0.000641 of max 199
+  check T=64: max err 0.000671 of max 220
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.227 ms 18.7 TFLOPS
+  check T=128: max err 0.000656 of max 201
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.236 ms 36.1 TFLOPS
+  check T=171: max err 0.000763 of max 198
+  check T=256: max err 0.000839 of max 222
+  check T=512: max err 0.000824 of max 204
+== dn1
+  check T=32: max err 0.000641 of max 199
+  check T=64: max err 0.000671 of max 220
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.227 ms 18.7 TFLOPS
+  check T=128: max err 0.000656 of max 201
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.238 ms 35.7 TFLOPS
+  check T=171: max err 0.000763 of max 198
+  check T=256: max err 0.000839 of max 222
+  check T=512: max err 0.000824 of max 204
+== dn128_1
+  check T=32: max err 0.000641 of max 199
+  check T=64: max err 0.000671 of max 220
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=128: 0.229 ms 18.5 TFLOPS
+  check T=128: max err 0.000656 of max 201
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=128: 0.240 ms 35.4 TFLOPS
+  check T=171: max err 0.000763 of max 198
+  check T=256: max err 0.000839 of max 222
+  check T=512: max err 0.000824 of max 204
+== gu0
+back to back over 24 layer copies: 0.3547 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3225 ms per routing
+== gu1
+back to back over 24 layer copies: 0.3491 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3236 ms per routing
+== dn0
+back to back over 24 layer copies: 0.1765 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.1700 ms per routing
+== dn1
+back to back over 24 layer copies: 0.1821 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.1733 ms per routing
+== dn128_0
+back to back over 24 layer copies: 0.1790 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.1725 ms per routing
+== dn128_1
+back to back over 24 layer copies: 0.1798 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.1735 ms per routing
+== gu0
+back to back over 24 layer copies: 0.3533 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3232 ms per routing
+== gu1
+back to back over 24 layer copies: 0.3574 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3243 ms per routing
+== dn0
+back to back over 24 layer copies: 0.1778 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.1701 ms per routing
+== dn1
+back to back over 24 layer copies: 0.1826 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.1736 ms per routing
+== dn128_0
+back to back over 24 layer copies: 0.1792 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.1726 ms per routing
+== dn128_1
+back to back over 24 layer copies: 0.1805 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.1736 ms per routing
