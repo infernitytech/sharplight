@@ -218,6 +218,8 @@ public sealed partial class GraphLowerer
         bool fused = DiagnosticSwitches.MultiGemmFused && (!fp8 || _compiler.CompilesCuda(_opt.Target));
         var arrivals = fused ? SplitArrivals(tiles) : null;
         var serves = group.Serves[family];
+        var native = fp8 ? EmitNativeFp8MultiGemm(group, parts, widths, k, serves) : null;
+        Func<Bindings, bool> splitServes = native is null ? serves : b => serves(b) && !native(b);
         var variants = tiledSplits.Select(ts =>
         {
             var macros = fp8
@@ -238,7 +240,7 @@ public sealed partial class GraphLowerer
             macros["MULTI_BIAS"] = bias ? "1" : "0";
             var kernel = fp8 ? Lib("gemm_fp8.slang", "gemm_fp8", macros) : Lib("matmul.slang", "gemm_cm2", macros);
             int columns = Columns(ts.TileRows);
-            return new KernelVariant(b => serves(b) && TileRows(rowsOf(b)) == ts.TileRows && Split(rowsOf(b)) == ts.Split, kernel,
+            return new KernelVariant(b => splitServes(b) && TileRows(rowsOf(b)) == ts.TileRows && Split(rowsOf(b)) == ts.Split, kernel,
                 fp8 ? b => new Grid(Grid.Div(rowsOf(b), ts.TileRows), Grid.Div(n, columns), (uint)ts.Split)
                     : b => new Grid(Grid.Div(n, columns), Grid.Div(rowsOf(b), ts.TileRows), (uint)ts.Split));
         });
@@ -259,13 +261,13 @@ public sealed partial class GraphLowerer
         // The reduction of the concatenated partials, each column stored to its member's output (with its bias); w is the row-ranged
         // f16 copy of the activations where the GEMM read one (its row scales are undone here), else the first weight.
         bool ranged = first.Macros.ContainsKey("X_RS");
-        var reduceVariants = tiledSplits.Select(ts => ts.Split).Distinct().Select(split =>
+        var reduceVariants = tiledSplits.Select(ts => ts.Split).Distinct().Select(splitCount =>
         {
             var macros = new Dictionary<string, string>(WithoutSplit(first.Macros))
             {
                 ["N"] = n.ToString(CultureInfo.InvariantCulture),
                 ["Y_STRIDE"] = n.ToString(CultureInfo.InvariantCulture),
-                ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture),
+                ["SPLITK"] = splitCount.ToString(CultureInfo.InvariantCulture),
                 ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
                 ["MULTI_O1"] = o1.ToString(CultureInfo.InvariantCulture),
                 ["MULTI_O2"] = o2.ToString(CultureInfo.InvariantCulture),
@@ -276,7 +278,7 @@ public sealed partial class GraphLowerer
                 macros.Remove("X_RS");
             }
 
-            return new KernelVariant(b => serves(b) && Split(rowsOf(b)) == split, Lib("matmul.slang", "splitk_reduce", macros),
+            return new KernelVariant(b => splitServes(b) && Split(rowsOf(b)) == splitCount, Lib("matmul.slang", "splitk_reduce", macros),
                 b => new Grid(Grid.Div(rowsOf(b) * n, 256)));
         });
         Emit($"matmul multi [{k}→{string.Join("+", widths)}] split-k reduce", group.Members, [.. reduceVariants],
@@ -284,6 +286,50 @@ public sealed partial class GraphLowerer
              .. weights, .. outputs, .. biases, first.Tokens],
             [partial, .. ranged && !fp8 ? [first.Activations] : (TensorRef[])[], .. bias ? parts.Select(pt => pt.Bias!) : []],
             [.. parts.Select(pt => pt.Output)]);
+    }
+
+    /// <summary>
+    /// The decode form of the hand-written FP8 GEMM over the group's concatenated weight rows (<c>gemm_fp8_native.cu</c> MULTI: 64-row
+    /// token and weight tiles, each block in one member's matrix, storing to that member's output) for the decode batches of
+    /// <see cref="NativeFp8MultiMinRows"/> to 64 rows the multi-output GEMM serves (<paramref name="serves"/>), when every member is a
+    /// matrix the hand-written GEMM takes. Returns the batches it serves, or null. One launch instead of the K-split GEMM and its
+    /// reduction (k and v alone on the decode form ran 16 blocks each, ~300 GB/s). Each output sums its K blocks in the order of the
+    /// member's own decode-form launch.
+    /// </summary>
+    /// <summary>
+    /// Rows from which the multi-output decode form serves (<see cref="EmitNativeFp8MultiGemm"/>). RTX PRO 4500, Qwen3-8B-FP8 decode steps
+    /// (BatchBench <c>--text</c>, GPU ms, two alternated pairs): 48 sequences 15.58-15.59 → 15.45-15.48, 64: 16.65 → 16.48, but 32:
+    /// 14.66-14.67 → 14.92-14.98 (its 96 blocks of q / k / v run two waves at one block per SM, 42 µs against 40.6 + 2.8 for the K split).
+    /// </summary>
+    private const long NativeFp8MultiMinRows = 48;
+
+    private Func<Bindings, bool>? EmitNativeFp8MultiGemm(MultiGemmGroup group, List<MultiGemmPart> parts, long[] widths, long k, Func<Bindings, bool> serves)
+    {
+        var first = parts[0];
+        int columns = NativeFp8DecodeColumns;
+        var xcap = DenseScaleCapacityOf(first.Activations);
+        if (columns == NativeFp8Tile || DiagnosticSwitches.NativeGemmMinRows is not null || parts.Count > 3 || xcap <= 0
+            || parts.Any(pt => !UseNativeFp8Gemm(pt.Weight.Type, pt.Weight.Shape[0], k)))
+        {
+            return null;
+        }
+
+        long n = widths.Sum();
+        var rowsOf = first.Rows;
+        Func<Bindings, bool> decode = b => serves(b) && rowsOf(b) >= NativeFp8MultiMinRows && rowsOf(b) <= 64;
+        var multi = new Dictionary<string, string>
+        {
+            ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+        };
+        var variant = NativeFp8Variant(n, k, null, xcap, 64, columns, decode, rowsOf, multi);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native", group.Members, [variant],
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
+        return decode;
     }
 
     /// <summary>True when <paramref name="r"/> holds dense rows of <paramref name="width"/> values.</summary>
