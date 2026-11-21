@@ -772,10 +772,14 @@ public sealed partial class GraphLowerer
     /// contexts: Qwen3-8B-FP8 23.54 → 23.15 ms, gpt-oss-20b 14.13 → 14.23 ms, benchmarks.md §58), and up to head size 64 1024 / 256 / 128:
     /// the 256-key minimum keeps short batched contexts on one range per row while long contexts spread over twice the workgroups
     /// (gpt-oss-20b at 128K keys, 1 / 4 streams 9.99 / 25.52 → 9.42 / 24.69 ms per step, at 32K 4 streams 11.88 → 11.66 ms; at head
-    /// size 128 the same configuration cost Qwen3-8B-FP8 1.5-4.4 %, benchmarks.md §65.4).
+    /// size 128 the same configuration cost Qwen3-8B-FP8 1.5-4.4 %, benchmarks.md §65.4). On SPIR-V and MSL head sizes of 256 and more
+    /// (a whole subgroup per key row) take two rows per lane group and batch (the fourth entry, <c>DEC_R</c>), so a lane keeps as many
+    /// loads in flight as at head size 128: Qwen3.8 27B at 128K keys on Vulkan 39.43 → 37.72 ms per step (four rows 37.54; on PTX two rows
+    /// cost 2 %, benchmarks.md §74).
     /// </summary>
     private static int[] DecodeConfig(ShaderTarget target, long headSize)
-        => DiagnosticSwitches.AttentionDecodeConfigSet || target != ShaderTarget.Ptx ? DiagnosticSwitches.AttentionDecodeConfig
+        => DiagnosticSwitches.AttentionDecodeConfigSet ? DiagnosticSwitches.AttentionDecodeConfig
+            : target != ShaderTarget.Ptx ? (headSize >= 256 ? [.. DiagnosticSwitches.AttentionDecodeConfig, 2] : DiagnosticSwitches.AttentionDecodeConfig)
             : headSize <= 64 ? [1024, 256, 128] : [512, 128, 64];
 
     /// <summary>Workgroups the split count of the decode attention aims for (<c>DEC_TARGET_WG</c>, see <see cref="DecodeConfig"/>).</summary>
