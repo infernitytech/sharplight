@@ -528,12 +528,10 @@ public sealed partial class GraphLowerer
         }
         else if (epilogue is not null && !plan.SplitHalf)
         {
-            // Row counts whose split-K reduction did not apply the group (no K split, or another launch served them), nor the
-            // hand-written GEMM's bias store.
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows)
-                && !intDotEpilogue(b);
-            LowerElementwise(epilogue.Group, [epilogue.Output]);
-            _launchCondition = outer;
+            // Row counts whose split-K reduction did not apply the group (no K split, or another launch served them: e.g. the fp8
+            // GEMM, whose multi-output form writes the products without the bias), nor the hand-written GEMM's bias store.
+            LowerSeparateEpilogue(n, epilogue, b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false)
+                && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b));
         }
     }
 

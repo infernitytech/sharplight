@@ -115,7 +115,7 @@ public sealed partial class GraphLowerer
     /// under <paramref name="condition"/>. For a member of a multi-output group, the bindings the group's GEMM serves are lowered
     /// after that GEMM (<see cref="MultiGemmGroup.AfterEmit"/>): it is emitted after the group's last member, so a launch emitted
     /// with this member would read the product before it is written (gpt-oss-20b's q / k / v biases on CUDA when the split-K
-    /// reduction did not add them, 572eeb80). The other bindings keep their launch in place.
+    /// reduction did not add them, 572eeb80; the biases of FP8 and int-dot projections). The other bindings keep their launch in place.
     /// </summary>
     private void LowerSeparateEpilogue(Node matmul, MatMulEpilogue epilogue, Func<Bindings, bool>? condition)
     {
