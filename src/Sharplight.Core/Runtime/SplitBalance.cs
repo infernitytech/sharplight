@@ -19,6 +19,7 @@ internal sealed class SplitBalance
     private const double OutlierFactor = 1.5;
 
     private readonly double[] _ms;
+    private readonly int[] _samples;
     private int _passes;
     private bool _probeUp;
 
@@ -28,6 +29,7 @@ internal sealed class SplitBalance
     {
         _ms = new double[slots + 1];
         _ms.AsSpan().Fill(double.NaN);
+        _samples = new int[slots + 1];
         Current = Math.Clamp(start, 0, slots);
     }
 
@@ -37,8 +39,9 @@ internal sealed class SplitBalance
     /// <summary>Records the time of a pass with share <paramref name="gpuSlots"/> and chooses the share of the next one.</summary>
     public void Record(int gpuSlots, double ms)
     {
+        // The first pass of a share pays its warm-up (first copies and launches): the second replaces it.
         ref double smoothed = ref _ms[gpuSlots];
-        smoothed = double.IsNaN(smoothed) ? ms : smoothed + Smoothing * (Math.Min(ms, OutlierFactor * smoothed) - smoothed);
+        smoothed = _samples[gpuSlots]++ < 2 ? ms : smoothed + Smoothing * (Math.Min(ms, OutlierFactor * smoothed) - smoothed);
         _passes++;
         int best = 0;
         for (int s = 1; s < _ms.Length; s++)
