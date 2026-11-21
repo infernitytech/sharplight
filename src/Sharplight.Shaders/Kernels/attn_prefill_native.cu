@@ -53,12 +53,6 @@
 #ifndef FN_STAGES
 #define FN_STAGES 2
 #endif
-// FN_QSMEM 1: the block's Q · SCALE tile (FN_BR rows of D halves, swizzled like the key tiles) lives in shared memory after the
-// stages and each warp loads its A fragments per K step with ldmatrix, instead of holding FN_MR x D / 4 registers for them (room
-// for FN_MR = 2 at head size 128).
-#ifndef FN_QSMEM
-#define FN_QSMEM 0
-#endif
 #define FN_THREADS (FN_WARPS * 32)
 #define FN_WR (FN_MR * 16)          // query rows per warp
 #define FN_BR (FN_WARPS * FN_WR)
@@ -244,19 +238,6 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
 
     // This warp's rows: tw0 + 16 mr + g (a) and + 8 (b); Q · SCALE as A fragments.
     const fn_u32 tw0 = t0 + warp * FN_WR;
-#if FN_QSMEM
-    // Q · SCALE of the block's rows into the tile after the stages (rows past the queries repeat the last one); the key loop's first
-    // barrier publishes it.
-    const fn_u32 qbase = sbase + FN_STAGES * FN_STAGE * 2;
-    for (fn_u32 i = tid; i < FN_BR * D / 2; i += FN_THREADS)
-    {
-        const fn_u32 r = i / (D / 2), d = (i % (D / 2)) * 2;
-        const float* qr = p.q + (fn_u64)(qRow0 + min(t0 + r, qT - 1)) * QS0 + (fn_u64)h * QS1;
-        const float2 v = *(const float2*)(qr + d);
-        const fn_u32 packed = fn_pack(v.x * FN_SCALE, v.y * FN_SCALE);
-        asm volatile("st.shared.u32 [%0], %1;\n" :: "r"(qbase + (r * D + (((d / 8) ^ (r & 7)) * 8) + d % 8) * 2), "r"(packed));
-    }
-#else
     fn_u32 qa[FN_MR][FN_ND][4];
 #pragma unroll
     for (fn_u32 mr = 0; mr < FN_MR; mr++)
@@ -276,7 +257,6 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
             qa[mr][kc][3] = fn_pack(a3.x * FN_SCALE, a3.y * FN_SCALE);
         }
     }
-#endif
 
     // Ends of the warp's first and last rows, and the window / chunk starts of its first and last rows.
     const fn_u32 warpEndMin = nPast + tw0 + 1, warpEndMax = nPast + tw0 + FN_WR;
@@ -339,34 +319,6 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
             }
         }
         // S = Q · Kᵀ: matrices of ldmatrix.x4 m = lane / 8: keys nb * 16 + (m / 2) * 8 + lane % 8, chunk kc * 2 + m % 2.
-#if FN_QSMEM
-        // K steps outermost, so each A fragment is loaded once per tile; every score still sums its K steps in order.
-#pragma unroll
-        for (fn_u32 kc = 0; kc < FN_ND; kc++)
-        {
-            fn_u32 qf[FN_MR][4];
-#pragma unroll
-            for (fn_u32 mr = 0; mr < FN_MR; mr++)
-            {
-                const fn_u32 r = warp * FN_WR + mr * 16 + (lane & 15), ch = kc * 2 + (lane >> 4);
-                fn_ldsm4(qbase + (r * D + ((ch ^ (r & 7)) * 8)) * 2, qf[mr][0], qf[mr][1], qf[mr][2], qf[mr][3]);
-            }
-#pragma unroll
-            for (fn_u32 nb = 0; nb < 4; nb++)
-            {
-                const fn_u32 r = nb * 16 + ((lane >> 4) << 3) + (lane & 7);
-                const fn_u32 ch = kc * 2 + ((lane >> 3) & 1);
-                fn_u32 b0, b1, b2, b3;
-                fn_ldsm4(kbase + (r * D + ((ch ^ (r & 7)) * 8)) * 2, b0, b1, b2, b3);
-#pragma unroll
-                for (fn_u32 mr = 0; mr < FN_MR; mr++)
-                {
-                    fn_mma(s[mr][2 * nb], qf[mr], b0, b1);
-                    fn_mma(s[mr][2 * nb + 1], qf[mr], b2, b3);
-                }
-            }
-        }
-#else
 #pragma unroll
         for (fn_u32 nb = 0; nb < 4; nb++)
         {
@@ -385,7 +337,6 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
                 }
             }
         }
-#endif
 
         fn_u32 pf[FN_MR][4][4];   // probabilities as A fragments of P · V (16 keys per K step)
         const bool masked = j0 + FN_BC > warpEndMin || j0 < warpBegMax;

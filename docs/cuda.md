@@ -234,7 +234,8 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   (the 16-row groups of `WeightRepack.Mxfp4Split`) from 1 routed row per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;
   below, the expert-grouped skinny GEMM serves; [benchmarks.md §64.2](benchmarks.md)). One block per routing tile of 128 rows (`moe_route`) and 256 (dual) or 192 weight
   rows (up to 12 routed items per expert: 32-row tiles of four stages, up to 24: 64-row tiles of three, both two blocks per SM where they fit, dual tiles narrowed to 128
-  weight rows for it, [benchmarks.md §63.2](benchmarks.md); `SHARPLIGHT_NATIVE_MOE_SHORT`, `SHARPLIGHT_NATIVE_MOE_BLOCKS`): a four-stage `cp.async` ring of 64-value K steps holds the expert-sorted f16 activation rows (swizzled 128-byte rows) and
+  weight rows for it, [benchmarks.md §63.2](benchmarks.md); the 64-row dual tile takes four stages without the factor table, `NM_TABLE=0`,
+  [§65.2](benchmarks.md); `SHARPLIGHT_NATIVE_MOE_SHORT`, `SHARPLIGHT_NATIVE_MOE_BLOCKS`, `SHARPLIGHT_NATIVE_MOE_TABLE=1`): a four-stage `cp.async` ring of 64-value K steps holds the expert-sorted f16 activation rows (swizzled 128-byte rows) and
   the raw codes and E8M0 scales (4.25 bits per weight; codes stored [block][row] so a fragment's 8 rows are one 128-byte line, with
   an `L2::256B` prefetch hint so the 32 bytes a stage takes of each row still stream from memory in whole bursts). Eight warps side
   by side along the weight rows (warp tile 128 x 32) decode the 4-bit codes of the fragment they multiply with the arithmetic of
@@ -256,7 +257,8 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
 
 - **`attn_prefill_native.cu`** (`native_attention`, compute capability 8.0+): causal attention of many queries against an f16 KV cache
   (prefill, prompt runs of serving steps, mixed steps' long runs) in the FlashAttention-2 form. A block takes 16 query rows per warp
-  (4 warps for head size 64, 8 for 128) of one head; each warp keeps its Q · SCALE fragments (f16), its scores, the online-softmax
+  and fragment (4 warps of two 16-row fragments for head size 64, so each K / V fragment feeds twice the MMAs: +7-12 % from 16K keys,
+  [benchmarks.md §65.3](benchmarks.md), `SHARPLIGHT_ATTN_MR`; 8 warps of one for 128) of one head; each warp keeps its Q · SCALE fragments (f16), its scores, the online-softmax
   statistics and its output accumulators in registers for the whole key loop, and the probabilities become the A operands of P · V in
   the accumulator layout. The block shares 64-key K / V tiles copied with `cp.async` into a two-stage ring (three at head size 128, where the
   block has the SM to itself: +0.5-1 % at 16K-128K, `SHARPLIGHT_ATTN_STAGES`; 16-byte chunks, XOR swizzle; `ldmatrix` for K, `ldmatrix.trans` for V), one block barrier per tile. Masks are applied only on tiles that cross a row's

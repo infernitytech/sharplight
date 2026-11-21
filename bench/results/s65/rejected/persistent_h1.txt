@@ -1,0 +1,129 @@
+== check new kernels (one-unit grid and persistent)
+  check T=32: max err 0.119 of max 1.94e+04
+  check T=64: max err 0.0605 of max 1.72e+04
+  check T=128: max err 0.0801 of max 1.84e+04
+  check T=32: max err 0.119 of max 1.94e+04
+  check T=64: max err 0.0605 of max 1.72e+04
+  check T=128: max err 0.0801 of max 1.84e+04
+  check T=171: max err 0.0801 of max 2.37e+04
+  check T=256: max err 0.117 of max 2.27e+04
+  check T=32: max err 0.000641 of max 199
+  check T=64: max err 0.000671 of max 220
+  check T=128: max err 0.000656 of max 201
+  check T=1024: max err 0.113 of max 2.04e+04
+  check T=2048: max err 0.104 of max 2.22e+04
+== round 1
+-- dual32 before
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.408 ms 10.4 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.416 ms 20.4 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.432 ms 39.3 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.438 ms 51.8 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.526 ms 64.5 TFLOPS
+-- dual32 unitloop full grid
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.410 ms 10.4 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.418 ms 20.3 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.434 ms 39.1 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.442 ms 51.3 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.547 ms 62.1 TFLOPS
+-- dual32 persist 164
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.424 ms 10.0 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.428 ms 19.8 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.442 ms 38.4 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.451 ms 50.4 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.557 ms 61.0 TFLOPS
+-- dual32 persist 246
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.467 ms 9.1 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.477 ms 17.8 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.506 ms 33.6 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.516 ms 44.0 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.684 ms 49.7 TFLOPS
+-- dual32 persist 328
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.418 ms 10.2 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.424 ms 20.0 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.442 ms 38.4 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.449 ms 50.6 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.553 ms 61.4 TFLOPS
+-- down32 before
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.213 ms 10.0 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.219 ms 19.4 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.231 ms 36.7 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.234 ms 48.6 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=0 BM=32 BN=192: 0.277 ms 61.4 TFLOPS
+-- down32 unitloop
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.215 ms 9.9 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.219 ms 19.4 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.231 ms 36.7 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.234 ms 48.6 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=0 BM=32 BN=192: 0.287 ms 59.2 TFLOPS
+-- down32 persist 164
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.217 ms 9.8 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.221 ms 19.2 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.231 ms 36.7 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.242 ms 46.9 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=0 BM=32 BN=192: 0.285 ms 59.7 TFLOPS
+-- dual128 before
+T=  512 items=  2048 tiles=  32 K=2880 N=2880 dual=1 BM=128 BN=256: 0.870 ms 78.1 TFLOPS
+T= 1024 items=  4096 tiles=  46 K=2880 N=2880 dual=1 BM=128 BN=256: 1.344 ms 101.1 TFLOPS
+T= 2048 items=  8192 tiles=  79 K=2880 N=2880 dual=1 BM=128 BN=256: 2.439 ms 111.4 TFLOPS
+-- dual128 unitloop
+T=  512 items=  2048 tiles=  32 K=2880 N=2880 dual=1 BM=128 BN=256: 0.956 ms 71.0 TFLOPS
+T= 1024 items=  4096 tiles=  46 K=2880 N=2880 dual=1 BM=128 BN=256: 1.425 ms 95.3 TFLOPS
+T= 2048 items=  8192 tiles=  79 K=2880 N=2880 dual=1 BM=128 BN=256: 2.615 ms 103.9 TFLOPS
+== round 2
+-- dual32 before
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.406 ms 10.5 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.414 ms 20.5 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.432 ms 39.3 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.436 ms 52.0 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.524 ms 64.8 TFLOPS
+-- dual32 unitloop full grid
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.410 ms 10.4 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.418 ms 20.3 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.434 ms 39.1 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.440 ms 51.5 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.549 ms 61.9 TFLOPS
+-- dual32 persist 164
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.424 ms 10.0 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.426 ms 19.9 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.442 ms 38.4 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.451 ms 50.4 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.559 ms 60.8 TFLOPS
+-- dual32 persist 246
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.469 ms 9.1 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.475 ms 17.9 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.508 ms 33.4 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.516 ms 44.0 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.684 ms 49.7 TFLOPS
+-- dual32 persist 328
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.418 ms 10.2 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.424 ms 20.0 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.442 ms 38.4 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.453 ms 50.1 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.553 ms 61.4 TFLOPS
+-- down32 before
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.213 ms 10.0 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.219 ms 19.4 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.229 ms 37.0 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.234 ms 48.6 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=0 BM=32 BN=192: 0.274 ms 61.9 TFLOPS
+-- down32 unitloop
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.213 ms 10.0 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.219 ms 19.4 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.231 ms 36.7 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.236 ms 48.2 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=0 BM=32 BN=192: 0.287 ms 59.2 TFLOPS
+-- down32 persist 164
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.217 ms 9.8 TFLOPS
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.221 ms 19.2 TFLOPS
+T=  128 items=   512 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.231 ms 36.7 TFLOPS
+T=  171 items=   684 tiles=  32 K=2880 N=2880 dual=0 BM=32 BN=192: 0.240 ms 47.3 TFLOPS
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=0 BM=32 BN=192: 0.283 ms 60.1 TFLOPS
+-- dual128 before
+T=  512 items=  2048 tiles=  32 K=2880 N=2880 dual=1 BM=128 BN=256: 0.870 ms 78.1 TFLOPS
+T= 1024 items=  4096 tiles=  46 K=2880 N=2880 dual=1 BM=128 BN=256: 1.346 ms 101.0 TFLOPS
+T= 2048 items=  8192 tiles=  79 K=2880 N=2880 dual=1 BM=128 BN=256: 2.443 ms 111.2 TFLOPS
+-- dual128 unitloop
+T=  512 items=  2048 tiles=  32 K=2880 N=2880 dual=1 BM=128 BN=256: 0.991 ms 68.5 TFLOPS
+T= 1024 items=  4096 tiles=  46 K=2880 N=2880 dual=1 BM=128 BN=256: 1.497 ms 90.8 TFLOPS
+T= 2048 items=  8192 tiles=  79 K=2880 N=2880 dual=1 BM=128 BN=256: 2.782 ms 97.7 TFLOPS
+exit 0

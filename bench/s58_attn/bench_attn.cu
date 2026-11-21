@@ -98,7 +98,7 @@ int main()
     FnParams p{};
     p.q = q; p.kc = (const unsigned short*)kc; p.vc = (const unsigned short*)vc; p.o = o; p.part = o; p.sinks = sinks; p.rt = rt;
     p.arrivals = (fn_u32*)o; p.T = T; p.row0 = 0;
-    int shared = FN_STAGES * FN_STAGE * 2 + (FN_QSMEM ? FN_BR * D * 2 : 0);
+    int shared = FN_STAGES * FN_STAGE * 2;
     CK(cudaFuncSetAttribute(attn_prefill_native, cudaFuncAttributeMaxDynamicSharedMemorySize, shared));
     dim3 grid(HQ, (T + FN_BR - 1) / FN_BR, 1);
     attn_prefill_native<<<grid, FN_THREADS, shared>>>(p);

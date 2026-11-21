@@ -1,0 +1,26 @@
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2: err 0.000137 mean 8.59e-06 | 3.964 ms 130.0 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2: err 0.000144 mean 8.34e-06 | 3.322 ms 155.2 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 8 mr 1 stages 3:  3.695 ms 139.5 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 8 mr 1 stages 2:  3.643 ms 141.5 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 3:  6.224 ms 82.8 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.961 ms 130.1 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 8 mr 1 stages 3:  15.466 ms 140.0 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 8 mr 1 stages 2:  15.276 ms 141.7 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 3:  26.045 ms 83.1 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  16.523 ms 131.0 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.295 ms 156.4 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.316 ms 155.4 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.102 ms 153.5 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.209 ms 152.3 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 8 mr 1 stages 3:  3.699 ms 139.4 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 8 mr 1 stages 2:  3.653 ms 141.1 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 3:  6.216 ms 82.9 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.970 ms 129.8 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 8 mr 1 stages 3:  15.494 ms 139.7 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 8 mr 1 stages 2:  15.292 ms 141.6 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 3:  26.084 ms 83.0 TFLOPS
+HQ 32 HKV 8 D 128 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  16.562 ms 130.7 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.305 ms 155.9 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.326 ms 155.0 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.118 ms 153.3 TFLOPS
+HQ 64 HKV 8 D 64 T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.233 ms 152.1 TFLOPS
