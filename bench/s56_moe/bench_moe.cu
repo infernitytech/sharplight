@@ -2,7 +2,8 @@
 // E experts of MXFP4R weights (WeightRepack.Mxfp4Split: 16-row groups of [16 rows x K / 2 code bytes][K / 32 blocks x 16 E8M0
 // scales]), T tokens routed to S experts each (uniform random, or -DSKEW=a: share (1 + a i)^-1.5 for expert i, e.g. 0.15 or 0.6), the routing tiles and the
 // expert-sorted f16 rows as moe_route / moe_gather_x16 build them. Checks against a reference kernel (same decode, f32 sums) and
-// times the launch with events (best of 20, L2 evicted before each launch).
+// times the launch with events (best of 20, L2 evicted before each launch). LOOP=n: also n launches back to back at T = 2048 (the
+// power-limited steady state, section 64; sample the SM clock with nvidia-smi meanwhile).
 // nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DKFILE='"gemm_moe_native.cu"' bench_moe.cu -o b
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
@@ -113,7 +114,7 @@ int main(int argc, char** argv)
     void* flush; cudaMalloc(&flush, flushBytes);
     unsigned* dscratch; cudaMalloc(&dscratch, (1 + 3 * MAXTILES + MAXITEMS) * 4);
 
-    int Ts[] = { 128, 171, 256, 512, 1024, 2048 };
+    int Ts[] = { 32, 64, 128, 171, 256, 512, 1024, 2048 };
     for (int T : Ts)
     {
         if (T > T_MAX) continue;
@@ -169,6 +170,15 @@ int main(int argc, char** argv)
             printf("  check T=%d: max err %.3g of max %.3g\n", T, maxe, maxv);
         }
         cudaEvent_t e0, e1; cudaEventCreate(&e0); cudaEventCreate(&e1);
+        if (getenv("LOOP") && T == 2048)
+        {
+            int n = atoi(getenv("LOOP"));
+            cudaEventRecord(e0);
+            for (int it = 0; it < n; it++) gemm_moe_native<<<grid, NM_THREADS, smemBytes>>>(p);
+            cudaEventRecord(e1); cudaEventSynchronize(e1);
+            float ms; cudaEventElapsedTime(&ms, e0, e1);
+            printf("loop %d: %.3f ms per launch\n", n, ms / n);
+        }
         float best = 1e9;
         for (int it = 0; it < 20; it++)
         {

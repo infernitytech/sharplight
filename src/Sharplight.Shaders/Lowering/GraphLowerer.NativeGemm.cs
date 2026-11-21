@@ -360,11 +360,12 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Routed items per expert from which the hand-written grouped MXFP4 GEMM takes a step over from the expert-grouped skinny GEMM
     /// (<see cref="NativeMoeMinItems"/>, on its <see cref="NativeMoeDecodeTileRows"/>-row tiles). RTX PRO 4500, gpt-oss-20b decode steps
-    /// on text routing (BatchBench <c>--text</c>, GPU ms, from 12 → 3 per expert, two runs): 24 sequences 15.92-16.07 → 15.67-15.71,
-    /// 32: 17.13 → 16.56, 48: 19.16-19.32 → 18.19-18.22, 64: 20.32-21.06 → 19.52-19.55; 16 sequences (2 per expert) stay on the
-    /// skinny GEMM (14.0 either way).
+    /// on text routing (BatchBench <c>--text</c>, GPU ms, two runs): from 12 → 3 per expert 24 sequences 15.92-16.07 → 15.67-15.71,
+    /// 32: 17.13 → 16.56, 48: 19.16-19.32 → 18.19-18.22, 64: 20.32-21.06 → 19.52-19.55; from 3 → 1 per expert 8 sequences 10.91-10.92
+    /// → 10.72-10.74, 16: 15.20-15.23 → 14.71-14.77, 20: 15.22-15.27 → 14.82-14.84 (likewise with fed-back random-id prompts and with
+    /// fixed random ids). Fewer items than one per expert (up to 7 sequences of 4 slots) stay on the skinny GEMM or the matvec.
     /// </summary>
-    private const long NativeMoeDecodeMinItemsPerExpert = 3;
+    private const long NativeMoeDecodeMinItemsPerExpert = 1;
 
     /// <summary>Bytes of one stage of <c>gemm_moe_native.cu</c>: activation rows, codes and scales of its weight rows.</summary>
     private static int NativeMoeStageBytes(int columns, bool dual, int tileRows = NativeMoeTileRows)

@@ -73,6 +73,14 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   mixed step by 0.64 ms (its expert GEMMs at 82-87 % of the 785 GB/s read limit); a three-stage K / V ring in the prefill attention at
   head size 128 (+0.5-1 % at 16K-128K). gpt-oss serving stays 0.91x / 0.81x: its prompt waves run full 128-row expert tiles, which reach
   122 of the 236 TFLOPS MMA peak. Long prefill 0.92-0.94x (gpt-oss) / 0.94-1.01x (Qwen3). Vulkan unchanged. Next: §63.7.
+  Round 17 (§64): the decode-step comparison with vLLM was not like for like: vLLM's profile feeds back generated tokens, BatchBench
+  fed fixed random ids, which route MoE layers far more narrowly. On generated tokens (BatchBench `--feedback` / `--text`, new) the
+  gpt-oss-20b 64-sequence step was 0.81-0.82x of vLLM, not 1.00x. The hand-written grouped MXFP4 GEMM now takes batched decode steps
+  from 1 item per expert on new 32-row routing tiles (two blocks per SM, four stages), instead of the skinny GEMM up to 12: the step at
+  64 sequences 19.9 / 21.2 → 18.5 / 19.6 ms (0.88x), gpt-oss serving 0.91x / 0.81x → 0.92x / 0.86x at 16 / 64 streams. The full
+  128-row tiles turn out to be power-limited (200 W at 2.25 GHz), not latency-limited; their MoE per 2048-row pass is at Marlin's, so
+  the long-prefill gap (0.92-0.94x) is attention. Qwen3 and Vulkan unchanged. Next: §64.9 (the expert GEMMs' copy issue at decode
+  sizes: ~650 GB/s where a plain `cp.async` ring over the same layout reads 730-790).
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:
