@@ -10327,6 +10327,7 @@ SHARPLIGHT_NO_TOPK_REGISTER_ROW=1 SHARPLIGHT_NO_GROUPED_KEY_HEADS=1 SHARPLIGHT_N
   $CLI $M --provider cuda --cpu-offload --bench 64                      # this round's fusions off
 nsys profile -t cuda -s none --cuda-graph-trace=node -o cn $CLI $M --provider cuda --cpu-offload --bench 32   # kernels per step
 dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class "*.FusionTests"   # SHARPLIGHT_TEST_PROVIDER=cuda for CUDA
+```
 
 ## 72. LLM round 22: tensor-core decode attention for grouped heads; the expert GEMM's operand swap and a contiguous weight layout measured (2026-11-21)
 
