@@ -1,0 +1,12 @@
+marlin_gate_up         0.3110 | 0.3125
+gu_base                0.3370 | 0.3506 | 1732MHz 189.1W [0x4 100%]
+marlin_down            RuntimeError: marlin_mm, <path>, Invalid thread config: thread_m_blocks = 1, th | 0.1743 | 2047MHz 200.0W [0x4 87%]
+dn_base                0.1724 | 0.1795 | 1822MHz 186.2W [0x4 100%]
+gu_d1                  0.3165 | 0.3217 | 1702MHz 156.6W [0x4 92%]
+dn_d1                  0.1658 | 0.1643 | 1800MHz 156.8W [0x4 83%]
+gu_d2                  0.3340 | 0.3326 | 1732MHz 182.4W [0x4 93%]
+dn_d2                  0.1692 | 0.1687 | 1785MHz 179.2W [0x4 83%]
+gu_nomma               0.3276 | 0.3346 | 1732MHz 177.3W [0x4 93%]
+dn_nomma               0.1680 | 0.1686 | 1785MHz 175.1W [0x4 100%]
+gu_skel                0.3132 | 0.3136 | 1695MHz 147.1W [0x4 92%]
+dn_skel                0.1610 | 0.1610 | 1770MHz 146.9W [0x4 100%]

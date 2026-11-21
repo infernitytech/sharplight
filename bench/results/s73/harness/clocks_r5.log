@@ -1,0 +1,144 @@
+== check gu_t2
+T=32: max err 5.83e+04 of max 1.94e+04 T=64: max err 5.17e+04 of max 1.72e+04 T=128: max err 5.52e+04 of max 1.84e+04 T=171: max err 7.11e+04 of max 2.37e+04 T=256: max err 6.82e+04 of max 2.27e+04 T=512: max err 5.85e+04 of max 1.95e+04 T=1024: max err 6.12e+04 of max 2.04e+04 T=2048: max err 6.66e+04 of max 2.22e+04 
+== check dn_t2
+T=32: max err 199 of max 199 T=64: max err 220 of max 220 T=128: max err 201 of max 201 T=171: max err 198 of max 198 T=256: max err 222 of max 222 T=512: max err 204 of max 204 T=1024: max err 220 of max 220 T=2048: max err 240 of max 240 
+== check gu_b64t2
+T=32: max err 5.83e+04 of max 1.94e+04 T=64: max err 5.17e+04 of max 1.72e+04 T=128: max err 5.52e+04 of max 1.84e+04 T=171: max err 7.11e+04 of max 2.37e+04 T=256: max err 6.82e+04 of max 2.27e+04 T=512: max err 5.85e+04 of max 1.95e+04 T=1024: max err 6.12e+04 of max 2.04e+04 T=2048: max err 6.66e+04 of max 2.22e+04 
+== check dn_b64t2
+T=32: max err 199 of max 199 T=64: max err 220 of max 220 T=128: max err 201 of max 201 T=171: max err 198 of max 198 T=256: max err 222 of max 222 T=512: max err 204 of max 204 T=1024: max err 220 of max 220 T=2048: max err 240 of max 240 
+== check gu_t2s126
+T=32: max err 1.52e+06 of max 7.96e+07 T=64: max err 1.52e+06 of max 7.06e+07 T=128: max err 1.2e+06 of max 7.53e+07 T=171: max err 1.29e+06 of max 9.71e+07 T=256: max err 1.22e+06 of max 9.32e+07 T=512: max err 1.4e+06 of max 7.99e+07 T=1024: max err 2.35e+06 of max 8.35e+07 T=2048: max err 1.41e+06 of max 9.1e+07 
+== check gu_bases126
+T=32: max err 488 of max 7.96e+07 T=64: max err 248 of max 7.06e+07 T=128: max err 328 of max 7.53e+07 T=171: max err 328 of max 9.71e+07 T=256: max err 480 of max 9.32e+07 T=512: max err 404 of max 7.99e+07 T=1024: max err 464 of max 8.35e+07 T=2048: max err 424 of max 9.1e+07 
+== check dn_b64t2s94
+T=32: max err 4.3e-06 of max 3.28e-06 T=64: max err 3.71e-06 of max 3.32e-06 T=128: max err 3.75e-06 of max 3.3e-06 T=171: max err 3.42e-06 of max 3.38e-06 T=256: max err 3.88e-06 of max 3.63e-06 T=512: max err 3.94e-06 of max 3.97e-06 T=1024: max err 4.06e-06 of max 3.5e-06 T=2048: max err 3.99e-06 of max 3.81e-06 
+== check dn_b64s94
+T=32: max err 4.49e-12 of max 3.28e-06 T=64: max err 5.12e-12 of max 3.32e-06 T=128: max err 5.46e-12 of max 3.3e-06 T=171: max err 4.95e-12 of max 3.38e-06 T=256: max err 5.68e-12 of max 3.63e-06 T=512: max err 7.16e-12 of max 3.97e-06 T=1024: max err 5.74e-12 of max 3.5e-06 T=2048: max err 6.03e-12 of max 3.81e-06 
+== vllm_gu_base
+back to back over 24 layer copies: 0.3382 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2690 busy samples of 3414 over 7.08 s: SM 1777 MHz, memory 13365 MHz, power 193.3 W (medians), max 58 C, reasons 0x4 96%
+== vllm_dn_base
+back to back over 24 layer copies: 0.1755 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1481 busy samples of 1963 over 4.07 s: SM 1845 MHz, memory 13365 MHz, power 187.5 W (medians), max 58 C, reasons 0x4 84%
+== vllm_gu_t2
+back to back over 24 layer copies: 0.3470 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2805 busy samples of 3522 over 7.34 s: SM 1830 MHz, memory 13365 MHz, power 199.9 W (medians), max 61 C, reasons 0x4 100%
+== vllm_dn_t2
+back to back over 24 layer copies: 0.1796 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1452 busy samples of 1930 over 4.02 s: SM 1897 MHz, memory 13365 MHz, power 195.3 W (medians), max 61 C, reasons 0x4 89%
+== vllm_gu_b64
+back to back over 24 layer copies: 0.3499 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3014 busy samples of 3496 over 7.25 s: SM 1822 MHz, memory 13365 MHz, power 199.9 W (medians), max 63 C, reasons 0x4 92%
+== vllm_dn_b64
+back to back over 24 layer copies: 0.1795 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1716 busy samples of 1957 over 4.06 s: SM 2025 MHz, memory 13365 MHz, power 194.8 W (medians), max 63 C, reasons 0x4 86%
+== vllm_gu_b64t2
+back to back over 24 layer copies: 0.3451 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2964 busy samples of 3446 over 7.14 s: SM 1837 MHz, memory 13365 MHz, power 199.9 W (medians), max 64 C, reasons 0x4 91%
+== vllm_dn_b64t2
+back to back over 24 layer copies: 0.1824 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1465 busy samples of 1943 over 4.07 s: SM 2010 MHz, memory 13365 MHz, power 199.4 W (medians), max 65 C, reasons 0x4 89%
+== ours_gu_base
+back to back over 24 layer copies: 0.3489 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3102 busy samples of 3583 over 7.47 s: SM 1732 MHz, memory 13365 MHz, power 189.1 W (medians), max 65 C, reasons 0x4 92%
+== ours_dn_base
+back to back over 24 layer copies: 0.1761 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1510 busy samples of 1992 over 4.13 s: SM 1830 MHz, memory 13365 MHz, power 186.6 W (medians), max 64 C, reasons 0x4 84%
+== ours_gu_t2
+back to back over 24 layer copies: 0.3605 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3147 busy samples of 3630 over 7.53 s: SM 1807 MHz, memory 13365 MHz, power 197.2 W (medians), max 66 C, reasons 0x4 92%
+== ours_dn_t2
+back to back over 24 layer copies: 0.1800 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1537 busy samples of 2019 over 4.19 s: SM 1860 MHz, memory 13365 MHz, power 191.3 W (medians), max 66 C, reasons 0x4 84%
+== ours_gu_b64
+back to back over 24 layer copies: 0.3682 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3195 busy samples of 3676 over 7.64 s: SM 1830 MHz, memory 13365 MHz, power 200.0 W (medians), max 67 C, reasons 0x4 93%
+== ours_dn_b64
+back to back over 24 layer copies: 0.1865 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1526 busy samples of 2006 over 4.17 s: SM 1950 MHz, memory 13365 MHz, power 196.8 W (medians), max 67 C, reasons 0x4 86%
+== ours_gu_b64t2
+back to back over 24 layer copies: 0.3687 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3175 busy samples of 3658 over 7.59 s: SM 1830 MHz, memory 13365 MHz, power 199.9 W (medians), max 68 C, reasons 0x4 92%
+== ours_dn_b64t2
+back to back over 24 layer copies: 0.1877 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1556 busy samples of 2038 over 4.22 s: SM 1950 MHz, memory 13365 MHz, power 199.0 W (medians), max 68 C, reasons 0x4 87%
+== vllm_gu_base
+back to back over 24 layer copies: 0.3409 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2941 busy samples of 3424 over 7.10 s: SM 1755 MHz, memory 13365 MHz, power 193.4 W (medians), max 68 C, reasons 0x4 91%
+== vllm_dn_base
+back to back over 24 layer copies: 0.1767 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1673 busy samples of 1915 over 3.99 s: SM 1852 MHz, memory 13365 MHz, power 189.5 W (medians), max 67 C, reasons 0x4 76%
+== vllm_gu_t2
+back to back over 24 layer copies: 0.3495 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3007 busy samples of 3490 over 7.23 s: SM 1822 MHz, memory 13365 MHz, power 199.9 W (medians), max 69 C, reasons 0x4 92%
+== vllm_dn_t2
+back to back over 24 layer copies: 0.1804 ms per routing
+routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1702 busy samples of 1943 over 4.03 s: SM 1890 MHz, memory 13365 MHz, power 194.8 W (medians), max 68 C, reasons 0x4 86%
+== vllm_gu_b64
+back to back over 24 layer copies: 0.3500 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3019 busy samples of 3501 over 7.26 s: SM 1822 MHz, memory 13365 MHz, power 199.9 W (medians), max 69 C, reasons 0x4 92%
+== vllm_dn_b64
+back to back over 24 layer copies: 0.1803 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1707 busy samples of 1948 over 4.04 s: SM 2010 MHz, memory 13365 MHz, power 195.6 W (medians), max 69 C, reasons 0x4 86%
+== vllm_gu_b64t2
+back to back over 24 layer copies: 0.3476 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2981 busy samples of 3460 over 7.19 s: SM 1822 MHz, memory 13365 MHz, power 199.9 W (medians), max 69 C, reasons 0x4 92%
+== vllm_dn_b64t2
+back to back over 24 layer copies: 0.1837 ms per routing
+routes 1464 (1464 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1745 busy samples of 1986 over 4.12 s: SM 2002 MHz, memory 13365 MHz, power 199.0 W (medians), max 69 C, reasons 0x4 86%
+== ours_gu_base
+back to back over 24 layer copies: 0.3445 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3117 busy samples of 3595 over 7.47 s: SM 1732 MHz, memory 13365 MHz, power 190.7 W (medians), max 69 C, reasons 0x4 92%
+== ours_dn_base
+back to back over 24 layer copies: 0.1770 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1504 busy samples of 1986 over 4.12 s: SM 1830 MHz, memory 13365 MHz, power 188.3 W (medians), max 68 C, reasons 0x4 87%
+== ours_gu_t2
+back to back over 24 layer copies: 0.3644 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3150 busy samples of 3632 over 7.53 s: SM 1800 MHz, memory 13365 MHz, power 198.9 W (medians), max 69 C, reasons 0x4 92%
+== ours_dn_t2
+back to back over 24 layer copies: 0.1806 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1526 busy samples of 2006 over 4.19 s: SM 1852 MHz, memory 13365 MHz, power 192.6 W (medians), max 69 C, reasons 0x4 84%
+== ours_gu_b64
+back to back over 24 layer copies: 0.3705 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3265 busy samples of 3746 over 7.79 s: SM 1822 MHz, memory 13365 MHz, power 200.0 W (medians), max 70 C, reasons 0x4 91%
+== ours_dn_b64
+back to back over 24 layer copies: 0.1849 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1535 busy samples of 2016 over 4.18 s: SM 1942 MHz, memory 13365 MHz, power 198.1 W (medians), max 70 C, reasons 0x4 91%
+== ours_gu_b64t2
+back to back over 24 layer copies: 0.3693 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3197 busy samples of 3679 over 7.64 s: SM 1815 MHz, memory 13365 MHz, power 200.0 W (medians), max 70 C, reasons 0x4 93%
+== ours_dn_b64t2
+back to back over 24 layer copies: 0.1885 ms per routing
+routes 216 (216 launched), ROUTE_M=64 rows 1-64 clamp=0 BM=64 BN=192 stages=3: 0.0000 ms per routing
+sampler: 1567 busy samples of 2049 over 4.25 s: SM 1942 MHz, memory 13365 MHz, power 199.7 W (medians), max 70 C, reasons 0x4 85%

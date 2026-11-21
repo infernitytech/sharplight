@@ -112,6 +112,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   sequences 1.32 → 1.03 ms per step (vLLM 1.20), 64-sequence step 0.97 → 0.99x of vLLM in the same hold, 4 x 128K decode 0.93 → 0.95x,
   32K 1.12x; Qwen3-8B-FP8 -1.8 % at 48 rows. Measured and not kept: the expert GEMM's operand swap (40 % fewer MMAs, step unchanged)
   and a contiguous weight layout (slower). The 4 x 128K gap is outside attention (at the read rate). Next: §72.6.
+  Round 23 (§73, measurements only): NVML clock / power sampling and a Marlin replay on recorded routings show both expert GEMMs at
+  the power limit, Marlin ~300 MHz higher; on the same routing ours is at par with Marlin on our text routing and 10 % behind on vLLM's
+  own (24.2 instead of 27.2 experts per layer: its split experts cost us a second full tile). vLLM's decode step depends on the steps
+  averaged (15.25 ms over all, 15.53 without the first five); long-context decode now fed back on both engines (32K 1.06 / 1.05x,
+  128K 1.00 / 0.93x). Measured and not kept: constant / integer-made E8M0 factors, 64-row tiles, prefetch-hint variants, zeroed
+  partial rows. Next: §73.6.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

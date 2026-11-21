@@ -1,0 +1,139 @@
+== check gu_pf1
+  check T=32: max err 0.119 of max 1.94e+04   check T=64: max err 0.0605 of max 1.72e+04   check T=128: max err 0.0801 of max 1.84e+04   check T=171: max err 0.0801 of max 2.37e+04   check T=256: max err 0.117 of max 2.27e+04   check T=512: max err 0.0986 of max 1.95e+04   check T=1024: max err 0.113 of max 2.04e+04   check T=2048: max err 0.104 of max 2.22e+04 
+== check dn_pf1
+  check T=32: max err 0.000641 of max 199   check T=64: max err 0.000671 of max 220   check T=128: max err 0.000656 of max 201   check T=171: max err 0.000763 of max 198   check T=256: max err 0.000839 of max 222   check T=512: max err 0.000824 of max 204   check T=1024: max err 0.000824 of max 220   check T=2048: max err 0.00087 of max 240 
+== check gu_pf2
+  check T=32: max err 0.119 of max 1.94e+04   check T=64: max err 0.0605 of max 1.72e+04   check T=128: max err 0.0801 of max 1.84e+04   check T=171: max err 0.0801 of max 2.37e+04   check T=256: max err 0.117 of max 2.27e+04   check T=512: max err 0.0986 of max 1.95e+04   check T=1024: max err 0.113 of max 2.04e+04   check T=2048: max err 0.104 of max 2.22e+04 
+== check dn_pf2
+  check T=32: max err 0.000641 of max 199   check T=64: max err 0.000671 of max 220   check T=128: max err 0.000656 of max 201   check T=171: max err 0.000763 of max 198   check T=256: max err 0.000839 of max 222   check T=512: max err 0.000824 of max 204   check T=1024: max err 0.000824 of max 220   check T=2048: max err 0.00087 of max 240 
+== marlin_gate_up_pad
+W1121 14:01:14.942000 2203673 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:01:14.942000 2203673 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:01:14.943000 2203673 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin gate_up: block_m 16, 216 routings over 24 layer copies: 0.3349 ms per routing (best of 10)
+marlin gate_up: sustained 84 replays: 0.3385 ms per routing
+sampler: 3471 busy samples of 9550 over 19.22 s: SM 2047 MHz, memory 13365 MHz, power 200.0 W (medians), max 57 C, reasons 0x4 90%
+== marlin_down_pad
+W1121 14:01:34.445000 2203915 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:01:34.446000 2203915 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:01:34.446000 2203915 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin down: block_m 16, 216 routings over 24 layer copies: 0.1717 ms per routing (best of 10)
+marlin down: sustained 160 replays: 0.1740 ms per routing
+sampler: 3128 busy samples of 8531 over 6.50 s: SM 2070 MHz, memory 13365 MHz, power 200.0 W (medians), max 58 C, reasons 0x4 92%
+== gu_base
+back to back over 24 layer copies: 0.3486 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2646 busy samples of 3603 over 5.50 s: SM 1732 MHz, memory 13365 MHz, power 187.1 W (medians), max 58 C, reasons 0x4 100%
+== dn_base
+back to back over 24 layer copies: 0.1766 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1502 busy samples of 1984 over 4.11 s: SM 1822 MHz, memory 13365 MHz, power 185.5 W (medians), max 58 C, reasons 0x4 100%
+== gu_pf0
+back to back over 24 layer copies: 0.6961 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 5842 busy samples of 6324 over 13.11 s: SM 2610 MHz, memory 13365 MHz, power 200.0 W (medians), max 64 C, reasons 0x4 96%
+== dn_pf0
+back to back over 24 layer copies: 0.3723 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 3274 busy samples of 3515 over 7.29 s: SM 2662 MHz, memory 13365 MHz, power 200.0 W (medians), max 65 C, reasons 0x4 93%
+== gu_pf128
+back to back over 24 layer copies: 0.3509 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3120 busy samples of 3603 over 7.47 s: SM 1732 MHz, memory 13365 MHz, power 189.3 W (medians), max 65 C, reasons 0x4 92%
+== dn_pf128
+back to back over 24 layer copies: 0.1758 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1742 busy samples of 1982 over 4.13 s: SM 1837 MHz, memory 13365 MHz, power 187.5 W (medians), max 64 C, reasons 0x4 86%
+== gu_pf1
+back to back over 24 layer copies: 0.4813 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 4062 busy samples of 4544 over 9.43 s: SM 2190 MHz, memory 13365 MHz, power 200.0 W (medians), max 66 C, reasons 0x4 94%
+== dn_pf1
+back to back over 24 layer copies: 0.2575 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 2077 busy samples of 2555 over 5.31 s: SM 2325 MHz, memory 13365 MHz, power 200.0 W (medians), max 67 C, reasons 0x4 90%
+== gu_pf2
+back to back over 24 layer copies: 0.4821 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 4053 busy samples of 4534 over 9.42 s: SM 2167 MHz, memory 13365 MHz, power 200.0 W (medians), max 68 C, reasons 0x4 94%
+== dn_pf2
+back to back over 24 layer copies: 0.2579 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 2091 busy samples of 2574 over 5.33 s: SM 2302 MHz, memory 13365 MHz, power 200.0 W (medians), max 68 C, reasons 0x4 90%
+== gu_skelpf0
+back to back over 24 layer copies: 0.6842 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 5493 busy samples of 6217 over 12.93 s: SM 2790 MHz, memory 13365 MHz, power 198.3 W (medians), max 68 C, reasons 0x4 96%
+== dn_skelpf0
+back to back over 24 layer copies: 0.3659 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 2969 busy samples of 3452 over 7.15 s: SM 2790 MHz, memory 13365 MHz, power 189.9 W (medians), max 67 C, reasons none
+== marlin_gate_up_pad
+W1121 14:03:27.496000 2204831 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:03:27.497000 2204831 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:03:27.497000 2204831 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin gate_up: block_m 16, 216 routings over 24 layer copies: 0.3355 ms per routing (best of 10)
+marlin gate_up: sustained 84 replays: 0.3408 ms per routing
+sampler: 3597 busy samples of 8891 over 18.06 s: SM 2017 MHz, memory 13365 MHz, power 200.0 W (medians), max 67 C, reasons 0x4 87%
+== marlin_down_pad
+W1121 14:03:46.326000 2205060 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:03:46.326000 2205060 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:03:46.327000 2205060 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin down: block_m 16, 216 routings over 24 layer copies: 0.1717 ms per routing (best of 10)
+marlin down: sustained 160 replays: 0.1746 ms per routing
+sampler: 3132 busy samples of 8678 over 6.50 s: SM 2047 MHz, memory 13365 MHz, power 200.0 W (medians), max 64 C, reasons 0x4 92%
+== gu_base
+back to back over 24 layer copies: 0.3455 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 2657 busy samples of 3586 over 5.56 s: SM 1740 MHz, memory 13365 MHz, power 189.4 W (medians), max 64 C, reasons 0x4 100%
+== dn_base
+back to back over 24 layer copies: 0.1766 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1743 busy samples of 1983 over 4.12 s: SM 1830 MHz, memory 13365 MHz, power 186.6 W (medians), max 64 C, reasons 0x4 86%
+== gu_pf0
+back to back over 24 layer copies: 0.6964 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 5816 busy samples of 6296 over 13.14 s: SM 2580 MHz, memory 13365 MHz, power 200.0 W (medians), max 68 C, reasons 0x4 96%
+== dn_pf0
+back to back over 24 layer copies: 0.3724 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 3033 busy samples of 3515 over 7.29 s: SM 2632 MHz, memory 13365 MHz, power 200.0 W (medians), max 69 C, reasons 0x4 92%
+== gu_pf128
+back to back over 24 layer copies: 0.3453 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 3117 busy samples of 3599 over 7.46 s: SM 1732 MHz, memory 13365 MHz, power 190.5 W (medians), max 68 C, reasons 0x4 92%
+== dn_pf128
+back to back over 24 layer copies: 0.1758 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 1507 busy samples of 1989 over 4.12 s: SM 1830 MHz, memory 13365 MHz, power 188.3 W (medians), max 67 C, reasons 0x4 84%
+== gu_pf1
+back to back over 24 layer copies: 0.4812 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 4055 busy samples of 4536 over 9.42 s: SM 2167 MHz, memory 13365 MHz, power 200.0 W (medians), max 69 C, reasons 0x4 95%
+== dn_pf1
+back to back over 24 layer copies: 0.2575 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 2333 busy samples of 2574 over 5.33 s: SM 2302 MHz, memory 13365 MHz, power 200.0 W (medians), max 69 C, reasons 0x4 90%
+== gu_pf2
+back to back over 24 layer copies: 0.4825 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 4044 busy samples of 4523 over 9.42 s: SM 2137 MHz, memory 13365 MHz, power 200.0 W (medians), max 69 C, reasons 0x4 95%
+== dn_pf2
+back to back over 24 layer copies: 0.2583 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 2077 busy samples of 2557 over 5.33 s: SM 2280 MHz, memory 13365 MHz, power 200.0 W (medians), max 70 C, reasons 0x4 92%
+== gu_skelpf0
+back to back over 24 layer copies: 0.6842 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+sampler: 5744 busy samples of 6227 over 12.92 s: SM 2790 MHz, memory 13365 MHz, power 199.3 W (medians), max 69 C, reasons 0x4 93%
+== dn_skelpf0
+back to back over 24 layer copies: 0.3659 ms per routing
+routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+sampler: 3223 busy samples of 3464 over 7.19 s: SM 2790 MHz, memory 13365 MHz, power 191.0 W (medians), max 68 C, reasons 0x4 18%
+== marlin_gate_up_exact
+W1121 14:05:39.531000 2206015 torch/_opaque_base.py:6] torch._opaque_base is deprecated, use torch._custom_class_base instead
+W1121 14:05:39.532000 2206015 torch/_library/opaque_object.py:288] register_opaque_type is deprecated, use register_custom_class instead
+W1121 14:05:39.533000 2206015 torch/_library/opaque_object.py:211] typ='value' is deprecated, use typ='constant' instead
+marlin gate_up: block_m 16, 216 routings over 24 layer copies: 0.3091 ms per routing (best of 10)
+marlin gate_up: sustained 92 replays: 0.3141 ms per routing
+sampler: 3572 busy samples of 8909 over 17.99 s: SM 2017 MHz, memory 13365 MHz, power 200.0 W (medians), max 67 C, reasons 0x4 87%

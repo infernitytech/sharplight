@@ -1,0 +1,8 @@
+61 decode steps of 64 sequences (first 0 left out): GPU time per step 14.08 ms (annotated range), kernel sum 1
+   4.741 ms  27.4%   36.0x  void deep_gemm::sm120_fp8_fp4_gemm_1d1d_impl<0u, 24576u, 4096u, 128u, 128u, 1u, 64
+56 decode steps of 64 sequences (first 5 left out): GPU time per step 14.11 ms (annotated range), kernel sum 1
+   4.740 ms  27.3%   36.0x  void deep_gemm::sm120_fp8_fp4_gemm_1d1d_impl<0u, 24576u, 4096u, 128u, 128u, 1u, 64
+61 decode steps of 64 sequences (first 0 left out): GPU time per step 15.25 ms (annotated range), kernel sum 1
+  11.293 ms  74.7%   48.0x  void marlin_moe_wna16::Marlin<1125899906909960l, 562949953487106l, 112589990690996
+56 decode steps of 64 sequences (first 5 left out): GPU time per step 15.53 ms (annotated range), kernel sum 1
+  11.577 ms  75.2%   48.0x  void marlin_moe_wna16::Marlin<1125899906909960l, 562949953487106l, 112589990690996
