@@ -81,6 +81,14 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   128-row tiles turn out to be power-limited (200 W at 2.25 GHz), not latency-limited; their MoE per 2048-row pass is at Marlin's, so
   the long-prefill gap (0.92-0.94x) is attention. Qwen3 and Vulkan unchanged. Next: §64.9 (the expert GEMMs' copy issue at decode
   sizes: ~650 GB/s where a plain `cp.async` ring over the same layout reads 730-790).
+  Round 18 (§65): the expert GEMMs' decode tiles are at the read limit after all (788 GB/s gate / up): the harness's memset eviction
+  had left the L2 full of dirty lines. What keeps the gpt-oss decode step at 0.87-0.88x is experts that text routing gives 33-64 items:
+  their second 32-row tile reads the weights again at ~62 % of a fresh read; uniform 64-row decode tiles lose in the engine, so the next
+  step is a per-expert tile class. Two query fragments per warp in the prefill attention at head size 64 (each K / V fragment feeds
+  twice the MMAs): gpt-oss-20b long prefill 0.92-0.94x → 0.95 / 0.96 / 0.98 / 1.01x at 16K / 32K / 64K / 128K, byte-identical greedy
+  text. Twice the decode-attention splits at depth on CUDA for head sizes up to 64: decode at 128K 0.93x / 0.89x → 0.99x / 0.93x
+  (1 / 4 streams), ~0.5 % on short-context steps. Table-free four-stage short expert tiles (mixed steps -0.6-1.1 %). Qwen3 and Vulkan
+  unchanged. Next: §65.7.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:
