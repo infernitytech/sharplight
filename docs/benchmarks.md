@@ -8862,6 +8862,7 @@ SHARPLIGHT_CPU_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
 for k in cuda13 vulkan; do $LLAMA_ROOT/runtime.llama-b11177-$k/llama-bench -m $M -ngl 99 -ncmoe 6 -fa 1 -p 512 -n 64 -r 3 -t 10; done
 HOME=<model mirror> SHARPLIGHT_TEST_LARGE=1 SHARPLIGHT_TEST_CUDA=1 SHARPLIGHT_TEST_CASE="Qwen3.5-122B-A10B UD-IQ2_XXS" \
   dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*Generation_matches_reference_on_cuda"
+```
 
 ## 63. LLM round 16: short expert tiles at two blocks per SM, a decode form of the FP8 GEMM, a three-stage prefill-attention ring (2026-11-21)
 
