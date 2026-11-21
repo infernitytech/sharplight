@@ -143,7 +143,10 @@ public sealed partial class GraphLowerer
         var q = plan.Q;
         var o = plan.Output;
 
-        bool flash = CanUseFlashAttention(plan);
+        // Head sizes above the generated kernels' 256 (Gemma 4's 512) take flash attention only where the hand-written kernel or the
+        // register-softmax fe with split head dimensions serves them; their other row counts keep the per-(head, query) kernel.
+        bool wide = !CanUseFlashAttention(plan) && WideFlashAttention(plan);
+        bool flash = wide || CanUseFlashAttention(plan);
         bool simtFlash = !flash && SimtEncoderFlash(plan);
         long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
         long sliceRows = SliceRows(plan, flash || simtFlash, maxRows);
@@ -155,7 +158,7 @@ public sealed partial class GraphLowerer
         var decode = DecodeAttention(plan, flash, sliceRows);
         int splits = (int)Math.Clamp((256 + plan.HQ - 1) / plan.HQ, 1, 32);
         bool split = decode is null && !plan.Full && splits > 1 && DiagnosticSwitches.AttentionSplit;
-        int keySplits = (flash || simtFlash) && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
+        int keySplits = (flash || simtFlash) && slices == 1 && !wide ? FlashKeySplits(plan, maxRows) : 1;
         var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits)
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
         // Split-K decoding merges the partials in the last workgroup of each row instead of a combine launch, where that
@@ -200,12 +203,16 @@ public sealed partial class GraphLowerer
 
             if (slice == 0 && flash)
             {
-                if (keySplits == 1 && NativeFlashAttention(plan))
+                bool native = keySplits == 1 && NativeFlashAttention(plan);
+                if (native)
                 {
                     variants.Add(NativeFlashVariant(plan, FlashWhen(plan)));
                 }
 
-                variants.Add(FlashVariant(plan, keySplits));
+                if (!wide || !native)
+                {
+                    variants.Add(FlashVariant(plan, keySplits));
+                }
             }
 
             if (slice == 0 && simtFlash)
@@ -445,6 +452,18 @@ public sealed partial class GraphLowerer
     /// it. Head sizes are padded in the kernel; the padded tiles must fit shared memory. f32 caches keep the exact kernel
     /// unless reduced precision is allowed; quantized caches are converted to f16 tiles.
     /// </summary>
+    /// <summary>
+    /// True when causal attention with padded head sizes above 256, which <c>fa</c> does not take, has a flash kernel: the hand-written
+    /// one (<see cref="NativeFlashAttention"/>, warp pairs splitting the head dimensions) or the register-softmax <c>fe</c> with split
+    /// head dimensions (<see cref="CausalWideFlash"/>).
+    /// </summary>
+    private bool WideFlashAttention(AttentionPlan plan)
+        => !plan.Full && plan.Node.Attributes.Get("causal", true) && (NativeFlashAttention(plan) || CausalWideFlash(plan));
+
+    /// <summary>True when <c>fe</c> serves causal attention with padded head sizes above 256 (register softmax, <c>FE_DS</c> = 2).</summary>
+    private bool CausalWideFlash(AttentionPlan plan)
+        => CausalFlash(plan) && RegisterSoftmax(plan) && FeDimensionSplit(plan) > 1 && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16);
+
     private bool CanUseFlashAttention(AttentionPlan plan)
     {
         long paddedD = (plan.D + 15) / 16 * 16;
@@ -503,6 +522,8 @@ public sealed partial class GraphLowerer
         {
             macros["FE_REG"] = "1";
             macros["FE_BR"] = FeBlockRows(plan).ToString(CultureInfo.InvariantCulture);
+            macros["FE_BC"] = FeRegisterKeys(plan).ToString(CultureInfo.InvariantCulture);
+            macros["FE_DS"] = FeDimensionSplit(plan).ToString(CultureInfo.InvariantCulture);
         }
 
         foreach (var (name, value) in encoder ? DiagnosticSwitches.AttentionExtraMacros : new Dictionary<string, string>())
@@ -581,10 +602,33 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Queries per <c>fe</c> workgroup: <see cref="DiagnosticSwitches.AttentionRegisterSoftmaxRows"/> (default 128, 8 subgroups) with
     /// the register softmax, whose subgroups need no shared memory of their own, so a K / V tile serves twice the queries; else 64.
+    /// Head sizes above 128 take 64 with the register softmax too: the query rows are staged through the shared memory once, and
+    /// 128 rows of 256 values would not fit the 48 KiB Vulkan offers.
     /// </summary>
-    private int FeBlockRows(AttentionPlan plan) => RegisterSoftmax(plan) ? DiagnosticSwitches.AttentionRegisterSoftmaxRows : 64;
+    private int FeBlockRows(AttentionPlan plan)
+        => !RegisterSoftmax(plan) ? 64
+            : FeDimensionSplit(plan) > 1 ? 32
+            : WideFlashHead(plan) ? Math.Min(64, DiagnosticSwitches.AttentionRegisterSoftmaxRows) : DiagnosticSwitches.AttentionRegisterSoftmaxRows;
 
-    /// <summary>K/V types, head sizes and shared memory of <c>fe</c> (f32 or f16 K/V, padded head sizes up to 128).</summary>
+    /// <summary>
+    /// Keys per tile of <c>fe</c> with the register softmax (<c>FE_BC</c>): 64, 32 for head sizes above 128 and 16 above 256 (see
+    /// <see cref="FlashTileFits"/>).
+    /// </summary>
+    private static int FeRegisterKeys(AttentionPlan plan) => FeDimensionSplit(plan) > 1 ? 16 : WideFlashHead(plan) ? 32 : 64;
+
+    /// <summary>
+    /// Subgroups sharing a row group of <c>fe</c> with the register softmax (<c>FE_DS</c>): 2 above padded head size 256 (Gemma 4's
+    /// 512), each with half the head dimensions, so a subgroup's registers stay those of head size 256; else 1.
+    /// </summary>
+    private static int FeDimensionSplit(AttentionPlan plan) => (plan.D + 15) / 16 * 16 > 256 || (plan.DV + 15) / 16 * 16 > 256 ? 2 : 1;
+
+    /// <summary>True when the padded key or value head size of <paramref name="plan"/> exceeds 128 (Gemma's 256, Qwen3.5's 256).</summary>
+    private static bool WideFlashHead(AttentionPlan plan) => (plan.D + 15) / 16 * 16 > 128 || (plan.DV + 15) / 16 * 16 > 128;
+
+    /// <summary>
+    /// K/V types, head sizes and shared memory of <c>fe</c> (f32 or f16 K/V, padded head sizes up to 128; up to 512 with the register
+    /// softmax: 32-key tiles and 64-query blocks up to 256, above that 16-key tiles, 32-query blocks and split head dimensions).
+    /// </summary>
     private bool FlashTileFits(AttentionPlan plan)
     {
         bool kv = (plan.K.Type == DataType.F32 || plan.K.Type == DataType.F16) && plan.V.Type == plan.K.Type;
@@ -592,9 +636,14 @@ public sealed partial class GraphLowerer
         long paddedDV = (plan.DV + 15) / 16 * 16;
         if (RegisterSoftmax(plan))
         {
-            // 64-key K / V tiles (or the staged Q), nothing else.
-            long tileBytes = Math.Max(64 * (paddedD + 8) + 64 * (paddedDV + 8), FeBlockRows(plan) * (paddedD + 8)) * 2;
-            return kv && paddedD <= 128 && paddedDV <= 128 && tileBytes <= _opt.MaxSharedMemory;
+            // FE_BC-key K / V tiles (or the staged Q), and the score exchange of split heads.
+            long keys = FeRegisterKeys(plan);
+            int split = FeDimensionSplit(plan);
+            long exchangeBytes = split > 1 ? FeBlockRows(plan) / 16 * split * keys * 16 * 4 : 0;
+            long tileBytes = Math.Max(keys * (paddedD + 8) + keys * (paddedDV + 8), FeBlockRows(plan) * (paddedD + 8)) * 2 + exchangeBytes;
+            long maxHead = DiagnosticSwitches.AttentionWideRegisterSoftmax ? 512 : 128;
+            bool wholeHalves = split == 1 || (paddedD % 32 == 0 && paddedDV % 32 == 0);
+            return kv && paddedD <= maxHead && paddedDV <= maxHead && wholeHalves && tileBytes <= _opt.MaxSharedMemory;
         }
 
         long parts = SplitFlash(plan) ? 2 : 1;
@@ -939,6 +988,8 @@ public sealed partial class GraphLowerer
             {
                 flashMacros["FE_REG"] = "1";
                 flashMacros["FE_BR"] = FeBlockRows(plan).ToString(CultureInfo.InvariantCulture);
+                flashMacros["FE_BC"] = FeRegisterKeys(plan).ToString(CultureInfo.InvariantCulture);
+                flashMacros["FE_DS"] = FeDimensionSplit(plan).ToString(CultureInfo.InvariantCulture);
             }
         }
 

@@ -352,6 +352,10 @@ public sealed class CudaCodeTests
     [InlineData(64, 0, true)]
     [InlineData(64, 100, true)]
     [InlineData(128, 0, false)]
+    [InlineData(256, 0, false)]
+    [InlineData(256, 100, true)]
+    [InlineData(512, 0, false)]
+    [InlineData(512, 100, true)]
     public void NativeAttentionMatchesTheCpu(int headSize, int window, bool sinks)
     {
         var provider = new CudaProvider();
