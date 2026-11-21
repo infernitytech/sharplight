@@ -43,6 +43,9 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// </summary>
     private const int PairedDotMaxK = 512;
 
+    /// <summary>Most activation values quantized on the calling thread (<see cref="QuantizeActivations"/>).</summary>
+    private const long QuantizeInlineMaxValues = 16384;
+
     /// <summary>Weight rows prefetched ahead of the one being decoded.</summary>
     private const int PrefetchRows = 2;
     private readonly TRef _x;
@@ -365,6 +368,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// The weighted slot sum of a few rows straight from the fused dots: the item rows quantized once, then units of
     /// <see cref="IntDotRowsPerUnit"/> output rows of one row, each over every slot in order (slots with id -1 add nothing).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RunSlotSum(long rows, long items)
     {
         int* ids = (int*)_ids.P;
@@ -379,14 +383,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         long rowBytes = IntDot.RowBytes(_k);
         _activationRows = _perSlot ? items : rows;
         _activations = ThreadScratch.Get(ThreadScratch.Caller, _activationRows * rowBytes);
-        if (_activationRows > 1)
-        {
-            CpuParallel.For((int)Math.Min(_activationRows, CpuParallel.Threads * 2L), _quantizeBody);
-        }
-        else
-        {
-            IntDot.Quantize(_x.F(0), _k, IntDot.RowAt(_activations, _k));
-        }
+        QuantizeActivations(rowBytes);
 
         _slotSumRows = rows;
         _rowsPerUnit = IntDotRowsPerUnit;
@@ -487,6 +484,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// Orders <see cref="_active"/> so that the experts with at most <see cref="FusedRowsMax"/> items come first (in expert order, which
     /// keeps every row's result the same whatever the other experts' counts); returns the number of experts with more.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private int PartitionByItems(int activeExperts)
     {
         int few = 0;
@@ -510,19 +508,13 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     }
 
     /// <summary>Quantizes every distinct activation row once, points each sorted item at its row and runs the units.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RunIntDot(int* ids, long items, int activeExperts)
     {
         long rowBytes = IntDot.RowBytes(_k);
         _activationRows = _perSlot ? items : items / _slots;
         _activations = ThreadScratch.Get(ThreadScratch.Caller, _activationRows * rowBytes);
-        if (_activationRows > 1)
-        {
-            CpuParallel.For((int)Math.Min(_activationRows, CpuParallel.Threads * 2L), _quantizeBody);
-        }
-        else
-        {
-            IntDot.Quantize(_x.F(0), _k, IntDot.RowAt(_activations, _k));
-        }
+        QuantizeActivations(rowBytes);
 
         new Span<int>(_cursor, _experts).Clear();
         for (long i = 0; i < items; i++)
@@ -551,6 +543,27 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         CpuParallel.For(chunks, _intDotBody);
     }
 
+    /// <summary>
+    /// Quantizes the <see cref="_activationRows"/> activation rows into <see cref="_activations"/>: on the calling thread up to
+    /// <see cref="QuantizeInlineMaxValues"/> values (a decode step's ten slot rows of 512 take ~1 µs, less than a parallel dispatch), else in parallel.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void QuantizeActivations(long rowBytes)
+    {
+        if (_activationRows * _k <= QuantizeInlineMaxValues)
+        {
+            for (long r = 0; r < _activationRows; r++)
+            {
+                IntDot.Quantize(_x.F(r), _k, IntDot.RowAt(_activations + r * rowBytes, _k));
+            }
+
+            return;
+        }
+
+        CpuParallel.For((int)Math.Min(_activationRows, CpuParallel.Threads * 2L), _quantizeBody);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void QuantizeBody(int c)
     {
         int chunks = (int)Math.Min(_activationRows, CpuParallel.Threads * 2L);
