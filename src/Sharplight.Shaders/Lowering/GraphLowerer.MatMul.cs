@@ -425,8 +425,8 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Lowers weight matmul <paramref name="n"/>. With <paramref name="epilogue"/> (an elementwise group consuming the product), the
-    /// split-f16 GEMM applies the group in its store; the other launches write the product and the group runs as its own launch
-    /// for the row counts they serve.
+    /// split-f16 GEMM and the int-dot matvec apply the group in their store; the other launches write the product and the group runs
+    /// as its own launch for the row counts they serve.
     /// </summary>
     private void LowerMatMul(Node n, MatMulEpilogue? epilogue = null)
     {
@@ -448,10 +448,13 @@ public sealed partial class GraphLowerer
         var outer = _launchCondition;
         // The split-f16 GEMM applies the epilogue in its store; the f16 tensor-core path in its split-K reduction (the bias / residual of
         // projections at 9-256 rows, whose grids split K), the group's own launch covering the other row counts.
-        bool reduceEpilogue = epilogue is not null && !plan.SplitHalf && plan.Coop && !plan.WorkgroupMatrix && DiagnosticSwitches.Gemm2
+        // Epilogues over quantized weights (folded for the int-dot matvec's store) run as their own launch on the other paths.
+        bool f32Weights = n.Inputs[1].Type == DataType.F32;
+        bool reduceEpilogue = epilogue is not null && f32Weights && !plan.SplitHalf && plan.Coop && !plan.WorkgroupMatrix && DiagnosticSwitches.Gemm2
                               && DiagnosticSwitches.GemmHalfActivations && DiagnosticSwitches.SplitKReduceEpilogue;
-        var epilogueCode = epilogue is not null && (plan.SplitHalf || reduceEpilogue) ? MatMulEpilogueSource(n, epilogue) : null;
+        var epilogueCode = epilogue is not null && f32Weights && (plan.SplitHalf || reduceEpilogue) ? MatMulEpilogueSource(n, epilogue) : null;
         bool intDot = UseIntDotMatvec(n, plan.W.Type, plan.K);
+        Func<Bindings, bool> intDotEpilogue = _ => false;
         bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
         bool nativeBias = !mmq && !fp8Gemm && UseNativeBiasGemm(plan, epilogue);
@@ -464,9 +467,21 @@ public sealed partial class GraphLowerer
         var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows(plan.W.Type, plan.N, plan.K) : null);
         if (intDot)
         {
-            EmitIntDotMatvec(MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
-                macros => Lib("mmvq.slang", "mmvq", macros));
             var outsideIntDot = OutsideIntDotRange(plan.X, plan.RowsPerLead, plan.W.Type, plan.K);
+            if (epilogue is not null && plan.Y.IsDense && plan.RowsPerLead == 1)
+            {
+                // The group in the matvec's store: it writes the group's output for the int-dot rows.
+                var code = MatMulEpilogueSource(n, epilogue, "mmvq.slang");
+                EmitIntDotMatvec(MatMulLabel(plan) + code.Label, [n, .. epilogue.Group], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], code.Output,
+                    plan.N, plan.K, macros => MatMulEpilogueKernel(code, "mmvq", macros, "mmvq_epi.slang"), code.Args);
+                intDotEpilogue = b => !outsideIntDot(b);
+            }
+            else
+            {
+                EmitIntDotMatvec(MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
+                    macros => Lib("mmvq.slang", "mmvq", macros));
+            }
+
             _launchCondition = b => (outer?.Invoke(b) ?? true) && outsideIntDot(b);
         }
 
@@ -508,7 +523,7 @@ public sealed partial class GraphLowerer
         _launchCondition = outer;
         if (epilogue is not null && epilogueCode is null)
         {
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b);
             LowerElementwise(epilogue.Group, [epilogue.Output]);
             _launchCondition = outer;
         }
@@ -516,7 +531,8 @@ public sealed partial class GraphLowerer
         {
             // Row counts whose split-K reduction did not apply the group (no K split, or another launch served them), nor the
             // hand-written GEMM's bias store.
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows)
+                && !intDotEpilogue(b);
             LowerElementwise(epilogue.Group, [epilogue.Output]);
             _launchCondition = outer;
         }

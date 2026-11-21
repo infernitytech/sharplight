@@ -213,6 +213,115 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
+    /// q8_1 activation rows written by a row norm (see <see cref="AddQ8CopyOutput"/>): the copy as the int-dot matvecs read it ([rows,
+    /// K + K / 4] bytes), the reader row length K and the largest step it is written for.
+    /// </summary>
+    private readonly Dictionary<Value, (TensorRef Copy, long K, long MaxRows)> _q8Copies = [];
+
+    /// <summary>
+    /// Largest step for which a row norm writes the q8_1 rows of the integer-dot matvecs reading its output: the int-dot range of the
+    /// K-quants (<see cref="IntDotMaxRows"/>); readers with a larger range (Q8_0) quantize the larger steps into the same rows.
+    /// </summary>
+    private const long NormQ8CopyMaxRows = 8;
+
+    /// <summary>
+    /// The row length of the int-dot matvecs (dense or expert) that read <paramref name="value"/> as x, when there are some and every one
+    /// reads rows of one length (a multiple of <paramref name="rowLength"/>); else null. Other readers (f32 weights, other kernels) read
+    /// the f32 rows.
+    /// </summary>
+    private long? Q8ReaderRow(Value value, long rowLength)
+    {
+        long? row = null;
+        foreach (var node in _seg.Nodes)
+        {
+            if (node.Op.Name is not ("MatMul" or "MatMulId") || node.Inputs.Length < 2 || RootOf(node.Inputs[0]) != value
+                || node.Inputs.Skip(1).Any(v => RootOf(v) == value))
+            {
+                continue;
+            }
+
+            var w = node.Inputs[1];
+            var type = _refs.TryGetValue(w, out var stored) ? stored.Type : w.Type;
+            long k = node.Inputs[0].Shape[-1].IsSymbolic ? 0 : node.Inputs[0].Shape[-1].Fixed;
+            bool intDot = k > 0 && type != DataType.F32 && (node.Op.Name == "MatMul" ? UseIntDotMatvec(node, type, k) : UseIntDotExpertMatvec(node, type, k));
+            if (!intDot)
+            {
+                continue;   // e.g. an f32 router: reads the f32 rows
+            }
+
+            if (k % rowLength != 0 || (row is { } r && r != k))
+            {
+                return null;
+            }
+
+            row = k;
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// Adds an output of q8_1 activation rows (the int-dot matvecs' x, see <see cref="RowNormKernelSource.Q8Output"/>) for the first
+    /// pass-2 value that int-dot matvecs read as x, written for steps of up to <see cref="NormQ8CopyMaxRows"/> rows (decode): those
+    /// matvecs then launch no quantization of their own. Returns the output's index and the guard, or null.
+    /// </summary>
+    private (int Index, long ReaderRow, string Guard)? AddQ8CopyOutput(IReadOnlyList<Value>? values, List<(TensorRef Ref, string Expr)> pass2Outputs, int count)
+    {
+        if (values is null || DiagnosticSwitches.NoNormQ8Copy || !_opt.Has(DeviceFeatures.SubgroupOps) || !_opt.Has(DeviceFeatures.IntDot)
+            || _opt.SubgroupSize < 8)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < count && i < values.Count; i++)
+        {
+            var value = values[i];
+            var y = pass2Outputs[i].Ref;
+            long rowLength = y.Shape.Length == 0 ? 0 : y.Shape[^1];
+            if (value.Type != DataType.F32 || y.Type != DataType.F32 || !y.IsDense || y.Buffer != _arena || rowLength % 32 != 0 || rowLength == 0
+                || rowLength * 4 + 1024 > _opt.MaxSharedMemory || RootOf(value) != value || _q8Copies.ContainsKey(value)
+                || Q8ReaderRow(value, rowLength) is not { } k)
+            {
+                continue;
+            }
+
+            long elements = y.Shape.Aggregate(1L, (a, d) => a * d);
+            if (elements % k != 0)
+            {
+                continue;
+            }
+
+            long rows = elements / k;
+            long rowBytes = k + k / 4;
+            var allocation = new object();
+            long offset = _alloc.Allocate(allocation, rows * rowBytes);
+            if (!_rootScratch.TryGetValue(value, out var list))
+            {
+                _rootScratch[value] = list = [];
+            }
+
+            list.Add(allocation);
+            long[] shape = [rows, rowBytes];
+            var copy = new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), y.Symbol);
+            _q8Copies[value] = (copy, k, NormQ8CopyMaxRows);
+            long[] words = [rows, rowBytes / 4];
+            pass2Outputs.Add((new TensorRef(_arena, offset, DataType.U32, words, TensorRef.DenseStrides(words), y.Symbol), pass2Outputs[i].Expr));
+            long normRowsPerReaderRow = k / rowLength;
+            return (pass2Outputs.Count - 1, k, $"p.rows <= {NormQ8CopyMaxRows * normRowsPerReaderRow}u");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The norm-written q8_1 rows of <paramref name="root"/> and the largest step they are written for, when they serve x (the root's
+    /// own dense rows of <paramref name="k"/> values, one activation row per row of x); else null.
+    /// </summary>
+    private (TensorRef Copy, long MaxRows)? NormQ8Copy(Value root, TensorRef x, long xStride, long k, long rowsPerLead)
+        => _q8Copies.TryGetValue(root, out var copy) && rowsPerLead == 1 && xStride == k && copy.K == k && x.ByteOffset == Ref(root).ByteOffset
+            ? (copy.Copy, copy.MaxRows) : null;
+
+    /// <summary>
     /// The norm-written E4M3 rows of <paramref name="root"/> and the smallest step the norm writes them for, when they serve x
     /// (the root's own dense rows of <paramref name="k"/> values); else null.
     /// </summary>

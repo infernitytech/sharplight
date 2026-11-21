@@ -156,6 +156,7 @@ public sealed partial class GraphLowerer
         var prefill = new List<Value>();
         AddHalfCopyOutputs(pass2Values, pass2Outputs, guards, prefill);
         int? fp8Output = AddFp8CopyOutput(pass2Values, pass2Outputs, valueOutputs, prefill);
+        var q8Output = fp8Output is null ? AddQ8CopyOutput(pass2Values, pass2Outputs, valueOutputs) : null;
         long prefillRows = NormCopyPrefillMinRows;
         RowNormKernelSource Source(IReadOnlyDictionary<int, string> pass2Guards) => new()
         {
@@ -169,6 +170,7 @@ public sealed partial class GraphLowerer
             Pass2Guards = pass2Guards,
             Fp8Output = fp8Output is { } index ? (index, prefillRows) : null,
             Fp8DenseScaleCapacity = fp8Output is { } dense ? DenseScaleCapacityOf(pass2Outputs[dense].Ref) : 0,
+            Q8Output = q8Output,
             HasWeight = w is not null,
             Mode = mode,
             Epsilon = eps,

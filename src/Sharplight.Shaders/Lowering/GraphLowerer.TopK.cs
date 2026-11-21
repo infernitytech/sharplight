@@ -108,13 +108,21 @@ public sealed partial class GraphLowerer
         var vals = Produce(norm is { } nd ? nd.Div.Output : selected ? softmax.Output : n.Outputs[0]);
         var idxs = Produce(n.Outputs[1]);
         var macros = Macros(("LEN", x.Shape[1]), ("K", K), ("INNER", 1), ("LARGEST", true), ("WG", TopKWorkgroup), ("P2", TopKSortSlots(K)), ("NORM", norm is not null),
-            ("NORM_SCALE", norm?.Scale.Attributes.Get("scale", 1f) ?? 1f), ("NORM_BIAS", norm?.Scale.Attributes.Get("bias", 0f) ?? 0f), ("SELECTED_SOFTMAX", selected));
+            ("NORM_SCALE", norm?.Scale.Attributes.Get("scale", 1f) ?? 1f), ("NORM_BIAS", norm?.Scale.Attributes.Get("bias", 0f) ?? 0f), ("SELECTED_SOFTMAX", selected),
+            ("ROW_SLOTS", TopKRowSlots(x.Shape[1])));
         var kernel = Lib("topk.slang", "topk_softmax", macros);
         var tx = x;
         Emit($"router topk {n.Outputs[1].Name}", [softmax, n, .. norm is var (r, s, d) ? new[] { r, s, d } : []],
             [Always(kernel, b => TopKGrid(Rows(b, tx)))],
             [Pointer(x), Pointer(vals), Pointer(idxs), TopKRowCount(x, 1, 1)], [x], [vals, idxs]);
     }
+
+    /// <summary>
+    /// Values per lane when a router row of <paramref name="length"/> logits stays in registers in <c>topk_softmax</c> (a multiple of the
+    /// subgroup size, up to 32 per lane), else 0 (per-lane sorted lists). Qwen3-Coder-Next (512 experts, top 10) on Blackwell: 15 → ~3 µs.
+    /// </summary>
+    private long TopKRowSlots(long length)
+        => DiagnosticSwitches.NoTopKRegisterRow || length % _opt.SubgroupSize != 0 || length / _opt.SubgroupSize > 32 ? 0 : length / _opt.SubgroupSize;
 
     private void LowerTopK(Node n)
     {

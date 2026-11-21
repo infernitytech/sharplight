@@ -95,11 +95,13 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Emits the activation quantization and the integer-dot matvec launches of a matmul (or of a dual matmul when
     /// <paramref name="weights"/> holds two matrices), both conditioned on the row count being in the int-dot range.
-    /// <paramref name="compile"/> builds the matvec entry from its macros (library or generated dual source).
+    /// <paramref name="compile"/> builds the matvec entry from its macros (library or generated dual or store-epilogue source);
+    /// <paramref name="epilogueArgs"/> are the tensors a store epilogue reads (<c>e0</c> .. <c>e2</c>).
     /// </summary>
     private void EmitIntDotMatvec(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights, TensorRef y,
-        long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile)
+        long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef[]? epilogueArgs = null)
     {
+        epilogueArgs ??= [];
         var w = weights[0];
         long minRows = IntDotFirstRow(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
@@ -130,8 +132,8 @@ public sealed partial class GraphLowerer
         }
 
         Emit($"{label} int-dot", nodes, variants,
-            [Pointer(quantized), .. weights.Select(Pointer), Pointer(y), TokenArg(x, rowsPerLead)],
-            [quantized, .. weights], [y]);
+            [Pointer(quantized), .. weights.Select(Pointer), Pointer(y), .. epilogueArgs.Select(Pointer), TokenArg(x, rowsPerLead)],
+            [quantized, .. weights, .. epilogueArgs], [y]);
     }
 
     /// <summary>
@@ -188,6 +190,22 @@ public sealed partial class GraphLowerer
             }
 
             return normCopy.Copy;
+        }
+
+        if (code == ActivationCode.Q8_1 && shareable && NormQ8Copy(root, x, xStride, k, rowsPerLead) is { } q8Copy)
+        {
+            // The norm writes the rows for steps up to q8Copy.MaxRows; larger steps of this reader's range quantize into the same rows.
+            if (_quantizedActivations.TryAdd(cacheKey, q8Copy.Copy) && maxRows > q8Copy.MaxRows)
+            {
+                long from = Math.Max(minRows, q8Copy.MaxRows + 1);
+                var extensionKey = (root, x.ByteOffset, xStride, k, from, maxRows, code, (object?)_launchCondition);
+                if (_quantizedActivations.TryAdd(extensionKey, q8Copy.Copy))
+                {
+                    EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, from, maxRows, code, q8Copy.Copy);
+                }
+            }
+
+            return q8Copy.Copy;
         }
 
         if (code == ActivationCode.Fp8 && shareable && NormFp8Copy(root, x, xStride, k) is { } fp8Copy)

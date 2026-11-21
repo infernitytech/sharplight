@@ -612,7 +612,8 @@ public sealed partial class GraphLowerer
     /// A plain elementwise group whose inputs are one weight MatMul's output (read nowhere else) and at most
     /// <see cref="MaxMatMulEpilogueArgs"/> other f32 values, each a scalar, a row vector over the matmul's output columns (a bias,
     /// a per-channel scale) or a tensor of the output's shape (a residual), becomes the matmul's store epilogue
-    /// (<see cref="LoweringUnit.MatMulHead"/>). The matmul then runs at the group's place, so no unit in between may write state.
+    /// (<see cref="LoweringUnit.MatMulHead"/>): f32 weights in the split-f16 GEMM, weights of the int-dot matvec in its decode store
+    /// (e.g. the sigmoid of a linear-attention beta projection). The matmul then runs at the group's place, so no unit in between may write state.
     /// </summary>
     private void FoldMatMulEpilogues(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
     {
@@ -646,7 +647,9 @@ public sealed partial class GraphLowerer
 
             var w = matmul.Inputs[1];
             var shape = matmul.Output.Shape;
-            if (w.Kind is not (ValueKind.Weight or ValueKind.Constant) || w.Type != DataType.F32 || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic
+            bool intDotWeights = w.Type != DataType.F32 && w.Shape.Rank == 2 && w.Shape[1] is { IsSymbolic: false } k && !DiagnosticSwitches.NoIntDotEpilogue
+                                 && UseIntDotMatvec(matmul, w.Type, k.Fixed);
+            if (w.Kind is not (ValueKind.Weight or ValueKind.Constant) || (w.Type != DataType.F32 && !intDotWeights) || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic
                 || group.Any(n => !n.Output.Shape.Equals(shape) || n.Output.Type != DataType.F32 || n.Inputs.Any(i => i.Type != DataType.F32))
                 || external.Any(v => v != matmul.Output && MatMulEpilogueArgKind(v, shape, w.Shape[0]) < 0))
             {
@@ -744,9 +747,22 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
+            // q and k heads repeated in place for grouped value heads: the kernel reads key head h / repeats instead.
+            var repeatedQ = RepeatedHeads(deltaRule.Inputs[0], SingleUse);
+            var repeatedK = RepeatedHeads(deltaRule.Inputs[1], SingleUse);
+            bool grouped = !DiagnosticSwitches.NoGroupedKeyHeads && repeatedQ is { } rq && repeatedK is { } rk && rq.Repeats == rk.Repeats;
             for (int slot = 0; slot < 2; slot++)
             {
-                var v = deltaRule.Inputs[slot];
+                var input = deltaRule.Inputs[slot];
+                var v = input;
+                if (grouped && (slot == 0 ? repeatedQ : repeatedK) is { } repeated)
+                {
+                    (unit.Absorbed ??= []).AddRange(repeated.Nodes);
+                    absorbed.UnionWith(repeated.Nodes);
+                    _groupedKeyHeads[input] = (repeated.Source, repeated.Repeats);
+                    v = repeated.Source;
+                }
+
                 if (v.Producer is not { Op.Name: "L2Norm" } l2 || !SingleUse(v) || l2.Inputs.Length != 1)
                 {
                     continue;
@@ -754,7 +770,7 @@ public sealed partial class GraphLowerer
 
                 (unit.Absorbed ??= []).Add(l2);
                 absorbed.Add(l2);
-                _absorbedNorms[v] = l2;
+                _absorbedNorms[input] = l2;
             }
         }
 
@@ -788,6 +804,28 @@ public sealed partial class GraphLowerer
         }
 
         units.RemoveAll(u => u.Node is not null && absorbed.Contains(u.Node));
+    }
+
+    /// <summary>
+    /// The heads of <paramref name="v"/> [T, H * R, D] when it repeats each head of a [T, H, D] source R times in place
+    /// (Reshape to [T, H, 1, D], Tile by [1, 1, R, 1], Reshape back: head h reads source head h / R), every step read only by the
+    /// next: the source, R and the three nodes; else null.
+    /// </summary>
+    private static (Value Source, long Repeats, Node[] Nodes)? RepeatedHeads(Value v, Func<Value, bool> singleUse)
+    {
+        if (v.Producer is not { Op.Name: "Reshape" } outer || !singleUse(v) || v.Shape.Rank != 3
+            || outer.Inputs[0] is not { Producer: { Op.Name: "Tile" } tile } tiled || !singleUse(tiled)
+            || tile.Attributes.Get<long[]>("repeats") is not [1, 1, var repeats, 1] || repeats < 2
+            || tile.Inputs[0] is not { Producer: { Op.Name: "Reshape" } inner } split || !singleUse(split) || split.Shape.Rank != 4
+            || split.Shape[2] is not { IsSymbolic: false, Fixed: 1 }
+            || inner.Inputs[0] is not { Shape.Rank: 3 } source
+            || source.Shape[1].IsSymbolic || source.Shape[2].IsSymbolic || v.Shape[1].IsSymbolic || v.Shape[2].IsSymbolic
+            || v.Shape[1].Fixed != source.Shape[1].Fixed * repeats || v.Shape[2].Fixed != source.Shape[2].Fixed)
+        {
+            return null;
+        }
+
+        return (source, repeats, [inner, tile, outer]);
     }
 
     /// <summary>

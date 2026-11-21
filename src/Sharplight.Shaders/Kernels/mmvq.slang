@@ -574,8 +574,19 @@ struct Params
     uint8_t* w2;
 #endif
     float* y;
+#if MM_EPI && MM_EPI_ARGS > 0
+    float* e0;   // the store epilogue's tensors (mm_epi.slang; not with DUAL)
+#endif
+#if MM_EPI && MM_EPI_ARGS > 1
+    float* e1;
+#endif
+#if MM_EPI && MM_EPI_ARGS > 2
+    float* e2;
+#endif
     uint T;
 };
+
+#include "mm_epi.slang"
 
 [shader("compute")]
 [numthreads(MQ_THREADS, 1, 1)]
@@ -643,7 +654,7 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #if DUAL
         s = epi2(s, row_group_sum(acc2[i], lane));
 #endif
-        if (lane % MQ_LPR == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = s;
+        if (lane % MQ_LPR == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = MM_STORE(s, c, row0 + r);
     }
 #elif MQ_SG > 1
     uint sg = tid / SG;
@@ -670,7 +681,7 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         [ForceUnroll] for (int g = 0; g < MQ_SG; g++) s2 += mqPart[g][MQ_OUT + i];
         s = epi2(s, s2);
 #endif
-        p.y[uint64_t(c) * Y_STRIDE + row0 + r] = s;
+        p.y[uint64_t(c) * Y_STRIDE + row0 + r] = MM_STORE(s, c, row0 + r);
     }
 #else
     [ForceUnroll]
@@ -682,7 +693,7 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #if DUAL
         s = epi2(s, WaveActiveSum(acc2[i]));
 #endif
-        if (lane == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = s;
+        if (lane == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = MM_STORE(s, c, row0 + r);
     }
 #endif
 }

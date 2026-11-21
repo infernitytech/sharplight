@@ -62,6 +62,15 @@ internal sealed class RowNormKernelSource
     /// </summary>
     public long Fp8DenseScaleCapacity { get; init; }
 
+    /// <summary>
+    /// A pass-2 output (by index) that receives the value as the q8_1 activation rows of the integer-dot matvecs (per reader row of
+    /// <c>ReaderRow</c> values, a multiple of the row length: the int8 codes, then per 32 values the f32 pair (d, d * sum of codes), as
+    /// <c>quantize_q8_1</c> writes them) while the Slang condition <c>Guard</c> on <c>p.rows</c> holds. The row's values pass through
+    /// shared memory, so that eight lanes quantize 32 consecutive ones; the arithmetic is quantize_q8_1's, so the rows are the same.
+    /// Requires subgroup operations and a row length that is a multiple of 32. Not with <see cref="Fp8Output"/>.
+    /// </summary>
+    public (int Index, long ReaderRow, string Guard)? Q8Output { get; init; }
+
     /// <summary>True when a per-column f32 weight scales the normalized value.</summary>
     public required bool HasWeight { get; init; }
 
@@ -91,7 +100,7 @@ internal sealed class RowNormKernelSource
 
         AppendParams();
         _sb.AppendLine($"groupshared float red[{Threads}];");
-        if (Fp8Output is not null)
+        if (Fp8Output is not null || Q8Output is not null)
         {
             _sb.AppendLine($"groupshared float qrow[{_rowLength}];");
         }
@@ -107,8 +116,45 @@ internal sealed class RowNormKernelSource
             : $"  float scale = rsqrt(tot + {GraphLowerer.F(Epsilon)});");
         AppendPass(second: true);
         AppendFp8Quantization();
+        AppendQ8Quantization();
         _sb.AppendLine("}");
         return _sb.ToString();
+    }
+
+    /// <summary>The q8_1 rows of <see cref="Q8Output"/> from the values pass 2 left in <c>qrow</c>, as <c>quantize_q8_1</c> computes them.</summary>
+    private void AppendQ8Quantization()
+    {
+        if (Q8Output is not { } q8)
+        {
+            return;
+        }
+
+        long quads = _rowLength / 4;
+        long readerWords = (q8.ReaderRow + q8.ReaderRow / 4) / 4;
+        long rowsPerReader = q8.ReaderRow / _rowLength;
+        int output = Pass1Outputs.Count + q8.Index;
+        _sb.AppendLine($"  if ({q8.Guard}) {{");
+        _sb.AppendLine("    GroupMemoryBarrierWithGroupSync();");
+        _sb.AppendLine($"    uint* qr = (uint*)p.out{output} + (row / {rowsPerReader}u) * {readerWords}u;");
+        _sb.AppendLine($"    uint part = row % {rowsPerReader}u;");
+        _sb.AppendLine("    uint lane = WaveGetLaneIndex();");
+        _sb.AppendLine($"    for (uint c0 = 0; c0 < {quads}u; c0 += {Threads}u) {{");
+        _sb.AppendLine("      uint c = c0 + lt.x;");
+        _sb.AppendLine($"      bool live = c < {quads}u;");
+        _sb.AppendLine("      float4 v = live ? float4(qrow[c * 4], qrow[c * 4 + 1], qrow[c * 4 + 2], qrow[c * 4 + 3]) : float4(0.0, 0.0, 0.0, 0.0);");
+        _sb.AppendLine("      float amax = max(max(abs(v.x), abs(v.y)), max(abs(v.z), abs(v.w)));");
+        _sb.AppendLine("      [ForceUnroll] for (uint m = 1; m < 8; m <<= 1) amax = max(amax, WaveReadLaneAt(amax, lane ^ m));");
+        _sb.AppendLine("      float d = amax / 127.0;");
+        _sb.AppendLine("      float id = d > 0 ? 1.0 / d : 0.0;");
+        _sb.AppendLine("      int4 q = int4(round(v * id));");
+        _sb.AppendLine("      int s = q.x + q.y + q.z + q.w;");
+        _sb.AppendLine("      [ForceUnroll] for (uint m = 1; m < 8; m <<= 1) s += WaveReadLaneAt(s, lane ^ m);");
+        _sb.AppendLine("      if (live) {");
+        _sb.AppendLine($"        qr[part * {quads}u + c] = (uint(q.x) & 0xFF) | ((uint(q.y) & 0xFF) << 8) | ((uint(q.z) & 0xFF) << 16) | (uint(q.w) << 24);");
+        _sb.AppendLine($"        if ((c & 7u) == 0) {{ uint b = {q8.ReaderRow / 4}u + (part * {_rowLength / 32}u + c / 8u) * 2u; qr[b] = asuint(d); qr[b + 1] = asuint(d * float(s)); }}");
+        _sb.AppendLine("      }");
+        _sb.AppendLine("    }");
+        _sb.AppendLine("  }");
     }
 
     /// <summary>The E4M3 rows of <see cref="Fp8Output"/> from the values pass 2 left in <c>qrow</c>.</summary>
@@ -295,6 +341,12 @@ internal sealed class RowNormKernelSource
             if (Fp8Output is { } fp8 && fp8.Index == i)
             {
                 sb.AppendLine($"    if (p.rows >= {fp8.MinRows}u) qrow[i] = {expression};");
+                continue;
+            }
+
+            if (Q8Output is { } q8 && q8.Index == i)
+            {
+                sb.AppendLine($"    if ({q8.Guard}) qrow[i] = {expression};");
                 continue;
             }
 

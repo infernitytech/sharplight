@@ -10185,6 +10185,150 @@ cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5
 ROUTES=../results/s67/harness/routes64_text.txt LAYERS=24 PASSES=30 ./b x
 ```
 
+## 71. MoE with CPU offload, round 5: small GPU ops fused on the generated path (router top-k in registers, repeated key heads read in place, norm-written q8_1 rows, int-dot store epilogues) (2026-11-21)
+
+Branch `perf/offload-r5` (base `develop` at `348763ee`, §69 merged; `develop` merged again at `1c341257` (§70) before the final runs).
+Same machine and methodology as §69: GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB), AMD EPYC 7443 with a 10.2-CPU cgroup
+quota shared by every job on the pod (AVX2), 62 GB cgroup, llama.cpp b11177. The GPU was shared with two other agents (runs serialized
+with a lock), the CPU with their builds and serving benches and a model-feed upload; identical runs moved by 5-15 % and once by 2x, so
+every comparison is interleaved in the same hour and every run is listed. Coder-Next: llama.cpp `llama-bench -ngl 99 -ncmoe 16 -fa 1 -p 0
+-n 64 -r 5 -t 10`, then ours `--cpu-offload --bench 64` (decode best / median of 64 steps), then ours with this round's fusions switched off
+(`SHARPLIGHT_NO_TOPK_REGISTER_ROW=1 SHARPLIGHT_NO_GROUPED_KEY_HEADS=1 SHARPLIGHT_NO_NORM_Q8_COPY=1 SHARPLIGHT_NO_INT_DOT_EPILOGUE=1`, "before").
+The 122B: `-ncmoe 6 -p 512 -n 64 -r 3` against `--bench 512`.
+
+### 71.1 Results against llama.cpp (tok/s)
+
+Qwen3-Coder-Next Q4_K_M on CUDA, decode, interleaved rounds (llama.cpp first in each round; its ± is its own spread over 5 repetitions):
+
+| round | llama.cpp `-ncmoe 16` | before (this round's fusions off) | now |
+|---|---:|---:|---:|
+| A1 | 99.3 ± 2.2 | 86.6 / 76.1 | **90.0 / 86.5** |
+| A2 | 97.6 ± 3.0 | 82.2 / 77.1 | **89.3 / 78.1** |
+| B1 | 98.5 ± 3.1 | | **94.6 / 88.9** |
+| B2 | 94.8 ± 3.3 | | **81.2 / 78.6** |
+| C1 | 70.7 ± 9.3 (disturbed) | 84.6 / 78.0 | **92.8 / 85.9** |
+| C2 | 54.3 ± 11.4 (disturbed) | 88.9 / 76.1 | **92.2 / 78.0** |
+| C3 | 89.0 ± 8.8 | 87.6 / 74.1 | **96.1 / 77.7** |
+| single run with segment timing | | | **96.5 / 84.9** |
+
+| model, provider | decode §69 (best / median) | decode now | llama.cpp decode | prefill now | llama.cpp prefill |
+|---|---:|---:|---:|---:|---:|
+| Qwen3-Coder-Next Q4_K_M, CUDA | 91.7 / 83.2, 88.9 / 79.5 | **89-96 / 78-89** (table above) | 94.8-99.3 undisturbed | 664 (§69; prefill paths unchanged but the router and the chunked delta rule) | 595 ± 22 |
+| Qwen3-Coder-Next Q4_K_M, Vulkan | 88.8 / 85.5, 79.9 / 77.4 | **93.7 / 86.2**, 84.2 / 80.2 | 55.2 ± 1.7 (§66) | **540**, 512 | 385 ± 4 |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | 73.8 / 71.6, 73.8 / 70.6 | **75.6 / 72.9, 78.5 / 78.0**, 75.9 / 71.4 | 72.6 ± 1.0, 71.2 ± 0.8, 71.4 ± 2.4 (same rounds) | **997** | 951 ± 56 (same round) |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, Vulkan | 56.2 / 55.6, 64.9 / 60.4 | **68.6 / 65.9**, 66.3 / 63.3 | 45.9 ± 0.5 (§66) | **997**, 964 | 745 ± 9 |
+| gpt-oss-120b MXFP4, CUDA | 53.4 / 49.9, 52.1 / 49.5 | 50.1 / 45.6 (CPU-only passes: 51.8 / 48.8) | 18.5 ± 7.3 (same hour, disturbed; §69: 36.4 ± 6.4) | | |
+
+* Coder-Next CUDA: the same binary with this round's four fusions switched off runs 82-89 best (median 74-78); with them 89-96 (median
+  78-89), +5-9 % by best step. Against llama.cpp's undisturbed runs (94.8-99.3) that is 0.91-0.97x by best step, ~0.98x for the best single
+  run, so the round's target (1.0x robustly) is not reached; the medians of both sides move with the pod's load by more than the gap.
+* Qwen3.5-122B on CUDA: 1.04x / 1.10x / 1.06x of the same-hour llama.cpp runs by best step (was 1.02x), 1.0-1.1x by median; prefill 1.05x.
+* Vulkan: Coder-Next 1.5-1.7x, the 122B 1.45-1.5x of §66's llama.cpp numbers (both faster than §69).
+
+### 71.2 Where the GPU part of the step went
+
+At the start (§69, nsys with node-level graph traces, one Coder-Next decode step): 1349 kernels, 6.67 ms of GPU busy time. A linear-attention
+layer whose experts run on the CPU had 27 launches in its GPU segment, a GPU-resident layer ~29 (879 for the 30 layers and the head). The
+small ones on the critical path: the router top-k 15.2 µs per layer (one subgroup over 512 logits, its per-lane sorted lists dynamically
+indexed and therefore in local memory: 0.74 ms per step), 5.3 q8_1 quantizations per layer (255 per step, 0.68 ms; the post-attention norm's
+output was quantized twice in resident layers, once for the shared expert and once for the routed experts, whose launches differ in their
+row range), two L2 norms and two Tile launches before the delta rule (Coder-Next's 16 key heads repeated in place for its 32 value heads,
+6-7 µs serial per layer), the beta sigmoid and the decay `softplus(alpha + dt_bias) * a` (two launches after their matvecs), 428 generated
+elementwise / norm launches per step in all (1.02 ms).
+
+Now: 1004 kernels and 5.44 ms per step under nsys; segments of CPU layers 19 launches, resident layers ~21 (635 for 30 layers and the head).
+Router top-k 5.6 µs (0.27 ms per step), 117 quantizations (0.25 ms; the rest are the shared and routed experts' down-projection inputs and
+the split passes' GPU slots), 215 generated launches (0.55 ms); the delta rule 4.6 → 6.3 µs (it now normalizes q / k and reads the key head
+itself). Without the profiler (`--bench 64`, same binary, fusions off / on): GPU 5.31 / 5.28 → 4.64 / 4.81 ms per step.
+
+Qwen3.5-122B: the GPU segment of its 40 resident layers 1011 → 901 launches (the router top-k and the q8 quantizations behind its norms),
+CPU-layer segments 23 → 21; its GPU time per step stayed at 8.5-8.9 ms (fusions off in the same hour: 8.89; §69: 8.62). Its step is the
+bandwidth of its matvecs (per-launch profile: the [3072 → 12288] / [3072 → 8192] / [8192 → 3072] projections at 25-36 µs and the IQ2_XXS /
+IQ2_S expert matvecs at 15-21 µs are 60 % of it); its q / k need no repeat (the L2 norms were already absorbed), and its beta / alpha
+projections are Q8_0, which take the f32 matvec at one row (Q8_0's int-dot range starts at 2 rows), so their gates keep their two
+launches (1.6 + 1.8 µs per linear-attention layer).
+
+The CPU side is as in §69 (CPU passes 0.30-0.35 ms per layer on a quiet minute, 0.5-0.6 ms on a busy one); llama.cpp under nsys spends a
+similar ~5.6 ms per token off the GPU for 16 CPU layers, its GPU part is longer than ours (354 `mul_mat_vec_q` and as many `quantize_q8_1`
+launches per token: llama.cpp quantizes the activations for every matvec).
+
+### 71.3 Changes
+
+* **Router top-k with the row in registers** (`topk_softmax`, `ROW_SLOTS`): a router row of a multiple of the subgroup size and up to 32
+  values per lane stays in statically indexed registers (the softmax sums in the same order as before), and the K picks are subgroup argmax
+  rounds over each lane's best untaken slot (key descending, index ascending: the order of the per-lane lists, so the same experts and
+  weights). 512 logits / top 10 on Blackwell: 15.2 → 5.6 µs. Every MoE router of that form takes it (Qwen3.5 / 3.6 / Next: 256-512 experts;
+  gpt-oss's top-k-then-softmax). `SHARPLIGHT_NO_TOPK_REGISTER_ROW=1` restores the lists.
+* **Repeated key heads read in place by the delta rule** (`GROUPED_HEADS`, `KEY_HEAD(h)` in state16.slang): q / k heads repeated in place for
+  grouped value heads (Reshape to [T, H, 1, D], Tile by [1, 1, R, 1], Reshape back) are recognized at the delta rule's unit; the kernel (and
+  the chunked prefill form) reads key head h / R of the source, and the L2 norms behind the repeat are absorbed as they were without it:
+  four launches fewer per linear-attention layer, and the chunked form's q / k preparation runs over 16 instead of 32 heads.
+  `SHARPLIGHT_NO_GROUPED_KEY_HEADS=1`.
+* **Row norms write the q8_1 rows of the int-dot matvecs that read them** (`RowNormKernelSource.Q8Output`): for decode steps (up to 8 rows,
+  the K-quants' int-dot range) a row norm whose output an int-dot matvec reads (dense or expert; an f32 reader such as the router reads the
+  f32 rows) writes the q8_1 rows next to the f32 ones, passing the row through shared memory so that eight lanes quantize 32 consecutive
+  values with quantize_q8_1's arithmetic (the same bytes). Readers with a larger range (Q8_0 to 16 rows) quantize the larger steps into the
+  same rows. A per-head norm read as [T, heads * D] (the gated output norm of linear attention) writes its head's part of each row. Three
+  quantizations per layer fewer, in every model whose norms feed int-dot matvecs (any K-quant or block-format GGUF decode).
+  `SHARPLIGHT_NO_NORM_Q8_COPY=1`.
+* **Elementwise groups in the int-dot matvec's store** (`MM_EPI` for `mmvq`, the epilogue helpers now in mm_epi.slang for both kernel files):
+  a plain group that reads one matmul of int-dot weights plus up to three scalars, row vectors or output-shaped tensors (the beta sigmoid,
+  the decay chain with its two [32] vectors, an activation after a quantized projection, a residual add) runs in the matvec's store for
+  the int-dot rows; other row counts run the matmul and the group's launch. `SHARPLIGHT_NO_INT_DOT_EPILOGUE=1`.
+* Tests: `TopKTests.Router` at 512 / 1024 experts and a non-multiple of the subgroup, `TopKTests.RouterTies` (heavy ties, both router
+  orders), `FusionTests.RepeatedKeyHeadsInDeltaRule` (with and without the norms, decode rows and a chunked prefill step),
+  `FusionTests.NormQuantizedForIntDot` (q4_k / q8_0, 1-16 rows), `FusionTests.IntDotMatvecEpilogue`.
+
+### 71.4 What did not work or was not done
+
+* **Held submissions** (CUDA, reverted): the GPU segment after a CPU layer submitted before the CPU pass, its stream held by
+  `cuStreamWaitValue32` on a page-locked word the host writes once the CPU's outputs are staged. No gain: the submission (~0.03 ms) ran on the
+  main thread right before the CPU pass instead of beside it ("before the CPU" 0.002 → 0.045 ms), and the GPU saw the host's write ~20 µs
+  late (the segment's wait 0.066 → 0.093 ms for the same 0.075 ms of device time). Holding a step while it was still being recorded or
+  captured (its first two runs) hung the stream; overlapping the submission would need it on another thread, and the release latency a
+  device-side flag.
+* **A margin for the CPU alone in the split balancer**: in one pair of interleaved rounds Coder-Next's CPU-only passes
+  (`SHARPLIGHT_SPARSE_GPU_SLOTS=0`) gave medians of 89.5 / 89.8 against 78 / 76 with the measured split; in the next pair the order reversed
+  (84.8 / 72.9 against 88.9 / 78.6). The pod's noise decides; the balancer is unchanged. Qwen3.5-122B's split stays well ahead (78.5 / 78.0
+  against 65.2 / 58.4 CPU-only); gpt-oss-120b is level (50.1 / 45.6 split, 51.8 / 48.8 CPU-only).
+* **One layer fewer on the CPU** for Coder-Next: the placement is the same 80 GPU groups at `--batch 512`, 256 and 128 (the activations are
+  not what keeps the 32nd layer off; the streaming memory, one layer's experts, is). Not changed.
+* The 122B's beta / alpha gates: the store epilogue covers the int-dot matvec only, not the f32 split-K matvec its Q8_0 projections take at
+  one row (~0.12 ms per step, ~1.4 %).
+* Still separate launches on Coder-Next's decode path: the shared and routed experts' down-projection inputs (the dual matvec's epilogue
+  output, quantized by its own launch), the shared-expert gate (an f32 [2048 → 1] matvec, its sigmoid in the next group only for resident
+  layers), the conv1d.
+* One 122B load at `--bench 512` ran out of device memory at its weights while another agent's server held a CUDA context (59 MiB) outside
+  the GPU lock: the placement leaves too little slack for that; the same load passed on the free GPU.
+* Not measured: Qwen3-8B-FP8's fused norm + FP8 activation quantization at serving batches (§70's list); the same norm machinery writes it
+  (`Fp8Output`), its shared-memory reads of four values per thread are bank-conflicted 4-way.
+
+### 71.5 Tests
+
+| suite | result |
+|---|---|
+| Sharplight.Cpu.Tests | 1395 / 0 failed / 48 skipped |
+| Sharplight.Core.Tests | 1660 / 0 failed / 331 skipped |
+| Sharplight.Cuda.Tests | 39 / 0 failed / 1 skipped |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: Fusion (new `RepeatedKeyHeadsInDeltaRule`, `NormQuantizedForIntDot`, `IntDotMatvecEpilogue`), TopK (new router cases, `RouterTies`), RowInvariance, Moe, StreamedExperts, StateHandoff, QuantFormat, F16Range, ChunkedDeltaRule, Stateful, DualGemm, MatMulEpilogue, MatMul, NormHalfCopy, Norm, Mmq, SplitHalfGemm, SkinnyGemm, Iq4Quant, BonsaiQuant | 970 / 0 failed each (20 classes) |
+| FamilyGenerationTests Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan | 3 / 0 failed each |
+| Qwen3-Coder-Next greedy text (16 tokens, `--cpu-offload`), CUDA and Vulkan | identical to the llama.cpp reference (" Paris. The capital of Germany is Berlin. The capital of Italy is Rome.") |
+| gpt-oss-120b greedy text (`-p "The capital of France is" -n 32`, `--cpu-offload`), CUDA and Vulkan | identical to §69 |
+
+### 71.6 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf
+$LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe 16 -fa 1 -p 0 -n 64 -r 5 -t 10
+$CLI $M --provider cuda --cpu-offload --bench 64
+SHARPLIGHT_NO_TOPK_REGISTER_ROW=1 SHARPLIGHT_NO_GROUPED_KEY_HEADS=1 SHARPLIGHT_NO_NORM_Q8_COPY=1 SHARPLIGHT_NO_INT_DOT_EPILOGUE=1 \
+  $CLI $M --provider cuda --cpu-offload --bench 64                      # this round's fusions off
+nsys profile -t cuda -s none --cuda-graph-trace=node -o cn $CLI $M --provider cuda --cpu-offload --bench 32   # kernels per step
+dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class "*.FusionTests"   # SHARPLIGHT_TEST_PROVIDER=cuda for CUDA
+```
+
 ## 72. LLM round 22: tensor-core decode attention for grouped heads; the expert GEMM's operand swap and a contiguous weight layout measured (2026-11-21)
 
 Branch `perf/llm-r22` (base `develop` at `1c341257`, round 21 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs,

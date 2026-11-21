@@ -40,6 +40,9 @@ public sealed class TopKTests
     [Theory]
     [InlineData(256, 8, true, false)]    // Qwen3.5-122B: 256 experts, top 8, renormalized
     [InlineData(128, 8, false, false)]
+    [InlineData(512, 10, true, false)]   // Qwen3-Coder-Next: 512 experts, top 10 (the row in registers)
+    [InlineData(1024, 8, false, false)]  // 32 values per lane
+    [InlineData(100, 6, true, false)]    // not a multiple of the subgroup: per-lane lists
     [InlineData(64, 4, true, true)]      // without subgroups: the unfused kernels
     public void Router(int experts, int k, bool normalize, bool disableSubgroups)
     {
@@ -56,6 +59,41 @@ public sealed class TopKTests
         tg.B.Output("i", top[1]);
         Diff.Check("TopK.router", tg.B.Build(), new Step(5, 0, (logits, Rnd.F(5L * experts, 11, 4f))), atol: 1e-6, rtol: 1e-5,
             what: $"experts={experts} k={k} normalize={normalize} noSubgroups={disableSubgroups}", disabledFeatures: disableSubgroups ? s_noSubgroups : null);
+    }
+
+    /// <summary>
+    /// Routers over logits with heavy ties (a few levels, so equal probabilities): the selected experts resolve ties to the lower
+    /// index as the CPU oracle does, in the fused softmax-then-top-k launch and in the top-k-then-softmax one (gpt-oss).
+    /// </summary>
+    [Theory]
+    [InlineData(512, 10, false)]
+    [InlineData(128, 8, false)]
+    [InlineData(128, 4, true)]
+    [InlineData(32, 4, true)]
+    public void RouterTies(int experts, int k, bool selectedSoftmax)
+    {
+        var tg = new TG();
+        var logits = tg.InF("logits", TG.T, experts);
+        Value weights;
+        Value ids;
+        if (selectedSoftmax)
+        {
+            var top = tg.B.Emit("TopK", [logits], Attributes.From(("k", (long)k)));
+            weights = tg.B.Emit1("Softmax", [top[0]]);
+            ids = top[1];
+        }
+        else
+        {
+            var top = tg.B.Emit("TopK", [tg.B.Emit1("Softmax", [logits])], Attributes.From(("k", (long)k)));
+            weights = top[0];
+            ids = top[1];
+        }
+
+        tg.B.Output("w", weights);
+        tg.B.Output("i", ids);
+        var data = Rnd.F(4L * experts, 13, 4f).Select(v => MathF.Round(v * 2) / 2).ToArray();
+        Diff.Check("TopK.routerTies", tg.B.Build(), new Step(4, 0, (logits, data)), atol: 1e-6, rtol: 1e-5,
+            what: $"experts={experts} k={k} selectedSoftmax={selectedSoftmax}");
     }
 
     /// <summary>Heavy ties (values quantized to a few levels) and signed zeros: ties must resolve to the lower index.</summary>

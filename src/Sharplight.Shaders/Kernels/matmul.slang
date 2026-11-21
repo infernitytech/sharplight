@@ -139,33 +139,7 @@ struct Params
     uint T;
 };
 
-#if MM_EPI
-// Element of epilogue tensor e for output (t, n): kind 0 one scalar, 1 a row vector over the output columns, 2 a dense
-// tensor of the output's shape.
-float mm_epi_arg(float* e, uint kind, uint64_t t, uint n)
-{
-    return kind == 0 ? e[0] : kind == 1 ? e[n] : e[t * N + n];
-}
-
-// The product v of output (t, n) through the generated epilogue mm_epi (the fused elementwise group).
-float mm_store_value(float v, Params p, uint64_t t, uint n)
-{
-    float a0 = 0, a1 = 0, a2 = 0;
-#if MM_EPI_ARGS > 0
-    a0 = mm_epi_arg(p.e0, MM_EPI_K0, t, n);
-#endif
-#if MM_EPI_ARGS > 1
-    a1 = mm_epi_arg(p.e1, MM_EPI_K1, t, n);
-#endif
-#if MM_EPI_ARGS > 2
-    a2 = mm_epi_arg(p.e2, MM_EPI_K2, t, n);
-#endif
-    return mm_epi(v, a0, a1, a2);
-}
-#define MM_STORE(v, t, n) mm_store_value(v, p, t, n)
-#else
-#define MM_STORE(v, t, n) (v)
-#endif
+#include "mm_epi.slang"
 
 // MV_FMA_CHAIN (row-invariant compiles): the products of one 8-weight group in a fixed order of fused multiply-adds, so
 // that every compiled variant (any MV_COLS) rounds a row's sum the same way. Otherwise the plain sum, which the driver
