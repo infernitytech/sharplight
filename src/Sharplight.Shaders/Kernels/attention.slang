@@ -332,10 +332,16 @@ uint decode_max_splits(uint T)
     return clamp(uint(DEC_TARGET_WG) / max(T * DEC_GROUPS, 1u), 1u, uint(DEC_MAX_SPLITS));
 }
 
-// Keys per split range of a row with `span` keys (a multiple of DEC_BC).
+// Keys per split range of a row with `span` keys (a multiple of DEC_BC). With ranges of several batches (DEC_MIN_KEYS > DEC_BC):
+// as many ranges as hold DEC_MIN_KEYS keys each, at most decode_max_splits(T), the keys spread evenly over them; rounding the
+// range up to DEC_MIN_KEYS instead left a short last range (300 keys in 256 + 44: a second workgroup and the combine for little
+// work). Ranges of one batch: the even split rounded up to whole batches.
 uint decode_split_keys(uint span, uint T)
 {
     uint ms = decode_max_splits(T);
+#if DEC_MIN_KEYS > DEC_BC
+    ms = clamp(span / uint(DEC_MIN_KEYS), 1u, ms);
+#endif
     uint per = (span + ms - 1) / ms;
     per = (per + DEC_BC - 1) / DEC_BC * DEC_BC;
     return max(per, uint(DEC_MIN_KEYS));
