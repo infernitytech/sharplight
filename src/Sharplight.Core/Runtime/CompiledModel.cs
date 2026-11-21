@@ -61,8 +61,8 @@ public sealed class CompiledModel : IDisposable
     /// <summary>A fixed number of slots per row for the GPU in split passes (<c>SHARPLIGHT_SPARSE_GPU_SLOTS</c>), or null to adapt it.</summary>
     private static int? DiagnosticSparseGpuSlots { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SPARSE_GPU_SLOTS"), out int slots) && slots >= 0 ? slots : null;
 
-    /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the host time of its runs (inputs, execution, outputs) and the run count.</summary>
-    private readonly (long Ticks, int Runs, bool Streamed)[]? _segmentTimes;
+    /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the host time of its runs (inputs, execution, outputs), the run count and the device time its provider measured.</summary>
+    private readonly (long Ticks, int Runs, bool Streamed, double GpuMs)[]? _segmentTimes;
     /// <summary>With <c>SHARPLIGHT_SEGMENT_TIMING=1</c>: per segment, the split passes' GPU slots, CPU time and wait for the GPU, summed.</summary>
     private readonly (long GpuSlots, double CpuMs, double WaitMs, int Runs)[]? _splitTimes;
     private static readonly HashSet<Value> s_noSkips = [];
@@ -128,7 +128,7 @@ public sealed class CompiledModel : IDisposable
         _streamed = streamed;
         _streamMinRows = streamMinRows;
         (_forwardedInputs, _deviceOnlyOutputs) = ForwardOnDevice(graph, segments);
-        _segmentTimes = Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_TIMING") is "1" or "true" ? new (long, int, bool)[segments.Length] : null;
+        _segmentTimes = Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_TIMING") is "1" or "true" ? new (long, int, bool, double)[segments.Length] : null;
         _splitTimes = _segmentTimes is null ? null : new (long, double, double, int)[segments.Length];
         _residentIn = new int[streamBuffers];
         _residentIn.AsSpan().Fill(-1);
@@ -883,7 +883,7 @@ public sealed class CompiledModel : IDisposable
                 if (_segmentTimes is not null)
                 {
                     ref var split = ref _segmentTimes[i];
-                    split = (split.Ticks + Stopwatch.GetTimestamp() - started, split.Runs + 1, true);
+                    split = (split.Ticks + Stopwatch.GetTimestamp() - started, split.Runs + 1, true, split.GpuMs);
                 }
 
                 continue;
@@ -939,7 +939,7 @@ public sealed class CompiledModel : IDisposable
             if (_segmentTimes is not null)
             {
                 ref var time = ref _segmentTimes[i];
-                time = (time.Ticks + Stopwatch.GetTimestamp() - started, time.Runs + 1, seg != _segments[i]);
+                time = (time.Ticks + Stopwatch.GetTimestamp() - started, time.Runs + 1, seg != _segments[i], time.GpuMs + seg.LastRunTimings.GpuMs);
             }
         }
     }
@@ -959,11 +959,16 @@ public sealed class CompiledModel : IDisposable
         double total = 0;
         for (int i = 0; i < _segmentTimes.Length; i++)
         {
-            var (ticks, runs, streamed) = _segmentTimes[i];
+            var (ticks, runs, streamed, gpuMs) = _segmentTimes[i];
             double ms = runs == 0 ? 0 : ticks * 1000.0 / Stopwatch.Frequency / runs;
             total += ms;
             string device = streamed ? "streamed" : Plan.Slots[_segments[i].Segment.DeviceSlot].Device.Info.Kind.ToString();
             lines.Append(CultureInfo.InvariantCulture, $"  segment {i,3} {device,-8} {ms,8:F3} ms/run ({runs} runs)");
+            if (gpuMs > 0)
+            {
+                lines.Append(CultureInfo.InvariantCulture, $", device {gpuMs / runs:F3} ms");
+            }
+
             if (_splitTimes![i] is { Runs: > 0 } split)
             {
                 lines.Append(CultureInfo.InvariantCulture,

@@ -10,7 +10,7 @@ namespace Sharplight.Cuda;
 /// <summary>
 /// A compiled segment on a CUDA device: owns the device buffers of its <see cref="KernelProgram"/> and launches its kernels on a stream of
 /// its own, from a recording per distinct binding of the symbolic dimensions (kernels, arguments and grids resolved once). Launches on one
-/// stream run in order, so no barriers are needed. Inputs and outputs are copied synchronously. An execution returns once its work is
+/// stream run in order, so no barriers are needed. Small inputs and outputs are copied asynchronously on the stream through page-locked staging (<see cref="CudaHostStaging"/>), larger ones synchronously. An execution returns once its work is
 /// submitted (the host can prepare the next step meanwhile); the segment waits for it before it reads an output, takes an input, copies
 /// state or runs again, and before another segment of the device runs (<see cref="CudaDevice.Pending"/>). Profiled executions wait at once.
 /// </summary>
@@ -77,6 +77,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly uint* _runtimeSlots;
     /// <summary>Whether <see cref="_runtimeSlots"/> is page-locked (see <see cref="CudaDevice.AllocateHost"/>).</summary>
     private readonly bool _runtimeSlotsPinned;
+    /// <summary>Page-locked copies of the small inputs and outputs (asynchronous copies on the segment's stream).</summary>
+    private readonly CudaHostStaging _staging;
+    /// <summary>Inputs uploaded from <see cref="_staging"/> since the last execution (a second upload of one waits for the first).</summary>
+    private readonly HashSet<Value> _stagedInputs = [];
+    /// <summary>Outputs the last execution downloads into <see cref="_staging"/>, with their byte counts.</summary>
+    private readonly Dictionary<Value, long> _stagedOutputs = [];
+    private static readonly HashSet<Value> s_noSkips = [];
     private bool _disposed;
 
     internal CudaSegment(CudaDevice dev, GraphSegment segment, KernelProgram program, CompileOptions options)
@@ -98,6 +105,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             CudaApi.Check(CudaApi.cuEventCreate(&end, CudaApi.EventDefault), "cuEventCreate");
             _end = end;
             _runtimeSlots = (uint*)dev.AllocateHost(RuntimeSlots * sizeof(uint), out _runtimeSlotsPinned);
+            _staging = new CudaHostStaging(dev);
             new Span<uint>(_runtimeSlots, RuntimeSlots).Clear();
 
             if (options.StreamWeights && options.SparseExpertSlots > 0)
@@ -588,6 +596,21 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         _dev.Enter();
+        if (!_stagedInputs.Contains(value) && _staging.Get(value, r.MaxBytes) is var staged && staged != null)
+        {
+            // The input buffer may be memory another segment's pending execution uses (shared activations): the synchronous copy below
+            // waits for every stream, the asynchronous one only for this segment's.
+            if (_dev.Pending is { } other && other != this)
+            {
+                other.WaitForCompletion();
+            }
+
+            data.CopyTo(new Span<byte>(staged, data.Length));
+            CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(a.Pointer + (ulong)r.ByteOffset, staged, (nuint)data.Length, _stream), "cuMemcpyHtoDAsync");
+            _stagedInputs.Add(value);
+            return;
+        }
+
         fixed (byte* source = data)
         {
             CudaApi.Check(CudaApi.cuMemcpyHtoD(a.Pointer + (ulong)r.ByteOffset, source, (nuint)data.Length), "cuMemcpyHtoD");
@@ -621,6 +644,12 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
         var r = _program.OutputRefs[value];
         WaitForCompletion();
+        if (_stagedOutputs.TryGetValue(value, out long staged) && byteOffset + destination.Length <= staged)
+        {
+            new ReadOnlySpan<byte>(_staging.Get(value, r.MaxBytes) + byteOffset, destination.Length).CopyTo(destination);
+            return;
+        }
+
         _dev.Enter();
         fixed (byte* target = destination)
         {
@@ -630,7 +659,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     // ---- execution ---------------------------------------------------------------------------
     /// <inheritdoc />
-    public void Execute(RunParameters parameters)
+    public void Execute(RunParameters parameters) => Execute(parameters, s_noSkips);
+
+    /// <inheritdoc />
+    /// <remarks>The small outputs not in <paramref name="skipDownloads"/> are downloaded after the launches, on the stream (see <see cref="CudaHostStaging"/>).</remarks>
+    public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
     {
         foreach (var (name, slot) in _program.ScalarSlots)
         {
@@ -644,6 +677,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             other.WaitForCompletion();   // its outputs may be this segment's forwarded inputs or shared state
         }
 
+        _stagedInputs.Clear();
+        _stagedOutputs.Clear();
         long started = Stopwatch.GetTimestamp();
         _dev.Enter();
         if (_program.ScalarSlots.Count > 0)
@@ -703,6 +738,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             RunStep(recording, key);
         }
 
+        DownloadOutputs(bindings, skipDownloads);
         _pendingTimings = new SegmentRunTimings(0, recordMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds - recordMs, 0, recorded, _replayed);
         _dev.Pending = this;
         if (_program.ProducedSymbols.Count > 0 || DiagnosticSwitches.SyncEachLaunch)
@@ -711,6 +747,27 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         PublishProducedSymbols(parameters);
+    }
+
+    /// <summary>Queues the downloads of the small outputs the caller reads into their staging buffers, after the execution's launches.</summary>
+    private void DownloadOutputs(Bindings bindings, IReadOnlySet<Value> skipDownloads)
+    {
+        foreach (var (value, r) in _program.OutputRefs)
+        {
+            if (skipDownloads.Contains(value))
+            {
+                continue;
+            }
+
+            long bytes = Math.Min(UsedBytes(r, bindings), _alloc[r.Buffer].Bytes - r.ByteOffset);
+            if (bytes <= 0 || _staging.Get(value, r.MaxBytes) is var staged && staged == null)
+            {
+                continue;
+            }
+
+            CudaApi.Check(CudaApi.cuMemcpyDtoHAsync(staged, _alloc[r.Buffer].Pointer + (ulong)r.ByteOffset, (nuint)bytes, _stream), "cuMemcpyDtoHAsync");
+            _stagedOutputs[value] = bytes;
+        }
     }
 
     /// <summary>
@@ -1304,6 +1361,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         {
             _dev.FreeHost((byte*)_runtimeSlots, RuntimeSlots * sizeof(uint), _runtimeSlotsPinned);
         }
+
+        _staging?.Dispose();
 
         if (_start != 0)
         {
