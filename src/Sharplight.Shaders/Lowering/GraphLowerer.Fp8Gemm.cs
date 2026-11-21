@@ -41,14 +41,14 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when the dual fp8 GEMM serves <paramref name="rows"/> activation rows of an [<paramref name="k"/>→<paramref name="n"/>]
-    /// pair: from <see cref="Fp8GemmMinRows"/> to 64 rows always; above, only where the separate fp8 GEMMs run without split-K.
+    /// pair of <paramref name="type"/> weights: from <see cref="Fp8GemmMinRows"/> to 64 rows always; above, only where the separate fp8 GEMMs run without split-K.
     /// There each output element sums its K blocks in the same order as the separate launch (the accumulation is an explicit
     /// fused multiply-add in both), and the epilogue evaluates the same expression as the elementwise kernel, so prompt
     /// prefill stays bit-identical to the separate launches. Where they split K, their partial sums round differently.
     /// <c>SHARPLIGHT_FP8_DUAL_MAX_ROWS=64</c> keeps larger batches on the separate launches.
     /// </summary>
-    private bool DualFp8Serves(long rows, long n, long k)
-        => rows >= Fp8GemmMinRows && (rows <= DualFp8AlwaysMaxRows
+    private bool DualFp8Serves(long rows, DataType type, long n, long k)
+        => rows >= Fp8GemmMinRows(type, n, k) && (rows <= DualFp8AlwaysMaxRows
                                       || (rows <= (DiagnosticSwitches.Fp8DualGemmMaxRows ?? long.MaxValue) && QuantizedGemmSplit(n, k, rows, 128, fp8: true) == 1));
 
     /// <summary>
@@ -81,7 +81,7 @@ public sealed partial class GraphLowerer
         TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, string? cudaEpilogue, out Func<long, bool> serves)
     {
         serves = _ => false;
-        long minRows = Fp8GemmMinRows;
+        long minRows = Fp8GemmMinRows(weightA.Type, n, k);
         long rowsMax = x.Shape[0] * rowsPerLead;
         if (!DiagnosticSwitches.Fp8DualGemm || !UseFp8Gemm(weightA.Type, k) || UseMmq(weightA.Type, n, k) || rowsMax < minRows
             || MmqLayout(64)[3] % 2 != 0)
@@ -95,7 +95,7 @@ public sealed partial class GraphLowerer
         long xcap = DenseScaleCapacityOf(quantized);
         long nativeMin = cudaEpilogue is not null && UseNativeFp8Gemm(weightA.Type, n, k) && weightB.Type == weightA.Type && xcap > 0
             ? Math.Max(minRows, NativeFp8MinRows(decode: true)) : long.MaxValue;
-        bool Generated(long r) => r < nativeMin && DualFp8Serves(r, n, k);
+        bool Generated(long r) => r < nativeMin && DualFp8Serves(r, weightA.Type, n, k);
         serves = r => r >= nativeMin || Generated(r);
         bool tall = DiagnosticSwitches.Fp8DualGemmTall && rowsMax > DualFp8AlwaysMaxRows && MmqLayout(128)[3] % 2 == 0;
         int TileRows(long r) => tall && r > DualFp8TallMinRows && (r + 127) / 128 * 2 == (r + 63) / 64 ? 128 : (int)DualFp8AlwaysMaxRows;

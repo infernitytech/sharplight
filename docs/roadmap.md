@@ -95,6 +95,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   operation per code pair and skips the scale's second factor where it is 1 (bit-identical): gpt-oss-20b 64-sequence step 0.87 →
   0.88x (`--text` / `--feedback`), serving at 64 streams 0.86 → 0.88x. A multi-output form of the FP8 decode GEMM for q / k / v at
   48-64 rows: Qwen3-8B-FP8 step 0.94 → 0.95x, serving at 64 streams 0.91 → 0.92x. 32-key prefill-attention tiles at head size 128 lose (withdrawn). Vulkan unchanged. Next: §67.7.
+  Round 20 (§68): a decode form of the hand-written f16 GEMM (64-token tiles, no K split, bias store) with a multi-output q / k / v
+  form replaces gpt-oss's split-K projections and reductions at 33-64 rows (102 → 84 µs per layer); the down product reuses its
+  block's routing (one `moe_route` per block, found: the gate / up routing had no launch condition) and the router's top-k then softmax
+  is one launch: gpt-oss-20b 64-sequence step 0.88 / 0.89 → 0.90 / 0.91x (`--text` / `--feedback`), serving at 64 streams 0.88 → 0.89x.
+  32-row token tiles for the FP8 decode form (two blocks per SM) and the FP8 GEMM from 9 rows: Qwen3-8B-FP8 steps at 12-32 sequences
+  -5-7 %, serving at 16 streams 0.89 → 0.93x. Greedy text byte-identical; Vulkan 64-sequence step -1.5 % (routing, router). Next: §68.7.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

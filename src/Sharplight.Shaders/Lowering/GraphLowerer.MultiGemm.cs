@@ -218,7 +218,7 @@ public sealed partial class GraphLowerer
         bool fused = DiagnosticSwitches.MultiGemmFused && (!fp8 || _compiler.CompilesCuda(_opt.Target));
         var arrivals = fused ? SplitArrivals(tiles) : null;
         var serves = group.Serves[family];
-        var native = fp8 ? EmitNativeFp8MultiGemm(group, parts, widths, k, serves) : null;
+        var native = fp8 ? EmitNativeFp8MultiGemm(group, parts, widths, k, serves) : EmitNativeF16MultiGemm(group, parts, widths, k, serves);
         Func<Bindings, bool> splitServes = native is null ? serves : b => serves(b) && !native(b);
         var variants = tiledSplits.Select(ts =>
         {
@@ -290,16 +290,18 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// The decode form of the hand-written FP8 GEMM over the group's concatenated weight rows (<c>gemm_fp8_native.cu</c> MULTI: 64-row
-    /// token and weight tiles, each block in one member's matrix, storing to that member's output) for the decode batches of
+    /// token and weight tiles, 32-row token tiles up to <see cref="NativeFp8ShortTileMaxRows"/> rows, each block in one member's matrix,
+    /// storing to that member's output) for the decode batches of at most <see cref="NativeFp8ShortTileMaxRows"/> and of
     /// <see cref="NativeFp8MultiMinRows"/> to 64 rows the multi-output GEMM serves (<paramref name="serves"/>), when every member is a
     /// matrix the hand-written GEMM takes. Returns the batches it serves, or null. One launch instead of the K-split GEMM and its
     /// reduction (k and v alone on the decode form ran 16 blocks each, ~300 GB/s). Each output sums its K blocks in the order of the
     /// member's own decode-form launch.
     /// </summary>
     /// <summary>
-    /// Rows from which the multi-output decode form serves (<see cref="EmitNativeFp8MultiGemm"/>). RTX PRO 4500, Qwen3-8B-FP8 decode steps
-    /// (BatchBench <c>--text</c>, GPU ms, two alternated pairs): 48 sequences 15.58-15.59 → 15.45-15.48, 64: 16.65 → 16.48, but 32:
-    /// 14.66-14.67 → 14.92-14.98 (its 96 blocks of q / k / v run two waves at one block per SM, 42 µs against 40.6 + 2.8 for the K split).
+    /// Rows from which the multi-output decode form serves on 64-row token tiles (<see cref="EmitNativeFp8MultiGemm"/>). RTX PRO 4500,
+    /// Qwen3-8B-FP8 decode steps (BatchBench <c>--text</c>, GPU ms, two alternated pairs): 48 sequences 15.58-15.59 → 15.45-15.48, 64: 16.65
+    /// → 16.48, but 32: 14.66-14.67 → 14.92-14.98 (its 96 blocks of q / k / v run two waves at one block per SM, 42 µs against 40.6 + 2.8
+    /// for the K split). Up to <see cref="NativeFp8ShortTileMaxRows"/> rows the 32-row token tiles serve instead (two blocks per SM).
     /// </summary>
     private const long NativeFp8MultiMinRows = 48;
 
@@ -316,19 +318,59 @@ public sealed partial class GraphLowerer
 
         long n = widths.Sum();
         var rowsOf = first.Rows;
-        Func<Bindings, bool> decode = b => serves(b) && rowsOf(b) >= NativeFp8MultiMinRows && rowsOf(b) <= 64;
+        Func<Bindings, bool> tall = b => serves(b) && rowsOf(b) >= NativeFp8MultiMinRows && rowsOf(b) <= 64;
+        Func<Bindings, bool> shortRows = b => serves(b) && rowsOf(b) <= NativeFp8ShortTileMaxRows;
+        Func<Bindings, bool> decode = b => tall(b) || shortRows(b);
         var multi = new Dictionary<string, string>
         {
             ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
             ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
             ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
         };
-        var variant = NativeFp8Variant(n, k, null, xcap, 64, columns, decode, rowsOf, multi);
+        KernelVariant[] variants = [NativeFp8Variant(n, k, null, xcap, 64, columns, tall, rowsOf, multi), NativeFp8Variant(n, k, null, xcap, 32, columns, shortRows, rowsOf, multi)];
         KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
         KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
-        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native", group.Members, [variant],
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native", group.Members, variants,
             [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
+        return decode;
+    }
+
+    /// <summary>
+    /// The decode form of the hand-written f16 GEMM over the group's concatenated weight rows (<c>gemm_f16_native.cu</c> H_CFG 2 with
+    /// MULTI: each block's weight tile in one member's matrix, storing to that member's output with its bias) for the decode batches of
+    /// <see cref="NativeF16DecodeMinRows"/> to 64 rows the multi-output GEMM serves (<paramref name="serves"/>), when every member takes
+    /// the decode form and every member boundary is a multiple of its weight tile. Returns the batches it serves, or null. One launch
+    /// instead of the K-split GEMM and its reduction.
+    /// </summary>
+    private Func<Bindings, bool>? EmitNativeF16MultiGemm(MultiGemmGroup group, List<MultiGemmPart> parts, long[] widths, long k, Func<Bindings, bool> serves)
+    {
+        var first = parts[0];
+        long n = widths.Sum();
+        int columns = NativeF16DecodeColumns(n);
+        if (parts.Count > 3 || parts.Any(pt => !UseNativeF16Decode(pt.Weight.Type, n, k, pt.Macros)) || widths.SkipLast(1).Any(w => w % columns != 0))
+        {
+            return null;
+        }
+
+        bool bias = first.Bias is not null;
+        var rowsOf = first.Rows;
+        Func<Bindings, bool> decode = b => serves(b) && rowsOf(b) >= NativeF16DecodeMinRows && rowsOf(b) <= NativeF16DecodeTileRows;
+        var multi = new Dictionary<string, string>
+        {
+            ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+        };
+        long? rangeScales = _rangeScales.TryGetValue(first.Activations, out long xrs) ? xrs : null;
+        var variant = NativeF16DecodeVariant(n, k, decode, rowsOf, bias, rangeScales, multi);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        KernelArg[] firstBias = bias ? [Pointer(first.Bias!)] : [];
+        KernelArg[] biases = bias ? [.. parts.Skip(1).Select(pt => Pointer(pt.Bias!))] : [];
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native decode", group.Members, [variant],
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output)]);
         return decode;
     }
 

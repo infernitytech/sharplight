@@ -9741,3 +9741,168 @@ cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5
   -DNM_STAGES=4 -DNM_MINB=2 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o b
 ROUTES=../results/s67/harness/routes64_text.txt LAYERS=24 PASSES=30 ./b x   # isolated and sustained ms per layer on real text routing
 ```
+
+## 68. LLM round 20: a decode form of the hand-written f16 GEMM, one routing per expert block, 32-row FP8 decode tiles (2026-11-21)
+
+Branch `perf/llm-r20` (base `develop` at `640931ba`, round 19 merged; `develop` at `65642c1c` merged before hand-back). GPU 0 of the
+RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, 200 W), shared with other agents and a model-feed job: every timed run held the verify
+lock, before / after alternated in the same hold. "Before" is a build of `640931ba`. vLLM figures are §58.8, §60, §63 and §64's (vLLM
+0.33.0, same machine and checkpoints; decode steps: the annotated step plus our 1.6 ms LM head and sampling, §64). Raw output in
+[`bench/results/s68/`](../bench/results/s68).
+
+### 68.1 Before / after against vLLM
+
+| benchmark (CUDA) | before | **after** | vLLM | ours / vLLM before → after |
+|---|---|---|---|---:|
+| gpt-oss-20b decode step, 64 sequences, `--text` / `--feedback` (GPU ms) | 19.51-19.55 / 18.37-18.40 | **19.05 / 17.88-17.90** | 17.2 / 16.3 | 0.88 / 0.89 → **0.90 / 0.91** |
+| gpt-oss-20b decode step, 48 / 32 / 16 sequences, `--text` | 18.43-18.47 / 16.46-16.49 / 12.75-12.76 | 18.24-18.26 / 16.41-16.46 / 12.71-12.74 | | |
+| Qwen3-8B-FP8 decode step, 64 sequences, `--text` | 16.74 | 16.73-16.74 | 15.6 | 0.93 (unchanged; this session's clocks: §67 measured 16.49) |
+| Qwen3-8B-FP8 decode step, 32 / 24 / 16 / 12 sequences, `--text` | 14.87-14.90 / 14.33-14.34 / 13.77-13.79 / 13.28-13.32 | **13.88-13.89 / 13.30-13.32 / 12.99-13.02 / 12.62-12.64** | | -6.7 / -7.2 / -5.6 / -5.0 % |
+| gpt-oss-20b serving, 16 / 64 streams (tok/s, one alternated pair of two rounds) | 1338 / 2773 | 1339 / **2820** | 1424 / 3154 | 0.94 / 0.88 → 0.94 / **0.89** |
+| Qwen3-8B-FP8 serving, 16 / 64 streams (one pair) | 988 / 2477 | **1041** / 2483 | 1115 / 2691 | 0.89 / 0.92 → **0.93** / 0.92 |
+| gpt-oss-20b prefill 16K / 32K / 64K / 128K (tok/s, median of 5; before: §67) | 13,920 / 12,004 / 9,355 / 6,466 | 13,925 / 12,003 / 9,331 / 6,493 | 14,496 / 12,327 / 9,440 / 6,435 | 0.96 / 0.97 / 0.99 / 1.00 → 0.96 / 0.97 / 0.99 / 1.01 |
+| gpt-oss-20b decode at depth 32K, 1 / 4 streams (tok/s, from the GPU ms) | 156.5 / 343.9 (§67) | 156.7 / 344.5 | 150.7 / 310.8 | 1.04 / 1.11 (unchanged) |
+| gpt-oss-20b decode at depth 128K, 1 / 4 streams | 106.2 / 162.1 (§67) | 106.3 / 162.3 | 107.3 / 174.9 | 0.99 / 0.93 (unchanged) |
+| Qwen3-8B-FP8 prefill 128K (tok/s) / decode at 32K, 1 / 4 streams (GPU ms) | 2,475 / 17.16 / 36.06 (§67) | 2,467 / 17.14 / 36.06 | | 0.94 (unchanged) |
+
+* Decode steps: BatchBench `--slots 64 --ctx 640 --depth 256 --modes greedy --reps 20`, sizes 1,16,32,48,64 (gpt-oss) and
+  1,8,12,16,24,32,48,64 (Qwen3), two alternated pairs on the final build (`decode/`, `final/`). One sequence is unchanged on both.
+* Long contexts: `bench/s58_long.sh` on the final build (`long/`). Batches of 1-4 rows and prompt chunks take none of the decode forms,
+  so only the routing reuse and the router launch apply: decode steps at depth have 461 / 582 dispatches instead of 485 / 630 (1 / 4
+  streams), within noise in time. Qwen3-8B-FP8 at 4 x 128K does not fit (its 32K-position checkpoint, as in §67).
+* Serving: `bench/s16_serve.sh sharplight <model> <dir> "16 64" --provider cuda`, `QUIET_GPU=1 ROUNDS=2`, before then after (`serve/`):
+  gpt-oss-20b at 64 streams +1.7 % (inter-token latency mean 20.10 → 19.68 ms), at 16 unchanged (its steps run 16 sequences, below the
+  f16 decode form); Qwen3-8B-FP8 at 16 streams +5.4 % (inter-token latency 15.22 → 14.39 ms: 68.4), at 64 unchanged.
+
+### 68.2 A decode form of the hand-written f16 GEMM (gpt-oss q / k / v and o)
+
+gpt-oss-20b's attention projections are bf16 (stored as f16 for the library path). At 33-256 rows they ran gemm_cm2 with a K split
+and a reduction: q / k / v [2880 → 4096 + 512 + 512] as the split-K multi-output GEMM (41.9 + 4.4 µs min per layer at 64 rows) and o
+[4096 → 2880] as gemm_cm2 split-K (38.0) + reduction (3.4) on a row-ranged f16 copy (3.1). `gemm_f16_native.cu` has a third tile
+configuration, `H_CFG` 2: 64 tokens x `H_DBN` weight rows (64, or 32 where 64-row tiles would leave a quarter of the SMs without a
+block), 2 x (`H_DBN` / 16) warps of 32 x 16 outputs, four stages of 64-value K steps, no K split, with the bias store and the
+row-range unscale of the existing forms, and a multi-output form (`MULTI`, `MULTI_O1`, `MULTI_O2`: each weight tile in one member's
+matrix, stored to that member's output with its bias; the FP8 kernel's scheme of §67.4). The lowering emits it for the split-K batches
+of 33-64 rows (`NativeF16DecodeMinRows`): inside `EmitSplitKMatMul` for single matmuls whose epilogue is none or a lone bias row, and
+in the multi-output group for q / k / v.
+
+Harness (`bench/s68_f16dec`, 64 rows, µs; "sustained": 24 distinct weight copies back to back; `harness/`):
+
+| variant | q / k / v sustained | o sustained |
+|---|---:|---:|
+| 64-row weight tiles, four stages | **39.4** (80 blocks, 748 GB/s) | 33.3 (45 blocks) |
+| 32-row weight tiles | 39.0-40.2 (160 blocks) | **32.0** (90 blocks, two per SM) |
+| six stages | 39.0 | 32.6-40.3 |
+| `cp.async` with `L2::128B` / `L2::256B` prefetch | 39.5 / 39.5 | 32.0 |
+
+In the engine's 64-sequence profile (`decode/gptoss_profile_final.txt`): q / k / v 43.7 µs mean per layer (was 43.8 + 5.8 for the
+split GEMM and its reduction), o 35.7 (was 42.7 + 5.3; its f16 copy stays, 4.2): 102 → 84 µs per layer with the copy, against vLLM's
+~74. Starting at 17 rows instead loses (16 / 32 sequences 12.71 / 16.44 → 13.33 / 16.60 ms: at 32 rows the 64-row token tile is half
+padding and the clamped rows re-read the same lines, 46 µs against 39 at 64 rows). `SHARPLIGHT_NATIVE_F16_DECODE_BN=0` turns it off,
+`=32` / `=64` force the weight tile. `CudaCodeTests.NativeF16DecodeGemmMatchesTheCpu` (40 and 64 rows, one projection and q / k / v
+with biases, K = 2880, against the CPU and the generated GEMM).
+
+### 68.3 One routing per expert block; the router's top-k and softmax in one launch
+
+* **The second `moe_route` per block** (§67.5): the routing cache is keyed by the launch condition's reference. gpt-oss's gate / up
+  pair is lowered with no condition, but its down product goes through the expert-sum path, which first emits the int-dot expert
+  matvec and lowers the grouped product under `outer && items > 8` (a new delegate). r19 shared the delegate between products, but the
+  gate / up product never had one. A routing emitted for every batch now serves a later product of the same ids whatever its condition,
+  provided the tiling matches: the cache key adds the route tile heights and the item bounds that choose them (`skinnyItems`,
+  `wideItems`, `wideTile`, `nativeMinItems`). 960 → 480 routing launches per 20 steps (2.7 µs each), 511 → 487 dispatches per step.
+* **TopK then Softmax** (gpt-oss: the softmax of the four selected logits): `FuseRouterTopK` fused only Softmax → TopK (Qwen3-MoE's
+  order). The TopK unit now also absorbs a Softmax that alone reads its values, and `topk_softmax` (`SELECTED_SOFTMAX`) selects on the raw
+  logits and computes the softmax of the K selected values with the lanes and sums of `rows.slang`'s softmax over the [rows, K] values,
+  so the probabilities are bit-identical. One launch less per layer (535 → 511 dispatches per step; topk 1.8 + softmax 2.0 µs → 3.8-4.2 µs: launch overhead, not
+  kernel time, is what it saves). Both changes apply on Vulkan too.
+
+Together with 68.2: gpt-oss-20b 64-sequence step 19.51-19.55 → 19.05 ms (`--text`), 18.37-18.40 → 17.88-17.90 (`--feedback`); 583 →
+487 dispatches per step.
+
+### 68.4 32-row token tiles for the FP8 decode form, and the FP8 GEMM from 9 rows (Qwen3 below 32 rows)
+
+At 16-31 rows Qwen3-8B-FP8 ran its projections on the skinny GEMM (f16 activations, 16 rows) or the generated fp8 GEMM with a K split
+(17-31), and q / k / v as the skinny q plus split-K k / v and two reductions (57.6 µs mean per layer at 16 rows, ~520 GB/s). The FP8
+decode form (64 x 64 tiles, four stages, 66 KB: one block per SM) pads a 16- or 32-row batch to 64 rows. With `F8N_BM` 32 (already
+supported by the kernel: three stages, 38 KB, two blocks per SM), `bench/s57_gemm` at 16 / 32 rows (µs, after an L2 flush;
+`decode/fp8_tile_rows.txt`):
+
+| shape | 64-row token tiles | 32-row token tiles |
+|---|---:|---:|
+| [4096 → 4096] | 41 / 35 | **29 / 29** |
+| gate / up [4096 → 2 x 12288] | 170 / 162 | **141 / 143** |
+| down [12288 → 4096] | 92 / 84 | **84 / 82** |
+
+The decode form now takes 32-row token tiles up to 32 rows (`NativeFp8ShortTileMaxRows`), for single matmuls, dual gate / up and the
+multi-output q / k / v (which before served only 48-64 rows: at 9-32 rows its 96 blocks fit at two per SM), and starts at 9 rows
+(`NativeFp8DecodeMinRows`, was 32) together with the fp8 GEMM itself for the weights it takes (`Fp8GemmMinRows` per matmul: 9 for
+`f8e4m3_b128g` weights with N a multiple of 128 where the decode form exists, else 17). Threshold sweep (GPU ms, `qwen/`): decode form
+from 17 rows: 24 sequences 14.15 → 13.44; plus the 32-row q / k / v: 13.17-13.18, 32: 13.77-13.78, 20: 13.98 → 12.97; FP8 GEMM from 9
+rows: 12: 13.06-13.18 → 12.44-12.52, 16: 13.53-13.69 → 12.91-12.95, 8 unchanged. Final build in 68.1. In the 16-sequence profile
+(`final/qwen_profile_16.txt`) q / k / v is 38.0 µs mean per layer (was 57.6), down 73.2 (75.4), o 27.3 (28.8); the dual gate / up stays
+on the skinny GEMM at 16 rows (139.6 µs; the harness shows no gain for 32-row tiles there).
+
+Below 17 rows the activations are now quantized to E4M3 as they were from 17 rows (vLLM quantizes FP8 activations at every batch size);
+greedy text (one sequence) is unaffected. `NativeFp8MultiGemmMatchesTheCpu` gains 16 and 32 rows (against the CPU; against the generated
+path only from 17 rows, which below runs the skinny GEMM on f16 activations).
+
+### 68.5 What did not work
+
+* L2 prefetch hints on the f16 decode form's copies and six stages instead of four (68.2 table): within 1 %, or slower for o; removed.
+* The f16 decode form from 17 rows (68.2): loses at 16-32 sequences.
+* The router GEMM [2880 → 32] (to_f16 2.4 + split-K 6.1 + reduction 1.8 µs per layer) has 32 outputs: the decode form's weight tiles
+  would fill one or two SMs; not attempted (see the plan).
+* The fused `topk_softmax` launch is not faster than `topk_subgroup` + `softmax` in kernel time (3.8-4.2 against 3.8 µs); it saves the
+  launch only. On Vulkan the one-sequence step is 0.02 ms slower in both pairs (5.32 → 5.34 ms).
+
+### 68.6 Correctness and tests
+
+* Greedy text, 120 tokens, prompts of ~40 / ~1000 / ~3000 words (§65's), CUDA: gpt-oss-20b and Qwen3-8B-FP8 byte-identical to `develop`
+  on all six (`greedy/`; the ~40-token prompts run their prefill on the decode forms); Vulkan gpt-oss-20b ~40 / ~1000 byte-identical
+  (`vulkan/summary.txt`).
+* Sharplight.Cuda.Tests: 39 / 0 failed / 1 skipped (cuBLASLt), with the new `NativeF16DecodeGemmMatchesTheCpu` (4 cases) and
+  `NativeFp8MultiGemmMatchesTheCpu` at 16 and 32 rows.
+* Sharplight.Vulkan.Tests, one process per class (Moe, StreamedExperts, DualGemm, MatMul, MatMulEpilogue, Fusion, RowInvariance, TopK,
+  Fp8Gemm, SkinnyGemm, RowOp): CUDA provider 587 / 0 failed / 0 skipped, Vulkan provider 587 / 0 failed / 0 skipped (`tests/tests.txt`, on the final build with `develop` merged). A first run with `Fp8GemmMinRows`
+  at 9 for every FP8 weight failed `MatMulTests.WeightFormat` / `SkinnyGemmTests.Single` for `f8e4m3_b32` / N = 96 at 9-16 rows (E4M3
+  activations on weights the hand-written GEMM does not take); the per-matmul threshold fixed it.
+* Vulkan: gpt-oss-20b decode on the Vulkan provider, `--text`, 1 / 16 / 64 sequences: 5.32 / 13.01-13.02 / 21.23-21.51 → 5.34 / 12.94-12.97
+  / 20.91-21.13 ms (`vulkan/`; the routing reuse and the router launch; no Vulkan GEMM changed).
+
+### 68.7 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b decode step, 64 sequences (`--text` / `--feedback`) | 0.90 / 0.91 (19.05 / 17.89 against 17.2 / 16.3 ms) | expert GEMMs ~12.6 ms (energy-bound, §67.2); q / k / v + o 84 µs per layer against ~74; LM head 1.53 ms; attention 1.4 |
+| Qwen3-8B-FP8 decode step, 64 / 16 sequences | 0.93 at 64 (this session) | gate / up at 64 rows 134.6 µs (one block per SM, 4.7 waves); at 16 rows the skinny dual gate / up 140 µs (~720 GB/s) |
+| gpt-oss-20b serving 16 / 64 streams | 0.94 / 0.89 | prompt waves on full expert tiles (power-limited), decode steps as above |
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.93 / 0.92 | 16 streams: the skinny dual gate / up; 64: its decode step |
+| Qwen3-8B-FP8 long prefill 128K | 0.94 | attention at head size 128 (one fragment per warp) |
+| gpt-oss-20b long prefill 16K / 32K / 64K / 128K | 0.96 / 0.97 / 0.99 / 1.01 | MoE and attention at 16K-32K |
+| gpt-oss-20b decode at depth 32K / 128K, 1 / 4 streams | 1.04 / 1.11, 0.99 / 0.93 | decode attention at ~87 % of the read limit |
+
+Ranked levers:
+
+1. **Expert GEMM copy traffic** (§67.7 item 5; the expert GEMMs are 66 % of the gpt-oss step and energy-bound): each 32-row decode tile
+   copies its expert's activation rows once per column block (45 blocks per expert for gate / up). Wider column tiles per block with two
+   weight tiles in flight, or a cluster-shared activation tile (distributed shared memory).
+2. **The router chain of gpt-oss** (~10 µs per layer at 64 rows: f16 copy, split-K GEMM [2880 → 32], reduction with the bias, then the
+   fused top-k): one kernel per row block reading the f32 norm output, the 32 logits, top-4 and softmax in registers (0.2 ms per step;
+   logits in another summation order, so greedy may move at near-ties), or the norm writing the router's f16 copy (0.05 ms, exact).
+3. **The o projection's f16 copy** (to_f16_ranged, 4.2 µs per layer): the attention combine writes the row-ranged f16 rows (0.1 ms).
+4. **Qwen3 dense FP8 at 64 rows** (gate / up 134.6 µs: 384 blocks of 64 x 32 outputs at one per SM, 4.7 waves): the 32-row token tile
+   halves the shared memory per block; a 64 x 64-row tile in three stages (50 KB) would put two blocks per SM.
+5. **Per-expert tile class in one launch** (§67.2): at most 0.26 ms per 64-sequence gpt-oss step.
+6. **Head size 128 prefill attention** (Qwen3 128K 0.94x, §67.7 item 6).
+7. **Decode attention split by key count** (§65.4).
+
+### 68.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,16,32,48,64 --modes greedy --reps 20 --text
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,8,12,16,24,32,48,64 --modes greedy --reps 20 --text
+cd bench/s68_f16dec && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DW0=4096 -DW1=512 -DW2=512 -DMULTI=3 -DH_BIAS=1 -DH_CFG=2 \
+  -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_f16_native.cu"' bench_f16dec.cu -o b && ./b 64
+```

@@ -1,0 +1,48 @@
+== f8_bm32_12288_4096
+  sustained: 0.039 ms 41 TFLOPS, 140.0 W, 3.406 pJ/flop
+T=   16 K=12288 N= 4096 dual=0 split=1: 0.084 ms 19 TFLOPS 618 GB/s of weights
+  check T=32: max err 0.000244 of max 1.6e+03
+  sustained: 0.030 ms 109 TFLOPS, 187.0 W, 1.716 pJ/flop
+T=   32 K=12288 N= 4096 dual=0 split=1: 0.082 ms 39 TFLOPS 634 GB/s of weights
+== f8_bm32_4096_1024
+  sustained: 0.010 ms 14 TFLOPS, 151.9 W, 10.757 pJ/flop
+T=   16 K= 4096 N= 1024 dual=0 split=1: 0.020 ms 7 TFLOPS 211 GB/s of weights
+  check T=32: max err 0.000122 of max 819
+  sustained: 0.010 ms 28 TFLOPS, 69.0 W, 2.447 pJ/flop
+T=   32 K= 4096 N= 1024 dual=0 split=1: 0.020 ms 13 TFLOPS 211 GB/s of weights
+== f8_bm32_4096_12288
+  sustained: 0.131 ms 25 TFLOPS, 220.3 W, 8.950 pJ/flop
+T=   16 K= 4096 N=12288 dual=1 split=1: 0.141 ms 23 TFLOPS 735 GB/s of weights
+  check T=32: max err 0.0547 of max 2.27e+05
+  sustained: 0.132 ms 49 TFLOPS, 223.9 W, 4.598 pJ/flop
+T=   32 K= 4096 N=12288 dual=1 split=1: 0.143 ms 45 TFLOPS 724 GB/s of weights
+== f8_bm32_4096_4096
+  sustained: 0.018 ms 31 TFLOPS, 174.6 W, 5.706 pJ/flop
+T=   16 K= 4096 N= 4096 dual=0 split=1: 0.029 ms 19 TFLOPS 603 GB/s of weights
+  check T=32: max err 0.000153 of max 851
+  sustained: 0.010 ms 102 TFLOPS, 201.1 W, 1.962 pJ/flop
+T=   32 K= 4096 N= 4096 dual=0 split=1: 0.029 ms 37 TFLOPS 603 GB/s of weights
+== f8_bm64_12288_4096
+  sustained: 0.074 ms 22 TFLOPS, 223.4 W, 10.233 pJ/flop
+T=   16 K=12288 N= 4096 dual=0 split=1: 0.092 ms 17 TFLOPS 563 GB/s of weights
+  check T=32: max err 0.000244 of max 1.6e+03
+  sustained: 0.060 ms 54 TFLOPS, 279.0 W, 5.191 pJ/flop
+T=   32 K=12288 N= 4096 dual=0 split=1: 0.084 ms 38 TFLOPS 618 GB/s of weights
+== f8_bm64_4096_1024
+  sustained: 0.013 ms 10 TFLOPS, 114.5 W, 11.245 pJ/flop
+T=   16 K= 4096 N= 1024 dual=0 split=1: 0.020 ms 7 TFLOPS 211 GB/s of weights
+  check T=32: max err 0.000122 of max 819
+  sustained: 0.013 ms 21 TFLOPS, 61.0 W, 2.912 pJ/flop
+T=   32 K= 4096 N= 1024 dual=0 split=1: 0.020 ms 13 TFLOPS 211 GB/s of weights
+== f8_bm64_4096_12288
+  sustained: 0.166 ms 19 TFLOPS, 218.9 W, 11.277 pJ/flop
+T=   16 K= 4096 N=12288 dual=1 split=1: 0.170 ms 19 TFLOPS 611 GB/s of weights
+  check T=32: max err 0.0547 of max 2.27e+05
+  sustained: 0.151 ms 43 TFLOPS, 213.5 W, 4.990 pJ/flop
+T=   32 K= 4096 N=12288 dual=1 split=1: 0.162 ms 40 TFLOPS 642 GB/s of weights
+== f8_bm64_4096_4096
+  sustained: 0.035 ms 15 TFLOPS, 113.1 W, 7.385 pJ/flop
+T=   16 K= 4096 N= 4096 dual=0 split=1: 0.041 ms 13 TFLOPS 422 GB/s of weights
+  check T=32: max err 0.000153 of max 851
+  sustained: 0.027 ms 40 TFLOPS, 144.5 W, 3.621 pJ/flop
+T=   32 K= 4096 N= 4096 dual=0 split=1: 0.035 ms 31 TFLOPS 497 GB/s of weights
