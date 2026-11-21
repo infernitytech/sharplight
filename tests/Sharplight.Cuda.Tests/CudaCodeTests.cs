@@ -372,7 +372,10 @@ public sealed class CudaCodeTests
         // outputs (a partial weight tile), or q / k / v of 256 + 128 + 80 outputs on its multi-output form.
         var type = format switch { "q4_k" => DataType.Q4_K, "q5_k" => DataType.Q5_K, _ => DataType.Q6_K };
         int[] widths = multi ? [256, 128, 80] : [336];
-        var expected = RunKQuantProjections(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, type, widths);
+        // The CPU's integer dots quantize the activations to 8 bits below 32 rows: the reference dequantizes into f32 products instead.
+        var exact = new DeviceOptions();
+        exact.DisabledFeatures.Add(DeviceFeatures.IntDot);
+        var expected = RunKQuantProjections(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0], exact), rows, type, widths);
         var actual = RunKQuantProjections(provider.OpenDevice(info), rows, type, widths);
         var generated = new DeviceOptions();
         generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmKQuant);

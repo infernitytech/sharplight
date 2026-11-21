@@ -2,7 +2,7 @@
 // activations [T, K] and random Q4_K / Q5_K / Q6_K blocks (KQ_FMT 4 / 5 / 6) for [N, K] weights, checked against an f32 GEMM on the
 // blocks dequantized on the host, timed with events: best of ITERS after an L2 flush ("isolated"), and LAYERS weight copies back to back,
 // PASSES times ("sustained", µs per launch: the weights stream from memory as in a decode step).
-// nvcc -O3 -arch=sm_120 -std=c++17 -DK=4096 -DN=12288 -DKQ_FMT=4 -DKQ_BM=32 -DKQ_XST=4 -DKQ_WL=2 -DKQ_SPLIT=1 \
+// nvcc -O3 -arch=sm_120 -std=c++17 -DK=4096 -DN=12288 -DKQ_FMT=4 -DKQ_BM=32 -DKQ_STAGES=3 -DKQ_SPLIT=1 \
 //   -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_kq_native.cu"' bench_kq.cu -o b && ./b 32
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
@@ -162,7 +162,7 @@ int main(int argc, char** argv)
         p.T = T;
         return p;
     };
-    const int smem = KQ_SHARED;
+    const int smem = KQ_STAGES * KQ_STAGE_BYTES;
     CK(cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem));
     dim3 grid((T + KQ_BM - 1) / KQ_BM, (N + KQ_BN - 1) / KQ_BN, KQ_SPLIT);
     gemm_kq_native<<<grid, KQ_THREADS, smem>>>(params(0));
@@ -214,8 +214,8 @@ int main(int argc, char** argv)
         sustained = fminf(sustained, ms / (PASSES * LAYERS));
     }
     CK(cudaGetLastError());
-    printf("fmt=%d T=%d K=%d N=%d BM=%d xst*100+wl=%d split=%d blocks=%d smem=%d: isolated %.1f us (%.0f GB/s), sustained %.1f us (%.0f GB/s), max err %.2e of max |y| %.2f\n",
-        KQ_FMT, T, K, N, KQ_BM, KQ_XST * 100 + KQ_WL, KQ_SPLIT, grid.x * grid.y * grid.z, smem, best * 1e3, wBytes / best / 1e6, sustained * 1e3, wBytes / sustained / 1e6,
+    printf("fmt=%d T=%d K=%d N=%d BM=%d stages=%d split=%d blocks=%d smem=%d: isolated %.1f us (%.0f GB/s), sustained %.1f us (%.0f GB/s), max err %.2e of max |y| %.2f\n",
+        KQ_FMT, T, K, N, KQ_BM, KQ_STAGES, KQ_SPLIT, grid.x * grid.y * grid.z, smem, best * 1e3, wBytes / best / 1e6, sustained * 1e3, wBytes / sustained / 1e6,
         worst, scale);
     return 0;
 }
