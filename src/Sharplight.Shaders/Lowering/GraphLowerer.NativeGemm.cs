@@ -163,7 +163,8 @@ public sealed partial class GraphLowerer
         }).ToList();
         if (decodeForm)
         {
-            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)), rows));
+            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) > NativeFp8ShortTileMaxRows, rows));
+            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 32, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) <= NativeFp8ShortTileMaxRows, rows));
         }
 
         return [.. variants];
@@ -179,11 +180,20 @@ public sealed partial class GraphLowerer
     private static int NativeFp8DecodeColumns => DiagnosticSwitches.NativeFp8DecodeColumns ?? 64;
 
     /// <summary>
-    /// Rows from which the hand-written FP8 GEMM's decode form (<see cref="NativeFp8DecodeColumns"/>) serves: below, the generated fp8
-    /// GEMM's K split fills the GPU better. RTX PRO 4500, Qwen3-8B-FP8 decode steps (GPU ms, decode form off → on): 24 sequences 14.22 →
-    /// 14.61, 32: 14.90 → 14.71, 48: 16.32 → 15.65, 64: 17.53 → 16.77.
+    /// Rows from which the hand-written FP8 GEMM's decode form (<see cref="NativeFp8DecodeColumns"/>) serves: below, the skinny GEMM.
+    /// RTX PRO 4500, Qwen3-8B-FP8 decode steps (GPU ms): with 64-row token tiles from 32 rows (§63-67) 24 sequences 14.22 → 14.61
+    /// (from 17 rows), 32: 14.90 → 14.71; with the 32-row token tiles (<see cref="NativeFp8ShortTileMaxRows"/>) from 9 rows, against
+    /// the skinny GEMM and the generated fp8 GEMM's K split: 12 sequences 13.06-13.18 → 12.44-12.52, 16: 13.53-13.69 → 12.91-12.95,
+    /// 20: 13.98 → 12.97, 24: 14.15-14.18 → 13.17-13.18 (with the q / k / v multi-output form), 32: 14.74-14.78 → 13.77-13.78.
     /// </summary>
-    private const long NativeFp8DecodeMinRows = 32;
+    private const long NativeFp8DecodeMinRows = 9;
+
+    /// <summary>
+    /// Most rows the hand-written FP8 GEMM's decode form runs on 32-row token tiles (three stages, 38 KB: two blocks per SM) instead of
+    /// 64-row tiles. bench/s57_gemm at 16 / 32 rows (µs, after an L2 flush, 64-row → 32-row token tiles): [4096 → 4096] 41 / 35 → 29 / 29,
+    /// gate / up [4096 → 2 x 12288] 170 / 162 → 141 / 143, down [12288 → 4096] 92 / 84 → 84 / 82.
+    /// </summary>
+    private const long NativeFp8ShortTileMaxRows = 32;
 
     /// <summary>
     /// Rows from which the hand-written FP8 GEMM serves a matmul: from <see cref="NativeFp8DecodeMinRows"/> on its decode form when
@@ -334,6 +344,69 @@ public sealed partial class GraphLowerer
             return new KernelVariant(b => rows(b) >= minRows && NativeF16Config(rows(b), n, dual) == c, kernel,
                 b => new Grid(Grid.Div(rows(b), 128), Grid.Div(n, columns)));
         })];
+    }
+
+    /// <summary>Token rows of the decode form of <c>gemm_f16_native.cu</c> (H_CFG 2): the largest batch it serves.</summary>
+    private const int NativeF16DecodeTileRows = 64;
+
+    /// <summary>
+    /// Weight rows per tile of the decode form of the hand-written f16 GEMM for <paramref name="n"/> outputs
+    /// (<c>SHARPLIGHT_NATIVE_F16_DECODE_BN</c>; 0: no decode form): 64, or 32 where 64-row tiles would leave a quarter of the SMs
+    /// without a block. RTX PRO 4500 Blackwell (82 SMs), gpt-oss-20b shapes at 64 rows, sustained over 24 weight copies
+    /// (bench/s68_f16dec, µs): q / k / v [2880 → 4096 + 512 + 512] 39.4 on 64-row tiles (80 blocks), 40.2 on 32; o [4096 → 2880]
+    /// 33.3 on 64-row tiles (45 blocks), 32.0 on 32 (90 blocks, two per SM).
+    /// </summary>
+    private int NativeF16DecodeColumns(long n)
+        => DiagnosticSwitches.NativeF16DecodeColumns ?? (Grid.Div(n, 64) * 4 >= Math.Max(1, _opt.ComputeUnits) * 3 ? 64 : 32);
+
+    /// <summary>
+    /// Fewest rows the hand-written f16 GEMM's decode form serves (<c>SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS</c>): below, gemm_cm2's
+    /// K split fills the GPU better.
+    /// </summary>
+    private static long NativeF16DecodeMinRows => DiagnosticSwitches.NativeF16DecodeMinRows ?? 33;
+
+    /// <summary>
+    /// True when f16 weights [<paramref name="n"/>, <paramref name="k"/>] (bf16 stored as f16) read by f16 activation rows of stride
+    /// <paramref name="k"/> (<paramref name="macros"/>: the f16 copy of x) run their decode batches on the hand-written f16 GEMM's decode
+    /// form: the provider has the hand-written GEMM, K is a multiple of its 64-value steps, and the weight tiles fill at least half the SMs
+    /// (narrower outputs, such as a router's, keep the split-K GEMM).
+    /// </summary>
+    private bool UseNativeF16Decode(DataType type, long n, long k, IReadOnlyDictionary<string, string> macros)
+        => NativeGemmF16 && NativeF16DecodeColumns(n) is 32 or 64 && type == DataType.F16 && k % 64 == 0
+           && macros.GetValueOrDefault("X_F16") == "1" && macros.GetValueOrDefault("X_STRIDE") == k.ToString(CultureInfo.InvariantCulture)
+           && Grid.Div(n, NativeF16DecodeColumns(n)) * 2 >= Math.Max(1, _opt.ComputeUnits);
+
+    /// <summary>
+    /// The launch variant of the decode form of <c>gemm_f16_native.cu</c> (64 token rows, <see cref="NativeF16DecodeColumns"/> weight
+    /// rows per tile, no K split) for [<paramref name="n"/>, <paramref name="k"/>] weights, with the bias store (<paramref name="bias"/>),
+    /// the row scales of a row-ranged copy of x at byte <paramref name="rangeScales"/>, and the <paramref name="extra"/> macros (the
+    /// multi-output form's).
+    /// </summary>
+    private KernelVariant NativeF16DecodeVariant(long n, long k, Func<Bindings, bool> serves, Func<Bindings, long> rows, bool bias, long? rangeScales,
+        IReadOnlyDictionary<string, string>? extra = null)
+    {
+        int columns = NativeF16DecodeColumns(n);
+        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("H_CFG", 2), ("H_DBN", columns));
+        if (bias)
+        {
+            macros["H_BIAS"] = "1";
+        }
+
+        if (rangeScales is { } scales)
+        {
+            macros["H_XRS"] = scales.ToString(CultureInfo.InvariantCulture) + "ull";
+        }
+
+        foreach (var (name, value) in extra ?? new Dictionary<string, string>())
+        {
+            macros[name] = value;
+        }
+
+        const int stages = 4;
+        int threads = 2 * (columns / 16) * 32;
+        var kernel = _compiler.CompileCuda("gemm_f16_native.cu", "", "gemm_f16_native", threads, stages * (NativeF16DecodeTileRows + columns) * 128,
+            _opt.Target, macros, _opt.Cache);
+        return new KernelVariant(serves, kernel, b => new Grid(Grid.Div(rows(b), NativeF16DecodeTileRows), Grid.Div(n, columns)));
     }
 
     /// <summary>Token rows of the routing tiles of <c>gemm_moe_native.cu</c> (one warp row of 8 row fragments).</summary>

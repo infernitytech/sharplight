@@ -111,9 +111,11 @@ public sealed partial class GraphLowerer
     // tensor-core path depends on K, so the projections of one block may tile differently) that also run their grouped GEMMs for
     // the same batches: the same matvec bound (an int-dot gate / up serves up to 128 items per step, a down projection in a format
     // without int-dot only 16, and reusing the gate's routing left the down GEMM without one for 17-128 items) under the same
-    // launch condition.
+    // launch condition, or a routing emitted for every batch (gpt-oss's gate / up, whose down product is lowered under the
+    // condition its int-dot expert sum leaves: a second routing per block before). Tiling: the tile heights and the item bounds that
+    // choose them.
     private BufferDecl? _moeScratch;
-    private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, object? Condition, bool Native)? _moeRouted;
+    private (Value Ids, long E, long MaxTiles, bool Coop, long MatvecMaxItems, object? Condition, bool Native, string Tiling)? _moeRouted;
 
     // Expert-sorted f16 copy of the activations of the grouped GEMMs, shared by the MatMulIds that read the same x with the same
     // routing (gate and up of an expert block).
@@ -642,8 +644,9 @@ public sealed partial class GraphLowerer
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
         var scratchArg = new PointerArg(_moeScratch, 0);
 
+        string routeKey = string.Create(CultureInfo.InvariantCulture, $"{string.Join(",", routeTiles)} {skinnyItems} {wideItems} {wideTile} {nativeMinItems} {gemm2}");
         if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.Coop != coop || r.MatvecMaxItems != mv
-            || !ReferenceEquals(r.Condition, _launchCondition) || r.Native != nativeMoe)
+            || !(r.Condition is null || ReferenceEquals(r.Condition, _launchCondition)) || r.Native != nativeMoe || r.Tiling != routeKey)
         {
             int[] tiling = coop ? routeTiles : [64];
             Emit($"moe-route {n.Inputs[2].Name} [{E} experts]", [n],
@@ -652,7 +655,7 @@ public sealed partial class GraphLowerer
                     _ => new Grid(1)))],
                 [Pointer(ids), scratchArg, TokenArg(ids)],
                 [ids], [scratch]);
-            _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition, nativeMoe);
+            _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition, nativeMoe, routeKey);
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };

@@ -461,7 +461,7 @@ public sealed partial class GraphLowerer
         bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N, plan.W.Type) >= skinnyMin;
         // One f16 copy of x for every f16 tensor-core launch of this matmul (skinny GEMM, gemm_cm2), emitted under the outer
         // condition so that the matmuls reading the same rows (Q/K/V, gate/up, ...) share it.
-        var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows : null);
+        var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows(plan.W.Type, plan.N, plan.K) : null);
         if (intDot)
         {
             EmitIntDotMatvec(MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
@@ -483,7 +483,7 @@ public sealed partial class GraphLowerer
             var beforeFp8 = _launchCondition;
             _launchCondition = outer;
             EmitFp8Gemm(plan);
-            _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows;
+            _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows(plan.W.Type, plan.N, plan.K);
         }
         else if (library)
         {
@@ -1021,6 +1021,14 @@ public sealed partial class GraphLowerer
             }
         }
 
+        // Decode batches of f16 projections on the hand-written f16 GEMM's decode form: one launch for the split GEMM and its reduction.
+        var notMultiAlone = notMulti;
+        var decode = EmitNativeF16DecodeGemm(p, activations, epilogue, b => notMultiAlone(b) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1);
+        if (decode is not null)
+        {
+            notMulti = b => notMultiAlone(b) && !decode(b);
+        }
+
         if (FusedSplitKUsable(p))
         {
             EmitFusedSplitKMatMul(p, activations, epilogue, tiledSplits, scratch, partial, notMulti);
@@ -1065,6 +1073,38 @@ public sealed partial class GraphLowerer
             ranged ? [partial, activations, .. epilogue?.Args ?? []] : [partial, .. epilogue?.Args ?? []], [y]);
         var condition = _launchCondition;
         return b => (condition?.Invoke(b) ?? true) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1;
+    }
+
+    /// <summary>
+    /// The decode form of the hand-written f16 GEMM for the batches of <see cref="NativeF16DecodeMinRows"/> to 64 rows that
+    /// <paramref name="serves"/> (the split-K batches its multi-output group leaves to it), when the matmul reads the f16 copy of x
+    /// with f16 weights (<see cref="UseNativeF16Decode"/>) into dense rows and its epilogue is none or a lone bias row, which the store adds (and undoes
+    /// a row-ranged copy's row scales). Returns the batches it serves, or null.
+    /// </summary>
+    private Func<Bindings, bool>? EmitNativeF16DecodeGemm(MatMulPlan p, TensorRef activations, MatMulEpilogueCode? epilogue, Func<Bindings, bool> serves)
+    {
+        var bias = EpilogueBias(epilogue);
+        if (!MultiGemmCandidate(p) || p.RowsPerLead != 1 || p.WeightParts is not null || (epilogue is not null && bias is null)
+            || !UseNativeF16Decode(p.W.Type, p.N, p.K, p.Macros))
+        {
+            return null;
+        }
+
+        var y = epilogue?.Output ?? p.Y;
+        if (!DenseRowsOf(y, p.N))
+        {
+            return null;
+        }
+
+        Func<Bindings, bool> decode = b => serves(b) && p.RowCount(b) >= NativeF16DecodeMinRows && p.RowCount(b) <= NativeF16DecodeTileRows;
+        long? rangeScales = _rangeScales.TryGetValue(activations, out long xrs) ? xrs : null;
+        KernelArg[] biasArgs = bias is null ? [] : [Pointer(bias)];
+        TensorRef[] biasReads = bias is null ? [] : [bias];
+        Emit($"{MatMulLabel(p)} native decode{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []],
+            [NativeF16DecodeVariant(p.N, p.K, decode, p.RowCount, bias is not null, rangeScales)],
+            [Pointer(activations), Pointer(p.W), Pointer(y), .. biasArgs, TokenArg(p.X, p.RowsPerLead)],
+            [activations, p.W, .. biasReads], [y]);
+        return decode;
     }
 
     /// <summary>

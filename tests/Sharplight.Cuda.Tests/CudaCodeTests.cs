@@ -284,6 +284,8 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(16)]
+    [InlineData(32)]
     [InlineData(48)]
     [InlineData(64)]
     public void NativeFp8MultiGemmMatchesTheCpu(int rows)
@@ -295,7 +297,8 @@ public sealed class CudaCodeTests
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
         // Three FP8 projections of the same activations (q / k / v: 512 + 128 + 128 outputs) at decode sizes run as one multi-output
-        // launch of the hand-written GEMM's decode form, each 64-row weight tile in one member's matrix and stored to its output.
+        // launch of the hand-written GEMM's decode form (32-row token tiles up to 32 rows), each 64-row weight tile in one member's
+        // matrix and stored to its output.
         var expected = RunMultiProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows);
         var actual = RunMultiProjection(provider.OpenDevice(info), rows);
         var generated = new DeviceOptions();
@@ -307,6 +310,39 @@ public sealed class CudaCodeTests
             for (int i = 0; i < expected[o].Length; i++)
             {
                 Assert.True(Math.Abs(expected[o][i] - actual[o][i]) <= 1e-3 * scale, $"y{o}[{i}]: {actual[o][i]} vs {expected[o][i]}");
+                // Below 17 rows the generated path is the skinny GEMM on f16 activations, not E4M3 ones.
+                Assert.True(rows < 17 || Math.Abs(reference[o][i] - actual[o][i]) <= 1e-4 * scale, $"y{o}[{i}]: {actual[o][i]} vs the generated GEMM's {reference[o][i]}");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(40, false)]
+    [InlineData(64, false)]
+    [InlineData(40, true)]
+    [InlineData(64, true)]
+    public void NativeF16DecodeGemmMatchesTheCpu(int rows, bool multi)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmF16), "The GPU has no hand-written f16 GEMM (compute capability below 8.0).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // bf16 projections with bias rows at decode sizes (one projection, or q / k / v: 2048 + 256 + 256 outputs) run on the decode form
+        // of the hand-written f16 GEMM (no K split; the multi-output form's weight tiles each in one member's matrix), the bias in the store.
+        int[] widths = multi ? [2048, 256, 256] : [2560];
+        var expected = RunBiasProjections(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, widths);
+        var actual = RunBiasProjections(provider.OpenDevice(info), rows, widths);
+        var generated = new DeviceOptions();
+        generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmF16);
+        var reference = RunBiasProjections(provider.OpenDevice(info, generated), rows, widths);
+        for (int o = 0; o < expected.Length; o++)
+        {
+            double scale = expected[o].Max(MathF.Abs);
+            for (int i = 0; i < expected[o].Length; i++)
+            {
+                Assert.True(Math.Abs(expected[o][i] - actual[o][i]) <= 2e-3 * scale, $"y{o}[{i}]: {actual[o][i]} vs {expected[o][i]}");
                 Assert.True(Math.Abs(reference[o][i] - actual[o][i]) <= 1e-4 * scale, $"y{o}[{i}]: {actual[o][i]} vs the generated GEMM's {reference[o][i]}");
             }
         }
@@ -488,6 +524,50 @@ public sealed class CudaCodeTests
             for (int i = 0; i < input.Length; i++)
             {
                 input[i] = (i % 5 - 2) * 0.5f;
+            }
+
+            model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = rows;
+            model.Run(parameters);
+            var outputs = new float[widths.Length][];
+            for (int o = 0; o < widths.Length; o++)
+            {
+                outputs[o] = new float[rows * widths[o]];
+                model.GetOutput<float>("y" + o, outputs[o]);
+            }
+
+            return outputs;
+        }
+    }
+
+    /// <summary>
+    /// y_o = x · W_oᵀ + b_o for bf16 weights [<paramref name="widths"/>[o], 2880] and f32 bias rows of the same activations (the
+    /// projections of <see cref="NativeF16DecodeGemmMatchesTheCpu"/>) on <paramref name="rows"/> rows.
+    /// </summary>
+    private static float[][] RunBiasProjections(IComputeDevice device, int rows, int[] widths)
+    {
+        using (device)
+        {
+            var tg = new TG("cuda-f16-decode-gemm");
+            var x = tg.InF("x", TG.T, 2880);
+            for (int o = 0; o < widths.Length; o++)
+            {
+                var y = tg.B.MatMul(x, tg.RandW("w" + o, DataType.BF16, 0.05f, widths[o], 2880));
+                tg.B.Output("y" + o, tg.B.Add(y, tg.RandW("b" + o, DataType.F32, 0.5f, widths[o])));
+            }
+
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 256, ContextLength = 256 },
+                ReservePerDevice = 0,
+            });
+            var input = new float[rows * 2880];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = (i % 7 - 3) * 0.25f;
             }
 
             model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
