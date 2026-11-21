@@ -30,6 +30,8 @@ public sealed class ModelHost : IDisposable
         public readonly ModelRegistration Reg = reg;
         public ModelState State;
         public LoadedModel? Instance;
+        /// <summary>The instance an unload took over from <see cref="Instance"/> and is disposing (still reported while it frees its memory).</summary>
+        public LoadedModel? Disposing;
         public IReadOnlyList<MemoryRequirement> Requirements = [];
         public long Estimated;
         public int Leases;
@@ -47,6 +49,8 @@ public sealed class ModelHost : IDisposable
     private readonly ModelHostOptions _opt;
     private ITimer? _timer;
     private bool _disposed;
+    /// <summary>Instances taken over by <see cref="BeginUnload"/> whose disposal has not finished; <see cref="Dispose"/> waits for them (under <see cref="_gate"/>).</summary>
+    private int _unloadsInFlight;
 
     /// <summary>Creates an empty host.</summary>
     public ModelHost(ModelHostOptions? options = null)
@@ -199,7 +203,7 @@ public sealed class ModelHost : IDisposable
     }
 
     private ModelInfo Snapshot(Entry e) => new(e.Reg.Name, e.Reg.Kind, e.State, e.Reg.Pinned, e.Reg.LoadAtStartup,
-        e.Instance?.ResidentBytes is > 0 and var r ? r : 0, e.Estimated, e.Leases, e.LoadedAt, e.LastUsed, e.Error, e.Reg.Description,
+        (e.Instance ?? e.Disposing)?.ResidentBytes is > 0 and var r ? r : 0, e.Estimated, e.Leases, e.LoadedAt, e.LastUsed, e.Error, e.Reg.Description,
         [.. e.Requirements.Select(q => q.Domain.Id).Distinct(StringComparer.Ordinal)]);
 
     /// <summary>Current memory figures of every pool any registered model has used or declared (after at least one load attempt).</summary>
@@ -487,6 +491,7 @@ public sealed class ModelHost : IDisposable
     private bool EvictOne(IMemoryDomain? domain, Entry requester)
     {
         Entry? victim = null;
+        LoadedModel? instance;
         lock (_gate)
         {
             foreach (var x in _entries.Values)
@@ -511,32 +516,50 @@ public sealed class ModelHost : IDisposable
                 return false;
             }
 
-            SetState(victim, ModelState.Unloading);
+            instance = BeginUnload(victim);
         }
         _opt.Log?.Invoke($"Evicting model '{victim.Reg.Name}' to free memory.");
-        FinishUnload(victim);
+        FinishUnload(victim, instance);
         return true;
     }
 
-    private void FinishUnload(Entry e)
+    /// <summary>
+    /// Marks <paramref name="e"/> unloading and takes its instance over (call under <see cref="_gate"/>), so that exactly one caller disposes it
+    /// (an unload, an eviction, the idle sweep or <see cref="Dispose"/>) and <see cref="Dispose"/> waits until the disposal has finished.
+    /// </summary>
+    private LoadedModel? BeginUnload(Entry e)
     {
-        LoadedModel? inst;
-        lock (_gate)
+        SetState(e, ModelState.Unloading);
+        var instance = e.Instance;
+        e.Instance = null;
+        if (instance is not null)
         {
-            inst = e.Instance;
+            e.Disposing = instance;
+            _unloadsInFlight++;
         }
 
+        return instance;
+    }
+
+    /// <summary>Disposes the instance <see cref="BeginUnload"/> took over and marks <paramref name="e"/> unloaded.</summary>
+    private void FinishUnload(Entry e, LoadedModel? instance)
+    {
         try
         {
-            inst?.Dispose();
+            instance?.Dispose();
         }
         finally
         {
             lock (_gate)
             {
-                e.Instance = null;
                 e.Draining = false;
                 SetState(e, ModelState.Unloaded);
+                if (instance is not null)
+                {
+                    e.Disposing = null;
+                    _unloadsInFlight--;
+                    Monitor.PulseAll(_gate);
+                }
             }
         }
     }
@@ -600,6 +623,7 @@ public sealed class ModelHost : IDisposable
             e.Draining = true;
             Signal(e);
         }
+        LoadedModel? instance;
         try
         {
             while (true)
@@ -607,9 +631,14 @@ public sealed class ModelHost : IDisposable
                 Task wait;
                 lock (_gate)
                 {
+                    if (e.State != ModelState.Loaded)
+                    {
+                        return false;   // unloaded meanwhile (the host was disposed)
+                    }
+
                     if (e.Leases == 0)
                     {
-                        SetState(e, ModelState.Unloading);
+                        instance = BeginUnload(e);
                         break;
                     }
                     wait = e.Changed.Task;
@@ -621,24 +650,19 @@ public sealed class ModelHost : IDisposable
                 {
                     lock (_gate)
                     {
-                        if (e.Leases == 0)
+                        if (e.State != ModelState.Loaded)
                         {
-                            SetState(e, ModelState.Unloading);
+                            return false;
+                        }
+
+                        if (e.Leases == 0 || force)
+                        {
+                            instance = BeginUnload(e);
                             break;
                         }
                     }
 
-                    if (!force)
-                    {
-                        throw new ModelBusyException(name, $"{e.Leases} request(s) still running.");
-                    }
-
-                    lock (_gate)
-                    {
-                        SetState(e, ModelState.Unloading);
-                    }
-
-                    break;
+                    throw new ModelBusyException(name, $"{e.Leases} request(s) still running.");
                 }
             }
         }
@@ -655,7 +679,7 @@ public sealed class ModelHost : IDisposable
 
             throw;
         }
-        await Task.Run(() => FinishUnload(e)).ConfigureAwait(false);
+        await Task.Run(() => FinishUnload(e, instance)).ConfigureAwait(false);
         return true;
     }
 
@@ -663,7 +687,7 @@ public sealed class ModelHost : IDisposable
     public int SweepIdle()
     {
         var now = _opt.Time.GetUtcNow();
-        List<Entry> victims = [];
+        List<(Entry Entry, LoadedModel? Instance)> victims = [];
         lock (_gate)
         {
             foreach (var x in _entries.Values)
@@ -679,14 +703,13 @@ public sealed class ModelHost : IDisposable
                     continue;
                 }
 
-                SetState(x, ModelState.Unloading);
-                victims.Add(x);
+                victims.Add((x, BeginUnload(x)));
             }
         }
-        foreach (var v in victims)
+        foreach (var (victim, instance) in victims)
         {
-            _opt.Log?.Invoke($"Unloading idle model '{v.Reg.Name}'.");
-            FinishUnload(v);
+            _opt.Log?.Invoke($"Unloading idle model '{victim.Reg.Name}'.");
+            FinishUnload(victim, instance);
         }
         return victims.Count;
     }
@@ -725,10 +748,12 @@ public sealed class ModelHost : IDisposable
         await Task.WhenAll(all.Select(m => m.DrainAsync(timeout, cancellationToken))).ConfigureAwait(false);
     }
 
-    /// <summary>Unloads every loaded model (cancelling running requests) and stops the idle timer.</summary>
+    /// <summary>
+    /// Unloads every loaded model (cancelling running requests) and stops the idle timer. Returns once every model's memory is freed: unloads
+    /// already in progress (<see cref="UnloadAsync"/>, evictions, the idle sweep) are waited for, never repeated, so the process can exit after it.
+    /// </summary>
     public void Dispose()
     {
-        List<Entry> all;
         lock (_gate)
         {
             if (_disposed)
@@ -737,23 +762,47 @@ public sealed class ModelHost : IDisposable
             }
 
             _disposed = true;
-            all = [.. _entries.Values];
         }
         _timer?.Dispose();
         _loadGate.Wait();   // let a load in progress finish
         try
         {
-            foreach (var e in all)
+            List<(Entry Entry, LoadedModel Instance)> loaded = [];
+            lock (_gate)
             {
-                LoadedModel? inst;
-                lock (_gate)
+                foreach (var e in _entries.Values)
                 {
-                    inst = e.Instance;
-                    e.Instance = null;
-                    e.State = ModelState.Unloaded;
-                    Signal(e);
+                    if (e.Instance is not null)
+                    {
+                        loaded.Add((e, BeginUnload(e)!));
+                    }
                 }
-                inst?.Dispose();
+            }
+
+            List<Exception> errors = [];
+            foreach (var (e, instance) in loaded)
+            {
+                try
+                {
+                    FinishUnload(e, instance);
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(ex);
+                }
+            }
+
+            lock (_gate)
+            {
+                while (_unloadsInFlight > 0)
+                {
+                    Monitor.Wait(_gate);
+                }
+            }
+
+            if (errors.Count > 0)
+            {
+                throw new AggregateException("Models failed to unload.", errors);
             }
         }
         finally

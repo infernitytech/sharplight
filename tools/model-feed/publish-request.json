@@ -11,5 +11,5 @@
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Remaining Hugging Face (safetensors) variants of the six large verified models: FP8, GPTQ-Int4, NVFP4 and MXFP4."
+  "reason": "Retry of the Hugging Face (safetensors) variants of the six large verified models (FP8, GPTQ-Int4, NVFP4, MXFP4); the previous run failed on a transient R2 upload error, uploads now retry."
 }

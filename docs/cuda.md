@@ -247,7 +247,8 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   gemm_cm2's decode (doubled code in half bits, two half factors of the scale from a per-block table) right before
   `mma.sync.m16n8k16`, and the next block's decode is issued between the current block's MMAs. A partial tile's empty 16-row
   fragments are skipped by a warp-uniform branch (predicated-off MMAs still take the tensor pipe's time; this alone took 2048-token
-  gate / up from 2.42 to 2.29 ms per layer). The store applies the expert group's generated epilogue in CUDA C++ (dual: gpt-oss's
+  gate / up from 2.42 to 2.29 ms per layer), taken once per block: each live fragment count runs its own copy of the pipelined K loop
+  (a switch inside the loop cost 1-8 %, [benchmarks.md §75.2](benchmarks.md)). The store applies the expert group's generated epilogue in CUDA C++ (dual: gpt-oss's
   halves with their bias rows and clamped SwiGLU, or a gate / up pair; single: bias rows, router weight; `MoeEpilogueWriter`
   writes both the Slang and the CUDA form), and multiplies row-ranged rows by their inverse scale. The decode and the MMAs' K
   order are gemm_cm2's, so outputs are identical with the feature on and off (gpt-oss-20b greedy outputs byte-identical).

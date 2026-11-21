@@ -1,0 +1,27 @@
+lock 18:22:12
+broken 572eeb80 HalfWeightsBias:    Sharplight.Vulkan.Tests  Total: 2, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.940s 
+Cuda.Tests:    Sharplight.Cuda.Tests  Total: 39, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 19.623s 
+cuda Moe:    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 12.996s 
+cuda Fusion:    Sharplight.Vulkan.Tests  Total: 97, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 158.616s 
+cuda NormHalfCopy:    Sharplight.Vulkan.Tests  Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 36.644s 
+cuda Norm:    Sharplight.Vulkan.Tests  Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.007s 
+cuda Fp8Gemm:    Sharplight.Vulkan.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 57.900s 
+cuda QuantFormat:    Sharplight.Vulkan.Tests  Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 114.252s 
+cuda RowInvariance:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 135.378s 
+cuda StreamedExperts:    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.209s 
+cuda MatMul:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 97.554s 
+cuda SkinnyGemm:    Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 41.221s 
+vulkan Moe:    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 24.623s 
+vulkan Fusion:    Sharplight.Vulkan.Tests  Total: 97, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 102.866s 
+vulkan NormHalfCopy:    Sharplight.Vulkan.Tests  Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 22.406s 
+vulkan Norm:    Sharplight.Vulkan.Tests  Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.053s 
+vulkan Fp8Gemm:    Sharplight.Vulkan.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 44.494s 
+vulkan QuantFormat:    Sharplight.Vulkan.Tests  Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 94.766s 
+vulkan RowInvariance:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 90.713s 
+vulkan StreamedExperts:    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.081s 
+vulkan MatMul:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 70.580s 
+vulkan SkinnyGemm:    Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 34.278s 
+unlock 18:42:26
+broken 572eeb80 HalfWeightsBias (q/k/v):    Sharplight.Vulkan.Tests  Total: 1, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.930s 
+cuda MatMulEpilogue:    Sharplight.Vulkan.Tests  Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 16.624s
+vulkan MatMulEpilogue:    Sharplight.Vulkan.Tests  Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 16.930s

@@ -12,6 +12,13 @@ public sealed class FakeLoaded : LoadedModel, IChatModel
     public InferenceEngine Engine { get; }
     public ModelService Service { get; }
     public bool Disposed { get; private set; }
+    /// <summary>Calls of <see cref="Dispose"/> (a host must make exactly one).</summary>
+    public int DisposeCalls => _disposeCalls;
+    /// <summary>Set when <see cref="Dispose"/> was entered.</summary>
+    public ManualResetEventSlim DisposeStarted { get; } = new();
+    /// <summary>When set, <see cref="Dispose"/> waits for it before it frees anything (a large model taking seconds to unload).</summary>
+    public ManualResetEventSlim? DisposeGate { get; set; }
+    private int _disposeCalls;
     public FakeLoaded(FakePool pool, long bytes, ModelKind kind, FakeBatchDecoder dec)
     {
         _pool = pool;
@@ -36,6 +43,9 @@ public sealed class FakeLoaded : LoadedModel, IChatModel
     public override Task<bool> DrainAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Engine.DrainAsync(timeout, cancellationToken);
     public override void Dispose()
     {
+        Interlocked.Increment(ref _disposeCalls);
+        DisposeStarted.Set();
+        DisposeGate?.Wait(TimeSpan.FromSeconds(30));
         if (Disposed)
         {
             return;

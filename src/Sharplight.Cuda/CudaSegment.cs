@@ -95,7 +95,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// <summary>Outputs the last execution downloads into <see cref="_staging"/>, with their byte counts.</summary>
     private readonly Dictionary<Value, long> _stagedOutputs = [];
     private static readonly HashSet<Value> s_noSkips = [];
-    private bool _disposed;
+    private int _disposed;
 
     internal CudaSegment(CudaDevice dev, GraphSegment segment, KernelProgram program, CompileOptions options)
     {
@@ -1479,7 +1479,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_disposed)
+        // Claimed before waiting for the device: a second (concurrent) call must not free the buffers and host registrations again.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
@@ -1496,7 +1497,6 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             }
         }
 
-        _disposed = true;
         if (_streamDone != 0)
         {
             // Copies queued by BeginStreaming without an execution may still be running.
