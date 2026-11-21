@@ -19,7 +19,7 @@
 // their inverse scale before the epilogue.
 //
 // Specialization macros: K, N (outputs), EXPERT_BYTES (bytes per expert of w), ROW_BYTES (17 K / 32), S, MAXTILES, NM_BM (32, 64 or
-// 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, DUAL, X_RS,
+// 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, NM_TABLE, DUAL, X_RS,
 // NM_EPI2 / NM_EPI1 and NM_EPI_FIELDS (the tables they read). Requires K % 64 == 0, N % 16 == 0. Grid: x = column tiles, y = routing
 // tiles (blocks past the tile count return).
 #ifndef DUAL
@@ -41,6 +41,11 @@
 #define NM_STAGES 4
 #endif
 #define NM_THREADS (NM_WM * NM_WN * 32)
+// NM_TABLE 1: the E8M0 factors come from a 256-entry shared table built per block (1 KB); 0: converted at each decode, which
+// leaves room for a fourth stage of the 64-row dual tile at two blocks per SM.
+#ifndef NM_TABLE
+#define NM_TABLE 1
+#endif
 // Resident blocks per SM the register allocation is bounded for (__launch_bounds__): 2 for the short tiles whose stages fit twice.
 #ifndef NM_MINB
 #define NM_MINB 1
@@ -227,8 +232,10 @@ static __device__ __forceinline__ void nm_mmas(float (&acc)[NM_FM][NM_FN][4], nm
 extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_native(NmParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
+#if NM_TABLE
     // E8M0 byte -> its two half factors (s1 in the low half, s2 in the high one), built once per block.
     __shared__ nm_u32 sScale[256];
+#endif
     const nm_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const nm_u32 wm = warp / NM_WN, wn = warp % NM_WN;
     const nm_u32 tile = blockIdx.y;
@@ -239,12 +246,14 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
 
     const nm_u32 expert = p.scratch[1 + 3 * tile], rowOff = p.scratch[2 + 3 * tile], tileRows = p.scratch[3 + 3 * tile];
     const nm_u32 n0 = blockIdx.x * NM_BOUT;
+#if NM_TABLE
     for (nm_u32 e = tid; e < 256; e += NM_THREADS)
     {
         nm_u32 s1, s2;
         nm_scale(e, s1, s2);
         sScale[e] = (s1 & 0xFFFFu) | (s2 << 16);
     }
+#endif
 
     const unsigned char* wb = p.w + (nm_u64)expert * EXPERT_BYTES;
 #if DUAL
@@ -366,9 +375,13 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
 #else
         nm_u32 m = 0, orow = row;
 #endif
-        nm_u32 sp = sScale[nm_lds8(ss + ((b * NM_MATS + m) * (NM_BOUT / 16) + orow / 16) * 16 + orow % 16)];
+        nm_u32 e8 = nm_lds8(ss + ((b * NM_MATS + m) * (NM_BOUT / 16) + orow / 16) * 16 + orow % 16);
         nm_u32 s1, s2;
-        nm_halves(sp, s1, s2);
+#if NM_TABLE
+        nm_halves(sScale[e8], s1, s2);
+#else
+        nm_scale(e8, s1, s2);
+#endif
         nm_u32 lo = u & 0x0F0F0F0Fu, hi = (u >> 4) & 0x0F0F0F0Fu;
         bf[j][0] = nm_fp4_h2(nm_prmt(lo, 0u, 0x4140u), s1, s2);
         bf[j][1] = nm_fp4_h2(nm_prmt(lo, 0u, 0x4342u), s1, s2);

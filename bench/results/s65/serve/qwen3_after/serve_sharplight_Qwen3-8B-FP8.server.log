@@ -1,0 +1,17 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [78 ms]
+Loaded Qwen3-8B-FP8 (decoder): 399 tensors, 9.65 GB, vocab 151936 [2229 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+[load] lower segment 0: 630 ms (2925 launches, 488 buffers)
+Compiling 140 / 140, 135 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 9.65 / 9.65 GB (NVIDIA RTX PRO 4500 Blackwell)
+[load] upload segment 0: 30574 ms, 9.65 GB; Runtime 0.0 MiB, Activations 514.6 MiB, Input 0.1 MiB, State 4608.0 MiB, Output 69.1 MiB
+[load] kernels segment 0: waited 0 ms for 140 kernels; slang CompileStatistics { Compiled = 3, CompileTime = 00:00:02.6950234 }; nvrtc 5 kernels 1317 ms; 140 linked, 0 cubins cached, 1207 ms summed
+[load] NVIDIA RTX PRO 4500 Blackwell after compiling 'decode': 17136 MiB available, 14397 MiB held, 1 segments, 0 streamed, 0 sparse, 1024 MiB reserved
+Compiled 'decode' for 64 sequences x 512 tokens, paged KV cache of 32768 tokens in 31481 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 13.49 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+Model 'Qwen3-8B-FP8' loaded in 34396 ms (estimated 15007 MiB, resident 14398 MiB).
+Serving 'Qwen3-8B-FP8' (both API, VRAM reserve 1 GiB) on http://127.0.0.1:18080
+  Qwen3-8B-FP8 [Chat] Loaded 14397 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 14990 MiB (ours 14397 MiB), available 17136 MiB

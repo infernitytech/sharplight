@@ -1,14 +1,17 @@
 // Harness of the hand-written grouped MXFP4 expert GEMM (src/Sharplight.Shaders/Kernels/gemm_moe_native.cu, or the file in KFILE):
 // E experts of MXFP4R weights (WeightRepack.Mxfp4Split: 16-row groups of [16 rows x K / 2 code bytes][K / 32 blocks x 16 E8M0
 // scales]), T tokens routed to S experts each (uniform random, or -DSKEW=a: share (1 + a i)^-1.5 for expert i, e.g. 0.15 or 0.6), the routing tiles and the
-// expert-sorted f16 rows as moe_route / moe_gather_x16 build them. Checks against a reference kernel (same decode, f32 sums) and
-// times the launch with events (best of 20, L2 evicted before each launch). LOOP=n: also n launches back to back at T = 2048 (the
+// expert-sorted f16 rows as moe_route / moe_gather_x16 build them. BIAS=1: the epilogue adds per-expert bias rows (zero) as
+// gpt-oss-20b's does; PREFETCH=1 with the epilogue's L1 prefetches. Checks against a reference kernel (same decode, f32 sums) and
+// times the launch with events (best of 20, L2 evicted before each launch: by a memset, or with EVICT=read by reading a 256 MB
+// buffer, which leaves no dirty lines to write back). LOOP=n: also n launches back to back at T = 2048 (the
 // power-limited steady state, section 64; sample the SM clock with nvidia-smi meanwhile).
 // nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DKFILE='"gemm_moe_native.cu"' bench_moe.cu -o b
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <cmath>
 #include <vector>
 #include <algorithm>
@@ -20,6 +23,9 @@
 #ifndef S
 #define S 4
 #endif
+#ifndef BIAS
+#define BIAS 0
+#endif
 #ifndef NFULL
 #define NFULL N
 #endif
@@ -30,8 +36,25 @@
 #define EXPERT_BYTES (ROW_BYTES * NFULL)
 #define MAXITEMS (T_MAX * S)
 #define MAXTILES (MAXITEMS / 16 + E)
-#if DUAL
+#if DUAL && BIAS
+// As gpt-oss-20b's generated epilogue: the per-expert bias rows of both halves, then SwiGLU.
+#define NM_EPI_FIELDS float* gt0;
+#define NM_EPI2(a, b, e, n) nm_epi_bias((a) + p.gt0[(unsigned long long)(e) * NFULL + (n)], (b) + p.gt0[(unsigned long long)(e) * NFULL + N + (n)])
+#if PREFETCH
+#define NM_EPI_PREFETCH2(e, n) (nm_prefetch(p.gt0 + (unsigned long long)(e) * NFULL + (n)), nm_prefetch(p.gt0 + (unsigned long long)(e) * NFULL + N + (n)))
+#endif
+static __device__ __forceinline__ float nm_epi_bias(float a, float b)
+{
+    return a / (1.0f + __expf(-a)) * b;
+}
+#elif DUAL
 #define NM_EPI2(a, b, e, n) ((a) / (1.0f + __expf(-(a))) * (b))
+#elif BIAS
+#define NM_EPI_FIELDS float* moe_bias;
+#define NM_EPI1(m0, e, n, t, s) ((m0) + p.moe_bias[(unsigned long long)(e) * N + (n)])
+#if PREFETCH
+#define NM_EPI_PREFETCH1(e, n, t, s) nm_prefetch(p.moe_bias + (unsigned long long)(e) * N + (n))
+#endif
 #endif
 #include KFILE
 
@@ -80,6 +103,21 @@ __global__ void ref(const __half* xs, const unsigned char* w, const unsigned cha
 #endif
 }
 
+// Reads a buffer (EVICT=read: the L2 eviction without leaving it full of dirty lines, as a preceding kernel's reads would).
+__global__ void evict_read(const uint4* b, size_t n, unsigned* out)
+{
+    uint4 a = make_uint4(0, 0, 0, 0);
+    for (size_t i = blockIdx.x * (size_t)blockDim.x + threadIdx.x; i < n; i += (size_t)gridDim.x * blockDim.x)
+    {
+        uint4 v = __ldcs(b + i);
+        a.x ^= v.x; a.y ^= v.y; a.z ^= v.z; a.w ^= v.w;
+    }
+    if ((a.x ^ a.y ^ a.z ^ a.w) == 0x9e3779b9u)
+    {
+        out[0] = a.x;
+    }
+}
+
 template <typename T>
 static T* upload(const std::vector<T>& v)
 {
@@ -111,7 +149,9 @@ int main(int argc, char** argv)
     float* y; cudaMalloc(&y, (size_t)MAXITEMS * N * 4);
     float* yr; cudaMalloc(&yr, (size_t)MAXITEMS * N * 4);
     size_t flushBytes = 256u << 20;
-    void* flush; cudaMalloc(&flush, flushBytes);
+    void* flush; cudaMalloc(&flush, flushBytes); cudaMemset(flush, 1, flushBytes);
+    // BIAS: zero bias rows (E x NFULL f32), read by the epilogue as gpt-oss's are.
+    float* dbias; cudaMalloc(&dbias, (size_t)E * NFULL * 4); cudaMemset(dbias, 0, (size_t)E * NFULL * 4);
     unsigned* dscratch; cudaMalloc(&dscratch, (1 + 3 * MAXTILES + MAXITEMS) * 4);
 
     int Ts[] = { 32, 64, 128, 171, 256, 512, 1024, 2048 };
@@ -153,6 +193,11 @@ int main(int argc, char** argv)
         p.w2 = dw2;
 #endif
         p.scratch = dscratch; p.y = y; p.T = T;
+#if BIAS && DUAL
+        p.gt0 = dbias;
+#elif BIAS
+        p.moe_bias = dbias;
+#endif
         dim3 grid((N + NM_BOUT - 1) / NM_BOUT, tiles);
         cudaMemset(y, 0, (size_t)items * N * 4);
         gemm_moe_native<<<grid, NM_THREADS, smemBytes>>>(p);
@@ -182,7 +227,14 @@ int main(int argc, char** argv)
         float best = 1e9;
         for (int it = 0; it < 20; it++)
         {
-            cudaMemsetAsync(flush, it, flushBytes);
+            if (getenv("EVICT") && strcmp(getenv("EVICT"), "read") == 0)
+            {
+                evict_read<<<1024, 256>>>((const uint4*)flush, flushBytes / 16, (unsigned*)y);
+            }
+            else
+            {
+                cudaMemsetAsync(flush, it, flushBytes);
+            }
             cudaEventRecord(e0);
             gemm_moe_native<<<grid, NM_THREADS, smemBytes>>>(p);
             cudaEventRecord(e1); cudaEventSynchronize(e1);

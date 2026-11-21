@@ -783,7 +783,7 @@ public sealed partial class GraphLowerer
                     long nativeN = isDual ? dualN : N;
                     foreach (int nativeTile in NativeMoeTiles)
                     {
-                        var (bn, stages, minBlocks) = NativeMoeConfig(nativeN, isDual, nativeTile);
+                        var (bn, stages, minBlocks, table) = NativeMoeConfig(nativeN, isDual, nativeTile);
                         var nativeMacros = new Dictionary<string, string>
                         {
                             ["K"] = K.ToString(CultureInfo.InvariantCulture),
@@ -798,6 +798,7 @@ public sealed partial class GraphLowerer
                             ["NM_WN"] = NativeMoeWarps.ToString(CultureInfo.InvariantCulture),
                             ["NM_STAGES"] = stages.ToString(CultureInfo.InvariantCulture),
                             ["NM_MINB"] = minBlocks.ToString(CultureInfo.InvariantCulture),
+                            ["NM_TABLE"] = table ? "1" : "0",
                             ["DUAL"] = isDual ? "1" : "0",
                         };
                         if (groupedMacros.TryGetValue("X_RS", out var xrs))

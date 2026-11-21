@@ -427,11 +427,11 @@ public sealed partial class GraphLowerer
     /// fixes the width, <c>SHARPLIGHT_NATIVE_MOE_BLOCKS=1</c> keeps one block. RTX PRO 4500, gpt-oss-20b shapes (bench/s56_moe, 171
     /// tokens, skewed routing): gate / up 0.510 → 0.492 ms (64 rows, 128-row dual tiles, two blocks), down 0.307 → 0.266 ms.
     /// </summary>
-    private (int Columns, int Stages, int MinBlocks) NativeMoeConfig(long n, bool dual, int tileRows)
+    private (int Columns, int Stages, int MinBlocks, bool Table) NativeMoeConfig(long n, bool dual, int tileRows)
     {
         int columns = DiagnosticSwitches.NativeMoeColumns ?? NativeMoeTileColumns(n, dual);
-        bool TwoFit(int width)
-            => 2 * (NativeMoeStageBytes(width, dual, tileRows) * 3L + NativeMoeStaticShared + 1024) <= _opt.MaxSharedMemory + 1024;
+        bool TwoFit(int width, int stages = 3, int staticShared = NativeMoeStaticShared)
+            => 2 * (NativeMoeStageBytes(width, dual, tileRows) * (long)stages + staticShared + 1024) <= _opt.MaxSharedMemory + 1024;
         if (tileRows < NativeMoeTileRows && DiagnosticSwitches.NativeMoeBlocks != 1)
         {
             // Decode tiles: dual tiles of 128 weight rows (twice the blocks: the step reads few weights per expert) and a fourth stage.
@@ -442,13 +442,20 @@ public sealed partial class GraphLowerer
 
             if (TwoFit(columns))
             {
-                bool fourStages = tileRows == NativeMoeDecodeTileRows
-                                  && 2 * (NativeMoeStageBytes(columns, dual, tileRows) * 4L + NativeMoeStaticShared + 1024) <= _opt.MaxSharedMemory + 1024;
-                return (columns, fourStages ? 4 : 3, 2);
+                // A fourth stage where it fits, for a dual tile also without the factor table (NM_TABLE=0: the 64-row dual tile's four
+                // stages take an SM's 100 KB exactly). RTX PRO 4500, gpt-oss-20b gate / up, 64-row tiles (bench/s56_moe, read eviction,
+                // 32-256 tokens): 0.381-0.463 → 0.369-0.457 ms.
+                if (TwoFit(columns, 4) && (tileRows == NativeMoeDecodeTileRows || dual))
+                {
+                    return (columns, 4, 2, true);
+                }
+
+                bool tableFree = dual && DiagnosticSwitches.NativeMoeTable != 1 && TwoFit(columns, 4, 0);
+                return (columns, tableFree ? 4 : 3, 2, !tableFree);
             }
         }
 
-        return (columns, NativeMoeStagesFor(columns, dual, tileRows), 1);
+        return (columns, NativeMoeStagesFor(columns, dual, tileRows), 1, true);
     }
 
     /// <summary>
