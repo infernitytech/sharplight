@@ -3,9 +3,11 @@ namespace Sharplight.Runtime;
 /// <summary>
 /// Chooses how many of a row's expert slots the GPU takes in the split passes of one CPU expert segment (<see cref="CompiledModel"/>), from
 /// 0 (the CPU alone) to all of them, by the measured time of whole passes: it keeps a smoothed pass time per share, takes the fastest one
-/// known, tries an unmeasured neighbor of it right away and a measured neighbor every <see cref="ProbeInterval"/> passes, so the share
-/// follows the machine's load and finds the CPU-only pass where the GPU's copies are slower than the CPU's products (for instance large
-/// experts over a slow bus).
+/// known, tries an unmeasured neighbor of it right away and, every <see cref="ProbeInterval"/> passes, in turn the share above, the share
+/// below and the CPU alone, so the share follows the machine's load and finds the CPU-only pass where the GPU's copies are slower than the
+/// CPU's products (for instance large experts over a slow bus). The CPU alone is probed apart from the neighbors because a pass with one
+/// GPU slot pays the GPU's fixed costs (its inputs, launches and output) and can be slower than both the CPU alone and larger shares: a
+/// search over neighbors would not leave such shares.
 /// </summary>
 internal sealed class SplitBalance
 {
@@ -21,7 +23,7 @@ internal sealed class SplitBalance
     private readonly double[] _ms;
     private readonly int[] _samples;
     private int _passes;
-    private bool _probeUp;
+    private int _probes;
 
     /// <param name="slots">The slots per row.</param>
     /// <param name="start">The share tried first.</param>
@@ -64,10 +66,14 @@ internal sealed class SplitBalance
         }
         else if (_passes % ProbeInterval == 0)
         {
-            _probeUp = !_probeUp;
-            int neighbor = _probeUp ? above : below;
-            Current = neighbor >= 0 && neighbor < _ms.Length ? neighbor : _probeUp ? below : above;
-            Current = Math.Clamp(Current, 0, _ms.Length - 1);
+            int probe = _probes++ % 3;
+            int candidate = probe == 2 && best > 1 ? 0 : probe == 0 ? above : below;
+            if (candidate < 0 || candidate >= _ms.Length)
+            {
+                candidate = probe == 0 ? below : above;
+            }
+
+            Current = Math.Clamp(candidate, 0, _ms.Length - 1);
         }
         else
         {
