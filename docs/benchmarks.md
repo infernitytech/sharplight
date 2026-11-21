@@ -9028,3 +9028,104 @@ QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight Qwen3-8B-FP8 ~/models/hf/Qwen
 cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DDUAL=0 -DNM_BM=64 -DNM_WM=1 -DNM_WN=8 -DNM_BN=192 -DNM_STAGES=3 \
   -DNM_MINB=2 -DSKEW=0.6 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o b && ./b
 ```
+
+## 66. MoE with CPU offload, round 3: split decode for gpt-oss, streamed layers in the stored layout, CPU kernels (exp, slot sum, K-quant dots), Qwen3-Coder-Next (2026-11-21)
+
+Branch `perf/offload-r3` (base `develop` at `72962704`, §62 merged). Same machine and methodology as §59 / §62: GPU 0 of the RunPod machine
+(RTX PRO 4500 Blackwell 32 GB, no resizable BAR), AMD EPYC 7443 with a 10.2-CPU cgroup quota shared by all jobs on the pod (AVX2, no
+AVX-512) and a 62 GB cgroup memory limit, llama.cpp b11177; the GPU shared with another perf agent (runs serialized with a lock), the CPU with
+a model-feed job. Sharplight: `sharplight <model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes,
+and their median; decode 64 steps, best / median tok/s); llama.cpp: `llama-bench -ngl 99 -ncmoe N -fa 1 -p 512 -n 64 -r 3 -t 10` (mean ± sd
+of 3), N swept, the best shown. gpt-oss-120b decode varies by ±15 % between identical runs (its 20 CPU expert layers read 33 GB per token
+range; the cgroup throttled 14 % of all periods during this round), so its rows give two runs.
+
+### 66.1 Results against llama.cpp (tok/s)
+
+| model, provider | decode before (§62) | decode now (2 runs) | llama.cpp decode | prefill before | prefill now (best / median) | llama.cpp prefill |
+|---|---:|---:|---:|---:|---:|---:|
+| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | 72.2 / 69.9 | **74.5 / 70.1**, 73.3 / 70.4 | 71.0 ± 0.3 (`-ncmoe 6`) | 999 | **998** / 997 | 966 ± 59 |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, Vulkan | 67.2 / 60.2, 71.1 / 66.3 | 63.6 / 56.7, 62.4 / 54.9 | 45.9 ± 0.5 | 1071 / 1003 | 1031 / 1023, 960 / 874 | 745 ± 9 |
+| gpt-oss-120b MXFP4, CUDA | 49.3 / 42.9 | **51.7 / 46.0**, 53.0 / 44.9 (54.1 / 51.3 earlier) | 36.4 ± 6.4 (`-ncmoe 20`) | 283 / 278 | **305** / 300, 289 / 282 | 109 ± 65 |
+| gpt-oss-120b MXFP4, Vulkan | 50.7 / 49.1 | **50.3 / 48.9**, 51.1 / 49.7 | 33.6 ± 3.5 (`-ncmoe 22`) | 112 / 78 | **311** / 305, 307 / 304 | 110 ± 32 |
+| Qwen3-Coder-Next Q4_K_M (new), CUDA | | 74.2 / 70.1, 74.9 / 67.1 | **97.0 ± 3.7** (`-ncmoe 16`) | | 665 / 664 | 597 ± 18 |
+| Qwen3-Coder-Next Q4_K_M (new), Vulkan | | **76.9 / 74.5**, 76.6 / 74.0 | 55.2 ± 1.7 (`-ncmoe 20`) | | **543** / 531 | 385 ± 4 |
+
+* Against llama.cpp's best setting: Qwen3.5-122B CUDA decode 1.03-1.05x (best; medians 0.99x), prefill 1.03x; Vulkan decode 1.36-1.39x,
+  prefill 1.29-1.38x. gpt-oss-120b CUDA decode 1.42-1.46x, prefill 2.7x; Vulkan decode 1.50-1.52x, prefill 2.8x. Qwen3-Coder-Next Vulkan
+  decode 1.39x, prefill 1.41x; **CUDA decode 0.77x** (prefill 1.11x), the one result below the target (66.4).
+* llama.cpp's gpt-oss-120b numbers are lower and noisier than §59's (36.4 against 40.4 decode on CUDA, prefill ± 60 %): its 20-22 CPU expert
+  layers read from a page cache that the 63 GB file overflows; `-ncmoe 24` on Vulkan (15.7) left too little memory for the cache.
+* The 122B Vulkan decode medians are below §62's (55-57 against 60-66); the same build without host imports (`host_memory_import`
+  disabled, 67.2 / 64.6, 1065 prefill, 66.3) and these runs came at different load, and the 122B CUDA runs of the same hour matched §62.
+
+### 66.2 Changes
+
+* **Split decode for experts with per-expert tables** (gpt-oss): sparse compilations keep the stored weight layout (no MXFP4 repack: they copy
+  single experts from the mapped file), and the per-expert tables the segment gathers by the same ids (`GatherAxis`, the experts' biases) are
+  held whole on the GPU, their rows copied into the slot rows with the banks; the rows past the slots stay zero, so the ids of -1 read zeros.
+  On the CPU a slot of -1 still adds its bias, so a layer whose ids feed such gathers qualifies only with one input of slot weights that
+  scales the slots right before the slot sum; a split pass zeroes the other side's weights. Layers whose banks are not page-locked are not
+  split (their copies would take the host thread). `SparseExpertLayout` / `SparseExpertSelection` are shared by CUDA and Vulkan.
+* **The split share by measured pass time** (`SplitBalance`): per layer and row count, the smoothed time of whole passes per GPU share from 0
+  (the CPU alone) to all slots, the fastest taken, an unmeasured neighbor tried at once and a measured one every 8 passes, the first pass of a
+  share discarded as warm-up. For gpt-oss a GPU slot (13 MB over the bus, ~0.47 ms) costs about twice a CPU slot, so the shares settle at 1-2 of
+  4 (split layers 0.89-0.98 ms against 1.0-1.1 ms on the CPU alone); the old rule (one slot up or down by the wait) oscillated and could not
+  choose the CPU alone.
+* **Streamed layers in the stored layout**: streamed compilations no longer repack MXFP4 / Q8_0 / FP8 experts, so their copies go straight
+  from the page-locked (CUDA) pages instead of being repacked on the host into staging: gpt-oss-120b prefill CUDA 264 → 315 and Vulkan
+  145 → 239 tok/s in the A/B runs (Vulkan stages unrepacked rows at ~17 GB/s against ~5-10 GB/s with the repack), 300-311 in the final runs.
+* **Page-lock budget**: mapped weights may be page-locked (CUDA) or imported (Vulkan) up to half of the process memory (was a quarter): the
+  CPU's expert pages, which every decode step reads, then stay in memory. gpt-oss-120b: 13 of 20 CPU layers locked (all 20 with
+  `SHARPLIGHT_LIMIT_PINNED_HOST_MEMORY=40G`: decode 54.8 / 52.5 and 46.3 / 42.9 in two runs, prefill 374 with the stored layout).
+* **CPU exp**: `Vector256.Exp` of the runtime ran scalar, ~27 ns per value (SiLU of 8192 values 228 µs). `VectorExp` (Cephes `expf`, 2 ulp,
+  flushes below e^-87.3) serves SiLU, sigmoid, softmax, attention and the float lanes: 5.8 µs. In the 122B's CPU expert layers SiLU was
+  0.09-0.12 ms of ~0.55; other unary kernels are still slow (tanh 100 µs, softplus 83 µs, erf 24 µs, mish 258 µs per 8192 values).
+* **Slot sum in place** (`AxisSumOp`): `ReduceSum(Permute(x, 0, 2, 1))` over a [T, k, H] tensor adds the k rows of H values instead of
+  materializing the permuted view and reducing rows of k (Copy 28 µs + ReduceSum 32 µs → 4 µs per 122B layer).
+* **Fused Q4_K and Q6_K integer dots** (AVX2): the 4- and 6-bit codes times the 8-bit activations per 32 values (`vpmaddubsw`), scaled per
+  sub-block in float, the mins / offset from the activation row's group sums; no decoded row is written. Q4_K 2.50 against 3.99 ns per 32
+  values (decode + dot). They serve `MatMulId` and `MatMul` (every Q4_K / Q6_K product on the CPU). Qwen3-Coder-Next CUDA decode 69.6 → 74-75.
+* **Vulkan host-memory imports** (VK_EXT_external_memory_host, feature `host_memory_import`, the page-lock budget): streamed and selected
+  experts are copied from imported pages on the device queue, which enables the split decode on Vulkan (`StreamsSelectedExperts`). The device
+  probes one import when it opens and leaves the imports off when the driver refuses. On this machine the NVIDIA driver refuses every import,
+  even 64 KiB of anonymous memory (`ErrorOutOfDeviceMemory`): it pins through the locked-memory limit, 8 MiB in this container without
+  `CAP_IPC_LOCK`, while `cuMemHostRegister` is not bound by it. Before the probe, the failed imports cost device memory (three
+  out-of-memory re-placements and an unstreamed layer: 122B Vulkan prefill 496-779 against 1065). The Vulkan split is therefore untested
+  at scale here (the `StreamedExpertsTests` split cases skip on Vulkan).
+
+### 66.3 What did not work
+
+* **Waking the CPU workers before a CPU segment** (they spin 1 ms from the start of the GPU segment before it): mean decode 49.8 against 67.9
+  without (median 69.6 / 70.1), from cgroup throttling: nine spinning workers use up the pod's shared 10-CPU quota. Reverted.
+* **MXFP4 dot with two accumulators** (1.64 against 1.61 ns per 32 values) and with a variable shift instead of the 128-bit insert
+  (2.15 ns): the loop is not bound by its FMA chain. Not kept.
+* **All 20 gpt-oss layers split** (40 GB lock budget, old balancer): 1.1 ms per layer against 0.95 on the CPU alone; the copies (21 MB per
+  layer per token) also take memory bandwidth from the CPU's share.
+* Qwen3-Coder-Next on CUDA: 17 split layers (512 experts of 1.8 MB, top 10) at 0.43-0.56 ms plus 0.12-0.17 ms of attention segment each, and
+  5.4 ms of GPU time; llama.cpp's whole step is 10.3 ms. The split barely helps (69.9 against 69.2 without in the profile runs) and Vulkan
+  without it is faster (76.9); next: the CPU expert products at this shape (31-33 GB/s before the fused dots), fewer launches per layer.
+
+### 66.4 Tests
+
+| suite | result |
+|---|---|
+| Sharplight.Cpu.Tests (new `VectorExpTests`, `ViewAndNormTests.SumOverPermutedSlots`; fused Q4_K / Q6_K in `IntDotTests`) | 1365 / 0 failed / 36 skipped |
+| Sharplight.Core.Tests | 1660 / 0 failed / 331 skipped |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StateHandoff, StreamedExperts, Moe, RowInvariance, QuantFormat, F16Range, TopK, Fusion | see 66.5 |
+| Sharplight.Cuda.Tests | see 66.5 |
+| FamilyGenerationTests Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan | 3 / 0 failed each |
+| gpt-oss-120b greedy text (`-p "The capital of France is" -n 32`), CUDA | identical to §59 / §62 |
+
+### 66.5 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/gguf/gpt-oss-120b/gpt-oss-120b-MXFP4.gguf   # or Qwen3.5-122B-A10B/..UD-IQ2_XXS.gguf, Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf
+for p in cuda vulkan; do SHARPLIGHT_LOAD_TIMING=1 SHARPLIGHT_SEGMENT_TIMING=1 $CLI $M --provider $p --cpu-offload --bench 512; done
+SHARPLIGHT_LIMIT_PINNED_HOST_MEMORY=40G $CLI $M --provider cuda --cpu-offload --bench 512     # lock all CPU expert layers
+SHARPLIGHT_SPARSE_GPU_SLOTS=0 $CLI $M --provider cuda --cpu-offload --bench 512              # split passes with the CPU alone
+SHARPLIGHT_DISABLE_FEATURES=host_memory_import $CLI $M --provider vulkan --cpu-offload --bench 512
+SHARPLIGHT_CPU_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
+for n in 20 22 24; do $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe $n -fa 1 -p 512 -n 64 -r 3 -t 10; done
+```
