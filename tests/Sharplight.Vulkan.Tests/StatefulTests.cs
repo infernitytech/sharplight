@@ -25,6 +25,8 @@ public sealed class StatefulTests
     [Theory]
     [InlineData("f16", 128, 128, 8, 2)]
     [InlineData("f16", 256, 256, 4, 1)]
+    [InlineData("f16", 256, 256, 8, 2)]
+    [InlineData("f16", 512, 512, 8, 2)]   // head dimensions split between subgroup / warp pairs (Gemma 4's global layers)
     [InlineData("f16", 64, 128, 6, 3)]
     [InlineData("f32", 128, 128, 4, 2)]
     [InlineData("q8_0", 128, 128, 8, 2)]

@@ -1,0 +1,15 @@
+lock 20:08:16
+vulkan StatefulTests: [0m[37m   Sharplight.Vulkan.Tests  Total: 69, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 41.221s
+vulkan PagedAttentionTests: [0m[37m   Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.082s
+q27 vulkan cfg=default | 1 | 66.3 | 886 / 677 | 21.85 / 22.02, 21.75 | | 16 | 62.1 | 1158 / 789 | 44.59 / 45.25, 44.44 | | 64 | 106.6 | 1527 / 1078 | 87.45 / 87.66, 87.29 | 
+gemma vulkan d32k cfg=default | 1 | 83.9 | 1076 / 845 | 34.63 / 34.79, 34.50 | 
+q27 vulkan cfg=1024,128,64 | 1 | 64.9 | 886 / 677 | 22.02 / 22.16, 21.92 | | 16 | 64.7 | 1158 / 789 | 45.08 / 45.66, 44.93 | | 64 | 108.0 | 1527 / 1078 | 87.90 / 88.02, 87.75 | 
+gemma vulkan d32k cfg=1024,128,64 | 1 | 83.3 | 1076 / 845 | 35.00 / 35.17, 34.89 | 
+q27 vulkan cfg=default | 1 | 66.9 | 886 / 677 | 22.07 / 22.21, 21.96 | | 16 | 72.4 | 1158 / 789 | 45.19 / 45.88, 45.02 | | 64 | 111.5 | 1527 / 1078 | 88.46 / 88.57, 88.31 | 
+gemma vulkan d32k cfg=default | 1 | 83.4 | 1076 / 845 | 34.69 / 34.85, 34.58 | 
+q27 vulkan cfg=1024,128,64 | 1 | 65.9 | 886 / 677 | 22.08 / 22.23, 21.98 | | 16 | 59.9 | 1158 / 789 | 45.43 / 45.97, 45.30 | | 64 | 107.2 | 1527 / 1078 | 88.39 / 88.47, 88.15 | 
+gemma vulkan d32k cfg=1024,128,64 | 1 | 95.7 | 1076 / 845 | 35.00 / 35.16, 34.87 | 
+decr2 Qwen3-8B-Q4_K_M vulkan fc5dfcb4 599da9d2
+decr2 Qwen3.8-27B-Q4_K_M vulkan 9f85c9db b3cbd187
+decr2 gemma-4-31B-it-Q4_K_M vulkan 138703aa b8885b22
+end 20:13:45

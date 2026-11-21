@@ -151,3 +151,7 @@ pinned memory; a 48 MB device refuses it clearly and a 96 MB one offloads layers
 - Vulkan's host-heap budget (`VK_EXT_memory_budget`) comes from the driver, which may not see a cgroup limit; host staging is small
   enough that this has not mattered.
 - Studio's first-run starter recommendation still sizes from the GPU's total memory (with its configured fraction).
+- Window-sized KV caches for sliding-window layers (`window_kv`) exist only in the paged multi-sequence decoder (serving, batch
+  decoding); a single-sequence session keeps full-length caches for those layers, so a model with many window layers needs far more
+  memory for a long context there: Gemma 4 31B Q4_K_M at 32K needs 44.8 GiB on the session path (llama.cpp fits it in 32 GB),
+  [benchmarks.md §74](benchmarks.md).

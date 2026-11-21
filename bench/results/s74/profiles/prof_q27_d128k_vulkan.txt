@@ -1,0 +1,20 @@
+decoder: MultiSequenceDecoder, slots 2, vocab 248320, device sampling: True, KV paged 8256 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 94.8 | 886 / 677 | 39.69 / 39.73, 39.51 |
+--- profile batch 1 (greedy)
+GPU time 810.93 ms
+   358.588 ms  44.2%    320x  min   1102.7 us  attention decode T=1,1,1
+   157.281 ms  19.4%   1280x  min    120.8 us  matmul2 [5120→17408]x2 q4_k fused[Silu,Mul] int-dot mmvq T=1,1,1
+    61.531 ms   7.6%    640x  min     94.2 us  matmul [17408→5120] q6_k int-dot mmvq T=1,1,1
+    41.319 ms   5.1%    640x  min     63.5 us  matmul [17408→5120] q4_k int-dot mmvq T=1,1,1
+    31.404 ms   3.9%   1280x  min     23.4 us  matmul [6144→5120] q4_k int-dot mmvq T=1,1,1
+    27.144 ms   3.3%    480x  min     55.1 us  matmul [5120→10240] q6_k int-dot mmvq T=1,1,1
+    25.526 ms   3.1%     20x  min   1273.9 us  matmul [5120→248320] q6_k int-dot mmvq T=1,1,1
+    23.352 ms   2.9%    960x  min     23.9 us  matmul [5120→6144] q4_k int-dot mmvq T=1,1,1
+    18.606 ms   2.3%    480x  min     36.7 us  matmul [5120→10240] q4_k int-dot mmvq T=1,1,1
+    14.381 ms   1.8%    320x  min     44.8 us  matmul [5120→12288] q4_k int-dot mmvq T=1,1,1
+    13.786 ms   1.7%   2560x  min      3.3 us  fused[Add]+RmsNorm main T=1,1,1
+     9.015 ms   1.1%    960x  min      7.6 us  delta_rule delta_rule T=1,1,1
+

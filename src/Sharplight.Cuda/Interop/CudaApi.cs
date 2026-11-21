@@ -225,6 +225,9 @@ internal static unsafe partial class CudaApi
     /// <summary><c>CU_EVENT_DISABLE_TIMING</c>.</summary>
     public const uint EventDisableTiming = 2;
 
+    /// <summary><c>CU_STREAM_NON_BLOCKING</c>: the stream does not synchronize with the legacy default stream.</summary>
+    public const uint StreamNonBlocking = 1;
+
     /// <summary><c>CU_EVENT_RECORD_EXTERNAL</c>: a record during stream capture becomes an event record node of the graph.</summary>
     public const uint EventRecordExternal = 1;
 

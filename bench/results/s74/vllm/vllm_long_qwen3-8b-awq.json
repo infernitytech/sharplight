@@ -1,0 +1,1 @@
+{"name": "qwen3-8b-awq", "load_s": 51.482996225357056, "max_len": 33280, "kv": "auto", "results": {"pp32768": {"tok_s_median": 5206.018598717114, "ttft_s_median": 6.294253349013161}, "tg128@d32768x1": {"tok_s_per_stream": 75.51439172788446, "tok_s_aggregate": 75.51439172788446}}}

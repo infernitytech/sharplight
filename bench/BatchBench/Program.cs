@@ -74,9 +74,11 @@ int[] Words(int n)
     return [.. ids.Take(n)];
 }
 int[] Toks(int n) => text ? Words(n) : Enumerable.Range(0, n).Select(_ => rng.Next(1000, 30000)).ToArray();
-// Prefill each slot, in chunks of the decoder's rows per step (long depths).
+// Prefill each slot a timed batch size reaches, in chunks of the decoder's rows per step (long depths). Slots above the largest size
+// stay empty, so one sequence at a long depth fits a paged pool (--kv-tokens) sized for it.
 int chunk = int.Parse(Opt("--batch", "512")!);
-for (int s = 0; s < slots; s++)
+int usedSlots = Opt("--mixed") is null ? sizes.Max() : slots;
+for (int s = 0; s < usedSlots; s++)
 {
     for (int done = 0; done < depth; done += chunk)
     {

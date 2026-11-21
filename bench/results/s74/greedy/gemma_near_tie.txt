@@ -1,0 +1,42 @@
+lock 18:21:28
+== base cuda
+  20881 24.1708  reaches
+  563 24.0074  is
+  10594 20.7599  consists
+  17154 18.5511  reaching
+  5370 18.5115  reach
+== base vulkan
+  20881 24.1680  reaches
+  563 24.0172  is
+  10594 20.7636  consists
+  17154 18.5701  reaching
+  5370 18.5191  reach
+== new cuda
+  20881 24.1623  reaches
+  563 24.0108  is
+  10594 20.7547  consists
+  17154 18.5442  reaching
+  5370 18.5057  reach
+== new vulkan
+  20881 24.1668  reaches
+  563 24.0050  is
+  10594 20.7488  consists
+  17154 18.5620  reaching
+  5370 18.5086  reach
+== llama cuda13
+user
+Explain in three sentences why the sky is blue.
+model
+<|channel>thought
+<channel|>Sunlight is composed of all the colors of the rainbow, which travel as waves of different lengths. As this light reaches
+
+
+== llama vulkan
+user
+Explain in three sentences why the sky is blue.
+model
+<|channel>thought
+<channel|>Sunlight reaches Earth's atmosphere and is scattered in all directions by the gases and particles in the air. Blue light
+
+
+end 18:22:12

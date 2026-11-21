@@ -402,6 +402,14 @@ internal static class DiagnosticSwitches
     /// <summary>False keeps the staged softmax of the <c>fe</c> attention kernel on devices with the MMA fragment layout.</summary>
     public static bool AttentionRegisterSoftmax { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_REG");
 
+    /// <summary>
+    /// False keeps head sizes above 128 off the register-softmax <c>fe</c> (<c>SHARPLIGHT_ATTN_FE_WIDE=0</c>): they then take <c>fa</c>.
+    /// </summary>
+    public static bool AttentionWideRegisterSoftmax { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_WIDE");
+
+    /// <summary>False keeps causal sliding-window attention on <c>fa</c> instead of the causal <c>fe</c> (<c>SHARPLIGHT_ATTN_FE_WINDOW=0</c>).</summary>
+    public static bool AttentionCausalFlashWindow { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_WINDOW");
+
     /// <summary>True when tensor-core flash attention may be used.</summary>
     public static bool AttentionFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FA");
 

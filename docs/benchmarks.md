@@ -10642,6 +10642,249 @@ python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --seqs 64 --word
 VLLM_VENV=$VLLM_VENV bench/s58_long.sh out gptoss ~/models/hf/gpt-oss-20b both   # decode points with --feedback
 ```
 
+## 74. Feed round 1: the verified feed's GGUF K-quant models against llama.cpp, attention for head sizes 256 and 512 (2026-11-21)
+
+Branch `perf/feed-r1` (base `develop` at `060d579c`, §73 merged; `develop` at `ff3b70b1` (§71, perf/offload-r5's fusions) merged before
+the first measurement). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 200 W cap, no resizable BAR), shared with three other
+agents and a model-feed upload: every run held the verify lock, both engines ran in the same hold for each provider, Sharplight first.
+llama.cpp b11177 (`-ngl 99 -fa 1`, CUDA 13 and Vulkan builds). Every round before this one tuned gpt-oss-20b (MXFP4) and Qwen3-8B-FP8
+against vLLM; the models customers run from the verified feed (`catalog/verified-models.json`) are mostly GGUF K-quants fully on the
+GPU, and this round measures where three of them stand and fixes the largest gap. Raw output in
+[`bench/results/s74/`](../bench/results/s74).
+
+Models (the feed's recommended variants): **Gemma 4 31B-it Q4_K_M** (unsloth, 60 layers: 50 sliding-window layers with head size 256
+and a 1024-key window, 10 global layers with head size 512, 4 KV heads and k = v; Q4_K with Q6_K v / down), **Qwen3.8 27B Q4_K_M**
+(hybrid: 48 gated-delta-rule layers and 16 attention layers with head size 256, 24 query / 4 KV heads), **Qwen3-8B Q4_K_M** (dense,
+head size 128, 40K positions, so no 128K point).
+
+Procedure (`bench/s74_feed.sh <out> <name> <gguf> <cuda|vulkan>`): prefill at 512 / 2K / 8K / 32K (Sharplight `--bench N`, best of 5
+after a warm-up; llama-bench `-p N -n 0 -r 3`, its mean); decode of one stream (the `--bench 512` decode, best of 64 steps, against
+tg128); decode at depth 32K / 128K (BatchBench, one sequence in a paged pool sized for it, tokens fed back, minimum GPU ms of 20
+steps, against llama-bench `-p 0 -n 64 -d D`); batched decode at 16 / 64 sequences at depth 256 (BatchBench `--feedback`, sequences x
+1000 / minimum GPU ms per step, against llama-batched-bench `-npp 256 -ntg 64`, S_TG). These models are dense, so their decode work
+does not depend on the token ids (fixed and fed-back ids measure the same step); BatchBench feeds the chosen tokens back anyway.
+llama.cpp's Vulkan backend compiles pipelines for new shapes while llama-batched-bench times them, which made its first-pass batched
+numbers of phase 1 meaningless (Qwen3-8B 1 stream at 76 tok/s against 136 in tg128); the final runs pass the sequence counts twice and
+take the second pass.
+
+### 74.1 Results (final hold, both engines per provider in the same hold; "before" = phase 1 on `ff3b70b1`)
+
+**Gemma 4 31B Q4_K_M** (tok/s; ratio = Sharplight / llama.cpp)
+
+| point | CUDA before | CUDA after | llama.cpp CUDA | ratio before → after | Vulkan before | Vulkan after | llama.cpp Vulkan | ratio before → after |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| prefill 512 | 1300 | 1506 | 1683 | 0.79 → **0.89** |  | 1465 | 1329 | – → **1.10** |
+| prefill 2K | 1040 | 1691 | 1653 | 0.63 → **1.02** |  | 1616 | 1277 | – → **1.27** |
+| prefill 8K | 496 | 1547 | 1573 | 0.32 → **0.98** |  | 1400 | 1157 | – → **1.21** |
+| prefill 32K |  |  | 1306 | – → – |  |  | 868 | – → – |
+| decode, 1 stream | 37.4 | 37.9 | 39.4 | – → **0.96** |  | 38.3 | 37.3 | – → **1.03** |
+| decode at 32K |  | 30.0 | 33.3 | – → **0.90** |  | 28.9 | 31.2 | – → **0.93** |
+| decode at 128K |  |  | 25.0 | – → – |  |  | 24.2 | – → – |
+| decode, 16 sequences |  | 322 | 383 | – → **0.84** |  | 310 | 152 | – → **2.03** |
+
+**Qwen3.8 27B Q4_K_M** (tok/s; ratio = Sharplight / llama.cpp)
+
+| point | CUDA before | CUDA after | llama.cpp CUDA | ratio before → after | Vulkan before | Vulkan after | llama.cpp Vulkan | ratio before → after |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| prefill 512 | 1886 | 1910 | 1715 | 1.10 → **1.11** | 1952 | 1941 | 1695 | 1.14 → **1.15** |
+| prefill 2K | 1917 | 1958 | 1694 | 1.11 → **1.16** | 1942 | 1964 | 1688 | 1.15 → **1.16** |
+| prefill 8K | 1767 | 1910 | 1689 | 1.05 → **1.13** | 1780 | 1878 | 1633 | 1.09 → **1.15** |
+| prefill 32K | 1247 | 1774 | 1491 | 0.84 → **1.19** | 1262 | 1653 | 1441 | 0.87 → **1.15** |
+| decode, 1 stream | 45.1 | 45.7 | 43.5 | 1.60 → **1.05** | 45.1 | 44.9 | 35.7 | 1.12 → **1.26** |
+| decode at 32K | 39.1 | 39.2 | 39.0 | 1.01 → **1.01** | 38.0 | 38.6 | 36.5 | 1.04 → **1.06** |
+| decode at 128K | 27.8 | 27.9 | 29.8 | 1.23 → **0.94** | 25.3 | 26.5 | 27.4 | 0.93 → **0.96** |
+| decode, 16 sequences | 365 | 371 | 316 | 1.17 → **1.17** | 357 | 355 | 143 | 2.47 → **2.48** |
+| decode, 64 sequences | 680 | 687 | 444 | 1.55 → **1.55** | 729 | 726 | 295 | 2.46 → **2.46** |
+
+**Qwen3-8B Q4_K_M** (tok/s; ratio = Sharplight / llama.cpp)
+
+| point | CUDA before | CUDA after | llama.cpp CUDA | ratio before → after | Vulkan before | Vulkan after | llama.cpp Vulkan | ratio before → after |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| prefill 512 | 7038 | 7274 | 6652 | 1.07 → **1.09** | 6894 | 7126 | 6216 | 1.12 → **1.15** |
+| prefill 2K | 7099 | 7264 | 6846 | 1.05 → **1.06** | 7006 | 6975 | 5929 | 1.16 → **1.18** |
+| prefill 8K | 6416 | 6583 | 6210 | 1.06 → **1.06** | 6141 | 6126 | 5395 | 1.13 → **1.14** |
+| prefill 32K | 4693 | 4738 | 3986 | 1.19 → **1.19** | 4316 | 4313 | 3838 | 1.12 → **1.12** |
+| decode, 1 stream | 141 | 144 | 143 | 0.98 → **1.01** | 135 | 134 | 135 | 1.00 → **0.99** |
+| decode at 32K | 78.0 | 79.1 | 74.8 | 1.04 → **1.06** | 72.7 | 72.6 | 69.5 | 1.01 → **1.04** |
+| decode, 16 sequences | 1347 | 1404 | 1422 | 0.97 → **0.99** | 1236 | 1238 | 582 | 2.13 → **2.13** |
+| decode, 64 sequences | 2606 | 2785 | 2823 | 0.92 → **0.99** | 2761 | 2763 | 1608 | 1.70 → **1.72** |
+
+Gemma 4 31B on Vulkan was not measured in phase 1 (its run was stopped once the CUDA gap was clear); the generated paths had the same
+fallbacks there (74.3). Gemma's 32K prefill and 128K decode are missing on our side: they do not fit (below).
+
+* Prefill: best of 5 (Sharplight) against llama-bench's mean of 3; decode: best tok/s of 64 steps (one stream) and 1000 / minimum GPU ms
+  of 20 steps (BatchBench) against llama-bench / llama-batched-bench (S_TG, second pass). Medians are within 1-2 % of the best values
+  (raw files list both).
+* Phase 1's llama.cpp CUDA runs of the 27B at tg128 (28.2 ± 6.4) and at 128K (22.6) were disturbed by another process; the final hold
+  measured 43.5 and 29.8, so the 27B's "before" ratios for these two points are not comparable (the before / after change on our side
+  is +1 %).
+* Gemma 4 31B at 32K does not fit on the session path (`--bench 32768`: 44.8 GiB): the single-sequence session keeps full-length caches
+  for the 50 sliding-window layers (0.8 MB per token); the paged multi-sequence decoder (serving, BatchBench) holds window-sized caches
+  (`window_kv`, §60), and llama.cpp a window-sized cache too. This is the main gap left for Gemma 4 (74.6).
+
+### 74.2 What changed
+
+* **Hand-written prefill attention for head sizes 256 and 512** (`attn_prefill_native.cu`, CUDA, `native_attention`): the key tile is
+  now a macro (`FN_BC`: 64 up to head size 128, 32 up to 256, 16 above), so a warp's 128 output registers and the stages fit at head
+  size 256 (255 registers, a 4-byte spill, three 48 KiB stages). Above 256 two warps share each 16-row group (`FN_DS` = 2): each holds
+  the query fragments of half the key dimensions and the accumulators of half the value dimensions, the two partial score tiles are
+  exchanged through 8 KiB of shared memory behind a named barrier per pair and summed in the same order in both warps, so both run
+  the same softmax. Harness (`bench/s58_attn`, 4096 causal queries, RTX PRO 4500): head size 128 142.5 TFLOPS, 256 142.8 TFLOPS
+  (8 warps; 4 warps 114.2), 256 with a 1024 window 121.8, 512 111.9 (two stages; three do not fit).
+* **Register-softmax `fe` for wide heads** (Vulkan, and CUDA without the hand-written kernel): 32-key tiles and 64-query blocks up to
+  head size 256, and above 256 the same split of the head dimensions between subgroup pairs (`FE_DS`, 16-key tiles, 32-query blocks,
+  4 KiB exchange) inside Vulkan's 48 KiB. `SHARPLIGHT_ATTN_FE_WIDE=0` keeps wide heads off it.
+* **Wide heads on the flash path**: `fa`, the generated flash kernel, takes padded head sizes up to 256; above that, prefill rows
+  used the per-(head, query) scalar kernel. Now the flash path serves them where the hand-written kernel or `fe` with split heads
+  does (`WideFlashAttention`).
+* **Causal `fe` with sliding windows**: the block's key loop starts at its first query's window and the mask drops keys before each
+  row's window (`SHARPLIGHT_ATTN_FE_WINDOW=0` keeps windows on `fa`).
+* **Split-K decode attention with fewer heads per workgroup** where the merged states of 8 heads x 512 values exceed the shared
+  memory (Vulkan's 48 KiB): previously the decode rows of such layers fell back to the scalar kernel (Gemma 4 31B decode on Vulkan
+  31.5 → 37.5 tok/s).
+* **Two key rows per lane group and batch** in the Vulkan / Metal split-K decode at head sizes of 256 and more (a whole subgroup per
+  key row kept only two 16-byte loads in flight per lane): Qwen3.8 27B at 128K 39.43 → 37.72 ms per step (four rows 37.54), Gemma 4
+  31B at 32K 34.9 → 34.5-34.6, batched steps unchanged (16 / 64 sequences within 0.5 %). On PTX two rows cost 2 %, so CUDA keeps one.
+* **Parallel branches in captured CUDA graphs**: the CUDA recording takes the Vulkan recorder's launch order and hazard batches
+  (`HazardTracker.Order`), and the capture runs the launches of a batch side by side on three side streams forked and joined by events
+  (`CudaConcurrentLanes`); launches of multi-launch batches are not programmatic dependents. Same build, same hold, two runs each
+  (`experiments/cuda_concurrent_graphs.txt`, GPU ms per step, on / off): Qwen3-8B 1 / 16 / 32 / 64 sequences 6.83 / 11.38 / 19.4 /
+  23.03 against 7.01 / 11.6 / 20.2 / 24.68; Qwen3.8 27B 21.93 / 42.98 / 73.6 / 93.15 against 22.29 / 43.9 / 73.3 / 94.55; Gemma 4 31B
+  1 / 16 sequences 26.53 / 49.49 against 26.86 / 50.79. Greedy text byte-identical. `SHARPLIGHT_CUDA_CONCURRENT=0` switches it off.
+* Bench: `bench/s74_feed.sh` (both engines in one call, per provider), BatchBench prefills only the slots its batch sizes reach (one
+  sequence at 128K in a paged pool sized for it).
+
+### 74.3 Where the gaps were (phase 1)
+
+* **Gemma 4 31B prefill, 0.32-0.79x of llama.cpp on CUDA** (pp8192 496 against 1570 tok/s): its 10 global layers have head size 512,
+  which `fa` (padded head sizes up to 256) does not take, so their prefill rows ran the per-(head, query) scalar kernel: 66 ms per
+  layer at 2048 tokens, 36 % of the pass (`profiles/prof_gemma_cuda_2048.txt`). Its 50 sliding-window layers (head size 256) ran `fa`
+  at 1.84 ms per layer on Vulkan against 0.45 ms for the hand-written kernel at head size 256 on CUDA. On Vulkan the global layers'
+  decode rows also fell back to the scalar kernel (143 µs per layer and step): the split-K decode kernel's merged states of 8 heads x
+  512 values need 64 KiB, Vulkan offers 48.
+* **Qwen3.8 27B prefill at 32K, 0.84 / 0.87x** (CUDA / Vulkan), at par or ahead below: its 16 attention layers (head size 256) ran the
+  generated `fa` / `fe` paths at ~23 TFLOPS; the hand-written kernel covered head sizes 64 and 128 only.
+* **Qwen3-8B batched decode on CUDA, 0.97 / 0.92x at 16 / 64 sequences** (Vulkan 1.7-2.1x of llama.cpp's Vulkan backend): the K-quant
+  matmuls at 17-64 rows run `gemm_cm2` on dequantized tiles, and the CUDA step ran every launch on one stream, where the Vulkan
+  recording lets independent dispatches between two barriers overlap (Vulkan's step at 32 sequences 15.5 against 19.8 ms on CUDA with
+  the same kernels; profiled, kernel by kernel, 18.5 against 20.7 ms).
+* Not gaps: K-quant prefill GEMMs (1.04-1.16x everywhere at 512-8K), single-stream decode (0.98-1.12x), decode at 32K (1.0-1.06x).
+  The K-quant decode matvec (mmvq, int8 dot products on q8_1 activations) reads Qwen3-8B's 4.7 GB in 7.0 ms per token, ~670 GB/s
+  of the card's 896, where llama.cpp's is 6.99 ms.
+
+### 74.3.1 Against vLLM (equivalent 4-bit checkpoints)
+
+vLLM 0.33.0 (`vllm-r12`) cannot load these GGUFs: its GGUF loader needs the `gguf` package, which the venv lacks, and it maps neither
+`qwen35` nor `gemma4`. The comparison therefore uses the closest vLLM-native 4-bit checkpoints of the same models: **Qwen/Qwen3-8B-AWQ**
+(`4da05a8e`, AWQ int4 g128, Marlin kernels) and **RedHatAI/Qwen3.8-27B-INT4** (`71dface3`, compressed-tensors W4A16 g128). They are not
+the same weights or bit layout as Q4_K_M (Q4_K is 4.5 bits per weight with 6-bit sub-block scales and mins, plus Q6_K down / v
+projections), so these are engine-to-engine figures on comparable 4-bit models, not like-for-like kernels. vLLM ran in the hold right
+after the final Sharplight / llama.cpp runs (`vllm_single.py --depth 8192`, `s58_long_vllm.py` at 32K and for 1 / 16 / 64 streams at
+depth 256: prefill median of 5 with `max_tokens=1`, decode (t(129) − t(1)) / 128 over generated tokens).
+
+| Qwen3-8B (tok/s) | Sharplight Q4_K_M, CUDA | vLLM AWQ | ratio |
+|---|---:|---:|---:|
+| prefill 512 / 2K / 8K / 32K | 7274 / 7264 / 6583 / 4738 | 8407 / 8471 / 7525 / 5206 | 0.87 / 0.86 / 0.87 / 0.91 |
+| decode, 1 stream (depth 16-512) | 144.4 | 137.7 | 1.05 |
+| decode at 32K | 79.1 | 75.5 | 1.05 |
+| decode, 16 / 64 sequences at depth 256 | 1404 / 2785 | 1909 / 4243 | 0.74 / 0.66 |
+
+| Qwen3.8 27B (tok/s) | Sharplight Q4_K_M, CUDA | vLLM INT4 (W4A16) | ratio |
+|---|---:|---:|---:|
+| prefill 512 / 2K / 8K / 32K | 1910 / 1958 / 1910 / 1774 | 2511 / 2542 / 2450 / 2186 | 0.76 / 0.77 / 0.78 / 0.81 |
+| decode, 1 stream | 45.7 | 47.4 | 0.96 |
+| decode at 32K / 128K | 39.2 / 27.9 | 44.0 / 38.1 | 0.89 / 0.73 |
+| decode, 16 / 64 sequences at depth 256 | 371 / 687 | 601 / 880 | 0.62 / 0.78 |
+
+The 27B's W4A16 checkpoint keeps its linear layers at ~4.1 bits per weight, where Q4_K_M has 4.5 (Q4_K) and 6.6 (Q6_K for the QKV,
+down and output projections), so part of the decode gap is bytes read per token; at 128K most of it is the decode attention at head
+size 256 (our split-K `decode` reads the cache at ~620 GB/s).
+
+Against vLLM the K-quant prefill GEMM (f16 tensor cores on dequantized Q4_K tiles, ~0.86x) and above all the batched decode GEMMs at
+16-64 rows (0.66-0.74x: Marlin's int4 GEMM reads the weights once per step at those batch sizes, our `gemm_cm2` does not reach the read
+rate, 74.6 lever 1) are the gaps for Qwen3-8B, whose single-stream and 32K decode are ahead (1.05x); the 27B trails vLLM everywhere
+(0.62-0.96x).
+### 74.4 Correctness
+
+* Greedy text (`--chat --temp 0 -n 64`, a 25-token prompt and a 1,600-token one) of the round's start (`ff3b70b1`) against this branch,
+  both providers: Qwen3-8B byte-identical on both. Qwen3.8 27B: the short prompt's text on CUDA and on Vulkan swap places (the base
+  gave text A on CUDA and B on Vulkan, the branch B on CUDA and A on Vulkan), the long prompt's Vulkan text leaves the base's after ~40
+  tokens. Gemma 4 31B: the long prompt leaves the base after ~30 tokens on CUDA (and, with the two decode rows per batch, on Vulkan the
+  same way: both providers now give the same text); the short prompt changes at
+  its second token (" is composed" → " reaches") on both providers, because its global layers no longer run the f32 per-(head, query)
+  kernel. That token is a near tie: " reaches" 24.17 against " is" 24.01 on every build and provider (`--logits`), and llama.cpp
+  itself picks " is" on CUDA and " reaches" on Vulkan; the branch now gives llama.cpp Vulkan's text on both providers.
+* Concurrent graph branches: greedy text byte-identical with and without (`SHARPLIGHT_CUDA_CONCURRENT=0`) on all three models, and
+  on gpt-oss-20b (HF MXFP4, f16 projections with biases) on both providers after `develop` (`bae54776`, the f16 bias epilogue fix) was
+  merged; the three feed models' greedy text is unchanged by that merge (all numbers of this section were taken before it; the fix
+  touches f16 / bf16 weights with bias epilogues, which these Q4_K_M models do not have).
+* Tests: Sharplight.Cuda.Tests 43 (1 skipped, the cuBLASLt probe), new `NativeAttentionMatchesTheCpu` cases at head sizes 256 and 512,
+  with a window and sinks, against the CPU and the generated kernels; Vulkan.Tests classes MatMul, Mmq, QuantFormat, SkinnyGemm,
+  RowInvariance, FullAttention, SparseAttention, CompressedKv, PagedAttention and Stateful (new `CachedAttentionLongPrefill` cases at 256
+  and 512 with grouped heads) on Vulkan and on CUDA (`SHARPLIGHT_TEST_PROVIDER=cuda`), all passing; FamilyGenerationTests for `gemma-4`
+  (gemma-4-E2B-it HF ids, head sizes 256 / 512, CPU / Vulkan / CUDA; the GGUF cases need files not on this machine) and `qwen3` (33 run,
+  30 skipped for missing files), all passing.
+
+### 74.5 Measured and not kept
+
+* **MMQ (int8 tensor cores) for Q4_K / Q6_K at decode batches** (`SHARPLIGHT_MMQ=q4_k,q6_k`, from 33 rows): Qwen3-8B steps at 64
+  sequences 24.61 → 25.51 ms on CUDA and 23.11 → 24.50 ms on Vulkan, 32 unchanged. The f16 GEMM on dequantized tiles stays.
+* **Four warps for head size 256** in the hand-written prefill attention: 114 against 143 TFLOPS with eight (harness, 4096 queries).
+  A single-stage 64-key tile at 256 does not fit (and is wrong without a second stage).
+* **Three stages at head size 512**: 3 x 32 KiB plus the exchange exceed the 99 KiB a block may take.
+
+### 74.6 Leads worth promoting and the next levers
+
+Large enough to promote (like for like, same hour, both engines interleaved):
+
+* **Vulkan batched decode against llama.cpp's Vulkan backend: 1.7-2.5x** on every model (Qwen3-8B 2.13 / 1.72x at 16 / 64 sequences,
+  Qwen3.8 27B 2.48 / 2.46x, Gemma 4 31B 2.03x at 16), with llama.cpp's second, warm pass; our Vulkan steps are within 0.9-1.1x of our
+  CUDA ones, llama.cpp's Vulkan batched path is far from its CUDA one.
+* **Vulkan prefill**: 1.12-1.18x for both Qwen models at every length, Gemma 4 31B 1.10 / 1.27 / 1.21x at 512 / 2K / 8K.
+* **Qwen3.8 27B (hybrid)**: batched decode on CUDA 1.17 / 1.55x at 16 / 64 sequences, prefill 1.11-1.19x on CUDA and 1.15-1.16x on
+  Vulkan at every length (32K from 0.84 / 0.87x), single-stream decode 1.05x (CUDA) / 1.26x (Vulkan, llama.cpp's tg128 moved between
+  35.7 and 40.2 over the day).
+* **Prefill at 32K on CUDA**: Qwen3-8B 1.19x, Qwen3.8 27B 1.19x.
+
+Against vLLM (74.3.1, comparable but not identical 4-bit checkpoints) nothing here is a lead to promote except Qwen3-8B's single-stream
+and 32K decode (1.05x); vLLM leads prefill (0.76-0.91x) and batched decode (0.62-0.78x).
+
+Parity, not a lead: single-stream decode of Qwen3-8B (0.99-1.01x) and Gemma 4 on Vulkan (1.03x), decode at 32K (1.01-1.06x, Qwen),
+Qwen3-8B CUDA prefill at 512-8K (1.06-1.09x) and its CUDA batched decode (0.99x), Gemma 4 CUDA prefill at 2K / 8K (1.02 / 0.98x).
+Behind: Gemma 4 on CUDA beyond prefill (below), decode at 128K (0.94 / 0.96x for the 27B, the decode attention at head size 256).
+
+Levers, ranked:
+
+0. **Gemma 4 31B on CUDA** is where the feed's biggest remaining gaps are: decode 0.96x, decode at 32K 0.90x, 16 sequences 0.84x, prefill
+   at 512 tokens 0.89x, and 32K / 128K contexts that do not fit on the session path (window-sized caches exist only in the paged
+   decoder: 44.8 GiB at 32K) or in the paged decoder at 128K (30.4 GiB). In order: window-sized caches for the session graphs; a
+   tensor-core split-K decode kernel for head size 512 (the 10 global layers' 8-head groups run the generic `decode`); then the
+   512-token prefill (the GEMMs at 512 rows).
+1. **K-quant GEMM at 17-64 rows on CUDA** (Qwen3-8B 64 sequences 0.98x after this round's graph branches): the generated `gemm_cm2`
+   on dequantized tiles reads Q4_K / Q6_K weights at 240-560 GB/s at 32-64 rows (the 1-row matvec at ~700); CUDA's compiled form is
+   10-30 % slower per kernel than the same Slang kernel on the NVIDIA Vulkan driver (LM head [4096 → 151936] Q6_K at 32 rows 1317
+   against 908 µs). A hand-written K-quant decode GEMM (dequantize into registers, f16 MMAs, 32 / 64 token rows) is the CUDA lever.
+2. **Decode attention at head size 256 at long depth** (Qwen3.8 27B at 128K, 0.94x / 0.96x): the split-K `decode` reads the cache at
+   620 GB/s on CUDA and, after this round's two rows per batch, ~520 on Vulkan (`profiles/prof_q27_d128k_*.txt`); the tensor-core
+   decode kernel covers 64 / 128 only (lever 4).
+3. **Gemma 4 global-layer attention at 32K+**: the split-head kernel runs at 112 TFLOPS against 143 at head size 256; the pair's
+   score exchange and 16-key tiles cost barriers. A one-warp form with Q fragments re-read from shared memory would avoid the exchange.
+4. **Native decode attention for head sizes 256 / 512** (the tensor-core split-K kernel covers 64 / 128).
+
+### 74.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i> LLAMA_ROOT=...
+M=~/models/gguf/gemma-4-31B-it-Q4_K_M.gguf   # or Qwen3.8-27B-Q4_K_M.gguf (DEPTHS="32768 131072"), Qwen3-8B-Q4_K_M.gguf (DEPTHS=32768)
+for P in cuda vulkan; do DEPTHS="32768 131072" SEQS="16" bench/s74_feed.sh out gemma4-31b $M $P; done
+python3 bench/s74_summarize.py out gemma4-31b
+# hand-written prefill attention harness (head sizes 128 / 256 / 512)
+nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=32 -DHKV=4 -DD=512 -DDV=512 -DTQ=4096 -DNPAST=0 -DWINDOW=0 -DHAS_SINKS=0 -DFN_WARPS=8 -DFN_STAGES=2 \
+  -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_prefill_native.cu"' bench/s58_attn/bench_attn.cu -o b && ./b
+# A/B switches of this round: SHARPLIGHT_CUDA_CONCURRENT=0, SHARPLIGHT_ATTN_FE_WINDOW=0, SHARPLIGHT_ATTN_FE_WIDE=0,
+# SHARPLIGHT_ATTN_DECODE_CFG=1024,128,64 (Vulkan's one row per batch), SHARPLIGHT_DISABLE_FEATURES=native_attention
+```
+
 ## 75. LLM round 24: one expert-GEMM main loop per fragment count; gpt-oss-20b on CUDA repaired after perf/offload-r5; 64-row expert tiles measured (2026-11-21)
 
 Branch `perf/llm-r24` (base `develop` at `ff3b70b1`, perf/offload-r5 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs,

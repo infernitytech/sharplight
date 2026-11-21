@@ -1,0 +1,9 @@
+[N=512] prefill 512 tok: best 72 ms = 7129.7 tok/s | decode: best 134.58, median 131.80, mean 132.21 tok/s | GPU ms/step: best 7.29, median 7.45, wall best 7.43 | prefill median of 5: 76.7 ms = 6674.0 tok/s
+[N=2048] prefill 2048 tok: best 293 ms = 6981.6 tok/s | decode: best 130.37, median 129.31, mean 128.98 tok/s | GPU ms/step: best 7.56, median 7.60, wall best 7.67 | prefill median of 5: 303.5 ms = 6747.3 tok/s
+[N=8192] prefill 8192 tok: best 1339 ms = 6118.7 tok/s | decode: best 111.37, median 109.62, mean 98.55 tok/s | GPU ms/step: best 8.85, median 8.96, wall best 8.98 | prefill median of 5: 1352.6 ms = 6056.6 tok/s
+[N=32768] prefill 32768 tok: best 7591 ms = 4316.4 tok/s | decode: best 70.60, median 70.07, mean 70.00 tok/s | GPU ms/step: best 14.05, median 14.15, wall best 14.16 | prefill median of 5: 7634.9 ms = 4291.9 tok/s
+[decode depth 32768] | 1 | 45.2 | 546 / 401 | 13.84 / 14.05, 13.75 |
+[batched depth 256]
+| 1 | 56.8 | 546 / 401 | 7.20 / 7.25, 7.10 |
+| 16 | 38.1 | 618 / 437 | 13.16 / 14.16, 12.97 |
+| 64 | 36.0 | 871 / 582 | 22.02 / 23.41, 21.84 |

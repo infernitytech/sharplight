@@ -1,0 +1,8 @@
+--- rendered prompt ---
+<bos><|turn>user
+Explain in three sentences why the sky is blue.<turn|>
+<|turn>model
+<|channel>thought
+<channel|>
+-----------------------
+Sunlight is composed of all the colors of the rainbow, which travel as waves of different lengths. As this light reaches Earth's atmosphere, it strikes gas molecules and scatters in all directions. Blue light travels in shorter, smaller waves, causing it to scatter more strongly than other colors and making the sky appear blue

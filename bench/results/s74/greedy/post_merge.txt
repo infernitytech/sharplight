@@ -1,0 +1,17 @@
+lock 21:55:48
+[0m[37m   Sharplight.Cuda.Tests  Total: 43, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 24.532s
+cuda.tests done
+gptoss cuda conc=1 36dbbb87
+gptoss vulkan conc=1 36dbbb87
+gptoss cuda conc=0 36dbbb87
+gptoss vulkan conc=0 36dbbb87
+-----------------------
+<|channel|>analysis<|message|>The user asks: "Explain in three sentences why the sky is blue." They want a concise explanation in exactly three sentences. So we need to produce a short explanation: Rayleigh scattering, shorter wavelengths scatter more, etc.
+
+merged Qwen3-8B-Q4_K_M cuda d439f857 db63a251
+merged Qwen3-8B-Q4_K_M vulkan fc5dfcb4 599da9d2
+merged Qwen3.8-27B-Q4_K_M cuda cee3d3aa 176d4940
+merged Qwen3.8-27B-Q4_K_M vulkan 9f85c9db b3cbd187
+merged gemma-4-31B-it-Q4_K_M cuda 138703aa b8885b22
+merged gemma-4-31B-it-Q4_K_M vulkan 138703aa b8885b22
+end 21:59:25
