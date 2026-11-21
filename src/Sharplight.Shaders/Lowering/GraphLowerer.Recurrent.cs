@@ -122,10 +122,14 @@ public sealed partial class GraphLowerer
     private void LowerDeltaRule(Node n)
     {
         // q/k may come straight from an absorbed L2Norm: read its input and normalize in the kernel.
+        // q/k may repeat the heads of a source in place: read the source's key head h / repeats.
         Node? normQ = _absorbedNorms.GetValueOrDefault(n.Inputs[0]);
         Node? normK = _absorbedNorms.GetValueOrDefault(n.Inputs[1]);
-        var q = Ref(normQ?.Inputs[0] ?? n.Inputs[0]);
-        var k = Ref(normK?.Inputs[0] ?? n.Inputs[1]);
+        var groupedQ = _groupedKeyHeads.GetValueOrDefault(n.Inputs[0]);
+        var groupedK = _groupedKeyHeads.GetValueOrDefault(n.Inputs[1]);
+        bool groupedHeads = groupedQ.Source is not null && groupedK.Source is not null;
+        var q = Ref(normQ?.Inputs[0] ?? groupedQ.Source ?? n.Inputs[0]);
+        var k = Ref(normK?.Inputs[0] ?? groupedK.Source ?? n.Inputs[1]);
         var v = Ref(n.Inputs[2]);
         var g = Ref(n.Inputs[3]);
         var beta = Ref(n.Inputs[4]);
@@ -145,6 +149,11 @@ public sealed partial class GraphLowerer
         long HV = v.Shape[1];
         long DV = v.Shape[2];
         Node[] nodes = [.. new[] { normQ, normK }.OfType<Node>(), n];
+        if (groupedHeads && HV != HK * groupedQ.Repeats)
+        {
+            throw new InvalidOperationException($"GatedDeltaRule: {HV} value heads for {HK} key heads repeated {groupedQ.Repeats} times.");
+        }
+
         // Per-channel decay ([T, HV, DK]), time-invariant gates ([HV]) and the additive rule run token by token only.
         // (From the node's values: dense copies may be flattened.)
         int gRank = n.Inputs[3].Shape.Rank;
@@ -171,7 +180,7 @@ public sealed partial class GraphLowerer
             ("SCALE", n.Attributes.Get<float>("scale")),
             ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
             ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
-            ("MULTI_SEQ", runs is not null), ("CHANNEL_DECAY", channelDecay), ("ADDITIVE", additive),
+            ("GROUPED_HEADS", groupedHeads), ("MULTI_SEQ", runs is not null), ("CHANNEL_DECAY", channelDecay), ("ADDITIVE", additive),
             ("G_TS", gRank == 1 ? 0 : HV), ("B_TS", betaRank == 1 ? 0 : HV), ("STATE_FMT", RecurrentStateFormat(st.Type)), .. snapshot]);
         if (chunked is { } plan && records is null)
         {

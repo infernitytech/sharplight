@@ -378,7 +378,7 @@ float row_sum(float v)
 void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform DeltaParams p)
 {
     uint h = gid.x;
-    uint hk = h % HK;
+    uint hk = KEY_HEAD(h);
     uint jl = ltid.x / LPR;                 // state row within this workgroup
     uint j = gid.y * DVB + jl;              // state row (value dim)
     uint part = ltid.x % LPR;               // this lane owns DK elements part + e * LPR (interleaved: conflict-free shared reads)

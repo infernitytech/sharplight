@@ -190,6 +190,22 @@ public sealed partial class GraphLowerer
             return normCopy.Copy;
         }
 
+        if (code == ActivationCode.Q8_1 && shareable && NormQ8Copy(root, x, xStride, k, rowsPerLead) is { } q8Copy)
+        {
+            // The norm writes the rows for steps up to q8Copy.MaxRows; larger steps of this reader's range quantize into the same rows.
+            if (_quantizedActivations.TryAdd(cacheKey, q8Copy.Copy) && maxRows > q8Copy.MaxRows)
+            {
+                long from = Math.Max(minRows, q8Copy.MaxRows + 1);
+                var extensionKey = (root, x.ByteOffset, xStride, k, from, maxRows, code, (object?)_launchCondition);
+                if (_quantizedActivations.TryAdd(extensionKey, q8Copy.Copy))
+                {
+                    EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, from, maxRows, code, q8Copy.Copy);
+                }
+            }
+
+            return q8Copy.Copy;
+        }
+
         if (code == ActivationCode.Fp8 && shareable && NormFp8Copy(root, x, xStride, k) is { } fp8Copy)
         {
             // The norm writes the rows from fp8Copy.MinRows rows on; smaller steps quantize into the same rows.

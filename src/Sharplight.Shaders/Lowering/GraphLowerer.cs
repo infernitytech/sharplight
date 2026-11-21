@@ -34,6 +34,12 @@ public sealed partial class GraphLowerer
     /// <summary>Norm output → norm node computed inside its consumer's kernel (delta rule, rope).</summary>
     private readonly Dictionary<Value, Node> _absorbedNorms = [];
 
+    /// <summary>
+    /// q / k inputs of a delta rule that repeat each head of a source in place → the source and the repeats: the kernel reads key head
+    /// h / repeats of the source (<c>GROUPED_HEADS</c>), so neither the repeat nor (with an absorbed L2 norm) the norm is materialized.
+    /// </summary>
+    private readonly Dictionary<Value, (Value Source, long Repeats)> _groupedKeyHeads = [];
+
     /// <summary>Batches served by the dual grouped GEMM of an expert product's halves, per group unit (see <c>LowerExpertHalves</c>).</summary>
     private readonly Dictionary<LoweringUnit, Func<Bindings, bool>> _halvesServed = [];
 

@@ -82,6 +82,38 @@ public sealed class FusionTests
     }
 
     /// <summary>
+    /// Row norms read by integer-dot matvecs: at decode sizes the norm writes their q8_1 rows (a residual Add + RmsNorm read by two
+    /// projections; a per-head RmsNorm gated by SiLU, read as [T, heads * D] by a third), larger steps of the q8_0 range quantize into
+    /// the same rows, larger ones take the other kernels.
+    /// </summary>
+    [Theory]
+    [InlineData("q4_k", 1)]
+    [InlineData("q4_k", 5)]
+    [InlineData("q4_k", 8)]
+    [InlineData("q4_k", 9)]
+    [InlineData("q8_0", 2)]
+    [InlineData("q8_0", 12)]
+    [InlineData("q8_0", 16)]
+    public void NormQuantizedForIntDot(string fmt, int t)
+    {
+        Gpu.Require();
+        int K = 1024, heads = 8, d = 128;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var r = tg.InF("r", TG.T, K);
+        var h = tg.B.RmsNorm(tg.B.Add(x, r), tg.RandW("wn", DataType.F32, 1f, K), 1e-6f);
+        tg.B.Output("a", tg.B.MatMul(h, tg.RandW("wa", DataType.Get(fmt), 0.1f, 256, K)));
+        tg.B.Output("b", tg.B.MatMul(h, tg.RandW("wb", DataType.Get(fmt), 0.1f, 64, K)));
+        var o = tg.InF("o", TG.T, heads, d);
+        var z = tg.InF("z", TG.T, heads * d);
+        var gated = tg.B.Mul(tg.B.RmsNorm(o, tg.RandW("wo", DataType.F32, 1f, d), 1e-6f), tg.B.Silu(tg.B.Reshape(z, 0, heads, d)));
+        tg.B.Output("c", tg.B.MatMul(tg.B.Reshape(gated, 0, heads * d), tg.RandW("wc", DataType.Get(fmt), 0.1f, 128, heads * d)));
+        Diff.Check("Fusion.normq8." + fmt, tg.B.Build(),
+            new Step(t, 0, (x, Rnd.F((long)t * K, 7)), (r, Rnd.F((long)t * K, 8)), (o, Rnd.F((long)t * K, 9)), (z, Rnd.F((long)t * K, 10))),
+            atol: 6e-1, rtol: 1e-2, maxTokens: 32, what: $"T={t}");
+    }
+
+    /// <summary>
     /// Matmul + bias row (q / k / v / o projections with biases): single rows add the bias in the split-K matvec's store, row counts
     /// whose f16 tensor-core GEMM splits K add it in the split-K reduction, from 1024 rows the hand-written f16 GEMM (CUDA) adds it in its
     /// store, other row counts run the matmul and the Add; a bias
@@ -173,6 +205,43 @@ public sealed class FusionTests
         var steps = chunks.Select((c, i) => new Step(c, 0, (qkv, Rnd.F(c * C, 1 + i)),
             (gi, Rnd.F(c * Hv, 31 + i).Select(x => -Math.Abs(x)).ToArray()), (bi, Rnd.F(c * Hv, 41 + i).Select(Math.Abs).ToArray()))).ToList();
         Diff.Check("Fusion.l2+delta", tg.B.Build(), steps, atol: 2e-4, rtol: 2e-3, maxTokens: 8, what: $"Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv}");
+    }
+
+    /// <summary>
+    /// Grouped value heads (Qwen3-Next): q and k heads repeated in place (Reshape, Tile, Reshape) before the delta rule, which reads key
+    /// head h / repeats instead (with and without the L2 norms absorbed too), over decode rows and a prefill chunk of the chunked form.
+    /// </summary>
+    [Theory]
+    [InlineData(2, 4, 32, 16, true)]
+    [InlineData(2, 6, 64, 32, false)]
+    [InlineData(4, 8, 128, 128, true)]
+    public void RepeatedKeyHeadsInDeltaRule(int Hk, int Hv, int Dk, int Dv, bool norm)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var T = TG.T;
+        int repeats = Hv / Hk;
+        var qkv = tg.InF("qkv", T, 2 * Hk * Dk + Hv * Dv);
+        Value Heads(int offset)
+        {
+            var heads = tg.B.Reshape(tg.B.Slice(qkv, 1, offset, Hk * Dk), 0, Hk, Dk);
+            heads = norm ? tg.B.L2Norm(heads, 1e-6f) : tg.B.Scale(heads, 0.05f);
+            var tiled = tg.B.Emit1("Tile", [tg.B.Reshape(heads, 0, Hk, 1, Dk)], Attributes.From(("repeats", new long[] { 1, 1, repeats, 1 })));
+            return tg.B.Reshape(tiled, 0, (long)Hv, Dk);
+        }
+
+        var q = Heads(0);
+        var k = Heads(Hk * Dk);
+        var v = tg.B.Reshape(tg.B.Slice(qkv, 1, 2 * Hk * Dk, Hv * Dv), 0, Hv, Dv);
+        var gi = tg.InF("g", T, Hv);
+        var bi = tg.InF("b", T, Hv);
+        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [q, k, v, gi, bi, st], Attributes.From(("scale", 1f / MathF.Sqrt(Dk))), writes: [st])[0]);
+        int C = 2 * Hk * Dk + Hv * Dv;
+        int[] chunks = [3, 1, 80, 1];
+        var steps = chunks.Select((c, i) => new Step(c, 0, (qkv, Rnd.F(c * C, 1 + i)),
+            (gi, Rnd.F(c * Hv, 31 + i).Select(x => -Math.Abs(x)).ToArray()), (bi, Rnd.F(c * Hv, 41 + i).Select(Math.Abs).ToArray()))).ToList();
+        Diff.Check("Fusion.repeat+delta", tg.B.Build(), steps, atol: 2e-4, rtol: 2e-3, maxTokens: 128, what: $"Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv} norm={norm}");
     }
 
     [Theory]

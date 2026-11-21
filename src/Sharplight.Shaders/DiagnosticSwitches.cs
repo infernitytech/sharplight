@@ -11,6 +11,11 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_COMPILE_THREADS=n</c>: number of kernels compiled with Slang at the same time (default: half the processor
 /// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
+/// <item><c>SHARPLIGHT_NO_TOPK_REGISTER_ROW=1</c>: the router top-k keeps per-lane sorted lists instead of the row in registers.</item>
+/// <item><c>SHARPLIGHT_NO_GROUPED_KEY_HEADS=1</c>: materialize the in-place head repeats (Tile) of a delta rule's q / k instead of
+/// reading key head h / repeats in the kernel.</item>
+/// <item><c>SHARPLIGHT_NO_NORM_Q8_COPY=1</c>: int-dot matvecs quantize a row norm's output with their own launch instead of reading
+/// q8_1 rows the norm wrote (decode steps).</item>
 /// <item><c>SHARPLIGHT_GEMM_SG=0</c>: devices with only 8x8 subgroup matrices (Metal) run prefill matmuls on the SIMT GEMM instead of
 /// <c>gemm_sg</c>.</item>
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
@@ -145,6 +150,15 @@ internal static class DiagnosticSwitches
 
     /// <summary>Keeps the router's softmax, top-k and weight normalization in separate launches (<c>SHARPLIGHT_NO_ROUTER_FUSION=1</c>).</summary>
     public static bool NoRouterFusion { get; } = IsSet("SHARPLIGHT_NO_ROUTER_FUSION");
+
+    /// <summary>The router top-k keeps per-lane sorted lists instead of its row in registers (<c>SHARPLIGHT_NO_TOPK_REGISTER_ROW=1</c>).</summary>
+    public static bool NoTopKRegisterRow { get; } = IsSet("SHARPLIGHT_NO_TOPK_REGISTER_ROW");
+
+    /// <summary>Materializes the in-place head repeats of a delta rule's q / k (<c>SHARPLIGHT_NO_GROUPED_KEY_HEADS=1</c>).</summary>
+    public static bool NoGroupedKeyHeads { get; } = IsSet("SHARPLIGHT_NO_GROUPED_KEY_HEADS");
+
+    /// <summary>Row norms do not write the q8_1 rows of the int-dot matvecs reading them (<c>SHARPLIGHT_NO_NORM_Q8_COPY=1</c>).</summary>
+    public static bool NoNormQ8Copy { get; } = IsSet("SHARPLIGHT_NO_NORM_Q8_COPY");
 
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");

@@ -223,7 +223,7 @@ groupshared float pB[CH];
 [numthreads(NTC, 1, 1)]
 void delta_chunk_prep(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform ChunkParams p)
 {
-    uint h = gid.x, hk = h % HK, c = gid.y;
+    uint h = gid.x, hk = KEY_HEAD(h), c = gid.y;
     uint tid = ltid.x, sg = tid / 32;
     int4 run = chunk_run(p, gid.z);
     uint n = uint(run.z);
@@ -426,7 +426,7 @@ groupshared float fG[CH];
 [numthreads(NTC, 1, 1)]
 void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform ChunkParams p)
 {
-    uint h = gid.x, hk = h % HK, j0 = gid.y * BV;
+    uint h = gid.x, hk = KEY_HEAD(h), j0 = gid.y * BV;
     uint tid = ltid.x, sg = tid / 32;
     int4 run = chunk_run(p, gid.z);
     uint n = uint(run.z);

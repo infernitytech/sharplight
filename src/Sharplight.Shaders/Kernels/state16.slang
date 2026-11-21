@@ -10,6 +10,17 @@
 // rounding mode of the f32 -> f16 conversion instruction is implementation-defined.
 #include "common.slang"
 
+// KEY_HEAD(h): the q / k head that value head h reads: h % HK (heads interleaved), or with GROUPED_HEADS h / (HV / HK) (each
+// key head's value heads adjacent, as an in-place repeat of the key heads).
+#ifndef GROUPED_HEADS
+#define GROUPED_HEADS 0
+#endif
+#if GROUPED_HEADS
+#define KEY_HEAD(h) ((h) / (HV / HK))
+#else
+#define KEY_HEAD(h) ((h) % HK)
+#endif
+
 #ifndef STATE_FMT
 #define STATE_FMT 0
 #endif
