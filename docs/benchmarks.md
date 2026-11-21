@@ -10814,7 +10814,10 @@ rate, 74.6 lever 1) are the gaps for Qwen3-8B, whose single-stream and 32K decod
   its second token (" is composed" → " reaches") on both providers, because its global layers no longer run the f32 per-(head, query)
   kernel. That token is a near tie: " reaches" 24.17 against " is" 24.01 on every build and provider (`--logits`), and llama.cpp
   itself picks " is" on CUDA and " reaches" on Vulkan; the branch now gives llama.cpp Vulkan's text on both providers.
-* Concurrent graph branches: greedy text byte-identical with and without (`SHARPLIGHT_CUDA_CONCURRENT=0`) on all three models.
+* Concurrent graph branches: greedy text byte-identical with and without (`SHARPLIGHT_CUDA_CONCURRENT=0`) on all three models, and
+  on gpt-oss-20b (HF MXFP4, f16 projections with biases) on both providers after `develop` (`bae54776`, the f16 bias epilogue fix) was
+  merged; the three feed models' greedy text is unchanged by that merge (all numbers of this section were taken before it; the fix
+  touches f16 / bf16 weights with bias epilogues, which these Q4_K_M models do not have).
 * Tests: Sharplight.Cuda.Tests 43 (1 skipped, the cuBLASLt probe), new `NativeAttentionMatchesTheCpu` cases at head sizes 256 and 512,
   with a window and sinks, against the CPU and the generated kernels; Vulkan.Tests classes MatMul, Mmq, QuantFormat, SkinnyGemm,
   RowInvariance, FullAttention, SparseAttention, CompressedKv, PagedAttention and Stateful (new `CachedAttentionLongPrefill` cases at 256
