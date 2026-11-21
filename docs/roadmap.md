@@ -125,6 +125,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   `--feedback`). Measured and not kept: 64-row expert tiles in several forms (a 64-row tile costs 1.65x a 32-row one, so a per-expert
   choice gains at most ~3 % of the expert GEMMs on vLLM's routing). Qwen3's norm + E4M3 launch is bound by its f32 rows, not by its
   quantization (bank-conflict padding: -2 % of the launch). Next: §75.6.
+- **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
+  31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
+  the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models
+  the staged `fa` (Qwen3.8 27B pp32768 0.84 / 0.87x). The hand-written CUDA prefill attention now takes head sizes up to 512 (32 / 16-key
+  tiles, warp pairs splitting the head dimensions above 256), `fe` up to 512 on Vulkan (subgroup pairs), sliding windows in the causal
+  `fe`, the split-K decode attention fits 512-wide heads in Vulkan's 48 KiB (two key rows per batch there at 256+), and captured CUDA
+  step graphs run independent launches as parallel branches (Qwen3-8B 64-sequence step -6.7 %). Next: §74.6.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

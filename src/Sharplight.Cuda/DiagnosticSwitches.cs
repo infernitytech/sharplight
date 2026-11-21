@@ -13,6 +13,8 @@ namespace Sharplight.Cuda;
 /// <item><c>SHARPLIGHT_CUDA_MAX_SHARED=bytes</c>: shared memory per block the kernels are lowered for (default: the device's opt-in
 /// maximum; 49152 keeps CUDA's static limit, the size the Vulkan provider has).</item>
 /// <item><c>SHARPLIGHT_CUDA_SYNC=1</c>: waits for the stream after every launch, so a faulting kernel is reported by name.</item>
+/// <item><c>SHARPLIGHT_CUDA_CONCURRENT=0</c>: captured step graphs keep one launch after the other instead of running the launches between
+/// two hazards (the Vulkan provider's barrier batches) side by side.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>, <c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c>, <c>SHARPLIGHT_CONCURRENT_WORKGROUPS</c>,
 /// <c>SHARPLIGHT_DEVICE_FORWARDING=0</c>: as for the Vulkan provider.</item>
 /// </list>
@@ -36,6 +38,9 @@ internal static class DiagnosticSwitches
     public static bool DependentTrigger { get; } = Read("SHARPLIGHT_CUDA_PDL_TRIGGER") != "0";
 
     public static long? MaxSharedMemory { get; } = Read("SHARPLIGHT_CUDA_MAX_SHARED") is { } v ? long.Parse(v, System.Globalization.CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_CUDA_CONCURRENT</c> (default on).</summary>
+    public static bool ConcurrentLaunches { get; } = Read("SHARPLIGHT_CUDA_CONCURRENT") != "0";
 
     /// <summary><c>SHARPLIGHT_CUDA_SYNC=1</c>.</summary>
     public static bool SyncEachLaunch { get; } = IsSet("SHARPLIGHT_CUDA_SYNC");

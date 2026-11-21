@@ -1,0 +1,23 @@
+lock 17:55:31
+[0m[37m   Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 77.574s
+stateful+paged vulkan
+[0m[37m   Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 75.112s
+stateful+paged cuda
+prefill 2048 tok: best 1257 ms = 1628.9 tok/s | decode: best 37.55, median 37.05, mean 37.07 tok/s | GPU ms/step: best 26.38, median 26.68, wall best 26.63 | prefill median of 5: 1269.8 ms = 1612.9 tok/s
+prefill 2048 tok: best 1224 ms = 1673.0 tok/s | decode: best 36.49, median 36.20, mean 36.03 tok/s | GPU ms/step: best 27.23, median 27.47, wall best 27.40 | prefill median of 5: 1226.0 ms = 1670.5 tok/s
+prefill 2048 tok: best 1269 ms = 1613.3 tok/s | decode: best 37.26, median 36.93, mean 36.95 tok/s | GPU ms/step: best 26.61, median 26.78, wall best 26.84 | prefill median of 5: 1277.5 ms = 1603.1 tok/s
+prefill 2048 tok: best 1320 ms = 1551.2 tok/s | decode: best 37.25, median 37.02, mean 37.00 tok/s | GPU ms/step: best 26.57, median 26.80, wall best 26.84 | prefill median of 5: 1332.2 ms = 1537.3 tok/s
+cuda mmq= | 16 | 17.4 | 618 / 0 | 11.62 / 12.29, 11.57 |
+cuda mmq= | 32 | 20.4 | 763 / 0 | 20.21 / 20.32, 20.17 |
+cuda mmq= | 64 | 24.8 | 727 / 0 | 24.66 / 24.70, 24.61 |
+cuda mmq=q4_k,q6_k | 16 | 18.1 | 618 / 0 | 11.55 / 12.23, 11.49 |
+cuda mmq=q4_k,q6_k | 32 | 20.5 | 835 / 0 | 20.20 / 20.32, 20.15 |
+cuda mmq=q4_k,q6_k | 64 | 26.1 | 834 / 0 | 25.56 / 25.62, 25.51 |
+vulkan mmq= | 16 | 65.4 | 618 / 437 | 12.97 / 13.91, 12.81 |
+vulkan mmq= | 32 | 70.4 | 871 / 582 | 15.83 / 16.79, 15.66 |
+vulkan mmq= | 64 | 28.8 | 871 / 582 | 23.33 / 23.54, 23.11 |
+vulkan mmq=q4_k,q6_k | 16 | 75.2 | 618 / 437 | 12.88 / 13.84, 12.75 |
+vulkan mmq=q4_k,q6_k | 32 | 44.6 | 943 / 654 | 15.83 / 16.69, 15.72 |
+vulkan mmq=q4_k,q6_k | 64 | 39.0 | 870 / 581 | 24.59 / 24.98, 24.50 |
+prefill 32768 tok: best 19763 ms = 1658.1 tok/s | decode: best 37.37, median 37.07, mean 37.08 tok/s | GPU ms/step: best 26.57, median 26.74, wall best 26.76 | prefill median of 5: 19845.8 ms = 1651.1 tok/s
+end 18:02:34

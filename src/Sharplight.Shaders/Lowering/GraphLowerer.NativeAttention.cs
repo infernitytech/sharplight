@@ -6,8 +6,22 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
-    /// <summary>Keys per tile of <c>attn_prefill_native.cu</c>.</summary>
-    private const int NativeAttentionKeys = 64;
+    /// <summary>
+    /// Keys per tile of <c>attn_prefill_native.cu</c> (<c>FN_BC</c>) for head size <paramref name="headSize"/>: 64, 32 above 128, where
+    /// a warp's output accumulators take 128 registers and a 64-key stage would take 64 KiB of shared memory, and 16 above 256, where
+    /// warp pairs split the head dimensions (<c>FN_DS</c>) and a 32-key stage of 512-wide rows would take 64 KiB.
+    /// </summary>
+    private static int NativeAttentionKeys(long headSize) => headSize > 256 ? 16 : headSize > 128 ? 32 : 64;
+
+    /// <summary>
+    /// Bytes of the score exchange of <c>attn_prefill_native.cu</c> behind its stages: above head size 256 each warp of the
+    /// <see cref="NativeAttentionWarps"/> publishes its partial 16 x <see cref="NativeAttentionKeys"/> scores (f32) to its partner.
+    /// </summary>
+    private static int NativeAttentionExchangeBytes(AttentionPlan plan)
+    {
+        long headSize = Math.Max(plan.D, plan.DV);
+        return headSize > 256 ? NativeAttentionWarps(headSize) * NativeAttentionFragments(headSize) * 16 * NativeAttentionKeys(headSize) * 4 : 0;
+    }
 
     /// <summary>
     /// Warps of an <c>attn_prefill_native.cu</c> block for head size <paramref name="headSize"/> (16 query rows each): 4 up to 64, where
@@ -32,19 +46,19 @@ public sealed partial class GraphLowerer
     private int NativeAttentionStages(AttentionPlan plan)
     {
         int stages = DiagnosticSwitches.NativeAttentionStages ?? (Math.Max(plan.D, plan.DV) > 64 ? 3 : 2);
-        return stages > 2 && NativeAttentionStageBytes(plan) * stages > _opt.MaxSharedMemory ? 2 : stages;
+        return stages > 2 && NativeAttentionStageBytes(plan) * stages + NativeAttentionExchangeBytes(plan) > _opt.MaxSharedMemory ? 2 : stages;
     }
 
     /// <summary>Bytes of one stage of <c>attn_prefill_native.cu</c>: a key and a value tile in f16.</summary>
-    private static int NativeAttentionStageBytes(AttentionPlan plan) => (int)(NativeAttentionKeys * (plan.D + plan.DV) * 2);
+    private static int NativeAttentionStageBytes(AttentionPlan plan) => (int)(NativeAttentionKeys(Math.Max(plan.D, plan.DV)) * (plan.D + plan.DV) * 2);
 
     /// <summary>Dynamic shared memory of <c>attn_prefill_native.cu</c>: <see cref="NativeAttentionStages"/> stages of a key and a value tile in f16.</summary>
-    private int NativeAttentionSharedBytes(AttentionPlan plan) => NativeAttentionStageBytes(plan) * NativeAttentionStages(plan);
+    private int NativeAttentionSharedBytes(AttentionPlan plan) => NativeAttentionStageBytes(plan) * NativeAttentionStages(plan) + NativeAttentionExchangeBytes(plan);
 
     /// <summary>
     /// True when causal attention of many queries against a KV cache runs on the hand-written flash-attention kernel
     /// (<see cref="DeviceFeatures.NativeAttention"/>, <c>attn_prefill_native.cu</c>) instead of <c>fa</c> / <c>fe</c>: f16 caches, head sizes
-    /// 64 or 128, grouped-query heads, optionally a sliding window, chunks, a soft cap and sinks, single-sequence or multi-sequence (also
+    /// that are multiples of 64 up to 256 or of 128 up to 512, grouped-query heads, optionally a sliding window, chunks, a soft cap and sinks, single-sequence or multi-sequence (also
     /// paged); no score biases, spans, masks, selections, compressed entries or relative biases. <c>SHARPLIGHT_NATIVE_ATTN=2</c> keeps
     /// the attentions <c>fe</c> serves (plain causal) on <c>fe</c>, <c>=0</c> all on the generated kernels.
     /// </summary>
@@ -52,14 +66,15 @@ public sealed partial class GraphLowerer
     {
         var a = plan.Node.Attributes;
         int mode = DiagnosticSwitches.NativeAttention;
-        bool shapes = plan.K.Type == DataType.F16 && plan.V.Type == DataType.F16 && plan.D % 64 == 0 && plan.DV % 64 == 0
-                      && plan.D <= 128 && plan.DV <= 128 && plan.HQ % plan.HKV == 0 && plan.V.Shape[2] % 8 == 0
+        long split = Math.Max(plan.D, plan.DV) > 256 ? 2 : 1;
+        bool shapes = plan.K.Type == DataType.F16 && plan.V.Type == DataType.F16 && plan.D % (64 * split) == 0 && plan.DV % (64 * split) == 0
+                      && plan.D <= 512 && plan.DV <= 512 && plan.HQ % plan.HKV == 0 && plan.V.Shape[2] % 8 == 0
                       && plan.Q.Strides[0] % 2 == 0 && plan.Q.Strides[1] % 2 == 0 && plan.Q.ByteOffset % 8 == 0;
         bool form = !plan.Full && (plan.Seq is null || plan.Runs is not null) && plan.Spans is null && plan.Mask is null && plan.Selection is null
                     && plan.Compressed is null && plan.RelativeBias is null && a.Get("causal", true)
                     && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
         return mode > 0 && _opt.Has(DeviceFeatures.NativeAttention) && _compiler.CompilesCuda(_opt.Target) && shapes && form
-               && NativeAttentionStageBytes(plan) * 2 <= _opt.MaxSharedMemory && (mode == 1 || !CausalFlash(plan));
+               && NativeAttentionStageBytes(plan) * 2 + NativeAttentionExchangeBytes(plan) <= _opt.MaxSharedMemory && (mode == 1 || !CausalFlash(plan));
     }
 
     /// <summary>
@@ -83,9 +98,11 @@ public sealed partial class GraphLowerer
         macros["FN_WARPS"] = warps.ToString(CultureInfo.InvariantCulture);
         macros["FN_STAGES"] = NativeAttentionStages(plan).ToString(CultureInfo.InvariantCulture);
         macros["FN_MR"] = fragments.ToString(CultureInfo.InvariantCulture);
+        macros["FN_BC"] = NativeAttentionKeys(Math.Max(plan.D, plan.DV)).ToString(CultureInfo.InvariantCulture);
         var kernel = _compiler.CompileCuda("attn_prefill_native.cu", "", "attn_prefill_native", warps * 32, NativeAttentionSharedBytes(plan), _opt.Target,
             macros, _opt.Cache);
-        uint rows = (uint)(16 * warps * fragments);
+        // Above head size 256 two warps share each row group (FN_DS).
+        uint rows = (uint)(16 * warps * fragments / (Math.Max(plan.D, plan.DV) > 256 ? 2 : 1));
         return runs is null
             ? new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), 1))
             : new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), (uint)Rows(b, runs)));

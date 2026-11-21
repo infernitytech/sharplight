@@ -1,0 +1,9 @@
+[N=512] prefill 512 tok: best 74 ms = 6894.4 tok/s | decode: best 135.34, median 133.12, mean 133.03 tok/s | GPU ms/step: best 7.26, median 7.36, wall best 7.39 | prefill median of 5: 76.7 ms = 6676.6 tok/s
+[N=2048] prefill 2048 tok: best 292 ms = 7005.7 tok/s | decode: best 131.10, median 127.64, mean 127.95 tok/s | GPU ms/step: best 7.51, median 7.66, wall best 7.63 | prefill median of 5: 302.5 ms = 6770.0 tok/s
+[N=8192] prefill 8192 tok: best 1334 ms = 6140.6 tok/s | decode: best 110.28, median 108.77, mean 108.97 tok/s | GPU ms/step: best 8.96, median 9.05, wall best 9.07 | prefill median of 5: 1347.7 ms = 6078.5 tok/s
+[N=32768] prefill 32768 tok: best 7591 ms = 4316.5 tok/s | decode: best 70.56, median 70.06, mean 69.92 tok/s | GPU ms/step: best 14.06, median 14.15, wall best 14.17 | prefill median of 5: 7629.8 ms = 4294.7 tok/s
+[decode depth 32768] Unhandled exception. System.InvalidCastException: Unable to cast object of type 'Sharplight.Llm.Serving.SessionBatchDecoder' to type 'Sharplight.Llm.Serving.MultiSequenceDecoder'.
+[batched depth 256]
+| 1 | 38.0 | 546 / 401 | 7.19 / 7.24, 7.09 |
+| 16 | 47.2 | 618 / 437 | 13.12 / 14.12, 12.95 |
+| 64 | 40.6 | 871 / 582 | 23.30 / 23.62, 23.18 |

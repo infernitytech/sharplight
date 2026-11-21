@@ -1,0 +1,8 @@
+--- rendered prompt ---
+<bos><|turn>user
+Explain in three sentences why the sky is blue.<turn|>
+<|turn>model
+<|channel>thought
+<channel|>
+-----------------------
+Sunlight reaches Earth's atmosphere and is scattered in all directions by the gases and particles in the air. Blue light travels in shorter, smaller waves, which causes it to be scattered more strongly than other colors. As a result, when you look up, your eyes perceive this scattered blue light coming from every part of

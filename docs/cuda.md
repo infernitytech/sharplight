@@ -270,8 +270,10 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   block has the SM to itself: +0.5-1 % at 16K-128K, `SHARPLIGHT_ATTN_STAGES`; 16-byte chunks, XOR swizzle; `ldmatrix` for K, `ldmatrix.trans` for V), one block barrier per tile. Masks are applied only on tiles that cross a row's
   limits (diagonal, window start), and tiles a warp's rows cannot see are skipped by a warp-uniform branch. Blocks run the longest query
   tiles first. It serves sliding windows, chunked attention, soft caps, sinks, grouped-query heads, multi-sequence runs (also paged)
-  and the mixed steps' `MIX_RUN`, at head sizes 64 and 128; score biases, spans, masks, selections and other head sizes keep `fa` /
-  `fe`. gpt-oss-20b prefill attention at 2048 tokens 16.2 → 3.5 ms (FlashInfer 4.4), Qwen3-8B 12.7 → 9.6 ms against `fe`
+  and the mixed steps' `MIX_RUN`, at head sizes that are multiples of 64 up to 256 (32-key tiles above 128) and of 128 up to 512 (Gemma 4's
+  global layers: two warps share each 16-row group, each with half the key and value dimensions, and exchange their partial scores
+  through shared memory; 16-key tiles), [benchmarks.md §74](benchmarks.md); score biases, spans, masks, selections and other head sizes
+  keep `fa` / `fe`. gpt-oss-20b prefill attention at 2048 tokens 16.2 → 3.5 ms (FlashInfer 4.4), Qwen3-8B 12.7 → 9.6 ms against `fe`
   ([benchmarks.md §58](benchmarks.md)). Results differ from `fa` / `fe` by f16 rounding of the probabilities in another summation
   order (as `fa` and `fe` differ from each other). `SHARPLIGHT_NATIVE_ATTN=2` keeps plain causal attention on `fe`; `=0`, or
   disabling the feature, keeps every attention on the generated kernels.
@@ -320,6 +322,15 @@ Qwen3-0.6B decode: 622 → 645 tok/s (GPU time per step 1.51 → 1.46 ms: the la
 gain under 1 % (19.38 → 19.27 ms per step). The host time per step (wall minus GPU time) was already ~0.1 ms with the recordings.
 Disabled with `launch_graphs` in `SHARPLIGHT_DISABLE_FEATURES` / `DeviceOptions.DisabledFeatures`, and in profile and per-launch sync
 modes.
+
+**Parallel branches in captured graphs** ([benchmarks.md §74](benchmarks.md)). The recording takes the Vulkan recorder's launch order and
+hazard batches (`HazardTracker.Order`: independent launches moved into one batch, a batch boundary where a launch reads or writes what an
+earlier launch of the batch touches), and the capture runs a batch's launches side by side: the first on the segment's stream, the others
+on three side streams forked from it by an event and joined back before the next batch (`CudaConcurrentLanes`), so the graph has parallel
+branches where the program has independent launches (sibling matmuls and their activation copies, split-K parts). Launches of a batch of
+several are not programmatic dependents. Uncaptured runs keep one stream. Qwen3-8B Q4_K_M decode steps at 1 / 16 / 32 / 64 sequences
+-2.6 / -2 / -4 / -6.7 % (64: 24.69 → 23.03 ms), Qwen3.8 27B -1.5-2 %, Gemma 4 31B -1.2-2.7 %; greedy text byte-identical.
+`SHARPLIGHT_CUDA_CONCURRENT=0` keeps the captured launches on one stream.
 
 **Dependent launches** (`dependent_launches`, compute capability 9.0+). From 9.0 the translator starts every kernel (Slang output
 and CUDA C++) with `griddepcontrol.wait; griddepcontrol.launch_dependents;` and marks its PTX with a header line

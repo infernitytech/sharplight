@@ -10,7 +10,8 @@ namespace Sharplight.Cuda;
 /// <summary>
 /// A compiled segment on a CUDA device: owns the device buffers of its <see cref="KernelProgram"/> and launches its kernels on a stream of
 /// its own, from a recording per distinct binding of the symbolic dimensions (kernels, arguments and grids resolved once). Launches on one
-/// stream run in order, so no barriers are needed. Small inputs and outputs are copied asynchronously on the stream through page-locked staging (<see cref="CudaHostStaging"/>), larger ones synchronously. An execution returns once its work is
+/// stream run in order, so no barriers are needed; a captured step graph runs the launches of each hazard batch (the Vulkan recorder's
+/// barrier placement) side by side on side streams (<see cref="CudaConcurrentLanes"/>). Small inputs and outputs are copied asynchronously on the stream through page-locked staging (<see cref="CudaHostStaging"/>), larger ones synchronously. An execution returns once its work is
 /// submitted (the host can prepare the next step meanwhile); the segment waits for it before it reads an output, takes an input, copies
 /// state or runs again, and before another segment of the device runs (<see cref="CudaDevice.Pending"/>). Profiled executions wait at once.
 /// </summary>
@@ -75,6 +76,12 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private bool _previousOneWave;
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
+
+    /// <summary>Side streams of captured graphs (<see cref="DiagnosticSwitches.ConcurrentLaunches"/>), created at the first capture.</summary>
+    private CudaConcurrentLanes? _lanes;
+
+    /// <summary>Barrier placement of each recorded launch set (see <see cref="HazardTracker.Order(IReadOnlyList{KernelLaunch}, Bindings, bool, Dictionary{string, ValueTuple{int, bool}[]}, int)"/>).</summary>
+    private readonly Dictionary<string, (int Index, bool BarrierBefore)[]> _orders = [];
     private readonly nint _start;
     private readonly nint _end;
     /// <summary>Pinned host copy of the runtime scalar slots, uploaded at the start of every execution.</summary>
@@ -1075,9 +1082,16 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             QueueInputCopies(bindings);
             CudaApi.Check(CudaApi.cuEventRecordWithFlags(_start, _stream, CudaApi.EventRecordExternal), "cuEventRecordWithFlags");
             _previousOneWave = false;
-            foreach (var launch in recording)
+            if (DiagnosticSwitches.ConcurrentLaunches)
             {
-                Launch(launch);
+                LaunchBatches(recording);
+            }
+            else
+            {
+                foreach (var launch in recording)
+                {
+                    Launch(launch);
+                }
             }
 
             CudaApi.Check(CudaApi.cuEventRecordWithFlags(_end, _stream, CudaApi.EventRecordExternal), "cuEventRecordWithFlags");
@@ -1172,14 +1186,16 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             _previousOneWave = false;
         }
 
-        // Program order; one stream needs no barriers, so the hazard tracking of the Vulkan recorder is skipped.
-        foreach (var item in launches)
+        // The order and hazard batches of the Vulkan recorder (independent launches moved into the same batch); a captured graph runs a
+        // batch's launches side by side (LaunchBatches), everything else runs them in this order on one stream. Profiling keeps program order.
+        bool reorder = DiagnosticSwitches.ConcurrentLaunches && !Profile;
+        bool barrierPending = true;
+        // The order cache holds the program's launch list only (other lists, such as state copies, are ordered afresh).
+        var ordered = ReferenceEquals(launches, _program.Launches) ? HazardTracker.Order(launches, bindings, reorder, _orders, 0)
+            : HazardTracker.Order(launches, bindings, reorder);
+        foreach (var (item, _, variant, barrierBefore) in ordered)
         {
-            if (item.Select(bindings) is not { } variant)
-            {
-                continue;
-            }
-
+            barrierPending |= barrierBefore;
             var grid = variant.Grid(bindings);
             if (grid.X == 0 || grid.Y == 0 || grid.Z == 0)
             {
@@ -1188,7 +1204,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
             var kernel = _dev.Kernel(variant.Kernel);
             recorded.Add(new CudaRecordedLaunch(item.Name, ProfileName(item.Name, variant.Kernel.EntryPoint), kernel, grid.X, grid.Y, grid.Z,
-                PackArguments(item, bindings, kernel.TensorMaps)));
+                PackArguments(item, bindings, kernel.TensorMaps), barrierPending));
+            barrierPending = false;
             if (launch)
             {
                 Launch(recorded[^1]);
@@ -1300,7 +1317,48 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         return ms;
     }
 
-    private void Launch(CudaRecordedLaunch launch)
+    /// <summary>
+    /// Launches a recording inside a stream capture, its hazard batches one after another and the launches of a batch side by side: the
+    /// first on the segment's stream, the others on the side lanes forked from it and joined back before the next batch. Launches of a
+    /// batch of several are never programmatic dependents (their stream predecessor is not their producer); a single-launch batch keeps
+    /// the dependent launch where the previous batch was one launch too.
+    /// </summary>
+    private void LaunchBatches(CudaRecordedLaunch[] recording)
+    {
+        _lanes ??= new CudaConcurrentLanes();
+        for (int begin = 0; begin < recording.Length;)
+        {
+            int end = begin + 1;
+            while (end < recording.Length && !recording[end].BarrierBefore)
+            {
+                end++;
+            }
+
+            if (end - begin == 1)
+            {
+                Launch(recording[begin]);
+                begin = end;
+                continue;
+            }
+
+            _lanes.Fork(_stream);
+            _previousOneWave = false;
+            Launch(recording[begin]);
+            for (int i = begin + 1; i < end; i++)
+            {
+                _previousOneWave = false;
+                Launch(recording[i], _lanes.Stream(i - begin - 1));
+            }
+
+            _lanes.Join(_stream);
+            _previousOneWave = false;
+            begin = end;
+        }
+    }
+
+    private void Launch(CudaRecordedLaunch launch) => Launch(launch, _stream);
+
+    private void Launch(CudaRecordedLaunch launch, nint stream)
     {
         var kernel = launch.Kernel;
         if (kernel.Library is { } gemm)
@@ -1308,7 +1366,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             // Library GEMM: arguments x, w, y (device addresses), then the row count.
             var args = launch.Arguments;
             _previousOneWave = false;
-            _dev.Blas!.Gemm(_stream, gemm.Type, gemm.N, gemm.K, BitConverter.ToUInt32(args, 24),
+            _dev.Blas!.Gemm(stream, gemm.Type, gemm.N, gemm.K, BitConverter.ToUInt32(args, 24),
                 BitConverter.ToUInt64(args, 0), BitConverter.ToUInt64(args, 8), BitConverter.ToUInt64(args, 16));
             if (DiagnosticSwitches.SyncEachLaunch)
             {
@@ -1328,7 +1386,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             int result = dependent
                 ? LaunchDependent(kernel, launch, &parameter)
                 : CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
-                    (uint)kernel.SharedBytes, _stream, &parameter, null);
+                    (uint)kernel.SharedBytes, stream, &parameter, null);
             if (result != 0)
             {
                 throw new CudaException(result, $"CUDA launch of {launch.Name} (grid {launch.GridX}x{launch.GridY}x{launch.GridZ}) failed: {CudaApi.ErrorText(result)}");
@@ -1499,6 +1557,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             CudaApi.cuEventDestroy(_end);
         }
 
+        _lanes?.Dispose();
         if (_stream != 0)
         {
             CudaApi.cuStreamDestroy(_stream);

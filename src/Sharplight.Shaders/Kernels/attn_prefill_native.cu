@@ -1,7 +1,8 @@
 // Causal prefill attention against an f16 KV cache written in CUDA C++ for the CUDA provider (DeviceFeatures.NativeAttention, compute
 // capability 8.0 and later), in the FlashAttention-2 form: a block handles FN_BR = 16 * FN_MR * FN_WARPS consecutive queries of one head;
 // each warp owns 16 * FN_MR query rows for the whole key loop, so its query fragments (Q · SCALE in f16), score accumulators,
-// softmax statistics and output accumulators stay in registers. The block shares tiles of FN_BC = 64 keys and values, copied with cp.async into a two-stage
+// softmax statistics and output accumulators stay in registers. The block shares tiles of FN_BC keys and values (64; 32 above head size
+// 128, where a warp's output accumulators alone take 128 registers and a 64-key stage 64 KiB), copied with cp.async into a two-stage
 // ring of dynamic shared memory (rows of 16-byte chunks, XOR swizzle so the copies and ldmatrix are free of bank conflicts) while the
 // previous tile is multiplied: one block barrier per tile. FN_STAGES = 3 keeps two tiles in flight (one block per SM at head size 128,
 // where a tile's copy takes about as long as its multiplication). Per tile a warp computes S = Q · Kᵀ (mma.sync.m16n8k16, f32), applies the
@@ -10,15 +11,23 @@
 // accumulator layout that is the A-operand layout of the next MMA, with the value tile (ldmatrix.trans). Tiles a warp's rows cannot see
 // are skipped by a warp-uniform branch. Blocks run the longest query tiles first.
 //
+// Head sizes above 256 (Gemma 4's 512) split the head dimensions over a pair of warps (FN_DS = 2): both warps of a pair own the same
+// 16 * FN_MR query rows, each holds the query fragments of its half of the key dimensions and the output accumulators of its half of
+// the value dimensions, so their registers are those of head size 256. Per tile each warp multiplies its half of Q · Kᵀ, the two
+// partial score tiles are exchanged through shared memory (one named barrier per pair and tile; the block barrier at the top of the
+// next tile keeps a warp from overwriting its slot before the partner has read it) and
+// summed (a + b in both warps, so both see the same scores and run the same softmax), and each warp multiplies P with its half of V.
+//
 // Semantics are those of `fa` in attention.slang for the forms it serves: query t (position n_past + t) sees cache keys [rowBeg, n_past +
 // t] with rowBeg = 0, or n_past + t + 1 - WINDOW (sliding window), or the start of its CHUNK; HAS_SOFTCAP caps the scores; HAS_SINKS adds
 // the per-head sink logit to the softmax denominator; GQA heads read KV head h / (HQ / HKV). MULTI_SEQ: grid z = runs (slot, first row,
 // row count, first position), optionally PAGED; MIX_RUN skips runs shorter than MIX_RUN rows (mixed steps).
 //
-// Macros: HQ, HKV, D, DV (multiples of 64 up to 128), VRS (value row stride), QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP,
+// Macros: HQ, HKV, D, DV (multiples of 64 up to 256), VRS (value row stride), QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP,
 // HAS_SINKS, MULTI_SEQ, SLOT_CTX, PAGED, PAGE_BS, PAGE_MB, RT_N_PAST, MIX_RUN, FN_WARPS (4 or 8), FN_MR (16-row fragments per
 // warp, default 1; the lowering takes 2 at head size 64, where deep contexts gain 7-12 %, and 1 at 128, where 2 spills), FN_STAGES
-// (2 or 3, default 2).
+// (2 or 3, default 2), FN_BC (keys per tile, 16, 32 or 64; default 64 up to head size 128, 32 up to 256, else 16).
+// Dynamic shared memory: FN_STAGES stages of FN_BC key and value rows, then (FN_DS = 2) the score exchange of FN_XCH floats.
 // Grid: x = HQ, y = query tiles (of the longest run), z = runs (1 without MULTI_SEQ).
 #ifndef FN_WARPS
 #define FN_WARPS 4
@@ -54,22 +63,29 @@
 #define FN_STAGES 2
 #endif
 #define FN_THREADS (FN_WARPS * 32)
+#define FN_DS ((D > 256 || DV > 256) ? 2 : 1)   // warps sharing a row group (head dimensions split between them)
 #define FN_WR (FN_MR * 16)          // query rows per warp
-#define FN_BR (FN_WARPS * FN_WR)
-#define FN_BC 64
+#define FN_BR (FN_WARPS / FN_DS * FN_WR)
+#ifndef FN_BC
+#define FN_BC ((D > 256 || DV > 256) ? 16 : (D > 128 || DV > 128) ? 32 : 64)
+#endif
+#define FN_NB (FN_BC / 8)           // 8-key score fragments of a tile
+#define FN_KK (FN_BC / 16)          // 16-key K steps of P · V
 #define FN_KCH (D / 8)              // 16-byte chunks per key row
 #define FN_VCH (DV / 8)
 #define FN_KT (FN_BC * D)           // halves of a K tile
 #define FN_VT (FN_BC * DV)
 #define FN_STAGE (FN_KT + FN_VT)    // halves of one stage
-#define FN_ND (D / 16)              // K steps of S = Q · Kᵀ
-#define FN_NO (DV / 8)              // output fragments of a warp's rows
+#define FN_ND (D / FN_DS / 16)      // K steps of a warp's S = Q · Kᵀ
+#define FN_NO (DV / FN_DS / 8)      // output fragments of a warp's rows
+#define FN_XCH (FN_WARPS * FN_MR * FN_NB * 4 * 32)   // floats of the score exchange (FN_DS = 2)
 #define FN_L2E 1.4426950408889634f
 #define FN_SCALE ((float)(SCALE))   // the macros are double literals
 #define FN_SOFTCAP ((float)(SOFTCAP))
 #define FN_NEG (-1.0e30f)
 
-#if (D % 64) != 0 || (DV % 64) != 0 || D > 128 || DV > 128 || (HQ % HKV) != 0
+#if (D % (64 * FN_DS)) != 0 || (DV % (64 * FN_DS)) != 0 || D > 512 || DV > 512 || (HQ % HKV) != 0 || (FN_BC != 16 && FN_BC != 32 && FN_BC != 64) \
+    || (FN_WARPS % FN_DS) != 0
 #error "attn_prefill_native: unsupported head sizes"
 #endif
 
@@ -179,6 +195,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const fn_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
+    const fn_u32 rowGroup = warp / FN_DS, part = warp % FN_DS;   // the warp's rows and its half of the head dimensions
     const fn_u32 g = lane >> 2, c4 = lane & 3;
     const fn_u32 h = blockIdx.x, hk = h / (HQ / HKV);
     const fn_u32 blk = gridDim.y - 1 - blockIdx.y;   // longest query tiles first
@@ -237,7 +254,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
     }
 
     // This warp's rows: tw0 + 16 mr + g (a) and + 8 (b); Q · SCALE as A fragments.
-    const fn_u32 tw0 = t0 + warp * FN_WR;
+    const fn_u32 tw0 = t0 + rowGroup * FN_WR;
     fn_u32 qa[FN_MR][FN_ND][4];
 #pragma unroll
     for (fn_u32 mr = 0; mr < FN_MR; mr++)
@@ -248,7 +265,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
 #pragma unroll
         for (fn_u32 kc = 0; kc < FN_ND; kc++)
         {
-            fn_u32 d = kc * 16 + 2 * c4;
+            fn_u32 d = part * (D / FN_DS) + kc * 16 + 2 * c4;
             float2 a0 = *(const float2*)(qra + d), a1 = *(const float2*)(qrb + d);
             float2 a2 = *(const float2*)(qra + d + 8), a3 = *(const float2*)(qrb + d + 8);
             qa[mr][kc][0] = fn_pack(a0.x * FN_SCALE, a0.y * FN_SCALE);
@@ -308,25 +325,25 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
 
         const fn_u32 kbase = sbase + stage * FN_STAGE * 2;
         const fn_u32 vbase = kbase + FN_KT * 2;
-        float s[FN_MR][8][4];
+        float s[FN_MR][FN_NB][4];
 #pragma unroll
         for (fn_u32 mr = 0; mr < FN_MR; mr++)
         {
 #pragma unroll
-            for (fn_u32 i = 0; i < 8; i++)
+            for (fn_u32 i = 0; i < FN_NB; i++)
             {
                 s[mr][i][0] = s[mr][i][1] = s[mr][i][2] = s[mr][i][3] = 0.0f;
             }
         }
         // S = Q · Kᵀ: matrices of ldmatrix.x4 m = lane / 8: keys nb * 16 + (m / 2) * 8 + lane % 8, chunk kc * 2 + m % 2.
 #pragma unroll
-        for (fn_u32 nb = 0; nb < 4; nb++)
+        for (fn_u32 nb = 0; nb < FN_KK; nb++)
         {
             const fn_u32 r = nb * 16 + ((lane >> 4) << 3) + (lane & 7);
 #pragma unroll
             for (fn_u32 kc = 0; kc < FN_ND; kc++)
             {
-                const fn_u32 ch = kc * 2 + ((lane >> 3) & 1);
+                const fn_u32 ch = part * (D / FN_DS / 8) + kc * 2 + ((lane >> 3) & 1);
                 fn_u32 b0, b1, b2, b3;
                 fn_ldsm4(kbase + (r * D + ((ch ^ (r & 7)) * 8)) * 2, b0, b1, b2, b3);
 #pragma unroll
@@ -338,14 +355,51 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
             }
         }
 
-        fn_u32 pf[FN_MR][4][4];   // probabilities as A fragments of P · V (16 keys per K step)
+#if FN_DS == 2
+        // The pair's partial scores: this warp's into its slot of the tile's buffer, then the partner's added (a + b alike in both).
+        {
+            float* xch = (float*)(smem + FN_STAGES * FN_STAGE * 2);
+            float* mine = xch + warp * (FN_MR * FN_NB * 4 * 32);
+            const float* other = xch + (warp ^ 1) * (FN_MR * FN_NB * 4 * 32);
+#pragma unroll
+            for (fn_u32 mr = 0; mr < FN_MR; mr++)
+            {
+#pragma unroll
+                for (fn_u32 i = 0; i < FN_NB; i++)
+                {
+#pragma unroll
+                    for (fn_u32 e = 0; e < 4; e++)
+                    {
+                        mine[((mr * FN_NB + i) * 4 + e) * 32 + lane] = s[mr][i][e];
+                    }
+                }
+            }
+            asm volatile("bar.sync %0, 64;\n" :: "r"(1 + rowGroup));
+#pragma unroll
+            for (fn_u32 mr = 0; mr < FN_MR; mr++)
+            {
+#pragma unroll
+                for (fn_u32 i = 0; i < FN_NB; i++)
+                {
+#pragma unroll
+                    for (fn_u32 e = 0; e < 4; e++)
+                    {
+                        const float x = other[((mr * FN_NB + i) * 4 + e) * 32 + lane];
+                        s[mr][i][e] = part == 0 ? s[mr][i][e] + x : x + s[mr][i][e];
+                    }
+                }
+            }
+        }
+#endif
+
+        fn_u32 pf[FN_MR][FN_KK][4];   // probabilities as A fragments of P · V (16 keys per K step)
         const bool masked = j0 + FN_BC > warpEndMin || j0 < warpBegMax;
 #pragma unroll
         for (fn_u32 mr = 0; mr < FN_MR; mr++)
         {
 #if HAS_SOFTCAP
 #pragma unroll
-            for (fn_u32 i = 0; i < 8; i++)
+            for (fn_u32 i = 0; i < FN_NB; i++)
             {
 #pragma unroll
                 for (fn_u32 e = 0; e < 4; e++)
@@ -368,7 +422,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
                 begB = max(begB, (endB - 1) / CHUNK * CHUNK);
 #endif
 #pragma unroll
-                for (fn_u32 i = 0; i < 8; i++)
+                for (fn_u32 i = 0; i < FN_NB; i++)
                 {
 #pragma unroll
                     for (fn_u32 e = 0; e < 2; e++)
@@ -386,10 +440,10 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
                 }
             }
 
-            // Online softmax of rows a and b (the four lanes of a row hold its 64 scores).
+            // Online softmax of rows a and b (the four lanes of a row hold its FN_BC scores).
             float xa = s[mr][0][0], xb = s[mr][0][2];
 #pragma unroll
-            for (fn_u32 i = 0; i < 8; i++)
+            for (fn_u32 i = 0; i < FN_NB; i++)
             {
                 xa = fmaxf(xa, fmaxf(s[mr][i][0], s[mr][i][1]));
                 xb = fmaxf(xb, fmaxf(s[mr][i][2], s[mr][i][3]));
@@ -406,7 +460,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
             const float sa = nA == FN_NEG ? 0.0f : nA * FN_L2E, sb = nB == FN_NEG ? 0.0f : nB * FN_L2E;
             float pa = 0.0f, pb = 0.0f;
 #pragma unroll
-            for (fn_u32 i = 0; i < 8; i++)
+            for (fn_u32 i = 0; i < FN_NB; i++)
             {
                 float p0 = fn_exp2(s[mr][i][0] * FN_L2E - sa);
                 float p1 = fn_exp2(s[mr][i][1] * FN_L2E - sa);
@@ -431,13 +485,13 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
 
         // O += P · V: ldmatrix.x4.trans matrices m = lane / 8: keys kk * 16 + (m % 2) * 8 + lane % 8, chunk dn * 2 + m / 2.
 #pragma unroll
-        for (fn_u32 kk = 0; kk < 4; kk++)
+        for (fn_u32 kk = 0; kk < FN_KK; kk++)
         {
             const fn_u32 r = kk * 16 + (((lane >> 3) & 1) << 3) + (lane & 7);
 #pragma unroll
-            for (fn_u32 dn = 0; dn < DV / 16; dn++)
+            for (fn_u32 dn = 0; dn < DV / FN_DS / 16; dn++)
             {
-                const fn_u32 ch = dn * 2 + (lane >> 4);
+                const fn_u32 ch = part * (DV / FN_DS / 8) + dn * 2 + (lane >> 4);
                 fn_u32 b0, b1, b2, b3;
                 fn_ldsm4t(vbase + (r * DV + ((ch ^ (r & 7)) * 8)) * 2, b0, b1, b2, b3);
 #pragma unroll
@@ -474,8 +528,8 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
         fA = lA > 0.0f ? fA / lA : 0.0f;
         fB = lB > 0.0f ? fB / lB : 0.0f;
         const fn_u32 ta = tw0 + mr * 16 + g, tb = ta + 8;
-        float* oa = p.o + ((fn_u64)(qRow0 + ta) * HQ + h) * DV + 2 * c4;
-        float* ob = p.o + ((fn_u64)(qRow0 + tb) * HQ + h) * DV + 2 * c4;
+        float* oa = p.o + ((fn_u64)(qRow0 + ta) * HQ + h) * DV + part * (DV / FN_DS) + 2 * c4;
+        float* ob = p.o + ((fn_u64)(qRow0 + tb) * HQ + h) * DV + part * (DV / FN_DS) + 2 * c4;
 #pragma unroll
         for (fn_u32 i = 0; i < FN_NO; i++)
         {
