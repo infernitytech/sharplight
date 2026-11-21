@@ -680,6 +680,19 @@ public sealed class CompiledModel : IDisposable
     }
 
     /// <summary>
+    /// Before segment <paramref name="i"/> runs on a device without sleeping host threads, wakes those of the next segment when it runs on
+    /// them (<see cref="IWakeableSegment"/>, the CPU's experts in decode), so their first parallel loop does not wait for the wake-ups.
+    /// </summary>
+    private void WakeNext(int i, RunParameters parameters)
+    {
+        if (i + 1 < _segments.Length && _segments[i] is not IWakeableSegment && _segments[i + 1] is IWakeableSegment next
+            && Runner(i + 1, parameters) == next)
+        {
+            next.Wake();
+        }
+    }
+
+    /// <summary>
     /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>) into
     /// <paramref name="streamed"/>. A segment that does not compile (an unsupported kernel; no memory left unless <paramref name="throwOnOom"/>)
     /// keeps running on the CPU only.
@@ -878,6 +891,7 @@ public sealed class CompiledModel : IDisposable
         for (int i = 0; i < _segments.Length; i++)
         {
             long started = _segmentTimes is null ? 0 : Stopwatch.GetTimestamp();
+            WakeNext(i, parameters);
             if (RunSplit(i, parameters))
             {
                 if (_segmentTimes is not null)

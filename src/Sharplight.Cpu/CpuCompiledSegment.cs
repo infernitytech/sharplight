@@ -15,7 +15,7 @@ namespace Sharplight.Cpu;
 /// arithmetic), <c>Arena</c> (liveness-based packing), <c>Lowering</c> (node dispatch) and one <c>Lower*</c> file per
 /// op category.
 /// </remarks>
-internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPartialOutputSegment
+internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPartialOutputSegment, IWakeableSegment
 {
     private readonly GraphSegment _segment;
     private readonly CompileOptions _options;
@@ -108,6 +108,9 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
 
         data.CopyTo(new Span<byte>(r.P, data.Length));
     }
+
+    /// <inheritdoc />
+    public void Wake() => CpuParallel.Wake();
 
     /// <inheritdoc />
     public void Execute(RunParameters parameters)

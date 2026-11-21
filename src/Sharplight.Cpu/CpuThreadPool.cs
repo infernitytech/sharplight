@@ -16,15 +16,25 @@ internal sealed class CpuThreadPool
 
     private readonly object _gate = new();
     private readonly long _spinTicks;
+    private readonly long _wakeTicks;
+    /// <summary>Timestamp until which idle workers spin after a <see cref="Wake"/>.</summary>
+    private long _wakeUntil;
+    /// <summary>Workers blocked on the monitor (they spin again when a <see cref="Wake"/> pulses it).</summary>
+    private int _sleepers;
+    private long _wakes;
     private readonly int _workers;
     private CpuThreadJob? _job;
     private long _generation;
 
-    /// <summary>Starts <paramref name="workers"/> background threads that spin <paramref name="spinMicroseconds"/> after each job.</summary>
-    public CpuThreadPool(int workers, int spinMicroseconds)
+    /// <summary>
+    /// Starts <paramref name="workers"/> background threads that spin <paramref name="spinMicroseconds"/> after each job and
+    /// <paramref name="wakeMicroseconds"/> after a <see cref="Wake"/>.
+    /// </summary>
+    public CpuThreadPool(int workers, int spinMicroseconds, int wakeMicroseconds)
     {
         _workers = workers;
         _spinTicks = Stopwatch.Frequency * spinMicroseconds / 1_000_000;
+        _wakeTicks = Stopwatch.Frequency * wakeMicroseconds / 1_000_000;
         for (int i = 0; i < workers; i++)
         {
             int id = i;
@@ -65,6 +75,27 @@ internal sealed class CpuThreadPool
         job.Error?.Throw();
     }
 
+    /// <summary>
+    /// Has the workers spin for the wake time from now, waking the blocked ones, so that a job expected soon (the CPU part of a pass that
+    /// follows a GPU segment) starts without the wake-ups: blocked workers reacquire the monitor one after another, which takes longer than
+    /// the small jobs of a decode step.
+    /// </summary>
+    public void Wake()
+    {
+        // Full fences on both sides (here and in WaitForJob): a worker going to sleep sees the deadline, or this sees the sleeper.
+        Interlocked.Exchange(ref _wakeUntil, Stopwatch.GetTimestamp() + _wakeTicks);
+        if (Volatile.Read(ref _sleepers) == 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _wakes++;
+            Monitor.PulseAll(_gate);
+        }
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void WorkerLoop(int id)
     {
@@ -80,35 +111,62 @@ internal sealed class CpuThreadPool
         }
     }
 
-    /// <summary>Spins for the configured time after the last job, then blocks until the generation changes.</summary>
+    /// <summary>
+    /// Spins for the configured time after the last job (or until the wake deadline), then blocks until the generation changes or a
+    /// <see cref="Wake"/> restarts the spinning.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private long WaitForJob(long seen)
     {
-        long start = Stopwatch.GetTimestamp();
-        int checks = 0;
         while (true)
         {
-            long generation = Volatile.Read(ref _generation);
-            if (generation != seen)
+            long start = Stopwatch.GetTimestamp();
+            int checks = 0;
+            while (true)
             {
-                return generation;
+                long generation = Volatile.Read(ref _generation);
+                if (generation != seen)
+                {
+                    return generation;
+                }
+
+                Thread.SpinWait(16);
+                if (++checks % SpinChecksPerClockRead == 0)
+                {
+                    long now = Stopwatch.GetTimestamp();
+                    if (now - start > _spinTicks && now > Volatile.Read(ref _wakeUntil))
+                    {
+                        break;
+                    }
+                }
             }
 
-            Thread.SpinWait(16);
-            if (++checks % SpinChecksPerClockRead == 0 && Stopwatch.GetTimestamp() - start > _spinTicks)
+            Interlocked.Increment(ref _sleepers);
+            try
             {
-                break;
-            }
-        }
+                if (Stopwatch.GetTimestamp() <= Interlocked.Read(ref _wakeUntil))
+                {
+                    continue;
+                }
 
-        lock (_gate)
-        {
-            while (_generation == seen)
+                lock (_gate)
+                {
+                    long wakes = _wakes;
+                    while (_generation == seen && _wakes == wakes)
+                    {
+                        Monitor.Wait(_gate);
+                    }
+
+                    if (_generation != seen)
+                    {
+                        return _generation;
+                    }
+                }
+            }
+            finally
             {
-                Monitor.Wait(_gate);
+                Interlocked.Decrement(ref _sleepers);
             }
-
-            return _generation;
         }
     }
 }
