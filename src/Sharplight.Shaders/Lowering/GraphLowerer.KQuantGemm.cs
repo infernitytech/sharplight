@@ -58,6 +58,13 @@ public sealed partial class GraphLowerer
     private static int NativeKQuantTileRows(long rows) => DiagnosticSwitches.NativeKQuantTileRows ?? (rows <= 16 ? 16 : rows <= 32 ? 32 : 64);
 
     /// <summary>
+    /// True when the hand-written K-quant decode GEMM can take decode batches of <paramref name="type"/> weights on this device (the format
+    /// and the feature; the shape is checked per matmul, <see cref="UseNativeKQuantDecode"/>), so the skinny GEMM leaves those batches to it.
+    /// </summary>
+    private bool UsesNativeKQuantDecode(DataType type)
+        => NativeKQuantBlockBytes(type) > 0 && _opt.Has(DeviceFeatures.NativeGemmKQuant) && _compiler.CompilesCuda(_opt.Target) && NativeKQuantMinRows <= MatvecMaxRows + 1;
+
+    /// <summary>
     /// True when K-quant weights of <paramref name="type"/> [<paramref name="n"/>, <paramref name="k"/>] read by the f16 copy of x
     /// (<paramref name="macros"/>) run their decode batches on the hand-written K-quant GEMM (<see cref="DeviceFeatures.NativeGemmKQuant"/>,
     /// <c>gemm_kq_native.cu</c>): Q4_K, Q5_K or Q6_K, whole blocks per row, on a target that takes CUDA C++ with room for two stages.

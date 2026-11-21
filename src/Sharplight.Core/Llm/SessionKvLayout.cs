@@ -39,7 +39,7 @@ internal sealed class SessionKvLayout
 
     /// <summary>
     /// The layout of a session over <paramref name="graph"/> with a context of <paramref name="contextLength"/> rows and passes of up to
-    /// <paramref name="maxTokens"/> rows, or null when the graph has no window-sized caches, a ring would not be smaller than the context,
+    /// <paramref name="maxTokens"/> rows, or null when the graph has no window-sized caches, a ring would hold more than half the context,
     /// or the graph has no multi-sequence form.
     /// </summary>
     public static SessionKvLayout? For(ComputeGraph graph, int contextLength, int maxTokens, int blockSize)
@@ -57,7 +57,9 @@ internal sealed class SessionKvLayout
 
         int blocksPerSlot = (contextLength + blockSize - 1) / blockSize;
         int ringBlocks = RingBlocks(window, Math.Min(maxTokens, contextLength), blockSize);
-        return ringBlocks < blocksPerSlot ? new SessionKvLayout(blockSize, blocksPerSlot, window, ringBlocks * blockSize) : null;
+        // The one-slot paged form costs ~2 % of a decode step on CUDA (Gemma 4 31B: 26.13 → 26.68 GPU ms at 512 positions), so it is
+        // used where the ring at most halves the window layers' caches.
+        return ringBlocks * 2 <= blocksPerSlot ? new SessionKvLayout(blockSize, blocksPerSlot, window, ringBlocks * blockSize) : null;
     }
 
     /// <summary>
