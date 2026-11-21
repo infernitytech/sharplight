@@ -1,14 +1,16 @@
 #!/bin/bash
 # Long-context comparison against vLLM (docs/benchmarks.md section 58.8): prefill at LENS tokens (also the single-prompt TTFT), decode
-# of one stream at each length (`--bench`), decode of STREAMS streams at DEPTHS (BatchBench), CUDA profiles of the prefill at
+# of one stream at each length (`--bench`), decode of STREAMS streams at DEPTHS (BatchBench, by default with `--feedback`: each step's
+# tokens come from the previous step's output, as vLLM's generated tokens do, so the MoE routing is like for like), CUDA profiles of the prefill at
 # PROFILE_LENS, then the same points on vLLM. Every run is bounded (RUN_TIMEOUT) and waits for a GPU without other compute processes
 # (up to QUIET_MAX seconds); the vLLM run holds LOCK.
 # usage: s58_long.sh <out dir> <name> <model dir> [sharplight|vllm|both]
 # env: LENS (default "16384 32768 65536 131072"), DEPTHS ("32768 131072"), STREAMS ("4"), PROFILE_LENS ("32768 131072"),
-#      VLLM_VENV, VLLM_ARGS (e.g. "--gpu-util 0.92 --kv fp8"), SL_ARGS, RUN_TIMEOUT (1800 s), QUIET_MAX (900 s), LOCK.
+#      VLLM_VENV, VLLM_ARGS (e.g. "--gpu-util 0.92 --kv fp8"), SL_ARGS, DECODE_ARGS (BatchBench's decode options, default "--feedback";
+#      "" repeats fixed ids as before section 73), RUN_TIMEOUT (1800 s), QUIET_MAX (900 s), LOCK.
 HERE="$(cd "$(dirname "$0")" && pwd)"; OUT=${1:?out dir}; NAME=${2:?name}; MODEL=${3:?model}; WHICH=${4:-both}; mkdir -p "$OUT"
 LENS=${LENS:-"16384 32768 65536 131072"}; DEPTHS=${DEPTHS:-"32768 131072"}; STREAMS=${STREAMS:-"4"}; PROFILE_LENS=${PROFILE_LENS:-"32768 131072"}
-T=${RUN_TIMEOUT:-1800}; LOCK=${LOCK:-$HOME/.sl-verify.lock}
+T=${RUN_TIMEOUT:-1800}; DECODE_ARGS=${DECODE_ARGS---feedback}; LOCK=${LOCK:-$HOME/.sl-verify.lock}
 CLI=$HERE/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight
 BB=$HERE/BatchBench/bin/Release/net11.0/BatchBench
 quiet() { local t=0; while [ -n "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]; do sleep 10; t=$((t + 10)); [ $t -ge "${QUIET_MAX:-900}" ] && { echo "(GPU busy)"; return 1; }; done; return 0; }
@@ -24,7 +26,7 @@ if [ "$WHICH" != vllm ]; then
     q=$(quiet)
     # shellcheck disable=SC2086
     r=$(timeout "$T" "$BB" "$MODEL" --provider cuda --slots "$(echo $STREAMS | tr ' ' '\n' | sort -n | tail -1)" --ctx $((D + 512)) --depth "$D" --batch 2048 \
-      --sizes "1,$(echo $STREAMS | tr ' ' ',')" --modes greedy --reps 5 2>&1 | grep -E '^\| [0-9]|rror|xception' | head -4)
+      --sizes "1,$(echo $STREAMS | tr ' ' ',')" --modes greedy --reps 5 $DECODE_ARGS 2>&1 | grep -E '^\| [0-9]|rror|xception' | head -4)
     echo "[decode depth $D] ${r:-failed or timed out} $q" | tr '\n' ' ' >> "$S"; echo >> "$S"
   done
   for N in $PROFILE_LENS; do

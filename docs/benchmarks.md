@@ -10488,3 +10488,156 @@ for v in 0 1; do SHARPLIGHT_NATIVE_DECODE=$v $BB ~/models/hf/gpt-oss-20b --provi
 python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --seqs 64 --words
 # 72.3: git apply bench/results/s72/rejected/moe_operand_swap.diff, then bench/s56_moe with -DNM_SWAP=0/1 (§70.7's command)
 ```
+
+## 73. LLM round 23: the expert GEMM against Marlin on the same routing, at the power limit; like-for-like decode baselines (2026-11-21)
+
+Branch `perf/llm-r23` (base `develop` at `776eaf04`, round 22 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs,
+200 W cap, performance counters blocked), shared with other agents: every timed run held the verify lock, variants alternated in the same
+hold, one disturbed hold (another process allocated 26.7 GB during it) discarded. vLLM 0.33.0 (§56's CUDA build), its profiles and the
+long-context runs inside the final measurements' hold. This round changes no engine code: it measures where the expert GEMM's gap to
+Marlin is (lever 1 of §72.6), rejects six kernel variants, and makes the long-context decode points like for like (lever 3). Raw
+output in [`bench/results/s73/`](../bench/results/s73).
+
+New tools: `bench/s73_clock_sampler.py` (NVML SM / memory clock, power, temperature and clock-event reasons every 2 ms while a command
+runs), `bench/s73_marlin_replay.py` (vLLM's `moe_wna16_marlin_gemm` on recorded routings, 24 weight copies, one CUDA graph, in vLLM's
+padded gpt-oss shapes: hidden 3072, intermediate 2944, 9 % more weight bytes than the checkpoint's 2880), `bench/s73_vllm_routing.py`
+(vLLM's own decode routing as a routing file), `SUSTAINED_ONLY` / `PER_ROUTE` in `bench/s56_moe`, `--skip N` in
+`s54_vllm_decode_profile.py`, and `s58_long.sh` decode points with `--feedback` (`DECODE_ARGS`).
+
+### 73.1 Against vLLM (final hold; same build before and after: what changed is the accounting)
+
+| benchmark (CUDA) | Sharplight | vLLM | ours / vLLM (§72 → like for like) |
+|---|---:|---:|---:|
+| gpt-oss-20b decode step, 64 sequences, `--text` (GPU ms; vLLM profile + 1.6 ms LM head and sampling, §64) | 17.71-17.79 (two runs) | 15.25 + 1.6 = 16.85 (all 61 steps), 15.53 + 1.6 = 17.13 (steps 6-61) | 0.99 → 0.95-0.96 (this hold) |
+| gpt-oss-20b decode step, 64 sequences, `--feedback` | 16.42-16.45 | 16.3 (§64, random-token prompts) | 0.99 |
+| gpt-oss-20b decode step, 1 / 16 sequences, `--text` | 5.26 / 12.56-12.59 | | (§72: 5.25 / 12.57) |
+| Qwen3-8B-FP8 decode step, 64 sequences, `--text` | 15.87 (two runs) | 14.08 + 1.55 = 15.63 | 0.96-0.99 → 0.98 |
+| gpt-oss-20b prefill 16K / 32K / 64K / 128K (tok/s, median of 5) | 13,900 / 12,005 / 9,378 / 6,505 | 14,509 / 12,301 / 9,423 / 6,423 | 0.96 / 0.98 / 1.00 / 1.01 |
+| gpt-oss-20b decode at depth 32K, 1 / 4 streams, **fed back** (tok/s from the GPU ms) | 160.3 / 323.4 (6.24 / 12.37 ms) | 151.4 / 307.6 | 1.06 / 1.12 (fixed ids) → **1.06 / 1.05** |
+| gpt-oss-20b decode at depth 128K, 1 / 4 streams, **fed back** | 107.5 / 163.5 (9.30 / 24.47 ms) | 107.3 / 174.9 (§64; this session's run hit a device assert past 131,072 positions) | 1.00 / 0.95 → **1.00 / 0.93** |
+| gpt-oss-20b / Qwen3-8B-FP8 serving 16 / 64 streams | unchanged code (§72: 0.95 / 0.92, 0.94 / 0.93) | | |
+| Qwen3-8B-FP8 prefill 128K | unchanged code (§70: 2,477 tok/s) | 2,639 | 0.94 |
+
+* Steps: BatchBench `--slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 20`, GPU ms (min of 20, after 5 warm-up
+  steps), two runs alternated with the vLLM profiles (`final/steps/`, `final/vllm/`). The `--text` step moves between holds by more than
+  vLLM's does (17.75, 18.72-18.82, 16.93 in §72's three holds, 17.71-17.79 here, with vLLM at 15.19-15.25 each time); `--feedback`
+  measured 16.42-16.45 here against 16.51-16.53 in §72.
+* vLLM's decode steps get slower as its generations go on: its random-word prompts end in repetition loops (50 distinct generations of 64,
+  the most common " hand hand hand ..."), and its routing is most concentrated right after the prefill (73.3). Averaged over steps
+  1-61 the step is 15.25 ms, over 6-61 15.53, over 21-61 15.94 (§72's trace: 15.19 / 15.49 / 15.94). BatchBench's min after five
+  warm-up steps compares with the 6-61 figure at the least, so §72's 0.99x was slightly pessimistic for us (and this hold's `--text`
+  run slightly slow). `s54_vllm_decode_profile.py --skip 5` prints it.
+* Depth (`final/long/`): `s58_long.sh` with the new default `DECODE_ARGS=--feedback`, i.e. the fed-back routing of 72.4 and of vLLM's
+  generated tokens. At 32K the 4-stream point drops from 1.12x (fixed ids, §72) to 1.05x like for like: 12.37 against 11.46 ms per step,
+  the expert GEMMs reading more experts per step. At 128K, 4 streams: 0.93x, as 72.4 estimated.
+
+### 73.2 Clocks and power: both kernels run at the power limit, Marlin at a higher SM clock
+
+The sustained replay of §67.2 (216 text routings of 64-sequence steps over 24 weight copies, ms per layer), sampled with
+`s73_clock_sampler.py` (medians over the busy window; clock-event reason 0x4 = software power cap, share of samples;
+`harness/clocks_r2.summary.txt`, two passes each):
+
+| kernel | ms per layer | SM clock | board power | power cap active |
+|---|---:|---:|---:|---:|
+| Marlin gate / up (padded, 5888 x 3072 per expert) | 0.3385-0.3408 | 2017-2047 MHz | 200.0 W | 87-90 % |
+| ours gate / up (5760 x 2880) | 0.3455-0.3486 | 1732-1740 MHz | 187-189 W | 100 % |
+| Marlin down (padded) | 0.1740-0.1746 | 2047-2070 MHz | 200.0 W | 92 % |
+| ours down | 0.1766 | 1822-1830 MHz | 186-187 W | 86-100 % |
+| ours gate / up without the decode and the MMAs (copies only, `skel`) | 0.3132-0.3136 (r1) | 1695-1702 MHz | 146-147 W | 92 % |
+
+Ours runs ~300 MHz lower than Marlin and is held there by the power limiter, although the board draws 11-13 W less than the cap; even the
+copy-only skeleton at 147 W is power-capped at 1.7 GHz. So the limiter reacts to something other than the averaged board power NVML
+reports (a rail or a faster power estimate it does not break out), and the SM clock is not what bounds the kernel: variants that cost
+fewer SM instructions ran at a *higher* clock and were *slower* (73.4). Marlin, reading 9 % more bytes, takes 2 % less time per layer
+than ours on this routing (0.513 against 0.524 ms); per weight byte it is ~10 % more efficient.
+
+### 73.3 Same routing for both: vLLM's own routing touches 11 % fewer experts
+
+`s73_vllm_routing.py` records vLLM's routing behind its decode-step profile (`--words` workload, 61 steps x 24 layers,
+`routing/vllm64_words.txt`): **24.2 experts touched per layer**, against 27.2 in our BatchBench `--text` routing (§67.2); 16.3 at the
+first decode step, 20.3 at step 7, 24-26.5 from step 13 on. Both kernels on both routings in one hold (`harness/clocks_r3.summary.txt`,
+sustained, ms per layer, gate / up + down):
+
+| routing | ours | Marlin (padded) | ours / Marlin |
+|---|---:|---:|---:|
+| ours (`--text`, 27.2 experts, 28.3 32-row tiles per layer) | 0.339-0.353 + 0.173-0.177 = 0.521 | 0.340-0.348 + 0.174 = 0.518 | 1.01 |
+| vLLM's (24.2 experts, 26.5 tiles, 2.27 experts with more than 32 items) | 0.339-0.340 + 0.173-0.177 = 0.514 | 0.309-0.310 + 0.158-0.159 = 0.468 | 1.10 |
+
+Marlin's time follows the bytes (-10 %); ours moves 1.3 %. Isolated launches show why (`harness/perroute_*.txt`): our time is linear in
+the routing tiles, 11.1 µs per gate / up tile and 5.9 µs per down tile, with no steps at wave boundaries (so the grid's wave quantization
+is not it), and an expert with more than 32 items costs a second full tile. Cutting those tiles to 32 rows (`CLAMP=1`) leaves the time
+unchanged (0.3384-0.3394), so their second read is not the cost either: on vLLM's routing the extra tiles' work (MMAs, decode, copies of
+the extra blocks) is what Marlin does not pay, as its blocks take up to 64 rows of an expert in one pass. Inside vLLM's step Marlin takes
+11.29 ms (all steps) to 11.99 ms (steps 21-61) per step; in our step the expert GEMMs take ~12.6 ms (24 x 0.524).
+
+### 73.4 Kernel variants measured, not kept
+
+Sustained replay as 73.2 / 73.3, ms per layer, all alternated with `develop` in the same hold (`rejected/moe_diag_variants.diff` holds the
+diagnostic switches; `harness/clocks_r*.summary.txt`):
+
+| variant | gate / up (ours / vLLM routing) | down | note |
+|---|---:|---:|---|
+| `develop` | 0.345-0.352 / 0.338-0.341 | 0.175-0.177 | |
+| `develop`, first hold (r1, ours routing; the four rows below are from it) | 0.337-0.351 | 0.172-0.180 | 189 W, 1732 MHz |
+| decode replaced by constant B fragments (`NM_DIAG=1`, wrong products: the decode's cost) | 0.317-0.322 | 0.164-0.166 | 157 W, 1702 MHz |
+| codes loaded, no decode arithmetic (`NM_DIAG=2`) | 0.333-0.334 | 0.169 | 182 W |
+| no MMAs (`NM_NOMMA`) | 0.328-0.335 | 0.168-0.169 | 177 W |
+| neither (copies only, `skel`) | 0.313-0.314 | 0.161 | 147 W, 1695 MHz |
+| no L2 prefetch hint on the weight copies (`NM_PF=0`) | 0.696 | 0.372 | 2.6 GHz, 200 W: the hint is the DRAM efficiency |
+| 128-byte hint | 0.345-0.351 | 0.176 | same |
+| the 256-byte hint on the first 16 bytes of each 256-byte block only (`NM_PF=1`), and with the next block prefetched (`NM_PF=2`) | 0.481-0.483 | 0.258 | 2.2 GHz at 200 W |
+| E8M0 factors made with one integer multiply-add (exact for bytes 99-128, others behind a warp vote; no 1 KB table) | 0.356 / 0.345-0.346 | 0.179-0.180 | fewer instructions, higher clock (1.79-1.83 GHz, 196-200 W), slower |
+| 64-row routing tiles (each expert read once up to 64 items; four stages without the table) | 0.368-0.370 / 0.350 | 0.185-0.186 / 0.180 | per tile 14.2 against 12.8 µs; twice the loop code |
+| the same with the integer factors | 0.362-0.370 / 0.344-0.345 | 0.187-0.188 / 0.183 | |
+| rows past a partial tile zeroed once in every stage, so the MMAs multiply zeros (`NM_ZERO`) | 0.340-0.345 / 0.338-0.339 | 0.174-0.175 | -0.3-1.2 %, 1-2 W less: within a step's noise |
+
+Products checked against the harness's reference for every variant that keeps them (32-2048 tokens; E8M0 bytes 120-127, 126-133 and
+94-101 for the integer factors' slow path). The decode is ~7 % of the sustained gate / up time and the MMAs ~4 %; the copies
+with their 256-byte L2 prefetch hints are the rest, and the hints decide the DRAM efficiency (without them 2x slower). The integer
+factors confirm 73.2: a variant that frees SM issue slots raises the clock and the power and does not get faster. Per byte Marlin is
+better by its memory path (contiguous 16-byte-per-thread blocks of a repacked layout, no per-copy prefetch hints), which §72.3's
+contiguous-layout test could not reach because it dropped the hints' prefetch depth.
+
+### 73.5 Correctness and tests
+
+No engine, shader or kernel code changed (bench scripts and the harness only), so greedy output and the test suites are those of §72.5.
+The harness's product checks are in 73.4.
+
+### 73.6 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b decode step, 64 sequences (`--text` / `--feedback`) | 0.95-0.99 / 0.99 (hold-dependent `--text`) | expert GEMMs ~12.6 ms against Marlin's 11.3-12.0 (same kernels at par on our routing, 10 % behind on vLLM's concentrated one, 73.3) |
+| Qwen3-8B-FP8 decode step, 64 sequences | 0.98 | norms with the FP8 quantization, q / k norm + rope (perf/offload-r5) |
+| gpt-oss-20b serving 16 / 64 streams | 0.95 / 0.92 | prompt waves on full expert tiles, decode steps |
+| gpt-oss-20b long prefill 16K-128K | 0.96 / 0.98 / 1.00 / 1.01 | MoE and attention at 16K-32K |
+| gpt-oss-20b decode at depth 32K / 128K, 1 / 4 streams, fed back | 1.06 / 1.05, 1.00 / 0.93 | 4 streams: the expert GEMMs at 16 rows (skinny GEMM, near the read rate) and the LM head; 128K: attention at the read rate |
+| Qwen3-8B-FP8 long prefill 128K | 0.94 | attention at head size 128 |
+
+Ranked levers:
+
+1. **Expert GEMM tiles of up to 64 rows at the 32-row tile's cost** (gpt-oss at 64 sequences, worth up to the 10 % of 73.3 on vLLM-like
+   routing, ~0.5-1.2 ms per step): one launch where each expert takes one block row of up to 64 items. The 64-row build loses 11 % per tile
+   (73.4); suspects are the twice-as-long loop (four fragment cases unrolled with the interleaved decode) and the larger activation
+   stages. Next: one generic loop over live fragments instead of the unrolled switch, then a per-expert tile height inside one launch.
+2. **Marlin's memory path**: a repacked weight layout read in contiguous 16-byte-per-thread blocks with an explicit deep L2 prefetch
+   (bulk `cp.async.bulk.prefetch.L2` per row segment) in place of a hint on every copy; measure energy per byte with the sampler.
+3. **Qwen3 small launches** (perf/offload-r5's fusions).
+4. **Long-context 4-stream decode** (0.93 at 128K, 1.05 at 32K like for like): the 16-row expert GEMMs and the LM head per step.
+5. **Fused combine in `attn_decode_native.cu`** for narrow groups.
+6. **Head size 128 prefill attention** (Qwen3 128K 0.94x).
+
+### 73.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+PY=$VLLM_VENV/bin/python; R=bench/results/s67/harness/routes64_text.txt
+# vLLM's routing, then both kernels on it under the sampler (bench/results/s73/harness/build_harness.sh builds the engine's tile configs)
+$PY bench/s73_vllm_routing.py ~/models/hf/gpt-oss-20b --out vllm64_words.txt
+$PY bench/s73_clock_sampler.py --gpu <i> --out gu.csv -- env ROUTES=$R LAYERS=24 PASSES=80 SUSTAINED_ONLY=1 bench/s56_moe/gu_base
+$PY bench/s73_clock_sampler.py --gpu <i> --out marlin.csv -- $PY bench/s73_marlin_replay.py $R --product gate_up --seconds 6
+# variants: git apply bench/results/s73/rejected/moe_diag_variants.diff, build with -DNM_DIAG=1|2, -DNM_NOMMA=1, -DNM_PF=0|1|2|128,
+# -DNM_TABLE=2, -DNM_ZERO=1, or -DNM_BM=64
+python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --seqs 64 --words --skip 5
+VLLM_VENV=$VLLM_VENV bench/s58_long.sh out gptoss ~/models/hf/gpt-oss-20b both   # decode points with --feedback
+```

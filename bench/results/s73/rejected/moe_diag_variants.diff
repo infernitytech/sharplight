@@ -1,0 +1,162 @@
+--- a/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu	2026-11-21 13:44:40.430518169 +0000
++++ b/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu	2026-11-21 14:31:21.000000000 +0000
+@@ -22,6 +22,9 @@
+ // 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, NM_TABLE, DUAL, X_RS,
+ // NM_EPI2 / NM_EPI1 and NM_EPI_FIELDS (the tables they read). Requires K % 64 == 0, N % 16 == 0. Grid: x = column tiles, y = routing
+ // tiles (blocks past the tile count return).
++#ifndef NM_DIAG
++#define NM_DIAG 0
++#endif
+ #ifndef DUAL
+ #define DUAL 0
+ #endif
+@@ -115,7 +118,28 @@
+ #endif
+ static __device__ __forceinline__ void nm_cp16w(nm_u32 dst, const void* src)
+ {
+-#if NM_PF == 256
++#if NM_PF == 1
++    // The 256-byte prefetch only on the first 32 bytes of each 256-byte block (one hint per block instead of 16).
++    if (((unsigned long long)src & 255u) < 32u)
++    {
++        asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
++    }
++    else
++    {
++        asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
++    }
++#elif NM_PF == 2
++    // As 1, and the next 256-byte block prefetched into L2 at the same time (one block further ahead).
++    if (((unsigned long long)src & 255u) < 32u)
++    {
++        asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
++        asm volatile("prefetch.global.L2 [%0];\n" :: "l"((const unsigned char*)src + 256));
++    }
++    else
++    {
++        asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
++    }
++#elif NM_PF == 256
+     asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
+ #elif NM_PF == 128
+     asm volatile("cp.async.cg.shared.global.L2::128B [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
+@@ -133,6 +157,9 @@
+ 
+ static __device__ __forceinline__ void nm_mma(float* c, const nm_u32* a, nm_u32 b0, nm_u32 b1)
+ {
++#if NM_NOMMA
++    c[0] += __uint_as_float(a[0] ^ b0); c[1] += __uint_as_float(b1); return;
++#endif
+     asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};\n"
+                  : "+f"(c[0]), "+f"(c[1]), "+f"(c[2]), "+f"(c[3])
+                  : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b0), "r"(b1));
+@@ -238,7 +265,7 @@
+ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_native(NmParams p)
+ {
+     extern __shared__ __align__(128) unsigned char smem[];
+-#if NM_TABLE
++#if NM_TABLE == 1
+     // E8M0 byte -> its two half factors (s1 in the low half, s2 in the high one), built once per block.
+     __shared__ nm_u32 sScale[256];
+ #endif
+@@ -252,7 +279,7 @@
+ 
+     const nm_u32 expert = p.scratch[1 + 3 * tile], rowOff = p.scratch[2 + 3 * tile], tileRows = p.scratch[3 + 3 * tile];
+     const nm_u32 n0 = blockIdx.x * NM_BOUT;
+-#if NM_TABLE
++#if NM_TABLE == 1
+     for (nm_u32 e = tid; e < 256; e += NM_THREADS)
+     {
+         nm_u32 s1, s2;
+@@ -350,6 +377,18 @@
+         }
+     }
+ 
++#if NM_ZERO
++    // Rows of the last live 16-row fragment past the tile's rows are never copied: zero them in every stage once, so their MMAs
++    // multiply zeros instead of a previous block's activations (fewer toggling bits in the tensor pipe at the power limit).
++    {
++        const nm_u32 rows = min((nm_u32)NM_BM, (tileRows + 15u) & ~15u) - min(tileRows, (nm_u32)NM_BM);
++        for (nm_u32 i = tid; i < NM_STAGES * rows * 8u; i += NM_THREADS)
++        {
++            nm_u32 st = i / (rows * 8u), r = tileRows + (i / 8u) % rows, c = i & 7u;
++            *(uint4*)(smem + st * NM_STAGE_BYTES + nm_swz(r, c)) = make_uint4(0u, 0u, 0u, 0u);
++        }
++    }
++#endif
+ #pragma unroll
+     for (int s = 0; s < NM_STAGES - 1; s++)
+     {
+@@ -372,6 +411,11 @@
+     // Unit j of the B fragments of 32-value block b of stage s (two 16-value chunks of 8 weight rows), decoded once for all the
+     // warp's row fragments.
+     auto decodeUnit = [&](nm_u32 s, nm_u32 b, int j, nm_u32 (&bf)[NM_FN][4]) {
++#if NM_DIAG == 1
++        // Constant B fragments: no shared loads, no decode (wrong products).
++        bf[j][0] = 0x3c003c00u + s; bf[j][1] = 0x3c003c00u + b; bf[j][2] = 0x3c003c00u; bf[j][3] = 0x3c003c00u;
++        return;
++#endif
+         const nm_u32 sc = smem0 + s * NM_STAGE_BYTES + NM_A_BYTES, ss = sc + NM_C_BYTES;
+         nm_u32 row = wn * NM_TN + j * 8 + g;
+         uint4 raw = nm_lds128(sc + (b * NM_BN + row) * 16);
+@@ -382,12 +426,51 @@
+         nm_u32 m = 0, orow = row;
+ #endif
+         nm_u32 e8 = nm_lds8(ss + ((b * NM_MATS + m) * (NM_BOUT / 16) + orow / 16) * 16 + orow % 16);
++#if NM_TABLE == 2
++        // E8M0 99..128 (factors 2^-28 .. 2, every gpt-oss scale): s1 is the normal half 2^(e - 113), exponent field e - 98, and s2
++        // is 1, so one multiplication with an integer-made factor; other bytes take the exact two-factor path behind a warp vote
++        // (a real branch: predicated multiplications would still issue).
++        nm_u32 x01 = nm_prmt(u, 0u, 0x1404u), x23 = nm_prmt(u, 0u, 0x3424u);
++        nm_u32 c0 = nm_e2m1_lo(x01), c1 = nm_e2m1_lo(x23), c2 = nm_e2m1_hi(x01), c3 = nm_e2m1_hi(x23);
++        nm_u32 f1 = e8 * 0x04000400u - 98u * 0x04000400u;
++        bf[j][0] = nm_hmul2(c0, f1);
++        bf[j][1] = nm_hmul2(c1, f1);
++        bf[j][2] = nm_hmul2(c2, f1);
++        bf[j][3] = nm_hmul2(c3, f1);
++        const bool slow = e8 - 99u > 29u;
++        if (__any_sync(0xFFFFFFFFu, slow))
++        {
++            if (slow)
++            {
++                nm_u32 s1, s2;
++                nm_scale(e8, s1, s2);
++                bf[j][0] = nm_hmul2(c0, s1);
++                bf[j][1] = nm_hmul2(c1, s1);
++                bf[j][2] = nm_hmul2(c2, s1);
++                bf[j][3] = nm_hmul2(c3, s1);
++                if (e8 > 127u)
++                {
++#pragma unroll
++                    for (int q = 0; q < 4; q++)
++                    {
++                        bf[j][q] = nm_hmul2(bf[j][q], s2);
++                    }
++                }
++            }
++        }
++    };
++#else
+         nm_u32 s1, s2;
+-#if NM_TABLE
++#if NM_TABLE == 1
+         nm_halves(sScale[e8], s1, s2);
+ #else
+         nm_scale(e8, s1, s2);
+ #endif
++#if NM_DIAG == 2
++        // Loads kept, no arithmetic (wrong products).
++        bf[j][0] = u; bf[j][1] = u ^ s1; bf[j][2] = raw.x; bf[j][3] = raw.z ^ s2;
++        return;
++#endif
+         // Code bytes 2c, 2c + 1 (and 2c + 8, 2c + 9) into bytes 1 and 3, one per half; the low nibbles are the first 16-value chunk.
+         nm_u32 x01 = nm_prmt(u, 0u, 0x1404u), x23 = nm_prmt(u, 0u, 0x3424u);
+         bf[j][0] = nm_hmul2(nm_e2m1_lo(x01), s1);
+@@ -406,6 +489,7 @@
+             }
+         }
+     };
++#endif
+     auto decode = [&](nm_u32 s, nm_u32 b, nm_u32 (&bf)[NM_FN][4]) {
+ #pragma unroll
+         for (int j = 0; j < NM_FN; j++)
