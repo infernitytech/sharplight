@@ -284,6 +284,35 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(48)]
+    [InlineData(64)]
+    public void NativeFp8MultiGemmMatchesTheCpu(int rows)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmFp8), "The GPU has no hand-written FP8 GEMM (compute capability below 8.9).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // Three FP8 projections of the same activations (q / k / v: 512 + 128 + 128 outputs) at decode sizes run as one multi-output
+        // launch of the hand-written GEMM's decode form, each 64-row weight tile in one member's matrix and stored to its output.
+        var expected = RunMultiProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows);
+        var actual = RunMultiProjection(provider.OpenDevice(info), rows);
+        var generated = new DeviceOptions();
+        generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmFp8);
+        var reference = RunMultiProjection(provider.OpenDevice(info, generated), rows);
+        for (int o = 0; o < expected.Length; o++)
+        {
+            double scale = expected[o].Max(MathF.Abs);
+            for (int i = 0; i < expected[o].Length; i++)
+            {
+                Assert.True(Math.Abs(expected[o][i] - actual[o][i]) <= 1e-3 * scale, $"y{o}[{i}]: {actual[o][i]} vs {expected[o][i]}");
+                Assert.True(Math.Abs(reference[o][i] - actual[o][i]) <= 1e-4 * scale, $"y{o}[{i}]: {actual[o][i]} vs the generated GEMM's {reference[o][i]}");
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(64, 0, true)]
     [InlineData(64, 100, true)]
     [InlineData(128, 0, false)]
@@ -429,6 +458,50 @@ public sealed class CudaCodeTests
             var output = new float[tokens * K];
             model.GetOutput<float>("y", output);
             return output;
+        }
+    }
+
+    /// <summary>
+    /// y0, y1, y2 = x · W0ᵀ, x · W1ᵀ, x · W2ᵀ with FP8 weights [512 / 128 / 128, 1024] (a q / k / v group) on <paramref name="rows"/> rows,
+    /// with activations the per-128 E4M3 quantization represents exactly (as <see cref="RunProjection"/>).
+    /// </summary>
+    private static float[][] RunMultiProjection(IComputeDevice device, int rows)
+    {
+        int[] widths = [512, 128, 128];
+        using (device)
+        {
+            var tg = new TG("cuda-multi-gemm");
+            var x = tg.InF("x", TG.T, 1024);
+            for (int o = 0; o < widths.Length; o++)
+            {
+                tg.B.Output("y" + o, tg.B.MatMul(x, tg.RandW("w" + o, DataType.F8E4M3_B128, 0.05f, widths[o], 1024)));
+            }
+
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 256, ContextLength = 256 },
+                ReservePerDevice = 0,
+            });
+            var input = new float[rows * 1024];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = (i % 5 - 2) * 0.5f;
+            }
+
+            model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = rows;
+            model.Run(parameters);
+            var outputs = new float[widths.Length][];
+            for (int o = 0; o < widths.Length; o++)
+            {
+                outputs[o] = new float[rows * widths[o]];
+                model.GetOutput<float>("y" + o, outputs[o]);
+            }
+
+            return outputs;
         }
     }
 

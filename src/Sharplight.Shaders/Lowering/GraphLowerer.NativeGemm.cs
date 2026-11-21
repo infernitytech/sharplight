@@ -193,12 +193,20 @@ public sealed partial class GraphLowerer
     private static long NativeFp8MinRows(bool decode)
         => decode && NativeFp8DecodeColumns != NativeFp8Tile && DiagnosticSwitches.NativeGemmMinRows is null ? NativeFp8DecodeMinRows : NativeGemmMinRows;
 
-    /// <summary>A launch variant of <c>gemm_fp8_native.cu</c> with tiles of <paramref name="tileRows"/> tokens and <paramref name="columns"/> weight rows.</summary>
+    /// <summary>
+    /// A launch variant of <c>gemm_fp8_native.cu</c> with tiles of <paramref name="tileRows"/> tokens and <paramref name="columns"/> weight
+    /// rows, with the <paramref name="extra"/> macros (the multi-output form's).
+    /// </summary>
     private KernelVariant NativeFp8Variant(long n, long k, string? dualEpilogue, long xcap, int tileRows, int columns, Func<Bindings, bool> serves,
-        Func<Bindings, long> rows)
+        Func<Bindings, long> rows, IReadOnlyDictionary<string, string>? extra = null)
     {
         bool dual = dualEpilogue is not null;
         var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("F8N_BM", tileRows), ("DUAL", dual ? 1 : 0));
+        foreach (var (name, value) in extra ?? new Dictionary<string, string>())
+        {
+            macros[name] = value;
+        }
+
         if (columns != NativeFp8Tile)
         {
             macros["F8N_BN"] = columns.ToString(CultureInfo.InvariantCulture);

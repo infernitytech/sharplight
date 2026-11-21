@@ -20,13 +20,25 @@
 // each thread holds both results of an output and stores F8N_EPI2(a, b) (the generated epilogue); a block covers F8N_BN / 2
 // outputs.
 //
-// Specialization macros: K, N, Y_STRIDE, XCAP, F8N_BM (default 128), DUAL, F8N_EPI2 (DUAL). Requires K % 512 == 0 (16-byte aligned rows of K + K / 32
-// bytes), N % 128 == 0, XCAP % 128 == 0 and an even Y_STRIDE. Grid: x = token tiles, y = weight tiles.
+// MULTI (2 or 3, not with DUAL): the multi-output form over the concatenated rows of two or three matrices of one K (q / k / v), each
+// with its own output (dense rows of its width): rows [0, MULTI_O1) are w's into y, [MULTI_O1, MULTI_O2) w_1's into y_1, the rest w_2's
+// into y_2; a block's weight tile lies in one matrix (MULTI_O1, MULTI_O2 multiples of 128), so each output sums its K blocks as the
+// matrix's own launch would.
+//
+// Specialization macros: K, N (all rows with MULTI), Y_STRIDE, XCAP, F8N_BM (default 128), F8N_BN, DUAL, F8N_EPI2 (DUAL), MULTI, MULTI_O1,
+// MULTI_O2. Requires K % 512 == 0 (16-byte aligned rows of K + K / 32 bytes), N % 128 == 0, XCAP % 128 == 0 and an even Y_STRIDE. Grid:
+// x = token tiles, y = weight tiles.
 #ifndef DUAL
 #define DUAL 0
 #endif
 #ifndef F8N_BM
 #define F8N_BM 128
+#endif
+#ifndef MULTI
+#define MULTI 0
+#endif
+#if MULTI && DUAL
+#error "gemm_fp8_native: MULTI with DUAL"
 #endif
 // Weight rows per block: 128, or 64 for decode batches (twice the blocks for the same weights, so the last wave is shorter).
 #ifndef F8N_BN
@@ -66,6 +78,16 @@ struct F8nParams
     const f8n_u8* w2;
 #endif
     float* y;
+#if MULTI
+    const f8n_u8* w_1;
+#if MULTI > 2
+    const f8n_u8* w_2;
+#endif
+    float* y_1;
+#if MULTI > 2
+    float* y_2;
+#endif
+#endif
     f8n_u32 T;
 };
 
@@ -120,17 +142,16 @@ static __device__ __forceinline__ const f8n_u8* f8n_wscales(const f8n_u8* w, f8n
     return w + (n >> 7) * F8N_GROUP_BYTES + 128ull * K + kb * 512u + (n & 127) * 4u;
 }
 
-// Weight matrix and row of B tile row r (rows past N are clamped: their outputs are never stored).
-static __device__ __forceinline__ const f8n_u8* f8n_wrow(const F8nParams& p, f8n_u32 n0, f8n_u32 r)
+// Weight matrix and row of B tile row r of the block's matrix w (rows past its n rows are clamped: their outputs are never stored).
+static __device__ __forceinline__ const f8n_u8* f8n_wrow(const F8nParams& p, const f8n_u8* w, f8n_u32 n, f8n_u32 n0, f8n_u32 r)
 {
 #if DUAL
-    const f8n_u8* w = ((r >> 3) & 1) ? p.w2 : p.w;
-    f8n_u32 n = min(n0 + (r >> 4) * 8 + (r & 7), (f8n_u32)N - 1);
+    w = ((r >> 3) & 1) ? p.w2 : w;
+    f8n_u32 row = min(n0 + (r >> 4) * 8 + (r & 7), n - 1);
 #else
-    const f8n_u8* w = p.w;
-    f8n_u32 n = min(n0 + r, (f8n_u32)N - 1);
+    f8n_u32 row = min(n0 + r, n - 1);
 #endif
-    return f8n_wcodes(w, n);
+    return f8n_wcodes(w, row);
 }
 
 extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8nParams p)
@@ -142,7 +163,33 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
     const f8n_u32 id = blockIdx.y * gridDim.x + blockIdx.x, groupBlocks = 16 * gridDim.y;
     const f8n_u32 first = id / groupBlocks * 16, groupRows = min(gridDim.x - first, 16u);
     const f8n_u32 t0 = (first + id % groupBlocks % groupRows) * F8N_BM;
-    const f8n_u32 n0 = id % groupBlocks / groupRows * F8N_BOUT;
+    f8n_u32 n0 = id % groupBlocks / groupRows * F8N_BOUT;
+    // The block's matrix, output, outputs and output row stride (MULTI: the member its weight tile lies in).
+    const f8n_u8* wb = p.w;
+    float* yb = p.y;
+    f8n_u32 nb = N, ys = Y_STRIDE;
+#if MULTI
+    if (n0 >= MULTI_O1)
+    {
+#if MULTI > 2
+        const bool third = n0 >= MULTI_O2;
+        wb = third ? p.w_2 : p.w_1;
+        yb = third ? p.y_2 : p.y_1;
+        nb = third ? N - MULTI_O2 : MULTI_O2 - MULTI_O1;
+        n0 -= third ? MULTI_O2 : MULTI_O1;
+#else
+        wb = p.w_1;
+        yb = p.y_1;
+        nb = N - MULTI_O1;
+        n0 -= MULTI_O1;
+#endif
+    }
+    else
+    {
+        nb = MULTI_O1;
+    }
+    ys = nb;
+#endif
     const f8n_u32 nk = K / 128;
     const f8n_u8* sx = p.x + (f8n_u64)XCAP * F8N_RS;
 
@@ -162,7 +209,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
         for (f8n_u32 i = 0; i < F8N_BN * 8 / F8N_THREADS; i++)
         {
             f8n_u32 idx = tid + i * F8N_THREADS, r = idx >> 3, c = idx & 7;
-            f8n_cp16(base + F8N_BM * 128 + f8n_swz(r, c), f8n_wrow(p, n0, r) + k0 + c * 16);
+            f8n_cp16(base + F8N_BM * 128 + f8n_swz(r, c), f8n_wrow(p, wb, nb, n0, r) + k0 + c * 16);
         }
         f8n_u32 scales = base + (F8N_BM + F8N_BN) * 128;
         if (tid < F8N_BM / 4)
@@ -173,10 +220,10 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
         {
             f8n_u32 q = tid - F8N_BM / 4;
 #if DUAL
-            const f8n_u8* w = q < F8N_BN / 8 ? p.w : p.w2;
+            const f8n_u8* w = q < F8N_BN / 8 ? wb : p.w2;
             f8n_u32 n = n0 + (q % (F8N_BN / 8)) * 4;
 #else
-            const f8n_u8* w = p.w;
+            const f8n_u8* w = wb;
             f8n_u32 n = n0 + q * 4;
 #endif
             f8n_cp16(scales + F8N_BM * 4 + q * 16, f8n_wscales(w, n, kb));
@@ -299,7 +346,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
                 continue;
             }
 
-            float* yr = p.y + (f8n_u64)t * Y_STRIDE;
+            float* yr = yb + (f8n_u64)t * ys;
 #if DUAL
 #pragma unroll
             for (int j = 0; j < F8N_FN; j += 2)
@@ -314,11 +361,11 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
                 f8n_u32 n = n0 + wn * F8N_TN + j * 8 + c4 * 2;
                 float v0 = acc[i][j][h * 2], v1 = acc[i][j][h * 2 + 1];
 #endif
-                if (n + 1 < N)
+                if (n + 1 < nb)
                 {
                     *(float2*)(yr + n) = make_float2(v0, v1);
                 }
-                else if (n < N)
+                else if (n < nb)
                 {
                     yr[n] = v0;
                 }
