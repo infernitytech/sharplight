@@ -27,22 +27,26 @@ public sealed class MatMulEpilogueTests
     }
 
     /// <summary>
-    /// y = x·Wᵀ + b with f16 weights (gpt-oss's attention projections) for single-row, skinny, split-K and plain GEMM row counts: the
-    /// bias stays in the split-K reduction for these weights (a change that ran it as its own launch broke gpt-oss-20b on CUDA).
+    /// q / k / v = x·Wᵀ + b with f16 weights reading the same rows (gpt-oss's attention projections, one multi-output matmul) and a
+    /// 32-wide router with its bias, for single-row, skinny, split-K and plain GEMM row counts: the biases stay in the split-K
+    /// reduction for these weights (a change that ran them as their own launch broke gpt-oss-20b on CUDA).
     /// </summary>
-    [Theory]
-    [InlineData(2880, 640)]
-    [InlineData(4096, 2880)]
-    public void HalfWeightsBias(int k, int n)
+    [Fact]
+    public void HalfWeightsBias()
     {
+        const int k = 2880;
         var tg = new TG();
         var x = tg.InF("x", TG.T, k);
-        var w = tg.RandW("w", DataType.F16, 0.03f, n, k);
-        var bias = tg.Const("b", Rnd.F(n, 3, 0.5f), n);
-        tg.B.Output("y", tg.B.Add(tg.B.MatMul(x, w), bias));
+        foreach (var (name, n) in new[] { ("q", 1024), ("k", 128), ("v", 128), ("router", 32) })
+        {
+            var w = tg.RandW("w" + name, DataType.F16, 0.03f, n, k);
+            var bias = tg.Const("b" + name, Rnd.F(n, 3 + n, 0.5f), n);
+            tg.B.Output(name, tg.B.Add(tg.B.MatMul(x, w), bias));
+        }
+
         var g = tg.B.Build();
         Step Rows(int t) => new(t, 0, (x, Rnd.F((long)t * k, 1 + t)));
-        Diff.Check("MatMul(f16)+bias", g, [Rows(1), Rows(5), Rows(40), Rows(300)], atol: 1e-3, rtol: 1e-3, maxTokens: 300, what: $"{k}->{n}");
+        Diff.Check("MatMul(f16) q/k/v/router + bias", g, [Rows(1), Rows(5), Rows(40), Rows(300)], atol: 1e-3, rtol: 1e-3, maxTokens: 300);
     }
 
     /// <summary>y = (x·Wᵀ + b)·γ + r (a ConvNeXt block's last projection with its layer scale and the residual).</summary>
