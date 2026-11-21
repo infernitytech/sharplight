@@ -138,7 +138,7 @@ internal sealed unsafe class RowOp : CpuOp
                         var acc = Vector256<float>.Zero;
                         for (; i2 + 8 <= n; i2 += 8)
                         {
-                            var ev = Vector256.Exp(Vector256.Load(x + i2) * sv - mv);
+                            var ev = VectorExp.Exp(Vector256.Load(x + i2) * sv - mv);
                             ev.Store(y + i2);
                             acc += ev;
                         }

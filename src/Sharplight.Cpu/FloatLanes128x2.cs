@@ -56,7 +56,7 @@ internal readonly unsafe struct FloatLanes128x2(Vector128<float> lower, Vector12
         new(Vector128.Min(a._lower, b._lower), Vector128.Min(a._upper, b._upper));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static FloatLanes128x2 Exp(FloatLanes128x2 x) => new(Vector128.Exp(x._lower), Vector128.Exp(x._upper));
+    public static FloatLanes128x2 Exp(FloatLanes128x2 x) => new(VectorExp.Exp(x._lower), VectorExp.Exp(x._upper));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static FloatLanes128x2 ZeroIfNegativeInfinity(FloatLanes128x2 v)
