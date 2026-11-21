@@ -270,13 +270,16 @@ public sealed class CudaCodeTests
             Assert.True(Math.Abs(expected[i] - actual[i]) <= 2e-2 * scale, $"y[{i}]: {actual[i]} vs {expected[i]}");
         }
 
-        // The generated grouped GEMM decodes the same halves and sums the same 16-value MMAs in the same order: the same outputs.
+        // The generated grouped GEMM (gemm_cm2) decodes the same halves and sums the same 16-value MMAs in the same order: the same
+        // outputs. At up to 12 items per expert it is the expert-grouped skinny GEMM instead, which sums K in four interleaved parts:
+        // the same products in another order.
         var generated = new DeviceOptions();
         generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmMoe);
         var reference = RunExpertBlock(provider.OpenDevice(info, generated), tokens);
+        double tolerance = tokens * 4 <= 12 * 8 ? 2e-3 : 1e-5;
         for (int i = 0; i < reference.Length; i++)
         {
-            Assert.True(Math.Abs(reference[i] - actual[i]) <= 1e-5 * scale, $"y[{i}]: {actual[i]} vs the generated GEMM's {reference[i]}");
+            Assert.True(Math.Abs(reference[i] - actual[i]) <= tolerance * scale, $"y[{i}]: {actual[i]} vs the generated GEMM's {reference[i]}");
         }
     }
 
