@@ -1,26 +1,15 @@
 {
   "entries": [
-    "gemma-4-31b-it:ud-iq2-m-gguf",
-    "gemma-4-31b-it:q3-k-m-gguf",
-    "gemma-4-31b-it:q6-k-gguf",
-    "gemma-4-31b-it:q8-0-gguf",
-    "qwen3.8-27b:ud-iq3-xxs-gguf",
-    "qwen3.8-27b:q6-k-gguf",
-    "qwen3.8-27b:q8-0-gguf",
-    "qwen3-coder-next:ud-iq2-m-gguf",
-    "qwen3-coder-next:ud-iq3-xxs-gguf",
-    "qwen3-coder-next:q6-k-gguf",
-    "qwen3-coder-next:q8-0-gguf",
-    "qwen3.5-122b-a10b:ud-iq2-xxs-gguf",
-    "qwen3.5-122b-a10b:ud-iq3-xxs-gguf",
-    "qwen3.5-122b-a10b:q6-k-gguf",
-    "qwen3.8-flash-next:ud-iq1-s-gguf",
-    "qwen3.8-flash-next:ud-iq2-xs-gguf",
-    "qwen3.8-flash-next:ud-q3-k-xl-gguf",
-    "gpt-oss-120b:f16-gguf"
+    "qwen3.8-27b:fp8-safetensors",
+    "qwen3-coder-next:fp8-safetensors",
+    "gpt-oss-120b:mxfp4-safetensors",
+    "qwen3.5-122b-a10b:gptq-int4-safetensors",
+    "qwen3.5-122b-a10b:nvfp4-safetensors",
+    "qwen3.5-122b-a10b:fp8-safetensors",
+    "qwen3.8-flash-next:fp8-safetensors"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Remaining GGUF variants of the six large verified models (lower-memory and higher-quality rungs next to the recommended ones)."
+  "reason": "Remaining Hugging Face (safetensors) variants of the six large verified models: FP8, GPTQ-Int4, NVFP4 and MXFP4."
 }
