@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Sharplight.Cuda.Interop;
 using Sharplight.Graph;
 using Sharplight.Runtime;
@@ -35,8 +36,20 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly List<BufferDecl> _streamedWeights = [];
     /// <summary>Streamed weights read from page-locked mapped memory: the buffer, its source and the registered (page-aligned) byte range.</summary>
     private readonly List<(BufferDecl Buffer, nint Source, long Offset, long Bytes)> _registeredWeights = [];
+    /// <summary>
+    /// With <see cref="CompileOptions.SparseExpertSlots"/>: the expert-indexed weight banks, each holding that many experts (shared with the
+    /// model's other sparse segments on the device), their mapped source and the bytes of one expert.
+    /// </summary>
+    private readonly List<(BufferDecl Buffer, nint Source, long ExpertBytes)> _sparseWeights = [];
+    /// <summary>With <see cref="CompileOptions.SparseExpertSlots"/>: the expert ids input (rewritten to slots) and the experts of the bank.</summary>
+    private readonly (Value Ids, int Experts)? _sparse;
+    /// <summary>The experts the last <see cref="SetInput"/> of the ids selected, in slot order (their weights are copied in at the next execution).</summary>
+    private readonly List<int> _sparseSelected = [];
     /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming"/>).</summary>
     private nint _streamDone;
+    /// <summary>Input and output buffers allocated so far by a streamed or sparse compilation (their ordinals key the shared buffers).</summary>
+    private int _streamedInputs;
+    private int _streamedOutputs;
     private bool _streaming;
     /// <summary>Inputs copied from an earlier segment's output buffer instead of from <see cref="SetInput"/> (<see cref="TryForwardFrom"/>).</summary>
     private readonly Dictionary<BufferDecl, (CudaBuffer Source, long SourceOffset)> _forwarded = [];
@@ -84,6 +97,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             _runtimeSlots = (uint*)dev.AllocateHost(RuntimeSlots * sizeof(uint), out _runtimeSlotsPinned);
             new Span<uint>(_runtimeSlots, RuntimeSlots).Clear();
 
+            if (options.StreamWeights && options.SparseExpertSlots > 0)
+            {
+                _sparse = SparseExpertIds(segment);
+            }
+
             long bytes = 0;
             foreach (var b in program.Buffers)
             {
@@ -92,7 +110,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
             DeviceMemoryBytes = bytes;
             var uploadTimer = Stopwatch.StartNew();
-            if (_streamedWeights.Count == 0)
+            if (_sparse is not null)
+            {
+                PrepareSparseWeights();
+            }
+            else if (_streamedWeights.Count == 0)
             {
                 UploadWeights();
             }
@@ -188,6 +210,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// <summary>Allocates (or borrows) the buffer of <paramref name="b"/>; returns the bytes this segment newly holds.</summary>
     private long AllocateBuffer(BufferDecl b)
     {
+        if (b.Kind == BufferKind.Weight && _sparse is { } sparse && _options.StateScope is { } sparseScope)
+        {
+            return AllocateSparseWeight(b, sparse.Experts, sparseScope);
+        }
+
         // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
         if (b.Kind == BufferKind.Weight && _options.StreamWeights && _options.StateScope is { } streamScope)
         {
@@ -211,6 +238,15 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             return ShareArena(arenaScope, b.Name, b);
         }
 
+        // The streamed and sparse compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to
+        // its outputs read back (no device forwarding reaches them): they share their input and output buffers too.
+        if (b.Kind is BufferKind.Input or BufferKind.Output && _options.StreamWeights && _options.StateScope is { } ioScope && SharedArena<CudaBuffer>.Enabled
+            && SharesStreamedIo(_program, b))
+        {
+            // By ordinal: the layers' value names differ, their inputs and outputs correspond.
+            return ShareArena(ioScope, $"streamed-{b.Kind}:{(b.Kind == BufferKind.Input ? _streamedInputs++ : _streamedOutputs++)}", b);
+        }
+
         // The segments of one graph on this device share each state (its nodes may be split by other devices' nodes).
         var sharedStates = b.Kind == BufferKind.State && b.State is not null && _options.StateScope is { } scope
             ? _dev.SharedStates.GetOrCreateValue(scope) : null;
@@ -226,8 +262,18 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         return b.Bytes;
     }
 
-    /// <summary>Takes the buffer of <paramref name="b"/> from the arena <paramref name="key"/> of <paramref name="scope"/> on this device; returns the bytes newly allocated.</summary>
-    private long ShareArena(object scope, string key, BufferDecl b)
+    /// <summary>
+    /// Whether an input or output buffer of a streamed compilation can be shared with the other streamed compilations: it holds no graph input
+    /// (the caller sets those for every segment before a run, so a shared buffer would hold the last segment's).
+    /// </summary>
+    private static bool SharesStreamedIo(KernelProgram program, BufferDecl b)
+        => b.Kind == BufferKind.Output || program.InputRefs.All(kv => kv.Value.Buffer != b || kv.Key.Kind == ValueKind.Intermediate);
+
+    /// <summary>
+    /// Takes the buffer of <paramref name="b"/> (<paramref name="bytes"/>, default its size) from the arena <paramref name="key"/> of
+    /// <paramref name="scope"/> on this device; returns the bytes newly allocated.
+    /// </summary>
+    private long ShareArena(object scope, string key, BufferDecl b, long bytes = -1)
     {
         var arenas = _dev.SharedArenas.GetOrCreateValue(scope);
         if (!arenas.TryGetValue(key, out var arena))
@@ -235,10 +281,177 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             arenas[key] = arena = new SharedArena<CudaBuffer>();
         }
 
-        var sharedArena = arena.Acquire(b.Bytes, bytes => _dev.Allocate(bytes, Purpose(b)), _dev.Free, out bool allocated);
+        long size = bytes < 0 ? b.Bytes : bytes;
+        var sharedArena = arena.Acquire(size, n => _dev.Allocate(n, Purpose(b)), _dev.Free, out bool allocated);
         _sharedArenas[b] = sharedArena;
         _alloc[b] = sharedArena.Buffer;
-        return allocated ? b.Bytes : 0;
+        return allocated ? size : 0;
+    }
+
+    /// <summary>
+    /// The expert ids input of a segment compiled with <see cref="CompileOptions.SparseExpertSlots"/> and the experts of its banks: every weight
+    /// the segment reads must be the bank of a <c>MatMulId</c> (input 1, [experts, ...]) indexed by one ids input of the segment.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The segment reads other weights or more than one ids value.</exception>
+    private static (Value Ids, int Experts) SparseExpertIds(GraphSegment segment)
+    {
+        Value? ids = null;
+        int experts = 0;
+        foreach (var n in segment.Nodes)
+        {
+            for (int i = 0; i < n.Inputs.Length; i++)
+            {
+                if (n.Inputs[i].Weight is null)
+                {
+                    continue;
+                }
+
+                if (n.Op.Name != "MatMulId" || i != 1 || ids is not null && n.Inputs[2] != ids || experts > 0 && n.Inputs[1].Shape[0].Fixed != experts)
+                {
+                    throw new NotSupportedException($"Sparse expert streaming: {n.Op.Name} reads a weight that is not an expert bank of the segment's ids (output {n.Outputs[0].Name}).");
+                }
+
+                ids = n.Inputs[2];
+                experts = (int)n.Inputs[1].Shape[0].Fixed;
+            }
+        }
+
+        if (ids is null || !segment.Inputs.Contains(ids) || ids.Type != Tensors.DataType.I32)
+        {
+            throw new NotSupportedException("Sparse expert streaming: the segment has no expert banks indexed by an i32 input.");
+        }
+
+        return (ids, experts);
+    }
+
+    /// <summary>
+    /// Allocates a weight buffer of a sparse segment: an expert bank holds <see cref="CompileOptions.SparseExpertSlots"/> experts (shared with
+    /// the model's other sparse segments on the device, by bank ordinal); constant tables (decoding grids) are the segment's own.
+    /// </summary>
+    /// <exception cref="NotSupportedException">A bank is repacked or not memory-mapped.</exception>
+    private long AllocateSparseWeight(BufferDecl b, int experts, object scope)
+    {
+        if (b.Weight is null)
+        {
+            _alloc[b] = _dev.Allocate(b.Bytes, Purpose(b));
+            return b.Bytes;
+        }
+
+        nint source = b.Repack == WeightRepack.None && b.InitialData is null ? b.Weight.Source.TryGetPointer() : 0;
+        if (source == 0 || b.Bytes % experts != 0 || b.Bytes != b.Weight.ByteSize)
+        {
+            throw new NotSupportedException($"Sparse expert streaming: {b.Name} is repacked or not memory-mapped.");
+        }
+
+        long expertBytes = b.Bytes / experts;
+        string key = "sparse:" + _sparseWeights.Count;
+        _sparseWeights.Add((b, source, expertBytes));
+        return ShareArena(scope, key, b, _options.SparseExpertSlots * expertBytes);
+    }
+
+    /// <summary>
+    /// Uploads the constant tables of a sparse segment and page-locks its expert banks' mapped sources, so the selected experts' copies are
+    /// asynchronous (a bank the budget or the driver refuses is copied from pageable memory).
+    /// </summary>
+    private void PrepareSparseWeights()
+    {
+        nint done;
+        CudaApi.Check(CudaApi.cuEventCreate(&done, CudaApi.EventDisableTiming), "cuEventCreate");
+        _streamDone = done;
+        foreach (var b in _program.Buffers.Where(b => b.Kind == BufferKind.Weight && b.Weight is null && b.InitialData is not null))
+        {
+            fixed (byte* data = b.InitialData)
+            {
+                CudaApi.Check(CudaApi.cuMemcpyHtoD(_alloc[b].Pointer, data, (nuint)b.InitialData!.Length), "cuMemcpyHtoD");
+            }
+        }
+
+        const long Page = 4096;
+        foreach (var (b, source, _) in _sparseWeights)
+        {
+            long start = ((source + Page - 1) & ~(Page - 1)) - source;
+            long end = ((source + b.Bytes) & ~(Page - 1)) - source;
+            if (end - start >= Page && _dev.TryRegisterHost((byte*)source + start, end - start))
+            {
+                _registeredWeights.Add((b, source, start, end - start));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the expert ids of a sparse segment's input to the slots the selected experts are copied to (ids outside the bank, such as -1,
+    /// select no expert and stay -1), remembering the experts in slot order.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The rows select more experts than the segment holds.</exception>
+    private byte[] RemapSparseIds(ReadOnlySpan<byte> data, int experts)
+    {
+        var ids = MemoryMarshal.Cast<byte, int>(data);
+        var remapped = new byte[data.Length];
+        var slots = MemoryMarshal.Cast<byte, int>(remapped.AsSpan());
+        _sparseSelected.Clear();
+        for (int i = 0; i < ids.Length; i++)
+        {
+            int e = ids[i];
+            if ((uint)e >= (uint)experts)
+            {
+                slots[i] = -1;
+                continue;
+            }
+
+            int slot = _sparseSelected.IndexOf(e);
+            if (slot < 0)
+            {
+                if (_sparseSelected.Count == _options.SparseExpertSlots)
+                {
+                    throw new InvalidOperationException($"The rows select more than the {_options.SparseExpertSlots} experts segment {Segment.Index} holds.");
+                }
+
+                slot = _sparseSelected.Count;
+                _sparseSelected.Add(e);
+            }
+
+            slots[i] = slot;
+        }
+
+        return remapped;
+    }
+
+    /// <summary>Queues the copies of the selected experts (<see cref="RemapSparseIds"/>) of every bank into their slots on the upload stream.</summary>
+    private void QueueSparseCopies()
+    {
+        foreach (var (b, source, expertBytes) in _sparseWeights)
+        {
+            ulong destination = _alloc[b].Pointer;
+            // A copy must not span page-locked and pageable memory: the partial pages around the registered range go apart.
+            var registered = _registeredWeights.FirstOrDefault(r => r.Buffer == b);
+            long lockedStart = registered.Buffer is null ? 0 : registered.Offset;
+            long lockedEnd = registered.Buffer is null ? 0 : registered.Offset + registered.Bytes;
+            for (int slot = 0; slot < _sparseSelected.Count; slot++)
+            {
+                // Runs of consecutive experts go in one copy.
+                int run = 1;
+                while (slot + run < _sparseSelected.Count && _sparseSelected[slot + run] == _sparseSelected[slot] + run)
+                {
+                    run++;
+                }
+
+                long from = _sparseSelected[slot] * expertBytes;
+                long to = from + run * expertBytes;
+                ulong target = destination + (ulong)(slot * expertBytes);
+                foreach (long cut in (ReadOnlySpan<long>)[lockedStart, lockedEnd, to])
+                {
+                    if (cut > from && from < to)
+                    {
+                        long end = Math.Min(cut, to);
+                        CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(target, (byte*)source + from, (nuint)(end - from), _dev.Stream), "cuMemcpyHtoDAsync");
+                        target += (ulong)(end - from);
+                        from = end;
+                    }
+                }
+
+                slot += run - 1;
+            }
+        }
     }
 
     /// <summary>
@@ -280,7 +493,20 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// </remarks>
     public void BeginStreaming()
     {
-        if (_streamedWeights.Count == 0 || _streaming)
+        if (_sparse is not null && !_streaming)
+        {
+            _dev.Enter();
+            lock (_dev.StreamLock)
+            {
+                QueueSparseCopies();
+                CudaApi.Check(CudaApi.cuEventRecord(_streamDone, _dev.Stream), "cuEventRecord");
+            }
+
+            _streaming = true;
+            return;
+        }
+
+        if (_streamedWeights.Count == 0 || _streaming || WeightsResident)
         {
             return;
         }
@@ -329,7 +555,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
     }
 
-    /// <summary>Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not.</summary>
+    /// <inheritdoc />
+    public bool WeightsResident { get; set; }
+
+    /// <summary>
+    /// Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not and the
+    /// weights are not <see cref="WeightsResident"/> (the wait then is for their last copy, normally long done).
+    /// </summary>
     private void StreamWeights()
     {
         BeginStreaming();
@@ -398,6 +630,10 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         WaitForCompletion();
+        if (_sparse is { } sparse && value == sparse.Ids)
+        {
+            data = RemapSparseIds(data, sparse.Experts);
+        }
 
         var a = _alloc[r.Buffer];
         if (data.Length > a.Bytes - r.ByteOffset)
@@ -474,7 +710,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(_alloc[_program.RuntimeBuffer].Pointer, _runtimeSlots, RuntimeSlots * sizeof(uint), _stream), "cuMemcpyHtoDAsync");
         }
 
-        if (_streamedWeights.Count > 0)
+        if (_streamedWeights.Count > 0 || _sparse is not null)
         {
             StreamWeights();
         }

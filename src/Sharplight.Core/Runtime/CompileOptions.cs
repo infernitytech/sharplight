@@ -104,6 +104,15 @@ public sealed class CompileOptions
     /// </summary>
     public int StreamBuffer { get; init; }
 
+    /// <summary>
+    /// With <see cref="StreamWeights"/>, greater than 0: the segment holds only this many experts of each expert-indexed weight bank (the routed
+    /// experts' <c>MatMulId</c> weights, [experts, ...]) and copies in, at every execution, just the experts its rows select: the provider
+    /// rewrites the expert ids input to the slots it copied them to. Ids of -1 select no expert (the item's products are zero). Providers that
+    /// support it compile such segments for few rows (decode), where a pass reads a few experts of a layer; others throw
+    /// <see cref="NotSupportedException"/>. <see cref="CompiledModel"/> uses it to run part of a CPU layer's experts on the GPU.
+    /// </summary>
+    public int SparseExpertSlots { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -159,6 +168,34 @@ public sealed class CompileOptions
     /// <summary>A copy that streams its weights (<see cref="StreamWeights"/>) through the streamed-weight memory <paramref name="buffer"/>.</summary>
     internal CompileOptions WithStreamedWeights(int buffer) => Copy(SymbolBounds, Progress, streamWeights: true, streamBuffer: buffer);
 
+    /// <summary>
+    /// A copy for passes of up to <paramref name="maxTokens"/> rows that streams the selected experts only (<see cref="SparseExpertSlots"/> =
+    /// <paramref name="slots"/>).
+    /// </summary>
+    internal CompileOptions WithSparseExperts(long maxTokens, int slots)
+    {
+        var copy = Copy(SymbolBounds, Progress, streamWeights: true, streamBuffer: 0);
+        return new CompileOptions
+        {
+            MaxTokens = maxTokens,
+            ContextLength = copy.ContextLength,
+            SymbolBounds = copy.SymbolBounds,
+            DisabledFeatures = copy.DisabledFeatures,
+            AllowReducedPrecision = copy.AllowReducedPrecision,
+            SplitHalfMatMul = copy.SplitHalfMatMul,
+            MatrixPrecision = copy.MatrixPrecision,
+            RowInvariantRows = copy.RowInvariantRows,
+            CacheFor = copy.CacheFor,
+            Progress = copy.Progress,
+            CancellationToken = copy.CancellationToken,
+            SharedWeights = copy.SharedWeights,
+            StateScope = copy.StateScope,
+            StreamWeights = true,
+            StreamBuffer = 0,
+            SparseExpertSlots = slots,
+        };
+    }
+
     private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null,
         IReadOnlySet<string>? disabledFeatures = null, bool? streamWeights = null, int? streamBuffer = null) => new()
     {
@@ -177,5 +214,6 @@ public sealed class CompileOptions
         StateScope = stateScope ?? StateScope,
         StreamWeights = streamWeights ?? StreamWeights,
         StreamBuffer = streamBuffer ?? StreamBuffer,
+        SparseExpertSlots = SparseExpertSlots,
     };
 }

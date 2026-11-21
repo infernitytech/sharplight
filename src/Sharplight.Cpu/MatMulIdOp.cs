@@ -12,10 +12,13 @@ namespace Sharplight.Cpu;
 /// With integer dots (<see cref="Runtime.DeviceFeatures.IntDot"/> enabled and the format decodable, <see cref="IntDot"/>) the activation
 /// rows are quantized to 8 bits once and a unit decodes a run of weight rows of one expert, each once, for all of that expert's items;
 /// every (row, item) product is computed alone, so the result does not depend on how many items an expert has.
+/// An expert id of -1 selects no expert: the item's output rows are zero (the slot runs on another device).
 /// </remarks>
 internal sealed unsafe class MatMulIdOp : CpuOp
 {
     private const int KB = 1024;
+    /// <summary>The expert id of an item that selects no expert (its output rows are zero; see <c>CompileOptions.SparseExpertSlots</c>).</summary>
+    private const int NoExpert = -1;
 
     /// <summary>
     /// Up to this many rows every row is computed alone, as a single row is (the fused dequantize-dot kernel once per row, or the
@@ -150,6 +153,18 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         for (long i = 0; i < items; i++)
         {
             int e = ids[i];
+            if (e == NoExpert)
+            {
+                // The item selects no expert (its slot runs elsewhere): its products are zero.
+                new Span<float>((float*)_y.P + i * _n, (int)_n).Clear();
+                if (_y2 is { } y2)
+                {
+                    new Span<float>((float*)y2.P + i * _n, (int)_n).Clear();
+                }
+
+                continue;
+            }
+
             if ((uint)e >= (uint)_experts)
             {
                 throw new InvalidOperationException($"MatMulId: expert id {e} outside [0, {_experts}).");
@@ -169,10 +184,20 @@ internal sealed unsafe class MatMulIdOp : CpuOp
 
             off += _cnt[e];
         }
+
+        if (na == 0)
+        {
+            return;
+        }
         new Span<int>(_cursor, _experts).Clear();
         for (long i = 0; i < items; i++)
         {
             int e = ids[i];
+            if (e == NoExpert)
+            {
+                continue;
+            }
+
             long pos = _start[e] + _cursor[e]++;
             _xrows[pos] = _x.F(_perSlot ? i : i / _slots);
             _yrows[pos] = (float*)_y.P + i * _n;
@@ -255,6 +280,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         for (long i = 0; i < items; i++)
         {
             int e = ids[i];
+            if (e == NoExpert)
+            {
+                continue;
+            }
+
             long pos = _start[e] + _cursor[e]++;
             _qrows[pos] = _activations + (_perSlot ? i : i / _slots) * rowBytes;
         }

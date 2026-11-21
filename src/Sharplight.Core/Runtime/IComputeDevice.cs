@@ -33,6 +33,13 @@ public interface IComputeDevice : IDisposable
     /// streamed segments of one graph sharing the memory). False (the default): the device keeps every weight it compiles.
     /// </summary>
     public bool StreamsWeights => false;
+
+    /// <summary>
+    /// Whether compilations on this device honour <see cref="CompileOptions.SparseExpertSlots"/> (expert banks holding a few experts, the
+    /// selected ones copied in at every execution). False (the default): <see cref="CompiledModel"/> does not split expert passes onto it.
+    /// </summary>
+    public bool StreamsSelectedExperts => false;
+
     /// <summary>Whether the device can execute the node; unsupported nodes go to the placement fallback.</summary>
     public OpSupport Supports(Node node);
     /// <summary>

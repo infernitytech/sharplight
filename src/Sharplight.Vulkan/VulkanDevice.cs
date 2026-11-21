@@ -75,6 +75,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     private readonly Lock _poolLock = new();
     private readonly bool _budgetExt;
     private readonly long _budget;
+    /// <summary>The budget the options set, or null (the driver's budget, else 92 % of the device-local heap).</summary>
+    private readonly long? _configuredBudget;
     /// <summary>The caps of <see cref="DeviceOptions.MemoryLimits"/> and the environment that apply to this device.</summary>
     internal readonly DeviceMemoryLimits Limits;
     /// <summary>
@@ -133,7 +135,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             return new DeviceMemoryInfo(total, budget, ours, ours, false);
         }
 
-        return new DeviceMemoryInfo(total, Math.Min(budget, heapBudget), Math.Max(ours, heapUsage), ours, true);
+        // The driver's budget already leaves what the system and other processes need: the 92 % estimate only stands in where it is
+        // missing (Qwen3.5-122B on a 32 GB RTX PRO 4500: 2.6 GB more for weights, four layers of routed experts).
+        return new DeviceMemoryInfo(total, Math.Min(_configuredBudget ?? total, heapBudget), Math.Max(ours, heapUsage), ours, true);
     }
 
     /// <summary>VK_EXT_memory_budget is enabled: <see cref="MemoryAllocator.ReadHeapBudgets"/> reports live per-heap figures.</summary>
@@ -188,6 +192,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         ArtifactTargets = CreateArtifactTargets();
 
         Memory = new MemoryAllocator(this);
+        _configuredBudget = options.MemoryBudget;
         _budget = options.MemoryBudget ?? (long)(DeviceMemoryLimits.Apply(phys.DeviceLocalBytes, Limits.DeviceMemory) * 0.92);
     }
 

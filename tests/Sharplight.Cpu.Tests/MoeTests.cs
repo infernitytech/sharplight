@@ -72,6 +72,49 @@ public class MoeTests
 
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 1e-4, 1e-4);
     }
+    /// <summary>
+    /// Items whose expert id is -1 select no expert (their slot runs on another device): their products are zero, in a single product and in
+    /// a gate / up pair, on the float and the integer-dot paths, and the other items keep their values; a pass of only such items runs no expert.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NoExpertIdsGiveZeroProducts(bool intDot)
+    {
+        var record = GgmlDequantTests.Load().First(r => r.Type == DataType.IQ2_XXS && r.Rows >= 4 && r.Rows % 4 == 0);
+        int e = 2, n = record.Rows / 2, k = record.Cols, s = 3, t = 3;
+        var x = Kit.Rand(t * k, 17);
+        int[] all = [.. Enumerable.Range(0, t * s).Select(i => (i * 5 + i / 3) % e)];
+        float[][] Run(int[] ids)
+        {
+            var tg = new TestGraph();
+            var xin = tg.InF("x", TestGraph.T, k);
+            var idin = tg.In("ids", DataType.I32, TestGraph.T, s);
+            tg.B.Output("y1", tg.B.Emit1("MatMulId", [xin, tg.W("w1", record.Type, new Shape(e, n, k), record.Blocks), idin]));
+            tg.B.Output("y2", tg.B.Emit1("MatMulId", [xin, tg.W("w2", record.Type, new Shape(e, n, k), [.. record.Blocks.Reverse()]), idin]));
+            using var m = Kit.Compile(tg.B.Build(), intDot: intDot);
+            Kit.Set(m, xin, x);
+            Kit.Set(m, idin, ids);
+            var p = Kit.P(t);
+            m.Run(p);
+            return [Kit.Out(m, "y1", p), Kit.Out(m, "y2", p)];
+        }
+
+        var full = Run(all);
+        int[] some = [.. all.Select((id, i) => i % s == 1 ? -1 : id)];
+        var partial = Run(some);
+        var none = Run([.. all.Select(_ => -1)]);
+        for (int product = 0; product < 2; product++)
+        {
+            for (int item = 0; item < t * s; item++)
+            {
+                var expected = item % s == 1 ? new float[n] : full[product].AsSpan(item * n, n).ToArray();
+                Assert.Equal(expected, partial[product].AsSpan(item * n, n).ToArray());
+                Assert.Equal(new float[n], none[product].AsSpan(item * n, n).ToArray());
+            }
+        }
+    }
+
     /// <summary>The ggml-quantized fixture records of every format the integer-dot MatMulId path decodes, with an even row count.</summary>
     public static IEnumerable<object[]> IntDotRecords()
     {

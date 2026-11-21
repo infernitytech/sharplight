@@ -32,6 +32,32 @@ public sealed class TopKTests
             what: $"n={n} k={k} largest={largest} noSubgroups={disableSubgroups}", disabledFeatures: disableSubgroups ? s_noSubgroups : null);
     }
 
+    /// <summary>
+    /// A mixture-of-experts router, softmax then top-k, with and without the renormalization of the selected weights (sum, + epsilon,
+    /// divide): one fused launch on the GPU (with subgroups) or the separate kernels, against the CPU oracle. The ids match exactly, the
+    /// weights to float rounding.
+    /// </summary>
+    [Theory]
+    [InlineData(256, 8, true, false)]    // Qwen3.5-122B: 256 experts, top 8, renormalized
+    [InlineData(128, 8, false, false)]
+    [InlineData(64, 4, true, true)]      // without subgroups: the unfused kernels
+    public void Router(int experts, int k, bool normalize, bool disableSubgroups)
+    {
+        var tg = new TG();
+        var logits = tg.InF("logits", TG.T, experts);
+        var top = tg.B.Emit("TopK", [tg.B.Emit1("Softmax", [logits])], Attributes.From(("k", (long)k)));
+        var weights = top[0];
+        if (normalize)
+        {
+            weights = tg.B.Binary("Div", weights, tg.B.Scale(tg.B.Emit1("ReduceSum", [weights]), 1f, 1e-20f));
+        }
+
+        tg.B.Output("w", weights);
+        tg.B.Output("i", top[1]);
+        Diff.Check("TopK.router", tg.B.Build(), new Step(5, 0, (logits, Rnd.F(5L * experts, 11, 4f))), atol: 1e-6, rtol: 1e-5,
+            what: $"experts={experts} k={k} normalize={normalize} noSubgroups={disableSubgroups}", disabledFeatures: disableSubgroups ? s_noSubgroups : null);
+    }
+
     /// <summary>Heavy ties (values quantized to a few levels) and signed zeros: ties must resolve to the lower index.</summary>
     [Theory]
     [InlineData(2000, 300, true, false)]

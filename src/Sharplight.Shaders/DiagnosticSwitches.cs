@@ -143,6 +143,9 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool NoExpertSum { get; } = IsSet("SHARPLIGHT_NO_EXPERT_SUM");
 
+    /// <summary>Keeps the router's softmax, top-k and weight normalization in separate launches (<c>SHARPLIGHT_NO_ROUTER_FUSION=1</c>).</summary>
+    public static bool NoRouterFusion { get; } = IsSet("SHARPLIGHT_NO_ROUTER_FUSION");
+
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");
 
@@ -172,6 +175,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
     public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");
+
+    /// <summary>False keeps the grid formats (IQ2 / IQ3) of routed experts off the integer-dot expert matvec (<c>SHARPLIGHT_MMVQ_GRID=0</c>).</summary>
+    public static bool IntDotGridFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_GRID");
 
     /// <summary>Disables merging elementwise groups along data flow.</summary>
     public static bool NoGroupMerge { get; } = IsSet("SHARPLIGHT_NO_GROUP_MERGE");

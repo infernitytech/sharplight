@@ -189,6 +189,8 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
         _stepPool = qp;
 
         long bytes = 0;
+        int streamedInputs = 0;
+        int streamedOutputs = 0;
         try
         {
             foreach (var b in program.Buffers)
@@ -217,6 +219,19 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope && SharedArena<Allocation>.Enabled)
                 {
                     bytes += ShareArena(dev, arenaScope, b.Name, b, size);
+                    continue;
+                }
+
+                // The streamed compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to its
+                // outputs read back: their device-side input and output buffers are shared too (by ordinal: the layers' value names differ;
+                // not inputs holding graph inputs, which the caller sets for every segment before a run); each keeps its own staging memory.
+                if (b.Kind is BufferKind.Input or BufferKind.Output && options.StreamWeights && options.StateScope is { } ioScope && SharedArena<Allocation>.Enabled
+                    && (b.Kind == BufferKind.Output || program.InputRefs.All(kv => kv.Value.Buffer != b || kv.Key.Kind == ValueKind.Intermediate)))
+                {
+                    bytes += ShareArena(dev, ioScope, $"streamed-{b.Kind}:{(b.Kind == BufferKind.Input ? streamedInputs++ : streamedOutputs++)}", b, size);
+                    _staging[b] = b.Kind == BufferKind.Input
+                        ? dev.Memory.Allocate(size, MemoryUsage.Upload, "upload staging of " + Purpose(b))
+                        : dev.Memory.Allocate(size, MemoryUsage.Readback, "readback staging of " + Purpose(b));
                     continue;
                 }
 
@@ -381,17 +396,27 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// <remarks>The copy runs through the device's staging buffers on a worker thread, while the caller runs the segment before this one.</remarks>
     public void BeginStreaming()
     {
-        if (_streamedWeights.Count > 0 && _streaming is null)
+        if (_streamedWeights.Count > 0 && _streaming is null && !WeightsResident)
         {
             _streaming = Task.Run(CopyStreamedWeights);
         }
     }
 
-    /// <summary>Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now.</summary>
+    /// <inheritdoc />
+    public bool WeightsResident { get; set; }
+
+    /// <summary>
+    /// Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now unless they are <see cref="WeightsResident"/>.
+    /// </summary>
     private void StreamWeights()
     {
         var streaming = _streaming;
         _streaming = null;
+        if (streaming is null && WeightsResident)
+        {
+            return;
+        }
+
         if (streaming is null)
         {
             CopyStreamedWeights();

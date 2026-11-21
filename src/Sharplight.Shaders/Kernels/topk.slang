@@ -210,6 +210,113 @@ void topk_subgroup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifor
 }
 #endif
 
+#ifdef KERNEL_TOPK_SOFTMAX
+// Mixture-of-experts routing in one launch: the softmax of a row of LEN router logits (as rows.slang's softmax: same lanes, same
+// sums, so the same probabilities), the top K of the probabilities (as topk_subgroup) and, with NORM, the selected probabilities
+// divided by NORM_SCALE * their sum + NORM_BIAS (ReduceSum, Scale and Div of the router). One subgroup per row; INNER = 1.
+// Writes vals [rows, K] (normalized with NORM) and idx [rows, K].
+#ifndef NORM
+#define NORM 0
+#endif
+[shader("compute")]
+[numthreads(SG, 1, 1)]
+void topk_softmax(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform TopKParams p)
+{
+    uint row = topk_row(gid);
+    if (row >= p.rows)
+    {
+        return;
+    }
+
+    uint lane = ltid.x;
+    float* xr = p.x + uint64_t(row) * LEN;
+    float m = -3.4028235e38;
+    for (uint j = lane; j < LEN; j += SG) m = max(m, xr[j]);
+    m = WaveActiveMax(m);
+    float sum = 0;
+    for (uint j = lane; j < LEN; j += SG) sum += exp(xr[j] - m);
+    sum = WaveActiveSum(sum);
+    float inv = 1.0 / sum;
+
+    uint keys[K];
+    uint ids[K];
+    float probs[K];
+    for (uint s = 0; s < K; s++)
+    {
+        keys[s] = 0u;
+        ids[s] = 0xFFFFFFFFu;
+        probs[s] = 0.0;
+    }
+    uint count = 0u;
+    for (uint j = lane; j < LEN; j += SG)
+    {
+        float v = exp(xr[j] - m) * inv;
+        uint k = topk_key(v);
+        if (count == K && k <= keys[K - 1])
+        {
+            continue;
+        }
+        uint pos = count < K ? count : K - 1;
+        count = min(count + 1u, uint(K));
+        while (pos > 0 && keys[pos - 1] < k)
+        {
+            keys[pos] = keys[pos - 1];
+            ids[pos] = ids[pos - 1];
+            probs[pos] = probs[pos - 1];
+            pos--;
+        }
+        keys[pos] = k;
+        ids[pos] = j;
+        probs[pos] = v;
+    }
+
+    // K rounds: the best list head across the subgroup wins and is popped from its lane; every lane keeps the selected values.
+    float picked[K];
+    uint pickedIds[K];
+    for (uint r = 0; r < K; r++)
+    {
+        uint best = WaveActiveMax(keys[0]);
+        uint winner = WaveActiveMin(keys[0] == best ? ids[0] : 0xFFFFFFFFu);
+        bool mine = ids[0] == winner;
+        picked[r] = WaveActiveSum(mine ? probs[0] : 0.0);
+        pickedIds[r] = winner;
+        if (mine)
+        {
+            for (uint s = 0; s + 1 < K; s++)
+            {
+                keys[s] = keys[s + 1];
+                ids[s] = ids[s + 1];
+                probs[s] = probs[s + 1];
+            }
+            keys[K - 1] = 0u;
+            ids[K - 1] = 0xFFFFFFFFu;
+            probs[K - 1] = 0.0;
+        }
+    }
+
+    float denominator = 1.0;
+#if NORM
+    float total = 0.0;
+    for (uint r = 0; r < K; r++) total += picked[r];
+    denominator = total * NORM_SCALE + NORM_BIAS;
+#endif
+    if (lane < K)
+    {
+        uint64_t o = uint64_t(row) * K + lane;
+        float v = picked[0];
+        for (uint r = 1; r < K; r++) v = lane == r ? picked[r] : v;
+        uint id = pickedIds[0];
+        for (uint r = 1; r < K; r++) id = lane == r ? pickedIds[r] : id;
+#if NORM
+        p.vals[o] = v / denominator;
+#else
+        p.vals[o] = v;
+#endif
+        p.idx[o] = int(id);
+    }
+}
+#endif
+
 #ifdef KERNEL_TOPK_SERIAL
 [shader("compute")]
 [numthreads(64, 1, 1)]
