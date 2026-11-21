@@ -197,6 +197,8 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(40, false)]
+    [InlineData(64, true)]
     [InlineData(100, false)]
     [InlineData(300, false)]
     [InlineData(100, true)]
@@ -211,7 +213,7 @@ public sealed class CudaCodeTests
         Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmFp8), "The GPU has no hand-written FP8 GEMM (compute capability below 8.9).");
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // From 65 rows the hand-written GEMM serves (64-row tiles at 100 rows, 128-row tiles at 700 dual and 1500 for these shapes on
+        // From 32 rows the hand-written GEMM serves (its decode form, 64-row weight tiles, at 40 and 64 rows; 64-row tiles at 100 rows, 128-row tiles at 700 dual and 1500 for these shapes on
         // 82 SMs; the 128-row tiles take the tensor-copy form where the GPU has it), reading the
         // 128-row weight groups and the dense scale copy of the E4M3 activations. The activations are values that the per-128 E4M3
         // quantization represents exactly, so the CPU's f32 product differs by the summation order only.
@@ -244,6 +246,7 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(40)]
     [InlineData(150)]
     [InlineData(700)]
     public void NativeMoeGemmMatchesTheCpu(int tokens)
@@ -254,8 +257,8 @@ public sealed class CudaCodeTests
         Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmMoe), "The GPU has no hand-written grouped MXFP4 GEMM (compute capability below 8.0).");
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // A gpt-oss-style expert block on MXFP4 experts: 75 / 350 routed rows per expert (one to three 128-row tiles, the last
-        // partial), the fused gate / up halves with bias rows and SiLU·mul in the dual store (192 outputs: a partial column tile),
+        // A gpt-oss-style expert block on MXFP4 experts: 20 routed rows per expert on average (the short 64-row tiles, two blocks per
+        // SM; the skew gives some experts more than one), 75 / 350 (one to three 128-row tiles, the last partial), the fused gate / up halves with bias rows and SiLU·mul in the dual store (192 outputs: a partial column tile),
         // the down product with bias and router weight in its store, K = 576 (nine 64-value steps).
         var expected = RunExpertBlock(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), tokens);
         var actual = RunExpertBlock(provider.OpenDevice(info), tokens);

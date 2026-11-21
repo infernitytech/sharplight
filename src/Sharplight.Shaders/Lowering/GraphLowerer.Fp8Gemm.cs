@@ -23,6 +23,7 @@ public sealed partial class GraphLowerer
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
             ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount) : null : null,
+        nativeMinRows: NativeFp8MinRows(!_multiGemmOf.ContainsKey(p.Node)),
         fusedKernel: !Fp8FusedSplitK ? null : (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8",
             new Dictionary<string, string>(Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)) { ["SPLITK_FUSED"] = "1" }));
 
@@ -93,7 +94,7 @@ public sealed partial class GraphLowerer
         // From NativeGemmMinRows rows the hand-written dual GEMM serves every batch (no K split needed at that size).
         long xcap = DenseScaleCapacityOf(quantized);
         long nativeMin = cudaEpilogue is not null && UseNativeFp8Gemm(weightA.Type, n, k) && weightB.Type == weightA.Type && xcap > 0
-            ? Math.Max(minRows, NativeGemmMinRows) : long.MaxValue;
+            ? Math.Max(minRows, NativeFp8MinRows(decode: true)) : long.MaxValue;
         bool Generated(long r) => r < nativeMin && DualFp8Serves(r, n, k);
         serves = r => r >= nativeMin || Generated(r);
         bool tall = DiagnosticSwitches.Fp8DualGemmTall && rowsMax > DualFp8AlwaysMaxRows && MmqLayout(128)[3] % 2 == 0;

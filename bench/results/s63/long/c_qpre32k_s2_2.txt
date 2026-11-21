@@ -1,0 +1,1 @@
+prefill 32768 tok: best 4666 ms = 7022.7 tok/s | decode: best 57.94, median 57.77, mean 57.56 tok/s | GPU ms/step: best 17.15, median 17.20, wall best 17.26 | prefill median of 5: 4692.3 ms = 6983.3 tok/s

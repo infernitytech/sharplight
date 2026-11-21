@@ -1,0 +1,1 @@
+   Sharplight.Cuda.Tests  Total: 30, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 15.487s

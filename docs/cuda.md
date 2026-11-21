@@ -223,7 +223,9 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   96-99 KB: 128 x 128 tiles with three stages or 64 x 128 tiles with four, chosen per batch by estimated block waves; 2 x 4 warps, per K
   block the B fragments loaded once and each 16-row fragment's MMAs summed in a fresh accumulator and added with one fused
   multiply-add scaled by `sx · sw`; dual form with the generated epilogue; grouped rasterization. From
-  `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (65) rows, K a multiple of 512, N of 128. 225-240 TFLOPS on the Qwen3-8B shapes at 2048 rows
+  `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (65) rows, K a multiple of 512, N of 128; from 32 rows in a decode form (64 x 64 tiles, four
+  stages: twice the blocks, so the last wave is short) for matmuls outside a multi-output q / k / v GEMM and for dual gate / up pairs
+  (Qwen3-8B-FP8 at 64 sequences 17.2 → 16.4 ms, [benchmarks.md §63.3](benchmarks.md); `SHARPLIGHT_NATIVE_FP8_DECODE_BN=128` turns it off). 225-240 TFLOPS on the Qwen3-8B shapes at 2048 rows
   in the model (phase 3: 187-227). The generated kernels that read FP8 weights (decode matvecs, skinny and fp8 GEMMs) decode the
   grouped layout too (`FP8_GROUPED`, `F8_GROUPED`), so the layout costs decode nothing measurable; on Vulkan it is off
   (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)).
@@ -231,7 +233,8 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
 - **`gemm_moe_native.cu`** (`native_gemm_moe`, compute capability 8.0+): the expert-grouped product of a MatMulId with MXFP4 experts
   (the 16-row groups of `WeightRepack.Mxfp4Split`) from 12 routed rows per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;
   below, the expert-grouped skinny GEMM serves). One block per routing tile of 128 rows (`moe_route`) and 256 (dual) or 192 weight
-  rows: a four-stage `cp.async` ring of 64-value K steps holds the expert-sorted f16 activation rows (swizzled 128-byte rows) and
+  rows (up to 24 routed items per expert: 64-row tiles, two blocks per SM of three stages where they fit, dual tiles narrowed to 128
+  weight rows for it, [benchmarks.md §63.2](benchmarks.md); `SHARPLIGHT_NATIVE_MOE_SHORT`, `SHARPLIGHT_NATIVE_MOE_BLOCKS`): a four-stage `cp.async` ring of 64-value K steps holds the expert-sorted f16 activation rows (swizzled 128-byte rows) and
   the raw codes and E8M0 scales (4.25 bits per weight; codes stored [block][row] so a fragment's 8 rows are one 128-byte line, with
   an `L2::256B` prefetch hint so the 32 bytes a stage takes of each row still stream from memory in whole bursts). Eight warps side
   by side along the weight rows (warp tile 128 x 32) decode the 4-bit codes of the fragment they multiply with the arithmetic of
@@ -255,8 +258,8 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   (prefill, prompt runs of serving steps, mixed steps' long runs) in the FlashAttention-2 form. A block takes 16 query rows per warp
   (4 warps for head size 64, 8 for 128) of one head; each warp keeps its Q · SCALE fragments (f16), its scores, the online-softmax
   statistics and its output accumulators in registers for the whole key loop, and the probabilities become the A operands of P · V in
-  the accumulator layout. The block shares 64-key K / V tiles copied with `cp.async` into a two-stage ring (16-byte chunks, XOR
-  swizzle; `ldmatrix` for K, `ldmatrix.trans` for V), one block barrier per tile. Masks are applied only on tiles that cross a row's
+  the accumulator layout. The block shares 64-key K / V tiles copied with `cp.async` into a two-stage ring (three at head size 128, where the
+  block has the SM to itself: +0.5-1 % at 16K-128K, `SHARPLIGHT_ATTN_STAGES`; 16-byte chunks, XOR swizzle; `ldmatrix` for K, `ldmatrix.trans` for V), one block barrier per tile. Masks are applied only on tiles that cross a row's
   limits (diagonal, window start), and tiles a warp's rows cannot see are skipped by a warp-uniform branch. Blocks run the longest query
   tiles first. It serves sliding windows, chunked attention, soft caps, sinks, grouped-query heads, multi-sequence runs (also paged)
   and the mixed steps' `MIX_RUN`, at head sizes 64 and 128; score biases, spans, masks, selections and other head sizes keep `fa` /
