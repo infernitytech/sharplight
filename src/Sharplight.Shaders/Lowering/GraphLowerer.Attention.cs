@@ -713,17 +713,21 @@ public sealed partial class GraphLowerer
     private long DecodeRowsPerBatch => _opt.Target == ShaderTarget.Ptx ? 4 : 1;
 
     /// <summary>
-    /// The decode attention's split configuration (<c>SHARPLIGHT_ATTN_DECODE_CFG</c>: workgroups the split count aims for, minimum keys
-    /// per range, maximum ranges): the switch's, or its default 1024 / 128 / 64 on SPIR-V and MSL; on PTX 1024 / 256 / 128. The
-    /// 256-key minimum keeps batched decode at short contexts on one key range per row without the combine (as the 512-workgroup
-    /// target before, benchmarks.md §58), while long contexts spread over twice the workgroups (RTX PRO 4500, gpt-oss-20b at 128K
-    /// keys: 1 / 4 streams 9.99 / 25.52 → 9.42 / 24.69 ms per step, benchmarks.md §65.4).
+    /// The decode attention's split configuration for head size <paramref name="headSize"/> (<c>SHARPLIGHT_ATTN_DECODE_CFG</c>: workgroups
+    /// the split count aims for, minimum keys per range, maximum ranges): the switch's, or its default 1024 / 128 / 64 on SPIR-V and MSL.
+    /// On PTX 512 / 128 / 64, so that batched decode at 64 sequences runs one key range per row and skips the combine (RTX PRO 4500,
+    /// 64 sequences at depth 256: gpt-oss-20b 18.15 → 17.93 ms, Qwen3-8B-FP8 18.00 → 17.56 ms per step; 16 sequences at 3500-token
+    /// contexts: Qwen3-8B-FP8 23.54 → 23.15 ms, gpt-oss-20b 14.13 → 14.23 ms, benchmarks.md §58), and up to head size 64 1024 / 256 / 128:
+    /// the 256-key minimum keeps short batched contexts on one range per row while long contexts spread over twice the workgroups
+    /// (gpt-oss-20b at 128K keys, 1 / 4 streams 9.99 / 25.52 → 9.42 / 24.69 ms per step, at 32K 4 streams 11.88 → 11.66 ms; at head
+    /// size 128 the same configuration cost Qwen3-8B-FP8 1.5-4.4 %, benchmarks.md §65.4).
     /// </summary>
-    private int[] DecodeConfig
-        => !DiagnosticSwitches.AttentionDecodeConfigSet && _opt.Target == ShaderTarget.Ptx ? [1024, 256, 128] : DiagnosticSwitches.AttentionDecodeConfig;
+    private static int[] DecodeConfig(ShaderTarget target, long headSize)
+        => DiagnosticSwitches.AttentionDecodeConfigSet || target != ShaderTarget.Ptx ? DiagnosticSwitches.AttentionDecodeConfig
+            : headSize <= 64 ? [1024, 256, 128] : [512, 128, 64];
 
     /// <summary>Workgroups the split count of the decode attention aims for (<c>DEC_TARGET_WG</c>, see <see cref="DecodeConfig"/>).</summary>
-    private long DecodeTargetWorkgroups(int[] cfg) => cfg[0];
+    private static long DecodeTargetWorkgroups(int[] cfg) => cfg[0];
 
     private DecodeAttentionPlan? DecodeAttention(AttentionPlan plan, bool flash, long sliceRows)
     {
@@ -750,7 +754,7 @@ public sealed partial class GraphLowerer
         // Qwen3-8B-FP8 17.23 → 17.04 ms; single sequences unchanged).
         long keyLanes = Math.Min((long)BitOperations.RoundUpToPowerOf2((ulong)Math.Max(plan.D, plan.DV) / 8), sg);
         long valueSlices = (plan.DV / 8 + keyLanes - 1) / keyLanes;
-        int[] cfg = DecodeConfig;
+        int[] cfg = DecodeConfig(_opt.Target, Math.Max(plan.D, plan.DV));
         long rowsPerBatch = cfg.Length > 3 ? cfg[3] : DecodeRowsPerBatch;
         long batch = rowsPerBatch * threads / keyLanes;
         // Fewer than 8 workgroups per key range (few KV heads, e.g. Gemma-3-1B's single one): shorter ranges, so short
