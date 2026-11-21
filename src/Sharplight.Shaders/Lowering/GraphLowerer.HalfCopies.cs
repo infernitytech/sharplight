@@ -225,8 +225,9 @@ public sealed partial class GraphLowerer
     private const long NormQ8CopyMaxRows = 8;
 
     /// <summary>
-    /// The row length of the int-dot matvecs (dense or expert) that read <paramref name="value"/> as x, when every such reader reads rows
-    /// of one length (a multiple of <paramref name="rowLength"/>); else null.
+    /// The row length of the int-dot matvecs (dense or expert) that read <paramref name="value"/> as x, when there are some and every one
+    /// reads rows of one length (a multiple of <paramref name="rowLength"/>); else null. Other readers (f32 weights, other kernels) read
+    /// the f32 rows.
     /// </summary>
     private long? Q8ReaderRow(Value value, long rowLength)
     {
@@ -243,7 +244,12 @@ public sealed partial class GraphLowerer
             var type = _refs.TryGetValue(w, out var stored) ? stored.Type : w.Type;
             long k = node.Inputs[0].Shape[-1].IsSymbolic ? 0 : node.Inputs[0].Shape[-1].Fixed;
             bool intDot = k > 0 && type != DataType.F32 && (node.Op.Name == "MatMul" ? UseIntDotMatvec(node, type, k) : UseIntDotExpertMatvec(node, type, k));
-            if (!intDot || k % rowLength != 0 || (row is { } r && r != k))
+            if (!intDot)
+            {
+                continue;   // e.g. an f32 router: reads the f32 rows
+            }
+
+            if (k % rowLength != 0 || (row is { } r && r != k))
             {
                 return null;
             }
