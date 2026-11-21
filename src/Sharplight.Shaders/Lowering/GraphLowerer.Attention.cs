@@ -448,11 +448,6 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// Many queries (prefill, vision encoders): tensor-core flash attention (f16 Q/K/V/P) when the device and shapes allow
-    /// it. Head sizes are padded in the kernel; the padded tiles must fit shared memory. f32 caches keep the exact kernel
-    /// unless reduced precision is allowed; quantized caches are converted to f16 tiles.
-    /// </summary>
-    /// <summary>
     /// True when causal attention with padded head sizes above 256, which <c>fa</c> does not take, has a flash kernel: the hand-written
     /// one (<see cref="NativeFlashAttention"/>, warp pairs splitting the head dimensions) or the register-softmax <c>fe</c> with split
     /// head dimensions (<see cref="CausalWideFlash"/>).
@@ -464,6 +459,11 @@ public sealed partial class GraphLowerer
     private bool CausalWideFlash(AttentionPlan plan)
         => CausalFlash(plan) && RegisterSoftmax(plan) && FeDimensionSplit(plan) > 1 && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16);
 
+    /// <summary>
+    /// Many queries (prefill, vision encoders): tensor-core flash attention (f16 Q/K/V/P) when the device and shapes allow
+    /// it. Head sizes are padded in the kernel; the padded tiles must fit shared memory. f32 caches keep the exact kernel
+    /// unless reduced precision is allowed; quantized caches are converted to f16 tiles.
+    /// </summary>
     private bool CanUseFlashAttention(AttentionPlan plan)
     {
         long paddedD = (plan.D + 15) / 16 * 16;
@@ -571,8 +571,8 @@ public sealed partial class GraphLowerer
     /// 512-token chunks: Qwen3-0.6B Q8_0 +38 %, Qwen3-8B +7.5 %, Llama-3.2-1B +7 %, Mistral-7B +6 %. Multi-sequence steps run
     /// it per run (also in mixed steps), with the tiles of the single-sequence form, so a prompt's rows sum alike in the session
     /// and the batch decoder (speculative decoding reproduces plain decoding). Sliding windows run it too (its key loop starts at
-    /// the block's first window; <c>SHARPLIGHT_ATTN_FE_WINDOW=0</c> keeps them on <c>fa</c>: Gemma 4 31B on Vulkan, 50 window layers
-    /// at head size 256, pp2048: 1.84 → see docs/benchmarks.md section 74); chunks, score biases, soft caps and sinks keep <c>fa</c>.
+    /// the block's first window; <c>SHARPLIGHT_ATTN_FE_WINDOW=0</c> keeps them on <c>fa</c>: Gemma 4 31B on Vulkan, 50 window layers at
+    /// head size 256, pp2048 1551 → 1613-1629 tok/s, docs/benchmarks.md section 74); chunks, score biases, soft caps and sinks keep <c>fa</c>.
     /// </summary>
     private bool CausalFlash(AttentionPlan plan)
     {
