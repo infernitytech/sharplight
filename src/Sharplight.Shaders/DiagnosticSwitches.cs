@@ -612,6 +612,9 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_ATTN_STAGES=n</c>: stages of the key / value ring of the hand-written prefill attention, or null for the default.</summary>
     public static int? NativeAttentionStages { get; } = Read("SHARPLIGHT_ATTN_STAGES") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary><c>SHARPLIGHT_ATTN_MR=n</c>: 16-row query fragments per warp (1 or 2) of the hand-written prefill attention, or null for the default.</summary>
+    public static int? NativeAttentionFragments { get; } = Read("SHARPLIGHT_ATTN_MR") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
     public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 

@@ -17,6 +17,14 @@ public sealed partial class GraphLowerer
     private static int NativeAttentionWarps(long headSize) => headSize <= 64 ? 4 : 8;
 
     /// <summary>
+    /// 16-row query fragments per warp of <c>attn_prefill_native.cu</c> (<c>FN_MR</c>) for head size <paramref name="headSize"/>: two up to
+    /// 64, where each key and value fragment then feeds twice the MMAs (255 registers, two blocks per SM), one above (two would spill).
+    /// RTX PRO 4500, gpt-oss-20b shapes (bench/s58_attn, 2048 causal queries after n_past keys): n_past 0 0.254 → 0.248 ms, 14,336
+    /// 3.54 → 3.29 ms, 63,488 15.8 → 14.1 ms, 126,976 31.5 → 28.0 ms; sliding-window layers unchanged. <c>SHARPLIGHT_ATTN_MR=n</c> sets it.
+    /// </summary>
+    private static int NativeAttentionFragments(long headSize) => DiagnosticSwitches.NativeAttentionFragments ?? (headSize <= 64 ? 2 : 1);
+
+    /// <summary>
     /// Stages of the key / value ring of <c>attn_prefill_native.cu</c> (<c>FN_STAGES</c>): three above head size 64, where one block has
     /// the SM to itself and a tile's copy takes about as long as its multiplication, when they fit the shared memory; else two (at head
     /// size 64 a third stage would leave room for two blocks per SM instead of three). <c>SHARPLIGHT_ATTN_STAGES=n</c> sets the count.
@@ -63,6 +71,7 @@ public sealed partial class GraphLowerer
         var q = plan.Q;
         var runs = plan.Runs;
         int warps = NativeAttentionWarps(Math.Max(plan.D, plan.DV));
+        int fragments = NativeAttentionFragments(Math.Max(plan.D, plan.DV));
         var macros = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var name in (string[])["HQ", "HKV", "D", "DV", "VRS", "QS0", "QS1", "SCALE", "WINDOW", "CHUNK", "HAS_SOFTCAP", "SOFTCAP", "HAS_SINKS",
                      "MULTI_SEQ", "SLOT_CTX", "PAGED", "PAGE_BS", "PAGE_MB", "RT_N_PAST"])
@@ -73,9 +82,10 @@ public sealed partial class GraphLowerer
         macros["MIX_RUN"] = mixRun.ToString(CultureInfo.InvariantCulture);
         macros["FN_WARPS"] = warps.ToString(CultureInfo.InvariantCulture);
         macros["FN_STAGES"] = NativeAttentionStages(plan).ToString(CultureInfo.InvariantCulture);
+        macros["FN_MR"] = fragments.ToString(CultureInfo.InvariantCulture);
         var kernel = _compiler.CompileCuda("attn_prefill_native.cu", "", "attn_prefill_native", warps * 32, NativeAttentionSharedBytes(plan), _opt.Target,
             macros, _opt.Cache);
-        uint rows = (uint)(16 * warps);
+        uint rows = (uint)(16 * warps * fragments);
         return runs is null
             ? new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), 1))
             : new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), (uint)Rows(b, runs)));

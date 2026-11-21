@@ -1,0 +1,52 @@
+T 2048 nPast 30720 window 0 warps 4 mr 1 stages 2: max err 0.000189 mean 8.53e-06 | 7.491 ms 142.2 TFLOPS
+T 2048 nPast 30720 window 0 warps 8 mr 1 stages 2: max err 0.000189 mean 8.53e-06 | 8.010 ms 133.0 TFLOPS
+T 2048 nPast 30720 window 0 warps 4 mr 2 stages 2: max err 0.000189 mean 8.53e-06 | 6.912 ms 154.1 TFLOPS
+T 2048 nPast 30720 window 0 warps 4 mr 1 stages 3: max err 0.000189 mean 8.53e-06 | 8.037 ms 132.5 TFLOPS
+T 2048 nPast 63488 window 0 warps 4 mr 1 stages 2:  15.867 ms 136.4 TFLOPS
+T 2048 nPast 63488 window 0 warps 8 mr 1 stages 2:  16.341 ms 132.5 TFLOPS
+T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.149 ms 153.0 TFLOPS
+T 2048 nPast 63488 window 0 warps 4 mr 1 stages 3:  16.711 ms 129.5 TFLOPS
+T 2048 nPast 126976 window 0 warps 4 mr 1 stages 2:  31.570 ms 136.0 TFLOPS
+T 2048 nPast 126976 window 0 warps 8 mr 1 stages 2:  32.358 ms 132.7 TFLOPS
+T 2048 nPast 126976 window 0 warps 4 mr 2 stages 2:  28.082 ms 152.9 TFLOPS
+T 2048 nPast 126976 window 0 warps 4 mr 1 stages 3:  33.202 ms 129.4 TFLOPS
+T 2048 nPast 63488 window 0 warps 4 mr 1 stages 2:  15.910 ms 136.1 TFLOPS
+T 2048 nPast 63488 window 0 warps 8 mr 1 stages 2:  16.370 ms 132.2 TFLOPS
+T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.192 ms 152.5 TFLOPS
+T 2048 nPast 63488 window 0 warps 4 mr 1 stages 3:  16.700 ms 129.6 TFLOPS
+T 2048 nPast 126976 window 0 warps 4 mr 1 stages 2:  31.490 ms 136.4 TFLOPS
+T 2048 nPast 126976 window 0 warps 8 mr 1 stages 2:  32.412 ms 132.5 TFLOPS
+T 2048 nPast 126976 window 0 warps 4 mr 2 stages 2:  28.041 ms 153.2 TFLOPS
+T 2048 nPast 126976 window 0 warps 4 mr 1 stages 3:  33.167 ms 129.5 TFLOPS
+np0 T 2048 nPast 0 window 0 warps 4 mr 1 stages 2: max err 0.000163 mean 1.26e-05 | 0.254 ms 135.3 TFLOPS
+np0 T 2048 nPast 0 window 0 warps 4 mr 2 stages 2: max err 0.000163 mean 1.26e-05 | 0.248 ms 138.7 TFLOPS
+np0 T 2048 nPast 0 window 0 warps 2 mr 2 stages 2: max err 0.000163 mean 1.26e-05 | 0.264 ms 130.1 TFLOPS
+np0 T 2048 nPast 0 window 0 warps 8 mr 2 stages 2: max err 0.000163 mean 1.26e-05 | 0.256 ms 134.3 TFLOPS
+np0win T 2048 nPast 0 window 128 warps 4 mr 1 stages 2: max err 0.000187 mean 1.62e-05 | 0.102 ms 40.6 TFLOPS
+np0win T 2048 nPast 0 window 128 warps 4 mr 2 stages 2: max err 0.000187 mean 1.62e-05 | 0.102 ms 40.6 TFLOPS
+np0win T 2048 nPast 0 window 128 warps 2 mr 2 stages 2: max err 0.000187 mean 1.62e-05 | 0.100 ms 41.5 TFLOPS
+np0win T 2048 nPast 0 window 128 warps 8 mr 2 stages 2: max err 0.000187 mean 1.62e-05 | 0.115 ms 36.3 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 4 mr 1 stages 2:  0.106 ms 40.3 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 4 mr 2 stages 2:  0.106 ms 40.3 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 2 mr 2 stages 2:  0.104 ms 41.1 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 8 mr 2 stages 2:  0.115 ms 37.4 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 4 mr 1 stages 2:  3.542 ms 145.5 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.291 ms 156.6 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 2 mr 2 stages 2:  3.729 ms 138.2 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 8 mr 2 stages 2:  3.447 ms 149.5 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 4 mr 1 stages 2:  15.829 ms 136.8 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.122 ms 153.3 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 2 mr 2 stages 2:  16.372 ms 132.2 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 8 mr 2 stages 2:  14.588 ms 148.4 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 4 mr 1 stages 2:  0.106 ms 40.3 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 4 mr 2 stages 2:  0.106 ms 40.3 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 2 mr 2 stages 2:  0.104 ms 41.1 TFLOPS
+deepwin T 2048 nPast 63488 window 128 warps 8 mr 2 stages 2:  0.115 ms 37.4 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 4 mr 1 stages 2:  3.551 ms 145.1 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 4 mr 2 stages 2:  3.305 ms 155.9 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 2 mr 2 stages 2:  3.734 ms 138.1 TFLOPS
+np14k T 2048 nPast 14336 window 0 warps 8 mr 2 stages 2:  3.445 ms 149.6 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 4 mr 1 stages 2:  15.847 ms 136.6 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 4 mr 2 stages 2:  14.148 ms 153.0 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 2 mr 2 stages 2:  16.376 ms 132.2 TFLOPS
+np63k T 2048 nPast 63488 window 0 warps 8 mr 2 stages 2:  14.612 ms 148.1 TFLOPS
