@@ -9472,7 +9472,7 @@ cd ../s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760
 
 ## 66. MoE with CPU offload, round 3: split decode for gpt-oss, streamed layers in the stored layout, CPU kernels (exp, slot sum, K-quant dots), Qwen3-Coder-Next (2026-11-21)
 
-Branch `perf/offload-r3` (base `develop` at `72962704`, §62 merged). Same machine and methodology as §59 / §62: GPU 0 of the RunPod machine
+Branch `perf/offload-r3` (base `develop` at `72962704`, §62 merged; `develop` merged again at `9ceeaeea`, StreamedExperts / Moe, a 122B CUDA bench and its FamilyGenerationTests rerun after the merge). Same machine and methodology as §59 / §62: GPU 0 of the RunPod machine
 (RTX PRO 4500 Blackwell 32 GB, no resizable BAR), AMD EPYC 7443 with a 10.2-CPU cgroup quota shared by all jobs on the pod (AVX2, no
 AVX-512) and a 62 GB cgroup memory limit, llama.cpp b11177; the GPU shared with another perf agent (runs serialized with a lock), the CPU with
 a model-feed job. Sharplight: `sharplight <model> --provider cuda|vulkan --cpu-offload --bench 512` (prefill best of 5 warm 512-token passes,
@@ -9552,10 +9552,11 @@ range; the cgroup throttled 14 % of all periods during this round), so its rows 
 |---|---|
 | Sharplight.Cpu.Tests (new `VectorExpTests`, `ViewAndNormTests.SumOverPermutedSlots`; fused Q4_K / Q6_K in `IntDotTests`) | 1365 / 0 failed / 36 skipped |
 | Sharplight.Core.Tests | 1660 / 0 failed / 331 skipped |
-| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StateHandoff, StreamedExperts, Moe, RowInvariance, QuantFormat, F16Range, TopK, Fusion | see 66.5 |
-| Sharplight.Cuda.Tests | see 66.5 |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StateHandoff, StreamedExperts, Moe, RowInvariance, QuantFormat, F16Range, TopK, Fusion | 523 / 0 failed each |
+| Sharplight.Cuda.Tests | 30 / 0 failed / 1 skipped |
 | FamilyGenerationTests Qwen3.5-122B-A10B UD-IQ2_XXS (3 cases against llama.cpp), CUDA and Vulkan | 3 / 0 failed each |
-| gpt-oss-120b greedy text (`-p "The capital of France is" -n 32`), CUDA | identical to §59 / §62 |
+| gpt-oss-120b greedy text (`-p "The capital of France is" -n 32`), CUDA and Vulkan | identical to §59 / §62 |
+| Qwen3-Coder-Next greedy text (16 tokens, the FamilyGenerationTests prompt, `--cpu-offload`; the test case itself needs the whole model on the GPU), CUDA and Vulkan | identical to the llama.cpp reference (" Paris. The capital of Germany is Berlin. The capital of Italy is Rome.") |
 
 ### 66.5 Reproduce
 
