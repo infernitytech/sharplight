@@ -95,34 +95,96 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = Math.Min(NativeKQuantMaxRows, p.X.Shape[0]);
-        long minRows = NativeKQuantMinRows;
-        if (rowsMax < minRows)
+        if (rowsMax < NativeKQuantMinRows)
         {
             return null;
         }
 
-        int blockBytes = NativeKQuantBlockBytes(p.W.Type);
-        long columns = Grid.Div(p.N, NativeKQuantColumns);
-        long steps = p.K / 256;
-        // One variant per (token tile rows, split) over the served batches; the split depends on rows only through the token tiles.
-        var configs = new SortedSet<(int TileRows, int Split)>();
-        for (long rows = minRows; rows <= rowsMax; rows++)
+        long? rangeScales = _rangeScales.TryGetValue(activations, out long xrs) ? xrs : null;
+        Func<Bindings, bool> decode = b => serves(b) && p.RowCount(b) >= NativeKQuantMinRows && p.RowCount(b) <= rowsMax;
+        var (variants, scratch, arrivals) = NativeKQuantVariants(p.W.Type, p.N, p.K, rowsMax, bias is not null, rangeScales, null, decode, p.RowCount);
+        KernelArg[] biasArgs = bias is null ? [] : [Pointer(bias)];
+        TensorRef[] biasReads = bias is null ? [] : [bias];
+        Emit($"{MatMulLabel(p)} native kquant decode{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []], variants,
+            [Pointer(activations), Pointer(p.W), Pointer(y), .. biasArgs, Pointer(scratch), Pointer(arrivals), TokenArg(p.X, p.RowsPerLead)],
+            [activations, p.W, .. biasReads], [y, scratch, arrivals]);
+        return decode;
+    }
+
+    /// <summary>
+    /// The multi-output form of the hand-written K-quant decode GEMM over the group's concatenated weight rows (q / k / v of one format:
+    /// each block's weight tile in one member's matrix, storing to that member's output with its bias) for the decode batches the
+    /// multi-output GEMM serves (<paramref name="serves"/>), when every member takes it and every member boundary is a multiple of its
+    /// 64-row weight tiles. Returns the batches it serves, or null.
+    /// </summary>
+    private Func<Bindings, bool>? EmitNativeKQuantMultiGemm(MultiGemmGroup group, List<MultiGemmPart> parts, long[] widths, long k, Func<Bindings, bool> serves)
+    {
+        var first = parts[0];
+        long n = widths.Sum();
+        if (parts.Count > 3 || parts.Any(pt => pt.Weight.Type != first.Weight.Type || !UseNativeKQuantDecode(pt.Weight.Type, n, k, pt.Macros) || pt.Weight.ByteOffset % 16 != 0)
+            || first.Activations.ByteOffset % 16 != 0 || widths.SkipLast(1).Any(w => w % NativeKQuantColumns != 0))
         {
-            int tileRows = NativeKQuantTileRows(rows);
-            configs.Add((tileRows, NativeKQuantSplit(columns * Grid.Div(rows, tileRows), steps)));
+            return null;
         }
 
-        long scratchBytes = configs.Max(c => c.Split > 1 ? c.Split * rowsMax * p.N * 4 : 0);
-        var scratch = SplitScratch(Math.Max(16, scratchBytes));
-        var partial = new TensorRef(scratch, 0, DataType.F32, [Math.Max(16, scratchBytes) / 4], [1], null);
+        long rowsMax = Math.Min(NativeKQuantMaxRows, first.RowsMax);
+        if (rowsMax < NativeKQuantMinRows)
+        {
+            return null;
+        }
+
+        bool bias = first.Bias is not null;
+        var rowsOf = first.Rows;
+        Func<Bindings, bool> decode = b => serves(b) && rowsOf(b) >= NativeKQuantMinRows && rowsOf(b) <= rowsMax;
+        var multi = new Dictionary<string, string>
+        {
+            ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+        };
+        long? rangeScales = _rangeScales.TryGetValue(first.Activations, out long xrs) ? xrs : null;
+        var (variants, scratch, arrivals) = NativeKQuantVariants(first.Weight.Type, n, k, rowsMax, bias, rangeScales, multi, decode, rowsOf);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        KernelArg[] firstBias = bias ? [Pointer(first.Bias!)] : [];
+        KernelArg[] biases = bias ? [.. parts.Skip(1).Select(pt => Pointer(pt.Bias!))] : [];
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native kquant decode", group.Members, variants,
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, Pointer(scratch),
+                Pointer(arrivals), first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output), scratch, arrivals]);
+        return decode;
+    }
+
+    /// <summary>
+    /// The launch variants of <c>gemm_kq_native.cu</c> for [<paramref name="n"/>, <paramref name="k"/>] weights of <paramref name="type"/> at
+    /// the batches <paramref name="decode"/> of up to <paramref name="rowsMax"/> rows: one per (token tile rows, K split), with the bias
+    /// store, the row scales of a row-ranged copy of x at byte <paramref name="rangeScales"/> and the <paramref name="extra"/> macros (the
+    /// multi-output form's); the split-K partial slices and the arrival counters they use.
+    /// </summary>
+    private (KernelVariant[] Variants, TensorRef Scratch, TensorRef Arrivals) NativeKQuantVariants(DataType type, long n, long k, long rowsMax, bool bias,
+        long? rangeScales, IReadOnlyDictionary<string, string>? extra, Func<Bindings, bool> decode, Func<Bindings, long> rowsOf)
+    {
+        int blockBytes = NativeKQuantBlockBytes(type);
+        long columns = Grid.Div(n, NativeKQuantColumns);
+        long steps = k / 256;
+        int Split(long rows) => NativeKQuantSplit(columns * Grid.Div(rows, NativeKQuantTileRows(rows)), steps);
+        // One variant per (token tile rows, split) over the served batches; the split depends on rows only through the token tiles.
+        var configs = new SortedSet<(int TileRows, int Split)>();
+        for (long rows = NativeKQuantMinRows; rows <= rowsMax; rows++)
+        {
+            configs.Add((NativeKQuantTileRows(rows), Split(rows)));
+        }
+
+        long scratchBytes = Math.Max(16, configs.Max(c => c.Split > 1 ? c.Split * rowsMax * n * 4 : 0));
+        var buffer = SplitScratch(scratchBytes);
+        var scratch = new TensorRef(buffer, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var arrivals = SplitArrivals(columns * Grid.Div(rowsMax, configs.Min(c => c.TileRows)));
-        long? rangeScales = _rangeScales.TryGetValue(activations, out long xrs) ? xrs : null;
-        Func<Bindings, bool> decode = b => serves(b) && p.RowCount(b) >= minRows && p.RowCount(b) <= rowsMax;
         var variants = configs.Select(c =>
         {
-            var macros = Macros(("K", p.K), ("N", p.N), ("Y_STRIDE", p.N), ("KQ_FMT", NativeKQuantFormat(p.W.Type)), ("KQ_BM", c.TileRows),
-                ("KQ_STAGES", NativeKQuantStages(c.TileRows, blockBytes, p.K)), ("KQ_SPLIT", c.Split));
-            if (bias is not null)
+            int stages = NativeKQuantStages(c.TileRows, blockBytes, k);
+            var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("KQ_FMT", NativeKQuantFormat(type)), ("KQ_BM", c.TileRows), ("KQ_STAGES", stages),
+                ("KQ_SPLIT", c.Split));
+            if (bias)
             {
                 macros["H_BIAS"] = "1";
             }
@@ -132,17 +194,16 @@ public sealed partial class GraphLowerer
                 macros["H_XRS"] = scales.ToString(CultureInfo.InvariantCulture) + "ull";
             }
 
-            int shared = NativeKQuantStages(c.TileRows, blockBytes, p.K) * NativeKQuantStageBytes(c.TileRows, blockBytes, p.K);
-            var kernel = _compiler.CompileCuda("gemm_kq_native.cu", "", "gemm_kq_native", NativeKQuantThreads, shared, _opt.Target, macros, _opt.Cache);
-            Func<Bindings, bool> pick = b => decode(b) && NativeKQuantTileRows(p.RowCount(b)) == c.TileRows
-                && NativeKQuantSplit(columns * Grid.Div(p.RowCount(b), c.TileRows), steps) == c.Split;
-            return new KernelVariant(pick, kernel, b => new Grid(Grid.Div(p.RowCount(b), c.TileRows), (uint)columns, (uint)c.Split));
-        }).ToList();
-        KernelArg[] biasArgs = bias is null ? [] : [Pointer(bias)];
-        TensorRef[] biasReads = bias is null ? [] : [bias];
-        Emit($"{MatMulLabel(p)} native kquant decode{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []], [.. variants],
-            [Pointer(activations), Pointer(p.W), Pointer(y), .. biasArgs, new PointerArg(scratch, 0), Pointer(arrivals), TokenArg(p.X, p.RowsPerLead)],
-            [activations, p.W, .. biasReads], [y, partial, arrivals]);
-        return decode;
+            foreach (var (name, value) in extra ?? new Dictionary<string, string>())
+            {
+                macros[name] = value;
+            }
+
+            var kernel = _compiler.CompileCuda("gemm_kq_native.cu", "", "gemm_kq_native", NativeKQuantThreads, stages * NativeKQuantStageBytes(c.TileRows, blockBytes, k),
+                _opt.Target, macros, _opt.Cache);
+            Func<Bindings, bool> pick = b => decode(b) && NativeKQuantTileRows(rowsOf(b)) == c.TileRows && Split(rowsOf(b)) == c.Split;
+            return new KernelVariant(pick, kernel, b => new Grid(Grid.Div(rowsOf(b), c.TileRows), (uint)columns, (uint)c.Split));
+        }).ToArray();
+        return (variants, scratch, arrivals);
     }
 }

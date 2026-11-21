@@ -218,7 +218,8 @@ public sealed partial class GraphLowerer
         bool fused = DiagnosticSwitches.MultiGemmFused && (!fp8 || _compiler.CompilesCuda(_opt.Target));
         var arrivals = fused ? SplitArrivals(tiles) : null;
         var serves = group.Serves[family];
-        var native = fp8 ? EmitNativeFp8MultiGemm(group, parts, widths, k, serves) : EmitNativeF16MultiGemm(group, parts, widths, k, serves);
+        var native = fp8 ? EmitNativeFp8MultiGemm(group, parts, widths, k, serves)
+            : EmitNativeF16MultiGemm(group, parts, widths, k, serves) ?? EmitNativeKQuantMultiGemm(group, parts, widths, k, serves);
         Func<Bindings, bool> splitServes = native is null ? serves : b => serves(b) && !native(b);
         var variants = tiledSplits.Select(ts =>
         {

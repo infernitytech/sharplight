@@ -15,14 +15,21 @@
 // zero, so the result does not depend on which block arrives last), stores the outputs and resets the counter (every launch leaves
 // the counters zero). Blocks never wait for each other.
 //
+// MULTI (2 or 3): the multi-output form over the concatenated rows of two or three matrices of one format and K (q / k / v), each with
+// its own output (dense rows of its width) and, with H_BIAS, its own bias: rows [0, MULTI_O1) are w's into y, [MULTI_O1, MULTI_O2)
+// w_1's into y_1, the rest w_2's into y_2 (MULTI_O1, MULTI_O2 multiples of 64, so a block's weight tile lies in one matrix).
+//
 // H_BIAS: the store adds bias[n]. H_XRS: x is a row-ranged f16 copy whose scale words start at byte H_XRS of x (common.slang,
 // f16_range_scale); the store multiplies each row's sums by the inverse of its scale (before the bias).
 //
-// Specialization macros: K (a multiple of 256), N, Y_STRIDE, KQ_FMT, KQ_BM (32 or 64), KQ_STAGES, KQ_SPLIT, H_BIAS, H_XRS. Requires
+// Specialization macros: K (a multiple of 256), N (all rows with MULTI), Y_STRIDE, KQ_FMT, MULTI, MULTI_O1, MULTI_O2, KQ_BM (32 or 64), KQ_STAGES, KQ_SPLIT, H_BIAS, H_XRS. Requires
 // 16-byte aligned x and weights; weight rows may start at any even byte (Q6_K rows of 210-byte blocks). Grid: x = token tiles,
 // y = weight tiles (64 rows), z = K splits.
 #ifndef H_BIAS
 #define H_BIAS 0
+#endif
+#ifndef MULTI
+#define MULTI 0
 #endif
 #ifndef KQ_SPLIT
 #define KQ_SPLIT 1
@@ -69,6 +76,22 @@ struct KqParams
     float* y;
 #if H_BIAS
     const float* bias;
+#endif
+#if MULTI
+    const unsigned char* w_1;
+#if MULTI > 2
+    const unsigned char* w_2;
+#endif
+    float* y_1;
+#if MULTI > 2
+    float* y_2;
+#endif
+#if H_BIAS
+    const float* bias_1;
+#if MULTI > 2
+    const float* bias_2;
+#endif
+#endif
 #endif
     float* part;        // KQ_SPLIT > 1: the partial slices
     kq_u32* arrivals;   // KQ_SPLIT > 1: one counter per output tile
@@ -121,6 +144,55 @@ static __device__ __forceinline__ kq_u32 kq_bits(__half2 h)
     return *(kq_u32*)&h;
 }
 
+
+// The matrix a block's weight tile lies in (MULTI: its member's), with that member's output, bias, row count and output row stride.
+struct KqMember
+{
+    const unsigned char* w;
+    float* y;
+#if H_BIAS
+    const float* bias;
+#endif
+    kq_u32 rows;
+    kq_u32 stride;
+};
+
+// The member of weight row n0 (a tile's first), and n0 made relative to it.
+static __device__ __forceinline__ KqMember kq_member(const KqParams& p, kq_u32& n0)
+{
+#if H_BIAS
+    KqMember m = { p.w, p.y, p.bias, (kq_u32)N, (kq_u32)Y_STRIDE };
+#else
+    KqMember m = { p.w, p.y, (kq_u32)N, (kq_u32)Y_STRIDE };
+#endif
+#if MULTI
+    m.rows = MULTI_O1;
+    if (n0 >= MULTI_O1)
+    {
+#if MULTI > 2
+        const bool third = n0 >= MULTI_O2;
+        m.w = third ? p.w_2 : p.w_1;
+        m.y = third ? p.y_2 : p.y_1;
+#if H_BIAS
+        m.bias = third ? p.bias_2 : p.bias_1;
+#endif
+        m.rows = third ? N - MULTI_O2 : MULTI_O2 - MULTI_O1;
+        n0 -= third ? MULTI_O2 : MULTI_O1;
+#else
+        m.w = p.w_1;
+        m.y = p.y_1;
+#if H_BIAS
+        m.bias = p.bias_1;
+#endif
+        m.rows = N - MULTI_O1;
+        n0 -= MULTI_O1;
+#endif
+    }
+    m.stride = m.rows;
+#endif
+    return m;
+}
+
 #if KQ_FMT != 6
 // Scale and minimum of sub-block j of a Q4_K / Q5_K block's 12 scale bytes (6 bits each).
 static __device__ __forceinline__ void kq_scale_min(const unsigned char* q, int j, float& sc, float& mn)
@@ -144,9 +216,11 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
     const kq_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const kq_u32 wm = warp >> 2, wn = warp & 3;
     const kq_u32 g = lane >> 2, c4 = lane & 3;
-    const kq_u32 t0 = blockIdx.x * KQ_BM, n0 = blockIdx.y * KQ_BN;
+    const kq_u32 t0 = blockIdx.x * KQ_BM, ng = blockIdx.y * KQ_BN;
+    kq_u32 n0 = ng;
+    const KqMember m = kq_member(p, n0);
     const kq_u32 sb0 = blockIdx.z * KQ_SB / KQ_SPLIT, sb1 = (blockIdx.z + 1) * KQ_SB / KQ_SPLIT, steps = sb1 - sb0;
-    const unsigned char* wend = p.w + (kq_u64)N * KQ_ROWB;
+    const unsigned char* wend = m.w + (kq_u64)m.rows * KQ_ROWB;
 
     auto load = [&](kq_u32 s, kq_u32 sb) {
         const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_STAGE_BYTES);
@@ -159,10 +233,10 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         for (kq_u32 idx = tid; idx < KQ_BN * KQ_WCH; idx += KQ_THREADS)
         {
             kq_u32 r = idx / KQ_WCH, c = idx % KQ_WCH;
-            const unsigned char* block = p.w + (kq_u64)min(n0 + r, (kq_u32)N - 1) * KQ_ROWB + (kq_u64)sb * KQ_BB;
+            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)sb * KQ_BB;
             const unsigned char* src = (const unsigned char*)((kq_u64)block & ~15ull) + c * 16;
             long long left = wend - src;
-            kq_cp16(base + KQ_XBYTES + (r * KQ_WCH + c) * 16, left > 0 ? src : p.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
+            kq_cp16(base + KQ_XBYTES + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
         }
     };
 
@@ -209,7 +283,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         for (int j = 0; j < 2; j++)
         {
             kq_u32 r = wn * 16 + j * 8 + g;
-            const unsigned char* block = p.w + (kq_u64)min(n0 + r, (kq_u32)N - 1) * KQ_ROWB + (kq_u64)(sb0 + step) * KQ_BB;
+            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)(sb0 + step) * KQ_BB;
             blk[j] = stage + KQ_XBYTES + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
         }
 
@@ -364,7 +438,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 #pragma unroll
             for (int j = 0; j < 2; j++)
             {
-                kq_u32 n = n0 + wn * 16 + j * 8 + c4 * 2;
+                kq_u32 n = ng + wn * 16 + j * 8 + c4 * 2;
                 if (n + 1 < N)
                 {
                     __stcg((float2*)(pr + n), make_float2(acc[i][j][hrow * 2], acc[i][j][hrow * 2 + 1]));
@@ -408,7 +482,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 continue;
             }
 
-            float* yr = p.y + (kq_u64)t * Y_STRIDE;
+            float* yr = m.y + (kq_u64)t * m.stride;
 #ifdef H_XRS
             const kq_u32 scaleWord = *(const kq_u32*)(p.x + H_XRS + (kq_u64)t * 4);
             const float rowInverse = scaleWord == 0 ? 1.0f : __uint_as_float(scaleWord);
@@ -418,12 +492,13 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
             {
                 kq_u32 n = n0 + wn * 16 + j * 8 + c4 * 2;
 #if KQ_SPLIT > 1
+                const kq_u32 column = ng + wn * 16 + j * 8 + c4 * 2;
                 float v0 = 0.0f, v1 = 0.0f;
                 for (kq_u32 z = 0; z < KQ_SPLIT; z++)
                 {
                     const float* pr = p.part + ((kq_u64)z * p.T + t) * N;
-                    v0 += __ldcg(pr + min(n, (kq_u32)N - 1));
-                    v1 += __ldcg(pr + min(n + 1, (kq_u32)N - 1));
+                    v0 += __ldcg(pr + min(column, (kq_u32)N - 1));
+                    v1 += __ldcg(pr + min(column + 1, (kq_u32)N - 1));
                 }
 #else
                 float v0 = acc[i][j][hrow * 2], v1 = acc[i][j][hrow * 2 + 1];
@@ -433,14 +508,14 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 v1 *= rowInverse;
 #endif
 #if H_BIAS
-                v0 += p.bias[min(n, (kq_u32)N - 1)];
-                v1 += p.bias[min(n + 1, (kq_u32)N - 1)];
+                v0 += m.bias[min(n, m.rows - 1)];
+                v1 += m.bias[min(n + 1, m.rows - 1)];
 #endif
-                if (n + 1 < N)
+                if (n + 1 < m.rows)
                 {
                     *(float2*)(yr + n) = make_float2(v0, v1);
                 }
-                else if (n < N)
+                else if (n < m.rows)
                 {
                     yr[n] = v0;
                 }
