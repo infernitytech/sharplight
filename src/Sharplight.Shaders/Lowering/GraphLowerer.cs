@@ -377,7 +377,7 @@ public sealed partial class GraphLowerer
                 {
                     _weightBuffers[w] = wb = NewBuffer(BufferKind.Weight, w.Name, w.ByteSize, w: w);
                     // A sparse expert compilation keeps the stored layout: it copies single experts from the mapped file at every execution.
-                    if (_opt.Compile.SparseExpertSlots == 0)
+                    if (_opt.Compile.SparseExpertSlots == 0 && !(_opt.Compile.StreamWeights && DiagnosticSwitches.StreamStoredLayout))
                     {
                         ChooseRepack(v, wb);
                     }

@@ -191,6 +191,9 @@ internal static class DiagnosticSwitches
     /// <summary>Disables the Q8_0 aligned-quants repack.</summary>
     public static bool NoWeightRepack { get; } = IsSet("SHARPLIGHT_NO_REPACK");
 
+    /// <summary><c>SHARPLIGHT_STREAM_STORED_LAYOUT=1</c>: streamed compilations keep the stored weight layout (direct copies from mapped memory).</summary>
+    public static bool StreamStoredLayout { get; } = IsSet("SHARPLIGHT_STREAM_STORED_LAYOUT");
+
     /// <summary>False keeps MXFP4 expert tensors in the file layout (no aligned 16-row-group repack).</summary>
     public static bool Mxfp4Repack { get; } = IsNotZero("SHARPLIGHT_REPACK_MXFP4");
 

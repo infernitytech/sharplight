@@ -26,6 +26,16 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     private readonly List<BufferDecl> _streamedWeights = [];
     /// <summary>The copy of the streamed weights that <see cref="BeginStreaming"/> started on a worker thread, until an execution waits for it.</summary>
     private Task? _streaming;
+    /// <summary>With <see cref="CompileOptions.SparseExpertSlots"/>: the expert ids input, the experts of the banks and the gathered tables.</summary>
+    private readonly SparseExpertLayout? _sparse;
+    /// <summary>The experts the last <see cref="SetInput"/> of the ids selected, in slot order (copied in at the next execution).</summary>
+    private readonly SparseExpertSelection? _sparseSelection;
+    /// <summary>With <see cref="CompileOptions.SparseExpertSlots"/>: the expert banks and tables, with the bytes of one expert.</summary>
+    private readonly List<(BufferDecl Buffer, long ExpertBytes)> _sparseWeights = [];
+    /// <summary>The mapped weight sources this segment imported (<see cref="VulkanDevice.HostImports"/>), released on dispose.</summary>
+    private readonly List<nint> _imports = [];
+    /// <summary>Whether every expert bank of a sparse compilation is imported (see <see cref="CopiesAsynchronously"/>).</summary>
+    private readonly bool _banksImported = true;
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -193,14 +203,32 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
         int streamedOutputs = 0;
         try
         {
+            if (options.StreamWeights && options.SparseExpertSlots > 0)
+            {
+                if (dev.HostImports is null)
+                {
+                    throw new NotSupportedException("Sparse expert streaming needs imported host memory (VK_EXT_external_memory_host).");
+                }
+
+                _sparse = SparseExpertLayout.Of(segment);
+                _sparseSelection = new SparseExpertSelection(_sparse.Experts, options.SparseExpertSlots);
+            }
+
             foreach (var b in program.Buffers)
             {
                 ulong size = (ulong)Math.Max(16, b.Bytes);
+                if (b.Kind == BufferKind.Weight && b.Weight is not null && _sparse is { } sparse && options.StateScope is { } sparseScope)
+                {
+                    bytes += AllocateSparseWeight(b, sparse, sparseScope, ref _banksImported);
+                    continue;
+                }
+
                 // Streamed weights: the streamed segments of one graph on this device share the memory, by weight ordinal.
-                if (b.Kind == BufferKind.Weight && options.StreamWeights && options.StateScope is { } streamScope)
+                if (b.Kind == BufferKind.Weight && options.StreamWeights && _sparse is null && options.StateScope is { } streamScope)
                 {
                     bytes += ShareArena(dev, streamScope, $"stream{options.StreamBuffer}:" + _streamedWeights.Count, b, size);
                     _streamedWeights.Add(b);
+                    TryImportSource(b);
                     continue;
                 }
 
@@ -277,6 +305,84 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
         }
     }
 
+    /// <summary>
+    /// Allocates a weight buffer of a sparse segment and imports its mapped source: an expert bank holds
+    /// <see cref="CompileOptions.SparseExpertSlots"/> experts (shared with the model's other sparse segments on the device, by bank ordinal);
+    /// a gathered per-expert table keeps all its rows, zeroed once: gathers clamp the ids to the table, so the ids of -1 (no expert) read
+    /// the rows past the slots, which stay zero. Returns the bytes newly allocated; clears <paramref name="banksImported"/> when a bank's
+    /// source could not be imported.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The weight is repacked or not memory-mapped.</exception>
+    private long AllocateSparseWeight(BufferDecl b, SparseExpertLayout sparse, object scope, ref bool banksImported)
+    {
+        nint source = b.Repack == WeightRepack.None && b.InitialData is null ? b.Weight!.Source.TryGetPointer() : 0;
+        if (source == 0 || b.Bytes % sparse.Experts != 0 || b.Bytes != b.Weight!.ByteSize)
+        {
+            throw new NotSupportedException($"Sparse expert streaming: {b.Name} is repacked or not memory-mapped.");
+        }
+
+        long expertBytes = b.Bytes / sparse.Experts;
+        bool table = sparse.Tables.Contains(b.Weight);
+        ulong size = (ulong)Math.Max(16, table ? b.Bytes : _options.SparseExpertSlots * expertBytes);
+        bool allocated = ShareArena(_dev, scope, "sparse:" + _sparseWeights.Count, b, size) > 0;
+        _sparseWeights.Add((b, expertBytes));
+        if (table && allocated)
+        {
+            var target = _alloc[b];
+            _dev.Immediate(cb => _dev.Api.vkCmdFillBuffer(cb, target.Buffer, target.Offset, size & ~3UL, 0));
+        }
+
+        if (!TryImportSource(b) && !table)
+        {
+            banksImported = false;
+        }
+
+        return allocated ? (long)size : 0;
+    }
+
+    /// <summary>Imports the mapped source of a weight stored as is (<see cref="VulkanDevice.HostImports"/>); false when it is not imported.</summary>
+    private bool TryImportSource(BufferDecl b)
+    {
+        nint source = b.Repack == WeightRepack.None && b.InitialData is null ? b.Weight?.Source.TryGetPointer() ?? 0 : 0;
+        if (source == 0 || _dev.HostImports is not { } imports || !imports.TryImport((byte*)source, b.Bytes))
+        {
+            return false;
+        }
+
+        _imports.Add(source);
+        return true;
+    }
+
+    /// <summary>
+    /// Queues the copies of the selected experts (<see cref="SparseExpertSelection.Selected"/>) of every bank into their slots, from the
+    /// imported pages, on the device queue (the execution submitted next runs after them).
+    /// </summary>
+    private void CopySelectedExperts()
+    {
+        var selected = _sparseSelection!.Selected;
+        lock (_dev.StreamLock)
+        {
+            var uploader = _dev.StreamUploader(1);
+            foreach (var (b, expertBytes) in _sparseWeights)
+            {
+                for (int slot = 0; slot < selected.Count; slot++)
+                {
+                    // Runs of consecutive experts go in one copy.
+                    int run = 1;
+                    while (slot + run < selected.Count && selected[slot + run] == selected[slot] + run)
+                    {
+                        run++;
+                    }
+
+                    uploader.UploadRange(b, selected[slot] * expertBytes, run * expertBytes, _alloc[b], (ulong)(slot * expertBytes));
+                    slot += run - 1;
+                }
+            }
+
+            uploader.Submit();
+        }
+    }
+
     /// <summary>What a buffer holds, for out-of-memory messages.</summary>
     private static string Purpose(BufferDecl buffer) => $"{buffer.Kind.ToString().ToLowerInvariant()} buffer {buffer.Name}";
 
@@ -322,7 +428,9 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
         // Shared weights another compilation holds are uploaded by that one. A cancelled or failed upload leaves this segment's
         // filling leases unfilled; disposing the segment (the constructor does on any exception) marks them failed, so other
         // holders waiting for them throw instead of hanging, and the next acquirer allocates and fills a fresh buffer.
-        var weights = _program.Buffers.Where(b => b.Kind == BufferKind.Weight && (!_leases.TryGetValue(b, out var l) || l.MustFill)).ToList();
+        // The banks and tables of a sparse compilation are copied in at every execution.
+        var weights = _program.Buffers.Where(b => b.Kind == BufferKind.Weight && (!_leases.TryGetValue(b, out var l) || l.MustFill)
+            && _sparseWeights.All(w => w.Buffer != b)).ToList();
         var ct = _options.CancellationToken;
         if (weights.Count > 0)
         {
@@ -405,6 +513,10 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// <inheritdoc />
     public bool WeightsResident { get; set; }
 
+    /// <inheritdoc />
+    /// <remarks>A sparse compilation copies asynchronously when the device imported the mapped sources of all its expert banks.</remarks>
+    public bool CopiesAsynchronously => _sparse is null || _banksImported;
+
     /// <summary>
     /// Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now unless they are <see cref="WeightsResident"/>.
     /// </summary>
@@ -462,6 +574,11 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
 
         _dev.ThrowIfDisposed();
         WaitForCompletion();
+        if (_sparse is { } sparse && value == sparse.Ids)
+        {
+            data = _sparseSelection!.Remap(data);
+        }
+
         var a = _staging[r.Buffer];
         if ((ulong)data.Length > a.Size - (ulong)r.ByteOffset)
         {
@@ -570,6 +687,11 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
         if (_streamedWeights.Count > 0)
         {
             StreamWeights();
+        }
+
+        if (_sparse is not null)
+        {
+            CopySelectedExperts();
         }
 
         var rt = _staging[_program.RuntimeBuffer];
@@ -1400,6 +1522,12 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
             return;
         }
 
+        foreach (nint source in _imports)
+        {
+            _dev.HostImports!.Release((byte*)source);
+        }
+
+        _imports.Clear();
         // Every Execute waits for its fence, so no work of this segment is in flight; no device-wide wait (it would
         // stall, and need the queue lock against, the other models sharing the device).
         foreach (var cbs in _recorded.Values)

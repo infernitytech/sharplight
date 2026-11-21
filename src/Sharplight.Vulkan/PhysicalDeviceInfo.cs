@@ -18,6 +18,12 @@ internal sealed unsafe class PhysicalDeviceInfo
     public long DeviceLocalBytes { get; }
     /// <summary>Index of the largest device-local heap (the VRAM heap the budget is read from).</summary>
     public int DeviceLocalHeap { get; }
+    /// <summary>
+    /// The alignment of host memory imported through VK_EXT_external_memory_host (address and size), or 0 without the extension: the device
+    /// then copies from mapped weight files only through staging memory.
+    /// </summary>
+    public long HostPointerAlignment { get; }
+
     /// <summary>VK_EXT_memory_budget is available.</summary>
     public bool MemoryBudgetExt { get; }
     /// <summary>Largest single memory allocation the driver accepts (maxMemoryAllocationSize).</summary>
@@ -122,6 +128,13 @@ internal sealed unsafe class PhysicalDeviceInfo
         var props2 = new VkPhysicalDeviceProperties2 { pNext = &idp };
         var smBuiltins = new VkPhysicalDeviceShaderSMBuiltinsPropertiesNV();
         var amdCores = new VkPhysicalDeviceShaderCorePropertiesAMD();
+        var hostImport = new VkPhysicalDeviceExternalMemoryHostPropertiesEXT();
+        if (Extensions.Contains("VK_EXT_external_memory_host"))
+        {
+            hostImport.pNext = props2.pNext;
+            props2.pNext = &hostImport;
+        }
+
         if (Extensions.Contains("VK_NV_shader_sm_builtins"))
         {
             smBuiltins.pNext = props2.pNext;
@@ -135,6 +148,7 @@ internal sealed unsafe class PhysicalDeviceInfo
         }
 
         api.vkGetPhysicalDeviceProperties2(pd, &props2);
+        HostPointerAlignment = (long)hostImport.minImportedHostPointerAlignment;
         if (smBuiltins.shaderSMCount > 0)
         {
             ComputeUnits = smBuiltins.shaderSMCount;
@@ -473,6 +487,7 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["threads_per_compute_unit"] = ThreadsPerComputeUnit.ToString(),
             ["max_push_constants"] = MaxPushConstants.ToString(),
             ["memory_budget"] = MemoryBudgetExt.ToString(),
+            ["host_pointer_alignment"] = HostPointerAlignment.ToString(),
             ["max_memory_allocation"] = MaxMemoryAllocationSize.ToString(),
             ["max_buffer_size"] = MaxBufferSize.ToString(),
             ["sparse_binding"] = SparseBinding.ToString(),

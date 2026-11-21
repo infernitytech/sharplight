@@ -33,7 +33,8 @@ internal sealed unsafe class WeightUploader : IDisposable
     private readonly Allocation[] _staging = new Allocation[MaxSlots];
     private readonly VkCommandBuffer[] _commandBuffers = new VkCommandBuffer[MaxSlots];
     private readonly VkFence[] _fences = new VkFence[MaxSlots];
-    private readonly List<(VkBuffer Dst, ulong DstOffset, ulong SrcOffset, ulong Size)> _pending = [];
+    private readonly List<(VkBuffer Src, ulong SrcOffset, VkBuffer Dst, ulong DstOffset, ulong Size)> _pending = [];
+    private readonly List<HostPiece> _pieces = [];
     private ulong _stagingSize;
     private int _slot;
     private ulong _fill;
@@ -72,6 +73,12 @@ internal sealed unsafe class WeightUploader : IDisposable
             return;
         }
 
+        if (buffer.Repack == WeightRepack.None && pointer != 0)
+        {
+            UploadRange(buffer, 0, total, destination, 0);
+            return;
+        }
+
         EnsureStaging();
         long done = 0;
         while (done < total)
@@ -96,11 +103,65 @@ internal sealed unsafe class WeightUploader : IDisposable
                 WeightCopier.CopyChunk(buffer, source, pointer, done, (long)chunk, _staging[_slot].Mapped + _fill, rowBytes);
             }
 
-            _pending.Add((destination.Buffer, destination.Offset + (ulong)done, _fill, chunk));
+            _pending.Add((_staging[_slot].Buffer, _staging[_slot].Offset + _fill, destination.Buffer, destination.Offset + (ulong)done, chunk));
             _fill = Math.Min(_stagingSize, (_fill + chunk + StagingAlignment - 1) & ~(StagingAlignment - 1));
             done += (long)chunk;
         }
     }
+
+    /// <summary>
+    /// Copies bytes [<paramref name="offset"/>, + <paramref name="length"/>) of a memory-mapped weight stored as is to
+    /// <paramref name="destinationOffset"/> of <paramref name="destination"/>: the parts the device imported
+    /// (<see cref="VulkanDevice.HostImports"/>) directly, the others through the staging buffers.
+    /// </summary>
+    internal void UploadRange(BufferDecl buffer, long offset, long length, Allocation destination, ulong destinationOffset)
+    {
+        byte* source = (byte*)buffer.Weight!.Source.TryGetPointer() + offset;
+        if (_dev.HostImports is { } imports)
+        {
+            imports.Split(source, length, _pieces);
+        }
+        else
+        {
+            _pieces.Clear();
+            _pieces.Add(new HostPiece((nint)source, length, VkBuffer.Null, 0));
+        }
+
+        foreach (var piece in _pieces)
+        {
+            ulong target = destination.Offset + destinationOffset + (ulong)(piece.Start - (nint)source);
+            if (piece.Buffer != VkBuffer.Null)
+            {
+                _pending.Add((piece.Buffer, piece.Offset, destination.Buffer, target, (ulong)piece.Bytes));
+                continue;
+            }
+
+            StageBytes((byte*)piece.Start, piece.Bytes, destination.Buffer, target);
+        }
+    }
+
+    /// <summary>Copies host bytes through the staging buffers to <paramref name="target"/> of <paramref name="destination"/>.</summary>
+    private void StageBytes(byte* source, long length, VkBuffer destination, ulong target)
+    {
+        EnsureStaging();
+        long done = 0;
+        while (done < length)
+        {
+            if (_fill >= _stagingSize)
+            {
+                Flush();
+            }
+
+            ulong chunk = Math.Min(_stagingSize - _fill, (ulong)(length - done));
+            WeightCopier.CopyParallel(source + done, _staging[_slot].Mapped + _fill, (long)chunk);
+            _pending.Add((_staging[_slot].Buffer, _staging[_slot].Offset + _fill, destination, target + (ulong)done, chunk));
+            _fill = Math.Min(_stagingSize, (_fill + chunk + StagingAlignment - 1) & ~(StagingAlignment - 1));
+            done += (long)chunk;
+        }
+    }
+
+    /// <summary>Submits the copies queued so far without waiting for them (later submissions on the device queue run after them).</summary>
+    internal void Submit() => Flush();
 
     private byte* _repackScratch;
     private ulong _repackScratchBytes;
@@ -118,7 +179,7 @@ internal sealed unsafe class WeightUploader : IDisposable
         return _repackScratch;
     }
 
-    /// <summary>Submits the remaining copies and waits until the staging buffers are idle.</summary>
+    /// <summary>Submits the remaining copies and waits until they are done.</summary>
     internal void Complete()
     {
         Flush();
@@ -218,13 +279,15 @@ internal sealed unsafe class WeightUploader : IDisposable
             return;
         }
 
+        // Direct copies from imported memory need the command buffers too.
+        EnsureStaging();
         var commandBuffer = _commandBuffers[_slot];
         var beginInfo = new VkCommandBufferBeginInfo { flags = VkCommandBufferUsageFlags.OneTimeSubmit };
         _dev.Api.vkBeginCommandBuffer(commandBuffer, &beginInfo).CheckResult();
-        foreach (var (destination, destinationOffset, sourceOffset, size) in _pending)
+        foreach (var (source, sourceOffset, destination, destinationOffset, size) in _pending)
         {
-            var region = new VkBufferCopy { srcOffset = _staging[_slot].Offset + sourceOffset, dstOffset = destinationOffset, size = size };
-            _dev.Api.vkCmdCopyBuffer(commandBuffer, _staging[_slot].Buffer, destination, 1, &region);
+            var region = new VkBufferCopy { srcOffset = sourceOffset, dstOffset = destinationOffset, size = size };
+            _dev.Api.vkCmdCopyBuffer(commandBuffer, source, destination, 1, &region);
         }
 
         _dev.Api.vkEndCommandBuffer(commandBuffer).CheckResult();

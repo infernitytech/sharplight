@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Sharplight.Cuda.Interop;
 using Sharplight.Graph;
 using Sharplight.Models;
@@ -46,9 +45,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// With <see cref="CompileOptions.SparseExpertSlots"/>: the expert ids input (rewritten to slots), the experts of the bank and the
     /// per-expert tables the segment gathers rows of by those ids (e.g. the experts' biases).
     /// </summary>
-    private readonly (Value Ids, int Experts, HashSet<WeightInfo> Tables)? _sparse;
+    private readonly SparseExpertLayout? _sparse;
     /// <summary>The experts the last <see cref="SetInput"/> of the ids selected, in slot order (their weights are copied in at the next execution).</summary>
-    private readonly List<int> _sparseSelected = [];
+    private readonly SparseExpertSelection? _sparseSelection;
     /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming"/>).</summary>
     private nint _streamDone;
     /// <summary>Input and output buffers allocated so far by a streamed or sparse compilation (their ordinals key the shared buffers).</summary>
@@ -103,7 +102,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
             if (options.StreamWeights && options.SparseExpertSlots > 0)
             {
-                _sparse = SparseExpertIds(segment);
+                _sparse = SparseExpertLayout.Of(segment);
+                _sparseSelection = new SparseExpertSelection(_sparse.Experts, options.SparseExpertSlots);
             }
 
             long bytes = 0;
@@ -293,59 +293,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     }
 
     /// <summary>
-    /// The expert ids input of a segment compiled with <see cref="CompileOptions.SparseExpertSlots"/>, the experts of its banks and the tables
-    /// it gathers rows of: every weight the segment reads must be the bank of a <c>MatMulId</c> (input 1, [experts, ...]) or a table of a
-    /// <c>GatherAxis</c> on axis 0 ([experts, N]), indexed by one ids input of the segment.
-    /// </summary>
-    /// <exception cref="NotSupportedException">The segment reads other weights or more than one ids value.</exception>
-    private static (Value Ids, int Experts, HashSet<WeightInfo> Tables) SparseExpertIds(GraphSegment segment)
-    {
-        Value? ids = null;
-        int experts = 0;
-        HashSet<WeightInfo> tables = [];
-        foreach (var n in segment.Nodes)
-        {
-            for (int i = 0; i < n.Inputs.Length; i++)
-            {
-                if (n.Inputs[i].Weight is not { } weight)
-                {
-                    continue;
-                }
-
-                bool bank = n.Op.Name == "MatMulId" && i == 1;
-                bool table = n.Op.Name == "GatherAxis" && i == 0 && n.Attributes.Get("axis", 0L) == 0 && n.Inputs[0].Shape.Rank == 2;
-                var nodeIds = n.Inputs[bank ? 2 : 1];
-                if (!bank && !table || ids is not null && nodeIds != ids || experts > 0 && n.Inputs[i].Shape[0].Fixed != experts)
-                {
-                    throw new NotSupportedException($"Sparse expert streaming: {n.Op.Name} reads a weight that is not an expert bank of the segment's ids (output {n.Outputs[0].Name}).");
-                }
-
-                if (table)
-                {
-                    tables.Add(weight);
-                }
-
-                ids = nodeIds;
-                experts = (int)n.Inputs[i].Shape[0].Fixed;
-            }
-        }
-
-        if (ids is null || !segment.Inputs.Contains(ids) || ids.Type != Tensors.DataType.I32)
-        {
-            throw new NotSupportedException("Sparse expert streaming: the segment has no expert banks indexed by an i32 input.");
-        }
-
-        return (ids, experts, tables);
-    }
-
-    /// <summary>
     /// Allocates a weight buffer of a sparse segment: an expert bank holds <see cref="CompileOptions.SparseExpertSlots"/> experts (shared with
     /// the model's other sparse segments on the device, by bank ordinal); constant tables (decoding grids) are the segment's own. A gathered
     /// per-expert table keeps all its rows (it is small): gathers clamp the ids to the table, and the rows past the slots stay zero, so the ids
     /// of -1 (no expert) read zeros.
     /// </summary>
     /// <exception cref="NotSupportedException">A bank is repacked or not memory-mapped.</exception>
-    private long AllocateSparseWeight(BufferDecl b, int experts, HashSet<WeightInfo> tables, object scope)
+    private long AllocateSparseWeight(BufferDecl b, int experts, IReadOnlySet<WeightInfo> tables, object scope)
     {
         if (b.Weight is null)
         {
@@ -394,45 +348,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
     }
 
-    /// <summary>
-    /// Rewrites the expert ids of a sparse segment's input to the slots the selected experts are copied to (ids outside the bank, such as -1,
-    /// select no expert and stay -1), remembering the experts in slot order.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">The rows select more experts than the segment holds.</exception>
-    private byte[] RemapSparseIds(ReadOnlySpan<byte> data, int experts)
-    {
-        var ids = MemoryMarshal.Cast<byte, int>(data);
-        var remapped = new byte[data.Length];
-        var slots = MemoryMarshal.Cast<byte, int>(remapped.AsSpan());
-        _sparseSelected.Clear();
-        for (int i = 0; i < ids.Length; i++)
-        {
-            int e = ids[i];
-            if ((uint)e >= (uint)experts)
-            {
-                slots[i] = -1;
-                continue;
-            }
-
-            int slot = _sparseSelected.IndexOf(e);
-            if (slot < 0)
-            {
-                if (_sparseSelected.Count == _options.SparseExpertSlots)
-                {
-                    throw new InvalidOperationException($"The rows select more than the {_options.SparseExpertSlots} experts segment {Segment.Index} holds.");
-                }
-
-                slot = _sparseSelected.Count;
-                _sparseSelected.Add(e);
-            }
-
-            slots[i] = slot;
-        }
-
-        return remapped;
-    }
-
-    /// <summary>Queues the copies of the selected experts (<see cref="RemapSparseIds"/>) of every bank into their slots on the upload stream.</summary>
+    /// <summary>Queues the copies of the selected experts (<see cref="SparseExpertSelection.Selected"/>) of every bank into their slots on the upload stream.</summary>
     private void QueueSparseCopies()
     {
         foreach (var (b, source, expertBytes) in _sparseWeights)
@@ -442,16 +358,17 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             var registered = _registeredWeights.FirstOrDefault(r => r.Buffer == b);
             long lockedStart = registered.Buffer is null ? 0 : registered.Offset;
             long lockedEnd = registered.Buffer is null ? 0 : registered.Offset + registered.Bytes;
-            for (int slot = 0; slot < _sparseSelected.Count; slot++)
+            var selected = _sparseSelection!.Selected;
+            for (int slot = 0; slot < selected.Count; slot++)
             {
                 // Runs of consecutive experts go in one copy.
                 int run = 1;
-                while (slot + run < _sparseSelected.Count && _sparseSelected[slot + run] == _sparseSelected[slot] + run)
+                while (slot + run < selected.Count && selected[slot + run] == selected[slot] + run)
                 {
                     run++;
                 }
 
-                long from = _sparseSelected[slot] * expertBytes;
+                long from = selected[slot] * expertBytes;
                 long to = from + run * expertBytes;
                 ulong target = destination + (ulong)(slot * expertBytes);
                 foreach (long cut in (ReadOnlySpan<long>)[lockedStart, lockedEnd, to])
@@ -656,7 +573,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         WaitForCompletion();
         if (_sparse is { } sparse && value == sparse.Ids)
         {
-            data = RemapSparseIds(data, sparse.Experts);
+            data = _sparseSelection!.Remap(data);
         }
 
         var a = _alloc[r.Buffer];

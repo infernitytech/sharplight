@@ -125,6 +125,14 @@ public static class DeviceFeatures
     public const string MemoryBudget = "memory_budget";
 
     /// <summary>
+    /// The device copies directly from host memory it imports, such as the mapped pages of a weight file (Vulkan:
+    /// VK_EXT_external_memory_host; CUDA page-locks the pages instead): streamed and selected expert weights then need no staging copy on
+    /// the host. Without it they go through staging memory, and expert passes are not split onto the device. Like <see cref="MemoryBudget"/>
+    /// it does not change generated code.
+    /// </summary>
+    public const string HostMemoryImport = "host_memory_import";
+
+    /// <summary>
     /// The driver exports and imports the compiled form of individual kernels as validated, content-keyed binaries (Vulkan:
     /// VK_KHR_pipeline_binary; Metal: binary archives), used for the device code of precompiled models
     /// (<see cref="IExecutionProvider.CompileDeviceSpecificAsync"/>). Without it a provider falls back to a whole-device cache blob
@@ -154,7 +162,7 @@ public static class DeviceFeatures
     public const string WindowKv = "window_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeAttention, TensorCopies, LaunchGraphs, DependentLaunches];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeAttention, TensorCopies, LaunchGraphs, DependentLaunches];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>
