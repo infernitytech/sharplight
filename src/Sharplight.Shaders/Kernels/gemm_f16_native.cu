@@ -4,19 +4,27 @@
 // a ring of 64-value K steps (128-byte rows, XOR swizzle) in dynamic shared memory, ldmatrix and mma.sync.m16n8k16.
 //
 // Tiles (H_CFG): 0 = 128 tokens x 256 weight rows, 2 x 4 warps of 64 x 64 outputs, two stages (96 KB); 1 = 128 x 128, 2 x 2 warps
-// of 64 x 64, three stages (96 KB), for grids that the wide tile would fill in few waves. Blocks are rasterized in groups of
-// H_GROUP token tiles that walk all weight tiles, so a group's activations stay in L2 while the weights stream through.
+// of 64 x 64, three stages (96 KB), for grids that the wide tile would fill in few waves; 2 = the decode form for batches of at
+// most 64 rows: 64 tokens x H_DBN (default 64) weight rows, 2 x (H_DBN / 16) warps of 32 x 16 outputs, four stages, no K split (one
+// launch where the generated GEMMs split K and reduce). Blocks are rasterized in groups of H_GROUP token tiles that walk all weight
+// tiles, so a group's activations stay in L2 while the weights stream through.
 //
 // DUAL: two weight matrices of the same shape (w, w2; gate and up) share x; the B tile's 8-row groups alternate between them, each
 // thread holds both results of an output and stores H_EPI2(a, b) (the generated epilogue); a block covers half its weight rows of
 // outputs.
 //
-// H_BIAS (single matrix): the store adds bias[n] (a projection's bias row). H_XRS (with H_BIAS): x is a row-ranged f16 copy whose
-// scale words start at byte H_XRS of x (common.slang, f16_range_scale); the store multiplies each row's products by the inverse of
-// its scale before the bias (exact: a power of two), as the unscale launch and the Add would.
+// MULTI (2 or 3, not with DUAL): the multi-output form over the concatenated rows of two or three matrices of one K (q / k / v),
+// each with its own output (dense rows of its width) and, with H_BIAS, its own bias: rows [0, MULTI_O1) are w's into y, [MULTI_O1,
+// MULTI_O2) w_1's into y_1, the rest w_2's into y_2. A block's weight tile lies in one matrix (MULTI_O1, MULTI_O2 multiples of the
+// tile's weight rows), and each output sums its K steps in the order of the matrix's own launch.
 //
-// Specialization macros: K, N, Y_STRIDE, H_CFG, DUAL, H_EPI2 (DUAL), H_BIAS, H_XRS. Requires K % 64 == 0, 16-byte aligned operands
-// and an even Y_STRIDE. Grid: x = token tiles, y = weight tiles.
+// H_BIAS (single matrix): the store adds bias[n] (a projection's bias row). H_XRS: x is a row-ranged f16 copy whose scale words
+// start at byte H_XRS of x (common.slang, f16_range_scale); the store multiplies each row's products by the inverse of its scale
+// (before the bias; exact: a power of two), as the unscale launch (and the Add) would.
+//
+// Specialization macros: K, N (all rows with MULTI), Y_STRIDE, H_CFG, H_DBN (H_CFG 2), DUAL, H_EPI2 (DUAL), MULTI, MULTI_O1,
+// MULTI_O2, H_BIAS, H_XRS. Requires K % 64 == 0, 16-byte aligned operands and an even Y_STRIDE (MULTI: even widths). Grid:
+// x = token tiles, y = weight tiles.
 #ifndef DUAL
 #define DUAL 0
 #endif
@@ -26,19 +34,34 @@
 #ifndef H_BIAS
 #define H_BIAS 0
 #endif
+#ifndef MULTI
+#define MULTI 0
+#endif
 #if H_BIAS && DUAL
 #error "the bias epilogue is for single matrices"
 #endif
+#if MULTI && DUAL
+#error "gemm_f16_native: MULTI with DUAL"
+#endif
 #if H_CFG == 0
+#define H_BM 128
 #define H_BN 256
 #define H_WN 4
 #define H_STAGES 2
-#else
+#elif H_CFG == 1
+#define H_BM 128
 #define H_BN 128
 #define H_WN 2
 #define H_STAGES 3
+#else
+#ifndef H_DBN
+#define H_DBN 64
 #endif
-#define H_BM 128
+#define H_BM 64
+#define H_BN H_DBN
+#define H_WN (H_DBN / 16)
+#define H_STAGES 4
+#endif
 #define H_WM 2
 #define H_GROUP 16
 #define H_THREADS (H_WM * H_WN * 32)
@@ -68,7 +91,34 @@ struct HParams
 #if H_BIAS
     const float* bias;
 #endif
+#if MULTI
+    const unsigned char* w_1;
+#if MULTI > 2
+    const unsigned char* w_2;
+#endif
+    float* y_1;
+#if MULTI > 2
+    float* y_2;
+#endif
+#if H_BIAS
+    const float* bias_1;
+#if MULTI > 2
+    const float* bias_2;
+#endif
+#endif
+#endif
     h_u32 T;
+};
+
+// The matrix a block's weight tile lies in (MULTI: its member's), with that member's output, bias, row count and first row.
+struct HMember
+{
+    const unsigned char* w;
+    float* y;
+#if H_BIAS
+    const float* bias;
+#endif
+    h_u32 rows;
 };
 
 static __device__ __forceinline__ void h_cp16(h_u32 dst, const void* src)
@@ -94,20 +144,55 @@ static __device__ __forceinline__ h_u32 h_swz(h_u32 r, h_u32 c)
     return r * 128u + ((c ^ (r & 7u)) << 4);
 }
 
-// Weight row of B tile row r (rows past N are clamped: their outputs are never stored).
-static __device__ __forceinline__ const unsigned char* h_wrow(const HParams& p, h_u32 n0, h_u32 r)
+// Weight row of B tile row r (rows past the matrix's are clamped: their outputs are never stored).
+static __device__ __forceinline__ const unsigned char* h_wrow(const HParams& p, const HMember& m, h_u32 n0, h_u32 r)
 {
 #if DUAL
     const unsigned char* w = ((r >> 3) & 1) ? p.w2 : p.w;
-    h_u32 n = min(n0 + (r >> 4) * 8 + (r & 7), (h_u32)N - 1);
+    h_u32 n = min(n0 + (r >> 4) * 8 + (r & 7), m.rows - 1);
 #else
-    const unsigned char* w = p.w;
-    h_u32 n = min(n0 + r, (h_u32)N - 1);
+    const unsigned char* w = m.w;
+    h_u32 n = min(n0 + r, m.rows - 1);
 #endif
     return w + (h_u64)n * H_RS;
 }
 
-extern "C" __global__ void __launch_bounds__(H_THREADS, 1) gemm_f16_native(HParams p)
+// The member of weight row n0 (a tile's first), and n0 made relative to it.
+static __device__ __forceinline__ HMember h_member(const HParams& p, h_u32& n0)
+{
+#if H_BIAS
+    HMember m = { p.w, p.y, p.bias, (h_u32)N };
+#else
+    HMember m = { p.w, p.y, (h_u32)N };
+#endif
+#if MULTI
+    m.rows = MULTI_O1;
+    if (n0 >= MULTI_O1)
+    {
+#if MULTI > 2
+        const bool third = n0 >= MULTI_O2;
+        m.w = third ? p.w_2 : p.w_1;
+        m.y = third ? p.y_2 : p.y_1;
+#if H_BIAS
+        m.bias = third ? p.bias_2 : p.bias_1;
+#endif
+        m.rows = third ? N - MULTI_O2 : MULTI_O2 - MULTI_O1;
+        n0 -= third ? MULTI_O2 : MULTI_O1;
+#else
+        m.w = p.w_1;
+        m.y = p.y_1;
+#if H_BIAS
+        m.bias = p.bias_1;
+#endif
+        m.rows = N - MULTI_O1;
+        n0 -= MULTI_O1;
+#endif
+    }
+#endif
+    return m;
+}
+
+extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm_f16_native(HParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const h_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
@@ -115,7 +200,8 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, 1) gemm_f16_native(HPara
     const h_u32 id = blockIdx.y * gridDim.x + blockIdx.x, groupBlocks = H_GROUP * gridDim.y;
     const h_u32 first = id / groupBlocks * H_GROUP, groupRows = min(gridDim.x - first, (h_u32)H_GROUP);
     const h_u32 t0 = (first + id % groupBlocks % groupRows) * H_BM;
-    const h_u32 n0 = id % groupBlocks / groupRows * H_BOUT;
+    h_u32 n0 = id % groupBlocks / groupRows * H_BOUT;
+    const HMember m = h_member(p, n0);
     const h_u32 nk = K / 64;
 
     auto load = [&](h_u32 s, h_u32 kb) {
@@ -131,7 +217,7 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, 1) gemm_f16_native(HPara
         for (h_u32 i = 0; i < H_BN * 8 / H_THREADS; i++)
         {
             h_u32 idx = tid + i * H_THREADS, r = idx >> 3, c = idx & 7;
-            h_cp16(base + H_BM * 128 + h_swz(r, c), h_wrow(p, n0, r) + k0 + c * 16);
+            h_cp16(base + H_BM * 128 + h_swz(r, c), h_wrow(p, m, n0, r) + k0 + c * 16);
         }
     };
 
@@ -214,7 +300,11 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, 1) gemm_f16_native(HPara
                 continue;
             }
 
-            float* yr = p.y + (h_u64)t * Y_STRIDE;
+#if MULTI
+            float* yr = m.y + (h_u64)t * m.rows;
+#else
+            float* yr = m.y + (h_u64)t * Y_STRIDE;
+#endif
 #ifdef H_XRS
             const h_u32 scaleWord = *(const h_u32*)(p.x + H_XRS + (h_u64)t * 4);
             const float rowInverse = scaleWord == 0 ? 1.0f : __uint_as_float(scaleWord);
@@ -237,15 +327,15 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, 1) gemm_f16_native(HPara
                 v1 *= rowInverse;
 #endif
 #if H_BIAS
-                v0 += p.bias[min(n, (h_u32)N - 1)];
-                v1 += p.bias[min(n + 1, (h_u32)N - 1)];
+                v0 += m.bias[min(n, m.rows - 1)];
+                v1 += m.bias[min(n + 1, m.rows - 1)];
 #endif
 #endif
-                if (n + 1 < N)
+                if (n + 1 < m.rows)
                 {
                     *(float2*)(yr + n) = make_float2(v0, v1);
                 }
-                else if (n < N)
+                else if (n < m.rows)
                 {
                     yr[n] = v0;
                 }

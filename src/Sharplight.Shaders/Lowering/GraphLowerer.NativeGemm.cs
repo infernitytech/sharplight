@@ -336,6 +336,69 @@ public sealed partial class GraphLowerer
         })];
     }
 
+    /// <summary>Token rows of the decode form of <c>gemm_f16_native.cu</c> (H_CFG 2): the largest batch it serves.</summary>
+    private const int NativeF16DecodeTileRows = 64;
+
+    /// <summary>
+    /// Weight rows per tile of the decode form of the hand-written f16 GEMM for <paramref name="n"/> outputs
+    /// (<c>SHARPLIGHT_NATIVE_F16_DECODE_BN</c>; 0: no decode form): 64, or 32 where 64-row tiles would leave a quarter of the SMs
+    /// without a block. RTX PRO 4500 Blackwell (82 SMs), gpt-oss-20b shapes at 64 rows, sustained over 24 weight copies
+    /// (bench/s68_f16dec, µs): q / k / v [2880 → 4096 + 512 + 512] 39.4 on 64-row tiles (80 blocks), 40.2 on 32; o [4096 → 2880]
+    /// 33.3 on 64-row tiles (45 blocks), 32.0 on 32 (90 blocks, two per SM).
+    /// </summary>
+    private int NativeF16DecodeColumns(long n)
+        => DiagnosticSwitches.NativeF16DecodeColumns ?? (Grid.Div(n, 64) * 4 >= Math.Max(1, _opt.ComputeUnits) * 3 ? 64 : 32);
+
+    /// <summary>
+    /// Fewest rows the hand-written f16 GEMM's decode form serves (<c>SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS</c>): below, gemm_cm2's
+    /// K split fills the GPU better.
+    /// </summary>
+    private static long NativeF16DecodeMinRows => DiagnosticSwitches.NativeF16DecodeMinRows ?? 33;
+
+    /// <summary>
+    /// True when f16 weights [<paramref name="n"/>, <paramref name="k"/>] (bf16 stored as f16) read by f16 activation rows of stride
+    /// <paramref name="k"/> (<paramref name="macros"/>: the f16 copy of x) run their decode batches on the hand-written f16 GEMM's decode
+    /// form: the provider has the hand-written GEMM, K is a multiple of its 64-value steps, and the weight tiles fill at least half the SMs
+    /// (narrower outputs, such as a router's, keep the split-K GEMM).
+    /// </summary>
+    private bool UseNativeF16Decode(DataType type, long n, long k, IReadOnlyDictionary<string, string> macros)
+        => NativeGemmF16 && NativeF16DecodeColumns(n) is 32 or 64 && type == DataType.F16 && k % 64 == 0
+           && macros.GetValueOrDefault("X_F16") == "1" && macros.GetValueOrDefault("X_STRIDE") == k.ToString(CultureInfo.InvariantCulture)
+           && Grid.Div(n, NativeF16DecodeColumns(n)) * 2 >= Math.Max(1, _opt.ComputeUnits);
+
+    /// <summary>
+    /// The launch variant of the decode form of <c>gemm_f16_native.cu</c> (64 token rows, <see cref="NativeF16DecodeColumns"/> weight
+    /// rows per tile, no K split) for [<paramref name="n"/>, <paramref name="k"/>] weights, with the bias store (<paramref name="bias"/>),
+    /// the row scales of a row-ranged copy of x at byte <paramref name="rangeScales"/>, and the <paramref name="extra"/> macros (the
+    /// multi-output form's).
+    /// </summary>
+    private KernelVariant NativeF16DecodeVariant(long n, long k, Func<Bindings, bool> serves, Func<Bindings, long> rows, bool bias, long? rangeScales,
+        IReadOnlyDictionary<string, string>? extra = null)
+    {
+        int columns = NativeF16DecodeColumns(n);
+        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("H_CFG", 2), ("H_DBN", columns));
+        if (bias)
+        {
+            macros["H_BIAS"] = "1";
+        }
+
+        if (rangeScales is { } scales)
+        {
+            macros["H_XRS"] = scales.ToString(CultureInfo.InvariantCulture) + "ull";
+        }
+
+        foreach (var (name, value) in extra ?? new Dictionary<string, string>())
+        {
+            macros[name] = value;
+        }
+
+        const int stages = 4;
+        int threads = 2 * (columns / 16) * 32;
+        var kernel = _compiler.CompileCuda("gemm_f16_native.cu", "", "gemm_f16_native", threads, stages * (NativeF16DecodeTileRows + columns) * 128,
+            _opt.Target, macros, _opt.Cache);
+        return new KernelVariant(serves, kernel, b => new Grid(Grid.Div(rows(b), NativeF16DecodeTileRows), Grid.Div(n, columns)));
+    }
+
     /// <summary>Token rows of the routing tiles of <c>gemm_moe_native.cu</c> (one warp row of 8 row fragments).</summary>
     private const int NativeMoeTileRows = 128;
 

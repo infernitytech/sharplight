@@ -218,7 +218,7 @@ public sealed partial class GraphLowerer
         bool fused = DiagnosticSwitches.MultiGemmFused && (!fp8 || _compiler.CompilesCuda(_opt.Target));
         var arrivals = fused ? SplitArrivals(tiles) : null;
         var serves = group.Serves[family];
-        var native = fp8 ? EmitNativeFp8MultiGemm(group, parts, widths, k, serves) : null;
+        var native = fp8 ? EmitNativeFp8MultiGemm(group, parts, widths, k, serves) : EmitNativeF16MultiGemm(group, parts, widths, k, serves);
         Func<Bindings, bool> splitServes = native is null ? serves : b => serves(b) && !native(b);
         var variants = tiledSplits.Select(ts =>
         {
@@ -329,6 +329,44 @@ public sealed partial class GraphLowerer
         Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native", group.Members, [variant],
             [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
+        return decode;
+    }
+
+    /// <summary>
+    /// The decode form of the hand-written f16 GEMM over the group's concatenated weight rows (<c>gemm_f16_native.cu</c> H_CFG 2 with
+    /// MULTI: each block's weight tile in one member's matrix, storing to that member's output with its bias) for the decode batches of
+    /// <see cref="NativeF16DecodeMinRows"/> to 64 rows the multi-output GEMM serves (<paramref name="serves"/>), when every member takes
+    /// the decode form and every member boundary is a multiple of its weight tile. Returns the batches it serves, or null. One launch
+    /// instead of the K-split GEMM and its reduction.
+    /// </summary>
+    private Func<Bindings, bool>? EmitNativeF16MultiGemm(MultiGemmGroup group, List<MultiGemmPart> parts, long[] widths, long k, Func<Bindings, bool> serves)
+    {
+        var first = parts[0];
+        long n = widths.Sum();
+        int columns = NativeF16DecodeColumns(n);
+        if (parts.Count > 3 || parts.Any(pt => !UseNativeF16Decode(pt.Weight.Type, n, k, pt.Macros)) || widths.SkipLast(1).Any(w => w % columns != 0))
+        {
+            return null;
+        }
+
+        bool bias = first.Bias is not null;
+        var rowsOf = first.Rows;
+        Func<Bindings, bool> decode = b => serves(b) && rowsOf(b) >= NativeF16DecodeMinRows && rowsOf(b) <= NativeF16DecodeTileRows;
+        var multi = new Dictionary<string, string>
+        {
+            ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+        };
+        long? rangeScales = _rangeScales.TryGetValue(first.Activations, out long xrs) ? xrs : null;
+        var variant = NativeF16DecodeVariant(n, k, decode, rowsOf, bias, rangeScales, multi);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        KernelArg[] firstBias = bias ? [Pointer(first.Bias!)] : [];
+        KernelArg[] biases = bias ? [.. parts.Skip(1).Select(pt => Pointer(pt.Bias!))] : [];
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native decode", group.Members, [variant],
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output)]);
         return decode;
     }
 

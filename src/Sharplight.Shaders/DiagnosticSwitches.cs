@@ -606,6 +606,15 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_MOE_TABLE=1</c>: the short dual tiles of the grouped MXFP4 GEMM keep the E8M0 factor table (three stages), or null for the default.</summary>
     public static int? NativeMoeTable { get; } = Read("SHARPLIGHT_NATIVE_MOE_TABLE") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_F16_DECODE_BN=n</c>: weight rows per tile of the hand-written f16 GEMM's decode form (32 or 64), or null for
+    /// the default (chosen per matrix); 0 turns the decode form off (decode batches of f16 projections keep gemm_cm2 with split-K).
+    /// </summary>
+    public static int? NativeF16DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_F16_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS=n</c>: fewest rows the hand-written f16 GEMM's decode form serves, or null for the default.</summary>
+    public static long? NativeF16DecodeMinRows { get; } = Read("SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
     public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
