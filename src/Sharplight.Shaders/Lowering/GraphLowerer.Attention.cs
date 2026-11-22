@@ -223,7 +223,7 @@ public sealed partial class GraphLowerer
                 bool native = keySplits == 1 && NativeFlashAttention(plan);
                 if (native)
                 {
-                    variants.Add(NativeFlashVariant(plan, FlashWhen(plan)));
+                    variants.Add(NativeFlashVariant(plan, FlashWhen(plan), headBlocks: DiagnosticSwitches.NativeAttentionHeadGroups ?? plan.Runs is not null));
                 }
 
                 if (!wide || !native)
@@ -1069,7 +1069,7 @@ public sealed partial class GraphLowerer
         if (NativeFlashAttention(plan))
         {
             // The kernel of the flash variant (see LowerAttention), so a prompt's rows sum alike in mixed and prompt-only steps.
-            return (decodeVariant, NativeFlashVariant(plan, when, MixedFlashMinRunRows));
+            return (decodeVariant, NativeFlashVariant(plan, when, MixedFlashMinRunRows, DiagnosticSwitches.NativeAttentionHeadGroups ?? plan.Runs is not null));
         }
 
         return (decodeVariant,

@@ -11,6 +11,10 @@
 // accumulator layout that is the A-operand layout of the next MMA, with the value tile (ldmatrix.trans). Tiles a warp's rows cannot see
 // are skipped by a warp-uniform branch. Blocks run the longest query tiles first.
 //
+// FN_HG: the warps of a block hold the same 16 * FN_MR query rows of FN_WARPS query heads that share a KV head (grid x = HQ / FN_WARPS),
+// so a block's key and value tiles serve all of them and its causal diagonal is 16 * FN_MR rows high instead of FN_WARPS times that:
+// short prompts (mixed steps of a few hundred rows per run) skip most of the masked half of their tiles.
+//
 // Head sizes above 256 (Gemma 4's 512) split the head dimensions over a pair of warps (FN_DS = 2): both warps of a pair own the same
 // 16 * FN_MR query rows, each holds the query fragments of its half of the key dimensions and the output accumulators of its half of
 // the value dimensions, so their registers are those of head size 256. Per tile each warp multiplies its half of Q · Kᵀ, the two
@@ -63,10 +67,17 @@
 #ifndef FN_STAGES
 #define FN_STAGES 2
 #endif
+#ifndef FN_HG
+#define FN_HG 0
+#endif
 #define FN_THREADS (FN_WARPS * 32)
 #define FN_DS ((D > 256 || DV > 256) ? 2 : 1)   // warps sharing a row group (head dimensions split between them)
 #define FN_WR (FN_MR * 16)          // query rows per warp
+#if FN_HG
+#define FN_BR FN_WR                 // FN_HG: the warps hold the same rows of FN_WARPS query heads of one KV head
+#else
 #define FN_BR (FN_WARPS / FN_DS * FN_WR)
+#endif
 #ifndef FN_BC
 #define FN_BC ((D > 256 || DV > 256) ? 16 : (D > 128 || DV > 128) ? 32 : 64)
 #endif
@@ -86,7 +97,7 @@
 #define FN_NEG (-1.0e30f)
 
 #if (D % (64 * FN_DS)) != 0 || (DV % (64 * FN_DS)) != 0 || D > 512 || DV > 512 || (HQ % HKV) != 0 || (FN_BC != 16 && FN_BC != 32 && FN_BC != 64) \
-    || (FN_WARPS % FN_DS) != 0
+    || (FN_WARPS % FN_DS) != 0 || (FN_HG && (FN_DS != 1 || ((HQ / HKV) % FN_WARPS) != 0))
 #error "attn_prefill_native: unsupported head sizes"
 #endif
 
@@ -198,7 +209,11 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
     const fn_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const fn_u32 rowGroup = warp / FN_DS, part = warp % FN_DS;   // the warp's rows and its half of the head dimensions
     const fn_u32 g = lane >> 2, c4 = lane & 3;
+#if FN_HG
+    const fn_u32 h = blockIdx.x * FN_WARPS + warp, hk = blockIdx.x * FN_WARPS / (HQ / HKV);
+#else
     const fn_u32 h = blockIdx.x, hk = h / (HQ / HKV);
+#endif
     fn_u32 qT = p.T, qRow0 = 0, nPast;
     fn_u64 kvBase = 0;
 #if MULTI_SEQ
@@ -287,7 +302,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
     }
 
     // This warp's rows: tw0 + 16 mr + g (a) and + 8 (b); Q · SCALE as A fragments.
-    const fn_u32 tw0 = t0 + rowGroup * FN_WR;
+    const fn_u32 tw0 = t0 + (FN_HG ? 0 : rowGroup * FN_WR);
     fn_u32 qa[FN_MR][FN_ND][4];
 #pragma unroll
     for (fn_u32 mr = 0; mr < FN_MR; mr++)
