@@ -12,7 +12,7 @@ With --prefill N (section 56) it profiles instead the prefill of --seqs prompts 
 ranges annotated "execute_context_<seqs>(<N * seqs>)_generation_0(0)", kernels summed per prefill step.
 
 usage: CUDA_VISIBLE_DEVICES=1 python s54_vllm_decode_profile.py <model dir> [--seqs 64] [--depth 256] [--steps 64] [--top 40]
-       [--prefill N] [--skip N]
+       [--prefill N] [--skip N] [--gpu-util 0.85]
 """
 import argparse
 import glob
@@ -37,7 +37,7 @@ def run_vllm(a):
     trace_dir = tempfile.mkdtemp(prefix="vllm-prof-", dir=os.environ.get("TMPDIR"))
     from vllm import LLM, SamplingParams, TokensPrompt
 
-    llm = LLM(a.model, max_model_len=a.ctx, gpu_memory_utilization=0.85, max_num_seqs=max(a.seqs, 64), enable_prefix_caching=False,
+    llm = LLM(a.model, max_model_len=a.ctx, gpu_memory_utilization=a.gpu_util, max_num_seqs=max(a.seqs, 64), enable_prefix_caching=False,
               profiler_config={"profiler": "torch", "torch_profiler_dir": trace_dir})
     rng = random.Random(1)
     params = SamplingParams(max_tokens=1 if a.prefill else a.steps, ignore_eos=True, temperature=0)
@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--steps", type=int, default=64)
     ap.add_argument("--top", type=int, default=40)
     ap.add_argument("--ctx", type=int, default=1024)
+    ap.add_argument("--gpu-util", type=float, default=0.85, help="vLLM's gpu_memory_utilization (long contexts need ~0.92)")
     ap.add_argument("--trace", help="parse this torch trace (.json.gz) instead of running vLLM")
     ap.add_argument("--words", action="store_true", help="random-word prompts (the serving benchmark's) instead of random token ids")
     ap.add_argument("--prefill", type=int, default=0, help="profile the prefill of --seqs prompts of this many tokens instead")

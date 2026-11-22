@@ -520,7 +520,18 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(plan.RowCount(b), plan.N, plan.W.Type, skinnyMin);
         }
 
-        var reduced = EmitMatMulLaunches(plan, half, epilogueCode);
+        // A lone bias add over int-dot weights (its own launch on the GEMM paths): the multi-output GEMM of the q / k / v group adds it
+        // in its store for the batches it serves, as for f16 weights.
+        var multiBias = epilogue is not null && epilogueCode is null && !gemmEpilogue && !DiagnosticSwitches.NoIntDotMultiBias
+                        && _multiGemmOf.ContainsKey(n) && epilogue.Group is [{ Op.Name: "Add" }]
+            ? MatMulEpilogueSource(n, epilogue)
+            : null;
+        if (EpilogueBias(multiBias) is null)
+        {
+            multiBias = null;
+        }
+
+        var reduced = EmitMatMulLaunches(plan, half, epilogueCode, multiBias);
         _launchCondition = outer;
         if (epilogue is not null && epilogueCode is null)
         {
@@ -567,7 +578,12 @@ public sealed partial class GraphLowerer
     /// <paramref name="half"/>), split-K. Returns the condition under which the split-K reduction runs (and applies
     /// <paramref name="epilogue"/>), or null when no row count splits K.
     /// </summary>
-    private Func<Bindings, bool>? EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null, MatMulEpilogueCode? epilogue = null)
+    /// <param name="plan">The planned matmul.</param>
+    /// <param name="half">The shared f16 copy of the activations, if any.</param>
+    /// <param name="epilogue">The epilogue the split-K reduction applies, if any.</param>
+    /// <param name="multiBias">A bias epilogue the launches here do not apply, which a multi-output group's GEMM adds in its store.</param>
+    private Func<Bindings, bool>? EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null, MatMulEpilogueCode? epilogue = null,
+        MatMulEpilogueCode? multiBias = null)
     {
         var activations = plan.X;
         if (plan.Coop && !plan.SplitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations)
@@ -602,7 +618,7 @@ public sealed partial class GraphLowerer
             EmitDirectMatMul(plan);
         }
 
-        return EmitSplitKMatMul(plan, activations, epilogue);
+        return EmitSplitKMatMul(plan, activations, epilogue, multiBias);
     }
 
     /// <summary>
@@ -981,7 +997,8 @@ public sealed partial class GraphLowerer
     /// Split-K for grids too small to fill the GPU (small N or few token tiles): partial sums into a shared
     /// scratch buffer, then a reduction. Both launches only run when the chosen split is greater than one.
     /// </summary>
-    private Func<Bindings, bool>? EmitSplitKMatMul(MatMulPlan p, TensorRef activations, MatMulEpilogueCode? epilogue = null)
+    private Func<Bindings, bool>? EmitSplitKMatMul(MatMulPlan p, TensorRef activations, MatMulEpilogueCode? epilogue = null,
+        MatMulEpilogueCode? multiBias = null)
     {
         if (!p.Coop)
         {
@@ -1025,9 +1042,10 @@ public sealed partial class GraphLowerer
         Func<Bindings, bool> notMulti = _ => true;
         if (MultiGemmCandidate(p))
         {
-            var y0 = epilogue?.Output ?? p.Y;
+            var stored = epilogue ?? multiBias;
+            var y0 = stored?.Output ?? p.Y;
             var condition0 = _launchCondition;
-            notMulti = NoteMultiGemmPart(p.Node, new MultiGemmPart(false, activations, p.W, y0, EpilogueBias(epilogue), p.Macros,
+            notMulti = NoteMultiGemmPart(p.Node, new MultiGemmPart(false, activations, p.W, y0, EpilogueBias(stored), p.Macros,
                 b => (condition0?.Invoke(b) ?? true) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1, p.RowCount, rowsMax, TokenArg(p.X, rowsPerLead)));
             if (epilogue is not null && EpilogueBias(epilogue) is null && _multiGemmOf.TryGetValue(p.Node, out var group))
             {

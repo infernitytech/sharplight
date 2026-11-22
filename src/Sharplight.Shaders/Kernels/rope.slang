@@ -66,7 +66,7 @@ void pair_angles(int* pos, float* ff, uint t, uint i, uint i0, uint i1, out floa
     s2 = sin(theta2) * ATTN_FACTOR;
 }
 
-#ifndef KERNEL_ROPE_ROW
+#if !defined(KERNEL_ROPE_ROW) && !defined(KERNEL_ROPE_QKV)
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void main(uint3 dtid : SV_DispatchThreadID, uniform Params p)
@@ -190,6 +190,145 @@ void rope_row(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Row
         {
             store(p, t, h, i0, x0);
             store(p, t, h, i1, x1);
+        }
+    }
+}
+#endif
+
+#ifdef KERNEL_ROPE_QKV
+// ---------------------------------------------------------------------------------------------
+// The q, k and v rows of one attention layer in one launch (one workgroup per (t, head of q, k or v)): workgroups h < HQ rotate
+// query head h of xq (strides QS0, QS1; NORM_Q: RmsNorm with wq, EPS_Q, first) into yq [T, HQ, D]; HQ <= h < HQ + HK rotate key
+// head h - HQ of xk (KS0, KS1; NORM_K with wk, EPS_K) into the key cache kc; the last HK copy value head h - HQ - HK of xv (VS0, VS1)
+// into the value cache vc. Both caches are [ctx, HK, D] rows of the same positions (rope_row's CACHE_OUT row; CACHE_F16: f16).
+// The rope macros (D, ROT, NEOX, ...) are those of rope_row, shared by q and k.
+struct QkvParams
+{
+    float* xq;
+    float* xk;
+    float* xv;
+    int* pos;
+    float* wq;
+    float* wk;
+    float* yq;
+    uint8_t* kc;
+    uint8_t* vc;
+    uint* rt;
+    float* ff;
+#if MULTI_SEQ
+    int* seq;
+#endif
+#if PAGED
+    int* pages;
+#endif
+    uint T;
+};
+
+groupshared float qkvRed[64];
+
+// Cache element index of (t, key head h, dimension i).
+uint64_t qkv_cache_index(QkvParams p, uint t, uint h, uint i)
+{
+#if MULTI_SEQ
+    return (seq_row(SEQ_PAGES(p), uint(p.seq[t * 4]), uint(p.seq[t * 4 + 1])) * HK + h) * D + i;
+#else
+    return (uint64_t(p.rt[RT_N_PAST] + t) * HK + h) * D + i;
+#endif
+}
+
+void qkv_cache_store(uint8_t* cache, uint64_t di, float v)
+{
+#if CACHE_F16
+    *(uint16_t*)byteAt(cache, di * 2) = f2h(v);
+#else
+    *(float*)byteAt(cache, di * 4) = v;
+#endif
+}
+
+// The reciprocal RMS of row xr (all 64 threads take part).
+float qkv_rms_scale(float* xr, uint lt, float eps)
+{
+    float ss = 0;
+    for (uint i = lt; i < D; i += 64) { float v = xr[i]; ss += v * v; }
+    qkvRed[lt] = ss;
+    GroupMemoryBarrierWithGroupSync();
+    [ForceUnroll]
+    for (uint s = 32; s > 0; s >>= 1) { if (lt < s) qkvRed[lt] += qkvRed[lt + s]; GroupMemoryBarrierWithGroupSync(); }
+    return rsqrt(qkvRed[0] / float(D) + eps);
+}
+
+// Query head hh (Q) or key head hh of row t: the norm (with weight w), the rotation, the store to yq or to the key cache. The row and
+// weight pointers are arguments (not selected inside: the SPIR-V target does not take a select of two buffer pointers).
+void qkv_rope_head(QkvParams p, float* xr, float* w, bool norm, float eps, bool Q, uint t, uint hh, uint lt)
+{
+    const uint PAIRS = D / 2;
+    float scale = 1.0;
+    if (norm)
+    {
+        scale = qkv_rms_scale(xr, lt, eps);
+    }
+
+    for (uint i = lt; i < PAIRS; i += 64)
+    {
+        uint i0, i1;
+#if NEOX
+        if (i < ROT / 2) { i0 = i; i1 = i + ROT / 2; }
+        else { uint j = ROT + 2 * (i - ROT / 2); i0 = j; i1 = j + 1; }
+#else
+        i0 = 2 * i; i1 = 2 * i + 1;
+#endif
+        float x0 = xr[i0] * scale, x1 = xr[i1] * scale;
+        if (norm)
+        {
+            x0 *= w[i0];
+            x1 *= w[i1];
+        }
+
+        float y0 = x0, y1 = x1;
+        if (i < ROT / 2)
+        {
+            float c, s, c2, s2;
+            pair_angles(p.pos, p.ff, t, i, i0, i1, c, s, c2, s2);
+            y0 = x0 * c - x1 * s;
+            y1 = x0 * s2 + x1 * c2;
+        }
+
+        if (Q)
+        {
+            p.yq[(uint64_t(t) * HQ + hh) * D + i0] = y0;
+            p.yq[(uint64_t(t) * HQ + hh) * D + i1] = y1;
+        }
+        else
+        {
+            qkv_cache_store(p.kc, qkv_cache_index(p, t, hh, i0), y0);
+            qkv_cache_store(p.kc, qkv_cache_index(p, t, hh, i1), y1);
+        }
+    }
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform QkvParams p)
+{
+    const uint HEADS = HQ + 2 * HK;
+    uint row = gid.x;
+    if (row >= p.T * HEADS) return;
+    uint t = row / HEADS, h = row % HEADS, lt = ltid.x;
+    if (h < HQ)
+    {
+        qkv_rope_head(p, p.xq + uint64_t(t) * QS0 + uint64_t(h) * QS1, p.wq, NORM_Q != 0, EPS_Q, true, t, h, lt);
+    }
+    else if (h < HQ + HK)
+    {
+        qkv_rope_head(p, p.xk + uint64_t(t) * KS0 + uint64_t(h - HQ) * KS1, p.wk, NORM_K != 0, EPS_K, false, t, h - HQ, lt);
+    }
+    else
+    {
+        uint hv = h - HQ - HK;
+        float* vr = p.xv + uint64_t(t) * VS0 + uint64_t(hv) * VS1;
+        for (uint i = lt; i < D; i += 64)
+        {
+            qkv_cache_store(p.vc, qkv_cache_index(p, t, hv, i), vr[i]);
         }
     }
 }

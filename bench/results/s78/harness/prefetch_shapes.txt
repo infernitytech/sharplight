@@ -1,0 +1,28 @@
+n64c r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3064 ms (816 GB/s), median 1.3099 ms max error against the f32 reference: 1.13e-06 
+q128c r1 T=4 L=32768 splits<=32 grid 8x4x32: min 0.6619 ms (811 GB/s), median 0.6659 ms max error against the f32 reference: 2.1e-06 
+n64 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3086 ms (814 GB/s), median 1.3116 ms 
+n64p0 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4446 ms (737 GB/s), median 1.4508 ms 
+n64t1 r1 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3368 ms (791 GB/s), median 0.3382 ms 
+n64t1p0 r1 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3464 ms (769 GB/s), median 0.3506 ms 
+n64s r1 T=64 L=2048 splits<=2 grid 8x64x2: min 0.3423 ms (784 GB/s), median 0.3443 ms 
+n64sp0 r1 T=64 L=2048 splits<=2 grid 8x64x2: min 0.3599 ms (746 GB/s), median 0.3639 ms 
+n64m r1 T=16 L=8192 splits<=8 grid 8x16x8: min 0.3410 ms (787 GB/s), median 0.3423 ms 
+n64mp0 r1 T=16 L=8192 splits<=8 grid 8x16x8: min 0.3501 ms (767 GB/s), median 0.3556 ms 
+q128 r1 T=4 L=32768 splits<=32 grid 8x4x32: min 0.6637 ms (809 GB/s), median 0.6659 ms 
+q128p0 r1 T=4 L=32768 splits<=32 grid 8x4x32: min 0.7047 ms (762 GB/s), median 0.7128 ms 
+q128s r1 T=64 L=2048 splits<=1 grid 8x64x1: min 0.6740 ms (797 GB/s), median 0.6785 ms 
+q128sp0 r1 T=64 L=2048 splits<=1 grid 8x64x1: min 0.7023 ms (764 GB/s), median 0.7068 ms 
+n64c r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3069 ms (815 GB/s), median 1.3109 ms max error against the f32 reference: 1.13e-06 
+q128c r2 T=4 L=32768 splits<=32 grid 8x4x32: min 0.6624 ms (810 GB/s), median 0.6666 ms max error against the f32 reference: 2.1e-06 
+n64 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3086 ms (814 GB/s), median 1.3105 ms 
+n64p0 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4374 ms (741 GB/s), median 1.4472 ms 
+n64t1 r2 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3372 ms (790 GB/s), median 0.3382 ms 
+n64t1p0 r2 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3442 ms (774 GB/s), median 0.3503 ms 
+n64s r2 T=64 L=2048 splits<=2 grid 8x64x2: min 0.3419 ms (785 GB/s), median 0.3444 ms 
+n64sp0 r2 T=64 L=2048 splits<=2 grid 8x64x2: min 0.3573 ms (751 GB/s), median 0.3637 ms 
+n64m r2 T=16 L=8192 splits<=8 grid 8x16x8: min 0.3403 ms (789 GB/s), median 0.3427 ms 
+n64mp0 r2 T=16 L=8192 splits<=8 grid 8x16x8: min 0.3527 ms (761 GB/s), median 0.3551 ms 
+q128 r2 T=4 L=32768 splits<=32 grid 8x4x32: min 0.6633 ms (809 GB/s), median 0.6660 ms 
+q128p0 r2 T=4 L=32768 splits<=32 grid 8x4x32: min 0.6986 ms (769 GB/s), median 0.7110 ms 
+q128s r2 T=64 L=2048 splits<=1 grid 8x64x1: min 0.6730 ms (798 GB/s), median 0.6779 ms 
+q128sp0 r2 T=64 L=2048 splits<=1 grid 8x64x1: min 0.6994 ms (768 GB/s), median 0.7075 ms 

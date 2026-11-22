@@ -1,0 +1,24 @@
+[lock acquired 00:45:21]
+pg1c r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3270 ms (803 GB/s), median 1.3299 ms max error against the f32 reference: 5.99e-07 
+pg0 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4116 ms (755 GB/s), median 1.4155 ms 
+pg1 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3274 ms (803 GB/s), median 1.3295 ms 
+pg2 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4557 ms (732 GB/s), median 1.4632 ms 
+pg1t2048 r1 T=4 L=130048 splits<=64 grid 8x4x64: min 1.3355 ms (798 GB/s), median 1.3381 ms 
+pg0t1 r1 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3443 ms (774 GB/s), median 0.3486 ms 
+pg1t1 r1 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3403 ms (783 GB/s), median 0.3453 ms 
+pg1w8 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3292 ms (802 GB/s), median 1.3315 ms 
+pg1w8t2048 r1 T=4 L=130048 splits<=64 grid 8x4x64: min 1.3372 ms (797 GB/s), median 1.3396 ms 
+ps0 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3690 ms (778 GB/s), median 1.3747 ms 
+ps1 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3074 ms (815 GB/s), median 1.3125 ms 
+pg1c r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3279 ms (802 GB/s), median 1.3301 ms max error against the f32 reference: 5.99e-07 
+pg0 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4051 ms (758 GB/s), median 1.4142 ms 
+pg1 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3269 ms (803 GB/s), median 1.3304 ms 
+pg2 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4582 ms (731 GB/s), median 1.4620 ms 
+pg1t2048 r2 T=4 L=130048 splits<=64 grid 8x4x64: min 1.3361 ms (797 GB/s), median 1.3382 ms 
+pg0t1 r2 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3440 ms (774 GB/s), median 0.3484 ms 
+pg1t1 r2 T=1 L=130048 splits<=128 grid 8x1x128: min 0.3399 ms (784 GB/s), median 0.3424 ms 
+pg1w8 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3293 ms (801 GB/s), median 1.3333 ms 
+pg1w8t2048 r2 T=4 L=130048 splits<=64 grid 8x4x64: min 1.3372 ms (797 GB/s), median 1.3396 ms 
+ps0 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3670 ms (779 GB/s), median 1.3810 ms 
+ps1 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3075 ms (815 GB/s), median 1.3116 ms 
+[lock released 00:47:02 rc=0]

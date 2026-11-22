@@ -148,6 +148,11 @@ public sealed partial class GraphLowerer
         }
 
         macros["ND_WARPS"] = NativeDecodeWarps.ToString(CultureInfo.InvariantCulture);
+        if (DiagnosticSwitches.AttentionDecodePrefetch is { } prefetch)
+        {
+            macros["ND_PF"] = prefetch.ToString(CultureInfo.InvariantCulture);
+        }
+
         return _compiler.CompileCuda("attn_decode_native.cu", "", "attn_decode_native", NativeDecodeWarps * 32, 0, _opt.Target, macros, _opt.Cache);
     }
 }
