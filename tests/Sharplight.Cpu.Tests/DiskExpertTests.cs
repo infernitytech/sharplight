@@ -119,9 +119,10 @@ public sealed class DiskExpertTests
         Assert.Equal(expected, Run(disk));
         var first = store.Statistics;
         Assert.True(first.Misses > 0);
-        // A second pass finds what the cache kept and gives the same result.
+        // A second pass finds what the cache kept (or, cycling through more experts than it holds, what it read ahead) and gives the same result.
         Assert.Equal(expected, Run(disk));
-        Assert.True(store.Statistics.Hits > first.Hits);
+        var second = store.Statistics;
+        Assert.True(second.Hits + second.ReadAhead > first.Hits + first.ReadAhead);
     }
 
     [Theory]
