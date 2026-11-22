@@ -1,0 +1,12 @@
+s1_q4_32 T=64: K=4096 N=12288 BM=32 stages=1 split=1 blocks=384 smem=25600: isolated 96.3 us (294 GB/s), sustained 84.7 us (334 GB/s), err 3.61e-04
+s1_q4_32 T=48: K=4096 N=12288 BM=32 stages=1 split=1 blocks=384 smem=25600: isolated 96.3 us (294 GB/s), sustained 98.5 us (287 GB/s), err 3.61e-04
+s1_q4_16 T=64: K=4096 N=12288 BM=16 stages=1 split=1 blocks=768 smem=17408: isolated 108.6 us (261 GB/s), sustained 111.6 us (254 GB/s), err 3.61e-04
+s1_q4_16 T=32: K=4096 N=12288 BM=16 stages=1 split=1 blocks=384 smem=17408: isolated 94.2 us (300 GB/s), sustained 61.0 us (464 GB/s), err 3.61e-04
+s2_q4_16 T=16: K=4096 N=12288 BM=16 stages=2 split=1 blocks=192 smem=34816: isolated 55.3 us (512 GB/s), sustained 47.6 us (595 GB/s), err 3.65e-04
+s2_q4_32m2 T=32: K=4096 N=12288 BM=32 stages=2 split=1 blocks=192 smem=51200: isolated 65.5 us (432 GB/s), sustained 51.1 us (554 GB/s), err 3.61e-04
+s1_q6_32 T=32: K=12288 N=4096 BM=32 stages=1 split=1 blocks=64 smem=30720: isolated 96.3 us (429 GB/s), sustained 77.8 us (530 GB/s), err 3.52e-04
+s1_q6_32 T=64: K=12288 N=4096 BM=32 stages=1 split=1 blocks=128 smem=30720: isolated 122.9 us (336 GB/s), sustained 119.2 us (346 GB/s), err 2.98e-04
+s1_q6_16 T=16: K=12288 N=4096 BM=16 stages=1 split=1 blocks=64 smem=22528: isolated 92.2 us (448 GB/s), sustained 66.7 us (619 GB/s), err 3.57e-04
+s1_q4_4k32 T=32: K=4096 N=4096 BM=32 stages=1 split=1 blocks=64 smem=25600: isolated 34.8 us (271 GB/s), sustained 23.0 us (411 GB/s), err 2.82e-04
+s1_q4_4k16 T=16: K=4096 N=4096 BM=16 stages=1 split=1 blocks=64 smem=17408: isolated 32.8 us (288 GB/s), sustained 19.0 us (498 GB/s), err 2.82e-04
+s1_q4_4k32 T=64: K=4096 N=4096 BM=32 stages=1 split=1 blocks=128 smem=25600: isolated 38.9 us (243 GB/s), sustained 32.6 us (289 GB/s), err 2.84e-04

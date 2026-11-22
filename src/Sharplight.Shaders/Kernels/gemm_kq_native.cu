@@ -3,7 +3,7 @@
 // activations (the generated GEMMs' f16 copy of x) and Q4_K / Q5_K / Q6_K weights in the GGUF block layout (KQ_FMT 4 / 5 / 6), f32
 // accumulation and output. Compiled by NVRTC from this file.
 //
-// A block covers KQ_BM (16, 32 or 64) token rows and 64 weight rows; each of its eight warps takes 8 weight rows and every token row,
+// A block covers KQ_BM (16, 32, 48 or 64) token rows and 64 weight rows; each of its eight warps takes 8 weight rows and every token row,
 // so each weight value is dequantized once. A K step is one 256-value superblock: cp.async copies the step's activation rows (four
 // 64-value sub-tiles of 128-byte rows, XOR swizzle, read by ldmatrix) and the raw blocks of the 64 weight rows (each row's 16-byte-aligned window around its block) into a ring of KQ_STAGES
 // stages in dynamic shared memory. Each thread dequantizes the weight values of its mma.sync.m16n8k16 B fragments straight from the
@@ -22,8 +22,8 @@
 // H_BIAS: the store adds bias[n]. H_XRS: x is a row-ranged f16 copy whose scale words start at byte H_XRS of x (common.slang,
 // f16_range_scale); the store multiplies each row's sums by the inverse of its scale (before the bias).
 //
-// Specialization macros: K (a multiple of 256), N (all rows with MULTI), Y_STRIDE, KQ_FMT, MULTI, MULTI_O1, MULTI_O2, KQ_BM (16, 32 or
-// 64), KQ_STAGES, KQ_SPLIT, H_BIAS, H_XRS. Requires 16-byte aligned x and weights; weight rows may start at any even byte (Q6_K rows of 210-byte blocks). Grid: x = token tiles,
+// Specialization macros: K (a multiple of 256), N (all rows with MULTI), Y_STRIDE, KQ_FMT, MULTI, MULTI_O1, MULTI_O2, KQ_BM (16, 32, 48
+// or 64), KQ_STAGES, KQ_SPLIT, H_BIAS, H_XRS. Requires 16-byte aligned x and weights; weight rows may start at any even byte (Q6_K rows of 210-byte blocks). Grid: x = token tiles,
 // y = weight tiles (64 rows), z = K splits.
 #ifndef H_BIAS
 #define H_BIAS 0
@@ -70,7 +70,7 @@
 #endif
 #define KQ_FN KQ_WM
 #define KQ_TM (KQ_BM / KQ_WM)
-#if KQ_TM < 16
+#if KQ_TM < 16 || KQ_TM % 16 != 0
 #error "gemm_kq_native: KQ_WM 2 needs tiles of 32 or 64 rows"
 #endif
 #define KQ_FM (KQ_TM / 16)
@@ -93,6 +93,18 @@
 #endif
 #if KQ_WST < KQ_STAGES
 #error "gemm_kq_native: KQ_WST below KQ_STAGES"
+#endif
+#if KQ_STAGES == 1 && KQ_WST != 1
+#error "gemm_kq_native: one stage has no separate weight ring"
+#endif
+// KQ_STAGES 1: one stage, refilled after each superblock's products, two blocks per SM (at most 128 registers per thread) so that
+// one block's copies overlap the other's products.
+#ifndef KQ_MIN_BLOCKS
+#if KQ_STAGES == 1
+#define KQ_MIN_BLOCKS 2
+#else
+#define KQ_MIN_BLOCKS 1
+#endif
 #endif
 // The copies of superblock sb are committed as two groups, the activations' and the weights': before step s, the groups after
 // those that hold x(s) and w(s) may still be pending.
@@ -288,7 +300,7 @@ static __device__ __forceinline__ void kq_scales_mins(const unsigned char* q, kq
 }
 #endif
 
-extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams p)
+extern "C" __global__ void __launch_bounds__(KQ_THREADS, KQ_MIN_BLOCKS) gemm_kq_native(KqParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const kq_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
@@ -361,7 +373,10 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         }
     }
 
-#if KQ_WST == KQ_STAGES
+#if KQ_STAGES == 1
+    load(0, sb0);
+    asm volatile("cp.async.commit_group;\n" ::);
+#elif KQ_WST == KQ_STAGES
 #pragma unroll
     for (int s = 0; s < KQ_STAGES - 1; s++)
     {
@@ -392,7 +407,12 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 
     for (kq_u32 step = 0; step < steps; step++)
     {
-#if KQ_WST == KQ_STAGES
+#if KQ_STAGES == 1
+        asm volatile("cp.async.wait_group 0;\n" ::);
+        __syncthreads();
+        const unsigned char* stage = smem;
+        const unsigned char* wstage = stage + KQ_XBYTES;
+#elif KQ_WST == KQ_STAGES
         asm volatile("cp.async.wait_group %0;\n" :: "n"(KQ_STAGES - 2));
         __syncthreads();
         kq_u32 next = step + KQ_STAGES - 1;
@@ -567,6 +587,15 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 }
             }
         }
+#endif
+#if KQ_STAGES == 1
+        // Every warp is done with the stage: refill it with the next superblock.
+        __syncthreads();
+        if (step + 1 < steps)
+        {
+            load(0, sb0 + step + 1);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
 #endif
     }
     asm volatile("cp.async.wait_group 0;\n" ::);

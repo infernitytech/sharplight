@@ -1,0 +1,17 @@
+fmt=4 T=64 K=4096 N=12288 BM=64 stages=2 split=1 blocks=192 smem=83968: isolated 84.0 us (337 GB/s), sustained 82.1 us (345 GB/s), max err 3.61e-04 of max |y| 55.16
+dual=0 fmt=4 T=64 K=4096 N=12288 BM=64 stages=2 split=1 blocks=192 smem=93184: isolated 88.1 us (321 GB/s), sustained 84.8 us (334 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=64 stages=2 split=1 blocks=192 smem=83968: isolated 86.1 us (329 GB/s), sustained 85.4 us (331 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=64 stages=2 split=1 blocks=192 smem=83968: isolated 98.3 us (288 GB/s), sustained 95.8 us (295 GB/s), max err 3.61e-04 of max |y| 55.16
+dual=0 fmt=4 T=64 K=4096 N=12288 BM=64 stages=2 split=1 blocks=192 smem=93184: isolated 92.2 us (307 GB/s), sustained 87.9 us (322 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=64 stages=2 split=1 blocks=192 smem=83968: isolated 82.0 us (345 GB/s), sustained 82.0 us (345 GB/s), max err 3.61e-04 of max |y| 55.16
+dual=0 fmt=4 T=64 K=4096 N=4096 BM=64 stages=2 split=1 blocks=64 smem=83968: isolated 32.8 us (288 GB/s), sustained 27.2 us (346 GB/s), max err 2.84e-04 of max |y| 59.31
+dual=0 fmt=4 T=64 K=4096 N=4096 BM=64 stages=2 split=1 blocks=64 smem=93184: isolated 32.8 us (288 GB/s), sustained 27.7 us (340 GB/s), max err 2.84e-04 of max |y| 59.31
+dual=0 fmt=5 T=64 K=4096 N=4096 BM=64 stages=2 split=1 blocks=64 smem=99328: isolated 34.5 us (335 GB/s), sustained 28.8 us (401 GB/s), max err 3.37e-04 of max |y| 117.94
+fmt=6 T=64 K=12288 N=4096 BM=64 stages=2 split=1 blocks=64 smem=94208: isolated 94.2 us (438 GB/s), sustained 92.3 us (447 GB/s), max err 2.98e-04 of max |y| 449.28
+fmt=6 T=64 K=12288 N=4096 BM=64 stages=2 split=1 blocks=64 smem=94208: isolated 94.2 us (438 GB/s), sustained 97.9 us (422 GB/s), max err 2.98e-04 of max |y| 449.28
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+dual=1 fmt=6 T=64 K=12288 N=4096 BM=64 stages=2 split=2 blocks=256 smem=94208: isolated 202.8 us (407 GB/s), sustained 207.5 us (398 GB/s), max err 3.16e-04 of max |y| 97314.45
+fmt=4 T=32 K=4096 N=12288 BM=32 stages=3 split=1 blocks=192 smem=76800: isolated 57.4 us (493 GB/s), sustained 54.0 us (524 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=32 K=4096 N=12288 BM=32 stages=3 split=1 blocks=192 smem=76800: isolated 61.5 us (461 GB/s), sustained 59.0 us (480 GB/s), max err 3.61e-04 of max |y| 55.16
+dual=0 fmt=4 T=32 K=4096 N=12288 BM=32 stages=2 split=1 blocks=192 smem=69632: isolated 61.5 us (461 GB/s), sustained 54.1 us (523 GB/s), max err 3.61e-04 of max |y| 55.16
+dual=1 fmt=4 T=32 K=4096 N=12288 BM=32 stages=3 split=1 blocks=384 smem=76800: isolated 96.3 us (588 GB/s), sustained 98.9 us (573 GB/s), max err 3.53e-04 of max |y| 1349.95

@@ -51,19 +51,19 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Token rows of the hand-written K-quant decode GEMM's tile for <paramref name="rows"/> rows (<c>SHARPLIGHT_NATIVE_KQ_BM</c>): 16 up to 16
-    /// rows (four stages), 32 up to 32 (three), else 64 (two). bench/s77_kq, RTX PRO 4500, sustained µs (Q4_K [4096 → 12288] / Q6_K
+    /// rows (four stages), 32 up to 32 (three), 48 up to 48 (two), else 64 (two). bench/s77_kq, RTX PRO 4500, sustained µs (Q4_K [4096 → 12288] / Q6_K
     /// [12288 → 4096]): 16 rows 43.8 / 58.8 on 16-row tiles against 58.2 / 65.6 on 32-row tiles; 32 rows 52.4 / 60.4 on 32-row tiles
-    /// against 67.0 / 93.1 on 16-row tiles and 96.3 / 106.6 on 64-row tiles; 64 rows 82.1 / 89.7 on 64-row tiles against 89.5 / 115.1
-    /// on two 32-row tiles (each reads the weights).
+    /// against 67.0 / 93.1 on 16-row tiles and 96.3 / 106.6 on 64-row tiles; 48 rows 63.6 / 73.1 on 48-row tiles against 86.7 / 97.3 on
+    /// 64-row tiles (benchmarks.md §79); 64 rows 82.1 / 89.7 on 64-row tiles against 89.5 / 115.1 on two 32-row tiles (each reads the weights).
     /// </summary>
-    private static int NativeKQuantTileRows(long rows) => DiagnosticSwitches.NativeKQuantTileRows ?? (rows <= 16 ? 16 : rows <= 32 ? 32 : 64);
+    private static int NativeKQuantTileRows(long rows) => DiagnosticSwitches.NativeKQuantTileRows ?? (rows <= 16 ? 16 : rows <= 32 ? 32 : rows <= 48 ? 48 : 64);
 
     /// <summary>
     /// Warps along the token rows of the hand-written K-quant decode GEMM's tile of <paramref name="tileRows"/> rows
     /// (<c>SHARPLIGHT_NATIVE_KQ_WM</c>, <c>KQ_WM</c>): 2 for 64-row tiles, where eight warps reading every token row's activations from
     /// shared memory cost more than dequantizing each weight value twice; 1 otherwise.
     /// </summary>
-    private static int NativeKQuantWarpRows(int tileRows) => tileRows < 32 ? 1 : DiagnosticSwitches.NativeKQuantWarpRows ?? (tileRows >= 64 ? 2 : 1);
+    private static int NativeKQuantWarpRows(int tileRows) => tileRows < 32 ? 1 : DiagnosticSwitches.NativeKQuantWarpRows ?? 1;
 
     /// <summary>
     /// True when the hand-written K-quant decode GEMM can take decode batches of <paramref name="type"/> weights on this device (the format
