@@ -11479,6 +11479,12 @@ A member whose epilogue is a lone bias add now hands the bias to its multi-outpu
 launch. `MatMulEpilogueTests.ProjectionBiases*` (Q8_0 and Q4_K shapes, 1-300 rows, also with `SHARPLIGHT_SPLITK_EPILOGUE=0`) pass on both
 providers. Qwen2.5-7B-Instruct Q4_K_M, BatchBench `--text`: 16 / 64 sequences 11.43 / 19.44-19.62 ms (`develop`) against 11.42-11.46 / 19.55-19.65 (two alternated pairs); the multi-output
 GEMM adds the bias for the 28 layers' q / k pairs (`final/q25_multi_debug.txt`, `SHARPLIGHT_MULTI_DEBUG=1`: "bias True"): within the noise (one small launch per layer).
+After merging perf/feed-r2 (§77: the hand-written K-quant decode GEMM `gemm_kq_native.cu` and its q / k / v multi-output form, which
+the group's GEMM hands its 9-64-row batches to): the multi-output parts carry the bias to that form too (it adds each member's bias in
+its store, as `gemm_cm2`'s `MULTI_BIAS` does), and `StoresBias` covers every batch the group serves. Qwen2.5-7B Q4_K_M, two alternated
+pairs with and without `SHARPLIGHT_NO_INT_DOT_MULTI_BIAS=1`: 16 / 32 / 64 sequences 7.15-7.16 / 8.93-8.98 / 14.09-14.15 against
+7.19-7.20 / 8.99-9.11 / 14.02-14.20 ms (`postmerge/q25_bias_switch.txt`): within the noise; ProjectionBiases passes on the merged build
+on both providers.
 
 ### 78.5 Against vLLM (final holds)
 
@@ -11515,6 +11521,9 @@ GEMM adds the bias for the 28 layers' q / k pairs (`final/q25_multi_debug.txt`, 
   StateHandoff 1, CompressedKv 12: **1003 / 0 failed on each provider** (`final/tests.txt`). After the prefetch limit (a CUDA C++
   kernel change only): Cuda.Tests 43 / 0 / 1 and, on the CUDA provider, FullAttention, PagedAttention, SparseAttention, Stateful,
   CompressedKv, Fusion, MatMulEpilogue 246 / 0 failed (`final/tests_after_prefetch_limit.txt`).
+* After merging `develop` (`69ea846b`, perf/feed-r2): Cuda.Tests 57 / 0 failed / 1 skipped; MatMulEpilogue 13, Fusion 99, PagedAttention 8,
+  Mmq 48 on both providers, 0 failed; greedy text of all four models byte-identical to the round's pre-merge build (both prompts, CUDA
+  and Vulkan for gpt-oss-20b / Qwen3-8B-FP8); 4 x 130,048 23.03 ms (`postmerge/`).
 * Vulkan (no Vulkan code path changed: the fusion is CUDA-only, the prefetch is in the CUDA C++ kernel, the int-dot multi-output GEMM
   is CUDA-only), BatchBench `--text`, 1 / 64 sequences (`final/vulkan*`): gpt-oss-20b 5.27 / 20.43 → 5.29 / 20.44 ms, Qwen3-8B-FP8
   11.01-11.02 / 17.07-17.14 → 11.01-11.02 / 17.16-17.21 ms (two pairs; the second pair 17.14 / 17.16): unchanged.
