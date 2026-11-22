@@ -23,6 +23,8 @@ namespace Sharplight.Cli;
 /// <param name="Generation">Prompt and sampling choices.</param>
 /// <param name="StoreRoot">The model store that stored names resolve in and pulls go to.</param>
 /// <param name="Pull">Whether and how a model that is not stored is pulled.</param>
+/// <param name="Workers">Segment workers (<c>host:port</c>) that run the later pipeline stages on other machines; empty for a local run.</param>
+/// <param name="RemoteOnly">Place no layers on the local devices: every stage runs on <paramref name="Workers"/>.</param>
 internal sealed record CliSettings(
     string? ModelPath,
     bool ListDevices,
@@ -39,4 +41,6 @@ internal sealed record CliSettings(
     string? LogitsPath,
     GenerationSettings Generation,
     string StoreRoot,
-    PullSettings Pull);
+    PullSettings Pull,
+    IReadOnlyList<string> Workers,
+    bool RemoteOnly);

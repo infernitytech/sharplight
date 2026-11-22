@@ -1,10 +1,13 @@
 using System.Text.Json;
 using Sharplight.CatalogTool;
 using Sharplight.FeedTool;
+using Sharplight.Graph;
 using Sharplight.Hub.Catalog;
 using Sharplight.ModelFeed;
 using Sharplight.ModelFeed.Publishing;
 using Sharplight.ModelFeed.Signing;
+using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Hub.Tests;
 
@@ -126,6 +129,72 @@ public sealed class FeedToolTests
     }
 
     [Fact]
+    public void Manifest_ListsTheRoutedExpertsOfAMixtureOfExpertsModel()
+    {
+        var entry = Catalog().Entries.Single(candidate => candidate.Id == "qwen3.8-27b");
+        var variant = entry.Variants.Single(candidate => candidate.Id == "ud-iq3-xxs-gguf");
+        var plan = CatalogInstallPlan.For(entry, variant);
+        var file = new PackageFile { Name = "moe.slm", Role = PackageFileRoles.Package, Size = 17_000_000_000, Sha256 = new string('a', 64) };
+        var inspection = new PackageInspection("MoE", "text-generation", "qwen3moe", 32_768, 30_000_000_000, 16_500_000_000, 3, true)
+        {
+            Context = new ContextMemory(65_536, 0, 4096, 268_435_456, 32_768, 2_147_483_648, 900_000_000),
+            Experts = new ExpertMemory(15_000_000_000, 450_000_000),
+        };
+
+        var manifest = ManifestFactory.Create(plan, inspection, file, "1.0.0", null, "0.4.2-alpha", null, DateTimeOffset.UnixEpoch);
+
+        Assert.All(manifest.Requirements!.Memory, memory =>
+        {
+            Assert.Equal(15_000_000_000, memory.ExpertWeights);
+            Assert.Equal(450_000_000, memory.ExpertBytesPerToken);
+        });
+        var bytes = FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest);
+        Assert.Contains("\"expertWeights\":15000000000", System.Text.Encoding.UTF8.GetString(bytes).Replace(" ", "", StringComparison.Ordinal), StringComparison.Ordinal);
+        var read = FeedJson.ReadManifest(bytes);
+        Assert.Equal(450_000_000, read.Requirements!.Memory[0].ExpertBytesPerToken);
+    }
+
+    [Fact]
+    public void Inspector_CountsOnlyRoutedExpertBanks()
+    {
+        // Two MoE layers: a routed bank of 8 experts (2 selected per token) for gate and down, and a shared expert (1 of 1, every row
+        // runs through it) and a dense projection that do not count.
+        const int hidden = 8;
+        const int inner = 16;
+        const int experts = 8;
+        var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
+        Value Weight(GraphBuilder builder, string name, params long[] dims)
+        {
+            var shape = new Shape(dims.Select(dim => (Dim)dim));
+            weights[name] = new WeightInfo { Name = name, Type = DataType.F32, Shape = shape, Source = new MemoryWeightSource(new byte[shape.Elements() * sizeof(float)]) };
+            return builder.Weight(name);
+        }
+
+        var builder = new GraphBuilder("decode", name => weights.GetValueOrDefault(name));
+        var tokens = Dim.Sym("T");
+        var h = builder.Input("x", InputRole.Other, DataType.F32, new Shape([tokens, hidden]));
+        var ids = builder.Input("ids", InputRole.Other, DataType.I32, new Shape([tokens, 2]));
+        var shared = builder.Input("shared_ids", InputRole.Other, DataType.I32, new Shape([tokens, 1]));
+        for (var layer = 0; layer < 2; layer++)
+        {
+            h = builder.MatMul(h, Weight(builder, $"dense{layer}", hidden, hidden));
+            var up = builder.Emit1("MatMulId", [h, Weight(builder, $"up{layer}", experts, inner, hidden), ids]);
+            var down = builder.Emit1("MatMulId", [up, Weight(builder, $"down{layer}", experts, hidden, inner), ids]);
+            var sharedUp = builder.Emit1("MatMulId", [h, Weight(builder, $"shared{layer}", 1, inner, hidden), shared]);
+            builder.Output($"down{layer}", down);
+            builder.Output($"shared{layer}", sharedUp);
+        }
+
+        builder.Output("y", h);
+        var measured = PackageInspector.MeasureExperts(builder.Build());
+
+        long bank = (long)experts * inner * hidden * sizeof(float);
+        Assert.NotNull(measured);
+        Assert.Equal(4 * bank, measured.Bytes);
+        Assert.Equal(4 * (bank / experts * 2), measured.BytesPerToken);
+    }
+
+    [Fact]
     public void Inspector_SizesTheDecoderStateOfARealPackage()
     {
         // A built package from the local store when present (feedtool build --entry qwen3-0.6b); skipped otherwise.
@@ -142,6 +211,25 @@ public sealed class FeedToolTests
         Assert.Equal(0, context.StateBytesPerSlot);
         Assert.Equal(context.KvBytesPerToken * context.DefaultTokens, context.DefaultBytes);
         Assert.Equal("q8_0", inspection.WeightTypes[0].Key);
+    }
+
+    [Fact]
+    public void Inspector_MeasuresTheRoutedExpertsOfARealMixtureOfExpertsPackage()
+    {
+        // OLMoE-1B-7B (converted .slm): 16 layers of 64 routed experts, 8 per token, gate / up / down of 2048 x 1024 each; skipped without the file.
+        var path = Environment.GetEnvironmentVariable("SHARPLIGHT_FEED_TEST_MOE_PACKAGE");
+        if (path is null || !File.Exists(path))
+        {
+            Assert.Skip("SHARPLIGHT_FEED_TEST_MOE_PACKAGE (a converted OLMoE-1B-7B .slm) is not set.");
+        }
+
+        var inspection = PackageInspector.Inspect(path);
+        var experts = inspection.Experts!;
+        TestContext.Current.TestOutputHelper?.WriteLine($"OLMoE: weights {inspection.WeightBytes} B, routed experts {experts.Bytes} B, per token {experts.BytesPerToken} B");
+
+        Assert.Equal(experts.Bytes / 8, experts.BytesPerToken);
+        Assert.InRange(experts.Bytes / (double)inspection.WeightBytes, 0.8, 0.95);
+        Assert.InRange(experts.Bytes, 3_000_000_000L, 4_000_000_000L);
     }
 
     [Fact]

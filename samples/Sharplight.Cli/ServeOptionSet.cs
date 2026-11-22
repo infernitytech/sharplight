@@ -153,6 +153,11 @@ internal sealed class ServeOptionSet
         _api.AcceptOnlyFromAmong(ApiOpenAi, ApiAnthropic, ApiBoth);
     }
 
+    private readonly Option<string[]> _workers = OptionFactory.CommaSeparatedList(
+        "--workers",
+        "Segment workers (sharplight segment-worker) that run the later pipeline stages of the positional models on other machines, in order.",
+        "host:port,...");
+
     /// <summary>Adds the serve arguments and options to <paramref name="command"/>; <paramref name="action"/> receives the validated settings.</summary>
     public void Configure(Command command, Func<ServeSettings, CancellationToken, Task<int>> action)
     {
@@ -186,6 +191,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_lazy);
         command.Options.Add(_idleTimeout);
         command.Options.Add(_onDemand);
+        command.Options.Add(_workers);
         _pull.AddTo(command);
         command.Validators.Add(ValidateModelSource);
         command.SetAction(HubGuard.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
@@ -246,7 +252,8 @@ internal sealed class ServeOptionSet
             pull,
             parseResult.GetValue(_allowCacheSalt),
             parseResult.GetValue(_noPrefixCache),
-            parseResult.GetValue(_kvSnapshots));
+            parseResult.GetValue(_kvSnapshots),
+            parseResult.GetValue(_workers) ?? []);
     }
 
     private static ApiSurface ParseApi(string value)

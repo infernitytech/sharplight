@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Options;
+using Sharplight.Distributed;
+using Sharplight.Distributed.Transport;
 using Sharplight.Hosting.Fit;
 using Sharplight.Runtime;
 
@@ -11,7 +13,9 @@ namespace Sharplight.Hosting;
 /// </summary>
 /// <param name="devices">The devices.</param>
 /// <param name="options">The hosting options (the reserve).</param>
-public sealed class DefaultModelPlacementPolicy(DeviceInventory devices, IOptions<ModelHostingOptions> options) : IModelPlacementPolicy
+/// <param name="remoteDevices">The segment workers a model's <see cref="HostedModelSettings.Workers"/> name: they follow the local devices in
+/// pipeline order, each weighted by its free memory beyond the reserve.</param>
+public sealed class DefaultModelPlacementPolicy(DeviceInventory devices, IOptions<ModelHostingOptions> options, RemoteDevicePool remoteDevices) : IModelPlacementPolicy
 {
     /// <inheritdoc/>
     public DevicePlacement Place(HostedModelSettings model, long estimatedBytes)
@@ -19,7 +23,7 @@ public sealed class DefaultModelPlacementPolicy(DeviceInventory devices, IOption
         ArgumentNullException.ThrowIfNull(model);
         long reserve = options.Value.Reserve;
         var chosen = devices.Resolve(model.Device).Select(device => device ?? ChooseAuto(estimatedBytes, reserve)).Distinct().ToList();
-        var opened = chosen.Select(devices.Open).ToList();
+        var opened = chosen.Select(devices.Open).Concat(model.Workers.Select(w => remoteDevices.Open(SegmentEndpoint.Parse(w)))).ToList();
         IReadOnlyList<DeviceSlot> slots = opened.Count == 1
             ? [new DeviceSlot { Device = opened[0] }]
             : [.. opened.Select(device => new DeviceSlot { Device = device, Weight = FitPlanner.SplitWeight(device.GetMemoryInfo().Available, reserve) })];

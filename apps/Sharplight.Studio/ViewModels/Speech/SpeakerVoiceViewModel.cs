@@ -35,7 +35,8 @@ internal sealed partial class SpeakerVoiceViewModel : ObservableObject
     public partial ParameterChoice Selected { get; set; }
 
     /// <summary>The reference recording asks for a file.</summary>
-    public bool UsesReference => Selected.Value == ReferenceFile;
+    /// <remarks>The combo box clears its selection (null) for a moment while its choices are replaced.</remarks>
+    public bool UsesReference => Selected?.Value == ReferenceFile;
 
     /// <summary>The path of the reference recording (a WAV file).</summary>
     [ObservableProperty]

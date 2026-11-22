@@ -1,0 +1,5 @@
+pingpong        64 B: median 42.5 us, p99 69.7 us, 0.00 GB/s both ways
+pingpong     16384 B: median 66.2 us, p99 118.0 us, 0.49 GB/s both ways
+pingpong     65536 B: median 75.5 us, p99 150.8 us, 1.74 GB/s both ways
+pingpong   1048576 B: median 445.6 us, p99 1140.5 us, 4.71 GB/s both ways
+pingpong   8388608 B: median 7712.6 us, p99 13359.7 us, 2.18 GB/s both ways

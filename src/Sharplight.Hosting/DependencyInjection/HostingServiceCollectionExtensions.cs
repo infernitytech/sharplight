@@ -39,6 +39,7 @@ public static class HostingServiceCollectionExtensions
             }
 
             services.TryAddSingleton<DeviceInventory>();
+            services.AddRemoteSegments();
             services.TryAddSingleton<IModelPlacementPolicy, DefaultModelPlacementPolicy>();
             services.TryAddSingleton<ModelHostManager>();
             services.TryAddSingleton<IModelHostManager>(provider => provider.GetRequiredService<ModelHostManager>());

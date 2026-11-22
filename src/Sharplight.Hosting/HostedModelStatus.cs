@@ -64,4 +64,16 @@ public sealed record HostedModelStatus
 
     /// <summary>Why its last load failed.</summary>
     public string? Error { get; init; }
+
+    /// <summary>Whether routed experts of the loaded model are read from disk (<see cref="HostedModelOptions.ExpertsOnDisk"/>, and they did not fit memory).</summary>
+    public bool ExpertsFromDisk { get; init; }
+
+    /// <summary>Bytes of the routed experts left on disk, 0 when none.</summary>
+    public long DiskExpertBytes { get; init; }
+
+    /// <summary>The expert cache's counters since the load (hits, misses, bytes read), or null when no experts are on disk.</summary>
+    public Runtime.Experts.ExpertCacheStatistics? ExpertCache { get; init; }
+
+    /// <summary>The read throughput the expert store measured at load (bytes per second), or null.</summary>
+    public double? ExpertReadBytesPerSecond { get; init; }
 }

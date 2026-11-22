@@ -47,6 +47,9 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
     /// <summary>The loaded model, or null for an instance created with <see cref="Wrap"/>.</summary>
     public LlmModel? Model => _model;
 
+    /// <inheritdoc/>
+    public override Runtime.Experts.ExpertStore? DiskExperts => _model?.DiskExperts is { IsActive: true } store ? store : null;
+
     /// <summary>Disposes the engine (and with it the decoder) and the model when this instance owns them; only the first call does.</summary>
     public override void Dispose()
     {

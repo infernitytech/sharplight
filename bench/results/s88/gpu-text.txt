@@ -1,0 +1,15 @@
+== gpu-single
+The three laws of thermodynamics are a set of fundamental principles that govern the behavior of energy and matter in the universe. These laws are not just abstract concepts; they have profound implications for our understanding
+1 segment(s): [0@0: 869 nodes]
+prompt: 7 tok in 290 ms (24.2 tok/s) | generated: 32 tok, 136.56 tok/s
+== gpu-remote
+The three laws of thermodynamics are a set of fundamental principles that govern the behavior of energy and matter in the universe. These laws are not just abstract concepts; they have profound implications for our understanding
+1 segment(s): [0@0: 869 nodes]
+prompt: 7 tok in 113 ms (62.0 tok/s) | generated: 32 tok, 124.80 tok/s
+worker 127.0.0.1:7073: 32 executions, round trip 10.246 ms, worker 9.631 ms, overhead 0.248 ms per execution, 0.1 MB sent, 0.6 MB received
+== gpu-mixed
+The three laws of thermodynamics are a set of fundamental principles that govern the behavior of energy and matter in the universe. These laws are not just abstract concepts; they have profound implications for our understanding
+2 segment(s): [0@0: 361 nodes] → [1@1: 508 nodes]
+prompt: 7 tok in 501 ms (14.0 tok/s) | generated: 32 tok, 12.80 tok/s
+worker 127.0.0.1:7071: 32 executions, round trip 84.309 ms, worker 83.197 ms, overhead 0.285 ms per execution, 0.1 MB sent, 0.0 MB received
+worker 127.0.0.1:7073: 32 executions, round trip 90.161 ms, worker 5.845 ms, overhead 0.155 ms per execution, 0.1 MB sent, 0.6 MB received

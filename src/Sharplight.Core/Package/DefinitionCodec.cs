@@ -186,9 +186,7 @@ internal static class DefinitionCodec
             {
                 w.Write(i);
             }
-            // Output names: single outputs keep theirs, multi-output nodes keep the common "{name}.{i}" prefix.
-            string? name = n.Outputs.Length == 0 ? null : n.Outputs.Length == 1 ? n.Outputs[0].Name
-                : n.Outputs[0].Name.EndsWith(".0", StringComparison.Ordinal) ? n.Outputs[0].Name[..^2] : null;
+            string? name = OutputBaseName(n);
             w.Write(name is not null);
             if (name is not null)
             {
@@ -227,6 +225,13 @@ internal static class DefinitionCodec
             MetadataCodec.WriteString(w, bound.ToString());
         }
     }
+
+    /// <summary>
+    /// The name <see cref="GraphBuilder.Emit(OpSchema, IReadOnlyList{Value}, Attributes?, string?, IReadOnlyList{Value}?)"/> takes to give the
+    /// node's outputs their names again: a single output keeps its own, several outputs their common "{name}.{i}" prefix; null for generated names.
+    /// </summary>
+    public static string? OutputBaseName(Node n) => n.Outputs.Length == 0 ? null : n.Outputs.Length == 1 ? n.Outputs[0].Name
+        : n.Outputs[0].Name.EndsWith(".0", StringComparison.Ordinal) ? n.Outputs[0].Name[..^2] : null;
 
     private static ComputeGraph ReadGraph(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, Dictionary<string, StateDefinition> states, int layout)
     {

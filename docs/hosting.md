@@ -99,7 +99,7 @@ trailing commas allowed, sizes as bytes or `"2G"`):
 
 Per model: `name`, `path`, `kind` (`chat` default, `embedding`, `reranker`, `task` with `task` = the task kind), `device`,
 `contextLength`, `batchTokens`, `slots`, `kvCacheTokens`, `kvCacheType`, `projector`, `chatTemplate`, `auxiliary` (files by role),
-`lazy`, `pinned`, `cpuOffload`, `idleTimeoutSeconds`, `description`. `HostedModelSettings.Resolve` merges a model with the defaults.
+`lazy`, `pinned`, `cpuOffload`, `idleTimeoutSeconds`, `workers` (segment workers for the later pipeline stages), `description`. `HostedModelSettings.Resolve` merges a model with the defaults.
 
 Delegates that are not part of the JSON form: `Log` (load, unload and eviction messages; default the manager's `ILogger`),
 `ConfigureLoad` (adjust each model's load options: progress, logging, compilation artifacts) and `ConfigureChat` (adjust each chat
@@ -114,6 +114,12 @@ model's options: request callbacks, speculators, service defaults).
 | `0`, `1`, ... | the n-th device of the first available GPU provider |
 | `vulkan:1` | a device id (`provider:index`, as `DeviceInventory.Devices` lists them) |
 | `0,1` | the model is split over these devices in pipeline order, each weighted by its free memory beyond the reserve |
+
+A model too large for this machine also takes **segment workers** on other machines (`workers`, `host:port` in pipeline order;
+[multinode.md](multinode.md)): they follow the model's devices in pipeline order, each weighted by its free memory beyond the reserve, and
+run the later layers on their own copy of the model (`"workers": ["10.0.0.2:7070", "10.0.0.3:7070"]`; `sharplight serve --workers`). The
+workers' connections come from the `RemoteDevicePool` (`AddSharplightHosting()` registers it; `services.Configure<RemoteSegmentOptions>`
+sets TLS and timeouts); a worker failure fails the model's requests with `SegmentWorkerException` until the model is loaded again.
 
 The placement is decided each time a model loads, so `auto` follows the memory that is free at that moment. With `cpuOffload` a
 GPU placement gets the CPU as fallback for layers that do not fit. Chat models are sized exactly (`LlmModel.EstimateFootprint`);

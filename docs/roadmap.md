@@ -398,13 +398,13 @@ Devices without f16 matrix units keep strict. Open: the q4 decoders and the SIMT
 
 ## Multi-node inference
 
-- **Pipeline parallel across a cluster**: run one model too large for a single machine across several nodes. Placement
-  already splits a graph into per-device segments in pipeline order (`PlacementOptions.Devices`); a remote segment
-  worker on each node loads only its own layers from its local `.slm` copy, keeps the KV cache of those layers, and
-  exchanges only the boundary activations (`d_model` x 2 bytes per token, about 14 KB for DeepSeek-V3; well under 1 ms
-  per token over 10 GbE for 4 nodes). Exposed as a provider whose devices are remote segments, so other providers can
-  implement it. Single-stream decode gains capacity, not speed; throughput scales with nodes by keeping several
-  micro-batches in flight through the multi-sequence decoder.
+- **Pipeline parallel across a cluster**: done in round 1 ([multinode.md](multinode.md), benchmarks §88): `Sharplight.Distributed`'s
+  remote execution provider, whose devices are segment workers (`sharplight segment-worker`, `SegmentWorker`) that load only their own
+  layers from their local copy (fingerprint-checked), keep the KV cache of those layers and exchange only boundary activations, worker to
+  worker over persistent TCP streams (mutual TLS optional); `--workers` on the CLI and `serve`, `workers` per hosted model. Output equals
+  the single-machine run (tokens and logits); a lost or hung worker fails the request in under a second or at the heartbeat timeout.
+  Chunked prefill overlaps the stages; several decoders over one pipeline overlap their steps. Next: decode micro-batches inside one
+  serving engine, lower per-step protocol overhead (0.15-0.35 ms per worker on loopback), f16 boundary values, an RDMA transport.
 - Later: tensor and expert parallel across nodes for RDMA networks (InfiniBand / RoCE) and large MoE models; over TCP the
   per-layer all-reduces cost several milliseconds per token.
 
