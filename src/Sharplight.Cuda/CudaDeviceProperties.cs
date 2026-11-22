@@ -130,6 +130,8 @@ internal sealed class CudaDeviceProperties
         if (ComputeCapability / 10 == 12 && DriverVersion >= 12090)
         {
             features.Add(DeviceFeatures.BlockScaledFp8);
+            // setmaxnreg (gemm_fp8_tma.cu, F8N_WG) is in the same family-specific PTX.
+            features.Add(DeviceFeatures.RegisterReallocation);
         }
 
         return features;

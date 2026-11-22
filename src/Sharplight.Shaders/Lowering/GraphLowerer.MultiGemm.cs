@@ -101,6 +101,7 @@ public sealed partial class GraphLowerer
         if (_multiGemmOf.TryGetValue(matmul, out var group) && ++group.Lowered == group.Members.Count)
         {
             EmitNativeF16TallMultiGemm(group);
+            EmitNativeFp8TallMultiGemm(group);
             EmitMultiGemm(group);
             foreach (var emit in group.AfterEmit)
             {
@@ -473,6 +474,10 @@ public sealed partial class GraphLowerer
         }
 
         var parts = group.Members.Select(m => group.TallParts[m]).ToList();
+        if (parts.Any(pt => pt.Fp8))
+        {
+            return;
+        }
 
         var first = parts[0];
         bool bias = first.Bias is not null;
@@ -511,6 +516,50 @@ public sealed partial class GraphLowerer
         Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native{(bias ? " fused[Add]" : "")}", group.Members, variants,
             [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output)]);
+        _launchCondition = outer;
+        group.TallServes = serves;
+    }
+
+    /// <summary>
+    /// The multi-output form of the hand-written FP8 GEMM's 128-row tiles (<c>gemm_fp8_tma.cu</c> MULTI) over the concatenated weight
+    /// rows of a group whose members all run there on the same E4M3 activation rows (<see cref="MultiGemmGroup.TallParts"/> with
+    /// <see cref="MultiGemmTallPart.Fp8"/>): one launch instead of one per member, each tile in one member's matrix, storing to its
+    /// output, for the batches where the concatenation runs on 128-row tiles. The short k / v matrices alone fill 1.6 waves each
+    /// (Qwen3-8B-FP8 at 2,048 rows: 128 tiles on 82 SMs, 72-79 µs). Each output is the product its member's launch computes (the same
+    /// tile and K order). <c>SHARPLIGHT_MULTI_GEMM_TALL=0</c> keeps the members' launches.
+    /// </summary>
+    private void EmitNativeFp8TallMultiGemm(MultiGemmGroup group)
+    {
+        if (group.Members.Count > 3 || !group.Members.All(group.TallParts.ContainsKey))
+        {
+            return;
+        }
+
+        var parts = group.Members.Select(m => group.TallParts[m]).ToList();
+        var first = parts[0];
+        if (parts.Any(pt => !pt.Fp8 || pt.Bias is not null || pt.Activations.Buffer != first.Activations.Buffer
+                            || pt.Activations.ByteOffset != first.Activations.ByteOffset || pt.MinRows != first.MinRows || pt.MaxRows != first.MaxRows
+                            || pt.Weight.Type != first.Weight.Type || pt.Weight.Shape[1] != first.Weight.Shape[1]
+                            || !DenseRowsOf(pt.Output, pt.Weight.Shape[0]) || pt.Weight.Shape[0] % NativeFp8Tile != 0)
+            || DenseScaleCapacityOf(first.Activations) <= 0 || !NativeFp8TensorCopies)
+        {
+            return;
+        }
+
+        long xcap = DenseScaleCapacityOf(first.Activations);
+        long[] widths = [.. parts.Select(pt => pt.Weight.Shape[0])];
+        long n = widths.Sum();
+        long k = first.Weight.Shape[1];
+        var rowsOf = first.Rows;
+        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b)) && NativeFp8TileRows(rowsOf(b), n, false) == NativeFp8Tile;
+        var variant = NativeFp8TmaVariant(n, k, null, xcap, serves, rowsOf, uniformScales: parts.All(pt => pt.UniformScales), multiWidths: widths);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        var outer = _launchCondition;
+        _launchCondition = null;
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8 native", group.Members, [variant],
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
         _launchCondition = outer;
         group.TallServes = serves;
     }

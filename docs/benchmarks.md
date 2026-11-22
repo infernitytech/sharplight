@@ -13320,3 +13320,170 @@ PipelineBench $M --local-stages 3 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --c
 PipelineBench $M --workers 127.0.0.1:7071,127.0.0.1:7072 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --chunks 256,64
 PipelineBench --echo 127.0.0.1:7090 &  PipelineBench --pingpong 127.0.0.1:7090
 ```
+
+## 89. LLM round 31: the FP8 prompt GEMM's default path (copy warpgroup with `setmaxnreg`, one weight scale per 128-row group for 128 x 128 scale-block weights, the E4M3 store with f32 scales, q / k / v as one launch), all bit-identical; the block-scaled mode's numerics bounded (2026-11-22)
+
+Branch `perf/llm-r31` (`develop` at `554ec325`, `1a4848dd` (§87, huge-moe-r1) merged before the final holds). GPU 0 of the RunPod
+machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap), shared with other rounds (huge-moe-r1 and a fix round took short holds, the
+model-feed republish loaded CPU, disk and network): every run held the verify lock; `develop` (`1a4848dd`), this branch and vLLM 0.33
+(venv `vllm-r12`) ran in the same holds. Every change is CUDA only and keyed on op, shape, weight format and device feature; Vulkan's
+kernels and lowering are unchanged (its greedy text is byte-identical). Raw output in [`bench/results/s89/`](../bench/results/s89).
+
+### 89.1 Results (final holds)
+
+Serving (`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, closed loop, two rounds
+each, tok/s per round; ours `--provider cuda`, vLLM `--gpu-memory-utilization 0.6`; both models in one hold, `serve/`):
+
+| model, streams | `develop` 1a4848dd | this branch | vLLM 0.33 | ours / vLLM: `develop`, this branch |
+|---|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1092 / 1095 | 1087 / 1090 | 1119 / 1119 | 0.98, 0.97 |
+| the same: TTFT p50 / inter-token latency mean, p50 (ms) | 114-115 / 13.65, 12.43-12.46 | 116-117 / 13.70-13.72, 12.48-12.50 | 160 / 12.90, 12.41 | |
+| Qwen3-8B-FP8, 64 | 2532 / 2535 | **2545 / 2544** | 2692 / 2694 | 0.94, **0.945** |
+| the same: TTFT p50 / ITL mean, p50 | 283-347 / 21.87-21.99, 16.28-16.42 | 282 / 21.87, 16.32-16.33 | 398-399 / 20.22-20.26, 16.02-16.05 | |
+| gpt-oss-20b, 16 | 1319 (first round) / 1413 | 1404 / 1412 | 1435 / 1390 | 1.00, 1.00 |
+| gpt-oss-20b, 64 | 3046 / 3075 | 3042 / 3056 | 3155 / 3148 | 0.97, 0.97 |
+
+Qwen3-8B-FP8 at 64 streams gains +0.4 % (the prompt rows, TTFT p50 282 ms, against vLLM's 398) and is still 5.5 % behind vLLM. That
+gap sits in the decode steps (ITL mean 21.87 against 20.24 ms; p50 16.3 against 16.0) more than in the prompt rows. At 16 streams the
+two builds are within their round-to-round spread. gpt-oss-20b runs none of the changed paths.
+
+Steps (BatchBench, GPU ms min, `develop` and this branch alternated twice in one hold, `steps/`):
+
+| step | `develop` | this branch | |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8 prompt, 2,048 rows (8 x 256) | 138.81 / 138.71 | **136.89 / 136.73** | -1.4 % |
+| Qwen3.8-27B-FP8 prompt, 1,024 rows (4 x 256) | 266.55 / 266.23 | 265.87 / 265.76 | -0.2 % |
+| Qwen3-8B-FP8 decode 1 / 16 / 64 rows | 10.94, 10.94 / 12.17, 12.20 / 15.58, 15.53 | 10.95, 10.95 / 12.20, 12.18 / 15.55, 15.56 | 0 |
+| gpt-oss-20b prompt, 2,048 rows | 115.25 / 115.34 | 115.44 / 115.24 | 0 (no FP8 weights) |
+| gpt-oss-20b decode 1 / 16 / 64 rows | 5.19, 5.19 / 12.16, 12.19 / 17.01, 17.03 | 5.18, 5.19 / 12.20, 12.16 / 17.11, 17.18 | 0 (no path changed; spread as in §86.4) |
+
+Per layer of the Qwen3-8B-FP8 prompt step (profile of the same hold as the A/B below, `qc/`, µs min; launches per step 474 → 366):
+
+| launch | `develop` | this branch |
+|---|---:|---:|
+| gate / up (dual, SiLU · mul) | 1,607 + 129 (`quantize_fp8` of the down input) | 1,691 (stores the down input's E4M3 rows) |
+| down | 820 | 831 |
+| q / k / v | 261 + 2 x 78 | 395 (one launch) |
+| o | 261 | 281 |
+| norms, rope + cache, attention, o's quantization | 2 x 100, 116, 81, 23 | 2 x 91, 119, 83, 24 |
+| sum | 3,654 | 3,606 (-1.3 %) |
+
+### 89.2 What changed
+
+* **Copy warpgroup** (`F8N_WG`, new feature `register_reallocation`: `setmaxnreg` in the family-specific PTX of compute capability 12.x,
+  CUDA 12.9+ drivers; `SHARPLIGHT_FP8_WG=0`). The 9-warp block (8 computing warps and a copy warp) gets 168 registers per thread: the
+  register file is split by warps per scheduler and 9 warps take 3 slots on one of the 4. With 12 warps (a copy warpgroup) the copy
+  warps drop to 40 registers and the computing warps rise to 232. The budget has to balance what the block got at launch (384 x 168 =
+  128 x 40 + 256 x 232), otherwise `setmaxnreg.inc` waits for registers that are never freed: the first try, with 48 copy registers,
+  hung the harness. Results are bit-identical.
+* **E4M3 store with f32 scales.** With 232 registers the dual gate / up pair holds the first tile's outputs without spilling, so §86's
+  `QOUT` also runs on the default path (from 256 rows). It writes the down projection's E4M3 rows and scales, bit for bit what
+  `quantize_fp8` writes (`Fp8BlockScaledTests.E4m3StoreMatchesSeparateQuantization` now checks both modes and the 9-warp form). That
+  removes the 129 µs quantization launch and the f32 round trip.
+* **One weight scale per 128-row group** (`F8N_WUNI`, `SHARPLIGHT_FP8_UNIFORM_SCALES=0`). This is the generic form of §86's "promote
+  every two K blocks for 128 x 128 checkpoints": each output still needs its own promotion per K block (the activation scales differ
+  per block), but when a 128-row group shares each block's weight scale, the factor is one product per row of x instead of one per
+  element. That removes 56 of the 64 multiplies per 64 MMAs; the products are the same, so results are bit-identical. The lowering
+  takes the fact from the weight format, not from the model: `WeightInfo.ScaleRowBlock` (rows sharing every block scale) is set by the
+  Hugging Face importer from the checkpoint's scale layout (`weight_block_size` [128, 128]: 128; per-tensor: all rows), kept by row
+  slices, concatenations, stacks and reshapes only where the groups stay aligned, and stored in packages in a new optional `WLAY`
+  section (older readers skip it). Every FP8 checkpoint with 128 x 128 block scales benefits (DeepSeek-style FP8: Qwen3 and Qwen3.8
+  FP8, DeepSeek-V3, ...).
+* **q / k / v as one launch on the 128-row tiles** (`gemm_fp8_tma.cu` `MULTI`, `SHARPLIGHT_MULTI_GEMM_TALL=0`). This is the FP8
+  counterpart of §82's f16 form: a q / k / v group that reads the same E4M3 rows runs once over the concatenated weight rows. Each tile
+  lies in one member's matrix and has its own tensor map, so the outputs are each member's own products. On the Qwen3-8B-FP8 step:
+  261 + 2 x 78 → 395 µs per layer in the profile. In the step this is within noise (136.86 → 136.80 ms, `qc/`): the graph already ran
+  k and v next to q (concurrent launches). Any FP8 model with separate q / k / v projections takes it.
+* Tools: `bench/s86_bs/bench_fp8.cu` gained `WUNI` (one scale per 128 rows of the random weights).
+* Tests: `Fp8UniformScalesTests` (matmul, dual pair and MLP at 300 / 1,024 rows: bit-identical with and without the fact, and against
+  the CPU), `WeightLayoutTests` (the views' rules, the `WLAY` round trip), the store test in both modes.
+
+### 89.3 The harness and the model disagree on the copy warpgroup
+
+Kernel harness, sustained at the power cap, ms (`harness/forms.txt`, `qc/`, random codes, 2,048 rows):
+
+| form | gate / up 4,096 → 2 x 12,288 | down 12,288 → 4,096 |
+|---|---:|---:|
+| 9 warps (`develop`) | 1.718-1.749 | 0.878-0.890 |
+| copy warpgroup | 1.676-1.692 | 0.853-0.861 |
+| 9 warps, one scale per group | 1.654-1.657 | 0.848-0.850 |
+| copy warpgroup, one scale per group | **1.611-1.617** | **0.809-0.821** |
+| the same with the E4M3 store | 1.664-1.701 | |
+| block-scaled MMA (§86, for scale) | 1.551-1.567 | 0.781-0.791 |
+
+The provider's own PTX of the down projection (dumped with `SHARPLIGHT_CUDA_DUMP_SOURCE` and launched by the harness via `PTXFILE`)
+runs 0.809-0.816 ms there, the same as the harness build. In the model's profile, though, the same kernel takes 826-834 µs, against
+820-829 for `develop`'s. With the copy warpgroup but without the uniform scales (`SHARPLIGHT_FP8_UNIFORM_SCALES=0`) the model's step
+got slower (146.3 / 146.5 ms against 136.4 / 137.3 ms, down 947 µs), while in the harness that form is 3 % faster. Turning off
+dependent launches (`SHARPLIGHT_CUDA_PDL_TRIGGER=0`) did not change the ranking. The real activations draw less power than random
+codes (§86.1), so in the model the kernel is probably limited by issue and latency rather than by energy, and there the copy
+warpgroup's gain shrinks. It is not explained yet. What the model gains comes from the uniform scales on gate / up (1,611 → 1,561 µs
+with 9 warps) and from the store (the quantization launch goes); the copy warpgroup is kept because it is what lets the store run with
+f32 scales (9 warps + uniform scales 137.41 / 137.49 ms, all three 136.80 / 137.33 ms).
+
+### 89.4 Block-scaled mode numerics: the weights' share cannot shrink with finer scales
+
+§86 left two ideas for bringing the block-scaled mode within ±0.3 %: per-32 weight scales from the checkpoint, and per-32 activation
+scales. The weights account for +0.56 % of the +0.77 % on Qwen3-8B-FP8. Requantizing the checkpoint's E4M3 codes (scale d) to a power-of-two
+scale d' turns each code c into E4M3(c · d / d'), and d / d' has the same mantissa for every power-of-two d'. The rounding error does
+not depend on the group size. Measured over Qwen3-8B-FP8's projections (layers 0-1, CPU, the importer's dequantized values):
+relative error 0.0263-0.0269 with per-128 power-of-two scales, the same to four digits with per-32. Smaller groups do not help.
+Only E4M3's 3 mantissa bits limit it, and the MMA's `kind::mxf8f6f4` takes no wider weight type. Activation scales per 32 values
+could recover at most the activations' +0.2 %, which leaves Qwen3-8B-FP8 at about +0.56 % (rule: ±0.3 %). They were not built. The
+mode stays opt-in: ±0.3 % would need a non-power-of-two weight factor, which the block-scaled MMA does not have.
+
+### 89.5 Correctness and tests
+
+* Greedy text (120 tokens, the ~40-word and the 963-token prompt, `correct/`) is byte-identical to `develop` for gpt-oss-20b and
+  Qwen3-8B-FP8 on CUDA and Vulkan and for Qwen2.5-7B Q4_K_M on CUDA. The last-token logits of a ~2,900-token prompt are bit-identical
+  for Qwen3-8B-FP8 and gpt-oss-20b.
+* `PplBench` (wikitext-2 test, §86's method, `ppl/`): the f16 logits dumps of every prompt row are byte-identical to `develop`'s for
+  Qwen3-8B-FP8 (12,288 tokens, PPL 8.6693, the same as §86) and for Qwen3.8-27B-FP8 (6,144 tokens, 512-row steps, PPL 6.6574). Every
+  FP8 change of the round runs in those steps.
+* Suites (`tests.txt`, after the merge of `1a4848dd`): Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers:
+  Fp8UniformScales 2 (new), Fp8BlockScaled 10 (Vulkan: 2 skipped, no `block_scaled_fp8`), Fp8Gemm 41, SkinnyGemm 42, DualGemm 13,
+  MatMul 164, MatMulEpilogue 16, Moe 129, Fusion 105, Norm 10, NormHalfCopy 23, Rope 12, RowInvariance 77, FullAttention 30,
+  PagedAttention 10: **684 / 0 failed on each provider**; Sharplight.Cuda.Tests 63 / 0 failed / 1 skipped (cuBLASLt);
+  Sharplight.Serving.Tests 396 / 0 failed / 13 skipped; Sharplight.Package.Tests 48 / 0 failed / 4 skipped (models not present).
+
+### 89.6 Measured and not kept
+
+* **Testing the weight scales for uniformity at run time** (`F8N_WUNI=2`: per K block, a vote over the warp's columns, then the
+  cheap or the full promotion; `harness/`). With uniform scales it is 1.666 ms against 1.611 for the static form. With per-row
+  scales it costs 3 % over the plain copy warpgroup form (1.729 against 1.676 ms). The static form, keyed on the weight format, is
+  kept.
+* **Per-32 scales for the block-scaled mode**: see 89.4.
+
+### 89.7 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.97 / 0.945 | 64: inter-token latency mean 21.9 against 20.2 ms (mixed steps carrying prompt rows: prompt rows 66.8 µs each against vLLM's 54.8); TTFT already 30 % lower |
+| gpt-oss-20b serving 16 / 64 streams | 1.00 / 0.97 | 64: decode steps (expert GEMMs) and prompt rows (§82) |
+
+Ranked levers:
+
+1. **Explain the copy warpgroup's model-versus-harness gap** (89.3). Profile the model's down projection with Nsight Compute against
+   the harness on real activations (dump one layer's E4M3 rows into the harness). If the model is issue-bound, the next step is
+   fewer instructions per MMA: 64 x 64 warp tiles (the 232 registers now allow 128 accumulators plus a part tile for each i) and
+   fewer `ldmatrix` per MMA. The harness promises gate / up 1.61 and down 0.81 ms against 1.69 / 0.83 in the model.
+2. **Rope + cache on f16 q / k / v** (118 µs against vLLM's ~27, bandwidth-bound on 50 MB of f32 reads and 33 MB of f32 q writes per
+   layer): the multi-output GEMM would store f16 rows and `rope_qkv` would read them, which also halves attention's q reads. That
+   changes numerics within f16 rounding, so it needs PplBench.
+3. **Tile height cost** (`NativeFp8TmaTallBlockCost` 1.3): the 128-row tiles are faster now, so the 64 / 128 crossover for 256-1,000-row
+   steps (serving chunks) should be measured again.
+4. **gpt-oss prompt rows and decode** (§82.6, §86.9 item 4): not reached this round.
+
+### 89.8 Reproduce
+
+```bash
+cd bench/s86_bs && ARCH="-gencode arch=compute_120f,code=sm_120f" SHAPES="4096,12288,1 12288,4096,0" ./run.sh \
+  ../../src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu -DTMA -DPERSIST=82 -DKENTRY=gemm_fp8_tma -DWUNI -DF8N_WG=1 -DF8N_WUNI=1 [-DQOUT=1 -DQCAP=8192]
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 5 --mixed 0+256x8 --profile 0
+$BB ~/models/hf/Qwen3.8-27B-FP8 --provider cuda --slots 4 --ctx 640 --depth 256 --batch 1024 --modes greedy --reps 5 --mixed 0+256x4
+SHARPLIGHT_FP8_WG=0 | SHARPLIGHT_FP8_UNIFORM_SCALES=0 | SHARPLIGHT_MULTI_GEMM_TALL=0 $BB ...     # the forms one at a time
+P=bench/PplBench/bin/Release/net11.0/PplBench
+$P ~/models/hf/Qwen3-8B-FP8 --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --dump a.f16 --ids q8.ids
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+```

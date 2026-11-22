@@ -90,6 +90,13 @@ public static class DeviceFeatures
     public const string BlockScaledFp8 = "block_scaled_fp8";
 
     /// <summary>
+    /// Warps of a workgroup can hand registers to each other at run time (CUDA: <c>setmaxnreg</c>, in the family-specific PTX of compute
+    /// capability 12.x, which drivers JIT from CUDA 12.9). The provider's prompt-sized FP8 GEMM then runs a copy warpgroup on few
+    /// registers and its computing warps on 232 instead of the 168 its block size allows. Disabling it keeps the 9-warp form.
+    /// </summary>
+    public const string RegisterReallocation = "register_reallocation";
+
+    /// <summary>
     /// Large matrix products of 16-bit float weights (f16, and bf16 stored as f16) run on a hand-written f16 tensor-core GEMM of the
     /// provider, with the operands and precision of <see cref="LibraryGemm"/> but without the vendor library (CUDA, compute capability
     /// 8.0 and later); preferred over the library where both exist. Disabling it leaves those products to the library or the
@@ -179,7 +186,7 @@ public static class DeviceFeatures
     public const string WindowKv = "window_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeGemmKQuant, NativeAttention, TensorCopies, BlockScaledFp8, LaunchGraphs, DependentLaunches];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeGemmKQuant, NativeAttention, TensorCopies, BlockScaledFp8, RegisterReallocation, LaunchGraphs, DependentLaunches];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>
