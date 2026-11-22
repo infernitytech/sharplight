@@ -11935,3 +11935,181 @@ $BB ~/models/hf/gpt-oss-20b --provider cuda --slots 72 --ctx 640 --depth 256 --b
 python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --prefill 256 --seqs 8 --gpu-util 0.6
 # switches: SHARPLIGHT_SKINNY_EPILOGUE=0
 ```
+
+## 81. Feed round 4: tensor-core decode attention for head sizes 256 and 512 on both providers (Gemma 4 31B at 32K / 128K, Qwen3.8 27B at 128K), the K split of 1-4-wave GEMM grids (Gemma 4 31B pp512) (2026-11-22)
+
+Branch `perf/feed-r4` (base `develop` at `7b7f6231`, §79; `develop` at `789a1e66` (§80, perf/llm-r27) merged before the final
+measurements). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap, 896 GB/s), shared with perf/llm-r27:
+every run held the verify lock; Sharplight and llama.cpp b11177 ran in the same hold per provider (`bench/s74_feed.sh`, Sharplight
+first); A/B pairs (feature on / off through its switch, same build) ran back to back in one hold. Raw output in
+[`bench/results/s81/`](../bench/results/s81).
+
+### 81.1 Results against llama.cpp (final holds)
+
+| model, point | provider | before (§74 / §77 / §79) | **after** | llama.cpp (same hold) | ratio before → after |
+|---|---|---:|---:|---:|---:|
+| Gemma 4 31B, decode after a 128K prompt (session path) | CUDA | 19.97 | **25.3** | 24.75 | 0.80 → **1.02** |
+| Gemma 4 31B, decode after a 128K prompt (session path) | Vulkan | not measured | **26.1** | 24.48 | – → **1.06** |
+| Gemma 4 31B, decode at 32K | CUDA | 30.0-30.2 | **33.6** (29.77 ms) | 33.28 | 0.90-0.91 → **1.01** |
+| Gemma 4 31B, decode at 32K | Vulkan | 28.7-28.9 | **34.2** (29.24 ms) | 29.88 | 0.92-0.93 → **1.14** |
+| Gemma 4 31B, prefill 512 | CUDA | 1488 | **1645** | 1668 | 0.89 → **0.99** |
+| Gemma 4 31B, prefill 512 | Vulkan | 1465 | **1598** | 1339 | 1.10 → **1.19** |
+| Gemma 4 31B, decode, 1 stream | CUDA | 37.9 | 38.8 | 38.4 | 0.96 → **1.01** |
+| Gemma 4 31B, decode, 1 stream | Vulkan | 38.3 | 39.4 | 37.6 | 1.03 → **1.05** |
+| Gemma 4 31B, decode 16 sequences | CUDA | 425 | **441** | 383 | 1.11 → **1.15** |
+| Gemma 4 31B, decode 16 sequences | Vulkan | 306 | 314 | 153 | 2.01 → **2.06** |
+| Qwen3.8 27B, decode at 128K | CUDA | 27.9 | **31.0** (32.28 ms) | 29.78 | 0.94 → **1.04** |
+| Qwen3.8 27B, decode at 128K | Vulkan | 26.5 | **31.3** (31.97 ms) | 27.50 | 0.96 → **1.14** |
+| Qwen3.8 27B, decode at 32K | CUDA | 39.2 | **40.8** (24.51 ms) | 38.97 | 1.01 → **1.05** |
+| Qwen3.8 27B, decode at 32K | Vulkan | 38.6 | **40.8** (24.48 ms) | 36.61 | 1.06 → **1.12** |
+| Qwen3.8 27B, prefill 512 / decode, 1 stream | CUDA | 1914 / 45.7 | 1909 / 45.8 | 1715 / 43.6 | 1.13 / 1.05 → 1.11 / 1.05 |
+| Qwen3.8 27B, prefill 512 / decode, 1 stream | Vulkan | 1941 / 44.9 | 1953 / 45.4 | 1704 / 41.6 | 1.15 / 1.26 (§74's tg) → 1.15 / 1.09 |
+
+tok/s. Prefill and single-stream decode: the CLI's `--bench 512` (best of 5) against llama-bench pp512 / tg128; decode at depth:
+BatchBench (one sequence in a paged pool, tokens fed back, 1000 / minimum GPU ms of 20 steps) against llama-bench tg64 at `-d D`;
+batched decode: BatchBench `--feedback` at depth 256 against llama-batched-bench S_TG (second pass); Gemma's 128K rows: the session
+path (`--bench 131072 --ctx 131328`, window-sized caches, `SHARPLIGHT_BENCH_PREFILL_REPEATS=0`) against llama-bench tg64 at
+`-d 131072`, one repetition. "before" is the latest earlier measurement of the point (§79 for Gemma 128K / pp512 / 16 sequences on
+CUDA, §77 for the 32K session rows, §74 otherwise); the A/B pairs of 81.2 / 81.3 measure each change alone in one hold. Gemma's
+single-stream decode rose with `develop`'s §80 merge as well (39.0 tok/s on CUDA with this round's switches off, `pp/`), so its
+before → after is not this round's alone.
+
+### 81.2 Where the time went at depth
+
+Profile of one Gemma 4 31B decode step after 32K keys (BatchBench `--profile 1`, `ab/g32k_*`): the attention launches took 7.8 ms of
+33.3 on CUDA and 10.0 of 34.7 on Vulkan, almost all of it the ten global layers (head size 512, 4 KV heads with 8 query heads each,
+268 MB of keys and values per layer at 32K: ~455 GB/s on CUDA). The window layers (head size 256, 16 KV heads, 1024 keys, L2
+resident) were ~30 µs each, the split-K combine 0.35 ms per step. The global layers' rows ran the generic `decode` (the hand-written
+`attn_decode_native.cu` covered head sizes 64 / 128 only): at head size 512 a lane group of 32 lanes holds 8 heads x 16 query values
+and 8 x 16 accumulators (256 registers before the key rows) on CUDA, and on Vulkan's 48 KiB the block takes only 4 of the 8 heads, so
+every key row is read twice. The paged ring path of the window layers and the combine were not the gap.
+
+### 81.3 The wide form of the hand-written decode attention (CUDA)
+
+`attn_decode_native.cu` now also serves head sizes 256 and 512 (`D` > 128 selects the wide form): a block of 4 warps shares each
+tile instead of each warp streaming its own.
+
+* A tile is 8192 / D keys (32 at 256, 16 at 512): 32 KiB of keys and values, copied with `cp.async` into a ring of three stages of
+  dynamic shared memory (rows of 16-byte chunks, XOR swizzle inside each 128-byte group; rows past the range zero-filled; paged
+  caches: one block-table read per lane, the row addresses passed by shuffle), so two tiles are in flight while the third is computed.
+* S = Q · Kᵀ: warp w computes key fragment w mod NF over a slice of the dimensions (D = 256: each warp 8 keys over all 256; D = 512:
+  pairs of warps split the 512 dimensions), query fragments in registers (the block's heads as the MMA rows), K by `ldmatrix`. The
+  partial scores go to 1 KiB of shared memory; after a barrier every warp sums them in the same order, so all warps run the same
+  online softmax (softcap, mask) and hold the same (m, l). O += P · V: warp w owns D / 4 output dimensions (V by `ldmatrix.trans`), so
+  no merge of warp states is needed. Two barriers per tile; partials and the direct output (sinks) as before, same combine.
+* 201 registers at 512, 157 at 256, no spills; one block per SM (99 KiB), so the split rule aims for 2 x SMs blocks
+  (`NativeWideDecodeWaves`): 4 KV groups x 41 ranges at one row.
+* Fallbacks: two stages where the device's shared memory does not take three, the generated `decode` where neither fits, for other
+  head sizes, quantized caches and the forms the narrow kernel does not serve; `SHARPLIGHT_NATIVE_DECODE_WIDE=0` switches it off.
+
+Harness (`bench/s78_decode`, now also for D > 128; paged f16 cache, 20 launches, min; `harness/sweep1.txt`):
+
+| shape | keys | grid | ms | GB/s | max error vs f32 |
+|---|---:|---|---:|---:|---:|
+| Gemma 4 global (32 / 4 heads, D 512), 1 row | 131,072 | 4 x 41 | 1.305 | 823 | 2.2e-6 |
+| same, blocks in random order | 131,072 | 4 x 41 | 1.307 | 821 | |
+| same, 64 ranges (`decode`'s split rule, 3.1 waves) | 131,072 | 4 x 64 | 1.338 | 803 | |
+| same, 2 stages | 131,072 | 4 x 41 | 1.306 | 822 | |
+| same | 32,768 | 4 x 41 | 0.334 | 804 | |
+| Qwen3.8 27B (24 / 4 heads, D 256), 1 row | 131,072 | 4 x 41 | 0.654 | 821 | 1.3e-6 |
+| same, 16 rows | 2,048 | 4 x 16 x 2 | 0.167 | 804 | 6.5e-6 |
+| Gemma 4 window layer (32 / 16 heads, D 256) | 1,024 | 16 x 10 | 0.0106 | (L2) | 5.8e-6 |
+
+In the engine the 27B's attention layer at 128K was 868.7 µs with `decode` on CUDA (618 GB/s, §74's profile); the harness gives 654.
+
+### 81.4 The tensor-core decode form on other targets (`fa_mqa` with separate key and value tiles)
+
+`fa_mqa` (attention.slang) is the cooperative-matrix split-K kernel of absorbed latent attention, whose keys and values are one row.
+With `FM_SEPV` it takes separate f16 key and value caches of one head size: both tiles are fetched into registers during the previous
+tile's products and staged side by side, `FM_BC` keys per tile (32 at 256, 16 at 512, so both fit 48 KiB), the group's heads (up to
+16) as the matrix rows, so each key and value row is read once per KV head. Decode rows of head sizes 256 / 512 take it where the
+CUDA kernel does not serve (Vulkan, and CUDA with the wide form off), split for 2 x compute units workgroups; rows of long runs in
+mixed steps are left to the flash kernel (`MIX_RUN`, new in `fa_mqa`). `SHARPLIGHT_ATTN_DECODE_TC=0` keeps `decode`,
+`SHARPLIGHT_ATTN_DECODE_TC_CFG=waves,minKeys,maxSplits,keys` sets the split rule and tile.
+
+A/B (BatchBench, GPU ms per step, minimum of 20, same build, switches on / off, one hold each; `ab/`):
+
+| step | CUDA off | **CUDA on** | Vulkan off | **Vulkan on** |
+|---|---:|---:|---:|---:|
+| Gemma 4 31B, 1 row after 32K keys | 33.29 | **29.74** | 34.68 | **29.31** |
+| of which attention (profile, ms per step) | 7.84 | **4.64** | 10.02 | **4.65** |
+| Qwen3.8 27B, 1 row after 32K keys | 25.53 | **24.49** | 26.07 | **24.43** |
+| of which attention | 3.70 | **2.72** | 4.08 | **2.65** |
+
+Vulkan tile and split variants (Gemma 4 31B at 32K, `ab/g_*.txt`; default 2 waves, 32-key tiles at 256): 1 wave 29.21 ms, 4 waves
+29.72, 8 waves 30.22, 16-key tiles at 256 29.19 (Qwen3.8 27B 24.53 against 24.43 with 32), so the defaults stay.
+
+### 81.5 The K split of GEMM grids of one to four waves
+
+Gemma 4 31B's prefill at 512 tokens is 90 % K-quant GEMMs (gemm_cm2 on dequantized tiles, `pp/gemma_p512_cuda.txt`); gate / up ran
+at 112 TFLOPS, the [21504 → 5376] down projections at 69-71 (1.72 / 1.66 ms): N = 5376 gives 42 x 4 = 168 tiles of 128 x 128 for 82
+SMs, three waves with the third nearly empty. `ChooseSplit` split such grids only when two K halves filled the last wave 15 points
+better (168 tiles: 68 → 82 %, so no). It now splits in two when the halves take under 90 % of the time in whole waves (each half wave
+costs half a tile's K steps: 168 tiles 3 waves → 5 half waves), for grids of one to four waves; the earlier example (234 tiles of a
+192-tile wave) splits under both rules, and grids of many waves are unchanged. `SHARPLIGHT_GEMM_SPLIT_FILL=1` restores the earlier
+rule. Gemma 4 31B pp512 (`pp/gemma_pp512_split.txt`, best of 5, two runs of the new rule around the old one): CUDA 1532 → 1649 /
+1643 tok/s, Vulkan 1484 → 1606 / 1604. Prefill at 2K+ rows (grids of more than four waves) and Qwen3-8B / Qwen3.8 27B at 512 (grids
+of 128 / 160 tiles, two waves, which the rule leaves unsplit) are unchanged.
+
+### 81.6 Correctness
+
+* Greedy text (`--chat --temp 0 -n 64`; a 44-token prompt for all three models and a 5,200-token one for Gemma 4 31B, whose 50 window
+  layers then wrap their 3,088-row ring): byte-identical with and without this round's three changes
+  (`SHARPLIGHT_NATIVE_DECODE_WIDE=0 SHARPLIGHT_ATTN_DECODE_TC=0 SHARPLIGHT_GEMM_SPLIT_FILL=1`) for Gemma 4 31B, Qwen3.8 27B and
+  Qwen3-8B on CUDA and on Vulkan, and identical between the providers (`text/`). No near ties to explain.
+* Tests: new `StatefulTests.CachedAttentionWideDecode` (head sizes 256 / 512, 1-16 heads per KV head, windows 40 / 100, softcaps,
+  sinks, rows of several ranges, of one range and batches of 2-5 rows over up to 1,015 keys) and `PagedAttentionMatchesCpu` cases at
+  256 and 512, against the CPU; the harness checks the merged partials against an f32 reference (81.3).
+* Suites (final build, one process per class; `suites.txt`): Vulkan.Tests FullAttention 30, PagedAttention 10, SparseAttention 15,
+  CompressedKv 12, Stateful 75, Fusion 101, Rope 12, MatMul 164, SkinnyGemm 42, MatMulEpilogue 13, DualGemm 13 on Vulkan and on CUDA,
+  all passing; Sharplight.Cuda.Tests 61 (1 skipped, the cuBLASLt probe); Families `SessionWindowKvTests` 6 passing;
+  FamilyGenerationTests `gemma-4` 12 (9 skipped) passing, `qwen3` 63 (30 skipped) with three CPU cases of the Qwen3.5-122B truncated
+  checkpoints failing with `InsufficientMemoryException` (host memory, as in §77), which pass when run alone.
+
+### 81.7 Measured and not kept
+
+* 64 ranges for the wide CUDA form (`decode`'s split rule: 256 blocks, 3.1 waves of one block per SM): 1.338 against 1.305 ms at
+  128K keys; 1 / 3 waves are as fast as 2 at one row (1.305-1.307).
+* Two ring stages: as fast as three in the harness (1.306 ms); three stay where they fit.
+* Vulkan: 16-key tiles at head size 256, 1 / 4 / 8 waves (81.4).
+
+### 81.8 Leads worth promoting and the next levers
+
+Promotable (like for like, same hold, both engines interleaved):
+
+* **Long-context decode on Vulkan against llama.cpp's Vulkan backend**: Qwen3.8 27B at 128K 1.14x (from 0.96x), at 32K 1.12x;
+  Gemma 4 31B at 32K 1.14x (from 0.92x); Gemma 4 31B at 128K 1.06x (CUDA 1.02x, from 0.80x).
+* Gemma 4 31B on Vulkan: prefill 512 1.19x, batched decode at 16 sequences 2.06x.
+
+Parity, not a lead: CUDA decode at depth (Qwen3.8 27B 1.04-1.05x, Gemma 4 31B 1.01x at 32K, 1.02x at 128K, from 0.80x), Gemma 4 31B prefill 512 and
+single-stream decode on CUDA (0.99 / 1.01x).
+
+Next levers:
+
+1. **Vulkan K-quant decode GEMM at 49-64 rows** (§79.7 item 3; not started this round): a hand-written cooperative-matrix kernel that
+   decodes the raw Q4_K / Q6_K blocks in registers, like CUDA's `gemm_kq_native.cu`.
+2. **The decode attention at 820 GB/s** is at ~92 % of the card's bandwidth; past it, the f16 cache's bytes: a q8_0 cache on the wide
+   forms (half the bytes; today quantized caches fall back to `decode` at head sizes 256 / 512).
+3. **Batched decode at depth** with the wide forms: one block per (KV group, row) keeps the 16 rows of a step apart; grouping the rows
+   of one sequence (speculative / multi-token steps) into the MMA rows would read each key once per step.
+4. **Gemma 4 31B's 128K prefill on Vulkan**: 513 tok/s against 884 on CUDA (both the session path, one timed prefill); the
+   head-size-512 global layers' prefill attention on `fe` with split head dimensions (§74), confined to head sizes 256 / 512.
+5. Gemma 4 31B's ~180 RMS norms per decode step (2.7 µs each, ~0.5 ms of 25.6): the q / k / v norms beside the rope / cache writes.
+
+### 81.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i> LLAMA_ROOT=...
+G=~/models/gguf/gemma-4-31B-it-Q4_K_M.gguf; Q=~/models/gguf/Qwen3.8-27B-Q4_K_M.gguf
+for P in cuda vulkan; do
+  LENS="512" DEPTHS="32768" SEQS="16" bench/s74_feed.sh out gemma4-31b $G $P
+  LENS="512" DEPTHS="32768 131072" SEQS=" " bench/s74_feed.sh out qwen38-27b $Q $P
+  SHARPLIGHT_BENCH_PREFILL_REPEATS=0 sharplight $G --provider $P --bench 131072 --ctx 131328
+done
+# A/B switches: SHARPLIGHT_NATIVE_DECODE_WIDE=0, SHARPLIGHT_ATTN_DECODE_TC=0, SHARPLIGHT_ATTN_DECODE_TC_CFG=2,32,64,16, SHARPLIGHT_GEMM_SPLIT_FILL=1
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB $G --provider cuda --slots 2 --ctx 33280 --kv-tokens 33792 --depth 32768 --batch 2048 --sizes 1 --modes greedy --reps 20 --feedback --profile 1
+# wide decode harness (D 256 / 512)
+cd bench/s78_decode && nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=32 -DHKV=4 -DD=512 -DHPW=8 -DT_ROWS=1 -DL_KEYS=131072 -DDEC_TARGET_WG=164 \
+  -DDEC_MAX_SPLITS=64 -DDEC_BC=16 -DDEC_MIN_KEYS=64 -DPAGED -DCHECK -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_decode_native.cu"' bench_decode.cu -o d && ./d
+```
