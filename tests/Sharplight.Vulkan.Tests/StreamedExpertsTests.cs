@@ -257,8 +257,8 @@ public sealed class StreamedExpertsTests
         using var store = new Sharplight.Runtime.Experts.ExpertStore(cacheBytes: 1, Sharplight.Runtime.Experts.ExpertReaders.CreateThreads(4));
         PlacementOptions Placement(Sharplight.Runtime.Experts.ExpertStore? disk) => new()
         {
-            // The dense layers and routers only: every layer's experts go to the CPU.
-            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * (DenseBytes + experts * Hidden * sizeof(float)) + (256 << 10) }],
+            // The dense layers and routers, the transfer buffers and the sparse banks (3 x 8 experts of 32 KiB) only: every layer's experts go to the CPU.
+            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * (DenseBytes + experts * Hidden * sizeof(float)) + (1280 << 10) }],
             Fallback = new DeviceSlot { Device = Gpu.Cpu },
             Compile = new CompileOptions { MaxTokens = 64, ContextLength = 64, DisabledFeatures = Compile.DisabledFeatures, DiskExperts = disk },
             ReservePerDevice = 0,
@@ -269,6 +269,8 @@ public sealed class StreamedExpertsTests
         using var resident = CompiledModel.Compile(graph, Placement(null));
         using var disk = CompiledModel.Compile(graph, Placement(store));
         Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(1, disk.Plan.GroupDevice[$"layers.{l}{PlacementPlanner.ExpertGroupSuffix}"]));
+        Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(0, disk.Plan.GroupDevice[$"layers.{l}"]));
+        Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(0, resident.Plan.GroupDevice[$"layers.{l}"]));
         Assert.Equal(Layers, disk.Plan.DiskExpertGroups.Count);
         Assert.Equal(0, disk.StreamedSegmentCount);
         bool split = Gpu.Device!.CopiesFromExpertCache && Gpu.Device.StreamsSelectedExperts;
