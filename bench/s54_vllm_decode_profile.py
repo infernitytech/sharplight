@@ -15,6 +15,7 @@ usage: CUDA_VISIBLE_DEVICES=1 python s54_vllm_decode_profile.py <model dir> [--s
        [--prefill N] [--skip N] [--gpu-util 0.85]
 """
 import argparse
+import re
 import glob
 import gzip
 import json
@@ -90,11 +91,29 @@ def main():
     with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as f:
         trace = json.load(f)
     events = [e for e in trace["traceEvents"] if e.get("cat") == "kernel"]
-    # Decode steps: the GPU ranges vLLM annotates "execute_context_0(0)_generation_<seqs>(<seqs>)" (no prompt rows).
-    marker = (f"execute_context_{a.seqs}({a.prefill * a.seqs})_generation_0(0)" if a.prefill
-              else f"execute_context_0(0)_generation_{a.seqs}({a.seqs})")
-    steps = sorted((e for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation" and e.get("name") == marker),
-                   key=lambda e: e["ts"])[a.skip:]
+    ranges = [e for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation"]
+    if a.prefill:
+        # Prefill steps: "execute_context_<seqs>(<rows>)_generation_0(0)". The scheduler may split the prompts over several
+        # steps (e.g. 7 + 1 sequences), so every prefill range is reported on its own, largest first (section 86: averaging
+        # vLLM's own per-kernel table over the steps mixed 1,792- and 256-row GEMMs).
+        names = sorted({e["name"] for e in ranges if re.fullmatch(r"execute_context_\d+\(\d+\)_generation_0\(0\)", e["name"])},
+                       key=lambda m: -int(re.search(r"\((\d+)\)", m).group(1)))
+    else:
+        # Decode steps: the GPU ranges vLLM annotates "execute_context_0(0)_generation_<seqs>(<seqs>)" (no prompt rows).
+        names = [f"execute_context_0(0)_generation_{a.seqs}({a.seqs})"]
+    if not names:
+        print("no prefill range; annotated ranges:", sorted({e.get("name") for e in ranges})[:20])
+        return
+    for marker in names:
+        report(a, marker, ranges, events)
+
+
+def report(a, marker, ranges, events):
+    steps = sorted((e for e in ranges if e.get("name") == marker), key=lambda e: e["ts"])[a.skip:]
+    n = len(steps)
+    if n == 0:
+        print("no range named", marker, "; annotated ranges:", sorted({e.get("name") for e in ranges})[:20])
+        return
     per = defaultdict(float)
     count = defaultdict(int)
     for st in steps:
@@ -102,18 +121,11 @@ def main():
             if st["ts"] <= e["ts"] < st["ts"] + st["dur"]:
                 per[e["name"]] += e["dur"]
                 count[e["name"]] += 1
-    n = len(steps)
     total = sum(per.values()) / n
     span = sum(st["dur"] for st in steps) / n
-    if n == 0:
-        names = sorted({e.get("name") for e in trace["traceEvents"] if e.get("cat") == "gpu_user_annotation"})
-        print("no range named", marker, "; annotated ranges:", names[:20])
-        return
-    print(f"{n} {'prefill' if a.prefill else 'decode'} steps of {a.seqs} sequences (first {a.skip} left out): GPU time per step "
-          f"{span / 1000:.2f} ms (annotated range), kernel sum {total / 1000:.2f} ms")
+    print(f"{n} x {marker} (first {a.skip} left out): GPU time per step {span / 1000:.2f} ms (annotated range), kernel sum {total / 1000:.2f} ms")
     for name, us in sorted(per.items(), key=lambda kv: -kv[1])[: a.top]:
-        print(f"{us / n / 1000:8.3f} ms {100 * us / n / total:5.1f}% {count[name] / n:6.1f}x  {name[:150]}")
-
+        print(f"{us / n / 1000:8.3f} ms {100 * us / n / total:5.1f}% {count[name] / n:6.1f}x  {us / max(count[name], 1):9.1f} us/call  {name[:150]}")
 
 if __name__ == "__main__":
     main()

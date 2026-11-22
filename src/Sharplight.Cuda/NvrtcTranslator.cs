@@ -102,7 +102,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
             source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
             dynamicShared = Math.Max(dynamicShared, declaredShared);
             dependent = ComputeCapability >= DependentLaunchCapability && WaitForPrevious(ref source);
-            ptx = Compile(source, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu", Options(ComputeCapability), cubin: false);
+            ptx = Compile(source, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu", Options(ComputeCapability, FamilySpecific(source)), cubin: false);
         }
         catch (DllNotFoundException e)
         {
@@ -209,8 +209,19 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     /// 8-bit float headers are always on: Slang lowers <c>f16tof32</c> to the <c>cuda_fp16.h</c> intrinsics but enables the header only
     /// for kernels with <c>half</c> values, and its cooperative matrices need the type of every fragment.
     /// </summary>
-    internal static string[] Options(int computeCapability) =>
-        [$"-arch=compute_{computeCapability}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF", "-DSLANG_CUDA_ENABLE_BF16", "-DSLANG_CUDA_ENABLE_FP8"];
+    /// <remarks>
+    /// <paramref name="familySpecific"/> targets the family-specific virtual architecture (<c>compute_XYf</c>, NVRTC 12.9 and later),
+    /// whose PTX runs on the GPUs of the same major version only: the instructions of <see cref="FamilySpecific"/> kernels exist there only.
+    /// </remarks>
+    internal static string[] Options(int computeCapability, bool familySpecific = false) =>
+        [$"-arch=compute_{computeCapability}{(familySpecific ? "f" : "")}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF", "-DSLANG_CUDA_ENABLE_BF16", "-DSLANG_CUDA_ENABLE_FP8"];
+
+    /// <summary>
+    /// True when <paramref name="source"/> is specialized with <c>SL_FAMILY_ARCH</c> (the block-scaled MMA of <c>gemm_fp8_tma.cu</c>,
+    /// <see cref="DeviceFeatures.BlockScaledFp8"/>): it uses instructions of the family-specific architecture, which the portable
+    /// <c>compute_XY</c> PTX does not have.
+    /// </summary>
+    internal static bool FamilySpecific(string source) => source.Contains("\n#define SL_FAMILY_ARCH 1\n", StringComparison.Ordinal);
 
     /// <summary>Compiles CUDA C++ with NVRTC into PTX (or SASS for one real architecture when <paramref name="cubin"/> is set).</summary>
     /// <exception cref="KernelCompilationException">NVRTC rejected the source.</exception>

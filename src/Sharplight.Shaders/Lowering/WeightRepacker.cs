@@ -22,7 +22,7 @@ public static class WeightRepacker
         WeightRepack.Mxfp4Split => Mxfp4GroupRows * (k / 32 * 17),
         WeightRepack.Fp8B32Split => k / 32 * 36,
         WeightRepack.Fp8B128Split => k / 128 * 132,
-        WeightRepack.Fp8B128Grouped => Fp8GroupRows * (k / 128 * 132),
+        WeightRepack.Fp8B128Grouped or WeightRepack.Fp8B128GroupedUe8m0 => Fp8GroupRows * (k / 128 * 132),
         WeightRepack.Bf16ToF16 => 2 * k,
         _ => throw new ArgumentOutOfRangeException(nameof(r)),
     };
@@ -52,11 +52,16 @@ public static class WeightRepacker
             return;
         }
 
-        if (r == WeightRepack.Fp8B128Grouped)
+        if (r is WeightRepack.Fp8B128Grouped or WeightRepack.Fp8B128GroupedUe8m0)
         {
             for (int group = 0; group < src.Length / rowBytes; group++)
             {
-                GroupFp8Rows(src.Slice((int)(group * rowBytes), (int)rowBytes), dst.Slice((int)(group * rowBytes), (int)rowBytes), (int)(k / 128));
+                var unit = dst.Slice((int)(group * rowBytes), (int)rowBytes);
+                GroupFp8Rows(src.Slice((int)(group * rowBytes), (int)rowBytes), unit, (int)(k / 128));
+                if (r == WeightRepack.Fp8B128GroupedUe8m0)
+                {
+                    Fp8PowerOfTwoScales.Requantize(unit, (int)(k / 128), Fp8GroupRows);
+                }
             }
 
             return;

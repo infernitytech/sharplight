@@ -305,11 +305,54 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool NativeFp8TensorCopies => DiagnosticSwitches.NativeFp8Tma && _opt.Has(DeviceFeatures.TensorCopies) && _opt.MaxSharedMemory >= NativeFp8TmaSharedBytes;
 
+    /// <summary>Rows from which the dual FP8 GEMM stores E4M3 rows (<see cref="Fp8StoreMinRows"/>) unless <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS</c> says otherwise.</summary>
+    private const long DefaultFp8StoreMinRows = 256;
+
     /// <summary>
-    /// The launch variant of <c>gemm_fp8_tma.cu</c> for the batches <paramref name="serves"/> selects: one block per SM at most, each
-    /// walking its share of the 128-row tiles, with the tensor maps over x (its <paramref name="xcap"/> rows) and the 128-row weight groups.
+    /// The smallest step from which the dual FP8 GEMM of a gate / up pair writing <paramref name="output"/> (f32 rows <paramref name="y"/>
+    /// of <paramref name="n"/> values) stores E4M3 activation rows for the FP8 GEMMs reading it instead of f32 rows that a separate
+    /// <c>quantize_fp8</c> launch turns into the same codes and scales (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>: bit for bit the same, so
+    /// the next GEMM's inputs do not change; the f32 round trip and the launch go). Only in the block-scaled mode
+    /// (<see cref="Fp8BlockScaled"/>): the promoting form holds the first tile's outputs next to its per-block accumulators and spills
+    /// at the 168 registers per thread that 288-thread blocks get (Qwen3-8B-FP8 gate / up at 2,048 rows 1,494 → 1,713 µs, the step
+    /// 134.7 → 137.2 ms; block-scaled 129.2 → 125.4 ms, benchmarks.md section 86). long.MaxValue when that does not apply: without a
+    /// CUDA epilogue, when a reader is not an FP8 GEMM or the value is a segment output, or with <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=0</c>.
+    /// The caller checks that the 128-row tiles run on tensor copies.
     /// </summary>
-    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows)
+    private long Fp8StoreMinRows(Value? output, TensorRef y, long n, string? cudaEpilogue)
+    {
+        long min = DiagnosticSwitches.Fp8StoreMinRows ?? DefaultFp8StoreMinRows;
+        if (min <= 0 || !Fp8BlockScaled || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
+            || y.Buffer != _arena || RootOf(output) != output || _fp8Copies.ContainsKey(output) || _seg.Outputs.Any(o => RootOf(o) == output)
+            || PrefillCopyCode(output, n) != ActivationCode.Fp8)
+        {
+            return long.MaxValue;
+        }
+
+        return Math.Max(min, NativeGemmMinRows);
+    }
+
+    /// <summary>Whether <see cref="Fp8BlockScaled"/> is on where the device allows it and <c>SHARPLIGHT_FP8_BLOCK_SCALED</c> is not set.</summary>
+    private const bool DefaultFp8BlockScaled = false;
+
+    /// <summary>
+    /// True when the 128-row tiles of the FP8 GEMM run on the block-scaled MMA (<c>gemm_fp8_tma.cu</c> with <c>F8N_BLOCK_SCALED</c>,
+    /// <see cref="DeviceFeatures.BlockScaledFp8"/>):
+    /// the products accumulate in the tensor cores over the whole of K, with the scales as UE8M0 exponents. That needs power-of-two scales,
+    /// so in this mode every E4M3 activation row gets them (<c>E4M3_UE8M0</c>, e4m3.slang) and the grouped E4M3 weights are requantized to
+    /// them at load (<see cref="WeightRepack.Fp8B128GroupedUe8m0"/>); every other kernel reads the same values, so decode and prompt steps
+    /// agree. A numerics change (benchmarks.md section 86), chosen by <c>SHARPLIGHT_FP8_BLOCK_SCALED</c>.
+    /// </summary>
+    private bool Fp8BlockScaled => (DiagnosticSwitches.Fp8BlockScaled ?? DefaultFp8BlockScaled) && NativeGemmFp8 && NativeFp8TensorCopies
+        && _opt.Has(DeviceFeatures.BlockScaledFp8);
+
+    /// <summary>
+    /// The launch variant of <c>gemm_fp8_tma.cu</c> (block-scaled with <see cref="Fp8BlockScaled"/>) for the batches <paramref name="serves"/> selects: one block per SM at most, each
+    /// walking its share of the 128-row tiles, with the tensor maps over x (its <paramref name="xcap"/> rows) and the 128-row weight groups.
+    /// A non-zero <paramref name="qcap"/>: the dual form stores the outputs as E4M3 activation rows with power-of-two scales and a dense
+    /// scale copy of that many rows (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>, see <see cref="Fp8StoreMinRows"/>) instead of f32 rows.
+    /// </summary>
+    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0)
     {
         bool dual = dualEpilogue is not null;
         long rowBytes = k + k / 32;
@@ -322,10 +365,23 @@ public sealed partial class GraphLowerer
         }
 
         var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
-        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", NativeFp8TmaThreads, NativeFp8TmaSharedBytes,
+        if (qcap > 0)
+        {
+            macros["QOUT"] = "1";
+            macros["QCAP"] = qcap.ToString(inv);
+        }
+
+        if (Fp8BlockScaled)
+        {
+            macros["F8N_BLOCK_SCALED"] = "1";
+            macros["SL_FAMILY_ARCH"] = "1";
+        }
+
+        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", NativeFp8TmaThreads, NativeFp8TmaSharedBytes + (qcap > 0 ? 512 : 0),
             _opt.Target, macros, _opt.Cache, string.Join(';', maps));
         long sms = Math.Max(1, _opt.ComputeUnits);
-        long columns = Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile);
+        // QOUT walks pairs of 64-output tiles.
+        long columns = Grid.Div(n, dual && qcap == 0 ? NativeFp8Tile / 2 : NativeFp8Tile);
         return new KernelVariant(serves, kernel, b => new Grid((uint)Math.Min(sms, (long)Grid.Div(rows(b), NativeFp8Tile) * columns)));
     }
 
