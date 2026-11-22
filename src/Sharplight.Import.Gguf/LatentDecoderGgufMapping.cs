@@ -158,11 +158,30 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
         md[a + "moe.router_activation"] = sigmoid ? "sigmoid" : "softmax";
         md[a + "moe.normalize_weights"] = g.Bool("expert_weights_norm", false);
         md[a + "moe.weights_scale"] = g.Float("expert_weights_scale", 1f);
-        md[a + "moe.group_count"] = g.Int("expert_group_count", 1);
-        md[a + "moe.group_used_count"] = g.Int("expert_group_used_count", g.Int("expert_group_count", 1));
+        int defaultGroups = DefaultExpertGroups(g);
+        int groups = g.Int("expert_group_count", defaultGroups);
+        md[a + "moe.group_count"] = groups;
+        md[a + "moe.group_used_count"] = g.Int("expert_group_used_count", g.Has("expert_group_count") || defaultGroups == 1 ? groups : DeepSeekV3GroupsUsed);
         // Mistral 4 scores its groups by the two best softmax scores as llama.cpp does; DeepSeek-V2's softmax groups use their best score.
         md[a + "moe.group_score"] = sigmoid || g.GgufArchitecture == "mistral4" ? "top2_sum" : "max";
     }
+
+    // DeepSeek-V3's group-limited routing (HF config n_group / topk_group of DeepSeek-V3, R1, V3.1).
+    private const int DeepSeekV3Groups = 8;
+    private const int DeepSeekV3GroupsUsed = 4;
+    private const int DeepSeekV3Experts = 256;
+    private const int DeepSeekV3ExpertsUsed = 8;
+
+    /// <summary>
+    /// The expert group count of a file without <c>expert_group_count</c>: llama.cpp's converters wrote the key only from late 2025 on, so earlier
+    /// <c>deepseek2</c> files of DeepSeek-V3 / R1 / V3.1 (unsloth's among them) lack it, and llama.cpp then routes over all experts. Those
+    /// checkpoints are the <c>deepseek2</c> ones with 256 sigmoid-scored experts, 8 per token (Kimi-K2 has 384, Moonlight 64, DeepSeek-V2 softmax
+    /// scores), and their HF config routes in 8 groups of which the best 4 are kept: that default matches the float32 transformers model on the
+    /// real weights (benchmarks.md section 87). Every other file routes over all experts (1).
+    /// </summary>
+    private static int DefaultExpertGroups(GgufMetadataView g)
+        => g.GgufArchitecture == "deepseek2" && g.Int("expert_gating_func", 1) == GatingSigmoid && g.Int("expert_count", 0) == DeepSeekV3Experts
+            && g.Int("expert_used_count", 0) == DeepSeekV3ExpertsUsed ? DeepSeekV3Groups : 1;
 
     /// <summary>Per-layer tensors, GGUF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)

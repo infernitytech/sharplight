@@ -98,7 +98,15 @@ biases); the share per layer and row count is the one with the fastest measured 
 than the CPU for these experts) to all slots, the CPU alone probed every 24 passes. Layers whose banks are not page-locked or imported are not split. On CUDA a split pass's copies from page-locked memory go in one `cuMemcpyBatchAsync` (drivers from 13.0), and every segment's small inputs and outputs (up to 1 MiB) go through page-locked staging buffers: the uploads are queued on the segment's stream, the downloads, the runtime scalars and the forwarded inputs are part of the step's CUDA graph, so handing a layer to the CPU and back costs one graph launch and one wait. The CPU computes a layer's experts in two passes: gate and up with the gated activation, then the down product with the weighted slot sum. A compilation that runs
 out of device memory is placed again with the measured shortfall kept free (more experts on the CPU), up to three times; a streamed
 compilation's failure takes the same path while retries remain, then leaves its experts on the CPU for every batch size. With a fallback
-device the default reserve is 512 MiB (1 GiB without). Vulkan takes the driver's memory budget (VK_EXT_memory_budget) as the limit where it
+device the default reserve is 512 MiB (1 GiB without). Every device segment that moving experts adds keeps
+`PlacementOptions.ReservePerSegment` free: by default the device's own estimate (`IComputeDevice.SegmentOverheadBytes`; CUDA 4 MiB: its stream,
+548 KiB measured, and the graphs of a few step shapes, ~5 KiB per node), 8 MiB on devices without one. CUDA counts the driver memory of those
+objects against the device (`DeviceMemoryLimits.DeviceMemory` and the driver's free memory, with 64 MiB to spare): a segment whose stream does not
+fit fails its compilation with `DeviceOutOfMemoryException` (placed again with more kept free), a step whose graph does not fit is not captured
+and runs launch by launch, and the three side streams of a capture (concurrent launches) are lent by the device to one capture at a time
+instead of being created per segment (a capture without them runs its launches on one stream). On a 96-layer test placement under a 160 MiB
+limit that took a segment from 2.4 MiB beyond its buffers to 0.9 MiB (`ManySegmentPlacementTests`; Kimi-K3's ~185 segments failed with
+`cuStreamCreate: out of memory` at the first capture before). Vulkan takes the driver's memory budget (VK_EXT_memory_budget) as the limit where it
 exists, else 92 % of the device-local heap. Switches: `SHARPLIGHT_SPLIT_EXPERTS=0` (whole layers to the CPU, as before),
 `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (no streaming), `SHARPLIGHT_STREAM_RESIDENT=0` (no resident layer), `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`
 (no split), `SHARPLIGHT_STREAM_REGISTER=0` (no page locking), `SHARPLIGHT_SHARED_ARENA=0` (one activation buffer per segment),

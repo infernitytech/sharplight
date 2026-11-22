@@ -47,6 +47,13 @@ public interface IComputeDevice : IDisposable
     /// </summary>
     public bool CopiesFromExpertCache => false;
 
+    /// <summary>
+    /// Device memory one compiled segment of this device takes beyond the buffers it allocates: driver objects such as its streams and events
+    /// and the instantiated graphs of its recorded steps, estimated by the provider. A placement keeps this much free for every device segment
+    /// it adds by moving groups to the fallback device (<see cref="PlacementOptions.ReservePerSegment"/> when that is not set). Default 0.
+    /// </summary>
+    public long SegmentOverheadBytes => 0;
+
     /// <summary>Whether the device can execute the node; unsupported nodes go to the placement fallback.</summary>
     public OpSupport Supports(Node node);
     /// <summary>
