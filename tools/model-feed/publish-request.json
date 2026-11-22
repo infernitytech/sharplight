@@ -17,11 +17,10 @@
     "qwen3.8-flash-next:ud-iq1-s-gguf",
     "qwen3.8-flash-next:ud-iq2-xs-gguf",
     "qwen3.8-flash-next:ud-q3-k-xl-gguf",
-    "qwen3.8-flash-next:ud-q4-k-xl-gguf",
-    "qwen3.8-flash-next:fp8-safetensors"
+    "qwen3.8-flash-next:ud-q4-k-xl-gguf"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Republish the mixture-of-experts packages with routed-expert figures (expertWeights, expertBytesPerToken) so hosts can offer experts on disk; batch 1 of 2 (the two largest 122B variants follow)."
+  "reason": "Republish the mixture-of-experts packages with routed-expert figures: the 18 variants stored by run 45054150496 (its last entry, qwen3.8-flash-next:fp8-safetensors, ran out of disk); that one and the two largest 122B variants follow."
 }
