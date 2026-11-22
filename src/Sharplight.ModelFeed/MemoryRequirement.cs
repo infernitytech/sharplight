@@ -28,6 +28,20 @@ public sealed record MemoryRequirement
     /// <summary>Fixed overhead bytes (activations, scratch, runtime).</summary>
     public long Overhead { get; init; }
 
+    /// <summary>
+    /// Bytes of <see cref="Weights"/> that are routed experts of a mixture-of-experts model (expert banks of which a token selects only a few), or
+    /// <see langword="null"/> when unknown or the model has none. These are the weights the engine can leave on disk and read on demand
+    /// (<c>TaskLoadOptions.ExpertsOnDisk</c>) when the model is larger than the memory of the host; the rest (<see cref="Weights"/> minus these)
+    /// must fit memory.
+    /// </summary>
+    public long? ExpertWeights { get; init; }
+
+    /// <summary>
+    /// Bytes of the routed experts one token selects over every layer (each expert product reads the selected experts of its bank), or
+    /// <see langword="null"/> when unknown: what one decode step reads from disk when none of them is cached.
+    /// </summary>
+    public long? ExpertBytesPerToken { get; init; }
+
     /// <summary>Bytes for <paramref name="slots"/> slots at the default context length.</summary>
     /// <param name="slots">Number of slots.</param>
     /// <returns>Total bytes.</returns>

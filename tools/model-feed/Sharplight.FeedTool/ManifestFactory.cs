@@ -173,6 +173,8 @@ internal static class ManifestFactory
             PerSlotContextMax = context is null ? null : new SlotContextMemory { Tokens = context.MaxTokens, Bytes = context.MaxBytes },
             KvBytesPerToken = context?.KvBytesPerToken,
             StateBytesPerSlot = context?.StateBytesPerSlot,
+            ExpertWeights = inspection.Experts?.Bytes,
+            ExpertBytesPerToken = inspection.Experts?.BytesPerToken,
         };
         return [For("gpu"), For("cpu")];
     }

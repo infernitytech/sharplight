@@ -15,6 +15,9 @@ public sealed class TaskModelInstance(TaskModel model, IReadOnlyList<ITaskClient
     /// <summary>The loaded model.</summary>
     public TaskModel Model => model;
 
+    /// <inheritdoc/>
+    public override Runtime.Experts.ExpertStore? DiskExperts => model.DiskExperts is { IsActive: true } store ? store : null;
+
     /// <summary>The client of type <typeparamref name="TClient"/>.</summary>
     /// <exception cref="NotSupportedException">The model has no such client.</exception>
     public TClient GetClient<TClient>()
