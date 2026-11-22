@@ -1,0 +1,5 @@
+== family gemma-4
+[0m[91m    Sharplight.Families.Tests.FamilyGenerationTests.Generation_matches_reference_on_cpu(name: "gemma-4-E2B-it HF (transformers)") [FAIL]
+[0m[37m   Sharplight.Families.Tests  Total: 12, Errors: 0, Failed: 1, Skipped: 9, Not Run: 0, Time: 34.568s
+== family qwen3
+[0m[37m   Sharplight.Families.Tests  Total: 63, Errors: 0, Failed: 0, Skipped: 30, Not Run: 0, Time: 91.090s

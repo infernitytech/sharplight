@@ -1,0 +1,36 @@
+== Qwen3-8B-Q4_K_M.gguf disabled: none
+| 1 | 30.7 | 546 / 0 | 6.83 / 6.90, 6.79 |
+| 9 | 28.0 | 492 / 0 | 8.99 / 9.30, 8.94 |
+| 16 | 12.4 | 492 / 0 | 9.89 / 10.03, 9.84 |
+| 24 | 18.5 | 564 / 0 | 10.31 / 10.87, 10.27 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (384 + 1 > 384).
+== Qwen3-8B-Q4_K_M.gguf disabled: native_gemm_kquant
+| 1 | 27.4 | 546 / 0 | 6.83 / 6.88, 6.79 |
+| 9 | 34.6 | 618 / 0 | 10.22 / 10.75, 10.18 |
+| 16 | 14.4 | 618 / 0 | 11.85 / 12.13, 11.80 |
+| 24 | 29.4 | 763 / 0 | 18.56 / 18.72, 18.53 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (384 + 1 > 384).
+== Qwen3.8-27B-Q4_K_M.gguf disabled: none
+| 1 | 54.8 | 886 / 0 | 21.97 / 22.04, 21.93 |
+| 9 | 71.6 | 1102 / 0 | 31.97 / 32.17, 31.87 |
+| 16 | 41.5 | 1102 / 0 | 36.00 / 36.19, 35.96 |
+| 24 | 54.2 | 1230 / 0 | 38.98 / 39.36, 38.92 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (384 + 1 > 384).
+== Qwen3.8-27B-Q4_K_M.gguf disabled: native_gemm_kquant
+| 1 | 55.6 | 886 / 0 | 22.00 / 22.05, 21.96 |
+| 9 | 70.7 | 1158 / 0 | 36.41 / 36.78, 36.35 |
+| 16 | 48.0 | 1158 / 0 | 43.14 / 43.40, 43.10 |
+| 24 | 88.4 | 1479 / 0 | 68.90 / 68.95, 68.85 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (384 + 1 > 384).
+== gemma-4-31B-it-Q4_K_M.gguf disabled: none
+| 1 | 62.2 | 1076 / 0 | 26.50 / 26.60, 26.45 |
+| 9 | 77.2 | 1052 / 0 | 39.27 / 39.62, 39.21 |
+| 16 | 48.3 | 1052 / 0 | 43.67 / 44.14, 43.62 |
+| 24 | 62.5 | 1122 / 0 | 48.03 / 48.45, 47.98 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (384 + 1 > 384).
+== gemma-4-31B-it-Q4_K_M.gguf disabled: native_gemm_kquant
+| 1 | 60.9 | 1076 / 0 | 26.53 / 26.61, 26.47 |
+| 9 | 76.1 | 1087 / 0 | 42.97 / 43.48, 42.92 |
+| 16 | 54.3 | 1087 / 0 | 50.03 / 50.49, 49.97 |
+| 24 | 93.6 | 1378 / 0 | 74.29 / 74.58, 74.25 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (384 + 1 > 384).

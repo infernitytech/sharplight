@@ -1,0 +1,4 @@
+== MatMul cuda
+[0m[37m   Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.791s
+== SkinnyGemm cuda
+[0m[37m   Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.609s

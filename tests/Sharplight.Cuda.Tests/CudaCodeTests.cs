@@ -349,6 +349,50 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData("q4_k", 9, false)]
+    [InlineData("q4_k", 32, false)]
+    [InlineData("q4_k", 64, false)]
+    [InlineData("q4_k", 40, true)]
+    [InlineData("q5_k", 17, false)]
+    [InlineData("q5_k", 40, false)]
+    [InlineData("q6_k", 12, false)]
+    [InlineData("q6_k", 33, false)]
+    [InlineData("q6_k", 64, false)]
+    [InlineData("q6_k", 20, true)]
+    public void NativeKQuantDecodeGemmMatchesTheCpu(string format, int rows, bool multi)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmKQuant), "The GPU has no hand-written K-quant GEMM (compute capability below 8.0).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // K-quant projections with bias rows at decode sizes (9-64 rows: one or two token tiles, with a K split) on the hand-written
+        // K-quant decode GEMM: K = 1280 (five superblocks; Q6_K rows of 1050 bytes, so its blocks start at any even byte) and 336
+        // outputs (a partial weight tile), or q / k / v of 256 + 128 + 80 outputs on its multi-output form.
+        var type = format switch { "q4_k" => DataType.Q4_K, "q5_k" => DataType.Q5_K, _ => DataType.Q6_K };
+        int[] widths = multi ? [256, 128, 80] : [336];
+        // The CPU's integer dots quantize the activations to 8 bits below 32 rows: the reference dequantizes into f32 products instead.
+        var exact = new DeviceOptions();
+        exact.DisabledFeatures.Add(DeviceFeatures.IntDot);
+        var expected = RunKQuantProjections(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0], exact), rows, type, widths);
+        var actual = RunKQuantProjections(provider.OpenDevice(info), rows, type, widths);
+        var generated = new DeviceOptions();
+        generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmKQuant);
+        var reference = RunKQuantProjections(provider.OpenDevice(info, generated), rows, type, widths);
+        for (int o = 0; o < widths.Length; o++)
+        {
+            double scale = expected[o].Max(MathF.Abs);
+            for (int i = 0; i < expected[o].Length; i++)
+            {
+                // Both GPU paths dequantize the weights to f16 and read the f16 copy of x.
+                Assert.True(Math.Abs(expected[o][i] - actual[o][i]) <= 3e-3 * scale, $"y{o}[{i}]: {actual[o][i]} vs {expected[o][i]}");
+                Assert.True(Math.Abs(reference[o][i] - actual[o][i]) <= 1e-3 * scale, $"y{o}[{i}]: {actual[o][i]} vs the generated GEMM's {reference[o][i]}");
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(64, 0, true)]
     [InlineData(64, 100, true)]
     [InlineData(128, 0, false)]
@@ -572,6 +616,108 @@ public sealed class CudaCodeTests
             for (int i = 0; i < input.Length; i++)
             {
                 input[i] = (i % 7 - 3) * 0.25f;
+            }
+
+            model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = rows;
+            model.Run(parameters);
+            var outputs = new float[widths.Length][];
+            for (int o = 0; o < widths.Length; o++)
+            {
+                outputs[o] = new float[rows * widths[o]];
+                model.GetOutput<float>("y" + o, outputs[o]);
+            }
+
+            return outputs;
+        }
+    }
+
+    [Theory]
+    [InlineData(9)]
+    [InlineData(12)]
+    [InlineData(16)]
+    [InlineData(24)]
+    public void KQuantGatedProjectionMatchesTheCpu(int rows)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        // silu(x · Wgᵀ) · (x · Wuᵀ) with Q4_K weights [4096, 512] past the matvec: the skinny GEMM's dual form leaves these batches to two
+        // K-quant decode GEMMs and the activation product.
+        var exact = new DeviceOptions();
+        exact.DisabledFeatures.Add(DeviceFeatures.IntDot);
+        var expected = RunGatedKQuant(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0], exact), rows);
+        var actual = RunGatedKQuant(provider.OpenDevice(info), rows);
+        double scale = expected.Max(MathF.Abs);
+        Assert.True(scale > 0);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.True(Math.Abs(expected[i] - actual[i]) <= 3e-3 * scale, $"y[{i}]: {actual[i]} vs {expected[i]}");
+        }
+    }
+
+    /// <summary>silu(x · Wgᵀ) · (x · Wuᵀ) for Q4_K weights [4096, 512] on <paramref name="rows"/> rows.</summary>
+    private static float[] RunGatedKQuant(IComputeDevice device, int rows)
+    {
+        using (device)
+        {
+            var tg = new TG("cuda-kquant-gated");
+            var x = tg.InF("x", TG.T, 512);
+            var y = tg.B.Mul(tg.B.Silu(tg.B.MatMul(x, tg.RandW("wg", DataType.Q4_K, 0.05f, 4096, 512))), tg.B.MatMul(x, tg.RandW("wu", DataType.Q4_K, 0.05f, 4096, 512)));
+            tg.B.Output("y", y);
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 256, ContextLength = 256 },
+                ReservePerDevice = 0,
+            });
+            var input = new float[rows * 512];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = MathF.Sin(i * 0.37f);
+            }
+
+            model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = rows;
+            model.Run(parameters);
+            var output = new float[rows * 4096];
+            model.GetOutput<float>("y", output);
+            return output;
+        }
+    }
+
+    /// <summary>
+    /// y_o = x · W_oᵀ + b_o for K-quant weights [<paramref name="widths"/>[o], 1280] of <paramref name="type"/> and f32 bias rows of the same
+    /// activations on <paramref name="rows"/> rows.
+    /// </summary>
+    private static float[][] RunKQuantProjections(IComputeDevice device, int rows, DataType type, int[] widths)
+    {
+        using (device)
+        {
+            var tg = new TG("cuda-kquant-decode-gemm");
+            var x = tg.InF("x", TG.T, 1280);
+            for (int o = 0; o < widths.Length; o++)
+            {
+                var y = tg.B.MatMul(x, tg.RandW("w" + o, type, 0.05f, widths[o], 1280));
+                tg.B.Output("y" + o, tg.B.Add(y, tg.RandW("b" + o, DataType.F32, 0.5f, widths[o])));
+            }
+
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 256, ContextLength = 256 },
+                ReservePerDevice = 0,
+            });
+            var input = new float[rows * 1280];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = MathF.Sin(i * 0.37f);
             }
 
             model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));

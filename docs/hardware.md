@@ -32,7 +32,7 @@ other devices, and the CPU always remains.
 | `memory_budget` | `VK_EXT_memory_budget`; CUDA `cuMemGetInfo` | memory figures from Sharplight's own tally (other processes are not seen) |
 | `kernel_binaries` | `VK_KHR_pipeline_binary`, cubins, Metal binary archives | the driver's whole pipeline cache blob |
 | `paged_kv` | paged KV kernel forms | the contiguous per-slot KV cache |
-| `window_kv` | window-sized caches for sliding-window layers with the paged cache (host side only) | those caches hold a row per position of the pool |
+| `window_kv` | window-sized caches for sliding-window layers with the paged cache, and a ring of window rows in single-sequence sessions (host side only) | those caches hold a row per position of the pool or context |
 | Vulkan sparse binding (not a named feature) | `sparseBinding` on the compute queue | a buffer larger than one allocation fails with a clear error |
 | Vulkan timestamps (not a named feature) | `timestampValidBits` of the compute queue | no GPU step time (`LastGpuMs` is 0); the submission-budget calibration times launches on the host |
 | Vulkan transfer queue (not a named feature) | a transfer-only queue family | downloads on the compute queue |
@@ -151,7 +151,7 @@ pinned memory; a 48 MB device refuses it clearly and a 96 MB one offloads layers
 - Vulkan's host-heap budget (`VK_EXT_memory_budget`) comes from the driver, which may not see a cgroup limit; host staging is small
   enough that this has not mattered.
 - Studio's first-run starter recommendation still sizes from the GPU's total memory (with its configured fraction).
-- Window-sized KV caches for sliding-window layers (`window_kv`) exist only in the paged multi-sequence decoder (serving, batch
-  decoding); a single-sequence session keeps full-length caches for those layers, so a model with many window layers needs far more
-  memory for a long context there: Gemma 4 31B Q4_K_M at 32K needs 44.8 GiB on the session path (llama.cpp fits it in 32 GB),
-  [benchmarks.md §74](benchmarks.md).
+- Window-sized KV caches for sliding-window layers (`window_kv`) also serve single-sequence sessions since benchmarks.md §77 (the one-slot
+  paged form with a ring of window rows, used where the ring at most halves those caches): Gemma 4 31B Q4_K_M at 32K takes 21.1 GiB
+  on the session path (was 44.8 GiB), 128K fits a 32 GB card (28.2 GiB, f16 caches). The one-slot paged form costs ~2 % of a CUDA
+  decode step against the contiguous cache (none on Vulkan).

@@ -1,0 +1,108 @@
+fmt=6 T=16 K=12288 N=4096 BM=16 xst*100+wl=402 split=1 blocks=64 smem=65536: isolated 88.1 us (469 GB/s), sustained 62.6 us (660 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=16 xst*100+wl=402 split=1 blocks=128 smem=65536: isolated 131.1 us (315 GB/s), sustained 113.5 us (364 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=16 xst*100+wl=402 split=1 blocks=256 smem=65536: isolated 227.3 us (182 GB/s), sustained 219.4 us (188 GB/s), max err 2.98e-04 of max |y| 449.28
+fmt=6 T=16 K=12288 N=4096 BM=16 xst*100+wl=403 split=1 blocks=64 smem=79872: isolated 92.2 us (448 GB/s), sustained 63.8 us (647 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=16 xst*100+wl=403 split=1 blocks=128 smem=79872: isolated 133.1 us (310 GB/s), sustained 115.9 us (356 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=16 xst*100+wl=403 split=1 blocks=256 smem=79872: isolated 233.5 us (177 GB/s), sustained 224.1 us (184 GB/s), max err 2.98e-04 of max |y| 449.28
+fmt=6 T=16 K=12288 N=4096 BM=16 xst*100+wl=602 split=1 blocks=64 smem=83968: isolated 73.7 us (560 GB/s), sustained 71.0 us (581 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=16 xst*100+wl=602 split=1 blocks=128 smem=83968: isolated 144.4 us (286 GB/s), sustained 133.8 us (309 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=16 xst*100+wl=602 split=1 blocks=256 smem=83968: isolated 270.3 us (153 GB/s), sustained 269.2 us (153 GB/s), max err 2.98e-04 of max |y| 449.28
+fmt=6 T=16 K=12288 N=4096 BM=16 xst*100+wl=802 split=1 blocks=64 smem=88064: isolated 63.5 us (650 GB/s), sustained 61.5 us (672 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=16 xst*100+wl=802 split=1 blocks=128 smem=88064: isolated 129.0 us (320 GB/s), sustained 115.0 us (359 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=16 xst*100+wl=802 split=1 blocks=256 smem=88064: isolated 227.3 us (182 GB/s), sustained 222.3 us (186 GB/s), max err 2.98e-04 of max |y| 449.28
+fmt=6 T=16 K=12288 N=4096 BM=32 xst*100+wl=402 split=1 blocks=64 smem=73728: isolated 96.3 us (429 GB/s), sustained 78.9 us (524 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=32 xst*100+wl=402 split=1 blocks=64 smem=73728: isolated 96.3 us (429 GB/s), sustained 76.0 us (543 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=32 xst*100+wl=402 split=1 blocks=128 smem=73728: isolated 155.6 us (265 GB/s), sustained 143.2 us (288 GB/s), max err 2.98e-04 of max |y| 449.28
+fmt=6 T=16 K=12288 N=4096 BM=32 xst*100+wl=403 split=1 blocks=64 smem=88064: isolated 96.3 us (429 GB/s), sustained 79.8 us (518 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=32 xst*100+wl=403 split=1 blocks=64 smem=88064: isolated 98.3 us (420 GB/s), sustained 76.8 us (537 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=32 xst*100+wl=403 split=1 blocks=128 smem=88064: isolated 157.7 us (262 GB/s), sustained 144.7 us (285 GB/s), max err 2.98e-04 of max |y| 449.28
+fmt=6 T=16 K=12288 N=4096 BM=32 xst*100+wl=602 split=1 blocks=64 smem=96256: isolated 88.1 us (469 GB/s), sustained 84.2 us (490 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=32 xst*100+wl=602 split=1 blocks=64 smem=96256: isolated 84.0 us (492 GB/s), sustained 83.1 us (497 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=32 xst*100+wl=602 split=1 blocks=128 smem=96256: isolated 165.9 us (249 GB/s), sustained 157.2 us (263 GB/s), max err 2.98e-04 of max |y| 449.28
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+fmt=6 T=16 K=12288 N=4096 BM=64 xst*100+wl=402 split=1 blocks=64 smem=90112: isolated 131.1 us (315 GB/s), sustained 126.1 us (327 GB/s), max err 3.57e-04 of max |y| 375.66
+fmt=6 T=32 K=12288 N=4096 BM=64 xst*100+wl=402 split=1 blocks=64 smem=90112: isolated 122.9 us (336 GB/s), sustained 119.2 us (346 GB/s), max err 3.52e-04 of max |y| 380.34
+fmt=6 T=64 K=12288 N=4096 BM=64 xst*100+wl=402 split=1 blocks=64 smem=90112: isolated 116.7 us (354 GB/s), sustained 105.3 us (392 GB/s), max err 2.98e-04 of max |y| 449.28
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+fmt=4 T=16 K=4096 N=12288 BM=16 xst*100+wl=402 split=1 blocks=192 smem=45056: isolated 61.4 us (461 GB/s), sustained 47.8 us (592 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=16 xst*100+wl=402 split=1 blocks=384 smem=45056: isolated 81.9 us (346 GB/s), sustained 64.9 us (436 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=16 xst*100+wl=402 split=1 blocks=768 smem=45056: isolated 122.5 us (231 GB/s), sustained 121.5 us (233 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=16 xst*100+wl=403 split=1 blocks=192 smem=54272: isolated 73.7 us (384 GB/s), sustained 50.7 us (558 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=16 xst*100+wl=403 split=1 blocks=384 smem=54272: isolated 92.2 us (307 GB/s), sustained 76.6 us (369 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=16 xst*100+wl=403 split=1 blocks=768 smem=54272: isolated 153.6 us (184 GB/s), sustained 144.5 us (196 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=16 xst*100+wl=602 split=1 blocks=192 smem=58368: isolated 63.5 us (446 GB/s), sustained 52.1 us (544 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=16 xst*100+wl=602 split=1 blocks=384 smem=58368: isolated 94.2 us (301 GB/s), sustained 85.0 us (333 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=16 xst*100+wl=602 split=1 blocks=768 smem=58368: isolated 161.8 us (175 GB/s), sustained 163.0 us (174 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=16 xst*100+wl=802 split=1 blocks=192 smem=62464: isolated 55.3 us (512 GB/s), sustained 49.8 us (569 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=16 xst*100+wl=802 split=1 blocks=384 smem=62464: isolated 90.1 us (314 GB/s), sustained 80.9 us (350 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=16 xst*100+wl=802 split=1 blocks=768 smem=62464: isolated 151.6 us (187 GB/s), sustained 154.7 us (183 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=32 xst*100+wl=402 split=1 blocks=192 smem=53248: isolated 79.9 us (354 GB/s), sustained 64.0 us (442 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=32 xst*100+wl=402 split=1 blocks=192 smem=53248: isolated 79.9 us (354 GB/s), sustained 56.6 us (500 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=32 xst*100+wl=402 split=1 blocks=384 smem=53248: isolated 102.4 us (276 GB/s), sustained 93.1 us (304 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=32 xst*100+wl=403 split=1 blocks=192 smem=62464: isolated 79.9 us (354 GB/s), sustained 64.0 us (442 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=32 xst*100+wl=403 split=1 blocks=192 smem=62464: isolated 81.9 us (346 GB/s), sustained 57.8 us (489 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=32 xst*100+wl=403 split=1 blocks=384 smem=62464: isolated 104.5 us (271 GB/s), sustained 94.4 us (300 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=32 xst*100+wl=602 split=1 blocks=192 smem=70656: isolated 73.8 us (384 GB/s), sustained 69.0 us (410 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=32 xst*100+wl=602 split=1 blocks=192 smem=70656: isolated 67.6 us (419 GB/s), sustained 65.5 us (432 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=32 xst*100+wl=602 split=1 blocks=384 smem=70656: isolated 112.6 us (251 GB/s), sustained 108.6 us (261 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=32 xst*100+wl=802 split=1 blocks=192 smem=78848: isolated 69.7 us (406 GB/s), sustained 67.4 us (420 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=32 xst*100+wl=802 split=1 blocks=192 smem=78848: isolated 65.6 us (432 GB/s), sustained 64.8 us (437 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=32 xst*100+wl=802 split=1 blocks=384 smem=78848: isolated 110.6 us (256 GB/s), sustained 107.5 us (263 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=64 xst*100+wl=402 split=1 blocks=192 smem=69632: isolated 106.5 us (266 GB/s), sustained 110.4 us (256 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=64 xst*100+wl=402 split=1 blocks=192 smem=69632: isolated 102.4 us (276 GB/s), sustained 102.7 us (276 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=64 xst*100+wl=402 split=1 blocks=192 smem=69632: isolated 98.3 us (288 GB/s), sustained 83.5 us (339 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=64 xst*100+wl=403 split=1 blocks=192 smem=78848: isolated 108.6 us (261 GB/s), sustained 109.4 us (259 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=64 xst*100+wl=403 split=1 blocks=192 smem=78848: isolated 100.4 us (282 GB/s), sustained 102.8 us (275 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=64 xst*100+wl=403 split=1 blocks=192 smem=78848: isolated 96.3 us (294 GB/s), sustained 84.9 us (333 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=16 K=4096 N=12288 BM=64 xst*100+wl=602 split=1 blocks=192 smem=95232: isolated 108.6 us (261 GB/s), sustained 110.1 us (257 GB/s), max err 3.65e-04 of max |y| 54.47
+fmt=4 T=32 K=4096 N=12288 BM=64 xst*100+wl=602 split=1 blocks=192 smem=95232: isolated 104.5 us (271 GB/s), sustained 104.4 us (271 GB/s), max err 3.61e-04 of max |y| 55.16
+fmt=4 T=64 K=4096 N=12288 BM=64 xst*100+wl=602 split=1 blocks=192 smem=95232: isolated 94.2 us (300 GB/s), sustained 93.5 us (303 GB/s), max err 3.61e-04 of max |y| 55.16
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+fmt=4 T=16 K=4096 N=4096 BM=16 xst*100+wl=402 split=1 blocks=64 smem=45056: isolated 32.8 us (288 GB/s), sustained 17.4 us (543 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=16 xst*100+wl=402 split=1 blocks=128 smem=45056: isolated 38.9 us (243 GB/s), sustained 24.7 us (383 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=16 xst*100+wl=402 split=1 blocks=256 smem=45056: isolated 55.3 us (171 GB/s), sustained 46.0 us (205 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=16 xst*100+wl=403 split=1 blocks=64 smem=54272: isolated 30.7 us (307 GB/s), sustained 17.8 us (532 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=16 xst*100+wl=403 split=1 blocks=128 smem=54272: isolated 47.1 us (200 GB/s), sustained 29.9 us (315 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=16 xst*100+wl=403 split=1 blocks=256 smem=54272: isolated 69.6 us (136 GB/s), sustained 55.2 us (171 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=16 xst*100+wl=602 split=1 blocks=64 smem=58368: isolated 24.6 us (384 GB/s), sustained 18.1 us (521 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=16 xst*100+wl=602 split=1 blocks=128 smem=58368: isolated 43.0 us (219 GB/s), sustained 32.2 us (293 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=16 xst*100+wl=602 split=1 blocks=256 smem=58368: isolated 67.6 us (140 GB/s), sustained 62.0 us (152 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=16 xst*100+wl=802 split=1 blocks=64 smem=62464: isolated 22.5 us (419 GB/s), sustained 17.2 us (549 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=16 xst*100+wl=802 split=1 blocks=128 smem=62464: isolated 41.0 us (230 GB/s), sustained 30.6 us (309 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=16 xst*100+wl=802 split=1 blocks=256 smem=62464: isolated 63.5 us (149 GB/s), sustained 58.7 us (161 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=32 xst*100+wl=402 split=1 blocks=64 smem=53248: isolated 36.9 us (256 GB/s), sustained 24.2 us (390 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=32 xst*100+wl=402 split=1 blocks=64 smem=53248: isolated 34.8 us (271 GB/s), sustained 19.8 us (477 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=32 xst*100+wl=402 split=1 blocks=128 smem=53248: isolated 49.2 us (192 GB/s), sustained 35.2 us (268 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=32 xst*100+wl=403 split=1 blocks=64 smem=62464: isolated 36.9 us (256 GB/s), sustained 24.6 us (384 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=32 xst*100+wl=403 split=1 blocks=64 smem=62464: isolated 36.9 us (256 GB/s), sustained 20.2 us (468 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=32 xst*100+wl=403 split=1 blocks=128 smem=62464: isolated 51.2 us (184 GB/s), sustained 35.7 us (264 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=32 xst*100+wl=602 split=1 blocks=64 smem=70656: isolated 32.8 us (288 GB/s), sustained 24.6 us (383 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=32 xst*100+wl=602 split=1 blocks=64 smem=70656: isolated 26.6 us (354 GB/s), sustained 22.2 us (425 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=32 xst*100+wl=602 split=1 blocks=128 smem=70656: isolated 49.2 us (192 GB/s), sustained 40.7 us (232 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=32 xst*100+wl=802 split=1 blocks=64 smem=78848: isolated 28.7 us (329 GB/s), sustained 24.2 us (391 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=32 xst*100+wl=802 split=1 blocks=64 smem=78848: isolated 24.6 us (384 GB/s), sustained 21.9 us (431 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=32 xst*100+wl=802 split=1 blocks=128 smem=78848: isolated 47.1 us (200 GB/s), sustained 40.3 us (234 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=64 xst*100+wl=402 split=1 blocks=64 smem=69632: isolated 55.3 us (171 GB/s), sustained 50.0 us (189 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=64 xst*100+wl=402 split=1 blocks=64 smem=69632: isolated 47.1 us (200 GB/s), sustained 39.4 us (240 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=64 xst*100+wl=402 split=1 blocks=64 smem=69632: isolated 36.9 us (256 GB/s), sustained 27.9 us (338 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=64 xst*100+wl=403 split=1 blocks=64 smem=78848: isolated 55.3 us (171 GB/s), sustained 50.1 us (188 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=64 xst*100+wl=403 split=1 blocks=64 smem=78848: isolated 47.1 us (200 GB/s), sustained 39.5 us (239 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=64 xst*100+wl=403 split=1 blocks=64 smem=78848: isolated 36.9 us (256 GB/s), sustained 28.3 us (333 GB/s), max err 2.84e-04 of max |y| 59.31
+fmt=4 T=16 K=4096 N=4096 BM=64 xst*100+wl=602 split=1 blocks=64 smem=95232: isolated 51.2 us (184 GB/s), sustained 45.1 us (209 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=32 K=4096 N=4096 BM=64 xst*100+wl=602 split=1 blocks=64 smem=95232: isolated 45.1 us (209 GB/s), sustained 38.4 us (246 GB/s), max err 2.82e-04 of max |y| 59.31
+fmt=4 T=64 K=4096 N=4096 BM=64 xst*100+wl=602 split=1 blocks=64 smem=95232: isolated 34.8 us (271 GB/s), sustained 30.9 us (305 GB/s), max err 2.84e-04 of max |y| 59.31
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument
+cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem): invalid argument

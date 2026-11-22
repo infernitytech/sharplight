@@ -1,0 +1,2 @@
+[0m[37m   Sharplight.Cuda.Tests  Total: 57, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 20.590s
+[0m[0m

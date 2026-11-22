@@ -30,8 +30,17 @@ public sealed partial class GraphLowerer
     /// otherwise take the f32 split-K matvec, use it up to 8 rows from 256 outputs: that matvec re-reads the weights per row (RTX
     /// PRO 4500, bf16 [2880→512] at 2 / 4 / 8 rows: 12 / 16 / 24 µs against 8 µs on the skinny GEMM).
     /// </summary>
-    private static long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
-        ?? (n >= 4096 ? SkinnyMaxRows : n >= 1024 || (n >= 256 && (type == DataType.F16 || type == DataType.BF16)) ? 8 : 0);
+    /// <remarks>
+    /// K-quant weights that the hand-written K-quant decode GEMM serves (<see cref="UsesNativeKQuantDecode"/>) leave the batches past the
+    /// matvec to it, the dual gate / up form included (two K-quant GEMM launches and the activation product): decode steps at 16
+    /// sequences (CUDA, GPU ms) Qwen3-8B 9.87 → 8.35, Qwen3.8 27B 35.75 → 30.05, Gemma 4 31B 43.64 → 38.12 (benchmarks.md §77).
+    /// </remarks>
+    private long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
+        ?? (UsesNativeKQuantDecode(type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
+
+    /// <summary>The skinny GEMM's largest row count for <paramref name="n"/> outputs by width and type alone (see <see cref="SkinnyMaxRowsFor"/>).</summary>
+    private static long SkinnyRowsFor(long n, DataType type)
+        => n >= 4096 ? SkinnyMaxRows : n >= 1024 || (n >= 256 && (type == DataType.F16 || type == DataType.BF16)) ? 8 : 0;
 
     /// <summary>
     /// Subgroups a skinny GEMM launch aims for in total: below this, workgroups get 8 subgroups instead of 4, which keeps
@@ -72,7 +81,7 @@ public sealed partial class GraphLowerer
     /// True when <paramref name="rows"/> activation rows are in the skinny GEMM's range for <paramref name="n"/> output rows,
     /// starting at <paramref name="minRows"/>.
     /// </summary>
-    private static bool InSkinnyRange(long rows, long n, DataType type, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n, type);
+    private bool InSkinnyRange(long rows, long n, DataType type, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n, type);
 
     /// <summary>
     /// Smallest row count for which the skinny GEMM reads an f16 copy of x (shared with the matmul's siblings) rather than

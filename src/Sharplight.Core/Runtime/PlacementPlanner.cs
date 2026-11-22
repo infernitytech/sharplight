@@ -672,7 +672,8 @@ public static class PlacementPlanner
     /// state (KV caches / recurrent state) and a rough bound for activations and scratch. <paramref name="slots"/> &gt; 1 sizes
     /// the state of a multi-sequence compilation of the single-sequence <paramref name="graph"/> (KV rows for slots · context,
     /// recurrent state per slot). Use it to decide whether a model fits before compiling it.
-    /// <paramref name="kvCacheRows"/> &gt; 0 sizes the KV caches of a paged multi-sequence compilation instead (rows shared by all slots);
+    /// <paramref name="kvCacheRows"/> &gt; 0 sizes the KV caches of a paged multi-sequence compilation instead (rows shared by all slots; with
+    /// one slot, a session's one-slot paged form);
     /// <paramref name="windowCacheRows"/> &gt; 0 sizes the caches only sliding-window attention reads (<see cref="MultiSequence.WindowedCaches"/>)
     /// at that many rows.
     /// </summary>
@@ -697,7 +698,7 @@ public static class PlacementPlanner
 
                 if (v.State is { } st && seenS.Add(st))
                 {
-                    if (slots > 1 && MultiSequence.IsKvState(st))
+                    if ((slots > 1 || kvCacheRows > 0) && MultiSequence.IsKvState(st))
                     {
                         long rows = windowed.Contains(st) ? windowCacheRows : kvCacheRows > 0 ? kvCacheRows : options.ContextLength * slots;
                         states += StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = rows, SymbolBounds = options.SymbolBounds });
