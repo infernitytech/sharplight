@@ -1,0 +1,13 @@
+Graph optimization (sharplight-ir/1): decode 10685 -> 10684 nodes, decode_embeddings 10684 -> 10683 nodes [420 ms]
+Loaded Kimi-K3 (latent_decoder): 2642 tensors, 594.03 GB, vocab 163840 [947 ms]
+Experts on disk: io_uring is unavailable (io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)); reading with 8 threads instead.
+Experts on disk: 495.3 GiB of routed experts on the CPU exceed the 10.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 10.0 GiB cache.
+Compiled 'decode' in 20473 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 35 groups, 21.50 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 153 groups, 532.16 GiB weights+state
+92 routed-expert group(s) on disk
+Ready (decode)
+The capital of France isExperts on disk: 276 weights in 92 layers (376.4 GiB) read with threads x8; 1.0 GB/s measured; a decode step reads up to 7.22 GB: about 0.13 tok/s from a cold cache, ~0.14 tok/s once the 10.0 GiB cache holds its share (reads only; compute adds to it).
+ Paris. Paris is a beautiful city. Paris is a beautiful city. Paris is
+prompt: 5 tok in 29931 ms (0.2 tok/s) | generated: 16 tok, 0.06 tok/s
+experts on disk (threads x8): hit rate 0.0 % (0 hits, 27726 read ahead, 55452 misses, 27726 prefetched, 80361 evictions), read 136.27 GB, waited 23.25 s, cache 10.0 GiB in 2833 slots

@@ -1,0 +1,11 @@
+Graph optimization (sharplight-ir/1): decode 10685 -> 10684 nodes, decode_embeddings 10684 -> 10683 nodes [439 ms]
+Loaded Kimi-K3 (latent_decoder): 2642 tensors, 594.03 GB, vocab 163840 [1019 ms]
+Experts on disk: io_uring is unavailable (io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)); reading with 8 threads instead.
+Experts on disk: 495.3 GiB of routed experts on the CPU exceed the 24.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 24.0 GiB cache.
+Experts on disk: 276 weights in 92 layers (376.4 GiB) read with threads x8; 1.1 GB/s measured; a decode step reads up to 7.22 GB: about 0.15 tok/s from a cold cache, ~0.16 tok/s once the 24.0 GiB cache holds its share (reads only; compute adds to it).
+Compiled 'decode' in 39051 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 45 groups, 27.63 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 143 groups, 526.10 GiB weights+state
+92 routed-expert group(s) on disk
+Ready (decode)
+The capital of France is Paris.Unhandled exception: Sharplight.Cuda.CudaException: CUDA cuStreamCreate failed: out of memory (2)

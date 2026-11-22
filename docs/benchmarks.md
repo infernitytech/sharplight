@@ -12883,3 +12883,229 @@ PipelineBench $M --local-stages 3 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --c
 PipelineBench $M --workers 127.0.0.1:7071,127.0.0.1:7072 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --chunks 256,64
 PipelineBench --echo 127.0.0.1:7090 &  PipelineBench --pingpong 127.0.0.1:7090
 ```
+
+## 87. Huge MoE bring-up, round 1: real DeepSeek-V3.1, GLM-5.2 and Kimi-K3 checkpoints with experts on disk (2026-11-22)
+
+Branch `bringup/huge-moe-r1` (`develop` at `10b5ac10`, §85's experts on disk). Same machine and limits as §85: GPU 0 of the RunPod machine
+(RTX PRO 4500 Blackwell 32 GB), ~10 CPU cores shared by every job, a 62 GB memory cgroup for the whole pod, model files on the local NVMe
+(~7.4 GB/s), llama.cpp b11177. One huge model on disk at a time. Until now `deepseek2` was verified on DeepSeek-V2-Lite and GLM-4.7-Flash and
+`glm-dsa` / `kimi-k3` only on tiny random checkpoints; no real GLM-5.x or Kimi K3 weights had run. Method: the full model with experts on
+disk against llama.cpp on the same GGUF (mmap) where llama.cpp has the architecture and the file's types, and the first layers of the same
+file (real weights, `tools/truncate-gguf.py`, `tools/truncate-gguf-remote.py`) against transformers in float32 on the dequantized weights
+(`tools/latent-moe-gguf-reference.py`) or against llama.cpp. KL is KL(reference ‖ engine) of the last prompt row's next-token
+distribution. Raw output in [`bench/results/s87/`](../bench/results/s87).
+
+### 87.1 DeepSeek-V3.1: the divergence from llama.cpp is a near tie, not a bug
+
+§85 left DeepSeek-V3.1 Q4_K_M (405 GB) greedy text equal to llama.cpp b11177's through " Paris. The capital of" and different after it
+(" Spain is Madrid" against " France is Paris"). Checked in order:
+
+* **Tokenization, BOS, template.** The prompt is raw text (no chat template in either run). Both tokenize "The capital of France is Paris. The
+  capital of" to the same 11 ids, BOS 0 first (`llama-tokenize`, our `--logits`).
+* **Full-model logits at the divergence** (the 11-token prefix, experts on disk, CUDA, same pod):
+
+  | engine | " Spain" | " France" | " Italy" | " the" | " England" |
+  |---|---:|---:|---:|---:|---:|
+  | Sharplight (CUDA, experts on disk), log-probability | **-1.432** | -1.439 | -1.889 | -2.436 | -2.876 |
+  | llama.cpp b11177 (CUDA, `-ncmoe 59`), batched prompt | -1.624 | **-1.405** | -1.742 | -2.353 | -2.889 |
+  | llama.cpp b11177, same position reached by decoding token by token | -1.653 | **-1.464** | -1.718 | -2.260 | -2.907 |
+
+  A near tie: our " Spain" leads " France" by 0.008 in the logits, llama.cpp's " France" leads by 0.22 (0.19 on its decode path). Its own
+  two paths differ by up to 0.09 on these tokens.
+* **Which engine is closer to the model?** A truncated real checkpoint: the first 6 layers of the same GGUF (3 dense, 3 MoE layers with all
+  256 real experts, the real embedding and head; `tools/truncate-gguf.py`, 24.8 GB) against transformers' `DeepseekV3` in float32 on the file's
+  dequantized weights (`tools/latent-moe-gguf-reference.py`: yarn with mscale_all_dim 1, interleaved rope, sigmoid routing with the selection
+  bias, normalized top-8 scaled by 2.5, the absorbed `attn_k_b` / `attn_v_b` joined back into `kv_b_proj`; routed experts dequantized only
+  when selected). Last-row logits of the same 11-token prompt:
+
+  | engine / path | KL(ref ‖ x) | max \|Δ logit\| | max \|Δ log-prob\| top 20 | argmax |
+  |---|---:|---:|---:|---|
+  | Sharplight CPU, prompt in one pass | 3.4e-4 | 0.116 | 0.058 | = |
+  | Sharplight CPU, token by token (absorbed decode) | 3.3e-4 | 0.121 | 0.052 | = |
+  | Sharplight CUDA | 2.2e-4 | 0.102 | 0.033 | = |
+  | Sharplight Vulkan | 2.2e-4 | 0.104 | 0.033 | = |
+  | Sharplight CUDA, experts on disk (4 GiB cache) | 2.3e-4 | 0.103 | 0.047 | = |
+  | llama.cpp b11177 CPU | 1.9e-3 | 0.353 | 0.137 | = |
+  | llama.cpp b11177 CPU, token by token | 2.0e-3 | 0.350 | 0.143 | = |
+  | llama.cpp b11177 CUDA | 7.5e-4 | 0.185 | 0.119 | = |
+
+  Every Sharplight path is 3-9x closer to the float32 model than llama.cpp, whose CPU path quantizes activations to Q8_K. So the full-model
+  divergence is a near tie decided by rounding, and llama.cpp's rounding is the larger one.
+* **Routing.** The GGUF (unsloth, converted before llama.cpp wrote `expert_group_count`) has no group-limited routing keys, so both engines
+  route over all 256 experts; DeepSeek-V3.1 itself uses 8 groups with the best 4 kept. On the 6-layer checkpoint the reference with groups
+  differs from the one without by KL 5.2e-3 and another argmax: more than either engine's error. That is a property of the file, not of
+  either engine (both read the same metadata).
+* **Yarn, rope, MLA.** Our softmax scale (1/sqrt(192) · (1 + 0.1·ln 40)²), rope magnitude 1 and yarn frequency blend are those of transformers
+  and of llama.cpp (whose deepseek2 graph cancels its yarn attention factor and folds mscale² into the scale); the absorbed decode matches the
+  expanded prefill (table above). No bug found; nothing changed in the latent decoder.
+
+### 87.2 GLM-5.2 UD-Q2_K_XL (254 GB): correct against transformers (truncated) and llama.cpp (full model)
+
+GLM-5.2 exists on the Hub (zai-org/GLM-5.2, 2026-06-16; also GLM-5.3, same architecture): `GlmMoeDsaForCausalLM`, llama.cpp `glm-dsa`,
+78 layers (3 dense) plus one MTP layer, 256 routed experts (8 per token, sigmoid with the selection bias, one shared expert), latent attention
+with 64 heads (q rank 2048, latent 512, query/key head 192 + 64 rope, value 256, rope base 8e6, no yarn), the DSA indexer (32 heads of 128,
+top 2048 positions; GLM-5.2's "shared" indexer layers reuse the previous full layer's selection, which llama.cpp b11177 takes from its
+built-in GLM-5.2 table since the file has no `attention.indexer.types`). unsloth/GLM-5.2-GGUF `UD-Q2_K_XL` (7 files, 253.9 GB; experts IQ2_XS,
+IQ3_XXS and Q2_K, the rest Q5_K-Q8_0) on the pod's local NVMe. Prompts shorter than 2048 tokens leave the indexer in its dense regime.
+
+**Truncated real checkpoint against transformers.** The first 6 layers (3 dense, 3 MoE with all experts; 11.9 GB) against transformers'
+`GlmMoeDsa` in float32 on the dequantized weights (`tools/latent-moe-gguf-reference.py`), last row of a 22-token prompt:
+
+| engine / path | KL(ref ‖ x) | max \|Δ logit\| | max \|Δ log-prob\| top 20 |
+|---|---:|---:|---:|
+| Sharplight CPU, prompt in one pass | 1.6e-4 | 0.098 | 0.043 |
+| Sharplight CPU, token by token | 1.6e-4 | 0.094 | 0.054 |
+| Sharplight CUDA | 9.6e-5 | 0.103 | 0.029 |
+| Sharplight Vulkan | 9.5e-5 | 0.102 | 0.031 |
+| llama.cpp b11177 CPU | 9.6e-4 | 0.261 | 0.106 |
+| llama.cpp b11177 CUDA | 2.5e-4 | 0.111 | 0.052 |
+| transformers with llama.cpp's norm eps (rms_norm_eps on the compressed query and latent instead of 1e-6) | 7e-7 | 0.006 | 0.002 |
+
+A 20-layer cut (3 dense, 17 MoE) is no sharper test: there every path, ours with and without int8 activation dots, with f16 or f32 caches,
+and llama.cpp's batched and token-by-token paths, is KL 1.4-3.9e-2 from the float32 model and as far from each other (ours 1.8-2.3e-2,
+llama.cpp 3.6-3.9e-2): the 2-bit model amplifies any rounding (routing decisions that flip), so the 6-layer case is the check.
+
+**Full model against llama.cpp b11177.** Prompt "The capital of France is", 24 greedy tokens:
+
+| engine | text |
+|---|---|
+| llama.cpp CPU (mmap) | " Paris. Distance from Paris to Marseille is 661 km, while direct flight time from Paris to Marseille is 1" |
+| Sharplight CPU, experts on disk | " Paris. Distance from Paris to Marseille is 661 km, while direct flight time is 1" |
+| Sharplight CUDA, experts on disk | " Paris. Distance from Paris to Lyon is 391 km, while direct flight time from Paris to Lyon is 1" |
+
+Both branch points are near ties of the reference itself. After "Distance from Paris to" llama.cpp's own prompt pass scores " T" -2.942,
+" Marseille" -3.009, " Lyon" -3.015 (log-probabilities; its decode picked " Marseille"), ours " Marseille" -2.921, " T" -3.178, " Lyon" -3.193.
+After "... while direct flight time" every path puts " from" first: llama.cpp -0.178 (prompt pass) / -0.078 (token by token), Sharplight
+CUDA -0.294, Sharplight CPU token by token -0.506 (" is" -0.945); the CPU text run, which fed the first five tokens as one pass, took " is".
+Logit correlation with llama.cpp's prompt pass at that position: llama.cpp token by token 0.993, Sharplight CUDA 0.986, CPU 0.980 (the
+quantization noise of a 2-bit file; the docs' "above 0.98" criterion).
+
+**Speed** (CUDA, `--expert-cache 24G`; the placement keeps the dense part and 4 layers' experts on the GPU, 27.7 GiB, and 71 layers' experts,
+206 GiB, on disk):
+
+| run | decode | prompt | hit rate | read |
+|---|---:|---:|---:|---:|
+| 24-token text (cold cache) | 0.41 tok/s | 5 tokens in 9.8 s | 54.3 % | 83.9 GB |
+| `--bench 8`, 64 decode steps | best 2.09, median 0.99, mean 0.90 tok/s; GPU 46.8 ms per step | 8 tokens in 6.35 s (best of 2) | 59.3 % (decode) | 193.7 GB in the decode steps (3.0 GB per step) |
+GLMLLAMA
+
+### 87.3 Kimi-K3 UD-Q1_0 (466 GB): narrow IQ1 experts on disk; correct against llama.cpp on a truncated checkpoint
+
+moonshotai/Kimi-K3 (`kimi_k3`, llama.cpp `kimi-k3`): 93 layers (Kimi delta attention, latent attention every fourth layer, block attention
+residuals of 12 layers), 896 routed experts in a latent MoE (16 per token, 3584-wide latent, a norm on their sum) plus 2 shared experts, the
+situ activation. unsloth/Kimi-K3-GGUF has nine quants from 466 GB (UD-Q1_0) to 1.56 TB; no unsloth GGUF of K3.1 exists. The pod's disk
+budget (at least 100 GB free beside the other jobs) admitted UD-Q1_0 (11 files, 466.3 GB) but not UD-TQ1_0 (509 GB) or UD-TQ2_0 (551 GB).
+All three store their experts in the narrow IQ1 types of unsloth's llama.cpp fork (ggml 64-66, IQ1_S blocks without some fields): UD-Q1_0
+uses IQ1_XXXS (38 bytes per 256 values). Sharplight reads them as IQ1_S (model-support section 4), but the reader that widens them had no file
+range, so **the experts could not stay on disk** and the import would have made all 495 GiB of them resident. Fixed (87.5): such weights now
+report their stored range and block encoding, and the store decodes each read in its slot.
+
+**Correctness.** llama.cpp b11177 has the `kimi-k3` architecture but not the fork's types, and the fork itself was not built here. So the
+first 4 layers (3 delta-attention layers and one latent-attention layer, real experts) were fetched from the Hub by byte ranges with the
+narrow experts widened to IQ1_S (`tools/truncate-gguf-remote.py --widen-narrow-iq1`, bit-exact against the fork's decoder on the repository's
+fixture; 23 GB) and run on llama.cpp b11177 and Sharplight, prompt "The capital of France is Paris. The capital of Germany is":
+
+| engine / path, against llama.cpp token by token | KL | max \|Δ logit\| | max \|Δ log-prob\| top 20 | argmax |
+|---|---:|---:|---:|---|
+| Sharplight CPU, prompt in one pass | 4.1e-4 | 0.129 | 0.092 | = |
+| Sharplight CPU, token by token | 4.0e-4 | 0.133 | 0.069 | = |
+| llama.cpp b11177 CPU, prompt in one pass | 3.0e-4 | 0.120 | 0.053 | = |
+
+Ours is as close to llama.cpp's token-by-token decoding as llama.cpp's own batched prompt pass (the tiny-model cases saw the same split
+between llama.cpp's two paths). The full model has no reference on this pod. Its prompt pass on CUDA gives " Berlin" 20.01 against " Bonn"
+15.27 for the Germany prompt, and its greedy text is coherent: CPU " Paris. Paris is a beautiful city. Paris is a beautiful city. Paris is",
+CUDA " Paris. Paris is the capital of France. The capital of France is Paris. Paris is the capital of France. The" (the two part at the
+fifth token).
+
+**Speed** (`--expert-cache 24G`, 92 layers' experts on disk, 376 GiB stored):
+
+| run | decode | prompt | hit rate | read |
+|---|---:|---:|---:|---:|
+| CUDA, 24-token text | 0.08 tok/s | 5 tokens in 21.1 s | 31.7 % | 132.7 GB (about 4.6 GB per token) |
+| CPU only, 16 tokens, 10 GiB cache, decode under the store lock (first build) | 0.04 tok/s | 5 tokens in 96.1 s | 0 % | 136.3 GB, 225.7 s waited |
+| CPU only, same, parallel decode (final build) | 0.06 tok/s | 5 tokens in 29.9 s | 0 % | 136.3 GB, 23.3 s waited |
+
+The decode step is not bound by the disk here (46 of ~300 s waited on CUDA): the CPU's IQ1_S expert products for 16 experts x 3 weights x 92
+layers per token on the pod's ~10 cores, and ~185 segment switches per token, dominate. llama.cpp could not run the file. The first CUDA runs
+failed with `cuStreamCreate: out of memory` at the third decode step: the placement filled the GPU to 27.6 GiB and each of the ~94 GPU
+segments creates its own concurrent-lane streams and step graphs beyond the default 512 MiB reserve. `SHARPLIGHT_DEVICE_RESERVE_MIB=3072`
+avoids it (all K3 CUDA numbers above); the reserve should grow with the segment count (87.6).
+
+### 87.4 DeepSeek-V4-Flash UD-IQ1_S (82.5 GB)
+
+unsloth/DeepSeek-V4-Flash-0731-GGUF `UD-IQ1_S` (3 files; `deepseek4`: compressed KV caches, hash routing, hyper-connections), larger than the
+pod's host memory: 36 layers' experts on disk (59 GiB). Prompt "The capital of France is", CPU, 16 greedy tokens:
+
+| engine | text | decode | prompt |
+|---|---|---:|---:|
+| llama.cpp b11177 CPU (mmap) | " Paris. It is the largest city in France, and is one of the largest" | 2.96 tok/s | 1.40 tok/s |
+| Sharplight CPU, experts on disk (12 GiB cache) | " Paris. It is the largest city in France and is located in the north-central" | 1.98 tok/s | 1.0 tok/s |
+| llama.cpp b11177 CUDA (`-ngl 99 -ncmoe 36`, mmap) | " Paris. It is the largest city in France, with a population of over 2 million people. ..." | 6.58 tok/s | 3.31 tok/s |
+| Sharplight CUDA, experts on disk (16 GiB cache, 31 layers on disk), `--batch 1` | " Paris. It is the largest city in France, and is" (12 tokens; llama.cpp's CPU text) | 7.74 tok/s (12 tokens); `--bench 8`: median 12.41, best 14.92 tok/s, 95 % hits | 5 tokens in 1.5 s |
+
+**Bug, open:** on CUDA with experts on disk, a prompt pass of more than one row gives wrong output on this model (`--batch 64`:
+" Paris, where else the hidden-googoorxmaent ..."; the same with `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`), while the same placement fed the prompt
+row by row (`--batch 1`), CUDA without experts on disk (" Paris. It is the largest city in France and is located"), and the CPU are right,
+and GLM-5.2 and DeepSeek-V3.1 are right in the same mode. So it needs `deepseek4`, CUDA segments and multi-row CPU expert products from
+the disk cache together; not isolated this round (a tiny DeepSeek-V4 with forced CPU experts on CUDA would be the reproducer). Decode steps
+are single rows, so the decode speeds above are of the correct path.
+
+Identical for 8 tokens; at "... largest city in France" llama.cpp scores "," -0.688 and " and" -1.046, ours token by token "," -0.835 and
+" and" -1.084 (our text run, which takes the prompt in one pass, picked " and"): a near tie. At the prompt our next-token distribution is
+KL 1.2e-2 from llama.cpp's token-by-token decoding, llama.cpp's own prompt pass 2.7e-2 (a 1-bit file).
+
+### 87.5 Changes
+
+* **Experts on disk for weights stored in another block encoding** (Core: `IStoredBlockEncoding`, `IWeightSource.TryGetEncodedFileRange`;
+  `ExpertStore` / `DiskExpertTensor`): the store reads the stored blocks into the slot and decodes them behind the read, in parallel on a pool
+  task once the read completed and before the slot counts as filled. GGUF's narrow IQ1 source (`GgufNarrowIq1Source`,
+  `GgmlNarrowIq1Encoding`) exposes its range and encoding. Before, Kimi-K3's UD-TQ*/UD-Q1_0 experts stayed resident; the first version decoded
+  under the store's lock on one thread, 10x slower in the CPU run of 87.3.
+* **Host memory available to the CPU** (`HostCpuInfo.ReclaimableFileCache`): the active file cache counts as reclaimable beside the inactive
+  one (less dirty and writeback pages). Before, a pod whose cgroup usage was mostly model files just read looked full (10 GB "available" of a
+  62 GB limit, 44 GB of it clean active cache) and refused to load a 24 GB model.
+* **Tools**: `tools/truncate-gguf.py` (local split GGUF to its first N blocks), `tools/truncate-gguf-remote.py` (the same from the Hub through
+  range requests, per-layer arrays cut, optional widening of the narrow IQ1 types), `tools/latent-moe-gguf-reference.py` (transformers'
+  DeepseekV3 / GlmMoeDsa in float32 on a truncated GGUF, experts dequantized on selection, `LAZY_LAYERS=1` for deep cuts),
+  `bench/results/s87/lldump.c` (llama.cpp logits through the C API, batched or token by token, `-ot`-style CPU tensors),
+  `bench/results/s87/compare_logits.py`. `bench/ModelSweep` builds again (namespaces moved by earlier refactors).
+* **Tests**: `LogprobReferenceTests` gains the three truncated real checkpoints (DeepSeek-V3.1 6 layers and GLM-5.2 6 layers against
+  transformers float32, Kimi-K3 4 layers against llama.cpp; skipped without the files), `DiskExpertTests` encoded cases (a test encoding
+  whose stored blocks are larger than the weight's), `NarrowIq1Tests` (the encoded range decodes to `Read`'s bytes), `HostMemoryTests`.
+
+### 87.6 Not done, next
+
+* Kimi-K3 decode is compute-bound on the CPU (0.08 tok/s): IQ1_S expert products and segment switches; the narrow types could get kernels of
+  their own instead of the widening; the CUDA split path could run more of the selected experts on the GPU.
+* The CUDA device reserve should grow with the number of segments (concurrent-lane streams and step graphs per segment) so that a 185-segment
+  placement does not fail at the first graph capture; until then `SHARPLIGHT_DEVICE_RESERVE_MIB=3072` for Kimi-K3.
+* DeepSeek-V4-Flash on CUDA with experts on disk: multi-row prompt passes give wrong output (87.4); `--batch 1` works around it.
+* Kimi K3.1 (no unsloth GGUF, no llama.cpp b11177 support), GLM-5.3 (same architecture as GLM-5.2), Mistral-Large-4-1T, Qwen3.8-2.4T-A95B
+  (UD-Q1_0 397 GB), Muse-Spark-Open-816B and Nemotron-3-Ultra-550B (UD-IQ1_M 188 GB) were not run (time and the disk the feed builds need).
+* The DeepSeek-V3.1 GGUF lacks `expert_group_count`; a converter-side fix (or an importer default from the HF config when the file names
+  DeepSeek-V3) would give the model's own group-limited routing.
+
+### 87.7 Tests
+
+TESTS
+
+### 87.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+M=~/models/GLM-5.2/UD-Q2_K_XL/GLM-5.2-UD-Q2_K_XL-00001-of-00007.gguf
+$CLI $M --provider cuda --cpu-offload --experts-on-disk --expert-cache 24G --ctx 4096 --batch 64 -p "The capital of France is" -n 24
+SHARPLIGHT_BENCH_PREFILL_REPEATS=1 $CLI $M --provider cuda --cpu-offload --experts-on-disk --expert-cache 24G --ctx 4096 --batch 64 --bench 8
+$CLI $M --cpu --cpu-offload --experts-on-disk --gpu-mem 20 --expert-cache 8G --batch 1 -p "<prefix>" --logits ours.f32      # CPU, token by token
+# truncated real checkpoints and the float32 reference
+python -I tools/truncate-gguf-remote.py unsloth/GLM-5.2-GGUF <rev> UD-Q2_K_XL/GLM-5.2-UD-Q2_K_XL-00001-of-00007.gguf glm-L6.gguf 6
+python -I tools/truncate-gguf-remote.py unsloth/Kimi-K3-GGUF <rev> UD-Q1_0/Kimi-K3-UD-Q1_0-00001-of-00011.gguf k3-L4.gguf 4 --widen-narrow-iq1
+LLAMA_SRC=$LLAMA_SRC python -I tools/latent-moe-gguf-reference.py glm-L6.gguf <ids> ref.f32
+$CLI glm-L6.gguf --cpu -p "<prompt>" --logits ours.f32
+LLDUMP_SERIAL=1 ./lldump glm-L6.gguf <ids> llama.f32 0                  # bench/results/s87/lldump.c
+python bench/results/s87/compare_logits.py ref.f32 154880 ours.f32 llama.f32
+# Kimi-K3 on CUDA needs a larger device reserve
+SHARPLIGHT_DEVICE_RESERVE_MIB=3072 $CLI ~/models/Kimi-K3/UD-Q1_0/Kimi-K3-UD-Q1_0-00001-of-00011.gguf --provider cuda --cpu-offload \
+    --experts-on-disk --expert-cache 24G --ctx 4096 --batch 64 -p "The capital of France is" -n 24
+```
