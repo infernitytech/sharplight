@@ -1,0 +1,12 @@
+== single process
+The three laws of thermodynamics are a set of fundamental principles that govern the behavior of energy and matter in the universe. These laws are not just abstract concepts; they have profound implications for our understanding
+prompt: 7 tok in 1278 ms (5.5 tok/s) | generated: 32 tok, 7.37 tok/s
+== coordinator + 2 workers
+The three laws of thermodynamics are a set of fundamental principles that govern the behavior of energy and matter in the universe. These laws are not just abstract concepts; they have profound implications for our understanding
+slot 0 AMD EPYC 7443 24-Core Processor: 12 groups, 1.69 GiB weights+state
+slot 1 127.0.0.1:7071 (AMD EPYC 7443 24-Core Processor): 14 groups, 1.70 GiB weights+state
+slot 2 127.0.0.1:7072 (AMD EPYC 7443 24-Core Processor): 12 groups, 1.85 GiB weights+state
+3 segment(s): [0@0: 265 nodes] → [1@1: 336 nodes] → [2@2: 268 nodes]
+prompt: 7 tok in 959 ms (7.3 tok/s) | generated: 32 tok, 7.39 tok/s
+worker 127.0.0.1:7071: 32 executions, round trip 54.336 ms, worker 53.742 ms, overhead 0.320 ms per execution, 0.7 MB sent, 0.0 MB received
+worker 127.0.0.1:7072: 32 executions, round trip 114.582 ms, worker 60.154 ms, overhead 0.338 ms per execution, 0.0 MB sent, 0.6 MB received
