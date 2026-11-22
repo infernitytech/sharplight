@@ -396,6 +396,7 @@ public sealed unsafe class ExpertStore : IDisposable
                 _hits++;
                 ref var held = ref pool[slot];
                 held.Pins++;
+                held.Uses++;
                 held.LastUse = ++_clock;
                 if (held.Loading is { } loading && !waits.Contains(loading))
                 {
@@ -432,7 +433,7 @@ public sealed unsafe class ExpertStore : IDisposable
 
             _misses++;
             _evictions += evicted ? 1 : 0;
-            pool[slot] = new ExpertSlotPool.Slot { Tensor = tensor, Expert = e, Pins = 1, LastUse = ++_clock };
+            pool[slot] = new ExpertSlotPool.Slot { Tensor = tensor, Expert = e, Pins = 1, Uses = 1, LastUse = ++_clock };
             tensor.SlotOf[e] = slot;
             missing.Add((e, slot));
         }

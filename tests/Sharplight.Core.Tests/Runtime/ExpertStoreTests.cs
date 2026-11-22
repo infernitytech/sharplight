@@ -120,6 +120,39 @@ public sealed unsafe class ExpertStoreTests
         }
     }
 
+    /// <summary>Experts used twice are protected: a pass over many new experts (a prefill) evicts the ones used once first.</summary>
+    [Fact]
+    public void ExpertsUsedTwiceSurviveAScanOfNewOnes()
+    {
+        var (file, gate, _, _, _) = Weights();
+        using var __ = file;
+        using var store = Store();
+        store.TryRegister(gate, "blk.0#experts", 2);
+        var tensor = store.Find(gate)!;
+        var pointers = new nint[Experts];
+        fixed (nint* p = pointers)
+        {
+            int[] favourites = [7, 8, 9, 10];
+            for (int pass = 0; pass < 2; pass++)
+            {
+                store.Acquire(tensor, null, favourites, (byte**)p, null, false);
+                store.Release(tensor, null, favourites);
+            }
+
+            for (int e = 20; e < Experts; e += 8)
+            {
+                var scan = Enumerable.Range(e, Math.Min(8, Experts - e)).ToArray();
+                store.Acquire(tensor, null, scan, (byte**)p, null, false);
+                store.Release(tensor, null, scan);
+            }
+
+            store.ResetStatistics();
+            store.Acquire(tensor, null, favourites, (byte**)p, null, false);
+            store.Release(tensor, null, favourites);
+            Assert.Equal(4, store.Statistics.Hits);
+        }
+    }
+
     [Fact]
     public void MoreExpertsThanFreeSlotsAtOnceFail_AndLeaveTheCacheUsable()
     {

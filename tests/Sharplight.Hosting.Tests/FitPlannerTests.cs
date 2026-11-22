@@ -80,6 +80,17 @@ public sealed class FitPlannerTests
         Assert.False(report.SystemMemory!.Fits);
     }
 
+    /// <summary>With experts on disk, an offloaded part larger than system memory still loads (its routed experts are read from disk).</summary>
+    [Fact]
+    public void NeedsOffload_FromDisk_WhenTheOffloadedPartExceedsSystemMemoryAndExpertsMayStayOnDisk()
+    {
+        var report = FitPlanner.Plan(Query(new ModelFootprint(60 * GiB, 4 * GiB, GiB)) with { ExpertsOnDisk = true });
+        Assert.Equal(FitVerdict.NeedsOffload, report.Verdict);
+        Assert.True(report.ExpertsFromDisk);
+        Assert.True(report.LoadsAsConfigured);
+        Assert.False(FitPlanner.Plan(Query(new ModelFootprint(18 * GiB, 2 * GiB, GiB)) with { ExpertsOnDisk = true }).ExpertsFromDisk);
+    }
+
     [Fact]
     public void CpuOnly_ComparesAgainstSystemMemory()
     {
