@@ -42,4 +42,5 @@ internal sealed record StudioServices(
     IFeedService Feed,
     IModelUsageStore Usage,
     IModelMaintenance Maintenance,
-    ILicenseGate Licenses);
+    ILicenseGate Licenses,
+    Fit.DeviceMemoryWatch Memory);

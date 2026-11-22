@@ -36,6 +36,32 @@ internal sealed class FootprintEstimator(ModelLoader loader) : IDisposable
         }
     }
 
+    /// <summary>
+    /// Bytes of the routed experts' weights in the decode graph (the per-expert weight tables of a mixture-of-experts model), 0 for a dense
+    /// model. With CPU offload the engine moves the experts of the first layers to the CPU before anything else, so a shortfall up to this
+    /// size is covered by expert offload while attention and the shared layers stay on the GPU.
+    /// </summary>
+    /// <param name="request">Model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public long ExpertBytes(ModelLoadRequest request, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            var model = Get(request, cancellationToken);
+            if (!model.Definition.Graphs.TryGetValue(WellKnown.DecodeGraph, out var graph))
+            {
+                return 0;
+            }
+
+            // A routed expert product: MatMulId over a [experts, rows, columns] weight table (as the placement planner groups them).
+            return graph.Nodes
+                .Where(node => node.Op.Name == "MatMulId" && node.Inputs.Length == 3 && node.Inputs[1].Weight is { Shape.Rank: 3 })
+                .Select(node => node.Inputs[1].Weight!)
+                .Distinct()
+                .Sum(weight => weight.ByteSize);
+        }
+    }
+
     /// <summary>Closes the models read.</summary>
     public void Dispose()
     {

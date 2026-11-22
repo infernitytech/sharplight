@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Fit;
 using Sharplight.Hub;
 using Sharplight.ModelFeed.Versioning;
 using Sharplight.Studio.Models;
@@ -32,10 +33,19 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
     {
         _services = services;
         _storedModels = storedModels;
-        _advisor = new FitAdvisor(services.Runtime, services.Settings);
+        _advisor = FitAdvisor.For(services);
         Kinds.Add(s_allKinds);
         SelectedKind = s_allKinds;
         services.Settings.Changed += (_, _) => services.Dispatcher.Post(OnSettingsChanged);
+        // Memory moved (models loaded or unloaded, other applications): rate the packages again.
+        services.Memory.Changed += (_, memory) => services.Dispatcher.Post(() =>
+        {
+            if (_all.Count > 0 && Failure is null)
+            {
+                RateFit(memory);
+                ApplyFilter();
+            }
+        });
     }
 
     /// <summary>Raised on the UI thread when a package was stored (the library must list it).</summary>
@@ -273,6 +283,19 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
                 .OrderBy(package => package.ModelId, StringComparer.Ordinal).ThenBy(package => package.VariantOrder).ThenBy(package => package.Id, StringComparer.Ordinal).ToList());
             _all.Clear();
             _all.AddRange(packages);
+            foreach (var model in _all.Where(package => package.Summary.Group is not null).GroupBy(package => package.ModelId, StringComparer.Ordinal))
+            {
+                IReadOnlyList<FeedPackageViewModel> variants = [.. model];
+                foreach (var variant in variants)
+                {
+                    variant.Variants = variants;
+                }
+            }
+
+            foreach (var package in _all)
+            {
+                package.Choose = ChooseVariant;
+            }
             Kinds.Clear();
             Kinds.Add(s_allKinds);
             foreach (var group in _all.GroupBy(package => package.Kind).OrderBy(group => KindOrder(group.Key)))
@@ -313,17 +336,48 @@ internal sealed partial class FeedCatalogViewModel : ObservableObject
     {
         try
         {
-            var memory = await _advisor.GetMemoryAsync(CancellationToken.None);
-            long gpu = memory.Where(device => device.IsGpu).Sum(device => device.TotalBytes);
-            long system = memory.Where(device => !device.IsGpu).Select(device => device.TotalBytes).DefaultIfEmpty(0).Max();
-            foreach (var package in _all)
-            {
-                package.EstimateFit(gpu, system);
-            }
+            RateFit(await _advisor.GetMemoryAsync(CancellationToken.None));
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             // Without device figures the packages show no fit badge.
+        }
+    }
+
+    /// <summary>
+    /// Plans every package for the default load settings with one slot (<see cref="FitAdvisor.PlanDownload"/>: on the default device, with the
+    /// resident models and the reserve counted, CPU offload into system memory, or split over the GPUs), from the feed's memory figures.
+    /// </summary>
+    private void RateFit(IReadOnlyList<DeviceMemory> memory)
+    {
+        var settings = _services.Settings.Current.DefaultLoad;
+        foreach (var package in _all)
+        {
+            int context = Math.Max(256, Math.Min(settings.ContextLength, package.MaxContext ?? int.MaxValue));
+            if (package.FootprintFor(context, settings.KvCacheType) is not { } footprint || memory.Count == 0)
+            {
+                package.ClearFit();
+                continue;
+            }
+
+            var (report, split) = _advisor.PlanDownload(footprint, memory);
+            package.ShowFit(new FitBadgeViewModel(report, split, package.Summary.Requirements?.Memory.Count > 0, context));
+        }
+    }
+
+    /// <summary>Shows a variant of the selected model in the details (also one the filters hide in the list).</summary>
+    private void ChooseVariant(FeedPackageViewModel variant) => Selected = variant;
+
+    partial void OnSelectedChanged(FeedPackageViewModel? oldValue, FeedPackageViewModel? newValue)
+    {
+        foreach (var variant in oldValue?.Variants ?? [])
+        {
+            variant.IsCurrent = false;
+        }
+
+        foreach (var variant in newValue?.Variants ?? [])
+        {
+            variant.IsCurrent = ReferenceEquals(variant, newValue);
         }
     }
 

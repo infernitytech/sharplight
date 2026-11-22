@@ -18,8 +18,11 @@ internal sealed record LoadSettings
     /// <summary>KV cache element type: <c>f16</c>, <c>f32</c>, <c>q8_0</c> or <c>q4_0</c>.</summary>
     public string KvCacheType { get; init; } = "f16";
 
-    /// <summary>Concurrent sequences batched together (chat plus API requests).</summary>
-    public int Slots { get; init; } = 2;
+    /// <summary>
+    /// Concurrent sequences batched together (chat plus API requests). One by default: a single-sequence session, whose window-sized caches
+    /// make long contexts of sliding-window models fit; more serve concurrent API clients at the cost of a cache per slot.
+    /// </summary>
+    public int Slots { get; init; } = 1;
 
     /// <summary>Run layers that do not fit, and ops the device cannot execute, on the CPU.</summary>
     public bool CpuOffload { get; init; }

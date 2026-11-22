@@ -101,7 +101,7 @@ public sealed class DownloadFitTests
         Assert.True(badges["Q8_0"].IsWarning);
         Assert.Contains("approximate", badges["Q8_0"].ToolTip, StringComparison.Ordinal);
         Assert.Contains("the model's dimensions", badges["Q8_0"].Detail, StringComparison.Ordinal);
-        Assert.Equal("Needs CPU offload (approximate)", badges["Q8_0"].Title);
+        Assert.Equal("Fits with CPU offload (approximate)", badges["Q8_0"].Title);
 
         Assert.True(search.HasFitOk);
         search.SelectedVariant = search.Variants.Single(variant => variant.Tag == "Q8_0");

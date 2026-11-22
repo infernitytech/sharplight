@@ -8,13 +8,23 @@ namespace Sharplight.Studio.ViewModels.Models;
 /// <summary>Wording of fit estimates, shared by the load panel and the download badges.</summary>
 internal static class FitText
 {
-    /// <summary>The verdict as a heading.</summary>
+    /// <summary>
+    /// The verdict as a heading: <c>Fits on the GPU</c> (or <c>in system memory</c>, <c>on 2 GPUs</c>), <c>Fits after unloading other models</c>,
+    /// <c>Fits with CPU offload</c> (<c>CPU expert offload</c> for a mixture-of-experts model whose offload moves experts only; <c>Needs</c>
+    /// while offload is off) or <c>Does not fit</c>.
+    /// </summary>
     /// <param name="report">The plan.</param>
-    public static string Title(FitReport report) => report.Verdict switch
+    /// <param name="expertOffload">The offload moves routed experts only (<see cref="FitAdvisor.IsExpertOffload"/>).</param>
+    public static string Title(FitReport report, bool expertOffload = false) => report.Verdict switch
     {
-        FitVerdict.Fits => "Fits",
+        FitVerdict.Fits => report.Devices.Count switch
+        {
+            1 when !report.Devices[0].Device.IsGpu => "Fits in system memory",
+            var count and > 1 => $"Fits on {count} GPUs",
+            _ => "Fits on the GPU",
+        },
         FitVerdict.FitsAfterUnloading => "Fits after unloading other models",
-        FitVerdict.NeedsOffload => "Needs CPU offload",
+        FitVerdict.NeedsOffload => $"{(report.CpuOffload ? "Fits with" : "Needs")} {(expertOffload ? "CPU expert offload" : "CPU offload")}",
         _ => "Does not fit",
     };
 
@@ -34,7 +44,8 @@ internal static class FitText
     /// <summary>What the verdict means, in one or two sentences.</summary>
     /// <param name="report">The plan.</param>
     /// <param name="target">Where it loads, e.g. a device name or <c>2 GPUs</c>.</param>
-    public static string Message(FitReport report, string target)
+    /// <param name="expertOffload">The offload moves routed experts only (<see cref="FitAdvisor.IsExpertOffload"/>).</param>
+    public static string Message(FitReport report, string target, bool expertOffload = false)
     {
         string total = ByteFormat.Format(report.Footprint.Total);
         long available = report.Devices.Sum(device => device.AvailableBytes);
@@ -48,7 +59,10 @@ internal static class FitText
                     ? $"Needs about {total}. Fits once {names} {(report.Unload.Count == 1 ? "is" : "are")} unloaded; idle models unload automatically when it loads."
                     : $"Needs about {total}. Unload {names} first: {(report.Unload.Count == 1 ? "it is" : "they are")} pinned or in use.";
             case FitVerdict.NeedsOffload:
-                var offload = $"Needs about {total}; {target} has {ByteFormat.Format(available)} available. About {FitAdvisor.Percent(report.CpuShare)} of the model would run on the CPU, which is slower.";
+                var offload = expertOffload
+                    ? $"Needs about {total}; {target} has {ByteFormat.Format(available)} available. The experts of some layers (about {FitAdvisor.Percent(report.CpuShare)} of the model) "
+                      + "would run on the CPU, attention and the shared layers stay on the GPU; slower than all on the GPU."
+                    : $"Needs about {total}; {target} has {ByteFormat.Format(available)} available. About {FitAdvisor.Percent(report.CpuShare)} of the model would run on the CPU, which is slower.";
                 if (report.Unload.Count > 0)
                 {
                     offload += $" Idle models unload first: {names}.";

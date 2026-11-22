@@ -107,6 +107,11 @@ internal sealed class FakeRuntime : IModelRuntime
         return Task.FromResult(Estimator?.Invoke(request) ?? Footprint);
     }
 
+    /// <summary>The routed experts' bytes <see cref="EstimateExpertBytesAsync"/> reports (0: a dense model).</summary>
+    public long ExpertBytes { get; set; }
+
+    public Task<long> EstimateExpertBytesAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(ExpertBytes);
+
     public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken) =>
         Task.FromResult(Memory?.Invoke() ??
         [

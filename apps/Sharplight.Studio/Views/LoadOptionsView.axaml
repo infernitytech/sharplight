@@ -56,6 +56,26 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
             <TextBlock Classes="caption" Text="{Binding Breakdown}" TextWrapping="Wrap" FontSize="11" />
+            <StackPanel x:Name="FitSizing" Spacing="4" IsVisible="{Binding HasSizing}">
+              <TextBlock Classes="section" Text="CONTEXT AND KV CACHE" />
+              <ItemsControl ItemsSource="{Binding Sizing}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mvm:FitSuggestionViewModel">
+                    <Button Classes="ghost small" Command="{Binding ApplyCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="6,4"
+                            ToolTip.Tip="Use these settings">
+                      <DockPanel>
+                        <Border DockPanel.Dock="Right" Classes="badge" Classes.ok="{Binding Fits}" Classes.warn="{Binding !Fits}" Margin="6,0,0,0">
+                          <TextBlock Text="{Binding VerdictText}" />
+                        </Border>
+                        <TextBlock Text="{Binding Text}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      </DockPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+            <TextBlock x:Name="FitContextSummary" Classes="caption" Text="{Binding ContextSummary}" TextWrapping="Wrap" FontSize="11"
+                       IsVisible="{Binding HasContextSummary}" />
             <StackPanel Spacing="4" IsVisible="{Binding HasSuggestions}">
               <TextBlock Classes="section" Text="TO MAKE IT FIT" />
               <ItemsControl ItemsSource="{Binding Suggestions}">
