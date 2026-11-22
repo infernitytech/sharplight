@@ -1,0 +1,24 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 0 | 2048 (8) | 160.2 | 474 / 0 | 137.63 / 139.61, 137.42 |  |
+--- profile mixed 0+256x8 (greedy)
+GPU time 1294.88 ms
+   545.515 ms  42.1%    360x  min   1483.6 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_tma T=2048,U=8,R=8|2,3
+   279.507 ms  21.6%    360x  min    756.0 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=2048,U=8,R=8|2,3
+   189.879 ms  14.7%    720x  min    250.6 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=2048,U=8,R=8|2,3
+    79.826 ms   6.2%    720x  min     99.8 us  fused[Add]+RmsNorm main T=2048,U=8,R=8|2,3
+    55.545 ms   4.3%    720x  min     73.1 us  matmul [4096→1024] f8e4m3_b128g fp8 gemm_fp8_tma T=2048,U=8,R=8|2,3
+    47.439 ms   3.7%    360x  min    128.7 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=2048,U=8,R=8|2,3
+    42.149 ms   3.3%    360x  min    111.7 us  rope+qkv+cache_write rope_qkv T=2048,U=8,R=8|2,3
+    28.984 ms   2.2%    360x  min     77.2 us  attention attn_prefill_native T=2048,U=8,R=8|2,3
+    16.089 ms   1.2%     10x  min   1604.2 us  matmul [4096→151936] f16 skinny gemm_sk T=2048,U=8,R=8|2,3
+     8.290 ms   0.6%    360x  min     20.6 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=2048,U=8,R=8|2,3
+     0.960 ms   0.1%     20x  min      5.5 us  gather gather T=2048,U=8,R=8|2,3
+     0.337 ms   0.0%     10x  min     30.8 us  RmsNorm main T=2048,U=8,R=8|2,3
+     0.296 ms   0.0%     10x  min     27.2 us  sample sample T=2048,U=8,R=8|2,3
+     0.068 ms   0.0%     10x  min      5.6 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=2048,U=8,R=8|2,3
+

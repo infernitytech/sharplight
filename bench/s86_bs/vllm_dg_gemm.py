@@ -36,8 +36,7 @@ for M in [int(a) for a in sys.argv[1:]] or [2048]:
         ref = x.float() @ w.float().t()
         err = ((out.float() - ref).norm() / ref.norm()).item()
         print(f"M={M:5d} {name:8s} K={K:5d} N={N:5d} deepgemm: burst {b:.3f} ms {fl / b / 1e9:.0f} TFLOPS, sustained {m:.3f} ms {fl / m / 1e9:.0f} TFLOPS, rel err {err:.4f}", flush=True)
-        sa = xs.t().contiguous().t()
-        sb = ws.t().contiguous()
-        sb = ws.t()
+        sa = xs.t().contiguous().t()   # column-major [M, K/128]
+        sb = ws.t()                    # [K/128, N/128]
         b, m = timeit(lambda: ops.cutlass_scaled_mm(xq, wq.t(), sa, sb, torch.bfloat16))
         print(f"M={M:5d} {name:8s} K={K:5d} N={N:5d} cutlass:  burst {b:.3f} ms {fl / b / 1e9:.0f} TFLOPS, sustained {m:.3f} ms {fl / m / 1e9:.0f} TFLOPS", flush=True)
