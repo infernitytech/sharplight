@@ -22,31 +22,10 @@ public sealed partial class GraphLowerer
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
-            ? NativeFp8TallMember(p, quantized, min, max, NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount)) : null : null,
+            ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount) : null : null,
         nativeMinRows: NativeFp8MinRows(!_multiGemmOf.ContainsKey(p.Node)),
         fusedKernel: !Fp8FusedSplitK ? null : (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8",
             new Dictionary<string, string>(Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)) { ["SPLITK_FUSED"] = "1" }));
-
-    /// <summary>
-    /// The launch variants of a q / k / v group member on the hand-written FP8 GEMM, minus the batches the group's multi-output form
-    /// of the tensor-copy kernel serves (<see cref="EmitNativeFp8TallMultiGemm"/>): those where the member would run its own
-    /// tensor-copy launch (128-row token tiles, above the decode form's rows).
-    /// </summary>
-    private KernelVariant[] NativeFp8TallMember(MatMulPlan p, TensorRef quantized, long minRows, long maxRows, KernelVariant[] variants)
-    {
-        if (!NativeFp8TensorCopies || !DiagnosticSwitches.MultiGemmTall || !_multiGemmOf.ContainsKey(p.Node))
-        {
-            return variants;
-        }
-
-        long n = p.N;
-        long tallMin = Math.Max(minRows, 65);
-        var condition = _launchCondition;
-        Func<Bindings, bool> tall = b => (condition?.Invoke(b) ?? true) && p.RowCount(b) >= tallMin && NativeFp8TileRows(p.RowCount(b), n, false) == NativeFp8Tile;
-        var notMulti = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(true, quantized, p.W, p.Y, null, null, p.RowCount, tallMin, maxRows, tall,
-            TokenArg(p.X, p.RowsPerLead)));
-        return Unless(variants, notMulti);
-    }
 
     /// <summary>
     /// Largest batch for which the dual fp8 GEMM serves every row count (one 64-row tile). Larger batches use it only where the

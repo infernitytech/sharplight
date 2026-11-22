@@ -722,6 +722,12 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_ATTN_MR=n</c>: 16-row query fragments per warp (1 or 2) of the hand-written prefill attention, or null for the default.</summary>
     public static int? NativeAttentionFragments { get; } = Read("SHARPLIGHT_ATTN_MR") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_ATTN_HG=1</c> runs the query heads of a KV head in one block of the hand-written prefill attention (<c>FN_HG</c>)
+    /// wherever it can, <c>=0</c> nowhere; unset, the lowering's rule.
+    /// </summary>
+    public static bool? NativeAttentionHeadGroups { get; } = Read("SHARPLIGHT_ATTN_HG") switch { "1" => true, "0" => false, _ => null };
+
     /// <summary><c>SHARPLIGHT_NORM_THREADS=n</c>: threads per workgroup of the fused row norms (experiments), or null for the default.</summary>
     public static int? RowNormThreads { get; } = Read("SHARPLIGHT_NORM_THREADS") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 

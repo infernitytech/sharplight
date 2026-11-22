@@ -21,21 +21,10 @@
 // DUAL: the B tile holds 64 rows of w, then the same 64 rows of w2; fragment j of a warp column reads w (j even) or w2 (j odd), so
 // each thread holds both results of an output and stores F8N_EPI2(a, b).
 //
-// MULTI (2 or 3, not with DUAL): the multi-output form over the concatenated rows of two or three matrices of one K (q / k / v), as in
-// gemm_fp8_native.cu: rows [0, MULTI_O1) are w's into y, [MULTI_O1, MULTI_O2) w_1's into y_1, the rest w_2's into y_2 (dense rows of
-// each member's width, multiples of 128), each member with its own tensor map; a tile lies in one member, so each output sums its K
-// blocks as the member's own launch would, and the persistent blocks walk the tiles of all members together.
-//
-// Specialization macros: K, N (all rows with MULTI), Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), MULTI, MULTI_O1, MULTI_O2. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL). Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads, F8N_SHARED bytes of dynamic shared memory.
 #ifndef DUAL
 #define DUAL 0
-#endif
-#ifndef MULTI
-#define MULTI 0
-#endif
-#if MULTI && DUAL
-#error "gemm_fp8_tma: MULTI with DUAL"
 #endif
 #define F8N_BM 128
 #define F8N_BN 128
@@ -78,64 +67,13 @@ struct F8nParams
     const f8n_u8* w2;
 #endif
     float* y;
-#if MULTI
-    const f8n_u8* w_1;
-#if MULTI > 2
-    const f8n_u8* w_2;
-#endif
-    float* y_1;
-#if MULTI > 2
-    float* y_2;
-#endif
-#endif
     f8n_u32 T;
     F8nTensorMap mx;
     F8nTensorMap mw;
 #if DUAL
     F8nTensorMap mw2;
 #endif
-#if MULTI
-    F8nTensorMap mw_1;
-#if MULTI > 2
-    F8nTensorMap mw_2;
-#endif
-#endif
 };
-
-// The member matrix of weight row n0 (a tile's first): its weights, tensor map, output and width, and n0 made relative to it.
-struct F8nMember
-{
-    const f8n_u8* w;
-    const F8nTensorMap* map;
-    float* y;
-    f8n_u32 rows;
-};
-
-static __device__ __forceinline__ F8nMember f8n_member(const F8nParams& p, f8n_u32& n0)
-{
-    F8nMember m = { p.w, &p.mw, p.y, (f8n_u32)Y_STRIDE };
-#if MULTI
-    m.rows = MULTI_O1;
-    if (n0 >= MULTI_O1)
-    {
-#if MULTI > 2
-        const bool third = n0 >= MULTI_O2;
-        m.w = third ? p.w_2 : p.w_1;
-        m.map = third ? &p.mw_2 : &p.mw_1;
-        m.y = third ? p.y_2 : p.y_1;
-        m.rows = third ? N - MULTI_O2 : MULTI_O2 - MULTI_O1;
-        n0 -= third ? MULTI_O2 : MULTI_O1;
-#else
-        m.w = p.w_1;
-        m.map = &p.mw_1;
-        m.y = p.y_1;
-        m.rows = N - MULTI_O1;
-        n0 -= MULTI_O1;
-#endif
-    }
-#endif
-    return m;
-}
 
 static __device__ __forceinline__ f8n_u32 f8n_smem(const void* p)
 {
@@ -289,9 +227,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
                 f8n_tma3(dst + F8N_BM * 128, &p.mw, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
                 f8n_tma3(dst + (F8N_BM + F8N_BN / 2) * 128, &p.mw2, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
 #else
-                f8n_u32 cn = cn0;
-                const F8nMember cm = f8n_member(p, cn);
-                f8n_tma3(dst + F8N_BM * 128, cm.map, codeKb * 128, 0, cn >> 7, bar);
+                f8n_tma3(dst + F8N_BM * 128, &p.mw, codeKb * 128, 0, cn0 >> 7, bar);
 #endif
                 if (++codeKb == nk)
                 {
@@ -314,9 +250,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
                 f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_BN * 2, bar);
                 f8n_bulk(dst + F8N_BM * 4 + F8N_BN * 2, f8n_wscales(p.w2, sn0) + scaleKb * 512, F8N_BN * 2, bar);
 #else
-                f8n_u32 sn = sn0;
-                const F8nMember sm = f8n_member(p, sn);
-                f8n_bulk(dst + F8N_BM * 4, f8n_wscales(sm.w, sn) + scaleKb * 512, F8N_BN * 4, bar);
+                f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_BN * 4, bar);
 #endif
                 if (++scaleKb == nk)
                 {
@@ -350,9 +284,6 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
     {
         f8n_u32 t0, n0;
         f8n_tile(blockIdx.x + lt * gridDim.x, tilesX, t0, n0);
-#if !DUAL
-        const F8nMember om = f8n_member(p, n0);
-#endif
         for (f8n_u32 kb = 0; kb < nk; kb++)
         {
             const f8n_u32 it = lt * nk + kb;
@@ -444,11 +375,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
                 const f8n_u32 t = t0 + wm * F8N_TM + i * 16 + g + h * 8;
                 if (t < p.T)
                 {
-#if DUAL
                     float* yr = p.y + (f8n_u64)t * Y_STRIDE;
-#else
-                    float* yr = om.y + (f8n_u64)t * om.rows;
-#endif
 #if DUAL
 #pragma unroll
                     for (int j = 0; j < F8N_FN; j += 2)

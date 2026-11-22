@@ -115,7 +115,7 @@ public sealed partial class GraphLowerer
             var row = Ref(add.Inputs[add.Inputs[0] == p.Node.Output ? 1 : 0]);
             var y = Produce(bias.Output);
             long? rangeScales = _rangeScales.TryGetValue(x, out long xrs) ? xrs : null;
-            var notMulti = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(false, x, p.W, y, row, rangeScales, p.RowCount, NativeBiasGemmMinRows, p.X.Shape[0],
+            var notMulti = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(x, p.W, y, row, rangeScales, p.RowCount, NativeBiasGemmMinRows, p.X.Shape[0],
                 TallCondition(NativeBiasGemmMinRows, p.RowCount), TokenArg(p.X)));
             Emit($"{label} native fused[Add]", [p.Node, add],
                 Unless(NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), NativeBiasGemmMinRows, bias: true, rangeScales: rangeScales), notMulti),
@@ -130,7 +130,7 @@ public sealed partial class GraphLowerer
         if (NativeGemmF16 && p.Y.IsDense && p.Macros.GetValueOrDefault("Y_STRIDE") == p.N.ToString(CultureInfo.InvariantCulture))
         {
             long? xrs = _rangeScales.TryGetValue(x, out long rs) ? rs : null;
-            notMultiTall = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(false, x, p.W, p.Y, null, xrs, p.RowCount, LibraryGemmMinRows, p.X.Shape[0],
+            notMultiTall = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(x, p.W, p.Y, null, xrs, p.RowCount, LibraryGemmMinRows, p.X.Shape[0],
                 TallCondition(LibraryGemmMinRows, p.RowCount), TokenArg(p.X)));
         }
 

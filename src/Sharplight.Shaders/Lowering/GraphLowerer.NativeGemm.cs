@@ -247,31 +247,19 @@ public sealed partial class GraphLowerer
     /// The launch variant of <c>gemm_fp8_tma.cu</c> for the batches <paramref name="serves"/> selects: one block per SM at most, each
     /// walking its share of the 128-row tiles, with the tensor maps over x (its <paramref name="xcap"/> rows) and the 128-row weight groups.
     /// </summary>
-    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows,
-        IReadOnlyDictionary<string, string>? extra = null, IReadOnlyList<(int Pointer, long Rows)>? memberMaps = null, long? firstRows = null)
+    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows)
     {
         bool dual = dualEpilogue is not null;
         long rowBytes = k + k / 32;
         var inv = CultureInfo.InvariantCulture;
-        string WeightMap(int pointer, long weightRows) => string.Create(inv, $"{pointer} 3 {k},128,{weightRows / 128} {k},{128 * rowBytes} 128,{(dual ? 64 : 128)},1");
-        var maps = new List<string> { string.Create(inv, $"0 2 {k},{xcap} {rowBytes} 128,128"), WeightMap(1, firstRows ?? n) };
+        string WeightMap(int pointer) => string.Create(inv, $"{pointer} 3 {k},128,{n / 128} {k},{128 * rowBytes} 128,{(dual ? 64 : 128)},1");
+        var maps = new List<string> { string.Create(inv, $"0 2 {k},{xcap} {rowBytes} 128,128"), WeightMap(1) };
         if (dual)
         {
-            maps.Add(WeightMap(2, n));
-        }
-
-        // The multi-output form's other members (gemm_fp8_tma.cu MULTI): a map over each member's weights.
-        foreach (var (pointer, memberRows) in memberMaps ?? [])
-        {
-            maps.Add(WeightMap(pointer, memberRows));
+            maps.Add(WeightMap(2));
         }
 
         var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
-        foreach (var (key, value) in extra ?? new Dictionary<string, string>())
-        {
-            macros[key] = value;
-        }
-
         var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", NativeFp8TmaThreads, NativeFp8TmaSharedBytes,
             _opt.Target, macros, _opt.Cache, string.Join(';', maps));
         long sms = Math.Max(1, _opt.ComputeUnits);

@@ -82,7 +82,7 @@ public sealed partial class GraphLowerer
     /// with runs, ceil(rows / tile rows) + runs, a bound on the tiles of all runs together, which the kernel enumerates (no empty blocks for
     /// the tiles a short run does not have). <paramref name="mixRun"/> &gt; 0 skips runs shorter than that (mixed steps, where split-K decoding takes them).
     /// </summary>
-    private KernelVariant NativeFlashVariant(AttentionPlan plan, Func<Bindings, bool> when, long mixRun = 0)
+    private KernelVariant NativeFlashVariant(AttentionPlan plan, Func<Bindings, bool> when, long mixRun = 0, bool headBlocks = false)
     {
         var q = plan.Q;
         var runs = plan.Runs;
@@ -100,13 +100,26 @@ public sealed partial class GraphLowerer
         macros["FN_STAGES"] = NativeAttentionStages(plan).ToString(CultureInfo.InvariantCulture);
         macros["FN_MR"] = fragments.ToString(CultureInfo.InvariantCulture);
         macros["FN_BC"] = NativeAttentionKeys(Math.Max(plan.D, plan.DV)).ToString(CultureInfo.InvariantCulture);
+        bool headGroups = headBlocks && NativeAttentionHeadGroups(plan);
+        macros["FN_HG"] = headGroups ? "1" : "0";
         var kernel = _compiler.CompileCuda("attn_prefill_native.cu", "", "attn_prefill_native", warps * 32, NativeAttentionSharedBytes(plan), _opt.Target,
             macros, _opt.Cache);
-        // Above head size 256 two warps share each row group (FN_DS).
-        uint rows = (uint)(16 * warps * fragments / (Math.Max(plan.D, plan.DV) > 256 ? 2 : 1));
+        // Above head size 256 two warps share each row group (FN_DS); with head groups the warps share their rows.
+        uint rows = (uint)(16 * (headGroups ? 1 : warps) * fragments / (Math.Max(plan.D, plan.DV) > 256 ? 2 : 1));
+        uint heads = (uint)(headGroups ? plan.HQ / warps : plan.HQ);
         return runs is null
-            ? new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), 1))
-            : new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows) + (uint)Rows(b, runs), 1));
+            ? new KernelVariant(when, kernel, b => new Grid(heads, Grid.Div(Rows(b, q), rows), 1))
+            : new KernelVariant(when, kernel, b => new Grid(heads, Grid.Div(Rows(b, q), rows) + (uint)Rows(b, runs), 1));
+    }
+
+    /// <summary>
+    /// True when <c>attn_prefill_native.cu</c> can run the query heads of a KV head in one block (<c>FN_HG</c>): one row group per warp
+    /// (head size at most 256) and a multiple of <see cref="NativeAttentionWarps"/> query heads per KV head.
+    /// </summary>
+    private static bool NativeAttentionHeadGroups(AttentionPlan plan)
+    {
+        long headSize = Math.Max(plan.D, plan.DV);
+        return headSize <= 256 && plan.HQ % plan.HKV == 0 && plan.HQ / plan.HKV % NativeAttentionWarps(headSize) == 0;
     }
 
     /// <summary>Warps of an <c>attn_decode_native.cu</c> block (each runs its own key tiles and softmax).</summary>
