@@ -284,7 +284,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `chatglm` | ChatGLM3, GLM-4-9B-chat | MQA-ish GQA, partial interleaved rope, fused qkv | **supported (GGUF, tiny random vs llama.cpp)**| -| chatglm | gguf/tiny-random-chatglm-f32 |
 | `glm4` | GLM-4-0414 (9B/32B), GLM-Z1, GLM-4.1V | GQA, sandwich norms, partial rope, fused gate-up; GLM-4.1V: M-RoPE + vision tower | **supported** (GLM-4.1V: HF glm4v with its tower, GGUF glm4 with `rope.dimension_sections` (q/k in neox order) plus a glm4v mmproj; tiny model vs transformers (text: greedy ids and prompt logits; image prompt: embeddings, logits, greedy ids; CPU and Vulkan) and vs llama.cpp b11177 (text ids, mmproj tower outputs to ~1e-3, llama.cpp's f16 attention); no real checkpoint under ~4 GB) | - | glm4, glm4v | gguf/GLM-4-9B-0414, hf/tiny-random-glm-4, hf/tiny-random-glm4v, gguf/tiny-random-glm4v-f32 (+mmproj) |
 | `glm4moe` | GLM-4.5/4.6/4.7, GLM-4.5-Air | QK-norm, partial rope, MoE sigmoid + bias + groups + shared, dense lead, MTP | **supported** | - (MTP layers dropped) | glm4_moe | hf/tiny-random-glm-4-moe |
-| `glm-dsa` | GLM-5 / DSA models | MLA + DSA indexer, MoE | **supported** (dense and sparse regime; deviation: llama.cpp b11177's glm-dsa graph leaves the transformers ids on the same weights, the GGUFs are checked against transformers) | - | glm_moe_dsa | hf/tiny-random-glm-moe-dsa(-sparse), gguf/tiny-random-glm-moe-dsa(-sparse)-f32.gguf |
+| `glm-dsa` | GLM-5 / GLM-5.2 / GLM-5.3 (DSA models) | MLA + DSA indexer, MoE | **supported** (dense and sparse regime; deviation: llama.cpp b11177's glm-dsa graph leaves the transformers ids on the tiny random weights, the tiny GGUFs are checked against transformers; real GLM-5.2 UD-Q2_K_XL, 254 GB, with experts on disk: its first 6 layers within KL 1.6e-4 of transformers in float32 (llama.cpp 9.6e-4), the full model's greedy text identical to llama.cpp b11177 for 9 tokens up to a three-way near tie, same top token at the later checked position; benchmarks section 87) | - | glm_moe_dsa | hf/tiny-random-glm-moe-dsa(-sparse), gguf/tiny-random-glm-moe-dsa(-sparse)-f32.gguf |
 | `glm5-next` | GLM-5.3-Flash | MLA + indexer + HC + linear-attn layers | **supported** (latent decoder: Kimi delta attention with the bounded gate, latent attention without rotary dimensions, the k-pool indexer (softmax-gated pooled keys plus the current tail) with a shared indexer selection, SwiGLU clamped in every MLP, DeepSeek-V4 hyper-connections averaged before the output norm; HF and GGUF, tiny models (dense and sparse regime) vs transformers and llama.cpp 8ca5a80 on CPU and Vulkan; MTP layers and the vision tower not used) | - | glm5_next, glm5_next_text | hf/tiny-random-glm5-next, hf/tiny-random-glm5-next-sparse, gguf/tiny-random-glm5-next{,-sparse}-f32.gguf |
 
 ### MLA/DeepSeek-like
@@ -295,10 +295,10 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `mistral-large4` | Mistral Large 4 | MLA + indexer, MoE shared, yarn, attn temp | **supported** (latent decoder without q-LoRA: rope-less layers (`rope.layers`), layers reading the latent cache of an earlier layer (`attention.kv_source_layers`), scalable softmax on the attention and indexer queries, the indexer's LayerNorm'd query and gptj rope, shared indexer layers, learned yarn factors, final logit softcapping; GGUF only, tiny GGUF vs llama.cpp 8ca5a80 (flash attention / token by token) and a float64 numpy reference of its graph, CPU and Vulkan) | `MLA`, `IDX`, `RGRP` | - | gguf/tiny-random-mistral-large4-f32.gguf |
 | `minicpm3` | MiniCPM3-4B | MLA, RMS | **supported** (latent_decoder) | - | minicpm3 | gguf/MiniCPM3-4B, hf/tiny-random-minicpm3 |
 | `deepseek` | DeepSeek-LLM-MoE (v1) | MHA, MoE softmax + shared, dense lead | **supported** | - | deepseek | gguf/tiny-random-deepseek-f32.gguf |
-| `deepseek2` | DeepSeek V2/V2-Lite/V3/R1, Kimi-K2, GLM-4.7-Flash, Moonlight | MLA (absorbed cache), MoE sigmoid/softmax + bias + groups + shared, yarn mscale, MTP | **supported** (latent_decoder; MTP layers loaded but unused) | - | deepseek_v2, deepseek_v3, kimi_k2 | gguf/DeepSeek-V2-Lite-Chat, hf/tiny-random-deepseek-v3.1, hf/tiny-random-glm-4.7-flash |
+| `deepseek2` | DeepSeek V2/V2-Lite/V3/R1, Kimi-K2, GLM-4.7-Flash, Moonlight | MLA (absorbed cache), MoE sigmoid/softmax + bias + groups + shared, yarn mscale, MTP | **supported** (latent_decoder; MTP layers loaded but unused; real DeepSeek-V3.1 Q4_K_M, 405 GB, with experts on disk: greedy identical to llama.cpp b11177 up to a near tie (0.008 logit), and its first 6 layers within KL 3.4e-4 of transformers in float32 on CPU, CUDA and Vulkan, llama.cpp 7.5e-4 to 2e-3; benchmarks section 87) | - | deepseek_v2, deepseek_v3, kimi_k2 | gguf/DeepSeek-V2-Lite-Chat, hf/tiny-random-deepseek-v3.1, hf/tiny-random-glm-4.7-flash |
 | `deepseek2-ocr` | DeepSeek-OCR | deepseek2 text decoder + vision | **supported** (text and images: DeepSeek-OCR, Unlimited-OCR, DeepSeek-OCR-2) | - | deepseek_vl_v2 (OCR), deepseek_ocr2, unlimited_ocr | hf/tiny-random-{deepseek,unlimited}-ocr[-sam12], hf/tiny-random-deepseek-ocr2[-sam12, -remote-sam12], gguf/tiny-random-deepseek-ocr[2]-sam12-f32 (+mmproj) |
 | `deepseek32` | DeepSeek-V3.2 | MLA + DSA lightning indexer | **supported** (dense and sparse regime) | - | deepseek_v32 | hf/tiny-random-deepseek-v32(-sparse), gguf/tiny-random-deepseek-v32(-sparse)-f32.gguf |
-| `deepseek4` | DeepSeek-V4 | hyper-connections (Sinkhorn), compressed/sparse attention, sinks, MoE hash/groups | **supported** (CPU and Vulkan, single-sequence, batched and paged) | - | deepseek_v4 | hf/tiny-random-deepseek-v4, gguf/tiny-random-deepseek-v4-f32 (llama.cpp 8ca5a80 with f32 caches) |
+| `deepseek4` | DeepSeek-V4 | hyper-connections (Sinkhorn), compressed/sparse attention, sinks, MoE hash/groups | **supported** (CPU and Vulkan, single-sequence, batched and paged; real DeepSeek-V4-Flash UD-IQ1_S vs llama.cpp b11177, CPU and CUDA; CUDA with experts on disk needs `--batch 1`, section 9.1) | - | deepseek_v4 | hf/tiny-random-deepseek-v4, gguf/tiny-random-deepseek-v4-f32 (llama.cpp 8ca5a80 with f32 caches) |
 | `deepseek41` | DeepSeek-V4.1 | as v4 + PLE n-gram | **supported** (GGUF; tiny model vs a numpy reference of llama.cpp's graph and llama.cpp 8ca5a80 token by token, f32 caches; CPU and Vulkan, batched decoding matches single-sequence) | - | - | gguf/tiny-random-deepseek-v41.gguf |
 | `xing4_0` | xing4.0 | MLA + manifold HC + MoE | **supported** | - | xing4_0 (remote code) | hf/tiny-random-xing4-0[-unclamped] (+ f32 GGUFs; llama.cpp ids on the unclamped model) |
 | `plm` | PLM-1.8B | MLA + ReLU2 | **supported** | - | - | gguf/tiny-random-plm-f32.gguf |
@@ -423,7 +423,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `minimax-01` | MiniMax-Text-01 / M1 | lightning linear attention + softmax every 8th, MoE | **supported** | - | minimax | hf/tiny-random-minimax, hf/tiny-random-minimax-llamacpp, gguf/tiny-random-minimax-llamacpp.gguf |
 | `minimax-m3` | MiniMax-M3 | block-sparse indexer + SwiGLU-OAI MoE | **supported** (decoder: per-head Gemma q/k norms, partial rope, dense and MoE layers with the clamped SwiGLU-OAI, sigmoid routing with selection bias and a shared expert, the block-sparse indexer selecting key blocks per key-value group; HF (published and transformers layouts) and GGUF, tiny models (dense and sparse regime) vs transformers on CPU and Vulkan, the dense one also vs llama.cpp 8ca5a80; the vision tower is not imported) | - | minimax_m3_vl, minimax_m3_vl_text | hf/tiny-random-minimax-m3, hf/tiny-random-minimax-m3-sparse, gguf/tiny-random-minimax-m3{,-sparse}-f32.gguf |
 | `kimi-linear` | Kimi-Linear-48B-A3B | KDA (per-channel gated delta) 3:1 + MLA, MoE sigmoid + shared, conv | **supported** | - | kimi_linear | hf/tiny-random-kimi-linear-f32, gguf/tiny-random-kimi-linear-f32.gguf |
-| `kimi-k3` | Kimi K3 | KDA + MLA + HC | **supported** | - | kimi_k3 | hf/tiny-random-kimi-k3 (original MXFP4 checkpoint), hf/tiny-random-kimi-k3-f32, gguf/tiny-random-kimi-k3-f32 |
+| `kimi-k3` | Kimi K3 | KDA + MLA + HC | **supported** (real UD-Q1_0, 466 GB, with experts on disk on CUDA and CPU: its first 4 layers within KL 4e-4 of llama.cpp b11177; section 9.1) | - | kimi_k3 | hf/tiny-random-kimi-k3 (original MXFP4 checkpoint), hf/tiny-random-kimi-k3-f32, gguf/tiny-random-kimi-k3-f32 |
 | `kimi-k31` | Kimi K3.1 | KDA + MLA + HC + indexer | **supported** | - | kimi_k3 (with dsa_config) | hf/tiny-random-kimi-k31[-shared]-f32, gguf/tiny-random-kimi-k31[-shared]-f32 |
 
 ### Encoder
@@ -751,6 +751,33 @@ LD_LIBRARY_PATH=$D $D/llama-completion -m MODEL.gguf -p 'The capital of France i
 ```
 
 The GPU is shared with other applications: for a model that does not fit, drop `-ngl` (llama.cpp then fits automatically) or use the cpu build. Greedy outputs of 16 tokens are sensitive to quantisation and to the backend's float summation order; use them as a first parity gate (identical text expected for the same file on CPU) and compare logits/token ids for finer checks. Quantised GGUFs from different repackagers of the same model are not interchangeable references.
+
+### 9.1 Huge mixture-of-experts checkpoints (bring-up huge-moe-r1, 2026-11-22)
+
+Real checkpoints larger than host memory and VRAM together, run with their routed experts on disk (hardware.md, "Routed experts on disk")
+on one 32 GB GPU with 62 GB of host memory; method, numbers and raw output in benchmarks.md section 87. References: the full model against
+llama.cpp b11177 on the same GGUF where llama.cpp reads its architecture and types, and the first layers of the same file (real weights,
+`tools/truncate-gguf.py` for local files, `tools/truncate-gguf-remote.py` fetching only the needed byte ranges from the Hub) against
+transformers in float32 on the dequantized weights (`tools/latent-moe-gguf-reference.py`) or llama.cpp. The truncated files are cases of
+`LogprobReferenceTests` (skipped when absent).
+
+| Model | File | Verdict | Reference |
+|---|---|---|---|
+| Kimi K3 | unsloth/Kimi-K3-GGUF UD-Q1_0 (466 GB; experts in the narrow IQ1_XXXS type) | verified (truncated) | llama.cpp b11177 on the first 4 layers with the experts widened to IQ1_S (KL 4e-4 against its token-by-token decoding, as close as its own prompt pass); the full model runs (CUDA, CPU; coherent text) but has no reference on this pod: llama.cpp b11177 lacks the narrow types, the fork that has them was not built. UD-TQ1_0 / UD-TQ2_0 (509 / 551 GB) did not fit the disk budget |
+| DeepSeek-V4-Flash 0731 | unsloth/DeepSeek-V4-Flash-0731-GGUF UD-IQ1_S (82.5 GB) | verified, CUDA partial | llama.cpp b11177, full model (greedy identical for 8 tokens up to a near tie); bug: CUDA with experts on disk gives wrong output for multi-row prompt passes (`--batch 1`, CPU and CUDA without experts on disk are right), open |
+| DeepSeek-V3.1 | unsloth/DeepSeek-V3.1-GGUF Q4_K_M (405 GB) | verified | llama.cpp b11177, full model (greedy identical up to a 0.008-logit near tie); transformers float32, first 6 layers (KL 2-3e-4 on CPU, CUDA, Vulkan; llama.cpp 7.5e-4 to 2e-3). The file has no `expert_group_count`, so neither engine applies DeepSeek-V3's group-limited routing (8 groups, best 4): a property of the file (KL 5e-3 on the 6-layer cut) |
+| GLM-5.2 | unsloth/GLM-5.2-GGUF UD-Q2_K_XL (254 GB) | verified | llama.cpp b11177, full model (greedy identical for 9 tokens up to a three-way near tie of llama.cpp itself); transformers float32, first 6 layers (KL 1.6e-4; llama.cpp 9.6e-4). On these real weights llama.cpp's glm-dsa graph agrees with transformers within its quantization noise, unlike on the tiny random checkpoints (section 4) |
+
+Not verified this round:
+
+- **Kimi K3.1 (Pro)**: no unsloth GGUF; `KarLexAI/Kimi-K3.1-Pro-GGUF` exists, but llama.cpp b11177 has no `kimi-k31` and the
+  safetensors checkpoint (MXFP4) is 1.5 TB. The architecture remains verified on tiny checkpoints only.
+- **GLM-5.3**: same architecture and GGUF layout as GLM-5.2 (unsloth/GLM-5.3-GGUF, same quant sizes); not downloaded.
+- **Mistral-Large-4-1T, Qwen3.8-2.4T-A95B, Muse-Spark-Open-816B, Nemotron-3-Ultra-550B**: not run (time; the disk was also needed by the
+  feed builds). Their headers import (section 10); llama.cpp b11177 has `qwen35moe` and `nemotron_h_moe` but not `mistral-large4`.
+- **CUDA device reserve**: Kimi-K3's ~185-segment placement filled the GPU to 27.6 GiB and failed at the third decode step
+  (`cuStreamCreate: out of memory`; per-segment lane streams and step graphs beyond the 512 MiB reserve); `SHARPLIGHT_DEVICE_RESERVE_MIB=3072`
+  avoids it. The reserve should grow with the segment count.
 
 ## 10. Real-checkpoint sweep (bring-up round 10, 2026-11-15)
 

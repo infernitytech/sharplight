@@ -1,0 +1,44 @@
+Graph optimization (sharplight-ir/1): decode 21103 -> 20615 nodes [710 ms]
+Loaded Deepseek-V4-Flash-0731 (latent_decoder): 1329 tensors, 82.53 GB, vocab 129280 [1180 ms]
+Experts on disk: io_uring is unavailable (io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)); reading with 8 threads instead.
+Experts on disk: 50.8 GiB of routed experts on the CPU exceed the 16.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 16.0 GiB cache.
+Experts on disk: 87 weights in 29 layers (47.2 GiB) read with threads x8; 3.1 GB/s measured; a decode step reads up to 1.19 GB: about 2.58 tok/s from a cold cache, ~3.96 tok/s once the 16.4 GiB cache holds its share (reads only; compute adds to it).
+Compiled 'decode', window-sized caches of 208 rows for the 128-key window layers in 21098 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 59 groups, 28.04 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 30 groups, 48.95 GiB weights+state
+30 routed-expert group(s) on disk
+Ready (decode)
+segment 0: 295 launches per step (cuda, one stream)
+segment 2: 295 launches per step (cuda, one stream)
+segment 4: 319 launches per step (cuda, one stream)
+segment 6: 304 launches per step (cuda, one stream)
+segment 8: 317 launches per step (cuda, one stream)
+segment 10: 302 launches per step (cuda, one stream)
+segment 12: 317 launches per step (cuda, one stream)
+segment 14: 302 launches per step (cuda, one stream)
+segment 16: 317 launches per step (cuda, one stream)
+segment 18: 302 launches per step (cuda, one stream)
+segment 20: 317 launches per step (cuda, one stream)
+segment 22: 302 launches per step (cuda, one stream)
+segment 24: 317 launches per step (cuda, one stream)
+segment 26: 302 launches per step (cuda, one stream)
+segment 28: 317 launches per step (cuda, one stream)
+segment 30: 302 launches per step (cuda, one stream)
+segment 32: 317 launches per step (cuda, one stream)
+segment 34: 302 launches per step (cuda, one stream)
+segment 36: 317 launches per step (cuda, one stream)
+segment 38: 302 launches per step (cuda, one stream)
+segment 40: 317 launches per step (cuda, one stream)
+segment 42: 302 launches per step (cuda, one stream)
+segment 44: 317 launches per step (cuda, one stream)
+segment 46: 302 launches per step (cuda, one stream)
+segment 48: 317 launches per step (cuda, one stream)
+segment 50: 302 launches per step (cuda, one stream)
+segment 52: 317 launches per step (cuda, one stream)
+segment 54: 302 launches per step (cuda, one stream)
+segment 56: 317 launches per step (cuda, one stream)
+segment 58: 302 launches per step (cuda, one stream)
+segment 60: 4067 launches per step (cuda, one stream)
+experts on disk, warm-up and prefills: hit rate 66.3 % (5991 hits, 983 read ahead, 2062 misses, 983 prefetched, 0 evictions), read 7.00 GB, waited 0.60 s, cache 16.4 GiB in 7624 slots
+experts on disk, decode: hit rate 95.1 % (35577 hits, 448 read ahead, 1367 misses, 448 prefetched, 0 evictions), read 4.19 GB, waited 0.66 s, cache 16.4 GiB in 7624 slots
+prefill 8 tok: best 599 ms = 13.4 tok/s | decode: best 14.92, median 12.41, mean 11.40 tok/s | GPU ms/step: best 21.33, median 21.67, wall best 67.03 | prefill median of 2: 753.3 ms = 10.6 tok/s

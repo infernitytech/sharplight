@@ -55,4 +55,14 @@ internal sealed unsafe class GgufNarrowIq1Source : IWeightSource
 
     /// <inheritdoc/>
     public nint TryGetPointer() => 0;
+
+    /// <inheritdoc/>
+    public bool TryGetEncodedFileRange(out string path, out long offset, out IStoredBlockEncoding? encoding)
+    {
+        _file.ThrowIfDisposed();
+        path = _file.Path;
+        offset = _offset;
+        encoding = new GgmlNarrowIq1Encoding(_ggmlType);
+        return true;
+    }
 }

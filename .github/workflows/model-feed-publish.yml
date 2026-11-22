@@ -108,7 +108,9 @@ jobs:
 
       - name: Build the feed tool
         if: steps.secrets.outputs.skip == 'false'
-        run: dotnet build tools/model-feed/Sharplight.FeedTool -c Release
+        # One build node: Nerdbank.GitVersioning appends its cloud-build variables to $GITHUB_ENV from every project, and parallel
+        # nodes interleaved those lines (run 45054150496: "Unable to process file command 'env' successfully. Invalid format '69'").
+        run: dotnet build tools/model-feed/Sharplight.FeedTool -c Release -m:1
 
       - name: Write the signing key
         if: steps.secrets.outputs.skip == 'false'

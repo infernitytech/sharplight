@@ -38,6 +38,24 @@ internal sealed class FileWeights : IDisposable
         return new WeightInfo { Name = name, Type = type, Shape = new Shape([.. dims.Select(d => (Dim)d)]), Source = new FileRangeSource(Path, offset, bytes.Length) };
     }
 
+    /// <summary>
+    /// Appends <paramref name="bytes"/> (a weight of type <paramref name="type"/>) stored in <paramref name="encoding"/>'s form: the file holds
+    /// the encoded blocks, the source decodes them (<see cref="EncodedFileRangeSource"/>).
+    /// </summary>
+    public WeightInfo AddEncoded(string name, DataType type, ReadOnlySpan<byte> bytes, ReversedBlockEncoding encoding, params long[] dims)
+    {
+        var stored = ReversedBlockEncoding.Encode(bytes, encoding.BlockBytes);
+        long offset = _file.Length;
+        _file.Seek(0, SeekOrigin.End);
+        _file.Write(stored);
+        _file.Write(new byte[(32 - stored.Length % 32) % 32]);
+        _file.Flush();
+        return new WeightInfo
+        {
+            Name = name, Type = type, Shape = new Shape([.. dims.Select(d => (Dim)d)]), Source = new EncodedFileRangeSource(Path, offset, stored.Length, encoding),
+        };
+    }
+
     public void Dispose()
     {
         _file.Dispose();

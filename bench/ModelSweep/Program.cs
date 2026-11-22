@@ -16,13 +16,16 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using Sharplight.Cpu;
 using Sharplight.Hub;
+using Sharplight;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Templating;
 using ModelSweep;
 
 using var services = SharplightDefaults.CreateServiceProvider();
-var loader = services.GetRequiredService<ModelLoader>();
+Sweep.Loader = services.GetRequiredService<ModelLoader>();
 
 if (args.Length < 2)
 {
@@ -141,6 +144,9 @@ namespace ModelSweep
     /// <summary>The sweep steps.</summary>
     internal static class Sweep
     {
+        /// <summary>The model loader of the sweep's service provider.</summary>
+        internal static ModelLoader Loader { get; set; } = null!;
+
         private const string TestText = "The capital of France is Paris. 1234567 +-*/ ünïcödé 日本語 \n\n  spaces\t<tab>";
 
         /// <summary>Header-derived facts of a GGUF variant.</summary>
@@ -375,7 +381,7 @@ namespace ModelSweep
             var sw = Stopwatch.StartNew();
             try
             {
-                using var model = LlmModel.Load(loader, path, new LlmLoadOptions { Devices = [], ContextLength = 4096 });
+                using var model = LlmModel.Load(Loader, path, new LlmLoadOptions { Devices = [], ContextLength = 4096 });
                 var kernels = model.Definition.Weights.Values.Select(w => w.Type).Distinct().Where(type => !CpuExecutionProvider.SupportsWeightType(type)).ToList();
                 import = kernels.Count == 0 ? $"ok {model.Definition.Architecture}" : $"NO KERNEL {string.Join(",", kernels.Select(k => k.Name))}";
                 try

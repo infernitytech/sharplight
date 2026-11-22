@@ -1,6 +1,6 @@
 # Compatible models
 
-Last updated: 2026-11-16.
+Last updated: 2026-11-22.
 
 This is the list of models that have been tried with Sharplight and work. It only contains what was actually tested; a model that is not
 listed has not been tried yet, which does not mean it fails. Technical detail (architecture coverage, quantization formats, test
@@ -8,8 +8,12 @@ methodology, numbers) is in [model-support.md](model-support.md), ONNX details i
 
 The model tables are generated from the verified-model catalog, `catalog/verified-models.json` ([verified-catalog.md](verified-catalog.md)),
 which pins every verified model to the exact Hub revision and files that were checked; Sharplight Studio offers the same list in
-Discover ("Verified"), installable in one click. Sections 1.2, 7 and 9 (load-only sweeps, ONNX groups, unsupported models) are written by
-hand.
+Discover ("Verified"), installable in one click. Sections 1.1.2, 1.2, 7 and 9 (huge models with experts on disk, load-only sweeps, ONNX
+groups, unsupported models) are written by hand.
+
+Mixture-of-experts models larger than host memory and VRAM together run with their routed experts read from the model file on demand
+("experts on disk", [hardware.md](hardware.md#memory-what-falls-back-to-what): CLI `--cpu-offload --experts-on-disk`, Studio's "Read experts from disk"); section
+1.1.2 lists the ones verified that way, with the machine they ran on and their speed.
 
 ## What "compatible" means
 
@@ -146,6 +150,21 @@ differing token is a near tie of the reference itself (llama.cpp's own CPU and V
 | Qwen3 30B-A3B (MoE) | Qwen/Qwen3-30B-A3B-GGUF | GGUF Q4_K_M | CPU, Vulkan | tokenizer and templates identical to transformers; greedy identical to llama.cpp (CPU build) | | 2026-11-16 |
 | Qwen3.5 122B-A10B | unsloth/Qwen3.5-122B-A10B-GGUF, Qwen/Qwen3.5-122B-A10B-FP8, Qwen/Qwen3.5-122B-A10B-GPTQ-Int4, nvidia/Qwen3.5-122B-A10B-NVFP4 | GGUF UD-IQ2_XXS (37 GB); FP8, GPTQ-Int4, NVFP4 (cut-down checkpoints) | CUDA, Vulkan (1 GPU) + CPU | greedy text identical to llama.cpp; cut-down HF checkpoints vs transformers | | 2026-11-20 |
 <!-- verified-catalog:end -->
+
+### 1.1.2 Huge mixture-of-experts models, experts on disk (2026-11-22)
+
+Models larger than host memory and VRAM together, run with their routed experts read from the model file on demand
+([hardware.md](hardware.md#memory-what-falls-back-to-what), "Routed experts on disk": CLI `--cpu-offload --experts-on-disk --expert-cache <size>`, Studio's "Read experts
+from disk"). Every row ran on one machine: **1x 32 GB GPU (RTX PRO 4500 Blackwell), 62 GB of host memory (cgroup), ~10 CPU cores, model files
+on a local NVMe SSD read at ~7.4 GB/s**, with the stated cache. Decode and prompt speed are bound by the disk; a faster disk or more memory
+for the cache changes them. Method and raw numbers: benchmarks.md section 87.
+
+| Model | Hub repository | Quant, size | Experts on disk | Providers | Verification | Decode (tok/s) | Prompt | Verified |
+|---|---|---|---|---|---|---|---|---|
+| DeepSeek-V3.1 (671B, MLA, MoE 256 experts) | deepseek-ai/DeepSeek-V3.1, unsloth/DeepSeek-V3.1-GGUF | GGUF Q4_K_M, 405 GB | yes, 28 GiB cache; 56 of 58 MoE layers on disk | CUDA, CPU | greedy identical to llama.cpp b11177 (CUDA) up to a near tie at the 6th token (" Spain" / " France", 0.008 logit; llama.cpp's own prompt and decode paths differ by 0.09 there); first 6 layers (real weights) within KL 3.4e-4 of transformers float32 on CPU, CUDA and Vulkan (llama.cpp 7.5e-4 to 2e-3) | 0.97 (24-token text), 0.80-0.93 median / 1.15-1.20 best (64 steps); llama.cpp 0.62 | 6 tokens in 8.1 s (llama.cpp 16.4 s) | 2026-11-22 |
+| GLM-5.2 (744B, MLA + DSA indexer, MoE 256 experts) | zai-org/GLM-5.2, unsloth/GLM-5.2-GGUF | GGUF UD-Q2_K_XL, 254 GB | yes, 24 GiB cache; 71 of 75 MoE layers on disk | CUDA, CPU | greedy identical to llama.cpp b11177 (CPU) for 9 tokens up to a three-way near tie (0.07 log-probability), same top token at the later checked position; first 6 layers (real weights) within KL 1.6e-4 of transformers float32 (llama.cpp 9.6e-4) | 0.41 (24-token text, cold cache), 0.99 median / 2.09 best (64 steps); llama.cpp 0.55 | 5 tokens in 9.8 s (llama.cpp 9.9 s), 8 in 6.4 s (warm) | 2026-11-22 |
+| Kimi K3 (2.8T, Kimi delta attention + MLA, latent MoE 896 experts) | moonshotai/Kimi-K3, unsloth/Kimi-K3-GGUF | GGUF UD-Q1_0, 466 GB (experts in unsloth's narrow IQ1 types) | yes, 24 GiB cache; all 92 MoE layers on disk | CUDA, CPU | first 4 layers (real weights, experts widened to IQ1_S) within KL 4e-4 of llama.cpp b11177 token by token (llama.cpp's own prompt pass 3e-4); the full file has no reference here (llama.cpp b11177 lacks the narrow types); coherent greedy text | 0.08 (24-token text; compute-bound) | 5 tokens in 21 s | 2026-11-22 |
+| DeepSeek-V4-Flash 0731 (284B, compressed KV, hash routing, hyper-connections) | deepseek-ai/DeepSeek-V4-Flash-0731, unsloth/DeepSeek-V4-Flash-0731-GGUF | GGUF UD-IQ1_S, 82.5 GB | yes, 16 GiB cache; 31 layers' experts on disk | CPU, CUDA (`--batch 1`) | greedy identical to llama.cpp b11177 for 8 tokens up to a near tie (0.25 log-probability); CUDA with experts on disk needs `--batch 1` (multi-row prompt passes are wrong there, open) | 7.7 (12-token text), 12.4 median / 14.9 best (64 steps); llama.cpp 6.58; CPU only 1.98 (llama.cpp 2.96) | 5 tokens in 1.5 s (llama.cpp 1.5 s) | 2026-11-22 |
 
 ### 1.2 Language models that load (header check and import, output not compared)
 

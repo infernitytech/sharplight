@@ -1,0 +1,14 @@
+== lock 18:18:02
+-- cuda_disk_nosplit
+The capital of France isExperts on disk: 93 weights in 31 layers (50.8 GiB) read with threads x8; 3.3 GB/s measured; a decode step reads up to 1.28 GB: about 2.59 tok/s from a cold cache, ~3.83 tok/s once the 16.5 GiB cache holds its share (reads onl
+prompt: 5 tok in 7877 ms (0.6 tok/s) | generated: 12 tok, 5.33 tok/s
+-- cuda_resident
+The capital of France is Paris. It is the largest city in France and is located
+prompt: 5 tok in 2515 ms (2.0 tok/s) | generated: 12 tok, 5.50 tok/s
+-- vulkan_disk
+Unhandled exception: Sharplight.Runtime.DeviceOutOfMemoryException: NVIDIA RTX PRO 4500 Blackwell: out of memory allocating 34.0 MiB for weight buffer layers.29.attention.o_group.weight. Tried: 256 MiB Device in type 1 (device-local, heap 0): ErrorOu
+-- cuda_disk_batch1
+The capital of France is Paris. It is the largest city in France, and is
+prompt: 5 tok in 1520 ms (3.3 tok/s) | generated: 12 tok, 7.74 tok/s
+[0m[37m   Sharplight.Families.Tests  Total: 322, Errors: 0, Failed: 0, Skipped: 322, Not Run: 0, Time: 0.237s
+== unlock 18:22:17

@@ -1,0 +1,14 @@
+llama ids 1008,10484,318,15383,387,17374,13,646,10484,318,16458,387
+ids: 1008,10484,318,15383,387,17374,13,646,10484,318,16458,387
+  36356 8.1095  hesitate
+  140580 7.9830 ruk
+  24917 7.9369  hes
+ids: 1008,10484,318,15383,387,17374,13,646,10484,318,16458,387
+  36356 8.1323  hesitate
+n_vocab 163840 best 36356 8.1235
+sched_reserve: reserve took 31.23 ms, sched copies = 1
+~llama_context:        CPU compute buffer size is 377.5078 MiB, matches expectation of 377.5078 MiB
+n_vocab 163840 best 36356 8.1155
+k3L4_sl_cpu.f32              maxabs 0.1292 rms 0.0213 top20 maxabs logprob 0.0919 KL 4.13e-04 corr 0.999889 argmax 36356 (ref 36356)
+k3L4_sl_cpu_b1.f32           maxabs 0.1328 rms 0.0214 top20 maxabs logprob 0.0689 KL 3.95e-04 corr 0.999888 argmax 36356 (ref 36356)
+k3L4_ll_cpu.f32              maxabs 0.1197 rms 0.0189 top20 maxabs logprob 0.0530 KL 3.02e-04 corr 0.999912 argmax 36356 (ref 36356)

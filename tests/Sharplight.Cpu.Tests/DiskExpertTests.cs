@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Runtime.Experts;
 using Sharplight.Tensors;
@@ -19,13 +20,26 @@ public sealed class DiskExpertTests
     private const int Slots = 2;
     private const int Layers = 2;
 
-    private static ComputeGraph BuildGraph(FileWeights file, int experts, bool quantized, out Value x, out Value ids, out Value slotWeights, out long denseBytes)
+    private static ComputeGraph BuildGraph(FileWeights file, int experts, bool quantized, out Value x, out Value ids, out Value slotWeights, out long denseBytes,
+        bool encoded = false)
     {
         var tg = new TestGraph();
         Value Weight(string name, int seed, params long[] dims)
         {
             var data = Kit.Rand((int)dims.Aggregate(1L, (a, b) => a * b), seed, 0.2f);
-            var info = quantized ? file.Add(name, DataType.Q8_0, Quantizers.Q8_0(data), dims) : file.AddF32(name, data, dims);
+            WeightInfo info;
+            if (encoded)
+            {
+                // Stored in another block encoding (as narrow GGUF types are): Q8_0 blocks of 34 bytes, or f32 values.
+                info = quantized
+                    ? file.AddEncoded(name, DataType.Q8_0, Quantizers.Q8_0(data), new ReversedBlockEncoding(34), dims)
+                    : file.AddEncoded(name, DataType.F32, System.Runtime.InteropServices.MemoryMarshal.AsBytes(data.AsSpan()), new ReversedBlockEncoding(4), dims);
+            }
+            else
+            {
+                info = quantized ? file.Add(name, DataType.Q8_0, Quantizers.Q8_0(data), dims) : file.AddF32(name, data, dims);
+            }
+
             tg.Weights[name] = info;
             return tg.B.Weight(name);
         }
@@ -77,10 +91,14 @@ public sealed class DiskExpertTests
     [InlineData(160, 40, true, true)]   // up to 80 experts per product: more than a chunk (16) of the smallest cache
     [InlineData(160, 40, false, false)]
     [InlineData(160, 40, true, false)]
-    public void DiskExpertsMatchTheResidentExperts(int experts, int rows, bool quantized, bool intDot)
+    // Stored in another block encoding: the store reads the stored blocks and decodes them in the slot before a pass reads them.
+    [InlineData(8, 3, false, false, true)]
+    [InlineData(160, 4, true, true, true)]
+    [InlineData(160, 40, true, true, true)]
+    public void DiskExpertsMatchTheResidentExperts(int experts, int rows, bool quantized, bool intDot, bool encoded = false)
     {
         using var file = new FileWeights();
-        var graph = BuildGraph(file, experts, quantized, out var x, out var ids, out var slotWeights, out long denseBytes);
+        var graph = BuildGraph(file, experts, quantized, out var x, out var ids, out var slotWeights, out long denseBytes, encoded);
         using var device = Kit.Provider.OpenDevice(Kit.Provider.GetDevices()[0]);
         using var fallback = Kit.Provider.OpenDevice(Kit.Provider.GetDevices()[0]);
         // The smallest cache: 64 slots per pool, fewer than one layer's experts.

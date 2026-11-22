@@ -1,0 +1,33 @@
+== lock 13:18:05
+Compiled 'decode' in 44227 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 66 groups, 24.51 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 56 groups, 353.31 GiB weights+state
+56 routed-expert group(s) on disk
+Ready (decode)
+ids: 0,671,6102,294,8760,344,11111,16,455,6102,294
+  16603 30.3308  Spain
+  8760 30.3232  France
+  14251 29.8735  Italy
+  270 29.3264  the
+  8304 28.8867  England
+experts on disk (threads x8): hit rate 0.0 % (0 hits, 2901 read ahead, 5799 misses, 2899 prefetched, 5309 evictions), read 76.84 GB, waited 10.66 s, cache 28.0 GiB in 3405 slots
+== ours done 13:19:12
+== server up 13:21:05
+content: ' France'
+0 ' France' 8760:' France':-1.4048 | 16603:' Spain':-1.6241 | 14251:' Italy':-1.7422 | 270:' the':-2.3527 | 8304:' England':-2.8894 | 13141:' Mexico':-3.7185
+timings: {'cache_n': 0, 'prompt_n': 11, 'prompt_ms': 25970.07, 'prompt_per_token_ms': 2360.9154545454544, 'prompt_per_second': 0.42356451099284675, 'predicted_n': 1, 'predicted_ms': 0.001, 'predicted_per_token_ms': 0.0, 'predicted_per_second': 0.0}
+content: ' Paris. The capital of France is Paris. The capital of'
+0 ' Paris' 11111:' Paris':-0.3874 | 260:' a':-3.3566 | 34837:' PAR':-3.5961 | 270:' the':-3.7734 | 28534:' ______':-4.0516 | 834:' one':-4.0572
+1 '.' 16:'.':-0.8998 | 14:',':-1.1767 | 339:'.\n\n':-1.9608 | 603:'.\n':-3.0929 | 305:' and':-3.7831 | 271:'\n\n':-3.9747
+2 ' The' 455:' The':-1.7325 | 1162:' This':-2.0717 | 11111:' Paris':-2.2148 | 983:' It':-2.3962 | 223:' ':-3.2998 | 8760:' France':-3.6703
+3 ' capital' 6102:' capital':-0.6085 | 446:' E':-2.8206 | 4593:' city':-3.1760 | 3924:' country':-3.3503 | 7213:' French':-3.4417 | 16886:' currency':-3.8022
+4 ' of' 294:' of':-0.0691 | 4593:' city':-3.6227 | 344:' is':-3.7929 | 305:' and':-5.1845 | 201:'\n':-6.1923 | 295:' in':-6.9824
+5 ' France' 8760:' France':-1.4635 | 16603:' Spain':-1.6526 | 14251:' Italy':-1.7183 | 270:' the':-2.2597 | 8304:' England':-2.9067 | 11111:' Paris':-3.7407
+6 ' is' 344:' is':-0.0602 | 14:',':-4.4148 | 769:' has':-4.8498 | 16:'.':-5.3989 | 305:' and':-5.8153 | 515:' was':-5.8479
+7 ' Paris' 11111:' Paris':-0.1148 | 554:' not':-4.0558 | 270:' the':-4.3536 | 260:' a':-4.5965 | 7840:' located':-5.2827 | 6693:' London':-5.6134
+8 '.' 16:'.':-0.3349 | 339:'.\n\n':-1.7950 | 603:'.\n':-3.3111 | 14:',':-3.4284 | 305:' and':-5.4151 | 1754:' because':-5.8491
+9 ' The' 455:' The':-0.5755 | 11111:' Paris':-3.3196 | 1162:' This':-3.7786 | 660:' In':-4.1109 | 223:' ':-4.2457 | 983:' It':-4.3090
+10 ' capital' 6102:' capital':-0.0515 | 201:'\n':-5.7380 | 446:' E':-5.8583 | 4593:' city':-5.9731 | 4813:' correct':-6.0859 | 7213:' French':-6.1960
+11 ' of' 294:' of':-0.0056 | 201:'\n':-5.8042 | 344:' is':-7.0764 | 271:'\n\n':-8.1359 | 8060:' ...\n\n':-8.5687 | 4593:' city':-8.6042
+timings: {'cache_n': 0, 'prompt_n': 6, 'prompt_ms': 32184.324, 'prompt_per_token_ms': 5364.054, 'prompt_per_second': 0.18642616200358908, 'predicted_n': 12, 'predicted_ms': 36841.628, 'predicted_per_token_ms': 3349.2389090909087, 'predicted_per_second': 0.2985752964011254}
+== unlock 13:22:44

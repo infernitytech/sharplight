@@ -46,6 +46,23 @@ public interface IWeightSource
     }
 
     /// <summary>
+    /// The file range of data stored in another block encoding than the weight's data type (<see cref="IStoredBlockEncoding"/>): the stored
+    /// blocks are one contiguous range of <paramref name="path"/> from <paramref name="offset"/>, and <see cref="Read"/> returns them decoded.
+    /// For sources whose bytes are stored as they are read, <see cref="TryGetFileRange"/> applies instead. Default: none.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="offset">Offset of the first stored byte in the file.</param>
+    /// <param name="encoding">Decodes the stored blocks to the weight's data type.</param>
+    /// <returns><see langword="true"/> when the data is such a range.</returns>
+    public bool TryGetEncodedFileRange(out string path, out long offset, out IStoredBlockEncoding? encoding)
+    {
+        path = "";
+        offset = 0;
+        encoding = null;
+        return false;
+    }
+
+    /// <summary>
     /// Computes the data now if this source produces it lazily on first <see cref="Read"/> (default: nothing to do), so that a
     /// consumer can produce several weights in parallel ahead of reading them. Thread-safe; concurrent reads wait for the result.
     /// </summary>
