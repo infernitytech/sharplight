@@ -1,3 +1,4 @@
+using System.Globalization;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -22,10 +23,29 @@ public sealed partial class GraphLowerer
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
-            ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount, UniformFp8ScaleGroups(p.Node.Inputs[1], p.W)) : null : null,
+            ? NativeFp8MemberVariants(p, quantized, xcap, min, max) : null : null,
         nativeMinRows: NativeFp8MinRows(!_multiGemmOf.ContainsKey(p.Node)),
         fusedKernel: !Fp8FusedSplitK ? null : (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8",
             new Dictionary<string, string>(Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)) { ["SPLITK_FUSED"] = "1" }));
+
+    /// <summary>
+    /// The hand-written FP8 GEMM's launch variants of <paramref name="p"/> on its E4M3 rows <paramref name="quantized"/>; a member of a
+    /// q / k / v group whose 128-row tiles run on tensor copies leaves the batches its multi-output form serves to it
+    /// (<see cref="EmitNativeFp8TallMultiGemm"/>).
+    /// </summary>
+    private KernelVariant[] NativeFp8MemberVariants(MatMulPlan p, TensorRef quantized, long xcap, long min, long max)
+    {
+        bool uniform = UniformFp8ScaleGroups(p.Node.Inputs[1], p.W);
+        var variants = NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount, uniform);
+        if (!NativeFp8TensorCopies || p.RowsPerLead != 1 || !p.Y.IsDense || p.Macros.GetValueOrDefault("Y_STRIDE") != p.N.ToString(CultureInfo.InvariantCulture))
+        {
+            return variants;
+        }
+
+        var notMulti = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(quantized, p.W, p.Y, null, null, p.RowCount, min, p.X.Shape[0],
+            TallCondition(min, p.RowCount), TokenArg(p.X), Fp8: true, UniformScales: uniform));
+        return Unless(variants, notMulti);
+    }
 
     /// <summary>
     /// Largest batch for which the dual fp8 GEMM serves every row count (one 64-row tile). Larger batches use it only where the

@@ -374,19 +374,32 @@ public sealed partial class GraphLowerer
     /// scale copy of that many rows (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>, see <see cref="Fp8StoreMinRows"/>) instead of f32 rows.
     /// </summary>
     private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0,
-        bool uniformScales = false)
+        bool uniformScales = false, long[]? multiWidths = null)
     {
         bool dual = dualEpilogue is not null;
         long rowBytes = k + k / 32;
         var inv = CultureInfo.InvariantCulture;
-        string WeightMap(int pointer) => string.Create(inv, $"{pointer} 3 {k},128,{n / 128} {k},{128 * rowBytes} 128,{(dual ? 64 : 128)},1");
-        var maps = new List<string> { string.Create(inv, $"0 2 {k},{xcap} {rowBytes} 128,128"), WeightMap(1) };
+        string WeightMap(int pointer, long rows) => string.Create(inv, $"{pointer} 3 {k},128,{rows / 128} {k},{128 * rowBytes} 128,{(dual ? 64 : 128)},1");
+        var maps = new List<string> { string.Create(inv, $"0 2 {k},{xcap} {rowBytes} 128,128"), WeightMap(1, multiWidths?[0] ?? n) };
         if (dual)
         {
-            maps.Add(WeightMap(2));
+            maps.Add(WeightMap(2, n));
         }
 
-        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
+        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", multiWidths?[0] ?? n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
+        if (multiWidths is not null)
+        {
+            // Arguments x, w, y, w_1 (, w_2), y_1 (, y_2): the members' maps over pointers 3 and 4.
+            for (int m = 1; m < multiWidths.Length; m++)
+            {
+                maps.Add(WeightMap(2 + m, multiWidths[m]));
+            }
+
+            macros["MULTI"] = multiWidths.Length.ToString(inv);
+            macros["MULTI_O1"] = multiWidths[0].ToString(inv);
+            macros["MULTI_O2"] = (multiWidths.Length > 2 ? multiWidths[0] + multiWidths[1] : n).ToString(inv);
+        }
+
         if (qcap > 0)
         {
             macros["QOUT"] = "1";

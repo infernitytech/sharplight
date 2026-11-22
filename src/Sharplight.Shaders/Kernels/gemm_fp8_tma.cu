@@ -45,7 +45,12 @@
 // F8N_WUNI: the weight scales are uniform over each 128-row group per K block (128 x 128 block checkpoints): the promotion multiplies
 // by one product of the row's activation scale and the group's weight scale (the same product as the per-row form, bit for bit).
 //
-// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+// MULTI (2 or 3, not with DUAL or QOUT): the multi-output form over the concatenated rows of two or three matrices of one K (q / k / v),
+// as gemm_fp8_native.cu's: rows [0, MULTI_O1) are w's into y, [MULTI_O1, MULTI_O2) w_1's into y_1, the rest w_2's into y_2 (dense rows
+// of each member's width; N all rows, MULTI_O1 and MULTI_O2 multiples of 128), each with its own tensor map (mw_1, mw_2): a tile lies
+// in one member, so each output is the product the member's own launch computes.
+//
+// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, MULTI, MULTI_O1, MULTI_O2, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads (F8N_WG: 384), F8N_SHARED bytes of dynamic shared memory.
 #ifndef DUAL
 #define DUAL 0
@@ -55,6 +60,12 @@
 #endif
 #ifndef F8N_WUNI
 #define F8N_WUNI 0
+#endif
+#ifndef MULTI
+#define MULTI 0
+#endif
+#if MULTI && (DUAL || QOUT)
+#error "gemm_fp8_tma: MULTI with DUAL or QOUT"
 #endif
 #define F8N_BM 128
 #define F8N_BN 128
@@ -119,13 +130,63 @@ struct F8nParams
     const f8n_u8* w2;
 #endif
     float* y;
+#if MULTI
+    const f8n_u8* w_1;
+#if MULTI > 2
+    const f8n_u8* w_2;
+#endif
+    float* y_1;
+#if MULTI > 2
+    float* y_2;
+#endif
+#endif
     f8n_u32 T;
     F8nTensorMap mx;
     F8nTensorMap mw;
 #if DUAL
     F8nTensorMap mw2;
 #endif
+#if MULTI
+    F8nTensorMap mw_1;
+#if MULTI > 2
+    F8nTensorMap mw_2;
+#endif
+#endif
 };
+
+// The member of a MULTI launch whose rows hold output column n0 of the concatenation: its index, first column and width.
+static __device__ __forceinline__ f8n_u32 f8n_member(f8n_u32 n0, f8n_u32& first, f8n_u32& width)
+{
+#if MULTI
+    if (n0 >= MULTI_O1)
+    {
+#if MULTI > 2
+        if (n0 >= MULTI_O2)
+        {
+            first = MULTI_O2;
+            width = N - MULTI_O2;
+            return 2;
+        }
+
+        first = MULTI_O1;
+        width = MULTI_O2 - MULTI_O1;
+        return 1;
+#else
+        first = MULTI_O1;
+        width = N - MULTI_O1;
+        return 1;
+#endif
+    }
+
+    first = 0;
+    width = MULTI_O1;
+    return 0;
+#else
+    first = 0;
+    width = N;
+    return 0;
+#endif
+}
 
 static __device__ __forceinline__ f8n_u32 f8n_smem(const void* p)
 {
@@ -358,6 +419,16 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
 #if DUAL
                 f8n_tma3(dst + F8N_BM * 128, &p.mw, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
                 f8n_tma3(dst + (F8N_BM + F8N_BN / 2) * 128, &p.mw2, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
+#elif MULTI
+                {
+                    f8n_u32 first, width;
+                    const f8n_u32 mi = f8n_member(cn0, first, width);
+                    const F8nTensorMap* map = mi == 0 ? &p.mw : &p.mw_1;
+#if MULTI > 2
+                    map = mi == 2 ? &p.mw_2 : map;
+#endif
+                    f8n_tma3(dst + F8N_BM * 128, map, codeKb * 128, 0, (cn0 - first) >> 7, bar);
+                }
 #else
                 f8n_tma3(dst + F8N_BM * 128, &p.mw, codeKb * 128, 0, cn0 >> 7, bar);
 #endif
@@ -381,6 +452,16 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
 #if DUAL
                 f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_BN * 2, bar);
                 f8n_bulk(dst + F8N_BM * 4 + F8N_BN * 2, f8n_wscales(p.w2, sn0) + scaleKb * 512, F8N_BN * 2, bar);
+#elif MULTI
+                {
+                    f8n_u32 first, width;
+                    const f8n_u32 mi = f8n_member(sn0, first, width);
+                    const f8n_u8* wp = mi == 0 ? p.w : p.w_1;
+#if MULTI > 2
+                    wp = mi == 2 ? p.w_2 : wp;
+#endif
+                    f8n_bulk(dst + F8N_BM * 4, f8n_wscales(wp, sn0 - first) + scaleKb * 512, F8N_BN * 4, bar);
+                }
 #else
                 f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_BN * 4, bar);
 #endif
@@ -668,6 +749,21 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
             }
         }
 #else
+        // The output and its row stride (MULTI: the member the tile's columns lie in, dense rows of its width).
+        float* yb = p.y;
+        f8n_u32 ys = Y_STRIDE;
+#if MULTI
+        {
+            f8n_u32 first, width;
+            const f8n_u32 mi = f8n_member(n0, first, width);
+            yb = mi == 0 ? p.y : p.y_1;
+#if MULTI > 2
+            yb = mi == 2 ? p.y_2 : yb;
+#endif
+            yb -= first;
+            ys = width;
+        }
+#endif
 #pragma unroll
         for (int i = 0; i < F8N_FM; i++)
         {
@@ -677,7 +773,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
                 const f8n_u32 t = t0 + wm * F8N_TM + i * 16 + g + h * 8;
                 if (t < p.T)
                 {
-                    float* yr = p.y + (f8n_u64)t * Y_STRIDE;
+                    float* yr = yb + (f8n_u64)t * ys;
 #if DUAL
 #pragma unroll
                     for (int j = 0; j < F8N_FN; j += 2)
