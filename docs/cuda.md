@@ -218,6 +218,12 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   four stages, no K split) serves 33-64 rows where gemm_cm2 split K and reduced, with the bias store, and a multi-output form of it
   (`MULTI`) runs q / k / v as one launch, each weight tile in one member's matrix: gpt-oss-20b at 64 sequences q / k / v + o 102 → 79 µs
   per layer, step -0.5 ms ([benchmarks.md §68](benchmarks.md)); `SHARPLIGHT_NATIVE_F16_DECODE_BN=0` turns it off.
+  Prompt-sized q / k / v groups (from 256 rows, 1024 with biases) run as one launch of the 128-row tiles over the members' weight rows
+  (`MULTI` with the prompt tile configurations; 128 x 256 tiles where every member boundary is a multiple of 256, else 128 x 128):
+  gpt-oss-20b at 2048 rows 378 + 2 x 51.4 → 406 µs per layer ([benchmarks.md §82](benchmarks.md); `SHARPLIGHT_MULTI_GEMM_TALL=0`
+  keeps the members' own launches). The store undoes row-range scales (`H_XRS`) also without a bias, so no `f16_range_unscale` launch
+  follows. Products narrower than 256 outputs (MoE routers: gpt-oss's [2880 → 32]) stay on gemm_cm2's K split (one column tile of
+  128-row token tiles is 16 blocks at 2048 rows on 82 SMs): 39.6 → 16.9 + 3.9 µs per layer.
 - **`gemm_fp8_native.cu`** (`native_gemm_fp8`, compute capability 8.9+): the block-scaled E4M3 GEMM of `gemm_fp8.slang` on operands
   whose scales it can copy densely: the weights in the 128-row groups of `WeightRepack.Fp8B128Grouped` (`f8e4m3_b128g`: [128 rows of
   K codes][K / 128 blocks of the 128 rows' f32 scales], the same bytes as the split rows, repacked at upload, so a precompiled package
@@ -265,6 +271,15 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   writes both the Slang and the CUDA form), and multiplies row-ranged rows by their inverse scale. The decode and the MMAs' K
   order are gemm_cm2's, so outputs are identical with the feature on and off (gpt-oss-20b greedy outputs byte-identical).
   gpt-oss-20b, 2048 tokens: gate / up 2.63 → 2.26 ms, down 1.43 → 1.20 ms per layer ([benchmarks.md §56](benchmarks.md)).
+  The gate / up (dual) form stores the down projection's input directly (`NM_Y16`): f16 rows at their expert-sorted position, the
+  layout of `moe_gather_x16`, so the down projection's gather and the f32 round trip go. On a row-ranged copy (`NM_Y16_RS`) a value
+  of 2^15 or more is stored as an f16 infinity with its f32 value spilled to the f32 output and the row's scale word set to 1;
+  `moe_range_fixup` (moe.slang, 256 rows per workgroup) then stores flagged rows scaled and clears every other row's word (it may hold
+  the previous layer's). gpt-oss's clamped SwiGLU bounds the values at ~56, so on its text no row is ever flagged and the fix-up is a
+  2-4 µs scan per layer; outputs are bit-identical to the gather path. `SHARPLIGHT_MOE_SORTED_STORE=0` keeps the f32 store and the
+  gather (gpt-oss-20b 2048-row prompt step 119.1 → 115.0 ms, 64-row decode -1.0 %, [benchmarks.md §82](benchmarks.md)). Where the
+  router's f16 copy of x serves (the token rows of a prompt step), the gate / up GEMM reads its items' token rows from it
+  (`NM_X_TOKEN`) instead of a gathered copy (`SHARPLIGHT_MOE_TOKEN_ROWS=0` gathers).
 - **`gemm_fp8_tma.cu`** (`native_gemm_fp8` and `tensor_copies`, compute capability 9.0+): the 128-row tiles of the FP8 GEMM in a
   warp-specialized persistent form. At most one block per SM walks its share of the tiles (the copies of a tile's first K blocks
   overlap the previous tile's last blocks and stores); one lane of a copy warp issues tensor copies (`cp.async.bulk.tensor`, 128-byte
@@ -282,7 +297,9 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   block has the SM to itself: +0.5-1 % at 16K-128K, `SHARPLIGHT_ATTN_STAGES`; 16-byte chunks, XOR swizzle; `ldmatrix` for K, `ldmatrix.trans` for V), one block barrier per tile. Masks are applied only on tiles that cross a row's
   limits (diagonal, window start), and tiles a warp's rows cannot see are skipped by a warp-uniform branch. Blocks run the longest query
   tiles first. With multi-sequence runs grid y enumerates the query tiles of all runs (ceil(T / tile rows) + runs blocks, each finds
-  its run by a warp prefix sum), so short prompts launch no empty blocks ([benchmarks.md §80.2](benchmarks.md)). It serves sliding windows, chunked attention, soft caps, sinks, grouped-query heads, multi-sequence runs (also paged)
+  its run by a warp prefix sum), so short prompts launch no empty blocks ([benchmarks.md §80.2](benchmarks.md)). For multi-sequence runs (serving's prompt and mixed steps) a block takes the query heads of one KV head
+  (`FN_HG`, a multiple of the warps per block; each K / V tile feeds all of them): gpt-oss-20b, 8 prompts of 256 rows, 72.3 → 69.2 µs
+  per layer ([benchmarks.md §82](benchmarks.md); `SHARPLIGHT_ATTN_HG=1` / `=0` everywhere / nowhere). It serves sliding windows, chunked attention, soft caps, sinks, grouped-query heads, multi-sequence runs (also paged)
   and the mixed steps' `MIX_RUN`, at head sizes that are multiples of 64 up to 256 (32-key tiles above 128) and of 128 up to 512 (Gemma 4's
   global layers: two warps share each 16-row group, each with half the key and value dimensions, and exchange their partial scores
   through shared memory; 16-key tiles), [benchmarks.md §74](benchmarks.md); score biases, spans, masks, selections and other head sizes
@@ -753,7 +770,8 @@ submission),
 `SHARPLIGHT_NO_INT_DOT_MULTI_BIAS=1` (the q / k / v biases of int-dot weights as their own launch after the multi-output GEMM instead of in
 its store, benchmarks.md §78), `SHARPLIGHT_NO_ROPE_QKV=1` (a layer's query rope, key rope + cache write and value cache write as three
 launches instead of `rope_qkv`; `SHARPLIGHT_ROPE_QKV_DEBUG=1` names the layers that keep them and why), `SHARPLIGHT_NORM_WIDE=0` (fused row norms of 4096+ values keep 256-thread blocks at decode-size steps instead of 1024, benchmarks.md §76.3), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
-`SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, benchmarks.md §61.4); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
+`SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, benchmarks.md §61.4),
+`SHARPLIGHT_MULTI_GEMM_TALL=0`, `SHARPLIGHT_MOE_SORTED_STORE=0`, `SHARPLIGHT_MOE_TOKEN_ROWS=0`, `SHARPLIGHT_ATTN_HG=0|1` (benchmarks.md §82); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
 ## Roadmap

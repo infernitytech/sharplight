@@ -1,0 +1,11 @@
+moe_range_fixup instrumented with a printf of flagged / real rows per workgroup (not committed): gpt-oss-20b --text decode 16 / 64 rows and prompt steps 0+256x8, 8+250x8
+== steps.txt
+    216 T=16
+   6144 T=256
+    216 T=64
+calls 6576 flagged rows 0 rows with values >= 2^15 0
+== mixed.txt
+   3840 T=2008
+   3840 T=2048
+   6912 T=256
+calls 14592 flagged rows 0 rows with values >= 2^15 0
