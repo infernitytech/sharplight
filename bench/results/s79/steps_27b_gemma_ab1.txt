@@ -1,0 +1,22 @@
+== Qwen3.8-27B-Q4_K_M.gguf cuda env: default
+| 16 | 71.6 | 1070 / 0 | 29.56 / 29.84, 29.51 |
+| 32 | 91.6 | 1070 / 0 | 40.95 / 41.49, 40.88 |
+| 48 | 94.6 | 1070 / 0 | 55.86 / 56.13, 55.79 |
+| 64 | 110.0 | 1070 / 0 | 69.68 / 69.99, 69.60 |
+== Qwen3.8-27B-Q4_K_M.gguf cuda env: dual0
+| 16 | 73.4 | 1198 / 0 | 29.93 / 30.21, 29.85 |
+| 32 | 88.9 | 1198 / 0 | 38.99 / 41.45, 38.80 |
+| 48 | 196.9 | 1198 / 0 | 52.59 / 99.97, 52.25 |
+| 64 | 128.1 | 1198 / 0 | 70.08 / 70.43, 69.92 |
+== Qwen3.8-27B-Q4_K_M.gguf cuda env: dual0-bm64
+| 48 | 105.4 | 1198 / 0 | 64.15 / 64.45, 64.08 |
+== gemma-4-31B-it-Q4_K_M.gguf cuda env: default
+| 16 | 76.3 | 932 / 0 | 37.70 / 38.49, 37.62 |
+| 32 | 91.9 | 882 / 0 | 51.29 / 52.08, 51.21 |
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 32.52 GiB, group 'layers.55' (0.57 GiB) has no room and no fallback device is configured.
+== gemma-4-31B-it-Q4_K_M.gguf cuda env: dual0
+| 16 | 81.4 | 1052 / 0 | 37.38 / 38.16, 37.30 |
+| 32 | 91.7 | 1002 / 0 | 50.93 / 51.75, 50.80 |
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 32.52 GiB, group 'layers.55' (0.57 GiB) has no room and no fallback device is configured.
+== gemma-4-31B-it-Q4_K_M.gguf cuda env: dual0-bm64
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 32.52 GiB, group 'layers.55' (0.57 GiB) has no room and no fallback device is configured.
