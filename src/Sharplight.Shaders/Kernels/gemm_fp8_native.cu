@@ -37,6 +37,10 @@
 #ifndef MULTI
 #define MULTI 0
 #endif
+// K blocks of each weight row the block asks L2 for before the wait for the previous launch (0: none).
+#ifndef F8N_L2
+#define F8N_L2 0
+#endif
 #if MULTI && DUAL
 #error "gemm_fp8_native: MULTI with DUAL"
 #endif
@@ -99,6 +103,13 @@ static __device__ __forceinline__ f8n_u32 f8n_smem(const void* p)
 static __device__ __forceinline__ void f8n_cp16(f8n_u32 dst, const void* src)
 {
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
+}
+
+static __device__ __forceinline__ void f8n_prefetch_l2(const void* p, f8n_u32 bytes)
+{
+#if __CUDA_ARCH__ >= 900
+    asm volatile("cp.async.bulk.prefetch.L2.global [%0], %1;\n" :: "l"(p), "r"(bytes) : "memory");
+#endif
 }
 
 static __device__ __forceinline__ void f8n_commit()
@@ -195,7 +206,19 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
 
     // Copies of K block kb into stage s: codes of both tiles (16 bytes per thread and item), then the scales: 128 of x and the
     // tile's 128 weight scales (DUAL: 64 of w, then 64 of w2), 16 bytes per copy.
-    auto load = [&](f8n_u32 s, f8n_u32 kb) {
+    // Copies of the weight codes of K block kb into stage s (they do not depend on earlier launches).
+    auto loadW = [&](f8n_u32 s, f8n_u32 kb) {
+        f8n_u32 base = f8n_smem(smem + s * F8N_STAGE_BYTES);
+        const f8n_u32 k0 = kb * 128;
+#pragma unroll
+        for (f8n_u32 i = 0; i < F8N_BN * 8 / F8N_THREADS; i++)
+        {
+            f8n_u32 idx = tid + i * F8N_THREADS, r = idx >> 3, c = idx & 7;
+            f8n_cp16(base + F8N_BM * 128 + f8n_swz(r, c), f8n_wrow(p, wb, nb, n0, r) + k0 + c * 16);
+        }
+    };
+    // The rest of K block kb: the activation codes, then the scales.
+    auto loadX = [&](f8n_u32 s, f8n_u32 kb) {
         f8n_u32 base = f8n_smem(smem + s * F8N_STAGE_BYTES);
         const f8n_u32 k0 = kb * 128;
 #pragma unroll
@@ -204,12 +227,6 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
             f8n_u32 idx = tid + i * F8N_THREADS, r = idx >> 3, c = idx & 7;
             f8n_u32 t = min(t0 + r, p.T - 1);
             f8n_cp16(base + f8n_swz(r, c), p.x + (f8n_u64)t * F8N_RS + k0 + c * 16);
-        }
-#pragma unroll
-        for (f8n_u32 i = 0; i < F8N_BN * 8 / F8N_THREADS; i++)
-        {
-            f8n_u32 idx = tid + i * F8N_THREADS, r = idx >> 3, c = idx & 7;
-            f8n_cp16(base + F8N_BM * 128 + f8n_swz(r, c), f8n_wrow(p, wb, nb, n0, r) + k0 + c * 16);
         }
         f8n_u32 scales = base + (F8N_BM + F8N_BN) * 128;
         if (tid < F8N_BM / 4)
@@ -229,6 +246,10 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
             f8n_cp16(scales + F8N_BM * 4 + q * 16, f8n_wscales(w, n, kb));
         }
     };
+    auto load = [&](f8n_u32 s, f8n_u32 kb) {
+        loadW(s, kb);
+        loadX(s, kb);
+    };
 
     float acc[F8N_FM][F8N_FN][4];
 #pragma unroll
@@ -245,12 +266,33 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
         }
     }
 
+    // The first stages' weight codes are copied before the wait for the launch that wrote x (griddepcontrol.wait; a no-op unless
+    // this one is its programmatic dependent), so the weight stream starts while that launch still runs. They join the first
+    // stage's commit group, which the first K block waits for anyway. With F8N_L2, the block also asks L2 for the next F8N_L2
+    // K blocks of its weight rows.
 #pragma unroll
     for (int s = 0; s < F8N_STAGES - 1; s++)
     {
         if (s < (int)nk)
         {
-            load(s, s);
+            loadW(s, s);
+        }
+    }
+#if F8N_L2 > 0
+    if (tid < F8N_BN && nk > F8N_STAGES - 1)
+    {
+        f8n_prefetch_l2(f8n_wrow(p, wb, nb, n0, tid) + (F8N_STAGES - 1) * 128, min((f8n_u32)F8N_L2, nk - (F8N_STAGES - 1)) * 128);
+    }
+#endif
+#if __CUDA_ARCH__ >= 900
+    asm volatile("griddepcontrol.wait;\n" ::: "memory");
+#endif
+#pragma unroll
+    for (int s = 0; s < F8N_STAGES - 1; s++)
+    {
+        if (s < (int)nk)
+        {
+            loadX(s, s);
         }
         f8n_commit();
     }

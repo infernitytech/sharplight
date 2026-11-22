@@ -34,9 +34,22 @@ public sealed partial class GraphLowerer
     /// K-quant weights that the hand-written K-quant decode GEMM serves (<see cref="UsesNativeKQuantDecode"/>) leave the batches past the
     /// matvec to it, the dual gate / up form included (two K-quant GEMM launches and the activation product): decode steps at 16
     /// sequences (CUDA, GPU ms) Qwen3-8B 9.87 → 8.35, Qwen3.8 27B 35.75 → 30.05, Gemma 4 31B 43.64 → 38.12 (benchmarks.md §77).
+    /// Block-scaled E4M3 weights in the hand-written FP8 GEMM's row groups (<see cref="UsesNativeFp8Decode"/>) likewise leave batches from
+    /// <see cref="NativeFp8DecodeMinRows"/> rows to its decode form, which then also takes the dual gate / up pair with the epilogue in
+    /// its store: Qwen3-8B-FP8 gate / up at 16 rows 139 → 131 µs per layer, decode step at 16 sequences 12.57 → 12.28 ms (RTX PRO 4500,
+    /// benchmarks.md §84).
     /// </remarks>
     private long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
-        ?? (UsesNativeKQuantDecode(type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
+        ?? (UsesNativeKQuantDecode(type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, type))
+            : UsesNativeFp8Decode(type) ? Math.Min(NativeFp8DecodeMinRows - 1, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
+
+    /// <summary>
+    /// True when the hand-written FP8 GEMM's decode form takes batches from <see cref="NativeFp8DecodeMinRows"/> rows of
+    /// <paramref name="type"/> weights (the grouped E4M3 layout of <see cref="WeightRepack.Fp8B128Grouped"/>, the feature, its decode form
+    /// on), so the skinny GEMM leaves those batches to it.
+    /// </summary>
+    private bool UsesNativeFp8Decode(DataType type)
+        => type == ShaderTypes.F8E4M3_B128G && NativeGemmFp8 && NativeFp8DecodeColumns != NativeFp8Tile && DiagnosticSwitches.NativeGemmMinRows is null;
 
     /// <summary>The skinny GEMM's largest row count for <paramref name="n"/> outputs by width and type alone (see <see cref="SkinnyMaxRowsFor"/>).</summary>
     private static long SkinnyRowsFor(long n, DataType type)
