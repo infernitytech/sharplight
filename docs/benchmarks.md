@@ -12973,6 +12973,7 @@ SHARPLIGHT_FP8_BLOCK_SCALED=0|1 $P ~/models/hf/Qwen3-8B-FP8 --provider cuda --te
 $P --compare a.f16 b.f16 [--vocab 248320]
 <vLLM venv>/bin/python -I bench/s86_bs/vllm_ppl.py ~/models/hf/Qwen3-8B-FP8 q8.ids --seq 3072      # VLLM_USE_DEEP_GEMM=0: CUTLASS
 QUIET_GPU=1 ROUNDS=2 [SHARPLIGHT_FP8_BLOCK_SCALED=1] bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+```
 
 ## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
 
