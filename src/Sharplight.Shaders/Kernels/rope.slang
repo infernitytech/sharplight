@@ -197,7 +197,7 @@ void rope_row(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Row
 
 #ifdef KERNEL_ROPE_QKV
 // ---------------------------------------------------------------------------------------------
-// The q, k and v rows of one attention layer in one launch (one workgroup per (t, head of q, k or v)): workgroups h < HQ rotate
+// The q, k and v rows of one attention layer in one launch (one workgroup per QKV_RPW (t, head of q, k or v) rows): workgroups h < HQ rotate
 // query head h of xq (strides QS0, QS1; NORM_Q: RmsNorm with wq, EPS_Q, first) into yq [T, HQ, D]; HQ <= h < HQ + HK rotate key
 // head h - HQ of xk (KS0, KS1; NORM_K with wk, EPS_K) into the key cache kc; the last HK copy value head h - HQ - HK of xv (VS0, VS1)
 // into the value cache vc. Both caches are [ctx, HK, D] rows of the same positions (rope_row's CACHE_OUT row; CACHE_F16: f16).
@@ -254,7 +254,10 @@ float qkv_rms_scale(float* xr, uint lt, float eps)
     GroupMemoryBarrierWithGroupSync();
     [ForceUnroll]
     for (uint s = 32; s > 0; s >>= 1) { if (lt < s) qkvRed[lt] += qkvRed[lt + s]; GroupMemoryBarrierWithGroupSync(); }
-    return rsqrt(qkvRed[0] / float(D) + eps);
+    float scale = rsqrt(qkvRed[0] / float(D) + eps);
+    // The workgroup's next row reuses qkvRed (QKV_RPW > 1).
+    GroupMemoryBarrierWithGroupSync();
+    return scale;
 }
 
 // Query head hh (Q) or key head hh of row t: the norm (with weight w), the rotation, the store to yq or to the key cache. The row and
@@ -306,14 +309,16 @@ void qkv_rope_head(QkvParams p, float* xr, float* w, bool norm, float eps, bool 
     }
 }
 
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform QkvParams p)
+// QKV_RPW (rows per workgroup, default 1): each workgroup runs that many consecutive (t, head) rows one after another; a launch of
+// short rows (64 values, no norm) is otherwise bound by how fast workgroups start.
+#ifndef QKV_RPW
+#define QKV_RPW 1
+#endif
+
+void rope_qkv_row(QkvParams p, uint row, uint lt)
 {
     const uint HEADS = HQ + 2 * HK;
-    uint row = gid.x;
-    if (row >= p.T * HEADS) return;
-    uint t = row / HEADS, h = row % HEADS, lt = ltid.x;
+    uint t = row / HEADS, h = row % HEADS;
     if (h < HQ)
     {
         qkv_rope_head(p, p.xq + uint64_t(t) * QS0 + uint64_t(h) * QS1, p.wq, NORM_Q != 0, EPS_Q, true, t, h, lt);
@@ -330,6 +335,19 @@ void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Qkv
         {
             qkv_cache_store(p.vc, qkv_cache_index(p, t, hv, i), vr[i]);
         }
+    }
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform QkvParams p)
+{
+    const uint rows = p.T * (HQ + 2 * HK);
+    for (uint r = 0; r < QKV_RPW; r++)
+    {
+        uint row = gid.x * QKV_RPW + r;
+        if (row >= rows) return;
+        rope_qkv_row(p, row, ltid.x);
     }
 }
 #endif
