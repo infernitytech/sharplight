@@ -13218,6 +13218,20 @@ SHARPLIGHT_DEVICE_RESERVE_MIB=3072 $CLI ~/models/Kimi-K3/UD-Q1_0/Kimi-K3-UD-Q1_0
     --experts-on-disk --expert-cache 24G --ctx 4096 --batch 64 -p "The capital of France is" -n 24
 ```
 
+### 87.9 Follow-up (fix/huge-moe-cuda)
+
+* **CUDA per-segment memory.** A 96-layer placement with every layer's experts on the CPU (`ManySegmentPlacementTests`, 89 device segments,
+  160 MiB limit, reserve per segment 0) held 350 MiB after nine steps: 2.4 MiB per segment beyond its buffers, mostly the three capture side
+  streams each segment created (548 KiB per `cuStreamCreate`, measured; an instantiated graph ~5 KiB per node). The side streams are now the
+  device's, streams and graphs are counted against the device and a graph that does not fit is skipped: the same placement stays within the
+  limit, 0.9 MiB per segment. Placements keep CUDA's estimate (4 MiB per added segment; 8 MiB before, and still for Vulkan) free.
+* **DeepSeek-V3 group routing.** The importer gives `deepseek2` files without `expert_group_count` that have 256 sigmoid experts, 8 per token
+  (DeepSeek-V3 / R1 / V3.1), the model's 8 groups with the best 4 kept. On the 6-layer cut of 87.1 against transformers float32 with
+  `n_group 8, topk_group 4`: KL 3.4e-4 (5.6e-3 and another argmax without the groups); against the reference without groups the old routing had
+  KL 3.4e-4 too, so the change only follows the model. llama.cpp b11177 still routes over all experts on this file.
+* **DeepSeek-V4-Flash multi-row prompts on CUDA with experts on disk**: not reproduced on random `deepseek4` checkpoints (model-support.md
+  9.1); the real file was gone from the pod. Still open.
+
 ## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
 
 Branch `feature/multinode-r1` ([multinode.md](multinode.md)). One pod: AMD EPYC 7443 with a ~10-CPU cgroup quota shared by every job on
