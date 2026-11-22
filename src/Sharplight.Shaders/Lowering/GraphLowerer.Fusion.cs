@@ -272,7 +272,7 @@ public sealed partial class GraphLowerer
                 next++;
             }
 
-            if (next >= units.Count || units[next].Fused is not { } group || units[next].NormTail is not null)
+            if (next >= units.Count || units[next].Fused is not { } group || (units[next].NormTail is not null && !DiagnosticSwitches.NormHeadAndTail))
             {
                 continue;
             }

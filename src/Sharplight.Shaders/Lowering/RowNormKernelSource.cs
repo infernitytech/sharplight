@@ -6,7 +6,10 @@ namespace Sharplight.Shaders.Lowering;
 /// Generates the Slang source of a row-normalization kernel fused with elementwise work before it (computing the
 /// normalized value) and/or after it (consuming <c>nrm</c>), one workgroup per row. Pass 1 evaluates the pre statements,
 /// writes the pass-1 outputs and reduces the sum of squares; pass 2 re-evaluates the pre statements (cheaper than keeping
-/// a row in shared memory), forms <c>nrm</c>, runs the post statements and writes the pass-2 outputs.
+/// a row in shared memory), forms <c>nrm</c>, runs the post statements and writes the pass-2 outputs. With a head norm
+/// (<see cref="HeadNormExpression"/>) a first pass reduces the sum of squares of the head norm's input, and both later passes form
+/// <c>nrmh</c>, the head norm's value, before the pre statements: a row norm, an elementwise group and a row norm in one launch (e.g. a
+/// post-norm, the residual add and the next pre-norm).
 /// </summary>
 internal sealed class RowNormKernelSource
 {
@@ -75,6 +78,21 @@ internal sealed class RowNormKernelSource
     /// <summary>True when a per-column f32 weight scales the normalized value.</summary>
     public required bool HasWeight { get; init; }
 
+    /// <summary>
+    /// The head norm's input expression (or null for none): reduced in a first pass, its normalized value <c>nrmh</c> (times the head
+    /// weight <c>p.wh</c> with <see cref="HeadHasWeight"/>) defined before the pre statements of both later passes.
+    /// </summary>
+    public string? HeadNormExpression { get; init; }
+
+    /// <summary>True when a per-column f32 weight scales the head norm's value.</summary>
+    public bool HeadHasWeight { get; init; }
+
+    /// <summary>The head norm's mode (see <see cref="Mode"/>).</summary>
+    public int HeadMode { get; init; }
+
+    /// <summary>The head norm's epsilon.</summary>
+    public float HeadEpsilon { get; init; }
+
     /// <summary>0 for RMS norm (mean of squares), 1 for L2 norm (sum of squares).</summary>
     public required int Mode { get; init; }
 
@@ -111,9 +129,25 @@ internal sealed class RowNormKernelSource
         _sb.AppendLine($"[shader(\"compute\")] [numthreads({Threads}, 1, 1)]");
         _sb.AppendLine("void main(uint3 gid : SV_GroupID, uint3 lt : SV_GroupThreadID, uniform Params p) {");
         _sb.AppendLine("  uint row = gid.x; if (row >= p.rows) return;");
+        if (_unroll)
+        {
+            AppendUnrolledLoads();
+        }
+
+        if (HeadNormExpression is not null)
+        {
+            _sb.AppendLine("  float ssh = 0;");
+            AppendHeadPass();
+            AppendReduction("ssh", "toth");
+            _sb.AppendLine(HeadMode == 0
+                ? $"  float hscale = rsqrt(toth / {GraphLowerer.F((float)_rowLength)} + {GraphLowerer.F(HeadEpsilon)});"
+                : $"  float hscale = rsqrt(toth + {GraphLowerer.F(HeadEpsilon)});");
+            _sb.AppendLine("  GroupMemoryBarrierWithGroupSync();");   // every thread has read the head sums before red is reused
+        }
+
         _sb.AppendLine("  float ss = 0;");
         AppendPass(second: false);
-        AppendReduction();
+        AppendReduction("ss", "tot");
         _sb.AppendLine(Mode == 0
             ? $"  float scale = rsqrt(tot / {GraphLowerer.F((float)_rowLength)} + {GraphLowerer.F(Epsilon)});"
             : $"  float scale = rsqrt(tot + {GraphLowerer.F(Epsilon)});");
@@ -204,6 +238,11 @@ internal sealed class RowNormKernelSource
         }
 
         _sb.AppendLine("  float* w;");
+        if (HeadNormExpression is not null)
+        {
+            _sb.AppendLine("  float* wh;");
+        }
+
         foreach (var (output, i) in Pass1Outputs.Concat(Pass2Outputs).Select((o, i) => (o.Ref, i)))
         {
             _sb.AppendLine($"  {ElementwiseCodegen.PointerType(output.Type)}* out{i};");
@@ -213,24 +252,46 @@ internal sealed class RowNormKernelSource
         _sb.AppendLine("};");
     }
 
-    /// <summary>Workgroup sum of <c>ss</c> into <c>tot</c>.</summary>
-    private void AppendReduction()
+    /// <summary>Workgroup sum of <paramref name="partial"/> into <paramref name="total"/>.</summary>
+    private void AppendReduction(string partial, string total)
     {
         if (UseSubgroupOps)
         {
             // Subgroup sums, then one barrier and a short serial sum over the subgroups.
-            _sb.AppendLine("  float ws = WaveActiveSum(ss);");
-            _sb.AppendLine("  uint lanes = WaveGetLaneCount();");
-            _sb.AppendLine("  if (WaveIsFirstLane()) red[lt.x / lanes] = ws;");
+            _sb.AppendLine($"  float ws_{partial} = WaveActiveSum({partial});");
+            _sb.AppendLine($"  uint lanes_{partial} = WaveGetLaneCount();");
+            _sb.AppendLine($"  if (WaveIsFirstLane()) red[lt.x / lanes_{partial}] = ws_{partial};");
             _sb.AppendLine("  GroupMemoryBarrierWithGroupSync();");
-            _sb.AppendLine($"  float tot = 0; for (uint k = 0; k < {Threads}u / lanes; k++) tot += red[k];");
+            _sb.AppendLine($"  float {total} = 0; for (uint k = 0; k < {Threads}u / lanes_{partial}; k++) {total} += red[k];");
             return;
         }
 
-        _sb.AppendLine("  red[lt.x] = ss;");
+        _sb.AppendLine($"  red[lt.x] = {partial};");
         _sb.AppendLine("  GroupMemoryBarrierWithGroupSync();");
         _sb.AppendLine($"  for (uint s = {Threads / 2}u; s > 0; s >>= 1) {{ if (lt.x < s) red[lt.x] += red[lt.x + s]; GroupMemoryBarrierWithGroupSync(); }}");
-        _sb.AppendLine("  float tot = red[0];");
+        _sb.AppendLine($"  float {total} = red[0];");
+    }
+
+    /// <summary>The head norm's pass: the sum of squares of its input into <c>ssh</c>.</summary>
+    private void AppendHeadPass()
+    {
+        var body = new StringBuilder();
+        AppendIndices("    ", body);
+        for (int i = 0; i < Inputs.Count; i++)
+        {
+            body.AppendLine(_unroll ? $"    float a{i} = ar{i}[j];" : $"    float a{i} = {ElementwiseCodegen.Load(Inputs[i], i, Shape)};");
+        }
+
+        body.AppendLine($"    ssh += ({HeadNormExpression}) * ({HeadNormExpression});");
+        if (_unroll)
+        {
+            AppendUnrolledLoop(body.ToString());
+            return;
+        }
+
+        _sb.AppendLine($"  for (uint i = lt.x; i < {_rowLength}u; i += {Threads}u) {{");
+        _sb.Append(body);
+        _sb.AppendLine("  }");
     }
 
     private void AppendPass(bool second)
@@ -248,40 +309,51 @@ internal sealed class RowNormKernelSource
             _sb.AppendLine($"    float a{i} = {ElementwiseCodegen.Load(Inputs[i], i, Shape)};");
         }
 
-        AppendPassBody(second, weightExpression: "p.w[i]");
+        AppendPassBody(second, weightExpression: "p.w[i]", headWeightExpression: "p.wh[i]");
         _sb.AppendLine("  }");
+    }
+
+    /// <summary>The row (and weights) loaded into registers before the first pass; the passes reuse them.</summary>
+    private void AppendUnrolledLoads()
+    {
+        for (int i = 0; i < Inputs.Count; i++)
+        {
+            _sb.AppendLine($"  float ar{i}[{_iterations}];");
+        }
+
+        if (HasWeight)
+        {
+            _sb.AppendLine($"  float wr[{_iterations}];");
+        }
+
+        bool headWeight = HeadNormExpression is not null && HeadHasWeight;
+        if (headWeight)
+        {
+            _sb.AppendLine($"  float whr[{_iterations}];");
+        }
+
+        var loads = new StringBuilder();
+        AppendIndices("    ", loads);
+        for (int i = 0; i < Inputs.Count; i++)
+        {
+            loads.AppendLine($"    ar{i}[j] = {ElementwiseCodegen.Load(Inputs[i], i, Shape)};");
+        }
+
+        if (HasWeight)
+        {
+            loads.AppendLine("    wr[j] = p.w[i];");
+        }
+
+        if (headWeight)
+        {
+            loads.AppendLine("    whr[j] = p.wh[i];");
+        }
+
+        AppendUnrolledLoop(loads.ToString());
     }
 
     private void AppendUnrolledPass(bool second)
     {
-        if (!second)
-        {
-            // The first pass loads the row (and weights) into registers; the second pass reuses them.
-            for (int i = 0; i < Inputs.Count; i++)
-            {
-                _sb.AppendLine($"  float ar{i}[{_iterations}];");
-            }
-
-            if (HasWeight)
-            {
-                _sb.AppendLine($"  float wr[{_iterations}];");
-            }
-
-            var loads = new StringBuilder();
-            AppendIndices("    ", loads);
-            for (int i = 0; i < Inputs.Count; i++)
-            {
-                loads.AppendLine($"    ar{i}[j] = {ElementwiseCodegen.Load(Inputs[i], i, Shape)};");
-            }
-
-            if (HasWeight)
-            {
-                loads.AppendLine("    wr[j] = p.w[i];");
-            }
-
-            AppendUnrolledLoop(loads.ToString());
-        }
-
         var body = new StringBuilder();
         AppendIndices("    ", body);
         for (int i = 0; i < Inputs.Count; i++)
@@ -289,7 +361,7 @@ internal sealed class RowNormKernelSource
             body.AppendLine($"    float a{i} = ar{i}[j];");
         }
 
-        AppendPassBody(second, weightExpression: "wr[j]", body);
+        AppendPassBody(second, weightExpression: "wr[j]", headWeightExpression: "whr[j]", body);
         AppendUnrolledLoop(body.ToString());
     }
 
@@ -320,9 +392,14 @@ internal sealed class RowNormKernelSource
     }
 
     /// <summary>Pre statements, then pass 1 (outputs and sum of squares) or pass 2 (normalize, post statements, outputs).</summary>
-    private void AppendPassBody(bool second, string weightExpression, StringBuilder? target = null)
+    private void AppendPassBody(bool second, string weightExpression, string headWeightExpression, StringBuilder? target = null)
     {
         var sb = target ?? _sb;
+        if (HeadNormExpression is not null)
+        {
+            sb.AppendLine($"    float nrmh = ({HeadNormExpression}) * hscale{(HeadHasWeight ? " * " + headWeightExpression : "")};");
+        }
+
         foreach (var statement in PreStatements)
         {
             sb.AppendLine("    " + statement);

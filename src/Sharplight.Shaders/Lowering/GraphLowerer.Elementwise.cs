@@ -82,7 +82,7 @@ public sealed partial class GraphLowerer
         if (normHead is not null)
         {
             headInput = Operand(normHead.Inputs[0]);
-            names[normHead.Output] = "nrm";
+            names[normHead.Output] = normTail is null ? "nrm" : "nrmh";
         }
 
         foreach (var node in group)
@@ -110,9 +110,14 @@ public sealed partial class GraphLowerer
         if (normTail is not null)
         {
             TensorRef? weight = normTail.Inputs.Length > 1 ? Ref(normTail.Inputs[1]) : null;
-            EmitRowNormKernel($"fused[{label}]+{normTail.Op.Name}", [.. group, normTail], shape, shapeValue.Symbol,
-                inputs, preStmts: statements, normExpr: names[normTail.Inputs[0]], pass1Outputs: outs, postStmts: [],
-                pass2Outputs: [(Produce(normTail.Output), "nrm")], weight, normTail.Op.Name == "RmsNorm" ? 0 : 1, normTail.Attributes.Get<float>("eps"), [normTail.Output]);
+            RowNormHead? head = normHead is null ? null
+                : new RowNormHead(headInput!, normHead.Inputs.Length > 1 ? Ref(normHead.Inputs[1]) : null, normHead.Op.Name == "RmsNorm" ? 0 : 1,
+                    normHead.Attributes.Get<float>("eps"));
+            string prefix = normHead is null ? "" : normHead.Op.Name + "+";
+            EmitRowNormKernel($"{prefix}fused[{label}]+{normTail.Op.Name}", [.. normHead is null ? [] : new[] { normHead }, .. group, normTail], shape,
+                shapeValue.Symbol, inputs, preStmts: statements, normExpr: names[normTail.Inputs[0]], pass1Outputs: outs, postStmts: [],
+                pass2Outputs: [(Produce(normTail.Output), "nrm")], weight, normTail.Op.Name == "RmsNorm" ? 0 : 1, normTail.Attributes.Get<float>("eps"), [normTail.Output],
+                head);
             return;
         }
 
@@ -162,7 +167,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void EmitRowNormKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol, List<TensorRef> inputs,
         List<string> preStmts, string normExpr, List<(TensorRef Ref, string Expr)> pass1Outputs, List<string> postStmts,
-        List<(TensorRef Ref, string Expr)> pass2Outputs, TensorRef? w, int mode, float eps, IReadOnlyList<Value>? pass2Values = null)
+        List<(TensorRef Ref, string Expr)> pass2Outputs, TensorRef? w, int mode, float eps, IReadOnlyList<Value>? pass2Values = null, RowNormHead? head = null)
     {
         pass2Outputs = [.. pass2Outputs];
         int valueOutputs = pass2Outputs.Count;
@@ -192,6 +197,10 @@ public sealed partial class GraphLowerer
             Mode = mode,
             Epsilon = eps,
             UseSubgroupOps = _opt.Has(DeviceFeatures.SubgroupOps),
+            HeadNormExpression = head?.Expression,
+            HeadHasWeight = head?.Weight is not null,
+            HeadMode = head?.Mode ?? 0,
+            HeadEpsilon = head?.Epsilon ?? 0,
         };
         var outputs = pass1Outputs.Concat(pass2Outputs).ToList();
         long rowsPerSymbol = ElementwiseCodegen.Pitches(shape)[0] / rowLength;
@@ -234,9 +243,11 @@ public sealed partial class GraphLowerer
         }
 
         var weightOrFirstOutput = w ?? outputs[0].Ref;
+        KernelArg[] headWeight = head is null ? [] : [Pointer(head.Weight ?? weightOrFirstOutput)];
+        TensorRef[] reads = [.. inputs, .. w is null ? [] : new[] { w }, .. head?.Weight is { } hw ? new[] { hw } : []];
         Emit(name, nodes, variants,
-            [.. inputs.Select(r => (KernelArg)Pointer(r)), Pointer(weightOrFirstOutput), .. outputs.Select(o => (KernelArg)Pointer(o.Ref)), rows],
-            w is null ? inputs : [.. inputs, w], outputs.Select(o => o.Ref));
+            [.. inputs.Select(r => (KernelArg)Pointer(r)), Pointer(weightOrFirstOutput), .. headWeight, .. outputs.Select(o => (KernelArg)Pointer(o.Ref)), rows],
+            reads, outputs.Select(o => o.Ref));
     }
 
     // loads: optional per-input load expressions replacing the elementwise load; a null expression means the input is only

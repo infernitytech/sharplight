@@ -435,6 +435,12 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_COOP_KQ_NT=1|2</c>: 64-row weight tiles per workgroup of the cooperative-matrix K-quant decode GEMM, or null for the default.</summary>
     public static int? CoopKQuantWeightTiles { get; } = Read("SHARPLIGHT_COOP_KQ_NT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_NORM_HEAD_TAIL=0</c>: a row norm in front of an elementwise group that already ends in a row norm stays its own launch
+    /// (instead of one launch for norm, group and norm, e.g. Gemma's post-attention norm, residual add and pre-feed-forward norm).
+    /// </summary>
+    public static bool NormHeadAndTail { get; } = IsNotZero("SHARPLIGHT_NORM_HEAD_TAIL");
+
     /// <summary>Extra macros for the cooperative-matrix K-quant decode GEMM (<c>SHARPLIGHT_COOP_KQ_MACROS=NAME=value,...</c>), for kernel experiments.</summary>
     public static IReadOnlyDictionary<string, string> CoopKQuantExtraMacros { get; } = (Read("SHARPLIGHT_COOP_KQ_MACROS") ?? "")
         .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
