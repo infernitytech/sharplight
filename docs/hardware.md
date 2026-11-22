@@ -110,7 +110,11 @@ mixture-of-experts models larger than RAM and VRAM together. When the routed exp
 host memory beside the CPU's other weights and state (`DeviceSlot.MemoryLimit` of the fallback, else the free memory of the process,
 cgroup-aware, minus 4 GiB, `SHARPLIGHT_EXPERT_HOST_RESERVE_MIB`), or the cache asked for is smaller than they are, they stay in the model
 file: the placement neither counts them as resident nor page-locks or imports them, and makes no streamed or split GPU compilations of them
-(placed again without the GPU memory those keep free, so more expert layers stay on the GPU). The CPU's expert products read the experts each
+(placed again without the GPU memory streaming keeps free, so more expert layers stay on the GPU), except that small passes still split
+with a GPU that copies from the expert cache (`IComputeDevice.CopiesFromExpertCache`, CUDA): the store page-locks its slot pools for that
+device (`cuMemHostRegister`, within `DeviceMemoryLimits.PinnedHostMemory`, `ExpertStore.PinFor`), the sparse compilation holds the experts
+its share of the slots selects in the cache and copies each one asynchronously straight from its slot, the same memory the disk read filled
+with `O_DIRECT`: no CPU copy between the disk and the GPU. Vulkan and Metal run the disk-backed layers on the CPU alone for now. The CPU's expert products read the experts each
 pass selects into an `ExpertStore` (one per loaded model, shared by its graphs): fixed-size slots of one expert of one weight (gate, up or
 down of one layer), one pool per slot size with the budget split by bytes, least recently used evicted first among the slots that no pass
 holds and no read fills; `ExpertStore.Statistics` has hits, misses, prefetches, evictions, bytes read and the time passes waited
@@ -129,7 +133,14 @@ buffered) and read in pieces of up to 8 MiB. On Linux the reader is io_uring (ra
 it with EPERM, old kernels with ENOSYS, and the store then reads with positional reads on 8 threads (logged; `SHARPLIGHT_EXPERT_READER=threads`
 forces them, `SHARPLIGHT_EXPERT_READ_DEPTH` sets the depth). Windows and macOS use the threads. A destination may also name a device buffer
 (`ExpertReadDestination.DeviceBuffer`): the extension point for a reader that reads straight into GPU memory (DirectStorage on Windows), which
-reports `SupportsDeviceDestinations` and plugs in without changes to the cache or the placement.
+reports `SupportsDeviceDestinations` and plugs in without changes to the cache or the placement; the same holds for NVIDIA GPUDirect Storage
+(cuFile, which needs the `nvidia-fs` kernel module; not on the development pod), both to be enabled as a detected device feature. The hop
+through host memory costs little today: an NVMe drive reads 3.5-14 GB/s (7.4 GB/s on the PCIe 4.0 x4 link of the development pod), while a
+GPU reads page-locked host memory at 25 GB/s (PCIe 4.0 x16) to 50+ GB/s (PCIe 5.0 x16), so copying an expert from its slot takes a fraction
+of the time its read took (an 8 MiB DeepSeek-V3 expert: ~1.1 ms to read at 7.4 GB/s, ~0.2-0.3 ms to copy), and it overlaps the reads of
+the next experts. A direct device read would save that copy and the host memory of the slots, not disk time. The io_uring reader uses
+plain (not registered) buffers: the reads are `O_DIRECT` DMA into the slots either way, and pieces of 8 MiB make the per-read page pinning
+that fixed buffers avoid negligible.
 
 The fit planner (`FitQuery.ExpertsOnDisk`) reports such a load as `NeedsOffload` with `ExpertsFromDisk` instead of `DoesNotFit`. Decode then
 runs at the disk's speed: a step reads the selected experts it does not find in the cache (DeepSeek-V3 at Q4_K_M: up to 12 GB per token).
