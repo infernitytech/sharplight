@@ -426,6 +426,16 @@ internal static class DiagnosticSwitches
     public static IReadOnlyDictionary<string, string> AttentionExtraMacros { get; } = (Read("SHARPLIGHT_FE_MACROS") ?? "")
         .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
 
+    /// <summary>Extra macros for the cooperative-matrix K-quant decode GEMM (<c>SHARPLIGHT_COOP_KQ_MACROS=NAME=value,...</c>), for kernel experiments.</summary>
+    public static IReadOnlyDictionary<string, string> CoopKQuantExtraMacros { get; } = (Read("SHARPLIGHT_COOP_KQ_MACROS") ?? "")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
+
+    /// <summary>
+    /// Queries per <c>fe</c> workgroup for head sizes above 256 (split head dimensions, <c>SHARPLIGHT_ATTN_FE_WIDE_ROWS</c>: 32 or 64). 64 shares
+    /// each 16-key tile between twice the queries (Q staged in two passes); see <c>FeBlockRows</c>.
+    /// </summary>
+    public static int AttentionSplitHeadRows { get; } = int.Parse(Read("SHARPLIGHT_ATTN_FE_WIDE_ROWS") ?? "64", CultureInfo.InvariantCulture);
+
     /// <summary>Queries per <c>fe</c> workgroup with the register softmax (<c>SHARPLIGHT_ATTN_FE_ROWS</c>: 64 or 128).</summary>
     public static int AttentionRegisterSoftmaxRows { get; } = int.Parse(Read("SHARPLIGHT_ATTN_FE_ROWS") ?? "128", CultureInfo.InvariantCulture);
 
@@ -715,6 +725,12 @@ internal static class DiagnosticSwitches
     /// elementwise launch instead of the GEMM's dual form.
     /// </summary>
     public static bool NativeKQuantDual { get; } = IsNotZero("SHARPLIGHT_NATIVE_KQ_DUAL");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_COOP_KQ=0</c>: targets without CUDA C++ (Vulkan) keep K-quant decode batches of 9-64 rows on the generated gemm_cm2
+    /// instead of the cooperative-matrix K-quant decode GEMM (<c>gemm_kq.slang</c>).
+    /// </summary>
+    public static bool CoopKQuant { get; } = IsNotZero("SHARPLIGHT_COOP_KQ");
 
     /// <summary><c>SHARPLIGHT_NATIVE_KQ_SPLIT=n</c>: K split of the hand-written K-quant decode GEMM, or null for the default (chosen per matrix and batch).</summary>
     public static int? NativeKQuantSplit { get; } = Read("SHARPLIGHT_NATIVE_KQ_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;

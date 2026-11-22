@@ -1433,7 +1433,17 @@ using namespace linalg;
 #define FE_SS (FE_BC + 4)                         // score row stride (floats): conflict-free fragment stores
 #define FE_KT (FE_BC * FE_KS)                      // halves of one K part
 #define FE_VT (FE_BC * FE_VS)                      // halves of one V part
-#define FE_QT (FE_BR * FE_QS)                      // halves of one staged Q part
+// FE_QPASS (FE_REG only): Q is staged in passes of FE_BR / FE_QPASS rows, each pass's subgroups loading their fragments before the
+// next one overwrites it, so that a block of queries whose staged rows would not fit the shared memory (64 queries of head size 512:
+// 66 KiB) shares each key tile.
+#ifndef FE_QPASS
+#define FE_QPASS 1
+#endif
+#if FE_QPASS > 1 && (!FE_REG || FA_SPLIT || (FE_BR / FE_QPASS) % 16 != 0)
+#error "FE_QPASS takes the register softmax and passes of whole row groups"
+#endif
+#define FE_QR (FE_BR / FE_QPASS)                    // query rows staged per pass
+#define FE_QT (FE_QR * FE_QS)                      // halves of one staged Q part
 #if FA_SPLIT
 #define FE_PARTS 2                                 // f16 parts per value (hi, lo)
 #else
@@ -1841,34 +1851,49 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     if (tid == 0) feScales[FE_VMAX] = 0;
     GroupMemoryBarrierWithGroupSync();
 #endif
-    // Q (unscaled; FA_SPLIT: times the row scale) through shared memory into register fragments.
-    for (uint i = tid; i < FE_BR * FE_KC; i += FE_T)
-    {
-        uint r = i / FE_KC, d0 = (i % FE_KC) * 8, t = t0 + r;
-        uint64_t qi = uint64_t(qRow0 + min(t, qT - 1)) * QS0 + uint64_t(h) * QS1 + d0;
-        float x[8];
-        [ForceUnroll] for (uint e = 0; e < 8; e++) x[e] = t < qT && d0 + e < D ? p.q[qi + e] : 0.0;
-#if FA_SPLIT
-        fe_put8_scaled(x, asfloat(feScales[FE_QSCALE + r]), r * FE_QS + d0, FE_QT + r * FE_QS + d0);
-#else
-        fe_put8(x, r * FE_QS + d0, FE_QT + r * FE_QS + d0);
-#endif
-    }
+    // Q (unscaled; FA_SPLIT: times the row scale) through shared memory into register fragments, FE_QR rows per pass.
     Kv8 kb[FE_KPT];
     Kv8 vb[FE_VPT];
-    fe_fetch(kb, vb, p.kc, p.vc, kvRow, jStart, jStop, hk, tid);
-    GroupMemoryBarrierWithGroupSync();
     FeA qa[FE_NDW];
 #if FA_SPLIT
     FeA qal[FE_ND];
 #endif
-    [ForceUnroll]
-    for (uint k = 0; k < FE_NDW; k++)
+    for (uint pass = 0; pass < FE_QPASS; pass++)
     {
-        qa[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (rg * 16 * FE_QS + (part * FE_NDW + k) * 16) / 8, FE_QS / 8);
+        if (pass > 0)
+        {
+            GroupMemoryBarrierWithGroupSync();   // the previous pass's rows are read
+        }
+
+        for (uint i = tid; i < FE_QR * FE_KC; i += FE_T)
+        {
+            uint r = i / FE_KC, d0 = (i % FE_KC) * 8, t = t0 + pass * FE_QR + r;
+            uint64_t qi = uint64_t(qRow0 + min(t, qT - 1)) * QS0 + uint64_t(h) * QS1 + d0;
+            float x[8];
+            [ForceUnroll] for (uint e = 0; e < 8; e++) x[e] = t < qT && d0 + e < D ? p.q[qi + e] : 0.0;
 #if FA_SPLIT
-        qal[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_QT + sg * 16 * FE_QS + k * 16) / 8, FE_QS / 8);
+            fe_put8_scaled(x, asfloat(feScales[FE_QSCALE + pass * FE_QR + r]), r * FE_QS + d0, FE_QT + r * FE_QS + d0);
+#else
+            fe_put8(x, r * FE_QS + d0, FE_QT + r * FE_QS + d0);
 #endif
+        }
+        if (pass == 0)
+        {
+            fe_fetch(kb, vb, p.kc, p.vc, kvRow, jStart, jStop, hk, tid);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (rg * 16 / FE_QR == pass)
+        {
+            uint qr = rg * 16 - pass * FE_QR;
+            [ForceUnroll]
+            for (uint k = 0; k < FE_NDW; k++)
+            {
+                qa[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (qr * FE_QS + (part * FE_NDW + k) * 16) / 8, FE_QS / 8);
+#if FA_SPLIT
+                qal[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_QT + sg * 16 * FE_QS + k * 16) / 8, FE_QS / 8);
+#endif
+            }
+        }
     }
     FeC o[FE_NOW];
     [ForceUnroll] for (uint i = 0; i < FE_NOW; i++) o[i] = FeC(0.0);

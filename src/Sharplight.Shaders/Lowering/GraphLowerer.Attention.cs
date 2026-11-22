@@ -541,6 +541,7 @@ public sealed partial class GraphLowerer
             macros["FE_BR"] = FeBlockRows(plan).ToString(CultureInfo.InvariantCulture);
             macros["FE_BC"] = FeRegisterKeys(plan).ToString(CultureInfo.InvariantCulture);
             macros["FE_DS"] = FeDimensionSplit(plan).ToString(CultureInfo.InvariantCulture);
+            macros["FE_QPASS"] = FeQueryPasses(plan).ToString(CultureInfo.InvariantCulture);
         }
 
         foreach (var (name, value) in encoder ? DiagnosticSwitches.AttentionExtraMacros : new Dictionary<string, string>())
@@ -625,8 +626,23 @@ public sealed partial class GraphLowerer
     /// </summary>
     private int FeBlockRows(AttentionPlan plan)
         => !RegisterSoftmax(plan) ? 64
-            : FeDimensionSplit(plan) > 1 ? 32
+            : FeDimensionSplit(plan) > 1 ? DiagnosticSwitches.AttentionSplitHeadRows
             : WideFlashHead(plan) ? Math.Min(64, DiagnosticSwitches.AttentionRegisterSoftmaxRows) : DiagnosticSwitches.AttentionRegisterSoftmaxRows;
+
+    /// <summary>
+    /// Passes in which <c>fe</c> with the register softmax stages its block's queries (<c>FE_QPASS</c>): 1 when the staged rows fit beside
+    /// nothing else in the K / V buffer (the larger of the two is allocated), else 2 (head size 512 with 64-query blocks: 33 KiB per pass,
+    /// the size of a 16-key K / V tile).
+    /// </summary>
+    private int FeQueryPasses(AttentionPlan plan)
+    {
+        long paddedD = (plan.D + 15) / 16 * 16;
+        long paddedDV = (plan.DV + 15) / 16 * 16;
+        long keys = FeRegisterKeys(plan);
+        long kv = keys * (paddedD + 8) + keys * (paddedDV + 8);
+        int rows = FeBlockRows(plan);
+        return rows * (paddedD + 8) > kv && rows % 32 == 0 ? 2 : 1;
+    }
 
     /// <summary>
     /// Keys per tile of <c>fe</c> with the register softmax (<c>FE_BC</c>): 64, 32 for head sizes above 128 and 16 above 256 (see
@@ -658,7 +674,7 @@ public sealed partial class GraphLowerer
             long keys = FeRegisterKeys(plan);
             int split = FeDimensionSplit(plan);
             long exchangeBytes = split > 1 ? FeBlockRows(plan) / 16 * split * keys * 16 * 4 : 0;
-            long tileBytes = Math.Max(keys * (paddedD + 8) + keys * (paddedDV + 8), FeBlockRows(plan) * (paddedD + 8)) * 2 + exchangeBytes;
+            long tileBytes = Math.Max(keys * (paddedD + 8) + keys * (paddedDV + 8), FeBlockRows(plan) / FeQueryPasses(plan) * (paddedD + 8)) * 2 + exchangeBytes;
             long maxHead = DiagnosticSwitches.AttentionWideRegisterSoftmax ? 512 : 128;
             bool wholeHalves = split == 1 || (paddedD % 32 == 0 && paddedDV % 32 == 0);
             return kv && paddedD <= maxHead && paddedDV <= maxHead && wholeHalves && tileBytes <= _opt.MaxSharedMemory;
@@ -1044,6 +1060,7 @@ public sealed partial class GraphLowerer
                 flashMacros["FE_BR"] = FeBlockRows(plan).ToString(CultureInfo.InvariantCulture);
                 flashMacros["FE_BC"] = FeRegisterKeys(plan).ToString(CultureInfo.InvariantCulture);
                 flashMacros["FE_DS"] = FeDimensionSplit(plan).ToString(CultureInfo.InvariantCulture);
+                flashMacros["FE_QPASS"] = FeQueryPasses(plan).ToString(CultureInfo.InvariantCulture);
             }
         }
 
