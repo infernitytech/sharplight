@@ -311,4 +311,46 @@ public sealed class FusionTests
         }
         Diff.Check("Fusion.norm+rope+cache", tg.B.Build(), steps, atol: 3e-4, rtol: 2e-3, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D} norm={norm}");
     }
+
+    /// <summary>
+    /// A second attention reading the first layer's caches with its own query rope (shared KV layers, Gemma 3n / 4): the cache writes
+    /// must still run before the first attention. Regression: rope_qkv merged them with the second layer's query rope.
+    /// </summary>
+    [Theory]
+    [InlineData("f16", 64)]
+    [InlineData("f32", 128)]
+    public void SharedCacheReadByLaterLayer(string cacheType, int D)
+    {
+        Gpu.Require();
+        int Hq = 4;
+        int Hkv = 2;
+        int ctx = 32;
+        var tg = new TG();
+        var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, D);
+        var pos = tg.In("pos", DataType.I32, T, 1);
+        var rope = Attributes.From(("dims", D), ("base", 10000f), ("style", "neox"));
+        var q = tg.B.Emit1("Rope", [tg.B.RmsNorm(qi, tg.RandW("qn", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        var k = tg.B.Emit1("Rope", [tg.B.RmsNorm(ki, tg.RandW("kn", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        var ct = DataType.Get(cacheType);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, k); tg.B.CacheWrite(vc, vi);
+        var first = tg.B.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D));
+        var q2 = tg.B.Emit1("Rope", [tg.B.RmsNorm(first, tg.RandW("qn2", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        tg.B.Output("o1", first);
+        tg.B.Output("o2", tg.B.CachedAttention(q2, kc, vc, 1f / MathF.Sqrt(D)));
+        int[] chunks = [5, 1, 3, 1];
+        int past = 0;
+        var steps = new List<Step>();
+        foreach (var (c, i) in chunks.Select((c, i) => (c, i)))
+        {
+            var p = Enumerable.Range(0, c).Select(j => past + j).ToArray();
+            steps.Add(new Step(c, past, (qi, Rnd.F(c * Hq * D, 10 + i)), (ki, Rnd.F(c * Hkv * D, 20 + i)), (vi, Rnd.F(c * Hkv * D, 30 + i)), (pos, p)));
+            past += c;
+        }
+        Diff.Check("Fusion.shared-cache", tg.B.Build(), steps, atol: 3e-4, rtol: 2e-3, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D}");
+    }
 }

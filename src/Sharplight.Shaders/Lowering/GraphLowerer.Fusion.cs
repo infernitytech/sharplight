@@ -824,10 +824,26 @@ public sealed partial class GraphLowerer
         var unitOf = units.Where(u => u.Node is not null && u.Fused is null && !absorbed.Contains(u.Node)).ToDictionary(u => u.Node!);
         var writesOf = units.Where(u => u.Node is { Op.Name: "CacheWrite" } && !absorbed.Contains(u.Node!) && u.Node!.Inputs[0].State is not null)
             .GroupBy(u => u.Node!.Inputs[0].State!).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
+        // A cache that several attentions read (shared / cross-layer KV, e.g. Gemma 3n / 4's later layers reading an earlier layer's
+        // cache) is written in its own layer: merging its writes with a reader's query rope from a later layer would delay the writes
+        // past that layer's own attention (they would then follow the later query projection), so only caches with one reader fuse.
+        var readers = units.Where(u => u.Node is { Op.Name: "CachedAttention" }).SelectMany(u => u.Node!.Inputs.Skip(1).Take(2))
+            .Where(v => v.State is not null).GroupBy(v => v.State!).ToDictionary(g => g.Key, g => g.Count());
         foreach (var unit in units)
         {
             if (unit.Node is not { Op.Name: "CachedAttention" } attention || attention.Inputs.Length < 3)
             {
+                continue;
+            }
+
+            if (attention.Inputs[1].State is { } sharedKey && attention.Inputs[2].State is { } sharedValue
+                && (readers.GetValueOrDefault(sharedKey) != 1 || readers.GetValueOrDefault(sharedValue) != 1))
+            {
+                if (DiagnosticSwitches.RopeQkvDebug)
+                {
+                    Console.Error.WriteLine($"rope q+k+v of {attention.Output.Name}: its caches have other readers");
+                }
+
                 continue;
             }
 
