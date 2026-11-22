@@ -36,11 +36,13 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     private readonly EventHandler _modelsChanged;
     private readonly EventHandler<IReadOnlyList<DeviceMemory>> _memoryChanged;
     private readonly IDisposable _watch;
+    private readonly Lock _scheduleLock = new();
     private CancellationTokenSource? _loading;
     private CancellationTokenSource? _estimating;
     private bool _ready;
     private bool _detached;
     private IReadOnlyList<DeviceMemory>? _pendingMemory;
+    private IReadOnlyList<DeviceMemory>? _plannedMemory;
 
     /// <param name="entry">The model to load.</param>
     /// <param name="services">The services.</param>
@@ -68,7 +70,8 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         // New figures from the periodic read while the panel is open (other applications, a model loading elsewhere): plan again with them.
         _memoryChanged = (_, memory) => services.Dispatcher.Post(() =>
         {
-            if (IsLoading || _detached)
+            // Figures the current plan already used (the panel's own read, shared with the watch) change nothing.
+            if (IsLoading || _detached || DeviceMemoryWatch.Same(Volatile.Read(ref _plannedMemory), memory))
             {
                 return;
             }
@@ -400,10 +403,15 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// </summary>
     private void ScheduleEstimate(IReadOnlyList<DeviceMemory>? memory = null)
     {
-        _estimating?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _estimating = cancellation;
-        Estimate = EstimateAsync(cancellation, memory);
+        lock (_scheduleLock)
+        {
+            // The new estimate is published before the old one is cancelled: whoever waits for Estimate never sees a cancelled one as the latest.
+            var previous = _estimating;
+            var cancellation = new CancellationTokenSource();
+            _estimating = cancellation;
+            Estimate = EstimateAsync(cancellation, memory);
+            previous?.Cancel();
+        }
     }
 
     private async Task EstimateAsync(CancellationTokenSource cancellation, IReadOnlyList<DeviceMemory>? known)
@@ -421,6 +429,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             IsEstimating = true;
             var request = ToRequest();
             var memory = known ?? await _advisor.GetMemoryAsync(token);
+            Volatile.Write(ref _plannedMemory, memory);
             var footprint = await _services.Runtime.EstimateFootprintAsync(request, token);
             long experts = await _services.Runtime.EstimateExpertBytesAsync(request, token);
             var report = _advisor.Plan(footprint, request.Settings, memory);
@@ -444,7 +453,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             {
                 ConfiguredContext = request.Settings.ContextLength,
             };
-            if (Interlocked.Exchange(ref _pendingMemory, null) is { } newer && !ReferenceEquals(newer, memory))
+            if (Interlocked.Exchange(ref _pendingMemory, null) is { } newer && !DeviceMemoryWatch.Same(memory, newer))
             {
                 ScheduleEstimate(newer);
             }
