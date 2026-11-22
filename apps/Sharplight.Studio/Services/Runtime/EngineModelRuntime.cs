@@ -218,6 +218,14 @@ internal sealed class EngineModelRuntime : IModelRuntime
         => Task.Run(() => _estimator.Estimate(request, cancellationToken), cancellationToken);
 
     /// <inheritdoc/>
+    public Task<long> EstimateExpertBytesAsync(ModelLoadRequest request, CancellationToken cancellationToken)
+        => Task.Run(() => _estimator.ExpertBytes(request, cancellationToken), cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<double> EstimateExpertActiveShareAsync(ModelLoadRequest request, CancellationToken cancellationToken)
+        => Task.Run(() => _estimator.ExpertActiveShare(request, cancellationToken), cancellationToken);
+
+    /// <inheritdoc/>
     public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken)
     {
         var disabled = new HashSet<string>(disabledFeatures, StringComparer.OrdinalIgnoreCase);
