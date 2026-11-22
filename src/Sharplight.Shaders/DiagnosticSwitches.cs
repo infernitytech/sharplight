@@ -158,6 +158,24 @@ internal static class DiagnosticSwitches
     /// <summary>The router top-k keeps per-lane sorted lists instead of its row in registers (<c>SHARPLIGHT_NO_TOPK_REGISTER_ROW=1</c>).</summary>
     public static bool NoTopKRegisterRow { get; } = IsSet("SHARPLIGHT_NO_TOPK_REGISTER_ROW");
 
+    /// <summary>
+    /// Leaves the biases of int-dot q / k / v projections to their own launch after the multi-output GEMM instead of its store
+    /// (<c>SHARPLIGHT_NO_INT_DOT_MULTI_BIAS=1</c>).
+    /// </summary>
+    public static bool NoIntDotMultiBias { get; } = IsSet("SHARPLIGHT_NO_INT_DOT_MULTI_BIAS");
+
+    /// <summary>
+    /// Tiles ahead each warp of the native decode attention prefetches its key and value rows into L2 (<c>SHARPLIGHT_ATTN_DECODE_PF=n</c>,
+    /// 0 turns it off; unset: the kernel's default of one tile).
+    /// </summary>
+    public static int? AttentionDecodePrefetch { get; } = int.TryParse(Read("SHARPLIGHT_ATTN_DECODE_PF"), out int n) ? n : null;
+
+    /// <summary>Lowers a layer's query rope, key rope + cache write and value cache write as separate launches (<c>SHARPLIGHT_NO_ROPE_QKV=1</c>).</summary>
+    public static bool NoRopeQkv { get; } = IsSet("SHARPLIGHT_NO_ROPE_QKV");
+
+    /// <summary>Names the attention layers whose ropes and cache writes stay separate launches, and why (<c>SHARPLIGHT_ROPE_QKV_DEBUG=1</c>).</summary>
+    public static bool RopeQkvDebug { get; } = Read("SHARPLIGHT_ROPE_QKV_DEBUG") == "1";
+
     /// <summary>Materializes the in-place head repeats of a delta rule's q / k (<c>SHARPLIGHT_NO_GROUPED_KEY_HEADS=1</c>).</summary>
     public static bool NoGroupedKeyHeads { get; } = IsSet("SHARPLIGHT_NO_GROUPED_KEY_HEADS");
 

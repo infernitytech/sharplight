@@ -1,0 +1,31 @@
+--- a/src/Sharplight.Shaders/Kernels/attn_decode_native.cu	2026-11-21 23:34:40.379251238 +0000
++++ b/src/Sharplight.Shaders/Kernels/attn_decode_native.cu	2026-11-22 00:18:48.000000000 +0000
+@@ -260,7 +260,28 @@
+         // The warp's tile ND_PF tiles ahead into L2: the key and value rows' 128-byte lines, one per lane of a row's four (D = 64: two
+         // lines per row, lanes 0 and 1; D = 128: four). The loads below then wait on L2 instead of DRAM (RTX PRO 4500, gpt-oss-20b,
+         // 4 rows of 130,048 keys: 1.44 → 1.31 ms per layer, 739 → 815 GB/s; benchmarks.md section 78).
++#if ND_PF_BULK
++        // Bulk form: the next tile's 16-key blocks of the cache (all heads, contiguous) are prefetched by the KV-group blocks together,
++        // block hk taking the hk-th eighth (assumes PAGE_BS a multiple of 16 and aligned tiles).
++        if (lane < 2)
++        {
++            const nd_u32 jn = j0 + ND_WARPS * ND_TK * ND_PF;
++            const unsigned short* cache = lane == 0 ? p.kc : p.vc;
++#pragma unroll
++            for (int kb = 0; kb < ND_TK / 16; kb++)
++            {
++                nd_u32 j = jn + 16 * kb;
++                if (j < jEnd)
++                {
++                    const unsigned short* a = cache + nd_kv_row(p, kvBase, j) * D + (nd_u64)hk * (16 * D);
++                    asm volatile("cp.async.bulk.prefetch.L2.global [%0], %1;\n" :: "l"(a), "r"((nd_u32)(16 * D * 2)));
++                }
++            }
++        }
++        if (false)
++#else
+         if (c4 < 2 * ND_LPR)
++#endif
+         {
+             const nd_u32 jn = j0 + ND_WARPS * ND_TK * ND_PF;
+             const unsigned short* cache = c4 < ND_LPR ? p.kc : p.vc;

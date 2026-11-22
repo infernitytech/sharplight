@@ -129,6 +129,8 @@ public sealed partial class GraphLowerer
         }
 
         Func<Bindings, bool> served = b => group.Serves.Values.Any(serves => serves(b));
+        // Batches whose multi-output GEMM stored the bias (int-dot weights' q / k / v biases) need no launch after it.
+        Func<Bindings, bool> servedWithoutBias = b => group.Serves.Any(kv => !group.StoresBias.Contains(kv.Key) && kv.Value(b));
         _launchCondition = b => (condition?.Invoke(b) ?? true) && !served(b);
         LowerElementwise(epilogue.Group, [epilogue.Output]);
         _launchCondition = outer;
@@ -140,7 +142,7 @@ public sealed partial class GraphLowerer
             }
 
             var before = _launchCondition;
-            _launchCondition = b => (condition?.Invoke(b) ?? true) && served(b);
+            _launchCondition = b => (condition?.Invoke(b) ?? true) && servedWithoutBias(b);
             LowerElementwise(epilogue.Group, [epilogue.Output]);
             _launchCondition = before;
         });
@@ -259,6 +261,11 @@ public sealed partial class GraphLowerer
         {
             Console.Error.WriteLine($"multi-output GEMM of {string.Join(", ", group.Members.Select(m => m.Output.Name))} ({(fp8 ? "fp8" : "gemm_cm2")}, "
                                     + $"bias {bias}): splits {string.Join(" ", tiledSplits)}");
+        }
+
+        if (bias)
+        {
+            group.StoresBias.Add(family);
         }
 
         var scratch = SplitScratch(scratchBytes);

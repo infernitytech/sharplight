@@ -297,6 +297,10 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   soft caps, sinks, multi-sequence and paged caches and mixed steps' `MIX_RUN`; groups narrow enough for the fused combine (heads per
   block times head size up to 256) keep `decode`. gpt-oss-20b decode attention at 64 sequences 1.32 → 1.03 ms per step (vLLM 1.20,
   [benchmarks.md §72](benchmarks.md)). Q · SCALE and the probabilities are rounded to f16, as in the prefill kernel.
+  Each warp prefetches the key and value rows of its next tile into L2 (`prefetch.global.L2`, one 128-byte line per lane) before
+  loading the current one (key ranges of four tiles per warp or more), so its loads wait on L2 rather than DRAM: 4 x 130,048 keys of gpt-oss-20b 1.44 → 1.31 ms per layer
+  (739 → 815 GB/s) in the harness, 2-9 % at every shape measured, gpt-oss-20b 4 x 128K decode step -2 %
+  ([benchmarks.md §78](benchmarks.md)); `SHARPLIGHT_ATTN_DECODE_PF=0` turns it off (`=n`: n tiles ahead).
   `SHARPLIGHT_NATIVE_DECODE=0` keeps `decode`.
 
 **Tensor maps.** A CUDA C++ kernel can take tensor maps (`CUtensorMap`) after its scalars: the lowering states them in a header line
@@ -741,7 +745,10 @@ its split partials in the last workgroup),
 submission),
 `SHARPLIGHT_GEMM_MACROS` (e.g. `GNBUF=2` for double-buffered 64-value K blocks of gemm_cm2), `SHARPLIGHT_CUDA_MIN_BLOCKS=file:entry:blocks[;...]`
 (`__launch_bounds__` for matching generated kernels, replacing the default one block per SM for the MoE skinny GEMMs; `none`: no bounds),
-`SHARPLIGHT_MULTI_GEMM=0` (no multi-output q / k / v GEMM; `SHARPLIGHT_MULTI_DEBUG=1` lists the groups emitted and skipped), `SHARPLIGHT_NORM_WIDE=0` (fused row norms of 4096+ values keep 256-thread blocks at decode-size steps instead of 1024, benchmarks.md §76.3), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
+`SHARPLIGHT_MULTI_GEMM=0` (no multi-output q / k / v GEMM; `SHARPLIGHT_MULTI_DEBUG=1` lists the groups emitted and skipped),
+`SHARPLIGHT_NO_INT_DOT_MULTI_BIAS=1` (the q / k / v biases of int-dot weights as their own launch after the multi-output GEMM instead of in
+its store, benchmarks.md §78), `SHARPLIGHT_NO_ROPE_QKV=1` (a layer's query rope, key rope + cache write and value cache write as three
+launches instead of `rope_qkv`; `SHARPLIGHT_ROPE_QKV_DEBUG=1` names the layers that keep them and why), `SHARPLIGHT_NORM_WIDE=0` (fused row norms of 4096+ values keep 256-thread blocks at decode-size steps instead of 1024, benchmarks.md §76.3), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
 `SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, benchmarks.md §61.4); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 

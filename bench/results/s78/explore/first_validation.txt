@@ -1,0 +1,53 @@
+[lock acquired 23:31:32]
+cuda FusionTests: [0m[37m   Sharplight.Vulkan.Tests  Total: 99, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.466s
+cuda MatMulEpilogueTests: [0m[37m   Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 13.832s
+cuda RopeTests: [0m[37m   Sharplight.Vulkan.Tests  Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.173s
+vulkan FusionTests: [0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f16", D: 16, rot: 16, norm: True) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 32, rot: 32, norm: True) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f16", D: 128, rot: 128, norm: False) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 64, rot: 32, norm: False) [FAIL]
+[0m[37m   Sharplight.Vulkan.Tests  Total: 99, Errors: 0, Failed: 4, Skipped: 0, Not Run: 0, Time: 38.966s
+vulkan MatMulEpilogueTests: [0m[37m   Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 18.214s
+vulkan RopeTests: [0m[37m   Sharplight.Vulkan.Tests  Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 12.636s
+gpt-oss-20b cuda p40 base rc=0 e733f049
+gpt-oss-20b cuda p1000 base rc=0 8cb648ed
+gpt-oss-20b vulkan p40 base rc=0 35319991
+gpt-oss-20b vulkan p1000 base rc=0 dfb8e9fc
+Qwen3-8B-FP8 cuda p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 base rc=0 b9666631
+Qwen3-8B-FP8 vulkan p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 vulkan p1000 base rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 cuda p40 base rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 cuda p1000 base rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 vulkan p40 base rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 vulkan p1000 base rc=0 b9666631
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p40 base rc=0 14fba4f3
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p1000 base rc=0 b9666631
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 vulkan p40 base rc=0 8f420030
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 vulkan p1000 base rc=0 b9666631
+gpt-oss-20b cuda p40 new rc=0 e733f049
+gpt-oss-20b cuda p1000 new rc=0 8cb648ed
+gpt-oss-20b vulkan p40 new rc=0 35319991
+gpt-oss-20b vulkan p1000 new rc=0 dfb8e9fc
+Qwen3-8B-FP8 cuda p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 new rc=0 b9666631
+Qwen3-8B-FP8 vulkan p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 vulkan p1000 new rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 cuda p40 new rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 cuda p1000 new rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 vulkan p40 new rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 vulkan p1000 new rc=0 b9666631
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p40 new rc=0 14fba4f3
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p1000 new rc=0 b9666631
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 vulkan p40 new rc=0 8f420030
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 vulkan p1000 new rc=0 b9666631
+gptoss_text base r1:  1 : 5.20 / 5.21, 5.16    16 : 12.27 / 13.72, 12.22    64 : 17.44 / 18.34, 17.38   
+gptoss_feedback base r1:  1 : 5.19 / 5.20, 5.16    16 : 10.82 / 12.26, 10.75    64 : 16.17 / 16.79, 16.11   
+qwen_text base r1:  1 : 11.03 / 11.08, 10.97    16 : 12.66 / 12.85, 12.61    64 : 15.69 / 15.85, 15.64   
+gptoss_text new r1:  1 : 5.19 / 5.20, 5.16    16 : 12.24 / 13.66, 12.19    64 : 17.52 / 18.38, 17.46   
+gptoss_feedback new r1:  1 : 5.21 / 5.22, 5.17    16 : 10.79 / 12.20, 10.72    64 : 16.16 / 16.83, 16.09   
+qwen_text new r1:  1 : 11.00 / 11.07, 10.94    16 : 12.67 / 12.85, 12.62    64 : 15.71 / 15.86, 15.65   
+q25 base r1:  1 : 6.36 / 6.41, 6.32    16 : 11.51 / 11.97, 11.44    64 : 19.73 / 19.87, 19.67   
+q25 new r1:  1 : 6.36 / 6.41, 6.32    16 : 11.46 / 11.95, 11.41    64 : 19.59 / 19.78, 19.54   
+done 23:44:21
+[lock released 23:44:22 rc=0]

@@ -131,6 +131,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   launches now follow that GEMM; `ProjectionBiases` reproduces it. Fused row norms of 4096+ values take 1024-thread blocks at decode
   steps on CUDA: Qwen3-8B-FP8 64-sequence step 15.85 → 15.59-15.67 ms (1.00x of vLLM). Measured and not kept: a K-major expert weight
   layout with bulk L2 prefetches (1-8 % slower: the per-row 256-byte hints already prefetch eight K steps). Next: §76.6.
+  Round 26 (§78): gpt-oss-20b's 4 x 128K decode point measured like for like at depth 130,048 on both engines, vLLM's step from its own
+  profile (the old 0.93x came from a decode time computed as the difference of two ~80 s prefills): at par before this round. The
+  decode attention prefetches each warp's next key / value tile into L2 (harness 4 x 130K: 1.44 → 1.31 ms per layer, 739 → 815 GB/s;
+  2-9 % at every shape), so the point is 1.00-1.03x now (0.98-1.01x before). A layer's q rope, k rope + cache write and v cache write run as one launch on
+  CUDA (Qwen3 three launches 0.54 → 0.25 ms per step in the profile, the step within noise: they already overlapped as graph branches;
+  the SPIR-V form gave wrong rows for small heads, Vulkan keeps three launches); int-dot q / k / v biases are added in the multi-output
+  GEMM's store. Measured and not kept: decode split counts, a bulk prefetch of the cache blocks, 8-warp blocks. Next: §78.7.
 - **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
   31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
   the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models

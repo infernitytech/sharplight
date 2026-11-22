@@ -32,4 +32,7 @@ internal sealed class MultiGemmGroup
     /// epilogue runs as its own launch), emitted right after it; see <see cref="GraphLowerer"/>'s epilogue lowering.
     /// </summary>
     public List<Action> AfterEmit { get; } = [];
+
+    /// <summary>The kernel families whose multi-output GEMM adds the members' bias rows in its store (no bias launch after it).</summary>
+    public HashSet<bool> StoresBias { get; } = [];
 }

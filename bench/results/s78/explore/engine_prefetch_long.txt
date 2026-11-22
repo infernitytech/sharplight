@@ -1,0 +1,13 @@
+[lock acquired 23:45:40]
+0
+vulkan FusionTests: [0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f16", D: 16, rot: 16, norm: True) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 32, rot: 32, norm: True) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f16", D: 128, rot: 128, norm: False) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 64, rot: 32, norm: False) [FAIL]
+[0m[37m   Sharplight.Vulkan.Tests  Total: 99, Errors: 0, Failed: 4, Skipped: 0, Not Run: 0, Time: 35.659s
+long base1 d130048:  1 : 9.20 / 9.20, 9.16    4 : 23.55 / 23.80, 23.51   
+long new1 d130048:  1 : 9.22 / 9.23, 9.18    4 : 23.05 / 23.31, 23.01   
+long base2 d130048:  1 : 9.20 / 9.21, 9.16    4 : 23.53 / 23.75, 23.48   
+long new2 d130048:  1 : 9.20 / 9.22, 9.17    4 : 23.05 / 23.30, 23.00   
+done 23:55:19
+[lock released 23:55:19 rc=0]
