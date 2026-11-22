@@ -301,9 +301,8 @@ internal static class DiagnosticSwitches
     public static bool Fp8CopyWarpgroup { get; } = IsNotZero("SHARPLIGHT_FP8_WG");
 
     /// <summary>
-    /// <c>SHARPLIGHT_FP8_UNIFORM_SCALES=0</c>: the copy warpgroup's form of <c>gemm_fp8_tma.cu</c> promotes every K block with per-column
-    /// weight scales even where a tile's weight scales are uniform (default: it tests per K block and multiplies once per row then,
-    /// <c>F8N_WUNI=2</c>; same results).
+    /// <c>SHARPLIGHT_FP8_UNIFORM_SCALES=0</c>: <c>gemm_fp8_tma.cu</c> promotes every K block with per-row weight scales even for weights
+    /// whose 128-row groups share each block's scale (default: one weight scale per group, <c>F8N_WUNI</c>; the same results).
     /// </summary>
     public static bool Fp8UniformScales { get; } = IsNotZero("SHARPLIGHT_FP8_UNIFORM_SCALES");
 

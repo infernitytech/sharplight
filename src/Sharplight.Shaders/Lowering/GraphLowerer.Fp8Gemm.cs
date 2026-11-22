@@ -22,7 +22,7 @@ public sealed partial class GraphLowerer
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
-            ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount) : null : null,
+            ? NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount, UniformFp8ScaleGroups(p.Node.Inputs[1], p.W)) : null : null,
         nativeMinRows: NativeFp8MinRows(!_multiGemmOf.ContainsKey(p.Node)),
         fusedKernel: !Fp8FusedSplitK ? null : (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8",
             new Dictionary<string, string>(Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)) { ["SPLITK_FUSED"] = "1" }));
@@ -78,7 +78,8 @@ public sealed partial class GraphLowerer
     private bool Fp8FusedSplitK => DiagnosticSwitches.SplitKFused && _compiler.CompilesCuda(_opt.Target);
 
     private bool EmitDualFp8Gemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
-        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, string? cudaEpilogue, out Func<long, bool> serves, Value? output = null)
+        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, string? cudaEpilogue, out Func<long, bool> serves, Value? output = null,
+        bool uniformScales = false)
     {
         serves = _ => false;
         long minRows = Fp8GemmMinRows(weightA.Type, n, k);
@@ -110,7 +111,7 @@ public sealed partial class GraphLowerer
 
         if (rowsMax >= nativeMin)
         {
-            variants.AddRange(NativeFp8Variants(n, k, cudaEpilogue, xcap, nativeMin, rowsMax, rows)
+            variants.AddRange(NativeFp8Variants(n, k, cudaEpilogue, xcap, nativeMin, rowsMax, rows, uniformScales)
                 .Select(v => v with { When = b => v.When(b) && rows(b) < storeMin }));
         }
 
@@ -150,7 +151,7 @@ public sealed partial class GraphLowerer
             NoteDenseScales(copy, outRows);
             _fp8Copies[output!] = (copy, storeMin);
             long qcap = DenseScaleCapacityOf(copy);
-            Emit($"{label} fp8 e4m3 out", nodes, [NativeFp8TmaVariant(n, k, cudaEpilogue, xcap, b => rows(b) >= storeMin, rows, qcap)],
+            Emit($"{label} fp8 e4m3 out", nodes, [NativeFp8TmaVariant(n, k, cudaEpilogue, xcap, b => rows(b) >= storeMin, rows, qcap, uniformScales)],
                 [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(copy), TokenArg(x, rowsPerLead)],
                 [quantized, weightA, weightB], [copy]);
         }

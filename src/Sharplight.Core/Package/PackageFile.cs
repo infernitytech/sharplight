@@ -52,7 +52,13 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         }
 
         var idx = sections.Single(s => s.Kind == PackageSectionKind.WeightIndex);
-        Weights = ReadIndex(Reader(idx));
+        var weights = ReadIndex(Reader(idx));
+        foreach (var s in sections.Where(s => s.Kind == PackageSectionKind.WeightLayout))
+        {
+            WeightLayoutCodec.Apply(Reader(s), weights);
+        }
+
+        Weights = weights;
         var def = sections.Single(s => s.Kind == PackageSectionKind.Definition);
         var description = sections.Where(s => s.Kind == PackageSectionKind.Description).Select(ReadDescription).LastOrDefault();
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);

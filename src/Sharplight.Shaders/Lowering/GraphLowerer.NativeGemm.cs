@@ -138,7 +138,8 @@ public sealed partial class GraphLowerer
     /// <paramref name="dualEpilogue"/>) reading activation rows whose dense scale copy has <paramref name="xcap"/> rows, for batches of
     /// <paramref name="minRows"/> to <paramref name="maxRows"/> rows: one per token tile height (<see cref="NativeFp8TileRows"/>).
     /// </summary>
-    private KernelVariant[] NativeFp8Variants(long n, long k, string? dualEpilogue, long xcap, long minRows, long maxRows, Func<Bindings, long> rows)
+    private KernelVariant[] NativeFp8Variants(long n, long k, string? dualEpilogue, long xcap, long minRows, long maxRows, Func<Bindings, long> rows,
+        bool uniformScales = false)
     {
         bool dual = dualEpilogue is not null;
         int decodeColumns = NativeFp8DecodeColumns;
@@ -156,7 +157,7 @@ public sealed partial class GraphLowerer
             bool Serves(Bindings b) => rows(b) >= minRows && !Decode(rows(b)) && NativeFp8TileRows(rows(b), n, dual) == tileRows;
             if (tileRows == NativeFp8Tile && NativeFp8TensorCopies)
             {
-                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, Serves, rows);
+                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, Serves, rows, uniformScales: uniformScales);
             }
 
             return NativeFp8Variant(n, k, dualEpilogue, xcap, tileRows, NativeFp8Tile, Serves, rows);
@@ -293,6 +294,15 @@ public sealed partial class GraphLowerer
     /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c>: 2 x 4 computing warps and the copy warp.</summary>
     private const int NativeFp8TmaThreads = 288;
 
+    /// <summary>
+    /// True when the grouped E4M3 weight <paramref name="weight"/>, read whole as <paramref name="w"/>, has one scale per K block for each
+    /// of its 128-row groups (<see cref="WeightInfo.ScaleRowBlock"/> a multiple of 128: checkpoints with 128 x 128 scale blocks), so the
+    /// FP8 GEMM may read one weight scale per group (<c>F8N_WUNI</c>).
+    /// </summary>
+    private static bool UniformFp8ScaleGroups(Value? weight, TensorRef w)
+        => weight?.Weight is { ScaleRowBlock: > 0 } info && info.ScaleRowBlock % WeightRepacker.Fp8GroupRows == 0 && w.Type == ShaderTypes.F8E4M3_B128G
+           && info.Shape.Rank == 2 && w.Rank == 2 && w.Shape[0] == info.Shape[0].Fixed;
+
     /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c> with <c>F8N_WG</c>: 2 x 4 computing warps and the copy warpgroup.</summary>
     private const int NativeFp8TmaWarpgroupThreads = 384;
 
@@ -363,7 +373,8 @@ public sealed partial class GraphLowerer
     /// A non-zero <paramref name="qcap"/>: the dual form stores the outputs as E4M3 activation rows with power-of-two scales and a dense
     /// scale copy of that many rows (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>, see <see cref="Fp8StoreMinRows"/>) instead of f32 rows.
     /// </summary>
-    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0)
+    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0,
+        bool uniformScales = false)
     {
         bool dual = dualEpilogue is not null;
         long rowBytes = k + k / 32;
@@ -393,12 +404,13 @@ public sealed partial class GraphLowerer
         {
             macros["F8N_WG"] = "1";
             macros["SL_FAMILY_ARCH"] = "1";
-            if (!Fp8BlockScaled && DiagnosticSwitches.Fp8UniformScales)
-            {
-                // Per K block the warps test whether the tile's weight scales are one value per matrix (weights with 128 x 128 scale
-                // blocks) and then promote with one factor per row of x: the same products, fewer multiplies.
-                macros["F8N_WUNI"] = "2";
-            }
+        }
+
+        if (!Fp8BlockScaled && uniformScales && DiagnosticSwitches.Fp8UniformScales)
+        {
+            // Weights whose 128-row groups share each block's scale (128 x 128 scale blocks): the promotion multiplies by one factor per
+            // row of x, the same products as the per-row form.
+            macros["F8N_WUNI"] = "1";
         }
 
         var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", warpgroup ? NativeFp8TmaWarpgroupThreads : NativeFp8TmaThreads,

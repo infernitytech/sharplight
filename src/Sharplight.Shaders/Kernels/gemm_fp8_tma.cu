@@ -444,7 +444,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
                 we[j] = __float_as_uint(ws[f8n_brow(wn, j) + g]) >> 23;
             }
 
-#elif F8N_WUNI == 1
+#elif F8N_WUNI
             // One weight scale per 128 rows and K block (and per matrix of the pair): the promotion's factors are per row of x.
             float xw[F8N_FM][2][1 + DUAL];
 #pragma unroll
@@ -481,35 +481,6 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
 #endif
             }
 
-#if F8N_WUNI == 2
-            // Uniform weight scales over the tile's rows of each matrix in this K block (all of the warp's columns equal the first
-            // row's): then the promotion's factors are per row of x, the same products as xv * wv.
-            const float w0 = ws[0], w1 = ws[DUAL ? F8N_BN / 2 : 0];
-            bool uni = true;
-#pragma unroll
-            for (int j = 0; j < F8N_FN; j++)
-            {
-                const float wd = DUAL && (j & 1) ? w1 : w0;
-                uni = uni && wv[j].x == wd && wv[j].y == wd;
-            }
-
-            uni = __all_sync(0xffffffffu, uni);
-            float xw[F8N_FM][2][1 + DUAL];
-#pragma unroll
-            for (int i = 0; i < F8N_FM; i++)
-            {
-#pragma unroll
-                for (int h = 0; h < 2; h++)
-                {
-#pragma unroll
-                    for (int d = 0; d <= DUAL; d++)
-                    {
-                        xw[i][h][d] = xv[i][h] * (d ? w1 : w0);
-                    }
-                }
-            }
-
-#endif
 #endif
             const f8n_u32 s = it % F8N_STAGES;
             f8n_mbar_wait(bars + s * 8, (it / F8N_STAGES) & 1);
@@ -570,31 +541,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
                         f8n_mma(part[j], a, b[kk][j][0], b[kk][j][1]);
                     }
                 }
-#if F8N_WUNI == 2
-                if (uni)
-                {
-#pragma unroll
-                    for (int j = 0; j < F8N_FN; j++)
-                    {
-                        const int d = DUAL ? (j & 1) : 0;
-                        acc[i][j][0] = fmaf(part[j][0], xw[i][0][d], acc[i][j][0]);
-                        acc[i][j][1] = fmaf(part[j][1], xw[i][0][d], acc[i][j][1]);
-                        acc[i][j][2] = fmaf(part[j][2], xw[i][1][d], acc[i][j][2]);
-                        acc[i][j][3] = fmaf(part[j][3], xw[i][1][d], acc[i][j][3]);
-                    }
-                }
-                else
-                {
-#pragma unroll
-                    for (int j = 0; j < F8N_FN; j++)
-                    {
-                        acc[i][j][0] = fmaf(part[j][0], xv[i][0] * wv[j].x, acc[i][j][0]);
-                        acc[i][j][1] = fmaf(part[j][1], xv[i][0] * wv[j].y, acc[i][j][1]);
-                        acc[i][j][2] = fmaf(part[j][2], xv[i][1] * wv[j].x, acc[i][j][2]);
-                        acc[i][j][3] = fmaf(part[j][3], xv[i][1] * wv[j].y, acc[i][j][3]);
-                    }
-                }
-#elif F8N_WUNI
+#if F8N_WUNI
 #pragma unroll
                 for (int j = 0; j < F8N_FN; j++)
                 {
