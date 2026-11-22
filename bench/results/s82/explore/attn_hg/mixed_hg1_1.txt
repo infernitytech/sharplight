@@ -50,8 +50,8 @@ GPU time 1164.78 ms
      0.074 ms   0.0%     10x  min      6.8 us  router topk_203 topk_softmax T=2048,U=8,R=8|2,3
 
 Unhandled exception. System.InvalidOperationException: Context of slot 71 full (0 + 2048 > 640).
-   at Sharplight.Llm.Serving.MultiSequenceDecoder.PackInputs(IReadOnlyList`1 inputs) in /root/sl-worktrees/perf-r28/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 874
-   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in /root/sl-worktrees/perf-r28/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 646
-   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in /root/sl-worktrees/perf-r28/bench/BatchBench/Program.cs:line 115
-   at Program.<Main>$(String[] args) in /root/sl-worktrees/perf-r28/bench/BatchBench/Program.cs:line 181
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.PackInputs(IReadOnlyList`1 inputs) in <tree>/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 874
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in <tree>/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 646
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in <tree>/bench/BatchBench/Program.cs:line 115
+   at Program.<Main>$(String[] args) in <tree>/bench/BatchBench/Program.cs:line 181
 timeout: the monitored command dumped core
