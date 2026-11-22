@@ -1,0 +1,11 @@
+p1000_store1 vs p1000_store0: maxabs 0 meanabs 0 rms(logits) 3.1 KL 0 top1 279/279 identical=True
+p1000_store1 vs p1000_base: maxabs 0 meanabs 0 rms(logits) 3.1 KL 0 top1 279/279 identical=True
+p3000_store1 vs p3000_store0: maxabs 0 meanabs 0 rms(logits) 2.65 KL 0 top1 1131/1131 identical=True
+p3000_store1 vs p3000_base: maxabs 1.547 meanabs 0.2286 rms(logits) 2.65 KL 0.0486 top1 1131/279 identical=False
+p3000_tall0 vs p3000_base: maxabs 1.547 meanabs 0.2286 rms(logits) 2.65 KL 0.0486 top1 1131/279 identical=False
+p3000_tok0 vs p3000_base: maxabs 1.547 meanabs 0.2286 rms(logits) 2.65 KL 0.0486 top1 1131/279 identical=False
+p3000_all0 vs p3000_base: maxabs 1.547 meanabs 0.2286 rms(logits) 2.65 KL 0.0486 top1 1131/279 identical=False
+p3000_base_range0 vs p3000_new_range0: maxabs 1.547 meanabs 0.2286 rms(logits) 2.69 KL 0.0496 top1 279/1131 identical=False
+p3000_vulkan vs p3000_store1: maxabs 0.1933 meanabs 0.0246 rms(logits) 2.64 KL 0.000623 top1 1131/1131 identical=False
+p3000_vulkan vs p3000_base: maxabs 1.524 meanabs 0.2317 rms(logits) 2.64 KL 0.052 top1 1131/279 identical=False
+p3000_base_vulkan vs p3000_vulkan: maxabs 0 meanabs 0 rms(logits) 2.64 KL 0 top1 1131/1131 identical=True

@@ -100,6 +100,7 @@ public sealed partial class GraphLowerer
     {
         if (_multiGemmOf.TryGetValue(matmul, out var group) && ++group.Lowered == group.Members.Count)
         {
+            EmitNativeF16TallMultiGemm(group);
             EmitMultiGemm(group);
             foreach (var emit in group.AfterEmit)
             {
@@ -428,6 +429,90 @@ public sealed partial class GraphLowerer
             [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output)]);
         return decode;
+    }
+
+    /// <summary>
+    /// Records a member's launch on the hand-written f16 GEMM's prompt-sized tiles for its multi-output group (none: no group) and
+    /// returns the condition its own launch adds: the bindings the group's multi-output form does not serve.
+    /// </summary>
+    private Func<Bindings, bool> NoteMultiGemmTallPart(Node matmul, MultiGemmTallPart part)
+    {
+        if (!DiagnosticSwitches.MultiGemmTall || !_multiGemmOf.TryGetValue(matmul, out var group) || !group.TallParts.TryAdd(matmul, part))
+        {
+            return _ => true;
+        }
+
+        return b => !(group.TallServes?.Invoke(b) ?? false);
+    }
+
+    /// <summary>The bindings of at least <paramref name="minRows"/> rows under the current launch condition.</summary>
+    private Func<Bindings, bool> TallCondition(long minRows, Func<Bindings, long> rows)
+    {
+        var condition = _launchCondition;
+        return b => (condition?.Invoke(b) ?? true) && rows(b) >= minRows;
+    }
+
+    /// <summary>The variants, each also requiring <paramref name="condition"/>.</summary>
+    private static KernelVariant[] Unless(KernelVariant[] variants, Func<Bindings, bool> condition)
+        => [.. variants.Select(v => v with { When = b => condition(b) && v.When(b) })];
+
+    /// <summary>
+    /// The multi-output form of the hand-written f16 GEMM's prompt-sized tiles (<c>gemm_f16_native.cu</c> H_CFG 0 / 1 with MULTI)
+    /// over the concatenated weight rows of a group whose members all run on those tiles (<see cref="MultiGemmGroup.TallParts"/>):
+    /// one launch instead of one per member, each block's weight tile in one member's matrix, storing to its output with its bias.
+    /// The short k / v matrices alone fill less than a wave each (gpt-oss-20b at 2,008 rows: 2 x 16 blocks of 128 x 256 on 82 SMs,
+    /// 51 µs each) and q leaves its fourth wave nearly empty; together they fill it (RTX PRO 4500, 2,048 rows: 378 + 2 x 51.4 →
+    /// 406 µs per layer). Each output is the product its member's launch computes (the same tile and K order).
+    /// <c>SHARPLIGHT_MULTI_GEMM_TALL=0</c> keeps the members' launches.
+    /// </summary>
+    private void EmitNativeF16TallMultiGemm(MultiGemmGroup group)
+    {
+        if (group.Members.Count > 3 || !group.Members.All(group.TallParts.ContainsKey))
+        {
+            return;
+        }
+
+        var parts = group.Members.Select(m => group.TallParts[m]).ToList();
+
+        var first = parts[0];
+        bool bias = first.Bias is not null;
+        if (parts.Any(pt => pt.Activations.Buffer != first.Activations.Buffer || pt.Activations.ByteOffset != first.Activations.ByteOffset
+                            || (pt.Bias is not null) != bias || pt.RangeScales != first.RangeScales || pt.MinRows != first.MinRows
+                            || pt.MaxRows != first.MaxRows || pt.Weight.Type != first.Weight.Type || pt.Weight.Shape[1] != first.Weight.Shape[1]
+                            || !DenseRowsOf(pt.Output, pt.Weight.Shape[0]) || pt.Weight.Shape[0] % 2 != 0))
+        {
+            return;
+        }
+
+        long[] widths = [.. parts.Select(pt => pt.Weight.Shape[0])];
+        long n = widths.Sum();
+        long k = first.Weight.Shape[1];
+        bool Allowed(int config) => widths.SkipLast(1).All(w => w % s_nativeF16TileColumns[config] == 0);
+        if (!Enumerable.Range(0, s_nativeF16TileColumns.Length).Any(Allowed))
+        {
+            return;
+        }
+
+        var multi = new Dictionary<string, string>
+        {
+            ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+        };
+        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b));
+        var rowsOf = first.Rows;
+        var variants = Unless(NativeF16Variants(n, k, first.MaxRows, null, rowsOf, first.MinRows, bias, first.RangeScales, Allowed, multi), serves);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        KernelArg[] firstBias = bias ? [Pointer(first.Bias!)] : [];
+        KernelArg[] biases = bias ? [.. parts.Skip(1).Select(pt => Pointer(pt.Bias!))] : [];
+        var outer = _launchCondition;
+        _launchCondition = null;
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native{(bias ? " fused[Add]" : "")}", group.Members, variants,
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output)]);
+        _launchCondition = outer;
+        group.TallServes = serves;
     }
 
     /// <summary>True when <paramref name="r"/> holds dense rows of <paramref name="width"/> values.</summary>

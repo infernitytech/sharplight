@@ -600,6 +600,18 @@ internal static class DiagnosticSwitches
     public static bool MoeSortedHalfActivations { get; } = IsNotZero("SHARPLIGHT_MOE_X16");
 
     /// <summary>
+    /// False (<c>SHARPLIGHT_MOE_SORTED_STORE=0</c>) keeps the f32 store of the gate / up expert GEMM on the hand-written grouped GEMM
+    /// and the down projection's gather, instead of the gate / up GEMM storing the down projection's expert-sorted f16 rows.
+    /// </summary>
+    public static bool MoeSortedStore { get; } = IsNotZero("SHARPLIGHT_MOE_SORTED_STORE");
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MOE_TOKEN_ROWS=0</c>) gathers the expert-sorted f16 rows of the gate / up GEMM's activations for the
+    /// hand-written grouped GEMM instead of letting it read its items' token rows from the f16 copy another GEMM (the router) reads.
+    /// </summary>
+    public static bool MoeTokenRows { get; } = IsNotZero("SHARPLIGHT_MOE_TOKEN_ROWS");
+
+    /// <summary>
     /// True when the expert-grouped gemm_cm2 with 64- or 128-row tiles leaves the tiles of at most half that many rows (an
     /// expert's last, partly filled tile) to a second launch with half-height tiles, which multiplies less padding.
     /// </summary>
@@ -661,6 +673,12 @@ internal static class DiagnosticSwitches
     /// launch over its partials.
     /// </summary>
     public static bool MultiGemmFused { get; } = Read("SHARPLIGHT_MULTI_FUSED") == "1";
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MULTI_GEMM_TALL=0</c>) keeps the members of a q / k / v group on their own launches of the hand-written f16
+    /// GEMM's prompt-sized tiles instead of one multi-output launch over their concatenated weight rows.
+    /// </summary>
+    public static bool MultiGemmTall { get; } = Read("SHARPLIGHT_MULTI_GEMM_TALL") != "0";
 
     /// <summary><c>SHARPLIGHT_MULTI_DEBUG=1</c>: report on stderr why a multi-output group got no GEMM.</summary>
     public static bool MultiGemmDebug { get; } = Read("SHARPLIGHT_MULTI_DEBUG") == "1";
@@ -727,6 +745,12 @@ internal static class DiagnosticSwitches
 
     /// <summary><c>SHARPLIGHT_ATTN_MR=n</c>: 16-row query fragments per warp (1 or 2) of the hand-written prefill attention, or null for the default.</summary>
     public static int? NativeAttentionFragments { get; } = Read("SHARPLIGHT_ATTN_MR") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_ATTN_HG=1</c> runs the query heads of a KV head in one block of the hand-written prefill attention (<c>FN_HG</c>)
+    /// wherever it can, <c>=0</c> nowhere; unset, the lowering's rule.
+    /// </summary>
+    public static bool? NativeAttentionHeadGroups { get; } = Read("SHARPLIGHT_ATTN_HG") switch { "1" => true, "0" => false, _ => null };
 
     /// <summary><c>SHARPLIGHT_NORM_THREADS=n</c>: threads per workgroup of the fused row norms (experiments), or null for the default.</summary>
     public static int? RowNormThreads { get; } = Read("SHARPLIGHT_NORM_THREADS") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;

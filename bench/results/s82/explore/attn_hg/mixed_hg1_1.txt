@@ -1,0 +1,57 @@
+decoder: MultiSequenceDecoder, slots 72, vocab 201088, device sampling: True, KV paged 2880 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 8 | 2000 (8) | 133.2 | 414 / 0 | 114.61 / 114.92, 114.49 |  |
+| 0 | 2048 (8) | 118.3 | 414 / 0 | 116.25 / 116.73, 116.13 |  |
+--- profile mixed 0+256x8 (greedy)
+GPU time 1164.78 ms
+   540.268 ms  46.4%    240x  min   2170.9 us  matmul-id [32x2880→5760] mxfp4rx2 fused native token rows sorted f16 gemm_moe_native T=2048,U=8,R=8|2,3
+   294.643 ms  25.3%    240x  min   1182.0 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=2048,U=8,R=8|2,3
+   101.752 ms   8.7%    240x  min    408.3 us  matmul [2880→4096+512+512] f16 native fused[Add] gemm_f16_native T=2048,U=8,R=8|2,3
+    93.875 ms   8.1%    240x  min    376.7 us  matmul [4096→2880] f16 native gemm_f16_native T=2048,U=8,R=8|2,3
+    27.247 ms   2.3%    240x  min    110.3 us  ReduceSum rowreduce_narrow T=2048,U=8,R=8|2,3
+    21.569 ms   1.9%    240x  min     72.5 us  fused[Add,Add]+RmsNorm main T=2048,U=8,R=8|2,3
+    17.485 ms   1.5%    240x  min     70.0 us  rope+qkv+cache_write rope_qkv T=2048,U=8,R=8|2,3
+    17.311 ms   1.5%    240x  min     68.8 us  attention attn_prefill_native T=2048,U=8,R=8|2,3
+    16.259 ms   1.4%    240x  min     51.0 us  fused[Add]+RmsNorm main T=2048,U=8,R=8|2,3
+    14.750 ms   1.3%     10x  min   1473.3 us  matmul [2880→201088] f16 skinny gemm_sk T=2048,U=8,R=8|2,3
+     4.508 ms   0.4%    240x  min     17.4 us  matmul [2880→32] f16 split-k gemm_cm2 T=2048,U=8,R=8|2,3
+     4.030 ms   0.3%    240x  min     15.4 us  matmul [4096→2880] f16 x→ranged f16 to_f16_ranged T=2048,U=8,R=8|2,3
+     3.940 ms   0.3%    240x  min     14.5 us  matmul [2880→32] f16 x→f16 to_f16 T=2048,U=8,R=8|2,3
+     1.880 ms   0.2%    240x  min      6.3 us  moe-route [32 experts] moe_route T=2048,U=8,R=8|2,3
+     1.157 ms   0.1%    240x  min      3.4 us  matmul split-k reduce fused[Add] splitk_reduce T=2048,U=8,R=8|2,3
+     1.058 ms   0.1%    240x  min      2.2 us  moe-range-fixup moe_range_fixup T=2048,U=8,R=8|2,3
+     0.663 ms   0.1%     20x  min      4.1 us  gather gather T=2048,U=8,R=8|2,3
+     0.343 ms   0.0%     10x  min     33.1 us  sample sample T=2048,U=8,R=8|2,3
+     0.150 ms   0.0%     10x  min     12.8 us  RmsNorm main T=2048,U=8,R=8|2,3
+     0.092 ms   0.0%     10x  min      6.1 us  router topk_563 topk_softmax T=2048,U=8,R=8|2,3
+     0.083 ms   0.0%     10x  min      7.1 us  router topk_113 topk_softmax T=2048,U=8,R=8|2,3
+     0.081 ms   0.0%     10x  min      6.8 us  router topk_23 topk_softmax T=2048,U=8,R=8|2,3
+     0.080 ms   0.0%     10x  min      6.3 us  router topk_428 topk_softmax T=2048,U=8,R=8|2,3
+     0.079 ms   0.0%     10x  min      6.1 us  router topk_698 topk_softmax T=2048,U=8,R=8|2,3
+     0.077 ms   0.0%     10x  min      6.8 us  router topk_338 topk_softmax T=2048,U=8,R=8|2,3
+     0.077 ms   0.0%     10x  min      6.8 us  router topk_518 topk_softmax T=2048,U=8,R=8|2,3
+     0.076 ms   0.0%     10x  min      6.9 us  router topk_248 topk_softmax T=2048,U=8,R=8|2,3
+     0.076 ms   0.0%     10x  min      6.3 us  router topk_473 topk_softmax T=2048,U=8,R=8|2,3
+     0.076 ms   0.0%     10x  min      6.3 us  router topk_383 topk_softmax T=2048,U=8,R=8|2,3
+     0.076 ms   0.0%     10x  min      6.3 us  router topk_158 topk_softmax T=2048,U=8,R=8|2,3
+     0.076 ms   0.0%     10x  min      6.7 us  router topk_1058 topk_softmax T=2048,U=8,R=8|2,3
+     0.075 ms   0.0%     10x  min      6.3 us  router topk_968 topk_softmax T=2048,U=8,R=8|2,3
+     0.075 ms   0.0%     10x  min      6.8 us  router topk_68 topk_softmax T=2048,U=8,R=8|2,3
+     0.075 ms   0.0%     10x  min      6.2 us  router topk_743 topk_softmax T=2048,U=8,R=8|2,3
+     0.075 ms   0.0%     10x  min      6.3 us  router topk_1013 topk_softmax T=2048,U=8,R=8|2,3
+     0.075 ms   0.0%     10x  min      6.3 us  router topk_923 topk_softmax T=2048,U=8,R=8|2,3
+     0.075 ms   0.0%     10x  min      6.3 us  router topk_653 topk_softmax T=2048,U=8,R=8|2,3
+     0.074 ms   0.0%     10x  min      6.9 us  router topk_833 topk_softmax T=2048,U=8,R=8|2,3
+     0.074 ms   0.0%     10x  min      6.2 us  router topk_788 topk_softmax T=2048,U=8,R=8|2,3
+     0.074 ms   0.0%     10x  min      6.8 us  router topk_203 topk_softmax T=2048,U=8,R=8|2,3
+
+Unhandled exception. System.InvalidOperationException: Context of slot 71 full (0 + 2048 > 640).
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.PackInputs(IReadOnlyList`1 inputs) in <tree>/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 874
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in <tree>/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 646
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in <tree>/bench/BatchBench/Program.cs:line 115
+   at Program.<Main>$(String[] args) in <tree>/bench/BatchBench/Program.cs:line 181
+timeout: the monitored command dumped core

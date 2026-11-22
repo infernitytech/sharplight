@@ -17,6 +17,13 @@
 // applies NM_EPI1(m, e, n, t, s) when defined (t, s: token and slot of the item), else stores the product.
 // X_RS: x is row-ranged (common.slang, f16_range_scale; the scale word of sorted row o at byte X_RS + 4 o): rows are multiplied by
 // their inverse scale before the epilogue.
+// NM_X_TOKEN: x holds f16 rows per token (a copy of the activations, row stride K; X_RS: their scale word at byte X_RS + 4 t) instead
+// of the expert-sorted rows: each tile row reads its item's token row, so no gather copies them per (token, slot) first.
+// NM_Y16 (DUAL): the store writes the epilogue's values as the next expert GEMM's input instead of y: f16 rows at their sorted
+// position o (y16 + 2 N o, the layout of moe_gather_x16), so the down projection reads them without a gather. With NM_Y16_RS
+// (the rows are row-ranged, scale words at byte NM_Y16_RS of y16): a value of 2^15 or more is stored as an f16 infinity with its
+// f32 value at y[o, n] and the row's scale word set to 1; moe_range_fixup (moe.slang) then stores such rows scaled and every
+// other row's word as 0, as the ranged gather would.
 //
 // Specialization macros: K, N (outputs), EXPERT_BYTES (bytes per expert of w), ROW_BYTES (17 K / 32), S, MAXTILES, NM_BM (32, 64 or
 // 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, NM_TABLE, DUAL, X_RS,
@@ -85,6 +92,9 @@ struct NmParams
 #endif
     const nm_u32* scratch;
     float* y;
+#ifdef NM_Y16
+    unsigned char* y16;
+#endif
 #ifdef NM_EPI_FIELDS
     NM_EPI_FIELDS
 #endif
@@ -287,7 +297,11 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
     {
         nm_u32 idx = tid + i * NM_THREADS, r = idx >> 3, c = idx & 7;
         aLive[i] = idx < NM_BM * 8 && r < tileRows;
+#ifdef NM_X_TOKEN
+        aSrc[i] = p.x + (nm_u64)(p.scratch[1 + 3 * MAXTILES + rowOff + (aLive[i] ? r : 0)] / S) * NM_XRS + c * 16;
+#else
         aSrc[i] = p.x + (nm_u64)(rowOff + (aLive[i] ? r : 0)) * NM_XRS + c * 16;
+#endif
         aDst[i] = nm_swz(r, c);
     }
     const unsigned char* cSrc[NM_C_PER];
@@ -504,10 +518,19 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
             }
 
             nm_u32 item = p.scratch[1 + 3 * MAXTILES + rowOff + t];
+#ifdef NM_Y16
+            float* yr = p.y + (nm_u64)(rowOff + t) * N;
+            unsigned char* hr = p.y16 + (nm_u64)(rowOff + t) * N * 2;
+#else
             float* yr = p.y + (nm_u64)item * N;
+#endif
 #ifdef X_RS
             // f16_range_inverse (common.slang): 0 marks an unscaled row, else the word is the inverse factor.
+#ifdef NM_X_TOKEN
+            nm_u32 word = *(const nm_u32*)(p.x + X_RS + (nm_u64)(item / S) * 4);
+#else
             nm_u32 word = *(const nm_u32*)(p.x + X_RS + (nm_u64)(rowOff + t) * 4);
+#endif
             float inv = word == 0u ? 1.0f : __uint_as_float(word);
 #else
             float inv = 1.0f;
@@ -524,6 +547,21 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
 
                 float v0 = NM_EPI2(acc[i][j][h * 2] * inv, acc[i][j + 1][h * 2] * inv, expert, n);
                 float v1 = NM_EPI2(acc[i][j][h * 2 + 1] * inv, acc[i][j + 1][h * 2 + 1] * inv, expert, n + 1);
+#ifdef NM_Y16
+                nm_u32 h0 = nm_f2h(v0), h1 = nm_f2h(v1);
+#ifdef NM_Y16_RS
+                // Values the ranged row must scale: an infinity marks each, its f32 value goes to y, the row's word flags it.
+                if (fabsf(v0) >= 32768.0f || fabsf(v1) >= 32768.0f)
+                {
+                    h0 = fabsf(v0) >= 32768.0f ? 0x7C00u : h0;
+                    h1 = fabsf(v1) >= 32768.0f ? 0x7C00u : h1;
+                    *(float2*)(yr + n) = make_float2(v0, v1);
+                    *(nm_u32*)(p.y16 + NM_Y16_RS + (nm_u64)(rowOff + t) * 4) = 1u;
+                }
+#endif
+                *(nm_u32*)(hr + (nm_u64)n * 2) = h0 | (h1 << 16);
+                continue;
+#endif
 #else
 #pragma unroll
             for (int j = 0; j < NM_FN; j++)

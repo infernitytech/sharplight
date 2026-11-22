@@ -12113,3 +12113,147 @@ $BB $G --provider cuda --slots 2 --ctx 33280 --kv-tokens 33792 --depth 32768 --b
 cd bench/s78_decode && nvcc -O3 -arch=sm_120 -std=c++17 -DHQ=32 -DHKV=4 -DD=512 -DHPW=8 -DT_ROWS=1 -DL_KEYS=131072 -DDEC_TARGET_WG=164 \
   -DDEC_MAX_SPLITS=64 -DDEC_BC=16 -DDEC_MIN_KEYS=64 -DPAGED -DCHECK -DKFILE='"../../src/Sharplight.Shaders/Kernels/attn_decode_native.cu"' bench_decode.cu -o d && ./d
 ```
+
+## 82. LLM round 28: gpt-oss prompt rows (the gate / up GEMM stores the down projection's sorted f16 rows, token-row reads, prompt-sized q / k / v as one launch, routers on the K split, prefill head groups) (2026-11-22)
+
+Branch `perf/llm-r28` (`develop` at `54384036`, §81, merged in). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap), shared with perf/feed-r5: every run held the verify lock; ours, `develop` and vLLM 0.33 ran in the same hold. Every change
+is CUDA only and has a switch; Vulkan's kernels and lowering are unchanged (its gpt-oss greedy text and long-prompt logits are
+bit-identical to `develop`'s). Raw output in [`bench/results/s82/`](../bench/results/s82) (`final3/` the final hold, `final2/` the
+correctness runs, A/B pairs and the fix-up probe, `final/` and `explore/` the measurements during the round).
+
+### 82.1 Results (final hold)
+
+Serving (`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, closed loop, two
+rounds each; ours `--provider cuda`; vLLM 0.33 `--gpu-memory-utilization 0.6`), all three in one hold (`final3/`, tok/s per round):
+
+| model, streams | `develop` 54384036 | **this round** | vLLM 0.33 | ours / vLLM before → after |
+|---|---:|---:|---:|---:|
+| gpt-oss-20b, 16 | 1390 / 1398 | 1283 (first round) / **1419** | 1429 / 1400 | 0.99 → 1.00 |
+| gpt-oss-20b, 64 | 2951 / 2938 | **3055 / 3081** | 3168 / 3101 | 0.94 → **0.98** |
+| Qwen3-8B-FP8, 16 | 1049 / 1051 | 1051 / 1055 | 1112 / 1119 | 0.94 → 0.94 |
+| Qwen3-8B-FP8, 64 | 2534 / 2528 | 2539 / 2535 | 2694 / 2686 | 0.94 → 0.94 |
+
+gpt-oss at 64 streams +4.2 % (inter-token p50 13.47-13.61 against 13.96-13.97 ms; vLLM 13.04-13.44), TTFT p50 229-235 against
+vLLM's 375-376 ms. The new build's first 16-stream round ran at 1283 tok/s (its longest inter-token gap 72 against 55 ms in the
+second round: steps recorded for new row counts); the ratio uses the second. Qwen3-8B-FP8 runs none of the changed paths except
+the narrow-product rule (no MoE router) and is unchanged.
+
+Steps (BatchBench, GPU ms min of 10 / 5 reps, same hold, `final3/steps/`, `final3/mixed/`):
+
+| step | `develop` | **this round** | |
+|---|---:|---:|---:|
+| gpt-oss-20b decode 1 / 16 / 64 rows (`--text`) | 5.18 / 12.21 / 17.26 | 5.19 / 12.17 / 17.06 | 0 / -0.3 / -1.2 % |
+| gpt-oss-20b 8 prompts x 256 (2,048 rows) | 123.04 | **116.10** | -5.6 % |
+| gpt-oss-20b 8 decode + 8 x 250 prompt rows | 121.62 | **114.55** | -5.8 % |
+| gpt-oss-20b 64 decode rows (mixed path) | 13.46 | 13.29 | -1.3 % |
+| Qwen3-8B-FP8 decode 1 / 16 / 64 rows | 10.95 / 12.60 / 15.57 | 10.95 / 12.60 / 15.59 | 0 |
+
+Launches per gpt-oss step: 486 → 414 (prompt), 427 → 403 (64-row decode).
+
+### 82.2 What changed
+
+§80.8 ranked the prompt rows of gpt-oss at 64 streams first: per 2,008-row step the two expert gathers (4.5 ms), the dense f16
+projections, short-prompt attention. In order of the commits (gpt-oss-20b, BatchBench `--mixed`, GPU ms of the 2,048-row prompt step):
+
+* **Prompt-sized q / k / v as one launch** (`gemm_f16_native.cu` `MULTI` on the 128-row tiles; from 256 rows, 1,024 with biases;
+  `SHARPLIGHT_MULTI_GEMM_TALL=0`): q / k / v 378 + 2 x 51.4 → 406 µs per layer (k and v alone leave most SMs idle).
+* **Narrow f16 products on gemm_cm2's K split** (`LibraryGemmMinColumns` 256): gpt-oss's router [2880 → 32] ran the hand-written
+  GEMM's 128-row token tiles in one column tile, 16 blocks at 2,048 rows; on the K split 39.6 → 16.9 + 3.9 µs (with the reduction,
+  which adds the bias). Same kernel as Vulkan's router (see 82.4 for what that does to long-prompt logits).
+* **The gate / up GEMM stores the down projection's input** (`NM_Y16`, `SHARPLIGHT_MOE_SORTED_STORE=0` keeps the f32 store): the dual
+  form writes the epilogue's values as f16 rows at their expert-sorted position (the layout of `moe_gather_x16`), so the down
+  projection's gather launch and the f32 round trip (2,008 x 4 x 2,880 x 4 bytes written and read again) go. On row-ranged copies a
+  value ≥ 2^15 is stored as an f16 infinity, its f32 value spilled to the f32 output, the row's scale word set to 1; `moe_range_fixup`
+  stores flagged rows scaled (as the ranged gather would) and clears every other row's word. A/B in one hold, same build
+  (`final2/store_ab/`): 2,048-row step 119.14 → 115.04 ms (-3.4 %), 64-row decode 16.89 / 16.89 → 16.71 / 16.74 ms (-1.0 %), 16 rows
+  12.80 / 12.80 → 12.77 / 12.74 ms (-0.3 %); logits bit-identical to the gather path (963- and 2,889-token prompts).
+* **Token-row reads** (`NM_X_TOKEN`, `SHARPLIGHT_MOE_TOKEN_ROWS=0`): the gate / up GEMM reads its items' rows from the router's f16
+  copy of x (per token) under that copy's write condition instead of a gathered copy per (token, slot). Store and token rows together: 121.71 →
+  117.68 ms in the probe.
+* **Row-range unscale in the f16 GEMM's store** (`H_XRS` without a bias): no `f16_range_unscale` launch after the plain f16
+  projections; 117.68 → 116.48 ms with the token-row condition fix.
+* **Prefill attention head groups for multi-sequence runs** (`FN_HG`: the 8 query heads of a KV head in one block, each K / V tile
+  feeding all of them; `SHARPLIGHT_ATTN_HG=1` / `=0` everywhere / nowhere; single-sequence prefill keeps one head per block): 8
+  prompts of 256 rows 72.3 → 69.2 µs per layer, 8 + 8 x 250 rows 114.73 / 114.99 → 114.49 / 114.57 ms (`explore/attn_hg/`).
+
+### 82.3 The fix-up anomaly (resolved: a timing artifact)
+
+The 64-row decode profile of the round (`final/prof/steps_gptoss64_new.txt`) showed `moe_range_fixup` at 73.3 ms over 480 calls
+(152 µs mean, 2.7 µs min), 19 % of the profiled GPU time, which would mean many flagged rows or a fix-up far costlier than intended.
+Neither:
+
+* **No row is ever flagged on gpt-oss.** `moe_range_fixup` instrumented with a printf of flagged rows and rows whose maximum is
+  ≥ 2^15 per workgroup (not committed, `final2/fixup_probe/flag_counts.txt`): 6,576 calls on `--text` decode at 16 / 64 rows (and the
+  256-row prompts of the depth), 14,592 on prompt steps (8 x 256, 8 + 8 x 250 rows): 0 flagged, 0 large. gpt-oss's clamped SwiGLU
+  ((up + 1) · gate · σ(1.702 gate), gate ≤ 7, |up| ≤ 7) bounds the down projection's inputs at ~56, so for this model the flag path
+  is never taken and bf16 or per-row scales would buy nothing.
+* **The fix-up costs 2-4 µs.** The same profile re-run (`final2/fixup_probe/prof64_rerun.txt`): 1.97 ms over 480 calls (4.1 µs mean,
+  2.3 µs min); total profiled GPU time 309.8 ms against 388.5 in the round's profile, 71 of the 79 ms difference the fix-up's. The
+  profiler times each launch between its own pair of events on an idle stream, so a host-side stall between the start event and the
+  launch counts as the launch's time; the round's profile most likely caught such stalls (or another context on the shared GPU) on
+  this launch. Its min (2.7 µs) was the real cost all along.
+* **A/B** (82.2): the store with its fix-up is faster than the gather at every size measured.
+
+Coverage: `MoeTests.RoutedExpertBlockLargeActivations` (separate gate / up products) never reaches the hand-written grouped GEMM, so
+it tested the ranged gather only. New `CudaCodeTests.NativeMoeSortedStoreScalesLargeRows`: two gpt-oss-style blocks (fused gate / up
+halves, MXFP4) on one routing, every seventh token 300 times larger so the first block's products pass 2^15, the second block reading
+its RmsNorm; 50 tokens (one fix-up workgroup) and 300 (five), both outputs against the CPU provider. It fails with a fix-up that keeps
+the previous block's scale words (y2[0] -37.3 against -0.68) and passes with the real one.
+
+### 82.4 Correctness
+
+* **Greedy text**, 120 tokens, the ~40-word prompt and the 963-token prompt, final build against `develop` 54384036
+  (`final2/greedy/`): gpt-oss-20b and Qwen3-8B-FP8 byte-identical on CUDA and Vulkan, Qwen2.5-7B-Instruct Q4_K_M byte-identical on
+  CUDA; again with head groups forced on everywhere (`SHARPLIGHT_ATTN_HG=1`, CUDA): byte-identical. (gpt-oss on Vulkan with the
+  963-token prompt reads differently from the round's own earlier recording, which predates the merge of §81's Vulkan attention;
+  `develop` and the final build agree run to run.) The Qwen models continue the long prompt's word list, a weak check.
+* **Logits** of the last prompt token (`--logits`, `final2/logits/compare.txt`): sorted store on / off bit-identical at 963 and
+  2,889 tokens. Against `develop`: identical at 963 tokens; at 2,889 (a 2,048-row chunk, then 841) max |Δ| 1.55, KL 0.049, another
+  top-1. With all of this round's switches off the logits stay the final build's, and with the range guard off (`SHARPLIGHT_F16_RANGE=0`
+  on both) the difference stays, so it is neither the store, the token rows, the q / k / v launch nor row-range handling: it is the
+  router's summation order (82.2, at ≥ 1,024 rows; no switch). Vulkan, whose router runs the same gemm_cm2 K split, agrees with the final
+  build (KL 0.0006, same top-1) and not with `develop`'s CUDA (KL 0.052). Both router forms are equally accurate on the router shape
+  (2,048 x 2,880 → 32 with bias against the CPU: max |error| 0.0047 hand-written, 0.0048 gemm_cm2, `final2/router_probe.txt`): the
+  difference is near-tied expert choices flipping, which compounds over a long prompt, not an error.
+* **Suites on the final build** (`final2/tests.txt`): Sharplight.Cuda.Tests 63 / 0 failed / 1 skipped (cuBLASLt); Sharplight.Vulkan.Tests,
+  one process per class, CUDA and Vulkan providers: Moe 129, MatMul 164, MatMulEpilogue 16, SkinnyGemm 42, RowInvariance 77, Fusion
+  101, FullAttention 30, PagedAttention 10, PackedSequence 22, Fp8Gemm 31, DualGemm 13, StreamedExperts 5: **640 / 0 failed on each
+  provider**; Sharplight.Serving.Tests 396 / 0 failed / 13 skipped.
+
+### 82.5 Measured and not kept
+
+* **The tensor-copy FP8 GEMM's multi-output q / k / v** (`rejected/fp8_tma_multi_qkv.diff`): the members' launches already overlap;
+  Qwen3-8B-FP8 2,048-row step 139.65 → 140.16 ms.
+
+### 82.6 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64 streams | 1.00 / 0.98 | 64: decode steps (inter-token p50 13.5-13.6 against 13.0-13.4 ms); prompt rows now 56.7 µs per row (116.1 ms per 2,048) against vLLM's 54.5 |
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.94 / 0.94 | decode steps at 16 rows (13.0 against 12.4 ms p50), 64 rows (16.3 against 16.0), prompt rows |
+
+Ranked levers:
+
+1. **Qwen3-8B-FP8 decode at 16 rows** (0.6 ms per step behind vLLM; untouched since §80) and its prompt rows (FP8 projections at
+   2k rows).
+2. **gpt-oss decode steps at 64 rows**: the expert GEMMs' per-byte efficiency against Marlin (§76.4); the router chain (to_f16,
+   split-K GEMM, reduce) and the slot sum at decode sizes.
+3. **gpt-oss prompt rows**: the dense f16 projections at 2k rows (cutlass ~18.5 ms against ~21.5 per step), the f32 residual's add +
+   norm launches, the slot sum (2.7 against vLLM's 1.2 ms).
+4. **Host time between decode steps** (§80.8 item 3): asynchronous scheduling.
+5. The sorted store's flag path never runs on gpt-oss (clamped SwiGLU). A model on this GEMM whose expert activations often pass
+   2^15 would pay for the fix-up's serial loop over flagged rows (one workgroup per 256 rows): measure its flag counts first.
+
+### 82.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm gptoss ~/models/hf/gpt-oss-20b "16 64" --gpu-memory-utilization 0.6
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 10 --text
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 72 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 5 --mixed "64+0,8+250x8,0+256x8"
+# A/B: SHARPLIGHT_MOE_SORTED_STORE=0, SHARPLIGHT_MOE_TOKEN_ROWS=0, SHARPLIGHT_MULTI_GEMM_TALL=0, SHARPLIGHT_ATTN_HG=0|1
+dotnet samples/Sharplight.Cli/bin/Release/net11.0/Sharplight.Cli.dll ~/models/hf/gpt-oss-20b --provider cuda --logits out.bin -p "$(cat prompt.txt)"
+```

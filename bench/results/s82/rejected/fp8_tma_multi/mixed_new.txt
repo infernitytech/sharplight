@@ -1,0 +1,25 @@
+decoder: MultiSequenceDecoder, slots 72, vocab 151936, device sampling: True, KV paged 2880 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 40.8 | 438 / 0 | 12.66 / 12.66, 12.60 |  |
+| 0 | 2048 (8) | 146.8 | 402 / 0 | 140.33 / 140.41, 140.16 |  |
+--- profile mixed 0+256x8 (greedy)
+GPU time 1397.16 ms
+   599.644 ms  42.9%    360x  min   1635.5 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_tma T=2048,U=8,R=8|2,3
+   306.659 ms  21.9%    360x  min    836.4 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=2048,U=8,R=8|2,3
+   155.303 ms  11.1%    360x  min    402.8 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 tma gemm_fp8_tma T=2048,U=8,R=8|2,3
+   104.685 ms   7.5%    360x  min    275.8 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=2048,U=8,R=8|2,3
+    79.906 ms   5.7%    720x  min     96.5 us  fused[Add]+RmsNorm main T=2048,U=8,R=8|2,3
+    48.213 ms   3.5%    360x  min    130.8 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=2048,U=8,R=8|2,3
+    44.153 ms   3.2%    360x  min    119.3 us  rope+qkv+cache_write rope_qkv T=2048,U=8,R=8|2,3
+    31.690 ms   2.3%    360x  min     81.6 us  attention attn_prefill_native T=2048,U=8,R=8|2,3
+    16.150 ms   1.2%     10x  min   1610.4 us  matmul [4096→151936] f16 skinny gemm_sk T=2048,U=8,R=8|2,3
+     9.199 ms   0.7%    360x  min     22.6 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=2048,U=8,R=8|2,3
+     0.928 ms   0.1%     20x  min      3.3 us  gather gather T=2048,U=8,R=8|2,3
+     0.307 ms   0.0%     10x  min     29.0 us  RmsNorm main T=2048,U=8,R=8|2,3
+     0.276 ms   0.0%     10x  min     26.4 us  sample sample T=2048,U=8,R=8|2,3
+     0.051 ms   0.0%     10x  min      4.1 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=2048,U=8,R=8|2,3
+
