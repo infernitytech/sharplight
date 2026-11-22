@@ -47,6 +47,7 @@ public sealed unsafe class ExpertStore : IDisposable
     private long _hits;
     private long _misses;
     private long _prefetched;
+    private long _readAhead;
     private long _evictions;
     private long _bytesRead;
     private long _readWaitTicks;
@@ -122,7 +123,7 @@ public sealed unsafe class ExpertStore : IDisposable
         {
             lock (_lock)
             {
-                return new ExpertCacheStatistics(_hits, _misses, _prefetched, _evictions, _bytesRead, Stopwatch.GetElapsedTime(0, _readWaitTicks),
+                return new ExpertCacheStatistics(_hits, _readAhead, _misses, _prefetched, _evictions, _bytesRead, Stopwatch.GetElapsedTime(0, _readWaitTicks),
                     _pools.Sum(p => p.Bytes), _pools.Sum(p => p.Count));
             }
         }
@@ -136,6 +137,7 @@ public sealed unsafe class ExpertStore : IDisposable
             _hits = 0;
             _misses = 0;
             _prefetched = 0;
+            _readAhead = 0;
             _evictions = 0;
             _bytesRead = 0;
             _readWaitTicks = 0;
@@ -393,8 +395,16 @@ public sealed unsafe class ExpertStore : IDisposable
 
             if (slot >= 0)
             {
-                _hits++;
                 ref var held = ref pool[slot];
+                if (held.Uses == 0)
+                {
+                    _readAhead++;
+                }
+                else
+                {
+                    _hits++;
+                }
+
                 held.Pins++;
                 held.Uses++;
                 held.LastUse = ++_clock;

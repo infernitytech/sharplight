@@ -74,7 +74,8 @@ public sealed unsafe class ExpertStoreTests
 
         var stats = store.Statistics;
         Assert.Equal(5, stats.Misses);
-        Assert.Equal(5, stats.Hits);
+        Assert.Equal(4, stats.ReadAhead);   // the down projection's experts, read while the gate's computed
+        Assert.Equal(1, stats.Hits);
         Assert.True(stats.BytesRead >= 9 * ExpertFloats * sizeof(float));
     }
 
