@@ -280,6 +280,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
     from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
+  Sizing round 2 (studio.md "Load options"): the load panel shows the engine's own footprint for one slot (window-sized session caches,
+  KV type) with a GPU / CPU (expert) offload / does-not-fit verdict, the longest context that fits on the GPU and with offload, and what
+  the other KV cache type saves; the device memory figures are read again when a picker opens, after loads and unloads and every 5 s
+  while one is visible; the feed's variant ladders show a per-variant fit. Gemma 4 31B Q4_K_M: weights and state 20.7 GiB at 32K and
+  28.2 GiB at 128K (23.0 GiB with q8_0), the total adds an activation bound of ~3.1 GiB at the 512-row prompt batch. Next: feed
+  packages record the session footprint (the feed's figures are the plain graph's, larger for sliding-window models), a tighter
+  activation bound for single-sequence sessions.
 
 ## Performance ideas
 
