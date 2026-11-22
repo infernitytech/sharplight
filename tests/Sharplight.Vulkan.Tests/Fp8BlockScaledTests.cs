@@ -8,7 +8,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Vulkan.Tests;
 
 /// <summary>
-/// The block-scaled FP8 GEMM (<c>gemm_fp8_bs.cu</c>, <see cref="DeviceFeatures.BlockScaledFp8"/> with <c>SHARPLIGHT_FP8_BLOCK_SCALED=1</c>)
+/// The block-scaled FP8 GEMM (<c>gemm_fp8_tma.cu</c> with <c>F8N_BLOCK_SCALED</c>, <see cref="DeviceFeatures.BlockScaledFp8"/> with <c>SHARPLIGHT_FP8_BLOCK_SCALED=1</c>)
 /// against a CPU reference that models its E8M0 rounding: the weights requantized to power-of-two scales on the host
 /// (<see cref="Fp8PowerOfTwoScales"/>, itself checked against a rounding reference that enumerates the E4M3 values) and activations
 /// that power-of-two scales represent exactly. The GPU run gets the checkpoint's original weights, so its load-time requantization is
@@ -175,10 +175,14 @@ public sealed class Fp8BlockScaledTests
     [InlineData(1024)]
     public void MlpOutput(int t)
     {
-        if (!Active() || Environment.GetEnvironmentVariable("SL_TEST_FP8_OUT") is not { } path)
+        Gpu.Require();
+        if (Environment.GetEnvironmentVariable("SL_TEST_FP8_OUT") is not { } path)
         {
             return;
         }
+
+        // The reference models the E8M0 rounding of the weights only where the block-scaled mode runs.
+        bool blockScaled = Active();
 
         const int K = 1024, N = 512;
         var rg = Rnd.WeightBytes(DataType.F8E4M3_B128, (long)N * K, 41, 0.05f);
@@ -188,10 +192,11 @@ public sealed class Fp8BlockScaledTests
         {
             var tg = new TG();
             var x = tg.InF("x", TG.T, K);
-            var g = tg.B.MatMul(x, tg.W("wg", DataType.F8E4M3_B128, new Shape(N, K), reference ? Requantized(rg) : rg));
-            var u = tg.B.MatMul(x, tg.W("wu", DataType.F8E4M3_B128, new Shape(N, K), reference ? Requantized(ru) : ru));
+            byte[] W(byte[] raw) => reference && blockScaled ? Requantized(raw) : raw;
+            var g = tg.B.MatMul(x, tg.W("wg", DataType.F8E4M3_B128, new Shape(N, K), W(rg)));
+            var u = tg.B.MatMul(x, tg.W("wu", DataType.F8E4M3_B128, new Shape(N, K), W(ru)));
             var h = tg.B.Mul(tg.B.Silu(g), u);
-            tg.B.Output("y", tg.B.MatMul(h, tg.W("wd", DataType.F8E4M3_B128, new Shape(K, N), reference ? Requantized(rd) : rd)));
+            tg.B.Output("y", tg.B.MatMul(h, tg.W("wd", DataType.F8E4M3_B128, new Shape(K, N), W(rd))));
             return (tg, x);
         }
 
@@ -211,23 +216,28 @@ public sealed class Fp8BlockScaledTests
 
     /// <summary>
     /// The dual GEMM's E4M3 store (<c>QOUT</c>, from <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS</c> rows) writes the codes and scales a separate
-    /// <c>quantize_fp8</c> writes from its f32 rows: the MLP's outputs are bit-identical with the store on (from 256 rows) and off.
+    /// <c>quantize_fp8</c> writes from its f32 rows: the MLP's outputs are bit-identical with the store on (from 256 rows) and off, with
+    /// f32 scales and (where the device has <c>block_scaled_fp8</c>) in the block-scaled mode.
     /// </summary>
     [Fact]
     public void E4m3StoreMatchesSeparateQuantization()
     {
         Gpu.Require();
-        Assert.SkipUnless(Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.BlockScaledFp8), "The device has no block_scaled_fp8.");
-        Assert.SkipWhen(Environment.GetEnvironmentVariable(Switch) == "1", "This is the child run.");
+        Assert.SkipUnless(Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.TensorCopies), "The device has no tensor_copies (no E4M3 store).");
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("SL_TEST_FP8_OUT") is not null, "This is the child run.");
         string dir = Path.Combine(Path.GetTempPath(), $"sl-fp8-store-{Environment.ProcessId}");
         Directory.CreateDirectory(dir);
         try
         {
-            RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "store") }, 2);
-            RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "separate"), ["SHARPLIGHT_FP8_QSTORE_MIN_ROWS"] = "0" }, 2);
-            foreach (int t in new[] { 300, 1024 })
+            var modes = Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.BlockScaledFp8) ? new[] { "0", "1" } : ["0"];
+            foreach (var mode in modes)
             {
-                Assert.Equal(File.ReadAllBytes(Path.Combine(dir, $"separate.{t}")), File.ReadAllBytes(Path.Combine(dir, $"store.{t}")));
+                RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "store" + mode), [Switch] = mode }, 2);
+                RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "separate" + mode), [Switch] = mode, ["SHARPLIGHT_FP8_QSTORE_MIN_ROWS"] = "0" }, 2);
+                foreach (int t in new[] { 300, 1024 })
+                {
+                    Assert.Equal(File.ReadAllBytes(Path.Combine(dir, $"separate{mode}.{t}")), File.ReadAllBytes(Path.Combine(dir, $"store{mode}.{t}")));
+                }
             }
         }
         finally
@@ -253,6 +263,7 @@ public sealed class Fp8BlockScaledTests
         }
 
         info.Environment[Switch] = "1";
+        // The child runs are told apart from the outer one by these variables (and may set the switch to 0).
         foreach (var (name, value) in environment)
         {
             info.Environment[name] = value;

@@ -217,10 +217,11 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         [$"-arch=compute_{computeCapability}{(familySpecific ? "f" : "")}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF", "-DSLANG_CUDA_ENABLE_BF16", "-DSLANG_CUDA_ENABLE_FP8"];
 
     /// <summary>
-    /// True when <paramref name="source"/> uses instructions of the family-specific architecture (the block-scaled MMA of
-    /// <c>gemm_fp8_bs.cu</c>, <see cref="DeviceFeatures.BlockScaledFp8"/>), which the portable <c>compute_XY</c> PTX does not have.
+    /// True when <paramref name="source"/> is specialized with <c>SL_FAMILY_ARCH</c> (the block-scaled MMA of <c>gemm_fp8_tma.cu</c>,
+    /// <see cref="DeviceFeatures.BlockScaledFp8"/>): it uses instructions of the family-specific architecture, which the portable
+    /// <c>compute_XY</c> PTX does not have.
     /// </summary>
-    internal static bool FamilySpecific(string source) => source.Contains("kind::mxf8f6f4", StringComparison.Ordinal);
+    internal static bool FamilySpecific(string source) => source.Contains("\n#define SL_FAMILY_ARCH 1\n", StringComparison.Ordinal);
 
     /// <summary>Compiles CUDA C++ with NVRTC into PTX (or SASS for one real architecture when <paramref name="cubin"/> is set).</summary>
     /// <exception cref="KernelCompilationException">NVRTC rejected the source.</exception>

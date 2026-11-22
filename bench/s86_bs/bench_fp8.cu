@@ -1,4 +1,4 @@
-// Copy of bench/s57_gemm/bench_fp8.cu with POW2 (power-of-two scales, for gemm_fp8_bs.cu). Harness of the hand-written FP8 GEMMs (src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu or gemm_fp8_tma.cu, the file in KFILE):
+// Copy of bench/s57_gemm/bench_fp8.cu with POW2 (power-of-two scales, for the block-scaled form of gemm_fp8_tma.cu, -DF8N_BLOCK_SCALED=1). Harness of the hand-written FP8 GEMMs (src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu or gemm_fp8_tma.cu, the file in KFILE):
 // random E4M3 codes and scales in the layouts the kernels read (x rows plus the dense scale copy, W in 128-row groups; OLD: per-row
 // scales of the phase-3 kernel), checked against a reference kernel at CHECK_T rows, timed with events (best of ITERS after an L2
 // flush) and, with SUSTAIN=ms, back to back for that long: the steady state under the board's power limit, with the board energy
@@ -115,7 +115,7 @@ static Logical make(size_t rows, unsigned seed)
     for (size_t i = 0; i < l.s.size(); i++)
     {
 #ifdef POW2
-        l.s[i] = ldexpf(1.0f, -(int)(hash((unsigned)i ^ (seed << 20)) % 4));   // UE8M0 scales (gemm_fp8_bs.cu)
+        l.s[i] = ldexpf(1.0f, -(int)(hash((unsigned)i ^ (seed << 20)) % 4));   // UE8M0 scales (F8N_BLOCK_SCALED)
 #else
         l.s[i] = 0.5f + hash((unsigned)i ^ (seed << 20)) % 1000 / 1000.0f;
 #endif

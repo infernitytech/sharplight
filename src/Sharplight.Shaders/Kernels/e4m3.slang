@@ -24,7 +24,7 @@ uint e4m3_code(float v)
 
 // Scale d = amax / 448 of the 128-value group whose 4 values v this lane holds (a 32-lane subgroup covers the group; every
 // lane of it must call this). E4M3_UE8M0: d rounded up to a power of two, 2^ceil(log2(amax / 448)) (exponent clamped to 2^-126 ..
-// 2^127; an all-zero group gets 1), the UE8M0 scales of the block-scaled FP8 GEMM (gemm_fp8_bs.cu).
+// 2^127; an all-zero group gets 1), the UE8M0 scales of the block-scaled FP8 GEMM (gemm_fp8_tma.cu, F8N_BLOCK_SCALED).
 float e4m3_group_scale(float4 v)
 {
     float amax = WaveActiveMax(max(max(abs(v.x), abs(v.y)), max(abs(v.z), abs(v.w))));

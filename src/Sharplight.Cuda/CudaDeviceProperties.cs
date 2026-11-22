@@ -126,7 +126,7 @@ internal sealed class CudaDeviceProperties
             features.Add(DeviceFeatures.LibraryGemm);
         }
 
-        // The block-scaled E4M3 MMA (gemm_fp8_bs.cu) is in the family-specific PTX of 12.x (compute_120f), which drivers JIT from CUDA 12.9.
+        // The block-scaled E4M3 MMA (gemm_fp8_tma.cu, F8N_BLOCK_SCALED) is in the family-specific PTX of 12.x (compute_120f), which drivers JIT from CUDA 12.9.
         if (ComputeCapability / 10 == 12 && DriverVersion >= 12090)
         {
             features.Add(DeviceFeatures.BlockScaledFp8);
