@@ -33,7 +33,8 @@
 // quantize_fp8 would compute from the f32 outputs, bit for bit (amax / 448, or with F8N_BLOCK_SCALED its power-of-two rounding as
 // E4M3_UE8M0 gives it). A 128-value scale group spans two 64-output tiles, so a block walks pairs of tiles (n0, n0 + 64) of one token
 // tile back to back: the first tile's outputs stay in registers, each row's absolute maximum is combined in shared memory (two
-// barriers of the computing warps per pair), and the second tile stores both.
+// barriers of the computing warps per pair), and the second tile stores both. The lowering uses it with F8N_BLOCK_SCALED only: with
+// the promotion's accumulators the 32 held outputs exceed the 168 registers of a 288-thread block and spill.
 //
 // Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads, F8N_SHARED bytes of dynamic shared memory.

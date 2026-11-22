@@ -794,8 +794,8 @@ internal static class DiagnosticSwitches
     public static bool Fp8Ue8m0WeightsOnly { get; } = Read("SHARPLIGHT_FP8_UE8M0_WEIGHTS") == "1";
 
     /// <summary>
-    /// <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n</c>: the dual gate / up FP8 GEMM on 128-row tiles with tensor copies stores its readers' E4M3
-    /// rows from n rows on (0: never; default 256).
+    /// <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n</c>: in the block-scaled FP8 mode, the dual gate / up FP8 GEMM on 128-row tiles stores its
+    /// readers' E4M3 rows from n rows on (0: never; default 256).
     /// </summary>
     public static long? Fp8StoreMinRows { get; } = Read("SHARPLIGHT_FP8_QSTORE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 

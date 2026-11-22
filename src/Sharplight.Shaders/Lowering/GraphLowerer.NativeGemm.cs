@@ -312,14 +312,17 @@ public sealed partial class GraphLowerer
     /// The smallest step from which the dual FP8 GEMM of a gate / up pair writing <paramref name="output"/> (f32 rows <paramref name="y"/>
     /// of <paramref name="n"/> values) stores E4M3 activation rows for the FP8 GEMMs reading it instead of f32 rows that a separate
     /// <c>quantize_fp8</c> launch turns into the same codes and scales (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>: bit for bit the same, so
-    /// the next GEMM's inputs do not change; the f32 round trip and the launch go). long.MaxValue when that does not apply: without a
+    /// the next GEMM's inputs do not change; the f32 round trip and the launch go). Only in the block-scaled mode
+    /// (<see cref="Fp8BlockScaled"/>): the promoting form holds the first tile's outputs next to its per-block accumulators and spills
+    /// at the 168 registers per thread that 288-thread blocks get (Qwen3-8B-FP8 gate / up at 2,048 rows 1,494 → 1,713 µs, the step
+    /// 134.7 → 137.2 ms; block-scaled 129.2 → 125.4 ms, benchmarks.md section 86). long.MaxValue when that does not apply: without a
     /// CUDA epilogue, when a reader is not an FP8 GEMM or the value is a segment output, or with <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=0</c>.
     /// The caller checks that the 128-row tiles run on tensor copies.
     /// </summary>
     private long Fp8StoreMinRows(Value? output, TensorRef y, long n, string? cudaEpilogue)
     {
         long min = DiagnosticSwitches.Fp8StoreMinRows ?? DefaultFp8StoreMinRows;
-        if (min <= 0 || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
+        if (min <= 0 || !Fp8BlockScaled || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
             || y.Buffer != _arena || RootOf(output) != output || _fp8Copies.ContainsKey(output) || _seg.Outputs.Any(o => RootOf(o) == output)
             || PrefillCopyCode(output, n) != ActivationCode.Fp8)
         {
