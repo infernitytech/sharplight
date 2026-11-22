@@ -40,6 +40,8 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
         {
             Devices = [.. placement.Devices],
             Fallback = placement.Fallback,
+            ExpertsOnDisk = settings.ExpertsOnDisk,
+            ExpertCacheBytes = settings.ExpertCacheBytes,
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
             Sequences = Math.Max(1, settings.Slots),

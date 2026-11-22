@@ -12629,3 +12629,154 @@ python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 --seqs 16 --wor
 bench/s84_fp8dec/run.sh "4096,12288,1,16 12288,4096,0,16,-DF8D_KS=6:-DF8D_RT=1:-DSPIN_NS=5000"
 QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 ```
+
+## 85. MoE with CPU offload, round 6: routed experts on disk (models larger than RAM + VRAM), DeepSeek-V3.1 Q4_K_M (405 GB) on a 62 GB / 32 GB pod (2026-11-22)
+
+Branch `perf/offload-r6` (`develop` at `8246ce2e`, §82; `bc59e105` (§83) and `e9c118ee` (§84) merged before the final runs). Same machine as §71: GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell
+32 GB), AMD EPYC 7443 with a ~10-CPU cgroup quota shared by every job on the pod (AVX2), a 62 GB memory cgroup for the whole pod,
+llama.cpp b11177. Two other agents shared the GPU (runs held the verify lock) and the CPU. Model files on the pod's local disk (overlay on a
+Samsung 9100 PRO 4 TB NVMe), never on `/workspace` (a FUSE network file system). Raw output and the disk probe in
+[`bench/results/s85/`](../bench/results/s85).
+
+### 85.1 What the disk does
+
+A small probe (`uring_probe.c`, raw io_uring syscalls or pread threads, `O_DIRECT`, a 48 GB GGUF as the file) on `/`:
+
+| mode | block | depth / threads | pattern | GB/s |
+|---|---:|---:|---|---:|
+| io_uring | any | any | any | refused: `io_uring_setup` returns EPERM (the container's seccomp profile) |
+| pread, O_DIRECT | 1 MiB | 1 | random | 4.02 |
+| pread, O_DIRECT | 1 MiB | 2, 4, 8, 16, 32, 64 | random | 7.36-7.41 |
+| pread, O_DIRECT | 64 KiB | 16 | random | 6.82 |
+| pread, O_DIRECT | 256 KiB, 4 MiB, 16 MiB | 16 | random | 7.31-7.40 |
+| pread, O_DIRECT | 4 MiB, 16 MiB | 16, 8 | sequential | 7.38-7.40 |
+| mmap page faults (MADV_RANDOM, pages dropped first) | 1 MiB of 4 KiB faults | 1 | random | 0.73 |
+| mmap page faults | | 1 | sequential | 0.27 |
+| `/workspace` (FUSE), pread | 4 MiB | 16 | random | 1.82 |
+
+The device saturates at 7.4 GB/s from two reads in flight (the 9100 PRO is a PCIe 5.0 drive; 7.4 GB/s is the PCIe 4.0 x4 link it sits on
+here), for any block from 256 KiB up. Page faults on the mapping, which llama.cpp's mmap paging relies on, get 0.3-0.7 GB/s with one
+thread: 10-25x less. io_uring cannot be measured on this pod; the reader detects that at run time and uses its thread fallback (8 threads,
+8 MiB pieces: 5.4-7 GB/s in the store's own probe).
+
+### 85.2 Qwen3.5-122B-A10B UD-IQ2_XXS (36.6 GB): disk against resident, same placement
+
+A functional test on a model that would fit: the GPU capped at 16 GiB (`--gpu-mem 16`) so that 32 layers' experts (20.7 GiB) go to the CPU,
+and a 6 GiB cache (`--expert-cache 6G`) so that they do not fit it. "Resident" is the same placement with the experts read from the
+memory-mapped file (page cache warm; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`: no streamed prefill or split decode; a disk placement has no
+streamed prefill either, and on the final build CUDA splits its small passes, copying from the pinned cache slots), CUDA, `--bench 64` and
+`-p "The capital of France is" -n 32` in one hold per build:
+
+| run | decode best / median (tok/s) | prefill 64 tok (tok/s) | hit rate (decode) | read in 64 decode steps |
+|---|---:|---:|---:|---:|
+| resident, CPU experts (first build, before the split) | 29.2 / 24.3 | 60.8 | | |
+| disk, 6 GiB cache, CPU experts only (first build) | 25.0 / 21.1 (0.86x) | 34.5 | 69.5 % (41507 hits, 6059 read ahead, 12116 misses) | 16.0 GB (250 MB per step) |
+| resident, CPU experts (final build, `develop` merged) | 29.2 / 24.9 | 61.3 | | |
+| disk, 6 GiB cache, CUDA split from the pinned slots (final build) | 25.5 / 18.2 | 34.5 | 69.5 % | 16.0 GB |
+| text run (32 tokens), resident / disk, first build | 12.5 / 15.5 | | 75.2 % | 5.8 GB |
+| text run (32 tokens), resident / disk (split), final build | 14.5 / 18.7 | | 75.2 % | 5.8 GB |
+
+Greedy text identical in all four text runs (" Paris.\nThe capital of France is Paris. ..."), CPU-only and split. The text runs
+are faster on disk than resident because the first steps of the resident run fault the mapped experts in (32 tokens; 0 evictions on disk).
+The prefill (64 rows) selects nearly every expert of every layer and reads them all (26.8 GB for warm-up and two prefills), chunked behind
+the compute: 34.5 against 61 tok/s. The store's load-time probe reports 0.7-0.8 GB/s here: 16 single reads of this model's small experts
+(0.2-1 MB at IQ2_XXS) are latency-bound; the decode steps read at the speed they need.
+
+### 85.3 DeepSeek-V3.1 Q4_K_M (405 GB) on 62 GB of host memory and a 32 GB GPU
+
+unsloth/DeepSeek-V3.1-GGUF `Q4_K_M` (9 shards, 405.4 GB; `deepseek2`, 61 layers of which 58 MoE with 256 routed experts, 8 per token, plus
+one shared expert). It is 4x the pod's memory and VRAM together. `--provider cuda --cpu-offload --experts-on-disk --expert-cache 28G
+--ctx 4096 --batch 64`: the placement keeps the dense part (attention, shared experts, the 3 dense layers, embeddings and head) and two
+layers' experts on the GPU (24.5 GiB), and leaves 56 layers' experts (353 GiB, 168 weights) on disk. The first load compiled 'decode' in 67 s (CUDA kernels not yet cached,
+the 25 GB upload included).
+
+| run | decode tok/s | hit rate | read | notes |
+|---|---:|---:|---:|---|
+| CUDA, `-p "The capital of France is" -n 24` | 1.03 (24 tokens) | 40.9 % (prefill included) | 193.9 GB | " Paris. The capital of Spain is Madrid. The capital of Italy is Rome. The capital of Germany is Berlin. The" |
+| CUDA, `--bench 8` (64 decode steps), first build | best 1.17, median 0.93, mean 0.91 | 37.6 % (decode) | 513.7 GB in the decode steps (7.3 GB per step) | prefill 8 tokens: 8.7 s (0.9 tok/s); GPU 18.6 ms per step |
+| same, final build (`develop` merged), twice | best 1.15 / 1.20, median 0.80 / 0.92 | 37.6 % | 513.7 GB | the same counters every run (synthetic tokens, deterministic routing) |
+| CUDA text run, final build | 0.97 (24 tokens) | 40.9 % | 193.9 GB | same text |
+| `--bench 8`, CUDA split from the pinned cache slots (slots page-locked outside the mapped-file budget), `develop` at `bc59e105` / `e9c118ee` | best 1.11 / 1.12, median 0.87 / 0.87 | 37.6 / 36.6 % | 513.2 / 521.0 GB | the split changes nothing measurable: the step waits for the disk either way |
+| CPU only (`--cpu --cpu-offload --gpu-mem 14 --expert-cache 16G`, dense part on the CPU too) | 0.62 (8 tokens) | | 121.8 GB | " Paris. The capital of Spain is Madrid" |
+
+The decode steps read at 7.3 GB/s on average, the disk's limit: decode is bound by the reads of the experts the cache misses, as designed.
+The store's own estimate at load (4.4 GB/s probe, 11.9 GB per step without hits: "about 0.37 tok/s from a cold cache") was
+pessimistic; the cache's 38-41 % hits and the reads at the full 7.3 GB/s give 0.9-1.2 tok/s.
+
+### 85.5 Changes
+
+* **`ExpertStore`** (Core, `Sharplight.Runtime.Experts`), one per loaded model (`LlmModel.DiskExperts`, `TaskModel.DiskExperts`): the decision
+  (CPU experts larger than the fallback's budget minus a 4 GiB reserve, or than the cache asked for), the weights left on disk
+  (`IWeightSource.TryGetFileRange`: GGUF, `.slm`, safetensors), one slot pool per slot size (budget split by bytes, at least 32 small-pass
+  experts per pool), segmented LRU (experts used twice protected up to 80 % of a pool; `SHARPLIGHT_EXPERT_CACHE=lru`), the pool memory
+  committed at layout, statistics (hits, read ahead, misses, evictions, bytes, wait), a read-speed probe and the speed estimate in the load log.
+* **`IExpertReader`**: batches of (file, offset, length, destination) reads, awaited per batch; `IoUringExpertReader` (raw syscalls,
+  `IORING_OP_READ`, 32 in flight, a reaper thread, short reads resubmitted), `ThreadPoolExpertReader` (8 threads of `pread`), `O_DIRECT`
+  files with a buffered fallback, 8 MiB pieces; destinations may name device buffers (DirectStorage / GPUDirect Storage later).
+* **Placement**: `PlacementPlan.DiskExpertGroups`; a disk placement is placed again without the streaming memory (no streamed prefill),
+  keeping the sparse banks only where the GPU copies from the cache (`IComputeDevice.CopiesFromExpertCache`: CUDA);
+  `PlacementPlan.StreamsPrefill`.
+* **CPU**: the expert products of disk weights hold the pass's experts in the cache (the layer's down product queued behind the gate / up
+  reads), in chunks of a quarter pool for large passes with the next chunk read ahead; the int-dot units of a chunk keep the unchunked
+  layout (the row pairing of the two-row dot depends on it), so the outputs are bit-identical; the weights count as no resident memory.
+* **CUDA**: split decode passes take their experts from the page-locked cache slots (one asynchronous copy per expert, in the batched copy).
+* **Options**: `TaskLoadOptions.ExpertsOnDisk` / `ExpertCacheBytes`; CLI `--experts-on-disk`, `--expert-cache`; hosting
+  `HostedModelOptions.ExpertsOnDisk` / `ExpertCacheGiB`, `HostedModelDefaults.ExpertsOnDisk`; `FitQuery.ExpertsOnDisk` →
+  `FitReport.ExpertsFromDisk` (`NeedsOffload` instead of `DoesNotFit`); Studio's load toggle and fit text.
+
+### 85.4 Against llama.cpp under the same limits
+
+The pod gives no way to cap one process's memory (the cgroup's controllers are not delegated to the container: a child cgroup gets no
+`memory.max`, and there is no systemd), so the like-for-like limit is the pod itself: 62 GB of host memory for everything, 32 GB of VRAM,
+for a 405 GB model. llama.cpp b11177 maps the file and pages the experts in on demand (`llama-completion -ngl 99 -ncmoe 59 -fa on -t 10
+-c 4096 --temp 0 --no-warmup`: the last two expert layers on the GPU, as in our placement), same prompt, same hold:
+
+| | llama.cpp (mmap paging) | Sharplight (experts on disk, 28 GiB cache) |
+|---|---:|---:|
+| decode (tok/s) | 0.62 (15 steps) | 0.97 (24-token text run), 0.80-0.93 median / 1.15-1.20 best (`--bench`, 64 steps) |
+| prompt, 6 tokens | 16.4 s (0.37 tok/s) | 8.1 s (0.74 tok/s) |
+| load | 2 min 54 s (mapping and uploading the dense part) | 67 s to compile 'decode' on the first load (uploads and kernel compilation) |
+| page cache used | grew from 25.7 to 57.3 GB of the pod's file cache (evicting other users' cached models) | none for the experts (`O_DIRECT`) |
+
+That is 1.6x llama.cpp's decode by the text runs (1.3-1.9x by median and best step) and 2.0x its prompt speed. llama.cpp pages better
+than the single-thread fault probe of §85.1 suggests (10 threads fault in parallel and the kernel reads ahead), but it reads whole
+readahead windows through the page cache and competes with every other process for it. Greedy text: both give " Paris. The capital of"
+and then differ ("France is Paris." against "Spain is Madrid."); our disk path equals our resident path (§85.2 and the tests), and this
+model's real-size output has no reference beyond llama.cpp on this pod (DeepSeek-V2-Lite and GLM-4.7-Flash are the verified `deepseek2`
+models), so the divergence at the fourth token is not resolved here.
+
+### 85.6 Tests
+
+| suite | result |
+|---|---|
+| Sharplight.Core.Tests (new `ExpertStoreTests`, `ExpertReaderTests`: the io_uring case skips here, EPERM) | 1671 / 0 failed / 332 skipped |
+| Sharplight.Cpu.Tests (new `DiskExpertTests`: disk equals resident bit for bit, f32 / Q8_0, int dots on / off, 1-40 rows, chunked; the placement decision) | 1406 / 0 failed / 48 skipped |
+| Sharplight.Serving.Tests | 396 / 0 failed / 28 skipped (`WindowKvCacheTests.ConcurrentPrompts_AttachAPrefixAnotherPromptComputes` failed 1 run in 4 earlier, intermittent, untouched by this round) |
+| Sharplight.Hosting.Tests (new fit-planner case) | 28 / 0 failed |
+| Sharplight.Cuda.Tests | 63 / 0 failed / 1 skipped |
+| Sharplight.Vulkan.Tests StreamedExperts (new `DiskExpertsMatchTheResidentExperts`, split from the cache on CUDA) and Moe, on CUDA and on Vulkan | 8 / 0 and 129 / 0 each |
+
+### 85.7 Not done, next
+
+* io_uring is implemented (raw syscalls) but could not run on this pod; its test skips here. Registered (fixed) buffers were not added.
+* Vulkan and Metal: disk layers run on the CPU alone (no imports of the slots yet). No prefill on the GPU from the cache (the CPU prefills
+  disk layers: 34 against 61 tok/s on the 122B, 0.9 tok/s for 8 DeepSeek tokens). CPU-only machines work through `--cpu --cpu-offload
+  --gpu-mem N` (the cap on the CPU's own share), which is a workaround, not an option of its own.
+* Overlapping the reads with the GPU part of a step needs the next layer's experts before its router runs (prediction from the current
+  hidden state); spare VRAM as a second cache tier; DirectStorage / GPUDirect Storage readers.
+* The DeepSeek-V3.1 greedy text diverges from llama.cpp's at the fourth token; not investigated.
+
+### 85.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i>
+CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
+DS=~/models/DeepSeek-V3.1-Q4_K_M/DeepSeek-V3.1-Q4_K_M-00001-of-00009.gguf
+$CLI $DS --provider cuda --cpu-offload --experts-on-disk --expert-cache 28G --ctx 4096 --batch 64 -p "The capital of France is" -n 24
+SHARPLIGHT_BENCH_PREFILL_REPEATS=1 $CLI $DS --provider cuda --cpu-offload --experts-on-disk --expert-cache 28G --ctx 4096 --batch 64 --bench 8
+$LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-completion -m $DS -ngl 99 -ncmoe 59 -fa on -t 10 -c 4096 --temp 0 --no-warmup -no-cnv -p "The capital of France is" -n 16
+M=~/models/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf
+SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --gpu-mem 16 --bench 64          # resident, CPU experts
+$CLI $M --provider cuda --cpu-offload --gpu-mem 16 --experts-on-disk --expert-cache 6G --bench 64            # disk
+gcc -O2 -o uring_probe uring_probe.c -lpthread && ./uring_probe <file> pread 1024 8 8192 1                  # disk probe (pread | uring | mmap)
+```

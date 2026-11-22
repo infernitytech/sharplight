@@ -22,6 +22,8 @@ public sealed class TaskModelLoaderFactory : IHostedModelLoaderFactory
                 ModelPath = settings.Path,
                 Devices = [.. placement.Devices],
                 Fallback = placement.Fallback,
+                ExpertsOnDisk = settings.ExpertsOnDisk,
+                ExpertCacheBytes = settings.ExpertCacheBytes,
                 ContextLength = settings.ContextLength,
                 MaxBatchTokens = settings.BatchTokens > 0 ? settings.BatchTokens : new TaskLoadOptions().MaxBatchTokens,
                 AllowReducedPrecision = settings.ReducedPrecision,

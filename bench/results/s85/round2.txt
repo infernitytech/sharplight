@@ -1,0 +1,21 @@
+== lock 12:16:12
+== cuda StreamedExpertsTests
+[0m[91m    Sharplight.Vulkan.Tests.StreamedExpertsTests.DiskExpertsMatchTheResidentExperts(rows: 1) [FAIL]
+[0m[37m      Assert.Equal() Failure: Values differ
+[0m[37m        tests/Sharplight.Vulkan.Tests/StreamedExpertsTests.cs(275,0): at Sharplight.Vulkan.Tests.StreamedExpertsTests.DiskExpertsMatchTheResidentExperts(Int32 rows)
+[0m[91m    Sharplight.Vulkan.Tests.StreamedExpertsTests.DiskExpertsMatchTheResidentExperts(rows: 3) [FAIL]
+[0m[37m      Assert.Equal() Failure: Values differ
+[0m[37m        tests/Sharplight.Vulkan.Tests/StreamedExpertsTests.cs(275,0): at Sharplight.Vulkan.Tests.StreamedExpertsTests.DiskExpertsMatchTheResidentExperts(Int32 rows)
+[0m[91m    Sharplight.Vulkan.Tests.StreamedExpertsTests.DiskExpertsMatchTheResidentExperts(rows: 40) [FAIL]
+[0m[37m      Assert.Equal() Failure: Values differ
+[0m[37m        tests/Sharplight.Vulkan.Tests/StreamedExpertsTests.cs(275,0): at Sharplight.Vulkan.Tests.StreamedExpertsTests.DiskExpertsMatchTheResidentExperts(Int32 rows)
+[0m[37m   Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 3, Skipped: 0, Not Run: 0, Time: 2.517s
+== vulkan StreamedExpertsTests
+[0m[37m   Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.612s
+--- DeepSeek bench, split decode from pinned slots
+anon 1085444096
+experts on disk, warm-up and prefills: hit rate 5.5 % (1261 hits, 7245 read ahead, 14420 misses, 7244 prefetched, 18275 evictions), read 191.41 GB, waited 22.43 s, cache 28.0 GiB in 3405 slots
+experts on disk, decode: hit rate 37.6 % (35028 hits, 19468 read ahead, 38714 misses, 19468 prefetched, 58182 evictions), read 513.70 GB, waited 62.19 s, cache 28.0 GiB in 3405 slots
+prefill 8 tok: best 8681 ms = 0.9 tok/s | decode: best 1.21, median 0.93, mean 0.92 tok/s | GPU ms/step: best 18.59, median 18.81, wall best 828.04 | prefill median of 2: 8831.9 ms = 0.9 tok/s
+anon 1055555584
+== unlock 12:18:49

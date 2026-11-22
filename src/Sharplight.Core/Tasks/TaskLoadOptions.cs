@@ -20,6 +20,20 @@ public class TaskLoadOptions
     /// <summary>Fallback device (e.g. CPU) for layers that do not fit and ops the devices cannot run.</summary>
     public DeviceSlot? Fallback { get; set; }
 
+    /// <summary>
+    /// Opt-in: with a CPU <see cref="Fallback"/>, routed experts that fit neither the devices nor host memory stay in the model file and the
+    /// CPU reads the ones each pass selects into a cache (<see cref="Runtime.Experts.ExpertStore"/>), so mixture-of-experts models larger
+    /// than RAM and VRAM together run (decode at the disk's speed; a fast NVMe drive gives about 1 token/s on models of several hundred GB).
+    /// The results equal those of resident experts. Without it such a model pages its mapped experts in and out (slow) or does not load.
+    /// </summary>
+    public bool ExpertsOnDisk { get; set; }
+
+    /// <summary>
+    /// With <see cref="ExpertsOnDisk"/>: bytes of host memory for the cache of experts read from disk, or null to size it from the free host
+    /// memory. A cache smaller than the experts on the CPU leaves them on disk even when they would fit.
+    /// </summary>
+    public long? ExpertCacheBytes { get; set; }
+
     /// <summary>Bytes kept free on each device for activations and scratch when placing a graph (null: 1 GiB).</summary>
     public long? ReservePerDevice { get; set; }
 

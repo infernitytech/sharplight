@@ -42,6 +42,7 @@ public sealed class TaskModel : IDisposable
         Options = options;
         Description = ModelDescription.Resolve(definition);
         Artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
+        _diskExperts = new Lazy<Runtime.Experts.ExpertStore?>(() => Runtime.Experts.ExpertStore.ForLoad(options));
     }
 
     /// <summary>The built model: architecture, weights, attachments, properties and the graphs of all components.</summary>
@@ -64,6 +65,14 @@ public sealed class TaskModel : IDisposable
 
     /// <summary>Weight buffers shared by all graphs compiled from this model, so components that share weights upload them once per device.</summary>
     public SharedWeights SharedWeights { get; } = new();
+
+    /// <summary>
+    /// The routed experts left on disk (<see cref="TaskLoadOptions.ExpertsOnDisk"/>), shared by all graphs compiled from this model, or null when
+    /// the option is off. <see cref="Runtime.Experts.ExpertStore.Statistics"/> has the cache's hit rate and the bytes read.
+    /// </summary>
+    public Runtime.Experts.ExpertStore? DiskExperts => _diskExperts.Value;
+
+    private readonly Lazy<Runtime.Experts.ExpertStore?> _diskExperts;
 
     /// <summary>
     /// Loads <see cref="TaskLoadOptions.ModelPath"/> through the loader's importers and architectures (the same load path as
@@ -275,6 +284,7 @@ public sealed class TaskModel : IDisposable
                 CacheFor = Artifacts.For,
                 Progress = Options.Progress,
                 SharedWeights = SharedWeights,
+                DiskExperts = DiskExperts,
             },
         };
         var compiled = CompiledModel.Compile(graph, placement);
@@ -298,6 +308,11 @@ public sealed class TaskModel : IDisposable
         }
 
         _disposed = true;
+        if (_diskExperts.IsValueCreated)
+        {
+            _diskExperts.Value?.Dispose();
+        }
+
         foreach (var resource in Definition.OwnedResources)
         {
             resource.Dispose();

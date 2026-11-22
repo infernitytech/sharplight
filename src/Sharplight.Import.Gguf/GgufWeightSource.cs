@@ -35,4 +35,13 @@ internal sealed unsafe class GgufWeightSource(GgufFile file, long offset, long l
         mappingLength = file.FileLength;
         return true;
     }
+
+    /// <inheritdoc/>
+    public bool TryGetFileRange(out string path, out long fileOffset)
+    {
+        file.ThrowIfDisposed();
+        path = file.Path;
+        fileOffset = offset;
+        return true;
+    }
 }

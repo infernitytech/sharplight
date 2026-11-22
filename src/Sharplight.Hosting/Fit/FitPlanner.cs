@@ -122,9 +122,11 @@ public static class FitPlanner
         long onCpu = Math.Max(0, primaryLayered - onGpu);
         var systemFit = new DeviceFit(system, onCpu, 0, query.ReserveBytes);
         var devices = fits.Select((fit, i) => i == 0 ? fit with { NeededBytes = Math.Min(fit.NeededBytes, fit.AvailableBytes) } : fit).ToList();
+        bool fromDisk = !systemFit.Fits && query.ExpertsOnDisk;
         return new FitReport
         {
-            Verdict = systemFit.Fits ? FitVerdict.NeedsOffload : FitVerdict.DoesNotFit,
+            Verdict = systemFit.Fits || fromDisk ? FitVerdict.NeedsOffload : FitVerdict.DoesNotFit,
+            ExpertsFromDisk = fromDisk,
             Footprint = footprint,
             Devices = devices,
             SystemMemory = systemFit,

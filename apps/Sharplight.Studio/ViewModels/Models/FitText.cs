@@ -54,6 +54,11 @@ internal static class FitText
                     offload += $" Idle models unload first: {names}.";
                 }
 
+                if (report.ExpertsFromDisk)
+                {
+                    offload += $" The part left over is more than the system memory: its routed experts are read from disk on demand, so expect about 1 token/s or less.";
+                }
+
                 return report.CpuOffload ? offload : offload + " Turn on CPU offload, or the load fails.";
             default:
                 if (report.SystemMemory is { } system)

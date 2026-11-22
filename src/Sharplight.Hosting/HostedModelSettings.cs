@@ -57,6 +57,12 @@ public sealed record HostedModelSettings
     /// <summary>Layers that do not fit on the GPU run on the CPU.</summary>
     public bool CpuOffload { get; init; }
 
+    /// <summary>With <see cref="CpuOffload"/>: routed experts that do not fit host memory stay on disk.</summary>
+    public bool ExpertsOnDisk { get; init; }
+
+    /// <summary>With <see cref="ExpertsOnDisk"/>: bytes of the expert cache, or null to size it from the free host memory.</summary>
+    public long? ExpertCacheBytes { get; init; }
+
     /// <summary>Reduced-precision kernels allowed.</summary>
     public bool ReducedPrecision { get; init; }
 
@@ -126,6 +132,8 @@ public sealed record HostedModelSettings
             Lazy = model.Lazy ?? lazyByDefault,
             Pinned = model.Pinned ?? false,
             CpuOffload = model.CpuOffload ?? defaults.CpuOffload,
+            ExpertsOnDisk = model.ExpertsOnDisk ?? defaults.ExpertsOnDisk,
+            ExpertCacheBytes = model.ExpertCacheGiB is > 0 ? (long)(model.ExpertCacheGiB.Value * (1L << 30)) : null,
             ReducedPrecision = defaults.ReducedPrecision,
             IdleTimeout = model.IdleTimeoutSeconds is > 0 ? TimeSpan.FromSeconds(model.IdleTimeoutSeconds.Value) : null,
             MaxQueue = defaults.MaxQueue,

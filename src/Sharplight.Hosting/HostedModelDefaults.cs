@@ -30,6 +30,12 @@ public sealed class HostedModelDefaults
     /// <summary>Run layers that do not fit on the GPU, and unsupported ops, on the CPU.</summary>
     public bool CpuOffload { get; set; }
 
+    /// <summary>
+    /// Opt-in, with <see cref="CpuOffload"/>: routed experts that fit neither the GPU nor host memory stay on disk and are read on demand
+    /// (see <c>TaskLoadOptions.ExpertsOnDisk</c>).
+    /// </summary>
+    public bool ExpertsOnDisk { get; set; }
+
     /// <summary>Allow faster kernels with reduced (f16) precision where the default keeps near-f32 accuracy.</summary>
     public bool ReducedPrecision { get; set; }
 

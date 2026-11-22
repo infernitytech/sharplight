@@ -62,14 +62,26 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     public ModelDescription Description => ModelDescription.Resolve(Definition);
 
+    /// <summary>
+    /// The routed experts left on disk (<see cref="TaskLoadOptions.ExpertsOnDisk"/>), shared by every session and decoder of the model, or null
+    /// when the option is off. <see cref="Runtime.Experts.ExpertStore.Statistics"/> has the cache's hit rate and the bytes read.
+    /// </summary>
+    public Runtime.Experts.ExpertStore? DiskExperts => _diskExperts.Value;
+
+    private readonly Lazy<Runtime.Experts.ExpertStore?> _diskExperts;
+    private readonly bool _ownsDiskExperts;
     private readonly SharedWeights _sharedWeights;
     private readonly LlmLoadOptions _options;
     private readonly CompilationArtifacts _artifacts;
     private readonly bool _ownsDefinition;
 
     private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options, bool ownsDefinition, SharedWeights? sharedWeights,
-        ArchitectureCatalog architectures)
+        ArchitectureCatalog architectures, TaskModel? taskModel = null)
     {
+        _ownsDiskExperts = taskModel is null;
+        _diskExperts = taskModel is null
+            ? new Lazy<Runtime.Experts.ExpertStore?>(() => Runtime.Experts.ExpertStore.ForLoad(options))
+            : new Lazy<Runtime.Experts.ExpertStore?>(() => taskModel.DiskExperts);
         Definition = def;
         Architectures = architectures;
         Source = source;
@@ -102,9 +114,11 @@ public sealed class LlmModel : IDisposable
             Log = load.Log,
             Progress = load.Progress,
             Artifacts = model.Artifacts,
+            ExpertsOnDisk = load.ExpertsOnDisk,
+            ExpertCacheBytes = load.ExpertCacheBytes,
         };
         var tokenizer = model.CreateTokenizer();
-        return new LlmModel(model.Definition, model.Source, tokenizer, options, ownsDefinition: false, model.SharedWeights, model.Architectures);
+        return new LlmModel(model.Definition, model.Source, tokenizer, options, ownsDefinition: false, model.SharedWeights, model.Architectures, model);
     }
 
     /// <summary>
@@ -663,6 +677,7 @@ public sealed class LlmModel : IDisposable
             Progress = _options.Progress,
             CancellationToken = _options.CancellationToken,
             SharedWeights = _sharedWeights,
+            DiskExperts = DiskExperts,
         },
     };
 
@@ -875,6 +890,11 @@ public sealed class LlmModel : IDisposable
     /// <summary>Releases the weight memory (mapped files, host buffers). Sessions and decoders created from the model must be disposed first.</summary>
     public void Dispose()
     {
+        if (_ownsDiskExperts && _diskExperts.IsValueCreated)
+        {
+            _diskExperts.Value?.Dispose();
+        }
+
         if (!_ownsDefinition)
         {
             return;

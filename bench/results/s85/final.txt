@@ -1,0 +1,46 @@
+== lock 12:31:50
+=== 122B
+--- resident, CPU experts only
+The capital of France is Paris.
+The capital of France is Paris.
+The capital of France is Paris.
+The capital of France is Paris.
+The capital of France is
+prompt: 5 tok in 675 ms (7.4 tok/s) | generated: 32 tok, 14.47 tok/s
+--- disk, 6G cache
+Experts on disk: 20.7 GiB of routed experts on the CPU exceed the 6.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 6.0 GiB cache.
+Experts on disk: 96 weights in 32 layers (20.1 GiB) read with threads x8; 0.8 GB/s measured; a decode step reads up to 0.67 GB: about 1.19 tok/s from a cold cache, ~1.70 tok/s once the 6.0 GiB cache holds its share (reads only; compute adds to it).
+The capital of France is Paris.
+The capital of France is Paris.
+The capital of France is Paris.
+The capital of France is Paris.
+The capital of France is
+prompt: 5 tok in 654 ms (7.6 tok/s) | generated: 32 tok, 18.73 tok/s
+experts on disk (threads x8): hit rate 75.2 % (20025 hits, 1763 read ahead, 4834 misses, 1753 prefetched, 0 evictions), read 5.80 GB, waited 0.81 s, cache 6.0 GiB in 7315 slots
+--- bench resident
+prefill 64 tok: best 1044 ms = 61.3 tok/s | decode: best 29.16, median 24.85, mean 22.68 tok/s | GPU ms/step: best 7.33, median 7.35, wall best 34.29 | prefill median of 2: 1074.6 ms = 59.6 tok/s
+--- bench disk 6G
+Experts on disk: 20.7 GiB of routed experts on the CPU exceed the 6.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 6.0 GiB cache.
+Experts on disk: 96 weights in 32 layers (20.1 GiB) read with threads x8; 0.7 GB/s measured; a decode step reads up to 0.67 GB: about 1.11 tok/s from a cold cache, ~1.58 tok/s once the 6.0 GiB cache holds its share (reads only; compute adds to it).
+experts on disk, warm-up and prefills: hit rate 5.9 % (1904 hits, 10117 read ahead, 20337 misses, 10111 prefetched, 23149 evictions), read 26.81 GB, waited 2.39 s, cache 6.0 GiB in 7315 slots
+experts on disk, decode: hit rate 69.5 % (41503 hits, 5285 read ahead, 12894 misses, 5285 prefetched, 18179 evictions), read 16.01 GB, waited 2.11 s, cache 6.0 GiB in 7315 slots
+prefill 64 tok: best 1853 ms = 34.5 tok/s | decode: best 25.48, median 18.15, mean 17.51 tok/s | GPU ms/step: best 7.34, median 7.36, wall best 39.25 | prefill median of 2: 2035.1 ms = 31.4 tok/s
+=== DeepSeek
+anon 1956749312
+Experts on disk: 360.1 GiB of routed experts on the CPU exceed the 28.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 28.0 GiB cache.
+Experts on disk: 168 weights in 56 layers (353.3 GiB) read with threads x8; 5.6 GB/s measured; a decode step reads up to 11.86 GB: about 0.47 tok/s from a cold cache, ~0.51 tok/s once the 28.0 GiB cache holds its share (reads only; compute adds to it).
+[load] NVIDIA RTX PRO 4500 Blackwell after compiling 'decode': 5282 MiB available, 25733 MiB held, 57 segments, 0 streamed, 0 sparse, 512 MiB reserved
+The capital of France is Paris. The capital of Spain is Madrid. The capital of Italy is Rome. The capital of Germany is Berlin. The
+prompt: 6 tok in 8107 ms (0.7 tok/s) | generated: 24 tok, 0.97 tok/s
+experts on disk (threads x8): hit rate 40.9 % (15141 hits, 7328 read ahead, 14593 misses, 7327 prefetched, 18531 evictions), read 193.89 GB, waited 23.67 s, cache 28.0 GiB in 3405 slots
+anon 3030425600
+anon 3030372352
+experts on disk, warm-up and prefills: hit rate 5.5 % (1261 hits, 7245 read ahead, 14420 misses, 7244 prefetched, 18275 evictions), read 191.41 GB, waited 22.94 s, cache 28.0 GiB in 3405 slots
+experts on disk, decode: hit rate 37.6 % (35028 hits, 19468 read ahead, 38714 misses, 19468 prefetched, 58182 evictions), read 513.70 GB, waited 64.21 s, cache 28.0 GiB in 3405 slots
+prefill 8 tok: best 8708 ms = 0.9 tok/s | decode: best 1.15, median 0.80, mean 0.76 tok/s | GPU ms/step: best 18.56, median 18.82, wall best 868.34 | prefill median of 2: 8727.1 ms = 0.9 tok/s
+anon 2862821376
+=== DeepSeek CPU experts only (no split)
+experts on disk, warm-up and prefills: hit rate 5.5 % (1261 hits, 7245 read ahead, 14420 misses, 7244 prefetched, 18275 evictions), read 191.41 GB, waited 22.99 s, cache 28.0 GiB in 3405 slots
+experts on disk, decode: hit rate 37.6 % (35028 hits, 19468 read ahead, 38714 misses, 19468 prefetched, 58182 evictions), read 513.70 GB, waited 62.39 s, cache 28.0 GiB in 3405 slots
+prefill 8 tok: best 8726 ms = 0.9 tok/s | decode: best 1.20, median 0.92, mean 0.90 tok/s | GPU ms/step: best 18.55, median 18.81, wall best 831.69 | prefill median of 2: 9454.5 ms = 0.8 tok/s
+== unlock 12:38:58
