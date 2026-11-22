@@ -45,6 +45,8 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M --save qwen3-0.6b.s
 | `--ctx`, `--batch` | Context length (4096) and rows per forward pass (512). |
 | `--split a,b`, `--gpu-mem GiB` | Open the device once per weight and cap each slot's memory (multi-device pipeline testing). |
 | `--cpu-offload` | Run layers that do not fit, and unsupported ops, on the CPU. |
+| `--experts-on-disk` | With `--cpu-offload`: routed experts that fit neither the GPU nor host memory stay in the model file and are read on demand (MoE models larger than RAM + VRAM; see docs/hardware.md). With `--cpu`, `--gpu-mem` caps the CPU's own share and the rest of the experts go to disk. |
+| `--expert-cache <size>` | With `--experts-on-disk`: host memory for the cache of experts read from disk (default: from the free host memory). |
 | `--disable-features a,b` | Never use these device features (e.g. `matrix_f16`); for fallback testing. |
 | `-p`, `-n`, `--temp`, `--chat`, `--think` | Prompt, token limit, temperature (0 = greedy), chat template, thinking mode. |
 | `--image`, `--mmproj`, `--image-min-tokens`, `--image-max-tokens` | Image input. |
