@@ -14,3 +14,8 @@
 == Cuda.Tests
 [0m[37m   Sharplight.Cuda.Tests  Total: 63, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 26.771s
 === DeepSeek text
+Experts on disk: 168 weights in 56 layers (353.3 GiB) read with threads x8; 5.4 GB/s measured; a decode step reads up to 11.86 GB: about 0.46 tok/s from a cold cache, ~0.50 tok/s once the 28.0 GiB cache holds its share (reads only; compute adds to it).
+The capital of France is Paris. The capital of Spain is Madrid. The capital of Italy is Rome. The capital of Germany is Berlin. The
+prompt: 6 tok in 8293 ms (0.7 tok/s) | generated: 24 tok, 0.98 tok/s
+experts on disk (threads x8): hit rate 41.0 % (15182 hits, 5949 read ahead, 15931 misses, 5948 prefetched, 18490 evictions), read 193.52 GB, waited 25.05 s, cache 28.0 GiB in 3405 slots
+== unlock 13:05:08
