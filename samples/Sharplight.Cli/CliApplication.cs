@@ -47,6 +47,7 @@ internal static class CliApplication
             new TextGenerator(loaded, settings.Generation).Run(images, Console.Out, Console.Error, cancellationToken);
         }
 
+        RemoteStages.PrintStatistics(loaded.Devices, Console.Error);
         if (settings.BenchmarkTokens is null && loaded.Model.DiskExperts is { IsActive: true } disk)
         {
             Console.Error.WriteLine($"experts on disk ({disk.ReaderName}): {disk.Statistics}");

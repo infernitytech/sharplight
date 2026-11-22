@@ -43,9 +43,13 @@ internal static class SegmentFingerprint
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
-    /// <summary>Whether reading a sample is cheap: the weight lies in a file or in memory (a derived weight would be computed whole).</summary>
+    /// <summary>
+    /// Whether reading a sample is cheap: the weight lies in a file or in memory, or is a view, stack or concatenation of stored weights
+    /// (a fused projection); a derived weight (a conversion) would be computed whole, so only its metadata counts.
+    /// </summary>
     private static bool IsStored(IWeightSource source)
-        => source.TryGetFileRange(out _, out _) || source.TryGetMapping(out _, out _) || source.TryGetPointer() != 0;
+        => source is SliceWeightSource or StackedWeightSource or ConcatenatedWeightSource
+           || source.TryGetFileRange(out _, out _) || source.TryGetMapping(out _, out _) || source.TryGetPointer() != 0;
 
     private static void AppendAll(IncrementalHash hash, IWeightSource source)
     {

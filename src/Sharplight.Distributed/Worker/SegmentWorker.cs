@@ -159,9 +159,10 @@ public sealed class SegmentWorker : IDisposable
 
     private static SegmentWorkerDevice Device(DeviceSlot slot, bool isFallback)
     {
+        // A slot's memory limit replaces the device's free memory in placement, so the coordinator plans with it too.
         var memory = slot.Device.GetMemoryInfo();
-        long available = slot.MemoryLimit is { } limit ? Math.Min(limit, memory.Available) : memory.Available;
-        long total = slot.MemoryLimit is { } cap ? Math.Min(cap, memory.Total) : memory.Total;
+        long available = slot.MemoryLimit ?? memory.Available;
+        long total = slot.MemoryLimit ?? memory.Total;
         var info = slot.Device.Info;
         return new SegmentWorkerDevice(info.Provider, info.Name, info.Kind, total, available, isFallback);
     }

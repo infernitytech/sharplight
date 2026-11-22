@@ -35,7 +35,12 @@ internal static class HostingOptionsBuilder
         var models = new List<HostedModelOptions>();
         foreach (var positional in settings.PositionalModels)
         {
-            models.Add(new HostedModelOptions { Name = settings.PositionalModelName ?? DefaultName(positional), Path = positional });
+            models.Add(new HostedModelOptions
+            {
+                Name = settings.PositionalModelName ?? DefaultName(positional),
+                Path = positional,
+                Workers = settings.Workers is { Count: > 0 } workers ? [.. workers] : null,
+            });
         }
 
         models.AddRange(settings.ModelArguments.Select(ModelSpecParser.Parse));

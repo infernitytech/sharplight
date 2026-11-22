@@ -131,6 +131,15 @@ internal static class SegmentCodec
         }
 
         w.Write((byte)Rec.End);
+        if (outputs.Count == 0)
+        {
+            // Nodes that only write state (a cache write): a graph needs an output, so the first operand stands in (never read).
+            w.Write(1);
+            MetadataCodec.WriteString(w, PlaceholderOutput);
+            w.Write(Ref(nodes[0].Inputs.Concat(nodes[0].Writes).First()));
+            return;
+        }
+
         w.Write(outputs.Count);
         for (int i = 0; i < outputs.Count; i++)
         {
@@ -138,6 +147,9 @@ internal static class SegmentCodec
             w.Write(Ref(outputs[i]));
         }
     }
+
+    /// <summary>The output of a segment without outputs (see <see cref="Write(BinaryWriter, GraphSegment)"/>); it follows the segment's own outputs.</summary>
+    public const string PlaceholderOutput = "%placeholder";
 
     /// <summary>
     /// Reads a segment written by <see cref="Write(BinaryWriter, GraphSegment)"/> or <see cref="WriteNode"/> as a graph: its inputs in the
