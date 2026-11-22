@@ -49,6 +49,9 @@
 __device__ unsigned long long g_f8n_cycles;
 #endif
 #include KFILE
+#ifndef QOUT
+#define QOUT 0
+#endif
 #ifdef KENTRY
 #define gemm_fp8_native KENTRY
 #endif
@@ -263,8 +266,38 @@ int main()
                 for (size_t i = 0; i < a.size(); i++) a[i] = z == 0 ? part[i] : a[i] + part[i];
             }
             cudaMemcpy(b.data(), yr, b.size() * 4, cudaMemcpyDeviceToHost);
+#if QOUT
+            {
+                // E4M3 rows of the outputs: host quantization of the reference (power-of-two scales per 128) against the kernel's codes.
+                size_t qrs = N + N / 32;
+                std::vector<unsigned char> q((size_t)QCAP * qrs + (size_t)(N / 128) * QCAP * 4);
+                cudaMemcpy(q.data(), y, q.size(), cudaMemcpyDeviceToHost);
+                long codeDiff = 0, scaleDiff = 0, denseDiff = 0; double worst = 0;
+                for (int t = 0; t < M; t++)
+                    for (int gq = 0; gq < N / 128; gq++)
+                    {
+                        float amax = 0;
+                        for (int i = 0; i < 128; i++) amax = fmaxf(amax, fabsf(b[(size_t)t * N + gq * 128 + i]));
+                        float d = amax > 0 ? exp2f(ceilf(log2f(amax / 448.0f))) : 1.0f;
+                        float ds, dd; memcpy(&ds, &q[(size_t)t * qrs + N + gq * 4], 4); memcpy(&dd, &q[(size_t)QCAP * qrs + ((size_t)gq * QCAP + t) * 4], 4);
+                        scaleDiff += ds != d; denseDiff += dd != ds;
+                        for (int i = 0; i < 128; i++)
+                        {
+                            float r = b[(size_t)t * N + gq * 128 + i];
+                            __nv_fp8_e4m3 c(r / d);
+                            unsigned char got = q[(size_t)t * qrs + gq * 128 + i];
+                            codeDiff += c.__x != got;
+                            worst = fmax(worst, fabs(dec(got) * ds - r) / (448.0 * d));
+                        }
+                    }
+                printf("  qout T=%d: %ld / %ld codes differ from the host quantization of the reference, %ld scales, %ld dense copies; worst |dequantized - ref| %.3g of the group range\n",
+                    M, codeDiff, (long)M * N, scaleDiff, denseDiff, worst);
+            }
+#endif
             double maxe = 0, maxv = 0;
+#if !QOUT
             for (size_t i = 0; i < a.size(); i++) { maxe = fmax(maxe, fabs(a[i] - b[i])); maxv = fmax(maxv, fabs(b[i])); }
+#endif
             printf("  check T=%d: max err %.3g of max %.3g\n", M, maxe, maxv);
             cudaFree(rc); cudaFree(rw); cudaFree(rw2); cudaFree(rs); cudaFree(rws); cudaFree(rws2); cudaFree(yr);
         }

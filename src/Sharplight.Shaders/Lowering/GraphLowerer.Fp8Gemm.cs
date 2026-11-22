@@ -78,7 +78,7 @@ public sealed partial class GraphLowerer
     private bool Fp8FusedSplitK => DiagnosticSwitches.SplitKFused && _compiler.CompilesCuda(_opt.Target);
 
     private bool EmitDualFp8Gemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
-        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, string? cudaEpilogue, out Func<long, bool> serves)
+        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, string? cudaEpilogue, out Func<long, bool> serves, Value? output = null)
     {
         serves = _ => false;
         long minRows = Fp8GemmMinRows(weightA.Type, n, k);
@@ -100,9 +100,18 @@ public sealed partial class GraphLowerer
         bool tall = DiagnosticSwitches.Fp8DualGemmTall && rowsMax > DualFp8AlwaysMaxRows && MmqLayout(128)[3] % 2 == 0;
         int TileRows(long r) => tall && r > DualFp8TallMinRows && (r + 127) / 128 * 2 == (r + 63) / 64 ? 128 : (int)DualFp8AlwaysMaxRows;
         var variants = new List<KernelVariant>();
+        // From storeMin rows the pair stores the E4M3 rows of its readers instead (its own launch below).
+        long storeMin = rowsMax >= nativeMin && NativeFp8TensorCopies && UseNativeFp8Gemm(weightA.Type, n, k)
+            ? Fp8StoreMinRows(output, y, n, cudaEpilogue) : long.MaxValue;
+        if (storeMin > rowsMax)
+        {
+            storeMin = long.MaxValue;
+        }
+
         if (rowsMax >= nativeMin)
         {
-            variants.AddRange(NativeFp8Variants(n, k, cudaEpilogue, xcap, nativeMin, rowsMax, rows));
+            variants.AddRange(NativeFp8Variants(n, k, cudaEpilogue, xcap, nativeMin, rowsMax, rows)
+                .Select(v => v with { When = b => v.When(b) && rows(b) < storeMin }));
         }
 
         // One token tile row (decode): optionally K split with the reduction in the last workgroups (DualFp8Split).
@@ -122,6 +131,29 @@ public sealed partial class GraphLowerer
 
         Emit($"{label} fp8", nodes, variants, [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [quantized, weightA, weightB], [y]);
+        if (storeMin != long.MaxValue)
+        {
+            // The readers' E4M3 rows of the output (as AddFp8CopyOutput allocates them for a norm), written by this launch from storeMin rows;
+            // their quantize_fp8 launches run for smaller steps only (NormFp8Copy).
+            long outRows = y.Shape.Aggregate(1L, (a, d) => a * d) / n;
+            long allocatedRows = Fp8ActivationRows(outRows, n + n / 32);
+            var allocation = new object();
+            long offset = _alloc.Allocate(allocation, allocatedRows * (n + n / 32));
+            if (!_rootScratch.TryGetValue(output!, out var list))
+            {
+                _rootScratch[output!] = list = [];
+            }
+
+            list.Add(allocation);
+            long[] shape = [allocatedRows, n + n / 32];
+            var copy = new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), y.Symbol);
+            NoteDenseScales(copy, outRows);
+            _fp8Copies[output!] = (copy, storeMin);
+            long qcap = DenseScaleCapacityOf(copy);
+            Emit($"{label} fp8 e4m3 out", nodes, [NativeFp8TmaVariant(n, k, cudaEpilogue, xcap, b => rows(b) >= storeMin, rows, qcap)],
+                [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(copy), TokenArg(x, rowsPerLead)],
+                [quantized, weightA, weightB], [copy]);
+        }
         var splits = new SortedSet<int>();
         long scratchBytes = 0;
         for (long r = minRows; r <= Math.Min(rowsMax, DualFp8AlwaysMaxRows); r++)

@@ -8,7 +8,13 @@
 // K block (gemm_fp8_tma.cu: a multiply-add per MMA, plus the products of the scales). The results differ from gemm_fp8_tma.cu's on the same operands
 // only in the order and rounding of the f32 sums.
 //
-// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL). Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+// QOUT (DUAL only): instead of f32 outputs, y points to E4M3 activation rows of the outputs as quantize_fp8 writes them with E4M3_UE8M0
+// ([QCAP rows of N codes + N / 32 bytes of f32 scales][N / 128][QCAP] dense scales), the next FP8 GEMM's x: the codes and power-of-two
+// scales quantize_fp8 would compute from the f32 outputs, bit for bit. A 128-value scale group spans two 64-output tiles, so a block
+// walks pairs of tiles (n0, n0 + 64) of one token tile back to back: the first tile's outputs stay in registers, each row's absolute
+// maximum is combined in shared memory (two barriers of the computing warps per pair), and the second tile stores both.
+//
+// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads, F8N_SHARED bytes of dynamic shared memory.
 #ifndef DUAL
 #define DUAL 0
@@ -27,7 +33,19 @@
 #define F8N_STAGE_BYTES ((F8N_BM + F8N_BN) * 128)
 #define F8N_SCALE_BYTES ((F8N_BM + F8N_BN) * 4)
 // Three code stages, two scale slots, eight barriers (full[3], empty[3], scales[2]).
+#ifndef QOUT
+#define QOUT 0
+#endif
+#if QOUT
+// The rows' absolute maxima of a tile pair (128 floats) after the barriers.
+#define F8N_SHARED (F8N_STAGES * F8N_STAGE_BYTES + 2 * F8N_SCALE_BYTES + 64 + 512)
+// A tile pair covers 128 outputs: the walk's unit.
+#define F8N_WALK 128
+#define F8N_QRS ((unsigned long long)N + N / 32)
+#else
 #define F8N_SHARED (F8N_STAGES * F8N_STAGE_BYTES + 2 * F8N_SCALE_BYTES + 64)
+#define F8N_WALK F8N_BOUT
+#endif
 #define F8N_RS ((unsigned long long)K + K / 32)
 #define F8N_GROUP_BYTES (128ull * F8N_RS)
 #define F8N_TILE_ORDER 16
@@ -146,11 +164,45 @@ static __device__ __forceinline__ const f8n_u8* f8n_wscales(const f8n_u8* w, f8n
 // Token-tile and weight-tile origin of tile id (groups of F8N_TILE_ORDER token tiles walk all weight tiles).
 static __device__ __forceinline__ void f8n_tile(f8n_u32 id, f8n_u32 tilesX, f8n_u32& t0, f8n_u32& n0)
 {
-    const f8n_u32 tilesY = N / F8N_BOUT, groupBlocks = F8N_TILE_ORDER * tilesY;
+    const f8n_u32 tilesY = N / F8N_WALK, groupBlocks = F8N_TILE_ORDER * tilesY;
     const f8n_u32 first = id / groupBlocks * F8N_TILE_ORDER, groupRows = min(tilesX - first, (f8n_u32)F8N_TILE_ORDER);
     t0 = (first + id % groupBlocks % groupRows) * F8N_BM;
-    n0 = id % groupBlocks / groupRows * F8N_BOUT;
+    n0 = id % groupBlocks / groupRows * F8N_WALK;
 }
+
+// Origin of this block's local tile v: tile blockIdx.x + v gridDim.x of the walk, or (QOUT) half v % 2 of tile pair v / 2.
+static __device__ __forceinline__ void f8n_local(f8n_u32 v, f8n_u32 tilesX, f8n_u32& t0, f8n_u32& n0)
+{
+#if QOUT
+    f8n_tile(blockIdx.x + (v >> 1) * gridDim.x, tilesX, t0, n0);
+    n0 += (v & 1) * F8N_BOUT;
+#else
+    f8n_tile(blockIdx.x + v * gridDim.x, tilesX, t0, n0);
+#endif
+}
+
+#if QOUT
+// UE8M0 scale of a row group with absolute maximum amax: 2^ceil(log2(amax / 448)), 1 for an all-zero group (e4m3.slang, E4M3_UE8M0).
+static __device__ __forceinline__ float f8n_qscale(float amax)
+{
+    if (!(amax > 0.0f))
+    {
+        return 1.0f;
+    }
+
+    const f8n_u32 bits = __float_as_uint(amax / 448.0f);
+    const f8n_u32 e = ((bits >> 23) & 0xFFu) + ((bits & 0x7FFFFFu) != 0 ? 1u : 0u);
+    return __uint_as_float(min(max(e, 1u), 254u) << 23);
+}
+
+// The E4M3 codes of a and b (rounded to nearest even, saturated at 448), a in the low byte.
+static __device__ __forceinline__ unsigned short f8n_e4m3x2(float a, float b)
+{
+    unsigned short r;
+    asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;\n" : "=h"(r) : "f"(b), "f"(a));
+    return r;
+}
+#endif
 
 // B tile row of the first row of fragment j of warp column wn.
 static __device__ __forceinline__ f8n_u32 f8n_brow(f8n_u32 wn, f8n_u32 j)
@@ -166,9 +218,9 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_bs(const __gr
 {
     extern __shared__ __align__(1024) f8n_u8 smem[];
     const f8n_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
-    const f8n_u32 tilesX = (p.T + F8N_BM - 1) / F8N_BM, tiles = tilesX * (N / F8N_BOUT);
+    const f8n_u32 tilesX = (p.T + F8N_BM - 1) / F8N_BM, tiles = tilesX * (N / F8N_WALK);
     const f8n_u32 nk = K / 128;
-    const f8n_u32 myTiles = blockIdx.x < tiles ? (tiles - blockIdx.x + gridDim.x - 1) / gridDim.x : 0;
+    const f8n_u32 myTiles = (blockIdx.x < tiles ? (tiles - blockIdx.x + gridDim.x - 1) / gridDim.x : 0) * (QOUT ? 2 : 1);
     const f8n_u32 total = myTiles * nk;
     const f8n_u8* sx = p.x + (f8n_u64)XCAP * F8N_RS;
     const f8n_u32 scaleRing = f8n_smem(smem + F8N_STAGES * F8N_STAGE_BYTES);
@@ -185,6 +237,13 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_bs(const __gr
         f8n_mbar_init(bars + 56, 1);
         asm volatile("fence.mbarrier_init.release.cluster;\n" ::: "memory");
     }
+#if QOUT
+    float* rowMax = (float*)(smem + F8N_STAGES * F8N_STAGE_BYTES + 2 * F8N_SCALE_BYTES + 64);
+    if (tid < F8N_BM)
+    {
+        rowMax[tid] = 0.0f;
+    }
+#endif
     __syncthreads();
 
     if (warp == F8N_WM * F8N_WN)
@@ -208,7 +267,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_bs(const __gr
             {
                 if (codeKb == 0)
                 {
-                    f8n_tile(blockIdx.x + codeLt * gridDim.x, tilesX, ct0, cn0);
+                    f8n_local(codeLt, tilesX, ct0, cn0);
                 }
 
                 const f8n_u32 s = m % F8N_STAGES, dst = f8n_smem(smem + s * F8N_STAGE_BYTES), bar = bars + s * 8;
@@ -231,7 +290,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_bs(const __gr
             {
                 if (scaleKb == 0)
                 {
-                    f8n_tile(blockIdx.x + scaleLt * gridDim.x, tilesX, st0, sn0);
+                    f8n_local(scaleLt, tilesX, st0, sn0);
                 }
 
                 const f8n_u32 slot = (m - 1) & 1, dst = scaleRing + slot * F8N_SCALE_BYTES, bar = bars + 48 + slot * 8;
@@ -271,10 +330,14 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_bs(const __gr
         }
     }
 
+#if QOUT
+    // The first tile's outputs of the current pair.
+    float held[F8N_FM][2][F8N_FN / 2][2];
+#endif
     for (f8n_u32 lt = 0; lt < myTiles; lt++)
     {
         f8n_u32 t0, n0;
-        f8n_tile(blockIdx.x + lt * gridDim.x, tilesX, t0, n0);
+        f8n_local(lt, tilesX, t0, n0);
         for (f8n_u32 kb = 0; kb < nk; kb++)
         {
             const f8n_u32 it = lt * nk + kb;
@@ -335,6 +398,102 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_bs(const __gr
             }
         }
 
+#if QOUT
+        // The tile's outputs (half lt % 2 of the pair) and each row's absolute maximum over them, combined across the quad and the
+        // warp columns in rowMax.
+        float out[F8N_FM][2][F8N_FN / 2][2];
+#pragma unroll
+        for (int i = 0; i < F8N_FM; i++)
+        {
+#pragma unroll
+            for (int h = 0; h < 2; h++)
+            {
+                float m = 0.0f;
+#pragma unroll
+                for (int j = 0; j < F8N_FN; j += 2)
+                {
+                    out[i][h][j / 2][0] = F8N_EPI2(acc[i][j][h * 2], acc[i][j + 1][h * 2]);
+                    out[i][h][j / 2][1] = F8N_EPI2(acc[i][j][h * 2 + 1], acc[i][j + 1][h * 2 + 1]);
+                    m = fmaxf(m, fmaxf(fabsf(out[i][h][j / 2][0]), fabsf(out[i][h][j / 2][1])));
+                    acc[i][j][h * 2] = acc[i][j][h * 2 + 1] = acc[i][j + 1][h * 2] = acc[i][j + 1][h * 2 + 1] = 0.0f;
+                }
+
+                m = fmaxf(m, __shfl_xor_sync(0xffffffffu, m, 1));
+                m = fmaxf(m, __shfl_xor_sync(0xffffffffu, m, 2));
+                if (c4 == 0)
+                {
+                    atomicMax((unsigned int*)&rowMax[wm * F8N_TM + i * 16 + g + h * 8], __float_as_uint(m));
+                }
+            }
+        }
+
+        if ((lt & 1) == 0)
+        {
+#pragma unroll
+            for (int i = 0; i < F8N_FM; i++)
+            {
+#pragma unroll
+                for (int h = 0; h < 2; h++)
+                {
+#pragma unroll
+                    for (int jj = 0; jj < F8N_FN / 2; jj++)
+                    {
+                        held[i][h][jj][0] = out[i][h][jj][0];
+                        held[i][h][jj][1] = out[i][h][jj][1];
+                    }
+                }
+            }
+
+            continue;
+        }
+
+        // Both halves' maxima are in (the first half's atomics precede every warp's second), then read; the next pair's first
+        // half cannot reach its atomics before every warp has passed this pair's stores (its K loop needs the stages they free).
+        asm volatile("bar.sync 1, %0;\n" :: "r"(F8N_CONSUMERS) : "memory");
+        float scale[F8N_FM][2];
+#pragma unroll
+        for (int i = 0; i < F8N_FM; i++)
+        {
+            scale[i][0] = f8n_qscale(rowMax[wm * F8N_TM + i * 16 + g]);
+            scale[i][1] = f8n_qscale(rowMax[wm * F8N_TM + i * 16 + g + 8]);
+        }
+
+        asm volatile("bar.sync 1, %0;\n" :: "r"(F8N_CONSUMERS) : "memory");
+        if (tid < F8N_BM)
+        {
+            rowMax[tid] = 0.0f;
+        }
+
+        const f8n_u32 pair0 = n0 - F8N_BOUT;
+        f8n_u8* q = (f8n_u8*)p.y;
+#pragma unroll
+        for (int i = 0; i < F8N_FM; i++)
+        {
+#pragma unroll
+            for (int h = 0; h < 2; h++)
+            {
+                const f8n_u32 t = t0 + wm * F8N_TM + i * 16 + g + h * 8;
+                if (t < p.T)
+                {
+                    f8n_u8* qr = q + (f8n_u64)t * F8N_QRS;
+                    const float inv = 1.0f / scale[i][h];
+#pragma unroll
+                    for (int jj = 0; jj < F8N_FN / 2; jj++)
+                    {
+                        const f8n_u32 n = wn * (F8N_TN / 2) + jj * 8 + c4 * 2;
+                        *(unsigned short*)(qr + pair0 + n) = f8n_e4m3x2(held[i][h][jj][0] * inv, held[i][h][jj][1] * inv);
+                        *(unsigned short*)(qr + n0 + n) = f8n_e4m3x2(out[i][h][jj][0] * inv, out[i][h][jj][1] * inv);
+                    }
+
+                    if (wn == 0 && c4 == 0)
+                    {
+                        *(float*)(qr + N + (pair0 / 128) * 4) = scale[i][h];
+                        *(float*)(q + (f8n_u64)QCAP * F8N_QRS + ((f8n_u64)(pair0 / 128) * QCAP + t) * 4) = scale[i][h];
+                    }
+                }
+            }
+        }
+#else
 #pragma unroll
         for (int i = 0; i < F8N_FM; i++)
         {
@@ -371,5 +530,6 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_bs(const __gr
                 }
             }
         }
+#endif
     }
 }

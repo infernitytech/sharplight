@@ -354,7 +354,7 @@ public sealed partial class GraphLowerer
         }
         else if (NativeFp8GroupedWeight(v))
         {
-            wb.Repack = Fp8BlockScaled ? WeightRepack.Fp8B128GroupedUe8m0 : WeightRepack.Fp8B128Grouped;
+            wb.Repack = Fp8BlockScaled || DiagnosticSwitches.Fp8Ue8m0WeightsOnly ? WeightRepack.Fp8B128GroupedUe8m0 : WeightRepack.Fp8B128Grouped;
             wb.RepackRowElements = w.Shape[-1].Fixed;
         }
         else if (Fp8SplitRepack(w) is { } fp8Split)

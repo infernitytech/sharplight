@@ -43,7 +43,8 @@ using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions
 {
     Devices = [new DeviceSlot { Device = device }], ContextLength = seq, MaxBatchTokens = chunk,
 });
-using var dec = model.CreateBatchDecoder(1, seq, maxLogitsRows: chunk, kvCacheTokens: 0);
+// Two slots: a single slot gets the session decoder, which returns the last row's logits only.
+using var dec = model.CreateBatchDecoder(2, seq, maxLogitsRows: chunk, kvCacheTokens: 0);
 int vocab = dec.VocabSize;
 string text = File.ReadAllText(Opt("--text")!);
 var all = model.Tokenizer.Encode(text, addSpecial: false, parseSpecial: false).Take(maxTokens).ToArray();
