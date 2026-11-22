@@ -273,10 +273,12 @@ public sealed class FusionTests
     }
 
     [Theory]
-    [InlineData("f16", 16, 16)]
-    [InlineData("f32", 32, 32)]
-    [InlineData("f16", 256, 64)]
-    public void NormRopeIntoCache(string cacheType, int D, int rot)
+    [InlineData("f16", 16, 16, true)]
+    [InlineData("f32", 32, 32, true)]
+    [InlineData("f16", 256, 64, true)]
+    [InlineData("f16", 128, 128, false)]
+    [InlineData("f32", 64, 32, false)]
+    public void NormRopeIntoCache(string cacheType, int D, int rot, bool norm)
     {
         Gpu.Require();
         int Hq = 4;
@@ -290,8 +292,9 @@ public sealed class FusionTests
         var vi = tg.InF("v", T, Hkv, D);
         var pos = tg.In("pos", DataType.I32, T, 4);
         var rope = Attributes.From(("dims", rot), ("base", 10000f), ("style", "neox"), ("interleaved", true)).With("sections", new[] { rot / 8, rot / 8, rot / 4, 0 });
-        q = tg.B.Emit1("Rope", [tg.B.RmsNorm(q, tg.RandW("qn", DataType.F32, 1f, D), 1e-6f), pos], rope);
-        var k = tg.B.Emit1("Rope", [tg.B.RmsNorm(tg.B.Reshape(ki, 0, Hkv, D), tg.RandW("kn", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        var kh = tg.B.Reshape(ki, 0, Hkv, D);
+        q = tg.B.Emit1("Rope", [norm ? tg.B.RmsNorm(q, tg.RandW("qn", DataType.F32, 1f, D), 1e-6f) : q, pos], rope);
+        var k = tg.B.Emit1("Rope", [norm ? tg.B.RmsNorm(kh, tg.RandW("kn", DataType.F32, 1f, D), 1e-6f) : kh, pos], rope);
         var ct = DataType.Get(cacheType);
         var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
         var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
@@ -306,6 +309,6 @@ public sealed class FusionTests
             steps.Add(new Step(c, past, (qf, Rnd.F(c * Hq * 2 * D, 10 + i)), (ki, Rnd.F(c * Hkv * D, 20 + i)), (vi, Rnd.F(c * Hkv * D, 30 + i)), (pos, p)));
             past += c;
         }
-        Diff.Check("Fusion.norm+rope+cache", tg.B.Build(), steps, atol: 3e-4, rtol: 2e-3, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D}");
+        Diff.Check("Fusion.norm+rope+cache", tg.B.Build(), steps, atol: 3e-4, rtol: 2e-3, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D} norm={norm}");
     }
 }

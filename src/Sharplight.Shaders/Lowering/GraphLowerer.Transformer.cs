@@ -102,6 +102,106 @@ public sealed partial class GraphLowerer
             frequencyFactors is null ? [x, pos] : [x, pos, frequencyFactors], [y]);
     }
 
+    /// <summary>
+    /// The query rope <paramref name="queryRope"/>, the key cache write <paramref name="keyWrite"/> with its rope and the value cache write
+    /// <paramref name="valueWrite"/> of one attention layer as one <c>rope_qkv</c> launch (each with its absorbed RmsNorm), where the rows
+    /// are [T, heads, D] with contiguous heads, both caches are f16 or f32 of one shape and row rule, and the two ropes differ only in
+    /// their heads. Returns false, having emitted nothing, otherwise. Every value is computed as by the separate kernels (rope_row, rope,
+    /// cache_write).
+    /// </summary>
+    private bool LowerRopeQkv(Node queryRope, Node keyWrite, Node valueWrite)
+    {
+        var keyRope = _absorbedRope[keyWrite.Inputs[1]];
+        var queryNorm = _absorbedNorms.GetValueOrDefault(queryRope.Inputs[0]);
+        var keyNorm = _absorbedNorms.GetValueOrDefault(keyRope.Inputs[0]);
+        var xq = Ref(queryNorm?.Inputs[0] ?? queryRope.Inputs[0]);
+        var xk = Ref(keyNorm?.Inputs[0] ?? keyRope.Inputs[0]);
+        var xv = Ref(valueWrite.Inputs[1]);
+        var kc = Ref(keyWrite.Inputs[0]);
+        var vc = Ref(valueWrite.Inputs[0]);
+        var pos = Ref(queryRope.Inputs[1]);
+        TensorRef? NormWeight(Node? norm) => norm is not null && norm.Inputs.Length > 1 ? Ref(norm.Inputs[1]) : null;
+        var wq = NormWeight(queryNorm);
+        var wk = NormWeight(keyNorm);
+        bool Rows3(TensorRef r) => r.Rank == 3 && r.Strides[2] == 1;
+        if (!Rows3(xq) || !Rows3(xk) || !Rows3(xv) || kc.Rank != 3 || vc.Rank != 3 || kc.Type != vc.Type
+            || (kc.Type != DataType.F16 && kc.Type != DataType.F32) || !pos.IsDense
+            || (queryNorm is not null && wq is null) || (keyNorm is not null && wk is null)
+            || xq.Symbol != xk.Symbol || xq.Symbol != xv.Symbol || xq.Shape[0] != xk.Shape[0] || xq.Shape[0] != xv.Shape[0])
+        {
+            return RopeQkvSkipped(queryRope, "row layouts or cache types");
+        }
+
+        long hq = xq.Shape[1];
+        long hk = xk.Shape[1];
+        long d = xq.Shape[2];
+        if (xk.Shape[2] != d || xv.Shape[2] != d || xv.Shape[1] != hk || kc.Shape[1] != hk || kc.Shape[2] != d
+            || vc.Shape[1] != hk || vc.Shape[2] != d || kc.Shape[0] != vc.Shape[0])
+        {
+            return RopeQkvSkipped(queryRope, "head shapes");
+        }
+
+        var frequencyFactors = queryRope.Inputs.Length > 2 ? Ref(queryRope.Inputs[2]) : null;
+        var queryMacros = RopeMacros(queryRope.Attributes, xq, pos, frequencyFactors is not null);
+        var keyMacros = RopeMacros(keyRope.Attributes, xk, pos, frequencyFactors is not null);
+        string[] perHead = ["H", "S0", "S1"];
+        if (!queryMacros.Where(m => !perHead.Contains(m.Item1)).SequenceEqual(keyMacros.Where(m => !perHead.Contains(m.Item1))))
+        {
+            return RopeQkvSkipped(queryRope, "rope attributes");
+        }
+
+        bool multiSeq = keyWrite.Inputs.Length > 2;
+        if (!multiSeq && Slot(keyWrite) != Slot(valueWrite))
+        {
+            return RopeQkvSkipped(queryRope, "cache offsets");
+        }
+
+        if (keyWrite.Attributes.Get("block_size", 0L) != valueWrite.Attributes.Get("block_size", 0L)
+            || (multiSeq && SlotContext(keyWrite, kc) != SlotContext(valueWrite, vc)))
+        {
+            return RopeQkvSkipped(queryRope, "cache layouts");
+        }
+
+        var seq = multiSeq ? DenseInput(keyWrite.Inputs[2], "seq-rows") : null;
+        var pages = PageTable(keyWrite, 3);
+
+        (string, object)[] macros =
+        [
+            .. queryMacros.Where(m => !perHead.Contains(m.Item1)),
+            ("HQ", hq), ("HK", hk), ("QS0", xq.Strides[0]), ("QS1", xq.Strides[1]), ("KS0", xk.Strides[0]), ("KS1", xk.Strides[1]),
+            ("VS0", xv.Strides[0]), ("VS1", xv.Strides[1]),
+            ("NORM_Q", queryNorm is not null), ("EPS_Q", queryNorm?.Attributes.Get<float>("eps") ?? 0f),
+            ("NORM_K", keyNorm is not null), ("EPS_K", keyNorm?.Attributes.Get<float>("eps") ?? 0f),
+            ("CACHE_F16", kc.Type == DataType.F16),
+            ("RT_N_PAST", seq is not null ? 0 : Slot(keyWrite)),
+            ("MULTI_SEQ", seq is not null),
+            ("SLOT_CTX", seq is null ? 0 : SlotContext(keyWrite, kc)),
+            .. PageMacros(keyWrite, pages),
+        ];
+        var kernel = Lib("rope.slang", "rope_qkv", Macros(macros));
+        var yq = Produce(queryRope.Output);
+        var tx = xq;
+        long heads = hq + 2 * hk;
+        Node[] nodes = [.. new[] { queryNorm, queryRope, keyNorm, keyRope }.OfType<Node>(), keyWrite, valueWrite];
+        Emit($"rope q+k+v+cache_write {queryRope.Output.Name}", nodes,
+            [Always(kernel, b => new Grid((uint)(Rows(b, tx) * heads)))],
+            [Pointer(xq), Pointer(xk), Pointer(xv), Pointer(pos), Pointer(wq ?? xq), Pointer(wk ?? xk), Pointer(yq), Pointer(kc), Pointer(vc),
+             new PointerArg(_runtime, 0), Pointer(frequencyFactors ?? xq), .. SeqArgs(seq, pages), TokenArg(xq)],
+            [xq, xk, xv, pos, .. new[] { wq, wk, frequencyFactors }.OfType<TensorRef>(), .. PresentTables(seq, pages)], [yq, kc, vc]);
+        return true;
+    }
+
+    /// <summary>False, after naming why under <c>SHARPLIGHT_ROPE_QKV_DEBUG=1</c>: the layer's ropes and cache writes stay separate launches.</summary>
+    private static bool RopeQkvSkipped(Node queryRope, string why)
+    {
+        if (DiagnosticSwitches.RopeQkvDebug)
+        {
+            Console.Error.WriteLine($"rope q+k+v of {queryRope.Output.Name} not fused: {why}");
+        }
+
+        return false;
+    }
+
     /// <summary>Kernel macros shared by the plain and the fused (norm / cache write) rope kernels.</summary>
     private static (string, object)[] RopeMacros(Attributes a, TensorRef x, TensorRef pos, bool hasFrequencyFactors)
     {

@@ -803,7 +803,64 @@ public sealed partial class GraphLowerer
             }
         }
 
+        GroupLayerRopes(units, absorbed);
         units.RemoveAll(u => u.Node is not null && absorbed.Contains(u.Node));
+    }
+
+    /// <summary>
+    /// The query rope, the key cache write (with its rope) and the value cache write of each cached attention: one unit of the key
+    /// cache write, which lowers all three as one launch where their shapes allow (<see cref="LowerRopeQkv"/>). The three only read the
+    /// q / k / v projections and write disjoint outputs, so the merged unit runs where the last of them would.
+    /// </summary>
+    private void GroupLayerRopes(List<LoweringUnit> units, HashSet<Node> absorbed)
+    {
+        if (DiagnosticSwitches.NoRopeQkv)
+        {
+            return;
+        }
+
+        var unitOf = units.Where(u => u.Node is not null && u.Fused is null && !absorbed.Contains(u.Node)).ToDictionary(u => u.Node!);
+        var writesOf = units.Where(u => u.Node is { Op.Name: "CacheWrite" } && !absorbed.Contains(u.Node!) && u.Node!.Inputs[0].State is not null)
+            .GroupBy(u => u.Node!.Inputs[0].State!).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
+        foreach (var unit in units)
+        {
+            if (unit.Node is not { Op.Name: "CachedAttention" } attention || attention.Inputs.Length < 3)
+            {
+                continue;
+            }
+
+            if (attention.Inputs[0].Producer is not { Op.Name: "Rope" } queryRope || !unitOf.TryGetValue(queryRope, out var queryUnit)
+                || attention.Inputs[1].State is not { } keyState || attention.Inputs[2].State is not { } valueState
+                || !writesOf.TryGetValue(keyState, out var keyUnit) || !writesOf.TryGetValue(valueState, out var valueUnit) || keyUnit == valueUnit)
+            {
+                if (DiagnosticSwitches.RopeQkvDebug)
+                {
+                    Console.Error.WriteLine($"rope q+k+v of {attention.Output.Name}: no query rope unit ({attention.Inputs[0].Producer?.Op.Name}) or cache writes");
+                }
+
+                continue;
+            }
+
+            var keyWrite = keyUnit.Node!;
+            var valueWrite = valueUnit.Node!;
+            if (!_absorbedRope.TryGetValue(keyWrite.Inputs[1], out var keyRope) || _absorbedRope.ContainsKey(valueWrite.Inputs[1])
+                || IsQuantizedKv(valueWrite.Inputs[0].Type) || valueWrite.Attributes.Get("compression", 1L) != 1
+                || keyRope.Inputs.Length != queryRope.Inputs.Length || !keyRope.Inputs.Skip(1).SequenceEqual(queryRope.Inputs.Skip(1))
+                || keyWrite.Inputs.Length != valueWrite.Inputs.Length || !keyWrite.Inputs.Skip(2).SequenceEqual(valueWrite.Inputs.Skip(2)))
+            {
+                if (DiagnosticSwitches.RopeQkvDebug)
+                {
+                    Console.Error.WriteLine($"rope q+k+v of {attention.Output.Name}: the ropes or the cache writes differ");
+                }
+
+                continue;
+            }
+
+            keyUnit.Absorbed = [.. keyUnit.Absorbed ?? [], .. queryUnit.Absorbed ?? [], queryRope, valueWrite];
+            absorbed.Add(queryRope);
+            absorbed.Add(valueWrite);
+            _ropeQkv[keyWrite] = (queryRope, valueWrite);
+        }
     }
 
     /// <summary>

@@ -49,6 +49,9 @@ public sealed partial class GraphLowerer
     /// <summary>Rope output → rope node computed inside its CacheWrite.</summary>
     private readonly Dictionary<Value, Node> _absorbedRope = [];
 
+    /// <summary>Key cache writes that also lower their layer's query rope and value cache write (see <see cref="GroupLayerRopes"/>).</summary>
+    private readonly Dictionary<Node, (Node QueryRope, Node ValueWrite)> _ropeQkv = [];
+
     /// <summary>View → materialized root value.</summary>
     private readonly Dictionary<Value, Value> _root = [];
 

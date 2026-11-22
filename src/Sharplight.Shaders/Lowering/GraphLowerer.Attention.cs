@@ -86,12 +86,30 @@ public sealed partial class GraphLowerer
 
     private void LowerCacheWrite(Node n)
     {
+        if (_ropeQkv.TryGetValue(n, out var layer))
+        {
+            if (!LowerRopeQkv(layer.QueryRope, n, layer.ValueWrite))
+            {
+                LowerRope(layer.QueryRope);
+                LowerRope(_absorbedRope[n.Inputs[1]], cacheWrite: n);
+                LowerPlainCacheWrite(layer.ValueWrite);
+            }
+
+            return;
+        }
+
         if (_absorbedRope.TryGetValue(n.Inputs[1], out var rope))
         {
             LowerRope(rope, cacheWrite: n);
             return;
         }
 
+        LowerPlainCacheWrite(n);
+    }
+
+    /// <summary>A cache write of rows as they are (no rope): <c>cache_write</c>, or <c>cache_write_q</c> into a quantized cache.</summary>
+    private void LowerPlainCacheWrite(Node n)
+    {
         var state = Ref(n.Inputs[0]);
         var x = Ref(n.Inputs[1]);
         x = PrepareRows3(x, "cache", out long r1, out long s0, out long s1);
