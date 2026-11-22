@@ -33,16 +33,28 @@
 // quantize_fp8 would compute from the f32 outputs, bit for bit (amax / 448, or with F8N_BLOCK_SCALED its power-of-two rounding as
 // E4M3_UE8M0 gives it). A 128-value scale group spans two 64-output tiles, so a block walks pairs of tiles (n0, n0 + 64) of one token
 // tile back to back: the first tile's outputs stay in registers, each row's absolute maximum is combined in shared memory (two
-// barriers of the computing warps per pair), and the second tile stores both. The lowering uses it with F8N_BLOCK_SCALED only: with
-// the promotion's accumulators the 32 held outputs exceed the 168 registers of a 288-thread block and spill.
+// barriers of the computing warps per pair), and the second tile stores both. The lowering uses it with F8N_BLOCK_SCALED or F8N_WG:
+// with the promotion's accumulators the 32 held outputs exceed the 168 registers of a 288-thread block and spill.
 //
-// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
-// even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads, F8N_SHARED bytes of dynamic shared memory.
+// F8N_WG (DeviceFeatures.RegisterReallocation, setmaxnreg, compiled for compute_XYf with SL_FAMILY_ARCH): the copy warp is a whole
+// warpgroup (warps 8-11, 384 threads; one lane issues the copies, the others exit) that gives up its registers (setmaxnreg.dec to
+// F8N_COPY_REGS) to the computing warps (setmaxnreg.inc to F8N_MMA_REGS): 232 registers instead of 168, since a block's registers are
+// split by the warps per scheduler (9 warps take 3 slots on one, like 12). The budget must balance what the block was given at launch
+// (384 x 168 = 128 x 40 + 256 x 232), or the increase waits for registers that are never released. Same results bit for bit.
+//
+// F8N_WUNI: the weight scales are uniform over each 128-row group per K block (128 x 128 block checkpoints): the promotion multiplies
+// by one product of the row's activation scale and the group's weight scale (the same product as the per-row form, bit for bit).
+//
+// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+// even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads (F8N_WG: 384), F8N_SHARED bytes of dynamic shared memory.
 #ifndef DUAL
 #define DUAL 0
 #endif
 #ifndef F8N_BLOCK_SCALED
 #define F8N_BLOCK_SCALED 0
+#endif
+#ifndef F8N_WUNI
+#define F8N_WUNI 0
 #endif
 #define F8N_BM 128
 #define F8N_BN 128
@@ -50,7 +62,17 @@
 #define F8N_WM 2
 #define F8N_WN 4
 #define F8N_CONSUMERS (F8N_WM * F8N_WN * 32)
+#ifndef F8N_WG
+#define F8N_WG 0
+#endif
+#if F8N_WG
+// A copy warpgroup (warps 8-11) gives its registers to the computing warps (setmaxnreg).
+#define F8N_THREADS (F8N_CONSUMERS + 128)
+#define F8N_COPY_REGS 40
+#define F8N_MMA_REGS 232
+#else
 #define F8N_THREADS (F8N_CONSUMERS + 32)
+#endif
 #define F8N_TM (F8N_BM / F8N_WM)
 #define F8N_TN (F8N_BN / F8N_WN)
 #define F8N_FM (F8N_TM / 16)
@@ -271,7 +293,7 @@ static __device__ __forceinline__ f8n_u32 f8n_brow(f8n_u32 wn, f8n_u32 j)
 #endif
 }
 
-extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __grid_constant__ F8nParams p)
+extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const __grid_constant__ F8nParams p)
 {
     extern __shared__ __align__(1024) f8n_u8 smem[];
     const f8n_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
@@ -303,9 +325,12 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
 #endif
     __syncthreads();
 
-    if (warp == F8N_WM * F8N_WN)
+    if (warp >= F8N_WM * F8N_WN)
     {
-        if (lane != 0)
+#if F8N_WG
+        asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n" :: "n"(F8N_COPY_REGS));
+#endif
+        if (warp != F8N_WM * F8N_WN || lane != 0)
         {
             return;
         }
@@ -370,6 +395,9 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
         return;
     }
 
+#if F8N_WG
+    asm volatile("setmaxnreg.inc.sync.aligned.u32 %0;\n" :: "n"(F8N_MMA_REGS));
+#endif
     const f8n_u32 wm = warp / F8N_WN, wn = warp % F8N_WN;
     const f8n_u32 g = lane >> 2, c4 = lane & 3;
     float acc[F8N_FM][F8N_FN][4];
@@ -416,6 +444,24 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
                 we[j] = __float_as_uint(ws[f8n_brow(wn, j) + g]) >> 23;
             }
 
+#elif F8N_WUNI == 1
+            // One weight scale per 128 rows and K block (and per matrix of the pair): the promotion's factors are per row of x.
+            float xw[F8N_FM][2][1 + DUAL];
+#pragma unroll
+            for (int i = 0; i < F8N_FM; i++)
+            {
+#pragma unroll
+                for (int h = 0; h < 2; h++)
+                {
+                    const float xh = xs[wm * F8N_TM + i * 16 + g + h * 8];
+#pragma unroll
+                    for (int d = 0; d <= DUAL; d++)
+                    {
+                        xw[i][h][d] = xh * ws[d * (F8N_BN / 2)];
+                    }
+                }
+            }
+
 #else
             float xv[F8N_FM][2];
             float2 wv[F8N_FN];
@@ -435,6 +481,35 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
 #endif
             }
 
+#if F8N_WUNI == 2
+            // Uniform weight scales over the tile's rows of each matrix in this K block (all of the warp's columns equal the first
+            // row's): then the promotion's factors are per row of x, the same products as xv * wv.
+            const float w0 = ws[0], w1 = ws[DUAL ? F8N_BN / 2 : 0];
+            bool uni = true;
+#pragma unroll
+            for (int j = 0; j < F8N_FN; j++)
+            {
+                const float wd = DUAL && (j & 1) ? w1 : w0;
+                uni = uni && wv[j].x == wd && wv[j].y == wd;
+            }
+
+            uni = __all_sync(0xffffffffu, uni);
+            float xw[F8N_FM][2][1 + DUAL];
+#pragma unroll
+            for (int i = 0; i < F8N_FM; i++)
+            {
+#pragma unroll
+                for (int h = 0; h < 2; h++)
+                {
+#pragma unroll
+                    for (int d = 0; d <= DUAL; d++)
+                    {
+                        xw[i][h][d] = xv[i][h] * (d ? w1 : w0);
+                    }
+                }
+            }
+
+#endif
 #endif
             const f8n_u32 s = it % F8N_STAGES;
             f8n_mbar_wait(bars + s * 8, (it / F8N_STAGES) & 1);
@@ -495,6 +570,41 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
                         f8n_mma(part[j], a, b[kk][j][0], b[kk][j][1]);
                     }
                 }
+#if F8N_WUNI == 2
+                if (uni)
+                {
+#pragma unroll
+                    for (int j = 0; j < F8N_FN; j++)
+                    {
+                        const int d = DUAL ? (j & 1) : 0;
+                        acc[i][j][0] = fmaf(part[j][0], xw[i][0][d], acc[i][j][0]);
+                        acc[i][j][1] = fmaf(part[j][1], xw[i][0][d], acc[i][j][1]);
+                        acc[i][j][2] = fmaf(part[j][2], xw[i][1][d], acc[i][j][2]);
+                        acc[i][j][3] = fmaf(part[j][3], xw[i][1][d], acc[i][j][3]);
+                    }
+                }
+                else
+                {
+#pragma unroll
+                    for (int j = 0; j < F8N_FN; j++)
+                    {
+                        acc[i][j][0] = fmaf(part[j][0], xv[i][0] * wv[j].x, acc[i][j][0]);
+                        acc[i][j][1] = fmaf(part[j][1], xv[i][0] * wv[j].y, acc[i][j][1]);
+                        acc[i][j][2] = fmaf(part[j][2], xv[i][1] * wv[j].x, acc[i][j][2]);
+                        acc[i][j][3] = fmaf(part[j][3], xv[i][1] * wv[j].y, acc[i][j][3]);
+                    }
+                }
+#elif F8N_WUNI
+#pragma unroll
+                for (int j = 0; j < F8N_FN; j++)
+                {
+                    const int d = DUAL ? (j & 1) : 0;
+                    acc[i][j][0] = fmaf(part[j][0], xw[i][0][d], acc[i][j][0]);
+                    acc[i][j][1] = fmaf(part[j][1], xw[i][0][d], acc[i][j][1]);
+                    acc[i][j][2] = fmaf(part[j][2], xw[i][1][d], acc[i][j][2]);
+                    acc[i][j][3] = fmaf(part[j][3], xw[i][1][d], acc[i][j][3]);
+                }
+#else
 #pragma unroll
                 for (int j = 0; j < F8N_FN; j++)
                 {
@@ -503,6 +613,7 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
                     acc[i][j][2] = fmaf(part[j][2], xv[i][1] * wv[j].x, acc[i][j][2]);
                     acc[i][j][3] = fmaf(part[j][3], xv[i][1] * wv[j].y, acc[i][j][3]);
                 }
+#endif
             }
 
 #endif

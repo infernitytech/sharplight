@@ -294,6 +294,20 @@ internal static class DiagnosticSwitches
     public static bool NativeFp8Tma { get; } = IsNotZero("SHARPLIGHT_FP8_TMA");
 
     /// <summary>
+    /// <c>SHARPLIGHT_FP8_WG=0</c> keeps the 9-warp form of <c>gemm_fp8_tma.cu</c> (one copy warp, 168 registers per computing thread)
+    /// where the device has <c>register_reallocation</c> (default: a copy warpgroup that hands its registers to the computing warps,
+    /// <c>F8N_WG</c>).
+    /// </summary>
+    public static bool Fp8CopyWarpgroup { get; } = IsNotZero("SHARPLIGHT_FP8_WG");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_UNIFORM_SCALES=0</c>: the copy warpgroup's form of <c>gemm_fp8_tma.cu</c> promotes every K block with per-column
+    /// weight scales even where a tile's weight scales are uniform (default: it tests per K block and multiplies once per row then,
+    /// <c>F8N_WUNI=2</c>; same results).
+    /// </summary>
+    public static bool Fp8UniformScales { get; } = IsNotZero("SHARPLIGHT_FP8_UNIFORM_SCALES");
+
+    /// <summary>
     /// <c>SHARPLIGHT_NATIVE_ATTN</c>: which causal prefill attentions run on the hand-written flash-attention kernel
     /// (<c>attn_prefill_native.cu</c>) where the device has <c>native_attention</c>: <c>0</c> none, <c>1</c> (default) all it serves,
     /// <c>2</c> only those the generated <c>fe</c> kernel does not serve (windows, chunks, soft caps, sinks).

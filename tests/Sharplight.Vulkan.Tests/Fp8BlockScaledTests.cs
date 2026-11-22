@@ -217,8 +217,8 @@ public sealed class Fp8BlockScaledTests
 
     /// <summary>
     /// The dual GEMM's E4M3 store (<c>QOUT</c>, from <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS</c> rows) writes the codes and scales a separate
-    /// <c>quantize_fp8</c> writes from its f32 rows: in the block-scaled mode the MLP's outputs are bit-identical with the store on (from
-    /// 256 rows) and off.
+    /// <c>quantize_fp8</c> writes from its f32 rows: with f32 scales (on the copy warpgroup's form) and in the block-scaled mode the MLP's
+    /// outputs are bit-identical with the store on (from 256 rows) and off.
     /// </summary>
     [Fact]
     public void E4m3StoreMatchesSeparateQuantization()
@@ -230,13 +230,25 @@ public sealed class Fp8BlockScaledTests
         Directory.CreateDirectory(dir);
         try
         {
-            foreach (var mode in new[] { "1" })
+            // f32 scales: the store runs with the copy warpgroup (register_reallocation); block-scaled: with the block-scaled MMA.
+            var modes = Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.RegisterReallocation) ? new[] { "0", "1" } : new[] { "1" };
+            foreach (var mode in modes)
             {
                 RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "store" + mode), [Switch] = mode }, 2);
                 RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "separate" + mode), [Switch] = mode, ["SHARPLIGHT_FP8_QSTORE_MIN_ROWS"] = "0" }, 2);
+                if (mode == "0")
+                {
+                    // The 9-warp form (no store): the copy warpgroup's products are the same bit for bit.
+                    RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "nine0"), [Switch] = mode, ["SHARPLIGHT_FP8_WG"] = "0" }, 2);
+                }
+
                 foreach (int t in new[] { 300, 1024 })
                 {
                     Assert.Equal(File.ReadAllBytes(Path.Combine(dir, $"separate{mode}.{t}")), File.ReadAllBytes(Path.Combine(dir, $"store{mode}.{t}")));
+                    if (mode == "0")
+                    {
+                        Assert.Equal(File.ReadAllBytes(Path.Combine(dir, $"nine0.{t}")), File.ReadAllBytes(Path.Combine(dir, $"store0.{t}")));
+                    }
                 }
             }
         }

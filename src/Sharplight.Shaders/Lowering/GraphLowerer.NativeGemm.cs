@@ -293,6 +293,17 @@ public sealed partial class GraphLowerer
     /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c>: 2 x 4 computing warps and the copy warp.</summary>
     private const int NativeFp8TmaThreads = 288;
 
+    /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c> with <c>F8N_WG</c>: 2 x 4 computing warps and the copy warpgroup.</summary>
+    private const int NativeFp8TmaWarpgroupThreads = 384;
+
+    /// <summary>
+    /// True when <c>gemm_fp8_tma.cu</c> runs with a copy warpgroup (<c>F8N_WG</c>, <see cref="DeviceFeatures.RegisterReallocation"/>):
+    /// the four copy warps keep 40 registers and hand the rest to the eight computing warps (232 instead of the 168 per thread that a
+    /// 288-thread block gets, since the register file is split by warps per scheduler). The promotion's accumulators then leave room
+    /// for the E4M3 store (<see cref="Fp8StoreMinRows"/>) with the f32 scales too. <c>SHARPLIGHT_FP8_WG=0</c> keeps the 9-warp form.
+    /// </summary>
+    private bool NativeFp8CopyWarpgroup => DiagnosticSwitches.Fp8CopyWarpgroup && NativeFp8TensorCopies && _opt.Has(DeviceFeatures.RegisterReallocation);
+
     /// <summary>Dynamic shared memory of <c>gemm_fp8_tma.cu</c>: three stages of 256 rows of 128 codes, two slots of 256 scales, eight barriers.</summary>
     private const int NativeFp8TmaSharedBytes = 3 * 256 * 128 + 2 * 256 * 4 + 64;
 
@@ -313,16 +324,16 @@ public sealed partial class GraphLowerer
     /// of <paramref name="n"/> values) stores E4M3 activation rows for the FP8 GEMMs reading it instead of f32 rows that a separate
     /// <c>quantize_fp8</c> launch turns into the same codes and scales (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>: bit for bit the same, so
     /// the next GEMM's inputs do not change; the f32 round trip and the launch go). Only in the block-scaled mode
-    /// (<see cref="Fp8BlockScaled"/>): the promoting form holds the first tile's outputs next to its per-block accumulators and spills
-    /// at the 168 registers per thread that 288-thread blocks get (Qwen3-8B-FP8 gate / up at 2,048 rows 1,494 → 1,713 µs, the step
-    /// 134.7 → 137.2 ms; block-scaled 129.2 → 125.4 ms, benchmarks.md section 86). long.MaxValue when that does not apply: without a
+    /// (<see cref="Fp8BlockScaled"/>) or with the copy warpgroup (<see cref="NativeFp8CopyWarpgroup"/>): the 9-warp promoting form holds
+    /// the first tile's outputs next to its per-block accumulators and spills at the 168 registers per thread that 288-thread blocks get
+    /// (Qwen3-8B-FP8 gate / up at 2,048 rows 1,494 → 1,713 µs, benchmarks.md section 86). long.MaxValue when that does not apply: without a
     /// CUDA epilogue, when a reader is not an FP8 GEMM or the value is a segment output, or with <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=0</c>.
     /// The caller checks that the 128-row tiles run on tensor copies.
     /// </summary>
     private long Fp8StoreMinRows(Value? output, TensorRef y, long n, string? cudaEpilogue)
     {
         long min = DiagnosticSwitches.Fp8StoreMinRows ?? DefaultFp8StoreMinRows;
-        if (min <= 0 || !Fp8BlockScaled || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
+        if (min <= 0 || !(Fp8BlockScaled || NativeFp8CopyWarpgroup) || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
             || y.Buffer != _arena || RootOf(output) != output || _fp8Copies.ContainsKey(output) || _seg.Outputs.Any(o => RootOf(o) == output)
             || PrefillCopyCode(output, n) != ActivationCode.Fp8)
         {
@@ -377,7 +388,21 @@ public sealed partial class GraphLowerer
             macros["SL_FAMILY_ARCH"] = "1";
         }
 
-        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", NativeFp8TmaThreads, NativeFp8TmaSharedBytes + (qcap > 0 ? 512 : 0),
+        bool warpgroup = NativeFp8CopyWarpgroup;
+        if (warpgroup)
+        {
+            macros["F8N_WG"] = "1";
+            macros["SL_FAMILY_ARCH"] = "1";
+            if (!Fp8BlockScaled && DiagnosticSwitches.Fp8UniformScales)
+            {
+                // Per K block the warps test whether the tile's weight scales are one value per matrix (weights with 128 x 128 scale
+                // blocks) and then promote with one factor per row of x: the same products, fewer multiplies.
+                macros["F8N_WUNI"] = "2";
+            }
+        }
+
+        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", warpgroup ? NativeFp8TmaWarpgroupThreads : NativeFp8TmaThreads,
+            NativeFp8TmaSharedBytes + (qcap > 0 ? 512 : 0),
             _opt.Target, macros, _opt.Cache, string.Join(';', maps));
         long sms = Math.Max(1, _opt.ComputeUnits);
         // QOUT walks pairs of 64-output tiles.
