@@ -313,7 +313,7 @@ internal static class DiagnosticSwitches
     public static bool Fp8UniformScales { get; } = IsNotZero("SHARPLIGHT_FP8_UNIFORM_SCALES");
 
     /// <summary>
-    /// <c>SHARPLIGHT_GEMM_SKIP_PAD=0</c>: <c>gemm_fp8_tma.cu</c> and <c>gemm_f16_native.cu</c> run the MMAs of the 16-row fragments past
+    /// <c>SHARPLIGHT_GEMM_SKIP_PAD=0</c>: <c>gemm_fp8_native.cu</c> and <c>gemm_f16_native.cu</c> run the MMAs of the 16-row fragments past
     /// the batch's last row too (the partial last token tile then costs a whole tile).
     /// </summary>
     public static bool GemmSkipPaddedRows { get; } = IsNotZero("SHARPLIGHT_GEMM_SKIP_PAD");

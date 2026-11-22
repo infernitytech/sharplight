@@ -405,11 +405,6 @@ public sealed partial class GraphLowerer
             macros["MULTI_O2"] = (multiWidths.Length > 2 ? multiWidths[0] + multiWidths[1] : n).ToString(inv);
         }
 
-        if (!DiagnosticSwitches.GemmSkipPaddedRows)
-        {
-            macros["F8N_SKIP_PAD"] = "0";
-        }
-
         if (qcap > 0)
         {
             macros["QOUT"] = "1";
