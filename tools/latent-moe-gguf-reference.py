@@ -7,6 +7,7 @@ float32 and prints the last row's best tokens.
 
 An optional sixth argument "llama-eps" normalizes the compressed query and latent with rms_norm_eps as llama.cpp does (transformers' GLM-5
 uses 1e-6 there). n_group / topk_group default to 1 (no group-limited routing), as llama.cpp and Sharplight read files without expert_group_count.
+LAZY_LAYERS=1 dequantizes each decoder layer only while it runs (deep truncations in little host memory).
 Needs llama.cpp's gguf-py ($LLAMA_SRC/gguf-py when LLAMA_SRC is set, else an installed gguf package), torch and transformers >= 5.
 """
 import sys, re
@@ -80,15 +81,11 @@ with torch.device('meta'):
     model = (GlmMoeDsaForCausalLM if GLM else DeepseekV3ForCausalLM)(cfg)
 for i in range(cfg.first_k_dense_replace, L):
     model.model.layers[i].mlp.experts = LazyExperts(i)
-model.to_empty(device='cpu')
-sd = {}
-sd['model.embed_tokens.weight'] = deq('token_embd.weight')
-sd['model.norm.weight'] = deq('output_norm.weight')
-sd['lm_head.weight'] = deq('output.weight')
+# LAZY_LAYERS=1: every decoder layer's weights are dequantized just before the layer runs and dropped after it, so that deep
+# truncations fit in host memory (the head and the embedding stay resident).
+lazy = os.environ.get('LAZY_LAYERS') == '1'
 nope = qk - rope
-for i in range(L):
-    p, q = f'blk.{i}.', f'model.layers.{i}.'
-    m = {'attn_norm.weight': 'input_layernorm.weight', 'ffn_norm.weight': 'post_attention_layernorm.weight',
+NAMES = {'attn_norm.weight': 'input_layernorm.weight', 'ffn_norm.weight': 'post_attention_layernorm.weight',
          'attn_q_a.weight': 'self_attn.q_a_proj.weight', 'attn_q_a_norm.weight': 'self_attn.q_a_layernorm.weight',
          'attn_q_b.weight': 'self_attn.q_b_proj.weight', 'attn_kv_a_mqa.weight': 'self_attn.kv_a_proj_with_mqa.weight',
          'attn_kv_a_norm.weight': 'self_attn.kv_a_layernorm.weight', 'attn_output.weight': 'self_attn.o_proj.weight',
@@ -99,16 +96,41 @@ for i in range(L):
          'indexer.attn_q_b.weight': 'self_attn.indexer.wq_b.weight', 'indexer.attn_k.weight': 'self_attn.indexer.wk.weight',
          'indexer.k_norm.weight': 'self_attn.indexer.k_norm.weight', 'indexer.k_norm.bias': 'self_attn.indexer.k_norm.bias',
          'indexer.proj.weight': 'self_attn.indexer.weights_proj.weight'}
-    for g, h in m.items():
+
+
+def layer_state(i):
+    p, sd = f'blk.{i}.', {}
+    for g, h in NAMES.items():
         if p + g in T:
-            sd[q + h] = deq(p + g)
+            sd[h] = deq(p + g)
     kb = deq(p + 'attn_k_b.weight')   # [heads, lora, nope]
     vb = deq(p + 'attn_v_b.weight')   # [heads, v, lora]
-    kv_b = torch.cat([kb.transpose(1, 2), vb], dim=1).reshape(heads * (nope + vdim), -1)
-    sd[q + 'self_attn.kv_b_proj.weight'] = kv_b
-missing, unexpected = model.load_state_dict(sd, strict=False)
-missing = [k for k in missing if 'rotary' not in k]
-print('missing', missing[:5], 'unexpected', unexpected[:5], flush=True)
+    sd['self_attn.kv_b_proj.weight'] = torch.cat([kb.transpose(1, 2), vb], dim=1).reshape(heads * (nope + vdim), -1)
+    return sd
+
+
+def release(layer, args, output):
+    layer.to('meta')   # returns None: the layer's output stays as it is
+
+
+def materialize(layer, i):
+    layer.to_empty(device='cpu')
+    missing, unexpected = layer.load_state_dict(layer_state(i), strict=False)
+    assert not unexpected, unexpected
+    assert not [k for k in missing if 'experts' not in k], missing
+
+
+for module in [model.model.embed_tokens, model.model.norm, model.lm_head]:
+    module.to_empty(device='cpu')
+model.model.embed_tokens.weight.data = deq('token_embd.weight')
+model.model.norm.weight.data = deq('output_norm.weight')
+model.lm_head.weight.data = deq('output.weight')
+for i, layer in enumerate(model.model.layers):
+    if lazy:
+        layer.register_forward_pre_hook(lambda module, args, i=i: materialize(module, i))
+        layer.register_forward_hook(release)
+    else:
+        materialize(layer, i)
 # rotary buffers were emptied by to_empty: rebuild them
 if GLM:
     from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaRotaryEmbedding as Rotary

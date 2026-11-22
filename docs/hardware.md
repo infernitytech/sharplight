@@ -123,7 +123,10 @@ up) queues the same experts of the layer's later product (down) behind its own r
 experts than a quarter of a pool (prefill) runs in chunks of experts in id order, the next chunk read while the current one computes. The
 bytes are used as stored and an expert's items always run together, so the outputs equal those of resident experts bit for bit
 (`DiskExpertTests`, `StreamedExpertsTests.DiskExpertsMatchTheResidentExperts`). Expert weights must be one contiguous range of a file
-(`IWeightSource.TryGetFileRange`: GGUF, `.slm` and safetensors weights); others stay resident. At the first use the store reads a few experts
+(`IWeightSource.TryGetFileRange`: GGUF, `.slm` and safetensors weights), or stored in another block encoding of the same values
+(`IWeightSource.TryGetEncodedFileRange` with an `IStoredBlockEncoding`: the narrow IQ1 types 64-66 of Kimi-K3's UD-TQ*/UD-Q1_0 GGUFs, read as
+IQ1_S): the store then reads the stored blocks and decodes them in the slot, behind the read, once per read before a pass uses them.
+Others stay resident. At the first use the store reads a few experts
 to measure the disk and logs the expected decode speed.
 
 Reads go through `IExpertReader`: a batch of (file, offset, length, destination) reads is submitted at once and awaited, the files opened with
