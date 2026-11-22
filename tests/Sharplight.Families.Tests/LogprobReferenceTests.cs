@@ -9,15 +9,16 @@ namespace Sharplight.Families.Tests;
 /// <summary>
 /// Logits-level checks for models whose greedy text is too fragile to pin (near-tied top tokens): the log-probabilities of the reference's top tokens,
 /// captured from llama.cpp b11177 (CPU, weights re-quantized to F16 from the checked-in Q8_0 file so no activation quantization noise), must be matched within
-/// the quantization noise of the Q8_0 file the tests load.
+/// the quantization noise of the Q8_0 file the tests load. Truncated real checkpoints compare with transformers in float32 on the file's own
+/// dequantized weights instead (no quantization noise in the reference, so a tighter tolerance).
 /// </summary>
 public class LogprobReferenceTests
 {
-    private const double Tolerance = 0.25;
+    private const double DefaultTolerance = 0.25;
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>A prompt and the reference log-probability of some next-token candidates.</summary>
-    public sealed record Case(string Name, string Path, string Prompt, (int Id, double LogProb)[] Expected);
+    public sealed record Case(string Name, string Path, string Prompt, (int Id, double LogProb)[] Expected, double Tolerance = DefaultTolerance);
 
     private static readonly Case[] Cases =
     [
@@ -26,6 +27,13 @@ public class LogprobReferenceTests
         new("rwkv6 'The capital of France is'", "gguf/rwkv-6-world-1b6/rwkv-6-world-1.6b-Q8_0.gguf", "The capital of France is", [(37138, -0.773), (22590, -2.585), (4596, -2.869), (22187, -3.169)]),
         new("rwkv6 'The capital of France is Paris.\\nThe capital of'", "gguf/rwkv-6-world-1b6/rwkv-6-world-1.6b-Q8_0.gguf", "The capital of France is Paris.\nThe capital of",
             [(44312, -2.049), (22590, -2.134), (50275, -2.527), (36847, -2.748)]),
+        // DeepSeek-V3.1 (unsloth Q4_K_M) cut to its first 6 layers (3 dense, 3 MoE with 256 real experts; tools/truncate-gguf.py), the
+        // prompt at which the full model's greedy text and llama.cpp's part (a near tie of " Spain" / " France"). Reference: transformers'
+        // DeepseekV3 in float32 on the file's dequantized weights (tools/deepseek-v3-gguf-reference.py; no group-limited routing, as the
+        // file has no expert_group_count). Ours is within 0.04 on CPU, CUDA and Vulkan; llama.cpp b11177 is up to 0.14 off on CPU.
+        new("deepseek-v3.1 6 layers 'The capital of France is Paris. The capital of'", "gguf/DeepSeek-V3.1-trunc/DeepSeek-V3.1-Q4_K_M-L6.gguf",
+            "The capital of France is Paris. The capital of", [(50365, -3.443), (81661, -3.643), (104323, -4.190), (119996, -4.506), (74218, -4.907)],
+            Tolerance: 0.1),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));
@@ -50,7 +58,7 @@ public class LogprobReferenceTests
         foreach (var (id, expected) in c.Expected)
         {
             double actual = logits[id] - max - logSum;
-            Assert.True(Math.Abs(actual - expected) < Tolerance, $"{c.Name}: token {id} log-probability {actual:F3}, reference {expected:F3}");
+            Assert.True(Math.Abs(actual - expected) < c.Tolerance, $"{c.Name}: token {id} log-probability {actual:F3}, reference {expected:F3}");
         }
     }
 
