@@ -634,7 +634,7 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
-    [InlineData(4)]
+    [InlineData(9)]
     [InlineData(12)]
     [InlineData(16)]
     [InlineData(24)]
