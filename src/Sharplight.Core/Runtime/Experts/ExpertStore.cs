@@ -556,7 +556,7 @@ public sealed unsafe class ExpertStore : IDisposable
         {
             int count = size.Count();
             long share = (long)(budget * (count * (double)size.Key / totalWeight));
-            long slots = Math.Clamp(share / size.Key, MinSlots(size), size.Sum(t => (long)t.Experts));
+            long slots = Math.Min(Math.Max(share / size.Key, MinSlots(size)), size.Sum(t => (long)t.Experts));
             var pool = new ExpertSlotPool(size.Key, (int)slots);
             _pools.Add(pool);
             foreach (var t in size)

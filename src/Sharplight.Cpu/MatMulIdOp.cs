@@ -117,6 +117,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private readonly int* _chunkIds;
     /// <summary>The ids the pass runs: <see cref="_chunkIds"/> during a chunk of a disk-backed pass, else the ids input.</summary>
     private int* _runIds;
+    /// <summary>
+    /// During the chunks of a disk-backed pass: the integer-dot experts of the whole pass, which size the integer-dot units as the pass
+    /// without chunks would (the units' row runs decide which rows the two-row dot pairs), else 0.
+    /// </summary>
+    private int _passIntDotExperts;
     [ThreadStatic] private static float[]? s_acc;
     public override string Name => _products == 2 ? $"MatMulId.{_fmt} x2" : $"MatMulId.{_fmt}";
 
@@ -315,6 +320,21 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                 _chunkOf[_passExperts[c]] = c / chunk + 1;
             }
 
+            new Span<int>(_cnt, _experts).Clear();
+            for (long i = 0; i < items; i++)
+            {
+                if (ids[i] >= 0)
+                {
+                    _cnt[ids[i]]++;
+                }
+            }
+
+            _passIntDotExperts = 0;
+            foreach (int e in experts)
+            {
+                _passIntDotExperts += !_fusedDot || _cnt[e] <= FusedRowsMax ? 1 : 0;
+            }
+
             for (int c = 0; c < chunks; c++)
             {
                 var part = experts.Slice(c * chunk, Math.Min(chunk, count - c * chunk));
@@ -350,6 +370,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         }
         finally
         {
+            _passIntDotExperts = 0;
             foreach (int e in experts)
             {
                 _chunkOf[e] = 0;
@@ -697,7 +718,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         // A gated pair's units compute both products of their rows.
         int unitProducts = _gated is null ? _products : 1;
         long target = CpuParallel.Threads * 4L;
-        long perExpert = Math.Max(1, (target + activeExperts * unitProducts - 1) / (activeExperts * unitProducts));
+        int layoutExperts = _passIntDotExperts > 0 ? _passIntDotExperts : activeExperts;
+        long perExpert = Math.Max(1, (target + layoutExperts * unitProducts - 1) / (layoutExperts * unitProducts));
         _rowsPerUnit = Math.Clamp((_n + perExpert - 1) / perExpert, 1, IntDotRowsPerUnit);
         _groups = (_n + _rowsPerUnit - 1) / _rowsPerUnit;
         _unitsPerProduct = activeExperts * _groups;
