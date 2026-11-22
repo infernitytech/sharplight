@@ -389,6 +389,12 @@ internal static class DiagnosticSwitches
     /// <summary>True when tensor-core GEMMs read an f16 copy of the activations.</summary>
     public static bool GemmHalfActivations { get; } = IsNotZero("SHARPLIGHT_GEMM_X16");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_GEMM2_TILE48=0</c>: batches of 33-48 rows on gemm_cm2 take 64-token tiles instead of 48-token tiles (one 4-warp
+    /// subgroup row of three 16-row fragments).
+    /// </summary>
+    public static bool Gemm2Tile48 { get; } = IsNotZero("SHARPLIGHT_GEMM2_TILE48");
+
     /// <summary>False runs f16 / bf16 matmul pairs (gate / up) at prefill as two gemm_cm2 launches and an elementwise launch.</summary>
     public static bool DualGemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2_DUAL");
 
@@ -670,6 +676,15 @@ internal static class DiagnosticSwitches
 
     /// <summary><c>SHARPLIGHT_NATIVE_KQ_BM=32|64</c>: token rows per tile of the hand-written K-quant decode GEMM, or null for the default.</summary>
     public static int? NativeKQuantTileRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_BM") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_WM=1|2</c>: warps along the token rows of the hand-written K-quant decode GEMM's tile, or null for the default (chosen per tile).</summary>
+    public static int? NativeKQuantWarpRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_WM") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_KQ_DUAL=0</c>: K-quant gate / up pairs at decode batches run two hand-written K-quant GEMM launches and the
+    /// elementwise launch instead of the GEMM's dual form.
+    /// </summary>
+    public static bool NativeKQuantDual { get; } = IsNotZero("SHARPLIGHT_NATIVE_KQ_DUAL");
 
     /// <summary><c>SHARPLIGHT_NATIVE_KQ_SPLIT=n</c>: K split of the hand-written K-quant decode GEMM, or null for the default (chosen per matrix and batch).</summary>
     public static int? NativeKQuantSplit { get; } = Read("SHARPLIGHT_NATIVE_KQ_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;

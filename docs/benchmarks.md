@@ -11569,3 +11569,197 @@ python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --seqs 4 --depth
 python bench/s58_long_vllm.py ~/models/hf/gpt-oss-20b gptoss --lens "" --depths 32768,130048 --streams 1,4 --max-len 130560
 # the switches: SHARPLIGHT_ATTN_DECODE_PF=0, SHARPLIGHT_NO_ROPE_QKV=1 (SHARPLIGHT_ROPE_QKV_DEBUG=1), SHARPLIGHT_NO_INT_DOT_MULTI_BIAS=1
 ```
+
+## 79. Feed round 3: 48-row token tiles for decode batches of 33-48 rows (CUDA K-quant GEMM and gemm_cm2), the K-quant GEMM's dual gate / up form, why its 64-row tiles stay slow (2026-11-22)
+
+Branch `perf/feed-r3` (base `develop` at `69ea846b`, §77; `develop` at `7323e8b5` (§78, perf/llm-r26) merged before the final
+measurements). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap), shared with other agents: every run
+held the verify lock; Sharplight and llama.cpp b11177 ran in the same hold per provider (`bench/s74_feed.sh`, Sharplight first); A/B
+pairs (feature on / off through its switch, same build) ran back to back in one hold. Raw output in
+[`bench/results/s79/`](../bench/results/s79).
+
+### 79.1 Results against llama.cpp
+
+| model, point | provider | before (§77, or the A/B pair) | **after** | llama.cpp | ratio before → after |
+|---|---|---:|---:|---:|---:|
+| Qwen3-8B, decode 16 sequences | CUDA | 1961 | **1983** | 1425 | 1.37 → **1.39** |
+| Qwen3-8B, decode 32 sequences | CUDA | 3027 | **3025** | 2121 | 1.41 → **1.43** |
+| Qwen3-8B, decode 48 sequences | CUDA | 2978 (A/B: 16.12 ms) | **3612** (13.29 ms) | 2575 | 1.16 → **1.40** |
+| Qwen3-8B, decode 64 sequences | CUDA | 3948 | 3881 | 2833 (first pass; second 2161) | 1.38 → **1.37** |
+| Qwen3-8B, prefill 512 / decode, 1 stream | CUDA | 7203 / 144 | 7193 / 144.7 | 6587 / 143.3 | 1.09 / 1.01 → **1.09 / 1.01** |
+| Qwen3.8 27B, decode 16 sequences | CUDA | 531 | **538** | 316 | 1.67 → **1.70** |
+| Qwen3.8 27B, decode 32 sequences | CUDA | 769 (§77 steps, 41.62 ms) | **776** | 391 | 1.97 → **1.98** |
+| Qwen3.8 27B, decode 48 sequences | CUDA | 748 (A/B: 64.15 ms) | **855** (56.17 ms) | 425 | 1.76 → **2.01** |
+| Qwen3.8 27B, decode 64 sequences | CUDA | 907 | **912** | 444 | 2.04 → **2.05** |
+| Qwen3.8 27B, prefill 512 / decode, 1 stream | CUDA | 1903 / 45.6 | 1914 / 45.7 | 1691 / 43.6 | 1.11 / 1.05 → **1.13 / 1.05** |
+| Gemma 4 31B, decode 16 sequences | CUDA | 424 | 425 | 383 (§77; its context failed this time) | 1.11 → **1.11** |
+| Gemma 4 31B, decode 32 sequences | CUDA | 493 | 619 (51.73 ms; not this branch's, see below) | (could not create the context) | |
+| Gemma 4 31B, prefill 512 / decode, 1 stream | CUDA | 1488 / 37.9 | 1488 / 37.9 | 1667 / 39.4 | 0.89 / 0.96 → 0.89 / 0.96 |
+| Gemma 4 31B, decode after a 128K prompt (session path) | CUDA | not measured | **19.97** | 25.0 (§74) | – → **0.80** |
+| Qwen3-8B, decode 16 sequences | Vulkan | 1238 (§74) | 1245 | 586 | 2.13 → **2.12** |
+| Qwen3-8B, decode 32 sequences | Vulkan | 2047 (this branch before the 48-row tile, 15.63 ms) | 2055 | 1031 | 1.99 → **1.99** |
+| Qwen3-8B, decode 48 sequences | Vulkan | 2345 (A/B: 20.47 ms) | **2473** (19.41 ms; A/B 18.56) | 1366 | 1.72 → **1.81** |
+| Qwen3-8B, decode 64 sequences | Vulkan | 2763 (§74) | 2735 | 1621 | 1.70 → **1.69** |
+| Qwen3-8B, prefill 512 / decode, 1 stream | Vulkan | 7126 / 134 (§74) | 7157 / 133.5 | 6230 / 136.5 | 1.15 / 0.99 → **1.15 / 0.98** |
+
+tok/s. Batched decode: BatchBench `--feedback` at depth 256, sequences x 1000 / minimum GPU ms of 20 steps (all sizes in one process,
+`--ctx 512`), against llama-batched-bench S_TG (second pass, unless marked); prefill and single-stream decode: the CLI's `--bench 512`
+(best of 5) against llama-bench pp512 / tg128. "before" at 48 sequences is the same build with the tile switched back
+(`SHARPLIGHT_NATIVE_KQ_BM=64` with `SHARPLIGHT_NATIVE_KQ_DUAL=0` on CUDA, `SHARPLIGHT_GEMM2_TILE48=0` on Vulkan) in an earlier hold,
+the other "before" values §77 / §74; llama.cpp's 64-sequence second pass on CUDA (1.896 s against 1.446 s in the first) was
+disturbed, so that row uses its first pass. Rows that did not change (32 / 64 sequences, single stream) moved within run-to-run noise. Gemma 4 31B at 32 sequences ran 64.91 ms in
+§77 and 50.9-51.7 ms on this branch with and without the dual form (`steps_27b_gemma_ab1.txt`); all of those runs are on this branch
+after `develop` at `7323e8b5` (§78) was merged, so the difference is not this round's dual form or tiles; it was not attributed further.
+Raw output: `bench/results/s79/final` (CUDA) and `final2` (Gemma's batched rows, Vulkan).
+
+### 79.2 48-row token tiles
+
+The 64-row token tile of `gemm_kq_native.cu` served every batch of 33-64 rows, so a 40- or 48-row batch paid for 64 rows of tensor
+work (Qwen3-8B: 32 sequences 10.9 ms, 40 and 48 sequences 15.8-16.1 ms). The kernel takes `KQ_BM = 48` (three 16-row fragments per
+warp, 24 KiB of activations per stage) and the lowering picks it for 33-48 rows (`NativeKQuantTileRows`; `SHARPLIGHT_NATIVE_KQ_BM`
+forces a tile). Harness (`bench/s77_kq`, sustained µs over 16 weight copies, 48 rows):
+
+| shape | 64-row tile (2 stages) | **48-row tile, 2 stages** | 48-row tile, 3 stages (99 KiB) |
+|---|---:|---:|---:|
+| Q4_K [4096 → 12288] | 86.7 | **63.6** | 63.8 |
+| Q6_K [12288 → 4096] | 97.3 | **73.1** | |
+| Q4_K [4096 → 4096] | 31.2 | **21.6** | 21.2 |
+
+The same lever on Vulkan's (and CUDA's other formats') generated GEMM: gemm_cm2 had 32- and 64-token tiles; it now has a 48-token tile
+(one row of four subgroups with three 16-row fragments each, `[1, 4, 3, 2]`; `[1, 2, 3, 4]` for 32-value K blocks) for 33-48 rows,
+the split-K probes include 48 (`NextSplitProbe`), and `SHARPLIGHT_GEMM2_TILE48=0` keeps 64. The split-f16 form keeps its tiles.
+
+Decode steps (GPU ms, BatchBench `--feedback` at depth 256, minimum of 20 steps; A/B in one hold, `steps_*.txt`):
+
+| model, provider | sequences | 64-row tiles | **48-row tiles** |
+|---|---:|---:|---:|
+| Qwen3-8B Q4_K_M, CUDA | 40 | 15.79 | **12.18** |
+| | 48 | 16.12 | **13.02** |
+| Qwen3.8 27B Q4_K_M, CUDA | 48 | 64.15 | **55.86** |
+| Qwen3-8B Q4_K_M, Vulkan | 40 | 19.74 | **17.71** |
+| | 48 | 20.72 | **18.77** |
+
+Greedy text (`--chat --temp 0 -n 64`, a 40-44-token prompt whose prefill runs the 48-row tiles): Qwen3-8B and Gemma 4 31B identical
+with the 64-row tiles and the separate gate / up launches, and identical to Vulkan; Qwen3.8 27B identical too (its chat prompt is 84
+tokens, so it checks the rest of the branch only).
+
+### 79.3 The dual gate / up form
+
+`KQ_DUAL`: one launch for a gate / up pair of one K-quant format feeding one elementwise group (SwiGLU, GELU-tanh · up): a block's 64
+weight rows interleave the two matrices (even rows the gate's row o0 + r / 2, odd rows the up's), so each thread's two accumulator
+columns of an MMA tile are the gate and up products of one output, and the store applies the group (`DualEpilogueCudaSource`, the
+same expression the elementwise launch runs) after undoing a row-ranged copy's row scales. K splits reduce both products before the
+epilogue. Emitted by `LowerDualMatMul` for the rows past the fused matvec / skinny range up to 64 (`EmitNativeKQuantDualGemm`), so a
+decode step of 9-64 sequences runs one launch per layer instead of three (Qwen3-8B: 492 → 420 launches per step).
+
+In the harness the dual launch beats the two launches it replaces (Q4_K [4096 → 12288] at 32 rows 98.9 µs against 2 x 52.4;
+Qwen3.8 27B's [5120 → 17408] at 32 / 48 rows 164.1 / 203.9 µs against 2 x 87.3 / 2 x 109.8), but in the decode step the separate
+launches already overlap on CUDA's graph branches (§74), so the step gain is small: Qwen3-8B 0.3-1 % at 9-64 sequences (32: 10.95 →
+10.88 ms, 64: 16.47 → 16.36), Qwen3.8 27B within noise with the branches (32: 40.89-41.08 → 40.88-40.91, 48: 56.07-56.21 →
+55.75-55.92) and 2.8 % without them (`SHARPLIGHT_CUDA_CONCURRENT=0`, 32: 42.79 → 41.59), Gemma 4 31B within noise (16: 37.38 /
+37.70, 32: 50.93 / 51.29 with / without the separate launches, one run each). Kept (one launch and one f32 round trip less per layer,
+never slower beyond run-to-run noise); `SHARPLIGHT_NATIVE_KQ_DUAL=0` switches it off.
+
+Tests: `KQuantGatedProjectionMatchesTheCpu` now covers 9-64 rows, Q4_K / Q5_K / Q6_K, SiLU and GELU-tanh, and 1000 outputs (a
+partial 32-output tile), against the CPU.
+
+### 79.4 The 64-row tiles: tensor-issue bound, not copy bound
+
+The brief's lever was a deeper copy ring for the 64-row tile (two stages fit). Measured on Q4_K [4096 → 12288] at 64 rows (sustained
+µs; the "no ..." variants are harness-only builds of the same kernel that skip one part):
+
+| variant | µs |
+|---|---:|
+| kernel | 82.0 |
+| weight blocks in a ring of their own, 3 deep (`KQ_WST = 3`, 91 KiB) | 84.8 |
+| L2 prefetch 2 / 3 / 4 superblocks ahead (`prefetch.global.L2`), bulk prefetch (`cp.async.bulk.prefetch.L2`) | 85.4-95.8 |
+| one stage, two blocks per SM (`KQ_STAGES = 1`) | 83.4 |
+| 2 x 4 warps (half the token rows, 16 weight rows each: half the `ldmatrix` traffic, twice the dequantization, `KQ_WM = 2`) | 82.9 |
+| **no copies** (the first stage reused) | **53.5** |
+| no copies, no `ldmatrix` | 49.8 |
+| no copies, no dequantization | 52.6 |
+| no copies, no `ldmatrix`, no dequantization (MMAs only) | **46.0** |
+| the same with f16 accumulation (`mma ... f16.f16.f16.f16`) | 45.9 |
+| no copies, no MMAs | 51.2 |
+| no copies, no `ldmatrix`, no MMAs (dequantization only) | 36.1 |
+
+The 1.57 M `mma.sync.m16n8k16` of a 64-row product alone take 46 µs (about 140 TFLOPS on this card at 200 W, the same with f16
+accumulators; int8 `m16n8k32` at half the instruction count took 26 µs, i.e. the same instruction rate), and the dequantization and
+`ldmatrix` work overlaps with them only partly (53.5 µs with everything but the copies), while streaming the weights alone needs
+~45 µs. Deeper rings, prefetches and two blocks per SM do not move it, so the 64-row tile is bound by the MMA issue rate plus its
+companions, not by copy latency. A faster 64-row tile needs fewer MMA instructions per weight byte: int8 MMAs on q8_1 activations
+(twice the products per instruction; llama.cpp's MMQ), whose per-sub-block scale epilogue costs ~20 ALU operations per MMA and would
+need its own design (79.7).
+
+The one-stage form (`KQ_STAGES = 1`, kept as an option) helped the large 16- and 32-row grids (Q4_K [4096 → 12288] 43.8 → 39.9 µs at
+16 rows, 53.3 → 48.6 at 32) but lost on small grids and Q6_K ([4096 → 4096] 14.1 → 19.0, 17.8 → 23.0; Q6_K [12288 → 4096] 58.8 → 66.7,
+60.4 → 77.8), so the stage choice is unchanged.
+
+### 79.5 Gemma 4 31B at 128K on the session path
+
+The timed 128K run on the session path (`--bench 131072 --ctx 131328`, f16 caches; the window-sized caches of §77, 1552 ring rows for
+the 50 window layers, 28.25 GiB weights and state, 512 rows per pass chosen automatically; one timed prefill,
+`SHARPLIGHT_BENCH_PREFILL_REPEATS=0`, a new CLI switch, since each 128K prefill takes 2.6 minutes):
+
+| Gemma 4 31B Q4_K_M, CUDA | Sharplight | llama.cpp (§74) | ratio |
+|---|---:|---:|---:|
+| prefill 128K | 838.8 tok/s (156.3 s) | | |
+| decode after the 128K prompt | 19.97 tok/s best, 19.43 median (GPU 49.93 ms) | 25.0 (tg64 at d 128K) | **0.80** |
+
+The gap at depth is the decode attention over 128K keys of the ten global layers (head size 512) — perf/llm-r26's topic this round,
+not touched here. Vulkan's 128K run was not made (another ~8 minutes of the shared GPU).
+
+The ~2 % that the one-slot paged form cost a CUDA decode step at short context in §77 (Gemma 4 31B at 4K: 26.13 → 26.68 GPU ms) is
+gone on this build: 27.34 ms with the window-sized ring against 27.31 with the plain graph (`SHARPLIGHT_DISABLE_FEATURES=window_kv`),
+36.41 against 36.44 tok/s, same hold (`gemma_4k_paged_form.txt`; one run each, so within noise). Not attributed further (§78 changed the decode attention in
+between); nothing was changed for it.
+
+Suites (final build, one process per class, both providers where they apply): Sharplight.Cuda.Tests 61 (1 skipped, the cuBLASLt
+probe; `NativeKQuantDecodeGemmMatchesTheCpu`, `KQuantGatedProjectionMatchesTheCpu` with its new dual-form cases); Vulkan.Tests MatMul
+164, SkinnyGemm 42, RowInvariance 77, Mmq 48, QuantFormat 197, DualGemm 13, MatMulEpilogue 13 (`ProjectionBiases*` included) on
+Vulkan and CUDA, all passing; FamilyGenerationTests `qwen3` 63 (30 skipped) passing, `gemma-4` 12 (9 skipped) with one failure:
+`gemma-4-E2B-it HF` on CUDA diverges from the second token. It fails the same with this round's paths off
+(`SHARPLIGHT_NATIVE_KQ_DUAL=0 SHARPLIGHT_GEMM2_TILE48=0`; the model is bf16, so the K-quant kernel is not involved) and passes with
+`SHARPLIGHT_NO_ROPE_QKV=1`: a regression of the one-launch rope / cache-write of §78 (merged from `develop`), left to that round's
+owner (`bench/results/s79/suites.txt`).
+
+### 79.6 Measured and not kept
+
+* Separate weight ring (`KQ_WST`), L2 prefetches, 2 x 4 warps (`KQ_WM = 2`) and the one-stage form for 64-row tiles: 79.4. The
+  options stay in the kernel for the harness (defaults off).
+* 48-row tiles with three stages (99 KiB, past the 96 KiB cap that leaves L1 room): no faster than two (63.8 against 63.6 µs).
+
+### 79.7 Leads worth promoting and the next levers
+
+Promotable (like for like, same hold, both engines interleaved):
+
+* **Batched decode at 48 sequences against llama.cpp**: Qwen3-8B Q4_K_M 1.40x (CUDA, from 1.16x) and 1.81x (Vulkan, from 1.72x);
+  Qwen3.8 27B 2.01x on CUDA (from 1.76x). The 16-64 sequence range on CUDA is now 1.37-1.43x (8B) and 1.70-2.05x (27B).
+
+Not promotable: Gemma 4 31B at 128K (0.80x of llama.cpp's decode), Gemma's single stream (0.89 / 0.96x).
+
+Next levers:
+
+1. **64-row K-quant tiles with fewer MMA instructions**: int8 `m16n8k32` on q8_1 activations (the copy the int-dot matvec already
+   makes) with a per-sub-block scale epilogue that stays under the MMA time; or a 64-output-per-warp layout (16 weight rows per
+   warp) that halves the `ldmatrix` traffic, which needs the Q4_K header in registers to fit two stages in 99 KiB (79.4).
+2. **Gemma 4 31B decode at depth** (0.80x at 128K, 0.91x at 32K): the decode attention of the head-size-512 global layers (§74
+   levers 2-4), coordinated with the LLM round that owns `attn_decode_native.cu`.
+3. **Vulkan 64-row batches** (23.4 ms at 64 sequences against 15.6 at 32 on Qwen3-8B): gemm_cm2's 64-token tile; a hand-written
+   coopmat K-quant kernel like CUDA's (raw blocks decoded in registers) is the larger lever there.
+4. **Gemma 4 31B prefill 512 on CUDA** (0.89x).
+
+### 79.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i> LLAMA_ROOT=...
+LENS="512" DEPTHS=" " SEQS="16 32 48 64" BCTX=512 bench/s74_feed.sh out qwen3-8b ~/models/gguf/Qwen3-8B-Q4_K_M.gguf cuda
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/gguf/Qwen3-8B-Q4_K_M.gguf --provider cuda --slots 48 --ctx 384 --depth 256 --sizes 48 --modes greedy --reps 20 --feedback
+# A/B switches: SHARPLIGHT_NATIVE_KQ_BM=64, SHARPLIGHT_NATIVE_KQ_DUAL=0, SHARPLIGHT_GEMM2_TILE48=0, SHARPLIGHT_CUDA_CONCURRENT=0
+# 128K session path (three 128K prefills: the warm-up, the timed one, the one before the decode steps)
+SHARPLIGHT_BENCH_PREFILL_REPEATS=0 sharplight ~/models/gguf/gemma-4-31B-it-Q4_K_M.gguf --provider cuda --bench 131072 --ctx 131328
+# kernel harness (KQ_BM 16 / 32 / 48 / 64, KQ_DUAL=1, KQ_STAGES=1, KQ_WST, KQ_WM, KQ_PF)
+cd bench/s77_kq && nvcc -O3 -arch=sm_120 -std=c++17 -DK=4096 -DN=12288 -DKQ_FMT=4 -DKQ_BM=48 -DKQ_STAGES=2 -DKQ_SPLIT=1 \
+  -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_kq_native.cu"' bench_kq.cu -o b && ./b 48
+```

@@ -1,0 +1,9 @@
+== Qwen3-8B-Q4_K_M.gguf cuda default 83b2d01facb6ba4a894341b2e9299a4a  -
+== Qwen3-8B-Q4_K_M.gguf cuda before dfc77f7bd8ad0d9dd64d8c33326daa14  -
+== Qwen3-8B-Q4_K_M.gguf vulkan default c72c296a7b7fa3fbdc55a86303d26298  -
+== Qwen3.8-27B-Q4_K_M.gguf cuda default 409934cb323bdccebd8734d78ef58f6e  -
+== Qwen3.8-27B-Q4_K_M.gguf cuda before b8be8766044ce24a66857d89a7384d55  -
+== Qwen3.8-27B-Q4_K_M.gguf vulkan default 02cc33202562df42d740ef42c93bf953  -
+== gemma-4-31B-it-Q4_K_M.gguf cuda default 8098cc97f858a61b1279aa1566870ad7  -
+== gemma-4-31B-it-Q4_K_M.gguf cuda before 0fcf07482fc587385c3ce00bc9146a6b  -
+== gemma-4-31B-it-Q4_K_M.gguf vulkan default 8b2ed3b3ecc879030066477d5c118914  -

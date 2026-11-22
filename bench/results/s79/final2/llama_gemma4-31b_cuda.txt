@@ -1,0 +1,2 @@
+| gemma4 31B Q4_K - Medium       |  17.05 GiB |    30.70 B | CUDA       |  99 |   1 |           tg128 |         39.51 ± 0.05 |
+llama_batched_bench: error: failed to create the llama_context
