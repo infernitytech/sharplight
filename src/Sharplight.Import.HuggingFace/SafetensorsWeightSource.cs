@@ -29,4 +29,12 @@ internal sealed unsafe class SafetensorsWeightSource(SafetensorsFile file, long 
         mappingLength = file.MappedLength;
         return true;
     }
+
+    /// <inheritdoc/>
+    public bool TryGetFileRange(out string path, out long offset)
+    {
+        path = file.Path;
+        offset = fileOffset;
+        return File.Exists(path);
+    }
 }

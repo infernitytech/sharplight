@@ -58,6 +58,18 @@ public static class PlacementPlanner
         var sparseBytes = stream && CompiledModel.SparseExpertRows > 0 && options.Devices.Any(d => d.Device.StreamsSelectedExperts)
             ? SparseExpertBytes(graph, groupOf, CompiledModel.SparseExpertRows) : [];
         var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out long[] used);
+        var diskGroups = DiskExpertGroups(groupDevice, groupBytes, options, fallbackSlot, splitExperts, used);
+        if (diskGroups.Count > 0 && (stream || sparseBytes.Count > 0))
+        {
+            // Experts read from disk run on the CPU in every pass (no streamed or split GPU copies of the mapped file): place again without
+            // the GPU memory those keep free, so more expert layers stay on the devices.
+            stream = false;
+            sparseBytes = [];
+            groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out used);
+            diskGroups = [.. groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
+        }
+
+        RegisterDiskExperts(graph, options.Compile.DiskExperts, diskGroups, groupOf);
         var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot, groupOf);
         var segments = BuildSegments(graph, nodeSlot, slots, options.GroupDataDependentCounts);
         return new PlacementPlan
@@ -67,7 +79,45 @@ public static class PlacementPlanner
             GroupDevice = groupDevice,
             BytesPerSlot = Enumerable.Range(0, slots.Count).ToDictionary(i => i, i => used[i]),
             StreamedSegments = stream ? StreamedSegments(segments, slots, fallbackSlot, groupOf) : new Dictionary<int, int>(),
+            DiskExpertGroups = diskGroups,
         };
+    }
+
+    /// <summary>Registers the expert weights of the expert products in <paramref name="diskGroups"/> with the store (their CPU segments then read them from disk).</summary>
+    private static void RegisterDiskExperts(ComputeGraph graph, Experts.ExpertStore? store, HashSet<string> diskGroups, Func<Node, string> groupOf)
+    {
+        if (store is null || diskGroups.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var n in graph.Nodes)
+        {
+            if (n.Op.Name == "MatMulId" && n.Inputs[1].Weight is { } w && diskGroups.Contains(groupOf(n)))
+            {
+                int slotsPerRow = n.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic ? (int)ids[1].Fixed : 1;
+                store.TryRegister(w, groupOf(n), slotsPerRow);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The routed-expert groups on a CPU fallback that stay on disk (<see cref="CompileOptions.DiskExperts"/>): all of them when the store
+    /// decides that they do not fit host memory beside the CPU's other weights and state (or the cache asked for is smaller), else none.
+    /// </summary>
+    private static HashSet<string> DiskExpertGroups(Dictionary<string, int> groupDevice, Dictionary<string, long> groupBytes, PlacementOptions options, int fallbackSlot,
+        bool splitExperts, long[] used)
+    {
+        if (options.Compile.DiskExperts is not { } store || !splitExperts || options.Fallback is not { } fallback || fallback.Device.Info.Kind != DeviceKind.Cpu)
+        {
+            return [];
+        }
+
+        var groups = groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key).ToHashSet();
+        long expertBytes = groups.Sum(g => groupBytes[g]);
+        long otherBytes = Math.Max(0, used[fallbackSlot] - expertBytes);
+        long available = fallback.MemoryLimit ?? fallback.Device.AvailableMemory;
+        return store.Decide(expertBytes, otherBytes, available) ? groups : [];
     }
 
     /// <summary>
