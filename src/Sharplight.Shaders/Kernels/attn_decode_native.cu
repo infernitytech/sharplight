@@ -232,37 +232,13 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
 #endif
 
     // Key range of the row (decode_range) and of this block's split.
-    nd_u32 L, jLo;
-    nd_u64 kvBase = 0;
-#if MULTI_SEQ
-    L = (nd_u32)p.seq[t * 4 + 1] + 1;
-#if PAGED
-    kvBase = (nd_u32)p.seq[t * 4];
-#else
-    kvBase = (nd_u64)(nd_u32)p.seq[t * 4] * SLOT_CTX * HKV;
-#endif
-#else
-    L = p.rt[RT_N_PAST] + t + 1;
-#endif
-#if WINDOW
-    jLo = L > WINDOW ? L - WINDOW : 0;
-#else
-    jLo = 0;
-#endif
-#if CHUNK
-    jLo = max(jLo, (L - 1) / CHUNK * CHUNK);
-#endif
-    const nd_u32 span = L - jLo;
-    const nd_u32 per = nd_split_keys(span, p.T);
-    const nd_u32 ns = (span + per - 1) / per;
-    const nd_u32 split = blockIdx.z;
-    if (split >= ns)
+    nd_u64 kvBase;
+    nd_u32 jBeg, jEnd, ns;
+    if (!nd_range(p, t, kvBase, jBeg, jEnd, ns))
     {
         return;
     }
-
-    const nd_u32 jBeg = jLo + split * per;
-    const nd_u32 jEnd = min(L, jBeg + per);
+    const nd_u32 split = blockIdx.z;
 
     // Query fragments (rows: the block's heads; K step kk: the dimensions of words 2kk and 2kk + 1 of lane c's chunks), Q · SCALE in f16.
     nd_u32 qa[ND_KS][2];
