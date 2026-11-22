@@ -31,6 +31,8 @@
 // rowOffset .. rowOffset + rows - 1 of x, its weights expert `expert` of w, and row r of the result goes to y row item(r)
 // (multiplied by the row's inverse range scale with X_RS). So an expert's weights are read once per tile by the bandwidth-bound
 // skinny loop, instead of by gemm_cm2's 32-row tiles with a barrier per K step.
+// MM_EPI (not with DUAL or MOE): the store applies the generated matmul epilogue (mm_epi.slang, e.g. a projection's bias or a
+// residual add), y being the group's output.
 // Requires K % SK_BK == 0, and K % 64 == 0 with SK_DIRECT.
 #ifdef KERNEL_GEMM_SK
 using namespace linalg;
@@ -546,7 +548,7 @@ void gemm_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 #if MOE
                     p.y[uint64_t(skItem[t]) * Y_STRIDE + n] = MOE_STORE1(s, expert, n, skItem[t]);
 #else
-                    p.y[uint64_t(t) * Y_STRIDE + n] = s;
+                    p.y[uint64_t(t) * Y_STRIDE + n] = MM_STORE(s, t, n);
 #endif
                 }
             }

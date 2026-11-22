@@ -60,6 +60,13 @@ internal sealed class LoweringUnit
     /// </summary>
     public (Node Product, Node Permute, Node Reduce)? ExpertSum;
 
+    /// <summary>
+    /// The Permute, ReduceSum and (optionally) the view after it of MoE blocks' expert sums (<see cref="ExpertSum"/> on another unit)
+    /// whose summed rows this fused group reads: it adds the slots of the [T, S, N] expert outputs in place instead of reading the
+    /// materialized sum.
+    /// </summary>
+    public List<Node>? SlotSums;
+
     /// <summary>Nodes computed inside this unit's kernel (e.g. L2Norm of delta-rule q/k).</summary>
     public List<Node>? Absorbed;
 
@@ -87,7 +94,7 @@ internal sealed class LoweringUnit
                 return [.. Gathers ?? [], sum.Product, .. Fused, sum.Permute, sum.Reduce];
             }
 
-            return [.. Gathers ?? [], .. dual, .. head, .. Fused, .. tail];
+            return [.. Gathers ?? [], .. SlotSums ?? [], .. dual, .. head, .. Fused, .. tail];
         }
     }
 }

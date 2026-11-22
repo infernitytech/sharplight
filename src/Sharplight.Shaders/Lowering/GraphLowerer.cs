@@ -46,6 +46,13 @@ public sealed partial class GraphLowerer
     /// <summary>Outputs of row gathers read in place by their fused consumer group (see <c>FoldRowGathers</c>).</summary>
     private readonly Dictionary<Value, Node> _foldedGathers = [];
 
+    // Expert sums (ReduceSum outputs of LoweringUnit.ExpertSum, or a view of one) read in place by their consuming group: the value
+    // the group reads → the summed [T, S, N] expert outputs (see FoldSlotSums); the summed outputs → the batches the int-dot slot-sum
+    // matvec served (it writes the sum itself, which the group then reads); true while a group is lowered for those batches.
+    private readonly Dictionary<Value, Value> _foldedSlotSums = [];
+    private readonly Dictionary<Value, Func<Bindings, bool>> _slotSumMatvec = [];
+    private bool _slotSumsMaterialized;
+
     /// <summary>Rope output → rope node computed inside its CacheWrite.</summary>
     private readonly Dictionary<Value, Node> _absorbedRope = [];
 
@@ -223,7 +230,15 @@ public sealed partial class GraphLowerer
                 _launchCondition = b => (outer?.Invoke(b) ?? true) && !served(b);
             }
 
-            LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
+            if (unit.SlotSums is { } slotSums)
+            {
+                LowerSlotSumGroup(unit, slotSums);
+            }
+            else
+            {
+                LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
+            }
+
             _launchCondition = outer;
         }
         else if (unit.Halves is { } halves && unit.Node!.Op.Name == "MatMulId")

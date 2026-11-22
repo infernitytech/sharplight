@@ -1,0 +1,109 @@
+diff --git a/src/Sharplight.Shaders/Kernels/rope.slang b/src/Sharplight.Shaders/Kernels/rope.slang
+index 69dd442e..282315fc 100644
+--- a/src/Sharplight.Shaders/Kernels/rope.slang
++++ b/src/Sharplight.Shaders/Kernels/rope.slang
+@@ -197,7 +197,7 @@ void rope_row(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Row
+ 
+ #ifdef KERNEL_ROPE_QKV
+ // ---------------------------------------------------------------------------------------------
+-// The q, k and v rows of one attention layer in one launch (one workgroup per (t, head of q, k or v)): workgroups h < HQ rotate
++// The q, k and v rows of one attention layer in one launch (one workgroup per QKV_RPW (t, head of q, k or v) rows): workgroups h < HQ rotate
+ // query head h of xq (strides QS0, QS1; NORM_Q: RmsNorm with wq, EPS_Q, first) into yq [T, HQ, D]; HQ <= h < HQ + HK rotate key
+ // head h - HQ of xk (KS0, KS1; NORM_K with wk, EPS_K) into the key cache kc; the last HK copy value head h - HQ - HK of xv (VS0, VS1)
+ // into the value cache vc. Both caches are [ctx, HK, D] rows of the same positions (rope_row's CACHE_OUT row; CACHE_F16: f16).
+@@ -254,7 +254,10 @@ float qkv_rms_scale(float* xr, uint lt, float eps)
+     GroupMemoryBarrierWithGroupSync();
+     [ForceUnroll]
+     for (uint s = 32; s > 0; s >>= 1) { if (lt < s) qkvRed[lt] += qkvRed[lt + s]; GroupMemoryBarrierWithGroupSync(); }
+-    return rsqrt(qkvRed[0] / float(D) + eps);
++    float scale = rsqrt(qkvRed[0] / float(D) + eps);
++    // The workgroup's next row reuses qkvRed (QKV_RPW > 1).
++    GroupMemoryBarrierWithGroupSync();
++    return scale;
+ }
+ 
+ // Query head hh (Q) or key head hh of row t: the norm (with weight w), the rotation, the store to yq or to the key cache. The row and
+@@ -306,14 +309,16 @@ void qkv_rope_head(QkvParams p, float* xr, float* w, bool norm, float eps, bool
+     }
+ }
+ 
+-[shader("compute")]
+-[numthreads(64, 1, 1)]
+-void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform QkvParams p)
++// QKV_RPW (rows per workgroup, default 1): each workgroup runs that many consecutive (t, head) rows one after another; a launch of
++// short rows (64 values, no norm) is otherwise bound by how fast workgroups start.
++#ifndef QKV_RPW
++#define QKV_RPW 1
++#endif
++
++void rope_qkv_row(QkvParams p, uint row, uint lt)
+ {
+     const uint HEADS = HQ + 2 * HK;
+-    uint row = gid.x;
+-    if (row >= p.T * HEADS) return;
+-    uint t = row / HEADS, h = row % HEADS, lt = ltid.x;
++    uint t = row / HEADS, h = row % HEADS;
+     if (h < HQ)
+     {
+         qkv_rope_head(p, p.xq + uint64_t(t) * QS0 + uint64_t(h) * QS1, p.wq, NORM_Q != 0, EPS_Q, true, t, h, lt);
+@@ -332,4 +337,17 @@ void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Qkv
+         }
+     }
+ }
++
++[shader("compute")]
++[numthreads(64, 1, 1)]
++void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform QkvParams p)
++{
++    const uint rows = p.T * (HQ + 2 * HK);
++    for (uint r = 0; r < QKV_RPW; r++)
++    {
++        uint row = gid.x * QKV_RPW + r;
++        if (row >= rows) return;
++        rope_qkv_row(p, row, ltid.x);
++    }
++}
+ #endif
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Transformer.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Transformer.cs
+index a1276400..3d138532 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Transformer.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Transformer.cs
+@@ -102,6 +102,20 @@ public sealed partial class GraphLowerer
+             frequencyFactors is null ? [x, pos] : [x, pos, frequencyFactors], [y]);
+     }
+ 
++    /// <summary>
++    /// (token, head) rows per <c>rope_qkv</c> workgroup (<c>QKV_RPW</c>) below <see cref="RopeQkvLongRows"/> rows: one row per
++    /// workgroup left the launch bound by how fast its 64-thread workgroups start. RTX PRO 4500, gpt-oss-20b (64 + 2 x 8 heads of 64
++    /// values, no q / k norm), µs per launch for 1 / 4 / 8 / 16 rows per workgroup: 64 tokens 8.1 / 4.7 / 6.0 / 8.1, 2048 tokens
++    /// 161.0 / 77.4 / 71.5 / 71.7 (benchmarks.md §80).
++    /// </summary>
++    private const int RopeQkvShortRowsPerGroup = 4;
++
++    /// <summary>Rows per <c>rope_qkv</c> workgroup from <see cref="RopeQkvLongRows"/> rows on (see <see cref="RopeQkvShortRowsPerGroup"/>).</summary>
++    private const int RopeQkvLongRowsPerGroup = 8;
++
++    /// <summary>(token, head) rows of a <c>rope_qkv</c> launch from which it runs <see cref="RopeQkvLongRowsPerGroup"/> rows per workgroup.</summary>
++    private const long RopeQkvLongRows = 32768;
++
+     /// <summary>
+     /// The query rope <paramref name="queryRope"/>, the key cache write <paramref name="keyWrite"/> with its rope and the value cache write
+     /// <paramref name="valueWrite"/> of one attention layer as one <c>rope_qkv</c> launch (each with its absorbed RmsNorm), where the rows
+@@ -178,13 +192,15 @@ public sealed partial class GraphLowerer
+             ("SLOT_CTX", seq is null ? 0 : SlotContext(keyWrite, kc)),
+             .. PageMacros(keyWrite, pages),
+         ];
+-        var kernel = Lib("rope.slang", "rope_qkv", Macros(macros));
++        var shortKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", RopeQkvShortRowsPerGroup)]));
++        var longKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", RopeQkvLongRowsPerGroup)]));
+         var yq = Produce(queryRope.Output);
+         var tx = xq;
+         long heads = hq + 2 * hk;
+         Node[] nodes = [.. new[] { queryNorm, queryRope, keyNorm, keyRope }.OfType<Node>(), keyWrite, valueWrite];
+         Emit($"rope+qkv+cache_write {queryRope.Output.Name}", nodes,
+-            [Always(kernel, b => new Grid((uint)(Rows(b, tx) * heads)))],
++            [new KernelVariant(b => Rows(b, tx) * heads >= RopeQkvLongRows, longKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, RopeQkvLongRowsPerGroup))),
++             Always(shortKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, RopeQkvShortRowsPerGroup)))],
+             [Pointer(xq), Pointer(xk), Pointer(xv), Pointer(pos), Pointer(wq ?? xq), Pointer(wk ?? xk), Pointer(yq), Pointer(kc), Pointer(vc),
+              new PointerArg(_runtime, 0), Pointer(frequencyFactors ?? xq), .. SeqArgs(seq, pages), TokenArg(xq)],
+             [xq, xk, xv, pos, .. new[] { wq, wk, frequencyFactors }.OfType<TensorRef>(), .. PresentTables(seq, pages)], [yq, kc, vc]);
