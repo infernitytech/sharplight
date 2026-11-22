@@ -192,7 +192,7 @@ public sealed partial class GraphLowerer
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
         bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
             xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"),
-            UseNativeFp8Gemm(weightA.Type, N, K) ? DualEpilogueCudaSource(a, bNode, group, output) : null, out var dualFp8Serves);
+            UseNativeFp8Gemm(weightA.Type, N, K) ? DualEpilogueCudaSource(a, bNode, group, output) : null, out var dualFp8Serves, output);
         // The hand-written f16 GEMM serves the pair from LibraryGemmMinRows rows as one dual launch with the group as its epilogue
         // (instead of two GEMMs and the elementwise launch), unless x's f16 copy is row-ranged (its scaling must be undone before
         // a nonlinear epilogue).

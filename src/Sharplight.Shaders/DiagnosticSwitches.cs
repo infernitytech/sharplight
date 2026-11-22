@@ -780,6 +780,25 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool? Fp8DecodeKernel { get; } = Read("SHARPLIGHT_FP8_DECODE_KERNEL") is { } v ? v != "0" : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c>: where the device has <c>block_scaled_fp8</c>, run the 128-row tiles of the FP8 GEMM on the
+    /// block-scaled MMA (<c>gemm_fp8_tma.cu</c> with <c>F8N_BLOCK_SCALED</c>) with power-of-two activation scales and E4M3 weights requantized to power-of-two scales at
+    /// load (1), or keep the f32 scales (0). Null: the lowering's default.
+    /// </summary>
+    public static bool? Fp8BlockScaled { get; } = Read("SHARPLIGHT_FP8_BLOCK_SCALED") is { } v ? v != "0" : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_UE8M0_WEIGHTS=1</c> (diagnostic): requantize grouped E4M3 weights to power-of-two scales as the block-scaled mode
+    /// does, but keep the f32-scale kernels and activation scales (separates the weights' share of that mode's numerics change).
+    /// </summary>
+    public static bool Fp8Ue8m0WeightsOnly { get; } = Read("SHARPLIGHT_FP8_UE8M0_WEIGHTS") == "1";
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n</c>: in the block-scaled FP8 mode, the dual gate / up FP8 GEMM on 128-row tiles stores its
+    /// readers' E4M3 rows from n rows on (0: never; default 256).
+    /// </summary>
+    public static long? Fp8StoreMinRows { get; } = Read("SHARPLIGHT_FP8_QSTORE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
     public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 

@@ -12781,6 +12781,203 @@ $CLI $M --provider cuda --cpu-offload --gpu-mem 16 --experts-on-disk --expert-ca
 gcc -O2 -o uring_probe uring_probe.c -lpthread && ./uring_probe <file> pread 1024 8 8192 1                  # disk probe (pread | uring | mmap)
 ```
 
+## 86. LLM round 30: the block-scaled FP8 MMA measured (same issue rate as plain E4M3 on this GPU), an opt-in block-scaled FP8 mode with power-of-two scales and its numerics, vLLM's prompt-row GEMMs re-measured (§84.4 overstated them) (2026-11-22)
+
+Branch `perf/llm-r30` (`develop` at `e9c118ee`; `10b5ac10` (§85, perf/offload-r6) and `6be4b7d8` (studio/sizing-r2) merged before the
+final holds). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap), shared with other agents: every run held
+the verify lock; `develop` (`6be4b7d8`), this branch and vLLM 0.33 (venv `vllm-r12`) ran in the same holds. §85 and §87 are other
+rounds'. Every change is CUDA only (one NVRTC kernel and its lowering, a weight repack, a macro of `e4m3.slang` set only in the new
+mode); Vulkan's kernels and lowering are unchanged. Raw output in [`bench/results/s86/`](../bench/results/s86).
+
+### 86.1 The premise: block-scaled MMA does not issue faster here, and vLLM's FP8 GEMMs are 1.2x, not 2x, ours
+
+§84.4 put vLLM's DeepGEMM gate / up product at 545 TFLOPS, above the 474 TFLOPS `mma.sync` E4M3 peak, and concluded that it used a
+faster block-scaled MMA. Both halves were wrong:
+
+* **MMA rates** (`bench/s86_bs/mma_rate.cu`, 8 independent accumulators per warp, 32 warps per SM, registers only, `sm_120a`):
+  `mma.sync.m16n8k32.f32.e4m3.e4m3.f32` 473.2 TFLOPS, `kind::f8f6f4` 471.6, `kind::mxf8f6f4.block_scale.scale_vec::1X ... ue8m0`
+  470.3. The block-scaled form issues at the plain rate; it only removes the promotion's instructions (a fresh accumulator and a
+  multiply-add per MMA in `gemm_fp8_tma.cu`) and their energy, which matters because prompt-sized GEMMs run at the 200 W cap.
+* **vLLM's GEMM times.** The 662 µs of §84.4 was the average of vLLM's own per-kernel table over 72 calls: the scheduler split the 8
+  prompts into a step of 7 (1,792 rows) and a step of 1 (256 rows), and the table mixed both. `bench/s54_vllm_decode_profile.py` now
+  reports every prefill range on its own (it raised a division by zero on such a split before). Per call (µs):
+
+| GEMM (per layer) | vLLM 8 x 256: the 1,792-row step | vLLM one 2,048-token prompt | ours, 2,048 rows (`develop`) |
+|---|---:|---:|---:|
+| gate / up (vLLM: GEMM, then mul + quant 125 / 155 µs) | 1,157.4 | 1,383.4 | 1,612 (dual, SiLU · mul in the store) |
+| down | 599.9 | 720.6 | 824 |
+| q / k / v (vLLM one GEMM) | 305.0 | 346.1 | 263 + 2 x 76 |
+| o | 196.6 | 230.8 | 263 |
+
+  At 2,048 rows DeepGEMM runs gate / up at 298 TFLOPS against our 256 (1.17x), not 545. Standalone (`bench/s86_bs/vllm_dg_gemm.py`,
+  random bf16 data quantized per vLLM, sustained 1.5 s): DeepGEMM gate / up 1.581 ms (261 TFLOPS), CUTLASS's blockwise sm120 kernel
+  (f32 scales) 1.459 ms (283 TFLOPS), ours 1.701 ms (242 TFLOPS, `bench/s86_bs/bench_fp8.cu`); the model's real activations draw less
+  power than random codes, so all three run faster in the model.
+
+### 86.2 The block-scaled FP8 mode (opt-in)
+
+`gemm_fp8_tma.cu` with `F8N_BLOCK_SCALED` (`block_scaled_fp8`, compute capability 12.x with a CUDA 12.9+ driver; NVRTC compiles it for
+`compute_120f`, selected by the `SL_FAMILY_ARCH` macro): the consumer warps pass the exponent fields of the stage's f32 scales as UE8M0
+scale vectors (`scale_vec::1X`: per 16-row fragment of A, lanes 4g / 4g + 2 give row g and 4g + 1 / 4g + 3 row g + 8; every lane of
+quad g gives column g of B) and accumulate all of K in one accumulator per output. It needs power-of-two scales everywhere, so the mode
+(`SHARPLIGHT_FP8_BLOCK_SCALED=1`, default off) also
+
+* requantizes grouped E4M3 weights at load (`WeightRepack.Fp8B128GroupedUe8m0`, `Fp8PowerOfTwoScales`): each row's 128-value block
+  gets d' = 2^ceil(log2(amax / 448)) and its codes become E4M3(e4m3(c) · d / d'), rounded to nearest even. vLLM does the same per
+  128 x 128 block; per row the rows that do not reach the block's maximum keep more precision. Every kernel reading the weights (decode
+  too) sees the requantized values, so decode and prompt steps agree;
+* gives every E4M3 activation row power-of-two scales (`E4M3_UE8M0` in `e4m3_group_scale`, set on all kernels of the compilation:
+  `quantize_fp8` and the norms that write E4M3 rows);
+* stores the down projection's E4M3 rows from the dual gate / up GEMM from 256 rows (`QOUT`, `SHARPLIGHT_FP8_QSTORE_MIN_ROWS`): a
+  128-value scale group spans two 64-output tiles, so a block walks the two tiles of a group back to back, keeps the first tile's
+  outputs in registers, combines each row's maximum in shared memory (two barriers of the computing warps per pair; the mbarrier ring
+  guarantees no warp reaches the next pair's maxima before all have read them, since K has at least 4 blocks and the ring 3 stages)
+  and writes the codes and scales `quantize_fp8` would write, bit for bit (`Fp8BlockScaledTests.E4m3StoreMatchesSeparateQuantization`).
+
+Kernel harness (sustained, power-of-two scales, gate / up 2,048 x 4,096 → 2 x 12,288): promoting form 1.701 ms 242 TFLOPS 0.82
+pJ/flop, block-scaled 1.580 ms 261 TFLOPS 0.75 pJ/flop, block-scaled with the E4M3 store 1.643-1.667 ms (it saves the 129 µs
+quantization launch and three quarters of the f32 traffic in the model); down [12,288 → 4,096] 0.883 → 0.806 ms.
+
+### 86.3 Numerics of the block-scaled mode (and the default decision)
+
+Perplexity on a fixed text: the first 12,288 tokens of the wikitext-2-raw-v1 test split (`Salesforce/wikitext`, the concatenated
+`text` column of `test-00000-of-00001.parquet`), cut into 4 sequences of 3,072 tokens, each a fresh context, every token after the
+first scored. Ours: `bench/PplBench` (new: prompt steps of 1,024 rows with logits for every row, `SequenceInput.LogitsRows`, so every
+row runs through the prompt-sized GEMMs); vLLM: `bench/s86_bs/vllm_ppl.py` (`prompt_logprobs` on the same token ids). KL and top-1
+over all 3,072 positions of the first sequence (f16 logits dumps, `PplBench --compare`), the block-scaled mode against ours with f32
+scales:
+
+| model | ours, f32 scales | ours, block-scaled | change | KL mean (max) | top-1 agreement | vLLM CUTLASS (f32 scales) | vLLM DeepGEMM (E8M0, its default) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8 | 8.6693 | 8.7358 | **+0.77 %** | 0.0154 (20.4) | 96.0 % | 8.6863 | 8.7686 (+0.95 % over its CUTLASS) |
+| Qwen3.8-27B-FP8 | 5.6904 | 5.7052 | +0.26 % | 0.0068 (0.89) | 96.2 % | | |
+| Qwen3-8B-FP8, weights requantized only (`SHARPLIGHT_FP8_UE8M0_WEIGHTS=1`, diagnostic) | | 8.7183 | +0.56 % | | | | |
+
+The weights' second rounding is most of the change (+0.56 of +0.77 %); the activations' power-of-two scales add the rest. Greedy text
+(120 tokens, the ~40-word and the 963-token prompt, CUDA) is byte-identical to the f32-scale path; the last-token logits of a ~2,900-token
+prompt differ by KL 3.4e-4 (max |Δ| 2.15, same top-1).
+
+**Decision: off by default.** The rule was ±0.3 % perplexity and comparable to vLLM's: Qwen3-8B-FP8 changes by +0.77 % (vLLM's own E8M0
+path +0.95 %, so comparable, but outside ±0.3 %); Qwen3.8-27B-FP8 +0.26 %. `SHARPLIGHT_FP8_BLOCK_SCALED=1` turns it on; the owner can
+decide per model class. The default path is bit-identical to `develop` (greedy text of gpt-oss-20b, Qwen3-8B-FP8 on CUDA and Vulkan and
+Qwen2.5-7B Q4_K_M on CUDA byte-identical; last-token logits of Qwen3-8B-FP8 and gpt-oss-20b bit-identical; `PplBench` argmax hash and
+perplexity identical).
+
+### 86.4 Steps (final hold)
+
+BatchBench (`--slots 64 --ctx 640 --depth 256`, GPU ms min; `develop` `6be4b7d8`, this branch, this branch with
+`SHARPLIGHT_FP8_BLOCK_SCALED=1`, alternated twice in one hold, `steps/`):
+
+| step | `develop` | this branch (default) | block-scaled mode |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8 prompt, 2,048 rows (8 x 256) | 136.25 / 139.14 | 138.55 / 138.60 | **125.84 / 125.61** (-9 %) |
+| the same: gate / up, down, q and o, k and v per layer (µs) | 1,611 / 823 / 262 / 79 (branch, default) | | 1,513 (E4M3 store, no quantization launch) / 771 / 242 / 72 |
+| Qwen3-8B-FP8 decode 1 / 16 / 64 rows | 10.96, 10.95 / 12.20, 12.19 / 15.53, 15.59 | 10.94, 10.94 / 12.19, 12.19 / 15.61, 15.59 | 10.95 / 12.17, 12.18 / 15.51, 15.50 |
+| gpt-oss-20b prompt, 2,048 rows | 115.46 / 115.77 | 115.65 / 115.86 | 115.62 / 115.25 (no FP8 weights) |
+| gpt-oss-20b decode 1 / 16 / 64 rows | 5.19 / 12.16 / 16.91, 17.03 | 5.18 / 12.17, 12.18 / 17.20, 17.18 | 5.19, 5.18 / 12.17, 12.20 / 17.18, 16.90 |
+
+The default path is unchanged (its kernels compile to the same SASS as `develop`'s; the spread between holds of the same build was
+128-139 ms for the Qwen3 prompt step on this shared GPU, which is why only same-hold rows are compared). The block-scaled mode does not
+touch decode (decode rows run the skinny / decode GEMMs, which read the requantized weights at the same cost). At 2,048 prompt rows the
+block-scaled step is 61.4 µs per row against vLLM's 54.8 (1,792-row step) to 62.2 (one 2,048-token prompt, longer attention).
+
+### 86.5 Serving (final hold)
+
+Serving (`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, closed loop, two
+rounds each, tok/s per round; ours `--provider cuda`, vLLM `--gpu-memory-utilization 0.6`). Qwen3-8B-FP8 in one hold (`serve/`),
+gpt-oss-20b in another (`serve1/`):
+
+| model, streams | `develop` 6be4b7d8 | this branch (default) | block-scaled mode | vLLM 0.33 | ours / vLLM: default, block-scaled |
+|---|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1092 / 1094 | 1089 / 1094 | **1101 / 1104** | 1116 / 1116 | 0.98, **0.99** |
+| the same: TTFT p50 / inter-token latency mean, p50 (ms) | 114-116 / 13.65, 12.45 | 114-116 / 13.65-13.69, 12.47 | 107-109 / 13.58, 12.47 | 165-178 / 12.94, 12.41 | |
+| Qwen3-8B-FP8, 64 | 2541 / 2537 | 2534 / 2534 | **2618 / 2612** | 2681 / 2684 | 0.945, **0.975** |
+| the same: TTFT p50 / ITL mean, p50 | 282-285 / 21.90, 16.32 | 285-286 / 21.95, 16.33 | 261-262 / 21.42, 16.32 | 403-406 / 20.28, 16.06 | |
+| gpt-oss-20b, 16 | 1407 / 1418 | 1394 / 1402 | (no FP8 weights) | 1405 / 1402 | 1.00 |
+| gpt-oss-20b, 64 | 3058 / 3087 | 3050 / 3078 | | 3121 / 3163 | 0.98 |
+
+The default path is the same code as `develop` (86.4, 86.8); the block-scaled mode lifts Qwen3-8B-FP8 at 64 streams by 3.2 % (0.945 →
+0.975x vLLM) through its prompt rows (TTFT p50 283 → 262 ms) with decode unchanged. A Qwen3-8B-FP8 hold earlier the same afternoon
+(`serve1/`) gave the same picture: 2539-2543 / 2615-2616 / 2680-2684 tok/s at 64 streams.
+
+### 86.6 What changed
+
+* `DeviceFeatures.BlockScaledFp8` (`block_scaled_fp8`): CUDA 12.x with a 12.9+ driver. NVRTC compiles kernels specialized with
+  `SL_FAMILY_ARCH` for `compute_XYf` (`NvrtcTranslator.FamilySpecific`), every other kernel as before.
+* `gemm_fp8_tma.cu`: `F8N_BLOCK_SCALED` (block-scaled MMA, UE8M0 exponents of the stage's scales) and `QOUT` (the dual pair stores E4M3
+  rows and scales, tile pairs, rows' maxima in shared memory). Without either macro it compiles to the same SASS as before.
+* `WeightRepack.Fp8B128GroupedUe8m0` with `Fp8PowerOfTwoScales` (load-time requantization), `E4M3_UE8M0` in `e4m3_group_scale`,
+  `GraphLowerer.Fp8BlockScaled`, `Fp8StoreMinRows` and the E4M3-row copy registered for the down projection (the norm copies' mechanism,
+  `_fp8Copies`). Switches: `SHARPLIGHT_FP8_BLOCK_SCALED`, `SHARPLIGHT_FP8_QSTORE_MIN_ROWS`, `SHARPLIGHT_FP8_UE8M0_WEIGHTS` (diagnostic).
+* Tools: `bench/PplBench` (perplexity through prompt rows, logits dumps, KL / top-1), `bench/s86_bs/` (MMA rate, kernel harness with
+  power-of-two scales and the E4M3 store check, vLLM's GEMMs standalone, vLLM perplexity), `bench/s54_vllm_decode_profile.py` per
+  prefill range.
+* Tests: `Fp8BlockScaledTests` (the requantization against a reference that enumerates the E4M3 values; matmuls at 256-1,000 rows and
+  the dual pair against a CPU reference with host-requantized weights and activations that power-of-two scales represent exactly, in a
+  child process with the switch set; the E4M3 store bit-identical to the separate quantization).
+
+### 86.7 Measured and not kept
+
+* **The E4M3 store in the promoting (default) form.** Holding the first tile's 32 outputs next to the promotion's accumulators exceeds
+  the 168 registers per thread of a 288-thread block (the allocation rounds 9 warps up to 12): 160 bytes of spills, gate / up 1,494 →
+  1,713 µs, the step 134.7 → 137.2 ms. Parking the first tile in the f32 rows and reading it back from L2 instead (`rejected/`): harness
+  1.721 → 1.840 ms, the model's step within noise (136.1-137.4 against 134.8-140.1 ms); not kept, the store runs in the block-scaled
+  mode only.
+* **Default-on block-scaled mode**: outside the ±0.3 % perplexity rule on Qwen3-8B-FP8 (86.3).
+
+### 86.8 Correctness and tests
+
+* Default path against `develop` (`correct/`): greedy text byte-identical (gpt-oss-20b and Qwen3-8B-FP8 on CUDA and Vulkan, Qwen2.5-7B
+  Q4_K_M on CUDA, both prompts); last-token logits of a ~2,900-token prompt bit-identical (Qwen3-8B-FP8, gpt-oss-20b); `PplBench` on
+  Qwen3-8B-FP8 the same perplexity and argmax hash.
+* Block-scaled mode: 86.3.
+* Suites: Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers: Fp8BlockScaled 10 (Vulkan: 2 skipped, no
+  `block_scaled_fp8`), Fp8Gemm 41, SkinnyGemm 42, DualGemm 13, MatMul 164, MatMulEpilogue 16, Moe 129, Fusion 105, Norm 10, NormHalfCopy 23,
+  Rope 12, RowInvariance 77, FullAttention 30, PagedAttention 10: **682 / 0 failed on each provider**; Sharplight.Cuda.Tests 63 / 0
+  failed / 1 skipped (cuBLASLt); Sharplight.Serving.Tests 396 / 0 failed / 13 skipped (`tests.txt`).
+* After merging `develop` (`50de511e`, multi-node round 1 and the server's experts on disk): Fp8BlockScaled, Fp8Gemm and DualGemm pass on
+  both providers; the Qwen3-8B-FP8 2,048-row prompt step 138.55 ms (default) and 125.67 ms (block-scaled); greedy text of both modes
+  byte-identical to the final hold's (`merged/`).
+
+### 86.9 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.98 / 0.945 (block-scaled 0.99 / 0.975) | 64: prompt rows (67.7 µs per row against vLLM's 54.8 with f32 scales, 61.4 block-scaled); decode steps at par |
+| gpt-oss-20b serving 16 / 64 streams | 1.00 / 0.98 | 64: decode steps (expert GEMMs), prompt rows 56.5 against 54.5 µs per row (§82) |
+
+Ranked levers:
+
+1. **The f32-scale FP8 GEMM's main loop** (default path; 1,611 against DeepGEMM's 1,383 µs for gate / up at 2,048 rows, CUTLASS's
+   blockwise kernel 8 % ahead of DeepGEMM standalone): both vendors' kernels run at the same 200 W cap, so energy per flop decides; the
+   block-scaled loop showed that dropping the promotion's instructions buys 8-9 % (0.82 → 0.75 pJ/flop). Candidates: promote every two K
+   blocks where the weight scale is shared (128 x 128 checkpoints, which the lowering would have to be told), fewer `ldmatrix` per MMA
+   with 64 x 64 warp tiles in the block-scaled form, and 12-warp blocks (the 9-warp block wastes a quarter of the register file).
+2. **Block-scaled mode numerics**: per-32 activation scales (the MMA takes one per 32 values; the activation part of the change is +0.2 %
+   of the +0.77 %), or per-32 weight scales from the checkpoint's f32 values to shrink the requantization error; then re-measure the
+   ±0.3 % rule. vLLM pays +0.95 % for its E8M0 path.
+3. **Qwen prompt-step small launches**: q / k / v as one prompt-sized FP8 launch (k and v at 72-79 µs each for 1,024 outputs, 1.6 waves),
+   rope + cache 118 µs against vLLM's ~27 (bandwidth-bound on f32 q / k / v: an f16 GEMM store would halve it), norms 2 x 97 µs.
+4. **gpt-oss prompt rows** (§82.6) and **decode** (`gemm_fp8_decode.cu` for 17-32 rows and multi-output q / k / v): not reached this round.
+
+### 86.10 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+nvcc -O3 -gencode arch=compute_120a,code=sm_120a bench/s86_bs/mma_rate.cu -o mma_rate && ./mma_rate
+cd bench/s86_bs && ARCH="-gencode arch=compute_120a,code=sm_120a" ./run.sh ../../src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu \
+  -DPOW2 -DTMA -DPERSIST=82 -DKENTRY=gemm_fp8_tma -DF8N_BLOCK_SCALED=1 [-DQOUT=1 -DQCAP=8192]
+<vLLM venv>/bin/python -I bench/s86_bs/vllm_dg_gemm.py 2048
+python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 --prefill 256 --seqs 8 --gpu-util 0.6
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+SHARPLIGHT_FP8_BLOCK_SCALED=1 $BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 5 --mixed 0+256x8 --profile 0
+P=bench/PplBench/bin/Release/net11.0/PplBench
+SHARPLIGHT_FP8_BLOCK_SCALED=0|1 $P ~/models/hf/Qwen3-8B-FP8 --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --dump a.f16 --ids q8.ids
+$P --compare a.f16 b.f16 [--vocab 248320]
+<vLLM venv>/bin/python -I bench/s86_bs/vllm_ppl.py ~/models/hf/Qwen3-8B-FP8 q8.ids --seq 3072      # VLLM_USE_DEEP_GEMM=0: CUTLASS
+QUIET_GPU=1 ROUNDS=2 [SHARPLIGHT_FP8_BLOCK_SCALED=1] bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+```
+
 ## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
 
 Branch `feature/multinode-r1` ([multinode.md](multinode.md)). One pod: AMD EPYC 7443 with a ~10-CPU cgroup quota shared by every job on
