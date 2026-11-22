@@ -24,6 +24,15 @@ public sealed partial class GraphLowerer
     /// </summary>
     private const long MixedFlashMinRunRows = 16;
 
+    /// <summary>
+    /// Mean rows per run below which a multi-sequence step beyond the decode kernel's rows takes the mixed form (split-K decoding for
+    /// the short runs, flash attention for the long ones; see <see cref="MixedAttention"/>). Flash attention gives each decode row
+    /// a whole query tile per head group: RTX PRO 4500, Qwen3-8B-FP8, 64 decode rows next to 6 prompts of 250 rows, the flash launch
+    /// alone took 266 µs per layer against 54 µs for the 6 prompts (benchmarks.md §90). The bound used to be 8 rows per run, so
+    /// serving's mixed steps (tens of decode rows next to prompt chunks of hundreds) all ran flash.
+    /// </summary>
+    private const long MixedMaxMeanRunRows = 64;
+
     private BufferDecl? _attnScratch;
 
     /// <summary>
@@ -1020,8 +1029,8 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// The variants of a mixed multi-sequence step (see <see cref="MixedFlashMinRunRows"/>), or null when the attention has no
     /// run table or mixing is switched off (<c>SHARPLIGHT_ATTN_MIXED=0</c>). They apply above the decode kernel's row limit
-    /// when a step has more than one run but too many runs for flash attention over all of them (fewer than 8 rows per run):
-    /// decode rows next to prompt chunks. A step whose runs are all short or all long just skips the other kernel's
+    /// when a step has more than one run and fewer than <see cref="MixedMaxMeanRunRows"/> rows per run on average: decode rows next
+    /// to prompt chunks. A step whose runs are all short or all long just skips the other kernel's
     /// workgroups. Beyond <see cref="DecodeAttentionPlan.MaxRows"/> rows the decode kernel runs one key range per row
     /// (<c>DEC_SPLIT_ROWS</c>) and writes its output directly, so no combine is needed.
     /// </summary>
@@ -1034,8 +1043,8 @@ public sealed partial class GraphLowerer
             return null;
         }
 
-        var flashAll = FlashWhen(plan);
-        Func<Bindings, bool> when = b => Rows(b, q) > decode.MaxRows && Rows(b, runs) > 1 && !flashAll(b);
+        long meanRun = DiagnosticSwitches.AttentionMixedRunRows ?? MixedMaxMeanRunRows;
+        Func<Bindings, bool> when = b => Rows(b, q) > decode.MaxRows && Rows(b, runs) > 1 && Rows(b, q) < meanRun * Rows(b, runs);
         var decodeMacros = new Dictionary<string, string>(decode.Macros)
         {
             ["MIX_RUN"] = MixedFlashMinRunRows.ToString(CultureInfo.InvariantCulture),

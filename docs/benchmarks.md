@@ -13501,3 +13501,185 @@ P=bench/PplBench/bin/Release/net11.0/PplBench
 $P ~/models/hf/Qwen3-8B-FP8 --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --dump a.f16 --ids q8.ids
 QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 ```
+
+## 90. LLM round 32: where a 64-stream serving round loses against vLLM (mixed steps, token-tile quantization), mixed attention for steps of short runs, rope_qkv one warp per row, the step budget in whole token tiles (2026-11-22)
+
+Branch `perf/llm-r32` (`develop` at `f5cac04d`; `44b148fe` (fix/huge-moe-cuda, concurrent lanes owned by the device) merged before the
+final holds). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap), shared with other rounds (fix/huge-moe-cuda
+and the coordinator's verification took holds, the model-feed build loaded CPU, disk and network): every run held the verify lock;
+`develop` (`44b148fe`), this branch and vLLM 0.33 (venv `vllm-r12`) ran in the same holds. Every change is keyed on op, shape and device
+feature (or is the serving engine's, for every model and provider); Vulkan's kernels and lowering are unchanged. Raw output in
+[`bench/results/s90/`](../bench/results/s90).
+
+### 90.1 Results
+
+Serving (`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, closed loop, two rounds
+each; ours `--provider cuda`, vLLM `--gpu-memory-utilization 0.6`; per model `develop`, this branch, this branch with
+`--min-step-tokens 0` and vLLM in one hold, `serve/`). Tok/s per round, TTFT p50 and inter-token latency (ms):
+
+| model, streams | `develop` 44b148fe | this branch | vLLM 0.33 | ours / vLLM: `develop`, this branch |
+|---|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1090 / 1093 | 1089 / 1093 | 1081 / 1115 | 0.98, 0.98 (against vLLM's second round) |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 115-116 / 13.68, 12.46, 14.2, 57.1 | 113-115 / 13.68, 12.50, 14.2, 56.4 | 162-177 / 12.94, 12.41, 13.9, 25.5 | |
+| Qwen3-8B-FP8, 64 | 2557 / 2553 | **2579 / 2572** | 2683 / 2680 | 0.952, **0.960** |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 279-280 / 21.80, 16.24-16.31, 41-45, 142-144 | 277 / 21.61, 16.28-16.37, 37-39, 141 | 400-440 / 20.26, 16.05-16.07, 21-23, 134 | |
+| gpt-oss-20b, 16 | 1404 / 1413 | 1392 / 1418 | 1293 / 1386 | 1.02, 1.02 (second rounds) |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 102-106 / 10.45, 9.3, 11.6, 51 | 102-107 / 10.46, 9.3-9.4, 11.6, 51 | 168-188 / 10.22, 9.31, 10.8, 50 (second round) | |
+| gpt-oss-20b, 64 | 3046 / 3068 | 3039 / 3055 | 3130 / 3166 | 0.97, 0.97 |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 232-236 / 18.2, 13.6-13.8, 35-41, 117-120 | 237-241 / 18.2, 13.8-14.0, 36-40, 120-121 | 456-468 / 16.8, 12.9-13.4, 16.5-17.5, 120 | |
+
+The target (1.0x or better at all four points) is **not reached**: Qwen3-8B-FP8 at 64 streams gains +0.85 % (0.952 → 0.960x), the
+other three points are unchanged within their round-to-round spread (gpt-oss-20b at 16 streams is at or above vLLM, as in §89). Our
+TTFT stays 30-48 % below vLLM's at every point.
+
+Steps (BatchBench, GPU ms min, `develop` and this branch alternated twice in the final hold, `steps/`; mixed and prompt steps
+`--slots 72 --batch 2048 --reps 5 --mixed`, decode `--slots 64 --depth 256 --reps 10 --text`):
+
+| step | `develop` | this branch | |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8 mixed, 64 decode + 6 x 250 prompt rows | 120.00 / 119.71 | **116.03 / 115.85** | -3.2 % |
+| Qwen3-8B-FP8 mixed, 40 + 7 x 250 | 125.46 / 125.18 | **122.69 / 122.70** | -2.1 % |
+| Qwen3-8B-FP8 mixed, 8 + 8 x 250 | 138.45 / 138.12 | 137.44 / 137.47 | -0.6 % |
+| Qwen3-8B-FP8 prompt, 2,048 rows (8 x 256) | 137.94 / 137.66 | 136.66 / 136.83 | -0.8 % (`rope_qkv`) |
+| Qwen3-8B-FP8 decode 1 / 16 / 64 rows | 10.95, 10.96 / 12.18, 12.19 / 15.59, 15.57 | 10.98, 10.98 / 12.21, 12.21 / 15.52, 15.53 | 0 |
+| Qwen3.8-27B-FP8 prompt, 1,024 rows (4 x 256) | 266.30 / 266.41 | 266.19 / 266.57 | 0 |
+| gpt-oss-20b mixed, 64 + 6 x 250 / 40 + 7 x 250 | 94.80, 94.68 / 104.34, 104.19 | 94.21, 94.09 / 104.06, 103.93 | -0.6 / -0.2 % |
+| gpt-oss-20b prompt, 2,048 rows | 116.10 / 116.15 | 116.11 / 116.22 | 0 |
+| gpt-oss-20b decode 1 / 16 / 64 rows | 5.19, 5.18 / 12.19, 12.18 / 17.16, 17.10 | 5.14, 5.15 / 12.15, 12.14 / 17.06, 17.12 | 0 |
+
+Against vLLM's per-range profiles (s54, §84.4 / §86.1): its 1,792-row prompt step is 98.2 ms (54.8 µs per row); ours at 2,048 rows
+136.7 ms (66.8 µs per row), at 64 + 1,500 rows 115.9 ms (74.1 µs per row).
+
+### 90.2 Where a 64-stream round goes (Qwen3-8B-FP8)
+
+One round each with step logs, `develop` (`profile/`: ours `SHARPLIGHT_STEP_PROFILE`, vLLM `--enable-logging-iteration-details`;
+an Nsight Systems trace of our round, CUDA activity only):
+
+| steps of a round | ours | vLLM |
+|---|---:|---:|
+| decode-only steps | 491 (356 of 64 rows: GPU 16.2 ms, 15.6 → 17.0 as the contexts grow from ~250 to ~378) | 495 |
+| mixed steps (prompt chunks + decode rows) | 33: 1,485 prompt + 40.5 decode rows on average, 112.3 ms GPU | 31: 1,581 prompt + 36.4 decode rows on average |
+| sizes of the mixed steps | 2,048 rows when prompts wait; else 1,250-1,990 (the load-adaptive budget: 56-57 busy slots x 32 = 1,792-1,824) | mostly 1,994-2,047 (its budget is 2,048 at any load), a few of 250-1,590 |
+| GPU idle between steps (trace) | ~75 µs per decode step (401 gaps of 50-100 µs: 30 ms per round), 1-5 ms before 38 newly recorded mixed shapes (85 ms) | |
+
+So the host is not the gap: 0.12 s of idle in a 9.7 s round (1.2 %), most of it the recording of mixed steps of row counts not seen
+before. The decode steps cost about what vLLM's do (inter-token p50 16.3 against 16.05 ms, the steps' GPU time growing with the
+contexts as the KV reads do: 64 x 314 rows x 147 KB per step is ~3 GB, 3.7 ms at the card's bandwidth). The gap is the mixed steps:
+33 x 112 ms = 3.7 s against ~3.1 s for vLLM's (its prompt rows ~55 µs each). Per mixed step, two things were measurably wrong:
+
+* **Decode rows on flash attention.** A step went to the mixed attention form only below 8 rows per run; 40-64 decode rows next to
+  6-8 prompt chunks are 22-50 rows per run, so every decode row took a whole query tile of `attn_prefill_native.cu` per head group:
+  64 decode + 6 x 250 prompt rows, attention 265.7 µs per layer against 54.0 µs for the 6 x 256 prompt rows alone (`explore/h3`).
+* **Token-tile quantization.** Prompt-sized GEMMs take a time that follows the count of 128-row token tiles, not the rows
+  (`explore/h5`, 8 prompts, GPU ms):
+
+| rows (tiles) | 1,536 (12) | 1,664 (13) | 1,792 (14) | 1,856 (14.5) | 1,920 (15) | 1,968 (15.4) | 2,048 (16) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8 | 103.6 | 113.3 | 120.2 | 126.1 | 126.4 | 136.4 | 136.4 |
+| gpt-oss-20b | 89.3 | 97.4 | 103.4 | 107.8 | 110.3 | 113.1 | 116.1 |
+
+  Qwen3-8B-FP8's FP8 GEMMs (all on 128 x 128 tiles of `gemm_fp8_tma.cu`) make 1,968 rows cost what 2,048 do; gpt-oss's expert GEMMs
+  (per-expert tiles) smooth it out. The load-adaptive budget produced exactly such steps: 57 busy slots x 32 rows = 1,824 rows, 14.25
+  tiles that cost 15.
+
+### 90.3 What changed
+
+* **Mixed attention for steps of short runs** (`GraphLowerer.Attention.cs` `MixedMaxMeanRunRows` 64, `SHARPLIGHT_ATTN_MIXED_RUN_ROWS=n`):
+  a multi-sequence step beyond the decode kernel's 64 rows whose runs average fewer than 64 rows runs split-K decoding
+  (`attn_decode_native.cu` with `MIX_RUN`) for runs shorter than 16 rows and flash attention for the others (the existing mixed form;
+  only its bound moved from 8 to 64 rows per run). 64 decode + 6 x 250 prompt rows: attention 265.7 → 124.4 (decode) + 77.2 (prompts)
+  µs per layer; step 119.5 → 116.2 ms (-2.7 %), 40 + 7 x 250 124.8 → 122.9 ms (-1.5 %). Steps of whole prompts (2,048 rows in 8 runs)
+  and steps with a handful of decode rows keep the flash-only form. Every model on the multi-sequence decoder with attention benefits
+  (the decode rows of serving's mixed steps); gpt-oss-20b's mixed steps were already cheap here (head size 64, 34-36 µs of decode
+  attention), they are unchanged. Numerics: the decode rows of such steps are now computed by the decode kernel (as in decode-only
+  steps) instead of the flash kernel; the prompt rows are unchanged (same kernel). Single-sequence runs and PplBench never take it.
+* **`rope_qkv` with one warp per row** (`rope.slang` `QKV_WARP`, CUDA's 32-lane subgroups, `SHARPLIGHT_ROPE_QKV_WARP=0` restores the
+  64-thread workgroups): four rows per 128-thread workgroup, no shared memory and no barriers. The q / k norm's reduction is the
+  64-thread tree bit for bit: lane l holds the partials of threads l and l + 32 (their sum is the tree's first level) and the xor
+  butterfly computes every later level of lane 0's chain from the same operands; the rotation computes the same values per pair.
+  Rows with a q / k norm had kept one row per workgroup since §80.3 (their barriers made packed rows wait on each other). Qwen3-8B-FP8,
+  1,564 rows: 88.0 → 58.0 µs per layer (`explore/h3`, 2 rows per warp 62.7, 4: 63.8). Every model with fused rope + cache writes on
+  CUDA benefits (q / k norms or not: Qwen3, Qwen3.5 / 3.8, Gemma 3 / 4, Llama, gpt-oss).
+* **The step budget in whole token tiles** (`EngineOptions.BatchTokensGranule` 128, serving engine): the load-adaptive budget (32 rows
+  per busy slot, at least 768) is rounded up to a multiple of 128 rows, the token tile of the CUDA provider's prompt GEMMs, so 57 busy
+  slots run 1,920-row steps (15 tiles) instead of 1,824 (14.25 tiles that cost 15). All models and providers; 1 restores the old budget.
+  New `EngineTests.AdaptiveStepBudget_RoundsUpToWholeGranules`.
+
+### 90.4 Correctness and tests
+
+* Greedy text (120 tokens, the ~40-word and the 963-token prompt, `correct/`) is byte-identical to `develop` for gpt-oss-20b and
+  Qwen3-8B-FP8 on CUDA and Vulkan and for Qwen2.5-7B Q4_K_M on CUDA; the last-token logits of a ~2,900-token prompt are bit-identical
+  for Qwen3-8B-FP8 and gpt-oss-20b (the `rope_qkv` warp form computes the same values).
+* `PplBench` (wikitext-2 test, §86's method, `ppl/`): the f16 logits dumps of every prompt row are byte-identical to `develop`'s for Qwen3-8B-FP8 (12,288 tokens, 1,024-row steps, PPL 8.6693) and Qwen3.8-27B-FP8 (6,144 tokens, 512-row steps, PPL 6.6574), so the `rope_qkv` warp form changes no value; no numerics change needs a PPL decision this round.
+* The mixed attention bound changes which kernel computes the decode rows of mixed serving steps (90.3); single-sequence runs and
+  PplBench do not take it. `RowInvariance`, `PagedAttention`, `PackedSequence` and `Serving.Tests` pass.
+* Suites (`tests.txt`): Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers: Fp8UniformScales 2, Fp8BlockScaled 10
+  (Vulkan: 2 skipped, no `block_scaled_fp8`), Fp8Gemm 41, SkinnyGemm 42, DualGemm 13, MatMul 164, MatMulEpilogue 16, Moe 129, Fusion
+  105, Norm 10, NormHalfCopy 23, Rope 12, RowInvariance 77, FullAttention 30, PagedAttention 10, PackedSequence 22: **706 / 0 failed on
+  each provider**; Sharplight.Cuda.Tests 65 / 0 failed / 1 skipped (cuBLASLt); Sharplight.Serving.Tests 397 / 0 failed / 13 skipped
+  (with the new granule test). No `.slm` change (Package.Tests not run).
+
+### 90.5 Measured and not kept
+
+* **Skipping the MMAs of padded 16-row fragments** in the last token tile (`rejected/`: `gemm_fp8_tma.cu`, `gemm_fp8_native.cu`,
+  `gemm_f16_native.cu`; bit-identical): if the tile-count quantization of 90.2 were MMA time, a 32-row partial tile would cost a
+  quarter. It is not: Qwen3-8B-FP8 1,968 rows 135.3-135.4 ms with and without, 1,856 125.1 / 125.1, 1,568 111.8 → 111.0, 64 + 1,500
+  116.1 → 115.2; Qwen3.8-27B-FP8 800 rows 238.1 → 230.4 (-3.2 %), 600 177.8 → 175.1; but full tiles got 0.3-0.7 % slower (2,048 rows
+  135.4-136.5 → 136.9-137.4), and on the f16 / fp8 native GEMMs gpt-oss-20b's prompt steps 0.9 % slower (2,048 rows 116.2 → 117.3,
+  1,856 107.1 → 108.1) with decode at 20-48 rows unchanged. A partial tile still streams its whole weight tile and the copy pipeline
+  sets the tile's time. `NativeFp8TmaTallBlockCost` 1.0 against 1.3 (the 64 / 128-row crossover, brief item 1) measured alike at 832,
+  1,088, 1,024 and 1,564 rows (64.87 / 64.86, 81.56 / 81.54, 71.28 / 71.31, 116.40 / 116.32 ms, `steps/tall_*`): unchanged. Not kept; a variant only for batches whose last tile is at most half full would take the 27B's 1-3 %.
+* **The native decode attention walking the rows of a mixed step** (`rejected/mixed_decode_row_loop.diff`: grid y at most 128, each
+  block skipping prompt rows, instead of a block per row that returns at once): 122.3 → 122.4 µs per layer; the cost of the mixed
+  form's decode launch (122 µs against 96 in a 64-row decode-only step) is its one key range per row, not empty blocks.
+* **The full step budget at any load** (`--min-step-tokens 0`, serving): Qwen3-8B-FP8 16 streams 1085 / 1092 tok/s against 1089 / 1093,
+  TTFT p50 169-187 against 113-115 ms; 64 streams 2577 / 2579 against 2579 / 2572. gpt-oss-20b 16 streams 1416 / 1433 against 1392 /
+  1418 (+1 %, TTFT 163-187 against 102-107 ms), 64 streams 3043 / 3077 against 3039 / 3055. Not a throughput lever for Qwen; for
+  gpt-oss at 16 streams +1 % for +60 % TTFT. The default stays.
+* **f16 q / k / v rows for `rope_qkv`** (brief item 3): not built. After the warp form the launch is 58 µs per layer at 1,564 rows
+  (~1.2 TB/s effective, L2-assisted); f16 inputs would save ~25 µs per layer (~0.9 ms per 2,048-row step, 0.7 %) at the price of an
+  f16 store in every GEMM that serves q / k / v (TMA, native 64- / 32-row tiles, the decode kernel, the skinny GEMM) and a numerics
+  change. Deferred below the GEMM work.
+* **The copy warpgroup's harness-against-model gap** (brief item 2): Nsight Compute cannot read counters on this pod
+  (`ERR_NVGPUCTRPERM`), and the instrumentation route was not reached. What 90.2 adds: in the model the FP8 GEMMs' time follows
+  token tiles, and a tile with MMAs skipped costs nearly a full one, so in the model these kernels are bound by the copy / L2
+  side of the pipeline rather than by MMA issue, which is where the copy warpgroup's gain (more registers for the MMA warps) would
+  not show. 64 x 64 warp tiles (fewer `ldmatrix` per MMA) therefore look less promising than raising bytes per tile (cluster
+  multicast of the shared weight tile, or 256-row token tiles for 2,048-row steps).
+
+### 90.6 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.98 / 0.96 | 64: mixed steps (prompt rows ~66 µs each against vLLM's ~55; the FP8 GEMMs' token-tile cost, the mixed decode attention at 122 µs per layer); decode steps within 1.5 % (ITL p50 16.3 against 16.05) |
+| gpt-oss-20b serving 16 / 64 streams | 1.02 / 0.97 | 64: decode steps (ITL p50 13.8-14.0 against 12.9-13.4: expert GEMMs) and prompt rows (§82) |
+
+Ranked levers:
+
+1. **Bytes per FP8 tile** (Qwen3-8B-FP8 / Qwen3.8 / every 128 x 128-block FP8 checkpoint): in the model a 128 x 128 tile costs the same
+   with a quarter of its MMAs (90.5), so the prompt GEMMs are bound by the copy / L2 side: try 2-CTA clusters multicasting the shared
+   weight tile (half the weight copies per SM), or 256-row token tiles at 2,048-row steps. This is also the most likely explanation of
+   §89.3's harness-against-model gap (random codes in the harness are MMA- and power-bound, the model is not).
+2. **The mixed form's decode attention**: one key range per decode row (`DEC_SPLIT_ROWS`), 122 µs per layer against 96 µs in a
+   decode-only step of the same 64 rows: give mixed steps split-K with the fused combine for their short runs (scratch sized for the
+   decode rows, not all rows); ~1 ms per mixed step.
+3. **Decode steps at 64 rows with deep contexts** (both models): KV reads dominate the growth (15.6 → 17.0 ms over 250 → 378 tokens);
+   vLLM's inter-token p50 is 0.25-0.6 ms lower at 64 streams.
+4. **gpt-oss prompt rows** (§82.6: slot sum, norms, f16 router / o inputs) and its expert GEMMs at 17-64 decode rows (not reached).
+5. **f16 q / k / v for `rope_qkv`** (90.5): ~0.7 % of a prompt step, needs an f16 store in every q / k / v GEMM and PplBench.
+
+### 90.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 72 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 5 \
+  --mixed "64+0,64+250x6,40+250x7,8+250x8,0+256x8" [--profile 1]
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 72 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 5 \
+  --mixed "0+256x8,0+246x8,0+240x8,0+232x8,0+224x8,0+208x8,0+192x8"          # token-tile quantization
+SHARPLIGHT_ATTN_MIXED_RUN_ROWS=8 | SHARPLIGHT_ROPE_QKV_WARP=0 $BB ...                   # the old forms
+SHARPLIGHT_STEP_PROFILE=steps.csv ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "64" --provider cuda
+python3 bench/s60_steps.py steps.csv
+ROUNDS=1 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "64" --gpu-memory-utilization 0.6 --enable-logging-iteration-details
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda [--min-step-tokens 0]
+```

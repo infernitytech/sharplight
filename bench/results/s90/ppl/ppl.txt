@@ -1,0 +1,10 @@
+q8: logits-identical
+<work>/final/ppl/q8_new.txt:sequence 1: 3071 tokens, mean NLL 2.52366, PPL 12.4742
+<work>/final/ppl/q8_new.txt:sequence 2: 3071 tokens, mean NLL 2.14720, PPL 8.5609
+<work>/final/ppl/q8_new.txt:sequence 3: 3071 tokens, mean NLL 1.88893, PPL 6.6123
+<work>/final/ppl/q8_new.txt:4 sequences of 3072 tokens (12288 tokens of text), steps of 1024 rows: 12284 predictions, mean NLL 2.15979, PPL 8.6693
+q27: logits-identical
+<work>/final/ppl/q27_base.txt:2 sequences of 3072 tokens (6144 tokens of text), steps of 512 rows: 6142 predictions, mean NLL 1.89572, PPL 6.6574
+<work>/final/ppl/q27_new.txt:sequence 0: 3071 tokens, mean NLL 1.69224, PPL 5.4316
+<work>/final/ppl/q27_new.txt:sequence 1: 3071 tokens, mean NLL 2.09921, PPL 8.1597
+<work>/final/ppl/q27_new.txt:2 sequences of 3072 tokens (6144 tokens of text), steps of 512 rows: 6142 predictions, mean NLL 1.89572, PPL 6.6574

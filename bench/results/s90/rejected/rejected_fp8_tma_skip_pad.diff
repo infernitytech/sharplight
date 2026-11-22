@@ -1,0 +1,75 @@
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu b/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
+index 023578aa..0297a3a6 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
+@@ -50,6 +50,9 @@
+ // of each member's width; N all rows, MULTI_O1 and MULTI_O2 multiples of 128), each with its own tensor map (mw_1, mw_2): a tile lies
+ // in one member, so each output is the product the member's own launch computes.
+ //
++// F8N_SKIP_PAD (default 1): a warp skips the MMAs (and its B fragments) of the 16-row fragments past the batch's last row, so the
++// partial last token tile of a batch costs about its rows instead of a whole tile; the other fragments compute the same products.
++//
+ // Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, MULTI, MULTI_O1, MULTI_O2, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+ // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads (F8N_WG: 384), F8N_SHARED bytes of dynamic shared memory.
+ #ifndef DUAL
+@@ -64,6 +67,9 @@
+ #ifndef MULTI
+ #define MULTI 0
+ #endif
++#ifndef F8N_SKIP_PAD
++#define F8N_SKIP_PAD 1
++#endif
+ #if MULTI && (DUAL || QOUT)
+ #error "gemm_fp8_tma: MULTI with DUAL or QOUT"
+ #endif
+@@ -504,6 +510,13 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const
+     {
+         f8n_u32 t0, n0;
+         f8n_local(lt, tilesX, t0, n0);
++#if F8N_SKIP_PAD
++        // 16-row fragments of this warp that hold rows of x (warp-uniform): the last token tile of a batch skips the MMAs of rows past
++        // T (zeros from the tensor copy), so a partial tile costs about its rows. The other fragments compute as before.
++        const int nfr = min(max(((int)p.T - (int)(t0 + wm * F8N_TM) + 15) / 16, 0), F8N_FM);
++#else
++        const int nfr = F8N_FM;
++#endif
+         for (f8n_u32 kb = 0; kb < nk; kb++)
+         {
+             const f8n_u32 it = lt * nk + kb;
+@@ -567,6 +580,8 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const
+             f8n_mbar_wait(bars + s * 8, (it / F8N_STAGES) & 1);
+             const f8n_u32 sa = f8n_smem(smem + s * F8N_STAGE_BYTES), sb = sa + F8N_BM * 128;
+             f8n_u32 b[4][F8N_FN][2];
++            if (nfr > 0)
++            {
+ #pragma unroll
+             for (int kk = 0; kk < 4; kk++)
+             {
+@@ -577,11 +592,16 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const
+                     f8n_ldsm4(sb + f8n_swz(r, kk * 2 + ((lane >> 3) & 1)), b[kk][j][0], b[kk][j][1], b[kk][j + 1][0], b[kk][j + 1][1]);
+                 }
+             }
++            }
+ 
+ #if F8N_BLOCK_SCALED
+ #pragma unroll
+             for (int i = 0; i < F8N_FM; i++)
+             {
++                if (i >= nfr)
++                {
++                    break;
++                }
+ #pragma unroll
+                 for (int kk = 0; kk < 4; kk++)
+                 {
+@@ -600,6 +620,10 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const
+ #pragma unroll
+             for (int i = 0; i < F8N_FM; i++)
+             {
++                if (i >= nfr)
++                {
++                    break;
++                }
+                 float part[F8N_FN][4];
+ #pragma unroll
+                 for (int j = 0; j < F8N_FN; j++)

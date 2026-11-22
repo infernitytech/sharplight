@@ -1,0 +1,4 @@
+sequence 0: 3071 tokens, mean NLL 1.69224, PPL 5.4316
+sequence 1: 3071 tokens, mean NLL 2.09921, PPL 8.1597
+2 sequences of 3072 tokens (6144 tokens of text), steps of 512 rows: 6142 predictions, mean NLL 1.89572, PPL 6.6574
+argmax hash ee379f22d2735fcf

@@ -1,0 +1,115 @@
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_f16_native.cu b/src/Sharplight.Shaders/Kernels/gemm_f16_native.cu
+index 69168b67..5bb2c50c 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_f16_native.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_f16_native.cu
+@@ -22,6 +22,9 @@
+ // start at byte H_XRS of x (common.slang, f16_range_scale); the store multiplies each row's products by the inverse of its scale
+ // (before the bias; exact: a power of two), as the unscale launch (and the Add) would.
+ //
++// H_SKIP_PAD (default 1): a warp skips the A fragments and MMAs of its 16-row fragments past the batch's last row (a partial last
++// token tile costs about its rows); the other fragments compute the same products.
++//
+ // Specialization macros: K, N (all rows with MULTI), Y_STRIDE, H_CFG, H_DBN (H_CFG 2), DUAL, H_EPI2 (DUAL), MULTI, MULTI_O1,
+ // MULTI_O2, H_BIAS, H_XRS. Requires K % 64 == 0, 16-byte aligned operands and an even Y_STRIDE (MULTI: even widths). Grid:
+ // x = token tiles, y = weight tiles.
+@@ -34,6 +37,9 @@
+ #ifndef H_BIAS
+ #define H_BIAS 0
+ #endif
++#ifndef H_SKIP_PAD
++#define H_SKIP_PAD 1
++#endif
+ #ifndef MULTI
+ #define MULTI 0
+ #endif
+@@ -203,6 +209,12 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
+     h_u32 n0 = id % groupBlocks / groupRows * H_BOUT;
+     const HMember m = h_member(p, n0);
+     const h_u32 nk = K / 64;
++#if H_SKIP_PAD
++    // 16-row fragments of this warp that hold rows of x (warp-uniform): a partial last token tile skips the MMAs of rows past T.
++    const int nfr = min(max(((int)p.T - (int)(t0 + wm * H_TM) + 15) / 16, 0), H_FM);
++#else
++    const int nfr = H_FM;
++#endif
+ 
+     auto load = [&](h_u32 s, h_u32 kb) {
+         h_u32 base = (h_u32)__cvta_generic_to_shared(smem + s * H_STAGE_BYTES);
+@@ -265,8 +277,11 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
+ #pragma unroll
+             for (int i = 0; i < H_FM; i++)
+             {
+-                h_u32 r = wm * H_TM + i * 16 + (lane & 15);
+-                h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
++                if (i < nfr)
++                {
++                    h_u32 r = wm * H_TM + i * 16 + (lane & 15);
++                    h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
++                }
+             }
+ #pragma unroll
+             for (int j = 0; j < H_FN; j += 2)
+@@ -277,10 +292,13 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
+ #pragma unroll
+             for (int i = 0; i < H_FM; i++)
+             {
+-#pragma unroll
+-                for (int j = 0; j < H_FN; j++)
++                if (i < nfr)
+                 {
+-                    h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
++#pragma unroll
++                    for (int j = 0; j < H_FN; j++)
++                    {
++                        h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
++                    }
+                 }
+             }
+         }
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu b/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu
+index 126fbc93..8731b43e 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu
+@@ -11,6 +11,8 @@
+ //  * W (and W2): the 128-row groups of WeightRepack.Fp8B128Grouped (f8e4m3_b128g): per group [128 rows of K codes][K / 128
+ //    blocks of 128 f32 scales], the same bytes per row as f8e4m3_b128r. Requires N % 128 == 0.
+ //
++// F8N_SKIP_PAD (default 1): a warp skips the MMAs of its 16-row fragments past the batch's last row (a partial last token tile
++// costs about its rows); the other fragments compute the same products.
+ // Tile: F8N_BM (128 or 64) tokens x F8N_BN weight rows per block of F8N_WM x F8N_WN warps; a warp owns (F8N_BM / F8N_WM) x (F8N_BN / F8N_WN)
+ // outputs as m16n8k32 E4M3 fragments with f32 accumulation. Per 128-value K block the warp loads its B fragments once and
+ // then, one 16-row fragment at a time, sums the block's MMAs in a fresh accumulator and adds it scaled by
+@@ -34,6 +36,9 @@
+ #ifndef F8N_BM
+ #define F8N_BM 128
+ #endif
++#ifndef F8N_SKIP_PAD
++#define F8N_SKIP_PAD 1
++#endif
+ #ifndef MULTI
+ #define MULTI 0
+ #endif
+@@ -298,6 +303,12 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
+     }
+ 
+     const f8n_u32 g = lane >> 2, c4 = lane & 3;
++#if F8N_SKIP_PAD
++    // 16-row fragments of this warp that hold rows of x (warp-uniform): a partial last token tile skips the MMAs of rows past T.
++    const int nfr = min(max(((int)p.T - (int)(t0 + wm * F8N_TM) + 15) / 16, 0), F8N_FM);
++#else
++    const int nfr = F8N_FM;
++#endif
+     for (f8n_u32 kb = 0; kb < nk; kb++)
+     {
+         f8n_wait<F8N_STAGES - 2>();
+@@ -341,6 +352,10 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
+ #pragma unroll
+         for (int i = 0; i < F8N_FM; i++)
+         {
++            if (i >= nfr)
++            {
++                break;
++            }
+             float part[F8N_FN][4];
+ #pragma unroll
+             for (int j = 0; j < F8N_FN; j++)
