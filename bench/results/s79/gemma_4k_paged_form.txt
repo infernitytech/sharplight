@@ -1,0 +1,4 @@
+== disabled: none run 1
+prefill 4096 tok: best 2468 ms = 1659.9 tok/s | decode: best 36.41, median 36.10, mean 35.99 tok/s | GPU ms/step: best 27.34, median 27.54, wall best 27.47 | prefill median of 5: 2474.8 ms = 1655.1 tok/s
+== disabled: window_kv run 1
+prefill 4096 tok: best 2479 ms = 1652.2 tok/s | decode: best 36.44, median 36.09, mean 35.93 tok/s | GPU ms/step: best 27.31, median 27.56, wall best 27.45 | prefill median of 5: 2483.2 ms = 1649.5 tok/s
