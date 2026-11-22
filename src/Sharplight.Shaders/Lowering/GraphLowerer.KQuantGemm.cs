@@ -1,4 +1,5 @@
 using System.Globalization;
+using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -187,16 +188,62 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
+    /// The dual gate / up form of the hand-written K-quant decode GEMM for two matmuls sharing x whose products feed one elementwise
+    /// group (<paramref name="epilogue"/>, the group's CUDA form from <see cref="DualEpilogueCudaSource"/>): one launch over the
+    /// interleaved rows of both matrices, each block 32 outputs of both, applying the group in its store, for the decode batches of
+    /// <see cref="NativeKQuantMinRows"/> to <see cref="NativeKQuantMaxRows"/> rows above <paramref name="fusedBelow"/> (instead of two
+    /// K-quant GEMM launches and the elementwise launch). Returns the row counts it serves, or null when it does not apply.
+    /// </summary>
+    private Func<long, bool>? EmitNativeKQuantDualGemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead,
+        TensorRef weightA, TensorRef weightB, TensorRef y, long n, long k, string? epilogue, long fusedBelow)
+    {
+        if (epilogue is null || !DiagnosticSwitches.NativeKQuantDual || weightA.Type != weightB.Type || !UsesNativeKQuantDecode(weightA.Type) || k % 256 != 0
+            || n < NativeKQuantColumns || rowsPerLead != 1 || weightA.ByteOffset % 16 != 0 || weightB.ByteOffset % 16 != 0 || !y.IsDense
+            || !DiagnosticSwitches.Gemm2 || !DiagnosticSwitches.GemmHalfActivations
+            || NativeKQuantStages(NativeKQuantTileRows(NativeKQuantMaxRows), NativeKQuantBlockBytes(weightA.Type), k) < 2)
+        {
+            return null;
+        }
+
+        long minRows = Math.Max(NativeKQuantMinRows, fusedBelow + 1);
+        long rowsMax = Math.Min(NativeKQuantMaxRows, x.Shape[0]);
+        if (rowsMax < minRows)
+        {
+            return null;
+        }
+
+        var half = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, rowsMax, ActivationCode.F16);
+        if (half.ByteOffset % 16 != 0)
+        {
+            return null;
+        }
+
+        var tx = x;
+        Func<Bindings, long> rowsOf = b => Rows(b, tx);
+        Func<Bindings, bool> decode = b => rowsOf(b) >= minRows && rowsOf(b) <= rowsMax;
+        long? rangeScales = _rangeScales.TryGetValue(half, out long xrs) ? xrs : null;
+        var (variants, scratch, arrivals) = NativeKQuantVariants(weightA.Type, n, k, rowsMax, false, rangeScales, new Dictionary<string, string> { ["KQ_DUAL"] = "1" },
+            decode, rowsOf, epilogue.Replace("F8N_EPI2", "KQ_EPI2", StringComparison.Ordinal), dual: true);
+        Emit($"{label} native kquant decode", nodes, variants,
+            [Pointer(half), Pointer(weightA), Pointer(y), Pointer(weightB), Pointer(scratch), Pointer(arrivals), TokenArg(x, rowsPerLead)],
+            [half, weightA, weightB], [y, scratch, arrivals]);
+        return r => r >= minRows && r <= rowsMax;
+    }
+
+    /// <summary>
     /// The launch variants of <c>gemm_kq_native.cu</c> for [<paramref name="n"/>, <paramref name="k"/>] weights of <paramref name="type"/> at
     /// the batches <paramref name="decode"/> of up to <paramref name="rowsMax"/> rows: one per (token tile rows, K split), with the bias
     /// store, the row scales of a row-ranged copy of x at byte <paramref name="rangeScales"/> and the <paramref name="extra"/> macros (the
-    /// multi-output form's); the split-K partial slices and the arrival counters they use.
+    /// multi-output form's); the split-K partial slices and the arrival counters they use. The <paramref name="dual"/> form's tiles cover
+    /// the interleaved rows of two matrices (2 <paramref name="n"/> rows), its source starting with <paramref name="prefix"/> (the epilogue).
     /// </summary>
     private (KernelVariant[] Variants, TensorRef Scratch, TensorRef Arrivals) NativeKQuantVariants(DataType type, long n, long k, long rowsMax, bool bias,
-        long? rangeScales, IReadOnlyDictionary<string, string>? extra, Func<Bindings, bool> decode, Func<Bindings, long> rowsOf)
+        long? rangeScales, IReadOnlyDictionary<string, string>? extra, Func<Bindings, bool> decode, Func<Bindings, long> rowsOf, string prefix = "",
+        bool dual = false)
     {
         int blockBytes = NativeKQuantBlockBytes(type);
-        long columns = Grid.Div(n, NativeKQuantColumns);
+        long tileRowsTotal = dual ? 2 * n : n;
+        long columns = Grid.Div(tileRowsTotal, NativeKQuantColumns);
         long steps = k / 256;
         int Split(long rows) => NativeKQuantSplit(columns * Grid.Div(rows, NativeKQuantTileRows(rows)), steps);
         // One variant per (token tile rows, split) over the served batches; the split depends on rows only through the token tiles.
@@ -206,7 +253,7 @@ public sealed partial class GraphLowerer
             configs.Add((NativeKQuantTileRows(rows), Split(rows)));
         }
 
-        long scratchBytes = Math.Max(16, configs.Max(c => c.Split > 1 ? c.Split * rowsMax * n * 4 : 0));
+        long scratchBytes = Math.Max(16, configs.Max(c => c.Split > 1 ? c.Split * rowsMax * tileRowsTotal * 4 : 0));
         var buffer = SplitScratch(scratchBytes);
         var scratch = new TensorRef(buffer, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var arrivals = SplitArrivals(columns * Grid.Div(rowsMax, configs.Min(c => c.TileRows)));
@@ -230,7 +277,7 @@ public sealed partial class GraphLowerer
                 macros[name] = value;
             }
 
-            var kernel = _compiler.CompileCuda("gemm_kq_native.cu", "", "gemm_kq_native", NativeKQuantThreads, stages * NativeKQuantStageBytes(c.TileRows, blockBytes, k),
+            var kernel = _compiler.CompileCuda("gemm_kq_native.cu", prefix, "gemm_kq_native", NativeKQuantThreads, stages * NativeKQuantStageBytes(c.TileRows, blockBytes, k),
                 _opt.Target, macros, _opt.Cache);
             Func<Bindings, bool> pick = b => decode(b) && NativeKQuantTileRows(rowsOf(b)) == c.TileRows && Split(rowsOf(b)) == c.Split;
             return new KernelVariant(pick, kernel, b => new Grid(Grid.Div(rowsOf(b), c.TileRows), (uint)columns, (uint)c.Split));

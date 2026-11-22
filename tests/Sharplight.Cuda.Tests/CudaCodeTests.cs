@@ -634,23 +634,28 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
-    [InlineData(9)]
-    [InlineData(12)]
-    [InlineData(16)]
-    [InlineData(24)]
-    public void KQuantGatedProjectionMatchesTheCpu(int rows)
+    [InlineData(9, "q4_k", false, 4096)]
+    [InlineData(12, "q4_k", false, 4096)]
+    [InlineData(16, "q4_k", false, 4096)]
+    [InlineData(24, "q4_k", false, 4096)]
+    [InlineData(40, "q4_k", false, 4096)]
+    [InlineData(64, "q4_k", false, 4096)]
+    [InlineData(20, "q6_k", true, 1000)]
+    [InlineData(64, "q5_k", true, 1000)]
+    public void KQuantGatedProjectionMatchesTheCpu(int rows, string format, bool gelu, int n)
     {
         var provider = new CudaProvider();
         Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
         var info = provider.GetDevices()[0];
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // silu(x · Wgᵀ) · (x · Wuᵀ) with Q4_K weights [4096, 512] past the matvec: the skinny GEMM's dual form leaves these batches to two
-        // K-quant decode GEMMs and the activation product.
+        // silu(x · Wgᵀ) · (x · Wuᵀ) (or gelu_tanh) with K-quant weights [n, 512] past the matvec: the skinny GEMM's dual form leaves these
+        // batches to the K-quant decode GEMM's dual form (the product in its store); 1000 outputs end in a partial 32-output tile.
+        var type = format switch { "q4_k" => DataType.Q4_K, "q5_k" => DataType.Q5_K, _ => DataType.Q6_K };
         var exact = new DeviceOptions();
         exact.DisabledFeatures.Add(DeviceFeatures.IntDot);
-        var expected = RunGatedKQuant(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0], exact), rows);
-        var actual = RunGatedKQuant(provider.OpenDevice(info), rows);
+        var expected = RunGatedKQuant(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0], exact), rows, type, gelu, n);
+        var actual = RunGatedKQuant(provider.OpenDevice(info), rows, type, gelu, n);
         double scale = expected.Max(MathF.Abs);
         Assert.True(scale > 0);
         for (int i = 0; i < expected.Length; i++)
@@ -659,14 +664,15 @@ public sealed class CudaCodeTests
         }
     }
 
-    /// <summary>silu(x · Wgᵀ) · (x · Wuᵀ) for Q4_K weights [4096, 512] on <paramref name="rows"/> rows.</summary>
-    private static float[] RunGatedKQuant(IComputeDevice device, int rows)
+    /// <summary>silu(x · Wgᵀ) · (x · Wuᵀ) (<paramref name="gelu"/>: gelu_tanh) for weights [<paramref name="n"/>, 512] of <paramref name="type"/> on <paramref name="rows"/> rows.</summary>
+    private static float[] RunGatedKQuant(IComputeDevice device, int rows, DataType type, bool gelu, int n)
     {
         using (device)
         {
             var tg = new TG("cuda-kquant-gated");
             var x = tg.InF("x", TG.T, 512);
-            var y = tg.B.Mul(tg.B.Silu(tg.B.MatMul(x, tg.RandW("wg", DataType.Q4_K, 0.05f, 4096, 512))), tg.B.MatMul(x, tg.RandW("wu", DataType.Q4_K, 0.05f, 4096, 512)));
+            var gate = tg.B.MatMul(x, tg.RandW("wg", type, 0.05f, n, 512));
+            var y = tg.B.Mul(gelu ? tg.B.Unary("GeluTanh", gate) : tg.B.Silu(gate), tg.B.MatMul(x, tg.RandW("wu", type, 0.05f, n, 512)));
             tg.B.Output("y", y);
             var graph = tg.B.Build();
             using var model = CompiledModel.Compile(graph, new PlacementOptions
@@ -685,7 +691,7 @@ public sealed class CudaCodeTests
             var parameters = new RunParameters();
             parameters.Symbols["T"] = rows;
             model.Run(parameters);
-            var output = new float[rows * 4096];
+            var output = new float[rows * n];
             model.GetOutput<float>("y", output);
             return output;
         }

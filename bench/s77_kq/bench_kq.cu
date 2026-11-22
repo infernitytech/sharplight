@@ -22,6 +22,11 @@
 #ifndef PASSES
 #define PASSES 10
 #endif
+#ifdef KQ_DUAL
+#if KQ_DUAL
+#define KQ_EPI2(a, b) ((a) / (1.0f + __expf(-(a))) * (b))
+#endif
+#endif
 #include KFILE
 
 #define CK(x) do { cudaError_t e = (x); if (e != cudaSuccess) { printf("%s: %s\n", #x, cudaGetErrorString(e)); exit(1); } } while (0)
@@ -129,6 +134,18 @@ int main(int argc, char** argv)
             block(&hw[r * rowBytes + s * KQ_BB], &hd[r * K + s * 256]);
         }
     }
+#if KQ_DUAL
+    // The second matrix (up) of the dual form: other random blocks.
+    std::vector<unsigned char> hw2(wBytes);
+    std::vector<float> hd2((size_t)N * K);
+    for (size_t r = 0; r < (size_t)N; r++)
+    {
+        for (int s = 0; s < K / 256; s++)
+        {
+            block(&hw2[r * rowBytes + s * KQ_BB], &hd2[r * K + s * 256]);
+        }
+    }
+#endif
     std::vector<__half> hx((size_t)64 * K);
     for (auto& v : hx)
     {
@@ -147,9 +164,21 @@ int main(int argc, char** argv)
     }
     CK(cudaMalloc(&wd, hd.size() * 4));
     CK(cudaMemcpy(wd, hd.data(), hd.size() * 4, cudaMemcpyHostToDevice));
+#if KQ_DUAL
+    std::vector<unsigned char*> w2(LAYERS);
+    for (int l = 0; l < LAYERS; l++)
+    {
+        CK(cudaMalloc(&w2[l], wBytes));
+        CK(cudaMemcpy(w2[l], hw2.data(), wBytes, cudaMemcpyHostToDevice));
+    }
+    float *wd2, *yr2;
+    CK(cudaMalloc(&wd2, hd2.size() * 4));
+    CK(cudaMemcpy(wd2, hd2.data(), hd2.size() * 4, cudaMemcpyHostToDevice));
+    CK(cudaMalloc(&yr2, (size_t)64 * N * 4));
+#endif
     CK(cudaMalloc(&y, (size_t)64 * N * 4));
     CK(cudaMalloc(&yr, (size_t)64 * N * 4));
-    CK(cudaMalloc(&part, (size_t)KQ_SPLIT * 64 * N * 4));
+    CK(cudaMalloc(&part, (size_t)KQ_SPLIT * 64 * N * 8));
     CK(cudaMalloc(&arrivals, 65536 * 4));
     CK(cudaMemset(arrivals, 0, 65536 * 4));
     auto params = [&](int l) {
@@ -158,13 +187,16 @@ int main(int argc, char** argv)
         p.w = w[l];
         p.y = y;
         p.part = part;
+#if KQ_DUAL
+        p.w_1 = w2[l];
+#endif
         p.arrivals = arrivals;
         p.T = T;
         return p;
     };
     const int smem = KQ_STAGES * KQ_STAGE_BYTES;
     CK(cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem));
-    dim3 grid((T + KQ_BM - 1) / KQ_BM, (N + KQ_BN - 1) / KQ_BN, KQ_SPLIT);
+    dim3 grid((T + KQ_BM - 1) / KQ_BM, (KQ_PN + KQ_BN - 1) / KQ_BN, KQ_SPLIT);
     gemm_kq_native<<<grid, KQ_THREADS, smem>>>(params(0));
     CK(cudaDeviceSynchronize());
     reference<<<dim3((N + 127) / 128, T), 128>>>(x, wd, yr, T, N, K);
@@ -172,6 +204,16 @@ int main(int argc, char** argv)
     std::vector<float> a((size_t)T * N), r((size_t)T * N);
     CK(cudaMemcpy(a.data(), y, a.size() * 4, cudaMemcpyDeviceToHost));
     CK(cudaMemcpy(r.data(), yr, r.size() * 4, cudaMemcpyDeviceToHost));
+#if KQ_DUAL
+    reference<<<dim3((N + 127) / 128, T), 128>>>(x, wd2, yr2, T, N, K);
+    CK(cudaDeviceSynchronize());
+    std::vector<float> r2((size_t)T * N);
+    CK(cudaMemcpy(r2.data(), yr2, r2.size() * 4, cudaMemcpyDeviceToHost));
+    for (size_t i = 0; i < r.size(); i++)
+    {
+        r[i] = r[i] / (1.0f + expf(-r[i])) * r2[i];
+    }
+#endif
     double worst = 0, scale = 0;
     for (size_t i = 0; i < a.size(); i++)
     {
@@ -214,8 +256,9 @@ int main(int argc, char** argv)
         sustained = fminf(sustained, ms / (PASSES * LAYERS));
     }
     CK(cudaGetLastError());
-    printf("fmt=%d T=%d K=%d N=%d BM=%d stages=%d split=%d blocks=%d smem=%d: isolated %.1f us (%.0f GB/s), sustained %.1f us (%.0f GB/s), max err %.2e of max |y| %.2f\n",
-        KQ_FMT, T, K, N, KQ_BM, KQ_STAGES, KQ_SPLIT, grid.x * grid.y * grid.z, smem, best * 1e3, wBytes / best / 1e6, sustained * 1e3, wBytes / sustained / 1e6,
+    const double traffic = (KQ_DUAL ? 2.0 : 1.0) * wBytes;
+    printf("dual=%d fmt=%d T=%d K=%d N=%d BM=%d stages=%d split=%d blocks=%d smem=%d: isolated %.1f us (%.0f GB/s), sustained %.1f us (%.0f GB/s), max err %.2e of max |y| %.2f\n",
+        KQ_DUAL, KQ_FMT, T, K, N, KQ_BM, KQ_STAGES, KQ_SPLIT, grid.x * grid.y * grid.z, smem, best * 1e3, traffic / best / 1e6, sustained * 1e3, traffic / sustained / 1e6,
         worst, scale);
     return 0;
 }

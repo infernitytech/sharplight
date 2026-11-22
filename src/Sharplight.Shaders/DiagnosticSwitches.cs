@@ -653,6 +653,12 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_KQ_BM=32|64</c>: token rows per tile of the hand-written K-quant decode GEMM, or null for the default.</summary>
     public static int? NativeKQuantTileRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_BM") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_KQ_DUAL=0</c>: K-quant gate / up pairs at decode batches run two hand-written K-quant GEMM launches and the
+    /// elementwise launch instead of the GEMM's dual form.
+    /// </summary>
+    public static bool NativeKQuantDual { get; } = IsNotZero("SHARPLIGHT_NATIVE_KQ_DUAL");
+
     /// <summary><c>SHARPLIGHT_NATIVE_KQ_SPLIT=n</c>: K split of the hand-written K-quant decode GEMM, or null for the default (chosen per matrix and batch).</summary>
     public static int? NativeKQuantSplit { get; } = Read("SHARPLIGHT_NATIVE_KQ_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
