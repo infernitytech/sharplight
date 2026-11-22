@@ -51,15 +51,17 @@ public sealed class SizingTests
 
     private static async Task Settle(LoadOptionsViewModel panel)
     {
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < 50; i++)
         {
             var estimate = panel.Estimate;
             await estimate.WaitAsync(TestContext.Current.CancellationToken);
             if (ReferenceEquals(estimate, panel.Estimate))
             {
-                return;
+                break;
             }
         }
+
+        Assert.True(panel.Fit is not null, $"no estimate: {panel.FitError}");
     }
 
     [Fact]
