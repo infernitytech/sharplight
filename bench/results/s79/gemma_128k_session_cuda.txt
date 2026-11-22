@@ -1,0 +1,9 @@
+== cuda --bench 131072 03:44:41
+Graph optimization (sharplight-ir/1): decode 1678 -> 1668 nodes, decode_embeddings 1676 -> 1666 nodes, embed 1555 -> 1545 nodes, classify 1558 -> 1548 nodes [150 ms]
+Loaded Gemma-4-31B-It (decoder): 833 tensors, 18.31 GB, vocab 262144 [1193 ms]
+Rows per forward pass: 512 (automatic, 30826 MiB available).
+Compiled 'decode', window-sized caches of 1552 rows for the 1024-key window layers in 12049 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 62 groups, 28.25 GiB weights+state
+Ready (decode)
+prefill 131072 tok: best 156267 ms = 838.8 tok/s | decode: best 19.97, median 19.43, mean 19.40 tok/s | GPU ms/step: best 49.93, median 51.31, wall best 50.08 | prefill median of 1: 156267.0 ms = 838.8 tok/s
+end 03:52:48

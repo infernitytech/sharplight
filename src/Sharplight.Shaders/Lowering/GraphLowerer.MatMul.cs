@@ -211,11 +211,14 @@ public sealed partial class GraphLowerer
             }
         }
 
+        // K-quant pairs at 9-64 rows: the hand-written K-quant GEMM's dual form, the group in its store.
+        var kquantDual = dualFp8 ? null : EmitNativeKQuantDualGemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
+            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueCudaSource(a, bNode, group, output), fusedBelow);
         var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
             a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output,
             library ? LibraryGemmMinRows : long.MaxValue);
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && dualFp8Serves(rows(b))) && !nativeDual(rows(b))
-                                && !(dualGemm2?.Invoke(rows(b)) ?? false);
+                                && !(dualGemm2?.Invoke(rows(b)) ?? false) && !(kquantDual?.Invoke(rows(b)) ?? false);
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);
@@ -289,7 +292,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// Token rows of the gemm_cm2 tile for a batch of <paramref name="rows"/>: 32 or 64 for small batches (decode of many
+    /// Token rows of the gemm_cm2 tile for a batch of <paramref name="rows"/>: 32, 48 or 64 for small batches (decode of many
     /// sequences), where a 128-token tile would mostly multiply padding, else 128.
     /// </summary>
     /// <remarks>
@@ -304,6 +307,7 @@ public sealed partial class GraphLowerer
     private static int Gemm2TileRowsFor(long rows, long splitHalfColumns = 0)
         => !DiagnosticSwitches.Gemm2Skinny ? Gemm2TileRows
             : rows <= 32 ? 32
+            : rows <= 48 && splitHalfColumns == 0 && DiagnosticSwitches.Gemm2Tile48 ? 48
             : rows <= 64 || (rows <= SplitHalfTile64MaxRows && splitHalfColumns > 0
                 && Grid.Div(splitHalfColumns, Gemm2Columns(Gemm2TileRows)) * Grid.Div(rows, Gemm2TileRows) < SplitHalfTile64MaxWorkgroups) ? 64
             : Gemm2TileRows;
@@ -328,6 +332,7 @@ public sealed partial class GraphLowerer
     private static int[] Gemm2Layout(int tileRows, bool splitHalf, bool wideK = true) => tileRows switch
     {
         32 => DiagnosticSwitches.Gemm2Layout32 ?? (wideK ? [2, 4, 1, 2] : [1, 4, 2, 2]),
+        48 => wideK ? [1, 4, 3, 2] : [1, 2, 3, 4],
         64 => DiagnosticSwitches.Gemm2Layout64 ?? [2, 4, 2, 2],
         _ => DiagnosticSwitches.Gemm2Layout ?? (splitHalf ? [2, 4, 4, 2] : [2, 2, 4, 4]),
     };
@@ -412,7 +417,7 @@ public sealed partial class GraphLowerer
     {
         compile ??= macros => Lib("matmul.slang", "gemm_cm2", macros);
         List<KernelVariant> variants = [];
-        foreach (int tileRows in new[] { 32, 64 })
+        foreach (int tileRows in new[] { 32, 48, 64 })
         {
             variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1 && Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == tileRows,
                 compile(Gemm2Macros(m, tileRows)), b => Gemm2Grid(p, b)));
@@ -1222,12 +1227,12 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// Next row count to probe when searching the split factors: the largest row count of each token tile size (32, 64,
+    /// Next row count to probe when searching the split factors: the largest row count of each token tile size (32, 48, 64,
     /// 128) first, then 128-row steps, finishing at <paramref name="rowsMax"/>.
     /// </summary>
     private static long NextSplitProbe(long rows, long rowsMax)
     {
-        foreach (long tileEnd in new long[] { 32, 64, 128 })
+        foreach (long tileEnd in new long[] { 32, 48, 64, 128 })
         {
             if (rows < tileEnd && rowsMax > tileEnd)
             {

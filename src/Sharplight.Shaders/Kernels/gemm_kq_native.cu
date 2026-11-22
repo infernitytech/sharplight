@@ -3,7 +3,7 @@
 // activations (the generated GEMMs' f16 copy of x) and Q4_K / Q5_K / Q6_K weights in the GGUF block layout (KQ_FMT 4 / 5 / 6), f32
 // accumulation and output. Compiled by NVRTC from this file.
 //
-// A block covers KQ_BM (16, 32 or 64) token rows and 64 weight rows; each of its eight warps takes 8 weight rows and every token row,
+// A block covers KQ_BM (16, 32, 48 or 64) token rows and 64 weight rows; each of its eight warps takes 8 weight rows and every token row,
 // so each weight value is dequantized once. A K step is one 256-value superblock: cp.async copies the step's activation rows (four
 // 64-value sub-tiles of 128-byte rows, XOR swizzle, read by ldmatrix) and the raw blocks of the 64 weight rows (each row's 16-byte-aligned window around its block) into a ring of KQ_STAGES
 // stages in dynamic shared memory. Each thread dequantizes the weight values of its mma.sync.m16n8k16 B fragments straight from the
@@ -22,14 +22,20 @@
 // H_BIAS: the store adds bias[n]. H_XRS: x is a row-ranged f16 copy whose scale words start at byte H_XRS of x (common.slang,
 // f16_range_scale); the store multiplies each row's sums by the inverse of its scale (before the bias).
 //
-// Specialization macros: K (a multiple of 256), N (all rows with MULTI), Y_STRIDE, KQ_FMT, MULTI, MULTI_O1, MULTI_O2, KQ_BM (16, 32 or
-// 64), KQ_STAGES, KQ_SPLIT, H_BIAS, H_XRS. Requires 16-byte aligned x and weights; weight rows may start at any even byte (Q6_K rows of 210-byte blocks). Grid: x = token tiles,
+// Specialization macros: K (a multiple of 256), N (all rows with MULTI), Y_STRIDE, KQ_FMT, MULTI, MULTI_O1, MULTI_O2, KQ_BM (16, 32, 48
+// or 64), KQ_STAGES, KQ_SPLIT, H_BIAS, H_XRS. Requires 16-byte aligned x and weights; weight rows may start at any even byte (Q6_K rows of 210-byte blocks). Grid: x = token tiles,
 // y = weight tiles (64 rows), z = K splits.
 #ifndef H_BIAS
 #define H_BIAS 0
 #endif
 #ifndef MULTI
 #define MULTI 0
+#endif
+#ifndef KQ_DUAL
+#define KQ_DUAL 0
+#endif
+#if KQ_DUAL && (MULTI || H_BIAS)
+#error "gemm_kq_native: the dual form has neither members nor biases"
 #endif
 #ifndef KQ_SPLIT
 #define KQ_SPLIT 1
@@ -39,6 +45,12 @@
 #endif
 #ifndef KQ_STAGES
 #define KQ_STAGES 2
+#endif
+#ifndef KQ_PF
+#define KQ_PF 0
+#endif
+#ifndef KQ_PFB
+#define KQ_PFB 0
 #endif
 #if KQ_FMT == 4
 #define KQ_BB 144
@@ -51,8 +63,16 @@
 #endif
 #define KQ_BN 64
 #define KQ_THREADS 256
-#define KQ_FN 1
-#define KQ_TM KQ_BM
+// KQ_WM: warps along the token rows (1 or 2). With 2, each warp takes half the token rows and 16 weight rows (two B fragments per
+// A fragment): half the activation reads from shared memory, each weight value dequantized by two warps.
+#ifndef KQ_WM
+#define KQ_WM 1
+#endif
+#define KQ_FN KQ_WM
+#define KQ_TM (KQ_BM / KQ_WM)
+#if KQ_TM < 16 || KQ_TM % 16 != 0
+#error "gemm_kq_native: KQ_WM 2 needs tiles of 32 or 64 rows"
+#endif
 #define KQ_FM (KQ_TM / 16)
 #define KQ_SB (K / 256)
 #define KQ_ROWB ((unsigned long long)KQ_SB * KQ_BB)
@@ -64,8 +84,39 @@
 #define KQ_WCH ((KQ_BB + 14 + 15) / 16)
 #endif
 #define KQ_XBYTES (KQ_BM * 512)
-#define KQ_STAGE_BYTES (KQ_XBYTES + KQ_BN * KQ_WCH * 16)
+#define KQ_WBYTES (KQ_BN * KQ_WCH * 16)
+#define KQ_STAGE_BYTES (KQ_XBYTES + KQ_WBYTES)
+// KQ_WST > KQ_STAGES: the weight blocks in a ring of their own, KQ_WST - 1 superblocks ahead (the activations KQ_STAGES - 1 ahead);
+// dynamic shared memory KQ_STAGES * KQ_XBYTES + KQ_WST * KQ_WBYTES.
+#ifndef KQ_WST
+#define KQ_WST KQ_STAGES
+#endif
+#if KQ_WST < KQ_STAGES
+#error "gemm_kq_native: KQ_WST below KQ_STAGES"
+#endif
+#if KQ_STAGES == 1 && KQ_WST != 1
+#error "gemm_kq_native: one stage has no separate weight ring"
+#endif
+// KQ_STAGES 1: one stage, refilled after each superblock's products, two blocks per SM (at most 128 registers per thread) so that
+// one block's copies overlap the other's products.
+#ifndef KQ_MIN_BLOCKS
+#if KQ_STAGES == 1
+#define KQ_MIN_BLOCKS 2
+#else
+#define KQ_MIN_BLOCKS 1
+#endif
+#endif
+// The copies of superblock sb are committed as two groups, the activations' and the weights': before step s, the groups after
+// those that hold x(s) and w(s) may still be pending.
+#define KQ_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define KQ_PENDING KQ_MIN(2 * KQ_STAGES - 3, 2 * KQ_WST - 4)
 #define KQ_XRS_BYTES ((unsigned long long)K * 2)
+// Columns of the partial slices: the dual form's interleaved rows of both matrices.
+#if KQ_DUAL
+#define KQ_PN (2 * N)
+#else
+#define KQ_PN N
+#endif
 
 typedef unsigned int kq_u32;
 typedef unsigned long long kq_u64;
@@ -78,8 +129,10 @@ struct KqParams
 #if H_BIAS
     const float* bias;
 #endif
-#if MULTI
+#if MULTI || KQ_DUAL
     const unsigned char* w_1;
+#endif
+#if MULTI
 #if MULTI > 2
     const unsigned char* w_2;
 #endif
@@ -220,6 +273,20 @@ static __device__ __forceinline__ KqMember kq_member(const KqParams& p, kq_u32& 
     return m;
 }
 
+// The first byte of tile row r's weight row (rows past the matrix clamped to its last) and the end of that row's matrix. The dual
+// form interleaves its matrices: even tile rows are w's rows o0 + r / 2, odd ones w_1's.
+static __device__ __forceinline__ const unsigned char* kq_row(const KqParams& p, const KqMember& m, kq_u32 n0, kq_u32 r, const unsigned char*& end)
+{
+#if KQ_DUAL
+    const unsigned char* w = (r & 1) ? p.w_1 : p.w;
+    end = w + (kq_u64)N * KQ_ROWB;
+    return w + (kq_u64)min(n0 / 2 + (r >> 1), (kq_u32)N - 1) * KQ_ROWB;
+#else
+    end = m.w + (kq_u64)m.rows * KQ_ROWB;
+    return m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB;
+#endif
+}
+
 #if KQ_FMT != 6
 // The 6-bit scales and minimums of a Q4_K / Q5_K block's 12 scale bytes q (2-byte aligned), one byte each: out[0] = sc[0..3],
 // out[1] = sc[4..7], out[2] = m[0..3], out[3] = m[4..7].
@@ -233,34 +300,62 @@ static __device__ __forceinline__ void kq_scales_mins(const unsigned char* q, kq
 }
 #endif
 
-extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams p)
+extern "C" __global__ void __launch_bounds__(KQ_THREADS, KQ_MIN_BLOCKS) gemm_kq_native(KqParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const kq_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
-    const kq_u32 wm = 0, wn = warp;
+    const kq_u32 wm = warp / (8 / KQ_WM), wn = warp % (8 / KQ_WM);
     const kq_u32 g = lane >> 2, c4 = lane & 3;
     const kq_u32 t0 = blockIdx.x * KQ_BM, ng = blockIdx.y * KQ_BN;
     kq_u32 n0 = ng;
     const KqMember m = kq_member(p, n0);
     const kq_u32 sb0 = blockIdx.z * KQ_SB / KQ_SPLIT, sb1 = (blockIdx.z + 1) * KQ_SB / KQ_SPLIT, steps = sb1 - sb0;
-    const unsigned char* wend = m.w + (kq_u64)m.rows * KQ_ROWB;
 
+#if KQ_WST == KQ_STAGES
     auto load = [&](kq_u32 s, kq_u32 sb) {
-        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_STAGE_BYTES);
+        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_STAGE_BYTES), wbase = base + KQ_XBYTES;
+#else
+    auto loadX = [&](kq_u32 s, kq_u32 sb) {
+        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_XBYTES);
+#endif
 #pragma unroll
         for (kq_u32 i = 0; i < KQ_BM * 32 / KQ_THREADS; i++)
         {
             kq_u32 idx = tid + i * KQ_THREADS, r = idx >> 5, c = idx & 31;
             kq_cp16(base + (c >> 3) * (KQ_BM * 128) + kq_swz(r, c & 7), p.x + (kq_u64)min(t0 + r, p.T - 1) * KQ_XRS_BYTES + sb * 512 + c * 16, 16);
         }
+#if KQ_WST != KQ_STAGES
+    };
+    auto loadW = [&](kq_u32 s, kq_u32 sb) {
+        const kq_u32 wbase = (kq_u32)__cvta_generic_to_shared(smem + KQ_STAGES * KQ_XBYTES + s * KQ_WBYTES);
+#endif
         for (kq_u32 idx = tid; idx < KQ_BN * KQ_WCH; idx += KQ_THREADS)
         {
             kq_u32 r = idx / KQ_WCH, c = idx % KQ_WCH;
-            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)sb * KQ_BB;
+            const unsigned char* wend;
+            const unsigned char* block = kq_row(p, m, n0, r, wend) + (kq_u64)sb * KQ_BB;
             const unsigned char* src = (const unsigned char*)((kq_u64)block & ~15ull) + c * 16;
             long long left = wend - src;
-            kq_cp16(base + KQ_XBYTES + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
+            kq_cp16(wbase + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
         }
+#if KQ_PF > 0
+        if (tid < KQ_BN && sb + KQ_PF < sb1)
+        {
+            const unsigned char* wend;
+            const unsigned char* block = kq_row(p, m, n0, tid, wend) + (kq_u64)(sb + KQ_PF) * KQ_BB;
+            const unsigned char* src = (const unsigned char*)((kq_u64)block & ~15ull);
+#if KQ_PFB
+            asm volatile("cp.async.bulk.prefetch.L2.global [%0], %1;\n" :: "l"(src), "r"((kq_u32)(KQ_WCH * 16)));
+#else
+#pragma unroll
+            for (kq_u32 o = 0; o < KQ_WCH * 16; o += 64)
+            {
+                asm volatile("prefetch.global.L2 [%0];\n" :: "l"(src + o));
+            }
+            asm volatile("prefetch.global.L2 [%0];\n" :: "l"(src + KQ_WCH * 16 - 1));
+#endif
+        }
+#endif
     };
 
     float acc[KQ_FM][KQ_FN][4];
@@ -278,6 +373,10 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         }
     }
 
+#if KQ_STAGES == 1
+    load(0, sb0);
+    asm volatile("cp.async.commit_group;\n" ::);
+#elif KQ_WST == KQ_STAGES
 #pragma unroll
     for (int s = 0; s < KQ_STAGES - 1; s++)
     {
@@ -287,9 +386,33 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         }
         asm volatile("cp.async.commit_group;\n" ::);
     }
+#else
+    // The steps -(KQ_WST - 1) .. -1 of the loop below: each commits x(step + KQ_STAGES - 1) and w(step + KQ_WST - 1) where they exist.
+#pragma unroll
+    for (int s = -(KQ_WST - 1); s < 0; s++)
+    {
+        const int xs = s + KQ_STAGES - 1, ws = s + KQ_WST - 1;
+        if (xs >= 0 && xs < (int)steps)
+        {
+            loadX(xs % KQ_STAGES, sb0 + xs);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+        if (ws < (int)steps)
+        {
+            loadW(ws % KQ_WST, sb0 + ws);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+    }
+#endif
 
     for (kq_u32 step = 0; step < steps; step++)
     {
+#if KQ_STAGES == 1
+        asm volatile("cp.async.wait_group 0;\n" ::);
+        __syncthreads();
+        const unsigned char* stage = smem;
+        const unsigned char* wstage = stage + KQ_XBYTES;
+#elif KQ_WST == KQ_STAGES
         asm volatile("cp.async.wait_group %0;\n" :: "n"(KQ_STAGES - 2));
         __syncthreads();
         kq_u32 next = step + KQ_STAGES - 1;
@@ -300,14 +423,33 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         asm volatile("cp.async.commit_group;\n" ::);
 
         const unsigned char* stage = smem + (step % KQ_STAGES) * KQ_STAGE_BYTES;
+        const unsigned char* wstage = stage + KQ_XBYTES;
+#else
+        asm volatile("cp.async.wait_group %0;\n" :: "n"(KQ_PENDING));
+        __syncthreads();
+        if (step + KQ_STAGES - 1 < steps)
+        {
+            loadX((step + KQ_STAGES - 1) % KQ_STAGES, sb0 + step + KQ_STAGES - 1);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+        if (step + KQ_WST - 1 < steps)
+        {
+            loadW((step + KQ_WST - 1) % KQ_WST, sb0 + step + KQ_WST - 1);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+
+        const unsigned char* stage = smem + (step % KQ_STAGES) * KQ_XBYTES;
+        const unsigned char* wstage = smem + KQ_STAGES * KQ_XBYTES + (step % KQ_WST) * KQ_WBYTES;
+#endif
         const kq_u32 sa = (kq_u32)__cvta_generic_to_shared(stage);
         const unsigned char* blk[KQ_FN];
 #pragma unroll
         for (int j = 0; j < KQ_FN; j++)
         {
             kq_u32 r = wn * 8 * KQ_FN + j * 8 + g;
-            const unsigned char* block = m.w + (kq_u64)min(n0 + r, m.rows - 1) * KQ_ROWB + (kq_u64)(sb0 + step) * KQ_BB;
-            blk[j] = stage + KQ_XBYTES + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
+            const unsigned char* wend;
+            const unsigned char* block = kq_row(p, m, n0, r, wend) + (kq_u64)(sb0 + step) * KQ_BB;
+            blk[j] = wstage + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
         }
 
         // The A fragments of chunk q (16 values of the superblock) and the products with the B fragments b[j][0..1].
@@ -446,6 +588,15 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
             }
         }
 #endif
+#if KQ_STAGES == 1
+        // Every warp is done with the stage: refill it with the next superblock.
+        __syncthreads();
+        if (step + 1 < steps)
+        {
+            load(0, sb0 + step + 1);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+#endif
     }
     asm volatile("cp.async.wait_group 0;\n" ::);
 
@@ -464,16 +615,16 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 continue;
             }
 
-            float* pr = p.part + ((kq_u64)blockIdx.z * p.T + t) * N;
+            float* pr = p.part + ((kq_u64)blockIdx.z * p.T + t) * KQ_PN;
 #pragma unroll
             for (int j = 0; j < KQ_FN; j++)
             {
                 kq_u32 n = ng + wn * 8 * KQ_FN + j * 8 + c4 * 2;
-                if (n + 1 < N)
+                if (n + 1 < KQ_PN)
                 {
                     __stcg((float2*)(pr + n), make_float2(acc[i][j][hrow * 2], acc[i][j][hrow * 2 + 1]));
                 }
-                else if (n < N)
+                else if (n < KQ_PN)
                 {
                     __stcg(pr + n, acc[i][j][hrow * 2]);
                 }
@@ -526,9 +677,9 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 float v0 = 0.0f, v1 = 0.0f;
                 for (kq_u32 z = 0; z < KQ_SPLIT; z++)
                 {
-                    const float* pr = p.part + ((kq_u64)z * p.T + t) * N;
-                    v0 += __ldcg(pr + min(column, (kq_u32)N - 1));
-                    v1 += __ldcg(pr + min(column + 1, (kq_u32)N - 1));
+                    const float* pr = p.part + ((kq_u64)z * p.T + t) * KQ_PN;
+                    v0 += __ldcg(pr + min(column, (kq_u32)KQ_PN - 1));
+                    v1 += __ldcg(pr + min(column + 1, (kq_u32)KQ_PN - 1));
                 }
 #else
                 float v0 = acc[i][j][hrow * 2], v1 = acc[i][j][hrow * 2 + 1];
@@ -541,6 +692,13 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 v0 += m.bias[min(n, m.rows - 1)];
                 v1 += m.bias[min(n + 1, m.rows - 1)];
 #endif
+#if KQ_DUAL
+                // v0 is w's row n / 2, v1 w_1's: the pair's activation product.
+                if (n / 2 < (kq_u32)N)
+                {
+                    yr[n / 2] = KQ_EPI2(v0, v1);
+                }
+#else
                 if (n + 1 < m.rows)
                 {
                     *(float2*)(yr + n) = make_float2(v0, v1);
@@ -549,6 +707,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
                 {
                     yr[n] = v0;
                 }
+#endif
             }
         }
     }

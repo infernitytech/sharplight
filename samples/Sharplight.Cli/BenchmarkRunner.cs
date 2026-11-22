@@ -13,7 +13,8 @@ namespace Sharplight.Cli;
 internal sealed class BenchmarkRunner
 {
     private const int DecodeSteps = 64;
-    private const int PrefillRepeats = 4;
+    private const int DefaultPrefillRepeats = 4;
+    private const string PrefillRepeatsVariable = "SHARPLIGHT_BENCH_PREFILL_REPEATS";
     private const int RandomSeed = 1;
     private const int FirstSyntheticTokenId = 1000;
     private const int EndSyntheticTokenId = 50000;
@@ -30,6 +31,12 @@ internal sealed class BenchmarkRunner
         _log = log;
         _promptTokens = CreateSyntheticPrompt(promptTokenCount);
     }
+
+    /// <summary>
+    /// Timed prefills after the first one (<c>SHARPLIGHT_BENCH_PREFILL_REPEATS</c>, default 4): long prompts (128K) take minutes each.
+    /// </summary>
+    private static int PrefillRepeats
+        => int.TryParse(Environment.GetEnvironmentVariable(PrefillRepeatsVariable), out int repeats) && repeats >= 0 ? repeats : DefaultPrefillRepeats;
 
     private IEnumerable<VulkanSegment> VulkanSegments => _session.Compiled.Segments.OfType<VulkanSegment>();
 

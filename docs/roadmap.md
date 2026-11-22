@@ -150,6 +150,10 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   Vulkan) and 128K fits a 32 GB card (28.2 GiB f16, 23.2 GiB q8_0). A hand-written K-quant decode GEMM on CUDA (`native_gemm_kquant`,
   raw Q4_K / Q5_K / Q6_K blocks dequantized into MMA fragments in registers): Qwen3-8B batched decode 1.37 / 1.41 / 1.38x of llama.cpp
   CUDA at 16 / 32 / 64 sequences (from 0.99x), Qwen3.8 27B 1.67 / 2.04x at 16 / 64, Gemma 4 31B 1.11x at 16 (from 0.84x). Next: §77.5.
+- **Feed round 3 (§79)**: 48-row token tiles for decode batches of 33-48 rows on the CUDA K-quant GEMM and on gemm_cm2 (Vulkan):
+  Qwen3-8B Q4_K_M at 48 sequences 1.40x of llama.cpp on CUDA (from 1.16x) and 1.81x on Vulkan (from 1.72x), Qwen3.8 27B 2.01x (from
+  1.76x); a dual gate / up form of the K-quant GEMM (one launch, the activation product in its store); the 64-row tiles measured as
+  MMA-issue bound. Gemma 4 31B at 128K on the session path: decode 19.97 tok/s (0.80x of llama.cpp). Next: §79.7.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

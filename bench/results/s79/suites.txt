@@ -1,0 +1,18 @@
+Cuda.Tests:    Sharplight.Cuda.Tests  Total: 61, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 45.361s
+vulkan MatMulTests:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 34.229s
+vulkan SkinnyGemmTests:    Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 20.479s
+vulkan RowInvarianceTests:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 66.352s
+vulkan MmqTests:    Sharplight.Vulkan.Tests  Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 55.592s
+vulkan QuantFormatTests:    Sharplight.Vulkan.Tests  Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 82.457s
+vulkan DualGemmTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 18.647s
+vulkan MatMulEpilogueTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 19.436s
+cuda MatMulTests:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.849s
+cuda SkinnyGemmTests:    Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.157s
+cuda RowInvarianceTests:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 137.798s
+cuda MmqTests:    Sharplight.Vulkan.Tests  Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 59.269s
+cuda QuantFormatTests:    Sharplight.Vulkan.Tests  Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 135.571s
+cuda DualGemmTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.689s
+cuda MatMulEpilogueTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 10.261s
+Families gemma-4:     Sharplight.Families.Tests.FamilyGenerationTests.Generation_matches_reference_on_cuda(name: "gemma-4-E2B-it HF (transformers)") [FAIL]
+   Sharplight.Families.Tests  Total: 12, Errors: 0, Failed: 1, Skipped: 9, Not Run: 0, Time: 40.630s
+Families qwen3:    Sharplight.Families.Tests  Total: 63, Errors: 0, Failed: 0, Skipped: 30, Not Run: 0, Time: 105.883s

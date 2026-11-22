@@ -236,13 +236,16 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)).
 
 - **`gemm_kq_native.cu`** (`native_gemm_kquant`, compute capability 8.0+): K-quant (Q4_K, Q5_K, Q6_K, the GGUF block layout) projections
-  at decode batches of 9-64 rows (single matmuls from the first batch past the matvec, `SHARPLIGHT_NATIVE_KQ_MIN_ROWS`; the dual gate / up
-  form included), and the q / k / v multi-output form; batches whose generated split would be 1 are routed to it too. 16-, 32- or 64-row token tiles by batch
-  (`SHARPLIGHT_NATIVE_KQ_BM`) x 64 weight rows, eight warps of 8 weight rows each; a 2-4 stage `cp.async` ring of 256-value superblocks
+  at decode batches of 9-64 rows (single matmuls from the first batch past the matvec, `SHARPLIGHT_NATIVE_KQ_MIN_ROWS`), the q / k / v
+  multi-output form, and a dual gate / up form (`KQ_DUAL`: the tiles interleave the rows of both matrices, 32 outputs of each per block, and
+  the store applies the activation product; `SHARPLIGHT_NATIVE_KQ_DUAL=0` keeps two launches and the elementwise launch); batches whose
+  generated split would be 1 are routed to it too. 16-, 32-, 48- or 64-row token tiles by batch (`SHARPLIGHT_NATIVE_KQ_BM`; 48-row tiles
+  for 33-48 rows since [§79](benchmarks.md)) x 64 weight rows, eight warps of 8 weight rows each; a 2-4 stage `cp.async` ring of 256-value superblocks
   holds the swizzled f16 activation rows and the raw blocks (16-byte windows, so Q6_K's 210-byte blocks may start at any even byte);
   each thread decodes its `mma.sync.m16n8k16` B fragments from the raw codes in registers. K split only for small grids or a nearly
   empty last wave (`SHARPLIGHT_NATIVE_KQ_SPLIT`), reduced in the last block per tile. 1.6-2.1x gemm_cm2 per kernel at 32 rows, Qwen3-8B
-  Q4_K_M decode steps 1.32-1.79x at 9-64 sequences ([benchmarks.md §77](benchmarks.md)).
+  Q4_K_M decode steps 1.32-1.79x at 9-64 sequences ([benchmarks.md §77](benchmarks.md)). At 64 rows the kernel is bound by the
+  `mma.sync` issue rate (about 46 µs of a [4096 → 12288] Q4_K product's 82 µs with no copies at all, §79), not by its copy ring.
 
 - **`gemm_moe_native.cu`** (`native_gemm_moe`, compute capability 8.0+): the expert-grouped product of a MatMulId with MXFP4 experts
   (the 16-row groups of `WeightRepack.Mxfp4Split`) from 1 routed row per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;
