@@ -1,0 +1,14 @@
+cuda Fp8Gemm:Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 15.084s 
+cuda DualGemm:Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 10.107s 
+cuda SkinnyGemm:Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.650s 
+cuda Fusion:Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.848s 
+cuda NormHalfCopy:Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.411s 
+cuda Norm:Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.888s 
+cuda MatMul:Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.582s 
+vulkan Fp8Gemm:Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 31.823s 
+vulkan DualGemm:Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 18.599s 
+vulkan SkinnyGemm:Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 20.537s 
+vulkan Fusion:Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 40.619s 
+vulkan NormHalfCopy:Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 16.157s 
+vulkan Norm:Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 10.003s 
+vulkan MatMul:Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 34.384s 

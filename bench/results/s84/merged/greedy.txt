@@ -1,0 +1,8 @@
+same g_Qwen3-8B-FP8_cuda_p1000
+same g_Qwen3-8B-FP8_cuda_p40
+same g_Qwen3-8B-FP8_vulkan_p1000
+same g_Qwen3-8B-FP8_vulkan_p40
+same g_gpt-oss-20b_cuda_p1000
+same g_gpt-oss-20b_cuda_p40
+same g_gpt-oss-20b_vulkan_p1000
+same g_gpt-oss-20b_vulkan_p40

@@ -12586,6 +12586,14 @@ round trip per layer, ~3 % of the step) is small next to this; not done this rou
   DualGemm 13, MatMul 164, MatMulEpilogue 16, Moe 129, Fusion 101, NormHalfCopy 23, Norm 10, RowInvariance 77: **616 / 0 failed on each
   provider**; Sharplight.Cuda.Tests 63 / 0 failed / 1 skipped (cuBLASLt); Sharplight.Serving.Tests 396 / 0 failed / 13 skipped.
 
+### 84.5a After merging `develop` (`bc59e105`, perf/feed-r5 with its norm + add + norm launch)
+
+The final hold ran before perf/feed-r5 merged; the branch was then merged with `develop` and checked against a `develop` build in one
+hold (`merged/`): Qwen3-8B-FP8 1 / 16 / 64 rows 10.94-10.95 / **12.20** / 15.50-15.53 against 10.94-10.95 / 12.58-12.59 / 15.45-15.46 ms,
+gpt-oss-20b 5.20 / 12.12 / 16.85 against 5.18 / 12.11 / 16.87; greedy text of gpt-oss-20b and Qwen3-8B-FP8 (both prompts, CUDA and
+Vulkan) byte-identical to `develop`'s; Fp8Gemm 41, DualGemm 13, SkinnyGemm 42, Fusion 105, NormHalfCopy 23, Norm 10, MatMul 164 pass on
+both providers. The fused norms do not change which E4M3 rows the decode GEMMs read.
+
 ### 84.6 Gap to vLLM and next levers
 
 | benchmark | CUDA / vLLM | where the time goes |
