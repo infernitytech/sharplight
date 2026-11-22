@@ -56,6 +56,7 @@ current version). Sections:
 | KSET (4) | v1 target | v1 kernel set; read as an artifact set of tier `mixed` |
 | DESC (6) | `model.json` | the model description (kind and components) as UTF-8 JSON; optional, see below |
 | ATCH (7) | attachment name | one attachment (tokenizer file, scheduler config, filter bank, voices, ...), 64 KiB aligned; optional |
+| WLAY (8) | | weight layout facts kernels may rely on: `i32 count`, then per weight its name and `i32` scale row block (`WeightInfo.ScaleRowBlock`: rows of each matrix sharing every block scale, e.g. 128 for checkpoints with 128 x 128 FP8 scale blocks); optional, skipped by readers that predate it |
 
 The DEFN section name selects its layout, so a file whose header `AddArtifacts` raised to version 3 keeps reading its older
 definition correctly:
