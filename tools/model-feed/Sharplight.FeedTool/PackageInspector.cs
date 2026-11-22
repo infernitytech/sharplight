@@ -32,7 +32,7 @@ internal static class PackageInspector
             .OrderByDescending(pair => pair.Value)
             .ThenBy(pair => pair.Key, StringComparer.Ordinal)
             .ToList();
-        return new PackageInspection(
+        var inspection = new PackageInspection(
             string.IsNullOrWhiteSpace(definition.Name) ? Path.GetFileNameWithoutExtension(path) : definition.Name,
             definition.HasDescription ? definition.Description.Kind : "text-generation",
             string.IsNullOrWhiteSpace(definition.Architecture) ? null : definition.Architecture,
@@ -43,17 +43,19 @@ internal static class PackageInspector
             template)
         {
             WeightTypes = types,
-            Context = definition.Graphs.Any(graph => graph.Name == WellKnown.DecodeGraph) ? MeasureDecoder(path, contextLength ?? DefaultContextTokens) : null,
         };
+        return definition.Graphs.Any(graph => graph.Name == WellKnown.DecodeGraph) ? MeasureDecoder(path, contextLength ?? DefaultContextTokens, inspection) : inspection;
     }
 
-    // Opens the full definition (weights stay in the file) to size the decode graph's state.
-    private static ContextMemory? MeasureDecoder(string path, int maxTokens)
+    // Opens the full definition (weights stay in the file) to size the decode graph's state and its routed experts.
+    private static PackageInspection MeasureDecoder(string path, int maxTokens, PackageInspection inspection)
     {
         var source = new ModelPackageImporter().Open(path);
         try
         {
-            return source.Definition is { } full && full.Graphs.TryGetValue(WellKnown.DecodeGraph, out var decode) ? Measure(decode, maxTokens) : null;
+            return source.Definition is { } full && full.Graphs.TryGetValue(WellKnown.DecodeGraph, out var decode)
+                ? inspection with { Context = Measure(decode, maxTokens), Experts = MeasureExperts(decode) }
+                : inspection;
         }
         finally
         {
@@ -89,6 +91,32 @@ internal static class PackageInspector
         long fixedBytes = Math.Max(0, atMax - (perToken * max));
         long activations = PlacementPlanner.Estimate(decode, new CompileOptions { MaxTokens = PrefillTokens, ContextLength = defaultTokens }).ActivationBytes;
         return new ContextMemory(perToken, fixedBytes, defaultTokens, StateBytes(decode, defaultTokens), max, atMax, activations);
+    }
+
+    /// <summary>
+    /// The routed experts of <paramref name="decode"/>: every expert-indexed product (<c>MatMulId</c>) over a bank with more experts than a row
+    /// selects (the engine's rule for experts that can stay on disk; banks every row runs through, such as shared experts, do not count), each
+    /// bank once, with the bytes of the experts a token selects from it.
+    /// </summary>
+    /// <param name="decode">The decode graph.</param>
+    /// <returns>The figures, or <see langword="null"/> when the graph has no routed experts.</returns>
+    public static ExpertMemory? MeasureExperts(ComputeGraph decode)
+    {
+        ArgumentNullException.ThrowIfNull(decode);
+        long bytes = 0;
+        long perToken = 0;
+        var seen = new HashSet<WeightInfo>();
+        foreach (var node in decode.Nodes)
+        {
+            if (node.Op.Name == "MatMulId" && node.Inputs.Length == 3 && node.Inputs[1].Weight is { } weight && weight.Shape.Rank == 3 && !weight.Shape[0].IsSymbolic
+                && node.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic && weight.Shape[0].Fixed > ids[1].Fixed && seen.Add(weight))
+            {
+                bytes += weight.ByteSize;
+                perToken += weight.ByteSize / weight.Shape[0].Fixed * ids[1].Fixed;
+            }
+        }
+
+        return bytes > 0 ? new ExpertMemory(bytes, perToken) : null;
     }
 
     private static long StateBytes(ComputeGraph decode, int context) =>

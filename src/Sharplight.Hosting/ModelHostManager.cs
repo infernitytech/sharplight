@@ -218,6 +218,7 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
     private HostedModelStatus ToStatus(ModelInfo model, LoadedModel? instance)
     {
         var metrics = (instance as IChatModel)?.Engine.GetMetrics();
+        var disk = instance?.DiskExperts;
         return new HostedModelStatus
         {
             Name = model.Name,
@@ -240,6 +241,10 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
             LoadedAt = model.LoadedAt,
             LastUsed = model.LastUsed,
             Error = model.Error,
+            ExpertsFromDisk = disk is not null,
+            DiskExpertBytes = disk?.DiskBackedBytes ?? 0,
+            ExpertCache = disk?.Statistics,
+            ExpertReadBytesPerSecond = disk?.MeasuredReadBytesPerSecond,
         };
     }
 

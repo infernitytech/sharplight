@@ -14,6 +14,11 @@ public abstract class LoadedModel : IDisposable
     /// <param name="cancellationToken">Stops waiting.</param>
     /// <returns>True when the work finished in time.</returns>
     public virtual Task<bool> DrainAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Task.FromResult(true);
+    /// <summary>
+    /// The routed experts the model reads from disk (<see cref="Tasks.TaskLoadOptions.ExpertsOnDisk"/>), or null when it has none on disk (the option
+    /// off, or the experts fit memory). Its <see cref="Runtime.Experts.ExpertStore.Statistics"/> has the cache's hit rate and the bytes read.
+    /// </summary>
+    public virtual Runtime.Experts.ExpertStore? DiskExperts => null;
     /// <summary>Releases the device memory.</summary>
     public abstract void Dispose();
 }
