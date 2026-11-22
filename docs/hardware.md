@@ -142,6 +142,9 @@ the next experts. A direct device read would save that copy and the host memory 
 plain (not registered) buffers: the reads are `O_DIRECT` DMA into the slots either way, and pieces of 8 MiB make the per-read page pinning
 that fixed buffers avoid negligible.
 
+Hosts see it in `HostedModelStatus` (`ExpertsFromDisk`, `DiskExpertBytes`, `ExpertCache` with the statistics, `ExpertReadBytesPerSecond`;
+`LoadedModel.DiskExperts`), plan with `ExpertStore.EstimateDecode` (the same estimate as the load log, from the bytes a token selects, the read
+speed and the cache), and feed manifests list the routed experts (`requirements.memory[].expertWeights` / `expertBytesPerToken`, model-feed.md).
 The fit planner (`FitQuery.ExpertsOnDisk`) reports such a load as `NeedsOffload` with `ExpertsFromDisk` instead of `DoesNotFit`. Decode then
 runs at the disk's speed: a step reads the selected experts it does not find in the cache (DeepSeek-V3 at Q4_K_M: up to 12 GB per token).
 
