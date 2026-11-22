@@ -110,7 +110,13 @@ internal sealed unsafe partial class CpuCompiledSegment
         var source = w.Source;
         var buf = new Buf { Bytes = bytes, Name = w.Name };
         nint mapped = source.TryGetPointer();
-        if (mapped != 0)
+        if (_options.DiskExperts?.Find(w) is not null)
+        {
+            // Routed experts left on disk: the expert products read them through the expert cache, never through this buffer (the mapping, when
+            // there is one, stays untouched and holds no memory), and they count toward nothing.
+            buf.Ptr = (byte*)mapped;
+        }
+        else if (mapped != 0)
         {
             buf.Ptr = (byte*)mapped;
             _weightBytes += bytes;

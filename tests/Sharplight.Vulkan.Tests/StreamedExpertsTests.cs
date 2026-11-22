@@ -210,4 +210,102 @@ public sealed class StreamedExpertsTests
             Assert.True(Math.Abs(cpuResult[i] - actual[i]) <= 3e-2 + 3e-2 * Math.Abs(cpuResult[i]), $"rows={rows} [{i}]: {actual[i]} vs the CPU's {cpuResult[i]}");
         }
     }
+
+    /// <summary>
+    /// Routed experts on the CPU left on disk (<see cref="CompileOptions.DiskExperts"/>, the smallest cache): the router runs on the GPU, the CPU
+    /// reads the selected experts from the file, and the outputs equal those of the same placement with resident experts (CPU experts for
+    /// every pass: no streamed compilations, which the disk placement does not make either), for decode-sized and prefill-sized passes. On a
+    /// device that copies from the expert cache (<see cref="IComputeDevice.CopiesFromExpertCache"/>) small passes split with the GPU, which
+    /// copies its experts from the page-locked cache slots: those match the CPU as the split of resident experts does.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(40)]
+    public void DiskExpertsMatchTheResidentExperts(int rows)
+    {
+        Gpu.Require();
+        const int experts = 96;
+        using var file = new Sharplight.Tests.FileWeights();
+        var tg = new TG();
+        Value ExpertBank(string name, float[] data, params long[] dims)
+        {
+            tg.Weights[name] = file.AddF32(name, data, dims);
+            return tg.B.Weight(name);
+        }
+
+        var x = tg.InF("x", TG.T, Hidden);
+        var h = x;
+        for (int layer = 0; layer < Layers; layer++)
+        {
+            using var _ = tg.B.Group($"layers.{layer}");
+            h = tg.B.MatMul(h, tg.WF($"dense{layer}", Rnd.F(Hidden * Hidden, layer, 0.1f), Hidden, Hidden));
+            var logits = tg.B.MatMul(h, tg.WF($"router{layer}", Rnd.F(experts * Hidden, 30 + layer, 1f), experts, Hidden));
+            var top = tg.B.Emit("TopK", [logits], Attributes.From(("k", (long)Slots)));
+            var ids = top[1];
+            var slotWeightRows = tg.B.Reshape(tg.B.Emit1("Softmax", [top[0]]), 0, Slots, 1);
+            var gate = tg.B.Emit1("MatMulId", [h, ExpertBank($"gate{layer}", Rnd.F(experts * Inner * Hidden, 10 + layer, 0.1f), experts, Inner, Hidden), ids]);
+            var up = tg.B.Emit1("MatMulId", [h, ExpertBank($"up{layer}", Rnd.F(experts * Inner * Hidden, 40 + layer, 0.1f), experts, Inner, Hidden), ids]);
+            var act = tg.B.Mul(tg.B.Emit1("Silu", [gate]), up);
+            var down = tg.B.Emit1("MatMulId", [act, ExpertBank($"down{layer}", Rnd.F(experts * Hidden * Inner, 20 + layer, 0.1f), experts, Hidden, Inner), ids]);
+            var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, slotWeightRows), 0, 2, 1)]);
+            h = tg.B.Add(h, tg.B.Reshape(summed, 0, Hidden));
+        }
+
+        tg.B.Output("y", h);
+        var graph = tg.B.Build();
+        using var store = new Sharplight.Runtime.Experts.ExpertStore(cacheBytes: 1, Sharplight.Runtime.Experts.ExpertReaders.CreateThreads(4));
+        PlacementOptions Placement(Sharplight.Runtime.Experts.ExpertStore? disk) => new()
+        {
+            // The dense layers and routers, the transfer buffers and the sparse banks (3 x 8 experts of 32 KiB) only: every layer's experts go to the CPU.
+            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * (DenseBytes + experts * Hidden * sizeof(float)) + (1280 << 10) }],
+            Fallback = new DeviceSlot { Device = Gpu.Cpu },
+            Compile = new CompileOptions { MaxTokens = 64, ContextLength = 64, DisabledFeatures = Compile.DisabledFeatures, DiskExperts = disk },
+            ReservePerDevice = 0,
+            ReservePerSegment = 0,
+            StreamExpertsMinRows = disk is null ? 0 : MinRows,
+        };
+
+        using var resident = CompiledModel.Compile(graph, Placement(null));
+        using var disk = CompiledModel.Compile(graph, Placement(store));
+        Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(1, disk.Plan.GroupDevice[$"layers.{l}{PlacementPlanner.ExpertGroupSuffix}"]));
+        Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(0, disk.Plan.GroupDevice[$"layers.{l}"]));
+        Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(0, resident.Plan.GroupDevice[$"layers.{l}"]));
+        Assert.Equal(Layers, disk.Plan.DiskExpertGroups.Count);
+        Assert.Equal(0, disk.StreamedSegmentCount);
+        bool split = Gpu.Device!.CopiesFromExpertCache && Gpu.Device.StreamsSelectedExperts;
+        Assert.Equal(split, disk.SparseSegmentCount > 0);
+
+        var input = Rnd.F(rows * Hidden, 3);
+        float[] Run(CompiledModel m)
+        {
+            m.SetInput(x, System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var p = new RunParameters();
+            p.Symbols["T"] = rows;
+            m.Run(p);
+            var y = new float[rows * Hidden];
+            m.GetOutput<float>("y", y);
+            return y;
+        }
+
+        var expected = Run(resident);
+        // Several passes: a split pass's GPU share moves between them (the balancer), its experts copied from the cache each time.
+        for (int pass = 0; pass < 4; pass++)
+        {
+            var actual = Run(disk);
+            if (!split || rows > 4)
+            {
+                Assert.Equal(expected, actual);
+                continue;
+            }
+
+            for (int i = 0; i < actual.Length; i++)
+            {
+                Assert.True(Math.Abs(expected[i] - actual[i]) <= 1e-3 + 1e-3 * Math.Abs(expected[i]), $"pass {pass} [{i}]: {actual[i]} vs the CPU's {expected[i]}");
+            }
+        }
+
+        var stats = store.Statistics;
+        Assert.True(stats.Misses > 0 && stats.Hits + stats.ReadAhead > 0);
+    }
 }

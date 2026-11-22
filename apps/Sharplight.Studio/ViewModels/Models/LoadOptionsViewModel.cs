@@ -24,7 +24,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     private static readonly HashSet<string> s_estimated = new(StringComparer.Ordinal)
     {
         nameof(SelectedDevice), nameof(ContextLength), nameof(BatchTokens), nameof(KvCache), nameof(Slots), nameof(CpuOffload),
-        nameof(MtpDraftTokens), nameof(AllowReducedPrecision),
+        nameof(ExpertsOnDisk), nameof(MtpDraftTokens), nameof(AllowReducedPrecision),
     };
 
     private readonly StudioServices _services;
@@ -103,6 +103,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         KvCache = KvCacheChoice.All.FirstOrDefault(choice => choice.Value == defaults.KvCacheType) ?? KvCacheChoice.All[0];
         Slots = defaults.Slots;
         CpuOffload = defaults.CpuOffload;
+        ExpertsOnDisk = defaults.ExpertsOnDisk;
         NgramDraftTokens = defaults.NgramDraftTokens;
         AllowReducedPrecision = defaults.AllowReducedPrecision;
         MtpDraftTokens = defaults.MtpDraftTokens;
@@ -190,6 +191,10 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     [ObservableProperty]
     public partial bool CpuOffload { get; set; }
 
+    /// <summary>With CPU offload: leave routed experts that do not fit system memory on disk.</summary>
+    [ObservableProperty]
+    public partial bool ExpertsOnDisk { get; set; }
+
     /// <summary>Prompt-lookup draft tokens (0 = off).</summary>
     [ObservableProperty]
     public partial double NgramDraftTokens { get; set; }
@@ -251,6 +256,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             KvCacheType = KvCache.Value,
             Slots = Math.Max(1, (int)Slots),
             CpuOffload = CpuOffload && CanOffload,
+            ExpertsOnDisk = ExpertsOnDisk && CpuOffload && CanOffload,
             NgramDraftTokens = Math.Max(0, (int)NgramDraftTokens),
             AllowReducedPrecision = AllowReducedPrecision,
             MtpDraftTokens = Math.Max(0, (int)MtpDraftTokens),
@@ -480,6 +486,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         KvCache = KvCacheChoice.All.FirstOrDefault(choice => choice.Value == settings.KvCacheType) ?? KvCache;
         Slots = settings.Slots;
         CpuOffload = settings.CpuOffload && CanOffload;
+        ExpertsOnDisk = settings.ExpertsOnDisk && CpuOffload;
     }
 
     private string UniqueId(string id)

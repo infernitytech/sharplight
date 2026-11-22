@@ -436,6 +436,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
             ModelPath = request.Path,
             Devices = [.. slots],
             Fallback = offload ? new DeviceSlot { Device = Open(cpu!, disabled) } : null,
+            ExpertsOnDisk = offload && settings.ExpertsOnDisk,
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
             Auxiliary = (request.Auxiliary ?? []).ToDictionary(entry => entry.Role, entry => entry.Path, StringComparer.Ordinal),
@@ -458,6 +459,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
         {
             Devices = [.. slots],
             Fallback = offload ? new DeviceSlot { Device = Open(cpu!, disabled) } : null,
+            ExpertsOnDisk = offload && settings.ExpertsOnDisk,
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
             KvCacheType = DataType.Get(settings.KvCacheType),

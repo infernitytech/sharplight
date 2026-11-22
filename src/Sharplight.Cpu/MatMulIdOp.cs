@@ -27,6 +27,9 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// <summary>The expert id of an item that selects no expert (its output rows are zero; see <c>CompileOptions.SparseExpertSlots</c>).</summary>
     private const int NoExpert = -1;
 
+    /// <summary>The expert id of an item a chunk of a disk-backed pass leaves to another chunk (its output rows are left as they are).</summary>
+    private const int OtherChunk = -2;
+
     /// <summary>
     /// Up to this many rows every row is computed alone, as a single row is (the fused dequantize-dot kernel once per row, or the
     /// one-row dot instead of the two-row one), so a speculative verification step (2-4 rows) gives the logits of plain one-row decoding
@@ -103,6 +106,22 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     private long _unitsPerProduct;
     private long _per;
     private long _groups;
+    /// <summary>Routed experts on disk (<see cref="DiskExpertBinding"/>), or null when the weights are resident.</summary>
+    private readonly DiskExpertBinding? _disk;
+    /// <summary>With <see cref="_disk"/>: per expert, the address of its weights in the expert cache while the pass holds it (first and second weight).</summary>
+    private readonly byte** _diskWeights;
+    private readonly byte** _diskWeights2;
+    /// <summary>With <see cref="_disk"/>: the distinct experts of the pass, per expert its chunk (0 for none), and the ids a chunk runs.</summary>
+    private readonly int* _passExperts;
+    private readonly int* _chunkOf;
+    private readonly int* _chunkIds;
+    /// <summary>The ids the pass runs: <see cref="_chunkIds"/> during a chunk of a disk-backed pass, else the ids input.</summary>
+    private int* _runIds;
+    /// <summary>
+    /// During the chunks of a disk-backed pass: the integer-dot experts of the whole pass, which size the integer-dot units as the pass
+    /// without chunks would (the units' row runs decide which rows the two-row dot pairs), else 0.
+    /// </summary>
+    private int _passIntDotExperts;
     [ThreadStatic] private static float[]? s_acc;
     public override string Name => _products == 2 ? $"MatMulId.{_fmt} x2" : $"MatMulId.{_fmt}";
 
@@ -117,8 +136,9 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     /// <param name="gated">With a second product: the output of <c>SiLU(y) * y2</c> ([T, S, N], dense), or null.</param>
     /// <param name="slotWeights">Without a second product: the weights of the slots ([T, S] values, dense), or null.</param>
     /// <param name="slotSum">With <paramref name="slotWeights"/>: the output of the weighted slot sum ([T, N], dense); <paramref name="y"/> is then scratch.</param>
+    /// <param name="disk">The weights' experts on disk, read through the expert cache, or null when the weights are resident.</param>
     public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt, bool intDot = false, TRef? w2 = null, TRef? y2 = null, TRef? gated = null,
-        TRef? slotWeights = null, TRef? slotSum = null)
+        TRef? slotWeights = null, TRef? slotSum = null, DiskExpertBinding? disk = null)
     {
         _x = x;
         _w = w;
@@ -158,6 +178,16 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _yrows2 = w2 is null ? null : (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _hrows = _gated is null ? null : (float**)Mem.Alloc(maxItems * sizeof(float*), false);
         _qrows = (byte**)Mem.Alloc(maxItems * sizeof(byte*), false);
+        _disk = disk is not null && (w2 is null || disk.Second is not null) ? disk : null;
+        if (_disk is not null)
+        {
+            _diskWeights = (byte**)Mem.Alloc(_experts * sizeof(byte*), true);
+            _diskWeights2 = (byte**)Mem.Alloc(_experts * sizeof(byte*), true);
+            _passExperts = (int*)Mem.Alloc(_experts * sizeof(int), false);
+            _chunkOf = (int*)Mem.Alloc(_experts * sizeof(int), true);
+            _chunkIds = (int*)Mem.Alloc(maxItems * sizeof(int), false);
+        }
+
         _body = Body;
         _intDotBody = IntDotBody;
         _quantizeBody = QuantizeBody;
@@ -184,6 +214,14 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             Mem.Free((byte*)_hrows);
         }
         Mem.Free((byte*)_qrows);
+        if (_disk is not null)
+        {
+            Mem.Free((byte*)_diskWeights);
+            Mem.Free((byte*)_diskWeights2);
+            Mem.Free((byte*)_passExperts);
+            Mem.Free((byte*)_chunkOf);
+            Mem.Free((byte*)_chunkIds);
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -196,6 +234,20 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             return;
         }
 
+        _runIds = (int*)_ids.P;
+        if (_disk is not null)
+        {
+            RunFromDisk(rows, items);
+            return;
+        }
+
+        RunPass(rows, items);
+    }
+
+    /// <summary>The pass over every item with the experts' weights addressable (resident, or held in the expert cache).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void RunPass(long rows, long items)
+    {
         if (_slotSum is not null && _fusedDot && rows <= FusedRowsMax)
         {
             RunSlotSum(rows, items);
@@ -210,15 +262,148 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         }
     }
 
+    /// <summary>
+    /// A pass whose experts are on disk: the distinct experts of the pass are held in the expert cache (read where missing; for the layer's
+    /// first product the same experts of its later products are queued behind them), as one chunk when the cache takes them all, else in
+    /// chunks of experts in id order, each chunk's items computed with the others left alone while the next chunk is read ahead. Every item's
+    /// products are the same as with resident weights: an expert's items always run together.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void RunFromDisk(long rows, long items)
+    {
+        var disk = _disk!;
+        int* ids = (int*)_ids.P;
+        int count = 0;
+        for (long i = 0; i < items; i++)
+        {
+            int e = ids[i];
+            if (e < 0)
+            {
+                continue;
+            }
+
+            if ((uint)e >= (uint)_experts)
+            {
+                throw new InvalidOperationException($"MatMulId: expert id {e} outside [0, {_experts}).");
+            }
+
+            if (_chunkOf[e] == 0)
+            {
+                _chunkOf[e] = 1;
+                _passExperts[count++] = e;
+            }
+        }
+
+        var experts = new Span<int>(_passExperts, count);
+        experts.Sort();
+        int chunk = disk.Store.ChunkExperts(disk.First);
+        try
+        {
+            if (count <= chunk)
+            {
+                disk.Store.Acquire(disk.First, disk.Second, experts, _diskWeights, _diskWeights2, prefetchLayer: true);
+                try
+                {
+                    RunPass(rows, items);
+                }
+                finally
+                {
+                    disk.Store.Release(disk.First, disk.Second, experts);
+                }
+
+                return;
+            }
+
+            int chunks = (count + chunk - 1) / chunk;
+            for (int c = 0; c < count; c++)
+            {
+                _chunkOf[_passExperts[c]] = c / chunk + 1;
+            }
+
+            new Span<int>(_cnt, _experts).Clear();
+            for (long i = 0; i < items; i++)
+            {
+                if (ids[i] >= 0)
+                {
+                    _cnt[ids[i]]++;
+                }
+            }
+
+            _passIntDotExperts = 0;
+            foreach (int e in experts)
+            {
+                _passIntDotExperts += !_fusedDot || _cnt[e] <= FusedRowsMax ? 1 : 0;
+            }
+
+            for (int c = 0; c < chunks; c++)
+            {
+                var part = experts.Slice(c * chunk, Math.Min(chunk, count - c * chunk));
+                disk.Store.Acquire(disk.First, disk.Second, part, _diskWeights, _diskWeights2, prefetchLayer: false);
+                try
+                {
+                    if (c + 1 < chunks)
+                    {
+                        disk.Store.Prefetch(disk.First, disk.Second, experts.Slice((c + 1) * chunk, Math.Min(chunk, count - (c + 1) * chunk)));
+                    }
+
+                    for (long i = 0; i < items; i++)
+                    {
+                        int e = ids[i];
+                        _chunkIds[i] = e < 0 || _chunkOf[e] == c + 1 ? e : OtherChunk;
+                    }
+
+                    _runIds = _chunkIds;
+                    RunProducts(items);
+                }
+                finally
+                {
+                    _runIds = ids;
+                    disk.Store.Release(disk.First, disk.Second, part);
+                }
+            }
+
+            if (_slotSum is not null)
+            {
+                _slotSumRows = rows;
+                CpuParallel.For((int)Math.Min(rows, CpuParallel.Threads * 2L), _sumSlotsBody);
+            }
+        }
+        finally
+        {
+            _passIntDotExperts = 0;
+            foreach (int e in experts)
+            {
+                _chunkOf[e] = 0;
+            }
+        }
+    }
+
+    /// <summary>The first byte of expert <paramref name="e"/>'s rows of the first (or <paramref name="second"/>) weight.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private byte* ExpertWeights(bool second, int e)
+    {
+        if (_disk is not null)
+        {
+            return second ? _diskWeights2[e] : _diskWeights[e];
+        }
+
+        return (second ? _w2!.P : _w.P) + e * _expertBytes;
+    }
+
     /// <summary>The products of every item (y), sorted by expert; a pair's second product and gated activation with them.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RunProducts(long items)
     {
-        int* ids = (int*)_ids.P;
+        int* ids = _runIds;
         new Span<int>(_cnt, _experts).Clear();
         for (long i = 0; i < items; i++)
         {
             int e = ids[i];
+            if (e == OtherChunk)
+            {
+                continue;
+            }
+
             if (e == NoExpert)
             {
                 // The item selects no expert (its slot runs elsewhere): its products are zero.
@@ -264,7 +449,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         for (long i = 0; i < items; i++)
         {
             int e = ids[i];
-            if (e == NoExpert)
+            if (e < 0)
             {
                 continue;
             }
@@ -371,7 +556,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RunSlotSum(long rows, long items)
     {
-        int* ids = (int*)_ids.P;
+        int* ids = _runIds;
         for (long i = 0; i < items; i++)
         {
             if (ids[i] != NoExpert && (uint)ids[i] >= (uint)_experts)
@@ -401,7 +586,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         long u1 = Math.Min(_units, u0 + _per);
         int k = (int)_k;
         long rowBytes = IntDot.RowBytes(_k);
-        int* ids = (int*)_ids.P;
+        int* ids = _runIds;
         float* weights = (float*)_slotWeights!.P;
         float* acc = stackalloc float[IntDotRowsPerUnit];
         float* products = stackalloc float[IntDotRowsPerUnit];
@@ -422,7 +607,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
 
                 float weight = weights[item];
                 var xq = IntDot.RowAt(_activations + (_perSlot ? item : t) * rowBytes, _k);
-                byte* wbase = _w.P + e * _expertBytes;
+                byte* wbase = ExpertWeights(false, e);
                 if (_fusedDot2)
                 {
                     FusedRowPairs(wbase, n0, n1, xq, products - n0, k);
@@ -520,7 +705,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         for (long i = 0; i < items; i++)
         {
             int e = ids[i];
-            if (e == NoExpert)
+            if (e < 0)
             {
                 continue;
             }
@@ -533,7 +718,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         // A gated pair's units compute both products of their rows.
         int unitProducts = _gated is null ? _products : 1;
         long target = CpuParallel.Threads * 4L;
-        long perExpert = Math.Max(1, (target + activeExperts * unitProducts - 1) / (activeExperts * unitProducts));
+        int layoutExperts = _passIntDotExperts > 0 ? _passIntDotExperts : activeExperts;
+        long perExpert = Math.Max(1, (target + layoutExperts * unitProducts - 1) / (layoutExperts * unitProducts));
         _rowsPerUnit = Math.Clamp((_n + perExpert - 1) / perExpert, 1, IntDotRowsPerUnit);
         _groups = (_n + _rowsPerUnit - 1) / _rowsPerUnit;
         _unitsPerProduct = activeExperts * _groups;
@@ -596,15 +782,15 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             byte** xr = _qrows + _start[e];
             if (_gated is null)
             {
-                IntDotRows(second ? _w2!.P : _w.P, e, n0, n1, m, xr, (second ? _yrows2 : _yrows) + _start[e], k, level, u, a, b);
+                IntDotRows(second, e, n0, n1, m, xr, (second ? _yrows2 : _yrows) + _start[e], k, level, u, a, b);
                 continue;
             }
 
             float** gate = _yrows + _start[e];
             float** up = _yrows2! + _start[e];
             float** h = _hrows + _start[e];
-            IntDotRows(_w.P, e, n0, n1, m, xr, gate, k, level, u, a, b);
-            IntDotRows(_w2!.P, e, n0, n1, m, xr, up, k, level, u, a, b);
+            IntDotRows(false, e, n0, n1, m, xr, gate, k, level, u, a, b);
+            IntDotRows(true, e, n0, n1, m, xr, up, k, level, u, a, b);
             for (long t = 0; t < m; t++)
             {
                 GatedActivation(gate[t] + n0, up[t] + n0, h[t] + n0, n1 - n0);
@@ -612,11 +798,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         }
     }
 
-    /// <summary>Rows <paramref name="n0"/> to <paramref name="n1"/> of expert <paramref name="e"/> of a weight against the expert's quantized items.</summary>
+    /// <summary>Rows <paramref name="n0"/> to <paramref name="n1"/> of expert <paramref name="e"/> of the first (or <paramref name="second"/>) weight against the expert's quantized items.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private void IntDotRows(byte* weights, int e, long n0, long n1, long m, byte** xr, float** yr, int k, CpuIsaLevel level, byte* u, float* a, float* b)
+    private void IntDotRows(bool second, int e, long n0, long n1, long m, byte** xr, float** yr, int k, CpuIsaLevel level, byte* u, float* a, float* b)
     {
-        byte* wbase = weights + e * _expertBytes;
+        byte* wbase = ExpertWeights(second, e);
         if (_fusedDot2 && m == 1)
         {
             FusedRowPairs(wbase, n0, n1, IntDot.RowAt(xr[0], _k), yr[0], k);
@@ -676,7 +862,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                 s_acc = accArr = new float[Math.Max(m * 4, 4096)];
             }
 
-            byte* wbase = (second ? _w2!.P : _w.P) + e * _expertBytes;
+            byte* wbase = ExpertWeights(second, e);
             long n0 = g * 4;
             int nr = (int)Math.Min(4, _n - n0);
             for (int r = 0; r < 4; r++)

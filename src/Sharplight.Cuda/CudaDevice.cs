@@ -122,6 +122,9 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// <inheritdoc />
     public bool StreamsSelectedExperts => true;
 
+    /// <inheritdoc/>
+    public bool CopiesFromExpertCache => true;
+
     /// <summary>The submission budget in ms (0 = unlimited).</summary>
     public double SubmissionBudgetMs => Code.SubmissionBudgetMs;
 
@@ -188,7 +191,13 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// device copies from it directly, within <see cref="RegisterBudget"/>; a range registered before gains a holder. False when the budget or
     /// the driver refuses (the caller then copies through staging memory).
     /// </summary>
-    internal bool TryRegisterHost(byte* start, long bytes)
+    /// <param name="start">The first byte.</param>
+    /// <param name="bytes">Bytes to lock.</param>
+    /// <param name="committed">
+    /// The range is memory the process already committed (the expert cache's slots): locking it adds no memory use, so only an explicit
+    /// <see cref="DeviceMemoryLimits.PinnedHostMemory"/> caps it, not the default half of the process memory meant for mapped files.
+    /// </param>
+    internal bool TryRegisterHost(byte* start, long bytes, bool committed = false)
     {
         lock (_registered)
         {
@@ -198,7 +207,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
                 return true;
             }
 
-            if (_registeredBytes + bytes > RegisterBudget)
+            long budget = committed ? Limits.PinnedHostMemory ?? long.MaxValue : RegisterBudget;
+            if (_registeredBytes + bytes > budget)
             {
                 return false;
             }

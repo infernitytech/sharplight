@@ -5,7 +5,8 @@ namespace Sharplight.Samples;
 
 /// <summary>
 /// The device and sizing options shared by the LLM samples: <c>--cpu</c>, <c>--device</c>, <c>--ctx</c>, <c>--batch</c>,
-/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--reduced-precision</c>, <c>--provider</c>.
+/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--experts-on-disk</c>, <c>--expert-cache</c>, <c>--reduced-precision</c>,
+/// <c>--provider</c>.
 /// </summary>
 public sealed class RuntimeOptionSet
 {
@@ -52,6 +53,18 @@ public sealed class RuntimeOptionSet
         Description = "Run layers that do not fit in device memory, and ops the device cannot execute, on the CPU.",
     };
 
+    /// <summary><c>--experts-on-disk</c>.</summary>
+    public Option<bool> ExpertsOnDisk { get; } = new("--experts-on-disk")
+    {
+        Description = "With --cpu-offload: routed experts of mixture-of-experts models that fit neither the GPU nor host memory stay in the model file "
+            + "and are read from disk on demand into a cache (models larger than RAM + VRAM; decode at the disk's speed).",
+    };
+
+    /// <summary><c>--expert-cache</c>.</summary>
+    public Option<long?> ExpertCache { get; } = OptionFactory.Size("--expert-cache",
+        "With --experts-on-disk: host memory for the cache of experts read from disk, e.g. 24G (default: sized from the free host memory). "
+        + "A cache smaller than the experts on the CPU leaves them on disk even when they would fit.");
+
     /// <summary><c>--reduced-precision</c>.</summary>
     public Option<bool> ReducedPrecision { get; } = new("--reduced-precision")
     {
@@ -70,6 +83,8 @@ public sealed class RuntimeOptionSet
         command.Options.Add(KvType);
         command.Options.Add(DisableFeatures);
         command.Options.Add(CpuOffload);
+        command.Options.Add(ExpertsOnDisk);
+        command.Options.Add(ExpertCache);
         command.Options.Add(ReducedPrecision);
     }
 
@@ -85,7 +100,9 @@ public sealed class RuntimeOptionSet
             parseResult.GetValue(DisableFeatures) ?? [],
             parseResult.GetValue(CpuOffload),
             parseResult.GetValue(ReducedPrecision),
-            parseResult.GetValue(Provider));
+            parseResult.GetValue(Provider),
+            parseResult.GetValue(ExpertsOnDisk),
+            parseResult.GetValue(ExpertCache));
     }
 
     private static Option<string> CreateKvType()

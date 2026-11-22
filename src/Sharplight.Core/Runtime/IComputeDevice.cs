@@ -40,6 +40,13 @@ public interface IComputeDevice : IDisposable
     /// </summary>
     public bool StreamsSelectedExperts => false;
 
+    /// <summary>
+    /// Whether the sparse compilations of <see cref="StreamsSelectedExperts"/> also take routed experts left on disk
+    /// (<see cref="CompileOptions.DiskExperts"/>): they copy the selected experts straight from the expert cache's slots, which the device
+    /// page-locks or imports, so a split decode pass needs no CPU copy of them.
+    /// </summary>
+    public bool CopiesFromExpertCache => false;
+
     /// <summary>Whether the device can execute the node; unsupported nodes go to the placement fallback.</summary>
     public OpSupport Supports(Node node);
     /// <summary>

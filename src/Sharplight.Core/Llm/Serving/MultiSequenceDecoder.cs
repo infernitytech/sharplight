@@ -325,6 +325,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             Progress = c.Progress,
             CancellationToken = c.CancellationToken,
             SharedWeights = c.SharedWeights,
+            DiskExperts = c.DiskExperts,
         }));
         var recurrentStates = ms.States.Where(p => !MultiSequence.IsKvState(p.Key)).Select(p => p.Value.Name).ToList();
         var kv = ms.States.Where(p => MultiSequence.IsKvState(p.Key) && !ms.WindowStates.Contains(p.Value.Name)).ToList();

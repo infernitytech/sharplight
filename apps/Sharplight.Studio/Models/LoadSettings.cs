@@ -27,6 +27,12 @@ internal sealed record LoadSettings
     /// <summary>Run layers that do not fit, and ops the device cannot execute, on the CPU.</summary>
     public bool CpuOffload { get; init; }
 
+    /// <summary>
+    /// With <see cref="CpuOffload"/>: routed experts of mixture-of-experts models that fit neither the GPU nor system memory stay on disk and are
+    /// read on demand (models larger than RAM + VRAM, slow: about 1 token/s on a fast NVMe drive).
+    /// </summary>
+    public bool ExpertsOnDisk { get; init; }
+
     /// <summary>Draft length of prompt-lookup (n-gram) speculative decoding; 0 disables it.</summary>
     public int NgramDraftTokens { get; init; }
 

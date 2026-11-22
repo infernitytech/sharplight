@@ -687,6 +687,11 @@ public sealed class CompiledModel : IDisposable
     /// </summary>
     private static void CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, int buffers, bool throwOnOom, ICompiledSegment?[] streamed, CancellationToken ct)
     {
+        if (!plan.StreamsPrefill)
+        {
+            return;
+        }
+
         int ordinal = 0;
         foreach (var (index, slot) in plan.StreamedSegments.OrderBy(kv => kv.Key))
         {

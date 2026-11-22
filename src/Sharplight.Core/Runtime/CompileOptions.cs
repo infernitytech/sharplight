@@ -113,6 +113,13 @@ public sealed class CompileOptions
     /// </summary>
     public int SparseExpertSlots { get; init; }
 
+    /// <summary>
+    /// The store of the model's routed experts left on disk (<see cref="Experts.ExpertStore"/>), shared by every compilation of the model, or null.
+    /// When the placement leaves the experts the CPU runs on disk, it registers their weights here and the CPU reads the experts a pass
+    /// selects into the store's cache instead of addressing the memory-mapped file.
+    /// </summary>
+    public Experts.ExpertStore? DiskExperts { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -193,6 +200,7 @@ public sealed class CompileOptions
             StreamWeights = true,
             StreamBuffer = 0,
             SparseExpertSlots = slots,
+            DiskExperts = copy.DiskExperts,
         };
     }
 
@@ -215,5 +223,6 @@ public sealed class CompileOptions
         StreamWeights = streamWeights ?? StreamWeights,
         StreamBuffer = streamBuffer ?? StreamBuffer,
         SparseExpertSlots = SparseExpertSlots,
+        DiskExperts = DiskExperts,
     };
 }

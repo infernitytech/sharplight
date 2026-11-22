@@ -167,6 +167,8 @@
             </StackPanel>
           </Grid>
           <ToggleSwitch Content="Offload to the CPU when it does not fit" IsChecked="{Binding CpuOffload}" IsEnabled="{Binding CanOffload}" />
+          <ToggleSwitch Content="Read experts from disk when they do not fit memory (slow)" IsChecked="{Binding ExpertsOnDisk}" IsEnabled="{Binding CpuOffload}"
+                        ToolTip.Tip="Mixture-of-experts models larger than system memory and GPU memory together: their routed experts stay in the model file and are read on demand from a fast SSD (about 1 token/s on huge models)" />
         </StackPanel>
         <StackPanel Spacing="4" IsVisible="{Binding NeedsCompanions}">
           <ItemsControl ItemsSource="{Binding Companions}">

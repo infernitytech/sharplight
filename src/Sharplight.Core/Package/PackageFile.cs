@@ -130,6 +130,14 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             mappingLength = file._length;
             return true;
         }
+
+        public bool TryGetFileRange(out string path, out long fileOffset)
+        {
+            file.ThrowIfDisposed();
+            path = file.Path;
+            fileOffset = offset;
+            return true;
+        }
     }
 
     /// <summary>A stored set's entries, served from the mapping without copying.</summary>
