@@ -138,7 +138,8 @@ public sealed partial class GraphLowerer
     /// <paramref name="dualEpilogue"/>) reading activation rows whose dense scale copy has <paramref name="xcap"/> rows, for batches of
     /// <paramref name="minRows"/> to <paramref name="maxRows"/> rows: one per token tile height (<see cref="NativeFp8TileRows"/>).
     /// </summary>
-    private KernelVariant[] NativeFp8Variants(long n, long k, string? dualEpilogue, long xcap, long minRows, long maxRows, Func<Bindings, long> rows)
+    private KernelVariant[] NativeFp8Variants(long n, long k, string? dualEpilogue, long xcap, long minRows, long maxRows, Func<Bindings, long> rows,
+        bool uniformScales = false)
     {
         bool dual = dualEpilogue is not null;
         int decodeColumns = NativeFp8DecodeColumns;
@@ -156,7 +157,7 @@ public sealed partial class GraphLowerer
             bool Serves(Bindings b) => rows(b) >= minRows && !Decode(rows(b)) && NativeFp8TileRows(rows(b), n, dual) == tileRows;
             if (tileRows == NativeFp8Tile && NativeFp8TensorCopies)
             {
-                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, Serves, rows);
+                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, Serves, rows, uniformScales: uniformScales);
             }
 
             return NativeFp8Variant(n, k, dualEpilogue, xcap, tileRows, NativeFp8Tile, Serves, rows);
@@ -293,6 +294,26 @@ public sealed partial class GraphLowerer
     /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c>: 2 x 4 computing warps and the copy warp.</summary>
     private const int NativeFp8TmaThreads = 288;
 
+    /// <summary>
+    /// True when the grouped E4M3 weight <paramref name="weight"/>, read whole as <paramref name="w"/>, has one scale per K block for each
+    /// of its 128-row groups (<see cref="WeightInfo.ScaleRowBlock"/> a multiple of 128: checkpoints with 128 x 128 scale blocks), so the
+    /// FP8 GEMM may read one weight scale per group (<c>F8N_WUNI</c>).
+    /// </summary>
+    private static bool UniformFp8ScaleGroups(Value? weight, TensorRef w)
+        => weight?.Weight is { ScaleRowBlock: > 0 } info && info.ScaleRowBlock % WeightRepacker.Fp8GroupRows == 0 && w.Type == ShaderTypes.F8E4M3_B128G
+           && info.Shape.Rank == 2 && w.Rank == 2 && w.Shape[0] == info.Shape[0].Fixed;
+
+    /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c> with <c>F8N_WG</c>: 2 x 4 computing warps and the copy warpgroup.</summary>
+    private const int NativeFp8TmaWarpgroupThreads = 384;
+
+    /// <summary>
+    /// True when <c>gemm_fp8_tma.cu</c> runs with a copy warpgroup (<c>F8N_WG</c>, <see cref="DeviceFeatures.RegisterReallocation"/>):
+    /// the four copy warps keep 40 registers and hand the rest to the eight computing warps (232 instead of the 168 per thread that a
+    /// 288-thread block gets, since the register file is split by warps per scheduler). The promotion's accumulators then leave room
+    /// for the E4M3 store (<see cref="Fp8StoreMinRows"/>) with the f32 scales too. <c>SHARPLIGHT_FP8_WG=0</c> keeps the 9-warp form.
+    /// </summary>
+    private bool NativeFp8CopyWarpgroup => DiagnosticSwitches.Fp8CopyWarpgroup && NativeFp8TensorCopies && _opt.Has(DeviceFeatures.RegisterReallocation);
+
     /// <summary>Dynamic shared memory of <c>gemm_fp8_tma.cu</c>: three stages of 256 rows of 128 codes, two slots of 256 scales, eight barriers.</summary>
     private const int NativeFp8TmaSharedBytes = 3 * 256 * 128 + 2 * 256 * 4 + 64;
 
@@ -313,16 +334,16 @@ public sealed partial class GraphLowerer
     /// of <paramref name="n"/> values) stores E4M3 activation rows for the FP8 GEMMs reading it instead of f32 rows that a separate
     /// <c>quantize_fp8</c> launch turns into the same codes and scales (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>: bit for bit the same, so
     /// the next GEMM's inputs do not change; the f32 round trip and the launch go). Only in the block-scaled mode
-    /// (<see cref="Fp8BlockScaled"/>): the promoting form holds the first tile's outputs next to its per-block accumulators and spills
-    /// at the 168 registers per thread that 288-thread blocks get (Qwen3-8B-FP8 gate / up at 2,048 rows 1,494 → 1,713 µs, the step
-    /// 134.7 → 137.2 ms; block-scaled 129.2 → 125.4 ms, benchmarks.md section 86). long.MaxValue when that does not apply: without a
+    /// (<see cref="Fp8BlockScaled"/>) or with the copy warpgroup (<see cref="NativeFp8CopyWarpgroup"/>): the 9-warp promoting form holds
+    /// the first tile's outputs next to its per-block accumulators and spills at the 168 registers per thread that 288-thread blocks get
+    /// (Qwen3-8B-FP8 gate / up at 2,048 rows 1,494 → 1,713 µs, benchmarks.md section 86). long.MaxValue when that does not apply: without a
     /// CUDA epilogue, when a reader is not an FP8 GEMM or the value is a segment output, or with <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=0</c>.
     /// The caller checks that the 128-row tiles run on tensor copies.
     /// </summary>
     private long Fp8StoreMinRows(Value? output, TensorRef y, long n, string? cudaEpilogue)
     {
         long min = DiagnosticSwitches.Fp8StoreMinRows ?? DefaultFp8StoreMinRows;
-        if (min <= 0 || !Fp8BlockScaled || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
+        if (min <= 0 || !(Fp8BlockScaled || NativeFp8CopyWarpgroup) || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
             || y.Buffer != _arena || RootOf(output) != output || _fp8Copies.ContainsKey(output) || _seg.Outputs.Any(o => RootOf(o) == output)
             || PrefillCopyCode(output, n) != ActivationCode.Fp8)
         {
@@ -352,19 +373,33 @@ public sealed partial class GraphLowerer
     /// A non-zero <paramref name="qcap"/>: the dual form stores the outputs as E4M3 activation rows with power-of-two scales and a dense
     /// scale copy of that many rows (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>, see <see cref="Fp8StoreMinRows"/>) instead of f32 rows.
     /// </summary>
-    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0)
+    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0,
+        bool uniformScales = false, long[]? multiWidths = null)
     {
         bool dual = dualEpilogue is not null;
         long rowBytes = k + k / 32;
         var inv = CultureInfo.InvariantCulture;
-        string WeightMap(int pointer) => string.Create(inv, $"{pointer} 3 {k},128,{n / 128} {k},{128 * rowBytes} 128,{(dual ? 64 : 128)},1");
-        var maps = new List<string> { string.Create(inv, $"0 2 {k},{xcap} {rowBytes} 128,128"), WeightMap(1) };
+        string WeightMap(int pointer, long rows) => string.Create(inv, $"{pointer} 3 {k},128,{rows / 128} {k},{128 * rowBytes} 128,{(dual ? 64 : 128)},1");
+        var maps = new List<string> { string.Create(inv, $"0 2 {k},{xcap} {rowBytes} 128,128"), WeightMap(1, multiWidths?[0] ?? n) };
         if (dual)
         {
-            maps.Add(WeightMap(2));
+            maps.Add(WeightMap(2, n));
         }
 
-        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
+        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", multiWidths?[0] ?? n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
+        if (multiWidths is not null)
+        {
+            // Arguments x, w, y, w_1 (, w_2), y_1 (, y_2): the members' maps over pointers 3 and 4.
+            for (int m = 1; m < multiWidths.Length; m++)
+            {
+                maps.Add(WeightMap(2 + m, multiWidths[m]));
+            }
+
+            macros["MULTI"] = multiWidths.Length.ToString(inv);
+            macros["MULTI_O1"] = multiWidths[0].ToString(inv);
+            macros["MULTI_O2"] = (multiWidths.Length > 2 ? multiWidths[0] + multiWidths[1] : n).ToString(inv);
+        }
+
         if (qcap > 0)
         {
             macros["QOUT"] = "1";
@@ -377,7 +412,22 @@ public sealed partial class GraphLowerer
             macros["SL_FAMILY_ARCH"] = "1";
         }
 
-        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", NativeFp8TmaThreads, NativeFp8TmaSharedBytes + (qcap > 0 ? 512 : 0),
+        bool warpgroup = NativeFp8CopyWarpgroup;
+        if (warpgroup)
+        {
+            macros["F8N_WG"] = "1";
+            macros["SL_FAMILY_ARCH"] = "1";
+        }
+
+        if (!Fp8BlockScaled && uniformScales && DiagnosticSwitches.Fp8UniformScales)
+        {
+            // Weights whose 128-row groups share each block's scale (128 x 128 scale blocks): the promotion multiplies by one factor per
+            // row of x, the same products as the per-row form.
+            macros["F8N_WUNI"] = "1";
+        }
+
+        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", warpgroup ? NativeFp8TmaWarpgroupThreads : NativeFp8TmaThreads,
+            NativeFp8TmaSharedBytes + (qcap > 0 ? 512 : 0),
             _opt.Target, macros, _opt.Cache, string.Join(';', maps));
         long sms = Math.Max(1, _opt.ComputeUnits);
         // QOUT walks pairs of 64-output tiles.

@@ -114,10 +114,16 @@ static Logical make(size_t rows, unsigned seed)
     }
     for (size_t i = 0; i < l.s.size(); i++)
     {
-#ifdef POW2
-        l.s[i] = ldexpf(1.0f, -(int)(hash((unsigned)i ^ (seed << 20)) % 4));   // UE8M0 scales (F8N_BLOCK_SCALED)
+#ifdef WUNI
+        // One scale per 128 rows and K block (128 x 128 block checkpoints, F8N_WUNI).
+        const unsigned si = (unsigned)(i / (K / 128) / 128 * (K / 128) + i % (K / 128));
 #else
-        l.s[i] = 0.5f + hash((unsigned)i ^ (seed << 20)) % 1000 / 1000.0f;
+        const unsigned si = (unsigned)i;
+#endif
+#ifdef POW2
+        l.s[i] = ldexpf(1.0f, -(int)(hash(si ^ (seed << 20)) % 4));   // UE8M0 scales (F8N_BLOCK_SCALED)
+#else
+        l.s[i] = 0.5f + hash(si ^ (seed << 20)) % 1000 / 1000.0f;
 #endif
     }
     return l;

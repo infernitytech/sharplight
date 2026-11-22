@@ -168,6 +168,7 @@ internal static class HfFp8Weights
             Type = target,
             Shape = codes.Shape,
             Source = new HfFp8WeightSource(codes.Source, scale.DecodeScales, layout, target, rows, columns),
+            ScaleRowBlock = ScaleRowBlock(layout, rows, target),
         };
         return new SafetensorsTensor
         {
@@ -180,6 +181,25 @@ internal static class HfFp8Weights
             File = weight.File,
             Converted = converted,
         };
+    }
+
+    /// <summary>
+    /// Rows of each matrix sharing every scale of a block-scaled <paramref name="target"/> (<see cref="WeightInfo.ScaleRowBlock"/>):
+    /// the checkpoint's row block where it divides the rows (128 x 128 blocks: 128), all rows for one scale per matrix, else 0.
+    /// </summary>
+    private static int ScaleRowBlock(HfFp8ScaleLayout layout, long rows, DataType target)
+    {
+        if (target == DataType.BF16 || layout.RowBlock <= 1 || layout.RowBlock > int.MaxValue)
+        {
+            return 0;
+        }
+
+        if (layout.RowBlock >= rows)
+        {
+            return rows <= int.MaxValue ? (int)rows : 0;
+        }
+
+        return rows % layout.RowBlock == 0 ? (int)layout.RowBlock : 0;
     }
 
     /// <summary>The storage type of a weight with <paramref name="columns"/> values per row whose scales cover <paramref name="columnBlock"/> of them.</summary>

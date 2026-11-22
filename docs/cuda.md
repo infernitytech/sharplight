@@ -72,7 +72,8 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   is fixed at 32) on every listed GPU; from compute capability 8.0 the tensor-core features `matrix_f16`, `matrix_bf16`, `matrix_int8`,
   `matrix_mma_layout`, the `bf16` type, `native_gemm_f16` and `native_gemm_kquant`; from 8.9 (Ada, Hopper, Blackwell) `matrix_fp8`, `fp8` and
   `native_gemm_fp8` ([kernels written in CUDA C++](#kernels-written-in-cuda-c)); from 9.0 `tensor_copies`; on 12.x with a CUDA 12.9
-  driver or later `block_scaled_fp8` (the block-scaled E4M3 MMA, used only in the opt-in block-scaled FP8 mode); `library_gemm` when cuBLASLt is installed
+  driver or later `block_scaled_fp8` (the block-scaled E4M3 MMA, used only in the opt-in block-scaled FP8 mode) and `register_reallocation`
+  (`setmaxnreg`: the FP8 GEMM's copy warpgroup); `library_gemm` when cuBLASLt is installed
   ([library GEMM](#library-gemm-cublaslt)); `launch_graphs` (not a code-generation feature, like `kernel_binaries`). The CUDA provider then selects the same tensor-core kernels as the Vulkan
   provider on the same GPU, except the `matrix_workgroup` ones (`VK_NV_cooperative_matrix2` has no CUDA counterpart in
   `mma.sync`). `SHARPLIGHT_DISABLE_FEATURES` and `DeviceOptions.DisabledFeatures` work as for every provider, and `kernel_binaries`
@@ -306,6 +307,15 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   compiled for `compute_120f`, opt-in with `SHARPLIGHT_FP8_BLOCK_SCALED=1`) runs the block-scaled MMA on power-of-two activation
   scales (`E4M3_UE8M0` in e4m3.slang) and weights requantized to power-of-two scales at load (`WeightRepack.Fp8B128GroupedUe8m0`),
   accumulating all of K in the tensor cores (gate / up 1,612 → 1,463 µs per layer at 2,048 rows; a numerics change).
+  Three more forms, all bit for bit the default path's results ([benchmarks.md §89](benchmarks.md)): `F8N_WG`
+  (`register_reallocation`, compiled for `compute_120f`; `SHARPLIGHT_FP8_WG=0` keeps the 9-warp form) makes the copy warp a whole
+  warpgroup that gives its registers to the computing warps (`setmaxnreg`: 40 for the copy warps, 232 instead of 168 for the
+  computing ones), which leaves room for `QOUT` with the f32 scales too, so the dual gate / up pair stores the down projection's E4M3
+  rows on the default path; `F8N_WUNI` (`SHARPLIGHT_FP8_UNIFORM_SCALES=0` turns it off) reads one weight scale per 128-row group and
+  K block for weights whose groups share each block's scale (`WeightInfo.ScaleRowBlock` a multiple of 128: checkpoints with
+  128 x 128 scale blocks, which the Hugging Face importer marks and packages store in their `WLAY` section), so the promotion
+  multiplies once per row instead of once per element; `MULTI` runs a q / k / v group (the same E4M3 rows, one K) as one launch over
+  the concatenated weight rows, each tile in one member's matrix (`SHARPLIGHT_MULTI_GEMM_TALL=0` keeps the members' launches).
 
 - **`attn_prefill_native.cu`** (`native_attention`, compute capability 8.0+): causal attention of many queries against an f16 KV cache
   (prefill, prompt runs of serving steps, mixed steps' long runs) in the FlashAttention-2 form. A block takes 16 query rows per warp
