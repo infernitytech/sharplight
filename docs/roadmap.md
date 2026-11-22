@@ -138,6 +138,14 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   CUDA (Qwen3 three launches 0.54 → 0.25 ms per step in the profile, the step within noise: they already overlapped as graph branches;
   the SPIR-V form gave wrong rows for small heads, Vulkan keeps three launches); int-dot q / k / v biases are added in the multi-output
   GEMM's store. Measured and not kept: decode split counts, a bulk prefetch of the cache blocks, 8-warp blocks. Next: §78.7.
+  Round 27 (§80): serving against vLLM re-measured in one hold and taken apart: at 64 streams (0.93x) the GPU is busy 98 % of a round and
+  the host's gap between steps is 1 %, so the gap is device time: prompt rows ~12 % dearer per row (expert GEMMs at par with Marlin per
+  row; dense projections, the expert gathers, rope_qkv, the slot sum, norms and short-prompt attention are the rest) and decode steps ~4 %.
+  The prefill attention enumerates the runs' query tiles (no empty blocks for short prompts), `rope_qkv` runs 4 / 8 rows per workgroup
+  without q / k norms (2,048 tokens 161 → 72 µs), the skinny GEMM applies matmul epilogues in its store (72 fewer launches per 4-row
+  gpt-oss step): gpt-oss-20b prompt steps -2 %, serving 0.95x at 64 streams, 1.00x at 16; Qwen3-8B-FP8 0.94 / 0.95x. Measured and not kept:
+  the expert slot sum read in place by the residual norm (no gain), the full step budget at any load, a uniform-flow norm reduction for
+  `rope_qkv` on Vulkan (still wrong, also without the norm). Next: §80.8.
 - **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
   31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
   the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models

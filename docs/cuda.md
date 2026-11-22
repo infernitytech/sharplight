@@ -281,7 +281,8 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   the accumulator layout. The block shares 64-key K / V tiles copied with `cp.async` into a two-stage ring (three at head size 128, where the
   block has the SM to itself: +0.5-1 % at 16K-128K, `SHARPLIGHT_ATTN_STAGES`; 16-byte chunks, XOR swizzle; `ldmatrix` for K, `ldmatrix.trans` for V), one block barrier per tile. Masks are applied only on tiles that cross a row's
   limits (diagonal, window start), and tiles a warp's rows cannot see are skipped by a warp-uniform branch. Blocks run the longest query
-  tiles first. It serves sliding windows, chunked attention, soft caps, sinks, grouped-query heads, multi-sequence runs (also paged)
+  tiles first. With multi-sequence runs grid y enumerates the query tiles of all runs (ceil(T / tile rows) + runs blocks, each finds
+  its run by a warp prefix sum), so short prompts launch no empty blocks ([benchmarks.md §80.2](benchmarks.md)). It serves sliding windows, chunked attention, soft caps, sinks, grouped-query heads, multi-sequence runs (also paged)
   and the mixed steps' `MIX_RUN`, at head sizes that are multiples of 64 up to 256 (32-key tiles above 128) and of 128 up to 512 (Gemma 4's
   global layers: two warps share each 16-row group, each with half the key and value dimensions, and exchange their partial scores
   through shared memory; 16-key tiles), [benchmarks.md §74](benchmarks.md); score biases, spans, masks, selections and other head sizes
