@@ -798,8 +798,9 @@ public sealed partial class GraphLowerer
         Func<long, int> splitRows = smallMatrix ? rows => ChooseSmallMatrixSplit(N, K, rows) : workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK, GemmWaveTiles)
             : coop
-                ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
-                    (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32, GemmWaveTiles)
+                ? rows => NativeKQuantPlanSplit(w.Type, N, K, rows, splitHalf, ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0),
+                    Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)), (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32,
+                    GemmWaveTiles))
                 : rows => ChooseSimtSplit(N, K, rows);
 
         return new MatMulPlan
@@ -1055,6 +1056,8 @@ public sealed partial class GraphLowerer
         // Decode batches of f16 projections on the hand-written f16 GEMM's decode form: one launch for the split GEMM and its reduction.
         var notMultiAlone = notMulti;
         var decode = EmitNativeF16DecodeGemm(p, activations, epilogue, b => notMultiAlone(b) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1);
+        // K-quant projections likewise on the hand-written K-quant decode GEMM.
+        decode ??= EmitNativeKQuantDecodeGemm(p, activations, epilogue, b => notMultiAlone(b) && p.RowCount(b) > MatvecMaxRows && p.Split(b) > 1);
         if (decode is not null)
         {
             notMulti = b => notMultiAlone(b) && !decode(b);

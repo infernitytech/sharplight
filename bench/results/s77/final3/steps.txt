@@ -1,0 +1,32 @@
+== Qwen3-8B-Q4_K_M.gguf disabled: none
+| 9 | 39.0 | 564 / 0 | 7.85 / 8.19, 7.80 |
+| 16 | 12.8 | 564 / 0 | 8.36 / 8.64, 8.31 |
+| 24 | 14.5 | 564 / 0 | 10.54 / 11.03, 10.49 |
+| 32 | 13.7 | 564 / 0 | 11.04 / 11.43, 11.00 |
+| 48 | 23.5 | 528 / 0 | 16.66 / 17.13, 16.61 |
+| 64 | 20.2 | 528 / 0 | 16.97 / 17.41, 16.91 |
+== Qwen3-8B-Q4_K_M.gguf disabled: native_gemm_kquant
+| 9 | 38.7 | 618 / 0 | 10.32 / 10.85, 10.27 |
+| 16 | 14.7 | 618 / 0 | 11.81 / 12.23, 11.77 |
+| 24 | 31.1 | 763 / 0 | 18.66 / 18.81, 18.61 |
+| 32 | 23.0 | 763 / 0 | 19.70 / 19.79, 19.65 |
+| 48 | 32.5 | 727 / 0 | 21.47 / 21.59, 21.43 |
+| 64 | 26.8 | 727 / 0 | 23.55 / 23.68, 23.51 |
+== Qwen3.8-27B-Q4_K_M.gguf disabled: none
+| 9 | 83.9 | 1230 / 0 | 27.36 / 27.78, 27.31 |
+| 16 | 38.4 | 1230 / 0 | 30.22 / 30.44, 30.16 |
+| 24 | 45.6 | 1230 / 0 | 39.09 / 39.40, 39.05 |
+| 32 | 48.7 | 1230 / 0 | 41.67 / 42.06, 41.62 |
+| 48 | 72.5 | 1230 / 0 | 65.14 / 65.22, 65.08 |
+| 64 | 77.2 | 1230 / 0 | 71.22 / 71.33, 71.14 |
+== Qwen3.8-27B-Q4_K_M.gguf disabled: native_gemm_kquant
+| 9 | 79.4 | 1158 / 0 | 36.46 / 37.00, 36.38 |
+| 16 | 48.6 | 1158 / 0 | 43.31 / 43.58, 43.26 |
+| 24 | 89.2 | 1479 / 0 | 68.98 / 69.02, 68.93 |
+| 32 | 80.3 | 1479 / 0 | 73.75 / 73.79, 73.69 |
+| 48 | 87.6 | 1479 / 0 | 83.16 / 83.25, 83.11 |
+| 64 | 98.8 | 1479 / 0 | 93.42 / 93.52, 93.36 |
+== gemma-4-31B-it-Q4_K_M.gguf disabled: none
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 34.24 GiB, group 'layers.52' (0.60 GiB) has no room and no fallback device is configured.
+== gemma-4-31B-it-Q4_K_M.gguf disabled: native_gemm_kquant
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 34.24 GiB, group 'layers.52' (0.60 GiB) has no room and no fallback device is configured.

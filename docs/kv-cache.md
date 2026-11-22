@@ -478,6 +478,17 @@ used (only the table and the cache's row count differ), so CPU, Vulkan, CUDA and
   pool (`MultiSequenceDecoder.WindowCacheRows`). `EstimateFootprint` and `KvBytesPerToken` count the window caches at that fixed size, so
   hosted models fit more context in the same memory.
 - `DeviceFeatures.WindowKv` = `window_kv` (`LlmLoadOptions.DisabledFeatures`, `SHARPLIGHT_DISABLE_FEATURES=window_kv`) turns it off.
+- Single-sequence sessions (`LlmModel.CreateSession`: the CLI, Studio, one-slot serving): when the decode graph has window-sized caches,
+  the session compiles the one-slot paged form of the graph (`SessionKvLayout`) with fixed block tables: the full caches map position p to
+  row p (identity table over the context's blocks), the window caches map block b to block b mod R of a ring of R blocks,
+  R = ceil((window + rows per pass − 1) / block) + 1, every position one pass reads or writes (the window before its first row and its
+  own rows), so the ring never overwrites a row a query of the pass can still see. Used where the ring at most halves the window
+  layers' caches (the one-slot paged form costs ~2 % of a CUDA decode step against the contiguous cache). The session only appends (no truncation), so the
+  results are those of the paged form with full-length caches bit for bit (`SessionWindowKvTests`). Gemma 4 31B Q4_K_M at 32K: 21.1 GiB
+  of weights and state instead of 44.8 GiB (50 window layers at 2,064 ring rows instead of 32,768), and 128K fits a 32 GB card (28.2 GiB
+  with f16 caches, 23.2 GiB with q8_0); benchmarks.md section 77. `EstimateFootprint(slots: 1)` and the automatic rows per pass count the
+  ring. Fallbacks: the plain graph (a row per position everywhere) when `window_kv` or `paged_kv` is disabled, for encoder-decoder graphs,
+  graphs without a multi-sequence form, or devices without the paged kernels.
 - Tests: `WindowKvCacheTests` (Serving.Tests: the fake decoder checks every query's window rows through the window table, with prefix
   hits, forks, preemption and drafts) and `WindowKvParityTests` (Families.Tests: tiny Cohere2 / Gemma 4 MoE with 8-key windows decode
   token-identically with and without the feature on CPU, Vulkan and CUDA). Measured in benchmarks.md section 60.

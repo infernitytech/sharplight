@@ -1,0 +1,8 @@
+== q8b text disabled: 
+Okay, the user wants a short story about a lighthouse keeper finding a message in a bottle. Let me start by setting the scene. A lighthouse keeper is usually alone, so maybe I can emphasize the isolation and the quiet atmosphere. The setting should be coastal, maybe a small village. 
+
+First,
+== q8b text disabled: native_gemm_kquant
+Okay, the user wants a short story about a lighthouse keeper finding a message in a bottle. Let me start by setting the scene. A lighthouse keeper is usually alone, so maybe I can highlight the isolation and the quiet atmosphere. The setting should be coastal, maybe a small village. 
+
+First,

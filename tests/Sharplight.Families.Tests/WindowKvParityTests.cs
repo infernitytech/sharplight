@@ -101,7 +101,8 @@ public class WindowKvParityTests
         return ([.. r.Logprobs.Select(l => l.TokenId)], r.Usage.CachedTokens);
     }
 
-    private static IComputeDevice OpenDevice(bool gpu)
+    /// <summary>The CPU, or the test GPU (Vulkan, or CUDA with <c>SHARPLIGHT_TEST_PROVIDER=cuda</c>; skips without one).</summary>
+    internal static IComputeDevice OpenDevice(bool gpu)
     {
         if (!gpu)
         {

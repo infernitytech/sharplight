@@ -1,0 +1,42 @@
+== family gemma-4
+[0m[37m   Sharplight.Families.Tests  Total: 12, Errors: 0, Failed: 0, Skipped: 9, Not Run: 0, Time: 37.446s
+[0m[0m
+== family qwen3
+[0m[91m    Sharplight.Families.Tests.FamilyGenerationTests.Generation_matches_reference_on_cpu(name: "Qwen3.5-122B-A10B FP8 truncated (transformers)") [FAIL]
+[0m[37m      System.InsufficientMemoryException : Model does not fit: needs 4.38 GiB, group 'layers.3' (0.38 GiB) has no room and no fallback device is configured.
+[0m[90m      Stack Trace:
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(532,0): at Sharplight.Runtime.PlacementPlanner.FillGroups(List`1 groupOrder, Dictionary`2 groupBytes, PlacementOptions options, Int32 s
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(420,0): at Sharplight.Runtime.PlacementPlanner.AssignGroups(List`1 groupOrder, Dictionary`2 groupBytes, Dictionary`2 transfers, Boolean
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(60,0): at Sharplight.Runtime.PlacementPlanner.Plan(ComputeGraph graph, PlacementOptions options)
+[0m[37m        src/Sharplight.Core/Runtime/CompiledModel.cs(326,0): at Sharplight.Runtime.CompiledModel.CompilePlaced(ComputeGraph graph, PlacementOptions placement, Boolean retryOnStreamingOom, Str
+[0m[37m        src/Sharplight.Core/Runtime/CompiledModel.cs(231,0): at Sharplight.Runtime.CompiledModel.Compile(ComputeGraph graph, PlacementOptions placement)
+[0m[37m        src/Sharplight.Core/Llm/LlmModel.cs(207,0): at Sharplight.Llm.LlmModel.CreateSession(SessionKvLayout layout, String graph, Nullable`1 memoryLimit)
+[0m[37m        src/Sharplight.Core/Llm/LlmModel.cs(191,0): at Sharplight.Llm.LlmModel.CreateSession(String graph, Nullable`1 memoryLimit)
+[0m[37m        tests/Sharplight.Families.Tests/FamilyGenerationTests.cs(311,0): at Sharplight.Families.Tests.FamilyGenerationTests.CheckLogits(LlmModel model, ReferenceLogits reference, Boolean gpu)
+--
+[0m[91m    Sharplight.Families.Tests.FamilyGenerationTests.Generation_matches_reference_on_cpu(name: "Qwen3.5-122B-A10B GPTQ-Int4 truncated (transformer"···) [FAIL]
+[0m[37m      System.InsufficientMemoryException : Model does not fit: needs 4.16 GiB, group 'output' (1.42 GiB) has no room and no fallback device is configured.
+[0m[90m      Stack Trace:
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(532,0): at Sharplight.Runtime.PlacementPlanner.FillGroups(List`1 groupOrder, Dictionary`2 groupBytes, PlacementOptions options, Int32 s
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(420,0): at Sharplight.Runtime.PlacementPlanner.AssignGroups(List`1 groupOrder, Dictionary`2 groupBytes, Dictionary`2 transfers, Boolean
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(60,0): at Sharplight.Runtime.PlacementPlanner.Plan(ComputeGraph graph, PlacementOptions options)
+[0m[37m        src/Sharplight.Core/Runtime/CompiledModel.cs(326,0): at Sharplight.Runtime.CompiledModel.CompilePlaced(ComputeGraph graph, PlacementOptions placement, Boolean retryOnStreamingOom, Str
+[0m[37m        src/Sharplight.Core/Runtime/CompiledModel.cs(231,0): at Sharplight.Runtime.CompiledModel.Compile(ComputeGraph graph, PlacementOptions placement)
+[0m[37m        src/Sharplight.Core/Llm/LlmModel.cs(207,0): at Sharplight.Llm.LlmModel.CreateSession(SessionKvLayout layout, String graph, Nullable`1 memoryLimit)
+[0m[37m        src/Sharplight.Core/Llm/LlmModel.cs(191,0): at Sharplight.Llm.LlmModel.CreateSession(String graph, Nullable`1 memoryLimit)
+[0m[37m        tests/Sharplight.Families.Tests/FamilyGenerationTests.cs(311,0): at Sharplight.Families.Tests.FamilyGenerationTests.CheckLogits(LlmModel model, ReferenceLogits reference, Boolean gpu)
+--
+[0m[91m    Sharplight.Families.Tests.FamilyGenerationTests.Generation_matches_reference_on_cpu(name: "Qwen3.5-122B-A10B NVFP4 truncated (transformers)") [FAIL]
+[0m[37m      System.InsufficientMemoryException : Model does not fit: needs 4.27 GiB, group 'output' (1.42 GiB) has no room and no fallback device is configured.
+[0m[90m      Stack Trace:
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(532,0): at Sharplight.Runtime.PlacementPlanner.FillGroups(List`1 groupOrder, Dictionary`2 groupBytes, PlacementOptions options, Int32 s
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(420,0): at Sharplight.Runtime.PlacementPlanner.AssignGroups(List`1 groupOrder, Dictionary`2 groupBytes, Dictionary`2 transfers, Boolean
+[0m[37m        src/Sharplight.Core/Runtime/PlacementPlanner.cs(60,0): at Sharplight.Runtime.PlacementPlanner.Plan(ComputeGraph graph, PlacementOptions options)
+[0m[37m        src/Sharplight.Core/Runtime/CompiledModel.cs(326,0): at Sharplight.Runtime.CompiledModel.CompilePlaced(ComputeGraph graph, PlacementOptions placement, Boolean retryOnStreamingOom, Str
+[0m[37m        src/Sharplight.Core/Runtime/CompiledModel.cs(231,0): at Sharplight.Runtime.CompiledModel.Compile(ComputeGraph graph, PlacementOptions placement)
+[0m[37m        src/Sharplight.Core/Llm/LlmModel.cs(207,0): at Sharplight.Llm.LlmModel.CreateSession(SessionKvLayout layout, String graph, Nullable`1 memoryLimit)
+[0m[37m        src/Sharplight.Core/Llm/LlmModel.cs(191,0): at Sharplight.Llm.LlmModel.CreateSession(String graph, Nullable`1 memoryLimit)
+[0m[37m        tests/Sharplight.Families.Tests/FamilyGenerationTests.cs(311,0): at Sharplight.Families.Tests.FamilyGenerationTests.CheckLogits(LlmModel model, ReferenceLogits reference, Boolean gpu)
+--
+[0m[37m   Sharplight.Families.Tests  Total: 63, Errors: 0, Failed: 3, Skipped: 30, Not Run: 0, Time: 71.357s
+[0m[0m
