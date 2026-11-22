@@ -1,0 +1,11 @@
+== 09:02:33 lock taken: bash $WORK/kexp6.sh
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 48.67 W, 2812 MHz, 14001 MHz, 44, P0
+[X=0] BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+[KQ_PF=2] BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+[X=0] BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+[KQ_PF=2] BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+[X=0] BENCH matmul q4_k T=64 4096->12288    0.112 ms      57.4 TFLOP/s
+[KQ_PF=2] BENCH matmul q4_k T=64 4096->12288    0.114 ms      56.3 TFLOP/s
+[X=0] BENCH matmul q4_k T=64 4096->12288    0.114 ms      56.3 TFLOP/s
+[KQ_PF=2] BENCH matmul q4_k T=64 4096->12288    0.114 ms      56.3 TFLOP/s
+== 09:03:17 done rc=0
