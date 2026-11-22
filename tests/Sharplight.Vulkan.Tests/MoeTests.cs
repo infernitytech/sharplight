@@ -414,8 +414,9 @@ public sealed class MoeTests
 
     /// <summary>
     /// <see cref="RoutedExpertBlock"/> with every seventh token's activations 100 times larger, so many of its gated products reach
-    /// past 2^15: the down projection's expert-sorted f16 rows of those items are stored scaled (the ranged gather, or on CUDA the gate /
-    /// up GEMM's sorted f16 store and its fix-up of the flagged rows) and must still give the f32 products.
+    /// past 2^15: the down projection's expert-sorted f16 rows of those items are stored scaled (the ranged gather) and must still give
+    /// the f32 products. Separate gate / up products never reach the hand-written grouped GEMM, so the CUDA gate / up GEMM's sorted f16
+    /// store and its fix-up are covered by <c>CudaCodeTests.NativeMoeSortedStoreScalesLargeRows</c> (fused gate / up halves).
     /// </summary>
     [Theory]
     [InlineData("mxfp4", 4, 70)]
