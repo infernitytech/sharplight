@@ -114,7 +114,9 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when <c>attn_prefill_native.cu</c> can run the query heads of a KV head in one block (<c>FN_HG</c>): one row group per warp
-    /// (head size at most 256) and a multiple of <see cref="NativeAttentionWarps"/> query heads per KV head.
+    /// (head size at most 256) and a multiple of <see cref="NativeAttentionWarps"/> query heads per KV head. The lowering takes it for
+    /// multi-sequence runs (serving's prompt and mixed steps). RTX PRO 4500, gpt-oss-20b, 8 prompts of 256 rows: 72.3 → 69.2 µs per
+    /// layer, the step 116.24 → 116.10 ms; <c>SHARPLIGHT_ATTN_HG=0</c> / <c>=1</c> turns it off / on everywhere.
     /// </summary>
     private static bool NativeAttentionHeadGroups(AttentionPlan plan)
     {
