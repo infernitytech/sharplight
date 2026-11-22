@@ -170,16 +170,24 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     /// plain launches alike; with one (<see cref="DeviceFeatures.DependentLaunches"/>) the next kernel's launch and block setup overlap
     /// this kernel's last blocks. Returns false when the source has no kernel entry it recognizes.
     /// </summary>
+    /// <remarks>
+    /// A kernel whose source issues <c>griddepcontrol.wait</c> itself (after reads that no earlier launch writes, such as weights)
+    /// gets only the trigger at its entry.
+    /// </remarks>
     internal static bool WaitForPrevious(ref string source)
     {
+        bool waitsItself = source.Contains("griddepcontrol.wait", StringComparison.Ordinal);
+        string prologue = waitsItself
+            ? DiagnosticSwitches.DependentTrigger ? "\n    asm volatile(\"griddepcontrol.launch_dependents;\" ::: \"memory\");\n" : "\n"
+            : DiagnosticSwitches.DependentTrigger
+                ? "\n    asm volatile(\"griddepcontrol.wait;\\n\\tgriddepcontrol.launch_dependents;\" ::: \"memory\");\n"
+                : "\n    asm volatile(\"griddepcontrol.wait;\" ::: \"memory\");\n";
         var text = new StringBuilder(source.Length + 256);
         int at = 0, count = 0;
         foreach (Match entry in KernelEntryPattern().Matches(source))
         {
             int body = entry.Index + entry.Length;
-            text.Append(source, at, body - at).Append(DiagnosticSwitches.DependentTrigger
-                ? "\n    asm volatile(\"griddepcontrol.wait;\\n\\tgriddepcontrol.launch_dependents;\" ::: \"memory\");\n"
-                : "\n    asm volatile(\"griddepcontrol.wait;\" ::: \"memory\");\n");
+            text.Append(source, at, body - at).Append(prologue);
             at = body;
             count++;
         }

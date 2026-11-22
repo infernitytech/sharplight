@@ -164,7 +164,14 @@ public sealed partial class GraphLowerer
         if (decodeForm)
         {
             variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) > NativeFp8ShortTileMaxRows, rows));
-            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 32, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) <= NativeFp8ShortTileMaxRows, rows));
+            bool streaming = UseFp8DecodeKernel(n, k, dual);
+            bool Streams(long r) => streaming && r <= Fp8DecodeKernelMaxRows;
+            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 32, decodeColumns,
+                b => rows(b) >= minRows && Decode(rows(b)) && rows(b) <= NativeFp8ShortTileMaxRows && !Streams(rows(b)), rows));
+            if (streaming)
+            {
+                variants.Add(Fp8DecodeVariant(n, k, dualEpilogue, b => rows(b) >= minRows && Decode(rows(b)) && Streams(rows(b))));
+            }
         }
 
         return [.. variants];
@@ -220,12 +227,67 @@ public sealed partial class GraphLowerer
         if (columns != NativeFp8Tile)
         {
             macros["F8N_BN"] = columns.ToString(CultureInfo.InvariantCulture);
+            if ((DiagnosticSwitches.Fp8L2Prefetch ?? NativeFp8DecodeL2Blocks) is > 0 and var l2)
+            {
+                macros["F8N_L2"] = l2.ToString(CultureInfo.InvariantCulture);
+            }
         }
 
         int stages = tileRows == 64 ? 4 : 3;
         var kernel = _compiler.CompileCuda("gemm_fp8_native.cu", dualEpilogue ?? "", "gemm_fp8_native", NativeFp8Threads, stages * (tileRows + columns) * 132,
             _opt.Target, macros, _opt.Cache);
         return new KernelVariant(serves, kernel, b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, dual ? columns / 2 : columns)));
+    }
+
+    /// <summary>
+    /// K blocks of its weight rows each block of the decode form asks L2 for before it waits for the launch that writes x (when it runs
+    /// as that launch's programmatic dependent): 0 for none.
+    /// </summary>
+    private const int NativeFp8DecodeL2Blocks = 0;
+
+    /// <summary>Most rows the register-streaming FP8 decode GEMM (<c>gemm_fp8_decode.cu</c>) serves: two 8-token fragments.</summary>
+    private const long Fp8DecodeKernelMaxRows = 16;
+
+    /// <summary>Warps the register-streaming FP8 decode GEMM aims for: enough weight loads in flight on every SM.</summary>
+    private const long Fp8DecodeKernelWarps = 512;
+
+    /// <summary>
+    /// True when batches of at most <see cref="Fp8DecodeKernelMaxRows"/> rows of the hand-written FP8 GEMM's decode form run on
+    /// <c>gemm_fp8_decode.cu</c>: weight rows streamed into registers by every warp, no shared-memory stages, K split across the warps
+    /// of a block. Single matmuls by default (Qwen3-8B-FP8 at 16 rows, µs per layer: down [12288 → 4096] 69.8 → 67.4, o 24.3 → 24.3);
+    /// the dual gate / up pair keeps <c>gemm_fp8_native.cu</c> (131.5 → 141.8 on this kernel). <c>SHARPLIGHT_FP8_DECODE_KERNEL=1</c> /
+    /// <c>=0</c> forces it on (dual too) / off (benchmarks.md §84).
+    /// </summary>
+    private static bool UseFp8DecodeKernel(long n, long k, bool dual) => (DiagnosticSwitches.Fp8DecodeKernel ?? !dual) && n % 128 == 0 && k % 512 == 0;
+
+    /// <summary>
+    /// The launch variant of <c>gemm_fp8_decode.cu</c>: warps of 32 weight rows (dual: 16 outputs of both matrices), K split over the
+    /// fewest warps per row tile (a divisor of the K blocks, at most 8) that gives <see cref="Fp8DecodeKernelWarps"/> warps in all, or the most.
+    /// </summary>
+    private KernelVariant Fp8DecodeVariant(long n, long k, string? dualEpilogue, Func<Bindings, bool> serves)
+    {
+        bool dual = dualEpilogue is not null;
+        long rowTiles = n / (dual ? 16 : 32);
+        long blocksK = k / 128;
+        int[] splits = [.. new[] { 1, 2, 3, 4, 6, 8 }.Where(s => blocksK % s == 0)];
+        int split = splits.FirstOrDefault(s => rowTiles * s >= Fp8DecodeKernelWarps, splits[^1]);
+        int rowTilesPerBlock = split == 1 ? 4 : 1;
+        while (rowTiles % rowTilesPerBlock != 0)
+        {
+            rowTilesPerBlock /= 2;
+        }
+
+        var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("DUAL", dual ? 1 : 0), ("F8D_NT", 2), ("F8D_RF", 2), ("F8D_KS", split),
+            ("F8D_RT", rowTilesPerBlock));
+        if (DiagnosticSwitches.Fp8L2Prefetch is > 0 and var l2)
+        {
+            macros["F8D_L2"] = l2.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var kernel = _compiler.CompileCuda("gemm_fp8_decode.cu", dualEpilogue?.Replace("F8N_EPI2", "F8D_EPI2", StringComparison.Ordinal) ?? "", "gemm_fp8_decode",
+            32 * split * rowTilesPerBlock, 0, _opt.Target, macros, _opt.Cache);
+        uint tiles = (uint)(rowTiles / rowTilesPerBlock);
+        return new KernelVariant(serves, kernel, _ => new Grid(tiles));
     }
 
     /// <summary>Threads per block of <c>gemm_fp8_tma.cu</c>: 2 x 4 computing warps and the copy warp.</summary>

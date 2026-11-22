@@ -1,0 +1,79 @@
+lock after 0 s at 10:30:56
+== b_12288_4096_0_16_-DF8D_KS-4_-DF8D_RT-1_-DSPIN_NS-5000
+  tiles 128, resident 3 x 82, grid 128
+  check T=16: max err 0.00061 of max 1.6e+03
+  after a 5000 ns launch, plain    : min 79.9 us
+  after a 5000 ns launch, dependent: min 75.8 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=4 RT=1 D=1 grid=128: min 75.8 us mean 75.8 us, 685 GB/s (min)
+== b_12288_4096_0_16_-DF8D_KS-6_-DF8D_RT-1_-DSPIN_NS-5000
+  tiles 128, resident 2 x 82, grid 128
+  check T=16: max err 0.00061 of max 1.6e+03
+  after a 5000 ns launch, plain    : min 75.8 us
+  after a 5000 ns launch, dependent: min 73.7 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=6 RT=1 D=1 grid=128: min 71.6 us mean 71.7 us, 724 GB/s (min)
+== b_12288_4096_0_16_-DF8D_KS-6_-DF8D_RT-1_-DSPIN_NS-5000_-DF8D_L2-4
+  tiles 128, resident 1 x 82, grid 82
+  check T=16: max err 0.00061 of max 1.6e+03
+  after a 5000 ns launch, plain    : min 73.7 us
+  after a 5000 ns launch, dependent: min 69.6 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=6 RT=1 D=1 grid=82: min 69.6 us mean 69.6 us, 745 GB/s (min)
+== b_4096_12288_1_16_-DF8D_KS-2_-DF8D_RT-2_-DSPIN_NS-5000
+  tiles 384, resident 2 x 82, grid 164
+  check T=16: max err 0.0781 of max 2.2e+05
+  after a 5000 ns launch, plain    : min 137.2 us
+  after a 5000 ns launch, dependent: min 135.2 us
+  after a 5000 ns launch, spin only: min 7.7 us
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=2 RT=2 D=1 grid=164: min 133.1 us mean 133.1 us, 780 GB/s (min)
+== b_4096_12288_1_16_-DSPIN_NS-5000
+  tiles 192, resident 3 x 82, grid 192
+  check T=16: max err 0.0391 of max 2.2e+05
+  after a 5000 ns launch, plain    : min 153.6 us
+  after a 5000 ns launch, dependent: min 149.5 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=1 grid=192: min 147.5 us mean 147.8 us, 704 GB/s (min)
+== b_4096_12288_1_16_-DSPIN_NS-5000_-DF8D_DEPTH-2
+  tiles 192, resident 2 x 82, grid 164
+  check T=16: max err 0.0391 of max 2.2e+05
+  after a 5000 ns launch, plain    : min 141.3 us
+  after a 5000 ns launch, dependent: min 137.2 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=2 grid=164: min 135.2 us mean 136.5 us, 768 GB/s (min)
+== b_4096_12288_1_16_-DSPIN_NS-5000_-DF8D_L2-8
+  tiles 192, resident 3 x 82, grid 192
+  check T=16: max err 0.0391 of max 2.2e+05
+  after a 5000 ns launch, plain    : min 143.4 us
+  after a 5000 ns launch, dependent: min 139.3 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=1 grid=192: min 139.2 us mean 139.3 us, 746 GB/s (min)
+== b_4096_4096_0_16_-DF8D_KS-2_-DF8D_RT-1_-DF8D_RF-1_-DSPIN_NS-5000
+  tiles 256, resident 6 x 82, grid 256
+  check T=16: max err 0.000305 of max 820
+  after a 5000 ns launch, plain    : min 32.8 us
+  after a 5000 ns launch, dependent: min 30.7 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K= 4096 N= 4096 dual=0 RF=1 KS=2 RT=1 D=1 grid=256: min 26.6 us mean 26.6 us, 650 GB/s (min)
+== b_4096_4096_0_16_-DF8D_KS-2_-DF8D_RT-2_-DSPIN_NS-5000
+  tiles 64, resident 3 x 82, grid 64
+  check T=16: max err 0.000305 of max 820
+  after a 5000 ns launch, plain    : min 32.8 us
+  after a 5000 ns launch, dependent: min 32.8 us
+  after a 5000 ns launch, spin only: min 7.7 us
+T= 16 K= 4096 N= 4096 dual=0 RF=2 KS=2 RT=2 D=1 grid=64: min 28.7 us mean 28.7 us, 603 GB/s (min)
+== b_4096_4096_0_16_-DF8D_KS-4_-DF8D_RT-1_-DSPIN_NS-5000
+  tiles 128, resident 2 x 82, grid 128
+  check T=16: max err 0.000305 of max 820
+  after a 5000 ns launch, plain    : min 30.7 us
+  after a 5000 ns launch, dependent: min 28.7 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K= 4096 N= 4096 dual=0 RF=2 KS=4 RT=1 D=1 grid=128: min 26.6 us mean 26.6 us, 650 GB/s (min)
+== b_4096_4096_0_16_-DF8D_KS-4_-DF8D_RT-1_-DSPIN_NS-5000_-DF8D_L2-7
+  tiles 128, resident 2 x 82, grid 128
+  check T=16: max err 0.000305 of max 820
+  after a 5000 ns launch, plain    : min 32.8 us
+  after a 5000 ns launch, dependent: min 26.6 us
+  after a 5000 ns launch, spin only: min 8.2 us
+T= 16 K= 4096 N= 4096 dual=0 RF=2 KS=4 RT=1 D=1 grid=128: min 26.6 us mean 26.9 us, 650 GB/s (min)
+held 6 s, rc 0

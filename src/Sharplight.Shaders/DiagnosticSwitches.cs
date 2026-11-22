@@ -359,6 +359,12 @@ internal static class DiagnosticSwitches
     /// <summary>False keeps small-batch matmuls off the skinny tensor-core GEMM.</summary>
     public static bool SkinnyGemm { get; } = IsNotZero("SHARPLIGHT_SKINNY_GEMM");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_L2_PREFETCH=n</c>: K blocks of its weight rows each block of the hand-written FP8 GEMM's decode form asks L2 for
+    /// before it waits for the previous launch (0: none), or null for the default.
+    /// </summary>
+    public static int? Fp8L2Prefetch { get; } = Read("SHARPLIGHT_FP8_L2_PREFETCH") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Forced largest row count of the skinny GEMM, or null for the default.</summary>
     public static long? SkinnyGemmMaxRows { get; } = Read("SHARPLIGHT_SKINNY_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
@@ -767,6 +773,12 @@ internal static class DiagnosticSwitches
 
     /// <summary><c>SHARPLIGHT_NATIVE_KQ_SPLIT=n</c>: K split of the hand-written K-quant decode GEMM, or null for the default (chosen per matrix and batch).</summary>
     public static int? NativeKQuantSplit { get; } = Read("SHARPLIGHT_NATIVE_KQ_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_DECODE_KERNEL=1</c> / <c>=0</c>: batches of at most 16 rows of the hand-written FP8 GEMM's decode form run on
+    /// the register-streaming <c>gemm_fp8_decode.cu</c> / on <c>gemm_fp8_native.cu</c>; null for the default.
+    /// </summary>
+    public static bool? Fp8DecodeKernel { get; } = Read("SHARPLIGHT_FP8_DECODE_KERNEL") is { } v ? v != "0" : null;
 
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
     public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
