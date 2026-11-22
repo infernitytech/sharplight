@@ -12978,109 +12978,6 @@ $P --compare a.f16 b.f16 [--vocab 248320]
 QUIET_GPU=1 ROUNDS=2 [SHARPLIGHT_FP8_BLOCK_SCALED=1] bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 ```
 
-## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
-
-Branch `feature/multinode-r1` ([multinode.md](multinode.md)). One pod: AMD EPYC 7443 with a ~10-CPU cgroup quota shared by every job on
-the pod (load average 8-14 from other agents during the runs), 62 GB memory cgroup, GPU 0 (RTX PRO 4500 Blackwell 32 GB) for one short
-hold. Workers are separate `sharplight segment-worker` processes on 127.0.0.1; the coordinator is the CLI or `bench/PipelineBench`. All
-"nodes" share the same CPU quota, so CPU throughput figures do not show what independent machines would do; the protocol overhead and the
-correctness results do. Raw output in [`bench/results/s88/`](../bench/results/s88).
-
-### 88.1 Correctness
-
-| model | pipeline | result |
-|---|---|---|
-| SmolLM2-135M Q8_0 | CPU coordinator + 2 CPU workers (CLI, 24 tokens) | text identical to one process |
-| Qwen3-0.6B Q8_0 | same, and the same split in one process (PipelineBench) | greedy tokens identical |
-| Qwen3-8B Q4_K_M | CPU coordinator + 2 CPU workers (32 tokens) | text identical; 7.39 vs 7.37 tok/s; each worker process holds ~1.8-2.0 GB (its layers only) |
-| Qwen3-30B-A3B Q4_K_M (MoE) | same (32 tokens) | text identical; 12.6 vs 9.7 tok/s (three processes use three times the CPU threads) |
-| tests | SmolLM2, tiny DeepSeek MoE (latent attention), tiny hybrid recurrent MoE, in-process and worker processes | tokens equal, logits within 1e-3 of one CPU device (`RemotePipelineTests`, `MultiProcessTests`) |
-
-### 88.2 What a hop costs
-
-Transport floor, `PipelineBench --pingpong` between two processes (one frame out, the same frame back, median of 2000):
-
-| payload | round trip | p99 |
-|---:|---:|---:|
-| 64 B | 42.5 us | 69.7 us |
-| 16 KiB (one decode row of a 4096-wide model, f32) | 66.2 us | 118 us |
-| 64 KiB | 75.5 us | 151 us |
-| 1 MiB | 446 us | 1.14 ms |
-| 8 MiB (a 512-row prefill chunk of a 4096-wide model) | 7.7 ms | 13.4 ms |
-
-Per execution, the coordinator's round trip minus the worker's compute and its waits (`RemoteSegmentStatistics.OverheadMsPerExecution`: the
-request and the reply, both traversals, with the protocol's thread hand-offs): **0.14-0.34 ms** on loopback across Qwen3-0.6B, Qwen3-8B
-and Qwen3-30B-A3B decode steps (0.8-1.4 ms for 256-row prefill chunks carrying 1 MB). A decode step over `[coordinator, A, B]` crosses the
-network three times (peer forwarding: coordinator → A → B → coordinator).
-
-Estimate for 10 GbE: a 16 KiB row takes 13 us on the wire plus ~10-30 us of NIC and switch latency; with the measured protocol overhead
-(~0.1-0.15 ms per traversal, mostly thread wake-ups) a hop costs ~0.15-0.2 ms, so a 4-node decode step adds ~0.6-0.8 ms (Qwen3-8B Q4_K_M
-decodes at ~7 ms per token on one RTX-class GPU per node: ~10 %). A 512-row prefill chunk of a 4096-wide model (8 MiB) takes ~6.7 ms per
-hop at 10 GbE, overlapped with the next chunk's compute by the chunk pipelining below.
-
-### 88.3 Prefill chunks overlap the stages
-
-Qwen3-0.6B Q8_0, 256 prompt tokens, one sequence, median of 3 (PipelineBench; "one process" is the same three-stage split on three CPU
-devices of one process):
-
-| CPU threads per process | pipeline | one pass of 256 | chunks of 64 |
-|---:|---|---:|---:|
-| 3 | one process | 174.6 tok/s | 108.7 tok/s (0.62x) |
-| 3 | coordinator + 2 workers | 180.9 tok/s | 214.4 tok/s (1.18x) |
-| 1 | one process | 63.5 tok/s | 47.1 tok/s (0.74x) |
-| 1 | coordinator + 2 workers | 67.4 tok/s | 83.6 tok/s (1.24x) |
-
-In one process smaller chunks only add per-pass cost; across workers a chunk's `Run` returns once sent (it reads no output), so the
-coordinator's stage runs the next chunk while the workers run the previous ones.
-
-### 88.4 Decode micro-batches
-
-G multi-sequence decoders over the same stages, each with B/G of the B rows, stepped concurrently (PipelineBench `--groups`), Qwen3-0.6B
-Q8_0, B = 8, one CPU thread per process:
-
-| G | one process (G threads: more cores, not pipelining) | coordinator + 2 workers |
-|---:|---:|---:|
-| 1 | 24.6 tok/s | 25.6 tok/s |
-| 2 | 44.0 tok/s | 29.2 tok/s (1.14x) |
-| 4 | 75.8 tok/s | 28.2 tok/s |
-
-The stages overlap (each worker serves the micro-batches in arrival order), but on this pod the stages share one CPU quota and a CPU decode
-step of 8 rows is mostly weight reads: a worker's segment took 205 ms for 8 rows and 151 ms for 4, so splitting the batch saves little per
-stage. Micro-batches pay off where a stage's time grows with its rows (prefill, large batches) on independent machines; inside one serving
-engine they are the next step ([multinode.md](multinode.md)).
-
-### 88.5 Failures
-
-Qwen3-0.6B, coordinator + 2 CPU workers generating 2000 tokens:
-
-| fault | coordinator |
-|---|---|
-| `kill -9` of the last worker | `SegmentWorkerException` ("Lost segment worker ...: Connection reset by peer"), process exits 1 after 337 ms |
-| `kill -9` of the middle worker | exits 1 after 253 ms ("... closed the connection") |
-| `kill -9` of the last worker, restarted, killed again | exits 1 after 205 ms; then a run over the restarted workers generates normally |
-| `kill -STOP` of the middle worker (hung) | exits 1 after 5.98 s ("sent nothing for 5.8 s (heartbeat timeout 5.0 s)"); the worker released the segments once resumed |
-
-### 88.6 A GPU worker
-
-One hold of 5 minutes on GPU 0 (CUDA), Qwen3-8B Q4_K_M, the coordinator with its GPU hidden:
-
-| run | result |
-|---|---|
-| one process on the GPU (CLI, 32 tokens) | 136.6 tok/s |
-| `--remote-only` over one CUDA worker (same single segment, CLI) | text identical; 124.8 tok/s (the CLI's session reads the 600 KB logits row of every step over the wire); 0.25 ms overhead per execution |
-| same, PipelineBench (sampling head on the worker, token ids return) | 7.09 ms/step at B = 1 (141 tok/s), 28.3 ms at B = 8 (283 tok/s); overhead 0.15 ms (B = 1) and 0.39 ms (B = 8) per execution; prefill 512 in one pass 6927 tok/s, in chunks of 128 5232 tok/s (one stage: nothing to overlap) |
-| CPU worker (layers 0-13) + CUDA worker (the rest), `--remote-only` | text identical to the GPU run; 12.8 tok/s, bound by the CPU stage (83 ms per token against 5.8 ms on the GPU) |
-
-### 88.7 Commands
-
-```
-sharplight segment-worker $M --cpu --listen 127.0.0.1:7071 &      # and 7072; SHARPLIGHT_CPU_THREADS=1|3|4
-sharplight $M --cpu -n 32 -p "The three laws of thermodynamics are" --workers 127.0.0.1:7071,127.0.0.1:7072
-PipelineBench $M --local-stages 3 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --chunks 256,64       # one process, same split
-PipelineBench $M --workers 127.0.0.1:7071,127.0.0.1:7072 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --chunks 256,64
-PipelineBench --echo 127.0.0.1:7090 &  PipelineBench --pingpong 127.0.0.1:7090
-```
-
 ## 87. Huge MoE bring-up, round 1: real DeepSeek-V3.1, GLM-5.2 and Kimi-K3 checkpoints with experts on disk (2026-11-22)
 
 Branch `bringup/huge-moe-r1` (`develop` at `10b5ac10`, §85's experts on disk). Same machine and limits as §85: GPU 0 of the RunPod machine
@@ -13319,4 +13216,107 @@ python bench/results/s87/compare_logits.py ref.f32 154880 ours.f32 llama.f32
 # Kimi-K3 on CUDA needs a larger device reserve
 SHARPLIGHT_DEVICE_RESERVE_MIB=3072 $CLI ~/models/Kimi-K3/UD-Q1_0/Kimi-K3-UD-Q1_0-00001-of-00011.gguf --provider cuda --cpu-offload \
     --experts-on-disk --expert-cache 24G --ctx 4096 --batch 64 -p "The capital of France is" -n 24
+```
+
+## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
+
+Branch `feature/multinode-r1` ([multinode.md](multinode.md)). One pod: AMD EPYC 7443 with a ~10-CPU cgroup quota shared by every job on
+the pod (load average 8-14 from other agents during the runs), 62 GB memory cgroup, GPU 0 (RTX PRO 4500 Blackwell 32 GB) for one short
+hold. Workers are separate `sharplight segment-worker` processes on 127.0.0.1; the coordinator is the CLI or `bench/PipelineBench`. All
+"nodes" share the same CPU quota, so CPU throughput figures do not show what independent machines would do; the protocol overhead and the
+correctness results do. Raw output in [`bench/results/s88/`](../bench/results/s88).
+
+### 88.1 Correctness
+
+| model | pipeline | result |
+|---|---|---|
+| SmolLM2-135M Q8_0 | CPU coordinator + 2 CPU workers (CLI, 24 tokens) | text identical to one process |
+| Qwen3-0.6B Q8_0 | same, and the same split in one process (PipelineBench) | greedy tokens identical |
+| Qwen3-8B Q4_K_M | CPU coordinator + 2 CPU workers (32 tokens) | text identical; 7.39 vs 7.37 tok/s; each worker process holds ~1.8-2.0 GB (its layers only) |
+| Qwen3-30B-A3B Q4_K_M (MoE) | same (32 tokens) | text identical; 12.6 vs 9.7 tok/s (three processes use three times the CPU threads) |
+| tests | SmolLM2, tiny DeepSeek MoE (latent attention), tiny hybrid recurrent MoE, in-process and worker processes | tokens equal, logits within 1e-3 of one CPU device (`RemotePipelineTests`, `MultiProcessTests`) |
+
+### 88.2 What a hop costs
+
+Transport floor, `PipelineBench --pingpong` between two processes (one frame out, the same frame back, median of 2000):
+
+| payload | round trip | p99 |
+|---:|---:|---:|
+| 64 B | 42.5 us | 69.7 us |
+| 16 KiB (one decode row of a 4096-wide model, f32) | 66.2 us | 118 us |
+| 64 KiB | 75.5 us | 151 us |
+| 1 MiB | 446 us | 1.14 ms |
+| 8 MiB (a 512-row prefill chunk of a 4096-wide model) | 7.7 ms | 13.4 ms |
+
+Per execution, the coordinator's round trip minus the worker's compute and its waits (`RemoteSegmentStatistics.OverheadMsPerExecution`: the
+request and the reply, both traversals, with the protocol's thread hand-offs): **0.14-0.34 ms** on loopback across Qwen3-0.6B, Qwen3-8B
+and Qwen3-30B-A3B decode steps (0.8-1.4 ms for 256-row prefill chunks carrying 1 MB). A decode step over `[coordinator, A, B]` crosses the
+network three times (peer forwarding: coordinator → A → B → coordinator).
+
+Estimate for 10 GbE: a 16 KiB row takes 13 us on the wire plus ~10-30 us of NIC and switch latency; with the measured protocol overhead
+(~0.1-0.15 ms per traversal, mostly thread wake-ups) a hop costs ~0.15-0.2 ms, so a 4-node decode step adds ~0.6-0.8 ms (Qwen3-8B Q4_K_M
+decodes at ~7 ms per token on one RTX-class GPU per node: ~10 %). A 512-row prefill chunk of a 4096-wide model (8 MiB) takes ~6.7 ms per
+hop at 10 GbE, overlapped with the next chunk's compute by the chunk pipelining below.
+
+### 88.3 Prefill chunks overlap the stages
+
+Qwen3-0.6B Q8_0, 256 prompt tokens, one sequence, median of 3 (PipelineBench; "one process" is the same three-stage split on three CPU
+devices of one process):
+
+| CPU threads per process | pipeline | one pass of 256 | chunks of 64 |
+|---:|---|---:|---:|
+| 3 | one process | 174.6 tok/s | 108.7 tok/s (0.62x) |
+| 3 | coordinator + 2 workers | 180.9 tok/s | 214.4 tok/s (1.18x) |
+| 1 | one process | 63.5 tok/s | 47.1 tok/s (0.74x) |
+| 1 | coordinator + 2 workers | 67.4 tok/s | 83.6 tok/s (1.24x) |
+
+In one process smaller chunks only add per-pass cost; across workers a chunk's `Run` returns once sent (it reads no output), so the
+coordinator's stage runs the next chunk while the workers run the previous ones.
+
+### 88.4 Decode micro-batches
+
+G multi-sequence decoders over the same stages, each with B/G of the B rows, stepped concurrently (PipelineBench `--groups`), Qwen3-0.6B
+Q8_0, B = 8, one CPU thread per process:
+
+| G | one process (G threads: more cores, not pipelining) | coordinator + 2 workers |
+|---:|---:|---:|
+| 1 | 24.6 tok/s | 25.6 tok/s |
+| 2 | 44.0 tok/s | 29.2 tok/s (1.14x) |
+| 4 | 75.8 tok/s | 28.2 tok/s |
+
+The stages overlap (each worker serves the micro-batches in arrival order), but on this pod the stages share one CPU quota and a CPU decode
+step of 8 rows is mostly weight reads: a worker's segment took 205 ms for 8 rows and 151 ms for 4, so splitting the batch saves little per
+stage. Micro-batches pay off where a stage's time grows with its rows (prefill, large batches) on independent machines; inside one serving
+engine they are the next step ([multinode.md](multinode.md)).
+
+### 88.5 Failures
+
+Qwen3-0.6B, coordinator + 2 CPU workers generating 2000 tokens:
+
+| fault | coordinator |
+|---|---|
+| `kill -9` of the last worker | `SegmentWorkerException` ("Lost segment worker ...: Connection reset by peer"), process exits 1 after 337 ms |
+| `kill -9` of the middle worker | exits 1 after 253 ms ("... closed the connection") |
+| `kill -9` of the last worker, restarted, killed again | exits 1 after 205 ms; then a run over the restarted workers generates normally |
+| `kill -STOP` of the middle worker (hung) | exits 1 after 5.98 s ("sent nothing for 5.8 s (heartbeat timeout 5.0 s)"); the worker released the segments once resumed |
+
+### 88.6 A GPU worker
+
+One hold of 5 minutes on GPU 0 (CUDA), Qwen3-8B Q4_K_M, the coordinator with its GPU hidden:
+
+| run | result |
+|---|---|
+| one process on the GPU (CLI, 32 tokens) | 136.6 tok/s |
+| `--remote-only` over one CUDA worker (same single segment, CLI) | text identical; 124.8 tok/s (the CLI's session reads the 600 KB logits row of every step over the wire); 0.25 ms overhead per execution |
+| same, PipelineBench (sampling head on the worker, token ids return) | 7.09 ms/step at B = 1 (141 tok/s), 28.3 ms at B = 8 (283 tok/s); overhead 0.15 ms (B = 1) and 0.39 ms (B = 8) per execution; prefill 512 in one pass 6927 tok/s, in chunks of 128 5232 tok/s (one stage: nothing to overlap) |
+| CPU worker (layers 0-13) + CUDA worker (the rest), `--remote-only` | text identical to the GPU run; 12.8 tok/s, bound by the CPU stage (83 ms per token against 5.8 ms on the GPU) |
+
+### 88.7 Commands
+
+```
+sharplight segment-worker $M --cpu --listen 127.0.0.1:7071 &      # and 7072; SHARPLIGHT_CPU_THREADS=1|3|4
+sharplight $M --cpu -n 32 -p "The three laws of thermodynamics are" --workers 127.0.0.1:7071,127.0.0.1:7072
+PipelineBench $M --local-stages 3 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --chunks 256,64       # one process, same split
+PipelineBench $M --workers 127.0.0.1:7071,127.0.0.1:7072 --sizes 1,4,8 --groups 1,2,4 --prefill 256 --chunks 256,64
+PipelineBench --echo 127.0.0.1:7090 &  PipelineBench --pingpong 127.0.0.1:7090
 ```
