@@ -49,6 +49,9 @@
 #ifndef ND_PF
 #define ND_PF 1                       // tiles ahead each warp prefetches into L2 (0: none)
 #endif
+#ifndef ND_PF_MIN_TILES
+#define ND_PF_MIN_TILES 4             // tiles per warp from which a key range prefetches
+#endif
 #define ND_THREADS (ND_WARPS * 32)
 #define ND_TK (D == 64 ? 32 : 16)     // keys per warp tile
 #define ND_R (ND_TK / 8)              // key rows per lane group and tile
@@ -254,13 +257,18 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
     }
     float m = ND_NEG, l = 0.0f;
 
+#if ND_PF
+    const bool prefetch = jEnd - jBeg >= (nd_u32)(ND_PF_MIN_TILES * ND_WARPS * ND_TK);
+#endif
     for (nd_u32 j0 = jBeg + warp * ND_TK; j0 < jEnd; j0 += ND_WARPS * ND_TK)
     {
 #if ND_PF
         // The warp's tile ND_PF tiles ahead into L2: the key and value rows' 128-byte lines, one per lane of a row's four (D = 64: two
         // lines per row, lanes 0 and 1; D = 128: four). The loads below then wait on L2 instead of DRAM (RTX PRO 4500, gpt-oss-20b,
-        // 4 rows of 130,048 keys: 1.44 → 1.31 ms per layer, 739 → 815 GB/s; benchmarks.md section 78).
-        if (c4 < 2 * ND_LPR)
+        // 4 rows of 130,048 keys: 1.44 → 1.31 ms per layer, 739 → 815 GB/s; benchmarks.md section 78). Ranges of fewer than
+        // ND_PF_MIN_TILES tiles per warp skip it: their few tiles gain little, and the prefetch's address work (the block table of a
+        // paged cache) costs ~2 µs per launch (1 x 32,768 keys: 6.16 → 6.21 ms per gpt-oss-20b step without the limit).
+        if (prefetch && c4 < 2 * ND_LPR)
         {
             const nd_u32 jn = j0 + ND_WARPS * ND_TK * ND_PF;
             const unsigned short* cache = c4 < ND_LPR ? p.kc : p.vc;

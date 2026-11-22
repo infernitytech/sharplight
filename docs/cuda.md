@@ -289,7 +289,7 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   block times head size up to 256) keep `decode`. gpt-oss-20b decode attention at 64 sequences 1.32 → 1.03 ms per step (vLLM 1.20,
   [benchmarks.md §72](benchmarks.md)). Q · SCALE and the probabilities are rounded to f16, as in the prefill kernel.
   Each warp prefetches the key and value rows of its next tile into L2 (`prefetch.global.L2`, one 128-byte line per lane) before
-  loading the current one, so its loads wait on L2 rather than DRAM: 4 x 130,048 keys of gpt-oss-20b 1.44 → 1.31 ms per layer
+  loading the current one (key ranges of four tiles per warp or more), so its loads wait on L2 rather than DRAM: 4 x 130,048 keys of gpt-oss-20b 1.44 → 1.31 ms per layer
   (739 → 815 GB/s) in the harness, 2-9 % at every shape measured, gpt-oss-20b 4 x 128K decode step -2 %
   ([benchmarks.md §78](benchmarks.md)); `SHARPLIGHT_ATTN_DECODE_PF=0` turns it off (`=n`: n tiles ahead).
   `SHARPLIGHT_NATIVE_DECODE=0` keeps `decode`.

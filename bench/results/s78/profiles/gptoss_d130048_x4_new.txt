@@ -1,0 +1,69 @@
+decoder: MultiSequenceDecoder, slots 4, vocab 201088, device sampling: True, KV paged 32640 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 26.7 | 377 / 0 | 9.21 / 9.23, 9.18 |
+| 4 | 42.5 | 522 / 0 | 23.07 / 23.32, 23.02 |
+--- profile batch 4 (greedy)
+GPU time 502.32 ms
+   319.479 ms  63.6%    480x  min      5.9 us  attention attn_decode_native T=4,U=4,R=4|2,3
+    55.992 ms  11.1%    480x  min     74.1 us  matmul-id [32x2880→5760] mxfp4rx2 fused skinny gemm_sk T=4,U=4,R=4|2,3
+    28.353 ms   5.6%     20x  min   1415.6 us  matmul [2880→201088] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+    25.839 ms   5.1%    480x  min     31.1 us  matmul-id [32x2880→2880] mxfp4r skinny +epilogue gemm_sk T=4,U=4,R=4|2,3
+    16.752 ms   3.3%    480x  min     32.4 us  matmul [4096→2880] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+    15.949 ms   3.2%    480x  min     31.6 us  matmul [2880→4096] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+     8.141 ms   1.6%    960x  min      6.4 us  matmul [2880→512] f16 skinny gemm_sk T=4,U=4,R=4|2,3
+     5.989 ms   1.2%   1920x  min      1.7 us  fused[Add] main T=4,U=4,R=4|2,3
+     4.123 ms   0.8%    960x  min      2.8 us  moe-gather x→ranged f16 moe_gather_x16 T=4,U=4,R=4|2,3
+     3.442 ms   0.7%    480x  min      5.5 us  fused[Add,Add]+RmsNorm main T=4,U=4,R=4|2,3
+     3.109 ms   0.6%    480x  min      4.9 us  matmul [2880→32] f16 matvec_sk T=4,U=4,R=4|2,3
+     2.171 ms   0.4%    480x  min      3.0 us  fused[Add]+RmsNorm main T=4,U=4,R=4|2,3
+     2.024 ms   0.4%    480x  min      2.7 us  matmul [4096→2880] f16 x→ranged f16 to_f16_ranged T=4,U=4,R=4|2,3
+     2.017 ms   0.4%    480x  min      2.2 us  moe-route [32 experts] moe_route T=4,U=4,R=4|2,3
+     1.814 ms   0.4%    240x  min      5.5 us  attention combine decode_combine T=4,U=4,R=4|2,3
+     1.471 ms   0.3%    480x  min      1.8 us  ReduceSum rowreduce_narrow T=4,U=4,R=4|2,3
+     0.670 ms   0.1%     20x  min     32.0 us  sample sample T=4,U=4,R=4|2,3
+     0.219 ms   0.0%     40x  min      2.9 us  gather gather T=4,U=4,R=4|2,3
+     0.106 ms   0.0%     20x  min      4.0 us  RmsNorm main T=4,U=4,R=4|2,3
+     0.105 ms   0.0%     20x  min      4.1 us  rope rope_725 rope_qkv T=4,U=4,R=4|2,3
+     0.104 ms   0.0%     20x  min      4.1 us  rope rope_455 rope_qkv T=4,U=4,R=4|2,3
+     0.104 ms   0.0%     20x  min      4.2 us  rope rope_815 rope_qkv T=4,U=4,R=4|2,3
+     0.103 ms   0.0%     20x  min      4.3 us  router topk_23 topk_softmax T=4,U=4,R=4|2,3
+     0.102 ms   0.0%     20x  min      4.0 us  rope rope_590 rope_qkv T=4,U=4,R=4|2,3
+     0.101 ms   0.0%     20x  min      3.8 us  router topk_383 topk_softmax T=4,U=4,R=4|2,3
+     0.101 ms   0.0%     20x  min      4.1 us  router topk_158 topk_softmax T=4,U=4,R=4|2,3
+     0.100 ms   0.0%     20x  min      3.8 us  rope rope_995 rope_qkv T=4,U=4,R=4|2,3
+     0.100 ms   0.0%     20x  min      4.4 us  router topk_608 topk_softmax T=4,U=4,R=4|2,3
+     0.100 ms   0.0%     20x  min      4.0 us  rope rope_950 rope_qkv T=4,U=4,R=4|2,3
+     0.099 ms   0.0%     20x  min      4.1 us  router topk_743 topk_softmax T=4,U=4,R=4|2,3
+     0.098 ms   0.0%     20x  min      4.0 us  rope rope_95 rope_qkv T=4,U=4,R=4|2,3
+     0.098 ms   0.0%     20x  min      3.9 us  rope rope_230 rope_qkv T=4,U=4,R=4|2,3
+     0.098 ms   0.0%     20x  min      3.9 us  rope rope_635 rope_qkv T=4,U=4,R=4|2,3
+     0.098 ms   0.0%     20x  min      4.1 us  rope rope_860 rope_qkv T=4,U=4,R=4|2,3
+     0.097 ms   0.0%     20x  min      4.3 us  router topk_968 topk_softmax T=4,U=4,R=4|2,3
+     0.097 ms   0.0%     20x  min      3.8 us  rope rope_275 rope_qkv T=4,U=4,R=4|2,3
+     0.097 ms   0.0%     20x  min      3.5 us  rope rope_905 rope_qkv T=4,U=4,R=4|2,3
+     0.097 ms   0.0%     20x  min      3.7 us  router topk_248 topk_softmax T=4,U=4,R=4|2,3
+     0.096 ms   0.0%     20x  min      3.6 us  rope rope_680 rope_qkv T=4,U=4,R=4|2,3
+     0.095 ms   0.0%     20x  min      4.0 us  router topk_428 topk_softmax T=4,U=4,R=4|2,3
+     0.095 ms   0.0%     20x  min      4.3 us  router topk_653 topk_softmax T=4,U=4,R=4|2,3
+     0.095 ms   0.0%     20x  min      3.7 us  rope rope_320 rope_qkv T=4,U=4,R=4|2,3
+     0.095 ms   0.0%     20x  min      3.7 us  router topk_698 topk_softmax T=4,U=4,R=4|2,3
+     0.095 ms   0.0%     20x  min      3.7 us  router topk_518 topk_softmax T=4,U=4,R=4|2,3
+     0.095 ms   0.0%     20x  min      3.8 us  router topk_788 topk_softmax T=4,U=4,R=4|2,3
+     0.094 ms   0.0%     20x  min      4.4 us  router topk_878 topk_softmax T=4,U=4,R=4|2,3
+     0.094 ms   0.0%     20x  min      3.8 us  rope rope_365 rope_qkv T=4,U=4,R=4|2,3
+     0.094 ms   0.0%     20x  min      3.8 us  rope rope_410 rope_qkv T=4,U=4,R=4|2,3
+     0.094 ms   0.0%     20x  min      3.0 us  router topk_563 topk_softmax T=4,U=4,R=4|2,3
+     0.093 ms   0.0%     20x  min      3.9 us  rope rope_5 rope_qkv T=4,U=4,R=4|2,3
+     0.093 ms   0.0%     20x  min      3.8 us  router topk_1013 topk_softmax T=4,U=4,R=4|2,3
+     0.093 ms   0.0%     20x  min      3.1 us  router topk_473 topk_softmax T=4,U=4,R=4|2,3
+     0.093 ms   0.0%     20x  min      4.3 us  rope rope_500 rope_qkv T=4,U=4,R=4|2,3
+     0.092 ms   0.0%     20x  min      3.6 us  rope rope_770 rope_qkv T=4,U=4,R=4|2,3
+     0.092 ms   0.0%     20x  min      3.3 us  rope rope_185 rope_qkv T=4,U=4,R=4|2,3
+     0.092 ms   0.0%     20x  min      3.7 us  router topk_68 topk_softmax T=4,U=4,R=4|2,3
+     0.091 ms   0.0%     20x  min      3.8 us  rope rope_50 rope_qkv T=4,U=4,R=4|2,3
+     0.091 ms   0.0%     20x  min      3.4 us  rope rope_545 rope_qkv T=4,U=4,R=4|2,3
+     0.091 ms   0.0%     20x  min      3.4 us  rope rope_140 rope_qkv T=4,U=4,R=4|2,3
+     0.090 ms   0.0%     20x  min      3.7 us  router topk_338 topk_softmax T=4,U=4,R=4|2,3
+
