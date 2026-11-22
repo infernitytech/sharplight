@@ -1,0 +1,174 @@
+Graph optimization (sharplight-ir/1): decode 1678 -> 1668 nodes, decode_embeddings 1676 -> 1666 nodes, embed 1555 -> 1545 nodes, classify 1558 -> 1548 nodes [158 ms]
+Loaded Gemma-4-31B-It (decoder): 833 tensors, 18.31 GB, vocab 262144 [1317 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 295 / 295, 295 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 18.31 / 18.31 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode', window-sized caches of 3088 rows for the 1024-key window layers in 2699 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 62 groups, 20.03 GiB weights+state
+1 segment(s): [0@0: 1669 nodes]
+Ready (decode)
+--- rendered prompt ---
+<bos><|turn>user
+## 77. Feed round 2: window-sized KV caches for single-sequence sessions (Gemma 4 31B at 32K and 128K on a 32 GB card), a hand-written K-quant decode GEMM on CUDA (2026-11-22)
+
+Branch perf/feed-r2 (base develop at 2a6c6611, §74; develop at 5dcf9e85 (§76, perf/llm-r25) merged before the final
+measurements). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap), shared with other agents: every run
+held the verify lock, Sharplight and llama.cpp b11177 ran in the same hold per provider (bench/s74_feed.sh, Sharplight first), and
+the A/B pairs of this round (feature on / off) ran back to back in one hold. Raw output in [bench/results/s77/](../bench/results/s77).
+
+### 77.1 Results against llama.cpp (final hold; "before" = §74)
+
+ model, point  provider  before  after  llama.cpp  ratio before → after 
+---------:---:---:---:
+ Gemma 4 31B, prefill 32K (session path)  CUDA  does not fit (44.8 GiB)  1351  1304  – → 1.04 
+ Gemma 4 31B, decode after a 32K prompt (session path)  CUDA  does not fit  30.2  33.3 (§74, tg at d 32K)  – → 0.91 
+ Gemma 4 31B, prefill 32K (session path)  Vulkan  does not fit  1051  867  – → 1.21 
+ Gemma 4 31B, decode after a 32K prompt (session path)  Vulkan  does not fit  28.7  31.2 (§74)  – → 0.92 
+ Gemma 4 31B, prefill 512 / decode, 1 stream  CUDA  1506 / 37.9  1488 / 37.9  1671 / 39.4  0.90 / 0.96 → 0.89 / 0.96 
+ Gemma 4 31B, decode 16 sequences  CUDA  322  424  383  0.84 → 1.11 
+ Gemma 4 31B, decode 32 sequences  CUDA  (A/B: 407, 78.60 ms)  493 (64.91 ms)  (llama-batched-bench could not create the context)  
+ Gemma 4 31B, decode 16 sequences  Vulkan  310  306  152  2.03 → 2.01 
+ Qwen3-8B, decode 16 sequences  CUDA  1404  1961  1430  0.99 → 1.37 
+ Qwen3-8B, decode 32 sequences  CUDA  (A/B: 1624)  3027  2143  0.76 → 1.41 
+ Qwen3-8B, decode 64 sequences  CUDA  2785  3948  2853  0.99 → 1.38 
+ Qwen3-8B, prefill 512 / decode, 1 stream  CUDA  7274 / 144  7203 / 144  6583 / 143  1.09 / 1.01 → 1.09 / 1.01 
+ Qwen3.8 27B, decode 16 sequences  CUDA  371  531  318  1.17 → 1.67 
+ Qwen3.8 27B, decode 64 sequences  CUDA  687  907  446  1.55 → 2.04 
+ Qwen3.8 27B, prefill 512 / decode, 1 stream  CUDA  1910 / 45.7  1903 / 45.6  1714 / 43.6  1.11 / 1.05 → 1.11 / 1.05 
+
+Batched decode rows: the branch's last hold (bench/results/s77/final3, both engines interleaved); the other rows final. Batched
+decode: BatchBench --feedback at depth 256, sequences x 1000 / minimum GPU ms of 20 steps, against llama-batched-bench S_TG
+(second pass); prefill and single-stream decode: the CLI's --bench N (best of 5) against llama-bench. Gemma's 32K row is the
+session's 32K prefill and the decode steps after it (--bench 32768), against §74's llama-bench tg64 at depth 32K. Gemma at 32
+sequences: our A/B pair; llama-batched-bench at 32 x 320 positions did not create its context next to the weights.
+
+### 77.2 Window-sized KV caches for single-sequence sessions
+
+Until now only the paged multi-sequence decoder (serving, BatchBench) gave sliding-window layers window-sized caches (§60); the
+session path (CLI, Studio, one-slot serving) kept a row per position in every cache, so Gemma 4 31B (50 of 60 layers attend to a
+1024-key window, 0.8 MB per token) needed 44.8 GiB at 32K.
+
+ SessionKvLayout (Core, generic: any graph whose caches only sliding-window attention reads, MultiSequence.WindowedCaches): when
+  the decode graph has such caches, CreateSession compiles the one-slot paged form of the graph (MultiSequence.Transform with
+  window rows), the same kernels the serving decoder runs on CPU, Vulkan, CUDA and Metal. Both block tables are fixed and uploaded
+  once: the full caches map position p to row p, the window caches block b to block b mod R of a ring of
+  R = ceil((window + rows per pass − 1) / 16) + 1 blocks, every position one pass reads or writes. The session only appends, so no
+  query ever sees a reused row; InferenceSession fills the sequence tables per pass (one run of slot 0).
+ Used where the ring at most halves those caches (the one-slot paged form costs ~2 % of a CUDA decode step against the contiguous
+  cache: Gemma 4 31B at 4K context 37.96 → 37.25 tok/s, GPU 26.13 → 26.68 ms; Vulkan 38.43 either way). Fallbacks to the plain
+  graph: window_kv or paged_kv disabled, encoder-decoder graphs, graphs without a multi-sequence form, devices without the paged
+  kernels. Nothing new is stored in .slm: the layout is derived from the stored graph at compile time.
+ EstimateFootprint(slots: 1), the automatic rows per pass (SessionFootprint) and PlacementPlanner.Estimate count the ring.
+
+ Gemma 4 31B Q4_K_M, session path (CUDA)  rows per pass  ring rows  weights + state  result 
+------:---:---:---
+ 32K, f16 KV, before   (full: 32,768)  44.8 GiB  does not fit 
+ 32K, f16 KV  1024  2,064  21.14 GiB  prefill 1351-1359 tok/s, decode after it 30.1-30.2 tok/s 
+ 128K, f16 KV  512  1,552  28.23 GiB  fits (prefill 512 1491 tok/s, decode 37.0 tok/s at shallow depth) 
+ 128K, q8_0 KV  1024  2,064  23.20 GiB  fits (decode 36.4 tok/s at shallow depth) 
+ 128K, paged decoder with 2 slots (BatchBench, §74)  2048   30.42 GiB  does not fit 
+
+So 128K fits a 32 GB card on the session path with f16 caches; the 10 global layers (head size 512, 4 KV heads) hold 5 GiB at 128K,
+the 50 window layers 1.2-1.6 GiB. A timed 128K run was not made (seven 128K prefills of the CLI bench take ~15 minutes of the shared
+GPU); llama.cpp's 128K decode of this model is 25.0 tok/s (§74).
+
+Correctness: SessionWindowKvTests (Families.Tests; tiny random Cohere2 MoE GGUF / HF and Gemma 4 MoE with 8-key windows, 16-row
+passes so the 48-row ring wraps during prompts of 5 and 70 tokens and 40 decode steps): the ring gives the one-slot paged session's
+logits bit for bit and the plain session's tokens, CPU / Vulkan / CUDA. Gemma 4 31B greedy text (--chat --temp 0 -n 64) is
+identical with and without the ring on both providers.
+
+### 77.3 The K-quant decode GEMM (CUDA, native_gemm_kquant)
+
+At 9-64 rows the K-quant projections ran gemm_cm2 with split-K on dequantized tiles, at 285-390 GB/s on this card (§74's profiles:
+Qwen3-8B gate / up [4096 → 12288] Q4_K 99.3 µs at 32 rows). gemm_kq_native.cu (Shaders, compiled by NVRTC, selected in
+GraphLowerer.KQuantGemm.cs beside the f16 decode form, multi-output form for q / k / v of one format):
+
+ A block covers 16, 32 or 64 token rows (by batch) and 64 weight rows; its eight warps take 8 weight rows each and every token row,
+  so each weight value is dequantized once per block. A K step is one 256-value superblock: cp.async copies the activation rows
+  (four 64-value swizzled sub-tiles, read by ldmatrix) and the raw Q4_K / Q5_K / Q6_K blocks of the 64 rows (each row's 16-byte
+  window around its block: Q6_K rows of 210-byte blocks start at any even byte) into a ring of 2-4 stages (≤ 96 KiB). Each thread
+  builds its mma.sync.m16n8k16 B fragments straight from the raw codes (two codes per byte_perm, exact f16 integers from the
+  0x6400 bias trick, then one f16 FMA with the sub-block scale and minimum; Q4_K / Q5_K scales unpacked with word operations), f32
+  accumulation. No weight is ever written back as f16.
+ K split only where the grid is small or its last wave nearly empty (Gemma's [21504 → 5376]: 84 blocks on 82 SMs, 220 → 182 µs
+  split in two), reduced in the last block of each tile in slice order (deterministic, counters self-resetting).
+ Batches of 9-16 rows of K-quant matmuls leave the skinny GEMM for it (SkinnyMaxRowsFor), the dual gate / up form included (two
+  launches and the activation product: steps at 16 sequences Qwen3-8B 9.87 → 8.35 ms, Qwen3.8 27B 35.75 → 30.05, Gemma 4 31B 43.64
+  → 38.12 against keeping the skinny dual form, ab22). Decode batches whose generated
+  split would be 1 (wide matrices, e.g. Qwen3.8 27B gate / up [5120 → 17408] at 16 rows: 165 µs each on unsplit gemm_cm2) are routed
+  to the split-K emission, where the K-quant GEMM takes them (NativeKQuantPlanSplit).
+
+Kernel times (bench/s77_kq harness, sustained µs over 16 weight copies, against §74's gemm_cm2 in the step profile):
+
+ shape  16 rows  32 rows  64 rows  gemm_cm2 (32 / 64 rows) 
+------:---:---:---:
+ Q4_K [4096 → 12288]  43.8  52.4 (482-512 GB/s)  82.1  99.3 / 115.9 
+ Q6_K [12288 → 4096]  58.8  60.4 (650 GB/s)  89.7  127.3 / 145.7 
+ Q4_K [4096 → 4096]  14.1  17.8  27.3  31.5 / 43.6 
+ Q6_K [21504 → 5376] (Gemma down, unaligned blocks)  182.5  179.7  282  
+
+Decode steps (CUDA, GPU ms, feature on / off in the same hold, bench/results/s77/ab13):
+
+ sequences  9  16  24  32  48  64 
+------:---:---:---:---:---:
+ Qwen3-8B Q4_K_M, off  10.27  11.77  18.61  19.65  21.43  23.51 
+ on  7.80  8.31  10.49  11.00  16.61  16.91 
+ Qwen3.8 27B Q4_K_M, off  36.38  43.26  68.93  73.69  83.11  93.36 
+ on  27.31  30.16  39.05  41.62  65.08  71.14 
+ Gemma 4 31B Q4_K_M, off (ab8, ab13)   49.43   78.60   
+ on (final3, ab22, ab13)  34.20  37.70   64.91   
+
+(final3/steps.txt; Gemma's own A/B at these sizes ran out of memory next to another agent's process in the last hold, so its rows
+come from the holds named.)
+
+Single-stream decode and prefill are unchanged (the matvec and the prefill GEMMs keep their kernels). Vulkan is untouched (the
+feature is CUDA's); Gemma 4 31B on Vulkan at 16 sequences 306 tok/s against 310 in §74.
+
+Correctness: NativeKQuantDecodeGemmMatchesTheCpu (Cuda.Tests: Q4_K / Q5_K / Q6_K, 9-64 rows, K = 1280 with unaligned Q6_K rows, 336
+outputs, bias rows, q / k / v multi-output) against the CPU (f32 products: the CPU's int-dot path quantizes activations below 32 rows)
+and the generated GEMM. Greedy text: Gemma 4 31B identical with and without the feature (both providers); Qwen3-8B
+(--chat --temp 0 -n 64, a 25-token prompt, whose prefill pass runs the new kernel) changes one word after ~40 tokens ("highlight" →
+"emphasize"), a near tie: " highlight" 39.075 against " emphasize" 39.003 (--logits on the prefix, either path).
+
+Suites (final build, one process per class, both providers where they apply): Sharplight.Cuda.Tests 57 (1 skipped, the cuBLASLt
+probe); Vulkan.Tests MatMul 164, SkinnyGemm 42, RowInvariance 77, Mmq 48 on Vulkan and CUDA (the earlier build also QuantFormat,
+FullAttention, SparseAttention, CompressedKv, PagedAttention 8, Stateful 69), all passing; Families SessionWindowKvTests and
+WindowKvParityTests (CPU / Vulkan / CUDA) passing; FamilyGenerationTests gemma-4 12 (9 skipped) and qwen3 63 (30 skipped)
+passing, except CPU cases that ran out of host memory while another agent's process held it (three Qwen3.5-122B truncated cases
+InsufficientMemoryException in the last run, a gemma-4-E2B CPU case in two of six runs; all passed in the other runs and alone);
+Serving.Tests 396 (13 skipped) passing.
+
+### 77.4 Measured and not kept
+
+ Split rings (v4: 64-value activation stages in a shallow ring, weight superblocks copied 2-3 ahead in their own slots): more
+  barriers per superblock; Q6_K [12288 → 4096] at 32 rows 76.0 against 60.4 µs, Q4_K [4096 → 12288] 56.6 against 52.4.
+ 2 x 4 warps (token halves x 16 weight rows, v1): each weight value dequantized twice; Q4_K [4096 → 12288] at 32 rows 58.7 µs.
+ Per-value scale lookups for Q4_K (get_scale_min_k4 per sub-block): 54.6 against 52.4 µs with word-wise unpacking.
+ 64-row token tiles below 33 rows (two stages only: 96-107 µs for the 32-row shapes above) and two 32-row tiles at 64 rows
+  (each block re-reads the weights: 89.5 / 115.1 against 82.1 / 89.7 µs).
+ The wave-count K split (WaveFillSplit) on grids of 1.5-3 waves: memory-bound blocks of a partial last wave run faster, so
+  splitting [4096 → 12288] (192 blocks) cost 5 %; the split is kept only for nearly empty last waves and small grids.
+ Batches of 9-16 rows on unsplit gemm_cm2: capping the skinny GEMM first sent wide gate / up matrices whose generated split is 1
+  to the unsplit gemm_cm2 (Qwen3.8 27B at 16 sequences 42.96 → 47.98 ms, Gemma 4 31B 49.23 → 54.93 ms); routing them to the split-K
+  emission (NativeKQuantPlanSplit) puts them on the K-quant GEMM.
+
+### 77.5 Leads worth promoting and the next levers
+
+Large enough to promote (like for like, same hold, both engines interleaved, CUDA):
+
+ Batched decode on CUDA against llama.cpp's CUDA backend: Qwen3-8B Q4_K_M 1.37 / 1.41 / 1.38x at 16 / 32 / 64 sequences (from
+  0.99x), Qwen3.8 27B 1.67 / 2.04x at 16 / 64 (from 1.17 / 1.55x), Gemma 4 31B 1.11x at 16 (from 0.84x).
+ Gemma 4 31B at 32K on a 32 GB card on the plain session path, prefill 1.04x (CUDA) / 1.21x (Vulkan) of llama.cpp; 128K fits.
+
+Next levers:
+
+1. The 64-row tiles (two stages: 337-461 GB/s against 500-650 at 16-32 rows; Qwen3-8B 48 and 64 sequences take 16.6-16.9 ms
+   against 11.0 at 32); a 64-row tile with half superblocks per stage would keep three stages.
+2. The dual gate / up form on the K-quant GEMM (one launch, the activation product in the store) for 9-64 rows: today two launches
+   plus the activation kernel above 16 rows, the skinny dual form below. Summarize the text above in three sentences.<turn|>
+<|turn>model
+<|channel>thought
+<channel|>
+-----------------------
+This update introduces window-sized KV caches for single-sequence sessions, enabling Gemma 4 31B to fit 128K context on a 32 GB card by utilizing a ring-buffer layout for sliding-window layers. A new hand-written CUDA GEMM for K-quantized weights
+prompt: 5200 tok in 3298 ms (1576.8 tok/s) | generated: 64 tok, 36.02 tok/s

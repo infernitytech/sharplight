@@ -1,0 +1,41 @@
+== 08:29:32 lock taken: ./bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/gguf/Qwen3-8B-Q4_K_M.gguf --provider vulkan --slots 64 --ctx 384 --depth 256 --sizes 16,32,48,64 --modes greedy --reps 20 --feedback --profile 32,64 --profile-mode greedy --profile-top 25
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 1536 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 16 | 44.7 | 618 / 437 | 12.94 / 13.99, 12.86 |
+| 32 | 50.1 | 871 / 582 | 15.92 / 16.89, 15.77 |
+--- profile batch 32 (greedy)
+GPU time 374.02 ms
+   130.340 ms  34.8%   1440x  min     88.6 us  matmul [4096→12288] q4_k split-k gemm_cm2 T=32,32,32
+    47.013 ms  12.6%    720x  min     61.3 us  attention decode T=32,32,32
+    43.036 ms  11.5%   1440x  min     27.9 us  matmul [4096→4096] q4_k split-k gemm_cm2 T=32,32,32
+    42.159 ms  11.3%    360x  min    114.0 us  matmul [12288→4096] q6_k split-k gemm_cm2 T=32,32,32
+    29.211 ms   7.8%    360x  min     79.1 us  matmul [12288→4096] q4_k split-k gemm_cm2 T=32,32,32
+    18.349 ms   4.9%     20x  min    912.9 us  matmul [4096→151936] q6_k gemm_cm2 T=32,32,32
+    15.198 ms   4.1%   5040x  min      2.0 us  matmul split-k reduce splitk_reduce T=32,32,32
+    11.599 ms   3.1%   1080x  min      9.8 us  matmul [4096→1024] q4_k split-k gemm_cm2 T=32,32,32
+     5.912 ms   1.6%   1440x  min      3.1 us  fused[Add]+RmsNorm main T=32,32,32
+     5.895 ms   1.6%    720x  min      7.2 us  attention combine decode_combine T=32,32,32
+     5.168 ms   1.4%    360x  min     14.0 us  matmul [4096→1024] q6_k split-k gemm_cm2 T=32,32,32
+     2.950 ms   0.8%    720x  min      4.1 us  rope+norm+cache_write rope_row T=32,32,32
+     2.950 ms   0.8%    720x  min      4.1 us  rope+norm rope_row T=32,32,32
+     2.949 ms   0.8%    720x  min      4.1 us  cache_write cache_write T=32,32,32
+     2.947 ms   0.8%    720x  min      3.1 us  matmul [4096→4096] q4_k x→ranged f16 to_f16_ranged T=32,32,32
+     2.946 ms   0.8%    720x  min      3.1 us  fused[Silu,Mul] main T=32,32,32
+     2.210 ms   0.6%    360x  min      5.1 us  matmul [12288→4096] q6_k x→ranged f16 to_f16_ranged T=32,32,32
+     2.208 ms   0.6%    360x  min      5.1 us  matmul [12288→4096] q4_k x→ranged f16 to_f16_ranged T=32,32,32
+     0.536 ms   0.1%     20x  min     26.6 us  sample sample T=32,32,32
+     0.161 ms   0.0%     40x  min      3.6 us  gather gather T=32,32,32
+     0.123 ms   0.0%     20x  min      6.1 us  matmul [4096→151936] q6_k f16 range f16_range_unscale T=32,32,32
+     0.082 ms   0.0%     20x  min      4.1 us  matmul [4096→151936] q6_k x→ranged f16 to_f16_ranged T=32,32,32
+     0.082 ms   0.0%     20x  min      4.1 us  RmsNorm main T=32,32,32
+
+| 48 | 21.8 | 871 / 582 | 19.56 / 20.04, 19.44 |
+| 64 | 29.8 | 871 / 582 | 23.80 / 24.07, 23.63 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (384 + 1 > 384).
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.PackInputs(IReadOnlyList`1 inputs) in ./src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 874
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in ./src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 646
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in ./bench/BatchBench/Program.cs:line 115
+   at Program.<Main>$(String[] args) in ./bench/BatchBench/Program.cs:line 240
+== 08:29:47 done rc=134

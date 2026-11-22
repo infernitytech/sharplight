@@ -213,7 +213,8 @@ public sealed partial class GraphLowerer
 
         // K-quant pairs at 9-64 rows: the hand-written K-quant GEMM's dual form, the group in its store.
         var kquantDual = dualFp8 ? null : EmitNativeKQuantDualGemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
-            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueCudaSource(a, bNode, group, output), fusedBelow);
+            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueCudaSource(a, bNode, group, output),
+            DualEpilogueSource(a, bNode, group, output, "gemm_kq.slang"), fusedBelow);
         var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
             a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output,
             library ? LibraryGemmMinRows : long.MaxValue);

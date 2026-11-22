@@ -66,7 +66,10 @@ public sealed class StatefulTests
     [InlineData(512, 32, 4, 0, 0f, true)]
     [InlineData(512, 16, 2, 40, 30f, true)]
     [InlineData(512, 8, 4, 0, 0f, false)]
-    public void CachedAttentionWideDecode(int D, int Hq, int Hkv, int window, float softcap, bool sinks)
+    [InlineData(256, 24, 4, 0, 0f, false, "q8_0")]
+    [InlineData(512, 32, 4, 0, 0f, true, "q8_0")]
+    [InlineData(512, 16, 2, 40, 30f, true, "q8_0")]
+    public void CachedAttentionWideDecode(int D, int Hq, int Hkv, int window, float softcap, bool sinks, string cacheType = "f16")
     {
         Gpu.Require();
         int ctx = 1280;
@@ -78,8 +81,8 @@ public sealed class StatefulTests
         var qi = tg.InF("q", T, Hq, D);
         var ki = tg.InF("k", T, Hkv, D);
         var vi = tg.InF("v", T, Hkv, D);
-        var kc = tg.State("kc", DataType.F16, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
-        var vc = tg.State("vc", DataType.F16, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        var kc = tg.State("kc", DataType.Get(cacheType), StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", DataType.Get(cacheType), StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
         tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
         var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
         if (window > 0)
@@ -111,9 +114,11 @@ public sealed class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
             past += c;
         }
-        // f16 caches run on tensor cores with f16 queries and probabilities: allow for their rounding.
-        Diff.Check("CachedAttention.wide", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: chunks.Max(), ctx: ctx,
-            what: $"D={D} Hq={Hq} Hkv={Hkv} window={window} softcap={softcap} sinks={sinks}");
+        // f16 caches run on tensor cores with f16 queries and probabilities: allow for their rounding. q8_0 caches are quantized by both
+        // backends, which may round a value to a neighbouring quant.
+        var (atol, rtol) = cacheType == "f16" ? (1e-3, 3e-3) : (3e-3, 1e-2);
+        Diff.Check("CachedAttention.wide", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx,
+            what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv} window={window} softcap={softcap} sinks={sinks}");
     }
 
     private static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)

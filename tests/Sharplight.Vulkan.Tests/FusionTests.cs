@@ -28,6 +28,29 @@ public sealed class FusionTests
         Diff.Check("Fusion.add+norm", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * d, 1)), (r, Rnd.F((long)t * d, 2))), atol: 2e-5, rtol: 1e-4, what: $"T={t} D={d}");
     }
 
+    /// <summary>
+    /// A post-norm, the residual add and the next pre-norm (Gemma's per-layer pattern) in one launch: the head norm reduced in a first
+    /// pass, the group and the tail norm as before; rows short enough to stay in registers and rows the passes reload.
+    /// </summary>
+    [Theory]
+    [InlineData(1, 64, true)]
+    [InlineData(5, 100, false)]
+    [InlineData(3, 5376, true)]
+    [InlineData(2, 40000, true)]
+    public void NormThenResidualAddThenNorm(int t, int d, bool headWeight)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, d);
+        var r = tg.InF("r", TG.T, d);
+        var post = headWeight ? tg.B.RmsNorm(x, tg.RandW("wh", DataType.F32, 1f, d), 1e-6f) : tg.B.RmsNorm(x, null, 1e-5f);
+        var h = tg.B.Add(r, post);
+        tg.B.Output("h", h);
+        tg.B.Output("n", tg.B.RmsNorm(h, tg.RandW("w", DataType.F32, 1f, d), 1e-6f));
+        Diff.Check("Fusion.norm+add+norm", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * d, 1)), (r, Rnd.F((long)t * d, 2))), atol: 3e-5, rtol: 2e-4,
+            what: $"T={t} D={d} weight={headWeight}");
+    }
+
     [Theory]
     [InlineData(1, 4, 128)]
     [InlineData(6, 3, 32)]
