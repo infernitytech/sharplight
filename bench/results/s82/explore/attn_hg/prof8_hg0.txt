@@ -1,0 +1,13 @@
+decoder: MultiSequenceDecoder, slots 4, vocab 201088, device sampling: True, KV paged 1152 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 0 | 2048 (1) | 133.8 | 414 / 0 | 117.56 / 118.03, 117.38 |  |
+Unhandled exception. System.ArgumentException: Step has more than 2048 rows.
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.PackInputs(IReadOnlyList`1 inputs) in /root/sl-worktrees/perf-r28/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 868
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in /root/sl-worktrees/perf-r28/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 646
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in /root/sl-worktrees/perf-r28/bench/BatchBench/Program.cs:line 115
+   at Program.<Main>$(String[] args) in /root/sl-worktrees/perf-r28/bench/BatchBench/Program.cs:line 181
+timeout: the monitored command dumped core

@@ -1,6 +1,6 @@
 #!/bin/bash
 # usage: ab_steps.sh <outdir> <label> <worktree> [extra BatchBench args]; env M, SIZES, ENVV (env assignments)
-. /workspace/tools/env.sh
+. <env.sh>
 export CUDA_VISIBLE_DEVICES=0 SHARPLIGHT_VK_DEVICES=0 GGML_VK_VISIBLE_DEVICES=0
 O=$1; l=$2; w=$3; shift 3; mkdir -p $O
 M=${M:-~/models-local/hf/gpt-oss-20b}

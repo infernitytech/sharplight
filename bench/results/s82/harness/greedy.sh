@@ -1,6 +1,6 @@
 #!/bin/bash
 # greedy.sh <tree> <label> <outdir> [models...]: greedy 120 tokens, CUDA and Vulkan, prompts p40 and p1000 (inside the lock)
-. /workspace/tools/env.sh
+. <env.sh>
 T=$1; L=$2; O=$3; shift 3; mkdir -p $O
 P40="Write a detailed essay about the role of water and power in modern history. Explain the history, give concrete examples and discuss open questions."
 P1000="$(cat <path>)"

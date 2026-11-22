@@ -1,6 +1,6 @@
 #!/bin/bash
 # usage: ab_mixed.sh <outdir> label:worktree ... ; env MIXED (specs), PROF (profile entries), M (model), EXTRA
-. /workspace/tools/env.sh
+. <env.sh>
 export CUDA_VISIBLE_DEVICES=0 SHARPLIGHT_VK_DEVICES=0 GGML_VK_VISIBLE_DEVICES=0
 O=$1; shift; mkdir -p $O
 M=${M:-~/models-local/hf/gpt-oss-20b}
