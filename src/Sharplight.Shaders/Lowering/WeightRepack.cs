@@ -37,6 +37,12 @@ public enum WeightRepack
     /// </summary>
     Fp8B128Grouped,
     /// <summary>
+    /// The <see cref="Fp8B128Grouped"/> layout with power-of-two scales: each row's 128-value block is requantized to the scale
+    /// 2^ceil(log2(amax / 448)) (codes rounded to nearest even), so that the scales are exact UE8M0 values for the block-scaled MMA
+    /// (<see cref="Runtime.DeviceFeatures.BlockScaledFp8"/>). Kernels see <see cref="ShaderTypes.F8E4M3_B128G"/>.
+    /// </summary>
+    Fp8B128GroupedUe8m0,
+    /// <summary>
     /// bf16 values → f16 values (same size), for the 16-bit library GEMM (<see cref="Runtime.DeviceFeatures.LibraryGemm"/>), which takes
     /// both operands in one type: the f16 activation copies of the generated GEMMs and the weights rounded to f16 as those GEMMs round
     /// them on load. Kernels see <see cref="DataType.F16"/>.

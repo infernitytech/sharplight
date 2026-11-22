@@ -780,6 +780,13 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool? Fp8DecodeKernel { get; } = Read("SHARPLIGHT_FP8_DECODE_KERNEL") is { } v ? v != "0" : null;
 
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c>: where the device has <c>block_scaled_fp8</c>, run the 128-row tiles of the FP8 GEMM on the
+    /// block-scaled MMA (<c>gemm_fp8_bs.cu</c>) with power-of-two activation scales and E4M3 weights requantized to power-of-two scales at
+    /// load (1), or keep the f32 scales (0). Null: the lowering's default.
+    /// </summary>
+    public static bool? Fp8BlockScaled { get; } = Read("SHARPLIGHT_FP8_BLOCK_SCALED") is { } v ? v != "0" : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
     public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 

@@ -354,7 +354,7 @@ public sealed partial class GraphLowerer
         }
         else if (NativeFp8GroupedWeight(v))
         {
-            wb.Repack = WeightRepack.Fp8B128Grouped;
+            wb.Repack = Fp8BlockScaled ? WeightRepack.Fp8B128GroupedUe8m0 : WeightRepack.Fp8B128Grouped;
             wb.RepackRowElements = w.Shape[-1].Fixed;
         }
         else if (Fp8SplitRepack(w) is { } fp8Split)
@@ -410,7 +410,7 @@ public sealed partial class GraphLowerer
                 {
                     r = r with { Type = ShaderTypes.F8E4M3_B128R };
                 }
-                else if (wb.Repack == WeightRepack.Fp8B128Grouped)
+                else if (wb.Repack is WeightRepack.Fp8B128Grouped or WeightRepack.Fp8B128GroupedUe8m0)
                 {
                     r = r with { Type = ShaderTypes.F8E4M3_B128G };
                 }
@@ -509,6 +509,12 @@ public sealed partial class GraphLowerer
     private Dictionary<string, string> Macros(params (string, object)[] items)
     {
         var d = new Dictionary<string, string>(StringComparer.Ordinal) { ["SG"] = _opt.SubgroupSize.ToString(CultureInfo.InvariantCulture) };
+        if (Fp8BlockScaled)
+        {
+            // Power-of-two scales of every E4M3 activation row (e4m3.slang), which the block-scaled FP8 GEMM needs.
+            d["E4M3_UE8M0"] = "1";
+        }
+
         foreach (var (k, v) in items)
         {
             d[k] = v switch

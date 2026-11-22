@@ -305,8 +305,21 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool NativeFp8TensorCopies => DiagnosticSwitches.NativeFp8Tma && _opt.Has(DeviceFeatures.TensorCopies) && _opt.MaxSharedMemory >= NativeFp8TmaSharedBytes;
 
+    /// <summary>Whether <see cref="Fp8BlockScaled"/> is on where the device allows it and <c>SHARPLIGHT_FP8_BLOCK_SCALED</c> is not set.</summary>
+    private const bool DefaultFp8BlockScaled = false;
+
     /// <summary>
-    /// The launch variant of <c>gemm_fp8_tma.cu</c> for the batches <paramref name="serves"/> selects: one block per SM at most, each
+    /// True when the 128-row tiles of the FP8 GEMM run on the block-scaled MMA (<c>gemm_fp8_bs.cu</c>, <see cref="DeviceFeatures.BlockScaledFp8"/>):
+    /// the products accumulate in the tensor cores over the whole of K, with the scales as UE8M0 exponents. That needs power-of-two scales,
+    /// so in this mode every E4M3 activation row gets them (<c>E4M3_UE8M0</c>, e4m3.slang) and the grouped E4M3 weights are requantized to
+    /// them at load (<see cref="WeightRepack.Fp8B128GroupedUe8m0"/>); every other kernel reads the same values, so decode and prompt steps
+    /// agree. A numerics change (benchmarks.md section 86), chosen by <c>SHARPLIGHT_FP8_BLOCK_SCALED</c>.
+    /// </summary>
+    private bool Fp8BlockScaled => (DiagnosticSwitches.Fp8BlockScaled ?? DefaultFp8BlockScaled) && NativeGemmFp8 && NativeFp8TensorCopies
+        && _opt.Has(DeviceFeatures.BlockScaledFp8);
+
+    /// <summary>
+    /// The launch variant of <c>gemm_fp8_tma.cu</c> (or its block-scaled form <c>gemm_fp8_bs.cu</c>, <see cref="Fp8BlockScaled"/>) for the batches <paramref name="serves"/> selects: one block per SM at most, each
     /// walking its share of the 128-row tiles, with the tensor maps over x (its <paramref name="xcap"/> rows) and the 128-row weight groups.
     /// </summary>
     private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows)
@@ -322,7 +335,8 @@ public sealed partial class GraphLowerer
         }
 
         var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("XCAP", xcap), ("DUAL", dual ? 1 : 0));
-        var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", NativeFp8TmaThreads, NativeFp8TmaSharedBytes,
+        string file = Fp8BlockScaled ? "gemm_fp8_bs" : "gemm_fp8_tma";
+        var kernel = _compiler.CompileCuda(file + ".cu", dualEpilogue ?? "", file, NativeFp8TmaThreads, NativeFp8TmaSharedBytes,
             _opt.Target, macros, _opt.Cache, string.Join(';', maps));
         long sms = Math.Max(1, _opt.ComputeUnits);
         long columns = Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile);
