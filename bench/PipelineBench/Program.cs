@@ -11,6 +11,7 @@ using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight;
 using Sharplight.Distributed;
+using Sharplight.Distributed.Transport;
 using Sharplight.Graph;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
@@ -18,6 +19,60 @@ using Sharplight.Models;
 using Sharplight.Runtime;
 
 var argv = args.ToList();
+if (argv.Count > 1 && argv[0] == "--echo")
+{
+    // Echo server for --pingpong: returns every frame.
+    using var listener = new TcpSegmentTransport().Listen(SegmentEndpoint.Parse(argv[1]));
+    Console.WriteLine($"echo on {listener.LocalEndpoint}");
+    while (true)
+    {
+        var connection = await listener.AcceptAsync(CancellationToken.None);
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                while (true)
+                {
+                    var frame = connection.Receive();
+                    connection.Send(frame.Kind, frame.RequestId, frame.Payload.Span);
+                }
+            }
+            catch (IOException)
+            {
+                connection.Dispose();
+            }
+        });
+    }
+}
+
+if (argv.Count > 1 && argv[0] == "--pingpong")
+{
+    // Round trips of one frame of each size to an echo server (another process): the transport's floor per hop.
+    using var connection = await new TcpSegmentTransport().ConnectAsync(SegmentEndpoint.Parse(argv[1]), CancellationToken.None);
+    foreach (int size in new[] { 64, 16 << 10, 64 << 10, 1 << 20, 8 << 20 })
+    {
+        var payload = new byte[size];
+        int count = size <= 64 << 10 ? 2000 : size <= 1 << 20 ? 200 : 40;
+        var times = new List<double>();
+        for (int i = 0; i < count + 20; i++)
+        {
+            long t = Stopwatch.GetTimestamp();
+            connection.Send(FrameKind.Execute, (uint)i, payload);
+            connection.Receive();
+            if (i >= 20)
+            {
+                times.Add(Stopwatch.GetElapsedTime(t).TotalMilliseconds);
+            }
+        }
+
+        times.Sort();
+        double median = times[times.Count / 2];
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"pingpong {size,9} B: median {median * 1000:F1} us, p99 {times[(int)(times.Count * 0.99)] * 1000:F1} us, {2.0 * size / (median / 1000) / 1e9:F2} GB/s both ways"));
+    }
+
+    return;
+}
 string? Opt(string n, string? d = null)
 {
     int i = argv.IndexOf(n);
