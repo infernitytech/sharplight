@@ -814,7 +814,9 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void GroupLayerRopes(List<LoweringUnit> units, HashSet<Node> absorbed)
     {
-        if (DiagnosticSwitches.NoRopeQkv)
+        // Targets that compile CUDA C++ only: on the SPIR-V target the fused kernel gave wrong rows past the first for heads of 64 or fewer
+        // values (FusionTests.NormRopeIntoCache, benchmarks.md section 78.3; cause not found), so Vulkan keeps the separate launches.
+        if (DiagnosticSwitches.NoRopeQkv || !_compiler.CompilesCuda(_opt.Target))
         {
             return;
         }

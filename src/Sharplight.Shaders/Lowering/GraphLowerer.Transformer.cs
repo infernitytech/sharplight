@@ -183,7 +183,7 @@ public sealed partial class GraphLowerer
         var tx = xq;
         long heads = hq + 2 * hk;
         Node[] nodes = [.. new[] { queryNorm, queryRope, keyNorm, keyRope }.OfType<Node>(), keyWrite, valueWrite];
-        Emit($"rope q+k+v+cache_write {queryRope.Output.Name}", nodes,
+        Emit($"rope+qkv+cache_write {queryRope.Output.Name}", nodes,
             [Always(kernel, b => new Grid((uint)(Rows(b, tx) * heads)))],
             [Pointer(xq), Pointer(xk), Pointer(xv), Pointer(pos), Pointer(wq ?? xq), Pointer(wk ?? xk), Pointer(yq), Pointer(kc), Pointer(vc),
              new PointerArg(_runtime, 0), Pointer(frequencyFactors ?? xq), .. SeqArgs(seq, pages), TokenArg(xq)],
