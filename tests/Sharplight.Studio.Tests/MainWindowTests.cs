@@ -55,7 +55,7 @@ public sealed class MainWindowTests
             services.Runtime.Estimator = request =>
             {
                 var settings = request.Settings;
-                double kv = settings.ContextLength * (128.0 * 1024) * DownloadEstimate.KvBytesPerElement(settings.KvCacheType) * settings.Slots / 2;
+                double kv = settings.ContextLength * (128.0 * 1024) * DownloadEstimate.KvBytesPerElement(settings.KvCacheType) * settings.Slots;
                 return new ModelFootprint(8_700_000_000, (long)kv, 600_000_000);
             };
             var library = viewModel.Models.Library;
