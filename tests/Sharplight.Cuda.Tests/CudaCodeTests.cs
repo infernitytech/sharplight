@@ -546,6 +546,103 @@ public sealed class CudaCodeTests
     }
 
     /// <summary>
+    /// Two gpt-oss-style expert blocks on one routing, the second reading the RmsNorm of the first's sum, with every seventh token's
+    /// activations 300 times larger: the first block's gated products of those tokens reach past 2^15, so the gate / up GEMM's sorted
+    /// f16 store (the down projection's expert-sorted rows) flags their rows and <c>moe_range_fixup</c> stores them scaled; the second
+    /// block's products are all small, and the fix-up must clear the scale words the first block left on its rows. 50 tokens: one
+    /// fix-up workgroup (256 rows); 300: five. A row the fix-up skips keeps f16 infinities, a row scaled twice or left with a stale
+    /// word is off by its power-of-two factor.
+    /// </summary>
+    [Theory]
+    [InlineData(50)]
+    [InlineData(300)]
+    public void NativeMoeSortedStoreScalesLargeRows(int tokens)
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmMoe), "The GPU has no hand-written grouped MXFP4 GEMM (compute capability below 8.0).");
+        var cpuProvider = new Cpu.CpuExecutionProvider();
+
+        var expected = RunExpertBlocks(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), tokens);
+        var actual = RunExpertBlocks(provider.OpenDevice(info), tokens);
+        foreach (var (name, want) in expected)
+        {
+            var got = actual[name];
+            double scale = want.Max(MathF.Abs);
+            for (int i = 0; i < want.Length; i++)
+            {
+                Assert.True(Math.Abs(want[i] - got[i]) <= 2e-2 * scale, $"{name}[{i}]: {got[i]} vs {want[i]} (scale {scale})");
+            }
+        }
+    }
+
+    private static Dictionary<string, float[]> RunExpertBlocks(IComputeDevice device, int tokens)
+    {
+        const int E = 8, S = 4, K = 576, H = 192;
+        using (device)
+        {
+            var tg = new TG("cuda-native-moe-large");
+            var x = tg.InF("x", TG.T, K);
+            var ids = tg.In("ids", DataType.I32, TG.T, S);
+            var weights = tg.InF("weights", TG.T, S, 1);
+            Value Block(string name, Value input)
+            {
+                var gateUp = tg.B.Emit1("MatMulId", [input, tg.RandW(name + "gate_up", DataType.MXFP4, 0.1f, E, 2 * H, K), ids]);
+                var act = tg.B.Mul(tg.B.Silu(tg.B.Slice(gateUp, 2, 0, H)), tg.B.Slice(gateUp, 2, H, H));
+                var down = tg.B.Emit1("MatMulId", [act, tg.RandW(name + "down", DataType.MXFP4, 0.1f, E, K, H), ids]);
+                return tg.B.Reshape(tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, weights), 0, 2, 1)]), 0, K);
+            }
+
+            var first = Block("b1.", x);
+            var norm = tg.B.Emit1("RmsNorm", [first, tg.RandW("norm", DataType.F32, 1f, K)], Attributes.From(("eps", 1e-6f)));
+            tg.B.Output("y1", first);
+            tg.B.Output("y2", Block("b2.", norm));
+            var graph = tg.B.Build();
+            using var model = CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                Compile = new CompileOptions { MaxTokens = 1024, ContextLength = 1024 },
+                ReservePerDevice = 0,
+            });
+            var input = new float[tokens * K];
+            for (int i = 0; i < input.Length; i++)
+            {
+                input[i] = MathF.Sin(i * 0.37f) * (i / K % 7 == 0 ? 300f : 1f);
+            }
+
+            var routes = new int[tokens * S];
+            var gates = new float[tokens * S];
+            var rng = new Random(tokens);
+            for (int t = 0; t < tokens; t++)
+            {
+                var chosen = Enumerable.Range(0, E).OrderBy(e => rng.NextDouble() * (1 + e * 0.3)).Take(S).ToArray();
+                for (int s = 0; s < S; s++)
+                {
+                    routes[t * S + s] = chosen[s];
+                    gates[t * S + s] = 0.1f + 0.2f * s;
+                }
+            }
+
+            model.SetInput<float>(x, input);
+            model.SetInput<int>(ids, routes);
+            model.SetInput<float>(weights, gates);
+            var parameters = new RunParameters();
+            parameters.Symbols["T"] = tokens;
+            model.Run(parameters);
+            var outputs = new Dictionary<string, float[]>();
+            foreach (string name in new[] { "y1", "y2" })
+            {
+                var output = new float[tokens * K];
+                model.GetOutput<float>(name, output);
+                outputs[name] = output;
+            }
+
+            return outputs;
+        }
+    }
+
+    /// <summary>
     /// y0, y1, y2 = x · W0ᵀ, x · W1ᵀ, x · W2ᵀ with FP8 weights [512 / 128 / 128, 1024] (a q / k / v group) on <paramref name="rows"/> rows,
     /// with activations the per-128 E4M3 quantization represents exactly (as <see cref="RunProjection"/>).
     /// </summary>
