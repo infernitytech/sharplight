@@ -1,0 +1,8 @@
+== lock 18:25:38
+The capital of France is Paris. Distance from Paris to Marseille is 661 km, while direct flight time from Paris to Marseille is 1
+2.48.051.528 I common_perf_print:        load time =    9864.09 ms
+2.48.051.533 I common_perf_print: prompt eval time =    9859.61 ms /     5 tokens ( 1971.92 ms per token,     0.51 tokens per second)
+2.48.051.535 I common_perf_print:        eval time =   41612.55 ms /    23 runs   ( 1809.24 ms per token,     0.55 tokens per second)
+== vulkan families 18:28:29
+[0m[37m   Sharplight.Families.Tests  Total: 322, Errors: 0, Failed: 0, Skipped: 104, Not Run: 0, Time: 537.999s
+== unlock 18:37:30

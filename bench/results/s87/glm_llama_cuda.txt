@@ -1,0 +1,9 @@
+The capital of France is Paris. Distance from Paris to Marseille is 661 km, while direct flight time from Paris to Marseille is 1
+2.48.047.417 I common_perf_print:    sampling time =       8.64 ms
+2.48.047.423 I common_perf_print:    samplers time =       2.45 ms /    29 tokens
+2.48.051.528 I common_perf_print:        load time =    9864.09 ms
+2.48.051.533 I common_perf_print: prompt eval time =    9859.61 ms /     5 tokens ( 1971.92 ms per token,     0.51 tokens per second)
+2.48.051.535 I common_perf_print:        eval time =   41612.55 ms /    23 runs   ( 1809.24 ms per token,     0.55 tokens per second)
+2.48.051.538 I common_perf_print:       total time =   51505.57 ms /    28 tokens
+2.48.051.540 I common_perf_print: unaccounted time =      24.77 ms /   0.0 %      (total - sampling - prompt eval - eval) / (total)
+2.48.051.540 I common_perf_print:    graphs reused =         22

@@ -12987,7 +12987,11 @@ quantization noise of a 2-bit file; the docs' "above 0.98" criterion).
 |---|---:|---:|---:|---:|
 | 24-token text (cold cache) | 0.41 tok/s | 5 tokens in 9.8 s | 54.3 % | 83.9 GB |
 | `--bench 8`, 64 decode steps | best 2.09, median 0.99, mean 0.90 tok/s; GPU 46.8 ms per step | 8 tokens in 6.35 s (best of 2) | 59.3 % (decode) | 193.7 GB in the decode steps (3.0 GB per step) |
-GLMLLAMA
+| llama.cpp b11177 CUDA (`-ngl 99 -ncmoe 74 -fa on -t 10`: 4 expert layers on the GPU as ours, the rest mapped), 24-token text | 0.55 tok/s | 5 tokens in 9.9 s | | page cache |
+
+Against llama.cpp on the same pod: the prompt takes the same time (9.8 / 9.9 s for 5 tokens), our first 24-token text run decodes slower
+(0.41 against 0.55 tok/s: the cold 24 GiB cache hits 54 %), the warm bench steps faster (median 0.99, best 2.09 tok/s). llama.cpp's CUDA text
+equals its CPU text.
 
 ### 87.3 Kimi-K3 UD-Q1_0 (466 GB): narrow IQ1 experts on disk; correct against llama.cpp on a truncated checkpoint
 
@@ -13087,7 +13091,17 @@ KL 1.2e-2 from llama.cpp's token-by-token decoding, llama.cpp's own prompt pass 
 
 ### 87.7 Tests
 
-TESTS
+| suite | result |
+|---|---|
+| Sharplight.Core.Tests | 1672 / 0 failed / 332 skipped |
+| Sharplight.Cpu.Tests (encoded `DiskExpertTests` cases, `HostMemoryTests`) | 1410 / 0 failed / 48 skipped |
+| Sharplight.Serving.Tests | 396 / 1 failed / 28 skipped: `MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached` in one full run and `EngineFeatureTests.FairQueuing_LightTenantOvertakesHeavyTenantsBacklog` in another, both timing-dependent and untouched here; each class passed 3 of 3 runs alone |
+| Sharplight.Hosting.Tests | 28 / 0 failed |
+| Sharplight.Import.Gguf.Tests (`NarrowIq1Tests`) | 68 / 0 failed / 1 skipped |
+| Sharplight.Cuda.Tests | 63 / 0 failed / 1 skipped |
+| Sharplight.Vulkan.Tests StreamedExperts and Moe (on the Vulkan device) | 8 / 0 and 129 / 0 |
+| Sharplight.Families.Tests `FamilyGenerationTests` on CPU and on Vulkan | 322 / 0 failed / 104 skipped each (files absent) |
+| Sharplight.Families.Tests `LogprobReferenceTests` (the three truncated real checkpoints) on CPU and Vulkan | 3 / 0 each (the rwkv cases skip: file absent) |
 
 ### 87.8 Reproduce
 
