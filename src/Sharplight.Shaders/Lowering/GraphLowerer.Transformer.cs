@@ -111,6 +111,12 @@ public sealed partial class GraphLowerer
     /// </summary>
     private const int RopeQkvShortRowsPerGroup = 4;
 
+    /// <summary>
+    /// Rows per warp of <c>rope_qkv</c>'s warp form (<c>QKV_WARP</c>, 32-lane subgroups): one warp per (token, head) row, four warps per
+    /// workgroup, no barriers, so rows with a q / k norm no longer wait on each other's reductions.
+    /// </summary>
+    private const int RopeQkvWarpRowsDefault = 1;
+
     /// <summary>Rows per <c>rope_qkv</c> workgroup from <see cref="RopeQkvLongRows"/> rows on (see <see cref="RopeQkvShortRowsPerGroup"/>).</summary>
     private const int RopeQkvLongRowsPerGroup = 8;
 
@@ -194,18 +200,22 @@ public sealed partial class GraphLowerer
             .. PageMacros(keyWrite, pages),
         ];
         // Rows with a q / k norm keep one row per workgroup: their reduction's barriers make the rows of a workgroup wait on each other.
+        // The warp form (one 32-lane warp per row, four per workgroup) has no barriers, so normed rows also share a workgroup.
         bool normed = queryNorm is not null || keyNorm is not null;
-        int shortRows = normed ? 1 : RopeQkvShortRowsPerGroup;
-        int longRows = normed ? 1 : RopeQkvLongRowsPerGroup;
-        var shortKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", shortRows)]));
-        var longKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", longRows)]));
+        int warpRows = DiagnosticSwitches.RopeQkvWarpRows ?? RopeQkvWarpRowsDefault;
+        bool warp = warpRows > 0 && _opt.SubgroupSize == 32;
+        int shortRows = warp ? warpRows : normed ? 1 : RopeQkvShortRowsPerGroup;
+        int longRows = warp ? warpRows : normed ? 1 : RopeQkvLongRowsPerGroup;
+        int groupRows = warp ? 4 : 1;
+        var shortKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", shortRows), ("QKV_WARP", warp)]));
+        var longKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", longRows), ("QKV_WARP", warp)]));
         var yq = Produce(queryRope.Output);
         var tx = xq;
         long heads = hq + 2 * hk;
         Node[] nodes = [.. new[] { queryNorm, queryRope, keyNorm, keyRope }.OfType<Node>(), keyWrite, valueWrite];
         Emit($"rope+qkv+cache_write {queryRope.Output.Name}", nodes,
-            [new KernelVariant(b => Rows(b, tx) * heads >= RopeQkvLongRows, longKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, longRows))),
-             Always(shortKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, shortRows)))],
+            [new KernelVariant(b => Rows(b, tx) * heads >= RopeQkvLongRows, longKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, longRows * groupRows))),
+             Always(shortKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, shortRows * groupRows)))],
             [Pointer(xq), Pointer(xk), Pointer(xv), Pointer(pos), Pointer(wq ?? xq), Pointer(wk ?? xk), Pointer(yq), Pointer(kc), Pointer(vc),
              new PointerArg(_runtime, 0), Pointer(frequencyFactors ?? xq), .. SeqArgs(seq, pages), TokenArg(xq)],
             [xq, xk, xv, pos, .. new[] { wq, wk, frequencyFactors }.OfType<TensorRef>(), .. PresentTables(seq, pages)], [yq, kc, vc]);

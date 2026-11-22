@@ -173,6 +173,12 @@ internal static class DiagnosticSwitches
     /// <summary>Lowers a layer's query rope, key rope + cache write and value cache write as separate launches (<c>SHARPLIGHT_NO_ROPE_QKV=1</c>).</summary>
     public static bool NoRopeQkv { get; } = IsSet("SHARPLIGHT_NO_ROPE_QKV");
 
+    /// <summary>
+    /// Rows per warp of <c>rope_qkv</c>'s warp form (<c>SHARPLIGHT_ROPE_QKV_WARP=n</c>; 0 keeps the 64-thread workgroups per row; unset:
+    /// the lowering's default).
+    /// </summary>
+    public static int? RopeQkvWarpRows { get; } = Read("SHARPLIGHT_ROPE_QKV_WARP") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Names the attention layers whose ropes and cache writes stay separate launches, and why (<c>SHARPLIGHT_ROPE_QKV_DEBUG=1</c>).</summary>
     public static bool RopeQkvDebug { get; } = Read("SHARPLIGHT_ROPE_QKV_DEBUG") == "1";
 
@@ -561,6 +567,12 @@ internal static class DiagnosticSwitches
     /// (short runs) and flash attention (long runs); <c>SHARPLIGHT_ATTN_MIXED=0</c> keeps one kernel for the whole step.
     /// </summary>
     public static bool AttentionMixed { get; } = IsNotZero("SHARPLIGHT_ATTN_MIXED");
+
+    /// <summary>
+    /// Mean rows per run below which a multi-sequence step takes the mixed attention form (<c>SHARPLIGHT_ATTN_MIXED_RUN_ROWS=n</c>; unset:
+    /// the lowering's default).
+    /// </summary>
+    public static long? AttentionMixedRunRows { get; } = Read("SHARPLIGHT_ATTN_MIXED_RUN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>True when multi-sequence batches may use flash attention.</summary>
     public static bool AttentionSequenceFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_SEQ_FA");

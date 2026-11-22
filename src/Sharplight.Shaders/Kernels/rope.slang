@@ -309,6 +309,96 @@ void qkv_rope_head(QkvParams p, float* xr, float* w, bool norm, float eps, bool 
     }
 }
 
+#ifndef QKV_WARP
+#define QKV_WARP 0
+#endif
+#if QKV_WARP
+// QKV_WARP (CUDA, 32-lane warps): one warp per (t, head) row, four rows per 128-thread workgroup at a time, no shared memory and no
+// barrier. The q / k norm's reduction is the 64-thread form's tree, bit for bit: lane l holds the partials of threads l and l + 32
+// (their sum is the tree's first level), and the xor butterfly computes every later level of lane 0's chain from the same operands.
+// The rotation runs the same arithmetic per pair, two pairs per lane where the 64-thread form ran one.
+float qkv_rms_scale_warp(float* xr, uint lane, float eps)
+{
+    float a = 0, b = 0;
+    for (uint i = lane; i < D; i += 64) { float v = xr[i]; a += v * v; }
+    for (uint i = lane + 32; i < D; i += 64) { float v = xr[i]; b += v * v; }
+    float s = a + b;
+    [ForceUnroll]
+    for (uint m = 16; m > 0; m >>= 1) { s += WaveReadLaneAt(s, lane ^ m); }
+    return rsqrt(WaveReadLaneAt(s, 0) / float(D) + eps);
+}
+
+void qkv_rope_head_warp(QkvParams p, float* xr, float* w, bool norm, float eps, bool Q, uint t, uint hh, uint lane)
+{
+    const uint PAIRS = D / 2;
+    float scale = 1.0;
+    if (norm)
+    {
+        scale = qkv_rms_scale_warp(xr, lane, eps);
+    }
+
+    for (uint i = lane; i < PAIRS; i += 32)
+    {
+        uint i0, i1;
+#if NEOX
+        if (i < ROT / 2) { i0 = i; i1 = i + ROT / 2; }
+        else { uint j = ROT + 2 * (i - ROT / 2); i0 = j; i1 = j + 1; }
+#else
+        i0 = 2 * i; i1 = 2 * i + 1;
+#endif
+        float x0 = xr[i0] * scale, x1 = xr[i1] * scale;
+        if (norm)
+        {
+            x0 *= w[i0];
+            x1 *= w[i1];
+        }
+
+        float y0 = x0, y1 = x1;
+        if (i < ROT / 2)
+        {
+            float c, s, c2, s2;
+            pair_angles(p.pos, p.ff, t, i, i0, i1, c, s, c2, s2);
+            y0 = x0 * c - x1 * s;
+            y1 = x0 * s2 + x1 * c2;
+        }
+
+        if (Q)
+        {
+            p.yq[(uint64_t(t) * HQ + hh) * D + i0] = y0;
+            p.yq[(uint64_t(t) * HQ + hh) * D + i1] = y1;
+        }
+        else
+        {
+            qkv_cache_store(p.kc, qkv_cache_index(p, t, hh, i0), y0);
+            qkv_cache_store(p.kc, qkv_cache_index(p, t, hh, i1), y1);
+        }
+    }
+}
+
+void rope_qkv_row_warp(QkvParams p, uint row, uint lane)
+{
+    const uint HEADS = HQ + 2 * HK;
+    uint t = row / HEADS, h = row % HEADS;
+    if (h < HQ)
+    {
+        qkv_rope_head_warp(p, p.xq + uint64_t(t) * QS0 + uint64_t(h) * QS1, p.wq, NORM_Q != 0, EPS_Q, true, t, h, lane);
+    }
+    else if (h < HQ + HK)
+    {
+        qkv_rope_head_warp(p, p.xk + uint64_t(t) * KS0 + uint64_t(h - HQ) * KS1, p.wk, NORM_K != 0, EPS_K, false, t, h - HQ, lane);
+    }
+    else
+    {
+        uint hv = h - HQ - HK;
+        float* vr = p.xv + uint64_t(t) * VS0 + uint64_t(hv) * VS1;
+        for (uint i = lane; i < D; i += 32)
+        {
+            qkv_cache_store(p.vc, qkv_cache_index(p, t, hv, i), vr[i]);
+        }
+    }
+}
+#endif
+
 // QKV_RPW (rows per workgroup, default 1): each workgroup runs that many consecutive (t, head) rows one after another; a launch of
 // short rows (64 values, no norm) is otherwise bound by how fast workgroups start.
 #ifndef QKV_RPW
@@ -338,6 +428,23 @@ void rope_qkv_row(QkvParams p, uint row, uint lt)
     }
 }
 
+#if QKV_WARP
+// QKV_RPW rows per warp (consecutive), four warps per workgroup.
+[shader("compute")]
+[numthreads(128, 1, 1)]
+void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform QkvParams p)
+{
+    const uint rows = p.T * (HQ + 2 * HK);
+    uint lane = ltid.x % 32;
+    uint first = (gid.x * 4 + ltid.x / 32) * QKV_RPW;
+    for (uint r = 0; r < QKV_RPW; r++)
+    {
+        uint row = first + r;
+        if (row >= rows) return;
+        rope_qkv_row_warp(p, row, lane);
+    }
+}
+#else
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform QkvParams p)
@@ -350,4 +457,5 @@ void rope_qkv(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Qkv
         rope_qkv_row(p, row, ltid.x);
     }
 }
+#endif
 #endif
