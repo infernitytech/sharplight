@@ -1,0 +1,225 @@
+== lock 11:50:38
+--- text
+anon 1439076352
+Graph optimization (sharplight-ir/1): decode 3408 -> 3407 nodes, decode_embeddings 3407 -> 3406 nodes [160 ms]
+Loaded Deepseek-V3.1 (latent_decoder): 1087 tensors, 405.39 GB, vocab 129280 [556 ms]
+Experts on disk: io_uring is unavailable (io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)); reading with 8 threads instead.
+Experts on disk: 360.1 GiB of routed experts on the CPU exceed the 28.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 28.0 GiB cache.
+[load] lower segment 0: 456 ms (310 launches, 84 buffers)
+[load] upload segment 0: 8363 ms, 1.76 GB; Runtime 0.0 MiB, Activations 139.8 MiB, Input 0.0 MiB, Output 3.5 MiB, State 18.0 MiB
+[load] kernels segment 0: waited 25817 ms for 193 kernels; slang CompileStatistics { Compiled = 161, CompileTime = 00:00:47.3881460 }; nvrtc 185 kernels 116790 ms; 193 linked, 0 cubins cached, 23697 ms summed
+[load] lower segment 2: 22 ms (98 launches, 41 buffers)
+[load] upload segment 2: 159 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 2: waited 7336 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 4: 8 ms (98 launches, 41 buffers)
+[load] upload segment 4: 188 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 4: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 6: 5 ms (98 launches, 41 buffers)
+[load] upload segment 6: 167 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 6: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 8: 8 ms (98 launches, 41 buffers)
+[load] upload segment 8: 178 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 8: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 10: 10 ms (98 launches, 41 buffers)
+[load] upload segment 10: 164 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 10: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 12: 4 ms (98 launches, 41 buffers)
+[load] upload segment 12: 173 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 12: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 14: 4 ms (98 launches, 41 buffers)
+[load] upload segment 14: 162 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 14: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 16: 6 ms (98 launches, 41 buffers)
+[load] upload segment 16: 174 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 16: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 18: 3 ms (98 launches, 41 buffers)
+[load] upload segment 18: 164 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 18: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 20: 4 ms (98 launches, 41 buffers)
+[load] upload segment 20: 174 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 20: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 22: 4 ms (98 launches, 41 buffers)
+[load] upload segment 22: 180 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 22: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 24: 3 ms (98 launches, 41 buffers)
+[load] upload segment 24: 175 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 24: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 26: 6 ms (98 launches, 41 buffers)
+[load] upload segment 26: 184 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 26: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 28: 3 ms (98 launches, 41 buffers)
+[load] upload segment 28: 177 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 28: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 30: 4 ms (98 launches, 41 buffers)
+[load] upload segment 30: 167 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 30: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 32: 6 ms (98 launches, 41 buffers)
+[load] upload segment 32: 169 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 32: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 34: 3 ms (98 launches, 41 buffers)
+[load] upload segment 34: 251 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 34: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 36: 3 ms (98 launches, 41 buffers)
+[load] upload segment 36: 153 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 36: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 38: 6 ms (98 launches, 41 buffers)
+[load] upload segment 38: 166 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 38: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 40: 3 ms (98 launches, 41 buffers)
+[load] upload segment 40: 163 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 40: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 42: 3 ms (98 launches, 41 buffers)
+[load] upload segment 42: 175 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 42: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 44: 6 ms (98 launches, 41 buffers)
+[load] upload segment 44: 157 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 44: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 46: 3 ms (98 launches, 41 buffers)
+[load] upload segment 46: 165 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 46: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 48: 3 ms (98 launches, 41 buffers)
+[load] upload segment 48: 165 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 48: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 50: 6 ms (98 launches, 41 buffers)
+[load] upload segment 50: 162 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 50: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 52: 3 ms (98 launches, 41 buffers)
+[load] upload segment 52: 168 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 52: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 54: 3 ms (98 launches, 41 buffers)
+[load] upload segment 54: 155 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 54: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 56: 7 ms (98 launches, 41 buffers)
+[load] upload segment 56: 154 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 56: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 58: 3 ms (98 launches, 41 buffers)
+[load] upload segment 58: 164 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 58: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 60: 4 ms (98 launches, 41 buffers)
+[load] upload segment 60: 161 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 60: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 62: 14 ms (98 launches, 41 buffers)
+[load] upload segment 62: 158 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 62: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 64: 3 ms (98 launches, 41 buffers)
+[load] upload segment 64: 166 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 64: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 66: 3 ms (98 launches, 41 buffers)
+[load] upload segment 66: 163 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 66: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 68: 5 ms (98 launches, 41 buffers)
+[load] upload segment 68: 157 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 68: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 70: 3 ms (98 launches, 41 buffers)
+[load] upload segment 70: 165 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 70: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 72: 3 ms (98 launches, 41 buffers)
+[load] upload segment 72: 162 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 72: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 74: 3 ms (98 launches, 41 buffers)
+[load] upload segment 74: 152 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 74: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 76: 3 ms (98 launches, 41 buffers)
+[load] upload segment 76: 160 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 76: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 78: 5 ms (98 launches, 41 buffers)
+[load] upload segment 78: 167 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 78: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 80: 4 ms (98 launches, 41 buffers)
+[load] upload segment 80: 163 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 80: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 82: 3 ms (98 launches, 41 buffers)
+[load] upload segment 82: 168 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 82: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 84: 7 ms (98 launches, 41 buffers)
+[load] upload segment 84: 160 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 84: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 86: 3 ms (98 launches, 41 buffers)
+[load] upload segment 86: 160 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 86: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 88: 3 ms (98 launches, 41 buffers)
+[load] upload segment 88: 159 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 88: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 90: 5 ms (98 launches, 41 buffers)
+[load] upload segment 90: 167 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 90: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 92: 3 ms (98 launches, 41 buffers)
+[load] upload segment 92: 163 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 92: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 94: 3 ms (98 launches, 41 buffers)
+[load] upload segment 94: 178 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 94: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 96: 12 ms (98 launches, 41 buffers)
+[load] upload segment 96: 166 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 96: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 98: 3 ms (98 launches, 41 buffers)
+[load] upload segment 98: 163 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 98: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 100: 3 ms (98 launches, 41 buffers)
+[load] upload segment 100: 169 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 100: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 102: 5 ms (98 launches, 41 buffers)
+[load] upload segment 102: 165 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 102: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 104: 3 ms (98 launches, 41 buffers)
+[load] upload segment 104: 160 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 104: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 106: 3 ms (98 launches, 41 buffers)
+[load] upload segment 106: 166 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 106: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 108: 7 ms (98 launches, 41 buffers)
+[load] upload segment 108: 168 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 108: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 110: 3 ms (98 launches, 41 buffers)
+[load] upload segment 110: 162 ms, 0.16 GB; Runtime 0.0 MiB, Activations 103.8 MiB, Input 5.3 MiB, State 4.5 MiB, Output 3.5 MiB
+[load] kernels segment 110: waited 0 ms for 187 kernels; slang CompileStatistics { Compiled = 204, CompileTime = 00:00:58.3942929 }; nvrtc 240 kernels 141499 ms; 250 linked, 0 cubins cached, 28333 ms summed
+[load] lower segment 112: 40 ms (270 launches, 70 buffers)
+[load] upload segment 112: 5306 ms, 15.72 GB; Runtime 0.0 MiB, Activations 105.1 MiB, Input 5.3 MiB, State 9.0 MiB, Output 2.2 MiB
+[load] kernels segment 112: waited 9054 ms for 251 kernels; slang CompileStatistics { Compiled = 264, CompileTime = 00:01:16.0705002 }; nvrtc 308 kernels 186045 ms; 317 linked, 0 cubins cached, 34383 ms summed
+[load] NVIDIA RTX PRO 4500 Blackwell after compiling 'decode': 5294 MiB available, 25733 MiB held, 57 segments, 0 streamed, 0 sparse, 512 MiB reserved
+[load] groups on AMD EPYC 7443 24-Core Processor: layers.3#experts, layers.4#experts, layers.5#experts, layers.6#experts, layers.7#experts, layers.8#experts, layers.9#experts, layers.10#experts, layers.11#experts, layers.12#experts, layers.13#experts, layers.14#experts, layers.15#experts, layers.16#experts, layers.17#experts, layers.18#experts, layers.19#experts, layers.20#experts, layers.21#experts, layers.22#experts, layers.23#experts, layers.24#experts, layers.25#experts, layers.26#experts, layers.27#experts, layers.28#experts, layers.29#experts, layers.30#experts, layers.31#experts, layers.32#experts, layers.33#experts, layers.34#experts, layers.35#experts, layers.36#experts, layers.37#experts, layers.38#experts, layers.39#experts, layers.40#experts, layers.41#experts, layers.42#experts, layers.43#experts, layers.44#experts, layers.45#experts, layers.46#experts, layers.47#experts, layers.48#experts, layers.49#experts, layers.50#experts, layers.51#experts, layers.52#experts, layers.53#experts, layers.54#experts, layers.55#experts, layers.56#experts, layers.57#experts, layers.58#experts
+Compiled 'decode' in 67457 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 66 groups, 24.51 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 56 groups, 353.31 GiB weights+state
+56 routed-expert group(s) on disk
+113 segment(s): [0@0: 139 nodes] → [1@1: 9 nodes] → [2@0: 48 nodes] → [3@1: 9 nodes] → [4@0: 48 nodes] → [5@1: 9 nodes] → [6@0: 48 nodes] → [7@1: 9 nodes] → [8@0: 48 nodes] → [9@1: 9 nodes] → [10@0: 48 nodes] → [11@1: 9 nodes] → [12@0: 48 nodes] → [13@1: 9 nodes] → [14@0: 48 nodes] → [15@1: 9 nodes] → [16@0: 48 nodes] → [17@1: 9 nodes] → [18@0: 48 nodes] → [19@1: 9 nodes] → [20@0: 48 nodes] → [21@1: 9 nodes] → [22@0: 48 nodes] → [23@1: 9 nodes] → [24@0: 48 nodes] → [25@1: 9 nodes] → [26@0: 48 nodes] → [27@1: 9 nodes] → [28@0: 48 nodes] → [29@1: 9 nodes] → [30@0: 48 nodes] → [31@1: 9 nodes] → [32@0: 48 nodes] → [33@1: 9 nodes] → [34@0: 48 nodes] → [35@1: 9 nodes] → [36@0: 48 nodes] → [37@1: 9 nodes] → [38@0: 48 nodes] → [39@1: 9 nodes] → [40@0: 48 nodes] → [41@1: 9 nodes] → [42@0: 48 nodes] → [43@1: 9 nodes] → [44@0: 48 nodes] → [45@1: 9 nodes] → [46@0: 48 nodes] → [47@1: 9 nodes] → [48@0: 48 nodes] → [49@1: 9 nodes] → [50@0: 48 nodes] → [51@1: 9 nodes] → [52@0: 48 nodes] → [53@1: 9 nodes] → [54@0: 48 nodes] → [55@1: 9 nodes] → [56@0: 48 nodes] → [57@1: 9 nodes] → [58@0: 48 nodes] → [59@1: 9 nodes] → [60@0: 48 nodes] → [61@1: 9 nodes] → [62@0: 48 nodes] → [63@1: 9 nodes] → [64@0: 48 nodes] → [65@1: 9 nodes] → [66@0: 48 nodes] → [67@1: 9 nodes] → [68@0: 48 nodes] → [69@1: 9 nodes] → [70@0: 48 nodes] → [71@1: 9 nodes] → [72@0: 48 nodes] → [73@1: 9 nodes] → [74@0: 48 nodes] → [75@1: 9 nodes] → [76@0: 48 nodes] → [77@1: 9 nodes] → [78@0: 48 nodes] → [79@1: 9 nodes] → [80@0: 48 nodes] → [81@1: 9 nodes] → [82@0: 48 nodes] → [83@1: 9 nodes] → [84@0: 48 nodes] → [85@1: 9 nodes] → [86@0: 48 nodes] → [87@1: 9 nodes] → [88@0: 48 nodes] → [89@1: 9 nodes] → [90@0: 48 nodes] → [91@1: 9 nodes] → [92@0: 48 nodes] → [93@1: 9 nodes] → [94@0: 48 nodes] → [95@1: 9 nodes] → [96@0: 48 nodes] → [97@1: 9 nodes] → [98@0: 48 nodes] → [99@1: 9 nodes] → [100@0: 48 nodes] → [101@1: 9 nodes] → [102@0: 48 nodes] → [103@1: 9 nodes] → [104@0: 48 nodes] → [105@1: 9 nodes] → [106@0: 48 nodes] → [107@1: 9 nodes] → [108@0: 48 nodes] → [109@1: 9 nodes] → [110@0: 48 nodes] → [111@1: 9 nodes] → [112@0: 125 nodes]
+Ready (decode)
+The capital of France isExperts on disk: 168 weights in 56 layers (353.3 GiB) read with threads x8; 4.4 GB/s measured; a decode step reads up to 11.86 GB: about 0.37 tok/s from a cold cache, ~0.40 tok/s once the 28.0 GiB cache holds its share (reads only; compute adds to it).
+ Paris. The capital of Spain is Madrid. The capital of Italy is Rome. The capital of Germany is Berlin. The
+prompt: 6 tok in 19621 ms (0.3 tok/s) | generated: 24 tok, 1.03 tok/s
+experts on disk (threads x8): hit rate 40.9 % (15141 hits, 7328 read ahead, 14593 misses, 7327 prefetched, 18531 evictions), read 193.89 GB, waited 23.08 s, cache 28.0 GiB in 3405 slots
+anon 1492918272
+--- bench
+anon 1491456000
+segment 60: 36 launches per step (cuda, one stream)
+segment 62: 36 launches per step (cuda, one stream)
+segment 64: 36 launches per step (cuda, one stream)
+segment 66: 36 launches per step (cuda, one stream)
+segment 68: 36 launches per step (cuda, one stream)
+segment 70: 36 launches per step (cuda, one stream)
+segment 72: 36 launches per step (cuda, one stream)
+segment 74: 36 launches per step (cuda, one stream)
+segment 76: 36 launches per step (cuda, one stream)
+segment 78: 36 launches per step (cuda, one stream)
+segment 80: 36 launches per step (cuda, one stream)
+segment 82: 36 launches per step (cuda, one stream)
+segment 84: 36 launches per step (cuda, one stream)
+segment 86: 36 launches per step (cuda, one stream)
+segment 88: 36 launches per step (cuda, one stream)
+segment 90: 36 launches per step (cuda, one stream)
+segment 92: 36 launches per step (cuda, one stream)
+segment 94: 36 launches per step (cuda, one stream)
+segment 96: 36 launches per step (cuda, one stream)
+segment 98: 36 launches per step (cuda, one stream)
+segment 100: 36 launches per step (cuda, one stream)
+segment 102: 36 launches per step (cuda, one stream)
+segment 104: 36 launches per step (cuda, one stream)
+segment 106: 36 launches per step (cuda, one stream)
+segment 108: 36 launches per step (cuda, one stream)
+segment 110: 36 launches per step (cuda, one stream)
+segment 112: 83 launches per step (cuda, one stream)
+experts on disk, warm-up and prefills: hit rate 5.5 % (1261 hits, 7245 read ahead, 14420 misses, 7244 prefetched, 18275 evictions), read 191.41 GB, waited 22.52 s, cache 28.0 GiB in 3405 slots
+experts on disk, decode: hit rate 37.6 % (35028 hits, 19468 read ahead, 38714 misses, 19468 prefetched, 58182 evictions), read 513.70 GB, waited 62.22 s, cache 28.0 GiB in 3405 slots
+prefill 8 tok: best 8691 ms = 0.9 tok/s | decode: best 1.17, median 0.93, mean 0.91 tok/s | GPU ms/step: best 18.55, median 18.73, wall best 857.37 | prefill median of 2: 8729.9 ms = 0.9 tok/s
+anon 1407647744
+== unlock 11:54:43
