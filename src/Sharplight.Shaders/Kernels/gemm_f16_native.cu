@@ -22,9 +22,6 @@
 // start at byte H_XRS of x (common.slang, f16_range_scale); the store multiplies each row's products by the inverse of its scale
 // (before the bias; exact: a power of two), as the unscale launch (and the Add) would.
 //
-// H_SKIP_PAD (default 1): a warp skips the A fragments and MMAs of its 16-row fragments past the batch's last row (a partial last
-// token tile costs about its rows); the other fragments compute the same products.
-//
 // Specialization macros: K, N (all rows with MULTI), Y_STRIDE, H_CFG, H_DBN (H_CFG 2), DUAL, H_EPI2 (DUAL), MULTI, MULTI_O1,
 // MULTI_O2, H_BIAS, H_XRS. Requires K % 64 == 0, 16-byte aligned operands and an even Y_STRIDE (MULTI: even widths). Grid:
 // x = token tiles, y = weight tiles.
@@ -36,9 +33,6 @@
 #endif
 #ifndef H_BIAS
 #define H_BIAS 0
-#endif
-#ifndef H_SKIP_PAD
-#define H_SKIP_PAD 1
 #endif
 #ifndef MULTI
 #define MULTI 0
@@ -209,12 +203,6 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
     h_u32 n0 = id % groupBlocks / groupRows * H_BOUT;
     const HMember m = h_member(p, n0);
     const h_u32 nk = K / 64;
-#if H_SKIP_PAD
-    // 16-row fragments of this warp that hold rows of x (warp-uniform): a partial last token tile skips the MMAs of rows past T.
-    const int nfr = min(max(((int)p.T - (int)(t0 + wm * H_TM) + 15) / 16, 0), H_FM);
-#else
-    const int nfr = H_FM;
-#endif
 
     auto load = [&](h_u32 s, h_u32 kb) {
         h_u32 base = (h_u32)__cvta_generic_to_shared(smem + s * H_STAGE_BYTES);
@@ -277,11 +265,8 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
 #pragma unroll
             for (int i = 0; i < H_FM; i++)
             {
-                if (i < nfr)
-                {
-                    h_u32 r = wm * H_TM + i * 16 + (lane & 15);
-                    h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
-                }
+                h_u32 r = wm * H_TM + i * 16 + (lane & 15);
+                h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
             }
 #pragma unroll
             for (int j = 0; j < H_FN; j += 2)
@@ -292,13 +277,10 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
 #pragma unroll
             for (int i = 0; i < H_FM; i++)
             {
-                if (i < nfr)
-                {
 #pragma unroll
-                    for (int j = 0; j < H_FN; j++)
-                    {
-                        h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
-                    }
+                for (int j = 0; j < H_FN; j++)
+                {
+                    h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
                 }
             }
         }

@@ -11,8 +11,6 @@
 //  * W (and W2): the 128-row groups of WeightRepack.Fp8B128Grouped (f8e4m3_b128g): per group [128 rows of K codes][K / 128
 //    blocks of 128 f32 scales], the same bytes per row as f8e4m3_b128r. Requires N % 128 == 0.
 //
-// F8N_SKIP_PAD (default 1): a warp skips the MMAs of its 16-row fragments past the batch's last row (a partial last token tile
-// costs about its rows); the other fragments compute the same products.
 // Tile: F8N_BM (128 or 64) tokens x F8N_BN weight rows per block of F8N_WM x F8N_WN warps; a warp owns (F8N_BM / F8N_WM) x (F8N_BN / F8N_WN)
 // outputs as m16n8k32 E4M3 fragments with f32 accumulation. Per 128-value K block the warp loads its B fragments once and
 // then, one 16-row fragment at a time, sums the block's MMAs in a fresh accumulator and adds it scaled by
@@ -35,9 +33,6 @@
 #endif
 #ifndef F8N_BM
 #define F8N_BM 128
-#endif
-#ifndef F8N_SKIP_PAD
-#define F8N_SKIP_PAD 1
 #endif
 #ifndef MULTI
 #define MULTI 0
@@ -303,12 +298,6 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
     }
 
     const f8n_u32 g = lane >> 2, c4 = lane & 3;
-#if F8N_SKIP_PAD
-    // 16-row fragments of this warp that hold rows of x (warp-uniform): a partial last token tile skips the MMAs of rows past T.
-    const int nfr = min(max(((int)p.T - (int)(t0 + wm * F8N_TM) + 15) / 16, 0), F8N_FM);
-#else
-    const int nfr = F8N_FM;
-#endif
     for (f8n_u32 kb = 0; kb < nk; kb++)
     {
         f8n_wait<F8N_STAGES - 2>();
@@ -352,10 +341,6 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8n
 #pragma unroll
         for (int i = 0; i < F8N_FM; i++)
         {
-            if (i >= nfr)
-            {
-                break;
-            }
             float part[F8N_FN][4];
 #pragma unroll
             for (int j = 0; j < F8N_FN; j++)

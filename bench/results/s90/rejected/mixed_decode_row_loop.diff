@@ -1,0 +1,100 @@
+diff --git a/src/Sharplight.Shaders/Kernels/attn_decode_native.cu b/src/Sharplight.Shaders/Kernels/attn_decode_native.cu
+index be7bbefd..b016f0aa 100644
+--- a/src/Sharplight.Shaders/Kernels/attn_decode_native.cu
++++ b/src/Sharplight.Shaders/Kernels/attn_decode_native.cu
+@@ -213,7 +213,8 @@ __device__ __forceinline__ bool nd_range(const NdParams& p, nd_u32 t, nd_u64& kv
+ }
+ 
+ #if D <= 128
+-extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdParams p)
++// Query row t of the block's (KV group, key range).
++__device__ __forceinline__ void nd_decode_row(const NdParams& p, const nd_u32 t)
+ {
+     __shared__ float sM[ND_WARPS * HPW];
+     __shared__ float sL[ND_WARPS * HPW];
+@@ -223,7 +224,6 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
+     const nd_u32 g = lane >> 2, c4 = lane & 3;
+     const nd_u32 hk = blockIdx.x / (ND_G / HPW);
+     const nd_u32 h0 = hk * ND_G + blockIdx.x % (ND_G / HPW) * HPW;
+-    const nd_u32 t = blockIdx.y;
+ #if MULTI_SEQ && MIX_RUN > 0
+     if (p.seq[t * 4 + 2] >= MIX_RUN)
+     {
+@@ -455,6 +455,28 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
+         }
+     }
+ }
++
++// ND_ROW_STRIDE (mixed steps, MIX_RUN > 0): grid y is at most ND_ROW_STRIDE and block y takes rows y, y + gridDim.y, ..: the step's
++// decode rows (runs shorter than MIX_RUN) next to hundreds of prompt rows, which a block per row would start only to return.
++extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdParams p)
++{
++#ifdef ND_ROW_STRIDE
++    for (nd_u32 t = blockIdx.y; t < p.T; t += gridDim.y)
++    {
++#if MULTI_SEQ && MIX_RUN > 0
++        if (p.seq[t * 4 + 2] >= MIX_RUN)
++        {
++            continue;
++        }
++#endif
++        nd_decode_row(p, t);
++        // The next row reuses the block's shared memory.
++        __syncthreads();
++    }
++#else
++    nd_decode_row(p, blockIdx.y);
++#endif
++}
+ #else
+ // ---------------------------------------------------------------------------------------------
+ // Head sizes 256 and 512 (Gemma 4's window and global layers, Qwen3.5 / 3.8): a warp's full-width key / value rows and output
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Attention.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Attention.cs
+index 979abf86..a8e9be3e 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Attention.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Attention.cs
+@@ -33,6 +33,12 @@ public sealed partial class GraphLowerer
+     /// </summary>
+     private const long MixedMaxMeanRunRows = 64;
+ 
++    /// <summary>
++    /// Row blocks (grid y) of the native decode kernel in a mixed step: block y takes rows y, y + this, .. and skips the prompt rows,
++    /// so the decode rows packed first get a block each and the prompt rows cost no block starts.
++    /// </summary>
++    private const long MixedDecodeRowBlocks = 128;
++
+     private BufferDecl? _attnScratch;
+ 
+     /// <summary>
+@@ -1073,8 +1079,17 @@ public sealed partial class GraphLowerer
+             }
+         }
+ 
++        // The native kernel's blocks take every MixedDecodeRowBlocks-th row: a block per row of the step would mostly start only to
++        // return (the prompt rows).
++        bool rowLoop = decode.Kernel == "decode" && NativeDecodeAttention(plan, decode) && plan.D <= 128 && DiagnosticSwitches.AttentionMixedRowLoop;
++        if (rowLoop)
++        {
++            decodeMacros["ND_ROW_STRIDE"] = MixedDecodeRowBlocks.ToString(CultureInfo.InvariantCulture);
++        }
++
+         var decodeKernel = DecodeKernel(plan, decode, decodeMacros, false);
+-        var decodeVariant = new KernelVariant(when, decodeKernel, b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1));
++        var decodeVariant = new KernelVariant(when, decodeKernel,
++            b => new Grid((uint)decode.Groups, (uint)(rowLoop ? Math.Min(Rows(b, q), MixedDecodeRowBlocks) : Rows(b, q)), 1));
+         if (NativeFlashAttention(plan))
+         {
+             // The kernel of the flash variant (see LowerAttention), so a prompt's rows sum alike in mixed and prompt-only steps.
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeAttention.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeAttention.cs
+index 070eaf3e..b0222c3f 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeAttention.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeAttention.cs
+@@ -205,7 +205,7 @@ public sealed partial class GraphLowerer
+         var macros = new Dictionary<string, string>(StringComparer.Ordinal);
+         foreach (var name in (string[])["HQ", "HKV", "D", "VRS", "QS0", "QS1", "SCALE", "WINDOW", "CHUNK", "HAS_SOFTCAP", "SOFTCAP", "HAS_SINKS",
+                      "MULTI_SEQ", "SLOT_CTX", "PAGED", "PAGE_BS", "PAGE_MB", "RT_N_PAST", "MIX_RUN", "HPW", "DEC_BC", "DEC_MIN_KEYS", "DEC_MAX_SPLITS",
+-                     "DEC_TARGET_WG", "DEC_INVARIANT_ROWS", "DEC_SPLIT_ROWS"])
++                     "DEC_TARGET_WG", "DEC_INVARIANT_ROWS", "DEC_SPLIT_ROWS", "ND_ROW_STRIDE"])
+         {
+             if (decodeMacros.TryGetValue(name, out var value))
+             {

@@ -313,12 +313,6 @@ internal static class DiagnosticSwitches
     public static bool Fp8UniformScales { get; } = IsNotZero("SHARPLIGHT_FP8_UNIFORM_SCALES");
 
     /// <summary>
-    /// <c>SHARPLIGHT_GEMM_SKIP_PAD=0</c>: <c>gemm_fp8_native.cu</c> and <c>gemm_f16_native.cu</c> run the MMAs of the 16-row fragments past
-    /// the batch's last row too (the partial last token tile then costs a whole tile).
-    /// </summary>
-    public static bool GemmSkipPaddedRows { get; } = IsNotZero("SHARPLIGHT_GEMM_SKIP_PAD");
-
-    /// <summary>
     /// <c>SHARPLIGHT_NATIVE_ATTN</c>: which causal prefill attentions run on the hand-written flash-attention kernel
     /// (<c>attn_prefill_native.cu</c>) where the device has <c>native_attention</c>: <c>0</c> none, <c>1</c> (default) all it serves,
     /// <c>2</c> only those the generated <c>fe</c> kernel does not serve (windows, chunks, soft caps, sinks).

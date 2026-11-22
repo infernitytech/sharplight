@@ -234,11 +234,6 @@ public sealed partial class GraphLowerer
             }
         }
 
-        if (!DiagnosticSwitches.GemmSkipPaddedRows)
-        {
-            macros["F8N_SKIP_PAD"] = "0";
-        }
-
         int stages = tileRows == 64 ? 4 : 3;
         var kernel = _compiler.CompileCuda("gemm_fp8_native.cu", dualEpilogue ?? "", "gemm_fp8_native", NativeFp8Threads, stages * (tileRows + columns) * 132,
             _opt.Target, macros, _opt.Cache);
@@ -524,11 +519,6 @@ public sealed partial class GraphLowerer
                 macros["H_XRS"] = scales.ToString(CultureInfo.InvariantCulture) + "ull";
             }
 
-            if (!DiagnosticSwitches.GemmSkipPaddedRows)
-            {
-                macros["H_SKIP_PAD"] = "0";
-            }
-
             var kernel = _compiler.CompileCuda("gemm_f16_native.cu", dualEpilogue?.Replace("F8N_EPI2", "H_EPI2", StringComparison.Ordinal) ?? "",
                 "gemm_f16_native", s_nativeF16Threads[c], s_nativeF16Shared[c], _opt.Target, macros, _opt.Cache);
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
@@ -591,11 +581,6 @@ public sealed partial class GraphLowerer
         foreach (var (name, value) in extra ?? new Dictionary<string, string>())
         {
             macros[name] = value;
-        }
-
-        if (!DiagnosticSwitches.GemmSkipPaddedRows)
-        {
-            macros["H_SKIP_PAD"] = "0";
         }
 
         const int stages = 4;
