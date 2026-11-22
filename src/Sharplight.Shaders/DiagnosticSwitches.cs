@@ -620,6 +620,12 @@ internal static class DiagnosticSwitches
     public static bool SplitKReduceEpilogue { get; } = IsNotZero("SHARPLIGHT_SPLITK_EPILOGUE");
 
     /// <summary>
+    /// False (<c>SHARPLIGHT_SKINNY_EPILOGUE=0</c>) keeps the elementwise group after a skinny GEMM (2-16 rows: a projection's bias,
+    /// a residual add) as its own launch instead of applying it in the skinny GEMM's store.
+    /// </summary>
+    public static bool SkinnyEpilogue { get; } = IsNotZero("SHARPLIGHT_SKINNY_EPILOGUE");
+
+    /// <summary>
     /// True (<c>SHARPLIGHT_SPLITK_FUSED=1</c>) runs the split-K reduction of gemm_cm2 and the fp8 GEMM in the last workgroup of each
     /// output tile (splitk.slang) instead of its own launch (<c>splitk_reduce</c>). Off by default: on the RTX PRO 4500 the last
     /// workgroup's serial read of the tile's slices cost more than the launch it saves (benchmarks.md section 61).

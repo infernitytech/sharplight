@@ -11763,3 +11763,175 @@ SHARPLIGHT_BENCH_PREFILL_REPEATS=0 sharplight ~/models/gguf/gemma-4-31B-it-Q4_K_
 cd bench/s77_kq && nvcc -O3 -arch=sm_120 -std=c++17 -DK=4096 -DN=12288 -DKQ_FMT=4 -DKQ_BM=48 -DKQ_STAGES=2 -DKQ_SPLIT=1 \
   -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_kq_native.cu"' bench_kq.cu -o b && ./b 48
 ```
+
+## 80. LLM round 27: serving against vLLM taken apart (64 streams: prompt rows 12 % dearer per row, decode steps ~4 %), prefill attention tiles enumerated per run, rope_qkv with several rows per workgroup, matmul epilogues in the skinny GEMM's store (2026-11-22)
+
+Branch `perf/llm-r27` (base `develop` at `7323e8b5`; `f28b1aa0` (perf/feed-r3) and `7b7f6231` (fix/rope-qkv) merged in before the final
+holds). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell, 82 SMs, 200 W cap), shared with other agents: every timed run held the
+verify lock, `develop` (`7b7f6231`) and this round alternated in the same hold, vLLM 0.33.0 (venv `vllm-r12`, its API server) in the
+same holds as our servers. §79 is perf/feed-r3's. Raw output in [`bench/results/s80/`](../bench/results/s80).
+
+### 80.0 Against vLLM (final holds)
+
+| benchmark (CUDA) | `develop` | this round | vLLM | ours / vLLM (before → after) |
+|---|---:|---:|---:|---:|
+| gpt-oss-20b serving, 64 streams (tok/s, two rounds) | 2914-2923 | **2956-2968** | 3129-3131 | 0.93 → **0.95** |
+| the same: TTFT p50 / inter-token latency mean, p50 (ms) | 255-257 / 18.9, 13.9-14.0 | 246-250 / 18.7, 13.9 | 444-477 / 16.8-16.9, 13.3-13.4 | |
+| gpt-oss-20b serving, 16 streams | 1389-1396 | 1394-1401 | 1380-1399 | 1.00 → 1.00-1.01 |
+| the same: TTFT p50 / ITL mean, p50 | 108-113 / 10.5, 9.3 | 106-110 / 10.5, 9.3 | 167-177 / 10.1-10.3, 9.6-9.8 | |
+| Qwen3-8B-FP8 serving, 64 streams | 2523-2525 | 2538-2543 | 2691-2694 | 0.94 → 0.94 |
+| the same: TTFT p50 / ITL mean, p50 | 289 / 22.0, 16.3 | 283-285 / 21.9, 16.3 | 408-413 / 20.1, 16.0 | |
+| Qwen3-8B-FP8 serving, 16 streams | 1049-1052 | 1053-1057 | 1105-1114 | 0.95 → 0.95 |
+| gpt-oss-20b 2,048-row prompt step (8 x 256 tokens, GPU ms) | 125.31 / 125.61 | **123.18 / 123.56** | 1,792 rows in 97.7 (54.5 µs per row) | per row 61.2 → 60.2 µs: 1.12 → 1.10x of vLLM's time |
+| gpt-oss-20b mixed step, 8 decode + 8 x 250 prompt rows | 123.88 / 124.13 | **121.35 / 121.51** | | -2.1 % |
+| gpt-oss-20b mixed step, 40 decode + 7 x 250 | 112.84 / 113.03 | **110.15 / 110.37** | | -2.4 % |
+| gpt-oss-20b decode step, 1 / 4 / 16 / 64 sequences, `--text` | 5.17-5.18 / 8.96-8.97 / 13.03-13.05 / 17.21-17.31 | 5.19-5.21 / 8.97-8.98 / 13.05-13.06 / 17.18 | | unchanged (64: 16.66-16.67 against 16.72-16.73 in hold C) |
+| Qwen3-8B-FP8 decode step, 1 / 16 / 64 sequences (hold C) | 10.94-10.95 / 12.59-12.62 / 15.57-15.60 | 10.94-10.95 / 12.59 / 15.58-15.59 | | unchanged |
+| gpt-oss-20b Vulkan, 1 / 64 sequences | 5.28 / 20.52 | 5.28 / 20.41 | | unchanged |
+
+* Serving: `bench/s16_serve.sh <engine> <name> <model> "16 64"` (`--provider cuda` for ours, `--gpu-memory-utilization 0.6` for
+  vLLM), `QUIET_GPU=1 ROUNDS=2`, ours new, ours `develop`, vLLM, per model in one hold (`final/serve/`).
+* Steps: BatchBench `--slots 64 --ctx 640 --depth 256 --modes greedy --reps 20 --text` (`final/steps1`, `steps2`: this round first, then
+  `develop`, twice; `stepsC*` after the q / k norm rule of 80.3); prompt and mixed steps BatchBench `--slots 72 --batch 2048 --mixed
+  "64+0,8+250x8,40+250x7,0+256x8" --reps 10` (`final/mixed*`), GPU ms (min).
+
+### 80.1 Where serving loses against vLLM (gpt-oss-20b, 64 streams)
+
+`bench/s16_serve.sh` (64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, `ignore_eos`, closed loop, 192 requests per
+round), both engines in one hold before any change of this round (`serve0/`): ours 2925-2930 tok/s, vLLM 3139-3153 (0.93x); at 16 streams
+1395-1405 against 1390-1435 (0.99x, within vLLM's round-to-round spread). vLLM's API server runs `max_num_batched_tokens` 2048 on this
+32 GB card (its default below 70 GB), our step budget is 2048 rows too, so both engines prefill the waves of prompts in steps of the same size.
+
+Our round (`SHARPLIGHT_STEP_PROFILE`, `bench/s60_steps.py`, `profiles/steps64.csv`; `SHARPLIGHT_SCHED_TRACE=1`, `profiles/sched_trace_64.txt`):
+
+| steps of a 64-stream round | steps | GPU ms per step | host idle per step | share of the round |
+|---|---:|---:|---:|---:|
+| decode only, 64 rows | 358 | 13.68 | 0.15 | 52 % |
+| decode only, fewer rows (wave tails) | 134 | ~8.0 | 0.5 | 12 % |
+| mixed (prompt chunks + decode rows; ~1,580 prompt rows) | 31 | 108.6 | 3.2 (a new row count: recorded, not replayed) | 36 % |
+
+The round is GPU-bound (GPU busy 97.7 %); the host's share between steps is 0.15 ms on replayed decode steps (1.1 %), so scheduling,
+sampling, detokenization and streaming are not where the 7 % go. Like for like per step:
+
+* **Prompt rows**: vLLM's 1,792-row prompt step (7 prompts of 256 random tokens, `s54_vllm_decode_profile.py --prefill 256 --seqs 8`,
+  `profiles/vllm_prefill_8x256.txt`) takes 97.7 ms (54.5 µs per row); ours (BatchBench `--mixed 0+256x8`, 8 prompts of 256) 125.5 ms for
+  2,048 rows (61.3 µs per row, 12 % more). The expert GEMMs are at par per row (Marlin 74.4 ms for the 1,792 rows, 41.5 µs per row; our
+  `gemm_moe_native` 83.0 ms for 2,008 rows, 41.3 µs). The rest is 23.3 ms (13.0 µs per row) for vLLM against 41 ms (20.4 µs per row):
+  per 2,008-row step (`profiles/mixed.txt`, ms) the dense f16 projections 22.2 (cutlass ~18.5 at our row count), the two expert gathers
+  4.5 (Marlin reads the routed rows through its sorted ids), `rope_qkv` 3.9 (vLLM's rope + cache write ~0.9), the slot sum 2.7 (vLLM
+  `moe_sum` ~1.2), the add + norm launches 3.7 (f32 residual rows; vLLM's bf16 triton norms ~1.5), prefill attention 2.5 (flashinfer 1.55).
+* **Decode steps**: inter-token latency p50 13.9 ms against vLLM's 13.2-13.35 (the 64-row decode steps; ours 13.68 GPU + 0.15 host).
+
+So ~0.38 s of the 0.58 s per round are the prompt rows and ~0.2 s the decode steps.
+
+### 80.2 Prefill attention: the runs' query tiles enumerated in grid y
+
+`attn_prefill_native.cu` ran a grid of (query heads, query tiles of all T rows, runs): with eight 250-token prompts in a 2,008-row step,
+each run needs 2 of the 16 tile rows and the other 14 x 9 x 64 blocks returned at once, at three blocks per SM (32 KB of stages each)
+about 30 waves of empty blocks. Grid y is now ceil(T / FN_BR) + runs, a bound on the tiles of all runs together; each block finds its
+(run, tile) by a warp prefix sum over the runs' tile counts (runs below MIX_RUN rows count zero tiles), longest tiles of a run first as
+before. Same blocks, same arithmetic: products unchanged. BatchBench `--mixed` (`explore/attn1*`): the launch 102.8 → 87.4 µs per layer,
+8 + 8 x 250 rows 124.12 → 123.59 ms, 40 + 7 x 250 113.22 → 112.13 ms, 2,048 prompt rows 125.75 → 125.51 ms. The rest of the gap to
+flashinfer (32 µs per layer for the same 1,792 rows) is the kernel's 128-row tiles at 250-token prompts.
+
+### 80.3 rope_qkv: several rows per workgroup
+
+`rope_qkv` (§78.3) ran one 64-thread workgroup per (token, head) row: 2,048 tokens x 80 heads of gpt-oss are 164K workgroups of 32 busy
+threads (64 values, no q / k norm), bound by how fast workgroups start (161 µs, ~500 GB/s). Each workgroup now runs QKV_RPW rows one after
+another (`rope_qkv_row`; the norm's shared-memory reduction ends with a barrier before the next row reuses it). µs per launch
+(`explore/rope_rpw/`), 64 / 2,048 tokens: 1 row 8.1 / 161.0, 4 rows 4.7 / 77.4, 8 rows 6.0 / 71.5, 16 rows 8.1 / 71.7; the lowering takes 4
+below 32,768 rows and 8 from there for rows without a q / k norm. Rows with a norm keep one row per workgroup: with four, Qwen3-8B-FP8's
+1 / 16 / 64-sequence steps were 0.3-0.6 % slower (11.02-11.03 / 12.66-12.67 / 15.65-15.68 against 10.95 / 12.60-12.61 / 15.59-15.62 ms,
+`final/steps*`), since the rows of a workgroup then wait on each other's barriers; with the rule both builds measure alike (`stepsC*`).
+gpt-oss-20b 2,048-row prompt step 125.76 → 123.63 ms in the probe, 64-row decode unchanged (13.54 → 13.52 ms: the launch overlaps other
+graph branches). Products unchanged (same values per row). (The branch withdrew this while fix/rope-qkv owned the kernel and took it back
+after that branch merged; `deferred/` has the diff.)
+
+### 80.4 Matmul epilogues in the skinny GEMM's store
+
+The skinny GEMM (2-16 rows, `gemm_sk`) wrote its product and left the epilogue (a projection's bias, a residual add) to its own launch:
+four `fused[Add]` launches per gpt-oss layer at 4 rows. `gemm_sk` now stores `MM_STORE` (mm_epi.slang, the generated epilogue gemm_cm2's
+split-K reduction already uses) where the product is dense rows of N and the weights are not on the int-dot path; the separate epilogue
+skips those row counts. Same f32 operations in the same order, so the values are identical; Vulkan runs the same Slang kernel.
+`SHARPLIGHT_SKINNY_EPILOGUE=0` restores the separate launch. gpt-oss-20b `--text` (`explore/skepi/`): 4 rows 522 → 450 dispatches,
+8.95 → 8.93 ms; 8 rows 11.09 → 11.05; 16 rows 546 → 522 dispatches, 12.94 → 12.87 ms (-0.5 %).
+
+### 80.5 Measured and not kept
+
+* **The expert slot sum read in place by the residual Add + RmsNorm** (`rejected/slot_sum_fold.diff`: the group loads the S slot rows of
+  the [T, S, N] expert outputs and adds them in the narrow ReduceSum's order, the reduce launch dropped, the Reshape in between followed,
+  batches of the int-dot slot-sum matvec lowered on the written sum). No gain where it matters: at 2,008 rows the folded norm took 158.5 µs
+  against 107 (reduce) + 48 (norm), since it reads the four f32 slot rows either way; at 64 rows the reduce is 2.8 µs. Its first form
+  also computed wrong values on gpt-oss-20b (`rejected/slot_sum_fold_wrong/`: the steps "sped up" to 8.75 ms because the routing collapsed),
+  while the new `MoeTests.RoutedExpertSumIntoResidualNorm` (the same block shape, every product path) passed; not debugged further once
+  the gain was known to be nil. The test stays as coverage of the unfused path.
+* **The full step budget at any load** (`--min-step-tokens 0`; the prompt steps of waves 2 and 3 run 1,800-1,824 rows because 56-57 of 64
+  slots are busy when the wave arrives, `explore/sched/`): 64 streams 2932-2947 → 2943-2957 tok/s (+0.4 %, within the rounds' spread),
+  16 streams TTFT p50 108-110 → 162-202 ms. The default stays.
+* **`rope_qkv` on Vulkan with its norm reduction in uniform control flow** (`rejected/rope_qkv_uniform_norm_reduction.diff`): still 4 of
+  101 FusionTests fail on the Vulkan provider, now also NormRopeIntoCache cases without the norm (f16 / D 128, f32 / D 64 rot 32;
+  `rejected/rope_qkv_vulkan_uniform_reduction_tests.txt`), so the SPIR-V bug is not the barriers; Vulkan keeps the three launches.
+
+
+### 80.6 Serving after the round
+
+At 64 streams gpt-oss-20b gains 1.4 % (0.93 → 0.95x), the prompt steps' share of the gap; the decode steps (inter-token p50 13.85-13.88
+against vLLM's 13.26-13.37 ms) are unchanged. Qwen3-8B-FP8 gains 0.6 % (0.94x at 64 streams, 0.95x at 16): its 16-stream decode step
+(p50 13.0 against 12.4 ms) and its prompt rows are the gap; no Qwen-specific kernel changed this round. Our TTFT stays well below vLLM's
+(p50 246-285 against 408-477 ms at 64 streams), since our wave of prompts takes the steps before the decode rows go on, vLLM's interleaves.
+
+### 80.7 Correctness and tests
+
+* Greedy text, 120 tokens, the ~40-word prompt and the ~1000-token prompt, `develop` (`7b7f6231`) against this round (`final/greedy/`):
+  gpt-oss-20b and Qwen3-8B-FP8 byte-identical on CUDA and on Vulkan, Qwen2.5-7B-Instruct Q4_K_M byte-identical on CUDA, both prompts.
+  None of the changes alters arithmetic: the attention blocks compute the same tiles, `rope_qkv` the same rows, the skinny GEMM's
+  store applies the epilogue's f32 operations in the order the separate launch did.
+* New test `MoeTests.RoutedExpertSumIntoResidualNorm` (an expert sum through a Reshape into the residual Add and RmsNorm, MXFP4 / Q4_K /
+  bf16, 1-300 rows): passes on both providers.
+* Sharplight.Cuda.Tests: 61 / 0 failed / 1 skipped (cuBLASLt). Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers:
+  SkinnyGemm 42, MatMulEpilogue 13, MatMul 164, Moe 126 (with the new test), StreamedExperts 5, Fusion 101, RowInvariance 77,
+  FullAttention 30, PagedAttention 8, PackedSequence 22, SparseAttention 15, Stateful 69, DualGemm 13, Fp8Gemm 31, Mmq 48: **764 / 0
+  failed on each provider** (`final/tests.txt`, the final build). No serving code changed (Serving.Tests not run).
+
+### 80.8 Gap to vLLM and plan (state after this round)
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64 streams | 1.00 / 0.95 | 64: prompt rows ~10 % dearer per row (60.2 against 54.5 µs), decode steps ~4 % (13.85 against 13.3 ms p50) |
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.95 / 0.94 | decode steps at 16 rows (13.0 against 12.4 ms p50), prompt rows |
+| gpt-oss-20b decode, 64 sequences / 4 x 130K | 0.98-1.01 / 1.00-1.03 (§78) | expert GEMMs (Marlin ~10 % ahead per byte) |
+
+Ranked levers:
+
+1. **Prompt rows of gpt-oss (serving at 64 streams)**, per 2,008-row step: the two expert gathers (4.5 ms; Marlin reads routed rows
+   through its sorted ids: let the gate / up GEMM store its output as the down GEMM's sorted f16 rows with a row-range flag and a fixup
+   of flagged rows, ~2 ms, and read the gate / up input rows by token from an f16 copy, ~1 ms); the dense f16 projections at 2k rows
+   (22 ms against cutlass ~18.5: deeper pipelining / wave quantization of the 128 x 256 tiles); prefill attention for short prompts
+   (87 against 32 µs per layer: 64-row tiles or the 8 query heads of a KV head in one block); the f32 residual's add + norm launches.
+2. **Decode steps at 16-64 rows**: the expert GEMM's per-byte efficiency against Marlin (§76.4; its 64-row blocking in two launches
+   bounded at ~3 % of the expert GEMMs, §75.3); Qwen3's 16-row step (0.6 ms behind vLLM's inter-token p50).
+3. **Host time between decode steps** (0.15 ms of 13.8 per replayed 64-row step, 1.1 %): scheduling step N + 1 while step N runs
+   (vLLM's asynchronous scheduling; needs the sampled tokens fed back on the device).
+4. **`rope_qkv` on Vulkan**: the SPIR-V form is wrong also without the norm (80.5); next suspects the pointer arguments of
+   `qkv_rope_head` and the cache index of the multi-sequence form.
+5. Small launches of few-row decode steps (§78.7 item 4): after 80.4 the 4-row gpt-oss step has 450 launches; the router chain
+   (to_f16, split-K GEMM, reduce: ~10 µs per layer at 64 rows) is the next fold.
+
+### 80.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# serving, same hold
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm gptoss ~/models/hf/gpt-oss-20b "16 64" --gpu-memory-utilization 0.6
+# where a serving round goes (ours), vLLM's step composition
+SHARPLIGHT_STEP_PROFILE=steps.csv SHARPLIGHT_SCHED_TRACE=1 ROUNDS=1 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b "64" --provider cuda
+python3 bench/s60_steps.py steps.csv
+ROUNDS=1 bench/s16_serve.sh vllm gptoss ~/models/hf/gpt-oss-20b "64" --gpu-memory-utilization 0.6 --enable-logging-iteration-details
+# prompt steps, both engines
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/gpt-oss-20b --provider cuda --slots 72 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 10 \
+  --mixed "64+0,8+250x8,40+250x7,0+256x8" --profile 1
+python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --prefill 256 --seqs 8 --gpu-util 0.6
+# switches: SHARPLIGHT_SKINNY_EPILOGUE=0
+```

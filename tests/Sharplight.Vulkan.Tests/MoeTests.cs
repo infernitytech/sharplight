@@ -411,4 +411,42 @@ public sealed class MoeTests
             new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
             atol: 2.0, rtol: 5e-2, maxTokens: 640, what: $"S={s} T={t}");
     }
+
+    /// <summary>
+    /// A routed expert block whose sum feeds the residual Add and the next RmsNorm through a Reshape, as in gpt-oss, on every product
+    /// path (int-dot matvec, skinny, grouped GEMMs) and row count.
+    /// </summary>
+    [Theory]
+    [InlineData("mxfp4", 4, 1)]
+    [InlineData("mxfp4", 4, 4)]
+    [InlineData("mxfp4", 4, 64)]
+    [InlineData("mxfp4", 4, 300)]
+    [InlineData("q4_k", 8, 1)]
+    [InlineData("q4_k", 8, 40)]
+    [InlineData("bf16", 4, 90)]
+    public void RoutedExpertSumIntoResidualNorm(string fmt, int s, int t)
+    {
+        Gpu.Require();
+        const int E = 12;
+        const int N = 256;
+        const int K = 512;
+        var tg = new TG();
+        var type = DataType.Get(fmt);
+        var x = tg.InF("x", TG.T, K);
+        var residual = tg.InF("residual", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, s);
+        var weights = tg.InF("weights", TG.T, s, 1);
+        var gate = tg.B.Emit1("MatMulId", [x, tg.RandW("gate", type, 0.1f, E, N, K), ids]);
+        var up = tg.B.Emit1("MatMulId", [x, tg.RandW("up", type, 0.1f, E, N, K), ids]);
+        var act = tg.B.Mul(tg.B.Silu(gate), up);                                                                    // [T, S, N]
+        var down = tg.B.Emit1("MatMulId", [act, tg.RandW("down", type, 0.1f, E, K, N), ids]);
+        var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, weights), 0, 2, 1)]);                    // [T, K, 1]
+        var h = tg.B.Add(residual, tg.B.Reshape(summed, 0, K));
+        var norm = tg.B.RmsNorm(h, tg.WF("nw", Rnd.F(K, 7, 1f), K), 1e-6f);
+        tg.B.Output("h", h);
+        tg.B.Output("y", norm);
+        Diff.Check("MatMulId.sum-residual." + fmt, tg.B.Build(),
+            new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (residual, Rnd.F((long)t * K, 4)), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
+            atol: 2.0, rtol: 5e-2, maxTokens: 640, what: $"S={s} T={t}");
+    }
 }
