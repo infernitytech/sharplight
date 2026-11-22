@@ -214,6 +214,25 @@ public sealed class FeedToolTests
     }
 
     [Fact]
+    public void Inspector_MeasuresTheRoutedExpertsOfARealMixtureOfExpertsPackage()
+    {
+        // OLMoE-1B-7B (converted .slm): 16 layers of 64 routed experts, 8 per token, gate / up / down of 2048 x 1024 each; skipped without the file.
+        var path = Environment.GetEnvironmentVariable("SHARPLIGHT_FEED_TEST_MOE_PACKAGE");
+        if (path is null || !File.Exists(path))
+        {
+            Assert.Skip("SHARPLIGHT_FEED_TEST_MOE_PACKAGE (a converted OLMoE-1B-7B .slm) is not set.");
+        }
+
+        var inspection = PackageInspector.Inspect(path);
+        var experts = inspection.Experts!;
+        TestContext.Current.TestOutputHelper?.WriteLine($"OLMoE: weights {inspection.WeightBytes} B, routed experts {experts.Bytes} B, per token {experts.BytesPerToken} B");
+
+        Assert.Equal(experts.Bytes / 8, experts.BytesPerToken);
+        Assert.InRange(experts.Bytes / (double)inspection.WeightBytes, 0.8, 0.95);
+        Assert.InRange(experts.Bytes, 3_000_000_000L, 4_000_000_000L);
+    }
+
+    [Fact]
     public void QualityTiersAreTheSameInCatalogAndFeed() => Assert.Equal(CatalogQualityTiers.All, PackageQualityTiers.All);
 
     [Theory]
