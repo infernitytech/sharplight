@@ -373,7 +373,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         if (_diskBanks.Count > 0)
         {
             // The cache's slots page-locked for this device, so the selected experts' copies are asynchronous and need no staging.
-            _options.DiskExperts!.PinFor(_dev, (start, bytes) => _dev.TryRegisterHost((byte*)start, bytes), start => _dev.UnregisterHost((byte*)start));
+            _options.DiskExperts!.PinFor(_dev, (start, bytes) => _dev.TryRegisterHost((byte*)start, bytes, committed: true), start => _dev.UnregisterHost((byte*)start));
         }
 
         const long Page = 4096;
