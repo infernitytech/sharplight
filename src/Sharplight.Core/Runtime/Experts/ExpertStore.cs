@@ -133,6 +133,33 @@ public sealed unsafe class ExpertStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// The decode speed to expect from the disk's read speed and the cache size, the same estimate the store logs at load: a step reads the
+    /// selected experts it does not find in the cache, and the cache is assumed to serve its share of the expert bytes (routing locality usually
+    /// does better: DeepSeek-V3.1 with a cache of 8 % of its experts hit 38-41 %, docs/benchmarks.md section 85).
+    /// </summary>
+    /// <param name="bytesPerToken">Bytes of the routed experts one token selects over all layers.</param>
+    /// <param name="expertBytes">Bytes of the routed experts left on disk.</param>
+    /// <param name="cacheBytes">Bytes of the expert cache.</param>
+    /// <param name="readBytesPerSecond">Read throughput of the disk (O_DIRECT, several reads in flight).</param>
+    /// <returns>The estimate.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">A size is negative or the throughput is not positive.</exception>
+    public static ExpertDecodeEstimate EstimateDecode(long bytesPerToken, long expertBytes, long cacheBytes, double readBytesPerSecond)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(bytesPerToken);
+        ArgumentOutOfRangeException.ThrowIfNegative(expertBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(cacheBytes);
+        if (!(readBytesPerSecond > 0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(readBytesPerSecond), readBytesPerSecond, "The read throughput must be positive.");
+        }
+
+        double cachedShare = expertBytes == 0 ? 1 : Math.Clamp(cacheBytes / (double)expertBytes, 0, 1);
+        double coldSeconds = bytesPerToken / readBytesPerSecond;
+        double warmSeconds = coldSeconds * (1 - cachedShare);
+        return new ExpertDecodeEstimate(coldSeconds > 0 ? 1 / coldSeconds : double.PositiveInfinity, warmSeconds > 0 ? 1 / warmSeconds : double.PositiveInfinity, cachedShare);
+    }
+
     /// <summary>Sets the counters of <see cref="Statistics"/> to zero (the cache keeps its contents).</summary>
     public void ResetStatistics()
     {
@@ -755,12 +782,11 @@ public sealed unsafe class ExpertStore : IDisposable
         MeasuredReadBytesPerSecond = bytes / seconds;
         long diskBytes = tensors.Sum(t => t.StoredExpertBytes * t.Experts);
         long perToken = tensors.Sum(t => t.StoredExpertBytes * t.SlotsPerRow);
-        double cachedShare = Math.Clamp(_pools.Sum(p => (double)p.Bytes) / diskBytes, 0, 1);
-        double coldSeconds = perToken / MeasuredReadBytesPerSecond.Value;
-        double warmSeconds = coldSeconds * (1 - cachedShare);
+        long cacheBytes = _pools.Sum(p => p.Bytes);
+        var estimate = EstimateDecode(perToken, diskBytes, cacheBytes, MeasuredReadBytesPerSecond.Value);
         _log?.Invoke($"Experts on disk: {tensors.Count} weights in {_groups.Count} layers ({Gib(diskBytes)}) read with {_reader.Name}; "
-            + $"{bytes / seconds / 1e9:F1} GB/s measured; a decode step reads up to {perToken / 1e9:F2} GB: about {1 / coldSeconds:F2} tok/s from a cold cache, "
-            + (warmSeconds > 0 ? $"~{1 / warmSeconds:F2} tok/s once the {_pools.Sum(p => p.Bytes) / (double)(1L << 30):F1} GiB cache holds its share (reads only; compute adds to it)." : "all of it cached once warm."));
+            + $"{bytes / seconds / 1e9:F1} GB/s measured; a decode step reads up to {perToken / 1e9:F2} GB: about {estimate.ColdTokensPerSecond:F2} tok/s from a cold cache, "
+            + (double.IsFinite(estimate.WarmTokensPerSecond) ? $"~{estimate.WarmTokensPerSecond:F2} tok/s once the {cacheBytes / (double)(1L << 30):F1} GiB cache holds its share (reads only; compute adds to it)." : "all of it cached once warm."));
     }
 
     private static string Gib(long bytes) => $"{bytes / (double)(1L << 30):F1} GiB";

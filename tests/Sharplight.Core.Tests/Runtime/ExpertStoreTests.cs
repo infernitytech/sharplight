@@ -32,6 +32,20 @@ public sealed unsafe class ExpertStoreTests
         => Assert.True(new ReadOnlySpan<float>(pointer, ExpertFloats).SequenceEqual(data.AsSpan(expert * ExpertFloats, ExpertFloats)), $"expert {expert}");
 
     [Fact]
+    public void EstimateDecode_ReadsTheUncachedShareOfASteps()
+    {
+        // DeepSeek-V3.1 Q4_K_M as in benchmarks section 85: 353 GiB of experts on disk, 11.9 GB per step, 4.4 GB/s probed, a 28 GiB cache.
+        long experts = 353L << 30;
+        var estimate = ExpertStore.EstimateDecode(11_900_000_000, experts, 28L << 30, 4.4e9);
+
+        Assert.Equal(4.4e9 / 11.9e9, estimate.ColdTokensPerSecond, 6);
+        Assert.Equal(28.0 / 353, estimate.CachedShare, 6);
+        Assert.Equal(estimate.ColdTokensPerSecond / (1 - (28.0 / 353)), estimate.WarmTokensPerSecond, 6);
+        Assert.True(double.IsPositiveInfinity(ExpertStore.EstimateDecode(100, 1000, 2000, 1e9).WarmTokensPerSecond));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExpertStore.EstimateDecode(100, 1000, 0, 0));
+    }
+
+    [Fact]
     public void AcquiredExpertsHoldTheirStoredBytes_AndRepeatsHit()
     {
         var (file, gate, down, gateData, downData) = Weights();

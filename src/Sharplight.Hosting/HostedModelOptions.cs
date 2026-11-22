@@ -74,6 +74,13 @@ public sealed class HostedModelOptions
     /// <summary>Unload after this many idle seconds (zero or less: never); null = the host's timeout.</summary>
     public double? IdleTimeoutSeconds { get; set; }
 
+    /// <summary>
+    /// Segment workers on other machines (<c>host:port</c>, in pipeline order) that run the later layers of a model too large for this one
+    /// (multi-node pipeline parallel, docs/multinode.md): the model is split over <see cref="Device"/> and the workers by free memory. Every
+    /// worker serves its own copy of the same model. Null or empty: the model runs on this machine only.
+    /// </summary>
+    public IList<string>? Workers { get; set; }
+
     /// <summary>Free text shown in listings (default: the path).</summary>
     public string? Description { get; set; }
 }

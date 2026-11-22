@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Fit;
 using Sharplight.Hosting.Loaders;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
@@ -33,9 +34,15 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     private readonly Action<LibraryEntry>? _openVariant;
     private readonly FitAdvisor _advisor;
     private readonly EventHandler _modelsChanged;
+    private readonly EventHandler<IReadOnlyList<DeviceMemory>> _memoryChanged;
+    private readonly IDisposable _watch;
+    private readonly Lock _scheduleLock = new();
     private CancellationTokenSource? _loading;
     private CancellationTokenSource? _estimating;
     private bool _ready;
+    private bool _detached;
+    private IReadOnlyList<DeviceMemory>? _pendingMemory;
+    private IReadOnlyList<DeviceMemory>? _plannedMemory;
 
     /// <param name="entry">The model to load.</param>
     /// <param name="services">The services.</param>
@@ -52,12 +59,31 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         _closed = closed;
         _library = library ?? (() => []);
         _openVariant = openVariant;
-        _advisor = new FitAdvisor(services.Runtime, services.Settings);
+        _advisor = FitAdvisor.For(services);
         _modelsChanged = (_, _) => services.Dispatcher.Post(() =>
         {
             if (!IsLoading)
             {
                 ScheduleEstimate();
+            }
+        });
+        // New figures from the periodic read while the panel is open (other applications, a model loading elsewhere): plan again with them.
+        _memoryChanged = (_, memory) => services.Dispatcher.Post(() =>
+        {
+            // Figures the current plan already used (the panel's own read, shared with the watch) change nothing.
+            if (IsLoading || _detached || DeviceMemoryWatch.Same(Volatile.Read(ref _plannedMemory), memory))
+            {
+                return;
+            }
+
+            if (Estimate.IsCompleted)
+            {
+                ScheduleEstimate(memory);
+            }
+            else
+            {
+                // The estimate in progress reads the same figures (one shared read) or older ones: it plans again when it is done.
+                _pendingMemory = memory;
             }
         });
         var defaults = services.Settings.Current.DefaultLoad;
@@ -86,6 +112,9 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         MtpDraftTokens = defaults.MtpDraftTokens;
         _ready = true;
         services.Runtime.ModelsChanged += _modelsChanged;
+        services.Memory.Changed += _memoryChanged;
+        // Opening the panel reads the figures now and keeps them fresh while it is open.
+        _watch = services.Memory.Watch();
         ScheduleEstimate();
     }
 
@@ -361,20 +390,31 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// <summary>Stops following the runtime and cancels an estimate in progress.</summary>
     private void Detach()
     {
+        _detached = true;
         _services.Runtime.ModelsChanged -= _modelsChanged;
+        _services.Memory.Changed -= _memoryChanged;
+        _watch.Dispose();
         _estimating?.Cancel();
     }
 
-    /// <summary>Estimates the current choices once they stay unchanged for <see cref="EstimateDelay"/>.</summary>
-    private void ScheduleEstimate()
+    /// <summary>
+    /// Estimates the current choices once they stay unchanged for <see cref="EstimateDelay"/>, against <paramref name="memory"/> when given
+    /// (new figures of the shared watch), else against figures read for it.
+    /// </summary>
+    private void ScheduleEstimate(IReadOnlyList<DeviceMemory>? memory = null)
     {
-        _estimating?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _estimating = cancellation;
-        Estimate = EstimateAsync(cancellation);
+        lock (_scheduleLock)
+        {
+            // The new estimate is published before the old one is cancelled: whoever waits for Estimate never sees a cancelled one as the latest.
+            var previous = _estimating;
+            var cancellation = new CancellationTokenSource();
+            _estimating = cancellation;
+            Estimate = EstimateAsync(cancellation, memory);
+            previous?.Cancel();
+        }
     }
 
-    private async Task EstimateAsync(CancellationTokenSource cancellation)
+    private async Task EstimateAsync(CancellationTokenSource cancellation, IReadOnlyList<DeviceMemory>? known)
     {
         var token = cancellation.Token;
         if (!IsLanguageModel)
@@ -388,17 +428,34 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             await Task.Delay(EstimateDelay, token);
             IsEstimating = true;
             var request = ToRequest();
-            var memory = await _advisor.GetMemoryAsync(token);
+            var memory = known ?? await _advisor.GetMemoryAsync(token);
+            Volatile.Write(ref _plannedMemory, memory);
             var footprint = await _services.Runtime.EstimateFootprintAsync(request, token);
+            long experts = await _services.Runtime.EstimateExpertBytesAsync(request, token);
             var report = _advisor.Plan(footprint, request.Settings, memory);
+            bool expertOffload = FitAdvisor.IsExpertOffload(report, experts);
+            double? diskSpeed = report.ExpertsFromDisk
+                ? FitAdvisor.DiskTokensPerSecond(report, await _services.Runtime.EstimateExpertActiveShareAsync(request, token))
+                : null;
             token.ThrowIfCancellationRequested();
             FitError = "";
-            Fit = new FitEstimateViewModel(report, []);
-            var suggestions = await _advisor.SuggestAsync(request, report, memory, Entry.Entry, _library(), token);
-            token.ThrowIfCancellationRequested();
-            if (suggestions.Count > 0)
+            // The verdict first; the longest contexts and the suggestions follow (a few more estimates of the same model).
+            Fit = new FitEstimateViewModel(report, [], expertOffload: expertOffload, diskTokensPerSecond: diskSpeed)
             {
-                Fit = new FitEstimateViewModel(report, [.. suggestions.Select(suggestion => new FitSuggestionViewModel(suggestion, Apply))]);
+                ConfiguredContext = request.Settings.ContextLength,
+            };
+            var contexts = await _advisor.SizeContextAsync(request, memory, ContextSizer.Limit(Entry.Entry.TrainedContextLength), experts, token);
+            var sizing = await _advisor.SizingAsync(request, report, contexts, memory, token);
+            var suggestions = await _advisor.SuggestAsync(request, report, memory, Entry.Entry, _library(), token, contexts, experts);
+            token.ThrowIfCancellationRequested();
+            Fit = new FitEstimateViewModel(report, [.. suggestions.Select(suggestion => new FitSuggestionViewModel(suggestion, Apply))],
+                [.. sizing.Select(row => new FitSuggestionViewModel(row, Apply))], contexts, expertOffload, diskSpeed)
+            {
+                ConfiguredContext = request.Settings.ContextLength,
+            };
+            if (Interlocked.Exchange(ref _pendingMemory, null) is { } newer && !DeviceMemoryWatch.Same(memory, newer))
+            {
+                ScheduleEstimate(newer);
             }
         }
         catch (OperationCanceledException)

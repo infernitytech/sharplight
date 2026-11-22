@@ -102,8 +102,12 @@ the engine gains a kind, its card opens a page of its own, built from the shared
 - **Sharplight feed.** The third Discover source, next to *Verified models* and *Hub search*, lists the packages of Sharplight's model
   feed ([model-feed.md](model-feed.md)): preconverted `.slm` files with signed manifests that install without conversion. Each row shows
   the name and variant, the task, the version, the size, a *Verified* badge (the package is listed in the signed index; the install
-  verifies it again), a fit badge for this machine (the package's memory figure against the GPUs and system memory, like the verified
-  list) and *Installed* / *Update available*. The list is filtered by text, task and *Fits this machine*. A package whose requirements
+  verifies it again), a fit badge for this machine and *Installed* / *Update available*. The fit badge plans the package with the
+  default load settings and one slot from the feed's memory figures (weights, KV bytes per token scaled to the default KV cache type and
+  the default context, overhead) like the load panel: on the default device with the resident models and the reserve counted, or split
+  over the GPUs, else with CPU offload (*Fits*, *Fits after unloading*, *CPU offload ~40 %*, *Too large*; its tooltip has the figures). The
+  details of a package that is one variant of a model (the feed's model groups, built from the verified catalog's variant ladders) list
+  *Variants of this model*, smallest first, with size, quality tier, *Recommended* and each variant's fit; a click shows that variant. The list is filtered by text, task and *Fits this machine*. A package whose requirements
   this Studio or engine does not meet, or that the publisher withdrew, is listed but cannot be installed and says why; a deprecated one
   carries the publisher's note.
   - *Download and install* resolves the package and its required dependencies (semantic versions, e.g. a voice-activity model), reads
@@ -301,12 +305,38 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   - the **Reduced precision** opt-in.
 
   Below the options, a memory estimate follows every change: the engine's footprint (weights, KV cache, activations) computed
-  from the model's graph for these settings, against each device's free and total memory and the residency reserve. It says
-  whether the model fits, fits after unloading other models (naming them, and whether they unload by themselves), needs CPU
-  offload (with the share that would run on the CPU, against system memory), or does not fit at all. Suggestions (shorter
-  context, smaller KV cache, one slot, turning on offload, splitting over all GPUs, a smaller quantization in the library) apply
-  with a click. With several GPUs the device list also offers *All GPUs (split)*, which splits the layers in proportion to their
+  from the model's graph for these settings (`LlmModel.EstimateFootprint`, as the load sizes itself: with one slot the single-sequence
+  session with its window-sized caches, with the chosen KV cache type), against each device's free and total memory and the residency
+  reserve. The heading says whether the model *Fits on the GPU* (or *in system memory*, *on 2 GPUs*), fits after unloading other models
+  (naming them, and whether they unload by themselves), *Fits with CPU offload* (with the share that would run on the CPU, against
+  system memory; *Needs CPU offload* while offload is off), or *Does not fit*. For a mixture-of-experts model whose offload moves only
+  routed experts (what goes to the CPU is no more than the experts' weights, which the engine offloads first) it says *CPU expert
+  offload*: attention and the shared layers stay on the GPU. With *Read experts from disk* on (offered as a suggestion for a mixture-of-experts model that fits
+  neither GPU nor system memory), a model whose offloaded part is larger than system memory is *Runs with experts from disk (slow)*: the
+  panel says how many GB of experts stay on disk and gives a rough decode speed, the drive's read speed (3 GB/s assumed, the engine
+  measures it only once loaded) over the bytes a token reads from disk (experts per token / experts of the part on disk, every read a
+  cache miss, so a lower bound). The longest context *with CPU offload* is sized without experts on disk.
+
+  Under *Context and KV cache* the panel shows how far the load could go, each row applied with a click: the longest context that fits on
+  the device (*Up to 131,072 tokens on &lt;GPU&gt;*), the longest that fits with CPU offload when that is longer, and, when the model fits,
+  what the other KV cache type changes (*Q8_0 KV cache · needs about 19.4 GB (1.7 GB less)*; the row is left out for models whose cache
+  rows stay F16). When the configured context is already the longest, a line says so (*32,768 tokens is the longest context that fits on
+  the GPU.*, or *The model's full context fits*). The contexts tried are the powers of two from 2,048 up to the context the model was
+  trained for (128K when unknown) plus the configured one; a binary search needs a few estimates of the already-read model. Suggestions
+  when it does not fit (turning on offload, smaller KV cache, one slot, splitting over all GPUs, a smaller quantization in the library)
+  apply with a click. With several GPUs the device list also offers *All GPUs (split)*, which splits the layers in proportion to their
   free memory.
+
+  Models load with one parallel slot by default (a single-sequence session; raise *Parallel slots* for concurrent API clients, each slot
+  holding its own cache). Example, Gemma 4 31B Q4_K_M with one slot: weights and state 20.7 GiB at 32K and 28.2 GiB at 128K (23.0 GiB
+  with a q8_0 cache); the estimate adds the activation bound of the 512-row prompt batch (about 3.1 GiB), so the panel shows 23.8 GiB at
+  32K and 31.6 GiB at 128K (26.2 GiB with q8_0): on a 32 GB card 128K fits with a q8_0 cache or with CPU offload.
+
+  **Memory figures.** Every fit estimate (load panel, Discover's verified list, Hub search and feed) reads the devices' live figures
+  through one shared watch (`DeviceMemoryWatch`): free memory with other applications' use taken off, the memory Studio could hold once
+  its own models are unloaded, system memory within the container's cgroup limit, unified memory of integrated GPUs, as the providers
+  report them. The figures are read again when the load panel or Discover opens, after models load or unload (at most once a second), and
+  every 5 seconds while one of them is visible; a change of more than 64 MiB re-plans the open panel and re-rates the Discover badges.
 
   ![Load options with the memory estimate](images/studio/studio-load-fit-offload.png)
 
@@ -898,6 +928,12 @@ versions kept them.
 - the pure helpers;
 - the SQLite stores and settings;
 - the downloads queue (pause, resume, cancel, restore after restart);
+- sizing (`SizingTests`, mocked device figures): the candidate contexts and the binary search, a sliding-window model on a 32 GB card
+  (32K, the longest context on the GPU and with offload, the Q8_0 saving), CPU expert offload against layer offload, sizing on the CPU,
+  the memory watch (a read on open, periodic reads while watched, only changes beyond 64 MiB reported, a read after a load) and the
+  panel re-planning when the figures move; the feed's variant ladder with per-variant fits that follow the memory (`FeedCatalogTests`);
+  `SizingRealModelTests` sizes Gemma 4 31B Q4_K_M and OLMoE from the files (no device), and with `SHARPLIGHT_STUDIO_GPU_SIZING=1`
+  loads Gemma on the GPU and checks that the load holds no more than the estimate;
 - fit estimates: the planner (unloading, offload, system memory, split GPUs), the load panel's estimate and suggestions, and the
   download badges;
 - the title bar choice (own or system), and Discover's highlights (sections, filtering, the cache and its lifetime) and the
@@ -994,8 +1030,12 @@ packages in both themes.
 - **Conversion progress.** Conversion during a download reports its log, not a percentage. Precompilation reports kernel counts
   per graph.
 - **Fit estimates.** The load panel's estimate is the engine's own, but free memory can change before the load (other
-  applications). Download badges are approximate: they know the file sizes and, where readable, the attention dimensions, not the
-  exact graph.
+  applications; the figures are read again every 5 seconds while the panel is open). Its activation figure is the engine's upper bound
+  for the prompt batch (about 3 GiB for Gemma 4 31B at 512 rows). Download badges are approximate: they know the file sizes and, where
+  readable, the attention dimensions, not the exact graph. The feed's memory figures are those of the plain graph (a row per position in
+  every cache), so the feed overstates sliding-window models that the session path sizes with window rings (Gemma 4, gpt-oss).
+- **KV cache types.** F16, Q8_0, Q4_0 and F32 are offered on every device; quantized caches have kernels on the CPU, Vulkan and CUDA
+  (docs/kv-cache.md), and a cache whose rows are not whole 32-value blocks stays F16 (the panel then shows no saving).
 - **Compatibility checks.** They are likely verdicts, not guarantees: a GGUF header that maps can still fail on something only its
   tensor data shows. Quantizations other than the recommended one share the architecture's verdict until they are selected and
   their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX

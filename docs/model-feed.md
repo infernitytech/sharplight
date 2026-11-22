@@ -229,6 +229,11 @@ fetch):
     cache (an 8-bit cache, `kv-type q8_0`, needs about 0.53x, `q4_0` 0.28x).
   - `stateBytesPerSlot`: bytes per slot that do not grow with the context: recurrent state (linear-attention / SSM layers of hybrid
     models such as Qwen3.5 and Qwen3-Next) and saturated sliding-window caches.
+  - `expertWeights` / `expertBytesPerToken` (mixture-of-experts models only, optional): the bytes of `weights` that are routed
+    experts (banks of which a token selects a few; shared experts and dense layers are not counted), and the bytes of the experts one
+    token selects over all layers. A host that is too small for `weights` can still run the model with the experts left on disk
+    (`TaskLoadOptions.ExpertsOnDisk`) when `weights - expertWeights` plus the context fits; a decode step then reads up to
+    `expertBytesPerToken` from disk (`ExpertStore.EstimateDecode` turns it into an expected speed). Absent: the share is unknown.
   - `perSlotContext` / `perSlotContextMax`: the exact state of one slot at the default context (4096 tokens, or the model's maximum
     when smaller) and at the model's maximum context.
   - Need for `s` slots of `c` tokens: `weights + overhead + s * (stateBytesPerSlot + kvBytesPerToken * c)`

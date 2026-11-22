@@ -16,4 +16,7 @@ internal sealed record PackageInspection(string Name, string Kind, string? Archi
 
     /// <summary>Context memory of the decode graph, or <see langword="null"/> for models without one (encoders, diffusion, ...).</summary>
     public ContextMemory? Context { get; init; }
+
+    /// <summary>The routed experts of the decode graph, or <see langword="null"/> for models without (dense models, models without a decode graph).</summary>
+    public ExpertMemory? Experts { get; init; }
 }

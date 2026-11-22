@@ -60,6 +60,9 @@ public sealed record HostedModelSettings
     /// <summary>With <see cref="CpuOffload"/>: routed experts that do not fit host memory stay on disk.</summary>
     public bool ExpertsOnDisk { get; init; }
 
+    /// <summary>Segment workers (<c>host:port</c>) that run the later pipeline stages on other machines; empty for none.</summary>
+    public IReadOnlyList<string> Workers { get; init; } = [];
+
     /// <summary>With <see cref="ExpertsOnDisk"/>: bytes of the expert cache, or null to size it from the free host memory.</summary>
     public long? ExpertCacheBytes { get; init; }
 
@@ -133,6 +136,7 @@ public sealed record HostedModelSettings
             Pinned = model.Pinned ?? false,
             CpuOffload = model.CpuOffload ?? defaults.CpuOffload,
             ExpertsOnDisk = model.ExpertsOnDisk ?? defaults.ExpertsOnDisk,
+            Workers = model.Workers is { } workers ? [.. workers.Where(w => !string.IsNullOrWhiteSpace(w))] : [],
             ExpertCacheBytes = model.ExpertCacheGiB is > 0 ? (long)(model.ExpertCacheGiB.Value * (1L << 30)) : null,
             ReducedPrecision = defaults.ReducedPrecision,
             IdleTimeout = model.IdleTimeoutSeconds is > 0 ? TimeSpan.FromSeconds(model.IdleTimeoutSeconds.Value) : null,

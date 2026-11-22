@@ -60,7 +60,8 @@ public sealed class LoadFitTests
         var fit = Assert.IsType<FitEstimateViewModel>(panel.Fit);
         Assert.Equal(FitVerdict.Fits, fit.Verdict);
         Assert.True(fit.IsGood);
-        Assert.Equal("Weights 10.0 GB · KV cache 2.0 GB · activations 512 MB", fit.Breakdown);
+        Assert.Equal("Fits on the GPU", fit.Title);
+        Assert.Equal("Weights 10.0 GB · KV cache 1.0 GB · activations 512 MB", fit.Breakdown);
         var device = Assert.Single(fit.Devices);
         Assert.Equal(FakeRuntime.Gpu.Name, device.Name);
         Assert.Contains("free of 16.0 GB · 1.0 GB reserve", device.MemoryText, StringComparison.Ordinal);
@@ -69,35 +70,41 @@ public sealed class LoadFitTests
     }
 
     [Fact]
-    public async Task Estimate_FollowsTheChoices_AndAppliesASuggestedContext()
+    public async Task Estimate_FollowsTheChoices_AndAppliesTheLongestContextThatFits()
     {
         using var services = new TestServices();
         services.Runtime.Estimator = Footprint;
         var panel = new LoadOptionsViewModel(new LibraryEntryViewModel(Entry("qwen3-8b", 6 * GiB, "Q8_0")), services.Services, _ => { }, () => { });
         await Settle(panel);
 
-        // 32k tokens: 8 GiB of KV cache, 18.5 GiB in all against 15 GiB available (16 GiB free, 1 GiB reserve).
-        panel.ContextLength = 32768;
+        // 64k tokens: 8 GiB of KV cache, 18.5 GiB in all against 15 GiB available (16 GiB free, 1 GiB reserve).
+        panel.ContextLength = 65536;
         await Settle(panel);
         var fit = panel.Fit!;
         Assert.Equal(FitVerdict.NeedsOffload, fit.Verdict);
+        Assert.Equal("Needs CPU offload", fit.Title);
         Assert.True(fit.IsWarning);
         Assert.Contains("Turn on CPU offload, or the load fails.", fit.Message, StringComparison.Ordinal);
         Assert.Contains(fit.Devices, device => device.IsOffload && device.Name == "System memory");
 
         var texts = fit.Suggestions.Select(suggestion => suggestion.Text).ToList();
         Assert.Contains(texts, text => text.StartsWith("Turn on CPU offload · about ", StringComparison.Ordinal));
-        Assert.Contains(texts, text => text.StartsWith("Context of 16,384 tokens", StringComparison.Ordinal));
         Assert.Contains(texts, text => text.StartsWith("Q8_0 KV cache", StringComparison.Ordinal));
-        Assert.Contains(texts, text => text.StartsWith("One parallel slot", StringComparison.Ordinal));
+        Assert.DoesNotContain(texts, text => text.StartsWith("Context of", StringComparison.Ordinal));
 
-        var context = fit.Suggestions.First(suggestion => suggestion.Text.StartsWith("Context", StringComparison.Ordinal));
+        // The longest context on the GPU (32k: 14.5 GiB) and with offload (the trained-for limit, 128k when unknown) are offered instead.
+        var sizing = fit.Sizing.Select(row => row.Text).ToList();
+        Assert.Contains($"Up to 32,768 tokens on {FakeRuntime.Gpu.Name} · needs about 14.5 GB", sizing);
+        Assert.Contains(sizing, text => text.StartsWith("Up to 131,072 tokens with CPU offload", StringComparison.Ordinal));
+        var context = fit.Sizing.First(row => row.Text.StartsWith("Up to 32,768", StringComparison.Ordinal));
         Assert.True(context.Fits);
         context.ApplyCommand.Execute(null);
-        Assert.Equal(16384, panel.ContextLength);
+        Assert.Equal(32768, panel.ContextLength);
         await Settle(panel);
         Assert.Equal(FitVerdict.Fits, panel.Fit!.Verdict);
-        Assert.Equal(16384, services.Runtime.Estimates[^1].Settings.ContextLength);
+        Assert.Equal(32768, services.Runtime.Estimates.Last(request => request.Settings.ContextLength == 32768).Settings.ContextLength);
+        Assert.Equal($"32,768 tokens is the longest context that fits on the GPU.", panel.Fit.ContextSummary);
+        Assert.DoesNotContain(panel.Fit.Sizing, row => row.Text.StartsWith("Up to 32,768", StringComparison.Ordinal));
     }
 
     [Fact]

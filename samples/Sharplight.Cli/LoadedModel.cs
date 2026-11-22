@@ -24,6 +24,9 @@ internal sealed class LoadedModel : IDisposable
 
     public LlmModel Model { get; }
 
+    /// <summary>The pipeline device slots (local devices, then segment workers).</summary>
+    public IReadOnlyList<DeviceSlot> Devices => _devices;
+
     /// <summary>The single-sequence session; speculative generation uses a batch decoder instead and never compiles it.</summary>
     public InferenceSession Session => _session ??= Model.CreateSession(_graph);
 

@@ -21,6 +21,7 @@ call `services.AddSharplight()`.
 | `Sharplight.Audio` | Native audio: decoders (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), encoders (WAV, Ogg Opus), playback and capture devices | `IAudioDecoder`, `IAudioEncoder`, `IAudioDeviceProvider`, `services.AddSharplightAudio()` |
 | `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.Hosting` | Model hosting for servers and apps: a `ModelHost` from options or JSON (chat, embedding, reranker and task models on shared devices), placement, fit planning, status for health checks and cluster coordinators ([hosting.md](hosting.md)) | `IModelHostManager`, `ModelHostingOptions`, `HostedModelOptions`, `ModelHostingJson`, `HostStatus`, `FitPlanner`, `services.AddSharplightHosting()` |
+| `Sharplight.Distributed` | Multi-node pipeline parallel inference ([multinode.md](multinode.md)): the remote execution provider whose devices are segment workers on other machines, the worker, the TCP transport (mutual TLS optional) | `RemoteExecutionProvider`, `RemoteComputeDevice`, `RemoteSegmentOptions`, `SegmentWorker`, `TcpSegmentTransport`, `services.AddRemoteSegments()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
@@ -57,6 +58,7 @@ they need no extra `using`):
 | `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
 | `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()`, `AddSharplightVideo()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
+| `Sharplight.Distributed` | `AddRemoteSegments(o => ...)` | the `RemoteDevicePool` (segment workers as devices, reconnected after a failure) and `RemoteSegmentOptions` (transport and TLS, heartbeats, timeouts, weight verification); the remote provider stays out of the execution provider catalog |
 | `Sharplight.Hosting` | `AddSharplightHosting(o => ...)`, `AddSharplightHosting("hosting.json")` | the `IModelHostManager` and its `ModelHost`, the `DeviceInventory`, the placement policy, the chat / embedding / reranker / task loader factories and the startup loader ([hosting.md](hosting.md)) |
 | `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightServer(o => ...)` (the container's `ModelHost`), `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
@@ -757,6 +759,20 @@ buffer per weight: buffers are keyed by device, weight source, type, size and th
 counted, filled by the first holder and freed with the last. Providers opt in through `IComputeDevice.SharesWeights` (CPU and
 Vulkan do); placement does not count weights already resident. `LlmModel` passes its registry (`LlmModel.SharedWeights`) to
 every decoder and draft head it compiles.
+
+### Several machines
+
+A model larger than one machine runs pipeline parallel over segment workers on other nodes ([multinode.md](multinode.md)): their devices
+(`RemoteComputeDevice`) go into `LlmLoadOptions.Devices` after the local ones, and everything above (sessions, decoders, the engine) is
+unchanged.
+
+```csharp
+using var remote = new RemoteExecutionProvider(new RemoteSegmentOptions { Workers = ["10.0.0.2:7070", "10.0.0.3:7070"] });
+using var model = LlmModel.Load(loader, path, new LlmLoadOptions
+{
+    Devices = [new DeviceSlot { Device = gpu }, .. remote.OpenAll().Select(w => new DeviceSlot { Device = w })],
+});
+```
 
 ### Several models
 

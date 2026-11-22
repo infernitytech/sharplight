@@ -52,6 +52,24 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M --save qwen3-0.6b.s
 | `--image`, `--mmproj`, `--image-min-tokens`, `--image-max-tokens` | Image input. |
 | `--bench N`, `--logits FILE`, `--save FILE` | Benchmark, logits dump (raw float32), package export. |
 | `--models-dir DIR`, `--no-pull`, `--revision`, `--keep-source`, `--no-precompile` | Model store and how missing models are pulled. |
+| `--workers host:port,...`, `--remote-only` | Run the later pipeline stages on segment workers on other machines (see below); `--remote-only` places no layers here. |
+
+### Several machines
+
+A model too large for one machine runs pipeline parallel over segment workers ([docs/multinode.md](../../docs/multinode.md)). Every
+worker serves its own copy of the same model and loads only the layers placed on it:
+
+```bash
+# On each worker node (GPU 0 by default; --cpu, --provider cuda, --cpu-offload, --experts-on-disk as usual)
+sharplight segment-worker ~/models/qwen3-8b-q4_k_m.gguf --listen 0.0.0.0:7070
+
+# On the coordinator: the first stage here, then the workers in order
+sharplight ~/models/qwen3-8b-q4_k_m.gguf --workers 10.0.0.2:7070,10.0.0.3:7070 -p "The capital of France is"
+sharplight serve ~/models/qwen3-8b-q4_k_m.gguf --workers 10.0.0.2:7070,10.0.0.3:7070
+```
+
+`segment-worker` options: `--listen host:port` (port 0 picks a free one and prints it), `--advertise host:port` (the address neighbouring
+workers use), `--gpus N`, `--memory SIZE` (memory offered per device; coordinators weight their split by it).
 
 Exit codes: `0` success, `1` invalid command line, `2` runtime error (message on stderr), `130` cancelled with Ctrl+C.
 

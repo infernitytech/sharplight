@@ -286,6 +286,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
     from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
+  Sizing round 2 (studio.md "Load options"): the load panel shows the engine's own footprint for one slot (window-sized session caches,
+  KV type) with a GPU / CPU (expert) offload / does-not-fit verdict, the longest context that fits on the GPU and with offload, and what
+  the other KV cache type saves; the device memory figures are read again when a picker opens, after loads and unloads and every 5 s
+  while one is visible; the feed's variant ladders show a per-variant fit. Gemma 4 31B Q4_K_M: weights and state 20.7 GiB at 32K and
+  28.2 GiB at 128K (23.0 GiB with q8_0), the total adds an activation bound of ~3.1 GiB at the 512-row prompt batch. Next: feed
+  packages record the session footprint (the feed's figures are the plain graph's, larger for sliding-window models), a tighter
+  activation bound for single-sequence sessions.
 
 ## Performance ideas
 
@@ -391,13 +398,13 @@ Devices without f16 matrix units keep strict. Open: the q4 decoders and the SIMT
 
 ## Multi-node inference
 
-- **Pipeline parallel across a cluster**: run one model too large for a single machine across several nodes. Placement
-  already splits a graph into per-device segments in pipeline order (`PlacementOptions.Devices`); a remote segment
-  worker on each node loads only its own layers from its local `.slm` copy, keeps the KV cache of those layers, and
-  exchanges only the boundary activations (`d_model` x 2 bytes per token, about 14 KB for DeepSeek-V3; well under 1 ms
-  per token over 10 GbE for 4 nodes). Exposed as a provider whose devices are remote segments, so other providers can
-  implement it. Single-stream decode gains capacity, not speed; throughput scales with nodes by keeping several
-  micro-batches in flight through the multi-sequence decoder.
+- **Pipeline parallel across a cluster**: done in round 1 ([multinode.md](multinode.md), benchmarks §88): `Sharplight.Distributed`'s
+  remote execution provider, whose devices are segment workers (`sharplight segment-worker`, `SegmentWorker`) that load only their own
+  layers from their local copy (fingerprint-checked), keep the KV cache of those layers and exchange only boundary activations, worker to
+  worker over persistent TCP streams (mutual TLS optional); `--workers` on the CLI and `serve`, `workers` per hosted model. Output equals
+  the single-machine run (tokens and logits); a lost or hung worker fails the request in under a second or at the heartbeat timeout.
+  Chunked prefill overlaps the stages; several decoders over one pipeline overlap their steps. Next: decode micro-batches inside one
+  serving engine, lower per-step protocol overhead (0.15-0.35 ms per worker on loopback), f16 boundary values, an RDMA transport.
 - Later: tensor and expert parallel across nodes for RDMA networks (InfiniBand / RoCE) and large MoE models; over TCP the
   per-layer all-reduces cost several milliseconds per token.
 

@@ -145,6 +145,9 @@ the next experts. A direct device read would save that copy and the host memory 
 plain (not registered) buffers: the reads are `O_DIRECT` DMA into the slots either way, and pieces of 8 MiB make the per-read page pinning
 that fixed buffers avoid negligible.
 
+Hosts see it in `HostedModelStatus` (`ExpertsFromDisk`, `DiskExpertBytes`, `ExpertCache` with the statistics, `ExpertReadBytesPerSecond`;
+`LoadedModel.DiskExperts`), plan with `ExpertStore.EstimateDecode` (the same estimate as the load log, from the bytes a token selects, the read
+speed and the cache), and feed manifests list the routed experts (`requirements.memory[].expertWeights` / `expertBytesPerToken`, model-feed.md).
 The fit planner (`FitQuery.ExpertsOnDisk`) reports such a load as `NeedsOffload` with `ExpertsFromDisk` instead of `DoesNotFit`. Decode then
 runs at the disk's speed: a step reads the selected experts it does not find in the cache (DeepSeek-V3 at Q4_K_M: up to 12 GB per token).
 
@@ -160,7 +163,9 @@ Every load decision uses the live figures of the device, not its total memory. `
 is already taken off), `Capacity` is what this process could hold (its own use plus `Available`). Placement
 (`PlacementPlanner`), the automatic rows per pass and KV sizing, and the hosting layer use `Available`; the diffusion and video
 generators decide whether to keep stages resident from `Capacity`; Studio's load dialog uses `Available`, and its "fits this machine"
-filters and badges (verified catalog, Hub search) use `DeviceMemory.UsableBytes` (the capacity). `DeviceOptions.MemoryBudget` caps
+filters and badges (verified catalog, Hub search) use `DeviceMemory.UsableBytes` (the capacity); the feed's badges plan with
+`Available` and the resident models like the load dialog. Studio reads these figures again when a picker opens, after loads and
+unloads and every 5 s while one is visible (studio.md "Memory figures"). `DeviceOptions.MemoryBudget` caps
 what placement plans for on a device.
 
 ## Simulating smaller or different hardware
@@ -194,7 +199,6 @@ pinned memory; a 48 MB device refuses it clearly and a 96 MB one offloads layers
 - CUDA honours `MaxAllocation` only for staging (CUDA has no per-allocation limit of its own).
 - Vulkan's host-heap budget (`VK_EXT_memory_budget`) comes from the driver, which may not see a cgroup limit; host staging is small
   enough that this has not mattered.
-- Studio's first-run starter recommendation still sizes from the GPU's total memory (with its configured fraction).
 - Window-sized KV caches for sliding-window layers (`window_kv`) also serve single-sequence sessions since benchmarks.md §77 (the one-slot
   paged form with a ring of window rows, used where the ring at most halves those caches): Gemma 4 31B Q4_K_M at 32K takes 21.1 GiB
   on the session path (was 44.8 GiB), 128K fits a 32 GB card (28.2 GiB, f16 caches). The one-slot paged form costs ~2 % of a CUDA
