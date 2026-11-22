@@ -515,13 +515,24 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (beforeLibrary?.Invoke(b) ?? true) && plan.RowCount(b) < libraryMin;
         }
 
+        Func<Bindings, bool> skinnyEpilogue = _ => false;
         if (skinnyHere)
         {
             // Up to 16 rows (above the int-dot range for formats with one): weights read once by the skinny GEMM; the launches below
-            // keep single rows (matvec) and larger batches (gemm_cm2).
+            // keep single rows (matvec) and larger batches (gemm_cm2). The epilogue (a projection's bias, a residual add) goes into
+            // its store where the product is dense rows of N.
             var beforeSkinny = _launchCondition;
+            var skinnyCode = epilogue is not null && gemmEpilogue && !plan.SplitHalf && plan.RowsPerLead == 1 && plan.Y.IsDense
+                             && plan.Macros["Y_STRIDE"] == plan.N.ToString(CultureInfo.InvariantCulture) && DiagnosticSwitches.SkinnyEpilogue
+                ? epilogueCode ?? MatMulEpilogueSource(n, epilogue)
+                : null;
             EmitSkinnyGemm(skinnyMin, MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K, plan.Macros,
-                macros => Lib("matmul.slang", "gemm_sk", macros), half);
+                macros => Lib("matmul.slang", "gemm_sk", macros), half, skinnyCode);
+            if (skinnyCode is not null)
+            {
+                skinnyEpilogue = b => (beforeSkinny?.Invoke(b) ?? true) && InSkinnyRange(plan.RowCount(b), plan.N, plan.W.Type, skinnyMin);
+            }
+
             _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(plan.RowCount(b), plan.N, plan.W.Type, skinnyMin);
         }
 
@@ -540,14 +551,15 @@ public sealed partial class GraphLowerer
         _launchCondition = outer;
         if (epilogue is not null && epilogueCode is null)
         {
-            LowerSeparateEpilogue(n, epilogue, b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b));
+            LowerSeparateEpilogue(n, epilogue, b => (outer?.Invoke(b) ?? true) && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b)
+                && !skinnyEpilogue(b));
         }
         else if (epilogue is not null && !plan.SplitHalf)
         {
             // Row counts whose split-K reduction did not apply the group (no K split, or another launch served them: e.g. the fp8
             // GEMM, whose multi-output form writes the products without the bias), nor the hand-written GEMM's bias store.
             LowerSeparateEpilogue(n, epilogue, b => (outer?.Invoke(b) ?? true) && !(reduced?.Invoke(b) ?? false)
-                && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b));
+                && !(nativeBias && plan.RowCount(b) >= NativeBiasGemmMinRows) && !intDotEpilogue(b) && !skinnyEpilogue(b));
         }
     }
 

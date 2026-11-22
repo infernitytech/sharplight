@@ -99,27 +99,38 @@ public sealed partial class GraphLowerer
     /// (an f16 copy of x covering its rows) or, when that is null, the shared f16 copy of <paramref name="source"/>'s rows.
     /// </summary>
     private void EmitSkinnyGemm(long minRows, string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights,
-        TensorRef y, long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null)
+        TensorRef y, long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null,
+        MatMulEpilogueCode? epilogue = null)
     {
+        if (epilogue is not null)
+        {
+            // The matmul's epilogue in the store: the launches write the group's output.
+            label += epilogue.Label;
+            nodes = [.. nodes, .. epilogue.Group];
+            y = epilogue.Output;
+            compile = macros => MatMulEpilogueKernel(epilogue, "gemm_sk", macros);
+        }
+
         long rowsMax = x.Shape[0] * rowsPerLead;
         long maxRows = Math.Min(SkinnyMaxRowsFor(n, weights[0].Type), rowsMax);
         long halfMin = Math.Max(minRows, SkinnyHalfMinRows);
         if (minRows < halfMin && minRows <= maxRows)
         {
-            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, x, xStride, false, minRows, Math.Min(maxRows, halfMin - 1), weights, y, n, k, baseMacros, compile);
+            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, x, xStride, false, minRows, Math.Min(maxRows, halfMin - 1), weights, y, n, k, baseMacros, compile,
+                epilogue);
         }
 
         if (halfMin <= maxRows)
         {
             var activations = half ?? QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, halfMin, maxRows, ActivationCode.F16);
-            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, activations, k, true, halfMin, maxRows, weights, y, n, k, baseMacros, compile);
+            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, activations, k, true, halfMin, maxRows, weights, y, n, k, baseMacros, compile, epilogue);
         }
     }
 
     /// <summary>One skinny GEMM launch for <paramref name="minRows"/> to <paramref name="maxRows"/> rows, with a variant per token-fragment count.</summary>
     private void EmitSkinnyLaunch(string label, Node[] nodes, TensorRef x, long rowsPerLead, TensorRef activations, long activationStride, bool half,
         long minRows, long maxRows, TensorRef[] weights, TensorRef y, long n, long k, Dictionary<string, string> baseMacros,
-        Func<Dictionary<string, string>, CompiledKernel> compile)
+        Func<Dictionary<string, string>, CompiledKernel> compile, MatMulEpilogueCode? epilogue = null)
     {
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         var variants = new List<KernelVariant>();
@@ -162,8 +173,8 @@ public sealed partial class GraphLowerer
         }
 
         Emit($"{label} skinny{(half ? "" : " f32")}", nodes, variants,
-            [Pointer(activations), .. weights.Select(Pointer), Pointer(y), TokenArg(x, rowsPerLead)],
-            [activations, .. weights], [y]);
+            [Pointer(activations), .. weights.Select(Pointer), Pointer(y), .. MatMulEpilogueArgs(epilogue), TokenArg(x, rowsPerLead)],
+            [activations, .. weights, .. epilogue?.Args ?? []], [y]);
     }
 
     /// <summary>

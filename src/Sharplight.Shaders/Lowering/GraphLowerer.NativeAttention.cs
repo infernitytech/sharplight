@@ -78,8 +78,9 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// The launch variant of <c>attn_prefill_native.cu</c> for the bindings <paramref name="when"/> selects: grid (query heads, query tiles
-    /// of the longest run, runs). <paramref name="mixRun"/> &gt; 0 skips runs shorter than that (mixed steps, where split-K decoding takes them).
+    /// The launch variant of <c>attn_prefill_native.cu</c> for the bindings <paramref name="when"/> selects: grid (query heads, query tiles):
+    /// with runs, ceil(rows / tile rows) + runs, a bound on the tiles of all runs together, which the kernel enumerates (no empty blocks for
+    /// the tiles a short run does not have). <paramref name="mixRun"/> &gt; 0 skips runs shorter than that (mixed steps, where split-K decoding takes them).
     /// </summary>
     private KernelVariant NativeFlashVariant(AttentionPlan plan, Func<Bindings, bool> when, long mixRun = 0)
     {
@@ -105,7 +106,7 @@ public sealed partial class GraphLowerer
         uint rows = (uint)(16 * warps * fragments / (Math.Max(plan.D, plan.DV) > 256 ? 2 : 1));
         return runs is null
             ? new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), 1))
-            : new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows), (uint)Rows(b, runs)));
+            : new KernelVariant(when, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), rows) + (uint)Rows(b, runs), 1));
     }
 
     /// <summary>Warps of an <c>attn_decode_native.cu</c> block (each runs its own key tiles and softmax).</summary>

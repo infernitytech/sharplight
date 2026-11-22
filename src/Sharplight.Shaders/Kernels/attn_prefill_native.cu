@@ -20,7 +20,7 @@
 //
 // Semantics are those of `fa` in attention.slang for the forms it serves: query t (position n_past + t) sees cache keys [rowBeg, n_past +
 // t] with rowBeg = 0, or n_past + t + 1 - WINDOW (sliding window), or the start of its CHUNK; HAS_SOFTCAP caps the scores; HAS_SINKS adds
-// the per-head sink logit to the softmax denominator; GQA heads read KV head h / (HQ / HKV). MULTI_SEQ: grid z = runs (slot, first row,
+// the per-head sink logit to the softmax denominator; GQA heads read KV head h / (HQ / HKV). MULTI_SEQ: runs (slot, first row,
 // row count, first position), optionally PAGED; MIX_RUN skips runs shorter than MIX_RUN rows (mixed steps).
 //
 // Macros: HQ, HKV, D, DV (multiples of 64 up to 256), VRS (value row stride), QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP,
@@ -28,7 +28,8 @@
 // warp, default 1; the lowering takes 2 at head size 64, where deep contexts gain 7-12 %, and 1 at 128, where 2 spills), FN_STAGES
 // (2 or 3, default 2), FN_BC (keys per tile, 16, 32 or 64; default 64 up to head size 128, 32 up to 256, else 16).
 // Dynamic shared memory: FN_STAGES stages of FN_BC key and value rows, then (FN_DS = 2) the score exchange of FN_XCH floats.
-// Grid: x = HQ, y = query tiles (of the longest run), z = runs (1 without MULTI_SEQ).
+// Grid: x = HQ, y = query tiles: without MULTI_SEQ those of the T rows; with MULTI_SEQ ceil(T / FN_BR) + runs, a bound on the tiles of all
+// runs together, which the blocks enumerate run by run (the run count is grid y minus ceil(T / FN_BR)); z = 1.
 #ifndef FN_WARPS
 #define FN_WARPS 4
 #endif
@@ -198,23 +199,54 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
     const fn_u32 rowGroup = warp / FN_DS, part = warp % FN_DS;   // the warp's rows and its half of the head dimensions
     const fn_u32 g = lane >> 2, c4 = lane & 3;
     const fn_u32 h = blockIdx.x, hk = h / (HQ / HKV);
-    const fn_u32 blk = gridDim.y - 1 - blockIdx.y;   // longest query tiles first
     fn_u32 qT = p.T, qRow0 = 0, nPast;
     fn_u64 kvBase = 0;
 #if MULTI_SEQ
+    fn_u32 blk;
     {
-        const int* run = p.runs + blockIdx.z * 4;
-        fn_u32 rows = (fn_u32)run[2];
-        if (blk * FN_BR >= rows)
+        // Grid y enumerates the query tiles of all runs the kernel serves (runs of at least MIX_RUN rows), each run's longest tiles
+        // first; the lowering sizes it ceil(T / FN_BR) + runs, a bound on that count, so the run count is the rest of grid y.
+        const fn_u32 nRuns = gridDim.y - (p.T + FN_BR - 1) / FN_BR;
+        const fn_u32 L = blockIdx.y;
+        fn_u32 acc = 0, rows = 0;
+        int found = -1;
+        for (fn_u32 r0 = 0; r0 < nRuns; r0 += 32)
         {
-            return;
-        }
+            const fn_u32 r = r0 + lane;
+            fn_u32 rr = r < nRuns ? (fn_u32)p.runs[r * 4 + 2] : 0;
 #if MIX_RUN > 0
-        if (rows < MIX_RUN)
+            rr = rr < MIX_RUN ? 0 : rr;
+#endif
+            const fn_u32 n = (rr + FN_BR - 1) / FN_BR;
+            fn_u32 incl = n;
+#pragma unroll
+            for (fn_u32 off = 1; off < 32; off <<= 1)
+            {
+                const fn_u32 v = __shfl_up_sync(0xffffffffu, incl, off);
+                incl += lane >= off ? v : 0;
+            }
+
+            const fn_u32 total = __shfl_sync(0xffffffffu, incl, 31);
+            if (L < acc + total)
+            {
+                const fn_u32 first = __ffs(__ballot_sync(0xffffffffu, L < acc + incl)) - 1;
+                const fn_u32 before = __shfl_sync(0xffffffffu, incl - n, first);
+                rows = __shfl_sync(0xffffffffu, rr, first);
+                const fn_u32 tiles = (rows + FN_BR - 1) / FN_BR;
+                blk = tiles - 1 - (L - acc - before);   // longest query tiles first
+                found = (int)(r0 + first);
+                break;
+            }
+
+            acc += total;
+        }
+
+        if (found < 0)
         {
             return;
         }
-#endif
+
+        const int* run = p.runs + found * 4;
         qT = rows;
         qRow0 = (fn_u32)run[1];
         nPast = (fn_u32)run[3];
@@ -225,6 +257,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
 #endif
     }
 #else
+    const fn_u32 blk = gridDim.y - 1 - blockIdx.y;   // longest query tiles first
     nPast = p.rt[RT_N_PAST];
     if (blk * FN_BR >= qT)
     {

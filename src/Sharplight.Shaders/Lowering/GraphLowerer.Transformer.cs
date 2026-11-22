@@ -103,6 +103,21 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
+    /// (token, head) rows per <c>rope_qkv</c> workgroup (<c>QKV_RPW</c>) below <see cref="RopeQkvLongRows"/> rows: one row per
+    /// workgroup left the launch bound by how fast its 64-thread workgroups start. RTX PRO 4500, gpt-oss-20b (64 + 2 x 8 heads of 64
+    /// values, no q / k norm), µs per launch for 1 / 4 / 8 / 16 rows per workgroup: 64 tokens 8.1 / 4.7 / 6.0 / 8.1, 2048 tokens
+    /// 161.0 / 77.4 / 71.5 / 71.7 (benchmarks.md §80). Rows with a q / k norm keep one row per workgroup (Qwen3-8B-FP8 1 / 16 / 64-sequence
+    /// steps were 0.3-0.6 % slower with four).
+    /// </summary>
+    private const int RopeQkvShortRowsPerGroup = 4;
+
+    /// <summary>Rows per <c>rope_qkv</c> workgroup from <see cref="RopeQkvLongRows"/> rows on (see <see cref="RopeQkvShortRowsPerGroup"/>).</summary>
+    private const int RopeQkvLongRowsPerGroup = 8;
+
+    /// <summary>(token, head) rows of a <c>rope_qkv</c> launch from which it runs <see cref="RopeQkvLongRowsPerGroup"/> rows per workgroup.</summary>
+    private const long RopeQkvLongRows = 32768;
+
+    /// <summary>
     /// The query rope <paramref name="queryRope"/>, the key cache write <paramref name="keyWrite"/> with its rope and the value cache write
     /// <paramref name="valueWrite"/> of one attention layer as one <c>rope_qkv</c> launch (each with its absorbed RmsNorm), where the rows
     /// are [T, heads, D] with contiguous heads, both caches are f16 or f32 of one shape and row rule, and the two ropes differ only in
@@ -178,13 +193,19 @@ public sealed partial class GraphLowerer
             ("SLOT_CTX", seq is null ? 0 : SlotContext(keyWrite, kc)),
             .. PageMacros(keyWrite, pages),
         ];
-        var kernel = Lib("rope.slang", "rope_qkv", Macros(macros));
+        // Rows with a q / k norm keep one row per workgroup: their reduction's barriers make the rows of a workgroup wait on each other.
+        bool normed = queryNorm is not null || keyNorm is not null;
+        int shortRows = normed ? 1 : RopeQkvShortRowsPerGroup;
+        int longRows = normed ? 1 : RopeQkvLongRowsPerGroup;
+        var shortKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", shortRows)]));
+        var longKernel = Lib("rope.slang", "rope_qkv", Macros([.. macros, ("QKV_RPW", longRows)]));
         var yq = Produce(queryRope.Output);
         var tx = xq;
         long heads = hq + 2 * hk;
         Node[] nodes = [.. new[] { queryNorm, queryRope, keyNorm, keyRope }.OfType<Node>(), keyWrite, valueWrite];
         Emit($"rope+qkv+cache_write {queryRope.Output.Name}", nodes,
-            [Always(kernel, b => new Grid((uint)(Rows(b, tx) * heads)))],
+            [new KernelVariant(b => Rows(b, tx) * heads >= RopeQkvLongRows, longKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, longRows))),
+             Always(shortKernel, b => new Grid(Grid.Div(Rows(b, tx) * heads, shortRows)))],
             [Pointer(xq), Pointer(xk), Pointer(xv), Pointer(pos), Pointer(wq ?? xq), Pointer(wk ?? xk), Pointer(yq), Pointer(kc), Pointer(vc),
              new PointerArg(_runtime, 0), Pointer(frequencyFactors ?? xq), .. SeqArgs(seq, pages), TokenArg(xq)],
             [xq, xk, xv, pos, .. new[] { wq, wk, frequencyFactors }.OfType<TensorRef>(), .. PresentTables(seq, pages)], [yq, kc, vc]);
