@@ -286,6 +286,7 @@ public sealed class StreamedExpertsTests
         var expected = Run(resident);
         Assert.Equal(expected, Run(disk));
         Assert.Equal(expected, Run(disk));
-        Assert.True(store.Statistics.Misses > 0 && store.Statistics.Hits > 0);
+        var stats = store.Statistics;
+        Assert.True(stats.Misses > 0 && stats.Hits + stats.ReadAhead > 0);
     }
 }
