@@ -154,6 +154,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   at 16); Qwen3-8B-FP8 unchanged (0.94x). Greedy text byte-identical, sorted store bit-identical to the gather path; long-prompt logits
   move with the router's summation order (now Vulkan's). Measured and not kept: the tensor-copy FP8 GEMM's multi-output q / k / v.
   Next: §82.6.
+  Round 29 (§84): Qwen3-8B-FP8 decode at 16 rows. The dual gate / up pair on grouped E4M3 weights takes the FP8 GEMM's decode form
+  from 9 rows (the skinny GEMM keeps 1-8), a register-streaming FP8 decode GEMM (`gemm_fp8_decode.cu`: no shared-memory stages, weights
+  as the MMA's A operand, K split over a block's warps) serves single matmuls at 9-16 rows, and the FP8 decode kernels copy their first
+  weights before `griddepcontrol.wait`: the 16-sequence step 12.59 → 12.19 ms (at or below vLLM's like for like), serving at 16 streams
+  0.94 → 0.97-0.98x, at 64 unchanged (0.94x). vLLM's prompt GEMMs run at twice our rate (block-scaled MMA with E8M0 scales, 545 TFLOPS
+  against 256): the next lever. Measured and not kept: L2 prefetches before the wait, the dual pair on the new kernel. Next: §84.6.
 - **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
   31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
   the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models

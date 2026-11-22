@@ -1,0 +1,44 @@
+lock after 25 s at 10:25:33
+ 17 MB, 2 blocks/SM, flush memset: 26.6 us, 670 GB/s
+ 17 MB, 2 blocks/SM, flush read : 24.6 us, 725 GB/s
+ 17 MB, 4 blocks/SM, flush memset: 26.6 us, 670 GB/s
+ 17 MB, 4 blocks/SM, flush read : 24.6 us, 725 GB/s
+ 17 MB, 8 blocks/SM, flush memset: 26.6 us, 670 GB/s
+ 17 MB, 8 blocks/SM, flush read : 24.6 us, 725 GB/s
+ 50 MB, 2 blocks/SM, flush memset: 71.7 us, 731 GB/s
+ 50 MB, 2 blocks/SM, flush read : 65.1 us, 806 GB/s
+ 50 MB, 4 blocks/SM, flush memset: 71.7 us, 731 GB/s
+ 50 MB, 4 blocks/SM, flush read : 67.6 us, 776 GB/s
+ 50 MB, 8 blocks/SM, flush memset: 71.7 us, 731 GB/s
+ 50 MB, 8 blocks/SM, flush read : 65.2 us, 804 GB/s
+100 MB, 2 blocks/SM, flush memset: 137.2 us, 764 GB/s
+100 MB, 2 blocks/SM, flush read : 129.0 us, 813 GB/s
+100 MB, 4 blocks/SM, flush memset: 137.2 us, 764 GB/s
+100 MB, 4 blocks/SM, flush read : 129.0 us, 813 GB/s
+100 MB, 8 blocks/SM, flush memset: 139.3 us, 753 GB/s
+100 MB, 8 blocks/SM, flush read : 129.0 us, 813 GB/s
+== <bin>/b_12288_4096_0_16_-DF8D_KS-4_-DF8D_RT-1
+  check T=16: max err 0.00061 of max 1.6e+03
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=4 RT=1 D=2 blocks=128: min 69.6 us mean 69.9 us, 745 GB/s (min)
+== <bin>/b_12288_4096_0_16_-DF8D_KS-6_-DF8D_RT-1
+  check T=16: max err 0.00061 of max 1.6e+03
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=6 RT=1 D=2 blocks=128: min 67.6 us mean 68.2 us, 768 GB/s (min)
+== <bin>/b_4096_12288_1_16
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=2 blocks=192: min 135.2 us mean 135.2 us, 768 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DF8D_DEPTH-1
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=1 blocks=192: min 135.2 us mean 135.2 us, 768 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DF8D_KS-2_-DF8D_RT-2
+  check T=16: max err 0.0781 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=2 RT=2 D=2 blocks=384: min 133.1 us mean 133.1 us, 780 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DFLUSHMEMSET
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=2 blocks=192: min 143.4 us mean 144.7 us, 724 GB/s (min)
+== <bin>/b_4096_4096_0_16_-DF8D_KS-2_-DF8D_RT-2
+  check T=16: max err 0.000305 of max 820
+T= 16 K= 4096 N= 4096 dual=0 RF=2 KS=2 RT=2 D=2 blocks=64: min 26.6 us mean 26.6 us, 650 GB/s (min)
+== <bin>/b_4096_4096_0_16_-DF8D_KS-4_-DF8D_RT-1
+  check T=16: max err 0.000305 of max 820
+T= 16 K= 4096 N= 4096 dual=0 RF=2 KS=4 RT=1 D=2 blocks=128: min 26.6 us mean 26.6 us, 650 GB/s (min)
+held 29 s, rc 0

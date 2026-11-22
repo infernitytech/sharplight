@@ -1,0 +1,53 @@
+lock after 161 s at 10:23:38
+== <bin>/nat_12288_4096
+  check T=16: max err 0.000244 of max 1.6e+03
+T=   16 K=12288 N= 4096 dual=0 split=1: 0.086 ms 19 TFLOPS 603 GB/s of weights
+T=   64 K=12288 N= 4096 dual=0 split=1: 0.084 ms 77 TFLOPS 618 GB/s of weights
+== <bin>/nat_4096_12288
+  check T=16: max err 0.0391 of max 2.2e+05
+T=   16 K= 4096 N=12288 dual=1 split=1: 0.143 ms 22 TFLOPS 724 GB/s of weights
+T=   64 K= 4096 N=12288 dual=1 split=1: 0.156 ms 83 TFLOPS 667 GB/s of weights
+== <bin>/nat_4096_4096
+  check T=16: max err 0.000122 of max 820
+T=   16 K= 4096 N= 4096 dual=0 split=1: 0.031 ms 17 TFLOPS 563 GB/s of weights
+T=   64 K= 4096 N= 4096 dual=0 split=1: 0.031 ms 70 TFLOPS 563 GB/s of weights
+== <bin>/b_12288_4096_0_16_-DF8D_KS-4
+  check T=16: max err 0.00061 of max 1.6e+03
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=4 RT=4 D=2 blocks=32: min 84.0 us mean 86.2 us, 618 GB/s (min)
+== <bin>/b_12288_4096_0_16_-DF8D_KS-4_-DF8D_RT-1
+  check T=16: max err 0.00061 of max 1.6e+03
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=4 RT=1 D=2 blocks=128: min 75.7 us mean 76.1 us, 685 GB/s (min)
+== <bin>/b_12288_4096_0_16_-DF8D_KS-6_-DF8D_RT-1
+  check T=16: max err 0.00061 of max 1.6e+03
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=6 RT=1 D=2 blocks=128: min 71.7 us mean 73.9 us, 724 GB/s (min)
+== <bin>/b_12288_4096_0_16_-DF8D_KS-8_-DF8D_RT-1
+  check T=16: max err 0.00061 of max 1.6e+03
+T= 16 K=12288 N= 4096 dual=0 RF=2 KS=8 RT=1 D=2 blocks=128: min 73.7 us mean 75.5 us, 704 GB/s (min)
+== <bin>/b_12288_4096_0_16_-DF8D_RF-1_-DF8D_KS-4_-DF8D_RT-1
+  check T=16: max err 0.00061 of max 1.6e+03
+T= 16 K=12288 N= 4096 dual=0 RF=1 KS=4 RT=1 D=2 blocks=256: min 79.9 us mean 80.1 us, 650 GB/s (min)
+== <bin>/b_4096_12288_1_16
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=2 blocks=192: min 143.4 us mean 145.3 us, 724 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DF8D_DEPTH-1
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=1 blocks=192: min 141.3 us mean 143.2 us, 735 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DF8D_DEPTH-3
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=4 D=3 blocks=192: min 145.4 us mean 147.5 us, 714 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DF8D_KS-2_-DF8D_RT-2
+  check T=16: max err 0.0781 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=2 RT=2 D=2 blocks=384: min 139.3 us mean 141.0 us, 745 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DF8D_RF-4_-DF8D_RT-2
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=4 KS=1 RT=2 D=2 blocks=192: min 151.6 us mean 153.2 us, 685 GB/s (min)
+== <bin>/b_4096_12288_1_16_-DF8D_RT-2
+  check T=16: max err 0.0391 of max 2.2e+05
+T= 16 K= 4096 N=12288 dual=1 RF=2 KS=1 RT=2 D=2 blocks=384: min 143.4 us mean 144.4 us, 724 GB/s (min)
+== <bin>/b_4096_4096_0_16_-DF8D_KS-2_-DF8D_RT-2
+  check T=16: max err 0.000305 of max 820
+T= 16 K= 4096 N= 4096 dual=0 RF=2 KS=2 RT=2 D=2 blocks=64: min 28.7 us mean 28.8 us, 603 GB/s (min)
+== <bin>/b_4096_4096_0_16_-DF8D_KS-4_-DF8D_RT-1
+  check T=16: max err 0.000305 of max 820
+T= 16 K= 4096 N= 4096 dual=0 RF=2 KS=4 RT=1 D=2 blocks=128: min 30.7 us mean 30.9 us, 563 GB/s (min)
+held 169 s, rc 0

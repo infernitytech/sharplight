@@ -1,0 +1,12 @@
+sharplight_gptoss_base       c16  tok/s 1405 / 1412  ttft_p50 107 / 102  itl_mean 10.46 / 10.44 itl_p50 9.29 / 9.34 err 0
+sharplight_gptoss_base       c64  tok/s 3042 / 3067  ttft_p50 232 / 236  itl_mean 18.27 / 18.09 itl_p50 13.75 / 13.53 err 0
+sharplight_gptoss_new        c16  tok/s 1404 / 1414  ttft_p50 107 / 102  itl_mean 10.44 / 10.42 itl_p50 9.28 / 9.32 err 0
+sharplight_gptoss_new        c64  tok/s 3042 / 3070  ttft_p50 233 / 236  itl_mean 18.27 / 18.07 itl_p50 13.68 / 13.48 err 0
+sharplight_qwen_base         c16  tok/s 1049 / 1052  ttft_p50 117 / 115  itl_mean 14.24 / 14.23 itl_p50 13.04 / 13.04 err 0
+sharplight_qwen_base         c64  tok/s 2532 / 2533  ttft_p50 285 / 287  itl_mean 21.97 / 21.95 itl_p50 16.33 / 16.37 err 0
+sharplight_qwen_new          c16  tok/s 1090 / 1094  ttft_p50 116 / 114  itl_mean 13.68 / 13.65 itl_p50 12.45 / 12.46 err 0
+sharplight_qwen_new          c64  tok/s 2540 / 2536  ttft_p50 283 / 286  itl_mean 21.91 / 21.92 itl_p50 16.29 / 16.31 err 0
+vllm_gptoss                  c16  tok/s 1413 / 1394  ttft_p50 184 / 192  itl_mean 10.01 / 10.16 itl_p50 9.37 / 9.47 err 0
+vllm_gptoss                  c64  tok/s 3130 / 3182  ttft_p50 470 / 471  itl_mean 16.88 / 16.52 itl_p50 13.35 / 12.90 err 0
+vllm_qwen                    c16  tok/s 1121 / 1121  ttft_p50 161 / 160  itl_mean 12.88 / 12.88 itl_p50 12.37 / 12.38 err 0
+vllm_qwen                    c64  tok/s 2696 / 2691  ttft_p50 405 / 405  itl_mean 20.21 / 20.20 itl_p50 15.99 / 16.02 err 0
