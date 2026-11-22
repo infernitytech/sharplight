@@ -42,6 +42,12 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// model's other sparse segments on the device), their mapped source and the bytes of one expert.
     /// </summary>
     private readonly List<(BufferDecl Buffer, nint Source, long ExpertBytes)> _sparseWeights = [];
+    /// <summary>Per sparse bank whose experts stay on disk (<see cref="CompileOptions.DiskExperts"/>): the weight in the expert cache.</summary>
+    private readonly Dictionary<BufferDecl, Runtime.Experts.DiskExpertTensor> _diskBanks = [];
+    /// <summary>Per expert of a disk bank, the address of its cache slot while this segment holds it (one table per bank, by bank).</summary>
+    private readonly Dictionary<BufferDecl, nint[]> _diskSlots = [];
+    /// <summary>The experts of disk banks this segment holds until the copies from their slots completed.</summary>
+    private readonly List<(Runtime.Experts.DiskExpertTensor Tensor, int[] Experts)> _diskHeld = [];
     /// <summary>
     /// With <see cref="CompileOptions.SparseExpertSlots"/>: the expert ids input (rewritten to slots), the experts of the bank and the
     /// per-expert tables the segment gathers rows of by those ids (e.g. the experts' biases).
@@ -327,9 +333,18 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         nint source = b.Repack == WeightRepack.None && b.InitialData is null ? b.Weight.Source.TryGetPointer() : 0;
-        if (source == 0 || b.Bytes % experts != 0 || b.Bytes != b.Weight.ByteSize)
+        var disk = b.Repack == WeightRepack.None && b.InitialData is null && !tables.Contains(b.Weight) ? _options.DiskExperts?.Find(b.Weight) : null;
+        if ((source == 0 && disk is null) || b.Bytes % experts != 0 || b.Bytes != b.Weight.ByteSize)
         {
             throw new NotSupportedException($"Sparse expert streaming: {b.Name} is repacked or not memory-mapped.");
+        }
+
+        if (disk is not null)
+        {
+            // Copied from the expert cache's slots, never from the file's mapping.
+            _diskBanks[b] = disk;
+            _diskSlots[b] = new nint[disk.Experts];
+            source = 0;
         }
 
         long expertBytes = b.Bytes / experts;
@@ -355,9 +370,20 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             }
         }
 
+        if (_diskBanks.Count > 0)
+        {
+            // The cache's slots page-locked for this device, so the selected experts' copies are asynchronous and need no staging.
+            _options.DiskExperts!.PinFor(_dev, (start, bytes) => _dev.TryRegisterHost((byte*)start, bytes), start => _dev.UnregisterHost((byte*)start));
+        }
+
         const long Page = 4096;
         foreach (var (b, source, _) in _sparseWeights)
         {
+            if (_diskBanks.ContainsKey(b))
+            {
+                continue;
+            }
+
             long start = ((source + Page - 1) & ~(Page - 1)) - source;
             long end = ((source + b.Bytes) & ~(Page - 1)) - source;
             if (end - start >= Page && _dev.TryRegisterHost((byte*)source + start, end - start))
@@ -367,12 +393,74 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
     }
 
+    /// <summary>
+    /// Holds the selected experts of the banks on disk in the expert cache (reading those it lacks; the layer's banks together) until
+    /// <see cref="ReleaseDiskExperts"/>, and records their slots' addresses. Runs before the stream lock is taken: it may wait for the disk.
+    /// </summary>
+    private void AcquireDiskExperts()
+    {
+        if (_diskBanks.Count == 0)
+        {
+            return;
+        }
+
+        ReleaseDiskExperts();
+        int[] experts = [.. _sparseSelection!.Selected];
+        if (experts.Length == 0)
+        {
+            return;
+        }
+
+        var store = _options.DiskExperts!;
+        foreach (var (b, tensor) in _diskBanks)
+        {
+            fixed (nint* slots = _diskSlots[b])
+            {
+                store.Acquire(tensor, null, experts, (byte**)slots, null, prefetchLayer: false);
+            }
+
+            _diskHeld.Add((tensor, experts));
+        }
+    }
+
+    /// <summary>Lets the expert cache evict the experts <see cref="AcquireDiskExperts"/> held, once the copies from their slots completed.</summary>
+    private void ReleaseDiskExperts()
+    {
+        if (_diskHeld.Count == 0)
+        {
+            return;
+        }
+
+        _dev.Enter();
+        CudaApi.Check(CudaApi.cuEventSynchronize(_streamDone), "cuEventSynchronize");
+        foreach (var (tensor, experts) in _diskHeld)
+        {
+            _options.DiskExperts!.Release(tensor, null, experts);
+        }
+
+        _diskHeld.Clear();
+    }
+
     /// <summary>Queues the copies of the selected experts (<see cref="SparseExpertSelection.Selected"/>) of every bank into their slots on the upload stream.</summary>
     private void QueueSparseCopies()
     {
         _sparseCopies.Clear();
         foreach (var (b, source, expertBytes) in _sparseWeights)
         {
+            if (_diskBanks.TryGetValue(b, out var tensor))
+            {
+                // One copy per expert from its cache slot (page-locked unless the budget refused the pool).
+                bool pinned = _options.DiskExperts!.IsPinnedFor(_dev, tensor);
+                var slots = _diskSlots[b];
+                var chosen = _sparseSelection!.Selected;
+                for (int slot = 0; slot < chosen.Count; slot++)
+                {
+                    _sparseCopies.Add((_alloc[b].Pointer + (ulong)(slot * expertBytes), (ulong)slots[chosen[slot]], (nuint)expertBytes, pinned));
+                }
+
+                continue;
+            }
+
             ulong destination = _alloc[b].Pointer;
             // A copy must not span page-locked and pageable memory: the partial pages around the registered range go apart.
             var registered = _registeredWeights.FirstOrDefault(r => r.Buffer == b);
@@ -502,6 +590,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     {
         if (_sparse is not null && !_streaming)
         {
+            AcquireDiskExperts();
             _dev.Enter();
             lock (_dev.StreamLock)
             {
@@ -571,7 +660,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// memory return only after the driver staged them); the small per-expert tables may stay pageable.
     /// </remarks>
     public bool CopiesAsynchronously => _sparse is not { } sparse
-        || _sparseWeights.All(w => sparse.Tables.Contains(w.Buffer.Weight!) || _registeredWeights.Any(r => r.Buffer == w.Buffer));
+        || _sparseWeights.All(w => sparse.Tables.Contains(w.Buffer.Weight!) || _registeredWeights.Any(r => r.Buffer == w.Buffer)
+            || (_diskBanks.TryGetValue(w.Buffer, out var disk) && _options.DiskExperts!.IsPinnedFor(_dev, disk)));
 
     /// <summary>
     /// Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not and the
@@ -892,6 +982,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// </summary>
     private void WaitForCompletion()
     {
+        ReleaseDiskExperts();
         if (Volatile.Read(ref _pending) is null)
         {
             return;
@@ -1500,6 +1591,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         if (_streamDone != 0)
         {
             // Copies queued by BeginStreaming without an execution may still be running.
+            ReleaseDiskExperts();
             CudaApi.cuEventSynchronize(_streamDone);
             CudaApi.cuEventDestroy(_streamDone);
         }

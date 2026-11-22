@@ -214,7 +214,9 @@ public sealed class StreamedExpertsTests
     /// <summary>
     /// Routed experts on the CPU left on disk (<see cref="CompileOptions.DiskExperts"/>, the smallest cache): the router runs on the GPU, the CPU
     /// reads the selected experts from the file, and the outputs equal those of the same placement with resident experts (CPU experts for
-    /// every pass: no streamed or split compilations, which the disk placement does not make either), for decode-sized and prefill-sized passes.
+    /// every pass: no streamed compilations, which the disk placement does not make either), for decode-sized and prefill-sized passes. On a
+    /// device that copies from the expert cache (<see cref="IComputeDevice.CopiesFromExpertCache"/>) small passes split with the GPU, which
+    /// copies its experts from the page-locked cache slots: those match the CPU as the split of resident experts does.
     /// </summary>
     [Theory]
     [InlineData(1)]
@@ -269,7 +271,8 @@ public sealed class StreamedExpertsTests
         Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(1, disk.Plan.GroupDevice[$"layers.{l}{PlacementPlanner.ExpertGroupSuffix}"]));
         Assert.Equal(Layers, disk.Plan.DiskExpertGroups.Count);
         Assert.Equal(0, disk.StreamedSegmentCount);
-        Assert.Equal(0, disk.SparseSegmentCount);
+        bool split = Gpu.Device!.CopiesFromExpertCache && Gpu.Device.StreamsSelectedExperts;
+        Assert.Equal(split, disk.SparseSegmentCount > 0);
 
         var input = Rnd.F(rows * Hidden, 3);
         float[] Run(CompiledModel m)
@@ -284,8 +287,22 @@ public sealed class StreamedExpertsTests
         }
 
         var expected = Run(resident);
-        Assert.Equal(expected, Run(disk));
-        Assert.Equal(expected, Run(disk));
+        // Several passes: a split pass's GPU share moves between them (the balancer), its experts copied from the cache each time.
+        for (int pass = 0; pass < 4; pass++)
+        {
+            var actual = Run(disk);
+            if (!split || rows > 4)
+            {
+                Assert.Equal(expected, actual);
+                continue;
+            }
+
+            for (int i = 0; i < actual.Length; i++)
+            {
+                Assert.True(Math.Abs(expected[i] - actual[i]) <= 1e-3 + 1e-3 * Math.Abs(expected[i]), $"pass {pass} [{i}]: {actual[i]} vs the CPU's {expected[i]}");
+            }
+        }
+
         var stats = store.Statistics;
         Assert.True(stats.Misses > 0 && stats.Hits + stats.ReadAhead > 0);
     }

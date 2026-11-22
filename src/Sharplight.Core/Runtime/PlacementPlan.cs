@@ -17,6 +17,11 @@ public sealed class PlacementPlan
     /// </summary>
     public IReadOnlyDictionary<int, int> StreamedSegments { get; init; } = new Dictionary<int, int>();
     /// <summary>
+    /// Whether the <see cref="StreamedSegments"/> get streamed compilations for large passes (prefill); false when they only get sparse ones
+    /// for small passes (routed experts on disk, <see cref="DiskExpertGroups"/>).
+    /// </summary>
+    public bool StreamsPrefill { get; init; } = true;
+    /// <summary>
     /// Routed-expert groups on the CPU fallback whose weights stay on disk and are read into the expert cache on demand
     /// (<see cref="CompileOptions.DiskExperts"/>); empty when the experts are resident.
     /// </summary>

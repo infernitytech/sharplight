@@ -59,13 +59,16 @@ public static class PlacementPlanner
             ? SparseExpertBytes(graph, groupOf, CompiledModel.SparseExpertRows) : [];
         var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out long[] used);
         var diskGroups = DiskExpertGroups(groupDevice, groupBytes, options, fallbackSlot, splitExperts, used);
+        bool diskSparse = false;
         if (diskGroups.Count > 0 && (stream || sparseBytes.Count > 0))
         {
-            // Experts read from disk run on the CPU in every pass (no streamed or split GPU copies of the mapped file): place again without
-            // the GPU memory those keep free, so more expert layers stay on the devices.
+            // Experts read from disk run on the CPU for large passes (no streamed prefill of the mapped file), and small passes split with
+            // the GPU only where it copies the selected experts from the expert cache's slots: place again without the GPU memory the
+            // streaming keeps free (and the sparse banks where they are not used), so more expert layers stay on the devices.
             stream = false;
-            sparseBytes = [];
-            groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out used);
+            diskSparse = sparseBytes.Count > 0 && options.Devices.All(d => d.Device.CopiesFromExpertCache);
+            sparseBytes = diskSparse ? sparseBytes : [];
+            groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out used, twins: diskSparse);
             diskGroups = [.. groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
         }
 
@@ -78,7 +81,8 @@ public static class PlacementPlanner
             Segments = segments,
             GroupDevice = groupDevice,
             BytesPerSlot = Enumerable.Range(0, slots.Count).ToDictionary(i => i, i => used[i]),
-            StreamedSegments = stream ? StreamedSegments(segments, slots, fallbackSlot, groupOf) : new Dictionary<int, int>(),
+            StreamedSegments = stream || diskSparse ? StreamedSegments(segments, slots, fallbackSlot, groupOf) : new Dictionary<int, int>(),
+            StreamsPrefill = stream,
             DiskExpertGroups = diskGroups,
         };
     }
@@ -428,7 +432,7 @@ public static class PlacementPlanner
     }
 
     private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, Dictionary<string, long> transfers, bool stream,
-        Dictionary<string, long> sparseBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
+        Dictionary<string, long> sparseBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used, bool twins = false)
     {
         var expertGroups = groupOrder.Where(IsExpertGroup).ToList();
         var pinned = new HashSet<string>();
@@ -439,7 +443,7 @@ public static class PlacementPlanner
         // A moved group splits its layer into one more device segment (its own stream, launch recordings and library workspace) and, with
         // streaming, adds a streamed compilation with copies of the exchanged values; the streamed compilations share those buffers (they
         // run one at a time), so they count once.
-        int perGroup = stream ? 2 : 1;
+        int perGroup = stream || twins ? 2 : 1;
         long Overhead(IReadOnlyCollection<string> moved) => moved.Count == 0 ? 0
             : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) + moved.Count * options.ReservePerSegment * perGroup
               + (stream ? moved.Max(g => transfers.GetValueOrDefault(g)) + Math.Clamp(options.StreamBuffers, 1, 2) * moved.Max(g => groupBytes[g]) : 0)

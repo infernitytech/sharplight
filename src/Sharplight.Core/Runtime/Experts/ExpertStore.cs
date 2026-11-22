@@ -40,6 +40,10 @@ public sealed unsafe class ExpertStore : IDisposable
     private readonly Dictionary<string, IExpertFile> _files = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<DiskExpertTensor>> _groups = new(StringComparer.Ordinal);
     private readonly List<ExpertSlotPool> _pools = [];
+    /// <summary>Devices that copy from the cache slots (<see cref="PinFor"/>): page-lock and release a range of host memory.</summary>
+    private readonly List<(object Device, Func<nint, long, bool> Pin, Action<nint> Unpin)> _pinners = [];
+    /// <summary>The pools each device holds page-locked.</summary>
+    private readonly Dictionary<object, HashSet<ExpertSlotPool>> _pinned = [];
     private bool _decided;
     private bool _layoutStale;
     private bool _estimateLogged;
@@ -248,6 +252,59 @@ public sealed unsafe class ExpertStore : IDisposable
         lock (_lock)
         {
             return _tensors.GetValueOrDefault((path, offset));
+        }
+    }
+
+    /// <summary>
+    /// Lets a GPU copy experts straight from the cache slots: the store page-locks (imports) every pool for <paramref name="device"/> with
+    /// <paramref name="pin"/> now and whenever it lays its pools out again, and releases them with <paramref name="unpin"/> before it frees them.
+    /// Calling it again for the same device is a no-op. A pool the device's budget refuses stays pageable (<see cref="IsPinnedFor"/>).
+    /// </summary>
+    internal void PinFor(object device, Func<nint, long, bool> pin, Action<nint> unpin)
+    {
+        lock (_lock)
+        {
+            if (_pinners.Exists(p => p.Device == device))
+            {
+                return;
+            }
+
+            _pinners.Add((device, pin, unpin));
+            _pinned[device] = [];
+            EnsureLayout();
+            foreach (var pool in _pools)
+            {
+                PinPoolLocked(device, pin, pool);
+            }
+        }
+    }
+
+    /// <summary>Whether <paramref name="tensor"/>'s pool is page-locked for <paramref name="device"/>.</summary>
+    internal bool IsPinnedFor(object device, DiskExpertTensor tensor)
+    {
+        lock (_lock)
+        {
+            return tensor.Pool is { } pool && _pinned.TryGetValue(device, out var pools) && pools.Contains(pool);
+        }
+    }
+
+    private void PinPoolLocked(object device, Func<nint, long, bool> pin, ExpertSlotPool pool)
+    {
+        if (pin((nint)pool.Arena, pool.Bytes))
+        {
+            _pinned[device].Add(pool);
+        }
+    }
+
+    /// <summary>Releases a pool's page-locking on every device before the pool is freed. Holds the lock.</summary>
+    private void UnpinPoolLocked(ExpertSlotPool pool)
+    {
+        foreach (var (device, _, unpin) in _pinners)
+        {
+            if (_pinned[device].Remove(pool))
+            {
+                unpin((nint)pool.Arena);
+            }
         }
     }
 
@@ -545,6 +602,11 @@ public sealed unsafe class ExpertStore : IDisposable
             {
                 var pool = new ExpertSlotPool(size.Key, MinSlots(size));
                 _pools.Add(pool);
+                foreach (var (device, pin, _) in _pinners)
+                {
+                    PinPoolLocked(device, pin, pool);
+                }
+
                 foreach (var t in size)
                 {
                     t.Pool = pool;
@@ -557,6 +619,7 @@ public sealed unsafe class ExpertStore : IDisposable
         foreach (var pool in _pools)
         {
             pool.WaitForReads();
+            UnpinPoolLocked(pool);
             pool.Dispose();
         }
 
@@ -570,6 +633,11 @@ public sealed unsafe class ExpertStore : IDisposable
             long slots = Math.Min(Math.Max(share / size.Key, MinSlots(size)), size.Sum(t => (long)t.Experts));
             var pool = new ExpertSlotPool(size.Key, (int)slots);
             _pools.Add(pool);
+            foreach (var (device, pin, _) in _pinners)
+            {
+                PinPoolLocked(device, pin, pool);
+            }
+
             foreach (var t in size)
             {
                 t.Pool = pool;
@@ -680,6 +748,7 @@ public sealed unsafe class ExpertStore : IDisposable
 
         foreach (var pool in _pools)
         {
+            UnpinPoolLocked(pool);
             pool.Dispose();
         }
 
