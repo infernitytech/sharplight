@@ -117,8 +117,9 @@ internal sealed class FitAdvisor
     /// The longest contexts that fit (<see cref="SizeContextAsync"/>), when the caller shows them (<see cref="SizingAsync"/>): then no shorter
     /// context is suggested here. Null suggests the first of a few halvings of the context that fits.
     /// </param>
+    /// <param name="expertBytes">The routed experts' bytes, 0 for a dense model: a mixture-of-experts model that does not fit memory is offered experts on disk.</param>
     public async Task<IReadOnlyList<FitSuggestion>> SuggestAsync(ModelLoadRequest request, FitReport report, IReadOnlyList<DeviceMemory> memory,
-        LibraryEntry? entry, IReadOnlyList<LibraryEntry> library, CancellationToken cancellationToken, ContextFit? contexts = null)
+        LibraryEntry? entry, IReadOnlyList<LibraryEntry> library, CancellationToken cancellationToken, ContextFit? contexts = null, long expertBytes = 0)
     {
         if (report.FitsOnDevice)
         {
@@ -132,6 +133,16 @@ internal sealed class FitAdvisor
         {
             suggestions.Add(new FitSuggestion($"Turn on CPU offload · about {Percent(report.CpuShare)} runs on the CPU", FitVerdict.NeedsOffload,
                 settings with { CpuOffload = true }));
+        }
+
+        if (report.Verdict == FitVerdict.DoesNotFit && expertBytes > 0 && !settings.ExpertsOnDisk && ResolveDevice(settings.DeviceId)?.IsGpu == true)
+        {
+            var disk = settings with { CpuOffload = true, ExpertsOnDisk = true };
+            var diskReport = Plan(report.Footprint, disk, memory);
+            if (diskReport.ExpertsFromDisk)
+            {
+                suggestions.Add(new FitSuggestion($"Read experts from disk · about {ByteFormat.Format(DiskBytes(diskReport))} stay on disk, slow", diskReport.Verdict, disk));
+            }
         }
 
         var shorter = new List<LoadSettings>();
@@ -220,7 +231,8 @@ internal sealed class FitAdvisor
             return new ContextFit(maxContext, longest, longestFootprint);
         }
 
-        var offload = settings with { CpuOffload = true };
+        // Contexts that fit memory: experts on disk would make every context "load".
+        var offload = settings with { CpuOffload = true, ExpertsOnDisk = false };
         int? withOffload = await ContextSizer.LongestAsync(longer,
             async context => Plan(await EstimateAsync(context).ConfigureAwait(false), offload with { ContextLength = context }, memory).LoadsAsConfigured).ConfigureAwait(false);
         if (withOffload is not { } w)
@@ -299,6 +311,31 @@ internal sealed class FitAdvisor
     /// <param name="expertBytes">The routed experts' bytes, 0 for a dense model.</param>
     public static bool IsExpertOffload(FitReport report, long expertBytes)
         => expertBytes > 0 && report.Verdict == FitVerdict.NeedsOffload && report.SystemMemory is { } system && system.NeededBytes <= expertBytes;
+
+    /// <summary>
+    /// The read speed assumed for experts on disk (a fast NVMe drive, about 3 GB/s): the engine measures the drive only once the model is
+    /// loaded (<c>ExpertStore.MeasuredReadBytesPerSecond</c>).
+    /// </summary>
+    public const double AssumedDiskBytesPerSecond = 3e9;
+
+    /// <summary>The bytes of routed experts a plan leaves on disk: what goes to the CPU beyond the system memory available.</summary>
+    /// <param name="report">A plan with <see cref="FitReport.ExpertsFromDisk"/>.</param>
+    public static long DiskBytes(FitReport report)
+        => report.ExpertsFromDisk && report.SystemMemory is { } system ? Math.Max(0, system.NeededBytes - system.AvailableBytes) : 0;
+
+    /// <summary>
+    /// A rough decode speed with experts on disk, in tokens per second: the drive's read speed over the bytes a token reads from disk (the
+    /// experts-per-token share of the experts left there, every read a cache miss), so a lower bound; null when nothing is on disk or the share is unknown.
+    /// </summary>
+    /// <param name="report">The plan.</param>
+    /// <param name="activeShare">Experts per token / experts (<see cref="IModelRuntime.EstimateExpertActiveShareAsync"/>).</param>
+    /// <param name="bytesPerSecond">The drive's read speed.</param>
+    public static double? DiskTokensPerSecond(FitReport report, double activeShare, double bytesPerSecond = AssumedDiskBytesPerSecond)
+    {
+        long disk = DiskBytes(report);
+        double perToken = disk * activeShare;
+        return disk <= 0 || activeShare <= 0 || perToken <= 0 ? null : bytesPerSecond / perToken;
+    }
 
     /// <summary>The KV cache type to compare with: Q8_0 for the default F16 cache, F16 for any other.</summary>
     private static string? KvAlternative(string type) => type switch

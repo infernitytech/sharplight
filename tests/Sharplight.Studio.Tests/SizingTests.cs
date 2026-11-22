@@ -151,6 +151,36 @@ public sealed class SizingTests
     }
 
     [Fact]
+    public async Task MixtureOfExperts_LargerThanMemory_RunsWithExpertsFromDisk_WithASpeedEstimate()
+    {
+        using var services = new TestServices();
+        // 63 GiB: 48 GiB would go to the CPU against 23 GiB of system memory available; 25 GiB of experts stay on disk.
+        services.Runtime.Footprint = new ModelFootprint(60 * GiB, 2 * GiB, GiB);
+        services.Runtime.ExpertBytes = 56 * GiB;
+        services.Runtime.ExpertActiveShare = 8.0 / 128;
+        var panel = new LoadOptionsViewModel(new LibraryEntryViewModel(Entry()), services.Services, _ => { }, () => { });
+        await Settle(panel);
+
+        Assert.Equal(FitVerdict.DoesNotFit, panel.Fit!.Verdict);
+        var disk = Assert.Single(panel.Fit.Suggestions, suggestion => suggestion.Text.StartsWith("Read experts from disk", StringComparison.Ordinal));
+        Assert.Contains("25.0 GB stay on disk", disk.Text, StringComparison.Ordinal);
+        disk.ApplyCommand.Execute(null);
+        Assert.True(panel.CpuOffload);
+        Assert.True(panel.ExpertsOnDisk);
+        await Settle(panel);
+
+        var fit = panel.Fit!;
+        Assert.Equal(FitVerdict.NeedsOffload, fit.Verdict);
+        Assert.True(fit.FromDisk);
+        Assert.True(fit.IsWarning);
+        Assert.Equal("Runs with experts from disk (slow)", fit.Title);
+        // 25 GiB on disk, a token reads 8 of 128 experts: 1.68 GB per token at 3 GB/s.
+        Assert.Equal(1.79, fit.DiskTokensPerSecond!.Value, 2);
+        Assert.Contains("expect roughly 1.8 tokens/s", fit.Message, StringComparison.Ordinal);
+        Assert.Contains("25.0 GB of routed experts stay on disk", fit.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task OnTheCpu_SizesAgainstSystemMemory()
     {
         using var services = new TestServices();

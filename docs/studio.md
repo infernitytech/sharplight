@@ -311,7 +311,11 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   (naming them, and whether they unload by themselves), *Fits with CPU offload* (with the share that would run on the CPU, against
   system memory; *Needs CPU offload* while offload is off), or *Does not fit*. For a mixture-of-experts model whose offload moves only
   routed experts (what goes to the CPU is no more than the experts' weights, which the engine offloads first) it says *CPU expert
-  offload*: attention and the shared layers stay on the GPU.
+  offload*: attention and the shared layers stay on the GPU. With *Read experts from disk* on (offered as a suggestion for a mixture-of-experts model that fits
+  neither GPU nor system memory), a model whose offloaded part is larger than system memory is *Runs with experts from disk (slow)*: the
+  panel says how many GB of experts stay on disk and gives a rough decode speed, the drive's read speed (3 GB/s assumed, the engine
+  measures it only once loaded) over the bytes a token reads from disk (experts per token / experts of the part on disk, every read a
+  cache miss, so a lower bound). The longest context *with CPU offload* is sized without experts on disk.
 
   Under *Context and KV cache* the panel shows how far the load could go, each row applied with a click: the longest context that fits on
   the device (*Up to 131,072 tokens on &lt;GPU&gt;*), the longest that fits with CPU offload when that is longer, and, when the model fits,

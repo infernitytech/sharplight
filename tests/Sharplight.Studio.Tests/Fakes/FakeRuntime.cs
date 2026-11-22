@@ -112,6 +112,11 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public Task<long> EstimateExpertBytesAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(ExpertBytes);
 
+    /// <summary>The experts-per-token share <see cref="EstimateExpertActiveShareAsync"/> reports.</summary>
+    public double ExpertActiveShare { get; set; }
+
+    public Task<double> EstimateExpertActiveShareAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(ExpertActiveShare);
+
     public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken) =>
         Task.FromResult(Memory?.Invoke() ??
         [

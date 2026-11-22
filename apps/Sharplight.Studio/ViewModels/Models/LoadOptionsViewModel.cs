@@ -425,19 +425,22 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             long experts = await _services.Runtime.EstimateExpertBytesAsync(request, token);
             var report = _advisor.Plan(footprint, request.Settings, memory);
             bool expertOffload = FitAdvisor.IsExpertOffload(report, experts);
+            double? diskSpeed = report.ExpertsFromDisk
+                ? FitAdvisor.DiskTokensPerSecond(report, await _services.Runtime.EstimateExpertActiveShareAsync(request, token))
+                : null;
             token.ThrowIfCancellationRequested();
             FitError = "";
             // The verdict first; the longest contexts and the suggestions follow (a few more estimates of the same model).
-            Fit = new FitEstimateViewModel(report, [], expertOffload: expertOffload)
+            Fit = new FitEstimateViewModel(report, [], expertOffload: expertOffload, diskTokensPerSecond: diskSpeed)
             {
                 ConfiguredContext = request.Settings.ContextLength,
             };
             var contexts = await _advisor.SizeContextAsync(request, memory, ContextSizer.Limit(Entry.Entry.TrainedContextLength), experts, token);
             var sizing = await _advisor.SizingAsync(request, report, contexts, memory, token);
-            var suggestions = await _advisor.SuggestAsync(request, report, memory, Entry.Entry, _library(), token, contexts);
+            var suggestions = await _advisor.SuggestAsync(request, report, memory, Entry.Entry, _library(), token, contexts, experts);
             token.ThrowIfCancellationRequested();
             Fit = new FitEstimateViewModel(report, [.. suggestions.Select(suggestion => new FitSuggestionViewModel(suggestion, Apply))],
-                [.. sizing.Select(row => new FitSuggestionViewModel(row, Apply))], contexts, expertOffload)
+                [.. sizing.Select(row => new FitSuggestionViewModel(row, Apply))], contexts, expertOffload, diskSpeed)
             {
                 ConfiguredContext = request.Settings.ContextLength,
             };

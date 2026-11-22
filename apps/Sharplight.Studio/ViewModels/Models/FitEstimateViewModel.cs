@@ -15,9 +15,11 @@ internal sealed class FitEstimateViewModel
     /// <param name="sizing">The longest contexts and the other KV cache type (<see cref="Services.Fit.FitAdvisor.SizingAsync"/>).</param>
     /// <param name="contexts">The longest contexts, once sized.</param>
     /// <param name="expertOffload">The offload moves routed experts only.</param>
+    /// <param name="diskTokensPerSecond">The decode speed estimate with experts on disk, or null.</param>
     public FitEstimateViewModel(FitReport report, IReadOnlyList<FitSuggestionViewModel> suggestions, IReadOnlyList<FitSuggestionViewModel>? sizing = null,
-        ContextFit? contexts = null, bool expertOffload = false)
+        ContextFit? contexts = null, bool expertOffload = false, double? diskTokensPerSecond = null)
     {
+        DiskTokensPerSecond = diskTokensPerSecond;
         Report = report;
         Suggestions = suggestions;
         Sizing = sizing ?? [];
@@ -45,7 +47,13 @@ internal sealed class FitEstimateViewModel
     public string Title => FitText.Title(Report, ExpertOffload);
 
     /// <summary>What it means.</summary>
-    public string Message => FitText.Message(Report, FitText.Target(Report), ExpertOffload);
+    public string Message => FitText.Message(Report, FitText.Target(Report), ExpertOffload, DiskTokensPerSecond);
+
+    /// <summary>The decode speed estimate with experts on disk, or null.</summary>
+    public double? DiskTokensPerSecond { get; }
+
+    /// <summary>Routed experts stay on disk: it runs, slowly.</summary>
+    public bool FromDisk => Report.ExpertsFromDisk;
 
     /// <summary>The longest contexts that fit, once sized.</summary>
     public ContextFit? Contexts { get; }

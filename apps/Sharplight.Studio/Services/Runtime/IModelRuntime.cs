@@ -65,6 +65,11 @@ internal interface IModelRuntime : IDisposable
     /// <param name="cancellationToken">Cancels reading the model.</param>
     public Task<long> EstimateExpertBytesAsync(ModelLoadRequest request, CancellationToken cancellationToken);
 
+    /// <summary>The share of a layer's routed experts one token reads (experts per token / experts), 0 for a dense model.</summary>
+    /// <param name="request">The model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public Task<double> EstimateExpertActiveShareAsync(ModelLoadRequest request, CancellationToken cancellationToken);
+
     /// <summary>Free and total memory of every physical device (GPUs first, then the CPU's system memory), opening devices as needed.</summary>
     /// <param name="disabledFeatures">Device features not to use, for devices opened by this call.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
