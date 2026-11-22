@@ -413,8 +413,8 @@ public sealed class MoeTests
     }
 
     /// <summary>
-    /// A routed expert block whose sum feeds the residual Add and the next RmsNorm through a Reshape, as in gpt-oss: the group adds the
-    /// expert slots in place (FoldSlotSums), on every product path (int-dot matvec, skinny, grouped GEMMs) and row count.
+    /// A routed expert block whose sum feeds the residual Add and the next RmsNorm through a Reshape, as in gpt-oss, on every product
+    /// path (int-dot matvec, skinny, grouped GEMMs) and row count.
     /// </summary>
     [Theory]
     [InlineData("mxfp4", 4, 1)]

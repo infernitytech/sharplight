@@ -69,25 +69,6 @@ public sealed partial class GraphLowerer
                 return names[v] = local;
             }
 
-            if (!_slotSumsMaterialized && _foldedSlotSums.TryGetValue(v, out var summed))
-            {
-                // Expert sum read in place: the S slot rows of the [T, S, N] expert outputs, added in order (as rowreduce_narrow).
-                var src = Ref(summed);
-                string sumExpr = "";
-                for (long slot = 0; slot < src.Shape[1]; slot++)
-                {
-                    long[] sliceShape = [.. shape];
-                    long[] sliceStrides = shape.Length == 2 ? [src.Strides[0], src.Strides[2]] : [src.Strides[0], src.Strides[2], 0];
-                    int index = inputs.Count;
-                    inputs.Add(new TensorRef(src.Buffer, src.ByteOffset + slot * src.Strides[1] * src.Type.BlockBytes, src.Type, sliceShape, sliceStrides, src.Symbol));
-                    sumExpr = slot == 0 ? $"a{index}" : $"({sumExpr} + a{index})";
-                }
-
-                var sumLocal = "s" + statements.Count;
-                statements.Add($"float {sumLocal} = {sumExpr};");
-                return names[v] = sumLocal;
-            }
-
             var name = names[v] = "a" + Input(v);
             if (IsIntLocal(v.Type))
             {

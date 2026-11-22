@@ -72,11 +72,6 @@ public sealed partial class GraphLowerer
             FoldMatMulEpilogues(units, consumers);
         }
 
-        if (!DiagnosticSwitches.NoExpertSum && DiagnosticSwitches.SlotSumFold)
-        {
-            FoldSlotSums(units, consumers);
-        }
-
         FindFusedOutputs(units, consumers);
         FindMultiGemmGroups(units);
         return units;
@@ -998,69 +993,6 @@ public sealed partial class GraphLowerer
         }
 
         units.RemoveAll(removed.Contains);
-    }
-
-    /// <summary>
-    /// Moves the slot sum of an expert sum (<see cref="LoweringUnit.ExpertSum"/>: the ReduceSum over the S slots of the [T, S, N]
-    /// expert outputs) into the one plain fused group that reads it (e.g. the residual Add, with the next RmsNorm): the group adds
-    /// the S rows in place, in the narrow ReduceSum's order, which saves the reduce launch and its output. Batches the int-dot
-    /// slot-sum matvec serves (it writes the sum itself) run the group on the written sum (<see cref="LowerSlotSumGroup"/>). Not when
-    /// the group would read more than <see cref="MaxFusedInputs"/> tensors.
-    /// </summary>
-    private void FoldSlotSums(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
-    {
-        var unitOfNode = new Dictionary<Node, LoweringUnit>();
-        foreach (var unit in units.Where(u => u.Fused is not null))
-        {
-            foreach (var node in unit.Fused!)
-            {
-                unitOfNode[node] = unit;
-            }
-        }
-
-        var viewUnits = units.Where(u => u.IsView).ToDictionary(u => u.Node!);
-        var removedViews = new HashSet<LoweringUnit>();
-        foreach (var unit in units)
-        {
-            if (unit.ExpertSum is not { } sum || sum.Permute.Inputs[0].Shape.Rank != 3
-                || sum.Permute.Inputs[0].Shape[1] is not { IsSymbolic: false } slots)
-            {
-                continue;
-            }
-
-            // The group may read the sum through one view (the Reshape of [T, N, 1] to [T, N]).
-            var read = sum.Reduce.Output;
-            Node? view = null;
-            if (consumers.TryGetValue(read, out var direct) && direct is [{ Op.Category: OpCategory.View } only] && !_segmentOutputs.Contains(read)
-                && viewUnits.TryGetValue(only, out var viewUnit) && viewUnit.Node == only)
-            {
-                view = only;
-                read = only.Output;
-            }
-
-            var shape = read.Shape;
-            if (_segmentOutputs.Contains(read) || !consumers.TryGetValue(read, out var readers) || readers.Count == 0
-                || !unitOfNode.TryGetValue(readers[0], out var group) || readers.Any(r => !unitOfNode.TryGetValue(r, out var g) || g != group)
-                || group == unit || group.Dual is not null || group.ExpertSum is not null || group.ConvHead is not null || group.MatMulHead is not null
-                || group.Halves is not null || group.Absorbed is not null || group.NormHead?.Inputs[0] == read
-                || !group.Fused![0].Output.Shape.Equals(shape) || shape.Rank is not (2 or 3)
-                || (shape.Rank == 3 && shape[2] is not { IsSymbolic: false, Fixed: 1 })
-                || ExternalInputCount(group.Fused!) + (group.SlotSums?.Count ?? 0) * 4 + slots.Fixed - 1 > MaxFusedInputs)
-            {
-                continue;
-            }
-
-            (group.SlotSums ??= []).AddRange([sum.Permute, sum.Reduce]);
-            if (view is not null)
-            {
-                group.SlotSums.Add(view);
-                removedViews.Add(viewUnits[view]);
-            }
-
-            _foldedSlotSums[read] = sum.Permute.Inputs[0];
-        }
-
-        units.RemoveAll(removedViews.Contains);
     }
 
     /// <summary>True for a GatherAxis on axis 0 of a static [rows, N] float table with integer indices.</summary>

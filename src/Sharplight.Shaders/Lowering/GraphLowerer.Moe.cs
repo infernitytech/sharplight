@@ -384,7 +384,8 @@ public sealed partial class GraphLowerer
         var summed = permute.Inputs[0];
         var outer = _launchCondition;
         // One subgroup per slot: the workgroup holds S subgroups.
-        if (ExpertSumOnMatvec(product))
+        if (UseIntDotExpertMatvec(product, w.Type, K) && product.Inputs[2].Shape[1] is { IsSymbolic: false } slotDim
+            && slotDim.Fixed * _opt.SubgroupSize <= 1024)
         {
             var x = PrepareMatMulInput(Ref(product.Inputs[0]), "matmul-id", out long xs, out long rowsPerLead);
             var ids = Ref(product.Inputs[2]);
@@ -410,7 +411,6 @@ public sealed partial class GraphLowerer
                 [.. gathers.Select(g => Ref(g.Inputs[0])), .. scalars],
                 macros => _compiler.Compile("mmvq_moe_sum.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache), slotSum: true);
             _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
-            _slotSumMatvec[summed] = b => Rows(b, tids) * S <= mv;
         }
 
         // Batches on the grouped GEMMs apply the group (bias rows, router weights) in their store; the slot sum follows as usual.
@@ -447,53 +447,9 @@ public sealed partial class GraphLowerer
 
         LowerElementwise(group, [summed]);
         _launchCondition = beforeGroup;
-        if (!_foldedSlotSums.ContainsValue(summed))
-        {
-            // (A folded sum is added by the group that reads it, see FoldSlotSums.)
-            LowerNodeOp(permute);
-            LowerNodeOp(reduce);
-        }
-
+        LowerNodeOp(permute);
+        LowerNodeOp(reduce);
         _launchCondition = outer;
-    }
-
-    /// <summary>
-    /// Lowers fused group <paramref name="unit"/>, which reads expert sums in place (<paramref name="slotSums"/>, see FoldSlotSums):
-    /// batches where the int-dot slot-sum matvec wrote a sum run the group on the written sum (and the views after it), the others
-    /// add the slots in the group.
-    /// </summary>
-    private void LowerSlotSumGroup(LoweringUnit unit, List<Node> slotSums)
-    {
-        var outer = _launchCondition;
-        var matvec = slotSums.Where(n => n.Op.Name == "Permute" && _slotSumMatvec.ContainsKey(n.Inputs[0])).Select(n => _slotSumMatvec[n.Inputs[0]]).ToList();
-        if (matvec.Count > 0)
-        {
-            Func<Bindings, bool> written = b => matvec.Any(f => f(b));
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && written(b);
-            foreach (var view in slotSums.Where(n => n.Op.Category == OpCategory.View && n.Op.Name != "Permute"))
-            {
-                LowerNodeOp(view);
-            }
-
-            _slotSumsMaterialized = true;
-            LowerElementwise(unit.Fused!, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
-            _slotSumsMaterialized = false;
-            _launchCondition = b => (outer?.Invoke(b) ?? true) && !written(b);
-        }
-
-        LowerElementwise(unit.Fused!, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
-        _launchCondition = outer;
-    }
-
-    /// <summary>
-    /// True when batches of the expert sum over <paramref name="product"/> may run the int-dot slot-sum matvec (one subgroup per
-    /// slot), which writes the sum itself.
-    /// </summary>
-    private bool ExpertSumOnMatvec(Node product)
-    {
-        var w = product.Inputs[1];
-        return w.Shape.Rank == 3 && !w.Shape[2].IsSymbolic && UseIntDotExpertMatvec(product, w.Type, w.Shape[2].Fixed)
-               && product.Inputs[2].Shape[1] is { IsSymbolic: false } slotDim && slotDim.Fixed * _opt.SubgroupSize <= 1024;
     }
 
     /// <summary>
