@@ -34,8 +34,6 @@ internal sealed unsafe class ExpertSlotPool : IDisposable
         public int Uses;
         /// <summary>The batch filling the slot, or null once it is filled.</summary>
         public ExpertReadBatch? Loading;
-        /// <summary>Whether the read was decoded (<see cref="DiskExpertTensor.Decode"/>; a new read starts undecoded).</summary>
-        public bool Decoded;
     }
 
     public ExpertSlotPool(long slotBytes, int count)

@@ -86,7 +86,10 @@ internal sealed class DiskExpertTensor
     /// <summary>Where expert <paramref name="expert"/>'s bytes in the weight's data type start within its slot.</summary>
     public long DataOffset(int expert) => Encoding is null ? ReadRange(expert).Skip : DecodedOffset;
 
-    /// <summary>Decodes the expert read into <paramref name="slot"/> behind the read (<see cref="DecodedOffset"/>); nothing without an encoding.</summary>
+    /// <summary>
+    /// Decodes the expert read into <paramref name="slot"/> behind the read (<see cref="DecodedOffset"/>); nothing without an encoding. The store
+    /// runs it once the slot's read completed and before the slot counts as filled.
+    /// </summary>
     public unsafe void Decode(int expert, byte* slot)
     {
         if (Encoding is null)

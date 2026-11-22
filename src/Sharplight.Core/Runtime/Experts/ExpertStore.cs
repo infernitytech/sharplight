@@ -535,13 +535,6 @@ public sealed unsafe class ExpertStore : IDisposable
                 held.Loading = null;
             }
 
-            if (!held.Decoded)
-            {
-                // Stored in another block encoding: decoded once per read, before any pass reads it.
-                tensor.Decode(e, pool.Address(slot));
-                held.Decoded = true;
-            }
-
             pointers[e] = pool.Address(slot) + tensor.DataOffset(e);
         }
     }
@@ -591,12 +584,42 @@ public sealed unsafe class ExpertStore : IDisposable
         }
 
         var batch = _reader.Submit(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(reads));
+        if (tensor.Encoding is not null)
+        {
+            batch = DecodeAfter(batch, tensor, missing);
+        }
+
         foreach (var (_, slot) in missing)
         {
             pool[slot].Loading = batch;
         }
 
         return batch;
+    }
+
+    /// <summary>
+    /// For a weight stored in another block encoding: a batch that completes once <paramref name="reads"/> did and the experts it filled are
+    /// decoded in their slots (in parallel, outside the store's lock), so that a pass waiting for the slot finds the weight's own bytes.
+    /// </summary>
+    private static ExpertReadBatch DecodeAfter(ExpertReadBatch reads, DiskExpertTensor tensor, List<(int Expert, int Slot)> missing)
+    {
+        var pool = tensor.Pool!;
+        var slots = missing.Select(m => (m.Expert, Address: (nint)pool.Address(m.Slot))).ToArray();
+        var decoded = new ExpertReadBatch(1);
+        Task.Run(() =>
+        {
+            try
+            {
+                reads.Wait();
+                Parallel.For(0, slots.Length, i => tensor.Decode(slots[i].Expert, (byte*)slots[i].Address));
+                decoded.CompleteRead(reads.BytesRead);
+            }
+            catch (Exception error)
+            {
+                decoded.FailRead(error is IOException { InnerException: { } inner } ? inner : error);
+            }
+        });
+        return decoded;
     }
 
     /// <summary>
