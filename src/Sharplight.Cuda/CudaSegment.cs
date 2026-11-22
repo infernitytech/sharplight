@@ -83,9 +83,6 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
 
-    /// <summary>Side streams of captured graphs (<see cref="DiagnosticSwitches.ConcurrentLaunches"/>), created at the first capture.</summary>
-    private CudaConcurrentLanes? _lanes;
-
     /// <summary>Barrier placement of each recorded launch set (see <see cref="HazardTracker.Order(IReadOnlyList{KernelLaunch}, Bindings, bool, Dictionary{string, ValueTuple{int, bool}[]}, int)"/>).</summary>
     private readonly Dictionary<string, (int Index, bool BarrierBefore)[]> _orders = [];
     private readonly nint _start;
@@ -1165,6 +1162,28 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// </summary>
     private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads, int runs)
     {
+        // The side streams are the device's, lent for the capture (a captured graph keeps its branches, not the streams); without them (no
+        // device memory left for streams) the launches are captured one after another.
+        var lanes = DiagnosticSwitches.ConcurrentLaunches ? _dev.TryRentLanes() : null;
+        bool lanesReusable = false;
+        try
+        {
+            var captured = Capture(recording, bindings, downloads, runs, lanes);
+            lanesReusable = true;
+            return captured;
+        }
+        finally
+        {
+            if (lanes is not null)
+            {
+                _dev.ReturnLanes(lanes, lanesReusable);
+            }
+        }
+    }
+
+    private (int Runs, nint Graph, nint Exec) Capture(CudaRecordedLaunch[] recording, Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads, int runs,
+        CudaConcurrentLanes? lanes)
+    {
         CudaApi.Check(CudaApi.cuStreamBeginCapture(_stream, CudaApi.CaptureModeThreadLocal), "cuStreamBeginCapture");
         _previousOneWave = false;   // the graph's first kernel follows whatever the stream ran before it
         nint graph = 0;
@@ -1173,9 +1192,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             QueueInputCopies(bindings);
             CudaApi.Check(CudaApi.cuEventRecordWithFlags(_start, _stream, CudaApi.EventRecordExternal), "cuEventRecordWithFlags");
             _previousOneWave = false;
-            if (DiagnosticSwitches.ConcurrentLaunches)
+            if (lanes is not null)
             {
-                LaunchBatches(recording);
+                LaunchBatches(recording, lanes);
             }
             else
             {
@@ -1414,9 +1433,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// batch of several are never programmatic dependents (their stream predecessor is not their producer); a single-launch batch keeps
     /// the dependent launch where the previous batch was one launch too.
     /// </summary>
-    private void LaunchBatches(CudaRecordedLaunch[] recording)
+    private void LaunchBatches(CudaRecordedLaunch[] recording, CudaConcurrentLanes lanes)
     {
-        _lanes ??= new CudaConcurrentLanes();
         for (int begin = 0; begin < recording.Length;)
         {
             int end = begin + 1;
@@ -1432,16 +1450,16 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
                 continue;
             }
 
-            _lanes.Fork(_stream);
+            lanes.Fork(_stream);
             _previousOneWave = false;
             Launch(recording[begin]);
             for (int i = begin + 1; i < end; i++)
             {
                 _previousOneWave = false;
-                Launch(recording[i], _lanes.Stream(i - begin - 1));
+                Launch(recording[i], lanes.Stream(i - begin - 1));
             }
 
-            _lanes.Join(_stream);
+            lanes.Join(_stream);
             _previousOneWave = false;
             begin = end;
         }
@@ -1649,7 +1667,6 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             CudaApi.cuEventDestroy(_end);
         }
 
-        _lanes?.Dispose();
         if (_stream != 0)
         {
             CudaApi.cuStreamDestroy(_stream);

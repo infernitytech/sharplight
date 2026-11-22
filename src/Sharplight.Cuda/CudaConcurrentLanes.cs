@@ -3,9 +3,9 @@ using Sharplight.Cuda.Interop;
 namespace Sharplight.Cuda;
 
 /// <summary>
-/// Side streams of a segment that let a captured step graph run independent launches side by side: <see cref="Fork"/> makes every
-/// lane wait for the work queued so far on the main stream, launches then go to <see cref="Stream"/>, and <see cref="Join"/> makes the
-/// main stream wait for the lanes used since the fork. Inside a stream capture these event records and waits become the edges of the
+/// Side streams of a graph capture (the device lends one set to one segment's capture at a time) that let a captured step graph run
+/// independent launches side by side: <see cref="Fork"/> makes every lane wait for the work queued so far on the main stream, launches then
+/// go to <see cref="Stream"/>, and <see cref="Join"/> makes the main stream wait for the lanes used since the fork. Inside a stream capture these event records and waits become the edges of the
 /// graph, so the launches between a fork and its join are parallel branches of one graph node set.
 /// </summary>
 internal sealed unsafe class CudaConcurrentLanes : IDisposable
@@ -19,19 +19,28 @@ internal sealed unsafe class CudaConcurrentLanes : IDisposable
     private nint _fork;
 
     /// <summary>Creates the side streams and their events (the caller has the device's context current).</summary>
+    /// <exception cref="CudaException">The driver could not create one (the ones created are destroyed).</exception>
     public CudaConcurrentLanes()
     {
-        nint fork;
-        CudaApi.Check(CudaApi.cuEventCreate(&fork, CudaApi.EventDisableTiming), "cuEventCreate");
-        _fork = fork;
-        for (int i = 0; i < LaneCount; i++)
+        try
         {
-            nint stream;
-            nint done;
-            CudaApi.Check(CudaApi.cuStreamCreate(&stream, CudaApi.StreamNonBlocking), "cuStreamCreate");
-            _streams[i] = stream;
-            CudaApi.Check(CudaApi.cuEventCreate(&done, CudaApi.EventDisableTiming), "cuEventCreate");
-            _done[i] = done;
+            nint fork;
+            CudaApi.Check(CudaApi.cuEventCreate(&fork, CudaApi.EventDisableTiming), "cuEventCreate");
+            _fork = fork;
+            for (int i = 0; i < LaneCount; i++)
+            {
+                nint stream;
+                nint done;
+                CudaApi.Check(CudaApi.cuStreamCreate(&stream, CudaApi.StreamNonBlocking), "cuStreamCreate");
+                _streams[i] = stream;
+                CudaApi.Check(CudaApi.cuEventCreate(&done, CudaApi.EventDisableTiming), "cuEventCreate");
+                _done[i] = done;
+            }
+        }
+        catch
+        {
+            Dispose();
+            throw;
         }
     }
 

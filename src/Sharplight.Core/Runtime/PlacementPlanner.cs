@@ -440,12 +440,13 @@ public static class PlacementPlanner
         // group adds device buffers for the values it exchanges with its layer, the devices then also hold the graph outputs, and with
         // streaming (prefill on the GPU) the largest moved group's weights, and with sparse compilations (decode split between the CPU and the
         // GPU) the experts a small pass selects; a fill is repeated with the room the groups it moved need.
-        // A moved group splits its layer into one more device segment (its own stream, launch recordings and library workspace) and, with
-        // streaming, adds a streamed compilation with copies of the exchanged values; the streamed compilations share those buffers (they
-        // run one at a time), so they count once.
+        // A moved group splits its layer into one more device segment (its own streams, launch recordings and graphs, library workspace:
+        // PlacementOptions.SegmentReserve each) and, with streaming, adds a streamed compilation with copies of the exchanged values; the
+        // streamed compilations share those buffers (they run one at a time), so they count once.
         int perGroup = stream || twins ? 2 : 1;
+        long segmentReserve = options.SegmentReserve;
         long Overhead(IReadOnlyCollection<string> moved) => moved.Count == 0 ? 0
-            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) + moved.Count * options.ReservePerSegment * perGroup
+            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) + moved.Count * segmentReserve * perGroup
               + (stream ? moved.Max(g => transfers.GetValueOrDefault(g)) + Math.Clamp(options.StreamBuffers, 1, 2) * moved.Max(g => groupBytes[g]) : 0)
               + moved.Select(g => sparseBytes.GetValueOrDefault(g)).DefaultIfEmpty(0).Max();
         List<string> Moved(Dictionary<string, int> placed) => [.. placed.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];

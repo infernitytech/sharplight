@@ -35,6 +35,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     private long _used;
     private long _pinnedUsed;
     private bool _disposed;
+    /// <summary>Side streams lent to graph captures (<see cref="TryRentLanes"/>): one set per capture running at the time, not one per segment.</summary>
+    private readonly ConcurrentBag<CudaConcurrentLanes> _lanes = [];
 
     /// <summary>Kernels whose cubin came from the device stage or the artifact store (diagnostics, tests).</summary>
     internal int CubinsFromCache;
@@ -661,6 +663,43 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         CudaApi.Check(CudaApi.cuStreamSynchronize(Stream), "cuStreamSynchronize");
     }
 
+    /// <summary>
+    /// Side streams for a graph capture (<see cref="CudaConcurrentLanes"/>), shared by every segment of the device: a captured graph keeps
+    /// its parallel branches, not the streams, so a set is needed only while a capture runs. Before, every segment created its own three
+    /// streams, which a placement of many segments (a large mixture-of-experts model with its experts on the CPU) paid for in device memory.
+    /// The caller has the device's context current and gives the set back with <see cref="ReturnLanes"/>.
+    /// </summary>
+    /// <returns>The set, or null when the driver has no device memory left for the streams (the caller then captures without side streams).</returns>
+    internal CudaConcurrentLanes? TryRentLanes()
+    {
+        if (_lanes.TryTake(out var lanes))
+        {
+            return lanes;
+        }
+
+        try
+        {
+            return new CudaConcurrentLanes();
+        }
+        catch (CudaException e) when (e.Result == CudaApi.ErrorOutOfMemory)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Gives back a set of <see cref="TryRentLanes"/>; one whose capture failed is destroyed (its streams may still be joined to it).</summary>
+    internal void ReturnLanes(CudaConcurrentLanes lanes, bool reusable)
+    {
+        if (reusable && !_disposed)
+        {
+            _lanes.Add(lanes);
+        }
+        else
+        {
+            lanes.Dispose();
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -669,6 +708,11 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         }
 
         CudaApi.cuCtxSetCurrent(_context);
+        while (_lanes.TryTake(out var lanes))
+        {
+            lanes.Dispose();
+        }
+
         if (_blas.IsValueCreated)
         {
             _blas.Value?.Dispose();

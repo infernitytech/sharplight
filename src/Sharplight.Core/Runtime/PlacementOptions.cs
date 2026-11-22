@@ -10,11 +10,20 @@ public sealed class PlacementOptions
     /// <summary>Bytes reserved on every device for activations, scratch and driver overhead.</summary>
     public long ReservePerDevice { get; init; } = 1L << 30;
     /// <summary>
-    /// Bytes reserved on a device for every extra segment that moving routed experts to the <see cref="Fallback"/> creates
-    /// (<see cref="SplitExperts"/>, <see cref="StreamExpertsMinRows"/>): a compiled segment's stream, launch recordings and library workspace
-    /// (its input and output buffers are counted apart). Default 8 MiB; <c>SHARPLIGHT_SEGMENT_RESERVE_MIB</c> overrides it.
+    /// Bytes reserved on a device for every extra device segment that moving groups to the <see cref="Fallback"/> creates (routed experts with
+    /// <see cref="SplitExperts"/>, their streamed or sparse compilations, whole layers): a compiled segment's streams, launch recordings and
+    /// graphs, and library workspace (its input and output buffers are counted apart). Null (the default): the largest
+    /// <see cref="IComputeDevice.SegmentOverheadBytes"/> of the devices, or <see cref="DefaultReservePerSegment"/> when none estimates it;
+    /// <c>SHARPLIGHT_SEGMENT_RESERVE_MIB</c> overrides it.
     /// </summary>
-    public long ReservePerSegment { get; init; } = long.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_RESERVE_MIB"), out long mib) && mib >= 0 ? mib << 20 : 8L << 20;
+    public long? ReservePerSegment { get; init; } = long.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_RESERVE_MIB"), out long mib) && mib >= 0 ? mib << 20 : null;
+
+    /// <summary>The reserve per device segment when <see cref="ReservePerSegment"/> is not set and no device estimates its overhead: 8 MiB.</summary>
+    public const long DefaultReservePerSegment = 8L << 20;
+
+    /// <summary>The bytes kept free per extra device segment: <see cref="ReservePerSegment"/>, or the devices' estimate.</summary>
+    internal long SegmentReserve => ReservePerSegment
+        ?? (Devices.Select(d => d.Device.SegmentOverheadBytes).DefaultIfEmpty(0).Max() is > 0 and var estimate ? estimate : DefaultReservePerSegment);
     /// <summary>Bounds and feature switches used to compile every segment.</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>

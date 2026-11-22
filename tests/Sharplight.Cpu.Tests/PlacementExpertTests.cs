@@ -20,14 +20,14 @@ public sealed class PlacementExpertTests
     private const long DenseBytes = Hidden * Hidden * sizeof(float);
     private const long ExpertBytes = 2L * Experts * Inner * Hidden * sizeof(float);
 
-    private static ComputeGraph BuildGraph(out Value x, out Value ids, out Value slotWeights, bool biases = false)
+    private static ComputeGraph BuildGraph(out Value x, out Value ids, out Value slotWeights, bool biases = false, int layers = Layers)
     {
         var tg = new TestGraph();
         x = tg.InF("x", TestGraph.T, Hidden);
         ids = tg.In("ids", DataType.I32, TestGraph.T, Slots);
         slotWeights = tg.InF("slot_weights", TestGraph.T, Slots);
         var h = x;
-        for (int layer = 0; layer < Layers; layer++)
+        for (int layer = 0; layer < layers; layer++)
         {
             using var _ = tg.B.Group($"layers.{layer}");
             h = tg.B.MatMul(h, tg.WF($"dense{layer}", Kit.Rand(Hidden * Hidden, layer, 0.5f), Hidden, Hidden));
@@ -140,6 +140,42 @@ public sealed class PlacementExpertTests
         using var split = CompiledModel.Compile(graph, options);
         using var whole = Kit.Compile(graph);
         Kit.AssertClose(Run(whole), Run(split));
+    }
+
+    /// <summary>
+    /// A device that reports a per-segment overhead (<see cref="IComputeDevice.SegmentOverheadBytes"/>) gets it kept free for every device
+    /// segment that moving experts adds, when the placement leaves <see cref="PlacementOptions.ReservePerSegment"/> unset: more experts go to
+    /// the fallback than with no overhead, and the device's weights plus the overhead of its extra segments fit its memory.
+    /// </summary>
+    [Fact]
+    public void DeviceSegmentOverheadIsKeptFreePerSegment()
+    {
+        const int layers = 8;
+        var graph = BuildGraph(out _, out _, out _, layers: layers);
+        using var fallback = Kit.Provider.OpenDevice(Kit.Provider.GetDevices()[0]);
+        long limit = layers * DenseBytes + (layers - 2) * ExpertBytes + 4096;
+        PlacementPlan Plan(long overhead)
+        {
+            var device = new SegmentOverheadDevice(Kit.Device, overhead);
+            var options = Options(device, fallback, limit);
+            return PlacementPlanner.Plan(graph, new PlacementOptions
+            {
+                Devices = options.Devices,
+                Fallback = options.Fallback,
+                Compile = options.Compile,
+                ReservePerDevice = 0,
+                ReservePerSegment = overhead == 0 ? 0 : null,
+            });
+        }
+
+        int Moved(PlacementPlan plan) => plan.GroupDevice.Count(kv => kv.Value == 1 && kv.Key.EndsWith(PlacementPlanner.ExpertGroupSuffix, StringComparison.Ordinal));
+        var plain = Plan(0);
+        const long overhead = ExpertBytes;
+        var costly = Plan(overhead);
+        Assert.True(Moved(costly) > Moved(plain), $"{Moved(costly)} expert groups moved with the overhead, {Moved(plain)} without");
+        int extraSegments = costly.Segments.Count(s => s.DeviceSlot == 0) - 1;
+        Assert.True(costly.BytesPerSlot[0] + extraSegments * overhead <= limit,
+            $"{costly.BytesPerSlot[0]} bytes placed and {extraSegments} extra segments of {overhead} bytes exceed {limit}");
     }
 
     [Fact]
