@@ -121,7 +121,8 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when the split-K decode attention of <paramref name="plan"/> runs on the hand-written tensor-core kernel
-    /// (<see cref="DeviceFeatures.NativeAttention"/>, <c>attn_decode_native.cu</c>) in place of <c>decode</c>: f16 caches, equal key and
+    /// (<see cref="DeviceFeatures.NativeAttention"/>, <c>attn_decode_native.cu</c>) in place of <c>decode</c>: f16 caches (q8_0 caches too at
+    /// head sizes 256 / 512, <see cref="NativeWideDecodeQ8"/>), equal key and
     /// value head sizes of 64, 128, 256 or 512 (the wide form above 128 when its ring fits the shared memory), at most 8 heads per block,
     /// the forms <see cref="NativeFlashAttention"/> serves (no score biases, spans, masks, selections, compressed entries or relative
     /// biases). The caller keeps <c>decode</c> where it merges its partials itself (the fused combine of narrow groups).
@@ -135,9 +136,10 @@ public sealed partial class GraphLowerer
     {
         var a = plan.Node.Attributes;
         bool wide = plan.D is 256 or 512;
-        bool shapes = plan.K.Type == DataType.F16 && plan.V.Type == DataType.F16 && plan.D == plan.DV && (plan.D is 64 or 128 || wide)
+        bool q8 = NativeWideDecodeQ8(plan);
+        bool shapes = ((plan.K.Type == DataType.F16 && plan.V.Type == DataType.F16) || (q8 && wide)) && plan.D == plan.DV && (plan.D is 64 or 128 || wide)
                       && plan.V.Shape[2] % 8 == 0 && plan.Q.Strides[0] % 2 == 0 && plan.Q.Strides[1] % 2 == 0 && plan.Q.ByteOffset % 8 == 0
-                      && (!wide || (DiagnosticSwitches.NativeWideDecodeAttention && NativeWideDecodeStages() >= 2));
+                      && (!wide || (DiagnosticSwitches.NativeWideDecodeAttention && NativeWideDecodeStages(q8) >= 2));
         bool form = !plan.Full && !plan.Cross && plan.Spans is null && plan.Mask is null && plan.Selection is null && plan.Compressed is null
                     && plan.RelativeBias is null && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
         return DiagnosticSwitches.NativeDecodeAttention && DiagnosticSwitches.NativeAttention > 0 && _opt.Has(DeviceFeatures.NativeAttention)
@@ -151,11 +153,11 @@ public sealed partial class GraphLowerer
     /// Ring stages of the wide form of <c>attn_decode_native.cu</c> (<c>NWD_ST</c>): three (two tiles in flight while one is computed,
     /// 97 KiB) where the device's shared memory takes them, else two (65 KiB), else 0 (the form does not fit; <c>decode</c> serves).
     /// </summary>
-    private int NativeWideDecodeStages()
+    private int NativeWideDecodeStages(bool q8)
     {
         for (int stages = 3; stages >= 2; stages--)
         {
-            if (NativeWideDecodeSharedBytes(stages) <= _opt.MaxSharedMemory)
+            if (NativeWideDecodeSharedBytes(stages, q8) <= _opt.MaxSharedMemory)
             {
                 return stages;
             }
@@ -164,8 +166,20 @@ public sealed partial class GraphLowerer
         return 0;
     }
 
-    /// <summary>Dynamic shared memory of the wide form with <paramref name="stages"/> stages: 32 KiB of keys and values per stage, the scores.</summary>
-    private static int NativeWideDecodeSharedBytes(int stages) => stages * 32768 + NativeDecodeWarps * 32 * 8;
+    /// <summary>
+    /// Dynamic shared memory of the wide form with <paramref name="stages"/> stages: 32 KiB of keys and values per stage, the scores; with
+    /// <paramref name="q8"/> (q8_0 caches, <c>ND_KVQ8</c>) the raw rows of a tile per stage (8192 values at 34 bytes per 32: 17 KiB) and one
+    /// converted f16 tile (32 KiB).
+    /// </summary>
+    private static int NativeWideDecodeSharedBytes(int stages, bool q8)
+        => (q8 ? stages * 2 * 8192 / 32 * 34 + 32768 : stages * 32768) + NativeDecodeWarps * 32 * 8;
+
+    /// <summary>
+    /// True when <paramref name="plan"/>'s key and value caches are both q8_0, which the wide form takes (<c>ND_KVQ8</c>) unless
+    /// <c>SHARPLIGHT_NATIVE_DECODE_Q8=0</c>.
+    /// </summary>
+    private static bool NativeWideDecodeQ8(AttentionPlan plan)
+        => DiagnosticSwitches.NativeWideDecodeQ8 && plan.K.Type == DataType.Q8_0 && plan.V.Type == DataType.Q8_0;
 
     /// <summary>
     /// <c>attn_decode_native.cu</c> for the macros <paramref name="decodeMacros"/> of <c>decode</c> (the plan's and the split rule's); it
@@ -193,9 +207,15 @@ public sealed partial class GraphLowerer
         int shared = 0;
         if (plan.D > 128)
         {
-            int stages = NativeWideDecodeStages();
+            bool q8 = NativeWideDecodeQ8(plan);
+            int stages = NativeWideDecodeStages(q8);
             macros["NWD_ST"] = stages.ToString(CultureInfo.InvariantCulture);
-            shared = NativeWideDecodeSharedBytes(stages);
+            if (q8)
+            {
+                macros["ND_KVQ8"] = "1";
+            }
+
+            shared = NativeWideDecodeSharedBytes(stages, q8);
         }
 
         return _compiler.CompileCuda("attn_decode_native.cu", "", "attn_decode_native", NativeDecodeWarps * 32, shared, _opt.Target, macros, _opt.Cache);

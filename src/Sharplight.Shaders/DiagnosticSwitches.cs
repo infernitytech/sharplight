@@ -426,6 +426,15 @@ internal static class DiagnosticSwitches
     public static IReadOnlyDictionary<string, string> AttentionExtraMacros { get; } = (Read("SHARPLIGHT_FE_MACROS") ?? "")
         .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_DECODE_Q8=0</c>: decode rows of head sizes 256 / 512 over q8_0 caches keep the generated <c>decode</c> instead of
+    /// the wide form of <c>attn_decode_native.cu</c> with raw q8_0 tiles (CUDA).
+    /// </summary>
+    public static bool NativeWideDecodeQ8 { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE_Q8");
+
+    /// <summary><c>SHARPLIGHT_COOP_KQ_NT=1|2</c>: 64-row weight tiles per workgroup of the cooperative-matrix K-quant decode GEMM, or null for the default.</summary>
+    public static int? CoopKQuantWeightTiles { get; } = Read("SHARPLIGHT_COOP_KQ_NT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Extra macros for the cooperative-matrix K-quant decode GEMM (<c>SHARPLIGHT_COOP_KQ_MACROS=NAME=value,...</c>), for kernel experiments.</summary>
     public static IReadOnlyDictionary<string, string> CoopKQuantExtraMacros { get; } = (Read("SHARPLIGHT_COOP_KQ_MACROS") ?? "")
         .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");

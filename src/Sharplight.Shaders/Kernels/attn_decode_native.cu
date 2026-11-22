@@ -469,10 +469,18 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
 //     online softmax and hold the same (m, l);
 //   * O += P · V: warp w owns output dimensions [w * NWD_DVW, + NWD_DVW) (V from ldmatrix.trans), so the warps' states need no merge.
 //
-// Two barriers per tile. The result is written directly (one key range, sinks in the denominator) or as the range's partial
+// ND_KVQ8 (wide form only): q8_0 caches (32-value blocks of an f16 scale and 32 int8 quants, 34 bytes; a row of D values is 16-byte
+// aligned at head sizes 256 / 512): the ring holds the tiles' raw rows (17 / 34 chunks of 16 bytes per row), and after the barrier
+// that makes tile i visible the block converts it into one f16 tile in the swizzled layout above (each value d * q rounded to f16, as
+// fa_mqa stages it), behind a third barrier, so the products are those of the f16 form. Half the bytes of an f16 cache per key.
+//
+// Two barriers per tile (three with ND_KVQ8). The result is written directly (one key range, sinks in the denominator) or as the range's partial
 // [split][t][h][D + 4] (acc, m, l) for decode_combine, as the narrow form does; Q · SCALE and P are rounded to f16.
 #ifndef NWD_ST
 #define NWD_ST 3                                // ring stages
+#endif
+#ifndef ND_KVQ8
+#define ND_KVQ8 0
 #endif
 #define NWD_TK (8192 / D)                       // keys per tile (32 at D = 256, 16 at 512): 32 KiB of keys and values
 #define NWD_NF (NWD_TK / 8)                     // key fragments of S per tile
@@ -487,6 +495,15 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
 #define NWD_RPT (ND_THREADS / NWD_CPR)          // rows the block's threads cover per chunk round
 #if NWD_DS * NWD_NF != ND_WARPS || NWD_KSQ < 2 || (NWD_KSQ % 2) != 0 || (NWD_NO % 2) != 0 || NWD_TK > 32 || (NWD_TK * NWD_CPR) % ND_THREADS != 0
 #error "attn_decode_native: unsupported wide shape"
+#endif
+#define NWD_RB (D / 32 * 34)                    // ND_KVQ8: bytes of one cache row (16-byte multiple at D = 256 / 512)
+#define NWD_RCH (NWD_RB / 16)                   // ND_KVQ8: 16-byte chunks of one cache row
+#if ND_KVQ8
+#define NWD_STAGE_BYTES (2 * NWD_TK * NWD_RB)   // raw keys and values of one tile
+#define NWD_TILE_BYTES (2 * NWD_TK * D * 2)     // the converted f16 tile after the ring
+#else
+#define NWD_STAGE_BYTES (2 * NWD_TK * D * 2)
+#define NWD_TILE_BYTES 0
 #endif
 
 __device__ __forceinline__ nd_u32 nd_smem(const void* ptr)
@@ -536,11 +553,61 @@ __device__ __forceinline__ void nd_load_tile(const NdParams& p, nd_u64 kvBase, n
     }
 }
 
+#if ND_KVQ8
+// ND_KVQ8: copies the raw q8_0 rows of tile [j0, j0 + NWD_TK) into stage buffers sk / sv (rows of NWD_RB bytes, rows past the range
+// zero-filled), the cache rows looked up as in nd_load_tile.
+__device__ __forceinline__ void nd_load_tile_q8(const NdParams& p, nd_u64 kvBase, nd_u32 hk, nd_u32 j0, nd_u32 jEnd, nd_u32 jSafe, nd_u32 sk, nd_u32 sv,
+                                                nd_u32 tid)
+{
+    const nd_u32 lane = tid & 31;
+    const nd_u32 jl = j0 + (lane % NWD_TK);
+    const nd_u64 myRow = nd_kv_row(p, kvBase, jl < jEnd ? jl : jSafe) + hk;
+    const unsigned char* kc = (const unsigned char*)p.kc;
+    const unsigned char* vc = (const unsigned char*)p.vc;
+#pragma unroll
+    for (int i = 0; i < (NWD_TK * NWD_RCH + ND_THREADS - 1) / ND_THREADS; i++)
+    {
+        const nd_u32 e = tid + i * ND_THREADS;
+        const nd_u32 r = min(e / NWD_RCH, (nd_u32)NWD_TK - 1), ch = e % NWD_RCH;
+        const nd_u64 row = __shfl_sync(0xFFFFFFFFu, myRow, r);
+        if (e < NWD_TK * NWD_RCH)
+        {
+            const nd_u32 bytes = j0 + r < jEnd ? 16u : 0u;
+            nd_copy(sk + r * NWD_RB + ch * 16, kc + row * NWD_RB + ch * 16, bytes);
+            nd_copy(sv + r * NWD_RB + ch * 16, vc + row * (VRS / 32 * 34) + ch * 16, bytes);
+        }
+    }
+}
+
+// ND_KVQ8: converts the raw rows of a stage (keys, then values) into the f16 tile `tile` (keys at 0, values at NWD_TK * D * 2), 8 values
+// per 16-byte chunk in the swizzled layout of nd_swz: d * q rounded to f16.
+__device__ __forceinline__ void nd_convert_q8(const unsigned char* raw, unsigned char* tile, nd_u32 tid)
+{
+#pragma unroll 4
+    for (nd_u32 e = tid; e < 2 * NWD_TK * NWD_CPR; e += ND_THREADS)
+    {
+        const nd_u32 kv = e / (NWD_TK * NWD_CPR), rest = e % (NWD_TK * NWD_CPR), r = rest / NWD_CPR, ch = rest % NWD_CPR;
+        const unsigned char* blk = raw + kv * NWD_TK * NWD_RB + r * NWD_RB + (ch >> 2) * 34;
+        float d;
+        asm("cvt.f32.f16 %0, %1;\n" : "=f"(d) : "h"(*(const unsigned short*)blk));
+        const unsigned short* qw = (const unsigned short*)(blk + 2 + (ch & 3) * 8);
+        nd_u32 w[4];
+#pragma unroll
+        for (int k = 0; k < 4; k++)
+        {
+            const nd_u32 b = qw[k];
+            w[k] = nd_pack(d * (float)(signed char)(b & 0xFF), d * (float)(signed char)(b >> 8));
+        }
+        *(uint4*)(tile + kv * NWD_TK * D * 2 + nd_swz(r, ch)) = make_uint4(w[0], w[1], w[2], w[3]);
+    }
+}
+#endif
+
 extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdParams p)
 {
     extern __shared__ __align__(128) unsigned char nd_sm[];
-    // Stages of [keys | values], then the partial scores [warp][lane] (float2).
-    float2* sS = (float2*)(nd_sm + NWD_ST * 2 * NWD_TK * D * 2);
+    // Stages of [keys | values] (ND_KVQ8: raw rows, then the converted f16 tile), then the partial scores [warp][lane] (float2).
+    float2* sS = (float2*)(nd_sm + NWD_ST * NWD_STAGE_BYTES + NWD_TILE_BYTES);
 
     const nd_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const nd_u32 g = lane >> 2, c4 = lane & 3;
@@ -562,13 +629,18 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
 
     const nd_u32 nt = (jEnd - jBeg + NWD_TK - 1) / NWD_TK;
     const nd_u32 base = nd_smem(nd_sm);
-    const nd_u32 stageBytes = 2 * NWD_TK * D * 2;
+    const nd_u32 stageBytes = NWD_STAGE_BYTES;
+#if ND_KVQ8
+#define ND_LOAD_TILE(j0, st) nd_load_tile_q8(p, kvBase, hk, j0, jEnd, jBeg, st, st + NWD_TK * NWD_RB, tid)
+#else
+#define ND_LOAD_TILE(j0, st) nd_load_tile(p, kvBase, hk, j0, jEnd, jBeg, st, st + NWD_TK * D * 2, tid)
+#endif
 #pragma unroll
     for (int s = 0; s < NWD_ST - 1; s++)
     {
         if (s < (int)nt)
         {
-            nd_load_tile(p, kvBase, hk, jBeg + s * NWD_TK, jEnd, jBeg, base + s * stageBytes, base + s * stageBytes + NWD_TK * D * 2, tid);
+            ND_LOAD_TILE(jBeg + s * NWD_TK, base + s * stageBytes);
         }
         asm volatile("cp.async.commit_group;\n" ::);
     }
@@ -610,11 +682,17 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
             if (nx < nt)
             {
                 const nd_u32 st = base + (nx % NWD_ST) * stageBytes;
-                nd_load_tile(p, kvBase, hk, jBeg + nx * NWD_TK, jEnd, jBeg, st, st + NWD_TK * D * 2, tid);
+                ND_LOAD_TILE(jBeg + nx * NWD_TK, st);
             }
             asm volatile("cp.async.commit_group;\n" ::);
         }
+#if ND_KVQ8
+        nd_convert_q8(nd_sm + (i % NWD_ST) * stageBytes, nd_sm + NWD_ST * stageBytes, tid);
+        __syncthreads();   // the converted tile is visible
+        const nd_u32 sk = base + NWD_ST * stageBytes, sv = sk + NWD_TK * D * 2;
+#else
         const nd_u32 sk = base + (i % NWD_ST) * stageBytes, sv = sk + NWD_TK * D * 2;
+#endif
         const nd_u32 j0 = jBeg + i * NWD_TK;
 
         // Partial S of key fragment nf over the warp's dimensions: ldmatrix.x4 matrices m = lane / 8: keys nf * 8 + lane % 8,

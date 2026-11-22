@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
     /// <summary>Threads per block of <c>gemm_kq_native.cu</c> (2 x 4 warps).</summary>
     private const int NativeKQuantThreads = 256;
 
-    /// <summary>Weight rows per block of <c>gemm_kq_native.cu</c>.</summary>
+    /// <summary>Weight rows per block of <c>gemm_kq_native.cu</c> (and per workgroup of <c>gemm_kq.slang</c>, the cooperative-matrix form).</summary>
     private const int NativeKQuantColumns = 64;
 
     /// <summary>Largest batch the hand-written K-quant decode GEMM serves (one token tile of 64 rows).</summary>
@@ -57,6 +57,13 @@ public sealed partial class GraphLowerer
     private bool CoopKQuantDecode => DiagnosticSwitches.CoopKQuant && !_compiler.CompilesCuda(_opt.Target) && _opt.Has(DeviceFeatures.MatrixMmaLayout)
                                      && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16);
 
+    /// <summary>
+    /// 64-row weight tiles per workgroup of the cooperative-matrix K-quant decode GEMM
+    /// (<c>KQ_NT</c>, <c>SHARPLIGHT_COOP_KQ_NT</c>): 1 on the CUDA C++ kernel and for the multi-output form.
+    /// </summary>
+    private int CoopKQuantWeightTiles(bool multi)
+        => !CoopKQuantDecode || multi ? 1 : DiagnosticSwitches.CoopKQuantWeightTiles ?? 1;
+
     /// <summary>True when one of the K-quant decode GEMMs serves this target: the CUDA C++ one (<see cref="DeviceFeatures.NativeGemmKQuant"/>) or the cooperative-matrix one.</summary>
     private bool KQuantDecodeAvailable => (_opt.Has(DeviceFeatures.NativeGemmKQuant) && _compiler.CompilesCuda(_opt.Target)) || CoopKQuantDecode;
 
@@ -100,8 +107,9 @@ public sealed partial class GraphLowerer
     private static int NativeKQuantWarpRows(int tileRows) => tileRows < 32 ? 1 : DiagnosticSwitches.NativeKQuantWarpRows ?? 1;
 
     /// <summary>
-    /// True when the hand-written K-quant decode GEMM can take decode batches of <paramref name="type"/> weights on this device (the format
-    /// and the feature; the shape is checked per matmul, <see cref="UseNativeKQuantDecode"/>), so the skinny GEMM leaves those batches to it.
+    /// True when a K-quant decode GEMM (<c>gemm_kq_native.cu</c> on CUDA, <c>gemm_kq.slang</c> on other targets with the MMA fragment
+    /// layout) can take decode batches of <paramref name="type"/> weights on this device (the format and the feature; the shape is checked
+    /// per matmul, <see cref="UseNativeKQuantDecode"/>), so the skinny GEMM leaves those batches to it.
     /// </summary>
     private bool UsesNativeKQuantDecode(DataType type)
         => NativeKQuantBlockBytes(type) > 0 && KQuantDecodeAvailable && NativeKQuantMinRows <= MatvecMaxRows + 1;
@@ -117,8 +125,9 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when K-quant weights of <paramref name="type"/> [<paramref name="n"/>, <paramref name="k"/>] read by the f16 copy of x
-    /// (<paramref name="macros"/>) run their decode batches on the hand-written K-quant GEMM (<see cref="DeviceFeatures.NativeGemmKQuant"/>,
-    /// <c>gemm_kq_native.cu</c>): Q4_K, Q5_K or Q6_K, whole blocks per row, on a target that takes CUDA C++ with room for two stages.
+    /// (<paramref name="macros"/>) run their decode batches on a K-quant decode GEMM: Q4_K, Q5_K or Q6_K, whole blocks per row, on a target
+    /// that takes CUDA C++ with room for two stages (<see cref="DeviceFeatures.NativeGemmKQuant"/>, <c>gemm_kq_native.cu</c>), or on one
+    /// whose fragments have the MMA layout with room for the cooperative-matrix form's stage (<see cref="CoopKQuantDecode"/>).
     /// </summary>
     private bool UseNativeKQuantDecode(DataType type, long n, long k, IReadOnlyDictionary<string, string> macros)
         => KQuantDecodeAvailable && NativeKQuantBlockBytes(type) > 0 && k % 256 == 0
@@ -290,7 +299,8 @@ public sealed partial class GraphLowerer
     {
         int blockBytes = NativeKQuantBlockBytes(type);
         long tileRowsTotal = dual ? 2 * n : n;
-        long columns = Grid.Div(tileRowsTotal, NativeKQuantColumns);
+        bool multi = extra?.ContainsKey("MULTI") == true;
+        long columns = Grid.Div(tileRowsTotal, NativeKQuantColumns * CoopKQuantWeightTiles(multi));
         long steps = k / 256;
         int Split(long rows) => NativeKQuantSplit(columns * Grid.Div(rows, NativeKQuantTileRows(rows)), steps, NativeKQuantTileRows(rows));
         // One variant per (token tile rows, split) over the served batches; the split depends on rows only through the token tiles.
@@ -313,6 +323,10 @@ public sealed partial class GraphLowerer
             {
                 macros["KQ_STAGES"] = stages.ToString(CultureInfo.InvariantCulture);
                 macros["KQ_WM"] = NativeKQuantWarpRows(c.TileRows).ToString(CultureInfo.InvariantCulture);
+            }
+            else if (CoopKQuantWeightTiles(multi) > 1)
+            {
+                macros["KQ_NT"] = CoopKQuantWeightTiles(multi).ToString(CultureInfo.InvariantCulture);
             }
             if (bias)
             {

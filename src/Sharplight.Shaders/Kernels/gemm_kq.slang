@@ -7,8 +7,10 @@
 // fragment s % 4 and the K half s / 4 of every 256-value superblock, for all token rows, so each weight value is dequantized once and
 // each staged activation is read by four subgroups. A K step is one superblock: the step's activation rows (KQ_BM x 512 bytes, 16-byte
 // chunks XOR-swizzled by row parity) and the raw blocks of the 64 weight rows (each row's 16-byte-aligned window around its block) are
-// staged in shared memory from registers that were loaded during the previous step's products, so the loads of the next superblock
-// are in flight while the current one is computed.
+// staged in shared memory from registers that were loaded during the previous step's products (KQ_PF register sets: that many steps
+// ahead), so the loads of the next superblock are in flight while the current one is computed. KQ_KH 1: 4 subgroups, each over both K
+// halves. KQ_NT 2: 128 weight rows, 8 subgroups of one fragment each over both K halves, the activations staged half a superblock at a
+// time (half steps; the weight windows at the first half of each superblock), so a staged activation serves 128 weight rows.
 //
 // The fragments are filled from registers: on devices whose 16x16 f16 fragments have the element layout of the 16x8x16 MMA instructions
 // (element e of lane (g, c): row (A) / column (B) g + 8 (e >> 2), K slot 2c + (e & 1) + 8 ((e >> 1) & 1)), a lane may hold any K
@@ -61,6 +63,12 @@ using namespace linalg;
 #ifndef KQ_PF
 #define KQ_PF 1
 #endif
+#ifndef KQ_X_NOSTS
+#define KQ_X_NOSTS 0
+#endif
+#ifndef KQ_X_EARLY
+#define KQ_X_EARLY 0
+#endif
 #ifndef KQ_X_NOSTAGE
 #define KQ_X_NOSTAGE 0
 #endif
@@ -88,13 +96,43 @@ using namespace linalg;
 #else
 #error "gemm_kq: KQ_FMT 4, 5 or 6"
 #endif
-#define KQ_BN 64
+// KQ_NT: 64-row weight tiles per workgroup. 2: 128 weight rows, one 16-row fragment per subgroup, each over the whole superblock, and the
+// activations staged half a superblock (128 values) at a time, so each staged activation serves twice the weight rows (half the
+// activation bytes per weight byte) in the same shared memory.
+#ifndef KQ_NT
+#define KQ_NT 1
+#endif
+#if KQ_NT != 1 && (KQ_NT != 2 || MULTI)
+#error "gemm_kq: KQ_NT 1, or 2 without MULTI"
+#endif
+#define KQ_BN (64 * KQ_NT)
+#if KQ_NT == 2
+#define KQ_XHALF 1
+#define KQ_XCH 16                                           // 16-byte activation chunks per staged row
+#else
+#define KQ_XHALF 0
+#define KQ_XCH 32
+#endif
 // KQ_KH: subgroups per weight fragment, each taking its share of every superblock's K halves (2: 8 subgroups, the halves' sums
-// added through shared memory at the end; 1: 4 subgroups, each over the whole superblock, so more workgroups fit an SM).
+// added through shared memory at the end; 1: 4 subgroups, each over the whole superblock, so more workgroups fit an SM). KQ_NT 2 takes 1.
 #ifndef KQ_KH
+#if KQ_NT == 2
+#define KQ_KH 1
+#else
 #define KQ_KH 2
 #endif
-#define KQ_THREADS (128 * KQ_KH)
+#endif
+#if KQ_NT == 2 && KQ_KH != 1
+#error "gemm_kq: KQ_NT 2 takes KQ_KH 1"
+#endif
+#define KQ_NSG (KQ_BN / 16 * KQ_KH)                          // subgroups
+#define KQ_THREADS (KQ_NSG * 32)
+// K halves of a superblock each kq_compute call covers.
+#if KQ_KH == 2 || KQ_XHALF
+#define KQ_KHN 1
+#else
+#define KQ_KHN 2
+#endif
 #define KQ_FM (KQ_BM / 16)
 #define KQ_SB (K / 256)
 #define KQ_ROWB (uint64_t(KQ_SB) * KQ_BB)
@@ -117,7 +155,7 @@ using namespace linalg;
 #else
 #define KQ_WSC (KQ_WCH + 10 - KQ_WCH % 8)
 #endif
-#define KQ_XPT (KQ_BM * 32 / KQ_THREADS)                       // activation chunks per thread and step
+#define KQ_XPT (KQ_BM * KQ_XCH / KQ_THREADS)                   // activation chunks per thread and step
 #define KQ_WPT ((KQ_BN * KQ_WCH + KQ_THREADS - 1) / KQ_THREADS)  // weight chunks per thread and step
 #if KQ_DUAL
 #define KQ_PN (2 * N)
@@ -161,7 +199,7 @@ struct Params
 };
 
 // The step's activation rows (chunk ch of row r at r * 32 + (ch ^ 4 (r & 1))); after the K loop, the K halves' partial tiles.
-groupshared uint4 kqX[KQ_BM * 32];
+groupshared uint4 kqX[KQ_BM * KQ_XCH];
 // The step's weight windows as 8-byte words (row r at r * 2 KQ_WSC).
 groupshared uint2 kqW[KQ_BN * KQ_WSC * 2];
 groupshared uint kqLast;
@@ -323,14 +361,32 @@ bool kq_layout(uint tid, uint lane)
     return match;
 }
 
+// The workgroup barrier of the K loop. KQ_X_BAR (experiments): 1 an execution barrier without memory semantics, 2 an execution barrier
+// between a workgroup-memory release and acquire.
+#ifndef KQ_X_BAR
+#define KQ_X_BAR 0
+#endif
+void kq_sync()
+{
+#if KQ_X_BAR == 1
+    spirv_asm { OpControlBarrier $(2u) $(2u) $(0u) };
+#elif KQ_X_BAR == 2
+    spirv_asm { OpMemoryBarrier $(2u) $(0x104u) };
+    spirv_asm { OpControlBarrier $(2u) $(2u) $(0u) };
+    spirv_asm { OpMemoryBarrier $(2u) $(0x102u) };
+#else
+    GroupMemoryBarrierWithGroupSync();
+#endif
+}
+
 // The products of superblock sb staged in kqX / kqW for the subgroup's K halves (khOwn with KQ_KH = 2, both with 1): lane (g, c) of weight
 // fragment wf, whose weight rows' windows start at byte wBase[h] of kqW and whose blocks are at the addresses wAlign[h] + sb * KQ_BB.
-void kq_compute(uint sb, uint khOwn, uint g, uint c, uint wBase[2], uint64_t wAlign[2], inout KqC acc[KQ_FM])
+void kq_compute(uint sb, uint khFirst, uint g, uint c, uint wBase[2], uint64_t wAlign[2], inout KqC acc[KQ_FM])
 {
-    // The K halves of the superblock this subgroup takes.
-    for (uint kq = 0; kq < 2 / KQ_KH; kq++)
+    // The K halves of the superblock this call covers (KQ_KHN from khFirst).
+    for (uint kq = 0; kq < KQ_KHN; kq++)
     {
-    uint kh = KQ_KH == 2 ? khOwn : kq;
+    uint kh = khFirst + kq;
     // The lane's two weight rows' block starts in the staged windows.
     uint wb[2];
     [ForceUnroll]
@@ -416,8 +472,8 @@ void kq_compute(uint sb, uint khOwn, uint g, uint c, uint wBase[2], uint64_t wAl
                 [ForceUnroll]
                 for (uint h = 0; h < 2; h++)
                 {
-                    uint r = 16 * i + g + 8 * h, ch = 16 * kh + 4 * u + c;
-                    xa[i][h] = kqX[r * 32 + (ch ^ ((r & 1) << 2))];
+                    uint r = 16 * i + g + 8 * h, ch = (KQ_XHALF ? 0 : 16 * kh) + 4 * u + c;
+                    xa[i][h] = kqX[r * KQ_XCH + (ch ^ ((r & 1) << 2))];
                 }
             }
             [ForceUnroll]
@@ -483,7 +539,7 @@ void kq_compute(uint sb, uint khOwn, uint g, uint c, uint wBase[2], uint64_t wAl
 void gemm_kq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
     uint tid = ltid.x, lane = tid % 32, sg = tid / 32;
-    uint wf = sg % 4, khOwn = sg / 4;
+    uint wf = sg % (KQ_BN / 16), khOwn = sg / (KQ_BN / 16);
     uint g = lane / 4, c = lane % 4;
     uint t0 = gid.x * KQ_BM, ng = gid.y * KQ_BN;
     uint n0 = ng;
@@ -498,40 +554,81 @@ void gemm_kq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
     [ForceUnroll]
     for (uint it = 0; it < KQ_XPT; it++)
     {
-        uint idx = tid + it * KQ_THREADS, r = idx >> 5, ch = idx & 31;
+        uint idx = tid + it * KQ_THREADS, r = idx / KQ_XCH, ch = idx % KQ_XCH;
         xRow[it] = uint64_t(p.x) + uint64_t(min(t0 + r, p.T - 1)) * (uint64_t(K) * 2) + ch * 16;
     }
-    #define KQ_FETCH(set, sb)                                                                           \
+    // The weight chunks of each thread: the address of its row's first block (0: no chunk) and the chunk's offset in the window; for
+    // windows that may end past their matrix (blocks not 16-byte aligned), the matrix's end.
+    uint64_t wRow[KQ_WPT];
+    uint wCh[KQ_WPT];
+#if !KQ_ALIGNED
+    uint64_t wEnd[KQ_WPT];
+#endif
+    [ForceUnroll]
+    for (uint it = 0; it < KQ_WPT; it++)
+    {
+        uint idx = tid + it * KQ_THREADS;
+        uint r = min(idx / KQ_WCH, uint(KQ_BN) - 1);
+        uint64_t wend = 0;
+        wRow[it] = (KQ_BN * KQ_WCH) % KQ_THREADS == 0 || idx < KQ_BN * KQ_WCH ? kq_row(p, m, n0, r, wend) : 0;
+        wCh[it] = (idx % KQ_WCH) * 16;
+#if !KQ_ALIGNED
+        wEnd[it] = wend;
+#endif
+    }
+    // The loads of half `half` of superblock sb's activations (both halves unless KQ_XHALF) and, with withW, of its weight windows.
+    #define KQ_FETCH(set, sb, half, withW)                                                              \
     {                                                                                                   \
-        if (!KQ_X_NOXCOPY || (sb) == sb0) { [ForceUnroll] for (uint it = 0; it < KQ_XPT; it++) xr[set][it] = *(uint4*)(xRow[it] + uint64_t(sb) * 512); } \
+        if (!KQ_X_NOXCOPY || (sb) == sb0) { [ForceUnroll] for (uint it = 0; it < KQ_XPT; it++) xr[set][it] = *(uint4*)(xRow[it] + uint64_t(sb) * 512 + (half) * 256); } \
         [ForceUnroll]                                                                                   \
         for (uint it = 0; it < KQ_WPT; it++)                                                            \
         {                                                                                               \
-            uint idx = tid + it * KQ_THREADS;                                                           \
-            if (!KQ_X_NOWCOPY || (sb) == sb0) wr[set][it] = uint4(0, 0, 0, 0);                         \
-            if (((KQ_BN * KQ_WCH) % KQ_THREADS == 0 || idx < KQ_BN * KQ_WCH) && (!KQ_X_NOWCOPY || (sb) == sb0)) \
+            if ((withW) && (!KQ_X_NOWCOPY || (sb) == sb0))                                              \
             {                                                                                           \
-                uint r = idx / KQ_WCH, ch = idx % KQ_WCH;                                               \
-                uint64_t wend;                                                                          \
-                uint64_t block = kq_row(p, m, n0, r, wend) + uint64_t(sb) * KQ_BB;                      \
-                uint64_t src = (block & ~15ull) + ch * 16;                                              \
-                if (src < wend) wr[set][it] = kq_load16(src, wend);                                     \
+                uint64_t src = ((wRow[it] + uint64_t(sb) * KQ_BB) & ~15ull) + wCh[it];                  \
+                if (KQ_ALIGNED)                                                                         \
+                {                                                                                       \
+                    wr[set][it] = uint4(0, 0, 0, 0);                                                    \
+                    if ((KQ_BN * KQ_WCH) % KQ_THREADS == 0 || wRow[it] != 0) wr[set][it] = *(uint4*)src; \
+                }                                                                                       \
+                else                                                                                    \
+                {                                                                                       \
+                    KQ_FETCH_TAIL(set, it, src)                                                         \
+                }                                                                                       \
             }                                                                                           \
         }                                                                                               \
     }
-    #define KQ_STAGE(set)                                                                               \
+#if KQ_ALIGNED
+    #define KQ_FETCH_TAIL(set, it, src)
+#else
+    #define KQ_FETCH_TAIL(set, it, src)                                                                 \
+    {                                                                                                   \
+        wr[set][it] = uint4(0, 0, 0, 0);                                                                \
+        if (wRow[it] != 0 && src + 16 <= wEnd[it]) wr[set][it] = *(uint4*)src;                          \
+        else if (wRow[it] != 0 && src < wEnd[it]) wr[set][it] = kq_load16(src, wEnd[it]);               \
+    }
+#endif
+    uint kqDummy = 0;
+#if KQ_X_NOSTS
+    #define KQ_STAGE(set, withW)                                                                        \
+    {                                                                                                   \
+        [ForceUnroll] for (uint it = 0; it < KQ_XPT; it++) kqDummy ^= xr[set][it].x ^ xr[set][it].w;      \
+        [ForceUnroll] for (uint it = 0; it < KQ_WPT; it++) kqDummy ^= wr[set][it].x ^ wr[set][it].w;      \
+    }
+#else
+    #define KQ_STAGE(set, withW)                                                                        \
     {                                                                                                   \
         [ForceUnroll]                                                                                   \
         for (uint it = 0; it < KQ_XPT; it++)                                                            \
         {                                                                                               \
-            uint idx = tid + it * KQ_THREADS, r = idx >> 5, ch = idx & 31;                              \
-            kqX[r * 32 + (ch ^ ((r & 1) << 2))] = xr[set][it];                                          \
+            uint idx = tid + it * KQ_THREADS, r = idx / KQ_XCH, ch = idx % KQ_XCH;                      \
+            kqX[r * KQ_XCH + (ch ^ ((r & 1) << 2))] = xr[set][it];                                      \
         }                                                                                               \
         [ForceUnroll]                                                                                   \
         for (uint it = 0; it < KQ_WPT; it++)                                                            \
         {                                                                                               \
             uint idx = tid + it * KQ_THREADS;                                                           \
-            if ((KQ_BN * KQ_WCH) % KQ_THREADS == 0 || idx < KQ_BN * KQ_WCH)                             \
+            if ((withW) && ((KQ_BN * KQ_WCH) % KQ_THREADS == 0 || idx < KQ_BN * KQ_WCH))                \
             {                                                                                           \
                 uint r = idx / KQ_WCH, ch = idx % KQ_WCH, o = (r * KQ_WSC + ch) * 2;                    \
                 kqW[o] = wr[set][it].xy;                                                                \
@@ -539,6 +636,7 @@ void gemm_kq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
             }                                                                                           \
         }                                                                                               \
     }
+#endif
 
     // Byte offsets of the lane's two weight rows (g, g + 8 of fragment wf) in the staged windows, without the block's alignment offset.
     uint wBase[2];
@@ -557,12 +655,34 @@ void gemm_kq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 
     // KQ_PF register sets hold the loads of the next KQ_PF superblocks: set (step % KQ_PF) is staged at step `step` and then reloaded with
     // superblock step + KQ_PF, so each load has KQ_PF steps of products to arrive.
+#if KQ_XHALF
+    // Half steps: half 0 of each superblock stages its activations' first half and the weight windows, half 1 the second half of the
+    // activations; the loads of the next half step are in flight during this one's products.
+    uint hsteps = 2 * steps;
+    if (hsteps > 0)
+    {
+        KQ_FETCH(0, sb0, 0, true)
+    }
+    for (uint hs = 0; hs < hsteps; hs++)
+    {
+        uint sb = sb0 + hs / 2, half = hs & 1;
+        kq_sync();
+        KQ_STAGE(0, half == 0)
+        kq_sync();
+        if (hs + 1 < hsteps)
+        {
+            uint nh = (hs + 1) & 1;
+            KQ_FETCH(0, sb0 + (hs + 1) / 2, nh, nh == 0)
+        }
+        kq_compute(sb, half, g, c, wBase, wAlign, acc);
+    }
+#else
     [ForceUnroll]
     for (uint s = 0; s < KQ_PF; s++)
     {
         if (s < steps)
         {
-            KQ_FETCH(s, sb0 + s)
+            KQ_FETCH(s, sb0 + s, 0, true)
         }
     }
     #define KQ_STEP(set)                                                                                \
@@ -570,18 +690,22 @@ void gemm_kq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
         uint sb = sb0 + step;                                                                           \
         if (!KQ_X_NOCOPY || step == 0)                                                                  \
         {                                                                                               \
-            GroupMemoryBarrierWithGroupSync();                                                          \
+            kq_sync();                                                                                  \
             if (!KQ_X_NOSTAGE || step == 0)                                                             \
             {                                                                                           \
-                KQ_STAGE(set)                                                                           \
+                KQ_STAGE(set, true)                                                                     \
             }                                                                                           \
-            GroupMemoryBarrierWithGroupSync();                                                          \
-            if (step + KQ_PF < steps && !KQ_X_NOCOPY && !KQ_X_NOSTAGE)                                  \
+            if (KQ_X_EARLY && step + KQ_PF < steps && !KQ_X_NOCOPY && !KQ_X_NOSTAGE)                    \
             {                                                                                           \
-                KQ_FETCH(set, sb + KQ_PF)                                                               \
+                KQ_FETCH(set, sb + KQ_PF, 0, true)                                                      \
+            }                                                                                           \
+            kq_sync();                                                                                  \
+            if (!KQ_X_EARLY && step + KQ_PF < steps && !KQ_X_NOCOPY && !KQ_X_NOSTAGE)                   \
+            {                                                                                           \
+                KQ_FETCH(set, sb + KQ_PF, 0, true)                                                      \
             }                                                                                           \
         }                                                                                               \
-        kq_compute(sb, khOwn, g, c, wBase, wAlign, acc);                                                \
+        kq_compute(sb, KQ_KH == 2 ? khOwn : 0, g, c, wBase, wAlign, acc);                               \
     }
     for (uint step = 0; step < steps;)
     {
@@ -596,6 +720,7 @@ void gemm_kq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
             }
         }
     }
+#endif
     #undef KQ_STEP
     #undef KQ_FETCH
     #undef KQ_STAGE
@@ -722,7 +847,7 @@ void gemm_kq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
             v0 += m.bias[min(n, m.rows - 1)];
             v1 += m.bias[min(n + 1, m.rows - 1)];
 #endif
-            if (!layoutOk)
+            if (!layoutOk || kqDummy == 0x9E3779B9u)
             {
                 v0 = asfloat(0x7FC00000u);
                 v1 = v0;

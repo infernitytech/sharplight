@@ -2290,7 +2290,7 @@ void fes(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p
 // Per FM_BC-key tile: cache rows (fetched into registers during the previous tile) into shared memory (f16), S = Q·Kᵀ split along D over the subgroups (the query fragments
 // stay in registers), online softmax in scalar code, then O += P·V with the output tiles in cooperative-matrix
 // accumulators, rescaled per row by an element-wise product with a matrix of the row corrections.
-// FM_SEPV: separate key and value caches of one head size (D == DV, f16 / f32 caches: Gemma 4's and Qwen3.5's head sizes 256 /
+// FM_SEPV: separate key and value caches of one head size (D == DV, f16 / f32 / q8_0 / q4_0 caches: Gemma 4's and Qwen3.5's head sizes 256 /
 // 512 on targets without the hand-written CUDA kernel): the decode rows' key and value tiles are fetched and staged side by side
 // (fmV), FM_BC keys per tile (16 or 32, so both tiles fit the shared memory).
 using namespace linalg;
@@ -2303,7 +2303,7 @@ using namespace linalg;
 #endif
 #define FM_NH (FM_BC / 16)                          // 16-key halves of a tile
 #define FM_CPL (FM_BC / 8)                          // key columns per lane in the softmax (8 lanes per row)
-#if (FM_BC != 16 && FM_BC != 32) || (FM_SEPV && (DV != D || KV_QUANT))
+#if (FM_BC != 16 && FM_BC != 32) || (FM_SEPV && DV != D)
 #error "fa_mqa: unsupported tile"
 #endif
 #define FM_T 128
@@ -2375,7 +2375,7 @@ void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd
         [ForceUnroll] for (uint n = 0; n < FM_NW; n++) buf.w[k * FM_NW + n] = 0;
         if (i < FM_BC * FM_BPR && j < jEnd)
         {
-            uint64_t elem = (kv_row(kvRow, j) + hk) * D + (i % FM_BPR) * 32;
+            uint64_t elem = (kv_row(kvRow, j) + hk) * rowElems + (i % FM_BPR) * 32;
             uint64_t s = (elem >> 5) * KV_BLOCK_BYTES;
             uint* w = (uint*)byteAt(cache, s & ~uint64_t(3));
             [ForceUnroll] for (uint n = 0; n + 1 < FM_NW; n++) buf.w[k * FM_NW + n] = w[n];
@@ -2440,6 +2440,13 @@ void fm_store(FmTile buf, uint tid, bool values = false)
                     x[e] = d * (float((v[b >> 2] >> ((b & 3) * 8 + (el >= 16 ? 4 : 0))) & 0xF) - 8.0);
 #endif
                 }
+#if FM_SEPV
+                if (values)
+                {
+                    fmV[dst + c] = pack_half8(x);
+                    continue;
+                }
+#endif
                 fmKV[dst + c] = pack_half8(x);
             }
         }
