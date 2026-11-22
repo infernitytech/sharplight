@@ -70,6 +70,10 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly Dictionary<string, CudaRecordedLaunch[]> _recorded = [];
     /// <summary>Executions of each recording so far, and its instantiated CUDA graph once it has repeated (see <see cref="RunStep"/>).</summary>
     private readonly Dictionary<string, (int Runs, nint Graph, nint Exec)> _graphs = [];
+    /// <summary>The driver memory counted for each instantiated graph of <see cref="_graphs"/> (<see cref="CudaDevice.TryChargeDriverMemory"/>).</summary>
+    private readonly Dictionary<string, long> _graphBytes = [];
+    /// <summary>Steps whose graph did not fit the device (or the driver refused): they run launch by launch.</summary>
+    private readonly HashSet<string> _uncaptured = [];
 
     /// <summary>
     /// True when the stream's previous launch was a kernel whose grid the GPU holds at once (one wave). A kernel is launched as the
@@ -82,6 +86,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private bool _previousOneWave;
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
+    /// <summary>Whether the stream's driver memory is counted as the device's (<see cref="CudaDevice.ChargeDriverMemory"/>).</summary>
+    private readonly bool _streamCharged;
 
     /// <summary>Barrier placement of each recorded launch set (see <see cref="HazardTracker.Order(IReadOnlyList{KernelLaunch}, Bindings, bool, Dictionary{string, ValueTuple{int, bool}[]}, int)"/>).</summary>
     private readonly Dictionary<string, (int Index, bool BarrierBefore)[]> _orders = [];
@@ -109,8 +115,17 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         try
         {
             dev.Enter();
+            dev.ChargeDriverMemory(CudaDevice.StreamBytes, $"the stream of segment {segment.Index}");
+            _streamCharged = true;
             nint stream;
-            CudaApi.Check(CudaApi.cuStreamCreate(&stream, 0), "cuStreamCreate");
+            int created = CudaApi.cuStreamCreate(&stream, 0);
+            if (created != 0)
+            {
+                throw created == CudaApi.ErrorOutOfMemory
+                    ? dev.OutOfMemory(CudaDevice.StreamBytes, $"the stream of segment {segment.Index}", "cuStreamCreate: out of memory.")
+                    : new CudaException(created, $"CUDA cuStreamCreate failed: {CudaApi.ErrorText(created)}");
+            }
+
             _stream = stream;
             nint start;
             nint end;
@@ -1115,9 +1130,28 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         _graphs.TryGetValue(key, out var entry);
-        if (entry.Exec == 0 && entry.Runs >= 1)
+        if (entry.Exec == 0 && entry.Runs >= 1 && !_uncaptured.Contains(key))
         {
-            entry = Capture(recording, bindings, downloads, entry.Runs);
+            // The graph's driver memory is counted as the device's; when the device has no room for it, the step keeps running launch by
+            // launch (a placement of many segments must not fail at its first capture).
+            long bytes = CudaDevice.GraphBytes + recording.Length * CudaDevice.GraphBytesPerNode;
+            if (_dev.TryChargeDriverMemory(bytes))
+            {
+                entry = Capture(recording, bindings, downloads, entry.Runs);
+                if (entry.Exec != 0)
+                {
+                    _graphBytes[key] = bytes;
+                }
+                else
+                {
+                    _dev.ReleaseDriverMemory(bytes);
+                    _uncaptured.Add(key);
+                }
+            }
+            else
+            {
+                _uncaptured.Add(key);
+            }
         }
 
         entry.Runs++;
@@ -1229,10 +1263,16 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     private void DestroyGraph(string key)
     {
+        _uncaptured.Remove(key);
         if (_graphs.Remove(key, out var entry) && entry.Exec != 0)
         {
             CudaApi.cuGraphExecDestroy(entry.Exec);
             CudaApi.cuGraphDestroy(entry.Graph);
+        }
+
+        if (_graphBytes.Remove(key, out long bytes))
+        {
+            _dev.ReleaseDriverMemory(bytes);
         }
     }
 
@@ -1670,6 +1710,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         if (_stream != 0)
         {
             CudaApi.cuStreamDestroy(_stream);
+        }
+
+        if (_streamCharged)
+        {
+            _dev.ReleaseDriverMemory(CudaDevice.StreamBytes);
         }
     }
 }

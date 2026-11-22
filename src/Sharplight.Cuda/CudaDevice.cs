@@ -574,7 +574,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         return new CudaBuffer(pointer, size);
     }
 
-    private DeviceOutOfMemoryException OutOfMemory(long size, string? purpose, string reason)
+    internal DeviceOutOfMemoryException OutOfMemory(long size, string? purpose, string reason)
     {
         nuint free = 0;
         nuint total = 0;
@@ -641,6 +641,64 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         }
     }
 
+    /// <summary>
+    /// Device memory the driver takes for one stream (measured on a Blackwell GPU with driver 595: 548 KiB per <c>cuStreamCreate</c>).
+    /// </summary>
+    internal const long StreamBytes = 576L << 10;
+
+    /// <summary>Device memory the driver takes for an instantiated graph, per node (measured: ~4.8 KiB per kernel node) and per graph.</summary>
+    internal const long GraphBytesPerNode = 5L << 10;
+
+    /// <inheritdoc cref="GraphBytesPerNode"/>
+    internal const long GraphBytes = 64L << 10;
+
+    /// <summary>Device memory kept free besides a driver object's own (the driver allocates its pools in larger steps).</summary>
+    private const long DriverMargin = 64L << 20;
+
+    /// <summary>
+    /// Device memory one segment costs beyond its buffers (<see cref="IComputeDevice.SegmentOverheadBytes"/>): its stream and the graphs of a
+    /// few recorded step shapes (a layer's step is ~300 launches, ~1.5 MiB). Graph capture side streams are shared per device
+    /// (<see cref="TryRentLanes"/>), and a segment whose graph does not fit runs its launches without one (<see cref="TryChargeDriverMemory"/>).
+    /// </summary>
+    public long SegmentOverheadBytes => 4L << 20;
+
+    /// <summary>
+    /// Counts <paramref name="bytes"/> of driver memory (streams, instantiated graphs) as this device's, when the device memory limit and the
+    /// driver's free memory leave room for them (and <see cref="DriverMargin"/>); else counts nothing and returns false, and the caller does
+    /// without the object (a graph capture runs its launches one by one). <see cref="ReleaseDriverMemory"/> gives the bytes back.
+    /// </summary>
+    internal bool TryChargeDriverMemory(long bytes)
+    {
+        Enter();
+        if (Limits.DeviceMemory is { } cap && Interlocked.Read(ref _used) + bytes > cap)
+        {
+            return false;
+        }
+
+        nuint free;
+        nuint total;
+        if (CudaApi.cuMemGetInfo(&free, &total) == 0 && (long)free < bytes + DriverMargin)
+        {
+            return false;
+        }
+
+        Interlocked.Add(ref _used, bytes);
+        return true;
+    }
+
+    /// <summary>Counts driver memory as <see cref="TryChargeDriverMemory"/> does, for an object the caller cannot do without.</summary>
+    /// <exception cref="DeviceOutOfMemoryException">The device memory limit or the driver's free memory leaves no room for it.</exception>
+    internal void ChargeDriverMemory(long bytes, string purpose)
+    {
+        if (!TryChargeDriverMemory(bytes))
+        {
+            throw OutOfMemory(bytes, purpose, "No device memory is left for the driver's objects.");
+        }
+    }
+
+    /// <summary>Gives back driver memory counted by <see cref="TryChargeDriverMemory"/>.</summary>
+    internal void ReleaseDriverMemory(long bytes) => Interlocked.Add(ref _used, -bytes);
+
     internal void Free(CudaBuffer buffer)
     {
         if (!buffer.Owned || buffer.Pointer == 0 || _disposed)
@@ -677,15 +735,24 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             return lanes;
         }
 
+        if (!TryChargeDriverMemory(LanesBytes))
+        {
+            return null;
+        }
+
         try
         {
             return new CudaConcurrentLanes();
         }
         catch (CudaException e) when (e.Result == CudaApi.ErrorOutOfMemory)
         {
+            ReleaseDriverMemory(LanesBytes);
             return null;
         }
     }
+
+    /// <summary>The driver memory of one set of side streams.</summary>
+    private const long LanesBytes = CudaConcurrentLanes.LaneCount * StreamBytes;
 
     /// <summary>Gives back a set of <see cref="TryRentLanes"/>; one whose capture failed is destroyed (its streams may still be joined to it).</summary>
     internal void ReturnLanes(CudaConcurrentLanes lanes, bool reusable)
@@ -697,6 +764,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         else
         {
             lanes.Dispose();
+            ReleaseDriverMemory(LanesBytes);
         }
     }
 
