@@ -70,7 +70,7 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   `cuLinkComplete`), records it in the cache (so the next load skips the JIT) and loads it with `cuModuleLoadData`.
 - **Device features** use the neutral names: `fp16`, `subgroup_ops`, `int_dot` (`dp4a`) and `subgroup_size_control` (the warp size
   is fixed at 32) on every listed GPU; from compute capability 8.0 the tensor-core features `matrix_f16`, `matrix_bf16`, `matrix_int8`,
-  `matrix_mma_layout`, the `bf16` type and `native_gemm_f16`; from 8.9 (Ada, Hopper, Blackwell) `matrix_fp8`, `fp8` and
+  `matrix_mma_layout`, the `bf16` type, `native_gemm_f16` and `native_gemm_kquant`; from 8.9 (Ada, Hopper, Blackwell) `matrix_fp8`, `fp8` and
   `native_gemm_fp8` ([kernels written in CUDA C++](#kernels-written-in-cuda-c)); `library_gemm` when cuBLASLt is installed
   ([library GEMM](#library-gemm-cublaslt)); `launch_graphs` (not a code-generation feature, like `kernel_binaries`). The CUDA provider then selects the same tensor-core kernels as the Vulkan
   provider on the same GPU, except the `matrix_workgroup` ones (`VK_NV_cooperative_matrix2` has no CUDA counterpart in
@@ -234,6 +234,15 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   in the model (phase 3: 187-227). The generated kernels that read FP8 weights (decode matvecs, skinny and fp8 GEMMs) decode the
   grouped layout too (`FP8_GROUPED`, `F8_GROUPED`), so the layout costs decode nothing measurable; on Vulkan it is off
   (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)).
+
+- **`gemm_kq_native.cu`** (`native_gemm_kquant`, compute capability 8.0+): K-quant (Q4_K, Q5_K, Q6_K, the GGUF block layout) projections
+  at decode batches of 9-64 rows (single matmuls from the first batch past the matvec, `SHARPLIGHT_NATIVE_KQ_MIN_ROWS`; the dual gate / up
+  form keeps the skinny GEMM up to 16 rows), and the q / k / v multi-output form. 16-, 32- or 64-row token tiles by batch
+  (`SHARPLIGHT_NATIVE_KQ_BM`) x 64 weight rows, eight warps of 8 weight rows each; a 2-4 stage `cp.async` ring of 256-value superblocks
+  holds the swizzled f16 activation rows and the raw blocks (16-byte windows, so Q6_K's 210-byte blocks may start at any even byte);
+  each thread decodes its `mma.sync.m16n8k16` B fragments from the raw codes in registers. K split only for small grids or a nearly
+  empty last wave (`SHARPLIGHT_NATIVE_KQ_SPLIT`), reduced in the last block per tile. 1.6-2.1x gemm_cm2 per kernel at 32 rows, Qwen3-8B
+  Q4_K_M decode steps 1.29-1.69x at 16-64 sequences ([benchmarks.md §77](benchmarks.md)).
 
 - **`gemm_moe_native.cu`** (`native_gemm_moe`, compute capability 8.0+): the expert-grouped product of a MatMulId with MXFP4 experts
   (the 16-row groups of `WeightRepack.Mxfp4Split`) from 1 routed row per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;

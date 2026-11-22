@@ -163,7 +163,7 @@ public sealed partial class GraphLowerer
 
         string source = DualEpilogueSource(a, bNode, group, output, "matmul.slang");
         long dualSkinnyMin = UseIntDotMatvec(a, weightA.Type, K) ? IntDotSkinnyMinRows(weightA.Type, K, N) : SkinnyMinRows;
-        if (DiagnosticSwitches.SkinnyGemm && CoopUsable(a, weightA.Type, K) && SkinnyMaxRowsFor(N, weightA.Type) >= dualSkinnyMin)
+        if (DiagnosticSwitches.SkinnyGemm && CoopUsable(a, weightA.Type, K) && DualSkinnyMaxRowsFor(N, weightA.Type) >= dualSkinnyMin)
         {
             // Up to 16 rows (above the int-dot range for formats with one): both matrices on the skinny GEMM with the group as
             // its epilogue.
@@ -172,8 +172,8 @@ public sealed partial class GraphLowerer
                 [weightA, weightB], y, N, K, macros,
                 skinnyMacros => _compiler.Compile("matmul_dual.slang", source, "gemm_sk", _opt.Target,
                     new Dictionary<string, string>(skinnyMacros) { ["KERNEL_GEMM_SK"] = "1" }, _opt.Cache));
-            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(rows(b), N, weightA.Type, dualSkinnyMin);
-            fusedMaxRows = Math.Max(fusedMaxRows, SkinnyMaxRowsFor(N, weightA.Type));
+            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !(rows(b) >= dualSkinnyMin && rows(b) <= DualSkinnyMaxRowsFor(N, weightA.Type));
+            fusedMaxRows = Math.Max(fusedMaxRows, DualSkinnyMaxRowsFor(N, weightA.Type));
         }
 
         Emit($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],

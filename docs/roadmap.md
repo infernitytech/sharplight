@@ -138,6 +138,11 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   tiles, warp pairs splitting the head dimensions above 256), `fe` up to 512 on Vulkan (subgroup pairs), sliding windows in the causal
   `fe`, the split-K decode attention fits 512-wide heads in Vulkan's 48 KiB (two key rows per batch there at 256+), and captured CUDA
   step graphs run independent launches as parallel branches (Qwen3-8B 64-sequence step -6.7 %). Next: §74.6.
+- **Feed round 2 (§77)**: window-sized KV caches for single-sequence sessions (the one-slot paged form with a ring for sliding-window
+  layers): Gemma 4 31B Q4_K_M at 32K takes 21.1 instead of 44.8 GiB on the session path (prefill 1.04x / 1.21x of llama.cpp on CUDA /
+  Vulkan) and 128K fits a 32 GB card (28.2 GiB f16, 23.2 GiB q8_0). A hand-written K-quant decode GEMM on CUDA (`native_gemm_kquant`,
+  raw Q4_K / Q5_K / Q6_K blocks dequantized into MMA fragments in registers): Qwen3-8B batched decode 1.27 / 1.33 / 1.35x of llama.cpp
+  CUDA at 16 / 32 / 64 sequences (from 0.99x), Qwen3.8 27B 1.78x at 64. Next: §77.5.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

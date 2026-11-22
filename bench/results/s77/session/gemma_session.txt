@@ -1,0 +1,34 @@
+== gemma cuda disabled: 
+Compiled 'decode', window-sized caches of 3088 rows for the 1024-key window layers in 12608 ms
+prefill 512 tok: best 341 ms = 1500.0 tok/s | decode: best 37.25, median 36.86, mean 36.70 tok/s | GPU ms/step: best 26.68, median 26.97, wall best 26.84 | prefill median of 5: 343.2 ms = 1491.9 tok/s
+<channel|>
+-----------------------
+Elias lived his life by the rhythm of the rotating lens and the relentless pulse of the Atlantic. For twenty years, he had been the keeper of the Grey Rock Light, a solitary spire of granite perched on a jagged tooth of coastline. His only companions were the screaming gulls and the ghosts of ships that had long
+== gemma cuda disabled: window_kv
+prefill 512 tok: best 341 ms = 1502.5 tok/s | decode: best 37.96, median 37.60, mean 37.45 tok/s | GPU ms/step: best 26.13, median 26.43, wall best 26.34 | prefill median of 5: 342.8 ms = 1493.5 tok/s
+<channel|>
+-----------------------
+Elias lived his life by the rhythm of the rotating lens and the relentless pulse of the Atlantic. For twenty years, he had been the keeper of the Grey Rock Light, a solitary spire of granite perched on a jagged tooth of coastline. His only companions were the screaming gulls and the ghosts of ships that had long
+== gemma cuda disabled: native_gemm_kquant
+Compiled 'decode', window-sized caches of 3088 rows for the 1024-key window layers in 6523 ms
+prefill 512 tok: best 342 ms = 1497.0 tok/s | decode: best 37.16, median 36.82, mean 36.65 tok/s | GPU ms/step: best 26.68, median 26.98, wall best 26.91 | prefill median of 5: 344.1 ms = 1487.9 tok/s
+<channel|>
+-----------------------
+Elias lived his life by the rhythm of the rotating lens and the relentless pulse of the Atlantic. For twenty years, he had been the keeper of the Grey Rock Light, a solitary spire of granite perched on a jagged tooth of coastline. His only companions were the screaming gulls and the ghosts of ships that had long
+== gemma vulkan disabled: 
+Compiled 'decode', window-sized caches of 3088 rows for the 1024-key window layers in 5540 ms
+prefill 512 tok: best 350 ms = 1464.8 tok/s | decode: best 38.43, median 37.75, mean 37.77 tok/s | GPU ms/step: best 25.81, median 26.23, wall best 26.02 | prefill median of 5: 356.1 ms = 1438.0 tok/s
+<channel|>
+-----------------------
+Elias lived his life by the rhythm of the rotating lens and the relentless pulse of the Atlantic. For twenty years, he had been the keeper of the Grey Rock Light, a solitary spire of granite perched on a jagged tooth of coastline. His only companions were the screaming gulls and the ghosts of ships that had long
+== gemma vulkan disabled: window_kv
+prefill 512 tok: best 348 ms = 1471.8 tok/s | decode: best 38.43, median 37.83, mean 37.83 tok/s | GPU ms/step: best 25.79, median 26.21, wall best 26.02 | prefill median of 5: 354.1 ms = 1445.7 tok/s
+<channel|>
+-----------------------
+Elias lived his life by the rhythm of the rotating lens and the relentless pulse of the Atlantic. For twenty years, he had been the keeper of the Grey Rock Light, a solitary spire of granite perched on a jagged tooth of coastline. His only companions were the screaming gulls and the ghosts of ships that had long
+== gemma vulkan disabled: native_gemm_kquant
+Compiled 'decode', window-sized caches of 3088 rows for the 1024-key window layers in 3150 ms
+prefill 512 tok: best 350 ms = 1462.6 tok/s | decode: best 38.45, median 37.79, mean 37.81 tok/s | GPU ms/step: best 25.79, median 26.22, wall best 26.01 | prefill median of 5: 356.4 ms = 1436.6 tok/s
+<channel|>
+-----------------------
+Elias lived his life by the rhythm of the rotating lens and the relentless pulse of the Atlantic. For twenty years, he had been the keeper of the Grey Rock Light, a solitary spire of granite perched on a jagged tooth of coastline. His only companions were the screaming gulls and the ghosts of ships that had long
