@@ -21,6 +21,8 @@ public sealed class PagedAttentionTests
     [InlineData("f16", 64, 64, 8, 2)]
     [InlineData("f16", 64, 64, 16, 2)]   // 8 heads per KV head: the tensor-core decode kernel on CUDA
     [InlineData("f16", 128, 128, 16, 4)]
+    [InlineData("f16", 256, 256, 24, 4)]   // head sizes 256 / 512: the wide form of the tensor-core decode kernel on CUDA
+    [InlineData("f16", 512, 512, 32, 4)]
     [InlineData("q8_0", 64, 64, 8, 2)]
     [InlineData("f32", 64, 64, 4, 4)]
     [InlineData("f16", 576, 512, 16, 1)]   // latent attention (fa_mqa)

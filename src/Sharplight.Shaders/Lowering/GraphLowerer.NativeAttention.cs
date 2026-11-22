@@ -113,29 +113,65 @@ public sealed partial class GraphLowerer
     private const int NativeDecodeWarps = 4;
 
     /// <summary>
+    /// Waves of blocks per SM the split count of the wide form of <c>attn_decode_native.cu</c> (head sizes 256 and 512) aims for: its
+    /// ring takes most of an SM's shared memory, so one block runs per SM and the split count is chosen so that the blocks of a launch
+    /// fill whole waves (a 3.1-wave grid of 256 blocks would leave most SMs idle in its last wave).
+    /// </summary>
+    private const int NativeWideDecodeWaves = 2;
+
+    /// <summary>
     /// True when the split-K decode attention of <paramref name="plan"/> runs on the hand-written tensor-core kernel
     /// (<see cref="DeviceFeatures.NativeAttention"/>, <c>attn_decode_native.cu</c>) in place of <c>decode</c>: f16 caches, equal key and
-    /// value head sizes of 64 or 128, at most 8 heads per block, the forms <see cref="NativeFlashAttention"/> serves (no score biases,
-    /// spans, masks, selections, compressed entries or relative biases). The caller keeps <c>decode</c> where it merges its partials
-    /// itself (the fused combine of narrow groups). <c>SHARPLIGHT_NATIVE_DECODE=0</c> keeps <c>decode</c> everywhere.
+    /// value head sizes of 64, 128, 256 or 512 (the wide form above 128 when its ring fits the shared memory), at most 8 heads per block,
+    /// the forms <see cref="NativeFlashAttention"/> serves (no score biases, spans, masks, selections, compressed entries or relative
+    /// biases). The caller keeps <c>decode</c> where it merges its partials itself (the fused combine of narrow groups).
+    /// <c>SHARPLIGHT_NATIVE_DECODE=0</c> keeps <c>decode</c> everywhere, <c>SHARPLIGHT_NATIVE_DECODE_WIDE=0</c> for head sizes above 128.
     /// </summary>
     private bool NativeDecodeAttention(AttentionPlan plan, DecodeAttentionPlan decode)
+        => NativeDecodeForm(plan) && long.Parse(decode.Macros["HPW"], CultureInfo.InvariantCulture) <= 8;
+
+    /// <summary>The conditions of <see cref="NativeDecodeAttention"/> that do not depend on the split plan.</summary>
+    private bool NativeDecodeForm(AttentionPlan plan)
     {
         var a = plan.Node.Attributes;
-        bool shapes = plan.K.Type == DataType.F16 && plan.V.Type == DataType.F16 && plan.D == plan.DV && (plan.D == 64 || plan.D == 128)
+        bool wide = plan.D is 256 or 512;
+        bool shapes = plan.K.Type == DataType.F16 && plan.V.Type == DataType.F16 && plan.D == plan.DV && (plan.D is 64 or 128 || wide)
                       && plan.V.Shape[2] % 8 == 0 && plan.Q.Strides[0] % 2 == 0 && plan.Q.Strides[1] % 2 == 0 && plan.Q.ByteOffset % 8 == 0
-                      && long.Parse(decode.Macros["HPW"], CultureInfo.InvariantCulture) <= 8;
+                      && (!wide || (DiagnosticSwitches.NativeWideDecodeAttention && NativeWideDecodeStages() >= 2));
         bool form = !plan.Full && !plan.Cross && plan.Spans is null && plan.Mask is null && plan.Selection is null && plan.Compressed is null
                     && plan.RelativeBias is null && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
         return DiagnosticSwitches.NativeDecodeAttention && DiagnosticSwitches.NativeAttention > 0 && _opt.Has(DeviceFeatures.NativeAttention)
                && _compiler.CompilesCuda(_opt.Target) && shapes && form;
     }
 
+    /// <summary>True when <paramref name="plan"/>'s decode rows run the wide form of <c>attn_decode_native.cu</c> (head sizes 256 and 512).</summary>
+    private bool NativeWideDecodeAttention(AttentionPlan plan) => plan.D > 128 && NativeDecodeForm(plan);
+
+    /// <summary>
+    /// Ring stages of the wide form of <c>attn_decode_native.cu</c> (<c>NWD_ST</c>): three (two tiles in flight while one is computed,
+    /// 97 KiB) where the device's shared memory takes them, else two (65 KiB), else 0 (the form does not fit; <c>decode</c> serves).
+    /// </summary>
+    private int NativeWideDecodeStages()
+    {
+        for (int stages = 3; stages >= 2; stages--)
+        {
+            if (NativeWideDecodeSharedBytes(stages) <= _opt.MaxSharedMemory)
+            {
+                return stages;
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>Dynamic shared memory of the wide form with <paramref name="stages"/> stages: 32 KiB of keys and values per stage, the scores.</summary>
+    private static int NativeWideDecodeSharedBytes(int stages) => stages * 32768 + NativeDecodeWarps * 32 * 8;
+
     /// <summary>
     /// <c>attn_decode_native.cu</c> for the macros <paramref name="decodeMacros"/> of <c>decode</c> (the plan's and the split rule's); it
     /// takes the launch grid and the argument block of <c>decode</c>.
     /// </summary>
-    private CompiledKernel NativeDecodeKernel(Dictionary<string, string> decodeMacros)
+    private CompiledKernel NativeDecodeKernel(AttentionPlan plan, Dictionary<string, string> decodeMacros)
     {
         var macros = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var name in (string[])["HQ", "HKV", "D", "VRS", "QS0", "QS1", "SCALE", "WINDOW", "CHUNK", "HAS_SOFTCAP", "SOFTCAP", "HAS_SINKS",
@@ -154,6 +190,14 @@ public sealed partial class GraphLowerer
             macros["ND_PF"] = prefetch.ToString(CultureInfo.InvariantCulture);
         }
 
-        return _compiler.CompileCuda("attn_decode_native.cu", "", "attn_decode_native", NativeDecodeWarps * 32, 0, _opt.Target, macros, _opt.Cache);
+        int shared = 0;
+        if (plan.D > 128)
+        {
+            int stages = NativeWideDecodeStages();
+            macros["NWD_ST"] = stages.ToString(CultureInfo.InvariantCulture);
+            shared = NativeWideDecodeSharedBytes(stages);
+        }
+
+        return _compiler.CompileCuda("attn_decode_native.cu", "", "attn_decode_native", NativeDecodeWarps * 32, shared, _opt.Target, macros, _opt.Cache);
     }
 }

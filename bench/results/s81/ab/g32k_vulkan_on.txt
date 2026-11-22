@@ -1,0 +1,35 @@
+decoder: MultiSequenceDecoder, slots 2, vocab 262144, device sampling: True, KV paged 2112 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 95.3 | 1076 / 845 | 29.31 / 29.52, 29.15 |
+--- profile batch 1 (greedy)
+GPU time 613.45 ms
+   187.103 ms  30.5%   1200x  min    153.6 us  matmul2 [5376→21504]x2 q4_k fused[GeluTanh,Mul] int-dot mmvq T=1,1,1
+    93.093 ms  15.2%   1200x  min     26.5 us  attention fa_mqa T=1,1,1
+    74.774 ms  12.2%    600x  min    121.9 us  matmul [21504→5376] q6_k int-dot mmvq T=1,1,1
+    49.241 ms   8.0%    600x  min     80.9 us  matmul [21504→5376] q4_k int-dot mmvq T=1,1,1
+    34.502 ms   5.6%   1000x  min     32.6 us  matmul [5376→8192] q4_k int-dot mmvq T=1,1,1
+    32.849 ms   5.4%   1000x  min     31.7 us  matmul [8192→5376] q4_k int-dot mmvq T=1,1,1
+    29.782 ms   4.9%   1500x  min     18.8 us  matmul [5376→4096] q4_k int-dot mmvq T=1,1,1
+    18.418 ms   3.0%     20x  min    920.5 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] int-dot mmvq T=1,1,1
+    13.528 ms   2.2%    500x  min     25.7 us  matmul [5376→4096] q6_k int-dot mmvq T=1,1,1
+    13.314 ms   2.2%   3600x  min      3.1 us  RmsNorm main T=1,1,1
+    12.667 ms   2.1%    200x  min     61.4 us  matmul [16384→5376] q4_k int-dot mmvq T=1,1,1
+    12.475 ms   2.0%    200x  min     61.3 us  matmul [5376→16384] q4_k int-dot mmvq T=1,1,1
+     6.571 ms   1.1%   1200x  min      4.1 us  fused[Add,Mul]+RmsNorm main T=1,1,1
+     6.132 ms   1.0%   1200x  min      3.1 us  attention combine decode_combine T=1,1,1
+     5.327 ms   0.9%   1200x  min      4.0 us  rope+norm+cache_write rope_row T=1,1,1
+     5.127 ms   0.8%   1200x  min      4.1 us  fused[Add]+RmsNorm main T=1,1,1
+     4.591 ms   0.7%   1200x  min      2.8 us  rope+norm rope_row T=1,1,1
+     4.496 ms   0.7%   1200x  min      2.0 us  cache_write cache_write T=1,1,1
+     2.408 ms   0.4%    200x  min     11.8 us  matmul [5376→2048] q4_k int-dot mmvq T=1,1,1
+     1.954 ms   0.3%    600x  min      1.9 us  matmul [21504→5376] q6_k x→q8 quantize_q8_1 T=1,1,1
+     1.919 ms   0.3%   1000x  min      1.9 us  matmul [8192→5376] q4_k x→q8 quantize_q8_1 T=1,1,1
+     1.913 ms   0.3%    600x  min      1.9 us  matmul [21504→5376] q4_k x→q8 quantize_q8_1 T=1,1,1
+     0.601 ms   0.1%     20x  min     30.0 us  sample sample T=1,1,1
+     0.384 ms   0.1%    200x  min      1.9 us  matmul [16384→5376] q4_k x→q8 quantize_q8_1 T=1,1,1
+     0.159 ms   0.0%     40x  min      2.3 us  gather gather T=1,1,1
+     0.082 ms   0.0%     20x  min      4.1 us  fused[Scale]+RmsNorm main T=1,1,1
+     0.041 ms   0.0%     20x  min      2.0 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] x→q8 quantize_q8_1 T=1,1,1
+

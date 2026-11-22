@@ -2265,9 +2265,22 @@ void fes(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p
 // Per FM_BC-key tile: cache rows (fetched into registers during the previous tile) into shared memory (f16), S = Q·Kᵀ split along D over the subgroups (the query fragments
 // stay in registers), online softmax in scalar code, then O += P·V with the output tiles in cooperative-matrix
 // accumulators, rescaled per row by an element-wise product with a matrix of the row corrections.
+// FM_SEPV: separate key and value caches of one head size (D == DV, f16 / f32 caches: Gemma 4's and Qwen3.5's head sizes 256 /
+// 512 on targets without the hand-written CUDA kernel): the decode rows' key and value tiles are fetched and staged side by side
+// (fmV), FM_BC keys per tile (16 or 32, so both tiles fit the shared memory).
 using namespace linalg;
 #define FM_BR 16
+#ifndef FM_BC
 #define FM_BC 32
+#endif
+#ifndef FM_SEPV
+#define FM_SEPV 0
+#endif
+#define FM_NH (FM_BC / 16)                          // 16-key halves of a tile
+#define FM_CPL (FM_BC / 8)                          // key columns per lane in the softmax (8 lanes per row)
+#if (FM_BC != 16 && FM_BC != 32) || (FM_SEPV && (DV != D || KV_QUANT))
+#error "fa_mqa: unsupported tile"
+#endif
 #define FM_T 128
 #define FM_NSG (FM_T / 32)
 #define FM_G (HQ / HKV)
@@ -2292,6 +2305,9 @@ typealias FmC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.Ma
 #endif
 
 groupshared uint4 fmKV[FM_BC * FM_KS / 8];   // key/value tile as packed f16 x 8; holds the query tile before the key loop
+#if FM_SEPV
+groupshared uint4 fmV[FM_BC * FM_KS / 8];    // value tile (FM_SEPV)
+#endif
 groupshared float fmS[FM_NSG * FM_SS];   // per-subgroup partial scores, then per-subgroup staging of output tiles
 groupshared half fmP[FM_BR * FM_PS];
 groupshared float fmCorr[FM_BR];
@@ -2322,7 +2338,7 @@ struct FmTile
 #endif
 
 // Issues the loads of cache rows j0 .. j0 + FM_BC (all D columns, zero-padded to FM_DP; rows >= jEnd are zero).
-void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
+void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid, uint rowElems = D)
 {
 #if KV_QUANT
     buf.mis = 0;
@@ -2357,13 +2373,13 @@ void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd
         uint r = i / FM_CPR, c = (i % FM_CPR) * 8;
         uint j = j0 + r;
         bool valid = i < FM_BC * FM_CPR && j < jEnd && c < D;
-        buf.c[k] = valid ? load_kv8(cache, (kv_row(kvRow, j) + hk) * D + c) : zero_kv8();
+        buf.c[k] = valid ? load_kv8(cache, (kv_row(kvRow, j) + hk) * rowElems + c) : zero_kv8();
     }
 #endif
 }
 
-// Stores fetched rows into fmKV as f16 (one 16-byte store per 8 values).
-void fm_store(FmTile buf, uint tid)
+// Stores fetched rows into fmKV (FM_SEPV values: fmV) as f16 (one 16-byte store per 8 values).
+void fm_store(FmTile buf, uint tid, bool values = false)
 {
 #if KV_QUANT
     [ForceUnroll]
@@ -2410,6 +2426,13 @@ void fm_store(FmTile buf, uint tid)
         uint i = tid + k * FM_T;
         if (i < FM_BC * FM_CPR)
         {
+#if FM_SEPV
+            if (values)
+            {
+                fmV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = kv8_to_half(buf.c[k]);
+                continue;
+            }
+#endif
             fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = kv8_to_half(buf.c[k]);
         }
     }
@@ -2427,6 +2450,12 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     uint g0 = gid.x % FM_TILES * FM_BR;   // first head of the tile within the group
     uint t = gid.y + p.row0;
     uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
+#if MULTI_SEQ && MIX_RUN > 0
+    if (p.seq[t * 4 + 2] >= MIX_RUN)
+    {
+        return;   // rows of long runs: the flash kernel of the mixed step
+    }
+#endif
 
     uint jLo, L;
     uint64_t kvRow;
@@ -2451,6 +2480,10 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     // All loads are issued before the first store (one memory round trip).
     FmTile next;
     fm_fetch(next, p.kc, kvRow, jBeg, jEnd, hk, tid);
+#if FM_SEPV
+    FmTile nextV;
+    fm_fetch(nextV, p.vc, kvRow, jBeg, jEnd, hk, tid, VRS);
+#endif
     float qv[FM_QPT][8];
     [ForceUnroll]
     for (uint k = 0; k < FM_QPT; k++)
@@ -2481,7 +2514,7 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = FmC(0.0);
     GroupMemoryBarrierWithGroupSync();
 
-    // Softmax layout: 8 adjacent lanes per row, 4 key columns each.
+    // Softmax layout: 8 adjacent lanes per row, FM_CPL key columns each.
     uint row = tid / 8, sub = tid % 8;
     bool rowValid = g0 + row < FM_G;
     float m = -1e30, l = 0;
@@ -2489,38 +2522,46 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     for (uint j0 = jBeg; j0 < jEnd; j0 += FM_BC)
     {
         fm_store(next, tid);
+#if FM_SEPV
+        fm_store(nextV, tid, true);
+#endif
         GroupMemoryBarrierWithGroupSync();
         if (j0 + FM_BC < jEnd)
         {
             fm_fetch(next, p.kc, kvRow, j0 + FM_BC, jEnd, hk, tid);   // in flight during this tile's products
+#if FM_SEPV
+            fm_fetch(nextV, p.vc, kvRow, j0 + FM_BC, jEnd, hk, tid, VRS);
+#endif
         }
 
-        // Partial scores of this subgroup's D chunks for both 16-key halves.
+        // Partial scores of this subgroup's D chunks for the 16-key halves.
         {
-            FmC s0 = FmC(0.0), s1 = FmC(0.0);
+            FmC sh[FM_NH];
+            [ForceUnroll] for (uint h = 0; h < FM_NH; h++) sh[h] = FmC(0.0);
             [ForceUnroll]
             for (uint c = 0; c < FM_KPS; c++)
             {
                 uint k = sg * FM_KPS + c;
                 if (k < FM_KCH)
                 {
-                    FmB b0 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, k * 2, FM_KS / 8);
-                    FmB b1 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, 2 * FM_KS + k * 2, FM_KS / 8);
-                    s0 = coopMatMulAdd<float, false>(qa[c], b0, s0);
-                    s1 = coopMatMulAdd<float, false>(qa[c], b1, s1);
+                    [ForceUnroll]
+                    for (uint h = 0; h < FM_NH; h++)
+                    {
+                        FmB b = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, h * 2 * FM_KS + k * 2, FM_KS / 8);
+                        sh[h] = coopMatMulAdd<float, false>(qa[c], b, sh[h]);
+                    }
                 }
             }
-            s0.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS, FM_BC);
-            s1.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS + 16, FM_BC);
+            [ForceUnroll] for (uint h = 0; h < FM_NH; h++) sh[h].Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS + h * 16, FM_BC);
         }
         GroupMemoryBarrierWithGroupSync();
 
-        float sv[4];
+        float sv[FM_CPL];
         float mx = -1e30;
         [ForceUnroll]
-        for (uint e = 0; e < 4; e++)
+        for (uint e = 0; e < FM_CPL; e++)
         {
-            uint c = sub * 4 + e;
+            uint c = sub * FM_CPL + e;
             float sc = 0;
             [ForceUnroll] for (uint w = 0; w < FM_NSG; w++) sc += fmS[w * FM_SS + row * FM_BC + c];
 #if HAS_SOFTCAP
@@ -2537,11 +2578,11 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         m = mNew;
         float ps = 0;
         [ForceUnroll]
-        for (uint e = 0; e < 4; e++)
+        for (uint e = 0; e < FM_CPL; e++)
         {
             float pe = sv[e] > -1e29 ? exp(sv[e] - m) : 0.0;
             ps += pe;
-            fmP[row * FM_PS + sub * 4 + e] = half(pe);
+            fmP[row * FM_PS + sub * FM_CPL + e] = half(pe);
         }
         ps += WaveReadLaneAt(ps, lane ^ 1);
         ps += WaveReadLaneAt(ps, lane ^ 2);
@@ -2556,18 +2597,24 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         FmC cm = FmC.Load<CoopMatMatrixLayout.RowMajor>(fmCorrM, 0, 16);
         [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = o[i] * cm;
 
-        FmA p0 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 0, FM_PS);
-        FmA p1 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 16, FM_PS);
+        FmA ph[FM_NH];
+        [ForceUnroll] for (uint h = 0; h < FM_NH; h++) ph[h] = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, h * 16, FM_PS);
         [ForceUnroll]
         for (uint i = 0; i < FM_OPS; i++)
         {
             uint ot = sg * FM_OPS + i;
             if (ot < FM_OT)
             {
-                FmB v0 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, ot * 2, FM_KS / 8);
-                FmB v1 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, 2 * FM_KS + ot * 2, FM_KS / 8);
-                o[i] = coopMatMulAdd<float, false>(p0, v0, o[i]);
-                o[i] = coopMatMulAdd<float, false>(p1, v1, o[i]);
+                [ForceUnroll]
+                for (uint h = 0; h < FM_NH; h++)
+                {
+#if FM_SEPV
+                    FmB v = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmV, h * 2 * FM_KS + ot * 2, FM_KS / 8);
+#else
+                    FmB v = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, h * 2 * FM_KS + ot * 2, FM_KS / 8);
+#endif
+                    o[i] = coopMatMulAdd<float, false>(ph[h], v, o[i]);
+                }
             }
         }
         GroupMemoryBarrierWithGroupSync();   // tile, P and staging free for the next keys

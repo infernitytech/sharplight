@@ -1,0 +1,70 @@
+Graph optimization (sharplight-ir/1): decode 1678 -> 1668 nodes, decode_embeddings 1676 -> 1666 nodes, embed 1555 -> 1545 nodes, classify 1558 -> 1548 nodes [138 ms]
+Loaded Gemma-4-31B-It (decoder): 833 tensors, 18.31 GB, vocab 262144 [1170 ms]
+Rows per forward pass: 768 (automatic, 30826 MiB available).
+Compiling 283 / 283, 276 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 18.31 / 18.31 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 3674 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 62 groups, 17.70 GiB weights+state
+1 segment(s): [0@0: 1669 nodes]
+Ready (decode)
+segment 0: 956 launches per step (cuda, one stream)
+--- prefill T=512 profile, segment 0
+GPU time 341.83 ms
+   130.258 ms  38.1%     60x  min   2104.4 us  matmul2 [5376→21504]x2 q4_k fused[GeluTanh,Mul] gemm2 gemm_cm2 T=512,R=1|1,2,3
+    53.716 ms  15.7%     30x  min   1721.3 us  matmul [21504→5376] q6_k gemm_cm2 T=512,R=1|1,2,3
+    50.925 ms  14.9%     30x  min   1658.1 us  matmul [21504→5376] q4_k gemm_cm2 T=512,R=1|1,2,3
+    27.676 ms   8.1%     50x  min    538.4 us  matmul [8192→5376] q4_k gemm_cm2 T=512,R=1|1,2,3
+    20.912 ms   6.1%     50x  min    408.5 us  matmul [5376→8192] q4_k gemm_cm2 T=512,R=1|1,2,3
+    16.040 ms   4.7%     75x  min    205.4 us  matmul [5376→4096] q4_k gemm_cm2 T=512,R=1|1,2,3
+    11.457 ms   3.4%     10x  min   1124.0 us  matmul [16384→5376] q4_k gemm_cm2 T=512,R=1|1,2,3
+     8.638 ms   2.5%     10x  min    849.0 us  matmul [5376→16384] q4_k gemm_cm2 T=512,R=1|1,2,3
+     5.766 ms   1.7%     25x  min    223.7 us  matmul [5376→4096] q6_k gemm_cm2 T=512,R=1|1,2,3
+     3.942 ms   1.2%     60x  min     51.7 us  attention attn_prefill_native T=512,R=1|1,2,3
+     3.693 ms   1.1%     60x  min     52.1 us  rope+qkv+cache_write rope_qkv T=512,R=1|1,2,3
+     2.027 ms   0.6%    180x  min      9.2 us  RmsNorm main T=512,R=1|1,2,3
+     1.404 ms   0.4%     60x  min     21.2 us  fused[Add]+RmsNorm main T=512,R=1|1,2,3
+     1.377 ms   0.4%     60x  min     21.5 us  fused[Add,Mul]+RmsNorm main T=512,R=1|1,2,3
+     1.020 ms   0.3%     10x  min    100.3 us  matmul [5376→2048] q4_k split-k gemm_cm2 T=512,R=1|1,2,3
+     1.005 ms   0.3%      1x  min   1004.6 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] int-dot mmvq T=512,R=1|1,2,3
+     0.554 ms   0.2%     50x  min      9.6 us  matmul [8192→5376] q4_k x→ranged f16 to_f16_ranged T=512,R=1|1,2,3
+     0.278 ms   0.1%     50x  min      4.4 us  matmul [8192→5376] q4_k f16 range f16_range_unscale T=512,R=1|1,2,3
+     0.276 ms   0.1%     60x  min      3.6 us  matmul2 [5376→21504]x2 q4_k fused[GeluTanh,Mul] f16 range f16_range_fixup T=512,R=1|1,2,3
+     0.270 ms   0.1%     10x  min     25.2 us  matmul [16384→5376] q4_k x→ranged f16 to_f16_ranged T=512,R=1|1,2,3
+     0.192 ms   0.1%     30x  min      4.7 us  matmul [21504→5376] q4_k f16 range f16_range_unscale T=512,R=1|1,2,3
+     0.185 ms   0.1%     30x  min      4.1 us  matmul [21504→5376] q6_k f16 range f16_range_unscale T=512,R=1|1,2,3
+     0.090 ms   0.0%     10x  min      8.7 us  matmul split-k reduce splitk_reduce T=512,R=1|1,2,3
+     0.060 ms   0.0%     10x  min      4.9 us  matmul [16384→5376] q4_k f16 range f16_range_unscale T=512,R=1|1,2,3
+     0.045 ms   0.0%      2x  min      5.2 us  gather gather T=512,R=1|1,2,3
+     0.017 ms   0.0%      1x  min     17.3 us  fused[Scale]+RmsNorm main T=512,R=1|1,2,3
+     0.006 ms   0.0%      1x  min      5.6 us  sample sample T=512,R=1|1,2,3
+     0.005 ms   0.0%      1x  min      4.6 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] x→q8 quantize_q8_1 T=512,R=1|1,2,3
+
+--- decode x64 profile, segment 0
+GPU time 1817.73 ms
+   645.031 ms  35.5%   3840x  min    165.6 us  matmul2 [5376→21504]x2 q4_k fused[GeluTanh,Mul] int-dot mmvq T=1,R=1
+   237.204 ms  13.0%   1920x  min    121.0 us  matmul [21504→5376] q6_k int-dot mmvq T=1,R=1
+   166.908 ms   9.2%   1920x  min     84.4 us  matmul [21504→5376] q4_k int-dot mmvq T=1,R=1
+   116.960 ms   6.4%   3200x  min     34.3 us  matmul [5376→8192] q4_k int-dot mmvq T=1,R=1
+   111.579 ms   6.1%   3200x  min     33.0 us  matmul [8192→5376] q4_k int-dot mmvq T=1,R=1
+   106.544 ms   5.9%   4800x  min     19.9 us  matmul [5376→4096] q4_k int-dot mmvq T=1,R=1
+    61.883 ms   3.4%     64x  min    964.7 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] int-dot mmvq T=1,R=1
+    58.446 ms   3.2%   3840x  min      9.0 us  attention attn_decode_native T=1,R=1
+    50.127 ms   2.8%  11520x  min      2.7 us  RmsNorm main T=1,R=1
+    44.241 ms   2.4%   1600x  min     25.4 us  matmul [5376→4096] q6_k int-dot mmvq T=1,R=1
+    42.582 ms   2.3%    640x  min     64.2 us  matmul [16384→5376] q4_k int-dot mmvq T=1,R=1
+    42.003 ms   2.3%    640x  min     64.2 us  matmul [5376→16384] q4_k int-dot mmvq T=1,R=1
+    29.880 ms   1.6%   3840x  min      3.5 us  fused[Add,Mul]+RmsNorm main T=1,R=1
+    29.497 ms   1.6%   3840x  min      5.5 us  fused[Add]+RmsNorm main T=1,R=1
+    21.645 ms   1.2%   3840x  min      3.4 us  rope+qkv+cache_write rope_qkv T=1,R=1
+    17.656 ms   1.0%   3840x  min      3.0 us  attention combine decode_combine T=1,R=1
+    10.132 ms   0.6%   3200x  min      1.9 us  matmul [8192→5376] q4_k x→q8 quantize_q8_1 T=1,R=1
+     8.101 ms   0.4%    640x  min     11.1 us  matmul [5376→2048] q4_k int-dot mmvq T=1,R=1
+     6.732 ms   0.4%   1920x  min      2.4 us  matmul [21504→5376] q6_k x→q8 quantize_q8_1 T=1,R=1
+     6.719 ms   0.4%   1920x  min      2.4 us  matmul [21504→5376] q4_k x→q8 quantize_q8_1 T=1,R=1
+     2.082 ms   0.1%    640x  min      1.9 us  matmul [16384→5376] q4_k x→q8 quantize_q8_1 T=1,R=1
+     0.746 ms   0.0%    128x  min      2.9 us  gather gather T=1,R=1
+     0.460 ms   0.0%     64x  min      6.0 us  fused[Scale]+RmsNorm main T=1,R=1
+     0.309 ms   0.0%     64x  min      3.6 us  matmul [5376→262144] q4_k fused[Scale,Tanh,Scale] x→q8 quantize_q8_1 T=1,R=1
+     0.268 ms   0.0%     64x  min      2.8 us  sample sample T=1,R=1
+
+prefill 512 tok: best 348 ms = 1472.5 tok/s | decode: best 30.41, median 29.83, mean 29.93 tok/s | GPU ms/step: best 28.15, median 28.48, wall best 32.88 | prefill median of 5: 353.8 ms = 1447.3 tok/s

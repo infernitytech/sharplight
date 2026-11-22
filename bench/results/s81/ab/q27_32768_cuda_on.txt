@@ -1,0 +1,36 @@
+decoder: MultiSequenceDecoder, slots 2, vocab 248320, device sampling: True, KV paged 2112 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 63.2 | 854 / 0 | 24.49 / 24.58, 24.42 |
+--- profile batch 1 (greedy)
+GPU time 543.46 ms
+   169.020 ms  31.1%   1280x  min    127.2 us  matmul2 [5120→17408]x2 q4_k fused[Silu,Mul] int-dot mmvq T=1,U=1,R=1|2,3
+    62.080 ms  11.4%    640x  min     94.0 us  matmul [17408→5120] q6_k int-dot mmvq T=1,U=1,R=1|2,3
+    54.352 ms  10.0%    320x  min    167.3 us  attention attn_decode_native T=1,U=1,R=1|2,3
+    42.899 ms   7.9%    640x  min     65.0 us  matmul [17408→5120] q4_k int-dot mmvq T=1,U=1,R=1|2,3
+    34.018 ms   6.3%   1280x  min     24.1 us  matmul [6144→5120] q4_k int-dot mmvq T=1,U=1,R=1|2,3
+    27.728 ms   5.1%    480x  min     55.7 us  matmul [5120→10240] q6_k int-dot mmvq T=1,U=1,R=1|2,3
+    26.022 ms   4.8%    960x  min     25.3 us  matmul [5120→6144] q4_k int-dot mmvq T=1,U=1,R=1|2,3
+    25.512 ms   4.7%     20x  min   1273.9 us  matmul [5120→248320] q6_k int-dot mmvq T=1,U=1,R=1|2,3
+    19.793 ms   3.6%    480x  min     39.7 us  matmul [5120→10240] q4_k int-dot mmvq T=1,U=1,R=1|2,3
+    17.453 ms   3.2%   2560x  min      3.5 us  fused[Add]+RmsNorm main T=1,U=1,R=1|2,3
+    15.495 ms   2.9%    320x  min     46.1 us  matmul [5120→12288] q4_k int-dot mmvq T=1,U=1,R=1|2,3
+     9.927 ms   1.8%    960x  min      7.8 us  delta_rule delta_rule T=1,U=1,R=1|2,3
+     5.679 ms   1.0%    960x  min      3.8 us  RmsNorm+fused[Silu,Mul] main T=1,U=1,R=1|2,3
+     5.283 ms   1.0%    960x  min      3.7 us  matmul [5120→48] q4_k fused[Add,Softplus,Mul] int-dot mmvq T=1,U=1,R=1|2,3
+     5.101 ms   0.9%    960x  min      3.5 us  matmul [5120→48] q4_k fused[Sigmoid] int-dot mmvq T=1,U=1,R=1|2,3
+     4.448 ms   0.8%    960x  min      2.8 us  conv1d conv1d T=1,U=1,R=1|2,3
+     4.146 ms   0.8%    480x  min      6.9 us  matmul [5120→1024] q4_k int-dot mmvq T=1,U=1,R=1|2,3
+     2.564 ms   0.5%    640x  min      2.2 us  matmul [17408→5120] q4_k x→q8 quantize_q8_1 T=1,U=1,R=1|2,3
+     2.543 ms   0.5%    640x  min      2.2 us  matmul [17408→5120] q6_k x→q8 quantize_q8_1 T=1,U=1,R=1|2,3
+     2.009 ms   0.4%    320x  min      4.7 us  attention combine decode_combine T=1,U=1,R=1|2,3
+     1.872 ms   0.3%    320x  min      3.8 us  rope+qkv+cache_write rope_qkv T=1,U=1,R=1|2,3
+     1.660 ms   0.3%    160x  min      8.5 us  matmul [5120→1024] q6_k int-dot mmvq T=1,U=1,R=1|2,3
+     1.268 ms   0.2%    320x  min      2.5 us  fused[Sigmoid,Mul] main T=1,U=1,R=1|2,3
+     1.216 ms   0.2%    320x  min      2.4 us  matmul [6144→5120] q4_k x→q8 quantize_q8_1 T=1,U=1,R=1|2,3
+     0.868 ms   0.2%     20x  min     40.9 us  sample sample T=1,U=1,R=1|2,3
+     0.247 ms   0.0%     40x  min      2.9 us  gather gather T=1,U=1,R=1|2,3
+     0.161 ms   0.0%     20x  min      6.4 us  RmsNorm main T=1,U=1,R=1|2,3
+     0.097 ms   0.0%     20x  min      3.0 us  matmul [5120→248320] q6_k x→q8 quantize_q8_1 T=1,U=1,R=1|2,3
+

@@ -1,0 +1,34 @@
+[hold 05:36:42] bash -c for b in g_wg82 g512 g_wg246 g_wg328 g_wg512 g_st2 g_rand g_32k g_32k_512 q256 q_wg512 q_32k q_b16 gw_1k; do echo "== $b"; ./$b; done
+== g_wg82
+T=1 L=131072 splits<=20 grid 4x1x20: min 1.3048 ms (823 GB/s), median 1.3114 ms
+== g512
+T=1 L=131072 splits<=41 grid 4x1x41: min 1.3046 ms (823 GB/s), median 1.3078 ms
+max error against the f32 reference: 2.18e-06
+== g_wg246
+T=1 L=131072 splits<=61 grid 4x1x61: min 1.3068 ms (822 GB/s), median 1.3100 ms
+== g_wg328
+T=1 L=131072 splits<=64 grid 4x1x64: min 1.3374 ms (803 GB/s), median 1.3402 ms
+== g_wg512
+T=1 L=131072 splits<=64 grid 4x1x64: min 1.3375 ms (803 GB/s), median 1.3405 ms
+== g_st2
+T=1 L=131072 splits<=41 grid 4x1x41: min 1.3057 ms (822 GB/s), median 1.3081 ms
+== g_rand
+T=1 L=131072 splits<=41 grid 4x1x41: min 1.3074 ms (821 GB/s), median 1.3095 ms
+== g_32k
+T=1 L=32768 splits<=41 grid 4x1x41: min 0.3339 ms (804 GB/s), median 0.3357 ms
+== g_32k_512
+T=1 L=32768 splits<=64 grid 4x1x64: min 0.3432 ms (782 GB/s), median 0.3447 ms
+== q256
+T=1 L=131072 splits<=41 grid 4x1x41: min 0.6542 ms (821 GB/s), median 0.6556 ms
+max error against the f32 reference: 1.25e-06
+== q_wg512
+T=1 L=131072 splits<=64 grid 4x1x64: min 0.6720 ms (799 GB/s), median 0.6739 ms
+== q_32k
+T=1 L=32768 splits<=41 grid 4x1x41: min 0.1684 ms (797 GB/s), median 0.1703 ms
+== q_b16
+T=16 L=2048 splits<=2 grid 4x16x2: min 0.1670 ms (804 GB/s), median 0.1694 ms
+max error against the f32 reference: 6.49e-06
+== gw_1k
+T=1 L=1024 splits<=10 grid 16x1x10: min 0.0106 ms (1584 GB/s), median 0.0109 ms
+max error against the f32 reference: 5.79e-06
+[release 05:37:42]
