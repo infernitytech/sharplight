@@ -1,11 +1,14 @@
 """Cut a (split) GGUF to its first N blocks, keeping the global tensors (embedding, output norm, head) and every metadata key except the
-split keys; block_count is set to N. Tensor data is copied as stored (no re-quantization), so the file holds the real weights.
+split keys; block_count is set to N and nextn_predict_layers to 0. Tensor data is copied as stored (no re-quantization), so the file holds the real weights.
 
     python truncate-gguf.py <shard dir | single file.gguf> <out.gguf> <layers>
 
-Needs llama.cpp's gguf-py on PYTHONPATH (e.g. PYTHONPATH=$LLAMA_SRC/gguf-py).
+Needs llama.cpp's gguf-py: $LLAMA_SRC/gguf-py when LLAMA_SRC is set (the llama.cpp source tree), else an installed gguf package.
 """
 import sys, glob, re, os
+import os
+if os.environ.get('LLAMA_SRC'):
+    sys.path.insert(0, os.path.join(os.environ['LLAMA_SRC'], 'gguf-py'))
 import numpy as np
 from gguf import GGUFReader, GGUFWriter, GGUFValueType
 src, out, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -21,6 +24,8 @@ for k, f in r0.fields.items():
     v = f.contents()
     if k == f'{arch}.block_count':
         v = n
+    if k == f'{arch}.nextn_predict_layers':
+        v = 0   # the multi-token-prediction layers follow the trunk and are cut
     if vt == GGUFValueType.ARRAY:
         w.add_key_value(k, v, vt, sub_type=f.types[-1] if len(f.types) > 1 else None)
     else:

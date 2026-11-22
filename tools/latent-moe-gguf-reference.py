@@ -1,19 +1,23 @@
-"""Float32 transformers reference for a layer-truncated deepseek2 (DeepSeek-V3.x) GGUF (see truncate-gguf.py): transformers' DeepseekV3
-on the file's weights dequantized with gguf-py, the routed experts dequantized lazily (only those the router selects), so a few real MoE
+"""Float32 transformers reference for a layer-truncated deepseek2 (DeepSeek-V3.x) or glm-dsa (GLM-5.x) GGUF (see truncate-gguf.py):
+transformers' DeepseekV3 / GlmMoeDsa on the file's weights dequantized with gguf-py, the routed experts dequantized lazily (only those the router selects), so a few real MoE
 layers fit in host memory. The absorbed attn_k_b / attn_v_b tensors are joined back into kv_b_proj. Writes the logits of every prompt row as
 float32 and prints the last row's best tokens.
 
-    python deepseek-v3-gguf-reference.py <file.gguf> <ids, comma-separated> <out.f32> [n_group topk_group]
+    python latent-moe-gguf-reference.py <file.gguf> <ids, comma-separated> <out.f32> [n_group topk_group]
 
-n_group / topk_group default to 1 (no group-limited routing), as llama.cpp and Sharplight read files without expert_group_count.
-Needs llama.cpp's gguf-py on PYTHONPATH, torch and transformers >= 5.
+An optional sixth argument "llama-eps" normalizes the compressed query and latent with rms_norm_eps as llama.cpp does (transformers' GLM-5
+uses 1e-6 there). n_group / topk_group default to 1 (no group-limited routing), as llama.cpp and Sharplight read files without expert_group_count.
+Needs llama.cpp's gguf-py ($LLAMA_SRC/gguf-py when LLAMA_SRC is set, else an installed gguf package), torch and transformers >= 5.
 """
 import sys, re
+import os
+if os.environ.get('LLAMA_SRC'):
+    sys.path.insert(0, os.path.join(os.environ['LLAMA_SRC'], 'gguf-py'))
 import numpy as np, torch
 from torch import nn
 from gguf import GGUFReader
 from gguf.quants import dequantize
-from transformers import DeepseekV3Config, DeepseekV3ForCausalLM
+from transformers import DeepseekV3Config, DeepseekV3ForCausalLM, GlmMoeDsaConfig, GlmMoeDsaForCausalLM
 
 path, ids, out = sys.argv[1], [int(x) for x in sys.argv[2].split(',')], sys.argv[3]
 n_group = int(sys.argv[4]) if len(sys.argv) > 4 else 1
@@ -21,7 +25,9 @@ topk_group = int(sys.argv[5]) if len(sys.argv) > 5 else 1
 r = GGUFReader(path)
 meta = {k: f.contents() for k, f in r.fields.items() if not k.startswith('tokenizer.')}
 T = {t.name: t for t in r.tensors}
-A = 'deepseek2.'
+ARCH = meta['general.architecture']
+A = ARCH + '.'
+GLM = ARCH == 'glm-dsa'
 L = meta[A + 'block_count']
 def deq(name):
     t = T[name]
@@ -31,7 +37,7 @@ def deq(name):
 heads = meta[A + 'attention.head_count']
 rope = meta[A + 'rope.dimension_count']
 qk = meta[A + 'attention.key_length_mla']; vdim = meta[A + 'attention.value_length_mla']
-cfg = DeepseekV3Config(
+common = dict(
     vocab_size=meta[A + 'vocab_size'] if A + 'vocab_size' in meta else T['token_embd.weight'].shape[1],
     hidden_size=meta[A + 'embedding_length'], intermediate_size=meta[A + 'feed_forward_length'],
     moe_intermediate_size=meta[A + 'expert_feed_forward_length'], num_hidden_layers=L,
@@ -41,11 +47,17 @@ cfg = DeepseekV3Config(
     qk_rope_head_dim=rope, v_head_dim=vdim, qk_nope_head_dim=qk - rope, n_group=n_group, topk_group=topk_group,
     num_experts_per_tok=meta[A + 'expert_used_count'], first_k_dense_replace=meta[A + 'leading_dense_block_count'],
     norm_topk_prob=bool(meta[A + 'expert_weights_norm']), rms_norm_eps=meta[A + 'attention.layer_norm_rms_epsilon'],
-    max_position_embeddings=meta[A + 'context_length'], tie_word_embeddings=False, rope_interleave=True,
-    rope_parameters={"rope_type": "yarn", "rope_theta": meta[A + 'rope.freq_base'], "factor": meta[A + 'rope.scaling.factor'],
-                     "original_max_position_embeddings": meta[A + 'rope.scaling.original_context_length'],
-                     "beta_fast": 32.0, "beta_slow": 1.0, "mscale": 1.0, "mscale_all_dim": meta[A + 'rope.scaling.yarn_log_multiplier'] / 0.1},
-    attn_implementation="eager", dtype=torch.float32)
+    max_position_embeddings=meta[A + 'context_length'], tie_word_embeddings=False, attn_implementation="eager", dtype=torch.float32)
+if GLM:
+    # The indexer keeps every visible position while the prompt is shorter than index_topk (the dense regime).
+    cfg = GlmMoeDsaConfig(**common, index_topk=meta[A + 'attention.indexer.top_k'], index_head_dim=meta[A + 'attention.indexer.key_length'],
+                          index_n_heads=meta[A + 'attention.indexer.head_count'], head_dim=rope,
+                          rope_parameters={"rope_type": "default", "rope_theta": meta[A + 'rope.freq_base']})
+else:
+    cfg = DeepseekV3Config(**common, rope_interleave=True,
+        rope_parameters={"rope_type": "yarn", "rope_theta": meta[A + 'rope.freq_base'], "factor": meta[A + 'rope.scaling.factor'],
+                         "original_max_position_embeddings": meta[A + 'rope.scaling.original_context_length'],
+                         "beta_fast": 32.0, "beta_slow": 1.0, "mscale": 1.0, "mscale_all_dim": meta[A + 'rope.scaling.yarn_log_multiplier'] / 0.1})
 assert meta[A + 'expert_gating_func'] == 2
 
 class LazyExperts(nn.Module):
@@ -65,7 +77,7 @@ class LazyExperts(nn.Module):
         return outp
 
 with torch.device('meta'):
-    model = DeepseekV3ForCausalLM(cfg)
+    model = (GlmMoeDsaForCausalLM if GLM else DeepseekV3ForCausalLM)(cfg)
 for i in range(cfg.first_k_dense_replace, L):
     model.model.layers[i].mlp.experts = LazyExperts(i)
 model.to_empty(device='cpu')
@@ -83,7 +95,10 @@ for i in range(L):
          'ffn_gate.weight': 'mlp.gate_proj.weight', 'ffn_up.weight': 'mlp.up_proj.weight', 'ffn_down.weight': 'mlp.down_proj.weight',
          'ffn_gate_inp.weight': 'mlp.gate.weight', 'exp_probs_b.bias': 'mlp.gate.e_score_correction_bias',
          'ffn_gate_shexp.weight': 'mlp.shared_experts.gate_proj.weight', 'ffn_up_shexp.weight': 'mlp.shared_experts.up_proj.weight',
-         'ffn_down_shexp.weight': 'mlp.shared_experts.down_proj.weight'}
+         'ffn_down_shexp.weight': 'mlp.shared_experts.down_proj.weight',
+         'indexer.attn_q_b.weight': 'self_attn.indexer.wq_b.weight', 'indexer.attn_k.weight': 'self_attn.indexer.wk.weight',
+         'indexer.k_norm.weight': 'self_attn.indexer.k_norm.weight', 'indexer.k_norm.bias': 'self_attn.indexer.k_norm.bias',
+         'indexer.proj.weight': 'self_attn.indexer.weights_proj.weight'}
     for g, h in m.items():
         if p + g in T:
             sd[q + h] = deq(p + g)
@@ -95,8 +110,16 @@ missing, unexpected = model.load_state_dict(sd, strict=False)
 missing = [k for k in missing if 'rotary' not in k]
 print('missing', missing[:5], 'unexpected', unexpected[:5], flush=True)
 # rotary buffers were emptied by to_empty: rebuild them
-from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3RotaryEmbedding
-model.model.rotary_emb = DeepseekV3RotaryEmbedding(cfg)
+if GLM:
+    from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import GlmMoeDsaRotaryEmbedding as Rotary
+else:
+    from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3RotaryEmbedding as Rotary
+model.model.rotary_emb = Rotary(cfg)
+if len(sys.argv) > 6 and sys.argv[6] == 'llama-eps':
+    # llama.cpp's convention: the compressed query and latent are normalized with rms_norm_eps (transformers: 1e-6).
+    for layer in model.model.layers:
+        layer.self_attn.q_a_layernorm.variance_epsilon = cfg.rms_norm_eps
+        layer.self_attn.kv_a_layernorm.variance_epsilon = cfg.rms_norm_eps
 model.eval()
 with torch.no_grad():
     logits = model(torch.tensor([ids])).logits[0]

@@ -29,7 +29,7 @@ public class LogprobReferenceTests
             [(44312, -2.049), (22590, -2.134), (50275, -2.527), (36847, -2.748)]),
         // DeepSeek-V3.1 (unsloth Q4_K_M) cut to its first 6 layers (3 dense, 3 MoE with 256 real experts; tools/truncate-gguf.py), the
         // prompt at which the full model's greedy text and llama.cpp's part (a near tie of " Spain" / " France"). Reference: transformers'
-        // DeepseekV3 in float32 on the file's dequantized weights (tools/deepseek-v3-gguf-reference.py; no group-limited routing, as the
+        // DeepseekV3 in float32 on the file's dequantized weights (tools/latent-moe-gguf-reference.py; no group-limited routing, as the
         // file has no expert_group_count). Ours is within 0.04 on CPU, CUDA and Vulkan; llama.cpp b11177 is up to 0.14 off on CPU.
         new("deepseek-v3.1 6 layers 'The capital of France is Paris. The capital of'", "gguf/DeepSeek-V3.1-trunc/DeepSeek-V3.1-Q4_K_M-L6.gguf",
             "The capital of France is Paris. The capital of", [(50365, -3.443), (81661, -3.643), (104323, -4.190), (119996, -4.506), (74218, -4.907)],
