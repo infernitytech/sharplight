@@ -11888,7 +11888,10 @@ against vLLM's 13.26-13.37 ms) are unchanged. Qwen3-8B-FP8 gains 0.6 % (0.94x at
   store applies the epilogue's f32 operations in the order the separate launch did.
 * New test `MoeTests.RoutedExpertSumIntoResidualNorm` (an expert sum through a Reshape into the residual Add and RmsNorm, MXFP4 / Q4_K /
   bf16, 1-300 rows): passes on both providers.
-* Tests: see `final/tests.txt`.
+* Sharplight.Cuda.Tests: 61 / 0 failed / 1 skipped (cuBLASLt). Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers:
+  SkinnyGemm 42, MatMulEpilogue 13, MatMul 164, Moe 126 (with the new test), StreamedExperts 5, Fusion 101, RowInvariance 77,
+  FullAttention 30, PagedAttention 8, PackedSequence 22, SparseAttention 15, Stateful 69, DualGemm 13, Fp8Gemm 31, Mmq 48: **764 / 0
+  failed on each provider** (`final/tests.txt`, the final build). No serving code changed (Serving.Tests not run).
 
 ### 80.8 Gap to vLLM and plan (state after this round)
 
