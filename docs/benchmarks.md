@@ -12477,4 +12477,155 @@ SHARPLIGHT_BENCH_PREFILL_REPEATS=0 sharplight ~/models/gguf/gemma-4-31B-it-Q4_K_
 # kernel harness (SHARPLIGHT_COOP_KQ_MACROS=KQ_X_NOCOPY=1 etc., SHARPLIGHT_COOP_KQ_NT=2, SHARPLIGHT_NATIVE_KQ_SPLIT=n, SHARPLIGHT_NATIVE_KQ_BM=n)
 SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_TYPES=q4_k SHARPLIGHT_BENCH_SHAPES=4096,12288 SHARPLIGHT_BENCH_ROWS=32 SHARPLIGHT_BENCH_COPIES=8 \
   dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method Sharplight.Vulkan.Tests.BenchTests.MatMulPrefill -showLiveOutput
+
+## 84. LLM round 29: Qwen3-8B-FP8 decode at 16 rows (the dual gate / up pair on the FP8 GEMM's decode form, a register-streaming FP8 decode GEMM, weight copies before the dependency wait); vLLM's FP8 prompt GEMMs twice as fast per row (2026-11-22)
+
+Branch `perf/llm-r29` (`develop` at `8246ce2e`, nothing newer to merge). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap), shared with perf/feed-r5: every run held the verify lock; ours, `develop` and vLLM 0.33 (venv `vllm-r12`) ran in the same
+hold. §83 is perf/feed-r5's. Every change is CUDA only (NVRTC kernels and their lowering); Vulkan's kernels and lowering are unchanged.
+Raw output in [`bench/results/s84/`](../bench/results/s84) (`final/` the final hold, `explore/` the A/B holds, `harness/` the kernel
+harness, `correct/` greedy text and logits, `tests.txt`).
+
+### 84.1 Results (final hold)
+
+Serving (`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, closed loop, two rounds
+each, tok/s per round; ours `--provider cuda`, vLLM `--gpu-memory-utilization 0.6`), all in one hold (`final/serve/`):
+
+| model, streams | `develop` 8246ce2e | **this round** | vLLM 0.33 | ours / vLLM before → after |
+|---|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1049 / 1052 | **1090 / 1094** | 1121 / 1121 | 0.94 → **0.97-0.98** |
+| the same: TTFT p50 / inter-token latency mean, p50 (ms) | 115-117 / 14.23, 13.04 | 114-116 / 13.65-13.68, 12.45 | 160-161 / 12.88, 12.37 | |
+| Qwen3-8B-FP8, 64 | 2532 / 2533 | 2540 / 2536 | 2696 / 2691 | 0.94 → 0.94 |
+| the same: TTFT p50 / ITL mean, p50 | 285-287 / 21.95, 16.33-16.37 | 283-286 / 21.91, 16.29-16.31 | 405 / 20.20, 15.99-16.02 | |
+| gpt-oss-20b, 16 | 1405 / 1412 | 1404 / 1414 | 1413 / 1394 | 1.00 → 1.00 |
+| gpt-oss-20b, 64 | 3042 / 3067 | 3042 / 3070 | 3130 / 3182 | 0.97 → 0.97 |
+
+At 16 streams Qwen3-8B-FP8's inter-token p50 drops 13.04 → 12.45 ms (vLLM 12.37), +4 %. At 64 streams the decode steps are
+unchanged (64 rows take none of the changed paths) and the prompt rows are the gap (84.4). gpt-oss-20b has no FP8 weights and is
+unchanged (its 64-stream ratio, 0.97, is vLLM's faster round in this hold; §82 measured 0.98).
+
+Steps (BatchBench `--slots 64 --ctx 640 --depth 256 --modes greedy --reps 10 --text`, GPU ms min, this round and `develop` alternated
+twice, `final/steps1`, `steps2`):
+
+| step | `develop` | **this round** | |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8 decode 1 / 16 / 64 rows | 10.94-10.96 / 12.59-12.61 / 15.46-15.53 | 10.94 / **12.18-12.20** / 15.52-15.56 | 0 / **-3.3 %** / 0 |
+| gpt-oss-20b decode 1 / 16 / 64 rows | 5.19-5.20 / 12.17-12.20 / 16.98-17.06 | 5.19 / 12.10-12.16 / 16.86-17.07 | unchanged (no FP8 weights) |
+
+Like for like against vLLM's decode profile (`s54_vllm_decode_profile.py --words --skip 5`, `final/vllm_qwen_decode*.txt`; its
+`execute_context` excludes the LM head, 1.52-1.55 ms, and sampling, as in §76): 16 sequences 10.82 + ~1.6 = ~12.4 ms against our
+12.18-12.20 ms; 64 sequences 14.21 + ~1.6 = ~15.8 against 15.52-15.56. So the GPU step is now at or below vLLM's at both sizes; the
+serving gap at 64 streams is the prompt rows (84.4).
+
+### 84.2 What changed
+
+* **The dual gate / up pair from 9 rows on the FP8 GEMM's decode form** (`SkinnyMaxRowsFor`, `UsesNativeFp8Decode`): grouped E4M3
+  weights left 9-16 rows to `gemm_fp8_native.cu`'s 32-row token tiles for single matmuls but kept the dual pair on the skinny GEMM
+  (`gemm_sk`, 139 µs per layer at 16 rows). The skinny GEMM now stops at 8 rows for these weights, as it does for K-quants on their
+  hand-written decode GEMM (§77): gate / up 139.1 → 131.1 µs per layer, the norm's separate E4M3 quantization launch gone; 16-sequence
+  step 12.58 → 12.31 ms (`explore/h3`, `h5`). `SHARPLIGHT_SKINNY_MAX_ROWS=16` restores the old split.
+* **`gemm_fp8_decode.cu`**, a register-streaming FP8 GEMM for 9-16 rows of single matmuls: no shared-memory stages and no block
+  barrier in the main loop; every lane loads 16 bytes of weight rows g and g + 8 of each of its fragments and of token g straight into
+  registers, with the same permutation of K inside each 64-value chunk for weights and activations, so the words fill m16n8k32 fragments
+  with the weights as the A operand (16 rows) and the tokens as B (8 per fragment). The K range is split over 1-8 warps of a block
+  (the fewest divisors of the K blocks giving ~512 warps) and added through shared memory in a fixed order. Harness (`harness/`, read
+  flush, T = 16): down [12288 → 4096] 67.6 µs (768 GB/s), gate / up dual 133.1 µs (780 GB/s); a plain 16-byte read of 100 MB reaches
+  813 GB/s on this card, 50 MB 806, 17 MB 725. In the model: down 69.8 → 67.4 µs, o 24.3 → 24.3 µs, 16-sequence step 12.31-12.32 →
+  12.19 ms (`explore/h7`). The dual pair is slower on it (141.8 against 131.5 µs: 192 blocks of 4 warps, one row fragment of each matrix
+  per warp) and stays on `gemm_fp8_native.cu`. `SHARPLIGHT_FP8_DECODE_KERNEL=0` / `=1`: off / dual pairs too.
+* **Weight copies before `griddepcontrol.wait`.** A programmatic dependent (§58.3: one-wave kernels after one-wave kernels) waited
+  at its entry before its first copy. The FP8 decode kernels now issue the first stages' weight copies (`gemm_fp8_native.cu`: the code
+  copies of the first two stages, which join the first stage's commit group; `gemm_fp8_decode.cu`: the first K block's registers)
+  before the wait, and only the activations and scales after it. The translator injects only `launch_dependents` into a kernel that
+  issues the wait itself. Harness with a 5 µs predecessor (`harness/h4.log`): the dependent launch saves 2-4 µs per GEMM; in the
+  model the step is unchanged within noise (12.31 against 12.32 ms with the skinny split restored, `explore/h5`), since most of the
+  launches before the decode GEMMs are the norms and quantizations of a few µs.
+
+### 84.3 Measured and not kept
+
+* **L2 prefetch of the next K blocks before the wait** (`cp.async.bulk.prefetch.L2`, `SHARPLIGHT_FP8_L2_PREFETCH=n`, kept as a switch,
+  default off): 4 blocks 12.48, 16 blocks 12.82 against 12.32 ms at 16 rows; with the decode kernel 8 blocks 12.51 against 12.55.
+  The prefetches compete with the stream itself.
+* **The dual pair on `gemm_fp8_decode.cu`** (above): 12.55-12.58 against 12.30-12.33 ms.
+* **Deeper register pipelines in `gemm_fp8_decode.cu`** (2-3 K blocks in flight): equal or slower in the harness (gate / up 135.2 /
+  145.4 against 135.2 µs), more registers, fewer resident warps; one block in flight with ~12 warps per SM covers the latency.
+
+### 84.4 Qwen3-8B-FP8 prompt rows against vLLM: its FP8 GEMMs run at twice our rate
+
+vLLM's prefill of 7 prompts of 256 random tokens (`s54_vllm_decode_profile.py --prefill 256 --seqs 8`, `final/vllm_qwen_prefill_8x256.txt`)
+takes 98.2 ms for 1,792 rows (54.8 µs per row, LM head apart); ours (BatchBench `--batch 2048 --mixed 0+256x8 --profile 0`,
+`final/prefill/`) 138.4 ms for 2,048 rows (67.6 µs per row, 23 % more). Per layer (µs; vLLM scaled to 2,048 rows in brackets):
+
+| launch | ours, 2,048 rows | vLLM, 1,792 rows [2,048] |
+|---|---:|---:|
+| gate / up (ours dual with SiLU · mul; vLLM GEMM, then a fused mul + quant) | 1,608.7 | 662.2 + 68.7 [833] |
+| down | 823.0 | 353.4 [404] |
+| q / k / v (ours q 261.4 + k, v 2 x 76.3; vLLM one GEMM) | 414.0 | 184.3 [211] |
+| o | 261.4 | 113.3 [129] |
+| norms + quantization | 2 x 98.9 + 130.2 + 23.0 | 26.8 + 14.4 + 10.8 [59] |
+| rope + cache | 118.8 | 12.6 + 4.3 + 10.6 [31] |
+| attention | 82.0 | 43.4 [50] |
+
+DeepGEMM's sm120 kernels (`sm120_fp8_fp4_gemm_1d1d`, "DeepGEMM E8M0 enabled") run the gate / up product at 2 x 1,792 x 4,096 x 24,576 /
+662 µs = 545 TFLOPS, above the 474 TFLOPS `mma.sync` E4M3 peak of this GPU (cuda.md): they use the block-scaled MMA (`kind::mxf8f6f4`
+with UE8M0 scales applied in the tensor core), whose throughput the f32-accumulate `mma.sync` with per-block promotion in registers
+cannot reach; ours runs 256 TFLOPS (`gemm_fp8_tma.cu`). The scales are then powers of two: vLLM rounds the checkpoint's f32 block
+scales to E8M0 (a numerics change). The planned fusion of the down input's E4M3 quantization into the gate / up store (130 µs + the f32
+round trip per layer, ~3 % of the step) is small next to this; not done this round.
+
+### 84.5 Correctness and tests
+
+* **Greedy text**, 120 tokens, the ~40-word prompt and the 963-token prompt, this round against `develop` (`correct/`): gpt-oss-20b and
+  Qwen3-8B-FP8 byte-identical on CUDA and Vulkan, Qwen2.5-7B-Instruct Q4_K_M byte-identical on CUDA. Single-sequence decode runs 1 row
+  and its prompts more than 64, so these runs take none of the changed row counts.
+* **Logits** of the last token of a ~2,900-token prompt (`--logits`, CUDA): Qwen3-8B-FP8 and gpt-oss-20b bit-identical to `develop`.
+* The changed paths (9-16 rows) sum their K blocks in another order than the skinny GEMM (dual pair) and the 32-row tiles (single
+  matmuls); new `Fp8GemmTests.DecodeRowsGroupedWeights` (9-40 rows, N 256-1024, K 512-3072: the decode kernel's K splits 2-8, the
+  32-row tiles) and `DualDecodeRowsGroupedWeights` (4-24 rows) check them against the CPU on both providers.
+* **Suites** (`tests.txt`): Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers: Fp8Gemm 41, SkinnyGemm 42,
+  DualGemm 13, MatMul 164, MatMulEpilogue 16, Moe 129, Fusion 101, NormHalfCopy 23, Norm 10, RowInvariance 77: **616 / 0 failed on each
+  provider**; Sharplight.Cuda.Tests 63 / 0 failed / 1 skipped (cuBLASLt); Sharplight.Serving.Tests 396 / 0 failed / 13 skipped.
+
+### 84.5a After merging `develop` (`bc59e105`, perf/feed-r5 with its norm + add + norm launch)
+
+The final hold ran before perf/feed-r5 merged; the branch was then merged with `develop` and checked against a `develop` build in one
+hold (`merged/`): Qwen3-8B-FP8 1 / 16 / 64 rows 10.94-10.95 / **12.20** / 15.50-15.53 against 10.94-10.95 / 12.58-12.59 / 15.45-15.46 ms,
+gpt-oss-20b 5.20 / 12.12 / 16.85 against 5.18 / 12.11 / 16.87; greedy text of gpt-oss-20b and Qwen3-8B-FP8 (both prompts, CUDA and
+Vulkan) byte-identical to `develop`'s; Fp8Gemm 41, DualGemm 13, SkinnyGemm 42, Fusion 105, NormHalfCopy 23, Norm 10, MatMul 164 pass on
+both providers. The fused norms do not change which E4M3 rows the decode GEMMs read.
+
+### 84.6 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.97-0.98 / 0.94 | 64: prompt rows (67.6 against 54.8 µs per row: the FP8 GEMMs at half deepGEMM's rate, 84.4); decode steps at par |
+| gpt-oss-20b serving 16 / 64 streams | 1.00 / 0.97 | 64: decode steps (expert GEMMs against Marlin), prompt rows 56.7 against 54.5 µs per row (§82) |
+
+Ranked levers:
+
+1. **Block-scaled FP8 MMA for prompt rows** (`mma.sync ... kind::mxf8f6f4.block_scale` with UE8M0 scale vectors, sm_120): ~2x on the
+   FP8 GEMMs of Qwen3-8B-FP8's prompt steps (~112 of 138 ms per 2,048 rows), i.e. serving at 64 streams well past vLLM. Needs E8M0
+   activation scales (free: quantize_fp8 chooses them) and weight scales rounded to powers of two at load, with the remainder folded
+   into the codes where it fits (a numerics change to measure with logits, greedy and a perplexity check; vLLM does the same), behind
+   a feature and a fallback to the current kernels.
+2. **Qwen3 prompt-step small launches**: rope + cache 119 µs per layer against 27 (vLLM's), norms + quantization 351 against 52 (the
+   norm writing E4M3 rows for both readers, the down input's quantization in the gate / up store with 128-output dual tiles).
+3. **gpt-oss prompt rows** (§82.6 item 3, not reached this round): the slot sum (110 µs) and norms (72 + 51 µs) per layer, the
+   post-attention norm writing the router / MoE f16 copy, the attention output in f16 for the o projection.
+4. **Decode**: `gemm_fp8_decode.cu` for 17-32 rows (four token fragments) and as the multi-output q / k / v form; asynchronous scheduling
+   for the 0.15 ms host gap per step.
+
+### 84.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 1,16,64 --modes greedy --reps 10 --text
+# A/B: SHARPLIGHT_SKINNY_MAX_ROWS=16 (old split), SHARPLIGHT_FP8_DECODE_KERNEL=0|1, SHARPLIGHT_FP8_L2_PREFETCH=n
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 5 --mixed 0+256x8 --profile 0
+python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 --prefill 256 --seqs 8 --gpu-util 0.6
+python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 --seqs 16 --words --skip 5 --gpu-util 0.6
+# kernel harness: build, then run inside a GPU hold (K,N,DUAL,T[,-D flags separated by :])
+bench/s84_fp8dec/run.sh "4096,12288,1,16 12288,4096,0,16,-DF8D_KS=6:-DF8D_RT=1:-DSPIN_NS=5000"
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 ```
