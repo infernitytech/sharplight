@@ -13440,7 +13440,11 @@ mode stays opt-in: ±0.3 % would need a non-power-of-two weight factor, which th
 * `PplBench` (wikitext-2 test, §86's method, `ppl/`): the f16 logits dumps of every prompt row are byte-identical to `develop`'s for
   Qwen3-8B-FP8 (12,288 tokens, PPL 8.6693, the same as §86) and for Qwen3.8-27B-FP8 (6,144 tokens, 512-row steps, PPL 6.6574). Every
   FP8 change of the round runs in those steps.
-* Suites: TESTS_LINE
+* Suites (`tests.txt`, after the merge of `1a4848dd`): Sharplight.Vulkan.Tests, one process per class, CUDA and Vulkan providers:
+  Fp8UniformScales 2 (new), Fp8BlockScaled 10 (Vulkan: 2 skipped, no `block_scaled_fp8`), Fp8Gemm 41, SkinnyGemm 42, DualGemm 13,
+  MatMul 164, MatMulEpilogue 16, Moe 129, Fusion 105, Norm 10, NormHalfCopy 23, Rope 12, RowInvariance 77, FullAttention 30,
+  PagedAttention 10: **684 / 0 failed on each provider**; Sharplight.Cuda.Tests 63 / 0 failed / 1 skipped (cuBLASLt);
+  Sharplight.Serving.Tests 396 / 0 failed / 13 skipped; Sharplight.Package.Tests 48 / 0 failed / 4 skipped (models not present).
 
 ### 89.6 Measured and not kept
 
