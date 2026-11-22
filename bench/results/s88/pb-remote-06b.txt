@@ -1,0 +1,24 @@
+stages: AMD EPYC 7443 24-Core Processor | 127.0.0.1:7071 (AMD EPYC 7443 24-Core Processor) | 127.0.0.1:7072 (AMD EPYC 7443 24-Core Processor)
+sampling: on the last stage (token ids return)
+greedy: 12095,13,576,6722,315,15344,374,21718,13,576,6722,315,17689,374,24081,13 " Paris. The capital of Italy is Rome. The capital of Spain is Madrid."
+decode G=1 B=1: median 38.73 ms/step, min 32.40 ms, 25.8 tok/s
+  [decode G=1 B=1] 127.0.0.1:7071: 17 exec, round trip 284.067 ms, worker 70.004 ms, wait 213.828 ms, overhead 0.235 ms, 3.0 KiB out, 0.0 KiB in per exec
+  [decode G=1 B=1] 127.0.0.1:7072: 18 exec, round trip 408.678 ms, worker 84.633 ms, wait 323.861 ms, overhead 0.184 ms, 0.2 KiB out, 0.1 KiB in per exec
+decode G=1 B=4: median 81.29 ms/step, min 70.71 ms, 49.2 tok/s
+  [decode G=1 B=4] 127.0.0.1:7071: 12 exec, round trip 24.299 ms, worker 24.104 ms, wait 0.047 ms, overhead 0.149 ms, 16.4 KiB out, 0.0 KiB in per exec
+  [decode G=1 B=4] 127.0.0.1:7072: 12 exec, round trip 64.413 ms, worker 40.070 ms, wait 24.196 ms, overhead 0.147 ms, 0.6 KiB out, 0.1 KiB in per exec
+decode G=1 B=8: median 132.65 ms/step, min 121.30 ms, 60.3 tok/s
+  [decode G=1 B=8] 127.0.0.1:7071: 12 exec, round trip 38.476 ms, worker 38.256 ms, wait 0.050 ms, overhead 0.170 ms, 32.6 KiB out, 0.0 KiB in per exec
+  [decode G=1 B=8] 127.0.0.1:7072: 12 exec, round trip 104.508 ms, worker 65.956 ms, wait 38.392 ms, overhead 0.160 ms, 0.9 KiB out, 0.1 KiB in per exec
+decode G=2 B=4: median 100.45 ms/step, min 96.09 ms, 39.8 tok/s
+  [decode G=2 B=4] 127.0.0.1:7071: 30 exec, round trip 259.900 ms, worker 62.823 ms, wait 194.410 ms, overhead 2.667 ms, 6.6 KiB out, 0.0 KiB in per exec
+  [decode G=2 B=4] 127.0.0.1:7072: 30 exec, round trip 332.866 ms, worker 59.178 ms, wait 271.074 ms, overhead 2.614 ms, 0.2 KiB out, 0.1 KiB in per exec
+decode G=2 B=8: median 204.00 ms/step, min 173.33 ms, 39.2 tok/s
+  [decode G=2 B=8] 127.0.0.1:7071: 24 exec, round trip 75.550 ms, worker 54.683 ms, wait 20.671 ms, overhead 0.196 ms, 16.3 KiB out, 0.0 KiB in per exec
+  [decode G=2 B=8] 127.0.0.1:7072: 24 exec, round trip 155.402 ms, worker 73.279 ms, wait 81.979 ms, overhead 0.145 ms, 0.5 KiB out, 0.1 KiB in per exec
+prefill 256 tok in chunks of 256: median 1414.9 ms, 180.9 tok/s
+  [prefill chunk 256] 127.0.0.1:7071: 4 exec, round trip 630.548 ms, worker 629.486 ms, wait 0.140 ms, overhead 0.923 ms, 1029.4 KiB out, 0.0 KiB in per exec
+  [prefill chunk 256] 127.0.0.1:7072: 4 exec, round trip 1299.256 ms, worker 667.992 ms, wait 630.291 ms, overhead 0.972 ms, 5.4 KiB out, 593.6 KiB in per exec
+prefill 256 tok in chunks of 64: median 1194.1 ms, 214.4 tok/s
+  [prefill chunk 64] 127.0.0.1:7071: 16 exec, round trip 425.793 ms, worker 222.651 ms, wait 202.831 ms, overhead 0.311 ms, 257.6 KiB out, 0.0 KiB in per exec
+  [prefill chunk 64] 127.0.0.1:7072: 16 exec, round trip 652.219 ms, worker 226.096 ms, wait 425.799 ms, overhead 0.324 ms, 1.7 KiB out, 148.4 KiB in per exec

@@ -6,6 +6,7 @@ using Sharplight.ModelFeed.Tests;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Feed;
+using Sharplight.Studio.Tests.Fakes;
 using Sharplight.Studio.ViewModels.Models;
 
 namespace Sharplight.Studio.Tests;
@@ -339,6 +340,58 @@ public sealed class FeedCatalogTests
         Assert.False(rig.Catalog.Entries[2].IsPartial);
         Assert.Contains("2.4 bits per weight", iq2.Details, StringComparison.Ordinal);
         Assert.Contains("good vs BF16: 4 bit.", iq2.Details, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task VariantsOfAModel_ShowTheirFitOnThisMachine_AndFollowTheMemory()
+    {
+        using var rig = new Rig();
+        const long GiB = 1L << 30;
+        long free = 16 * GiB;
+        rig.Services.Runtime.Memory = () =>
+        [
+            new Hosting.Fit.DeviceMemory(FakeRuntime.Gpu.Id, FakeRuntime.Gpu.Name, true, 16 * GiB, Interlocked.Read(ref free), true),
+            new Hosting.Fit.DeviceMemory(FakeRuntime.Cpu.Id, FakeRuntime.Cpu.Name, false, 32 * GiB, 24 * GiB, true),
+        ];
+        // The feed's figures: weights, 64 KiB of 16-bit KV cache per token, 0.5 GiB of overhead.
+        Func<PackageManifest, PackageManifest> Variant(string variant, double bits, long weights, bool recommended) => manifest => manifest with
+        {
+            Group = new PackageGroup { Id = "model", Name = "Model", Variant = variant, Label = variant.ToUpperInvariant(), BitsPerWeight = bits, Recommended = recommended, Quality = PackageQualityTiers.Good },
+            Requirements = new PackageRequirements
+            {
+                Memory = [new MemoryRequirement { Device = "gpu", Weights = weights, KvBytesPerToken = 64 * 1024, Overhead = GiB / 2, PerSlotContextMax = new SlotContextMemory { Tokens = 32768, Bytes = 2 * GiB } }],
+            },
+        };
+        var folders = new[]
+        {
+            await rig.Feed.StageAsync("model.q4", "1.0.0", customize: Variant("q4", 4.8, 8 * GiB, true)),
+            await rig.Feed.StageAsync("model.q8", "1.0.0", customize: Variant("q8", 8.5, 14 * GiB, false)),
+            await rig.Feed.StageAsync("model.bf16", "1.0.0", customize: Variant("bf16", 16, 40 * GiB, false)),
+        };
+        await rig.Feed.Publisher.PublishAsync(rig.Feed.Folder, folders, rig.Feed.FeedKey, s_stable, TestContext.Current.CancellationToken);
+        await rig.Catalog.LoadAsync();
+
+        var q4 = rig.Catalog.Entries.Single(package => package.Id == "model.q4");
+        Assert.True(q4.HasVariants);
+        Assert.Equal(["model.q4", "model.q8", "model.bf16"], q4.Variants.Select(variant => variant.Id));
+        // 8 GiB + 0.5 GiB of KV at 8k + 0.5 GiB: fits; 14 + 1: fits 15 GiB available exactly; 41 GiB: offload would need more than system memory.
+        Assert.Equal("Fits", q4.Variants[0].FitText);
+        Assert.Equal("Fits", q4.Variants[1].FitText);
+        Assert.Equal("Too large", q4.Variants[2].FitText);
+        Assert.Contains("8,192 tokens of context", q4.Variants[0].FitToolTip, StringComparison.Ordinal);
+
+        rig.Catalog.Selected = q4;
+        Assert.True(q4.IsCurrent);
+        q4.Variants[1].ChooseVariantCommand.Execute(null);
+        Assert.Same(q4.Variants[1], rig.Catalog.Selected);
+        Assert.False(q4.IsCurrent);
+        Assert.True(q4.Variants[1].IsCurrent);
+
+        // Another application takes 4 GiB: the next read rates the variants again (Q8_0 now needs offload).
+        Interlocked.Exchange(ref free, 12 * GiB);
+        await rig.Services.Memory.RefreshAsync(TestContext.Current.CancellationToken);
+        Assert.StartsWith("CPU offload", q4.Variants[1].FitText, StringComparison.Ordinal);
+        Assert.Equal("Fits", q4.Variants[0].FitText);
     }
 
     [Fact]

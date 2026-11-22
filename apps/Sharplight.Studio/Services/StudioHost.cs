@@ -6,6 +6,7 @@ using Sharplight.Storage;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Feed;
+using Sharplight.Studio.Services.Fit;
 using Sharplight.Studio.Services.Hub;
 using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Maintenance;
@@ -78,7 +79,8 @@ internal sealed class StudioHost : IDisposable
             container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(paths.PagesDirectory, paths.GenerationsDirectory),
             new EngineAudioPlayer(audioDecoder, audioDevices, settings), new EngineAudioRecorder(audioDevices, audioEncoder, settings),
             audioDecoder, audioDevices, storage, container.GetRequiredService<IFeedService>(), usage,
-            new ModelMaintenanceService(settings, storage, runtime, library, usage, precompiler), new LicenseGate(settings));
+            new ModelMaintenanceService(settings, storage, runtime, library, usage, precompiler), new LicenseGate(settings),
+            new DeviceMemoryWatch(runtime, settings));
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), new ModelUsageRecorder(runtime, usage), server, container);
     }
 

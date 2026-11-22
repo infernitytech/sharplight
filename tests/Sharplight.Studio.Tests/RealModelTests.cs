@@ -65,8 +65,8 @@ public sealed class RealModelTests
         Assert.All(answers, answer => Assert.True(answer.Stats?.CompletionTokens > 0));
 
         await using var server = new KestrelApiServer(runtime.Host);
-        int port = 38000 + Random.Shared.Next(2000);
-        await server.StartAsync(new ServerSettings { Port = port, Anthropic = false }, ct);
+        // Port 0: the system picks a free port when Kestrel binds, so no other process can take it between a probe and the bind.
+        await server.StartAsync(new ServerSettings { Host = "127.0.0.1", Port = 0, Anthropic = false }, ct);
         using var http = new HttpClient { BaseAddress = new Uri(server.BaseUrl!) };
         var models = await http.GetFromJsonAsync<JsonElement>("/v1/models", ct);
         Assert.Equal(["qwen", "smol"], models.GetProperty("data").EnumerateArray().Select(model => model.GetProperty("id").GetString()).Order());
