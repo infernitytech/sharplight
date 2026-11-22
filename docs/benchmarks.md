@@ -11714,6 +11714,15 @@ gone on this build: 27.34 ms with the window-sized ring against 27.31 with the p
 36.41 against 36.44 tok/s, same hold (`gemma_4k_paged_form.txt`; one run each, so within noise). Not attributed further (§78 changed the decode attention in
 between); nothing was changed for it.
 
+Suites (final build, one process per class, both providers where they apply): Sharplight.Cuda.Tests 61 (1 skipped, the cuBLASLt
+probe; `NativeKQuantDecodeGemmMatchesTheCpu`, `KQuantGatedProjectionMatchesTheCpu` with its new dual-form cases); Vulkan.Tests MatMul
+164, SkinnyGemm 42, RowInvariance 77, Mmq 48, QuantFormat 197, DualGemm 13, MatMulEpilogue 13 (`ProjectionBiases*` included) on
+Vulkan and CUDA, all passing; FamilyGenerationTests `qwen3` 63 (30 skipped) passing, `gemma-4` 12 (9 skipped) with one failure:
+`gemma-4-E2B-it HF` on CUDA diverges from the second token. It fails the same with this round's paths off
+(`SHARPLIGHT_NATIVE_KQ_DUAL=0 SHARPLIGHT_GEMM2_TILE48=0`; the model is bf16, so the K-quant kernel is not involved) and passes with
+`SHARPLIGHT_NO_ROPE_QKV=1`: a regression of the one-launch rope / cache-write of §78 (merged from `develop`), left to that round's
+owner (`bench/results/s79/suites.txt`).
+
 ### 79.6 Measured and not kept
 
 * Separate weight ring (`KQ_WST`), L2 prefetches, 2 x 4 warps (`KQ_WM = 2`) and the one-stage form for 64-row tiles: 79.4. The
