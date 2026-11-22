@@ -126,7 +126,7 @@ public sealed class DiskExpertTests
     }
 
     [Theory]
-    [InlineData(null, null, false)]          // the experts fit the host
+    [InlineData(null, 1L << 36, false)]      // the experts fit the host (explicit budget: the machine's free memory must not decide)
     [InlineData(1L, null, true)]             // a cache smaller than the experts
     [InlineData(null, 1L << 30, true)]       // a host budget below the reserve
     public void ThePlacementLeavesTheCpuExpertsOnDiskWhenTheyDoNotFit(long? cache, long? fallbackLimit, bool disk)
