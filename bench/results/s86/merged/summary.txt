@@ -1,0 +1,10 @@
+cuda Fp8BlockScaled: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda Fp8Gemm: Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan Fp8BlockScaled: Total: 10, Errors: 0, Failed: 0, Skipped: 2, Not Run: 0
+vulkan Fp8Gemm: Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+bs=0 | 0 | 2048 (8) | 157.5 | 474 / 0 | 138.66 / 138.97, 138.55 |  |
+bs=1 | 0 | 2048 (8) | 147.6 | 438 / 0 | 125.75 / 126.25, 125.67 |  |
+greedy bs=0 3879d8a4
+greedy bs=1 3879d8a4

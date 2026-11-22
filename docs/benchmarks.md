@@ -12935,6 +12935,9 @@ The default path is the same code as `develop` (86.4, 86.8); the block-scaled mo
   `block_scaled_fp8`), Fp8Gemm 41, SkinnyGemm 42, DualGemm 13, MatMul 164, MatMulEpilogue 16, Moe 129, Fusion 105, Norm 10, NormHalfCopy 23,
   Rope 12, RowInvariance 77, FullAttention 30, PagedAttention 10: **682 / 0 failed on each provider**; Sharplight.Cuda.Tests 63 / 0
   failed / 1 skipped (cuBLASLt); Sharplight.Serving.Tests 396 / 0 failed / 13 skipped (`tests.txt`).
+* After merging `develop` (`50de511e`, multi-node round 1 and the server's experts on disk): Fp8BlockScaled, Fp8Gemm and DualGemm pass on
+  both providers; the Qwen3-8B-FP8 2,048-row prompt step 138.55 ms (default) and 125.67 ms (block-scaled); greedy text of both modes
+  byte-identical to the final hold's (`merged/`).
 
 ### 86.9 Gap to vLLM and next levers
 
