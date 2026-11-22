@@ -158,7 +158,8 @@ public sealed class Fp8GemmTests
     /// <summary>
     /// Decode-sized batches of weights in the hand-written FP8 GEMM's 128-row groups (N % 128 == 0, K % 512 == 0): on CUDA, 9-16 rows
     /// run the register-streaming <c>gemm_fp8_decode.cu</c> (K split over 1-6 warps by shape), 17-64 rows the decode form of
-    /// <c>gemm_fp8_native.cu</c>; with exactly representable activations they must match the f32 reference.
+    /// <c>gemm_fp8_native.cu</c>; with exactly representable activations they must match the f32 reference (to f16 rounding: the
+    /// skinny GEMM, which serves these rows on Vulkan, reads an f16 copy of x).
     /// </summary>
     [Theory]
     [InlineData(9, 256, 1536)]
@@ -168,7 +169,7 @@ public sealed class Fp8GemmTests
     [InlineData(20, 256, 1536)]
     [InlineData(40, 384, 1024)]
     public void DecodeRowsGroupedWeights(int t, int n, int k)
-        => Run("f8e4m3_b128", t, n, k, Rnd.ExactFp8((long)t * k, 7), atol: 2e-3, rtol: 1e-3);
+        => Run("f8e4m3_b128", t, n, k, Rnd.ExactFp8((long)t * k, 7), atol: 1e-2, rtol: 1e-2);
 
     /// <summary>
     /// The gate / up pair (SiLU · mul) at decode sizes on grouped E4M3 weights: from 9 rows the dual decode form of the hand-written
