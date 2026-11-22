@@ -155,6 +155,43 @@ public sealed class Fp8GemmTests
     }
 
     /// <summary>With <c>matrix_fp8</c> disabled the same batches run on the f16 tensor-core GEMM.</summary>
+    /// <summary>
+    /// Decode-sized batches of weights in the hand-written FP8 GEMM's 128-row groups (N % 128 == 0, K % 512 == 0): on CUDA, 9-16 rows
+    /// run the register-streaming <c>gemm_fp8_decode.cu</c> (K split over 1-6 warps by shape), 17-64 rows the decode form of
+    /// <c>gemm_fp8_native.cu</c>; with exactly representable activations they must match the f32 reference.
+    /// </summary>
+    [Theory]
+    [InlineData(9, 256, 1536)]
+    [InlineData(12, 384, 1024)]
+    [InlineData(16, 256, 3072)]
+    [InlineData(16, 1024, 512)]
+    [InlineData(20, 256, 1536)]
+    [InlineData(40, 384, 1024)]
+    public void DecodeRowsGroupedWeights(int t, int n, int k)
+        => Run("f8e4m3_b128", t, n, k, Rnd.ExactFp8((long)t * k, 7), atol: 2e-3, rtol: 1e-3);
+
+    /// <summary>
+    /// The gate / up pair (SiLU · mul) at decode sizes on grouped E4M3 weights: from 9 rows the dual decode form of the hand-written
+    /// FP8 GEMM with the epilogue in its store (the skinny GEMM serves 1-8 rows), against the CPU.
+    /// </summary>
+    [Theory]
+    [InlineData(4)]
+    [InlineData(9)]
+    [InlineData(16)]
+    [InlineData(24)]
+    public void DualDecodeRowsGroupedWeights(int t)
+    {
+        Gpu.Require();
+        const int K = 1024, N = 384;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var g = tg.B.MatMul(x, tg.RandW("wg", DataType.Get("f8e4m3_b128"), 0.05f, N, K));
+        var u = tg.B.MatMul(x, tg.RandW("wu", DataType.Get("f8e4m3_b128"), 0.05f, N, K));
+        tg.B.Output("y", tg.B.Mul(tg.B.Silu(g), u));
+        Diff.Check("MatMul2.fp8.decode", tg.B.Build(), new Step(t, 0, (x, Rnd.ExactFp8((long)t * K, 11))), atol: 2e-3, rtol: 1e-2, maxTokens: 64,
+            what: $"T={t} N={N} K={K}");
+    }
+
     [Theory]
     [MemberData(nameof(Formats))]
     public void Fp8MatrixDisabled(string fmt)

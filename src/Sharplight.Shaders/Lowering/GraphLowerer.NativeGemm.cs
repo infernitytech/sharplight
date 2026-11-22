@@ -164,7 +164,7 @@ public sealed partial class GraphLowerer
         if (decodeForm)
         {
             variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) > NativeFp8ShortTileMaxRows, rows));
-            bool streaming = UseFp8DecodeKernel(n, k);
+            bool streaming = UseFp8DecodeKernel(n, k, dual);
             bool Streams(long r) => streaming && r <= Fp8DecodeKernelMaxRows;
             variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 32, decodeColumns,
                 b => rows(b) >= minRows && Decode(rows(b)) && rows(b) <= NativeFp8ShortTileMaxRows && !Streams(rows(b)), rows));
@@ -253,21 +253,24 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when batches of at most <see cref="Fp8DecodeKernelMaxRows"/> rows of the hand-written FP8 GEMM's decode form run on
-    /// <c>gemm_fp8_decode.cu</c> (<see cref="DiagnosticSwitches.Fp8DecodeKernel"/>): weight rows streamed into registers by every warp,
-    /// no shared-memory stages, K split across the warps of a block.
+    /// <c>gemm_fp8_decode.cu</c>: weight rows streamed into registers by every warp, no shared-memory stages, K split across the warps
+    /// of a block. Single matmuls by default (Qwen3-8B-FP8 at 16 rows, µs per layer: down [12288 → 4096] 69.8 → 67.4, o 24.3 → 24.3);
+    /// the dual gate / up pair keeps <c>gemm_fp8_native.cu</c> (131.5 → 141.8 on this kernel). <c>SHARPLIGHT_FP8_DECODE_KERNEL=1</c> /
+    /// <c>=0</c> forces it on (dual too) / off (benchmarks.md §84).
     /// </summary>
-    private static bool UseFp8DecodeKernel(long n, long k) => (DiagnosticSwitches.Fp8DecodeKernel ?? false) && n % 128 == 0 && k % 512 == 0;
+    private static bool UseFp8DecodeKernel(long n, long k, bool dual) => (DiagnosticSwitches.Fp8DecodeKernel ?? !dual) && n % 128 == 0 && k % 512 == 0;
 
     /// <summary>
     /// The launch variant of <c>gemm_fp8_decode.cu</c>: warps of 32 weight rows (dual: 16 outputs of both matrices), K split over the
-    /// fewest warps per row tile (a divisor of the K blocks) that gives <see cref="Fp8DecodeKernelWarps"/> warps in all.
+    /// fewest warps per row tile (a divisor of the K blocks, at most 8) that gives <see cref="Fp8DecodeKernelWarps"/> warps in all, or the most.
     /// </summary>
     private KernelVariant Fp8DecodeVariant(long n, long k, string? dualEpilogue, Func<Bindings, bool> serves)
     {
         bool dual = dualEpilogue is not null;
         long rowTiles = n / (dual ? 16 : 32);
         long blocksK = k / 128;
-        int split = new[] { 1, 2, 3, 4, 6, 8 }.FirstOrDefault(s => blocksK % s == 0 && rowTiles * s >= Fp8DecodeKernelWarps, 1);
+        int[] splits = [.. new[] { 1, 2, 3, 4, 6, 8 }.Where(s => blocksK % s == 0)];
+        int split = splits.FirstOrDefault(s => rowTiles * s >= Fp8DecodeKernelWarps, splits[^1]);
         int rowTilesPerBlock = split == 1 ? 4 : 1;
         while (rowTiles % rowTilesPerBlock != 0)
         {
