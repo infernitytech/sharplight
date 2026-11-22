@@ -782,8 +782,9 @@ public sealed partial class GraphLowerer
         Func<long, int> splitRows = smallMatrix ? rows => ChooseSmallMatrixSplit(N, K, rows) : workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK, GemmWaveTiles)
             : coop
-                ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
-                    (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32, GemmWaveTiles)
+                ? rows => NativeKQuantPlanSplit(w.Type, N, K, rows, splitHalf, ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0),
+                    Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)), (!splitHalf || FastMatrixProducts) && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32,
+                    GemmWaveTiles))
                 : rows => ChooseSimtSplit(N, K, rows);
 
         return new MatMulPlan

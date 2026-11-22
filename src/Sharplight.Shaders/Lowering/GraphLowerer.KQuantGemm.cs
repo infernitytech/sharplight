@@ -65,6 +65,15 @@ public sealed partial class GraphLowerer
         => NativeKQuantBlockBytes(type) > 0 && _opt.Has(DeviceFeatures.NativeGemmKQuant) && _compiler.CompilesCuda(_opt.Target) && NativeKQuantMinRows <= MatvecMaxRows + 1;
 
     /// <summary>
+    /// The generated GEMM's K split for a plan whose decode batches the hand-written K-quant GEMM takes: at least 2 for those batches, so
+    /// the unsplit gemm_cm2 launch leaves them to the split-K emission, where the K-quant GEMM serves them (it does not use the split);
+    /// <paramref name="split"/> otherwise. Qwen3.8 27B Q4_K_M at 16 rows: gate / up [5120 → 17408] 165 µs each on unsplit gemm_cm2.
+    /// </summary>
+    private int NativeKQuantPlanSplit(DataType type, long n, long k, long rows, bool splitHalf, int split)
+        => !splitHalf && split < 2 && UsesNativeKQuantDecode(type) && k % 256 == 0 && n >= NativeKQuantColumns && rows >= NativeKQuantMinRows
+           && rows <= NativeKQuantMaxRows ? 2 : split;
+
+    /// <summary>
     /// True when K-quant weights of <paramref name="type"/> [<paramref name="n"/>, <paramref name="k"/>] read by the f16 copy of x
     /// (<paramref name="macros"/>) run their decode batches on the hand-written K-quant GEMM (<see cref="DeviceFeatures.NativeGemmKQuant"/>,
     /// <c>gemm_kq_native.cu</c>): Q4_K, Q5_K or Q6_K, whole blocks per row, on a target that takes CUDA C++ with room for two stages.
