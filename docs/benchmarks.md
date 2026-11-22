@@ -12863,7 +12863,18 @@ Qwen3-0.6B, coordinator + 2 CPU workers generating 2000 tokens:
 | `kill -9` of the last worker, restarted, killed again | exits 1 after 205 ms; then a run over the restarted workers generates normally |
 | `kill -STOP` of the middle worker (hung) | exits 1 after 5.98 s ("sent nothing for 5.8 s (heartbeat timeout 5.0 s)"); the worker released the segments once resumed |
 
-### 88.6 Commands
+### 88.6 A GPU worker
+
+One hold of 5 minutes on GPU 0 (CUDA), Qwen3-8B Q4_K_M, the coordinator with its GPU hidden:
+
+| run | result |
+|---|---|
+| one process on the GPU (CLI, 32 tokens) | 136.6 tok/s |
+| `--remote-only` over one CUDA worker (same single segment, CLI) | text identical; 124.8 tok/s (the CLI's session reads the 600 KB logits row of every step over the wire); 0.25 ms overhead per execution |
+| same, PipelineBench (sampling head on the worker, token ids return) | 7.09 ms/step at B = 1 (141 tok/s), 28.3 ms at B = 8 (283 tok/s); overhead 0.15 ms (B = 1) and 0.39 ms (B = 8) per execution; prefill 512 in one pass 6927 tok/s, in chunks of 128 5232 tok/s (one stage: nothing to overlap) |
+| CPU worker (layers 0-13) + CUDA worker (the rest), `--remote-only` | text identical to the GPU run; 12.8 tok/s, bound by the CPU stage (83 ms per token against 5.8 ms on the GPU) |
+
+### 88.7 Commands
 
 ```
 sharplight segment-worker $M --cpu --listen 127.0.0.1:7071 &      # and 7072; SHARPLIGHT_CPU_THREADS=1|3|4

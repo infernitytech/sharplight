@@ -1,0 +1,18 @@
+stages: 127.0.0.1:7071 (AMD EPYC 7443 24-Core Processor) | 127.0.0.1:7073 (NVIDIA RTX PRO 4500 Blackwell)
+sampling: on the last stage (token ids return)
+greedy: 12095,13,576,6722,315,279,3639,4180 " Paris. The capital of the United States"
+decode G=1 B=1: median 61.12 ms/step, min 57.99 ms, 16.4 tok/s
+  [decode G=1 B=1] 127.0.0.1:7071: 20 exec, round trip 5663.842 ms, worker 1043.458 ms, wait 4620.271 ms, overhead 0.113 ms, 0.1 KiB out, 0.0 KiB in per exec
+  [decode G=1 B=1] 127.0.0.1:7073: 20 exec, round trip 5669.208 ms, worker 5.215 ms, wait 5663.881 ms, overhead 0.112 ms, 0.2 KiB out, 0.1 KiB in per exec
+decode G=1 B=8: median 738.82 ms/step, min 358.49 ms, 10.8 tok/s
+  [decode G=1 B=8] 127.0.0.1:7071: 12 exec, round trip 642.557 ms, worker 642.371 ms, wait 0.041 ms, overhead 0.145 ms, 0.6 KiB out, 0.0 KiB in per exec
+  [decode G=1 B=8] 127.0.0.1:7073: 12 exec, round trip 658.209 ms, worker 15.570 ms, wait 642.506 ms, overhead 0.134 ms, 0.9 KiB out, 0.1 KiB in per exec
+decode G=2 B=8: median 357.98 ms/step, min 351.51 ms, 22.3 tok/s
+  [decode G=2 B=8] 127.0.0.1:7071: 32 exec, round trip 4363.405 ms, worker 796.742 ms, wait 3566.534 ms, overhead 0.128 ms, 0.2 KiB out, 0.0 KiB in per exec
+  [decode G=2 B=8] 127.0.0.1:7073: 32 exec, round trip 4371.605 ms, worker 8.000 ms, wait 4363.492 ms, overhead 0.113 ms, 0.3 KiB out, 0.1 KiB in per exec
+prefill 512 tok in chunks of 512: median 14400.9 ms, 35.6 tok/s
+  [prefill chunk 512] 127.0.0.1:7071: 4 exec, round trip 14810.154 ms, worker 14809.893 ms, wait 0.044 ms, overhead 0.217 ms, 12.6 KiB out, 0.2 KiB in per exec
+  [prefill chunk 512] 127.0.0.1:7073: 4 exec, round trip 14856.091 ms, worker 35.482 ms, wait 14819.956 ms, overhead 0.653 ms, 10.6 KiB out, 593.7 KiB in per exec
+prefill 512 tok in chunks of 128: median 17707.5 ms, 28.9 tok/s
+  [prefill chunk 128] 127.0.0.1:7071: 16 exec, round trip 10657.293 ms, worker 4482.168 ms, wait 6175.005 ms, overhead 0.120 ms, 3.4 KiB out, 0.1 KiB in per exec
+  [prefill chunk 128] 127.0.0.1:7073: 16 exec, round trip 10673.654 ms, worker 12.025 ms, wait 10661.379 ms, overhead 0.249 ms, 3.0 KiB out, 148.5 KiB in per exec
