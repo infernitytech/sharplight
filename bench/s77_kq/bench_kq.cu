@@ -194,7 +194,7 @@ int main(int argc, char** argv)
         p.T = T;
         return p;
     };
-    const int smem = KQ_STAGES * KQ_STAGE_BYTES;
+    const int smem = KQ_STAGES * KQ_XBYTES + KQ_WST * KQ_WBYTES;
     CK(cudaFuncSetAttribute(gemm_kq_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem));
     dim3 grid((T + KQ_BM - 1) / KQ_BM, (KQ_PN + KQ_BN - 1) / KQ_BN, KQ_SPLIT);
     gemm_kq_native<<<grid, KQ_THREADS, smem>>>(params(0));

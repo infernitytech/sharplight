@@ -59,6 +59,13 @@ public sealed partial class GraphLowerer
     private static int NativeKQuantTileRows(long rows) => DiagnosticSwitches.NativeKQuantTileRows ?? (rows <= 16 ? 16 : rows <= 32 ? 32 : 64);
 
     /// <summary>
+    /// Warps along the token rows of the hand-written K-quant decode GEMM's tile of <paramref name="tileRows"/> rows
+    /// (<c>SHARPLIGHT_NATIVE_KQ_WM</c>, <c>KQ_WM</c>): 2 for 64-row tiles, where eight warps reading every token row's activations from
+    /// shared memory cost more than dequantizing each weight value twice; 1 otherwise.
+    /// </summary>
+    private static int NativeKQuantWarpRows(int tileRows) => tileRows < 32 ? 1 : DiagnosticSwitches.NativeKQuantWarpRows ?? (tileRows >= 64 ? 2 : 1);
+
+    /// <summary>
     /// True when the hand-written K-quant decode GEMM can take decode batches of <paramref name="type"/> weights on this device (the format
     /// and the feature; the shape is checked per matmul, <see cref="UseNativeKQuantDecode"/>), so the skinny GEMM leaves those batches to it.
     /// </summary>
@@ -261,7 +268,7 @@ public sealed partial class GraphLowerer
         {
             int stages = NativeKQuantStages(c.TileRows, blockBytes, k);
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("KQ_FMT", NativeKQuantFormat(type)), ("KQ_BM", c.TileRows), ("KQ_STAGES", stages),
-                ("KQ_SPLIT", c.Split));
+                ("KQ_SPLIT", c.Split), ("KQ_WM", NativeKQuantWarpRows(c.TileRows)));
             if (bias)
             {
                 macros["H_BIAS"] = "1";

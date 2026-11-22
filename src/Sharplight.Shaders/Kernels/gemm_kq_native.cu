@@ -63,8 +63,16 @@
 #endif
 #define KQ_BN 64
 #define KQ_THREADS 256
-#define KQ_FN 1
-#define KQ_TM KQ_BM
+// KQ_WM: warps along the token rows (1 or 2). With 2, each warp takes half the token rows and 16 weight rows (two B fragments per
+// A fragment): half the activation reads from shared memory, each weight value dequantized by two warps.
+#ifndef KQ_WM
+#define KQ_WM 1
+#endif
+#define KQ_FN KQ_WM
+#define KQ_TM (KQ_BM / KQ_WM)
+#if KQ_TM < 16
+#error "gemm_kq_native: KQ_WM 2 needs tiles of 32 or 64 rows"
+#endif
 #define KQ_FM (KQ_TM / 16)
 #define KQ_SB (K / 256)
 #define KQ_ROWB ((unsigned long long)KQ_SB * KQ_BB)
@@ -76,7 +84,20 @@
 #define KQ_WCH ((KQ_BB + 14 + 15) / 16)
 #endif
 #define KQ_XBYTES (KQ_BM * 512)
-#define KQ_STAGE_BYTES (KQ_XBYTES + KQ_BN * KQ_WCH * 16)
+#define KQ_WBYTES (KQ_BN * KQ_WCH * 16)
+#define KQ_STAGE_BYTES (KQ_XBYTES + KQ_WBYTES)
+// KQ_WST > KQ_STAGES: the weight blocks in a ring of their own, KQ_WST - 1 superblocks ahead (the activations KQ_STAGES - 1 ahead);
+// dynamic shared memory KQ_STAGES * KQ_XBYTES + KQ_WST * KQ_WBYTES.
+#ifndef KQ_WST
+#define KQ_WST KQ_STAGES
+#endif
+#if KQ_WST < KQ_STAGES
+#error "gemm_kq_native: KQ_WST below KQ_STAGES"
+#endif
+// The copies of superblock sb are committed as two groups, the activations' and the weights': before step s, the groups after
+// those that hold x(s) and w(s) may still be pending.
+#define KQ_MIN(a, b) ((a) < (b) ? (a) : (b))
+#define KQ_PENDING KQ_MIN(2 * KQ_STAGES - 3, 2 * KQ_WST - 4)
 #define KQ_XRS_BYTES ((unsigned long long)K * 2)
 // Columns of the partial slices: the dual form's interleaved rows of both matrices.
 #if KQ_DUAL
@@ -271,21 +292,31 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const kq_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
-    const kq_u32 wm = 0, wn = warp;
+    const kq_u32 wm = warp / (8 / KQ_WM), wn = warp % (8 / KQ_WM);
     const kq_u32 g = lane >> 2, c4 = lane & 3;
     const kq_u32 t0 = blockIdx.x * KQ_BM, ng = blockIdx.y * KQ_BN;
     kq_u32 n0 = ng;
     const KqMember m = kq_member(p, n0);
     const kq_u32 sb0 = blockIdx.z * KQ_SB / KQ_SPLIT, sb1 = (blockIdx.z + 1) * KQ_SB / KQ_SPLIT, steps = sb1 - sb0;
 
+#if KQ_WST == KQ_STAGES
     auto load = [&](kq_u32 s, kq_u32 sb) {
-        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_STAGE_BYTES);
+        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_STAGE_BYTES), wbase = base + KQ_XBYTES;
+#else
+    auto loadX = [&](kq_u32 s, kq_u32 sb) {
+        const kq_u32 base = (kq_u32)__cvta_generic_to_shared(smem + s * KQ_XBYTES);
+#endif
 #pragma unroll
         for (kq_u32 i = 0; i < KQ_BM * 32 / KQ_THREADS; i++)
         {
             kq_u32 idx = tid + i * KQ_THREADS, r = idx >> 5, c = idx & 31;
             kq_cp16(base + (c >> 3) * (KQ_BM * 128) + kq_swz(r, c & 7), p.x + (kq_u64)min(t0 + r, p.T - 1) * KQ_XRS_BYTES + sb * 512 + c * 16, 16);
         }
+#if KQ_WST != KQ_STAGES
+    };
+    auto loadW = [&](kq_u32 s, kq_u32 sb) {
+        const kq_u32 wbase = (kq_u32)__cvta_generic_to_shared(smem + KQ_STAGES * KQ_XBYTES + s * KQ_WBYTES);
+#endif
         for (kq_u32 idx = tid; idx < KQ_BN * KQ_WCH; idx += KQ_THREADS)
         {
             kq_u32 r = idx / KQ_WCH, c = idx % KQ_WCH;
@@ -293,7 +324,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
             const unsigned char* block = kq_row(p, m, n0, r, wend) + (kq_u64)sb * KQ_BB;
             const unsigned char* src = (const unsigned char*)((kq_u64)block & ~15ull) + c * 16;
             long long left = wend - src;
-            kq_cp16(base + KQ_XBYTES + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
+            kq_cp16(wbase + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
         }
 #if KQ_PF > 0
         if (tid < KQ_BN && sb + KQ_PF < sb1)
@@ -330,6 +361,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         }
     }
 
+#if KQ_WST == KQ_STAGES
 #pragma unroll
     for (int s = 0; s < KQ_STAGES - 1; s++)
     {
@@ -339,9 +371,28 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         }
         asm volatile("cp.async.commit_group;\n" ::);
     }
+#else
+    // The steps -(KQ_WST - 1) .. -1 of the loop below: each commits x(step + KQ_STAGES - 1) and w(step + KQ_WST - 1) where they exist.
+#pragma unroll
+    for (int s = -(KQ_WST - 1); s < 0; s++)
+    {
+        const int xs = s + KQ_STAGES - 1, ws = s + KQ_WST - 1;
+        if (xs >= 0 && xs < (int)steps)
+        {
+            loadX(xs % KQ_STAGES, sb0 + xs);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+        if (ws < (int)steps)
+        {
+            loadW(ws % KQ_WST, sb0 + ws);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+    }
+#endif
 
     for (kq_u32 step = 0; step < steps; step++)
     {
+#if KQ_WST == KQ_STAGES
         asm volatile("cp.async.wait_group %0;\n" :: "n"(KQ_STAGES - 2));
         __syncthreads();
         kq_u32 next = step + KQ_STAGES - 1;
@@ -352,6 +403,24 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
         asm volatile("cp.async.commit_group;\n" ::);
 
         const unsigned char* stage = smem + (step % KQ_STAGES) * KQ_STAGE_BYTES;
+        const unsigned char* wstage = stage + KQ_XBYTES;
+#else
+        asm volatile("cp.async.wait_group %0;\n" :: "n"(KQ_PENDING));
+        __syncthreads();
+        if (step + KQ_STAGES - 1 < steps)
+        {
+            loadX((step + KQ_STAGES - 1) % KQ_STAGES, sb0 + step + KQ_STAGES - 1);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+        if (step + KQ_WST - 1 < steps)
+        {
+            loadW((step + KQ_WST - 1) % KQ_WST, sb0 + step + KQ_WST - 1);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+
+        const unsigned char* stage = smem + (step % KQ_STAGES) * KQ_XBYTES;
+        const unsigned char* wstage = smem + KQ_STAGES * KQ_XBYTES + (step % KQ_WST) * KQ_WBYTES;
+#endif
         const kq_u32 sa = (kq_u32)__cvta_generic_to_shared(stage);
         const unsigned char* blk[KQ_FN];
 #pragma unroll
@@ -360,7 +429,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS) gemm_kq_native(KqParams
             kq_u32 r = wn * 8 * KQ_FN + j * 8 + g;
             const unsigned char* wend;
             const unsigned char* block = kq_row(p, m, n0, r, wend) + (kq_u64)(sb0 + step) * KQ_BB;
-            blk[j] = stage + KQ_XBYTES + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
+            blk[j] = wstage + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
         }
 
         // The A fragments of chunk q (16 values of the superblock) and the products with the B fragments b[j][0..1].
