@@ -1,0 +1,13 @@
+== 09:16:43 lock taken: bash $WORK/r3.sh
+[0m[91m    Sharplight.Vulkan.Tests.KQuantDecodeGemmTests.GatedProjection(format: "q6_k", rows: 48, gelu: False, n: 4096) [FAIL]
+[0m[37m      KQuantDecode.gated.q6_k T=48 N=4096 step 0 output y[9599]: vulkan -0.98176229 vs cpu -0.855920792 (|d|=1.26E-001, tol=8.86E-002)
+[0m[37m   Sharplight.Vulkan.Tests  Total: 30, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 18.123s
+wide rows 64
+prefill 16384 tok: best 11415 ms = 1435.3 tok/s | decode: best 36.19, median 35.89, mean 35.90 tok/s | GPU ms/step: best 27.43, median 27.64, wall best 27.63 | prefill median of 2: 11473.8 ms = 1428.0 tok/s
+wide rows 32
+prefill 16384 tok: best 12682 ms = 1291.9 tok/s | decode: best 36.01, median 35.75, mean 35.75 tok/s | GPU ms/step: best 27.53, median 27.74, wall best 27.77 | prefill median of 2: 12716.1 ms = 1288.4 tok/s
+wide rows 64
+prefill 16384 tok: best 11545 ms = 1419.2 tok/s | decode: best 36.02, median 35.74, mean 35.73 tok/s | GPU ms/step: best 27.55, median 27.75, wall best 27.76 | prefill median of 2: 11566.1 ms = 1416.6 tok/s
+wide rows 32
+prefill 16384 tok: best 12719 ms = 1288.2 tok/s | decode: best 35.97, median 35.62, mean 35.61 tok/s | GPU ms/step: best 27.58, median 27.77, wall best 27.80 | prefill median of 2: 12744.2 ms = 1285.6 tok/s
+== 09:20:59 done rc=0

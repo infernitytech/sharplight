@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
     /// <summary>Threads per block of <c>gemm_kq_native.cu</c> (2 x 4 warps).</summary>
     private const int NativeKQuantThreads = 256;
 
-    /// <summary>Weight rows per block of <c>gemm_kq_native.cu</c>.</summary>
+    /// <summary>Weight rows per block of <c>gemm_kq_native.cu</c> (and per workgroup of <c>gemm_kq.slang</c>, the cooperative-matrix form).</summary>
     private const int NativeKQuantColumns = 64;
 
     /// <summary>Largest batch the hand-written K-quant decode GEMM serves (one token tile of 64 rows).</summary>
@@ -50,6 +50,47 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
+    /// True when this target runs the K-quant decode batches on the cooperative-matrix K-quant decode GEMM (<c>gemm_kq.slang</c>) instead
+    /// of the CUDA C++ one: a target without CUDA C++ (Vulkan) whose 16x16 f16 fragments have the MMA element layout
+    /// (<see cref="DeviceFeatures.MatrixMmaLayout"/>, verified by the kernel), with f16 arithmetic; <c>SHARPLIGHT_COOP_KQ=0</c> keeps gemm_cm2.
+    /// </summary>
+    private bool CoopKQuantDecode => DiagnosticSwitches.CoopKQuant && !_compiler.CompilesCuda(_opt.Target) && _opt.Has(DeviceFeatures.MatrixMmaLayout)
+                                     && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16);
+
+    /// <summary>
+    /// 64-row weight tiles per workgroup of the cooperative-matrix K-quant decode GEMM
+    /// (<c>KQ_NT</c>, <c>SHARPLIGHT_COOP_KQ_NT</c>): 1 on the CUDA C++ kernel and for the multi-output form.
+    /// </summary>
+    private int CoopKQuantWeightTiles(bool multi)
+        => !CoopKQuantDecode || multi ? 1 : DiagnosticSwitches.CoopKQuantWeightTiles ?? 1;
+
+    /// <summary>True when one of the K-quant decode GEMMs serves this target: the CUDA C++ one (<see cref="DeviceFeatures.NativeGemmKQuant"/>) or the cooperative-matrix one.</summary>
+    private bool KQuantDecodeAvailable => (_opt.Has(DeviceFeatures.NativeGemmKQuant) && _compiler.CompilesCuda(_opt.Target)) || CoopKQuantDecode;
+
+    /// <summary>
+    /// Shared memory of the cooperative-matrix K-quant decode GEMM (<c>gemm_kq.slang</c>) with <paramref name="tileRows"/> token rows: the
+    /// activation stage (512 bytes per row), the weight windows of 64 rows at the kernel's padded row stride, and a flag word.
+    /// </summary>
+    private static int CoopKQuantSharedBytes(int tileRows, int blockBytes, long k)
+    {
+        bool aligned = blockBytes % 16 == 0 && k / 256 * blockBytes % 16 == 0;
+        int chunks = aligned ? blockBytes / 16 : (blockBytes + 14 + 15) / 16;
+        int stride = (chunks % 8) switch
+        {
+            2 or 6 => chunks,
+            1 or 5 => chunks + 1,
+            3 or 4 => chunks + 6 - chunks % 8,
+            _ => chunks + 10 - chunks % 8,
+        };
+        return tileRows * 512 + NativeKQuantColumns * stride * 16 + 16;
+    }
+
+    /// <summary>True when the K-quant decode GEMM of this target fits the device for <paramref name="blockBytes"/>-byte blocks and K = <paramref name="k"/> at its largest tile.</summary>
+    private bool KQuantDecodeFits(int blockBytes, long k)
+        => CoopKQuantDecode ? CoopKQuantSharedBytes(NativeKQuantTileRows(NativeKQuantMaxRows), blockBytes, k) <= _opt.MaxSharedMemory
+            : NativeKQuantStages(NativeKQuantTileRows(NativeKQuantMaxRows), blockBytes, k) >= 2;
+
+    /// <summary>
     /// Token rows of the hand-written K-quant decode GEMM's tile for <paramref name="rows"/> rows (<c>SHARPLIGHT_NATIVE_KQ_BM</c>): 16 up to 16
     /// rows (four stages), 32 up to 32 (three), 48 up to 48 (two), else 64 (two). bench/s77_kq, RTX PRO 4500, sustained µs (Q4_K [4096 → 12288] / Q6_K
     /// [12288 → 4096]): 16 rows 43.8 / 58.8 on 16-row tiles against 58.2 / 65.6 on 32-row tiles; 32 rows 52.4 / 60.4 on 32-row tiles
@@ -66,11 +107,12 @@ public sealed partial class GraphLowerer
     private static int NativeKQuantWarpRows(int tileRows) => tileRows < 32 ? 1 : DiagnosticSwitches.NativeKQuantWarpRows ?? 1;
 
     /// <summary>
-    /// True when the hand-written K-quant decode GEMM can take decode batches of <paramref name="type"/> weights on this device (the format
-    /// and the feature; the shape is checked per matmul, <see cref="UseNativeKQuantDecode"/>), so the skinny GEMM leaves those batches to it.
+    /// True when a K-quant decode GEMM (<c>gemm_kq_native.cu</c> on CUDA, <c>gemm_kq.slang</c> on other targets with the MMA fragment
+    /// layout) can take decode batches of <paramref name="type"/> weights on this device (the format and the feature; the shape is checked
+    /// per matmul, <see cref="UseNativeKQuantDecode"/>), so the skinny GEMM leaves those batches to it.
     /// </summary>
     private bool UsesNativeKQuantDecode(DataType type)
-        => NativeKQuantBlockBytes(type) > 0 && _opt.Has(DeviceFeatures.NativeGemmKQuant) && _compiler.CompilesCuda(_opt.Target) && NativeKQuantMinRows <= MatvecMaxRows + 1;
+        => NativeKQuantBlockBytes(type) > 0 && KQuantDecodeAvailable && NativeKQuantMinRows <= MatvecMaxRows + 1;
 
     /// <summary>
     /// The generated GEMM's K split for a plan whose decode batches the hand-written K-quant GEMM takes: at least 2 for those batches, so
@@ -83,13 +125,14 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when K-quant weights of <paramref name="type"/> [<paramref name="n"/>, <paramref name="k"/>] read by the f16 copy of x
-    /// (<paramref name="macros"/>) run their decode batches on the hand-written K-quant GEMM (<see cref="DeviceFeatures.NativeGemmKQuant"/>,
-    /// <c>gemm_kq_native.cu</c>): Q4_K, Q5_K or Q6_K, whole blocks per row, on a target that takes CUDA C++ with room for two stages.
+    /// (<paramref name="macros"/>) run their decode batches on a K-quant decode GEMM: Q4_K, Q5_K or Q6_K, whole blocks per row, on a target
+    /// that takes CUDA C++ with room for two stages (<see cref="DeviceFeatures.NativeGemmKQuant"/>, <c>gemm_kq_native.cu</c>), or on one
+    /// whose fragments have the MMA layout with room for the cooperative-matrix form's stage (<see cref="CoopKQuantDecode"/>).
     /// </summary>
     private bool UseNativeKQuantDecode(DataType type, long n, long k, IReadOnlyDictionary<string, string> macros)
-        => _opt.Has(DeviceFeatures.NativeGemmKQuant) && _compiler.CompilesCuda(_opt.Target) && NativeKQuantBlockBytes(type) > 0 && k % 256 == 0
+        => KQuantDecodeAvailable && NativeKQuantBlockBytes(type) > 0 && k % 256 == 0
            && n >= NativeKQuantColumns && macros.GetValueOrDefault("X_F16") == "1" && macros.GetValueOrDefault("X_STRIDE") == k.ToString(CultureInfo.InvariantCulture)
-           && NativeKQuantStages(NativeKQuantTileRows(NativeKQuantMaxRows), NativeKQuantBlockBytes(type), k) >= 2;
+           && KQuantDecodeFits(NativeKQuantBlockBytes(type), k);
 
     /// <summary>
     /// K split of the hand-written K-quant decode GEMM for <paramref name="tiles"/> blocks of <paramref name="steps"/> superblocks
@@ -99,14 +142,19 @@ public sealed partial class GraphLowerer
     /// rows: Q6_K [21504 → 5376] (84 blocks on 82 SMs) 220.4 / 217.3 → 182.5 / 179.7 split in two; Q4_K [4096 → 12288] (192 blocks)
     /// 43.8 / 52.4 unsplit against 44.9 / 55.4; [4096 → 4096] (64 blocks) 14.1 / 17.8 against 17.5 / 20.8.
     /// </summary>
-    private int NativeKQuantSplit(long tiles, long steps)
+    /// <remarks>
+    /// The cooperative-matrix GEMM's 16-row tiles fit two workgroups per compute unit (115 registers, 18 KiB on the RTX PRO 4500), so
+    /// the rule counts two slots per unit there (Q6_K [12288 → 4096] at 16 rows: 64 tiles, 71 → 61 µs split in two; Q4_K [12288 → 4096] 63 →
+    /// 51); its larger tiles take one (32 rows, the same matrices split in two: 81 → 88 and 75 → 100 µs).
+    /// </remarks>
+    private int NativeKQuantSplit(long tiles, long steps, int tileRows)
     {
         if (DiagnosticSwitches.NativeKQuantSplit is { } forced)
         {
             return forced;
         }
 
-        long sms = Math.Max(1, _opt.ComputeUnits);
+        long sms = Math.Max(1, _opt.ComputeUnits) * (CoopKQuantDecode && tileRows <= 16 ? 2 : 1);
         int split = tiles * 2 <= sms ? (int)Math.Min(4, sms / tiles) : tiles >= sms && tiles % sms != 0 && tiles % sms * 4 < sms ? 2 : 1;
         return (int)Math.Max(1, Math.Min(split, steps / 2));
     }
@@ -196,18 +244,19 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// The dual gate / up form of the hand-written K-quant decode GEMM for two matmuls sharing x whose products feed one elementwise
-    /// group (<paramref name="epilogue"/>, the group's CUDA form from <see cref="DualEpilogueCudaSource"/>): one launch over the
+    /// group (<paramref name="epilogue"/>, the group's CUDA form from <see cref="DualEpilogueCudaSource"/>; on the cooperative-matrix GEMM
+    /// <paramref name="coopEpilogue"/>, its <c>epi2</c> source including <c>gemm_kq.slang</c>): one launch over the
     /// interleaved rows of both matrices, each block 32 outputs of both, applying the group in its store, for the decode batches of
     /// <see cref="NativeKQuantMinRows"/> to <see cref="NativeKQuantMaxRows"/> rows above <paramref name="fusedBelow"/> (instead of two
     /// K-quant GEMM launches and the elementwise launch). Returns the row counts it serves, or null when it does not apply.
     /// </summary>
     private Func<long, bool>? EmitNativeKQuantDualGemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead,
-        TensorRef weightA, TensorRef weightB, TensorRef y, long n, long k, string? epilogue, long fusedBelow)
+        TensorRef weightA, TensorRef weightB, TensorRef y, long n, long k, string? epilogue, string? coopEpilogue, long fusedBelow)
     {
-        if (epilogue is null || !DiagnosticSwitches.NativeKQuantDual || weightA.Type != weightB.Type || !UsesNativeKQuantDecode(weightA.Type) || k % 256 != 0
+        if (!DiagnosticSwitches.NativeKQuantDual || weightA.Type != weightB.Type || !UsesNativeKQuantDecode(weightA.Type) || k % 256 != 0
             || n < NativeKQuantColumns || rowsPerLead != 1 || weightA.ByteOffset % 16 != 0 || weightB.ByteOffset % 16 != 0 || !y.IsDense
             || !DiagnosticSwitches.Gemm2 || !DiagnosticSwitches.GemmHalfActivations
-            || NativeKQuantStages(NativeKQuantTileRows(NativeKQuantMaxRows), NativeKQuantBlockBytes(weightA.Type), k) < 2)
+            || !KQuantDecodeFits(NativeKQuantBlockBytes(weightA.Type), k) || (CoopKQuantDecode ? coopEpilogue is null : epilogue is null))
         {
             return null;
         }
@@ -230,7 +279,7 @@ public sealed partial class GraphLowerer
         Func<Bindings, bool> decode = b => rowsOf(b) >= minRows && rowsOf(b) <= rowsMax;
         long? rangeScales = _rangeScales.TryGetValue(half, out long xrs) ? xrs : null;
         var (variants, scratch, arrivals) = NativeKQuantVariants(weightA.Type, n, k, rowsMax, false, rangeScales, new Dictionary<string, string> { ["KQ_DUAL"] = "1" },
-            decode, rowsOf, epilogue.Replace("F8N_EPI2", "KQ_EPI2", StringComparison.Ordinal), dual: true);
+            decode, rowsOf, CoopKQuantDecode ? coopEpilogue! : epilogue!.Replace("F8N_EPI2", "KQ_EPI2", StringComparison.Ordinal), dual: true);
         Emit($"{label} native kquant decode", nodes, variants,
             [Pointer(half), Pointer(weightA), Pointer(y), Pointer(weightB), Pointer(scratch), Pointer(arrivals), TokenArg(x, rowsPerLead)],
             [half, weightA, weightB], [y, scratch, arrivals]);
@@ -250,9 +299,10 @@ public sealed partial class GraphLowerer
     {
         int blockBytes = NativeKQuantBlockBytes(type);
         long tileRowsTotal = dual ? 2 * n : n;
-        long columns = Grid.Div(tileRowsTotal, NativeKQuantColumns);
+        bool multi = extra?.ContainsKey("MULTI") == true;
+        long columns = Grid.Div(tileRowsTotal, NativeKQuantColumns * CoopKQuantWeightTiles(multi));
         long steps = k / 256;
-        int Split(long rows) => NativeKQuantSplit(columns * Grid.Div(rows, NativeKQuantTileRows(rows)), steps);
+        int Split(long rows) => NativeKQuantSplit(columns * Grid.Div(rows, NativeKQuantTileRows(rows)), steps, NativeKQuantTileRows(rows));
         // One variant per (token tile rows, split) over the served batches; the split depends on rows only through the token tiles.
         var configs = new SortedSet<(int TileRows, int Split)>();
         for (long rows = NativeKQuantMinRows; rows <= rowsMax; rows++)
@@ -266,9 +316,18 @@ public sealed partial class GraphLowerer
         var arrivals = SplitArrivals(columns * Grid.Div(rowsMax, configs.Min(c => c.TileRows)));
         var variants = configs.Select(c =>
         {
-            int stages = NativeKQuantStages(c.TileRows, blockBytes, k);
-            var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("KQ_FMT", NativeKQuantFormat(type)), ("KQ_BM", c.TileRows), ("KQ_STAGES", stages),
-                ("KQ_SPLIT", c.Split), ("KQ_WM", NativeKQuantWarpRows(c.TileRows)));
+            bool coop = CoopKQuantDecode;
+            int stages = coop ? 1 : NativeKQuantStages(c.TileRows, blockBytes, k);
+            var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("KQ_FMT", NativeKQuantFormat(type)), ("KQ_BM", c.TileRows), ("KQ_SPLIT", c.Split));
+            if (!coop)
+            {
+                macros["KQ_STAGES"] = stages.ToString(CultureInfo.InvariantCulture);
+                macros["KQ_WM"] = NativeKQuantWarpRows(c.TileRows).ToString(CultureInfo.InvariantCulture);
+            }
+            else if (CoopKQuantWeightTiles(multi) > 1)
+            {
+                macros["KQ_NT"] = CoopKQuantWeightTiles(multi).ToString(CultureInfo.InvariantCulture);
+            }
             if (bias)
             {
                 macros["H_BIAS"] = "1";
@@ -284,8 +343,16 @@ public sealed partial class GraphLowerer
                 macros[name] = value;
             }
 
-            var kernel = _compiler.CompileCuda("gemm_kq_native.cu", prefix, "gemm_kq_native", NativeKQuantThreads, stages * NativeKQuantStageBytes(c.TileRows, blockBytes, k),
-                _opt.Target, macros, _opt.Cache);
+            foreach (var (name, value) in coop ? DiagnosticSwitches.CoopKQuantExtraMacros : new Dictionary<string, string>())
+            {
+                macros[name] = value;
+            }
+
+            var kernel = !coop
+                ? _compiler.CompileCuda("gemm_kq_native.cu", prefix, "gemm_kq_native", NativeKQuantThreads, stages * NativeKQuantStageBytes(c.TileRows, blockBytes, k),
+                    _opt.Target, macros, _opt.Cache)
+                : dual ? _compiler.Compile("gemm_kq_dual.slang", prefix, "gemm_kq", _opt.Target, macros, _opt.Cache)
+                : Lib("gemm_kq.slang", "gemm_kq", macros);
             Func<Bindings, bool> pick = b => decode(b) && NativeKQuantTileRows(rowsOf(b)) == c.TileRows && Split(rowsOf(b)) == c.Split;
             return new KernelVariant(pick, kernel, b => new Grid(Grid.Div(rowsOf(b), c.TileRows), (uint)columns, (uint)c.Split));
         }).ToArray();

@@ -1,0 +1,30 @@
+Vulkan.Tests vulkan MatMul: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 36.790s 0 FAIL lines
+Vulkan.Tests vulkan SkinnyGemm: Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 18.598s 0 FAIL lines
+Vulkan.Tests vulkan RowInvariance: Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 28.143s 0 FAIL lines
+Vulkan.Tests vulkan Mmq: Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 114.419s 0 FAIL lines
+Vulkan.Tests vulkan QuantFormat: Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 103.188s 0 FAIL lines
+Vulkan.Tests vulkan DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 24.316s 0 FAIL lines
+Vulkan.Tests vulkan MatMulEpilogue: Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 26.123s 0 FAIL lines
+Vulkan.Tests vulkan FullAttention: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 32.760s 0 FAIL lines
+Vulkan.Tests vulkan PagedAttention: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 16.564s 0 FAIL lines
+Vulkan.Tests vulkan Stateful: Total: 78, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 90.090s 0 FAIL lines
+Vulkan.Tests vulkan CompressedKv: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 13.225s 0 FAIL lines
+Vulkan.Tests vulkan KQuantDecodeGemm: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 61.197s 0 FAIL lines
+Vulkan.Tests vulkan Fusion: Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 52.173s 0 FAIL lines
+Vulkan.Tests cuda MatMul: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 10.338s 0 FAIL lines
+Vulkan.Tests cuda SkinnyGemm: Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.730s 0 FAIL lines
+Vulkan.Tests cuda RowInvariance: Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.272s 0 FAIL lines
+Vulkan.Tests cuda Mmq: Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 130.301s 0 FAIL lines
+Vulkan.Tests cuda QuantFormat: Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 120.265s 0 FAIL lines
+Vulkan.Tests cuda DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 13.575s 0 FAIL lines
+Vulkan.Tests cuda MatMulEpilogue: Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 15.937s 0 FAIL lines
+Vulkan.Tests cuda FullAttention: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 88.532s 0 FAIL lines
+Vulkan.Tests cuda PagedAttention: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 13.701s 0 FAIL lines
+Vulkan.Tests cuda Stateful: Total: 78, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 78.278s 0 FAIL lines
+Vulkan.Tests cuda CompressedKv: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.635s 0 FAIL lines
+Vulkan.Tests cuda KQuantDecodeGemm: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 60.506s 0 FAIL lines
+Vulkan.Tests cuda Fusion: Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 15.232s 0 FAIL lines
+Cuda.Tests: Total: 63, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 83.838s 0 FAIL lines
+SessionWindowKv: Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 53.348s 0 FAIL lines
+FamilyGeneration gemma-4: Total: 12, Errors: 0, Failed: 0, Skipped: 9, Not Run: 0, Time: 45.098s 0 FAIL lines
+FamilyGeneration qwen3: Total: 63, Errors: 0, Failed: 3, Skipped: 30, Not Run: 0, Time: 129.615s 3 FAIL lines

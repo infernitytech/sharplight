@@ -72,7 +72,8 @@ public sealed partial class GraphLowerer
     /// The tensor-core decode form for head sizes 256 and 512 with separate key and value caches (Qwen3.5 / 3.8, Gemma 4's window and
     /// global layers) on targets without the hand-written CUDA kernel: <c>fa_mqa</c> with <c>FM_SEPV</c>, the decode rows' key and value
     /// tiles staged side by side, a group's heads (up to 16) as the rows of the cooperative-matrix products, so each key and value
-    /// row is read once per KV head. The generic <c>decode</c> runs these rows on scalar lanes, whose registers hold 8 heads x 16
+    /// row is read once per KV head (f16 caches, or q8_0 / q4_0 caches whose 32-value blocks are converted to f16 as they are staged).
+    /// The generic <c>decode</c> runs these rows on scalar lanes, whose registers hold 8 heads x 16
     /// values of queries and accumulators each at head size 512. Returns null where the shapes, the cache type or the device do not
     /// allow it (<c>decode</c> is the fallback).
     /// </summary>
@@ -87,7 +88,8 @@ public sealed partial class GraphLowerer
         bool form = !plan.Full && !plan.Cross && plan.Spans is null && plan.Mask is null && plan.Selection is null && plan.Compressed is null
                     && plan.RelativeBias is null && !a.Has("alibi_slopes") && !a.Has("position_bias");
         if (!form || !DiagnosticSwitches.AttentionDecodeTensorCores || NativeWideDecodeAttention(plan) || plan.D != plan.DV || plan.D is not (256 or 512)
-            || plan.K.Type != DataType.F16 || plan.V.Type != DataType.F16 || plan.HQ % plan.HKV != 0 || group > 16 || keys is not (16 or 32)
+            || (plan.K.Type != DataType.F16 && !IsQuantizedKv(plan.K.Type)) || plan.V.Type != plan.K.Type || plan.HQ % plan.HKV != 0 || group > 16
+            || keys is not (16 or 32)
             || !_opt.Has(DeviceFeatures.MatrixF16) || !_opt.Has(DeviceFeatures.Float16) || !_opt.Has(DeviceFeatures.SubgroupOps) || _opt.SubgroupSize != 32
             || sharedBytes > _opt.MaxSharedMemory)
         {

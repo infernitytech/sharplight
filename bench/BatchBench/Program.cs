@@ -48,7 +48,12 @@ string? providerName = Opt("--provider");
 var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover()
     .First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu" && (providerName is null || x.Provider.Name == providerName)).Provider;
 using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
-using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = int.Parse(Opt("--batch", "512")!) });
+// --kv-type f16|q8_0|...: element type of the KV caches (default: the model's).
+Sharplight.Tensors.DataType? kvType = Opt("--kv-type") is { } kt ? Sharplight.Tensors.DataType.Get(kt) : null;
+using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions
+{
+    Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = int.Parse(Opt("--batch", "512")!), KvCacheType = kvType,
+});
 // --kv-tokens N: paged pool size (0: the contiguous per-slot cache; default: the paged default of slots x ctx).
 long? kvTokens = Opt("--kv-tokens") is { } kv ? long.Parse(kv) : null;
 using var dec = (MultiSequenceDecoder)model.CreateBatchDecoder(slots, ctx, kvCacheTokens: kvTokens);

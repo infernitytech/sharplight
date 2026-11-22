@@ -1,0 +1,16 @@
+== 08:49:49 lock taken: bash $WORK/kexp.sh
+[X=0] BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+[KQ_X_NOCOPY=1] BENCH matmul q4_k T=32 4096->12288    0.034 ms      93.6 TFLOP/s
+[KQ_X_NODQ=1] BENCH matmul q4_k T=32 4096->12288    0.086 ms      37.6 TFLOP/s
+[KQ_X_NOA=1] BENCH matmul q4_k T=32 4096->12288    0.073 ms      43.9 TFLOP/s
+[KQ_X_NOCOPY=1,KQ_X_NODQ=1] BENCH matmul q4_k T=32 4096->12288    0.024 ms     133.3 TFLOP/s
+[KQ_X_NOCOPY=1,KQ_X_NOA=1] BENCH matmul q4_k T=32 4096->12288    0.032 ms      99.3 TFLOP/s
+[KQ_X_NOCOPY=1,KQ_X_NODQ=1,KQ_X_NOA=1] BENCH matmul q4_k T=32 4096->12288    0.024 ms     133.2 TFLOP/s
+[X=0] BENCH matmul q4_k T=64 4096->12288    0.114 ms      56.7 TFLOP/s
+[KQ_X_NOCOPY=1] BENCH matmul q4_k T=64 4096->12288    0.061 ms     105.6 TFLOP/s
+[KQ_X_NODQ=1] BENCH matmul q4_k T=64 4096->12288    0.096 ms      67.2 TFLOP/s
+[KQ_X_NOA=1] BENCH matmul q4_k T=64 4096->12288    0.090 ms      71.8 TFLOP/s
+[KQ_X_NOCOPY=1,KQ_X_NODQ=1] BENCH matmul q4_k T=64 4096->12288    0.061 ms     105.4 TFLOP/s
+[KQ_X_NOCOPY=1,KQ_X_NOA=1] BENCH matmul q4_k T=64 4096->12288    0.055 ms     117.0 TFLOP/s
+[KQ_X_NOCOPY=1,KQ_X_NODQ=1,KQ_X_NOA=1] BENCH matmul q4_k T=64 4096->12288    0.047 ms     137.6 TFLOP/s
+== 08:51:13 done rc=0
