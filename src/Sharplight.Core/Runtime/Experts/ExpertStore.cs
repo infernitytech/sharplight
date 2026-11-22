@@ -100,7 +100,7 @@ public sealed unsafe class ExpertStore : IDisposable
         {
             lock (_lock)
             {
-                return _tensors.Values.Sum(t => t.ExpertBytes * t.Experts);
+                return _tensors.Values.Sum(t => t.StoredExpertBytes * t.Experts);
             }
         }
     }
@@ -228,14 +228,14 @@ public sealed unsafe class ExpertStore : IDisposable
     /// <param name="slotsPerRow">Experts a row selects.</param>
     internal bool TryRegister(WeightInfo weight, string group, int slotsPerRow)
     {
-        if (weight.Shape.Rank != 3 || weight.Shape.Dims.Any(d => d.IsSymbolic) || !weight.Source.TryGetFileRange(out string path, out long offset))
+        if (weight.Shape.Rank != 3 || weight.Shape.Dims.Any(d => d.IsSymbolic) || !TryLocate(weight, out string path, out long offset, out var encoding))
         {
             return false;
         }
 
         long experts = weight.Shape[0].Fixed;
         long bytes = weight.ByteSize;
-        if (experts <= 0 || bytes % experts != 0)
+        if (experts <= 0 || bytes % experts != 0 || (encoding is not null && (bytes / experts) % encoding.BlockBytes != 0))
         {
             return false;
         }
@@ -254,7 +254,7 @@ public sealed unsafe class ExpertStore : IDisposable
                 _files[path] = file;
             }
 
-            var tensor = new DiskExpertTensor(weight.Name, group, file, offset, bytes / experts, (int)experts, Math.Max(1, slotsPerRow));
+            var tensor = new DiskExpertTensor(weight.Name, group, file, offset, bytes / experts, (int)experts, Math.Max(1, slotsPerRow), encoding);
             _tensors[(path, offset)] = tensor;
             if (!_groups.TryGetValue(group, out var members))
             {
@@ -268,10 +268,21 @@ public sealed unsafe class ExpertStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Where <paramref name="weight"/>'s bytes lie in a file: as stored (<see cref="IWeightSource.TryGetFileRange"/>), or stored in another
+    /// block encoding that the store decodes after each read (<see cref="IWeightSource.TryGetEncodedFileRange"/>).
+    /// </summary>
+    private static bool TryLocate(WeightInfo weight, out string path, out long offset, out IStoredBlockEncoding? encoding)
+    {
+        encoding = null;
+        return weight.Source.TryGetFileRange(out path, out offset)
+            || (weight.Source.TryGetEncodedFileRange(out path, out offset, out encoding) && encoding is not null);
+    }
+
     /// <summary>The disk-backed form of <paramref name="weight"/>, or null when it is resident.</summary>
     internal DiskExpertTensor? Find(WeightInfo weight)
     {
-        if (!weight.Source.TryGetFileRange(out string path, out long offset))
+        if (!TryLocate(weight, out string path, out long offset, out _))
         {
             return null;
         }
@@ -551,7 +562,7 @@ public sealed unsafe class ExpertStore : IDisposable
                 held.Loading = null;
             }
 
-            pointers[e] = pool.Address(slot) + tensor.ReadRange(e).Skip;
+            pointers[e] = pool.Address(slot) + tensor.DataOffset(e);
         }
     }
 
@@ -600,12 +611,42 @@ public sealed unsafe class ExpertStore : IDisposable
         }
 
         var batch = _reader.Submit(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(reads));
+        if (tensor.Encoding is not null)
+        {
+            batch = DecodeAfter(batch, tensor, missing);
+        }
+
         foreach (var (_, slot) in missing)
         {
             pool[slot].Loading = batch;
         }
 
         return batch;
+    }
+
+    /// <summary>
+    /// For a weight stored in another block encoding: a batch that completes once <paramref name="reads"/> did and the experts it filled are
+    /// decoded in their slots (in parallel, outside the store's lock), so that a pass waiting for the slot finds the weight's own bytes.
+    /// </summary>
+    private static ExpertReadBatch DecodeAfter(ExpertReadBatch reads, DiskExpertTensor tensor, List<(int Expert, int Slot)> missing)
+    {
+        var pool = tensor.Pool!;
+        var slots = missing.Select(m => (m.Expert, Address: (nint)pool.Address(m.Slot))).ToArray();
+        var decoded = new ExpertReadBatch(1);
+        Task.Run(() =>
+        {
+            try
+            {
+                reads.Wait();
+                Parallel.For(0, slots.Length, i => tensor.Decode(slots[i].Expert, (byte*)slots[i].Address));
+                decoded.CompleteRead(reads.BytesRead);
+            }
+            catch (Exception error)
+            {
+                decoded.FailRead(error is IOException { InnerException: { } inner } ? inner : error);
+            }
+        });
+        return decoded;
     }
 
     /// <summary>
@@ -739,8 +780,8 @@ public sealed unsafe class ExpertStore : IDisposable
         }
 
         MeasuredReadBytesPerSecond = bytes / seconds;
-        long diskBytes = tensors.Sum(t => t.ExpertBytes * t.Experts);
-        long perToken = tensors.Sum(t => t.ExpertBytes * t.SlotsPerRow);
+        long diskBytes = tensors.Sum(t => t.StoredExpertBytes * t.Experts);
+        long perToken = tensors.Sum(t => t.StoredExpertBytes * t.SlotsPerRow);
         long cacheBytes = _pools.Sum(p => p.Bytes);
         var estimate = EstimateDecode(perToken, diskBytes, cacheBytes, MeasuredReadBytesPerSecond.Value);
         _log?.Invoke($"Experts on disk: {tensors.Count} weights in {_groups.Count} layers ({Gib(diskBytes)}) read with {_reader.Name}; "

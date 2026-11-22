@@ -1,0 +1,17 @@
+llama ids: 785,6722,315,9621,374
+== ours CPU logits 13:47:27
+Experts on disk: io_uring is unavailable (io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)); reading with 8 threads instead.
+Experts on disk: 215.2 GiB of routed experts on the CPU exceed the 16.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 16.0 GiB cache.
+== ours CPU greedy 13:48:32
+slot 1 AMD EPYC 7443 24-Core Processor: 74 groups, 215.23 GiB weights+state
+74 routed-expert group(s) on disk
+Ready (decode)
+The capital of France isExperts on disk: 222 weights in 74 layers (215.2 GiB) read with threads x8; 4.1 GB/s measured; a decode step reads up to 7.22 GB: about 0.57 tok/s from a cold cache, ~0.62 tok/s once the 17.2 GiB cache holds its share (reads only; compute adds to it).
+ Paris. Distance from Paris to Marseille is 661 km, while direct flight time is 1== llama CPU logits 13:51:00
+n_vocab 154880 best 12089 18.1104
+== llama CPU greedy 13:53:41
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+2.26.955.636 I 
+The capital of France is Paris. Distance from Paris to Marseille is 661 km, while direct flight time from Paris to Marseille is 1
+
+== done 13:59:06

@@ -33,7 +33,7 @@ internal static unsafe partial class HostCpuInfo
 
     /// <summary>
     /// Host memory this process can still allocate, in bytes: /proc/meminfo's MemAvailable, bounded by what the control group's limit
-    /// leaves (its usage minus reclaimable file cache). Null when unknown.
+    /// leaves (its usage minus reclaimable file cache, see <see cref="ReclaimableFileCache"/>). Null when unknown.
     /// </summary>
     public static long? AvailableMemory()
     {
@@ -71,7 +71,8 @@ internal static unsafe partial class HostCpuInfo
                     if (File.Exists(max) && long.TryParse(File.ReadAllText(max).Trim(), out long limit))
                     {
                         long usage = ReadLong(Path.Combine(dir, "memory.current")) ?? 0;
-                        long reclaimable = ReadStat(Path.Combine(dir, "memory.stat"), "inactive_file") ?? 0;
+                        string stat = Path.Combine(dir, "memory.stat");
+                        long reclaimable = ReclaimableFileCache(key => ReadStat(stat, key), cgroupV1: false);
                         if (best is null || limit - usage + reclaimable < best.Value.Item1 - best.Value.Item2 + best.Value.Item3)
                         {
                             best = (limit, usage, reclaimable);
@@ -90,7 +91,7 @@ internal static unsafe partial class HostCpuInfo
             if (v1 is { } v1Limit && v1Limit < long.MaxValue / 2)
             {
                 return (v1Limit, ReadLong("/sys/fs/cgroup/memory/memory.usage_in_bytes") ?? 0,
-                    ReadStat("/sys/fs/cgroup/memory/memory.stat", "total_inactive_file") ?? 0);
+                    ReclaimableFileCache(key => ReadStat("/sys/fs/cgroup/memory/memory.stat", key), cgroupV1: true));
             }
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException)
@@ -99,6 +100,21 @@ internal static unsafe partial class HostCpuInfo
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The clean page cache a control group's usage includes, which the kernel reclaims before it runs out of memory: active and inactive
+    /// file pages less the dirty pages and those under writeback (cgroup v1: the <c>total_</c> counters). Active file pages count too: a
+    /// model file read or mapped a moment ago sits on the active list, and leaving it out made a pod whose usage was mostly cache look full.
+    /// </summary>
+    /// <param name="stat">Reads one counter of the group's memory.stat in bytes; null when absent.</param>
+    /// <param name="cgroupV1">Whether the counters are cgroup v1's.</param>
+    internal static long ReclaimableFileCache(Func<string, long?> stat, bool cgroupV1)
+    {
+        string prefix = cgroupV1 ? "total_" : "";
+        long clean = (stat(prefix + "active_file") ?? 0) + (stat(prefix + "inactive_file") ?? 0)
+            - (stat(prefix + (cgroupV1 ? "dirty" : "file_dirty")) ?? 0) - (stat(prefix + (cgroupV1 ? "writeback" : "file_writeback")) ?? 0);
+        return Math.Max(0, clean);
     }
 
     private static long? ReadLong(string path) => File.Exists(path) && long.TryParse(File.ReadAllText(path).Trim(), out long value) ? value : null;

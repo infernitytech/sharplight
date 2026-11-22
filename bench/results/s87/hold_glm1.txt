@@ -1,0 +1,33 @@
+== lock 14:32:48
+anon 1896349696
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 85 groups, 27.67 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 71 groups, 205.69 GiB weights+state
+ids: 785,6722,315,9621,374,12089,13,31008,504,12089,311,86967,374,220,101478,16,13128,11,1393,2118,10966,882
+  504 25.8070  from
+  374 24.7132  is
+  311 20.7237  to
+  320 16.2307  (
+  1499 15.0210 from
+experts on disk (threads x8): hit rate 0.0 % (0 hits, 5109 read ahead, 10215 misses, 5108 prefetched, 8921 evictions), read 62.22 GB, waited 5.41 s, cache 25.4 GiB in 6581 slots
+== text 14:35:19
+slot 1 AMD EPYC 7443 24-Core Processor: 71 groups, 205.69 GiB weights+state
+71 routed-expert group(s) on disk
+Ready (decode)
+The capital of France is Paris. Distance from Paris to Lyon is 391 km, while direct flight time from Paris to Lyon is 1
+prompt: 5 tok in 9783 ms (0.5 tok/s) | generated: 24 tok, 0.41 tok/s
+experts on disk (threads x8): hit rate 54.3 % (24589 hits, 5066 read ahead, 15606 misses, 5064 prefetched, 14258 evictions), read 83.88 GB, waited 26.46 s, cache 25.4 GiB in 6581 slots
+== bench 14:37:30
+Graph optimization (sharplight-ir/1): decode 5703 -> 5702 nodes, mtp_draft 70 -> 69 nodes, decode_embeddings 5702 -> 5701 nodes [793 ms]
+Loaded Glm-5.2 (latent_decoder): 1809 tensors, 253.87 GB, vocab 154880 [3704 ms]
+Experts on disk: io_uring is unavailable (io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)); reading with 8 threads instead.
+Experts on disk: 208.6 GiB of routed experts on the CPU exceed the 24.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 24.0 GiB cache.
+Experts on disk: 213 weights in 71 layers (205.7 GiB) read with threads x8; 4.2 GB/s measured; a decode step reads up to 6.90 GB: about 0.62 tok/s from a cold cache, ~0.70 tok/s once the 25.4 GiB cache holds its share (reads only; compute adds to it).
+Compiled 'decode' in 26827 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 85 groups, 27.67 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 71 groups, 205.69 GiB weights+state
+71 routed-expert group(s) on disk
+Ready (decode)
+experts on disk, warm-up and prefills: hit rate 11.1 % (3075 hits, 7981 read ahead, 16559 misses, 7980 prefetched, 18178 evictions), read 99.37 GB, waited 12.12 s, cache 25.4 GiB in 6581 slots
+experts on disk, decode: hit rate 59.3 % (69797 hits, 11545 read ahead, 36351 misses, 11545 prefetched, 47876 evictions), read 193.74 GB, waited 32.96 s, cache 25.4 GiB in 6581 slots
+prefill 8 tok: best 6350 ms = 1.3 tok/s | decode: best 2.09, median 0.99, mean 0.90 tok/s | GPU ms/step: best 46.30, median 46.78, wall best 479.44 | prefill median of 2: 6840.9 ms = 1.2 tok/s
+== unlock 14:39:54

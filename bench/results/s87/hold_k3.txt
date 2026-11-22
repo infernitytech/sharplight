@@ -1,0 +1,16 @@
+== lock 17:42:43
+anon 1124855808
+92 routed-expert group(s) on disk
+Ready (decode)
+The capital of France is Paris. Paris is the capital of France. The capital of France is Paris. Paris is the capital of France. The
+prompt: 5 tok in 21053 ms (0.2 tok/s) | generated: 24 tok, 0.08 tok/s
+experts on disk (threads x8): hit rate 31.7 % (37519 hits, 23135 read ahead, 57876 misses, 23135 prefetched, 74226 evictions), read 132.72 GB, waited 46.45 s, cache 24.0 GiB in 6801 slots
+== bench 17:48:18
+Terminated
+Experts on disk: io_uring is unavailable (io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)); reading with 8 threads instead.
+Experts on disk: 495.3 GiB of routed experts on the CPU exceed the 24.0 GiB cache asked for; they stay in the model file and are read on demand (threads x8) into a 24.0 GiB cache.
+Experts on disk: 276 weights in 92 layers (376.4 GiB) read with threads x8; 1.8 GB/s measured; a decode step reads up to 7.22 GB: about 0.25 tok/s from a cold cache, ~0.26 tok/s once the 24.0 GiB cache holds its share (reads only; compute adds to it).
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 42 groups, 25.67 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 146 groups, 528.06 GiB weights+state
+experts on disk, warm-up and prefills: hit rate 2.3 % (1684 hits, 23911 read ahead, 48769 misses, 23911 prefetched, 65895 evictions), read 119.07 GB, waited 18.60 s, cache 24.0 GiB in 6801 slots
+== unlock 17:55:08

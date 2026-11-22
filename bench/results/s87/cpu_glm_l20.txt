@@ -1,0 +1,12 @@
+Unhandled exception: System.InsufficientMemoryException: Model does not fit: needs 54.63 GiB, group 'layers.16' (3.04 GiB) has no room and no fallback device is configured.
+   at Sharplight.Runtime.PlacementPlanner.FillGroups(List`1 groupOrder, Dictionary`2 groupBytes, PlacementOptions options, Int32 slotCount, Int32 fallbackSlot, HashSet`1 pinned, Int64 overhead, Int64[]& used) in src/Sharplight.Core/Runtime/PlacementPlanner.cs:line 586
+Unhandled exception: System.InsufficientMemoryException: Model does not fit: needs 54.63 GiB, group 'layers.15' (3.04 GiB) has no room and no fallback device is configured.
+   at Sharplight.Runtime.PlacementPlanner.FillGroups(List`1 groupOrder, Dictionary`2 groupBytes, PlacementOptions options, Int32 slotCount, Int32 fallbackSlot, HashSet`1 pinned, Int64 overhead, Int64[]& used) in src/Sharplight.Core/Runtime/PlacementPlanner.cs:line 586
+n_vocab 154880 best 107869 8.3583
+n_vocab 154880 best 107869 8.1852
+top [(107869, 8.2075, -5.1414), (73221, 7.7113, -5.6376), (29972, 7.5363, -5.8126), (9386, 7.4812, -5.8677), (107473, 7.3913, -5.9576), (43730, 7.1222, -6.2267), (18, 7.0297, -6.3192), (3288, 6.9435, -6.4054)]
+Traceback (most recent call last):
+  File "cmp.py", line 9, in <module>
+    x = np.fromfile(f, dtype=np.float32).reshape(-1, V)[-1].astype(np.float64)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'results/glmL20_sl_cpu.f32'
