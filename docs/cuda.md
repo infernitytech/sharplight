@@ -344,7 +344,9 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   loads its key and value rows straight from the cache in 16-byte chunks, which are the B operands of Q · Kᵀ as loaded (the head
   dimensions permuted alike in Q and K), the score accumulators become the A operands of P · V (f16), and the value words become B
   operands by an in-register transpose (`movmatrix`). The warps' states merge in shared memory at the end. It serves windows, chunks,
-  soft caps, sinks, multi-sequence and paged caches and mixed steps' `MIX_RUN`; groups narrow enough for the fused combine (heads per
+  soft caps, sinks, multi-sequence and paged caches and mixed steps' `MIX_RUN` (a step whose runs average fewer than 64 rows: its
+  decode rows run here and the prompt runs on `attn_prefill_native.cu`, instead of a whole query tile per decode row there,
+  [benchmarks.md §90](benchmarks.md)); groups narrow enough for the fused combine (heads per
   block times head size up to 256) keep `decode`. gpt-oss-20b decode attention at 64 sequences 1.32 → 1.03 ms per step (vLLM 1.20,
   [benchmarks.md §72](benchmarks.md)). Q · SCALE and the probabilities are rounded to f16, as in the prefill kernel.
   Each warp prefetches the key and value rows of its next tile into L2 (`prefetch.global.L2`, one 128-byte line per lane) before
@@ -807,7 +809,10 @@ submission),
 its store, benchmarks.md §78), `SHARPLIGHT_NO_ROPE_QKV=1` (a layer's query rope, key rope + cache write and value cache write as three
 launches instead of `rope_qkv`; `SHARPLIGHT_ROPE_QKV_DEBUG=1` names the layers that keep them and why), `SHARPLIGHT_NORM_WIDE=0` (fused row norms of 4096+ values keep 256-thread blocks at decode-size steps instead of 1024, benchmarks.md §76.3), `SHARPLIGHT_NATIVE_GEMM_BIAS=0` (biased matmuls stay on the generated GEMMs),
 `SHARPLIGHT_SPLITK_FUSED=1` / `SHARPLIGHT_MULTI_FUSED=1` (split-K reductions in the GEMM's last workgroup, slower, benchmarks.md §61.4),
-`SHARPLIGHT_MULTI_GEMM_TALL=0`, `SHARPLIGHT_MOE_SORTED_STORE=0`, `SHARPLIGHT_MOE_TOKEN_ROWS=0`, `SHARPLIGHT_ATTN_HG=0|1` (benchmarks.md §82); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
+`SHARPLIGHT_MULTI_GEMM_TALL=0`, `SHARPLIGHT_MOE_SORTED_STORE=0`, `SHARPLIGHT_MOE_TOKEN_ROWS=0`, `SHARPLIGHT_ATTN_HG=0|1` (benchmarks.md §82);
+`SHARPLIGHT_ROPE_QKV_WARP=0|n` (`rope_qkv`'s 64-thread workgroups per row instead of a warp per row, or n rows per warp) and
+`SHARPLIGHT_ATTN_MIXED_RUN_ROWS=n` (mean rows per run below which a multi-sequence step takes the mixed attention form, default 64)
+(benchmarks.md §90); plus `SHARPLIGHT_LOAD_TIMING`, `SHARPLIGHT_SUBMISSION_BUDGET_MS`, `SHARPLIGHT_CONCURRENT_WORKGROUPS` and
 `SHARPLIGHT_DEVICE_FORWARDING` as for Vulkan. `compute-sanitizer` works on the provider as on any CUDA application.
 
 ## Roadmap

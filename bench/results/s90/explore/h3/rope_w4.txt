@@ -1,0 +1,26 @@
+decoder: MultiSequenceDecoder, slots 72, vocab 151936, device sampling: True, KV paged 2880 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 64 | 0 (0) | 47.2 | 367 / 0 | 15.57 / 15.61, 15.50 |  |
+| 64 | 1500 (6) | 125.6 | 366 / 0 | 119.44 / 119.48, 119.22 | 0.069 |
+--- profile mixed 64+250x6 (greedy)
+GPU time 1195.46 ms
+   528.705 ms  44.2%    360x  min   1440.4 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=1564,U=70,R=70|2,3
+   257.978 ms  21.6%    360x  min    697.6 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=1564,U=70,R=70|2,3
+   119.771 ms  10.0%    360x  min    309.8 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=1564,U=70,R=70|2,3
+   102.112 ms   8.5%    360x  min    268.3 us  attention attn_prefill_native T=1564,U=70,R=70|2,3
+    87.070 ms   7.3%    360x  min    233.7 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=1564,U=70,R=70|2,3
+    49.688 ms   4.2%    720x  min     61.5 us  fused[Add]+RmsNorm main T=1564,U=70,R=70|2,3
+    24.809 ms   2.1%    360x  min     63.8 us  rope+qkv+cache_write rope_qkv T=1564,U=70,R=70|2,3
+    16.412 ms   1.4%     10x  min   1639.0 us  matmul [4096→151936] f16 gemm_cm2 T=1564,U=70,R=70|2,3
+     7.056 ms   0.6%    360x  min     17.6 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=1564,U=70,R=70|2,3
+     0.812 ms   0.1%     20x  min      9.5 us  gather gather T=1564,U=70,R=70|2,3
+     0.602 ms   0.1%     10x  min     59.1 us  sample sample T=1564,U=70,R=70|2,3
+     0.275 ms   0.0%     10x  min     26.5 us  RmsNorm main T=1564,U=70,R=70|2,3
+     0.097 ms   0.0%     10x  min      8.1 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=1564,U=70,R=70|2,3
+     0.070 ms   0.0%     10x  min      5.8 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=1564,U=70,R=70|2,3
+
+| 0 | 2048 (8) | 153.6 | 366 / 0 | 136.96 / 137.09, 136.81 |  |

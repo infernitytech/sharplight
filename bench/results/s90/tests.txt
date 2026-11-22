@@ -1,0 +1,34 @@
+cuda Fp8UniformScales: Total: 2, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda Fp8BlockScaled: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda Fp8Gemm: Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda SkinnyGemm: Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda MatMul: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda MatMulEpilogue: Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda Moe: Total: 129, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda Fusion: Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda Norm: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda NormHalfCopy: Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda Rope: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda RowInvariance: Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda FullAttention: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda PagedAttention: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+cuda PackedSequence: Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan Fp8UniformScales: Total: 2, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan Fp8BlockScaled: Total: 10, Errors: 0, Failed: 0, Skipped: 2, Not Run: 0
+vulkan Fp8Gemm: Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan SkinnyGemm: Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan MatMul: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan MatMulEpilogue: Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan Moe: Total: 129, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan Fusion: Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan Norm: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan NormHalfCopy: Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan Rope: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan RowInvariance: Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan FullAttention: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan PagedAttention: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+vulkan PackedSequence: Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0
+Cuda.Tests: Total: 65, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 18.835s
+Serving.Tests: Total: 397, Errors: 0, Failed: 0, Skipped: 13, Not Run: 0, Time: 83.529s
