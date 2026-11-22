@@ -1,9 +1,9 @@
 """Cut a split GGUF on the Hugging Face Hub to its first N blocks, fetching only the header and the kept tensors' byte ranges.
 
-    python -I tools/truncate-gguf-remote.py <repo> <revision> <first shard path in the repo> <out.gguf> <layers> [--widen-narrow-iq1]
+    python -I tools/truncate-gguf-remote.py <repo | local dir> <revision> <first shard path in the repo> <out.gguf> <layers> [--widen-narrow-iq1]
 
 The global tensors (embedding, output norm, head, ...) and blocks 0..N-1 are kept with their stored bytes, every metadata key of the first
-shard is kept except the split keys, and block_count becomes N (nextn_predict_layers 0: multi-token-prediction layers are dropped).
+shard is kept except the split keys, per-layer arrays of the architecture (at least as long as block_count) keep their first N entries, and block_count becomes N (nextn_predict_layers 0: multi-token-prediction layers are dropped).
 --widen-narrow-iq1 rewrites the narrow IQ1 types of unsloth's llama.cpp fork (ggml ids 64-66, Kimi-K3's UD-TQ*/UD-Q1_0 files) as IQ1_S
 blocks with the same values (the codebook tables of src/Sharplight.Import.Gguf/GgmlNarrowIq1Grids.cs), so that llama.cpp releases without
 those types read the file. The shards of a split are named <prefix>-0000k-of-0000n.gguf. HF_TOKEN is used when set.
@@ -31,6 +31,11 @@ NARROW = {64: "Xs", 65: "Xxs", 66: "Xxxs"}
 
 
 def get(name, start, end):
+    if os.path.isdir(repo):
+        # A local directory instead of a repository (re-cutting a file already on disk).
+        with open(os.path.join(repo, name), "rb") as f:
+            f.seek(start)
+            return f.read(end - start + 1)
     request = urllib.request.Request(base + name, headers={"Range": f"bytes={start}-{end}"})
     if token:
         request.add_header("Authorization", f"Bearer {token}")
@@ -162,6 +167,7 @@ for shard in shards:
         kept.append((shard, data_start + offset, tname, dims, ttype))
 grids = load_grids() if widen else None
 
+block_count = next(struct.unpack("<" + SCALAR[t], v)[0] for k, t, raw, v in kvs if k == f"{arch}.block_count")
 header = bytearray()
 out_kvs = []
 for key, vtype, raw, value in kvs:
@@ -171,6 +177,12 @@ for key, vtype, raw, value in kvs:
         new_value = layers if key.endswith("block_count") else 0
         enc = key.encode()
         raw = struct.pack("<Q", len(enc)) + enc + struct.pack("<I", vtype) + struct.pack("<" + SCALAR[vtype], new_value)
+    elif vtype == 9:
+        inner, count = struct.unpack_from("<IQ", value, 0)
+        if inner in SCALAR and key.startswith(arch + ".") and count >= block_count and count > layers:
+            width = struct.calcsize("<" + SCALAR[inner])
+            enc = key.encode()
+            raw = struct.pack("<Q", len(enc)) + enc + struct.pack("<IIQ", vtype, inner, layers) + value[12:12 + layers * width]
     out_kvs.append(raw)
 plan = []
 offset = 0

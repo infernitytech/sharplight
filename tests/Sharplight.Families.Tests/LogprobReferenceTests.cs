@@ -34,6 +34,18 @@ public class LogprobReferenceTests
         new("deepseek-v3.1 6 layers 'The capital of France is Paris. The capital of'", "gguf/DeepSeek-V3.1-trunc/DeepSeek-V3.1-Q4_K_M-L6.gguf",
             "The capital of France is Paris. The capital of", [(50365, -3.443), (81661, -3.643), (104323, -4.190), (119996, -4.506), (74218, -4.907)],
             Tolerance: 0.1),
+        // GLM-5.2 (unsloth UD-Q2_K_XL) cut to its first 6 layers (3 dense, 3 MoE, DSA indexer in its dense regime), at the prompt where the
+        // full model's greedy text and llama.cpp's part. Reference: transformers' GlmMoeDsa in float32 on the file's dequantized weights
+        // (tools/latent-moe-gguf-reference.py). Ours is within 0.04 on CPU; llama.cpp b11177 within 0.06.
+        new("glm-5.2 6 layers 'The capital of France is Paris. Distance ... while direct flight time'", "gguf/GLM-5.2-trunc/GLM-5.2-UD-Q2_K_XL-L6.gguf",
+            "The capital of France is Paris. Distance from Paris to Marseille is 661 km, while direct flight time",
+            [(21158, -6.023), (79386, -6.209), (52628, -6.407), (7588, -6.598), (4740, -6.609)], Tolerance: 0.1),
+        // Kimi-K3 (unsloth UD-Q1_0) cut to its first 4 layers (3 Kimi delta-attention layers, one latent-attention layer, real latent MoE),
+        // its narrow IQ1 experts widened to IQ1_S (tools/truncate-gguf-remote.py --widen-narrow-iq1) so that llama.cpp b11177 reads it.
+        // Reference: llama.cpp b11177 with the prompt decoded token by token (CPU; its batched prefill is within 0.04 of that).
+        new("kimi-k3 4 layers 'The capital of France is Paris. The capital of Germany is'", "gguf/Kimi-K3-trunc/Kimi-K3-UD-Q1_0-L4-iq1s.gguf",
+            "The capital of France is Paris. The capital of Germany is",
+            [(36356, -5.422), (140580, -5.526), (24917, -5.601), (127274, -5.689), (19320, -5.871)], Tolerance: 0.12),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));
