@@ -124,7 +124,7 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
     }
 
     /// <inheritdoc/>
-    public FitReport PlanFit(ModelFootprint footprint, string? device = null, bool cpuOffload = false)
+    public FitReport PlanFit(ModelFootprint footprint, string? device = null, bool cpuOffload = false, bool expertsOnDisk = false)
     {
         var memory = CurrentMemory();
         var targets = new List<DeviceMemory>();
@@ -149,6 +149,7 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
             ReserveBytes = _options.Reserve,
             Residents = residents,
             CpuOffload = cpuOffload,
+            ExpertsOnDisk = expertsOnDisk,
         });
     }
 

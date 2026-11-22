@@ -210,4 +210,82 @@ public sealed class StreamedExpertsTests
             Assert.True(Math.Abs(cpuResult[i] - actual[i]) <= 3e-2 + 3e-2 * Math.Abs(cpuResult[i]), $"rows={rows} [{i}]: {actual[i]} vs the CPU's {cpuResult[i]}");
         }
     }
+
+    /// <summary>
+    /// Routed experts on the CPU left on disk (<see cref="CompileOptions.DiskExperts"/>, the smallest cache): the router runs on the GPU, the CPU
+    /// reads the selected experts from the file, and the outputs equal those of the same placement with resident experts (CPU experts for
+    /// every pass: no streamed or split compilations, which the disk placement does not make either), for decode-sized and prefill-sized passes.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(40)]
+    public void DiskExpertsMatchTheResidentExperts(int rows)
+    {
+        Gpu.Require();
+        const int experts = 96;
+        using var file = new Sharplight.Tests.FileWeights();
+        var tg = new TG();
+        Value ExpertBank(string name, float[] data, params long[] dims)
+        {
+            tg.Weights[name] = file.AddF32(name, data, dims);
+            return tg.B.Weight(name);
+        }
+
+        var x = tg.InF("x", TG.T, Hidden);
+        var h = x;
+        for (int layer = 0; layer < Layers; layer++)
+        {
+            using var _ = tg.B.Group($"layers.{layer}");
+            h = tg.B.MatMul(h, tg.WF($"dense{layer}", Rnd.F(Hidden * Hidden, layer, 0.1f), Hidden, Hidden));
+            var logits = tg.B.MatMul(h, tg.WF($"router{layer}", Rnd.F(experts * Hidden, 30 + layer, 1f), experts, Hidden));
+            var top = tg.B.Emit("TopK", [logits], Attributes.From(("k", (long)Slots)));
+            var ids = top[1];
+            var slotWeightRows = tg.B.Reshape(tg.B.Emit1("Softmax", [top[0]]), 0, Slots, 1);
+            var gate = tg.B.Emit1("MatMulId", [h, ExpertBank($"gate{layer}", Rnd.F(experts * Inner * Hidden, 10 + layer, 0.1f), experts, Inner, Hidden), ids]);
+            var up = tg.B.Emit1("MatMulId", [h, ExpertBank($"up{layer}", Rnd.F(experts * Inner * Hidden, 40 + layer, 0.1f), experts, Inner, Hidden), ids]);
+            var act = tg.B.Mul(tg.B.Emit1("Silu", [gate]), up);
+            var down = tg.B.Emit1("MatMulId", [act, ExpertBank($"down{layer}", Rnd.F(experts * Hidden * Inner, 20 + layer, 0.1f), experts, Hidden, Inner), ids]);
+            var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, slotWeightRows), 0, 2, 1)]);
+            h = tg.B.Add(h, tg.B.Reshape(summed, 0, Hidden));
+        }
+
+        tg.B.Output("y", h);
+        var graph = tg.B.Build();
+        using var store = new Sharplight.Runtime.Experts.ExpertStore(cacheBytes: 1, Sharplight.Runtime.Experts.ExpertReaders.CreateThreads(4));
+        PlacementOptions Placement(Sharplight.Runtime.Experts.ExpertStore? disk) => new()
+        {
+            // The dense layers and routers only: every layer's experts go to the CPU.
+            Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * (DenseBytes + experts * Hidden * sizeof(float)) + (256 << 10) }],
+            Fallback = new DeviceSlot { Device = Gpu.Cpu },
+            Compile = new CompileOptions { MaxTokens = 64, ContextLength = 64, DisabledFeatures = Compile.DisabledFeatures, DiskExperts = disk },
+            ReservePerDevice = 0,
+            ReservePerSegment = 0,
+            StreamExpertsMinRows = disk is null ? 0 : MinRows,
+        };
+
+        using var resident = CompiledModel.Compile(graph, Placement(null));
+        using var disk = CompiledModel.Compile(graph, Placement(store));
+        Assert.All(Enumerable.Range(0, Layers), l => Assert.Equal(1, disk.Plan.GroupDevice[$"layers.{l}{PlacementPlanner.ExpertGroupSuffix}"]));
+        Assert.Equal(Layers, disk.Plan.DiskExpertGroups.Count);
+        Assert.Equal(0, disk.StreamedSegmentCount);
+        Assert.Equal(0, disk.SparseSegmentCount);
+
+        var input = Rnd.F(rows * Hidden, 3);
+        float[] Run(CompiledModel m)
+        {
+            m.SetInput(x, System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+            var p = new RunParameters();
+            p.Symbols["T"] = rows;
+            m.Run(p);
+            var y = new float[rows * Hidden];
+            m.GetOutput<float>("y", y);
+            return y;
+        }
+
+        var expected = Run(resident);
+        Assert.Equal(expected, Run(disk));
+        Assert.Equal(expected, Run(disk));
+        Assert.True(store.Statistics.Misses > 0 && store.Statistics.Hits > 0);
+    }
 }

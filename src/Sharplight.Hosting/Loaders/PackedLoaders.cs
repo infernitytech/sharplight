@@ -26,6 +26,8 @@ internal static class PackedLoaders
             options.ModelPath = settings.Path;
             options.Devices = [.. placement.Devices];
             options.Fallback = placement.Fallback;
+            options.ExpertsOnDisk = settings.ExpertsOnDisk;
+            options.ExpertCacheBytes = settings.ExpertCacheBytes;
             options.AllowReducedPrecision = settings.ReducedPrecision;
             if (settings.BatchTokens > 0)
             {
