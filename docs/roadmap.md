@@ -170,6 +170,11 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   Qwen3-8B Q4_K_M at 48 sequences 1.40x of llama.cpp on CUDA (from 1.16x) and 1.81x on Vulkan (from 1.72x), Qwen3.8 27B 2.01x (from
   1.76x); a dual gate / up form of the K-quant GEMM (one launch, the activation product in its store); the 64-row tiles measured as
   MMA-issue bound. Gemma 4 31B at 128K on the session path: decode 19.97 tok/s (0.80x of llama.cpp). Next: §79.7.
+- **Feed round 5 (§83)**: a cooperative-matrix K-quant decode GEMM for Vulkan (`gemm_kq.slang`: raw Q4_K / Q5_K / Q6_K blocks staged and
+  dequantized into MMA-layout fragments, single / q / k / v / dual gate-up forms, 9-64 rows): batched decode on Vulkan against llama.cpp
+  Qwen3-8B 2.93 / 2.30 / 2.02 / 1.79x at 16-64 sequences (from 2.09-1.67x), Qwen3.8 27B 3.45-2.62x, Gemma 4 31B 2.65x at 16. 64-query
+  `fe` blocks at head size 512 (Gemma 4 31B 128K prefill on Vulkan 513 → 705 tok/s), q8_0 caches on the wide decode forms of both
+  providers (Qwen3.8 27B at 32K 1.39x / 1.15x of llama.cpp with q8_0 KV), a row norm + group + row norm in one launch. Next: §83.9.
 - **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
   streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
   sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:

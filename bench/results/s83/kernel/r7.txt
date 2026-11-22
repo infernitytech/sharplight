@@ -1,0 +1,15 @@
+== 10:23:59 lock taken: bash $WORK/r7.sh
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 2 MiB, 7.77 W, 180 MHz, 405 MHz, 35, P8
+[0m[37m   Sharplight.Vulkan.Tests  Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 33.461s
+[0m[37m   Sharplight.Vulkan.Tests  Total: 105, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 17.107s
+dual=1 BENCH matmul q4_k T=16 4096->12288    0.086 ms      37.4 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->12288    0.049 ms      33.1 TFLOP/s
+dual=0 BENCH matmul q6_k T=16 12288->4096    0.061 ms      26.4 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 12288->4096    0.049 ms      33.1 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->4096    0.020 ms      26.8 TFLOP/s
+dual=1 BENCH matmul q4_k T=32 4096->12288    0.127 ms      50.6 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->12288    0.075 ms      42.7 TFLOP/s
+dual=0 BENCH matmul q6_k T=32 12288->4096    0.079 ms      40.6 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 12288->4096    0.075 ms      42.9 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->4096    0.028 ms      38.0 TFLOP/s
+== 10:25:33 done rc=0

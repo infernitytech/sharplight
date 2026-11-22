@@ -121,6 +121,33 @@ internal static class Diff
     }
 
     /// <summary>
+    /// Runs all steps on the CPU oracle only (exact: no int8-quantized activations; state persists across steps); per step, every f32
+    /// output concatenated.
+    /// </summary>
+    public static List<float[]> RunCpu(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64)
+    {
+        using var cpu = Compile(Gpu.Cpu, g, maxTokens, ctx, s_exactOracle);
+        var results = new List<float[]>();
+        foreach (var s in steps)
+        {
+            var p = Params(s);
+            Feed(cpu, s);
+            cpu.Run(p);
+            var outputs = new List<float>();
+            foreach (var (name, v) in g.Outputs.Where(o => o.Value.Type == DataType.F32))
+            {
+                var x = new float[v.Shape.Elements(p.Symbols)];
+                cpu.GetOutput<float>(name, x);
+                outputs.AddRange(x);
+            }
+
+            results.Add([.. outputs]);
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// Runs all steps on both devices (state persists across steps) and compares every graph output.
     /// Returns the largest |a-b| seen. <paramref name="disabledFeatures"/> are turned off for the Vulkan compilation
     /// (to exercise the portable fallback kernels on a device that has the features); <paramref name="allowReducedPrecision"/>

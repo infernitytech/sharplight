@@ -1,0 +1,10 @@
+== 09:45:37 lock taken: bash $WORK/kexp.sh
+[X=0] BENCH matmul q4_k T=32 4096->12288    0.075 ms      42.7 TFLOP/s
+[KQ_X_BAR=1] BENCH matmul q4_k T=32 4096->12288    0.077 ms      42.1 TFLOP/s
+[KQ_X_BAR=2] BENCH matmul q4_k T=32 4096->12288    0.075 ms      42.7 TFLOP/s
+[KQ_X_BAR=2,KQ_PF=2] BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+[X=0] BENCH matmul q4_k T=64 4096->12288    0.114 ms      56.4 TFLOP/s
+[KQ_X_BAR=1] BENCH matmul q4_k T=64 4096->12288    0.110 ms      58.5 TFLOP/s
+[KQ_X_BAR=2] BENCH matmul q4_k T=64 4096->12288    0.114 ms      56.3 TFLOP/s
+[KQ_X_BAR=2,KQ_PF=2] BENCH matmul q4_k T=64 4096->12288    0.116 ms      55.3 TFLOP/s
+== 09:46:15 done rc=0

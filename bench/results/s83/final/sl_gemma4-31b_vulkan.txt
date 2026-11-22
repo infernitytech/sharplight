@@ -1,0 +1,2 @@
+[batched depth 256]
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 30.80 GiB, group 'layers.58' (0.53 GiB) has no room and no fallback device is configured.

@@ -1,0 +1,35 @@
+== 09:04:15 lock taken: bash $WORK/kvar.sh base:X=0 kh1:SHARPLIGHT_COOP_KQ_MACROS=KQ_KH=1 split2:SHARPLIGHT_NATIVE_KQ_SPLIT=2
+### base
+dual=1 BENCH matmul q4_k T=16 4096->12288    0.088 ms      36.5 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->12288    0.053 ms      30.4 TFLOP/s
+dual=0 BENCH matmul q6_k T=16 12288->4096    0.071 ms      22.8 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 12288->4096    0.063 ms      25.6 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->4096    0.024 ms      22.3 TFLOP/s
+dual=1 BENCH matmul q4_k T=32 4096->12288    0.131 ms      49.0 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+dual=0 BENCH matmul q6_k T=32 12288->4096    0.081 ms      39.6 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 12288->4096    0.075 ms      42.8 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->4096    0.028 ms      37.7 TFLOP/s
+### kh1
+dual=1 BENCH matmul q4_k T=16 4096->12288    0.086 ms      37.3 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->12288    0.047 ms      34.5 TFLOP/s
+dual=0 BENCH matmul q6_k T=16 12288->4096    0.084 ms      19.2 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 12288->4096    0.077 ms      20.8 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->4096    0.030 ms      17.7 TFLOP/s
+dual=1 BENCH matmul q4_k T=32 4096->12288    0.117 ms      55.1 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->12288    0.073 ms      44.0 TFLOP/s
+dual=0 BENCH matmul q6_k T=32 12288->4096    0.094 ms      34.4 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 12288->4096    0.106 ms      30.3 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->4096    0.034 ms      31.2 TFLOP/s
+### split2
+dual=1 BENCH matmul q4_k T=16 4096->12288    0.094 ms      34.1 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->12288    0.051 ms      31.7 TFLOP/s
+dual=0 BENCH matmul q6_k T=16 12288->4096    0.061 ms      26.4 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 12288->4096    0.051 ms      31.8 TFLOP/s
+dual=0 BENCH matmul q4_k T=16 4096->4096    0.022 ms      24.4 TFLOP/s
+dual=1 BENCH matmul q4_k T=32 4096->12288    0.152 ms      42.4 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->12288    0.077 ms      41.6 TFLOP/s
+dual=0 BENCH matmul q6_k T=32 12288->4096    0.088 ms      36.7 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 12288->4096    0.100 ms      32.3 TFLOP/s
+dual=0 BENCH matmul q4_k T=32 4096->4096    0.032 ms      33.2 TFLOP/s
+== 09:07:06 done rc=0
