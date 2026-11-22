@@ -27,10 +27,11 @@ internal sealed class TestServices : IDisposable
         Storage = CreateStorage(Settings, _dir.File("app"), _dir.File("home"));
         Usage = new JsonModelUsageStore(_dir.File("model-usage.json"));
         Licenses = new LicenseGate(Settings);
+        Memory = new Services.Fit.DeviceMemoryWatch(Runtime, Settings);
         Maintenance = new ModelMaintenanceService(Settings, Storage, Runtime, Library, Usage, Precompiler);
         Services = new StudioServices(Settings, Runtime, Hub, Library, Conversations, Stats, Server, new DocumentExtractor(), Platform,
             Platform, dispatcher ?? Platform, Platform, Updates, Precompiler, new FilePageStorage(_dir.File("pages")), Audio, Audio, decoder ?? new WavAudioDecoder(), AudioDevices,
-            Storage, Feed, Usage, Maintenance, Licenses);
+            Storage, Feed, Usage, Maintenance, Licenses, Memory);
     }
 
     /// <summary>A custom storage layout in <paramref name="root"/>, for services that need one.</summary>
@@ -56,6 +57,9 @@ internal sealed class TestServices : IDisposable
     }
 
     public LicenseGate Licenses { get; }
+
+    /// <summary>The shared memory figures over the fake runtime.</summary>
+    public Services.Fit.DeviceMemoryWatch Memory { get; }
 
     public StorageLocationService Storage { get; }
 
@@ -95,6 +99,7 @@ internal sealed class TestServices : IDisposable
 
     public void Dispose()
     {
+        Memory.Dispose();
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         _dir.Dispose();
     }

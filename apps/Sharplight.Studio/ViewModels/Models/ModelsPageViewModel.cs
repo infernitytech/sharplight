@@ -25,6 +25,8 @@ internal sealed partial class ModelsPageViewModel : PageViewModel
     private readonly bool _backgroundChecks;
     private readonly ModelUpdateWatcher _watcher;
     private bool _loaded;
+    private bool _active;
+    private IDisposable? _memoryWatch;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Opens other pages.</param>
@@ -98,6 +100,7 @@ internal sealed partial class ModelsPageViewModel : PageViewModel
 
     partial void OnSelectedTabChanged(int value)
     {
+        WatchMemory();
         if (value == DiscoverTab)
         {
             _ = Discover.LoadHighlightsAsync();
@@ -139,9 +142,35 @@ internal sealed partial class ModelsPageViewModel : PageViewModel
         }
     }
 
+    /// <summary>
+    /// While Discover is visible, the devices' memory is read again every few seconds and after loads and unloads, so its fit badges
+    /// follow (the load panel watches by itself).
+    /// </summary>
+    private void WatchMemory()
+    {
+        if (_active && SelectedTab == DiscoverTab)
+        {
+            _memoryWatch ??= _services.Memory.Watch();
+        }
+        else
+        {
+            _memoryWatch?.Dispose();
+            _memoryWatch = null;
+        }
+    }
+
+    /// <inheritdoc/>
+    public override void Deactivate()
+    {
+        _active = false;
+        WatchMemory();
+    }
+
     /// <inheritdoc/>
     public override async Task ActivateAsync()
     {
+        _active = true;
+        WatchMemory();
         if (!_loaded)
         {
             await EnsureLoadedAsync();
