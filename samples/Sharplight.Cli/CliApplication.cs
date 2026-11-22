@@ -47,7 +47,7 @@ internal static class CliApplication
             new TextGenerator(loaded, settings.Generation).Run(images, Console.Out, Console.Error, cancellationToken);
         }
 
-        if (loaded.Model.DiskExperts is { IsActive: true } disk)
+        if (settings.BenchmarkTokens is null && loaded.Model.DiskExperts is { IsActive: true } disk)
         {
             Console.Error.WriteLine($"experts on disk ({disk.ReaderName}): {disk.Statistics}");
         }

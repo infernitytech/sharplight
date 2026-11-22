@@ -41,11 +41,24 @@ internal sealed unsafe class ExpertSlotPool : IDisposable
         SlotBytes = slotBytes;
         Count = count;
         Arena = (byte*)NativeMemory.AlignedAlloc((nuint)(slotBytes * count), ExpertFileHandle.DirectAlignment);
+        Commit();
         _slots = new Slot[count];
         for (int i = count - 1; i >= 0; i--)
         {
             _free.Push(i);
         }
+    }
+
+    /// <summary>
+    /// Touches every page of the arena once, on all cores: the memory is committed at load (a host that cannot hold the cache fails there, not
+    /// in a pass), and direct reads into it later do not stop for page faults (first reads into fresh pages ran at ~1 GB/s instead of the disk's 7).
+    /// </summary>
+    private void Commit()
+    {
+        const long Chunk = 64L << 20;
+        long bytes = SlotBytes * Count;
+        byte* arena = Arena;
+        Parallel.For(0, (bytes + Chunk - 1) / Chunk, i => new Span<byte>(arena + i * Chunk, (int)Math.Min(Chunk, bytes - i * Chunk)).Clear());
     }
 
     /// <summary>Bytes per slot.</summary>
