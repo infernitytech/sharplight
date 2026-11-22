@@ -146,6 +146,14 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   gpt-oss step): gpt-oss-20b prompt steps -2 %, serving 0.95x at 64 streams, 1.00x at 16; Qwen3-8B-FP8 0.94 / 0.95x. Measured and not kept:
   the expert slot sum read in place by the residual norm (no gain), the full step budget at any load, a uniform-flow norm reduction for
   `rope_qkv` on Vulkan (still wrong, also without the norm). Next: §80.8.
+  Round 28 (§82): gpt-oss prompt rows. The gate / up expert GEMM stores the down projection's expert-sorted f16 rows itself (values
+  ≥ 2^15 flagged and fixed up by `moe_range_fixup`; never flagged on gpt-oss, whose clamped SwiGLU stays below ~56), reads its token
+  rows from the router's f16 copy, prompt-sized q / k / v run as one launch, the router [2880 → 32] moves to gemm_cm2's K split, the
+  f16 GEMM unscales ranged rows in its store, and multi-sequence prefill attention takes a KV head's query heads per block: the
+  2,048-row prompt step 123.0 → 116.1 ms, the 64-row decode step -1.2 %, gpt-oss-20b serving 0.94 → 0.98x of vLLM at 64 streams (1.00x
+  at 16); Qwen3-8B-FP8 unchanged (0.94x). Greedy text byte-identical, sorted store bit-identical to the gather path; long-prompt logits
+  move with the router's summation order (now Vulkan's). Measured and not kept: the tensor-copy FP8 GEMM's multi-output q / k / v.
+  Next: §82.6.
 - **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
   31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
   the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models
