@@ -1294,10 +1294,23 @@ public sealed partial class GraphLowerer
         long steps = K / blockK;
         if (tiles >= wave)
         {
-            // Many tiles: split only when two K halves fill the last wave clearly better (e.g. 234 tiles of a 192-tile wave:
-            // 61 % → 81 % of two / three waves).
-            double Fill(long count) => (double)count / ((count + wave - 1) / wave * wave);
-            return steps >= 8 && tiles < 4 * wave && Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
+            // Many tiles: split only when two K halves take clearly less time in whole waves (each half wave costs half a tile's
+            // steps): e.g. 234 tiles of a 192-tile wave, 2 waves → 3 half waves; Gemma 4 31B's [21504 → 5376] at 512 rows, 168 tiles
+            // of an 82-tile wave, 3 waves → 5 half waves (1.72 → 1.47 ms, benchmarks.md section 81). SHARPLIGHT_GEMM_SPLIT_FILL=1: the
+            // earlier rule (two halves fill the last wave 15 points better), which kept 168 tiles unsplit (68 → 82 %).
+            if (steps < 8 || tiles >= 4 * wave)
+            {
+                return 1;
+            }
+
+            long Waves(long count) => (count + wave - 1) / wave;
+            if (DiagnosticSwitches.GemmSplitFillRule)
+            {
+                double Fill(long count) => (double)count / (Waves(count) * wave);
+                return Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
+            }
+
+            return Waves(2 * tiles) * 10 < Waves(tiles) * 2 * 9 ? 2 : 1;
         }
 
         if (DiagnosticSwitches.SplitWaveFill && rows <= blockRows)

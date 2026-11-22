@@ -119,12 +119,19 @@ int main()
     p.pages = dpages;
 #endif
     dim3 grid(ND_GROUPS, T_ROWS, ms);
+#if D > 128
+    // The wide form (head sizes 256 / 512) stages its tiles in dynamic shared memory.
+    const int smem = NWD_ST * 2 * NWD_TK * D * 2 + ND_WARPS * 32 * 8;
+    CK(cudaFuncSetAttribute(attn_decode_native, cudaFuncAttributeMaxDynamicSharedMemorySize, smem));
+#else
+    const int smem = 0;
+#endif
     cudaEvent_t e0, e1; CK(cudaEventCreate(&e0)); CK(cudaEventCreate(&e1));
     std::vector<float> times;
     for (int r = 0; r < REPS + 2; r++)
     {
         CK(cudaEventRecord(e0));
-        attn_decode_native<<<grid, ND_THREADS>>>(p);
+        attn_decode_native<<<grid, ND_THREADS, smem>>>(p);
         CK(cudaEventRecord(e1)); CK(cudaEventSynchronize(e1)); CK(cudaGetLastError());
         float ms_ = 0; CK(cudaEventElapsedTime(&ms_, e0, e1));
         if (r >= 2) times.push_back(ms_);
@@ -134,11 +141,11 @@ int main()
     printf("T=%d L=%d splits<=%d grid %dx%dx%d: min %.4f ms (%.0f GB/s), median %.4f ms\n", T_ROWS, L_KEYS, ms, ND_GROUPS, T_ROWS, ms, times[0],
            bytes / times[0] / 1e6, times[times.size() / 2]);
 #ifdef CHECK
-    // Merge the partials of heads 0, 9 and 63 of each row on the host and compare with an f32 reference.
+    // Merge the partials of heads 0, 9 and HQ - 1 of each row on the host and compare with an f32 reference.
     std::vector<float> part((size_t)ms * T_ROWS * HQ * ND_PS);
     CK(cudaMemcpy(part.data(), dpart, part.size() * 4, cudaMemcpyDeviceToHost));
     double worst = 0;
-    for (int t = 0; t < T_ROWS; t++) for (int h : {0, 9, 63})
+    for (int t = 0; t < T_ROWS; t++) for (int h : {0, 9, HQ - 1})
     {
         int g = h / (HQ / HKV);
         std::vector<double> sc(L_KEYS); double mx = -1e30;

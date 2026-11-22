@@ -181,7 +181,7 @@ public sealed partial class GraphLowerer
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
         // Split-K decoding merges the partials in the last workgroup of each row instead of a combine launch, where that
         // workgroup's share (its heads one after another) stays small; see FusedDecodeCombineMaxWidth.
-        var arrivals = decode is not null && keySplits == 1 && !plan.Cross && DiagnosticSwitches.AttentionDecodeFusedCombine && _opt.CrossWorkgroupFences
+        var arrivals = decode is not null && decode.Kernel == "decode" && keySplits == 1 && !plan.Cross && DiagnosticSwitches.AttentionDecodeFusedCombine && _opt.CrossWorkgroupFences
                        && long.Parse(decode.Macros["HPW"], CultureInfo.InvariantCulture) * plan.DV <= (DiagnosticSwitches.AttentionDecodeFusedWidth ?? FusedDecodeCombineMaxWidth)
             ? DecodeArrivals(Math.Min(maxRows, decode.MaxRows) * decode.Groups) : null;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
@@ -208,8 +208,7 @@ public sealed partial class GraphLowerer
             {
                 var decodeMacros = arrivals is null ? decode.Macros : new Dictionary<string, string>(decode.Macros) { ["DEC_FUSED_COMBINE"] = "1" };
                 Func<Bindings, Grid> decodeGrid = b => new Grid((uint)decode.Groups, (uint)Rows(b, q), (uint)decode.MaxSplits(Rows(b, q)));
-                var decodeKernel = arrivals is null && NativeDecodeAttention(plan, decode) ? NativeDecodeKernel(decodeMacros)
-                    : Lib("attention.slang", "decode", decodeMacros);
+                var decodeKernel = DecodeKernel(plan, decode, decodeMacros, arrivals is not null);
                 variants.Add(new KernelVariant(decode.When, decodeKernel, decodeGrid));
             }
 
@@ -829,6 +828,12 @@ public sealed partial class GraphLowerer
         long keyLanes = Math.Min((long)BitOperations.RoundUpToPowerOf2((ulong)Math.Max(plan.D, plan.DV) / 8), sg);
         long valueSlices = (plan.DV / 8 + keyLanes - 1) / keyLanes;
         int[] cfg = DecodeConfig(_opt.Target, Math.Max(plan.D, plan.DV));
+        if (!DiagnosticSwitches.AttentionDecodeConfigSet && _opt.ComputeUnits > 0 && NativeWideDecodeAttention(plan))
+        {
+            // The wide native form runs one block per SM: splits that fill whole waves (see NativeWideDecodeWaves).
+            cfg = [_opt.ComputeUnits * NativeWideDecodeWaves, cfg[1], cfg[2]];
+        }
+
         long rowsPerBatch = cfg.Length > 3 ? cfg[3] : DecodeRowsPerBatch;
         long batch = rowsPerBatch * threads / keyLanes;
         long subgroups = threads / sg;
@@ -860,6 +865,11 @@ public sealed partial class GraphLowerer
         // Sliding-window layers whose window fits one key range never split (decode_split_keys: a range has DEC_MIN_KEYS keys at least).
         long window = long.Parse(plan.Macros.GetValueOrDefault("WINDOW", "0"), CultureInfo.InvariantCulture);
         var flashWhen = flash ? FlashWhen(plan) : null;
+        if (TensorCoreWideDecode(plan, maxRows, flashWhen) is { } wide)
+        {
+            return wide;
+        }
+
         var macros = new Dictionary<string, string>(plan.Macros);
         (string Name, long Value)[] decodeMacros =
         [
@@ -888,6 +898,15 @@ public sealed partial class GraphLowerer
             When = b => Rows(b, q) <= maxRows && (flashWhen is null || !flashWhen(b)),
         };
     }
+
+    /// <summary>
+    /// The kernel of <paramref name="decode"/>'s decode rows for the macros <paramref name="macros"/>: its tensor-core <c>fa_mqa</c> form, the
+    /// hand-written CUDA kernel (not with the fused combine, <paramref name="fusedCombine"/>), or <c>decode</c>.
+    /// </summary>
+    private CompiledKernel DecodeKernel(AttentionPlan plan, DecodeAttentionPlan decode, Dictionary<string, string> macros, bool fusedCombine)
+        => decode.Kernel != "decode" ? Lib("attention.slang", decode.Kernel, macros)
+            : !fusedCombine && NativeDecodeAttention(plan, decode) ? NativeDecodeKernel(plan, macros)
+            : Lib("attention.slang", "decode", macros);
 
     /// <summary>Scratch for the partials of split-K decoding (only rows that run more than one key range use it).</summary>
     private TensorRef DecodeScratch(AttentionPlan plan, DecodeAttentionPlan decode, long maxRows)
@@ -1028,7 +1047,7 @@ public sealed partial class GraphLowerer
             }
         }
 
-        var decodeKernel = NativeDecodeAttention(plan, decode) ? NativeDecodeKernel(decodeMacros) : Lib("attention.slang", "decode", decodeMacros);
+        var decodeKernel = DecodeKernel(plan, decode, decodeMacros, false);
         var decodeVariant = new KernelVariant(when, decodeKernel, b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1));
         if (NativeFlashAttention(plan))
         {

@@ -1,0 +1,18 @@
+Graph optimization (sharplight-ir/1): decode 1678 -> 1668 nodes, decode_embeddings 1676 -> 1666 nodes, embed 1555 -> 1545 nodes, classify 1558 -> 1548 nodes [152 ms]
+Loaded Gemma-4-31B-It (decoder): 833 tensors, 18.31 GB, vocab 262144 [1200 ms]
+Rows per forward pass: 2048 (automatic, 31057 MiB available).
+Uploading weights 18.31 / 18.31 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 234 / 234, 186 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 6301 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 62 groups, 20.49 GiB weights+state
+1 segment(s): [0@0: 1669 nodes]
+Ready (decode)
+--- rendered prompt ---
+<bos><|turn>user
+Explain in a few short paragraphs why the sky appears blue during the day and red or orange at sunset, and mention the physicist who first described the scattering.<turn|>
+<|turn>model
+<|channel>thought
+<channel|>
+-----------------------
+The sky appears blue during the day due to a phenomenon called **Rayleigh scattering**, named after the British physicist **Lord Rayleigh**. As sunlight enters Earth's atmosphere, it collides with gas molecules and small particles. Because sunlight is composed of a spectrum of all colors, and blue light travels in shorter, smaller waves
+prompt: 44 tok in 321 ms (137.2 tok/s) | generated: 64 tok, 38.93 tok/s

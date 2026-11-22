@@ -1,0 +1,6 @@
+[N=512] prefill 512 tok: best 262 ms = 1953.1 tok/s | decode: best 45.37, median 44.71, mean 44.77 tok/s | GPU ms/step: best 21.76, median 22.12, wall best 22.04 | prefill median of 5: 273.0 ms = 1875.8 tok/s
+[decode depth 32768] | 1 | 67.8 | 886 / 677 | 24.48 / 24.61, 24.36 |
+[decode depth 131072] | 1 | 76.7 | 886 / 677 | 31.97 / 32.19, 31.88 |
+[batched depth 256]
+Unhandled exception. System.FormatException: The input string '' was not in a correct format.
+   at System.Number.ThrowFormatException[TChar](ReadOnlySpan`1 value)
