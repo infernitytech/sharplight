@@ -62,6 +62,15 @@ public sealed class HostedModelOptions
     /// <summary>Run layers that do not fit on the GPU on the CPU.</summary>
     public bool? CpuOffload { get; set; }
 
+    /// <summary>
+    /// With CPU offload: leave routed experts that fit neither the GPU nor host memory on disk and read them on demand (MoE models larger
+    /// than RAM + VRAM, decode at the disk's speed); null = <see cref="HostedModelDefaults.ExpertsOnDisk"/>.
+    /// </summary>
+    public bool? ExpertsOnDisk { get; set; }
+
+    /// <summary>With <see cref="ExpertsOnDisk"/>: GiB of host memory for the cache of experts read from disk; null = sized from the free host memory.</summary>
+    public double? ExpertCacheGiB { get; set; }
+
     /// <summary>Unload after this many idle seconds (zero or less: never); null = the host's timeout.</summary>
     public double? IdleTimeoutSeconds { get; set; }
 

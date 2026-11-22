@@ -1,0 +1,39 @@
+== lock 12:45:38
+=== DeepSeek sparse reason
+      1 [load] NVIDIA RTX PRO 4500 Blackwell after compiling 'decode': 5269 MiB available, 25733 MiB held, 57 segments, 0 streamed, 0 sparse, 512 MiB reserved
+      1 [load] segment 1 has no sparse expert version on NVIDIA RTX PRO 4500 Blackwell: the expert banks are not page-locked
+      1 [load] segment 101 has no sparse expert version on NVIDIA RTX PRO 4500 Blackwell: the expert banks are not page-locked
+      1 [load] segment 103 has no sparse expert version on NVIDIA RTX PRO 4500 Blackwell: the expert banks are not page-locked
+      1 [load] segment 105 has no sparse expert version on NVIDIA RTX PRO 4500 Blackwell: the expert banks are not page-locked
+=== llama.cpp b11177, -ngl 99, -ncmoe 59 (the last two expert layers on the GPU, as ours) (mmap)
+anon 2182918144
+file 25671307264
+0.00.153.042 I llama_completion: llama backend init
+0.00.153.054 I llama_completion: load the model and apply lora adapter, if any
+0.00.854.886 W llama_model_loader: tensor overrides to CPU are used with mmap enabled - consider using --load-mode none for better performance
+2.53.896.860 W llama_context: setting new yarn_attn_factor = 1.0000 (mscale == 1.0, mscale_all_dim = 1.0)
+2.53.945.625 I cmn          init: llama threadpool init, n_threads = 10
+2.53.963.999 I 
+2.53.964.117 I system_info: n_threads = 10 (n_threads_batch = 10) / 48 | CUDA : ARCHS = 1200 | USE_GRAPHS = 1 | FA_QUANTS = q4_0-q4_0,q8_0-q8_0,f16-f16,bf16-bf16 | BLACKWELL_NATIVE_FP4 = 1 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+2.53.964.121 I 
+2.53.970.172 I sampler seed: 489185154
+2.53.970.182 I sampler params: 
+	repeat_last_n = 64, repeat_penalty = 1.000, frequency_penalty = 0.000, presence_penalty = 0.000
+	dry_multiplier = 0.000, dry_base = 1.750, dry_allowed_length = 2, dry_penalty_last_n = 64
+	top_k = 40, top_p = 0.950, min_p = 0.050, xtc_probability = 0.000, xtc_threshold = 0.100, typical_p = 1.000, top_n_sigma = -1.000, temp = 0.000
+	mirostat = 0, mirostat_lr = 0.100, mirostat_ent = 5.000, adaptive_target = -1.000, adaptive_decay = 0.900
+2.53.970.189 I sampler chain: logits -> ?penalties -> ?dry -> ?top-n-sigma -> top-k -> ?typical -> top-p -> min-p -> ?xtc -> temp-ext -> dist 
+2.53.970.189 I generate: n_ctx = 4096, n_batch = 2048, n_predict = 16, n_keep = 1
+2.53.970.189 I 
+The capital of France is Paris. The capital of France is Paris. The capital of France is Paris.
+3.34.536.235 I common_perf_print:    sampling time =      23.19 ms
+3.34.536.238 I common_perf_print:    samplers time =       9.54 ms /    22 tokens
+3.34.540.664 I common_perf_print:        load time =   16406.05 ms
+3.34.540.668 I common_perf_print: prompt eval time =   16399.75 ms /     6 tokens ( 2733.29 ms per token,     0.37 tokens per second)
+3.34.540.670 I common_perf_print:        eval time =   24123.67 ms /    15 runs   ( 1608.24 ms per token,     0.62 tokens per second)
+3.34.540.670 I common_perf_print:       total time =   40576.67 ms /    21 tokens
+3.34.540.671 I common_perf_print: unaccounted time =      30.06 ms /   0.1 %      (total - sampling - prompt eval - eval) / (total)
+3.34.540.671 I common_perf_print:    graphs reused =         14
+anon 1782812672
+file 57331273728
+== unlock 12:49:45

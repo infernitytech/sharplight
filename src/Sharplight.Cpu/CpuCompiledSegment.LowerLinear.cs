@@ -57,17 +57,21 @@ internal sealed unsafe partial class CpuCompiledSegment
         var format = Quant.FormatOf(w.Type)!.Value;
         var y = NewDense(n.Output);
         bool intDot = _features.Contains(DeviceFeatures.IntDot) && (_options.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false));
-        if (IsStatic(ins[1]) && PairedMatMulId(n) is { } pair)
+        var disk = DiskExperts(ins[1]);
+        // A gate / up pair runs as one op when both weights are resident or both are on disk.
+        if (IsStatic(ins[1]) && PairedMatMulId(n) is { } pair && (disk is null) == (DiskExperts(pair.Inputs[1]) is null))
         {
             // Gate and up projections of the experts: one pass over both, with the gated activation SiLU(gate) * up when it follows.
             var w2 = Ref(pair.Inputs[1]);
             var y2 = NewDense(pair.Output);
+            var disk2 = DiskExperts(pair.Inputs[1]);
             if (GatedActivation(n, pair) is { } gated)
             {
                 bool gateFirst = gated.Gate == n;
                 var h = NewDense(gated.Mul.Output);
                 var (gateWeight, gateOut, upWeight, upOut) = gateFirst ? (w, y, w2, y2) : (w2, y2, w, y);
-                AddStep(new MatMulIdOp(x, gateWeight, expertIndex, gateOut, format, intDot, upWeight, upOut, h), x, w, expertIndex, y, w2, y2, h);
+                var binding = Binding(gateFirst ? disk : disk2, gateFirst ? disk2 : disk);
+                AddStep(new MatMulIdOp(x, gateWeight, expertIndex, gateOut, format, intDot, upWeight, upOut, h, disk: binding), x, w, expertIndex, y, w2, y2, h);
                 _refs[gated.Silu.Output] = gateOut;
                 _refs[gated.Mul.Output] = h;
                 _absorbed.Add(gated.Silu);
@@ -75,7 +79,7 @@ internal sealed unsafe partial class CpuCompiledSegment
             }
             else
             {
-                AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, w2, y2), x, w, expertIndex, y, w2, y2);
+                AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, w2, y2, disk: Binding(disk, disk2)), x, w, expertIndex, y, w2, y2);
             }
 
             _refs[n.Output] = y;
@@ -88,7 +92,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         {
             // The weighted sum over the slots that follows (an MoE layer's output): written by the product, y is its scratch.
             var summed = NewDense(sum.ReduceSum.Output);
-            AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, slotWeights: slotWeights, slotSum: summed), x, w, expertIndex, y, slotWeights, summed);
+            AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, slotWeights: slotWeights, slotSum: summed, disk: Binding(disk, null)), x, w, expertIndex, y, slotWeights, summed);
             _refs[n.Output] = y;
             _refs[sum.Mul.Output] = y;
             _refs[sum.Permute.Output] = y;
@@ -99,9 +103,17 @@ internal sealed unsafe partial class CpuCompiledSegment
             return;
         }
 
-        AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot), x, w, expertIndex, y);
+        AddStep(new MatMulIdOp(x, w, expertIndex, y, format, intDot, disk: Binding(disk, null)), x, w, expertIndex, y);
         _refs[n.Output] = y;
     }
+
+    /// <summary>The disk-backed form of an expert weight (<see cref="CompileOptions.DiskExperts"/>), or null when it is resident.</summary>
+    private Runtime.Experts.DiskExpertTensor? DiskExperts(Value weight)
+        => weight.Weight is { } w && _options.DiskExperts is { } store ? store.Find(w) : null;
+
+    /// <summary>The expert cache binding of an op whose first (and second) weight are on disk, or null when they are resident.</summary>
+    private DiskExpertBinding? Binding(Runtime.Experts.DiskExpertTensor? first, Runtime.Experts.DiskExpertTensor? second)
+        => first is null ? null : new DiskExpertBinding(_options.DiskExperts!, first, second);
 
     /// <summary>
     /// The weighted slot sum after an expert product <paramref name="n"/> ([T, S, N]): <c>ReduceSum(Permute(Mul(y, w), 0, 2, 1))</c> with slot

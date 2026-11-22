@@ -41,6 +41,8 @@ internal static class CliModelLoader
             ImageTokens = settings.ImageTokens,
             Devices = slots,
             Fallback = fallback,
+            ExpertsOnDisk = runtime.ExpertsOnDisk,
+            ExpertCacheBytes = runtime.ExpertCacheBytes,
             ContextLength = runtime.ContextLength,
             MaxBatchTokens = runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,

@@ -1,0 +1,16 @@
+== lock 12:54:42
+=== DeepSeek split
+      1 prefill 8 tok: best 8735 ms = 0.9 tok/s | decode: best 1.11, median 0.87, mean 0.85 tok/s | GPU ms/step: best 18.52, median 18.77, wall best 901.28 | prefill median of 2: 8952.9 ms = 0.9 tok/s
+      1 experts on disk, warm-up and prefills: hit rate 5.5 % (1266 hits, 7070 read ahead, 14590 misses, 7069 prefetched, 18270 evictions), read 191.38 GB, waited 22.13 s, cache 28.0 GiB in 3405 slots
+      1 experts on disk, decode: hit rate 37.6 % (35024 hits, 14685 read ahead, 43501 misses, 14685 prefetched, 58186 evictions), read 513.20 GB, waited 67.77 s, cache 28.0 GiB in 3405 slots
+== cuda StreamedExpertsTests
+[0m[37m   Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.535s
+== cuda MoeTests
+[0m[37m   Sharplight.Vulkan.Tests  Total: 129, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.910s
+== vulkan StreamedExpertsTests
+[0m[37m   Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.487s
+== vulkan MoeTests
+[0m[37m   Sharplight.Vulkan.Tests  Total: 129, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 31.451s
+== Cuda.Tests
+[0m[37m   Sharplight.Cuda.Tests  Total: 63, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 24.688s
+== unlock 12:58:23

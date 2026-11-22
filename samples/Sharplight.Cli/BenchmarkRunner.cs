@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Sharplight.Cuda;
 using Sharplight.Llm;
 using Sharplight.Metal;
+using Sharplight.Runtime.Experts;
 using Sharplight.Vulkan;
 
 namespace Sharplight.Cli;
@@ -24,11 +25,13 @@ internal sealed class BenchmarkRunner
     private readonly InferenceSession _session;
     private readonly TextWriter _log;
     private readonly int[] _promptTokens;
+    private readonly ExpertStore? _diskExperts;
 
-    public BenchmarkRunner(InferenceSession session, int promptTokenCount, TextWriter log)
+    public BenchmarkRunner(InferenceSession session, int promptTokenCount, TextWriter log, ExpertStore? diskExperts = null)
     {
         _session = session;
         _log = log;
+        _diskExperts = diskExperts is { IsActive: true } ? diskExperts : null;
         _promptTokens = CreateSyntheticPrompt(promptTokenCount);
     }
 
@@ -57,8 +60,19 @@ internal sealed class BenchmarkRunner
         ResetProfiles();
         var prefillSeconds = MeasurePrefills(firstPrefillSeconds, cancellationToken);
 
+        if (_diskExperts is not null)
+        {
+            _log.WriteLine($"experts on disk, warm-up and prefills: {_diskExperts.Statistics}");
+            _diskExperts.ResetStatistics();
+        }
+
         var decode = MeasureDecode(cancellationToken);
         PrintProfiles($"decode x{DecodeSteps}");
+        if (_diskExperts is not null)
+        {
+            _log.WriteLine($"experts on disk, decode: {_diskExperts.Statistics}");
+            _diskExperts.ResetStatistics();
+        }
         if (_session.Compiled.TakeSegmentTimings() is { } timings)
         {
             _log.WriteLine($"--- decode host time per segment\n{timings}");

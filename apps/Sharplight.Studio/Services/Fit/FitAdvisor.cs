@@ -62,6 +62,7 @@ internal sealed class FitAdvisor
             ReserveBytes = ReserveBytes,
             Residents = [.. _runtime.LoadedModels.Select(model => Usage(model, gpus))],
             CpuOffload = settings.CpuOffload && device?.IsGpu == true && system is not null,
+            ExpertsOnDisk = settings.ExpertsOnDisk && settings.CpuOffload,
         };
     }
 

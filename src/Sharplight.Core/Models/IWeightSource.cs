@@ -31,6 +31,21 @@ public interface IWeightSource
     }
 
     /// <summary>
+    /// The file the data is stored in and the byte offset of its first byte there, when it is one contiguous range of a file (memory-mapped
+    /// GGUF, <c>.slm</c> and safetensors weights), so that a consumer can read parts of it with its own file I/O instead of through the
+    /// mapping (routed experts left on disk, <see cref="Runtime.Experts.ExpertStore"/>). Default: none.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="offset">Offset of the data's first byte in the file.</param>
+    /// <returns><see langword="true"/> when the data is a contiguous range of <paramref name="path"/>.</returns>
+    public bool TryGetFileRange(out string path, out long offset)
+    {
+        path = "";
+        offset = 0;
+        return false;
+    }
+
+    /// <summary>
     /// Computes the data now if this source produces it lazily on first <see cref="Read"/> (default: nothing to do), so that a
     /// consumer can produce several weights in parallel ahead of reading them. Thread-safe; concurrent reads wait for the result.
     /// </summary>
