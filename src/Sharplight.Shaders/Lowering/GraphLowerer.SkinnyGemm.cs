@@ -32,18 +32,11 @@ public sealed partial class GraphLowerer
     /// </summary>
     /// <remarks>
     /// K-quant weights that the hand-written K-quant decode GEMM serves (<see cref="UsesNativeKQuantDecode"/>) leave the batches past the
-    /// matvec to it (the dual form keeps them, <see cref="DualSkinnyMaxRowsFor"/>): Qwen3.8 27B Q4_K_M at 16 rows (CUDA, µs) down [17408 → 5120] Q6_K
-    /// 134.5 on the skinny GEMM against 100.2, [5120 → 10240] Q6_K 99.5 against 59.4, [6144 → 5120] Q4_K 34.1 against 25.8 (benchmarks.md §77).
+    /// matvec to it, the dual gate / up form included (two K-quant GEMM launches and the activation product): decode steps at 16
+    /// sequences (CUDA, GPU ms) Qwen3-8B 9.87 → 8.35, Qwen3.8 27B 35.75 → 30.05, Gemma 4 31B 43.64 → 38.12 (benchmarks.md §77).
     /// </remarks>
     private long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
         ?? (UsesNativeKQuantDecode(type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
-
-    /// <summary>
-    /// The largest row count of the skinny GEMM's dual form (gate and up with their activation product in the store): it keeps its batches
-    /// with K-quant weights too, since the alternative at 9-16 rows is the generated dual GEMM, not the hand-written K-quant GEMM (Qwen3.8 27B
-    /// Q4_K_M at 16 rows: [5120 → 17408] x 2 215 µs on the skinny dual form against 2 x 165 µs on gemm_cm2, benchmarks.md §77).
-    /// </summary>
-    private static long DualSkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows ?? SkinnyRowsFor(n, type);
 
     /// <summary>The skinny GEMM's largest row count for <paramref name="n"/> outputs by width and type alone (see <see cref="SkinnyMaxRowsFor"/>).</summary>
     private static long SkinnyRowsFor(long n, DataType type)
@@ -109,7 +102,7 @@ public sealed partial class GraphLowerer
         TensorRef y, long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null)
     {
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long maxRows = Math.Min(weights.Length == 2 ? DualSkinnyMaxRowsFor(n, weights[0].Type) : SkinnyMaxRowsFor(n, weights[0].Type), rowsMax);
+        long maxRows = Math.Min(SkinnyMaxRowsFor(n, weights[0].Type), rowsMax);
         long halfMin = Math.Max(minRows, SkinnyHalfMinRows);
         if (minRows < halfMin && minRows <= maxRows)
         {

@@ -645,8 +645,8 @@ public sealed class CudaCodeTests
         var info = provider.GetDevices()[0];
         var cpuProvider = new Cpu.CpuExecutionProvider();
 
-        // silu(x · Wgᵀ) · (x · Wuᵀ) with Q4_K weights [4096, 512]: the skinny GEMM's dual form up to 16 rows (it keeps them where the single
-        // K-quant matmuls go to the hand-written K-quant GEMM), two K-quant decode GEMMs and the activation product above.
+        // silu(x · Wgᵀ) · (x · Wuᵀ) with Q4_K weights [4096, 512] past the matvec: the skinny GEMM's dual form leaves these batches to two
+        // K-quant decode GEMMs and the activation product.
         var exact = new DeviceOptions();
         exact.DisabledFeatures.Add(DeviceFeatures.IntDot);
         var expected = RunGatedKQuant(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0], exact), rows);

@@ -11217,18 +11217,19 @@ the A/B pairs of this round (feature on / off) ran back to back in one hold. Raw
 | Gemma 4 31B, prefill 32K (session path) | Vulkan | does not fit | **1051** | 867 | – → **1.21** |
 | Gemma 4 31B, decode after a 32K prompt (session path) | Vulkan | does not fit | **28.7** | 31.2 (§74) | – → **0.92** |
 | Gemma 4 31B, prefill 512 / decode, 1 stream | CUDA | 1506 / 37.9 | 1488 / 37.9 | 1671 / 39.4 | 0.90 / 0.96 → **0.89 / 0.96** |
-| Gemma 4 31B, decode 16 sequences | CUDA | 322 | §§G16 | 383 | 0.84 → **§§** |
+| Gemma 4 31B, decode 16 sequences | CUDA | 322 | **370** | 383 | 0.84 → **0.97** |
 | Gemma 4 31B, decode 32 sequences | CUDA | (A/B: 407, 78.60 ms) | **493** (64.91 ms) | (llama-batched-bench could not create the context) | |
 | Gemma 4 31B, decode 16 sequences | Vulkan | 310 | 306 | 152 | 2.03 → **2.01** |
-| Qwen3-8B, decode 16 sequences | CUDA | 1404 | **1816** | 1425 | 0.99 → **1.27** |
-| Qwen3-8B, decode 32 sequences | CUDA | (A/B: 1624) | **2817** | 2122 | 0.77 → **1.33** |
-| Qwen3-8B, decode 64 sequences | CUDA | 2785 | **3825** | 2828 | 0.99 → **1.35** |
+| Qwen3-8B, decode 16 sequences | CUDA | 1404 | **1662** | 1430 | 0.99 → **1.16** |
+| Qwen3-8B, decode 32 sequences | CUDA | (A/B: 1624) | **3165** | 2134 | 0.77 → **1.48** |
+| Qwen3-8B, decode 64 sequences | CUDA | 2785 | **3965** | 2843 | 0.99 → **1.39** |
 | Qwen3-8B, prefill 512 / decode, 1 stream | CUDA | 7274 / 144 | 7203 / 144 | 6583 / 143 | 1.09 / 1.01 → 1.09 / **1.01** |
-| Qwen3.8 27B, decode 16 sequences | CUDA | 371 | §§Q16 | 317 | 1.17 → **§§** |
-| Qwen3.8 27B, decode 64 sequences | CUDA | 687 | **789** | 444 | 1.55 → **1.78** |
+| Qwen3.8 27B, decode 16 sequences | CUDA | 371 | **446** | 317 | 1.17 → **1.41** |
+| Qwen3.8 27B, decode 64 sequences | CUDA | 687 | **905** | 444 | 1.55 → **2.04** |
 | Qwen3.8 27B, prefill 512 / decode, 1 stream | CUDA | 1910 / 45.7 | 1903 / 45.6 | 1714 / 43.6 | 1.11 / 1.05 → 1.11 / 1.05 |
 
-Batched decode: BatchBench `--feedback` at depth 256, sequences x 1000 / minimum GPU ms of 20 steps, against llama-batched-bench S_TG
+Batched decode rows: the final hold of the branch (`bench/results/s77/final2`, both engines interleaved); the rest `final`. Batched
+decode: BatchBench `--feedback` at depth 256, sequences x 1000 / minimum GPU ms of 20 steps, against llama-batched-bench S_TG
 (second pass); prefill and single-stream decode: the CLI's `--bench N` (best of 5) against llama-bench. Gemma's 32K row is the
 session's 32K prefill and the decode steps after it (`--bench 32768`), against §74's llama-bench tg64 at depth 32K. Gemma at 32
 sequences: our A/B pair; llama-batched-bench at 32 x 320 positions did not create its context next to the weights.
@@ -11283,8 +11284,11 @@ Qwen3-8B gate / up [4096 → 12288] Q4_K 99.3 µs at 32 rows). `gemm_kq_native.c
   accumulation. No weight is ever written back as f16.
 * K split only where the grid is small or its last wave nearly empty (Gemma's [21504 → 5376]: 84 blocks on 82 SMs, 220 → 182 µs
   split in two), reduced in the last block of each tile in slice order (deterministic, counters self-resetting).
-* Batches of 9-16 rows of single K-quant matmuls leave the skinny GEMM for it (`SkinnyMaxRowsFor`); the dual gate / up form keeps
-  the skinny GEMM there (`DualSkinnyMaxRowsFor`), since the alternative is the generated dual GEMM.
+* Batches of 9-16 rows of K-quant matmuls leave the skinny GEMM for it (`SkinnyMaxRowsFor`), the dual gate / up form included (two
+  launches and the activation product: steps at 16 sequences Qwen3-8B 9.87 → 8.35 ms, Qwen3.8 27B 35.75 → 30.05, Gemma 4 31B 43.64
+  → 38.12 against keeping the skinny dual form, `ab22`). Decode batches whose generated
+  split would be 1 (wide matrices, e.g. Qwen3.8 27B gate / up [5120 → 17408] at 16 rows: 165 µs each on unsplit gemm_cm2) are routed
+  to the split-K emission, where the K-quant GEMM takes them (`NativeKQuantPlanSplit`).
 
 Kernel times (bench/s77_kq harness, sustained µs over 16 weight copies, against §74's gemm_cm2 in the step profile):
 
@@ -11312,8 +11316,8 @@ feature is CUDA's); Gemma 4 31B on Vulkan at 16 sequences 306 tok/s against 310 
 Correctness: `NativeKQuantDecodeGemmMatchesTheCpu` (Cuda.Tests: Q4_K / Q5_K / Q6_K, 9-64 rows, K = 1280 with unaligned Q6_K rows, 336
 outputs, bias rows, q / k / v multi-output) against the CPU (f32 products: the CPU's int-dot path quantizes activations below 32 rows)
 and the generated GEMM. Greedy text: Gemma 4 31B identical with and without the feature (both providers); Qwen3-8B
-(`--chat --temp 0 -n 64`, a 25-token prompt, whose prefill pass runs the new kernel) changes one word after ~40 tokens ("emphasize" →
-"highlight"), a near tie: " highlight" 39.075 against " emphasize" 39.003 (`--logits` on the prefix, either path).
+(`--chat --temp 0 -n 64`, a 25-token prompt, whose prefill pass runs the new kernel) changes one word after ~40 tokens ("highlight" →
+"emphasize"), a near tie: " highlight" 39.075 against " emphasize" 39.003 (`--logits` on the prefix, either path).
 
 ### 77.4 Measured and not kept
 
@@ -11325,8 +11329,9 @@ and the generated GEMM. Greedy text: Gemma 4 31B identical with and without the 
   (each block re-reads the weights: 89.5 / 115.1 against 82.1 / 89.7 µs).
 * **The wave-count K split** (`WaveFillSplit`) on grids of 1.5-3 waves: memory-bound blocks of a partial last wave run faster, so
   splitting [4096 → 12288] (192 blocks) cost 5 %; the split is kept only for nearly empty last waves and small grids.
-* **The skinny dual form's 9-16 rows on two launches of the generated dual GEMM** (what capping the skinny GEMM for K-quants did to
-  gate / up): Qwen3.8 27B at 16 sequences 42.96 → 47.98 ms, Gemma 4 31B 49.23 → 54.93 ms; the dual form keeps the skinny GEMM.
+* **Batches of 9-16 rows on unsplit gemm_cm2**: capping the skinny GEMM first sent wide gate / up matrices whose generated split is 1
+  to the unsplit gemm_cm2 (Qwen3.8 27B at 16 sequences 42.96 → 47.98 ms, Gemma 4 31B 49.23 → 54.93 ms); routing them to the split-K
+  emission (`NativeKQuantPlanSplit`) puts them on the K-quant GEMM.
 
 ### 77.5 Leads worth promoting and the next levers
 
