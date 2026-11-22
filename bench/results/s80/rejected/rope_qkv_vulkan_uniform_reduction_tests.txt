@@ -1,0 +1,8 @@
+any=1 vulkan Fusion: [0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f16", D: 16, rot: 16, norm: True) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 32, rot: 32, norm: True) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f16", D: 128, rot: 128, norm: False) [FAIL]
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 64, rot: 32, norm: False) [FAIL]
+[0m[37m   Sharplight.Vulkan.Tests  Total: 101, Errors: 0, Failed: 4, Skipped: 0, Not Run: 0, Time: 97.142s
+any=1 cuda Fusion: [0m[37m   Sharplight.Vulkan.Tests  Total: 101, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 44.680s
+any=0 vulkan Fusion: [0m[37m   Sharplight.Vulkan.Tests  Total: 101, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 33.664s
+any=0 cuda Fusion: [0m[37m   Sharplight.Vulkan.Tests  Total: 101, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.049s
