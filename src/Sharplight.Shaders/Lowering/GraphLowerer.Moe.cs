@@ -179,23 +179,24 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// The f16 copy of <paramref name="x"/> (rows of <paramref name="k"/> values, stride <paramref name="xStride"/>) another GEMM already
-    /// reads, valid from its MinRows up to at least <paramref name="maxRows"/> rows under the current launch condition, with the byte
-    /// offset of its scale words when it is row-ranged; null when there is none.
+    /// reads, written for the batches of MinRows up to at least <paramref name="maxRows"/> rows where its launch condition holds
+    /// (Written), with the byte offset of its scale words when it is row-ranged; null when there is none.
     /// </summary>
-    private (TensorRef Copy, long MinRows, long? RangeScales)? SharedHalfCopy(Value source, TensorRef x, long xStride, long k, long maxRows)
+    private (TensorRef Copy, long MinRows, Func<Bindings, bool>? Written, long? RangeScales)? SharedHalfCopy(Value source, TensorRef x, long xStride,
+        long k, long maxRows)
     {
         var root = RootOf(source);
-        (TensorRef Copy, long MinRows, long? RangeScales)? best = null;
+        (TensorRef Copy, long MinRows, Func<Bindings, bool>? Written, long? RangeScales)? best = null;
         foreach (var (key, copy) in _quantizedActivations)
         {
             if (key.Root != root || key.ByteOffset != x.ByteOffset || key.XStride != xStride || key.K != k || key.Code != ActivationCode.F16
-                || key.MaxRows < maxRows || !(key.Condition is null || ReferenceEquals(key.Condition, _launchCondition)) || copy.Strides[^1] != 1
+                || key.MaxRows < maxRows || (key.Condition is not null and not Func<Bindings, bool>) || copy.Strides[^1] != 1
                 || copy.Shape[^1] != 2 * k || (best is { } b && b.MinRows <= key.MinRows))
             {
                 continue;
             }
 
-            best = (copy, key.MinRows, _rangeScales.TryGetValue(copy, out long scales) ? scales : null);
+            best = (copy, key.MinRows, key.Condition as Func<Bindings, bool>, _rangeScales.TryGetValue(copy, out long scales) ? scales : null);
         }
 
         return best;
@@ -742,7 +743,8 @@ public sealed partial class GraphLowerer
                     tokenCopy = copy.Copy;
                     tokenScales = copy.RangeScales;
                     long copyMin = copy.MinRows;
-                    tokenRead = b => items(b) / S >= copyMin;
+                    var written = copy.Written;
+                    tokenRead = b => items(b) / S >= copyMin && (written?.Invoke(b) ?? true);
                 }
 
                 var readsTokens = tokenRead;

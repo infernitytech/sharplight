@@ -115,7 +115,7 @@ public sealed partial class GraphLowerer
             var row = Ref(add.Inputs[add.Inputs[0] == p.Node.Output ? 1 : 0]);
             var y = Produce(bias.Output);
             long? rangeScales = _rangeScales.TryGetValue(x, out long xrs) ? xrs : null;
-            var notMulti = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(x, p.W, y, row, rangeScales, p.RowCount, NativeBiasGemmMinRows, p.X.Shape[0],
+            var notMulti = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(false, x, p.W, y, row, rangeScales, p.RowCount, NativeBiasGemmMinRows, p.X.Shape[0],
                 TallCondition(NativeBiasGemmMinRows, p.RowCount), TokenArg(p.X)));
             Emit($"{label} native fused[Add]", [p.Node, add],
                 Unless(NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), NativeBiasGemmMinRows, bias: true, rangeScales: rangeScales), notMulti),
@@ -130,21 +130,23 @@ public sealed partial class GraphLowerer
         if (NativeGemmF16 && p.Y.IsDense && p.Macros.GetValueOrDefault("Y_STRIDE") == p.N.ToString(CultureInfo.InvariantCulture))
         {
             long? xrs = _rangeScales.TryGetValue(x, out long rs) ? rs : null;
-            notMultiTall = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(x, p.W, p.Y, null, xrs, p.RowCount, LibraryGemmMinRows, p.X.Shape[0],
+            notMultiTall = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(false, x, p.W, p.Y, null, xrs, p.RowCount, LibraryGemmMinRows, p.X.Shape[0],
                 TallCondition(LibraryGemmMinRows, p.RowCount), TokenArg(p.X)));
         }
 
+        // The hand-written GEMM undoes the rows' range scales in its store (H_XRS); the library's products are unscaled below.
+        long? ranges = _rangeScales.TryGetValue(x, out long xScales) ? xScales : null;
         KernelVariant[] variants = NativeGemmF16
-            ? Unless(NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), LibraryGemmMinRows), notMultiTall)
+            ? Unless(NativeF16Variants(p.N, p.K, p.X.Shape[0], null, b => p.RowCount(b), LibraryGemmMinRows, rangeScales: ranges), notMultiTall)
             : [new KernelVariant(b => p.RowCount(b) >= LibraryGemmMinRows, LibraryKernel.Gemm(_opt.Target, "f16", p.N, p.K), _ => new Grid(1))];
         Emit(label + (NativeGemmF16 ? " native" : " library"), [p.Node], variants,
             [Pointer(x), Pointer(p.W), Pointer(p.Y), TokenArg(p.X)],
             [x, p.W], [p.Y]);
-        if (_rangeScales.TryGetValue(x, out long scales))
+        if (!NativeGemmF16 && ranges is { } scales)
         {
             // Rows of a row-ranged copy that were scaled leave scaled outputs.
             Emit($"{label} f16 range", [p.Node],
-                [new KernelVariant(b => p.RowCount(b) >= LibraryGemmMinRows && notMultiTall(b),
+                [new KernelVariant(b => p.RowCount(b) >= LibraryGemmMinRows,
                     Lib("data.slang", "f16_range_unscale", Macros(("N", p.N), ("Y_STRIDE", p.Macros["Y_STRIDE"]), ("X_RS", scales + "ull"))),
                     b => new Grid(Grid.Div(p.RowCount(b), 64)))],
                 [Pointer(x), Pointer(p.Y), TokenArg(p.X)],

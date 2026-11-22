@@ -473,6 +473,12 @@ public sealed partial class GraphLowerer
         }
 
         var parts = group.Members.Select(m => group.TallParts[m]).ToList();
+        if (parts.Any(pt => pt.Fp8))
+        {
+            EmitNativeFp8TallMultiGemm(group, parts);
+            return;
+        }
+
         var first = parts[0];
         bool bias = first.Bias is not null;
         if (parts.Any(pt => pt.Activations.Buffer != first.Activations.Buffer || pt.Activations.ByteOffset != first.Activations.ByteOffset
@@ -510,6 +516,53 @@ public sealed partial class GraphLowerer
         Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native{(bias ? " fused[Add]" : "")}", group.Members, variants,
             [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output)]);
+        _launchCondition = outer;
+        group.TallServes = serves;
+    }
+
+    /// <summary>
+    /// The multi-output form of the hand-written FP8 GEMM's tensor-copy kernel (<c>gemm_fp8_tma.cu</c> MULTI) over the concatenated weight
+    /// rows of a group whose members all run on it (<see cref="MultiGemmTallPart.Fp8"/>): one persistent launch walks the 128 x 128 tiles
+    /// of all members, where each member's own launch ends in a part-filled round of tiles (Qwen3-8B at 2,048 rows: q 512 tiles in 6.2
+    /// rounds of 82 SMs, k and v 128 each in 1.6). Each output sums its K blocks as its member's launch does.
+    /// </summary>
+    private void EmitNativeFp8TallMultiGemm(MultiGemmGroup group, List<MultiGemmTallPart> parts)
+    {
+        var first = parts[0];
+        if (parts.Any(pt => !pt.Fp8 || pt.Activations.Buffer != first.Activations.Buffer || pt.Activations.ByteOffset != first.Activations.ByteOffset
+                            || pt.MinRows != first.MinRows || pt.MaxRows != first.MaxRows || pt.Weight.Type != first.Weight.Type
+                            || pt.Weight.Shape[1] != first.Weight.Shape[1] || pt.Weight.Shape[0] % NativeFp8Tile != 0 || !DenseRowsOf(pt.Output, pt.Weight.Shape[0])))
+        {
+            return;
+        }
+
+        long xcap = DenseScaleCapacityOf(first.Activations);
+        if (xcap <= 0)
+        {
+            return;
+        }
+
+        long[] widths = [.. parts.Select(pt => pt.Weight.Shape[0])];
+        long n = widths.Sum();
+        long k = first.Weight.Shape[1];
+        var multi = new Dictionary<string, string>
+        {
+            ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+        };
+        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b));
+        var rowsOf = first.Rows;
+        // Pointer arguments: x, w, y, then the other members' weights and outputs (the tensor maps of w_1 / w_2 cover pointers 3 / 4).
+        var memberMaps = parts.Skip(1).Select((pt, i) => (Pointer: 3 + i, Rows: pt.Weight.Shape[0])).ToList();
+        var variant = NativeFp8TmaVariant(n, k, null, xcap, serves, rowsOf, multi, memberMaps, widths[0]);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        var outer = _launchCondition;
+        _launchCondition = null;
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8 tma", group.Members, [variant],
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
         _launchCondition = outer;
         group.TallServes = serves;
     }

@@ -70,26 +70,32 @@ public sealed class MatMulEpilogueTests
     /// <summary>
     /// q / k / v of prompt-sized batches, with or without bias rows (the hand-written f16 GEMM's multi-output form over the members'
     /// weight rows on CUDA: from 256 rows without biases, from 1,024 with them; its 128 x 256 tiles where every member boundary is a
-    /// multiple of 256, else its 128 x 128 tiles), and a 32-wide router (gemm_cm2's K split at every row count).
+    /// multiple of 256, else its 128 x 128 tiles; FP8 weights on the tensor-copy FP8 GEMM's multi-output form), and a 32-wide router
+    /// (gemm_cm2's K split at every row count).
     /// </summary>
     [Theory]
-    [InlineData(2880, 4096, 512, true)]
-    [InlineData(2880, 1024, 128, false)]
-    public void PromptProjections(int k, int qWidth, int kvWidth, bool bias)
+    [InlineData("f16", 2880, 4096, 512, true)]
+    [InlineData("f16", 2880, 1024, 128, false)]
+    [InlineData("f8e4m3_b128", 4096, 2048, 512, false)]
+    public void PromptProjections(string type, int k, int qWidth, int kvWidth, bool bias)
     {
+        var weightType = DataType.Get(type);
+        bool fp8 = type.StartsWith("f8", StringComparison.Ordinal);
         var tg = new TG();
         var x = tg.InF("x", TG.T, k);
         var h = tg.B.RmsNorm(x, tg.WF("norm", Rnd.F(k, 2, 1f), k), 1e-6f);
         foreach (var (name, n) in new[] { ("q", qWidth), ("k", kvWidth), ("v", kvWidth), ("router", 32) })
         {
-            var w = tg.RandW("w" + name, DataType.F16, 0.03f, n, k);
+            var w = tg.RandW("w" + name, weightType, 0.03f, n, k);
             var product = tg.B.MatMul(h, w);
             tg.B.Output(name, bias ? tg.B.Add(product, tg.WF("b" + name, Rnd.F(n, 3 + n, 0.5f), n)) : product);
         }
 
         var g = tg.B.Build();
         Step Rows(int t) => new(t, 0, (x, Rnd.F((long)t * k, 1 + t)));
-        Diff.Check($"MatMul(f16) prompt q/k/v/router{(bias ? " + bias" : "")}", g, [Rows(300), Rows(1030)], atol: 2e-3, rtol: 2e-3, maxTokens: 1030,
+        // fp8 weights: the E4M3 activations err by up to ~3 % per value (see ProjectionBiases).
+        Diff.Check($"MatMul({type}) prompt q/k/v/router{(bias ? " + bias" : "")}", g, [Rows(300), Rows(1030)], atol: fp8 ? 0.15 : 2e-3,
+            rtol: fp8 ? 5e-2 : 2e-3, maxTokens: 1030,
             what: $"{k}->{qWidth}+{kvWidth}+{kvWidth}");
     }
 

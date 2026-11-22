@@ -447,11 +447,11 @@ public sealed class MoeTests
             }
         }
 
-        // The large rows' outputs (~1e4) sum products rounded to f16 (relative 2^-11), so their absolute error is ~10; a row left
-        // scaled or scaled twice is off by its power-of-two factor (thousands).
+        // The large rows' outputs (~1e4) sum products rounded to f16 (relative 2^-11) with cancellation: errors up to ~150 (the
+        // ranged gather alike); a row left scaled or scaled twice is off by its power-of-two factor (thousands).
         Diff.Check("MatMulId.routed-large." + fmt, tg.B.Build(),
             new Step(t, 0, (x, xs), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
-            atol: 100.0, rtol: 5e-2, maxTokens: 640, what: $"S={s} T={t}");
+            atol: 400.0, rtol: 5e-2, maxTokens: 640, what: $"S={s} T={t}");
     }
 
     /// <summary>
