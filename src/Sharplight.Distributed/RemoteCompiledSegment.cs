@@ -27,10 +27,9 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
     private readonly int[] _inputLengths;
     private readonly bool[] _dirty;
     private readonly PayloadWriter _writer = new(4096);
-    private readonly Queue<(Task<Frame> Reply, long Sent)> _earlier = new();
+    private readonly Queue<Task<WorkerReply>> _earlier = new();
     private readonly IReadOnlyList<string> _producedSymbols;
-    private Task<Frame>? _last;
-    private long _lastSent;
+    private Task<WorkerReply>? _last;
     private RunParameters? _lastParameters;
     private Dictionary<int, ReadOnlyMemory<byte>>? _outputs;
     private int _disposed;
@@ -100,14 +99,13 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
         CheckEarlier();
         if (_last is not null)
         {
-            _earlier.Enqueue((_last, _lastSent));
+            _earlier.Enqueue(_last);
             _last = null;
         }
 
         while (_earlier.Count >= MaxOutstanding)
         {
-            var (reply, sent) = _earlier.Dequeue();
-            Complete(reply, sent, parameters: null);
+            Complete(_earlier.Dequeue(), parameters: null);
         }
 
         var w = _writer;
@@ -135,8 +133,10 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
 
         try
         {
-            _lastSent = Stopwatch.GetTimestamp();
+            long sent = Stopwatch.GetTimestamp();
             _last = _connection.Request(FrameKind.Execute, w.WrittenSpan);
+            _last.ContinueWith(s_record, (_device, sent), CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
         catch (SegmentWorkerException e)
         {
@@ -245,20 +245,21 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
         ThrowIfFailed();
         while (_earlier.TryDequeue(out var earlier))
         {
-            Complete(earlier.Reply, earlier.Sent, parameters: null);
+            Complete(earlier, parameters: null);
         }
 
         var last = _last ?? throw new InvalidOperationException("GetOutput called before Execute.");
-        _outputs = Complete(last, _lastSent, _lastParameters);
+        _outputs = Complete(last, _lastParameters);
+        _last = null;
     }
 
     /// <summary>Reads an execution's reply: records the timing, applies the symbols its ops produced, returns its outputs.</summary>
-    private Dictionary<int, ReadOnlyMemory<byte>> Complete(Task<Frame> reply, long sent, RunParameters? parameters)
+    private Dictionary<int, ReadOnlyMemory<byte>> Complete(Task<WorkerReply> reply, RunParameters? parameters)
     {
-        Frame frame;
+        WorkerReply arrived;
         try
         {
-            frame = _connection.Wait(reply, _device.Options.ExecuteTimeout, FrameKind.Execute, _pipeline.Failed);
+            arrived = _connection.Wait(reply, _device.Options.ExecuteTimeout, FrameKind.Execute, _pipeline.Failed);
         }
         catch (SegmentWorkerException e)
         {
@@ -270,10 +271,9 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
             throw;
         }
 
-        double roundTrip = Stopwatch.GetElapsedTime(sent).TotalMilliseconds;
-        var r = new PayloadReader(frame.Payload);
-        double workerMs = r.Double();
-        _device.Record(roundTrip, workerMs);
+        var r = new PayloadReader(arrived.Frame.Payload);
+        r.Double();
+        r.Double();
         var symbols = new Dictionary<string, long>(StringComparer.Ordinal);
         r.Map(symbols);
         if (parameters is not null)
@@ -295,13 +295,24 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
         return outputs;
     }
 
+    /// <summary>Adds an execution's times to the device's statistics when its reply arrives.</summary>
+    private static readonly Action<Task<WorkerReply>, object?> s_record = (reply, state) =>
+    {
+        var (device, sent) = ((RemoteComputeDevice, long))state!;
+        var arrived = reply.Result;
+        var r = new PayloadReader(arrived.Frame.Payload);
+        double workerMs = r.Double();
+        double waitMs = r.Double();
+        device.Record(Stopwatch.GetElapsedTime(sent, arrived.ArrivedAt).TotalMilliseconds, workerMs, waitMs);
+    };
+
     /// <summary>Surfaces a failure of an execution whose reply nobody waits for (one whose outputs all went to a neighbour).</summary>
     private void CheckEarlier()
     {
-        while (_earlier.TryPeek(out var earlier) && earlier.Reply.IsCompleted)
+        while (_earlier.TryPeek(out var earlier) && earlier.IsCompleted)
         {
             _earlier.Dequeue();
-            Complete(earlier.Reply, earlier.Sent, parameters: null);
+            Complete(earlier, parameters: null);
         }
     }
 

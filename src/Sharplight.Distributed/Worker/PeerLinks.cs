@@ -14,10 +14,13 @@ internal sealed class PeerLinks(ISegmentTransport transport, TimeSpan connectTim
     private bool _disposed;
 
     /// <summary>Sends a value (or a failure, <paramref name="data"/> empty and <paramref name="error"/> set) to the worker at <paramref name="endpoint"/>.</summary>
-    /// <exception cref="IOException">The neighbour cannot be reached or the link broke.</exception>
+    /// <remarks>
+    /// A link that fails is opened again once and the value sent again: a neighbour that restarted (a new process at the same address) is
+    /// reached at once; a value the old process received before it went away is dropped by its mailbox anyway.
+    /// </remarks>
+    /// <exception cref="IOException">The neighbour cannot be reached or the link broke twice.</exception>
     public void Send(string endpoint, long tag, long sequence, ReadOnlySpan<byte> data, string? error)
     {
-        var link = Get(endpoint);
         var w = new PayloadWriter(data.Length + 32).Int64(tag).Int64(sequence).Bool(error is null);
         if (error is null)
         {
@@ -28,14 +31,22 @@ internal sealed class PeerLinks(ISegmentTransport transport, TimeSpan connectTim
             w.String(error);
         }
 
-        try
+        for (int attempt = 0; ; attempt++)
         {
-            link.Send(FrameKind.PeerValue, 0, w.WrittenSpan);
-        }
-        catch (Exception e) when (e is IOException or ObjectDisposedException)
-        {
-            Drop(endpoint, link);
-            throw new IOException($"Sending a boundary value to neighbour {endpoint} failed: {e.Message}", e);
+            var link = Get(endpoint);
+            try
+            {
+                link.Send(FrameKind.PeerValue, 0, w.WrittenSpan);
+                return;
+            }
+            catch (Exception e) when (e is IOException or ObjectDisposedException)
+            {
+                Drop(endpoint, link);
+                if (attempt > 0)
+                {
+                    throw new IOException($"Sending a boundary value to neighbour {endpoint} failed: {e.Message}", e);
+                }
+            }
         }
     }
 
@@ -61,7 +72,27 @@ internal sealed class PeerLinks(ISegmentTransport transport, TimeSpan connectTim
             }
 
             _links[endpoint] = link;
-            return link;
+        }
+
+        // The neighbour never sends on this link: a read returns only when it closes it (a process that exits closes its sockets), so a
+        // link to a neighbour that restarted is dropped before a value is written into it and lost.
+        var watcher = new Thread(() => Watch(endpoint, link)) { IsBackground = true, Name = $"sharplight-peer {endpoint}" };
+        watcher.Start();
+        return link;
+    }
+
+    private void Watch(string endpoint, ISegmentConnection link)
+    {
+        try
+        {
+            while (true)
+            {
+                link.Receive();
+            }
+        }
+        catch (Exception e) when (e is IOException or ObjectDisposedException)
+        {
+            Drop(endpoint, link);
         }
     }
 

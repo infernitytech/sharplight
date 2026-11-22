@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Multi-node pipeline benchmark (not part of Sharplight.slnx): decode and prefill through segment workers vs the same split in one process. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <WarningsAsErrors></WarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../../src/Sharplight/Sharplight.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Distributed/Sharplight.Distributed.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+  </ItemGroup>
+</Project>

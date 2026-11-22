@@ -25,6 +25,9 @@ public sealed class RemoteComputeDevice : IComputeDevice
     private long _executions;
     private double _roundTripMs;
     private double _workerMs;
+    private double _waitMs;
+    private long _bytesSentBase;
+    private long _bytesReceivedBase;
 
     internal RemoteComputeDevice(WorkerConnection connection, DeviceInfo info, RemoteSegmentOptions options, ConditionalWeakTable<object, RemotePipeline> pipelines)
     {
@@ -49,14 +52,14 @@ public sealed class RemoteComputeDevice : IComputeDevice
     /// <summary>The provider's settings.</summary>
     internal RemoteSegmentOptions Options { get; }
 
-    /// <summary>Executions, round-trip and worker times, and bytes on the wire so far.</summary>
+    /// <summary>Executions, round-trip and worker times, and bytes on the wire since the connection opened or <see cref="ResetStatistics"/>.</summary>
     public RemoteSegmentStatistics Statistics
     {
         get
         {
             lock (_statisticsLock)
             {
-                return new RemoteSegmentStatistics(_executions, _roundTripMs, _workerMs, _connection.BytesSent, _connection.BytesReceived);
+                return new RemoteSegmentStatistics(_executions, _roundTripMs, _workerMs, _waitMs, _connection.BytesSent - _bytesSentBase, _connection.BytesReceived - _bytesReceivedBase);
             }
         }
     }
@@ -133,14 +136,29 @@ public sealed class RemoteComputeDevice : IComputeDevice
         return new RemoteCompiledSegment(this, _connection, pipeline, segment, handle, bytes, canCopy, ProducedSymbols(segment));
     }
 
+    /// <summary>Starts <see cref="Statistics"/> again from zero executions .</summary>
+    public void ResetStatistics()
+    {
+        lock (_statisticsLock)
+        {
+            _executions = 0;
+            _roundTripMs = 0;
+            _workerMs = 0;
+            _waitMs = 0;
+            _bytesSentBase = _connection.BytesSent;
+            _bytesReceivedBase = _connection.BytesReceived;
+        }
+    }
+
     /// <summary>Adds an execution to <see cref="Statistics"/>.</summary>
-    internal void Record(double roundTripMs, double workerMs)
+    internal void Record(double roundTripMs, double workerMs, double waitMs)
     {
         lock (_statisticsLock)
         {
             _executions++;
             _roundTripMs += roundTripMs;
             _workerMs += workerMs;
+            _waitMs += waitMs;
         }
     }
 

@@ -18,7 +18,7 @@ internal sealed class WorkerSession : IDisposable
     private readonly SegmentWorker _worker;
     private readonly ISegmentConnection _connection;
     private readonly Dictionary<uint, HostedSegment> _segments = [];
-    private readonly BlockingCollection<(Frame Frame, long Index)> _queue = new();
+    private readonly BlockingCollection<(Frame Frame, long Index, long Received)> _queue = new();
     private readonly CancellationTokenSource _closed = new();
     private readonly Timer _watchdog;
     private CancellationTokenSource _abort = new();
@@ -26,6 +26,8 @@ internal sealed class WorkerSession : IDisposable
     private long _abortedThrough;
     private long _lastReceived = Stopwatch.GetTimestamp();
     private uint _nextHandle;
+    /// <summary>When the request the executor handles arrived (the time it queued behind earlier work counts as waiting).</summary>
+    private long _received;
     private int _disposed;
 
     public WorkerSession(SegmentWorker worker, ISegmentConnection connection)
@@ -62,7 +64,7 @@ internal sealed class WorkerSession : IDisposable
                         Answer(frame, Supports);
                         break;
                     default:
-                        _queue.Add((frame, Interlocked.Increment(ref _enqueued)));
+                        _queue.Add((frame, Interlocked.Increment(ref _enqueued), Stopwatch.GetTimestamp()));
                         break;
                 }
             }
@@ -101,8 +103,9 @@ internal sealed class WorkerSession : IDisposable
 
     private void Execute()
     {
-        foreach (var (frame, index) in _queue.GetConsumingEnumerable())
+        foreach (var (frame, index, received) in _queue.GetConsumingEnumerable())
         {
+            _received = received;
             if (frame.Kind == FrameKind.Release)
             {
                 Release(new PayloadReader(frame.Payload).UInt32());
@@ -249,6 +252,7 @@ internal sealed class WorkerSession : IDisposable
             }
 
             var started = Stopwatch.GetTimestamp();
+            double waitMs = Stopwatch.GetElapsedTime(_received, started).TotalMilliseconds;
             var needed = returned.Concat(segment.Forwards.Select(f => f.Output)).ToHashSet();
             for (int i = 0; i < segment.OutputNames.Count; i++)
             {
@@ -275,7 +279,7 @@ internal sealed class WorkerSession : IDisposable
             var outputs = returned.Select(output => ReadOutput(segment, output)).ToList();
             double workerMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             var produced = segment.Graph.DynamicSymbols.Where(s => p.Symbols.ContainsKey(s.Key)).ToDictionary(s => s.Key, s => p.Symbols[s.Key], StringComparer.Ordinal);
-            var w = new PayloadWriter(outputs.Sum(o => o.Length) + 256).Double(workerMs).Map(produced).Int32(returned.Length);
+            var w = new PayloadWriter(outputs.Sum(o => o.Length) + 256).Double(workerMs).Double(waitMs).Map(produced).Int32(returned.Length);
             for (int i = 0; i < returned.Length; i++)
             {
                 w.Int32(returned[i]).Bytes(outputs[i]);

@@ -14,7 +14,7 @@ internal sealed class WorkerConnection : IDisposable
 {
     private readonly ISegmentConnection _connection;
     private readonly RemoteSegmentOptions _options;
-    private readonly ConcurrentDictionary<uint, TaskCompletionSource<Frame>> _pending = new();
+    private readonly ConcurrentDictionary<uint, TaskCompletionSource<WorkerReply>> _pending = new();
     private readonly Thread _reader;
     private readonly Timer _heartbeat;
     private long _lastReceived;
@@ -120,11 +120,11 @@ internal sealed class WorkerConnection : IDisposable
     }
 
     /// <summary>Sends a request; the task completes with its reply, or fails with <see cref="SegmentWorkerException"/>.</summary>
-    public Task<Frame> Request(FrameKind kind, ReadOnlySpan<byte> payload)
+    public Task<WorkerReply> Request(FrameKind kind, ReadOnlySpan<byte> payload)
     {
         ThrowIfFaulted();
         uint id = Interlocked.Increment(ref _nextRequest);
-        var reply = new TaskCompletionSource<Frame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reply = new TaskCompletionSource<WorkerReply>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = reply;
         try
         {
@@ -146,7 +146,7 @@ internal sealed class WorkerConnection : IDisposable
 
     /// <summary>Sends a request and waits for its reply.</summary>
     public Frame Call(FrameKind kind, ReadOnlySpan<byte> payload, TimeSpan timeout, CancellationToken cancellationToken = default)
-        => Wait(Request(kind, payload), timeout, kind, cancellationToken);
+        => Wait(Request(kind, payload), timeout, kind, cancellationToken).Frame;
 
     /// <summary>
     /// Waits for a reply. A reply that does not come within <paramref name="timeout"/> fails the connection: the worker's state is unknown
@@ -154,7 +154,7 @@ internal sealed class WorkerConnection : IDisposable
     /// </summary>
     /// <exception cref="SegmentWorkerException">The request failed, the connection failed, or the timeout passed.</exception>
     /// <exception cref="OperationCanceledException">Cancelled (the request still runs on the worker; the connection stays usable).</exception>
-    public Frame Wait(Task<Frame> reply, TimeSpan timeout, FrameKind kind, CancellationToken cancellationToken = default)
+    public WorkerReply Wait(Task<WorkerReply> reply, TimeSpan timeout, FrameKind kind, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -245,7 +245,7 @@ internal sealed class WorkerConnection : IDisposable
                 }
                 else
                 {
-                    reply.TrySetResult(frame);
+                    reply.TrySetResult(new WorkerReply(frame, Stopwatch.GetTimestamp()));
                 }
             }
         }
