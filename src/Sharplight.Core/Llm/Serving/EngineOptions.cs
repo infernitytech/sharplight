@@ -24,6 +24,12 @@ public sealed record EngineOptions
     /// <summary>Rows per sequence holding a slot that the adaptive step budget allows (see <see cref="MinBatchTokens"/>).</summary>
     public int BatchTokensPerSequence { get; set; } = 32;
     /// <summary>
+    /// The adaptive step budget (see <see cref="MinBatchTokens"/>) is rounded up to a multiple of this many rows (1: no rounding). A
+    /// prompt-sized GEMM's time follows the count of its token tiles (128 rows on the CUDA provider's FP8 and f16 GEMMs), so a budget
+    /// of 1,824 rows costs what 1,920 would (benchmarks.md §90).
+    /// </summary>
+    public int BatchTokensGranule { get; set; } = 128;
+    /// <summary>
     /// Maximum prompt rows of one sequence per step (0, the default: the step's token budget, so a prompt takes whole passes of the
     /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.
     /// </summary>

@@ -91,7 +91,7 @@ public class EngineTests
     {
         var d = new FakeBatchDecoder(8, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(3) };
         d.Script("x", loop: true);
-        using var e = Engine(d, new EngineOptions { MinBatchTokens = 40, BatchTokensPerSequence = 10 });
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 40, BatchTokensPerSequence = 10, BatchTokensGranule = 1 });
 
         // A lone prompt may take a whole step of the full budget.
         int loneLength = T.Prompt(new string('a', 300)).Length;
@@ -104,6 +104,22 @@ public class EngineTests
         var hs = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('b' + i), 50), max: 2))).ToList();
         await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
         Assert.All(d.Steps.Skip(start), s => Assert.True(s.Sum(x => x.Rows) <= 4 + length, $"step of {s.Sum(x => x.Rows)} rows"));
+    }
+
+    [Fact]
+    public async Task AdaptiveStepBudget_RoundsUpToWholeGranules()
+    {
+        var d = new FakeBatchDecoder(8, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(3) };
+        d.Script("x", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 40, BatchTokensPerSequence = 10, BatchTokensGranule = 64 });
+
+        // Four competing prompts: the budget of a few rows per sequence becomes one granule of 64 rows, never more than two.
+        int start = d.Steps.Count;
+        var hs = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('b' + i), 100), max: 2))).ToList();
+        await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+        var rows = d.Steps.Skip(start).Select(s => s.Sum(x => x.Rows)).ToList();
+        Assert.All(rows, r => Assert.True(r <= 128, $"step of {r} rows"));
+        Assert.Contains(rows, r => r > 40 + 4);
     }
 
     [Fact]
