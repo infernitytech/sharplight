@@ -40,6 +40,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     private CancellationTokenSource? _estimating;
     private bool _ready;
     private bool _detached;
+    private IReadOnlyList<DeviceMemory>? _pendingMemory;
 
     /// <param name="entry">The model to load.</param>
     /// <param name="services">The services.</param>
@@ -67,9 +68,19 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         // New figures from the periodic read while the panel is open (other applications, a model loading elsewhere): plan again with them.
         _memoryChanged = (_, memory) => services.Dispatcher.Post(() =>
         {
-            if (!IsLoading && !_detached)
+            if (IsLoading || _detached)
+            {
+                return;
+            }
+
+            if (Estimate.IsCompleted)
             {
                 ScheduleEstimate(memory);
+            }
+            else
+            {
+                // The estimate in progress reads the same figures (one shared read) or older ones: it plans again when it is done.
+                _pendingMemory = memory;
             }
         });
         var defaults = services.Settings.Current.DefaultLoad;
@@ -424,6 +435,10 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             {
                 ConfiguredContext = request.Settings.ContextLength,
             };
+            if (Interlocked.Exchange(ref _pendingMemory, null) is { } newer && !ReferenceEquals(newer, memory))
+            {
+                ScheduleEstimate(newer);
+            }
         }
         catch (OperationCanceledException)
         {
