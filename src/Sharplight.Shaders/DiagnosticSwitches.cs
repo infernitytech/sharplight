@@ -576,6 +576,18 @@ internal static class DiagnosticSwitches
     public static bool MoeSortedHalfActivations { get; } = IsNotZero("SHARPLIGHT_MOE_X16");
 
     /// <summary>
+    /// False (<c>SHARPLIGHT_MOE_SORTED_STORE=0</c>) keeps the f32 store of the gate / up expert GEMM on the hand-written grouped GEMM
+    /// and the down projection's gather, instead of the gate / up GEMM storing the down projection's expert-sorted f16 rows.
+    /// </summary>
+    public static bool MoeSortedStore { get; } = IsNotZero("SHARPLIGHT_MOE_SORTED_STORE");
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MOE_TOKEN_ROWS=0</c>) gathers the expert-sorted f16 rows of the gate / up GEMM's activations for the
+    /// hand-written grouped GEMM instead of letting it read its items' token rows from the f16 copy another GEMM (the router) reads.
+    /// </summary>
+    public static bool MoeTokenRows { get; } = IsNotZero("SHARPLIGHT_MOE_TOKEN_ROWS");
+
+    /// <summary>
     /// True when the expert-grouped gemm_cm2 with 64- or 128-row tiles leaves the tiles of at most half that many rows (an
     /// expert's last, partly filled tile) to a second launch with half-height tiles, which multiplies less padding.
     /// </summary>

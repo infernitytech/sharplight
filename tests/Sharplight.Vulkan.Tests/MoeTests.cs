@@ -413,6 +413,48 @@ public sealed class MoeTests
     }
 
     /// <summary>
+    /// <see cref="RoutedExpertBlock"/> with every seventh token's activations 100 times larger, so many of its gated products reach
+    /// past 2^15: the down projection's expert-sorted f16 rows of those items are stored scaled (the ranged gather, or on CUDA the gate /
+    /// up GEMM's sorted f16 store and its fix-up of the flagged rows) and must still give the f32 products.
+    /// </summary>
+    [Theory]
+    [InlineData("mxfp4", 4, 70)]
+    [InlineData("mxfp4", 4, 300)]
+    [InlineData("bf16", 4, 90)]
+    public void RoutedExpertBlockLargeActivations(string fmt, int s, int t)
+    {
+        Gpu.Require();
+        const int E = 12;
+        const int N = 256;
+        const int K = 512;
+        var tg = new TG();
+        var type = DataType.Get(fmt);
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, s);
+        var weights = tg.InF("weights", TG.T, s, 1);
+        var gate = tg.B.Emit1("MatMulId", [x, tg.RandW("gate", type, 0.1f, E, N, K), ids]);
+        var up = tg.B.Emit1("MatMulId", [x, tg.RandW("up", type, 0.1f, E, N, K), ids]);
+        var act = tg.B.Mul(tg.B.Silu(gate), up);                                                                    // [T, S, N]
+        var down = tg.B.Emit1("MatMulId", [act, tg.RandW("down", type, 0.1f, E, K, N), ids]);
+        var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, weights), 0, 2, 1)]);                    // [T, K, 1]
+        tg.B.Output("y", summed);
+        var xs = Rnd.F((long)t * K, 3);
+        for (int row = 0; row < t; row += 7)
+        {
+            for (int c = 0; c < K; c++)
+            {
+                xs[(long)row * K + c] *= 100f;
+            }
+        }
+
+        // The large rows' outputs (~1e4) sum products rounded to f16 (relative 2^-11), so their absolute error is ~10; a row left
+        // scaled or scaled twice is off by its power-of-two factor (thousands).
+        Diff.Check("MatMulId.routed-large." + fmt, tg.B.Build(),
+            new Step(t, 0, (x, xs), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
+            atol: 100.0, rtol: 5e-2, maxTokens: 640, what: $"S={s} T={t}");
+    }
+
+    /// <summary>
     /// A routed expert block whose sum feeds the residual Add and the next RmsNorm through a Reshape, as in gpt-oss, on every product
     /// path (int-dot matvec, skinny, grouped GEMMs) and row count.
     /// </summary>

@@ -122,6 +122,12 @@ public sealed partial class GraphLowerer
     private BufferDecl? _moeHalfActivations;
     private (Value X, Value Ids, long MaxTiles, long MatvecMaxItems, object? Condition)? _moeGathered;
 
+    // Routings emitted so far (a routing's sorted positions hold until the next one), the expert-sorted f16 rows a dual expert GEMM
+    // stores for the next expert product, and its store (see MoeSortedStore).
+    private int _moeRouteSerial;
+    private BufferDecl? _moeSortedRows;
+    private MoeSortedStore? _moeSortedStore;
+
     /// <summary>
     /// Emits (once per activations and routing) the gather of the routed rows of x into expert-sorted f16 rows and returns them
     /// ([items, K], row o = sorted position o of the routing). The rows are row-ranged (common.slang, f16_range_scale) unless
@@ -131,31 +137,73 @@ public sealed partial class GraphLowerer
     /// </summary>
     private TensorRef EmitSortedHalfActivations(Node n, TensorRef x, long xStride, bool perSlot, long S, long maxItems, long maxTiles, long K, int[] tileSizes,
         long matvecMaxItems, Func<Bindings, long> items, Func<Bindings, int> tile, Func<Bindings, uint> tiles, TensorRef scratch,
-        PointerArg scratchArg, TensorRef ids, out long? rangeScales)
+        PointerArg scratchArg, TensorRef ids, out long? rangeScales, MoeSortedStore? stored = null, Func<Bindings, bool>? skip = null)
     {
         bool ranged = DiagnosticSwitches.F16RangeGuard;
         long rowBytes = maxItems * K * 2;
         rangeScales = ranged ? rowBytes : null;
-        _moeHalfActivations ??= NewBuffer(BufferKind.Activations, "moe-x16", 0);
-        _moeHalfActivations.Bytes = Math.Max(_moeHalfActivations.Bytes, rowBytes + (ranged ? maxItems * 4 : 0));
-        var half = new TensorRef(_moeHalfActivations, 0, DataType.F16, [maxItems, K], [K, 1], null);
-        if (_moeGathered is { } g && g.X == n.Inputs[0] && g.Ids == n.Inputs[2] && g.MaxTiles == maxTiles && g.MatvecMaxItems == matvecMaxItems
-            && ReferenceEquals(g.Condition, _launchCondition))
+        TensorRef half;
+        if (stored is not null)
         {
-            return half;
+            // The rows the dual expert GEMM before stored (its sorted store); the gather fills them for the other batches.
+            half = stored.Rows;
+        }
+        else
+        {
+            _moeHalfActivations ??= NewBuffer(BufferKind.Activations, "moe-x16", 0);
+            _moeHalfActivations.Bytes = Math.Max(_moeHalfActivations.Bytes, rowBytes + (ranged ? maxItems * 4 : 0));
+            half = new TensorRef(_moeHalfActivations, 0, DataType.F16, [maxItems, K], [K, 1], null);
+            if (_moeGathered is { } g && g.X == n.Inputs[0] && g.Ids == n.Inputs[2] && g.MaxTiles == maxTiles && g.MatvecMaxItems == matvecMaxItems
+                && ReferenceEquals(g.Condition, _launchCondition))
+            {
+                return half;
+            }
         }
 
+        Func<Bindings, bool> gathers = stored is null ? skip is null ? _ => true : b => !skip(b) : b => !stored.Serves(b);
         Emit($"moe-gather {n.Inputs[0].Name} x→{(ranged ? "ranged " : "")}f16", [n],
-            [.. tileSizes.Select(t => new KernelVariant(b => items(b) > matvecMaxItems && tile(b) == t,
+            [.. tileSizes.Select(t => new KernelVariant(b => items(b) > matvecMaxItems && tile(b) == t && gathers(b),
                 Lib("moe.slang", "moe_gather_x16", ranged
                     ? Macros(("K", K), ("S", S), ("PER_SLOT", perSlot), ("X_STRIDE", xStride), ("MAXTILES", maxTiles), ("TILE_M", t), ("Y_RS", rowBytes + "ull"))
                     : Macros(("K", K), ("S", S), ("PER_SLOT", perSlot), ("X_STRIDE", xStride), ("MAXTILES", maxTiles), ("TILE_M", t))),
                 ranged ? b => new Grid((uint)t, tiles(b)) : b => new Grid(Grid.Div(t * K / 8, 256), tiles(b))))],
             [Pointer(x), scratchArg, Pointer(half), TokenArg(ids)],
             [x, scratch], [half]);
-        _moeGathered = (n.Inputs[0], n.Inputs[2], maxTiles, matvecMaxItems, _launchCondition);
+        if (stored is null)
+        {
+            _moeGathered = (n.Inputs[0], n.Inputs[2], maxTiles, matvecMaxItems, _launchCondition);
+        }
+
         return half;
     }
+
+    /// <summary>
+    /// The f16 copy of <paramref name="x"/> (rows of <paramref name="k"/> values, stride <paramref name="xStride"/>) another GEMM already
+    /// reads, valid from its MinRows up to at least <paramref name="maxRows"/> rows under the current launch condition, with the byte
+    /// offset of its scale words when it is row-ranged; null when there is none.
+    /// </summary>
+    private (TensorRef Copy, long MinRows, long? RangeScales)? SharedHalfCopy(Value source, TensorRef x, long xStride, long k, long maxRows)
+    {
+        var root = RootOf(source);
+        (TensorRef Copy, long MinRows, long? RangeScales)? best = null;
+        foreach (var (key, copy) in _quantizedActivations)
+        {
+            if (key.Root != root || key.ByteOffset != x.ByteOffset || key.XStride != xStride || key.K != k || key.Code != ActivationCode.F16
+                || key.MaxRows < maxRows || !(key.Condition is null || ReferenceEquals(key.Condition, _launchCondition)) || copy.Strides[^1] != 1
+                || copy.Shape[^1] != 2 * k || (best is { } b && b.MinRows <= key.MinRows))
+            {
+                continue;
+            }
+
+            best = (copy, key.MinRows, _rangeScales.TryGetValue(copy, out long scales) ? scales : null);
+        }
+
+        return best;
+    }
+
+    /// <summary>True when <paramref name="reader"/> is the only node of the segment reading <paramref name="value"/>, and it is not an output.</summary>
+    private bool SoleReader(Value value, Node reader)
+        => !_segmentOutputs.Contains(value) && _seg.Nodes.All(node => node == reader || !node.Inputs.Contains(value));
 
     /// <summary>
     /// Items up to which the expert matvec (one item per token and slot, each computed alone) serves a step: at least the items of the
@@ -656,6 +704,7 @@ public sealed partial class GraphLowerer
                 [Pointer(ids), scratchArg, TokenArg(ids)],
                 [ids], [scratch]);
             _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition, nativeMoe, routeKey);
+            _moeRouteSerial++;
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };
@@ -668,10 +717,37 @@ public sealed partial class GraphLowerer
             bool skTileMajor = (DiagnosticSwitches.MoeTileMajor & 1) != 0;
             Grid TileGrid(bool major, uint columnTiles, uint expertTiles) => major ? new Grid(expertTiles, columnTiles) : new Grid(columnTiles, expertTiles);
             var gemmX = x;
+            TensorRef? tokenCopy = null;
+            long? tokenScales = null;
+            Func<Bindings, bool> tokenRead = _ => false;
             if (DiagnosticSwitches.MoeSortedHalfActivations)
             {
+                // The expert-sorted f16 rows a dual expert GEMM stored for this product on the same routing (its only reader).
+                var stored = _moeSortedStore is { } st && st.Output == n.Inputs[0] && st.RouteSerial == _moeRouteSerial && st.Width == K
+                             && st.MaxItems == maxItems && perSlot && x.Buffer == st.Spill.Buffer && x.ByteOffset == st.Spill.ByteOffset
+                             && st.RangeScales.HasValue == DiagnosticSwitches.F16RangeGuard && SoleReader(n.Inputs[0], n)
+                    ? st
+                    : null;
+                if (stored is not null)
+                {
+                    var readCondition = _launchCondition;
+                    stored.Consumer = b => (readCondition?.Invoke(b) ?? true) && items(b) > mv;
+                }
+
+                _moeSortedStore = null;
+                // The f16 copy of x per token that another GEMM reads (the router's): the hand-written grouped GEMM reads its items'
+                // token rows from it, and the gather skips those batches.
+                if (stored is null && !perSlot && nativeMoe && DiagnosticSwitches.MoeTokenRows && SharedHalfCopy(n.Inputs[0], x, xs, K, ids.Shape[0]) is { } copy)
+                {
+                    tokenCopy = copy.Copy;
+                    tokenScales = copy.RangeScales;
+                    long copyMin = copy.MinRows;
+                    tokenRead = b => items(b) / S >= copyMin;
+                }
+
+                var readsTokens = tokenRead;
                 gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, routeTiles, mv, items, tile, tiles, scratch, scratchArg, ids,
-                    out long? rangeScales);
+                    out long? rangeScales, stored, tokenCopy is null ? null : b => isNative(b) && readsTokens(b));
                 gargs = [Pointer(gemmX), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)];
                 groupedMacros["X_F16"] = "1";
                 groupedMacros["X_SORTED"] = "1";
@@ -784,6 +860,30 @@ public sealed partial class GraphLowerer
                 {
                     nativeOn = true;
                     long nativeN = isDual ? dualN : N;
+                    // The dual product's sorted f16 store for the down projection (switched on by it, see MoeSortedStore).
+                    MoeSortedStore? store = null;
+                    if (isDual && DiagnosticSwitches.MoeSortedStore && DiagnosticSwitches.MoeSortedHalfActivations && d.Y.IsDense
+                        && dualN % 2 == 0 && d.Nodes.Length > 0 && d.Nodes[^1].Output is { } storedOutput && _refs.TryGetValue(storedOutput, out var spill)
+                        && spill.Buffer == d.Y.Buffer && spill.ByteOffset == d.Y.ByteOffset)
+                    {
+                        bool rangedRows = DiagnosticSwitches.F16RangeGuard;
+                        long sortedBytes = maxItems * dualN * 2;
+                        _moeSortedRows ??= NewBuffer(BufferKind.Activations, "moe-y16", 0);
+                        _moeSortedRows.Bytes = Math.Max(_moeSortedRows.Bytes, sortedBytes + (rangedRows ? maxItems * 4 : 0));
+                        var nativeServes = isNative;
+                        store = new MoeSortedStore
+                        {
+                            Output = storedOutput,
+                            Spill = d.Y,
+                            Rows = new TensorRef(_moeSortedRows, 0, DataType.F16, [maxItems, dualN], [dualN, 1], null),
+                            RangeScales = rangedRows ? sortedBytes : null,
+                            RouteSerial = _moeRouteSerial,
+                            Width = dualN,
+                            MaxItems = maxItems,
+                            Native = nativeServes,
+                        };
+                    }
+
                     foreach (int nativeTile in NativeMoeTiles)
                     {
                         var (bn, stages, minBlocks, table) = NativeMoeConfig(nativeN, isDual, nativeTile);
@@ -809,12 +909,64 @@ public sealed partial class GraphLowerer
                             nativeMacros["X_RS"] = xrs;
                         }
 
-                        var nativeKernel = _compiler.CompileCuda("gemm_moe_native.cu", nativeEpilogue, "gemm_moe_native", NativeMoeWarps * 32,
-                            NativeMoeStageBytes(bn, isDual, nativeTile) * stages, _opt.Target, nativeMacros, _opt.Cache);
                         long columns = isDual ? bn / 2 : bn;
-                        Emit(groupedLabel.Replace(" gemm-cm2", " native", StringComparison.Ordinal), groupedNodes,
-                            [new KernelVariant(b => isNative(b) && tile(b) == nativeTile, nativeKernel, b => new Grid(Grid.Div(nativeN, columns), tiles(b)))],
-                            groupedArgs, groupedReads, [groupedOut]);
+                        int t0 = nativeTile;
+                        // One launch per input form (expert-sorted rows, or token rows of the shared copy) and store (f32 rows per item,
+                        // or the sorted f16 store), each for the batches it serves.
+                        foreach (bool token in tokenCopy is null ? [false] : new[] { false, true })
+                        {
+                            foreach (bool sorted in store is null ? [false] : new[] { false, true })
+                            {
+                                var macros = new Dictionary<string, string>(nativeMacros);
+                                if (token)
+                                {
+                                    macros.Remove("X_RS");
+                                    macros["NM_X_TOKEN"] = "1";
+                                    if (tokenScales is { } ts)
+                                    {
+                                        macros["X_RS"] = ts.ToString(CultureInfo.InvariantCulture) + "ull";
+                                    }
+                                }
+
+                                if (sorted && store!.RangeScales is { } words)
+                                {
+                                    macros["NM_Y16_RS"] = words.ToString(CultureInfo.InvariantCulture) + "ull";
+                                }
+
+                                if (sorted)
+                                {
+                                    macros["NM_Y16"] = "1";
+                                }
+
+                                var kernel = _compiler.CompileCuda("gemm_moe_native.cu", nativeEpilogue, "gemm_moe_native", NativeMoeWarps * 32,
+                                    NativeMoeStageBytes(bn, isDual, nativeTile) * stages, _opt.Target, macros, _opt.Cache);
+                                bool tokenForm = token, sortedForm = sorted;
+                                var input = token ? tokenCopy! : gemmX;
+                                KernelArg[] args = sorted
+                                    ? [Pointer(input), Pointer(w), Pointer(d.W2), scratchArg, Pointer(d.Y), Pointer(store!.Rows), .. d.Tables.Select(Pointer), TokenArg(ids)]
+                                    : [Pointer(input), .. groupedArgs.Skip(1)];
+                                TensorRef[] reads = [input, .. groupedReads.Skip(1)];
+                                Emit(groupedLabel.Replace(" gemm-cm2", " native", StringComparison.Ordinal) + (token ? " token rows" : "") + (sorted ? " sorted f16" : ""),
+                                    groupedNodes,
+                                    [new KernelVariant(b => isNative(b) && tile(b) == t0 && tokenRead(b) == tokenForm && (store?.Serves(b) ?? false) == sortedForm,
+                                        kernel, b => new Grid(Grid.Div(nativeN, columns), tiles(b)))],
+                                    args, reads, sorted ? [d.Y, store!.Rows] : [groupedOut]);
+                            }
+                        }
+                    }
+
+                    if (store is not null)
+                    {
+                        if (store.RangeScales is { } words)
+                        {
+                            Emit($"moe-range-fixup {store.Output.Name}", groupedNodes,
+                                [new KernelVariant(store.Serves, Lib("moe.slang", "moe_range_fixup",
+                                    Macros(("K", dualN), ("S", S), ("Y_RS", words + "ull"))), b => new Grid(Grid.Div(items(b), 256)))],
+                                [Pointer(store.Rows), Pointer(d.Y), TokenArg(ids)],
+                                [store.Rows, d.Y], [store.Rows]);
+                        }
+
+                        _moeSortedStore = store;
                     }
                 }
             }
