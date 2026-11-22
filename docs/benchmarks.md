@@ -11217,18 +11217,18 @@ the A/B pairs of this round (feature on / off) ran back to back in one hold. Raw
 | Gemma 4 31B, prefill 32K (session path) | Vulkan | does not fit | **1051** | 867 | – → **1.21** |
 | Gemma 4 31B, decode after a 32K prompt (session path) | Vulkan | does not fit | **28.7** | 31.2 (§74) | – → **0.92** |
 | Gemma 4 31B, prefill 512 / decode, 1 stream | CUDA | 1506 / 37.9 | 1488 / 37.9 | 1671 / 39.4 | 0.90 / 0.96 → **0.89 / 0.96** |
-| Gemma 4 31B, decode 16 sequences | CUDA | 322 | **370** | 383 | 0.84 → **0.97** |
+| Gemma 4 31B, decode 16 sequences | CUDA | 322 | **424** | 383 | 0.84 → **1.11** |
 | Gemma 4 31B, decode 32 sequences | CUDA | (A/B: 407, 78.60 ms) | **493** (64.91 ms) | (llama-batched-bench could not create the context) | |
 | Gemma 4 31B, decode 16 sequences | Vulkan | 310 | 306 | 152 | 2.03 → **2.01** |
-| Qwen3-8B, decode 16 sequences | CUDA | 1404 | **1662** | 1430 | 0.99 → **1.16** |
-| Qwen3-8B, decode 32 sequences | CUDA | (A/B: 1624) | **3165** | 2134 | 0.77 → **1.48** |
-| Qwen3-8B, decode 64 sequences | CUDA | 2785 | **3965** | 2843 | 0.99 → **1.39** |
+| Qwen3-8B, decode 16 sequences | CUDA | 1404 | **1961** | 1430 | 0.99 → **1.37** |
+| Qwen3-8B, decode 32 sequences | CUDA | (A/B: 1624) | **3027** | 2143 | 0.76 → **1.41** |
+| Qwen3-8B, decode 64 sequences | CUDA | 2785 | **3948** | 2853 | 0.99 → **1.38** |
 | Qwen3-8B, prefill 512 / decode, 1 stream | CUDA | 7274 / 144 | 7203 / 144 | 6583 / 143 | 1.09 / 1.01 → 1.09 / **1.01** |
-| Qwen3.8 27B, decode 16 sequences | CUDA | 371 | **446** | 317 | 1.17 → **1.41** |
-| Qwen3.8 27B, decode 64 sequences | CUDA | 687 | **905** | 444 | 1.55 → **2.04** |
+| Qwen3.8 27B, decode 16 sequences | CUDA | 371 | **531** | 318 | 1.17 → **1.67** |
+| Qwen3.8 27B, decode 64 sequences | CUDA | 687 | **907** | 446 | 1.55 → **2.04** |
 | Qwen3.8 27B, prefill 512 / decode, 1 stream | CUDA | 1910 / 45.7 | 1903 / 45.6 | 1714 / 43.6 | 1.11 / 1.05 → 1.11 / 1.05 |
 
-Batched decode rows: the final hold of the branch (`bench/results/s77/final2`, both engines interleaved); the rest `final`. Batched
+Batched decode rows: the branch's last hold (`bench/results/s77/final3`, both engines interleaved); the other rows `final`. Batched
 decode: BatchBench `--feedback` at depth 256, sequences x 1000 / minimum GPU ms of 20 steps, against llama-batched-bench S_TG
 (second pass); prefill and single-stream decode: the CLI's `--bench N` (best of 5) against llama-bench. Gemma's 32K row is the
 session's 32K prefill and the decode steps after it (`--bench 32768`), against §74's llama-bench tg64 at depth 32K. Gemma at 32
@@ -11301,14 +11301,17 @@ Kernel times (bench/s77_kq harness, sustained µs over 16 weight copies, against
 
 Decode steps (CUDA, GPU ms, feature on / off in the same hold, `bench/results/s77/ab13`):
 
-| sequences | 9 | 12 | 16 | 24 | 32 | 48 | 64 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Qwen3-8B Q4_K_M, off | 10.21 | 11.10 | 11.85 | 18.65 | 19.71 | 21.48 | 23.56 |
-| **on** | **8.50** | **8.82** | **9.20** | **11.28** | **11.68** | **16.95** | **17.41** |
-| Qwen3.8 27B Q4_K_M, off | | | §§ | | 73.56 | | 93.00 |
-| **on** | | | §§ | | **57.35** | | **80.93** |
-| Gemma 4 31B Q4_K_M, off | | | §§ | | 78.60 | | |
-| **on** | | | §§ | | **64.91** | | |
+| sequences | 9 | 16 | 24 | 32 | 48 | 64 |
+|---|---:|---:|---:|---:|---:|---:|
+| Qwen3-8B Q4_K_M, off | 10.27 | 11.77 | 18.61 | 19.65 | 21.43 | 23.51 |
+| **on** | **7.80** | **8.31** | **10.49** | **11.00** | **16.61** | **16.91** |
+| Qwen3.8 27B Q4_K_M, off | 36.38 | 43.26 | 68.93 | 73.69 | 83.11 | 93.36 |
+| **on** | **27.31** | **30.16** | **39.05** | **41.62** | **65.08** | **71.14** |
+| Gemma 4 31B Q4_K_M, off (`ab8`, `ab13`) | | 49.43 | | 78.60 | | |
+| **on** (`final3`, `ab22`, `ab13`) | **34.20** | **37.70** | | **64.91** | | |
+
+(`final3/steps.txt`; Gemma's own A/B at these sizes ran out of memory next to another agent's process in the last hold, so its rows
+come from the holds named.)
 
 Single-stream decode and prefill are unchanged (the matvec and the prefill GEMMs keep their kernels). Vulkan is untouched (the
 feature is CUDA's); Gemma 4 31B on Vulkan at 16 sequences 306 tok/s against 310 in §74.
@@ -11318,6 +11321,14 @@ outputs, bias rows, q / k / v multi-output) against the CPU (f32 products: the C
 and the generated GEMM. Greedy text: Gemma 4 31B identical with and without the feature (both providers); Qwen3-8B
 (`--chat --temp 0 -n 64`, a 25-token prompt, whose prefill pass runs the new kernel) changes one word after ~40 tokens ("highlight" →
 "emphasize"), a near tie: " highlight" 39.075 against " emphasize" 39.003 (`--logits` on the prefix, either path).
+
+Suites (final build, one process per class, both providers where they apply): Sharplight.Cuda.Tests 57 (1 skipped, the cuBLASLt
+probe); Vulkan.Tests MatMul 164, SkinnyGemm 42, RowInvariance 77, Mmq 48 on Vulkan and CUDA (the earlier build also QuantFormat,
+FullAttention, SparseAttention, CompressedKv, PagedAttention 8, Stateful 69), all passing; Families `SessionWindowKvTests` and
+`WindowKvParityTests` (CPU / Vulkan / CUDA) passing; FamilyGenerationTests `gemma-4` 12 (9 skipped) and `qwen3` 63 (30 skipped)
+passing, except CPU cases that ran out of host memory while another agent's process held it (three Qwen3.5-122B truncated cases
+`InsufficientMemoryException` in the last run, a gemma-4-E2B CPU case in two of six runs; all passed in the other runs and alone);
+Serving.Tests 396 (13 skipped) passing.
 
 ### 77.4 Measured and not kept
 
@@ -11337,14 +11348,14 @@ and the generated GEMM. Greedy text: Gemma 4 31B identical with and without the 
 
 Large enough to promote (like for like, same hold, both engines interleaved, CUDA):
 
-* **Batched decode on CUDA against llama.cpp's CUDA backend**: Qwen3-8B Q4_K_M 1.27 / 1.33 / 1.35x at 16 / 32 / 64 sequences (from
-  0.99x), Qwen3.8 27B 1.78x at 64 (from 1.55x).
+* **Batched decode on CUDA against llama.cpp's CUDA backend**: Qwen3-8B Q4_K_M 1.37 / 1.41 / 1.38x at 16 / 32 / 64 sequences (from
+  0.99x), Qwen3.8 27B 1.67 / 2.04x at 16 / 64 (from 1.17 / 1.55x), Gemma 4 31B 1.11x at 16 (from 0.84x).
 * **Gemma 4 31B at 32K on a 32 GB card on the plain session path, prefill 1.04x (CUDA) / 1.21x (Vulkan) of llama.cpp**; 128K fits.
 
 Next levers:
 
-1. Gemma 4 31B batched decode at 16 sequences (§§) and the 64-row tiles (two stages: 337-461 GB/s); a 64-row tile with half
-   superblocks per stage would keep three stages.
+1. The 64-row tiles (two stages: 337-461 GB/s against 500-650 at 16-32 rows; Qwen3-8B 48 and 64 sequences take 16.6-16.9 ms
+   against 11.0 at 32); a 64-row tile with half superblocks per stage would keep three stages.
 2. The dual gate / up form on the K-quant GEMM (one launch, the activation product in the store) for 9-64 rows: today two launches
    plus the activation kernel above 16 rows, the skinny dual form below.
 3. Decode after a long prompt (Gemma 0.91-0.92x at 32K): the decode attention at head sizes 256 / 512 (§74 levers 2-4), and the 2 %

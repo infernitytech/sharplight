@@ -237,12 +237,12 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
 
 - **`gemm_kq_native.cu`** (`native_gemm_kquant`, compute capability 8.0+): K-quant (Q4_K, Q5_K, Q6_K, the GGUF block layout) projections
   at decode batches of 9-64 rows (single matmuls from the first batch past the matvec, `SHARPLIGHT_NATIVE_KQ_MIN_ROWS`; the dual gate / up
-  form keeps the skinny GEMM up to 16 rows), and the q / k / v multi-output form. 16-, 32- or 64-row token tiles by batch
+  form included), and the q / k / v multi-output form; batches whose generated split would be 1 are routed to it too. 16-, 32- or 64-row token tiles by batch
   (`SHARPLIGHT_NATIVE_KQ_BM`) x 64 weight rows, eight warps of 8 weight rows each; a 2-4 stage `cp.async` ring of 256-value superblocks
   holds the swizzled f16 activation rows and the raw blocks (16-byte windows, so Q6_K's 210-byte blocks may start at any even byte);
   each thread decodes its `mma.sync.m16n8k16` B fragments from the raw codes in registers. K split only for small grids or a nearly
   empty last wave (`SHARPLIGHT_NATIVE_KQ_SPLIT`), reduced in the last block per tile. 1.6-2.1x gemm_cm2 per kernel at 32 rows, Qwen3-8B
-  Q4_K_M decode steps 1.29-1.69x at 16-64 sequences ([benchmarks.md §77](benchmarks.md)).
+  Q4_K_M decode steps 1.32-1.79x at 9-64 sequences ([benchmarks.md §77](benchmarks.md)).
 
 - **`gemm_moe_native.cu`** (`native_gemm_moe`, compute capability 8.0+): the expert-grouped product of a MatMulId with MXFP4 experts
   (the 16-row groups of `WeightRepack.Mxfp4Split`) from 1 routed row per expert on average (`SHARPLIGHT_NATIVE_MOE_MIN_ROWS`;
