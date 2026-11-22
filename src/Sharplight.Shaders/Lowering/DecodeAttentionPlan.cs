@@ -18,6 +18,12 @@ internal sealed class DecodeAttentionPlan
     /// <summary>Upper bound of the split count (<c>DEC_MAX_SPLITS</c>).</summary>
     public required long MaxSplitCount { get; init; }
 
+    /// <summary>
+    /// Entry point of attention.slang that runs the decode rows: <c>decode</c> (or its hand-written CUDA form), or <c>fa_mqa</c> with
+    /// separate key and value tiles (<c>FM_SEPV</c>, the tensor-core form for head sizes 256 and 512 where the CUDA kernel does not serve).
+    /// </summary>
+    public string Kernel { get; init; } = "decode";
+
     /// <summary>Bindings for which the decode kernel (and its combine) run.</summary>
     public required Func<Bindings, bool> When { get; init; }
 

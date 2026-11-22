@@ -68,6 +68,70 @@ public sealed partial class GraphLowerer
         };
     }
 
+    /// <summary>
+    /// The tensor-core decode form for head sizes 256 and 512 with separate key and value caches (Qwen3.5 / 3.8, Gemma 4's window and
+    /// global layers) on targets without the hand-written CUDA kernel: <c>fa_mqa</c> with <c>FM_SEPV</c>, the decode rows' key and value
+    /// tiles staged side by side, a group's heads (up to 16) as the rows of the cooperative-matrix products, so each key and value
+    /// row is read once per KV head. The generic <c>decode</c> runs these rows on scalar lanes, whose registers hold 8 heads x 16
+    /// values of queries and accumulators each at head size 512. Returns null where the shapes, the cache type or the device do not
+    /// allow it (<c>decode</c> is the fallback).
+    /// </summary>
+    private DecodeAttentionPlan? TensorCoreWideDecode(AttentionPlan plan, long maxRows, Func<Bindings, bool>? flashWhen)
+    {
+        var a = plan.Node.Attributes;
+        long group = plan.HQ / plan.HKV;
+        int[] tc = DiagnosticSwitches.AttentionDecodeTensorCoreConfig ?? [];
+        long keys = tc.Length > 3 ? tc[3] : plan.D > 256 ? 16 : 32;
+        long ks = plan.D + 8;
+        long sharedBytes = 2 * keys * ks * 2 + 4 * 16 * keys * 4 + 16 * (keys + 8) * 2 + 16 * 4 + 16 * 16 * 4;
+        bool form = !plan.Full && !plan.Cross && plan.Spans is null && plan.Mask is null && plan.Selection is null && plan.Compressed is null
+                    && plan.RelativeBias is null && !a.Has("alibi_slopes") && !a.Has("position_bias");
+        if (!form || !DiagnosticSwitches.AttentionDecodeTensorCores || NativeWideDecodeAttention(plan) || plan.D != plan.DV || plan.D is not (256 or 512)
+            || plan.K.Type != DataType.F16 || plan.V.Type != DataType.F16 || plan.HQ % plan.HKV != 0 || group > 16 || keys is not (16 or 32)
+            || !_opt.Has(DeviceFeatures.MatrixF16) || !_opt.Has(DeviceFeatures.Float16) || !_opt.Has(DeviceFeatures.SubgroupOps) || _opt.SubgroupSize != 32
+            || sharedBytes > _opt.MaxSharedMemory)
+        {
+            return null;
+        }
+
+        // Split rule: ranges that fill whole waves of the compute units (when the device reports them), at least two tiles each.
+        long waves = tc.Length > 0 ? tc[0] : 2;
+        long target = _opt.ComputeUnits > 0 ? _opt.ComputeUnits * waves : DiagnosticSwitches.AttentionDecodeConfig[0];
+        long minKeys = tc.Length > 1 ? tc[1] : 2 * keys;
+        long maxSplits = tc.Length > 2 ? tc[2] : DiagnosticSwitches.AttentionDecodeConfig[2];
+        long groups = plan.HKV;
+        var macros = new Dictionary<string, string>(plan.Macros);
+        (string Name, long Value)[] decodeMacros =
+        [
+            ("FM_SEPV", 1), ("FM_BC", keys), ("HPW", group), ("DEC_BC", keys), ("DEC_MAX_SPLITS", maxSplits), ("DEC_MIN_KEYS", minKeys),
+            ("DEC_TARGET_WG", target), ("DEC_GROUPS", groups),
+        ];
+        foreach (var (name, value) in decodeMacros)
+        {
+            macros[name] = value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (InvariantRows > 1)
+        {
+            macros["DEC_INVARIANT_ROWS"] = InvariantRows.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var q = plan.Q;
+        long window = long.Parse(plan.Macros.GetValueOrDefault("WINDOW", "0"), CultureInfo.InvariantCulture);
+        return new DecodeAttentionPlan
+        {
+            Macros = macros,
+            Groups = groups,
+            MaxRows = maxRows,
+            TargetWorkgroups = target,
+            MaxSplitCount = maxSplits,
+            InvariantRows = InvariantRows,
+            SingleRange = window > 0 && window <= minKeys,
+            Kernel = "fa_mqa",
+            When = b => Rows(b, q) <= maxRows && (flashWhen is null || !flashWhen(b)),
+        };
+    }
+
     /// <summary>Launches <c>fa_mqa</c> for every row count and the combine of the split rows.</summary>
     private void EmitMqaAttention(AttentionPlan plan, DecodeAttentionPlan mqa)
     {

@@ -54,6 +54,68 @@ public sealed class StatefulTests
     public void CachedAttentionGroupedDecode(int D, int Hq, int Hkv)
         => CachedAttention("f16", D, D, Hq, Hkv, [2048, 1024, 4, 3, 2, 1], 4096);
 
+    /// <summary>
+    /// Decode rows of head sizes 256 and 512 with grouped heads (Qwen3.5 / 3.8, Gemma 4's window and global layers): on CUDA the wide
+    /// form of the tensor-core decode kernel (attn_decode_native.cu, tiles shared by the block's warps), with sliding windows, soft
+    /// caps and sinks, rows whose keys split into several ranges, rows of a single range and batches of a few rows.
+    /// </summary>
+    [Theory]
+    [InlineData(256, 24, 4, 0, 0f, false)]
+    [InlineData(256, 32, 16, 100, 0f, false)]
+    [InlineData(256, 8, 1, 0, 50f, false)]
+    [InlineData(512, 32, 4, 0, 0f, true)]
+    [InlineData(512, 16, 2, 40, 30f, true)]
+    [InlineData(512, 8, 4, 0, 0f, false)]
+    public void CachedAttentionWideDecode(int D, int Hq, int Hkv, int window, float softcap, bool sinks)
+    {
+        Gpu.Require();
+        int ctx = 1280;
+        float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [700, 1, 1, 5, 1, 300, 1, 2, 1, 3];
+        int total = chunks.Sum();
+        var tg = new TG();
+        var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, D);
+        var kc = tg.State("kc", DataType.F16, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", DataType.F16, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        if (softcap > 0)
+        {
+            attrs.Add(("softcap", softcap));
+        }
+
+        tg.B.RuntimeScalar("n_past");
+        Value[] inputs = [qi, kc, vc];
+        if (sinks)
+        {
+            attrs.Add(("sinks", true));
+            inputs = [qi, kc, vc, tg.RandW("sinks", DataType.F32, 4f, Hq)];
+        }
+
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", inputs, Attributes.From([.. attrs])));
+        var q = Rnd.F(total * Hq * D, 1).Select(x => x * 3).ToArray();
+        var k = Rnd.F(total * Hkv * D, 2);
+        var v = Rnd.F(total * Hkv * D, 3);
+        var steps = new List<Step>();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
+            past += c;
+        }
+        // f16 caches run on tensor cores with f16 queries and probabilities: allow for their rounding.
+        Diff.Check("CachedAttention.wide", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: chunks.Max(), ctx: ctx,
+            what: $"D={D} Hq={Hq} Hkv={Hkv} window={window} softcap={softcap} sinks={sinks}");
+    }
+
     private static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)
     {
         Gpu.Require();

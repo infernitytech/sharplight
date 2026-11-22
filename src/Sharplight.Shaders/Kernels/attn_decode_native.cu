@@ -66,7 +66,7 @@
 #define ND_SOFTCAP ((float)(SOFTCAP))
 #define ND_NEG (-1.0e30f)
 
-#if (D != 64 && D != 128) || HPW > 8 || (ND_G % HPW) != 0 || (HQ % HKV) != 0
+#if (D != 64 && D != 128 && D != 256 && D != 512) || HPW > 8 || (ND_G % HPW) != 0 || (HQ % HKV) != 0
 #error "attn_decode_native: unsupported shape"
 #endif
 
@@ -175,6 +175,44 @@ __device__ __forceinline__ nd_u32 nd_split_keys(nd_u32 span, nd_u32 T)
 #endif
 }
 
+// Key range [jBeg, jEnd) of this block (decode_range and the split of decode_split_keys); false when the block's split is past the
+// row's range count.
+__device__ __forceinline__ bool nd_range(const NdParams& p, nd_u32 t, nd_u64& kvBase, nd_u32& jBeg, nd_u32& jEnd, nd_u32& ns)
+{
+    nd_u32 L, jLo;
+    kvBase = 0;
+#if MULTI_SEQ
+    L = (nd_u32)p.seq[t * 4 + 1] + 1;
+#if PAGED
+    kvBase = (nd_u32)p.seq[t * 4];
+#else
+    kvBase = (nd_u64)(nd_u32)p.seq[t * 4] * SLOT_CTX * HKV;
+#endif
+#else
+    L = p.rt[RT_N_PAST] + t + 1;
+#endif
+#if WINDOW
+    jLo = L > WINDOW ? L - WINDOW : 0;
+#else
+    jLo = 0;
+#endif
+#if CHUNK
+    jLo = max(jLo, (L - 1) / CHUNK * CHUNK);
+#endif
+    const nd_u32 span = L - jLo;
+    const nd_u32 per = nd_split_keys(span, p.T);
+    ns = (span + per - 1) / per;
+    if (blockIdx.z >= ns)
+    {
+        return false;
+    }
+
+    jBeg = jLo + blockIdx.z * per;
+    jEnd = min(L, jBeg + per);
+    return true;
+}
+
+#if D <= 128
 extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdParams p)
 {
     __shared__ float sM[ND_WARPS * HPW];
@@ -441,3 +479,288 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
         }
     }
 }
+#else
+// ---------------------------------------------------------------------------------------------
+// Head sizes 256 and 512 (Gemma 4's window and global layers, Qwen3.5 / 3.8): a warp's full-width key / value rows and output
+// accumulators do not fit its registers (D = 512: 256 accumulator registers alone), so the block's ND_WARPS warps share each tile:
+//
+//   * the tile's NWD_TK keys (NWD_TK x D values: 32 KiB of keys and values per stage) are copied with cp.async into a ring of NWD_ST
+//     stages of dynamic shared memory (rows of 16-byte chunks, XOR swizzle within each 128-byte group, so the copies and ldmatrix are
+//     free of bank conflicts; rows past the range zero-filled), so a block keeps two tiles in flight while it computes the third;
+//   * S = Q · Kᵀ: warp w computes key fragment w % NWD_NF (8 keys) over dimensions [w / NWD_NF * NWD_DQ, + NWD_DQ) with its query
+//     fragments in registers (rows: the block's heads; rows HPW .. 15 zero) and K from ldmatrix, and leaves its partial scores in
+//     shared memory; after a barrier every warp sums the partials of every key fragment in the same order, so all warps run the same
+//     online softmax and hold the same (m, l);
+//   * O += P · V: warp w owns output dimensions [w * NWD_DVW, + NWD_DVW) (V from ldmatrix.trans), so the warps' states need no merge.
+//
+// Two barriers per tile. The result is written directly (one key range, sinks in the denominator) or as the range's partial
+// [split][t][h][D + 4] (acc, m, l) for decode_combine, as the narrow form does; Q · SCALE and P are rounded to f16.
+#ifndef NWD_ST
+#define NWD_ST 3                                // ring stages
+#endif
+#define NWD_TK (8192 / D)                       // keys per tile (32 at D = 256, 16 at 512): 32 KiB of keys and values
+#define NWD_NF (NWD_TK / 8)                     // key fragments of S per tile
+#define NWD_DS (ND_WARPS / NWD_NF)              // warps per key fragment (each a slice of the dimensions)
+#define NWD_DQ (D / NWD_DS)                     // dimensions of a warp's partial scores
+#define NWD_KSQ (NWD_DQ / 16)                   // K steps of a warp's partial scores
+#define NWD_DVW (D / ND_WARPS)                  // output dimensions per warp
+#define NWD_NO (NWD_DVW / 8)                    // output fragments per warp
+#define NWD_KSV (NWD_TK / 16)                   // K steps of P · V per tile
+#define NWD_CPR (D / 8)                         // 16-byte chunks per row
+#define NWD_CPT (NWD_TK * NWD_CPR / ND_THREADS) // chunks per thread, keys or values, per tile
+#define NWD_RPT (ND_THREADS / NWD_CPR)          // rows the block's threads cover per chunk round
+#if NWD_DS * NWD_NF != ND_WARPS || NWD_KSQ < 2 || (NWD_KSQ % 2) != 0 || (NWD_NO % 2) != 0 || NWD_TK > 32 || (NWD_TK * NWD_CPR) % ND_THREADS != 0
+#error "attn_decode_native: unsupported wide shape"
+#endif
+
+__device__ __forceinline__ nd_u32 nd_smem(const void* ptr)
+{
+    return (nd_u32)__cvta_generic_to_shared(ptr);
+}
+
+// 16 bytes from global to shared; src_bytes 0 zero-fills.
+__device__ __forceinline__ void nd_copy(nd_u32 dst, const void* src, nd_u32 srcBytes)
+{
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;\n" :: "r"(dst), "l"(src), "r"(srcBytes));
+}
+
+__device__ __forceinline__ void nd_ldsm4(nd_u32 addr, nd_u32& r0, nd_u32& r1, nd_u32& r2, nd_u32& r3)
+{
+    asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0,%1,%2,%3}, [%4];\n" : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3) : "r"(addr));
+}
+
+__device__ __forceinline__ void nd_ldsm4t(nd_u32 addr, nd_u32& r0, nd_u32& r1, nd_u32& r2, nd_u32& r3)
+{
+    asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0,%1,%2,%3}, [%4];\n" : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3) : "r"(addr));
+}
+
+// Byte offset of chunk `ch` of row `r` in a tile of rows of NWD_CPR chunks (the chunk's low three bits XOR the row's).
+__device__ __forceinline__ nd_u32 nd_swz(nd_u32 r, nd_u32 ch)
+{
+    return (r * NWD_CPR + (ch ^ (r & 7))) * 16;
+}
+
+// Copies the key and value rows of tile [j0, j0 + NWD_TK) into stage buffers sk / sv (shared addresses). Lane l of each warp looks
+// up the cache row of key j0 + l (paged caches: one block-table read per lane), the copies take it by shuffle.
+__device__ __forceinline__ void nd_load_tile(const NdParams& p, nd_u64 kvBase, nd_u32 hk, nd_u32 j0, nd_u32 jEnd, nd_u32 jSafe, nd_u32 sk, nd_u32 sv,
+                                             nd_u32 tid)
+{
+    const nd_u32 lane = tid & 31;
+    const nd_u32 jl = j0 + (lane % NWD_TK);
+    const nd_u64 myRow = nd_kv_row(p, kvBase, jl < jEnd ? jl : jSafe) + hk;
+#pragma unroll
+    for (int i = 0; i < NWD_CPT; i++)
+    {
+        const nd_u32 e = tid + i * ND_THREADS;
+        const nd_u32 r = e / NWD_CPR, ch = e % NWD_CPR;
+        const nd_u64 row = __shfl_sync(0xFFFFFFFFu, myRow, r);
+        const nd_u32 bytes = j0 + r < jEnd ? 16u : 0u;
+        nd_copy(sk + nd_swz(r, ch), p.kc + row * D + ch * 8, bytes);
+        nd_copy(sv + nd_swz(r, ch), p.vc + row * VRS + ch * 8, bytes);
+    }
+}
+
+extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdParams p)
+{
+    extern __shared__ __align__(128) unsigned char nd_sm[];
+    // Stages of [keys | values], then the partial scores [warp][lane] (float2).
+    float2* sS = (float2*)(nd_sm + NWD_ST * 2 * NWD_TK * D * 2);
+
+    const nd_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
+    const nd_u32 g = lane >> 2, c4 = lane & 3;
+    const nd_u32 hk = blockIdx.x / (ND_G / HPW);
+    const nd_u32 h0 = hk * ND_G + blockIdx.x % (ND_G / HPW) * HPW;
+    const nd_u32 t = blockIdx.y;
+#if MULTI_SEQ && MIX_RUN > 0
+    if (p.seq[t * 4 + 2] >= MIX_RUN)
+    {
+        return;
+    }
+#endif
+    nd_u64 kvBase;
+    nd_u32 jBeg, jEnd, ns;
+    if (!nd_range(p, t, kvBase, jBeg, jEnd, ns))
+    {
+        return;
+    }
+
+    const nd_u32 nt = (jEnd - jBeg + NWD_TK - 1) / NWD_TK;
+    const nd_u32 base = nd_smem(nd_sm);
+    const nd_u32 stageBytes = 2 * NWD_TK * D * 2;
+#pragma unroll
+    for (int s = 0; s < NWD_ST - 1; s++)
+    {
+        if (s < (int)nt)
+        {
+            nd_load_tile(p, kvBase, hk, jBeg + s * NWD_TK, jEnd, jBeg, base + s * stageBytes, base + s * stageBytes + NWD_TK * D * 2, tid);
+        }
+        asm volatile("cp.async.commit_group;\n" ::);
+    }
+
+    // Query fragments of the warp's dimension slice (K step kk: dimensions q0 + 16 kk + 2c, + 1 and + 8), Q · SCALE in f16.
+    const nd_u32 nf = warp % NWD_NF, q0 = warp / NWD_NF * NWD_DQ;
+    nd_u32 qa[NWD_KSQ][2];
+    {
+        const bool live = g < HPW;
+        const float* qr = p.q + (nd_u64)t * QS0 + (nd_u64)(h0 + (live ? g : 0)) * QS1 + q0 + 2 * c4;
+#pragma unroll
+        for (int kk = 0; kk < NWD_KSQ; kk++)
+        {
+            float2 v0 = live ? *(const float2*)(qr + 16 * kk) : make_float2(0.0f, 0.0f);
+            float2 v1 = live ? *(const float2*)(qr + 16 * kk + 8) : make_float2(0.0f, 0.0f);
+            qa[kk][0] = nd_pack(v0.x * ND_SCALE, v0.y * ND_SCALE);
+            qa[kk][1] = nd_pack(v1.x * ND_SCALE, v1.y * ND_SCALE);
+        }
+    }
+
+    float o[NWD_NO][4];
+#pragma unroll
+    for (int f = 0; f < NWD_NO; f++)
+    {
+#pragma unroll
+        for (int e = 0; e < 4; e++)
+        {
+            o[f][e] = 0.0f;
+        }
+    }
+    float m = ND_NEG, l = 0.0f;
+
+    for (nd_u32 i = 0; i < nt; i++)
+    {
+        asm volatile("cp.async.wait_group %0;\n" :: "n"(NWD_ST - 2));
+        __syncthreads();   // tile i visible; every warp is done with tile i - 1 (its stage and the partial scores)
+        {
+            const nd_u32 nx = i + NWD_ST - 1;
+            if (nx < nt)
+            {
+                const nd_u32 st = base + (nx % NWD_ST) * stageBytes;
+                nd_load_tile(p, kvBase, hk, jBeg + nx * NWD_TK, jEnd, jBeg, st, st + NWD_TK * D * 2, tid);
+            }
+            asm volatile("cp.async.commit_group;\n" ::);
+        }
+        const nd_u32 sk = base + (i % NWD_ST) * stageBytes, sv = sk + NWD_TK * D * 2;
+        const nd_u32 j0 = jBeg + i * NWD_TK;
+
+        // Partial S of key fragment nf over the warp's dimensions: ldmatrix.x4 matrices m = lane / 8: keys nf * 8 + lane % 8,
+        // chunk q0 / 8 + 4 kp + m (K steps 2 kp and 2 kp + 1).
+        float s[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+#pragma unroll
+        for (int kp = 0; kp < NWD_KSQ / 2; kp++)
+        {
+            nd_u32 b0, b1, b2, b3;
+            nd_ldsm4(sk + nd_swz(nf * 8 + (lane & 7), q0 / 8 + 4 * kp + (lane >> 3)), b0, b1, b2, b3);
+            nd_mma(s, qa[2 * kp][0], qa[2 * kp][1], b0, b1);
+            nd_mma(s, qa[2 * kp + 1][0], qa[2 * kp + 1][1], b2, b3);
+        }
+        sS[warp * 32 + lane] = make_float2(s[0], s[1]);
+        __syncthreads();
+
+        // Scores of row g at keys nf' * 8 + 2c, + 1 for every key fragment nf' (the slices summed in order), softcap, mask.
+        float sc[NWD_NF][2];
+        float mx = ND_NEG;
+#pragma unroll
+        for (int f = 0; f < NWD_NF; f++)
+        {
+            float2 v = sS[f * 32 + lane];
+#pragma unroll
+            for (int d = 1; d < NWD_DS; d++)
+            {
+                float2 w = sS[(d * NWD_NF + f) * 32 + lane];
+                v.x += w.x;
+                v.y += w.y;
+            }
+#pragma unroll
+            for (int e = 0; e < 2; e++)
+            {
+                float x = e == 0 ? v.x : v.y;
+#if HAS_SOFTCAP
+                x = ND_SOFTCAP * tanhf(x / ND_SOFTCAP);
+#endif
+                x = j0 + f * 8 + 2 * c4 + e < jEnd ? x : ND_NEG;
+                sc[f][e] = x;
+                mx = fmaxf(mx, x);
+            }
+        }
+        mx = fmaxf(mx, __shfl_xor_sync(0xFFFFFFFFu, mx, 1));
+        mx = fmaxf(mx, __shfl_xor_sync(0xFFFFFFFFu, mx, 2));
+        const float mNew = fmaxf(m, mx);
+        const float corr = __expf(m - mNew);
+        m = mNew;
+        float ps = 0.0f;
+#pragma unroll
+        for (int f = 0; f < NWD_NF; f++)
+        {
+#pragma unroll
+            for (int e = 0; e < 2; e++)
+            {
+                float pe = sc[f][e] > -1.0e29f ? __expf(sc[f][e] - mNew) : 0.0f;
+                sc[f][e] = pe;
+                ps += pe;
+            }
+        }
+        l = l * corr + ps;
+#pragma unroll
+        for (int f = 0; f < NWD_NO; f++)
+        {
+            o[f][0] *= corr;
+            o[f][1] *= corr;
+        }
+
+        // O += P · V over the tile's 16-key steps: ldmatrix.x4.trans matrices m = lane / 8: keys 16 ks + (m % 2) * 8 + lane % 8,
+        // chunk (warp * NWD_DVW + 16 fp) / 8 + m / 2 (output fragments 2 fp and 2 fp + 1).
+#pragma unroll
+        for (int ks = 0; ks < NWD_KSV; ks++)
+        {
+            const nd_u32 a0 = nd_pack(sc[2 * ks][0], sc[2 * ks][1]);
+            const nd_u32 a2 = nd_pack(sc[2 * ks + 1][0], sc[2 * ks + 1][1]);
+#pragma unroll
+            for (int fp = 0; fp < NWD_NO / 2; fp++)
+            {
+                nd_u32 b0, b1, b2, b3;
+                nd_ldsm4t(sv + nd_swz(16 * ks + (lane & 8) + (lane & 7), (warp * NWD_DVW + 16 * fp) / 8 + (lane >> 4)), b0, b1, b2, b3);
+                nd_mma(o[2 * fp], a0, a2, b0, b1);
+                nd_mma(o[2 * fp + 1], a0, a2, b2, b3);
+            }
+        }
+    }
+    asm volatile("cp.async.wait_group 0;\n" ::);
+
+    // Row sums over the row's four lanes; every warp holds the same (m, l) and its own output dimensions.
+    l += __shfl_xor_sync(0xFFFFFFFFu, l, 1);
+    l += __shfl_xor_sync(0xFFFFFFFFu, l, 2);
+    if (g < HPW)
+    {
+        const nd_u32 h = h0 + g;
+        if (ns == 1)
+        {
+            float lsum = l, cf = 1.0f;
+#if HAS_SINKS
+            const float sk = p.sinks[h], mf = fmaxf(m, sk);
+            cf = __expf(m - mf);
+            lsum = lsum * cf + __expf(sk - mf);
+#endif
+            const float inv = lsum > 0.0f ? cf / lsum : 0.0f;
+            float* dst = p.o + ((nd_u64)t * HQ + h) * D + warp * NWD_DVW + 2 * c4;
+#pragma unroll
+            for (int f = 0; f < NWD_NO; f++)
+            {
+                *(float2*)(dst + 8 * f) = make_float2(o[f][0] * inv, o[f][1] * inv);
+            }
+        }
+        else
+        {
+            float* dst = p.part + (((nd_u64)blockIdx.z * p.T + t) * HQ + h) * ND_PS;
+#pragma unroll
+            for (int f = 0; f < NWD_NO; f++)
+            {
+                *(float2*)(dst + warp * NWD_DVW + 8 * f + 2 * c4) = make_float2(o[f][0], o[f][1]);
+            }
+            if (warp == 0 && c4 == 0)
+            {
+                dst[D] = m;
+                dst[D + 1] = l;
+            }
+        }
+    }
+}
+#endif

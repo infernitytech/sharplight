@@ -304,6 +304,12 @@ internal static class DiagnosticSwitches
     public static bool NativeDecodeAttention { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE");
 
     /// <summary>
+    /// True (default) when decode rows of head sizes 256 and 512 run the wide form of the hand-written decode attention
+    /// (<c>SHARPLIGHT_NATIVE_DECODE_WIDE=0</c> keeps the generated <c>decode</c> for them).
+    /// </summary>
+    public static bool NativeWideDecodeAttention { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE_WIDE");
+
+    /// <summary>
     /// <c>SHARPLIGHT_FP8_TALL_COST</c>: time of a 128-row block of the hand-written FP8 GEMM relative to a 64-row one in its tile
     /// choice, or null for the default.
     /// </summary>
@@ -511,6 +517,18 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when shared-key-row attention (absorbed MLA) may use the tensor-core <c>fa_mqa</c> kernel.</summary>
     public static bool AttentionMqaFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_MQA");
+
+    /// <summary>
+    /// True (default) when decode rows of head sizes 256 and 512 with separate key and value caches may run the tensor-core
+    /// <c>fa_mqa</c> form (<c>FM_SEPV</c>) on targets without the hand-written CUDA kernel (<c>SHARPLIGHT_ATTN_DECODE_TC=0</c>: <c>decode</c>).
+    /// </summary>
+    public static bool AttentionDecodeTensorCores { get; } = IsNotZero("SHARPLIGHT_ATTN_DECODE_TC");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_ATTN_DECODE_TC_CFG=waves,minKeys,maxSplits,keys</c>: the split rule and tile of the tensor-core decode form (workgroups
+    /// per compute unit the split count aims for, minimum keys per range, maximum ranges, keys per tile), or null for the defaults.
+    /// </summary>
+    public static int[]? AttentionDecodeTensorCoreConfig { get; } = Read("SHARPLIGHT_ATTN_DECODE_TC_CFG")?.Split(',').Select(int.Parse).ToArray();
 
     /// <summary>Preferred lanes per state row of the gated delta rule.</summary>
     public static int DeltaLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_DELTA_LPR") ?? "8", CultureInfo.CurrentCulture);
