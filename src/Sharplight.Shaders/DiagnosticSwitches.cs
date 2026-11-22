@@ -638,6 +638,12 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool MultiGemmFused { get; } = Read("SHARPLIGHT_MULTI_FUSED") == "1";
 
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MULTI_GEMM_TALL=0</c>) keeps the members of a q / k / v group on their own launches of the hand-written f16
+    /// GEMM's prompt-sized tiles instead of one multi-output launch over their concatenated weight rows.
+    /// </summary>
+    public static bool MultiGemmTall { get; } = Read("SHARPLIGHT_MULTI_GEMM_TALL") != "0";
+
     /// <summary><c>SHARPLIGHT_MULTI_DEBUG=1</c>: report on stderr why a multi-output group got no GEMM.</summary>
     public static bool MultiGemmDebug { get; } = Read("SHARPLIGHT_MULTI_DEBUG") == "1";
 

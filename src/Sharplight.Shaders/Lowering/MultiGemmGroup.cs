@@ -35,4 +35,13 @@ internal sealed class MultiGemmGroup
 
     /// <summary>The kernel families whose multi-output GEMM adds the members' bias rows in its store (no bias launch after it).</summary>
     public HashSet<bool> StoresBias { get; } = [];
+
+    /// <summary>The members' launches on the hand-written f16 GEMM's prompt-sized tiles, captured while they are lowered.</summary>
+    public Dictionary<Node, MultiGemmTallPart> TallParts { get; } = [];
+
+    /// <summary>
+    /// The bindings the multi-output form of the hand-written f16 GEMM's prompt-sized tiles serves (null until it is emitted, or when
+    /// it is not); the members' own launches skip them.
+    /// </summary>
+    public Func<Bindings, bool>? TallServes { get; set; }
 }

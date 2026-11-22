@@ -290,13 +290,18 @@ public sealed partial class GraphLowerer
     private bool NativeGemmF16 => _opt.Has(DeviceFeatures.NativeGemmF16) && _compiler.CompilesCuda(_opt.Target);
 
     /// <summary>The tile configuration of the hand-written f16 GEMM with the fewest estimated waves of work for a batch.</summary>
-    private int NativeF16Config(long rows, long n, bool dual)
+    private int NativeF16Config(long rows, long n, bool dual, Func<int, bool>? allowed = null)
     {
         int sms = Math.Max(1, _opt.ComputeUnits);
         double best = double.MaxValue;
-        int config = 0;
+        int config = -1;
         for (int c = 0; c < s_nativeF16TileColumns.Length; c++)
         {
+            if (allowed is not null && !allowed(c))
+            {
+                continue;
+            }
+
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
             long tiles = Grid.Div(rows, 128) * ((n + columns - 1) / columns);
             double cost = (double)((tiles + sms - 1) / sms) * s_nativeF16TileColumns[c] / s_nativeF16Speed[c];
@@ -313,21 +318,29 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Launch variants of the hand-written f16 GEMM (single, or dual with <paramref name="dualEpilogue"/>) for batches of
     /// <paramref name="minRows"/> rows and more: one per tile configuration, each serving the row counts it is estimated fastest for.
+    /// <paramref name="allowed"/> limits the configurations (the multi-output form's member boundaries on whole column tiles), and
+    /// <paramref name="extra"/> adds macros (the multi-output form's).
     /// </summary>
     private KernelVariant[] NativeF16Variants(long n, long k, long maxRows, string? dualEpilogue, Func<Bindings, long> rows, long minRows,
-        bool bias = false, long? rangeScales = null)
+        bool bias = false, long? rangeScales = null, Func<int, bool>? allowed = null, IReadOnlyDictionary<string, string>? extra = null)
     {
         bool dual = dualEpilogue is not null;
         var used = new SortedSet<int>();
         for (long r = minRows; r <= Math.Max(minRows, maxRows); r += 128)
         {
-            used.Add(NativeF16Config(r, n, dual));
+            used.Add(NativeF16Config(r, n, dual, allowed));
         }
 
-        used.Add(NativeF16Config(Math.Max(minRows, maxRows), n, dual));
+        used.Add(NativeF16Config(Math.Max(minRows, maxRows), n, dual, allowed));
+        used.Remove(-1);
         return [.. used.Select(c =>
         {
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("DUAL", dual ? 1 : 0), ("H_CFG", c));
+            foreach (var (key, value) in extra ?? new Dictionary<string, string>())
+            {
+                macros[key] = value;
+            }
+
             if (bias)
             {
                 macros["H_BIAS"] = "1";
@@ -341,7 +354,7 @@ public sealed partial class GraphLowerer
             var kernel = _compiler.CompileCuda("gemm_f16_native.cu", dualEpilogue?.Replace("F8N_EPI2", "H_EPI2", StringComparison.Ordinal) ?? "",
                 "gemm_f16_native", s_nativeF16Threads[c], s_nativeF16Shared[c], _opt.Target, macros, _opt.Cache);
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
-            return new KernelVariant(b => rows(b) >= minRows && NativeF16Config(rows(b), n, dual) == c, kernel,
+            return new KernelVariant(b => rows(b) >= minRows && NativeF16Config(rows(b), n, dual, allowed) == c, kernel,
                 b => new Grid(Grid.Div(rows(b), 128), Grid.Div(n, columns)));
         })];
     }
