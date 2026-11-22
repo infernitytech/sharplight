@@ -1,0 +1,20 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [45 ms]
+Loaded Qwen3 8B Awq Compatible Instruct (decoder): 399 tensors, 5.02 GB, vocab 151936 [496 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Uploading weights 5.02 / 5.02 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 221 / 221, 100 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 31444 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 5.24 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+--- rendered prompt ---
+<|im_start|>user
+Explain in a few short paragraphs why the sky appears blue during the day and red or orange at sunset, and mention the physicist who first described the scattering.<|im_end|>
+<|im_start|>assistant
+
+-----------------------
+<think>
+Okay, the user is asking why the sky is blue during the day and red/orange at sunset, and wants to know the physicist who first described the scattering. Let me start by recalling the basic physics here.
+
+So, Rayleigh scattering is the key concept. I remember that shorter wavelengths (like blue and
+prompt: 40 tok in 68 ms (586.9 tok/s) | generated: 64 tok, 138.23 tok/s
