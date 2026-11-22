@@ -239,7 +239,17 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   at 12-32 sequences -5-7 %, [§68](benchmarks.md); `SHARPLIGHT_NATIVE_FP8_DECODE_BN=128` turns it off). 225-240 TFLOPS on the Qwen3-8B shapes at 2048 rows
   in the model (phase 3: 187-227). The generated kernels that read FP8 weights (decode matvecs, skinny and fp8 GEMMs) decode the
   grouped layout too (`FP8_GROUPED`, `F8_GROUPED`), so the layout costs decode nothing measurable; on Vulkan it is off
-  (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)).
+  (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)). The dual gate / up pair takes the decode
+  form from 9 rows (the skinny GEMM keeps 1-8), and the first stages' weight copies are issued before `griddepcontrol.wait`, so a
+  programmatic dependent starts its weight stream while the launch that writes x still runs ([benchmarks.md §84](benchmarks.md)).
+
+- **`gemm_fp8_decode.cu`** (`native_gemm_fp8`): single block-scaled E4M3 matmuls at 9-16 rows in the grouped layout. No shared-memory
+  stages: every warp loads 16 bytes per lane of its 32 weight rows and of the 16 activation rows straight into registers (the same
+  permutation of K inside each 64-value chunk for both operands, so the words fill the m16n8k32 fragments with the weights as A), the K
+  range split over 1-8 warps of a block (a divisor of the K blocks giving ~512 warps) and summed through shared memory in a fixed order;
+  blocks walk their tiles, and the first K block's weights are loaded before `griddepcontrol.wait`. Qwen3-8B-FP8 down [12288 → 4096] at
+  16 rows 69.8 → 67.4 µs, 16-sequence step -1.0 % ([benchmarks.md §84](benchmarks.md)); the dual pair is slower on it (141.8 against
+  131.5 µs) and stays on `gemm_fp8_native.cu`. `SHARPLIGHT_FP8_DECODE_KERNEL=0` / `=1`: off / also for dual pairs.
 
 - **`gemm_kq_native.cu`** (`native_gemm_kquant`, compute capability 8.0+): K-quant (Q4_K, Q5_K, Q6_K, the GGUF block layout) projections
   at decode batches of 9-64 rows (single matmuls from the first batch past the matvec, `SHARPLIGHT_NATIVE_KQ_MIN_ROWS`), the q / k / v
@@ -759,7 +769,8 @@ first); of `Sharplight.Shaders`: `SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS` (rows from w
 f16 GEMM, default 256), `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (rows from which the hand-written FP8 GEMM serves, default 65),
 `SHARPLIGHT_FP8_GROUPED=1|0` (FP8 weights in 128-row groups on every target or none; default: where the hand-written FP8 GEMM runs),
 `SHARPLIGHT_NATIVE_MOE_MIN_ROWS` (average routed rows per expert from which the hand-written grouped MXFP4 GEMM serves, default 12),
-`SHARPLIGHT_FP8_TMA=0` (128-row FP8 tiles on `gemm_fp8_native.cu` instead of `gemm_fp8_tma.cu`), `SHARPLIGHT_FP8_TALL_COST` (relative
+`SHARPLIGHT_FP8_TMA=0` (128-row FP8 tiles on `gemm_fp8_native.cu` instead of `gemm_fp8_tma.cu`), `SHARPLIGHT_FP8_DECODE_KERNEL=0|1` (FP8 matmuls at 9-16 rows on `gemm_fp8_decode.cu`: off / dual pairs too), `SHARPLIGHT_FP8_L2_PREFETCH=n`
+(K blocks of its weight rows each FP8 decode block asks L2 for before the dependency wait; slower in every setting measured), `SHARPLIGHT_FP8_TALL_COST` (relative
 cost of a 128-row FP8 block in the tile choice), `SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH` (widest head group whose decode attention merges
 its split partials in the last workgroup),
 `SHARPLIGHT_DISABLE_FEATURES=native_gemm_f16,native_gemm_fp8,native_gemm_moe,tensor_copies,launch_graphs` (back to the phase-2 kernels and per-launch
