@@ -100,7 +100,7 @@ public sealed unsafe class ExpertStore : IDisposable
         {
             lock (_lock)
             {
-                return _tensors.Values.Sum(t => t.ExpertBytes * t.Experts);
+                return _tensors.Values.Sum(t => t.StoredExpertBytes * t.Experts);
             }
         }
     }
@@ -201,14 +201,14 @@ public sealed unsafe class ExpertStore : IDisposable
     /// <param name="slotsPerRow">Experts a row selects.</param>
     internal bool TryRegister(WeightInfo weight, string group, int slotsPerRow)
     {
-        if (weight.Shape.Rank != 3 || weight.Shape.Dims.Any(d => d.IsSymbolic) || !weight.Source.TryGetFileRange(out string path, out long offset))
+        if (weight.Shape.Rank != 3 || weight.Shape.Dims.Any(d => d.IsSymbolic) || !TryLocate(weight, out string path, out long offset, out var encoding))
         {
             return false;
         }
 
         long experts = weight.Shape[0].Fixed;
         long bytes = weight.ByteSize;
-        if (experts <= 0 || bytes % experts != 0)
+        if (experts <= 0 || bytes % experts != 0 || (encoding is not null && (bytes / experts) % encoding.BlockBytes != 0))
         {
             return false;
         }
@@ -227,7 +227,7 @@ public sealed unsafe class ExpertStore : IDisposable
                 _files[path] = file;
             }
 
-            var tensor = new DiskExpertTensor(weight.Name, group, file, offset, bytes / experts, (int)experts, Math.Max(1, slotsPerRow));
+            var tensor = new DiskExpertTensor(weight.Name, group, file, offset, bytes / experts, (int)experts, Math.Max(1, slotsPerRow), encoding);
             _tensors[(path, offset)] = tensor;
             if (!_groups.TryGetValue(group, out var members))
             {
@@ -241,10 +241,21 @@ public sealed unsafe class ExpertStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Where <paramref name="weight"/>'s bytes lie in a file: as stored (<see cref="IWeightSource.TryGetFileRange"/>), or stored in another
+    /// block encoding that the store decodes after each read (<see cref="IWeightSource.TryGetEncodedFileRange"/>).
+    /// </summary>
+    private static bool TryLocate(WeightInfo weight, out string path, out long offset, out IStoredBlockEncoding? encoding)
+    {
+        encoding = null;
+        return weight.Source.TryGetFileRange(out path, out offset)
+            || (weight.Source.TryGetEncodedFileRange(out path, out offset, out encoding) && encoding is not null);
+    }
+
     /// <summary>The disk-backed form of <paramref name="weight"/>, or null when it is resident.</summary>
     internal DiskExpertTensor? Find(WeightInfo weight)
     {
-        if (!weight.Source.TryGetFileRange(out string path, out long offset))
+        if (!TryLocate(weight, out string path, out long offset, out _))
         {
             return null;
         }
@@ -524,7 +535,14 @@ public sealed unsafe class ExpertStore : IDisposable
                 held.Loading = null;
             }
 
-            pointers[e] = pool.Address(slot) + tensor.ReadRange(e).Skip;
+            if (!held.Decoded)
+            {
+                // Stored in another block encoding: decoded once per read, before any pass reads it.
+                tensor.Decode(e, pool.Address(slot));
+                held.Decoded = true;
+            }
+
+            pointers[e] = pool.Address(slot) + tensor.DataOffset(e);
         }
     }
 
@@ -712,8 +730,8 @@ public sealed unsafe class ExpertStore : IDisposable
         }
 
         MeasuredReadBytesPerSecond = bytes / seconds;
-        long diskBytes = tensors.Sum(t => t.ExpertBytes * t.Experts);
-        long perToken = tensors.Sum(t => t.ExpertBytes * t.SlotsPerRow);
+        long diskBytes = tensors.Sum(t => t.StoredExpertBytes * t.Experts);
+        long perToken = tensors.Sum(t => t.StoredExpertBytes * t.SlotsPerRow);
         double cachedShare = Math.Clamp(_pools.Sum(p => (double)p.Bytes) / diskBytes, 0, 1);
         double coldSeconds = perToken / MeasuredReadBytesPerSecond.Value;
         double warmSeconds = coldSeconds * (1 - cachedShare);

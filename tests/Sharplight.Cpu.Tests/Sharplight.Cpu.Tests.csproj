@@ -16,5 +16,7 @@
   <ItemGroup>
     <Compile Include="../Shared/FileWeights.cs" Link="Shared/FileWeights.cs" />
     <Compile Include="../Shared/FileRangeSource.cs" Link="Shared/FileRangeSource.cs" />
+    <Compile Include="../Shared/EncodedFileRangeSource.cs" Link="Shared/EncodedFileRangeSource.cs" />
+    <Compile Include="../Shared/ReversedBlockEncoding.cs" Link="Shared/ReversedBlockEncoding.cs" />
   </ItemGroup>
 </Project>
