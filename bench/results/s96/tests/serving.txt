@@ -1,0 +1,3 @@
+  Finished:    Sharplight.Serving.Tests (ID = 'b799a34da469dd3dcecd7bee0574eb963f19e49e789e9e49dc4740e576d68ae2')
+=== TEST EXECUTION SUMMARY ===
+   Sharplight.Serving.Tests  Total: 401, Errors: 0, Failed: 0, Skipped: 13, Not Run: 0, Time: 88.985s

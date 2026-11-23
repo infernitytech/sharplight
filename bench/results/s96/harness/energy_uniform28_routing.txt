@@ -1,0 +1,12 @@
+[hold 12:00:53] bash -c . ./env.sh; for i in 1 2; do for v in gu_dbare gu_dfull; do for R in $WORK/routes_uniform28.txt $TREE/bench/results/s73/routing/vllm64_words.txt; do printf "%-9s %-22s " $v $(basename $R); env ROUTES=$R LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=3 $WORK/bin/$v | grep energy | cut -c1-210; done; done; done
+gu_dbare  routes_uniform28.txt   energy: 8 passes 3.99 s: 0.3403 ms per routing, 130.3 W, 44.354 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1797 nJ per weight byte, SM 1675 MHz, memory 13365 MHz
+gu_dbare  vllm64_words.txt       energy: 8 passes 3.63 s: 0.3094 ms per routing, 134.7 W, 41.706 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1786 nJ per weight byte, SM 1724 MHz, memory 13365 MHz
+gu_dfull  routes_uniform28.txt   energy: 6 passes 3.24 s: 0.3690 ms per routing, 183.3 W, 67.726 mJ per routing, 246.8 MB weights per routing (tile reads), 0.2745 nJ per weight byte, SM 1695 MHz
+gu_dfull  vllm64_words.txt       energy: 8 passes 4.00 s: 0.3411 ms per routing, 191.1 W, 65.232 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2793 nJ per weight byte, SM 1747 MHz
+gu_dbare  routes_uniform28.txt   energy: 8 passes 3.96 s: 0.3382 ms per routing, 133.5 W, 45.193 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1831 nJ per weight byte, SM 1687 MHz, memory 13365 MHz
+gu_dbare  vllm64_words.txt       energy: 8 passes 3.62 s: 0.3089 ms per routing, 136.3 W, 42.136 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1804 nJ per weight byte, SM 1730 MHz, memory 13365 MHz
+gu_dfull  routes_uniform28.txt   energy: 6 passes 3.25 s: 0.3695 ms per routing, 179.4 W, 66.334 mJ per routing, 246.8 MB weights per routing (tile reads), 0.2688 nJ per weight byte, SM 1695 MHz
+gu_dfull  vllm64_words.txt       energy: 8 passes 3.99 s: 0.3405 ms per routing, 192.7 W, 65.666 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2812 nJ per weight byte, SM 1749 MHz
+[release 12:01:51]
+
+[exited with code 0]

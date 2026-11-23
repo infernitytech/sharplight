@@ -1,0 +1,205 @@
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu b/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu
+index 94e384e1..90815b64 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu
+@@ -73,6 +73,30 @@
+ #define NM_C_BYTES (2 * NM_BN * 16)
+ #define NM_S_BYTES (2 * NM_MATS * (NM_BOUT / 16) * 16)
+ #define NM_STAGE_BYTES (NM_A_BYTES + NM_C_BYTES + NM_S_BYTES)
++// NM_CP: K steps per weight copy. 1: each stage holds its own codes and scales (32 bytes per weight row). 2 or 4: the codes and
++// scales go to a ring of their own (NM_CQ slots of NM_CP K steps after the NM_STAGES activation stages), copied NM_CP steps at a
++// time, so each weight row's copies are 32 NM_CP contiguous bytes taken by adjacent threads: a warp's copy touches half (a quarter)
++// as many 128-byte lines per byte. RTX PRO 4500 (bench/s56_moe/read_energy.cu, the decode tiles' read pattern at the read limit):
++// 32 bytes per row and stage take 0.24-0.25 nJ per byte, 64 bytes 0.21, 128 bytes 0.20; the kernel runs at the 200 W limit, so
++// the energy per byte is its speed (docs/benchmarks.md section 95).
++#ifndef NM_CP
++#define NM_CP 1
++#endif
++#ifndef NM_CQ
++#define NM_CQ 2
++#endif
++#if NM_CP > 1
++#define NM_A_STRIDE NM_A_BYTES
++#define NM_W_RING (NM_STAGES * NM_A_BYTES)
++#define NM_S_RING (NM_W_RING + NM_CQ * NM_CP * NM_C_BYTES)
++#define NM_SMEM_BYTES (NM_S_RING + NM_CQ * NM_CP * NM_S_BYTES)
++#if NM_STAGES < 3 || NM_CQ * NM_CP < NM_CP + NM_STAGES - 2
++#error "gemm_moe_native: a weight slot must be copied in a group that completes before its first decode (NM_CP (NM_CQ - 1) >= NM_STAGES - 2)"
++#endif
++#else
++#define NM_A_STRIDE NM_STAGE_BYTES
++#define NM_SMEM_BYTES (NM_STAGES * NM_STAGE_BYTES)
++#endif
+ #define NM_XRS ((unsigned long long)K * 2)
+ #define NM_CODE_BYTES ((unsigned long long)K / 2)
+ 
+@@ -330,9 +354,43 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+         nm_u32 gi = min(n0 / 16 + q, (nm_u32)N / 16 - 1);
+         sSrc = mat + (nm_u64)gi * 16 * ROW_BYTES + 16 * NM_CODE_BYTES + b * 16;
+     }
++#if NM_CP > 1
++    // The weight ring's copies: NM_W_PER 16-byte chunks of the codes per thread (2 NM_CP adjacent threads per row), and one scale
++    // chunk for the first 2 NM_CP NM_MATS (NM_BOUT / 16) threads (chunks of one scale row adjacent).
++#define NM_W_PER ((NM_BN * 2 * NM_CP + NM_THREADS - 1) / NM_THREADS)
++    const unsigned char* wSrc[NM_W_PER];
++#pragma unroll
++    for (nm_u32 i = 0; i < NM_W_PER; i++)
++    {
++        nm_u32 idx = min(tid + i * NM_THREADS, (nm_u32)NM_BN * 2 * NM_CP - 1), r = idx / (2 * NM_CP), ch = idx % (2 * NM_CP);
++#if DUAL
++        const unsigned char* m = ((r >> 3) & 1) ? wb2 : wb;
++        nm_u32 n = min(n0 + (r >> 4) * 8 + (r & 7), (nm_u32)N - 1);
++#else
++        const unsigned char* m = wb;
++        nm_u32 n = min(n0 + r, (nm_u32)N - 1);
++#endif
++        wSrc[i] = m + (nm_u64)(n >> 4) * 16 * ROW_BYTES + (nm_u64)(n & 15) * NM_CODE_BYTES + ch * 16;
++    }
++    const bool sLiveW = tid < 2 * NM_CP * NM_MATS * (NM_BOUT / 16);
++    const nm_u32 sCh = tid % (2 * NM_CP);
++    const unsigned char* sSrcW;
++    nm_u32 sDstW;
++    {
++        nm_u32 q = tid / (2 * NM_CP) % (NM_BOUT / 16), m = tid / (2 * NM_CP) / (NM_BOUT / 16) % NM_MATS;
++#if DUAL
++        const unsigned char* mat = m ? wb2 : wb;
++#else
++        const unsigned char* mat = wb;
++#endif
++        nm_u32 gi = min(n0 / 16 + q, (nm_u32)N / 16 - 1);
++        sSrcW = mat + (nm_u64)gi * 16 * ROW_BYTES + 16 * NM_CODE_BYTES + sCh * 16;
++        sDstW = (sCh / 2) * NM_S_BYTES + (((sCh & 1) * NM_MATS + m) * (NM_BOUT / 16) + q) * 16;
++    }
++#endif
+ 
+     auto load = [&](nm_u32 s, nm_u32 kb) {
+-        nm_u32 base = (nm_u32)__cvta_generic_to_shared(smem + s * NM_STAGE_BYTES);
++        nm_u32 base = (nm_u32)__cvta_generic_to_shared(smem + s * NM_A_STRIDE);
+ #pragma unroll
+         for (nm_u32 i = 0; i < NM_A_PER; i++)
+         {
+@@ -341,6 +399,7 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+                 nm_cp16(base + aDst[i], aSrc[i] + kb * 128);
+             }
+         }
++#if NM_CP == 1
+ #pragma unroll
+         for (nm_u32 i = 0; i < NM_C_PER; i++)
+         {
+@@ -354,7 +413,30 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+         {
+             nm_cp16w(base + NM_A_BYTES + NM_C_BYTES + tid * 16, sSrc + kb * 32);
+         }
++#endif
+     };
++#if NM_CP > 1
++    // Codes and scales of K steps m NM_CP .. into weight slot m % NM_CQ: chunk ch (16 bytes) of a row is step ch / 2's block ch % 2,
++    // stored where a stage of NM_CP 1 keeps it ([step][block][row] codes, [step][block][matrix][group] scale rows).
++    auto loadW = [&](nm_u32 m) {
++        const nm_u32 slot = m % NM_CQ;
++        const nm_u32 wbase = (nm_u32)__cvta_generic_to_shared(smem + NM_W_RING) + slot * NM_CP * NM_C_BYTES;
++#pragma unroll
++        for (nm_u32 i = 0; i < NM_W_PER; i++)
++        {
++            nm_u32 idx = tid + i * NM_THREADS, ch = idx % (2 * NM_CP), r = idx / (2 * NM_CP);
++            if (((NM_BN * 2 * NM_CP) % NM_THREADS == 0 || idx < NM_BN * 2 * NM_CP) && m * NM_CP + ch / 2 < nk)
++            {
++                nm_cp16w(wbase + ((ch / 2) * NM_C_BYTES + ((ch & 1) * NM_BN + r) * 16), wSrc[i] + m * (NM_CP * 32));
++            }
++        }
++        if (sLiveW && m * NM_CP + sCh / 2 < nk)
++        {
++            const nm_u32 sbase = (nm_u32)__cvta_generic_to_shared(smem + NM_S_RING) + slot * NM_CP * NM_S_BYTES;
++            nm_cp16w(sbase + sDstW, sSrcW + m * (NM_CP * 32));
++        }
++    };
++#endif
+ 
+     float acc[NM_FM][NM_FN][4];
+ #pragma unroll
+@@ -371,6 +453,17 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+         }
+     }
+ 
++#if NM_CP > 1
++    // The first NM_CQ weight slots go with the first activation stage's group.
++#pragma unroll
++    for (nm_u32 m = 0; m < NM_CQ; m++)
++    {
++        if (m * NM_CP < nk)
++        {
++            loadW(m);
++        }
++    }
++#endif
+ #pragma unroll
+     for (int s = 0; s < NM_STAGES - 1; s++)
+     {
+@@ -392,8 +485,13 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+ 
+     // Unit j of the B fragments of 32-value block b of stage s (two 16-value chunks of 8 weight rows), decoded once for all the
+     // warp's row fragments.
+-    auto decodeUnit = [&](nm_u32 s, nm_u32 b, int j, nm_u32 (&bf)[NM_FN][4]) {
+-        const nm_u32 sc = smem0 + s * NM_STAGE_BYTES + NM_A_BYTES, ss = sc + NM_C_BYTES;
++    auto decodeUnit = [&](nm_u32 kb, nm_u32 b, int j, nm_u32 (&bf)[NM_FN][4]) {
++#if NM_CP > 1
++        const nm_u32 wstep = (kb / NM_CP) % NM_CQ * NM_CP + kb % NM_CP;
++        const nm_u32 sc = smem0 + NM_W_RING + wstep * NM_C_BYTES, ss = smem0 + NM_S_RING + wstep * NM_S_BYTES;
++#else
++        const nm_u32 sc = smem0 + kb % NM_STAGES * NM_STAGE_BYTES + NM_A_BYTES, ss = sc + NM_C_BYTES;
++#endif
+         nm_u32 row = wn * NM_TN + j * 8 + g;
+         uint4 raw = nm_lds128(sc + (b * NM_BN + row) * 16);
+         nm_u32 u = nm_prmt(upper ? raw.y : raw.x, upper ? raw.w : raw.z, sel);
+@@ -427,11 +525,11 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+             }
+         }
+     };
+-    auto decode = [&](nm_u32 s, nm_u32 b, nm_u32 (&bf)[NM_FN][4]) {
++    auto decode = [&](nm_u32 kb, nm_u32 b, nm_u32 (&bf)[NM_FN][4]) {
+ #pragma unroll
+         for (int j = 0; j < NM_FN; j++)
+         {
+-            decodeUnit(s, b, j, bf);
++            decodeUnit(kb, b, j, bf);
+         }
+     };
+     // The MMAs of 32-value block b of stage s with its decoded B fragments for the warp's F live row fragments (F = 0: the decode
+@@ -440,7 +538,7 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+         constexpr int F = decltype(f)::value;
+         if constexpr (F > 0)
+         {
+-            nm_mmas<F>(acc, smem0 + s * NM_STAGE_BYTES, wm * NM_TM, b, lane, bf, dec);
++            nm_mmas<F>(acc, smem0 + s * NM_A_STRIDE, wm * NM_TM, b, lane, bf, dec);
+         }
+         else
+         {
+@@ -465,7 +563,7 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+         for (nm_u32 kb = 0; kb < nk; kb++)
+         {
+             const nm_u32 cur = kb % NM_STAGES;
+-            mmas(f, cur, 0, bf0, [&](int j) { decodeUnit(cur, 1, j, bf1); });
++            mmas(f, cur, 0, bf0, [&](int j) { decodeUnit(kb, 1, j, bf1); });
+             // Stage kb + 1 complete (own copies, then every thread's) before its decode; the slot of stage kb - 1 is free for
+             // the copies of stage kb + NM_STAGES - 1.
+             asm volatile("cp.async.wait_group %0;\n" :: "n"(NM_STAGES - 3));
+@@ -475,10 +573,17 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+             {
+                 load(next % NM_STAGES, next);
+             }
++#if NM_CP > 1
++            // Every thread has decoded both blocks of step kb: at the last step of a weight slot, the slot takes the steps NM_CQ
++            // slots ahead (the group of activation stage kb + NM_STAGES - 1, complete before their first decode).
++            if (kb % NM_CP == NM_CP - 1 && (kb / NM_CP + NM_CQ) * NM_CP < nk)
++            {
++                loadW(kb / NM_CP + NM_CQ);
++            }
++#endif
+             asm volatile("cp.async.commit_group;\n" ::);
+-            const nm_u32 nextStage = (kb + 1) % NM_STAGES;
+             const bool more = kb + 1 < nk;
+-            mmas(f, cur, 1, bf1, [&](int j) { if (more) { decodeUnit(nextStage, 0, j, bf0); } });
++            mmas(f, cur, 1, bf1, [&](int j) { if (more) { decodeUnit(kb + 1, 0, j, bf0); } });
+         }
+     };
+     switch (liveFrags)

@@ -1,0 +1,18 @@
+[1]   Done                    ONLY=gu ./hb.sh $K $n "$@"
+[2]-  Done                    ONLY=gu ./hb.sh $K $n "$@"
+[3]+  Done                    ONLY=gu ./hb.sh $K $n "$@"
+[hold 10:45:27] ./samp2.sh gu_dwonly gu_dbare gu_dskel2 gu_dwonly2 re_0_32_256
+0 %, 2 MiB, 36.62 W
+energy: 12 passes 5.45 s: 0.3103 ms per routing, 146.1 W, 45.355 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1942 nJ per weight byte, SM 1736 MHz
+sampler: 1389 busy samples of 1729 over 7.07 s: SM 1740 MHz, memory 13365 MHz, power 147.6 W (medians), max 49 C, reasons 0x4 100%
+energy: 12 passes 5.43 s: 0.3091 ms per routing, 138.2 W, 42.740 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1830 nJ per weight byte, SM 1724 MHz, memory 13365 MHz
+sampler: 1427 busy samples of 1722 over 8.78 s: SM 1725 MHz, memory 13365 MHz, power 136.5 W (medians), max 49 C, reasons 0x4 100%
+energy: 12 passes 5.88 s: 0.3343 ms per routing, 140.9 W, 47.113 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2017 nJ per weight byte, SM 1721 MHz, memory 13365 MHz
+sampler: 1532 busy samples of 1825 over 9.31 s: SM 1725 MHz, memory 13365 MHz, power 140.6 W (medians), max 52 C, reasons 0x4 96%
+energy: 12 passes 5.37 s: 0.3053 ms per routing, 148.7 W, 45.425 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1945 nJ per weight byte, SM 1722 MHz, memory 13365 MHz
+sampler: 1413 busy samples of 1708 over 8.69 s: SM 1725 MHz, memory 13365 MHz, power 147.8 W (medians), max 54 C, reasons 0x4 95%
+PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 786.6 GB/s, 189.5 W, 0.2409 nJ per byte, SM 2805 MHz, memory 13365 MHz 
+sampler: 1038 busy samples of 1234 over 6.29 s: SM 2805 MHz, memory 13365 MHz, power 190.3 W (medians), max 60 C, reasons 0x4 1%
+[release 10:46:09]
+
+[exited with code 0]
