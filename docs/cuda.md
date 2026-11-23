@@ -275,7 +275,9 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   rows (up to 12 routed items per expert: 32-row tiles of four stages, up to 24: 64-row tiles of three, both two blocks per SM where they fit, dual tiles narrowed to 128
   weight rows for it, [benchmarks.md §63.2](benchmarks.md); the 64-row dual tile takes four stages without the factor table, `NM_TABLE=0`,
   [§65.2](benchmarks.md); `SHARPLIGHT_NATIVE_MOE_SHORT`, `SHARPLIGHT_NATIVE_MOE_BLOCKS`, `SHARPLIGHT_NATIVE_MOE_TABLE=1`): a four-stage `cp.async` ring of 64-value K steps holds the expert-sorted f16 activation rows (swizzled 128-byte rows) and
-  the raw codes and E8M0 scales (4.25 bits per weight; codes stored [block][row] so a fragment's 8 rows are one 128-byte line, with
+  the raw codes and E8M0 scales (4.25 bits per weight; codes stored [row][block], swapped in rows with bit 2 set (`nm_cpos`), so each
+  row's two 16-byte copies of one 32-byte sector land in one 32-byte granule and a fragment's 8 rows still cover all banks: copies
+  split across granules held the launches at ~1.7 GHz under the software power cap, [§97](benchmarks.md); with
   an `L2::256B` prefetch hint so the 32 bytes a stage takes of each row still stream from memory in whole bursts). Eight warps side
   by side along the weight rows (warp tile 128 x 32) decode the 4-bit codes of the fragment they multiply with the arithmetic of
   gemm_cm2's decode (doubled code in half bits, two half factors of the scale from a per-block table) right before

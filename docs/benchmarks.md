@@ -14773,3 +14773,202 @@ nvcc -O3 -arch=sm_120 -std=c++17 -DPAT=0 -DC=32 -DHINT=256 -DMMA=1 -DKMODE=1 rea
 QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b "16 64" --provider cuda
 QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm gptoss ~/models/hf/gpt-oss-20b "16 64" --gpu-memory-utilization 0.6
 ```
+
+## 97. LLM round 38: the clock limiter of §96.4 found: copies of one 32-byte sector split across shared-memory granules; the MXFP4 expert GEMM's stage layout fixed (gate / up -11 %, down -8 % per routing; decode step -2.4 %) (2026-11-23)
+
+Branch `perf/llm-r38` (base `perf/llm-r37` at `cb41502e`, i.e. `develop` `15492683` with §95's defaults; `develop` at `dcccc10a`, the DeepSeek experts-on-disk fix, merged before the serving and test holds). The harness, step, profile, greedy and PPL comparisons ran against `15492683` (`perf/llm-r37`'s build) and the serving comparison against `dcccc10a`. GPU 0 of
+the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap, driver 595.112 / CUDA 13.2), shared with an ONNX benchmark round
+and a DeepSeek fix. Every run held the verify lock, and variants alternated in the same holds. The second round of the first hold was
+disturbed (the read pattern alone dropped from 830 to 766 GB/s, the GEMM in its loop from 677 to 398 GB/s) and is discarded. Raw output is
+in [`bench/results/s97/`](../bench/results/s97) (`harness/`, `steps/`, `serve/`, `correct/`, `tests/`, `rejected/`).
+
+New bisect tools in `bench/s56_moe`:
+* `read_energy.cu -DKFILE=<kernel>` launches the expert GEMM (the decode gate / up shape, `GEMM_TILES` routing tiles of `GEMM_ROWS` items
+  on random experts of the buffer) from read_energy's own host loop.
+* `bench_moe.cu` with `RD=<mode>` launches read_energy's copy ring (`rd_h`) in place of the GEMM in the `ENERGY` window: the same
+  routing words, weights, grid and dynamic shared memory. Modes 2-5 add the GEMM's scale copies, its activation copies, both, and the
+  E8M0 table. Modes 11-17 and 18 / 116 / 132 change one detail of the ring at a time: the shared-memory layout of the code copies
+  (`[block][row]` as the GEMM, halves swapped, halves 64 or 128 bytes apart), one barrier per step, and the stage offset.
+
+### 97.1 The bisect
+
+All rows are energy windows of 3 s on vLLM's 64-sequence routing (`s73/routing/vllm64_words.txt`), 24 layer copies, in ms per
+routing (`harness/bisect_*.txt`):
+
+| what runs | ms per routing | W | SM MHz |
+|---|---:|---:|---:|
+| `develop`'s GEMM in the harness | 0.3404-0.3408 | 189-193 | 1741-1754 |
+| §96's minimal ring inside the GEMM (`D_MIN=1`: wait, barrier, activation / code / scale copies) | 0.3307-0.3317 | 133-137 | 1706-1713 |
+| the same, code copies only (`D_NOA D_NOS`) | 0.3048-0.3055 | 133-134 | 1715-1723 |
+| read_energy's ring in the harness's loop (`RD=1`, code copies only) | **0.2489-0.2525** | 167-184 | **2420-2548** |
+| `RD=2` (+ the GEMM's scale copies) / `RD=3` (+ its activation copies) / `RD=4` (both) / `RD=5` (+ the table) | 0.2623 / 0.2524-0.2528 / 0.2664-0.2667 / 0.2667-0.2668 | 150-162 | 2032-2306 |
+| the GEMM from read_energy's host loop (28 tiles x 9 rows, first round) | 677 GB/s | 181 | 1702 |
+| read_energy alone (§96.4's `KMODE=1`, two blocks per SM) | 830 GB/s | 199 | 2542-2587 |
+
+* **The host loop is not it.** read_energy's ring runs uncapped inside the harness (the same routing words, weights, grid, smem, launch
+  path), and the GEMM stays capped inside read_energy's loop. So launch parameters, the harness, the footprint and the data are out.
+* **The kernel's instruction mix is not it either.** The SASS of the capped `D_MIN D_NOA D_NOS` ring and of `RD=1` is the same 112
+  instructions: the same `LDGSTS.E.BYPASS.LTC256B.128` copies from the same global addresses, `LDGDEPBAR`, `DEPBAR.LE SB0, 0x1`, the
+  barrier and one `LDS`. Three differences are left: the shared-memory destination of each copy, one barrier per step against two,
+  and the codes' offset in the stage.
+
+One detail at a time, code copies only (`harness/bisect_smem_layout.txt`, `harness/bisect_pair_spacing.txt`, two rounds each):
+
+| `rd_h` variant | ms per routing | W | SM MHz | capped |
+|---|---:|---:|---:|---|
+| row-major: a row's two 16-byte copies of a K step side by side (`RD=1`) | 0.2489-0.2525 | 169-184 | 2465-2548 | no |
+| the same, halves swapped (`RD=18`) | 0.2491-0.2492 | 173-176 | 2456-2465 | no |
+| one barrier per step (`RD=12`) / codes at stage offset 4096 (`RD=14`) | 0.2489-0.2490 / 0.2491-0.2492 | 169-175 | 2474-2527 | no |
+| halves 64 bytes apart in one 128-byte line (`RD=116`) | 0.3013-0.3021 | 128-131 | 1730-1734 | **yes** |
+| halves 128 bytes apart (`RD=132`) | 0.3013-0.3024 | 129-131 | 1732-1734 | **yes** |
+| the GEMM's `[block][row]` layout: halves 2 KB apart (`RD=11`) | 0.3049-0.3059 | 130-134 | 1715-1724 | **yes** |
+| all three GEMM details (`RD=17`) | 0.3051-0.3058 | 129-133 | 1707-1717 | **yes** |
+
+**The trigger:** each thread pair copies one 32-byte global sector as two 16-byte `cp.async` copies. When the two halves land in
+different 32-byte granules of shared memory, the launch runs with NVML's software-power-cap reason set, at ~1.72 GHz and 130 W, 22 %
+slower. When they land in one granule (in either order), it runs uncapped at 2.5 GHz. The data, the addresses read, the instruction
+count and the bank conflicts are the same in both forms: a warp's 32 copies write four 128-byte wavefronts either way. Our reading is
+that the split sector costs the L1 / shared-memory fill path an extra write per sector, and the power management's activity estimate
+counts it as power (the board stays at 130 W). The bisect cannot see inside the estimate. What it shows is that the layout alone
+switches the cap on and off.
+
+### 97.2 The fix in `gemm_moe_native.cu`, measured in the harness
+
+The stage keeps each weight row's two blocks side by side: `[row][block]` with the halves swapped in rows with bit 2 set (`nm_cpos`),
+so that the decode's 16-byte loads of 8 consecutive rows still cover all banks. The scale rows are `[matrix][group][block]`, with
+thread pairs taking the two blocks of one scale row. The activation copies already kept their sectors together: the 128-byte-row XOR
+swizzle moves 16-byte chunks within their 32-byte pair. The products are bit-identical: the decode reads the same bytes, so the
+harness's reference checks give the same maxima at T = 32-2048 for both products (`harness/layout_fix_checks_and_energy.txt`).
+
+Energy windows of 3 s, 24 layer copies, two rounds alternated in one hold:
+
+| product, routing | `develop`: ms, W, MHz | fixed: ms, W, MHz | change | Marlin (§96.2) |
+|---|---:|---:|---:|---:|
+| gate / up, vLLM's | 0.3398-0.3418, 192-193, 1740-1755 | **0.3029-0.3049**, 201, 1824-1854 | **-10.8 %** | 0.309 |
+| down, vLLM's | 0.1769-0.1771, 184-187, 1796-1797 | **0.1632-0.1637**, 196-197, 2009-2027 | **-7.8 %** | 0.158 |
+| gate / up, ours (`--text`) | 0.3700-0.3702, 187-192, 1708-1710 | **0.3282-0.3302**, 197-198, 1850-1863 | **-11.1 %** | 0.340 |
+| down, ours | 0.1901-0.1913, 182-187, 1760-1781 | **0.1744-0.1749**, 198-199, 1997-2017 | **-8.4 %** | 0.175 |
+
+The fixed kernel now draws the full 200 W and is power-limited like Marlin. Energy per weight byte drops from 0.279-0.284 to
+0.261-0.278 nJ. Per routing, the gate / up product is now 2 % ahead of Marlin on vLLM's routing and 3.5 % on ours. Down is level with
+Marlin on ours and 3.5 % behind on vLLM's (§96.2: 9-12 % behind on both).
+
+### 97.3 In the engine's decode step
+
+BatchBench `--text`, 1 / 16 / 64 sequences, GPU ms (min of 30), base (`develop`) and the branch alternated twice, under the clock
+sampler (`steps/s1_*`):
+
+| gpt-oss-20b | `develop` | this branch | change |
+|---|---:|---:|---:|
+| 1 sequence | 5.14-5.17 | 5.14-5.16 | 0 |
+| 16 sequences | 12.12-12.16 | 11.98-11.99 | **-1.2 %** |
+| 64 sequences | 17.27-17.32 | 16.87-16.88 | **-2.4 %** |
+
+The serialized per-kernel profile at 64 (`steps/profile64_*.txt`, each launch timed on its own): gate / up min 148.0 → 134.8 µs,
+mean 262 → 250 µs. Down min 86.1 → 81.4 µs, mean 142 → 140 µs. Every other kernel is unchanged. The step gains 0.4 ms of the 1.2 ms that
+the sustained replay predicts (24 x (0.037 + 0.014)). The decode step mixes the expert GEMMs with the LM head, attention and the
+dense GEMMs, and runs at ~2.3 GHz and 196 W median, at the power cap, in both builds. Our reading is that inside the step the expert
+GEMMs were clocked down less than in the expert-only replay, and that the fixed GEMMs' higher draw now shares the cap with the rest of
+the step. The sampler cannot resolve single launches to confirm this.
+
+### 97.4 The engine's other kernels
+
+Every other `cp.async` copy in the CUDA kernels keeps a sector's halves in one 32-byte granule: `gemm_f16_native`,
+`gemm_fp8_native` (weights, activations and both scale copies), `attn_prefill_native` and `attn_decode_native` use 16-byte XOR
+swizzles inside 128-byte rows (a chunk pair stays in its 32-byte pair) or contiguous rows. `gemm_fp8_decode` reads with plain loads
+and `gemm_fp8_tma` with TMA boxes. The exception is `gemm_kq_native` (K-quant decode GEMM): its weight windows start at
+16-byte-aligned sources and are stored at `r * KQ_WCH` chunks, so for roughly half the (row, superblock) pairs a sector's halves land
+in different granules (Q4_K: 144-byte blocks, 9 chunks per row).
+
+Rejected: windows stored at their source's 32-byte parity (`rejected/kq_sector_parity_layout.diff`: odd row stride of the window plus
+one chunk). In the harness (`harness/kq_layout_harness.txt`, Q4_K / Q5_K / Q6_K, [4096 → 12288] and [12288 → 4096], 9 / 32 / 64 rows)
+it ranges from -1 % at 9 rows to +2 % at 32-64 rows (sustained µs), with identical products. Qwen3-8B Q4_K_M decode steps
+(`steps/kq_*`): 6.80 / 8.07 ms at 1 / 16 sequences in both builds. At 64, `develop` measured 14.90 and 15.82 ms (bimodal) and the
+branch 15.86-16.08 ms. That is no gain, and the change costs shared memory. These launches run 40-90 µs, too short for the limiter
+to matter.
+
+### 97.5 Experts with 33-64 items in one tile (§75.3), measured again with the fixed layout
+
+`bench_moe` energy windows (`harness/tiles64_*.txt`). The 64-row build is `NM_BM=64 NM_TABLE=0` (four stages, two blocks per SM).
+Two launches are emulated by tile class (`ROUTE_M=64`, `MAX_ROWS=32` / `MIN_ROWS=33`):
+
+| routing, product | 32-row tiles (as kept) | 64-row tiles, one launch | two launches: experts ≤ 32 + > 32 |
+|---|---:|---:|---:|
+| vLLM's, gate / up | 0.3038-0.3054 | 0.3093-0.3121 | 0.2621-0.2630 + 0.0548 = 0.317 |
+| vLLM's, down | 0.1635 | 0.1869 | 0.1480 + 0.0417 = 0.190 |
+| ours, gate / up | 0.3437 | 0.3397 | 0.3085 + 0.0304 = 0.339 |
+| ours, down | 0.1746 | 0.1974 | 0.1676 + 0.0289 = 0.197 |
+
+The 64-row tiles read 9 % fewer weight bytes (213.5 against 233.6 MB on vLLM's routing), but they lose that and more on a tile's
+longer loop. A launch of only the experts with more than 32 items has 2-3 routing tiles x 45 blocks, so its fixed cost decides its
+time. Not kept.
+
+### 97.6 Serving against vLLM
+
+`bench/s16_serve.sh`, closed loop, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds per
+point. Both builds use §95's defaults (block-scaled FP8 where it applies, the `waves` step floor). One hold: gpt-oss-20b as branch,
+`develop`, vLLM, `develop`, branch, then Qwen3-8B-FP8 as branch, `develop`, vLLM. `develop` is `dcccc10a`. vLLM 0.33 ran with
+`--gpu-memory-utilization 0.6` (`serve/`, `serve/summary.txt`). Tok/s per round, TTFT p50 and inter-token latency (ms):
+
+| model, streams | `develop` | `perf/llm-r38` | vLLM 0.33 | r38 / `develop` | **r38 / vLLM** |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b, 16 | 1381 / 1393, 1378 / 1394 | 1394 / 1416, 1387 / 1413 | 1393 / 1424 | +1.2 % | **0.97-1.02** (means 0.996) |
+| the same: TTFT p50 / ITL mean, p95, p99 | 77-84 / 10.60-10.66, 21-24, 40-41 | 74-83 / 10.49-10.57, 20-22, 39-40 | 160-179 / 9.85-10.16, 10.7, 13.4-13.7 | | |
+| gpt-oss-20b, 64 | 3045 / 3094, 3052 / 3070 | **3178 / 3232, 3188 / 3235** | 3188 / 3137 | **+4.7 %** | **1.00-1.03** (means 1.014) |
+| the same: TTFT p50 / ITL mean, p95, p99 | 233-240 / 17.96-18.22, 35-40, 118-120 | 225-233 / 17.12-17.40, 33-37, 114-115 | 390-470 / 16.62-16.87, 17-18, 120-121 | | |
+| Qwen3-8B-FP8, 16 | 1103 / 1108 | 1104 / 1110 | 1113 / 1115 | 0 | 0.99-1.00 |
+| the same: TTFT p50 / ITL mean, p95, p99 | 74-78 / 13.63, 20-25, 38 | 73-77 / 13.62, 20-25, 38 | 171-179 / 12.91-12.92, 13.0-13.5, 14.7-15.8 | | |
+| Qwen3-8B-FP8, 64 | 2647 / 2664 | 2657 / 2668 | 2694 / 2675 | 0 | 0.99-1.00 (means 0.992) |
+| the same: TTFT p50 / ITL mean, p95, p99 | 252-255 / 21.06-21.21, 37-43, 125-129 | 253-254 / 21.04-21.08, 36-37, 128-129 | 398-403 / 20.25-20.27, 22-24, 132-133 | | |
+
+gpt-oss-20b at 64 streams moves from 0.96-0.98 of vLLM (§96.1) to parity or better: the ITL mean drops by 0.8 ms, more than the
+0.4 ms of 97.3. Most likely the prompt waves' expert GEMMs (larger tiles of the same kernel, same layout change) gain too; that was
+not measured separately. Qwen3-8B-FP8 runs no MXFP4 expert
+GEMM and is unchanged, as expected.
+
+### 97.7 Correctness and tests
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt; `correct/`): gpt-oss-20b byte-identical to `develop` for both
+  prompts (md5 e733f049 / 8cb648ed).
+* PplBench (wikitext-2, 4 x 3,072 tokens, prompt steps of 1,024 rows): gpt-oss-20b's dumped logits are bit-identical to `develop`'s
+  (md5 55ff87d4 in the base run and in both runs of the branch), PPL 1806.6235 in all three. Raw text without the chat template is
+  out of distribution for this model, so the value is high; it only checks that the logits are equal and deterministic.
+* No other model's kernels changed. The edit is in `gemm_moe_native.cu`, which only CUDA compiles; the K-quant edit was reverted.
+* Suites on GPU 0 in one hold, on the branch after the merge of `develop` `dcccc10a` (`tests/`): `Sharplight.Cuda.Tests` 73, 0 failed,
+  1 skipped (cuBLASLt not installed). `Sharplight.Serving.Tests` 401, 0 failed, 13 skipped. `Sharplight.Vulkan.Tests` were not run: no
+  shared lowering or Vulkan kernel changed (the K-quant lowering edit of 97.4 was reverted).
+
+### 97.8 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64, closed loop | 0.97-1.02 / **1.00-1.03** | 16: decode steps (ITL mean 10.5 against 9.9-10.2 ms); ours keeps the TTFT lead (74-83 against 160-179 ms) and pays for it in the ITL tail of the prompt waves (p95 20-22 against 10.7) |
+| Qwen3-8B-FP8 serving 16 / 64 | 0.99-1.00 / 0.99-1.00 | ITL mean 13.62 / 21.06 against 12.92 / 20.26: FP8 prompt GEMMs behind CUTLASS (§94) and the step floor's waves |
+
+Ranked levers:
+
+1. **Audit the copy layout of every streaming kernel against the rule found here**: the copies of one 32-byte sector land in one
+   32-byte shared granule. `cp.async` kernels other than `gemm_kq_native` already follow it (97.4). Still to check with the `RD` harness: copies through
+   registers (`ld.global` + `st.shared`) in the generated Slang kernels on CUDA and Vulkan (the LM head's `gemm_cm2`, 1.5 ms of a
+   64-sequence gpt-oss step, and the Vulkan expert GEMMs), whether the trigger exists for plain shared stores at all, and the
+   `gemm_kq_native` layout at sustained decode lengths (97.4 measured only short launches).
+2. **The 16-sequence decode step** (gpt-oss ITL 10.5 against vLLM's 9.9-10.2 ms; step 11.98 ms): a per-kernel profile against vLLM's
+   at 16 sequences; the expert GEMMs at 16 rows are a third of their 64-row time but read the same experts.
+3. **Down product on vLLM's routing** (0.163 against Marlin's 0.158 ms) and energy per byte (0.275 against 0.271 nJ): the 192-row down
+   tile's activation copies (§96.3: 3.6 % of the expert GEMM).
+4. **FP8 prompt GEMMs** (Qwen3-8B-FP8 at 64, §94.6) and the step-budget policy (owner), unchanged.
+5. 64-row expert tiles (§75.3 / 97.5): measured twice and lost both times. Dropped from the list.
+
+### 97.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+R=bench/results/s73/routing/vllm64_words.txt
+cd bench/s56_moe
+F="-O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DBIAS=1 -DNM_BM=32 -DNM_WM=1 -DNM_WN=8 -DNM_BN=128 -DNM_STAGES=4 -DNM_MINB=2"
+nvcc $F -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o gu -ldl
+for m in 1 11 12 14 18 116 132; do RD=$m ROUTES=$R LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=3 ./gu | grep energy; done   # the copy ring's layouts
+ROUTES=$R LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=3 ./gu | grep energy                                               # the GEMM
+nvcc -O3 -arch=sm_120 -std=c++17 -DKMODE=1 -DMMA=1 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' -DNM_BM=32 \
+  -DNM_WM=1 -DNM_WN=8 -DNM_BN=128 -DNM_STAGES=4 -DNM_MINB=2 read_energy.cu -o rg -ldl && SECONDS_RUN=3 ./rg   # the GEMM in read_energy's loop
+```

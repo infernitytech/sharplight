@@ -1,0 +1,13 @@
+[hold 13:33:51] ./bis4.sh
+50 %, 2 MiB, 38.70 W
+RD=1           energy: 10 passes 3.65 s: 0.2491 ms per routing, 169.7 W, 42.306 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1811 nJ per weight byte, SM 2489 MHz, memory 13365 MHz
+RD=18          energy: 10 passes 3.65 s: 0.2491 ms per routing, 173.0 W, 43.132 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1847 nJ per weight byte, SM 2465 MHz, memory 13365 MHz
+RD=116         energy: 8 passes 3.54 s: 0.3021 ms per routing, 128.5 W, 38.862 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1664 nJ per weight byte, SM 1730 MHz, memory 13365 MHz
+RD=132         energy: 8 passes 3.54 s: 0.3024 ms per routing, 128.8 W, 38.968 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1668 nJ per weight byte, SM 1732 MHz, memory 13365 MHz
+RD=11          energy: 8 passes 3.57 s: 0.3049 ms per routing, 133.5 W, 40.731 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1744 nJ per weight byte, SM 1724 MHz, memory 13365 MHz
+RD=1           energy: 10 passes 3.65 s: 0.2490 ms per routing, 183.2 W, 45.641 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1954 nJ per weight byte, SM 2527 MHz, memory 13365 MHz
+RD=18          energy: 10 passes 3.65 s: 0.2492 ms per routing, 175.8 W, 43.837 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1877 nJ per weight byte, SM 2456 MHz, memory 13365 MHz
+RD=116         energy: 8 passes 3.53 s: 0.3013 ms per routing, 131.0 W, 39.490 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1691 nJ per weight byte, SM 1734 MHz, memory 13365 MHz
+RD=132         energy: 8 passes 3.53 s: 0.3013 ms per routing, 131.0 W, 39.494 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1691 nJ per weight byte, SM 1734 MHz, memory 13365 MHz
+RD=11          energy: 8 passes 3.58 s: 0.3050 ms per routing, 134.1 W, 40.927 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1752 nJ per weight byte, SM 1719 MHz, memory 13365 MHz
+[release 13:35:00]
