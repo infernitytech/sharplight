@@ -2,10 +2,14 @@
 // activations [T, K] and random Q4_K / Q5_K / Q6_K blocks (KQ_FMT 4 / 5 / 6) for [N, K] weights, checked against an f32 GEMM on the
 // blocks dequantized on the host, timed with events: best of ITERS after an L2 flush ("isolated"), and LAYERS weight copies back to back,
 // PASSES times ("sustained", µs per launch: the weights stream from memory as in a decode step).
+// ENERGY=seconds: also a sustained window of that length (LAYERS weight copies back to back, repeated) with NVML's energy counter and
+// SM clock read around it (docs/benchmarks.md section 99: is the launch held at the power cap's clock, as split sectors did in §97).
 // nvcc -O3 -arch=sm_120 -std=c++17 -DK=4096 -DN=12288 -DKQ_FMT=4 -DKQ_BM=32 -DKQ_STAGES=3 -DKQ_SPLIT=1 \
 //   -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_kq_native.cu"' bench_kq.cu -o b && ./b 32
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <chrono>
+#include <dlfcn.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -255,7 +259,41 @@ int main(int argc, char** argv)
         cudaEventElapsedTime(&ms, e0, e1);
         sustained = fminf(sustained, ms / (PASSES * LAYERS));
     }
+    double energyWatts = 0, energyUs = 0;
+    unsigned energyMhz = 0;
+    if (getenv("ENERGY"))
+    {
+        void* lib = dlopen("libnvidia-ml.so.1", RTLD_NOW);
+        auto init = (int (*)())dlsym(lib, "nvmlInit_v2");
+        auto handle = (int (*)(unsigned, void**))dlsym(lib, "nvmlDeviceGetHandleByIndex_v2");
+        auto energy = (int (*)(void*, unsigned long long*))dlsym(lib, "nvmlDeviceGetTotalEnergyConsumption");
+        auto clock = (int (*)(void*, int, unsigned*))dlsym(lib, "nvmlDeviceGetClockInfo");
+        void* dev = nullptr;
+        init();
+        handle(getenv("NVML_GPU") ? atoi(getenv("NVML_GPU")) : 0, &dev);
+        double seconds = atof(getenv("ENERGY"));
+        unsigned long long j0 = 0, j1 = 0, launches = 0;
+        energy(dev, &j0);
+        auto t0 = std::chrono::steady_clock::now();
+        while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < seconds)
+        {
+            for (int i = 0; i < PASSES * LAYERS; i++, launches++)
+            {
+                gemm_kq_native<<<grid, KQ_THREADS, smem>>>(params(i % LAYERS));
+            }
+            clock(dev, 1, &energyMhz);
+            cudaDeviceSynchronize();
+        }
+        double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        energy(dev, &j1);
+        energyWatts = (j1 - j0) / 1000.0 / wall;
+        energyUs = wall * 1e6 / launches;
+    }
     CK(cudaGetLastError());
+    if (getenv("ENERGY"))
+    {
+        printf("energy window: %.1f us per launch, %.1f W, SM %u MHz; ", energyUs, energyWatts, energyMhz);
+    }
     const double traffic = (KQ_DUAL ? 2.0 : 1.0) * wBytes;
     printf("dual=%d fmt=%d T=%d K=%d N=%d BM=%d stages=%d split=%d blocks=%d smem=%d: isolated %.1f us (%.0f GB/s), sustained %.1f us (%.0f GB/s), max err %.2e of max |y| %.2f\n",
         KQ_DUAL, KQ_FMT, T, K, N, KQ_BM, KQ_STAGES, KQ_SPLIT, grid.x * grid.y * grid.z, smem, best * 1e3, traffic / best / 1e6, sustained * 1e3, traffic / sustained / 1e6,

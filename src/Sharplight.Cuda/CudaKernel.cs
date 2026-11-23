@@ -25,4 +25,12 @@ internal sealed record CudaKernel(nint Module, nint Function, uint ThreadsX, uin
 
     /// <summary>Blocks of the kernel the GPU holds at once (occupancy times multiprocessors), 0 when unknown.</summary>
     public int ResidentBlocks { get; init; }
+
+    /// <summary>
+    /// Shared memory (static and dynamic) of the blocks of the kernel one multiprocessor holds at once, in bytes: the shared memory
+    /// share of the L1 / shared split the multiprocessor needs to run it at full occupancy. A programmatic dependent's blocks are placed
+    /// while the previous launch still holds the multiprocessors, only where that launch's split leaves room for them (see
+    /// <see cref="CudaSegment"/>'s dependent launches).
+    /// </summary>
+    public long SharedPerMultiprocessor { get; init; }
 }

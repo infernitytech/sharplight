@@ -210,6 +210,9 @@ internal static unsafe partial class CudaApi
     /// <summary><c>CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK</c>.</summary>
     public const int FunctionMaxThreadsPerBlock = 0;
 
+    /// <summary><c>CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES</c>: the function's static shared memory per block.</summary>
+    public const int FunctionSharedSizeBytes = 1;
+
     /// <summary><c>CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES</c>.</summary>
     public const int FunctionMaxDynamicSharedSizeBytes = 8;
 

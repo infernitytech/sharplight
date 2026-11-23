@@ -60,6 +60,9 @@
 #ifndef KMODE
 #define KMODE 0
 #endif
+#ifndef SPLIT
+#define SPLIT 0
+#endif
 #ifndef MINB
 #define MINB 2
 #endif
@@ -101,6 +104,10 @@ __global__ void __launch_bounds__(256, MINB) rd(const unsigned char* w, const un
             cp16(dst, src, true);
 #else
             int r = idx / (C / 16), c = idx % (C / 16);
+#if SPLIT
+            // SPLIT=1: the two 16-byte halves of each 32-byte sector land ROWS * C / 2 bytes apart (different shared granules).
+            dst = (unsigned)__cvta_generic_to_shared(sm + s * ROWS * C + (c & 1) * ROWS * C / 2 + r * (C / 2) + (c >> 1) * 16);
+#endif
 #if KMODE
             // gemm_moe_native's dual gate / up rows: 8-row groups alternate between the expert's two halves, column tile blockIdx.x
             int n = blockIdx.x * 64 + (r >> 4) * 8 + (r & 7);
@@ -142,6 +149,64 @@ __global__ void __launch_bounds__(256, MINB) rd(const unsigned char* w, const un
     if (acc == 0x12345678) { out[0] = acc; }
 }
 
+// PAT=3: the copy through registers (ld.global into registers one stage ahead, st.shared after the stage's barrier; two stages),
+// the form of the generated kernels' dequantizing loads. SPLIT=1 stores each sector's halves ROWS * C / 2 bytes apart as above.
+__global__ void __launch_bounds__(256, MINB) rdreg(const unsigned char* w, const unsigned* order, unsigned* out)
+{
+    extern __shared__ __align__(128) unsigned char sm[];
+    const unsigned char* base = w + (size_t)order[blockIdx.x] * TILE_BYTES;
+    constexpr int perStage = ROWS * C / 16;
+    constexpr int per = (perStage + 255) / 256;
+    const int nk = KB / C;
+    uint4 regs[per];
+    auto load = [&](int kb) {
+#pragma unroll
+        for (int i = 0; i < per; i++)
+        {
+            int idx = threadIdx.x + i * 256;
+            if (idx < perStage)
+            {
+                int r = idx / (C / 16), c = idx % (C / 16);
+                regs[i] = __ldcg((const uint4*)(base + (size_t)(r / 16) * 16 * ROWB + (size_t)(r % 16) * KB + kb * C + c * 16));
+            }
+        }
+    };
+    auto store = [&](int s) {
+#pragma unroll
+        for (int i = 0; i < per; i++)
+        {
+            int idx = threadIdx.x + i * 256;
+            if (idx < perStage)
+            {
+                int r = idx / (C / 16), c = idx % (C / 16);
+#if SPLIT
+                *(uint4*)(sm + s * ROWS * C + (c & 1) * ROWS * C / 2 + r * (C / 2) + (c >> 1) * 16) = regs[i];
+#else
+                *(uint4*)(sm + s * ROWS * C + idx * 16) = regs[i];
+#endif
+            }
+        }
+    };
+    load(0);
+    store(0);
+    __syncthreads();
+    unsigned acc = 0;
+    for (int kb = 0; kb < nk; kb++)
+    {
+        if (kb + 1 < nk) { load(kb + 1); }
+#if MMA
+        const unsigned* st = (const unsigned*)(sm + (kb & 1) * ROWS * C);
+        for (int i = threadIdx.x; i < ROWS * C / 4; i += 256) { acc ^= st[i]; }
+#else
+        acc ^= *(unsigned*)(sm + (kb & 1) * ROWS * C + threadIdx.x * 4 % (ROWS * C));
+#endif
+        __syncthreads();
+        if (kb + 1 < nk) { store((kb + 1) & 1); }
+        __syncthreads();
+    }
+    if (acc == 0x12345678) { out[0] = acc; }
+}
+
 // Random bytes (a hash of the word index): DRAM and crossbar power depend on the data, and weights are not constant.
 __global__ void fill(unsigned* w, size_t n)
 {
@@ -165,6 +230,7 @@ int main()
     // SMEM_KB: dynamic shared memory per block (pads the ring: fewer resident blocks per SM, as the GEMM's 34 KB stages).
     int smem = getenv("SMEM_KB") ? atoi(getenv("SMEM_KB")) * 1024 : S * ROWS * C;
     cudaFuncSetAttribute(rd, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    cudaFuncSetAttribute(rdreg, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
     const unsigned blocks = 1260;   // a gate / up decode launch: 45 column tiles x 28 routing tiles
     void* lib = dlopen("libnvidia-ml.so.1", RTLD_NOW);
     auto init = (int (*)())dlsym(lib, "nvmlInit_v2");
@@ -240,7 +306,11 @@ int main()
 #if KMODE
                 rd<<<dim3(45, 28), 256, smem>>>(w, order + (size_t)i * blocks, o);
 #else
+#if PAT == 3
+                rdreg<<<blocks, 256, smem>>>(w, order + (size_t)i * blocks, o);
+#else
                 rd<<<blocks, 256, smem>>>(w, order + (size_t)i * blocks, o);
+#endif
 #endif
                 launches++;
             }
@@ -268,7 +338,7 @@ int main()
     double moved = (double)n * blocks * ROWS * KB;   // code bytes
 #endif
     double j = (e1 - e0) / 1000.0;
-    printf("PAT=%d C=%d S=%d HINT=%d ROWS=%d MMA=%d WORK=%d: %.1f GB/s, %.1f W, %.4f nJ per byte, SM %u MHz, memory %u MHz %s\n", PAT, C, S, HINT, ROWS, MMA, WORK,
+    printf("PAT=%d SPLIT=%d C=%d S=%d HINT=%d ROWS=%d MMA=%d WORK=%d: %.1f GB/s, %.1f W, %.4f nJ per byte, SM %u MHz, memory %u MHz %s\n", PAT, SPLIT, C, S, HINT, ROWS, MMA, WORK,
            moved / wall / 1e9, j / wall, j * 1e9 / moved, smc, memc, err ? cudaGetErrorString(err) : "");
     return 0;
 }

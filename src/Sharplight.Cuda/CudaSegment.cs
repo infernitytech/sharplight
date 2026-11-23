@@ -84,6 +84,15 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// -1.1 / +0.1 / 0 %; both one wave: -0.2 / -0.4 / -0.2 % and -0.7 / +0.2 / +0.1 %).
     /// </summary>
     private bool _previousOneWave;
+
+    /// <summary>
+    /// <see cref="CudaKernel.SharedPerMultiprocessor"/> of the stream's previous kernel launch. A kernel is launched as its programmatic
+    /// dependent only when it needs no more shared memory per multiprocessor: the dependent's blocks are placed while the previous
+    /// kernel's last blocks run, and a multiprocessor whose L1 / shared split that kernel set cannot take blocks that need a larger
+    /// shared share, so they pile up on the few idle multiprocessors (RTX PRO 4500, bench/s99_pdl_placement.cu: 32 blocks of 4.2 KB after
+    /// 108 blocks without shared memory land 6 per multiprocessor on 3-4 of them and take 6x as long; benchmarks.md section 99.1).
+    /// </summary>
+    private long _previousShared;
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
     /// <summary>Whether the stream's driver memory is counted as the device's (<see cref="CudaDevice.ChargeDriverMemory"/>).</summary>
@@ -1545,8 +1554,10 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             void* parameter = arguments;
             long blocks = (long)launch.GridX * launch.GridY * launch.GridZ;
             bool oneWave = kernel.ResidentBlocks > 0 && blocks <= kernel.ResidentBlocks;
-            bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave;
+            bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave
+                             && (kernel.SharedPerMultiprocessor <= _previousShared || DiagnosticSwitches.DependentAnyShared);
             _previousOneWave = oneWave;
+            _previousShared = kernel.SharedPerMultiprocessor;
             int result = dependent
                 ? LaunchDependent(kernel, launch, &parameter)
                 : CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
