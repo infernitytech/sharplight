@@ -1,4 +1,4 @@
-// Energy per byte of weight-copy patterns at the power limit (docs/benchmarks.md section 95): blocks of 256 threads copy a tile of
+// Energy per byte of weight-copy patterns at the power limit (docs/benchmarks.md section 96): blocks of 256 threads copy a tile of
 // ROWS weight rows (K = 2880 MXFP4R rows of 1440 code bytes in 16-row groups, as gemm_moe_native.cu's decode tiles read them) into a
 // ring of S shared stages with cp.async, one barrier per stage, back to back over a 4 GB buffer (no L2 reuse), for SECONDS; NVML's
 // energy counter is read around the window. PAT:

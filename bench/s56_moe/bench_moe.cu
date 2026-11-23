@@ -348,7 +348,7 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
 int main(int argc, char** argv)
 {
 #ifdef NM_SMEM_BYTES
-    size_t smemBytes = (size_t)NM_SMEM_BYTES;   // a kernel variant with its own shared-memory layout (bench/results/s95/rejected)
+    size_t smemBytes = (size_t)NM_SMEM_BYTES;   // a kernel variant with its own shared-memory layout (bench/results/s96/rejected)
 #else
     size_t smemBytes = (size_t)NM_STAGES * NM_STAGE_BYTES;
 #endif

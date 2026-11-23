@@ -1,0 +1,55 @@
+[hold 10:27:33] ./en.sh x dfull dnos dcp2nos def dalast ds5 db128
+0 %, 2 MiB, 8.81 W
+10:27:33 r1 vllm   gu  dfull          energy: 10 passes 4.99 s: 0.3404 ms per routing, 189.7 W, 64.600 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2766 nJ per weight byte, SM 1750 MHz 
+10:27:42 r1 vllm   gu  dnos           energy: 10 passes 4.69 s: 0.3205 ms per routing, 197.4 W, 63.297 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2710 nJ per weight byte, SM 1766 MHz 
+10:27:51 r1 vllm   gu  dcp2nos        energy: 10 passes 4.96 s: 0.3385 ms per routing, 198.4 W, 67.205 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2877 nJ per weight byte, SM 1820 MHz 
+10:28:00 r1 vllm   gu  def            energy: 3486 passes 4.00 s: -8997.6006 ms per routing, 35.9 W, 0.028 mJ per routing, 233.6 MB weights per routing (tile reads), 0.0001 nJ per weight byte, SM 2578 MHz error an illegal instruction was encountered 
+10:28:06 r1 vllm   gu  dalast         energy: 10 passes 5.00 s: 0.3413 ms per routing, 191.3 W, 65.341 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2798 nJ per weight byte, SM 1755 MHz 
+10:28:15 r1 vllm   gu  ds5            energy: 10 passes 4.99 s: 0.3407 ms per routing, 196.3 W, 66.902 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2864 nJ per weight byte, SM 1740 MHz 
+10:28:24 r1 vllm   dn  dfull          energy: 16 passes 4.16 s: 0.1773 ms per routing, 188.2 W, 33.383 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2859 nJ per weight byte, SM 1787 MHz 
+10:28:31 r1 vllm   dn  dnos           energy: 18 passes 4.38 s: 0.1662 ms per routing, 194.1 W, 32.290 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2765 nJ per weight byte, SM 1815 MHz 
+10:28:38 r1 vllm   dn  dcp2nos        energy: 16 passes 4.21 s: 0.1797 ms per routing, 197.3 W, 35.476 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3038 nJ per weight byte, SM 1955 MHz 
+10:28:46 r1 vllm   dn  def            energy: 2656 passes 4.00 s: -21030.8105 ms per routing, 33.9 W, 0.035 mJ per routing, 116.8 MB weights per routing (tile reads), 0.0003 nJ per weight byte, SM 2415 MHz error an illegal instruction was encountered 
+10:28:52 r1 vllm   dn  dalast         energy: 16 passes 4.24 s: 0.1810 ms per routing, 189.9 W, 34.381 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2944 nJ per weight byte, SM 1847 MHz 
+10:29:00 r1 vllm   dn  ds5            energy: 16 passes 4.25 s: 0.1811 ms per routing, 199.5 W, 36.156 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3096 nJ per weight byte, SM 1896 MHz 
+10:29:08 r1 vllm   dn  db128          energy: 16 passes 4.20 s: 0.1793 ms per routing, 197.4 W, 35.425 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3034 nJ per weight byte, SM 1877 MHz 
+10:29:15 r1 ours   gu  dfull          energy: 50 passes 4.01 s: 0.3713 ms per routing, 187.7 W, 69.735 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2792 nJ per weight byte, SM 1723 MHz 
+10:29:22 r1 ours   gu  dnos           energy: 54 passes 4.08 s: 0.3493 ms per routing, 196.1 W, 68.552 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2745 nJ per weight byte, SM 1733 MHz 
+10:29:29 r1 ours   gu  dcp2nos        energy: 52 passes 4.15 s: 0.3692 ms per routing, 191.2 W, 70.648 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2829 nJ per weight byte, SM 1778 MHz 
+10:29:35 r1 ours   gu  def            energy: 23664 passes 4.00 s: -28732.9980 ms per routing, 34.7 W, 0.027 mJ per routing, 249.7 MB weights per routing (tile reads), 0.0001 nJ per weight byte, SM 2416 MHz error an illegal instruction was encountered 
+10:29:42 r1 ours   gu  dalast         energy: 50 passes 4.00 s: 0.3704 ms per routing, 187.1 W, 69.363 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2777 nJ per weight byte, SM 1709 MHz 
+10:29:48 r1 ours   gu  ds5            energy: 52 passes 4.16 s: 0.3702 ms per routing, 192.8 W, 71.428 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2860 nJ per weight byte, SM 1706 MHz 
+10:29:54 r1 ours   dn  dfull          energy: 98 passes 4.04 s: 0.1909 ms per routing, 182.4 W, 34.857 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2792 nJ per weight byte, SM 1762 MHz 
+10:30:00 r1 ours   dn  dnos           energy: 104 passes 4.02 s: 0.1790 ms per routing, 191.1 W, 34.233 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2742 nJ per weight byte, SM 1784 MHz 
+10:30:06 r1 ours   dn  dcp2nos        energy: 98 passes 4.05 s: 0.1910 ms per routing, 189.6 W, 36.239 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2902 nJ per weight byte, SM 1875 MHz 
+10:30:12 r1 ours   dn  def            energy: 24152 passes 4.00 s: -45343.4023 ms per routing, 34.2 W, 0.026 mJ per routing, 124.9 MB weights per routing (tile reads), 0.0002 nJ per weight byte, SM 2478 MHz error an illegal instruction was encountered 
+10:30:18 r1 ours   dn  dalast         energy: 98 passes 4.04 s: 0.1910 ms per routing, 187.8 W, 35.887 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2874 nJ per weight byte, SM 1780 MHz 
+10:30:25 r1 ours   dn  ds5            energy: 96 passes 4.01 s: 0.1932 ms per routing, 195.7 W, 37.820 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3029 nJ per weight byte, SM 1824 MHz 
+10:30:31 r1 ours   dn  db128          energy: 96 passes 4.02 s: 0.1937 ms per routing, 192.7 W, 37.341 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2990 nJ per weight byte, SM 1831 MHz 
+10:30:37 r2 vllm   gu  dfull          energy: 10 passes 5.00 s: 0.3414 ms per routing, 193.7 W, 66.156 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2833 nJ per weight byte, SM 1740 MHz 
+10:30:46 r2 vllm   gu  dnos           energy: 10 passes 4.72 s: 0.3225 ms per routing, 198.3 W, 63.984 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2740 nJ per weight byte, SM 1757 MHz 
+10:30:55 r2 vllm   gu  dcp2nos        energy: 8 passes 4.03 s: 0.3437 ms per routing, 197.9 W, 68.064 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2914 nJ per weight byte, SM 1807 MHz 
+10:31:03 r2 vllm   gu  def            energy: 2030 passes 4.02 s: -155384.0625 ms per routing, 34.7 W, 0.047 mJ per routing, 233.6 MB weights per routing (tile reads), 0.0002 nJ per weight byte, SM 2400 MHz error an illegal instruction was encountered 
+10:31:09 r2 vllm   gu  dalast         energy: 10 passes 5.00 s: 0.3416 ms per routing, 192.6 W, 65.806 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2818 nJ per weight byte, SM 1740 MHz 
+10:31:19 r2 vllm   gu  ds5            energy: 8 passes 4.01 s: 0.3418 ms per routing, 199.8 W, 68.365 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2927 nJ per weight byte, SM 1740 MHz 
+10:31:28 r2 vllm   dn  dfull          energy: 16 passes 4.16 s: 0.1773 ms per routing, 185.2 W, 32.852 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2813 nJ per weight byte, SM 1787 MHz 
+10:31:35 r2 vllm   dn  dnos           energy: 18 passes 4.39 s: 0.1666 ms per routing, 195.6 W, 32.609 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2792 nJ per weight byte, SM 1808 MHz 
+10:31:42 r2 vllm   dn  dcp2nos        energy: 16 passes 4.21 s: 0.1797 ms per routing, 193.9 W, 34.874 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2986 nJ per weight byte, SM 1931 MHz 
+10:31:49 r2 vllm   dn  def            energy: 2854 passes 4.00 s: -200419.5000 ms per routing, 34.0 W, 0.033 mJ per routing, 116.8 MB weights per routing (tile reads), 0.0003 nJ per weight byte, SM 2408 MHz error an illegal instruction was encountered 
+10:31:56 r2 vllm   dn  dalast         energy: 16 passes 4.20 s: 0.1791 ms per routing, 187.8 W, 33.658 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2882 nJ per weight byte, SM 1821 MHz 
+10:32:03 r2 vllm   dn  ds5            energy: 16 passes 4.23 s: 0.1804 ms per routing, 198.4 W, 35.811 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3067 nJ per weight byte, SM 1846 MHz 
+10:32:10 r2 vllm   dn  db128          energy: 16 passes 4.21 s: 0.1794 ms per routing, 198.7 W, 35.689 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3056 nJ per weight byte, SM 1881 MHz 
+10:32:17 r2 ours   gu  dfull          energy: 50 passes 4.13 s: 0.3820 ms per routing, 187.7 W, 71.753 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2873 nJ per weight byte, SM 1763 MHz 
+10:32:25 r2 ours   gu  dnos           energy: 54 passes 4.12 s: 0.3530 ms per routing, 196.0 W, 69.248 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2773 nJ per weight byte, SM 1752 MHz 
+10:32:31 r2 ours   gu  dcp2nos        energy: 50 passes 4.18 s: 0.3870 ms per routing, 189.2 W, 73.243 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2933 nJ per weight byte, SM 1830 MHz 
+10:32:38 r2 ours   gu  def            energy: 11276 passes 4.00 s: -636321.1250 ms per routing, 34.6 W, 0.057 mJ per routing, 249.7 MB weights per routing (tile reads), 0.0002 nJ per weight byte, SM 2400 MHz error an illegal instruction was encountered 
+10:32:46 r2 ours   gu  dalast         energy: 46 passes 4.05 s: 0.4078 ms per routing, 180.4 W, 73.585 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2947 nJ per weight byte, SM 1811 MHz 
+10:32:53 r2 ours   gu  ds5            energy: 48 passes 4.19 s: 0.4043 ms per routing, 185.9 W, 75.173 mJ per routing, 249.7 MB weights per routing (tile reads), 0.3010 nJ per weight byte, SM 1809 MHz 
+10:33:01 r2 ours   dn  dfull          energy: 86 passes 4.06 s: 0.2184 ms per routing, 190.5 W, 41.639 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3335 nJ per weight byte, SM 2133 MHz 
+10:33:09 r2 ours   dn  dnos           energy: 94 passes 4.01 s: 0.1971 ms per routing, 191.0 W, 37.693 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3019 nJ per weight byte, SM 1938 MHz 
+10:33:15 r2 ours   dn  dcp2nos        energy: 82 passes 4.10 s: 0.2313 ms per routing, 198.6 W, 45.956 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3680 nJ per weight byte, SM 2273 MHz 
+10:33:22 r2 ours   dn  def            energy: 21132 passes 4.00 s: -527573.7500 ms per routing, 33.5 W, 0.029 mJ per routing, 124.9 MB weights per routing (tile reads), 0.0002 nJ per weight byte, SM 2400 MHz error an illegal instruction was encountered 
+10:33:29 r2 ours   dn  dalast         energy: 98 passes 4.05 s: 0.1911 ms per routing, 183.7 W, 35.123 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2813 nJ per weight byte, SM 1790 MHz 
+10:33:35 r2 ours   dn  ds5            energy: 96 passes 4.01 s: 0.1934 ms per routing, 194.6 W, 37.672 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3017 nJ per weight byte, SM 1819 MHz 
+10:33:41 r2 ours   dn  db128          energy: 90 passes 4.05 s: 0.2080 ms per routing, 191.8 W, 39.912 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3196 nJ per weight byte, SM 1908 MHz 
+[release 10:33:47]
