@@ -14464,3 +14464,60 @@ SHARPLIGHT_CUDA_NVRTC_SASS='if:#define SL_NVRTC_SASS 1|void quantize_fp8(|void d
 QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --gpu-memory-utilization 0.6
 ```
+
+## 95. Defaults changed by the owner: block-scaled FP8 where it applies, the waves step floor (2026-11-23)
+
+The owner decided two defaults on 2026-11-23, each with a setting to turn it back:
+
+* **Block-scaled FP8** (§86.2-86.3, §89.4): on by default (`TaskLoadOptions.BlockScaledFp8`, CLI `--fp8-block-scaled on|off`, hosting
+  `blockScaledFp8`, `SHARPLIGHT_FP8_BLOCK_SCALED=1|0` as the process-wide override). It applies only where the device has
+  `block_scaled_fp8` (CUDA, compute capability 12.x), `native_gemm_fp8` and `tensor_copies`, and only to compiled segments with
+  `f8e4m3_b128` matrices in the FP8 GEMM's 128-row groups (`GraphLowerer.HasGroupedFp8Weights`): keyed on quant format, block shape and
+  device features, never on model names. Segments without such weights compile exactly as before (no `E4M3_UE8M0` macro on their kernels).
+  Turning it off disables `block_scaled_fp8` for the load's compilations. Vulkan has no block-scaled MMA: FP8 models there are unchanged.
+* **Step floor `waves`** (§93.4's `SHARPLIGHT_STEP_FLOOR_WAVES=1`): `EngineOptions.StepFloor = StepFloorPolicy.Waves` (default),
+  `Always` (the earlier default), `Full`; CLI `--step-floor waves|always|full`, hosting `stepFloor`, `SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full`
+  as the override.
+
+### 95.1 Numerics (CUDA, RTX PRO 4500 Blackwell; `develop` 9694870c against this branch)
+
+`PplBench` as in §86.3 (wikitext-2, 4 x 3,072 tokens, prompt steps of 1,024 rows):
+
+| model | `develop` (f32 scales) | new default (block-scaled) | change | repeated run |
+|---|---:|---:|---:|---|
+| Qwen3-8B-FP8 | 8.6693 | 8.7358 | +0.77 % | identical (logits dump hash and perplexity, 2 runs) |
+| Qwen3.8-27B-FP8 | 5.6904 | 5.7054 | +0.26 % | identical (2 runs) |
+
+Both equal §86.3's block-scaled values (Qwen3.8-27B-FP8 5.7052 there; the 0.0002 is the later rounds' block-scaled kernel changes).
+Greedy text (120 tokens, the ~40-word and the 963-token prompt): Qwen3-8B-FP8 byte-identical to `develop` for both prompts (as in
+§86.3); Qwen3.8-27B-FP8 diverges after ~80 tokens of the short prompt (both continuations coherent) and within the 963-token prompt's
+continuation. With `--fp8-block-scaled off` both FP8 models are byte-identical to `develop`. Non-FP8 models are byte-identical to
+`develop`: gpt-oss-20b (MXFP4), Qwen2.5-7B-Instruct Q4_K_M (GGUF) and Qwen3-8B (BF16).
+
+### 95.2 Serving (closed loop, same hold, `develop` then this branch, 2 rounds each)
+
+| model, streams | build | tok/s | TTFT p50 ms | ITL mean ms | ITL p95 | ITL p99 |
+|---|---|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | `develop` | 1103 / 1106 | 109 / 106 | 13.6 | 14.3 | 52.8 / 52.7 |
+| | new defaults | 1104 / 1109 | **78 / 73** | 13.6 | 23.2 / 20.6 | **38.3 / 37.5** |
+| Qwen3-8B-FP8, 64 | `develop` | 2636 / 2636 | 261 / 257 | 21.2 | 36.6 / 36.5 | 131 / 133 |
+| | new defaults | **2657 / 2661** (+0.8-0.9 %) | 256 / 252 | 21.1 | 36.6 / 36.9 | 129 / 129 |
+| gpt-oss-20b, 16 | `develop` | 1405 / 1416 | 106 / 102 | 10.4 | 11.9 / 11.4 | 50.6 / 50.4 |
+| | new defaults | 1355 / 1395 (-3.6 / -1.4 %) | **86 / 77** | 10.8 / 10.6 | 23.7 / 21.6 | **41.2 / 40.1** |
+| gpt-oss-20b, 64 | `develop` | 3030 / 3076 | 237 / 235 | 18.2 / 18.1 | 47.7 / 36.1 | 114 / 118 |
+| | new defaults | 3050 / 3067 | 237 / 235 | 18.2 / 18.1 | 39.1 / 36.1 | 118 / 119 |
+
+As expected: at 16 streams TTFT p50 -28 to -31 % (Qwen3-8B-FP8) / -19 to -25 % (gpt-oss-20b) and ITL p99 -28 % / -19 %, with the
+higher ITL p95 of §93.4; gpt-oss-20b's 16-stream throughput -1.4 to -3.6 % (§93.4: -1.7 %; its MoE prompt steps read every expert),
+Qwen3-8B-FP8's unchanged. At 64 streams the step policy is neutral and the block-scaled mode lifts Qwen3-8B-FP8 by 0.8-0.9 % in this
+hold (§86.5 measured more before the copy-warpgroup default of §89 / §93 narrowed the f32-scale path's gap); gpt-oss-20b (no FP8
+weights) is within the rounds' spread.
+
+### 95.3 Reproduce
+
+```bash
+PplBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --dump a.f16
+sharplight ~/models/hf/Qwen3.8-27B-FP8 --provider cuda -n 120 -p "<prompt>" [--fp8-block-scaled off]
+QUIET_GPU=1 ROUNDS=2 [SHARPLIGHT_SERVER=<develop build>] bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda --step-floor always --fp8-block-scaled off   # the old defaults
+```
