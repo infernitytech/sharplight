@@ -245,7 +245,7 @@ public sealed class CudaCodeTests
         // 128-row weight groups and the dense scale copy of the E4M3 activations. The activations are values that the per-128 E4M3
         // quantization represents exactly, so the CPU's f32 product differs by the summation order only.
         var expected = RunProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, swiglu, DataType.F8E4M3_B128);
-        var actual = RunProjection(provider.OpenDevice(info), rows, swiglu, DataType.F8E4M3_B128);
+        var actual = RunProjection(provider.OpenDevice(info, F32Scales()), rows, swiglu, DataType.F8E4M3_B128);
         double scale = expected.Max(MathF.Abs);
         for (int i = 0; i < expected.Length; i++)
         {
@@ -419,6 +419,18 @@ public sealed class CudaCodeTests
         Assert.Equal(0, differing);
     }
 
+    /// <summary>
+    /// Device options for the FP8 GEMM's f32-scale path, which the CPU references model: the block-scaled mode (the default where the device
+    /// has <see cref="DeviceFeatures.BlockScaledFp8"/>) requantizes the weights to power-of-two scales and is checked by the Vulkan.Tests
+    /// class <c>Fp8BlockScaledTests</c> against its own reference.
+    /// </summary>
+    private static DeviceOptions F32Scales()
+    {
+        var options = new DeviceOptions();
+        options.DisabledFeatures.Add(DeviceFeatures.BlockScaledFp8);
+        return options;
+    }
+
     private static void AssertMultiGemmMatchesTheCpu(int rows, int[] widths, int k, int maxTokens)
     {
         var provider = new CudaProvider();
@@ -431,11 +443,11 @@ public sealed class CudaCodeTests
         // launch of the hand-written GEMM's decode form (32-row token tiles up to 32 rows), each 64-row weight tile in one member's
         // matrix and stored to its output.
         var expected = RunMultiProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, widths, k, maxTokens);
-        var actual = RunMultiProjection(provider.OpenDevice(info), rows, widths, k, maxTokens);
+        var actual = RunMultiProjection(provider.OpenDevice(info, F32Scales()), rows, widths, k, maxTokens);
         // The same launch again gives the same bits (the tile walk, the copies and the stores do not race).
         for (int run = 0; run < 3; run++)
         {
-            var again = RunMultiProjection(provider.OpenDevice(info), rows, widths, k, maxTokens);
+            var again = RunMultiProjection(provider.OpenDevice(info, F32Scales()), rows, widths, k, maxTokens);
             for (int o = 0; o < actual.Length; o++)
             {
                 Assert.Equal(actual[o], again[o]);
