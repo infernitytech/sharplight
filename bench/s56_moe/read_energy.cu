@@ -14,6 +14,24 @@
 #include <dlfcn.h>
 #include <random>
 #include <vector>
+// KFILE=<gemm_moe_native.cu or a variant>: the same host loop launches the expert GEMM instead of rd (section 97's bisect): GEMM_TILES
+// routing tiles (default 28) of GEMM_ROWS items each (default 9, a 64-sequence decode tile), each tile one random expert of the
+// buffer, the decode launch's gate / up shape (K = N = 2880, dual, 32-row tiles of 128 weight rows, 4 stages, 2 blocks per SM).
+#ifdef KFILE
+#define K 2880
+#define N 2880
+#define NFULL 5760
+#define DUAL 1
+#define ROW_BYTES (17ull * K / 32)
+#define EXPERT_BYTES (ROW_BYTES * NFULL)
+#define T_MAX 2048
+#define MAXITEMS (T_MAX * 4)
+#define MAXTILES (MAXITEMS / 16 + 32)
+#define NM_EPI2(a, b, e, n) ((a) / (1.0f + __expf(-(a))) * (b))
+#define S 4
+#include KFILE
+#undef S
+#endif
 #ifndef PAT
 #define PAT 0
 #endif
@@ -174,6 +192,43 @@ int main()
     unsigned* order;
     cudaMalloc(&order, hostOrder.size() * 4);
     cudaMemcpy(order, hostOrder.data(), hostOrder.size() * 4, cudaMemcpyHostToDevice);
+#ifdef KFILE
+    // The GEMM's routing words per order: tile i = {expert order[i], rows i * GEMM_ROWS .., GEMM_ROWS rows}, items in order.
+    const unsigned gt = getenv("GEMM_TILES") ? atoi(getenv("GEMM_TILES")) : 28, gr = getenv("GEMM_ROWS") ? atoi(getenv("GEMM_ROWS")) : 9;
+    const size_t words = 1 + 3 * MAXTILES + MAXITEMS;
+    std::vector<unsigned> sc((size_t)orders * words, 0);
+    const unsigned experts = (unsigned)(bytes / EXPERT_BYTES);
+    for (int l = 0; l < orders; l++)
+    {
+        unsigned* q = sc.data() + (size_t)l * words;
+        q[0] = gt;
+        for (unsigned t = 0; t < gt; t++)
+        {
+            q[1 + 3 * t] = (unsigned)(rng() % experts); q[2 + 3 * t] = t * gr; q[3 + 3 * t] = gr;
+        }
+        for (unsigned i = 0; i < gt * gr; i++) { q[1 + 3 * MAXTILES + i] = i; }
+    }
+    unsigned* dsc; cudaMalloc(&dsc, sc.size() * 4); cudaMemcpy(dsc, sc.data(), sc.size() * 4, cudaMemcpyHostToDevice);
+    unsigned char* gx; cudaMalloc(&gx, (size_t)MAXITEMS * (K * 2 + 4)); cudaMemset(gx, 0, (size_t)MAXITEMS * (K * 2 + 4));
+    float* gy; cudaMalloc(&gy, (size_t)MAXITEMS * N * 4);
+    size_t gsmem = getenv("SMEM_KB") ? atoi(getenv("SMEM_KB")) * 1024 : (size_t)NM_STAGES * NM_STAGE_BYTES;
+    cudaFuncSetAttribute(gemm_moe_native, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)gsmem);
+    auto run = [&](double sec, unsigned long long& launches) {
+        auto t0 = std::chrono::steady_clock::now();
+        launches = 0;
+        while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < sec)
+        {
+            for (int i = 0; i < orders; i++)
+            {
+                NmParams p;
+                p.x = gx; p.w = w; p.w2 = w + (size_t)N * ROW_BYTES; p.scratch = dsc + (size_t)i * words; p.y = gy; p.T = 64;
+                gemm_moe_native<<<dim3((N + NM_BOUT - 1) / NM_BOUT, gt), NM_THREADS, gsmem>>>(p);
+                launches++;
+            }
+            cudaDeviceSynchronize();
+        }
+    };
+#else
     // Each launch reads a different set of tiles (one of 64 orders).
     auto run = [&](double sec, unsigned long long& launches) {
         auto t0 = std::chrono::steady_clock::now();
@@ -192,6 +247,7 @@ int main()
             cudaDeviceSynchronize();
         }
     };
+#endif
     unsigned long long n;
     run(1.0, n);
     unsigned long long e0 = 0, e1 = 0;
@@ -204,7 +260,13 @@ int main()
     clock(dev, 1, &smc);
     clock(dev, 2, &memc);
     cudaError_t err = cudaGetLastError();
+#ifdef KFILE
+    // Weight bytes the tiles read (codes and scales of 128 rows per block, as the harness's "tile reads").
+    double moved = (double)n * gt * 2.0 * N * ROW_BYTES;
+    printf("GEMM %u tiles x %u rows: ", gt, gr);
+#else
     double moved = (double)n * blocks * ROWS * KB;   // code bytes
+#endif
     double j = (e1 - e0) / 1000.0;
     printf("PAT=%d C=%d S=%d HINT=%d ROWS=%d MMA=%d WORK=%d: %.1f GB/s, %.1f W, %.4f nJ per byte, SM %u MHz, memory %u MHz %s\n", PAT, C, S, HINT, ROWS, MMA, WORK,
            moved / wall / 1e9, j / wall, j * 1e9 / moved, smc, memc, err ? cudaGetErrorString(err) : "");
