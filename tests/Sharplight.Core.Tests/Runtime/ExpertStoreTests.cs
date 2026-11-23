@@ -193,6 +193,68 @@ public sealed unsafe class ExpertStoreTests
         }
     }
 
+    /// <summary>
+    /// A device that copies from the slots locks every pool once, also when <see cref="ExpertStore.PinFor"/> lays a stale layout out, and the
+    /// store releases each lock before it frees a pool it lays out again (weights registered after the first layout: a placement retried
+    /// after an out-of-memory failure, another graph of the model). DeepSeek-V4-Flash on CUDA with experts on disk once locked the first
+    /// pools twice and released them once when they were laid out again, so the freed pools stayed registered and the next pools at their
+    /// addresses counted as locked with the freed pages: the GPU copied stale experts (wrong text) or failed the copy.
+    /// </summary>
+    [Fact]
+    public void PoolsAreLockedOncePerDevice_AndReleasedBeforeTheyAreLaidOutAgain()
+    {
+        var (file, gate, down, _, downData) = Weights();
+        using var __ = file;
+        var locks = new Dictionary<(string Device, nint Arena), int>();
+        Func<nint, long, bool> Pin(string device) => (arena, _) =>
+        {
+            locks[(device, arena)] = locks.GetValueOrDefault((device, arena)) + 1;
+            return true;
+        };
+        Action<nint> Unpin(string device) => arena =>
+        {
+            Assert.True(locks.GetValueOrDefault((device, arena)) > 0, "a pool released that was not locked");
+            locks[(device, arena)]--;
+        };
+
+        void AssertLockedOnce()
+        {
+            Assert.All(locks.Values, holds => Assert.InRange(holds, 0, 1));
+            Assert.Equal(1, locks.Where(l => l.Key.Device == "gpu0").Sum(l => l.Value));
+            Assert.Equal(1, locks.Where(l => l.Key.Device == "gpu1").Sum(l => l.Value));
+        }
+
+        using (var store = Store())
+        {
+            Assert.True(store.TryRegister(gate, "blk.0#experts", 2));
+            store.PinFor("gpu0", Pin("gpu0"), Unpin("gpu0"));
+            store.PinFor("gpu1", Pin("gpu1"), Unpin("gpu1"));
+            store.PinFor("gpu0", Pin("gpu0"), Unpin("gpu0"));   // again: nothing changes
+            // One pool (one slot size), locked once by each device.
+            AssertLockedOnce();
+            Assert.True(store.IsPinnedFor("gpu0", store.Find(gate)!));
+
+            // A weight registered after the layout: the pools are laid out again at the next use (the old pool released before it is freed;
+            // the new one may get its address).
+            Assert.True(store.TryRegister(down, "blk.1#experts", 2));
+            var tensor = store.Find(down)!;
+            store.ChunkExperts(tensor);
+            AssertLockedOnce();
+            Assert.True(store.IsPinnedFor("gpu0", tensor) && store.IsPinnedFor("gpu1", tensor));
+
+            var pointers = new nint[Experts];
+            fixed (nint* p = pointers)
+            {
+                store.Acquire(tensor, null, [42], (byte**)p, null, false);
+                AssertExpert((byte*)pointers[42], downData, 42);
+                store.Release(tensor, null, [42]);
+            }
+        }
+
+        // Disposing the store releases the rest.
+        Assert.All(locks.Values, holds => Assert.Equal(0, holds));
+    }
+
     [Theory]
     [InlineData(null, 30L << 30, 10L << 30, 64L << 30, false)]   // fits with the reserve
     [InlineData(null, 60L << 30, 10L << 30, 64L << 30, true)]    // does not fit: the cache takes what is left

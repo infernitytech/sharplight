@@ -326,8 +326,19 @@ public sealed unsafe class ExpertStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Page-locks a pool for a device once. Holds the lock. Locking the same pool twice (<see cref="PinFor"/> laid a stale layout out, which
+    /// pins the new pools for every device, then pinned every pool again) left the device's registration a holder that
+    /// <see cref="UnpinPoolLocked"/> never released: the pool's memory stayed registered after it was freed, and a pool allocated later at
+    /// that address counted as registered with the freed pages, so the device copied stale bytes (wrong experts) or failed the copy.
+    /// </summary>
     private void PinPoolLocked(object device, Func<nint, long, bool> pin, ExpertSlotPool pool)
     {
+        if (_pinned[device].Contains(pool))
+        {
+            return;
+        }
+
         if (pin((nint)pool.Arena, pool.Bytes))
         {
             _pinned[device].Add(pool);
