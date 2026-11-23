@@ -1,0 +1,58 @@
+# DeepSeek-V4-Flash UD-IQ1_S, CUDA (RTX PRO 4500 Blackwell) with experts on disk, --expert-cache 16G --ctx 4096, prompt 'The capital of France is', greedy
+# before the fix (develop 9694870c)
+-- g3_b64_a: SHARPLIGHT_SPARSE_GPU_SLOTS=3 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 64
+The capital of France is Paris, where the E
+Unhandled exception: Sharplight.Cuda.CudaException: CUDA cuMemcpyHtoDAsync failed: invalid argument (1)
+-- g3_b64_b: SHARPLIGHT_SPARSE_GPU_SLOTS=3 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 64
+The capital of France is Paris, where the Eiffel Tower, containing both fowl and 6/6 and 7/7 and
+prompt: 5 tok in 6494 ms (0.8 tok/s) | generated: 24 tok, 6.79 tok/s
+-- g3_b1: SHARPLIGHT_SPARSE_GPU_SLOTS=3 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 1
+The capital of France is Paris. It is the largest city in France, and is one of the largest cities in Europe, with a population of
+prompt: 5 tok in 1499 ms (3.3 tok/s) | generated: 24 tok, 8.32 tok/s
+-- g6_b64: SHARPLIGHT_SPARSE_GPU_SLOTS=6 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 64
+The capital of France is Paris
+Unhandled exception: Sharplight.Cuda.CudaException: CUDA cuMemcpyHtoDAsync failed: invalid argument (1)
+-- g0_b64: SHARPLIGHT_SPARSE_GPU_SLOTS=0 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 64
+The capital of France is Paris.", "target": "Paris", "ref": null, "qa": "Paris is the capital of France.",
+prompt: 5 tok in 9877 ms (0.5 tok/s) | generated: 24 tok, 5.68 tok/s
+
+-- T_b64: X=1 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 --batch 64 -p The capital of France is -n 16
+The capital of France is Paris, where the multinational and cultural, history, and, especially, his
+prompt: 5 tok in 6910 ms (0.7 tok/s) | generated: 16 tok, 5.67 tok/s
+# after the fix
+-- fix_b64: X=1 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 64
+The capital of France is Paris. It is the largest city in France and is located in the north-central part of the country, on the Seine
+prompt: 5 tok in 5987 ms (0.8 tok/s) | generated: 24 tok, 7.24 tok/s
+experts on disk (threads x8): hit rate 66.1 % (9495 hits, 1193 read ahead, 3667 misses, 1193 prefetched, 0 evictions), read 11.11 GB, waited 1.34 s, cache 16.4 GiB in 7624 slots
+-- fix_g3_b64: SHARPLIGHT_SPARSE_GPU_SLOTS=3 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 64
+The capital of France is Paris. It is the largest city in France and is known for its art, culture, and history. Paris is home
+prompt: 5 tok in 5782 ms (0.9 tok/s) | generated: 24 tok, 6.99 tok/s
+experts on disk (threads x8): hit rate 65.0 % (9330 hits, 1271 read ahead, 3754 misses, 1271 prefetched, 0 evictions), read 11.51 GB, waited 1.40 s, cache 16.4 GiB in 7624 slots
+-- fix_g6_b64: SHARPLIGHT_SPARSE_GPU_SLOTS=6 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 64
+The capital of France is Paris.", "target": "Paris", "ref": null, "qa": "Paris is the capital of France.",
+prompt: 5 tok in 6169 ms (0.8 tok/s) | generated: 24 tok, 7.09 tok/s
+experts on disk (threads x8): hit rate 66.5 % (9549 hits, 669 read ahead, 4137 misses, 669 prefetched, 0 evictions), read 10.98 GB, waited 1.58 s, cache 16.4 GiB in 7624 slots
+-- fix_g3_b1: SHARPLIGHT_SPARSE_GPU_SLOTS=3 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24 --batch 1
+The capital of France is Paris. It is the largest city in France, and is one of the largest cities in Europe, with a population of
+prompt: 5 tok in 1516 ms (3.3 tok/s) | generated: 24 tok, 7.94 tok/s
+experts on disk (threads x8): hit rate 67.9 % (9918 hits, 910 read ahead, 3788 misses, 906 prefetched, 0 evictions), read 10.70 GB, waited 1.54 s, cache 16.4 GiB in 7647 slots
+
+-- perf_text_auto: X=1 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 -p The capital of France is -n 24
+The capital of France is Paris. It is the largest city in France and is located in the north-central part of the country, on the Seine
+prompt: 5 tok in 5416 ms (0.9 tok/s) | generated: 24 tok, 6.04 tok/s
+experts on disk (threads x8): hit rate 66.5 % (9852 hits, 1203 read ahead, 3765 misses, 1203 prefetched, 0 evictions), read 11.39 GB, waited 1.41 s, cache 16.5 GiB in 7602 slots
+-- perf_text_b64: X=1 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 --batch 64 -p The capital of France is -n 24
+The capital of France is Paris. It is the largest city in France and is located in the north-central part of the country, on the Seine
+prompt: 5 tok in 6200 ms (0.8 tok/s) | generated: 24 tok, 7.15 tok/s
+experts on disk (threads x8): hit rate 66.3 % (9522 hits, 1174 read ahead, 3659 misses, 1174 prefetched, 0 evictions), read 11.05 GB, waited 1.38 s, cache 16.4 GiB in 7624 slots
+-- perf_bench_b64: SHARPLIGHT_BENCH_PREFILL_REPEATS=1 --provider cuda --cpu-offload --experts-on-disk --expert-cache 16G --ctx 4096 --batch 64 --bench 8
+prefill 8 tok: best 598 ms = 13.4 tok/s | decode: best 14.94, median 12.10, mean 11.30 tok/s | GPU ms/step: best 21.58, median 21.86, wall best 66.93 | prefill median of 2: 719.9 ms = 11.1 tok/s
+experts on disk, warm-up and prefills: hit rate 65.9 % (5958 hits, 991 read ahead, 2087 misses, 991 prefetched, 0 evictions), read 7.07 GB, waited 0.63 s, cache 16.4 GiB in 7624 slots
+experts on disk, decode: hit rate 94.3 % (35274 hits, 544 read ahead, 1574 misses, 544 prefetched, 0 evictions), read 4.85 GB, waited 0.75 s, cache 16.4 GiB in 7624 slots
+-- llama.cpp b11177 CUDA -ngl 99 -ncmoe 36
+The capital of France is Paris. It is the largest city in France, with a population of over 2 million people. Paris is known for
+
+0.32.005.279 I common_perf_print:        load time =    2016.39 ms
+0.32.005.280 I common_perf_print: prompt eval time =    2008.46 ms /     5 tokens (  401.69 ms per token,     2.49 tokens per second)
+0.32.005.281 I common_perf_print:        eval time =    3215.69 ms /    23 runs   (  139.81 ms per token,     7.15 tokens per second)
+
