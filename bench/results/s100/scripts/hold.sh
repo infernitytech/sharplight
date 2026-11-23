@@ -1,6 +1,6 @@
 #!/bin/bash
 # usage: hold.sh <cmd...>  -- runs cmd inside the GPU lock on GPU 0; prints the GPU's processes before and after
-exec 9>/root/.sl-verify.lock
+exec 9>$VERIFY_LOCK
 flock 9
 export CUDA_VISIBLE_DEVICES=0 SHARPLIGHT_VK_DEVICES=0 GGML_VK_VISIBLE_DEVICES=0
 echo "[hold $(date +%T)] $*" >&2

@@ -13,6 +13,6 @@ Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at
 | 0 | 250 (1) | 27.5 | 402 / 0 | 18.88 / 19.70, 18.83 |  |
 | 0 | 368 (1) | 31.2 | 366 / 0 | 28.27 / 28.72, 28.22 |  |
 Unhandled exception. System.ArgumentException: More inputs than slots.
-   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in /root/sl-worktrees/perf-r40-base/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 643
-   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in /root/sl-worktrees/perf-r40-base/bench/BatchBench/Program.cs:line 120
-   at Program.<Main>$(String[] args) in /root/sl-worktrees/perf-r40-base/bench/BatchBench/Program.cs:line 186
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in $BASE_TREE/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 643
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in $BASE_TREE/bench/BatchBench/Program.cs:line 120
+   at Program.<Main>$(String[] args) in $BASE_TREE/bench/BatchBench/Program.cs:line 186

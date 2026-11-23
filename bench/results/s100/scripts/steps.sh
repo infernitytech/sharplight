@@ -3,7 +3,7 @@
 . /workspace/work/perf-r40/env.sh
 tag=$1; M=$2; shift 2; n=$(basename $M)
 mkdir -p $OUT/steps
-exec 9>/root/.sl-verify.lock; flock 9
+exec 9>$VERIFY_LOCK; flock 9
 export CUDA_VISIBLE_DEVICES=0 SHARPLIGHT_VK_DEVICES=0 GGML_VK_VISIBLE_DEVICES=0
 echo "# hold $(date +%T) apps: $(nvidia-smi --query-compute-apps=pid --format=csv,noheader | tr '\n' ' ')"
 for i in $(seq ${REPS:-2}); do for v in "$@"; do

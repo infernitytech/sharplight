@@ -4,7 +4,7 @@
 # env ARRIVAL=closed|poisson, CONCS, ROUNDS
 . /workspace/work/perf-r40/env.sh
 cd $TREE
-export VLLM_VENV=/root/venvs/vllm-r12 QUIET_GPU=1 ROUNDS=${ROUNDS:-2}
+export VLLM_VENV=$VENVS/vllm-r12 QUIET_GPU=1 ROUNDS=${ROUNDS:-2}
 O=$1; CFGS=$2; shift 2; mkdir -p $O
 for m in "$@"; do
   case $m in qwen) M=$M8; R="16:7 64:17" ;; gptoss) M=$MOSS; R="16:9 64:20" ;; esac

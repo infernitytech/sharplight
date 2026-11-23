@@ -2,7 +2,7 @@
 . /workspace/work/perf-r40/env.sh
 cd $OUT; mkdir -p prof
 REPS=2 SIZES=16 ./steps.sh any $MOSS "new|new|X=1" "any|new|SHARPLIGHT_CUDA_PDL_SHARED=any" "base|base|X=1"
-exec 9>/root/.sl-verify.lock; flock 9
+exec 9>$VERIFY_LOCK; flock 9
 export CUDA_VISIBLE_DEVICES=0
 for v in "new|new|X=1" "any|new|SHARPLIGHT_CUDA_PDL_SHARED=any" "base|base|X=1"; do IFS='|' read -r label tr envs <<< "$v"
   T=$TREE; [ $tr = base ] && T=$BASE

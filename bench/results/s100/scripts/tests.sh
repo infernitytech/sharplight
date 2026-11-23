@@ -2,8 +2,8 @@
 # tests.sh: Cuda / Serving / Import.Onnx tests on CUDA, one class per process, inside one GPU hold
 . /workspace/work/perf-r40/env.sh
 O=$OUT/tests; mkdir -p $O; cd $TREE
-exec 9>/root/.sl-verify.lock; flock 9
-export CUDA_VISIBLE_DEVICES=0 SHARPLIGHT_VK_DEVICES=0 GGML_VK_VISIBLE_DEVICES=0 SHARPLIGHT_TEST_PROVIDER=cuda HOME=/root/test-home
+exec 9>$VERIFY_LOCK; flock 9
+export CUDA_VISIBLE_DEVICES=0 SHARPLIGHT_VK_DEVICES=0 GGML_VK_VISIBLE_DEVICES=0 SHARPLIGHT_TEST_PROVIDER=cuda HOME=$TEST_HOME
 echo "# hold $(date +%T) apps: $(nvidia-smi --query-compute-apps=pid --format=csv,noheader | tr '\n' ' ')"
 for p in Sharplight.Cuda.Tests Sharplight.Serving.Tests Sharplight.Import.Onnx.Tests; do
   for f in $(grep -rlE "\[(Fact|Theory)" tests/$p --include=*.cs); do
