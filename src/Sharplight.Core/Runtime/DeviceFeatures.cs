@@ -91,8 +91,9 @@ public static class DeviceFeatures
 
     /// <summary>
     /// Warps of a workgroup can hand registers to each other at run time (CUDA: <c>setmaxnreg</c>, in the family-specific PTX of compute
-    /// capability 12.x, which drivers JIT from CUDA 12.9). The provider's prompt-sized FP8 GEMM then runs a copy warpgroup on few
-    /// registers and its computing warps on 232 instead of the 168 its block size allows. Disabling it keeps the 9-warp form.
+    /// capability 12.x; the CUDA provider reports it only while NVRTC compiles that kernel's machine code, since the driver's
+    /// compilation of the PTX drops <c>setmaxnreg</c>). The provider's prompt-sized FP8 GEMM then runs a copy warpgroup on few registers
+    /// and its computing warps on 232 instead of the 168 its block size allows. Disabling it keeps the 9-warp form.
     /// </summary>
     public const string RegisterReallocation = "register_reallocation";
 
