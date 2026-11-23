@@ -61,7 +61,11 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   per-graph states, device forwarding between segments and data-dependent symbols work as on Vulkan.
 - **Execution.** Each segment owns a CUDA stream and two timing events. Launches are recorded once per binding of the symbols (kernel,
   grid, packed arguments) and replayed with `cuLaunchKernel`; launches on one stream run in order, so the hazard tracker's barriers are
-  not needed. Runtime scalars go through a pinned buffer with one asynchronous copy per step; inputs and outputs are synchronous copies.
+  not needed. Runtime scalars go through a pinned buffer with one asynchronous copy per step; small inputs and outputs through pinned
+  staging buffers on the segment's stream, larger ones are copied on the segment's stream and waited for. Nothing runs on the legacy
+  (NULL) stream: a copy there waits for every blocking stream of the context and fails while another thread captures a graph
+  (`CUDA_ERROR_STREAM_CAPTURE_IMPLICIT`, two models on one GPU), so the segments' and the device's streams are created non-blocking and
+  every ordering between them is explicit (an event, or a host wait for the other segment's pending execution).
   Every driver call first makes the device's primary context current on the calling thread. Copies of state rows
   (`ICompiledSegment.CopyStateRows`: recurrent-state snapshots for prefix caching, copy-on-write of a forked slot's KV block) are
   `cuMemcpyDtoDAsync` on the segment's stream, waited for, so hybrid prefix caching and `n` > 1 forks work as on Vulkan.
