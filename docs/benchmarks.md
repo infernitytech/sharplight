@@ -15514,7 +15514,8 @@ Kept (all keyed on shapes, row counts, bias rows, shared memory and device attri
    that still split K: mixed decode + prompt steps of 257 to ~512 rows. One launch and one reduction instead of three of each (100.2).
 2. Dependent launches (§99.1's rule 1) may always need twice the driver's shared-memory reservation per block, whatever the previous
    kernel's share (`CudaSegment.DependentSharedFloor`, `SHARPLIGHT_CUDA_PDL_SHARED_FLOOR`), and the fused row norm keeps one partial
-   sum per 4 lanes instead of one per thread with subgroup arithmetic (`RowNormKernelSource`: 1 KB at 1,024 threads, 256 B at 256),
+   sum per 4 lanes instead of one per thread with subgroup arithmetic on CUDA targets (`RowNormKernelSource.CompactReduction`: 1 KB at
+   1,024 threads, 256 B at 256; Vulkan keeps `develop`'s array),
    so the one-row norms after full-GPU reductions launch early again (100.3).
 3. Diagnostic switches for A/B runs: `SHARPLIGHT_STEP_ROWS_PER_SEQUENCE` (the serving engine's `BatchTokensPerSequence`).
 
