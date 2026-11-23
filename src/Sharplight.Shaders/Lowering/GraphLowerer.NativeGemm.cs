@@ -9,6 +9,9 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
+    /// <summary>Cache of <see cref="HasGroupedFp8Weights"/>.</summary>
+    private bool? _groupedFp8Weights;
+
     /// <summary>Threads per block of <c>gemm_fp8_native.cu</c> (2 x 4 warps).</summary>
     private const int NativeFp8Threads = 256;
 
@@ -354,19 +357,23 @@ public sealed partial class GraphLowerer
         return Math.Max(min, NativeGemmMinRows);
     }
 
-    /// <summary>Whether <see cref="Fp8BlockScaled"/> is on where the device allows it and <c>SHARPLIGHT_FP8_BLOCK_SCALED</c> is not set.</summary>
-    private const bool DefaultFp8BlockScaled = false;
-
     /// <summary>
     /// True when the 128-row tiles of the FP8 GEMM run on the block-scaled MMA (<c>gemm_fp8_tma.cu</c> with <c>F8N_BLOCK_SCALED</c>,
     /// <see cref="DeviceFeatures.BlockScaledFp8"/>):
     /// the products accumulate in the tensor cores over the whole of K, with the scales as UE8M0 exponents. That needs power-of-two scales,
     /// so in this mode every E4M3 activation row gets them (<c>E4M3_UE8M0</c>, e4m3.slang) and the grouped E4M3 weights are requantized to
     /// them at load (<see cref="WeightRepack.Fp8B128GroupedUe8m0"/>); every other kernel reads the same values, so decode and prompt steps
-    /// agree. A numerics change (benchmarks.md section 86), chosen by <c>SHARPLIGHT_FP8_BLOCK_SCALED</c>.
+    /// agree. A numerics change (benchmarks.md sections 86.3 and 89.4), on by default since 2026-11-23 wherever it applies: a device with
+    /// the feature and the hand-written FP8 GEMM, and a segment with matrices of block-scaled E4M3 weights in 128-value scale groups that
+    /// the GEMM reads (<see cref="NativeFp8GroupedWeight"/>); segments without such weights compile as before. Turned off per load by
+    /// disabling the feature (<c>TaskLoadOptions.BlockScaledFp8</c> = false) or for the process by <c>SHARPLIGHT_FP8_BLOCK_SCALED=0</c>.
     /// </summary>
-    private bool Fp8BlockScaled => (DiagnosticSwitches.Fp8BlockScaled ?? DefaultFp8BlockScaled) && NativeGemmFp8 && NativeFp8TensorCopies
-        && _opt.Has(DeviceFeatures.BlockScaledFp8);
+    private bool Fp8BlockScaled => (DiagnosticSwitches.Fp8BlockScaled ?? true) && NativeGemmFp8 && NativeFp8TensorCopies
+        && _opt.Has(DeviceFeatures.BlockScaledFp8) && HasGroupedFp8Weights;
+
+    /// <summary>True when some matmul of the segment reads a weight in the FP8 GEMM's 128-row groups (<see cref="NativeFp8GroupedWeight"/>).</summary>
+    private bool HasGroupedFp8Weights => _groupedFp8Weights ??= _seg.Nodes.Any(n => n.Op.Name == "MatMul" && n.Inputs.Length > 1
+        && n.Inputs[1].Weight?.Type == DataType.F8E4M3_B128 && NativeFp8GroupedWeight(n.Inputs[1]));
 
     /// <summary>
     /// The launch variant of <c>gemm_fp8_tma.cu</c> (block-scaled with <see cref="Fp8BlockScaled"/>) for the batches <paramref name="serves"/> selects: one block per SM at most, each

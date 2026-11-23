@@ -20,6 +20,10 @@ namespace Sharplight.Llm;
 /// inside a prompt chunk cuts the chunk (<see cref="Serving.IBatchDecoder.SnapshotsInsideSteps"/> is false; for A/B measurements).</item>
 /// <item><c>SHARPLIGHT_DEVICE_RESERVE_MIB=&lt;n&gt;</c>: device memory kept free on every device by a placement that
 /// <see cref="LlmLoadOptions.ReservePerDevice"/> leaves at its default (for measurements).</item>
+/// <item><c>SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full</c>: the serving scheduler's step-floor policy, overriding
+/// <see cref="Serving.EngineOptions.StepFloor"/> (waves, always, full).</item>
+/// <item><c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c>: the block-scaled FP8 mode on (where the device has it) or off for every load of the
+/// process, overriding <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/>.</item>
 /// </list>
 /// </summary>
 internal static class DiagnosticSwitches
@@ -37,16 +41,23 @@ internal static class DiagnosticSwitches
     public static bool DeferEmits { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_ASYNC_EMIT") != "0";
 
     /// <summary>
-    /// Prototype policies of the load-adaptive step budget for prompt waves (<c>SHARPLIGHT_STEP_FLOOR_WAVES</c>, benchmarks.md section 93;
-    /// off by default): <c>1</c> applies the floor (<see cref="Serving.EngineOptions.MinBatchTokens"/>) only while no sequence decodes,
-    /// <c>full</c> gives every step the whole budget while some sequence decodes. Null: the default policy.
+    /// The step-floor policy forced for the process (<c>SHARPLIGHT_STEP_FLOOR_WAVES</c>, benchmarks.md section 93.4), overriding
+    /// <see cref="Serving.EngineOptions.StepFloor"/>: <c>1</c> <see cref="Serving.StepFloorPolicy.Waves"/>, <c>0</c>
+    /// <see cref="Serving.StepFloorPolicy.Always"/>, <c>full</c> <see cref="Serving.StepFloorPolicy.Full"/>. Null: the engine options decide.
     /// </summary>
-    public static string? StepFloorWaves { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_FLOOR_WAVES") switch
+    public static Serving.StepFloorPolicy? StepFloor { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_FLOOR_WAVES") switch
     {
-        "1" => "1",
-        "full" => "full",
+        "1" => Serving.StepFloorPolicy.Waves,
+        "0" => Serving.StepFloorPolicy.Always,
+        "full" => Serving.StepFloorPolicy.Full,
         _ => null,
     };
+
+    /// <summary>
+    /// The block-scaled FP8 mode forced for the process (<c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c>), overriding
+    /// <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/>; null: the load options decide.
+    /// </summary>
+    public static bool? Fp8BlockScaled { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_FP8_BLOCK_SCALED") is { Length: > 0 } v ? v != "0" : null;
 
     /// <summary>The file of the serving step profile, or null.</summary>
     public static string? StepProfile { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_PROFILE");

@@ -118,7 +118,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             dev.ChargeDriverMemory(CudaDevice.StreamBytes, $"the stream of segment {segment.Index}");
             _streamCharged = true;
             nint stream;
-            int created = CudaApi.cuStreamCreate(&stream, 0);
+            int created = CudaApi.cuStreamCreate(&stream, CudaApi.StreamNonBlocking);
             if (created != 0)
             {
                 throw created == CudaApi.ErrorOutOfMemory
@@ -376,9 +376,11 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         _streamDone = done;
         foreach (var b in _program.Buffers.Where(b => b.Kind == BufferKind.Weight && b.Weight is null && b.InitialData is not null))
         {
+            // On the upload stream after the buffer's zero fill; the wait keeps the pageable array pinned until the copy is done.
             fixed (byte* data = b.InitialData)
             {
-                CudaApi.Check(CudaApi.cuMemcpyHtoD(_alloc[b].Pointer, data, (nuint)b.InitialData!.Length), "cuMemcpyHtoD");
+                CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(_alloc[b].Pointer, data, (nuint)b.InitialData!.Length, _dev.Stream), "cuMemcpyHtoDAsync");
+                _dev.Synchronize();
             }
         }
 
@@ -764,26 +766,30 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         _dev.Enter();
+        // The input buffer may be memory another segment's pending execution uses (shared activations); the copies below are ordered on
+        // this segment's stream only.
+        if (_dev.Pending is { } other && other != this)
+        {
+            other.WaitForCompletion();
+        }
+
         long capacity = 0;
         byte* staged = _stagedInputs.Contains(value) ? null : _staging.Get(value, r.MaxBytes, out capacity);
         if (staged != null && data.Length <= capacity)
         {
-            // The input buffer may be memory another segment's pending execution uses (shared activations): the synchronous copy below
-            // waits for every stream, the asynchronous one only for this segment's.
-            if (_dev.Pending is { } other && other != this)
-            {
-                other.WaitForCompletion();
-            }
-
             data.CopyTo(new Span<byte>(staged, data.Length));
             CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(a.Pointer + (ulong)r.ByteOffset, staged, (nuint)data.Length, _stream), "cuMemcpyHtoDAsync");
             _stagedInputs.Add(value);
             return;
         }
 
+        // Never a copy on the legacy stream (cuMemcpyHtoD): it waits for every blocking stream of the context and fails while another
+        // thread captures a graph on one. The copy goes on this segment's stream after its staged copies, and the wait keeps the caller's
+        // pageable memory free to reuse on return.
         fixed (byte* source = data)
         {
-            CudaApi.Check(CudaApi.cuMemcpyHtoD(a.Pointer + (ulong)r.ByteOffset, source, (nuint)data.Length), "cuMemcpyHtoD");
+            CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(a.Pointer + (ulong)r.ByteOffset, source, (nuint)data.Length, _stream), "cuMemcpyHtoDAsync");
+            Synchronize($"the upload of input {value.Name}");
         }
     }
 
@@ -821,9 +827,17 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         _dev.Enter();
+        // The output buffer may be memory another segment's pending execution writes (shared activations); the copy is ordered on this
+        // segment's stream only (never on the legacy stream, see SetInput).
+        if (_dev.Pending is { } other && other != this)
+        {
+            other.WaitForCompletion();
+        }
+
         fixed (byte* target = destination)
         {
-            CudaApi.Check(CudaApi.cuMemcpyDtoH(target, _alloc[r.Buffer].Pointer + (ulong)(r.ByteOffset + byteOffset), (nuint)destination.Length), "cuMemcpyDtoH");
+            CudaApi.Check(CudaApi.cuMemcpyDtoHAsync(target, _alloc[r.Buffer].Pointer + (ulong)(r.ByteOffset + byteOffset), (nuint)destination.Length, _stream), "cuMemcpyDtoHAsync");
+            Synchronize($"the download of output {value.Name}");
         }
     }
 
@@ -1054,7 +1068,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         foreach (var (symbol, slot) in _program.ProducedSymbols)
         {
             int count;
-            CudaApi.Check(CudaApi.cuMemcpyDtoH(&count, _alloc[slot.Buffer].Pointer + (ulong)slot.ByteOffset, sizeof(int)), "cuMemcpyDtoH");
+            CudaApi.Check(CudaApi.cuMemcpyDtoHAsync(&count, _alloc[slot.Buffer].Pointer + (ulong)slot.ByteOffset, sizeof(int), _stream), "cuMemcpyDtoHAsync");
+            Synchronize($"the count {symbol} of segment {Segment.Index}");
             parameters.Symbols[symbol] = Math.Clamp(count, 0, _options.Bound(symbol));
         }
     }

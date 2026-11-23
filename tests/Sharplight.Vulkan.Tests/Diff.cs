@@ -52,16 +52,26 @@ internal static class Diff
 
     /// <summary>
     /// A test that turns the f16 matrix units off (to reach the SIMT or exact paths) turns off their 8x8 form too
-    /// (<see cref="DeviceFeatures.MatrixF16Small"/>, Metal), which would otherwise take the same matmuls with f16 operands.
+    /// (<see cref="DeviceFeatures.MatrixF16Small"/>, Metal), which would otherwise take the same matmuls with f16 operands; and the
+    /// block-scaled FP8 mode is off (see below).
     /// </summary>
     private static IReadOnlySet<string> WithSmallMatrices(IReadOnlySet<string>? disabledFeatures)
     {
-        if (disabledFeatures is null || !disabledFeatures.Contains(DeviceFeatures.MatrixF16))
+        var features = new HashSet<string>(disabledFeatures ?? new HashSet<string>());
+        if (features.Contains(DeviceFeatures.MatrixF16))
         {
-            return disabledFeatures ?? new HashSet<string>();
+            features.Add(DeviceFeatures.MatrixF16Small);
         }
 
-        return new HashSet<string>(disabledFeatures) { DeviceFeatures.MatrixF16Small };
+        // The CPU references model the checkpoints' f32 FP8 scales: the block-scaled FP8 mode (the default where the device has it)
+        // requantizes the weights to power-of-two scales, so these comparisons keep it off unless a test process asks for it
+        // (Fp8BlockScaledTests runs its GPU checks with SHARPLIGHT_FP8_BLOCK_SCALED=1 against a reference of that rounding).
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_FP8_BLOCK_SCALED") != "1")
+        {
+            features.Add(DeviceFeatures.BlockScaledFp8);
+        }
+
+        return features;
     }
 
         private static RunParameters Params(Step s)

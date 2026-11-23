@@ -61,7 +61,11 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   per-graph states, device forwarding between segments and data-dependent symbols work as on Vulkan.
 - **Execution.** Each segment owns a CUDA stream and two timing events. Launches are recorded once per binding of the symbols (kernel,
   grid, packed arguments) and replayed with `cuLaunchKernel`; launches on one stream run in order, so the hazard tracker's barriers are
-  not needed. Runtime scalars go through a pinned buffer with one asynchronous copy per step; inputs and outputs are synchronous copies.
+  not needed. Runtime scalars go through a pinned buffer with one asynchronous copy per step; small inputs and outputs through pinned
+  staging buffers on the segment's stream, larger ones are copied on the segment's stream and waited for. Nothing runs on the legacy
+  (NULL) stream: a copy there waits for every blocking stream of the context and fails while another thread captures a graph
+  (`CUDA_ERROR_STREAM_CAPTURE_IMPLICIT`, two models on one GPU), so the segments' and the device's streams are created non-blocking and
+  every ordering between them is explicit (an event, or a host wait for the other segment's pending execution).
   Every driver call first makes the device's primary context current on the calling thread. Copies of state rows
   (`ICompiledSegment.CopyStateRows`: recurrent-state snapshots for prefix caching, copy-on-write of a forked slot's KV block) are
   `cuMemcpyDtoDAsync` on the segment's stream, waited for, so hybrid prefix caching and `n` > 1 forks work as on Vulkan.
@@ -304,7 +308,7 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   and scales instead of f32 rows, bit for bit what `quantize_fp8` writes from them (a block walks the two 64-output tiles of a
   128-value scale group back to back and combines the rows' maxima in shared memory), so the f32 round trip and the quantization
   launch go (`SHARPLIGHT_FP8_QSTORE_MIN_ROWS=0` turns it off); `F8N_BLOCK_SCALED` (`block_scaled_fp8`, compute capability 12.x,
-  compiled for `compute_120f`, opt-in with `SHARPLIGHT_FP8_BLOCK_SCALED=1`) runs the block-scaled MMA on power-of-two activation
+  compiled for `compute_120f`; on by default since 2026-11-23, see "Block-scaled FP8 by default" below) runs the block-scaled MMA on power-of-two activation
   scales (`E4M3_UE8M0` in e4m3.slang) and weights requantized to power-of-two scales at load (`WeightRepack.Fp8B128GroupedUe8m0`),
   accumulating all of K in the tensor cores (gate / up 1,612 → 1,463 µs per layer at 2,048 rows; a numerics change).
   Three more forms, all bit for bit the default path's results ([benchmarks.md §89](benchmarks.md)): `F8N_WG`
@@ -383,8 +387,26 @@ valid for 128 x 128 block-scaled checkpoints, which the lowering cannot tell fro
 `mma.sync ... kind::mxf8f6f4.block_scale` needs UE8M0 (power-of-two) scales per 32 values and `sm_120a` / `sm_120f`; on this GPU it
 issues at the same rate as the plain E4M3 `mma.sync` (470 against 473 TFLOPS in a register-only loop, [benchmarks.md §86](benchmarks.md)),
 so it saves the promotion's instructions and energy, not MMA time. vLLM's default DeepGEMM path rounds the checkpoints' scales up to
-powers of two and requantizes the weights for it; this provider does the same per row and 128-value block only in its opt-in
-block-scaled mode (`block_scaled_fp8`, `SHARPLIGHT_FP8_BLOCK_SCALED=1`: Qwen3-8B-FP8 perplexity +0.8 %, vLLM's own E8M0 path +0.9 %).
+powers of two and requantizes the weights for it; this provider does the same per row and 128-value block in its block-scaled mode
+(`block_scaled_fp8`: Qwen3-8B-FP8 perplexity +0.8 %, vLLM's own E8M0 path +0.9 %), the default since 2026-11-23.
+
+**Block-scaled FP8 by default** (owner's decision 2026-11-23, [benchmarks.md §86.3, §89.4, §95](benchmarks.md)). Where it applies, the
+block-scaled mode is the default: a device with `block_scaled_fp8` (compute capability 12.x with a CUDA 12.9+ driver), `native_gemm_fp8`
+and `tensor_copies`, and a compiled segment with matrices of block-scaled E4M3 weights (`f8e4m3_b128`, the 128 x 128 scale-block and the
+per-channel / per-tensor FP8 checkpoints after import) that the hand-written FP8 GEMM reads in its 128-row groups. Segments without such
+weights (every non-FP8 model) compile exactly as before. Measured: about +1.5-2.5 % serving throughput at 64 streams, perplexity +0.77 %
+(Qwen3-8B-FP8) and +0.26 % (Qwen3.8-27B-FP8) against f32 scales; vLLM's own E8M0 path, its default, is +0.95 %. The opt-out keeps the
+checkpoints' f32 scales and the promoting GEMM, bit for bit the earlier default:
+
+| where | setting |
+|---|---|
+| code | `TaskLoadOptions.BlockScaledFp8 = false` (`LlmLoadOptions`, `EmbeddingLoadOptions`, ...), or `block_scaled_fp8` in `DisabledFeatures` |
+| CLI (`sharplight`, `run`, `serve`, `segment-worker`) | `--fp8-block-scaled off` (same as `--disable-features block_scaled_fp8`) |
+| hosting JSON (`sharplight serve --config`, Sharplight.Hosting) | `"blockScaledFp8": false` in `defaults` or per model |
+| environment (process-wide override) | `SHARPLIGHT_FP8_BLOCK_SCALED=0` (off) / `=1` (on even where a load's options turned it off) |
+
+The Vulkan provider has no block-scaled MMA (no `block_scaled_fp8`), so FP8 models on Vulkan keep the f32 scales and their results do
+not change; the setting has no effect there.
 Round 13 ([benchmarks.md §57.2](benchmarks.md)) revised these limits: a model's prefill and a sustained GEMM run at the board's 200 W
 limit, so burst timings of ablations mostly measure clock (the "no code loads" ablation kept 2.7 GHz instead of 2.2 because the
 tensor cores multiplied stale shared memory). Per SM cycle `gemm_fp8_native.cu` reaches 65 % of the MMA peak, `gemm_fp8_tma.cu` 76 %
@@ -808,7 +830,7 @@ f16 GEMM, default 256), `SHARPLIGHT_NATIVE_GEMM_MIN_ROWS` (rows from which the h
 `SHARPLIGHT_FP8_GROUPED=1|0` (FP8 weights in 128-row groups on every target or none; default: where the hand-written FP8 GEMM runs),
 `SHARPLIGHT_NATIVE_MOE_MIN_ROWS` (average routed rows per expert from which the hand-written grouped MXFP4 GEMM serves, default 12),
 `SHARPLIGHT_FP8_TMA=0` (128-row FP8 tiles on `gemm_fp8_native.cu` instead of `gemm_fp8_tma.cu`), `SHARPLIGHT_FP8_BLOCK_SCALED=1|0`
-(the block-scaled FP8 mode where `block_scaled_fp8` exists; default off), `SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n` (block-scaled mode: rows from
+(the block-scaled FP8 mode where `block_scaled_fp8` exists: off / on, overriding `TaskLoadOptions.BlockScaledFp8`; default on where it applies), `SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n` (block-scaled mode: rows from
 which the dual gate / up GEMM stores E4M3 rows; 0: never, default 256), `SHARPLIGHT_FP8_UE8M0_WEIGHTS=1` (diagnostic: the block-scaled mode's weight
 requantization alone), `SHARPLIGHT_FP8_DECODE_KERNEL=0|1` (FP8 matmuls at 9-16 rows on `gemm_fp8_decode.cu`: off / dual pairs too), `SHARPLIGHT_FP8_L2_PREFETCH=n`
 (K blocks of its weight rows each FP8 decode block asks L2 for before the dependency wait; slower in every setting measured), `SHARPLIGHT_FP8_TALL_COST` (relative

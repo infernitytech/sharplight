@@ -94,9 +94,10 @@ internal sealed unsafe class CudaWeightUploader : IDisposable
             }
             else
             {
-                // Pageable memory: a synchronous copy, ordered after the zero fill queued on the upload stream.
+                // Pageable memory: on the upload stream after the zero fill (never on the legacy stream, which waits for every blocking
+                // stream of the context and fails while another thread captures a graph), then waited for, so the slot is free again.
+                CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination.Pointer + (ulong)done, _staging[_slot], (nuint)chunk, _dev.Stream), "cuMemcpyHtoDAsync");
                 CudaApi.Check(CudaApi.cuStreamSynchronize(_dev.Stream), "cuStreamSynchronize");
-                CudaApi.Check(CudaApi.cuMemcpyHtoD(destination.Pointer + (ulong)done, _staging[_slot], (nuint)chunk), "cuMemcpyHtoD");
             }
 
             CudaApi.Check(CudaApi.cuEventRecord(_done[_slot], _dev.Stream), "cuEventRecord");

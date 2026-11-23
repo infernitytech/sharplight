@@ -73,7 +73,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         {
             Enter();
             nint stream;
-            CudaApi.Check(CudaApi.cuStreamCreate(&stream, 0), "cuStreamCreate");
+            CudaApi.Check(CudaApi.cuStreamCreate(&stream, CudaApi.StreamNonBlocking), "cuStreamCreate");
             Stream = stream;
         }
         catch

@@ -27,6 +27,7 @@ public sealed class TaskModelLoaderFactory : IHostedModelLoaderFactory
                 ContextLength = settings.ContextLength,
                 MaxBatchTokens = settings.BatchTokens > 0 ? settings.BatchTokens : new TaskLoadOptions().MaxBatchTokens,
                 AllowReducedPrecision = settings.ReducedPrecision,
+                BlockScaledFp8 = settings.BlockScaledFp8,
                 Auxiliary = new Dictionary<string, string>(settings.Auxiliary, StringComparer.Ordinal),
             };
             context.Options.ConfigureLoad?.Invoke(settings, options);

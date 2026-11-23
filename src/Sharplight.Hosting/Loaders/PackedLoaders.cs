@@ -29,6 +29,7 @@ internal static class PackedLoaders
             options.ExpertsOnDisk = settings.ExpertsOnDisk;
             options.ExpertCacheBytes = settings.ExpertCacheBytes;
             options.AllowReducedPrecision = settings.ReducedPrecision;
+            options.BlockScaledFp8 = settings.BlockScaledFp8;
             if (settings.BatchTokens > 0)
             {
                 options.MaxBatchTokens = settings.BatchTokens;

@@ -47,6 +47,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
             Sequences = Math.Max(1, settings.Slots),
             KvCacheType = settings.KvCacheType is { } type ? DataType.Get(type) : null,
             AllowReducedPrecision = settings.ReducedPrecision,
+            BlockScaledFp8 = settings.BlockScaledFp8,
             Auxiliary = auxiliary,
         };
         context.Options.ConfigureLoad?.Invoke(settings, load);
@@ -68,6 +69,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
                 PrefixCache = settings.PrefixCache,
                 MaxBatchTokens = settings.StepTokens ?? 0,
                 MinBatchTokens = settings.MinStepTokens ?? new EngineOptions().MinBatchTokens,
+                StepFloor = settings.StepFloor ?? new EngineOptions().StepFloor,
                 SpeculationMaxBatch = settings.SpeculationMaxBatch,
             },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,
