@@ -12857,7 +12857,8 @@ The weights' second rounding is most of the change (+0.56 of +0.77 %); the activ
 (120 tokens, the ~40-word and the 963-token prompt, CUDA) is byte-identical to the f32-scale path; the last-token logits of a ~2,900-token
 prompt differ by KL 3.4e-4 (max |Δ| 2.15, same top-1).
 
-**Decision: off by default.** The rule was ±0.3 % perplexity and comparable to vLLM's: Qwen3-8B-FP8 changes by +0.77 % (vLLM's own E8M0
+**Decision: off by default** (superseded on 2026-11-23: the owner made the block-scaled mode the default where it applies, with a
+setting to turn it off; see §95). The rule was ±0.3 % perplexity and comparable to vLLM's: Qwen3-8B-FP8 changes by +0.77 % (vLLM's own E8M0
 path +0.95 %, so comparable, but outside ±0.3 %); Qwen3.8-27B-FP8 +0.26 %. `SHARPLIGHT_FP8_BLOCK_SCALED=1` turns it on; the owner can
 decide per model class. The default path is bit-identical to `develop` (greedy text of gpt-oss-20b, Qwen3-8B-FP8 on CUDA and Vulkan and
 Qwen2.5-7B Q4_K_M on CUDA byte-identical; last-token logits of Qwen3-8B-FP8 and gpt-oss-20b bit-identical; `PplBench` argmax hash and
@@ -14203,6 +14204,8 @@ fewer per step on Qwen3-8B-FP8: 402 → 366 dispatches, the `quantize_fp8` launc
 use the kernel. The fence costs the 9-warp form 0.3-1.1 %, which is why it is the copy warpgroup that carries the default.
 
 ### 93.4 The step budget in prompt waves: two prototypes (not the default; the owner's call)
+
+(2026-11-23: the owner made `=1` the default policy, `EngineOptions.StepFloor = Waves`; see §95.)
 
 §92.4 found the closed loop's 16-stream ITL p99 of ~53 ms to come from the 768-row floor: a wave of 13-16 prompts is prefilled in
 5-6 steps of ~55 ms, and the prompts admitted first decode through all of them. Two prototypes behind `SHARPLIGHT_STEP_FLOOR_WAVES`
