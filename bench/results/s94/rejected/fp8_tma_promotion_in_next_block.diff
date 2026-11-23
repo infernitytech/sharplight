@@ -1,0 +1,170 @@
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
+@@ -69,6 +69,9 @@
+ #ifndef MULTI
+ #define MULTI 0
+ #endif
++#ifndef F8N_PIPE
++#define F8N_PIPE 1
++#endif
+ #if MULTI && (DUAL || QOUT)
+ #error "gemm_fp8_tma: MULTI with DUAL or QOUT"
+ #endif
+@@ -84,8 +87,10 @@
+ #if F8N_WG
+ // A copy warpgroup (warps 8-11) gives its registers to the computing warps (setmaxnreg).
+ #define F8N_THREADS (F8N_CONSUMERS + 128)
++#ifndef F8N_COPY_REGS
+ #define F8N_COPY_REGS 40
+ #define F8N_MMA_REGS 232
++#endif
+ #else
+ #define F8N_THREADS (F8N_CONSUMERS + 32)
+ #endif
+@@ -359,6 +364,27 @@
+ #endif
+ }
+ 
++
++#if F8N_WUNI
++#define F8N_PIPE_FACTOR(i, j, h, c) pxw[i][h][DUAL ? ((j) & 1) : 0]
++#define F8N_PIPE_ZERO_FACTORS() \
++    _Pragma("unroll") for (int i_ = 0; i_ < F8N_FM; i_++) { _Pragma("unroll") for (int h_ = 0; h_ < 2; h_++) { _Pragma("unroll") for (int d_ = 0; d_ <= DUAL; d_++) { pxw[i_][h_][d_] = 0.0f; } } }
++#else
++#define F8N_PIPE_FACTOR(i, j, h, c) (pxv[i][h] * ((c) ? pwv[j].y : pwv[j].x))
++#define F8N_PIPE_ZERO_FACTORS() \
++    _Pragma("unroll") for (int i_ = 0; i_ < F8N_FM; i_++) { pxv[i_][0] = 0.0f; pxv[i_][1] = 0.0f; } \
++    _Pragma("unroll") for (int j_ = 0; j_ < F8N_FN; j_++) { pwv[j_] = make_float2(0.0f, 0.0f); }
++#endif
++// Promotes the previous block's products of fragment row i into the accumulators.
++#define F8N_PIPE_PROMOTE(i) \
++    _Pragma("unroll") for (int j_ = 0; j_ < F8N_FN; j_++) \
++    { \
++        acc[i][j_][0] = fmaf(part[i][j_][0], F8N_PIPE_FACTOR(i, j_, 0, 0), acc[i][j_][0]); \
++        acc[i][j_][1] = fmaf(part[i][j_][1], F8N_PIPE_FACTOR(i, j_, 0, 1), acc[i][j_][1]); \
++        acc[i][j_][2] = fmaf(part[i][j_][2], F8N_PIPE_FACTOR(i, j_, 1, 0), acc[i][j_][2]); \
++        acc[i][j_][3] = fmaf(part[i][j_][3], F8N_PIPE_FACTOR(i, j_, 1, 1), acc[i][j_][3]); \
++    }
++
+ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const __grid_constant__ F8nParams p)
+ {
+     extern __shared__ __align__(1024) f8n_u8 smem[];
+@@ -501,6 +527,31 @@
+         }
+     }
+ 
++#if !F8N_BLOCK_SCALED && F8N_PIPE
++    // The previous K block's products and promotion factors: a block's promotion runs inside the next block's MMAs, so the
++    // multiply-adds read products that completed long before (same operations in the same order as promoting at once).
++    float part[F8N_FM][F8N_FN][4];
++#if F8N_WUNI
++    float pxw[F8N_FM][2][1 + DUAL];
++#else
++    float pxv[F8N_FM][2];
++    float2 pwv[F8N_FN];
++#endif
++#pragma unroll
++    for (int i = 0; i < F8N_FM; i++)
++    {
++#pragma unroll
++        for (int j = 0; j < F8N_FN; j++)
++        {
++#pragma unroll
++            for (int e = 0; e < 4; e++)
++            {
++                part[i][j][e] = 0.0f;
++            }
++        }
++    }
++    F8N_PIPE_ZERO_FACTORS();
++#endif
+ #if QOUT
+     // The first tile's outputs of the current pair.
+     float held[F8N_FM][2][F8N_FN / 2][2];
+@@ -601,6 +652,61 @@
+                 }
+             }
+ 
++#elif F8N_PIPE
++#pragma unroll
++            for (int i = 0; i < F8N_FM; i++)
++            {
++                F8N_PIPE_PROMOTE(i)
++#pragma unroll
++                for (int j = 0; j < F8N_FN; j++)
++                {
++#pragma unroll
++                    for (int e = 0; e < 4; e++)
++                    {
++                        part[i][j][e] = 0.0f;
++                    }
++                }
++#pragma unroll
++                for (int kk = 0; kk < 4; kk++)
++                {
++                    f8n_u32 a[4];
++                    f8n_u32 r = wm * F8N_TM + i * 16 + (lane & 15);
++                    f8n_ldsm4(sa + f8n_swz(r, kk * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
++#pragma unroll
++                    for (int j = 0; j < F8N_FN; j++)
++                    {
++                        f8n_mma(part[i][j], a, b[kk][j][0], b[kk][j][1]);
++                    }
++                }
++            }
++#if F8N_WUNI
++#pragma unroll
++            for (int i = 0; i < F8N_FM; i++)
++            {
++#pragma unroll
++                for (int h = 0; h < 2; h++)
++                {
++#pragma unroll
++                    for (int d = 0; d <= DUAL; d++)
++                    {
++                        pxw[i][h][d] = xw[i][h][d];
++                    }
++                }
++            }
++#else
++#pragma unroll
++            for (int i = 0; i < F8N_FM; i++)
++            {
++                pxv[i][0] = xv[i][0];
++                pxv[i][1] = xv[i][1];
++            }
++#pragma unroll
++            for (int j = 0; j < F8N_FN; j++)
++            {
++                pwv[j] = wv[j];
++            }
++#endif
++
+ #else
+ #pragma unroll
+             for (int i = 0; i < F8N_FM; i++)
+@@ -661,6 +767,24 @@
+             }
+         }
+ 
++#if !F8N_BLOCK_SCALED && F8N_PIPE
++        // The tile's last block.
++#pragma unroll
++        for (int i = 0; i < F8N_FM; i++)
++        {
++            F8N_PIPE_PROMOTE(i)
++#pragma unroll
++            for (int j = 0; j < F8N_FN; j++)
++            {
++#pragma unroll
++                for (int e = 0; e < 4; e++)
++                {
++                    part[i][j][e] = 0.0f;
++                }
++            }
++        }
++        F8N_PIPE_ZERO_FACTORS();
++#endif
+ #if QOUT
+         // The tile's outputs (half lt % 2 of the pair) and each row's absolute maximum over them, combined across the quad and the
+         // warp columns in rowMax.
