@@ -1,0 +1,51 @@
+[hold 04:40:30] ./final_steps.sh
+0 %, 2 MiB, 8.94 W
+== Qwen3.8-27B-FP8 base round 1
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 31.93 GiB, group 'output' (2.37 GiB) has no room and no fallback device is configured.
+== Qwen3.8-27B-FP8 new round 1
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 31.93 GiB, group 'output' (2.37 GiB) has no room and no fallback device is configured.
+== Qwen3.8-27B-FP8 base round 2
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 31.93 GiB, group 'output' (2.37 GiB) has no room and no fallback device is configured.
+== Qwen3.8-27B-FP8 new round 2
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 31.93 GiB, group 'output' (2.37 GiB) has no room and no fallback device is configured.
+== Qwen3-8B-FP8 base round 1
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 39.9 | 474 / 0 | 12.25 / 12.26, 12.19 |  |
+| 0 | 750 (3) | 65.1 | 366 / 0 | 54.67 / 55.07, 54.59 |  |
+| 0 | 2000 (8) | 136.7 | 366 / 0 | 135.66 / 135.76, 135.50 |  |
+| 15 | 250 (1) | 35.6 | 366 / 0 | 28.99 / 29.48, 28.92 |  |
+| 13 | 750 (3) | 57.8 | 366 / 0 | 55.97 / 56.07, 55.90 |  |
+== Qwen3-8B-FP8 new round 1
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 45.6 | 474 / 0 | 12.26 / 12.27, 12.20 |  |
+| 0 | 750 (3) | 65.7 | 402 / 0 | 51.82 / 52.32, 51.73 |  |
+| 0 | 2000 (8) | 133.3 | 402 / 0 | 131.79 / 131.85, 131.68 |  |
+| 15 | 250 (1) | 35.5 | 402 / 0 | 27.85 / 28.36, 27.79 |  |
+| 13 | 750 (3) | 54.5 | 402 / 0 | 53.19 / 53.32, 53.13 |  |
+== Qwen3-8B-FP8 base round 2
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 47.7 | 474 / 0 | 12.26 / 12.28, 12.21 |  |
+| 0 | 750 (3) | 63.8 | 366 / 0 | 54.57 / 55.04, 54.47 |  |
+| 0 | 2000 (8) | 136.7 | 366 / 0 | 135.55 / 135.64, 135.37 |  |
+| 15 | 250 (1) | 37.5 | 366 / 0 | 29.34 / 29.44, 29.26 |  |
+| 13 | 750 (3) | 57.1 | 366 / 0 | 56.06 / 56.20, 55.99 |  |
+== Qwen3-8B-FP8 new round 2
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 47.4 | 474 / 0 | 12.26 / 12.28, 12.20 |  |
+| 0 | 750 (3) | 62.3 | 402 / 0 | 51.87 / 52.36, 51.77 |  |
+| 0 | 2000 (8) | 133.4 | 402 / 0 | 132.59 / 132.68, 132.50 |  |
+| 15 | 250 (1) | 35.3 | 402 / 0 | 28.08 / 28.63, 28.03 |  |
+| 13 | 750 (3) | 56.5 | 402 / 0 | 53.72 / 53.74, 53.61 |  |
+[release 04:42:15]

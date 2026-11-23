@@ -1,0 +1,53 @@
+[hold 01:19:05] ./ab1.sh
+0 %, 2 MiB, 9.07 W
+== gu_132
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.593 ms 259 TFLOPS, 197.6 W, 0.763 pJ/flop
+  sustained: 1.509 ms 256 TFLOPS, 205.9 W, 0.804 pJ/flop
+== gu_130
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.569 ms 263 TFLOPS, 197.4 W, 0.751 pJ/flop
+  sustained: 1.484 ms 261 TFLOPS, 190.4 W, 0.731 pJ/flop
+== dn_132
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.809 ms 255 TFLOPS, 189.2 W, 0.742 pJ/flop
+  sustained: 0.728 ms 265 TFLOPS, 188.9 W, 0.712 pJ/flop
+== dn_130
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.798 ms 258 TFLOPS, 198.1 W, 0.767 pJ/flop
+  sustained: 0.720 ms 268 TFLOPS, 199.2 W, 0.742 pJ/flop
+== q_132
+  check T=2048: max err 0 of max 0
+  sustained: 1.656 ms 249 TFLOPS, 198.2 W, 0.796 pJ/flop
+  sustained: 1.561 ms 248 TFLOPS, 207.8 W, 0.839 pJ/flop
+== q_130
+  check T=2048: max err 0 of max 0
+  sustained: 1.639 ms 252 TFLOPS, 199.4 W, 0.792 pJ/flop
+  sustained: 1.550 ms 249 TFLOPS, 192.5 W, 0.772 pJ/flop
+== gu_132
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.605 ms 257 TFLOPS, 198.8 W, 0.774 pJ/flop
+  sustained: 1.519 ms 254 TFLOPS, 205.2 W, 0.807 pJ/flop
+== gu_130
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.573 ms 262 TFLOPS, 196.5 W, 0.749 pJ/flop
+  sustained: 1.488 ms 260 TFLOPS, 191.6 W, 0.737 pJ/flop
+== dn_132
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.816 ms 253 TFLOPS, 201.3 W, 0.797 pJ/flop
+  sustained: 0.733 ms 264 TFLOPS, 190.5 W, 0.722 pJ/flop
+== dn_130
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.800 ms 258 TFLOPS, 198.6 W, 0.771 pJ/flop
+  sustained: 0.719 ms 269 TFLOPS, 201.8 W, 0.750 pJ/flop
+== q_132
+  check T=2048: max err 0 of max 0
+  sustained: 1.658 ms 249 TFLOPS, 199.4 W, 0.802 pJ/flop
+  sustained: 1.567 ms 247 TFLOPS, 206.9 W, 0.839 pJ/flop
+== q_130
+  check T=2048: max err 0 of max 0
+  sustained: 1.646 ms 250 TFLOPS, 198.3 W, 0.792 pJ/flop
+  sustained: 1.560 ms 248 TFLOPS, 194.2 W, 0.784 pJ/flop
+[release 01:20:17]
+
+[exited with code 0]
