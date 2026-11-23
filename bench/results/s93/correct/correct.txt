@@ -1,0 +1,38 @@
+[hold 06:15:57] ./correct.sh
+0 %, 2 MiB, 8.95 W
+Qwen3-8B-FP8 p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 p1000 base rc=0 b9666631
+Qwen3.8-27B-FP8 p40 base rc=0 142a498d
+Qwen3.8-27B-FP8 p1000 base rc=0 8bf70d24
+base run 1: q8 870cfe93 PPL 8.6693; q27 2814a855 PPL 6.6574; q27 2048/512 0f00294b PPL 5.8506
+Qwen3-8B-FP8 p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 p1000 new rc=0 b9666631
+Qwen3.8-27B-FP8 p40 new rc=0 142a498d
+Qwen3.8-27B-FP8 p1000 new rc=0 8bf70d24
+new run 1: q8 870cfe93 PPL 8.6693; q27 2814a855 PPL 6.6574; q27 2048/512 0f00294b PPL 5.8506
+new run 2: q8 870cfe93 PPL 8.6693; q27 2814a855 PPL 6.6574; q27 2048/512 0f00294b PPL 5.8506
+new run 3: q8 870cfe93 PPL 8.6693; q27 2814a855 PPL 6.6574; q27 2048/512 0f00294b PPL 5.8506
+new run 4: q8 870cfe93 PPL 8.6693; q27 2814a855 PPL 6.6574; q27 2048/512 0f00294b PPL 5.8506
+new run 5: q8 870cfe93 PPL 8.6693; q27 2814a855 PPL 6.6574; q27 2048/512 0f00294b PPL 5.8506
+logits q8: bit-identical
+ppl q8 new 1 vs base: logits-identical
+ppl q8 new 2 vs base: logits-identical
+ppl q8 new 3 vs base: logits-identical
+ppl q8 new 4 vs base: logits-identical
+ppl q8 new 5 vs base: logits-identical
+ppl q27 new 1 vs base: logits-identical
+ppl q27 new 2 vs base: logits-identical
+ppl q27 new 3 vs base: logits-identical
+ppl q27 new 4 vs base: logits-identical
+ppl q27 new 5 vs base: logits-identical
+ppl q27s new 1 vs base: logits-identical
+ppl q27s new 2 vs base: logits-identical
+ppl q27s new 3 vs base: logits-identical
+ppl q27s new 4 vs base: logits-identical
+ppl q27s new 5 vs base: logits-identical
+same Qwen3-8B-FP8_p1000
+same Qwen3-8B-FP8_p40
+same Qwen3.8-27B-FP8_p1000
+same Qwen3.8-27B-FP8_p40
+DIFF logits_q8
+[release 07:10:23]

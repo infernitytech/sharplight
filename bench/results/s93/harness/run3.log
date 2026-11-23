@@ -1,0 +1,7 @@
+[hold 06:01:15] bash -c for c in m2_p132 m2_nvrtc; do echo $c; CUBIN=$OUT/det/$c.cubin REPS=150 ./det/det_m2 | tail -1; done
+0 %, 2 MiB, 9.06 W
+m2_p132
+T=512 grid 82 pdl 0 noise 0: 2 of 149 repeats differ
+m2_nvrtc
+T=512 grid 82 pdl 0 noise 0: 6 of 149 repeats differ
+[release 06:01:18]
