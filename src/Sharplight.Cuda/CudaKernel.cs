@@ -25,4 +25,21 @@ internal sealed record CudaKernel(nint Module, nint Function, uint ThreadsX, uin
 
     /// <summary>Blocks of the kernel the GPU holds at once (occupancy times multiprocessors), 0 when unknown.</summary>
     public int ResidentBlocks { get; init; }
+
+    /// <summary>
+    /// True when the kernel runs work before its <c>griddepcontrol.wait</c> that no earlier launch feeds (<see cref="CudaPtx.PrologueHeader"/>):
+    /// it gains from an early launch whatever its blocks' placement, so <see cref="CudaSegment"/> launches it as a dependent regardless
+    /// of <see cref="SharedPerBlock"/>.
+    /// </summary>
+    public bool HasIndependentPrologue { get; init; }
+
+    /// <summary>Blocks of the kernel one multiprocessor holds at once (its occupancy), 0 when unknown.</summary>
+    public int BlocksPerMultiprocessor { get; init; }
+
+    /// <summary>
+    /// Shared memory one block takes on a multiprocessor (bytes): its static and dynamic shared memory plus the driver's reservation per
+    /// block, 0 for a kernel without shared memory. <see cref="CudaSegment"/> launches a kernel as a programmatic dependent only where
+    /// its blocks fit the L1 / shared split the previous kernel's blocks set (see <see cref="CudaSegment"/>'s dependent launches).
+    /// </summary>
+    public long SharedPerBlock { get; init; }
 }

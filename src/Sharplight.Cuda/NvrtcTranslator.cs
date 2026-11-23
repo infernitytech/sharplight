@@ -21,7 +21,7 @@ namespace Sharplight.Cuda;
 internal sealed partial class NvrtcTranslator : KernelTranslator
 {
     /// <summary>Version of the options and the PTX post-processing; part of every cache key.</summary>
-    private const string OptionsVersion = "7";
+    private const string OptionsVersion = "8";
 
     /// <summary>The headers NVRTC needs for the half, bfloat16 and 8-bit float types (redistributable, see docs/cuda.md).</summary>
     private static readonly string[] s_headerNames = ["cuda_fp16.h", "cuda_fp16.hpp", "cuda_bf16.h", "cuda_bf16.hpp", "cuda_fp8.h", "cuda_fp8.hpp"];
@@ -97,6 +97,8 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         byte[]? cubin = null;
         int dynamicShared = 0;
         bool dependent = false;
+        // A kernel that issues griddepcontrol.wait itself runs work before it (loads of weights no earlier launch writes).
+        bool prologue = source.Contains("griddepcontrol.wait", StringComparison.Ordinal);
         try
         {
             source = WithMinBlocks(source, name, entryPoint, threadsLine);
@@ -126,7 +128,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         }
 
         string sharedLine = dynamicShared > 0 ? $"{CudaPtx.SharedHeader}{dynamicShared}\n" : "";
-        string dependentLine = dependent ? CudaPtx.DependentHeader + "\n" : "";
+        string dependentLine = dependent ? CudaPtx.DependentHeader + "\n" + (prologue ? CudaPtx.PrologueHeader + "\n" : "") : "";
         string cubinLine = cubin is null ? "" : $"{CudaPtx.CubinHeader}sm_{ComputeCapability} {Convert.ToBase64String(cubin)}\n";
         return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine + dependentLine + cubinLine), .. ptx];
     }

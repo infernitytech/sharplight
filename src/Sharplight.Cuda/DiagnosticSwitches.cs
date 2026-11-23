@@ -37,6 +37,12 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool DependentTrigger { get; } = Read("SHARPLIGHT_CUDA_PDL_TRIGGER") != "0";
 
+    /// <summary>
+    /// <c>SHARPLIGHT_CUDA_PDL_SHARED=any</c>: kernels are launched as programmatic dependents whatever shared memory they need against the
+    /// previous kernel (the rule before benchmarks.md section 99; comparisons).
+    /// </summary>
+    public static bool DependentAnyShared { get; } = Read("SHARPLIGHT_CUDA_PDL_SHARED") == "any";
+
     public static long? MaxSharedMemory { get; } = Read("SHARPLIGHT_CUDA_MAX_SHARED") is { } v ? long.Parse(v, System.Globalization.CultureInfo.InvariantCulture) : null;
 
     /// <summary><c>SHARPLIGHT_CUDA_CONCURRENT</c> (default on).</summary>

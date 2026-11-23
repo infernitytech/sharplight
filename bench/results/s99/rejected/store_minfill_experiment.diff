@@ -1,0 +1,177 @@
+diff --git a/src/Sharplight.Cuda/CudaSegment.cs b/src/Sharplight.Cuda/CudaSegment.cs
+index 0170bf6e..a542287b 100644
+--- a/src/Sharplight.Cuda/CudaSegment.cs
++++ b/src/Sharplight.Cuda/CudaSegment.cs
+@@ -1545,7 +1545,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
+             void* parameter = arguments;
+             long blocks = (long)launch.GridX * launch.GridY * launch.GridZ;
+             bool oneWave = kernel.ResidentBlocks > 0 && blocks <= kernel.ResidentBlocks;
+-            bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave;
++            bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave
++                             && blocks >= (DiagnosticSwitches.DependentMinFill ?? 0) * _dev.Properties.Multiprocessors;
+             _previousOneWave = oneWave;
+             int result = dependent
+                 ? LaunchDependent(kernel, launch, &parameter)
+diff --git a/src/Sharplight.Cuda/DiagnosticSwitches.cs b/src/Sharplight.Cuda/DiagnosticSwitches.cs
+index fce8dfac..12ef0058 100644
+--- a/src/Sharplight.Cuda/DiagnosticSwitches.cs
++++ b/src/Sharplight.Cuda/DiagnosticSwitches.cs
+@@ -37,6 +37,18 @@ internal static class DiagnosticSwitches
+     /// </summary>
+     public static bool DependentTrigger { get; } = Read("SHARPLIGHT_CUDA_PDL_TRIGGER") != "0";
+ 
++    /// <summary>
++    /// <c>SHARPLIGHT_CUDA_PDL_TRIGGER=entry|store</c>: where kernels issue <c>griddepcontrol.launch_dependents</c> (see
++    /// NvrtcTranslator.TriggerPlacement); null for the default.
++    /// </summary>
++    public static string? DependentTriggerPlacement { get; } = Read("SHARPLIGHT_CUDA_PDL_TRIGGER") is "entry" or "store" ? Read("SHARPLIGHT_CUDA_PDL_TRIGGER") : null;
++
++    /// <summary>
++    /// <c>SHARPLIGHT_CUDA_PDL_MIN_FILL=f</c>: a kernel is launched as a programmatic dependent only when its grid has at least f blocks per
++    /// multiprocessor (diagnostics; null for the default).
++    /// </summary>
++    public static double? DependentMinFill { get; } = Read("SHARPLIGHT_CUDA_PDL_MIN_FILL") is { } fill ? double.Parse(fill, CultureInfo.InvariantCulture) : null;
++
+     public static long? MaxSharedMemory { get; } = Read("SHARPLIGHT_CUDA_MAX_SHARED") is { } v ? long.Parse(v, System.Globalization.CultureInfo.InvariantCulture) : null;
+ 
+     /// <summary><c>SHARPLIGHT_CUDA_CONCURRENT</c> (default on).</summary>
+diff --git a/src/Sharplight.Cuda/NvrtcTranslator.cs b/src/Sharplight.Cuda/NvrtcTranslator.cs
+index ad8d2521..d01a939d 100644
+--- a/src/Sharplight.Cuda/NvrtcTranslator.cs
++++ b/src/Sharplight.Cuda/NvrtcTranslator.cs
+@@ -46,7 +46,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
+     public override ShaderTarget SourceTarget => ShaderTarget.CudaSource;
+ 
+     /// <inheritdoc />
+-    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.DependentTrigger ? "" : "|pdl-wait")}{(DiagnosticSwitches.MinBlocks is { } bounds ? "|bounds=" + bounds : "")}{(DiagnosticSwitches.NvrtcSass is { } sass ? "|sass=" + sass : "")}";
++    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.DependentTrigger ? DiagnosticSwitches.DependentTriggerPlacement is { } placement ? "|pdl-" + placement : "" : "|pdl-wait")}{(DiagnosticSwitches.MinBlocks is { } bounds ? "|bounds=" + bounds : "")}{(DiagnosticSwitches.NvrtcSass is { } sass ? "|sass=" + sass : "")}";
+ 
+     /// <summary>Kernels this process compiled with NVRTC and the time spent (diagnostics).</summary>
+     public static (int Kernels, TimeSpan Time) Statistics => (Volatile.Read(ref s_compiled), Stopwatch.GetElapsedTime(0, Volatile.Read(ref s_ticks)));
+@@ -102,9 +102,15 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
+             source = WithMinBlocks(source, name, entryPoint, threadsLine);
+             source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
+             dynamicShared = Math.Max(dynamicShared, declaredShared);
+-            dependent = ComputeCapability >= DependentLaunchCapability && WaitForPrevious(ref source);
++            // A trigger placed in the PTX would be missing from NVRTC's machine code: those kernels keep it at their entry.
++            bool lateTrigger = DiagnosticSwitches.DependentTrigger && TriggerPlacement == "store" && !CompilesSass(source, ComputeCapability);
++            dependent = ComputeCapability >= DependentLaunchCapability && WaitForPrevious(ref source, DiagnosticSwitches.DependentTrigger && !lateTrigger);
+             string fileName = $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu";
+             ptx = Compile(source, fileName, Options(ComputeCapability, FamilySpecific(source)), cubin: false);
++            if (dependent && lateTrigger)
++            {
++                ptx = TriggerBeforeFirstStore(ptx);
++            }
+             if (CompilesSass(source, ComputeCapability))
+             {
+                 cubin = Compile(source, fileName, Options(ComputeCapability, FamilySpecific(source), real: true), cubin: true);
+@@ -181,12 +187,12 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
+     /// A kernel whose source issues <c>griddepcontrol.wait</c> itself (after reads that no earlier launch writes, such as weights)
+     /// gets only the trigger at its entry.
+     /// </remarks>
+-    internal static bool WaitForPrevious(ref string source)
++    internal static bool WaitForPrevious(ref string source, bool trigger)
+     {
+         bool waitsItself = source.Contains("griddepcontrol.wait", StringComparison.Ordinal);
+         string prologue = waitsItself
+-            ? DiagnosticSwitches.DependentTrigger ? "\n    asm volatile(\"griddepcontrol.launch_dependents;\" ::: \"memory\");\n" : "\n"
+-            : DiagnosticSwitches.DependentTrigger
++            ? trigger ? "\n    asm volatile(\"griddepcontrol.launch_dependents;\" ::: \"memory\");\n" : "\n"
++            : trigger
+                 ? "\n    asm volatile(\"griddepcontrol.wait;\\n\\tgriddepcontrol.launch_dependents;\" ::: \"memory\");\n"
+                 : "\n    asm volatile(\"griddepcontrol.wait;\" ::: \"memory\");\n";
+         var text = new StringBuilder(source.Length + 256);
+@@ -211,6 +217,93 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
+     [GeneratedRegex(@"extern\s+""C""\s+__global__[^{;]*\)\s*\{")]
+     private static partial Regex KernelEntryPattern();
+ 
++    /// <summary>
++    /// Where kernels issue <c>griddepcontrol.launch_dependents</c>: <c>entry</c> (with the wait at the kernel's entry) or <c>store</c>
++    /// (before the first instruction of each entry that writes global memory, <see cref="TriggerBeforeFirstStore"/>).
++    /// </summary>
++    internal static string TriggerPlacement => DiagnosticSwitches.DependentTriggerPlacement ?? "entry";
++
++    /// <summary>
++    /// Inserts <c>griddepcontrol.launch_dependents</c> into every <c>.entry</c> of <paramref name="ptx"/> before its first instruction (in
++    /// program text) that writes global or generic memory, or after its <c>griddepcontrol.wait</c> when it has none. The trigger only
++    /// decides when the next launch's blocks may be placed; they still wait for this launch's completion, so any place is correct.
++    /// </summary>
++    internal static byte[] TriggerBeforeFirstStore(byte[] ptx)
++    {
++        int length = Array.IndexOf(ptx, (byte)0);
++        string text = Encoding.UTF8.GetString(ptx, 0, length < 0 ? ptx.Length : length);
++        var lines = text.Split('\n');
++        var result = new StringBuilder(text.Length + 512);
++        bool inEntry = false;
++        bool placed = false;
++        int waitLine = -1;
++        var entryLines = new List<string>();
++        foreach (string line in lines)
++        {
++            if (!inEntry)
++            {
++                result.Append(line).Append('\n');
++                if (EntryStartPattern().IsMatch(line))
++                {
++                    inEntry = true;
++                    placed = false;
++                    waitLine = -1;
++                    entryLines.Clear();
++                }
++
++                continue;
++            }
++
++            if (line.StartsWith('}'))
++            {
++                if (!placed && waitLine >= 0)
++                {
++                    entryLines.Insert(waitLine + 1, "\tgriddepcontrol.launch_dependents;");
++                }
++
++                foreach (string kept in entryLines)
++                {
++                    result.Append(kept).Append('\n');
++                }
++
++                result.Append(line).Append('\n');
++                entryLines.Clear();
++                inEntry = false;
++                continue;
++            }
++
++            if (!placed && GlobalWritePattern().IsMatch(line))
++            {
++                entryLines.Add("\tgriddepcontrol.launch_dependents;");
++                placed = true;
++            }
++            else if (waitLine < 0 && line.Contains("griddepcontrol.wait", StringComparison.Ordinal))
++            {
++                waitLine = entryLines.Count;
++            }
++
++            entryLines.Add(line);
++        }
++
++        foreach (string kept in entryLines)
++        {
++            result.Append(kept).Append('\n');
++        }
++
++        result.Length--;   // the split's last element had no line break
++        return [.. Encoding.UTF8.GetBytes(result.ToString()), 0];
++    }
++
++    [GeneratedRegex(@"^\s*(\.visible\s+|\.weak\s+)?\.entry\s")]
++    private static partial Regex EntryStartPattern();
++
++    /// <summary>
++    /// A PTX instruction that writes global memory (or generic memory, which may be global): <c>st</c>, <c>red</c>, <c>atom</c> without
++    /// a shared / local / param space, and the bulk copies from shared to global memory.
++    /// </summary>
++    [GeneratedRegex(@"^\s*(@!?%\w+\s+)?((st|red|atom)(\.(weak|relaxed|release|volatile|mmio|async|gpu|sys|cta|cluster|global|L1::[\w]+|L2::[\w]+))*\.(global\.)?(add|min|max|inc|dec|and|or|xor|exch|cas|v2|v4|v8|b8|b16|b32|b64|b128|u8|u16|u32|u64|s8|s16|s32|s64|f16|f16x2|bf16|bf16x2|f32|f64|noftz)|cp\.(reduce\.)?async\.bulk(\.tensor\.\dd)?\.global)")]
++    private static partial Regex GlobalWritePattern();
++
+     /// <summary>
+     /// The NVRTC options of a kernel: PTX for the virtual architecture, no warnings (the Slang prelude has many). The half, bfloat16 and
+     /// 8-bit float headers are always on: Slang lowers <c>f16tof32</c> to the <c>cuda_fp16.h</c> intrinsics but enables the header only

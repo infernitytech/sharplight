@@ -437,13 +437,17 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         int residentBlocks = CudaApi.cuOccupancyMaxActiveBlocksPerMultiprocessor(&perSm, function, (int)(ptx.ThreadsX * ptx.ThreadsY * ptx.ThreadsZ), (nuint)ptx.SharedBytes) == 0
             ? perSm * Properties.Multiprocessors
             : 0;
+        int staticShared = 0;
+        long sharedPerBlock = CudaApi.cuFuncGetAttribute(&staticShared, CudaApi.FunctionSharedSizeBytes, function) == 0
+            ? staticShared + ptx.SharedBytes > 0 ? staticShared + ptx.SharedBytes + Properties.ReservedSharedMemoryPerBlock : 0
+            : Properties.MaxSharedMemoryPerMultiprocessor + 1;   // unknown: fits no split, never placed early
         Interlocked.Add(ref KernelLoadTicks, Stopwatch.GetTimestamp() - start);
         if (DiagnosticSwitches.Trace)
         {
             Console.Error.WriteLine($"[cuda] kernel {kernel.Name}:{kernel.EntryPoint} {kernel.CacheKey[..12]} block {ptx.ThreadsX}x{ptx.ThreadsY}x{ptx.ThreadsZ} (max {maxThreads}), dynamic shared {ptx.SharedBytes} B in {Stopwatch.GetElapsedTime(start).TotalMilliseconds:F1} ms");
         }
 
-        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ, ptx.SharedBytes) { TensorMaps = ptx.TensorMaps, WaitsForPrevious = ptx.WaitsForPrevious, ResidentBlocks = residentBlocks };
+        return new CudaKernel(module, function, ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ, ptx.SharedBytes) { TensorMaps = ptx.TensorMaps, WaitsForPrevious = ptx.WaitsForPrevious, HasIndependentPrologue = ptx.HasIndependentPrologue, ResidentBlocks = residentBlocks, BlocksPerMultiprocessor = residentBlocks > 0 ? perSm : 0, SharedPerBlock = sharedPerBlock };
     }
 
     /// <summary>A library kernel: the library GEMM on cuBLASLt (no module).</summary>

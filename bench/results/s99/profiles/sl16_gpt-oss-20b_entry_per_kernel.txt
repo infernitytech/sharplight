@@ -1,0 +1,17 @@
+steps 21.0, span per step 13654.4 us, incremental sum 13654.4 us, idle gaps 160.0 us
+  9464.7 us inc   9454.5 us dur  48.0x grid    510  gemm_moe_native
+  2309.8 us inc   2303.5 us dur  25.0x grid   6284  gemm_sk
+   941.7 us inc   1848.5 us dur  96.0x grid      8  gemm_cm2
+   286.8 us inc    292.9 us dur  24.0x grid   1024  attn_decode_native
+   109.7 us inc      4.0 us dur   2.0x grid     45  gather
+   105.1 us inc    139.9 us dur  49.0x grid     16  main_0
+    86.7 us inc    930.4 us dur  96.0x grid      2  splitk_reduce
+    59.8 us inc     54.9 us dur  24.0x grid   1088  moe_gather_x16
+    54.1 us inc     64.7 us dur  24.0x grid     16  topk_softmax
+    48.0 us inc     41.8 us dur  24.0x grid    320  rope_qkv
+    36.8 us inc    132.1 us dur  25.0x grid     16  to_f16_ranged
+    33.4 us inc     28.1 us dur  24.0x grid    180  rowreduce_narrow
+    33.4 us inc     33.2 us dur   1.0x grid     16  sample
+    31.1 us inc     76.4 us dur  24.0x grid      1  moe_route
+    30.0 us inc     24.7 us dur  24.0x grid      1  moe_range_fixup
+    23.1 us inc     20.8 us dur  12.0x grid   1024  decode_combine

@@ -22,14 +22,21 @@ internal sealed partial class CudaPtx
     public const string DependentHeader = "// sharplight-dependent";
 
     /// <summary>
+    /// Header line of a dependent kernel that issues <c>griddepcontrol.wait</c> itself after work that reads nothing an earlier launch
+    /// writes (weight loads): launched early, that work overlaps the previous launch (<see cref="CudaKernel.HasIndependentPrologue"/>).
+    /// </summary>
+    public const string PrologueHeader = "// sharplight-prologue";
+
+    /// <summary>
     /// Start of the header line of a kernel that NVRTC also compiled to machine code (<see cref="NvrtcTranslator.CompilesSass"/>), followed
     /// by its architecture (<c>sm_XY</c>), a space and the cubin in base64.
     /// </summary>
     public const string CubinHeader = "// sharplight-cubin: ";
 
     private CudaPtx(byte[] code, string function, uint x, uint y, uint z, int sharedBytes, CudaTensorMapSpec[] tensorMaps, bool waitsForPrevious,
-        int cubinCapability, byte[]? cubin)
+        bool independentPrologue, int cubinCapability, byte[]? cubin)
     {
+        HasIndependentPrologue = independentPrologue;
         CubinCapability = cubinCapability;
         Cubin = cubin;
         WaitsForPrevious = waitsForPrevious;
@@ -62,6 +69,9 @@ internal sealed partial class CudaPtx
     /// <summary>True when the kernel waits for the previous launch itself (<see cref="DependentHeader"/>).</summary>
     public bool WaitsForPrevious { get; }
 
+    /// <summary>True when the kernel runs independent work before it waits for the previous launch (<see cref="PrologueHeader"/>).</summary>
+    public bool HasIndependentPrologue { get; }
+
     /// <summary>The machine code NVRTC compiled with the PTX (<see cref="CubinHeader"/>), or null.</summary>
     public byte[]? Cubin { get; }
 
@@ -90,6 +100,7 @@ internal sealed partial class CudaPtx
             SharedPattern().Match(text) is { Success: true } shared ? int.Parse(shared.Groups[1].Value, CultureInfo.InvariantCulture) : 0,
             TensorMapsPattern().Match(text) is { Success: true } maps ? CudaTensorMapSpec.ParseList(maps.Groups[1].Value) : [],
             DependentPattern().IsMatch(text),
+            ProloguePattern().IsMatch(text),
             cubinMatch.Success ? int.Parse(cubinMatch.Groups[1].Value, CultureInfo.InvariantCulture) : 0,
             cubinMatch.Success ? Convert.FromBase64String(cubinMatch.Groups[2].Value) : null);
     }
@@ -108,6 +119,9 @@ internal sealed partial class CudaPtx
 
     [GeneratedRegex(@"^// sharplight-dependent$", RegexOptions.Multiline)]
     private static partial Regex DependentPattern();
+
+    [GeneratedRegex(@"^// sharplight-prologue$", RegexOptions.Multiline)]
+    private static partial Regex ProloguePattern();
 
     [GeneratedRegex(@"\.entry\s+(\w+)\s*\(")]
     private static partial Regex EntryPattern();

@@ -15214,3 +15214,286 @@ ROUTES=$R LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=3 ./gu | grep energy       
 nvcc -O3 -arch=sm_120 -std=c++17 -DKMODE=1 -DMMA=1 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' -DNM_BM=32 \
   -DNM_WM=1 -DNM_WN=8 -DNM_BN=128 -DNM_STAGES=4 -DNM_MINB=2 read_energy.cu -o rg -ldl && SECONDS_RUN=3 ./rg   # the GEMM in read_energy's loop
 ```
+
+## 99. LLM round 39: the dependent-launch cost of §98.4 root-caused (a dependent's blocks pile onto the idle SMs when the running kernel's L1 / shared split has no room for them) and gated generically (ONNX CUDA b1 -2 to -11 %, LLM decode unchanged); register-path copies do not trip the §97 clock limiter; the 16-sequence gpt-oss step against vLLM's kernel by kernel (2026-11-23)
+
+Branch `perf/llm-r39` (`develop` at `2c25d097`: §97's MXFP4 sector layout and §98's ONNX refresh). GPU 0 of the RunPod machine
+(RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap, driver 595.112 / CUDA 13.2), shared with other rounds; every GPU run held the
+verify lock, the base build (`develop`, `perf-r39-base` worktree) and the branch alternated in the same holds, vLLM 0.33 (venv
+`vllm-r12`) and onnxruntime-gpu 1.32 (§98's venv) in the same holds as the engines they are compared with. Raw output in
+[`bench/results/s99/`](../bench/results/s99) (`pdl/`, `onnx/`, `steps/`, `profiles/`, `harness/`, `serve/`, `correct/`, `tests/`,
+`rejected/`, `scripts/`).
+
+Kept: one change in `Sharplight.Cuda` (99.1): a kernel is launched as the programmatic dependent of the previous one only where its
+blocks can be placed well while that kernel still runs: its shared memory per SM fits the previous kernel's shared share, or both
+grids fit the SMs at one block each, or the kernel runs an independent prologue before its `griddepcontrol.wait` (the FP8 GEMMs'
+weight loads; a new PTX header line, NVRTC options version 8). Keyed on shared memory, grid sizes and the kernel's prologue, never
+on models. Numerics are untouched (launch order and kernels are the same; greedy text and PPL identical, 99.6).
+
+### 99.1 Dependent launches: what the trigger at the entry costs, and the rule
+
+§98.4 found that `griddepcontrol.launch_dependents` at every kernel's entry (LLM round 14) costs ONNX encoders and convnets 1-9 % and
+phi-3.5 6 %, while qwen2.5 q4 and the LLM decode steps gain from it. Per-kernel nsys traces of the ONNX rows (`onnx/` and `pdl/`,
+graph nodes traced, end-to-end time per launch) put the loss on few pairs: phi-3.5's attention `bmm` (32 blocks, 4.2 KB shared) after
+an elementwise kernel of 108 blocks takes 7.7 µs instead of 3.5 µs; bert's split-K `gemm` (192 blocks, 11 KB) after an elementwise
+kernel of 192 blocks 24.3 instead of 16.7 µs, after `layernorm_wg` (16 blocks, 1 KB) 14.1 / 16.7 instead of 12.7 / 15.8 µs (288 /
+384 blocks).
+
+**Moving the trigger** to the end of the main loop was tried first (`rejected/store_minfill_experiment.diff`: the trigger inserted
+into the PTX before each entry's first global store, which lands it before the epilogue of every GEMM, norm and attention kernel).
+It recovers bert (1.10 → 1.02 ms) and efficientnet (0.755 → 0.704) but not phi-3.5 (3.63, unchanged), costs qwen2.5 q4 +2.5 %, and
+loses the LLM gain (Qwen3-8B-FP8 decode at 16 sequences 12.19 → 12.27-12.28 ms, a 512-token prompt step +1.5 %). The placement of
+the trigger is not the cost.
+
+**The mechanism** (`bench/s99_pdl_placement.cu`, `pdl/`): kernel A (108 blocks of 256 threads) and kernel B (32 blocks doing a fixed
+FMA count, recording `%smid`), B launched plain, as a dependent with A's trigger at its entry, or as a dependent without a trigger:
+
+| A's shared / block | B's shared / block | plain | dependent, trigger at entry | dependent, no trigger | B's blocks per SM, trigger at entry |
+|---:|---:|---:|---:|---:|---|
+| 0 | 0 | 33.8 µs | 33.8 | 33.8 | 1 each |
+| 0 | 1 KB | 33.9 | 33.9 | 33.9 | 1 each |
+| 0 | **4.2 KB** | 33.8 | **203-204** | 33.8 | **6 on 3-4 SMs**, 1 on 8-9 |
+| 0 | **16 KB** | 33.9 | **170.9** | 33.9 | **5 on 3-4 SMs** |
+| 1 KB | 4.2 KB | 33.9 | 33.9 | 33.9 | 1 each |
+| 4.2 KB / 16 KB | 4.2 KB | 33.9 | 33.9 | 33.9 | 1 each |
+| 0 (A of 2 blocks) | 4.2 KB | 33.8 | 33.8 | 33.8 | 1 each |
+
+A dependent's blocks are placed as soon as A's blocks have all triggered, while A still holds the SMs. An SM running A with an L1 /
+shared split that leaves no room for B's shared memory cannot take B's blocks, so they pile onto the few SMs A does not use (here
+up to 6 per SM, at B's occupancy) and B runs 5-6x as long. The same 32 blocks spread one per SM when A's split has room (A with 1 KB
+of shared memory per block already does), when B needs no or little shared memory, or when A leaves enough SMs idle. 192 blocks of
+11 KB after 16 blocks of A land on 66 SMs instead of 82. Without the trigger the dependent is placed when A's blocks exit, so the
+pile-up never happens, and neither does the early launch the LLM decode gains from.
+
+**The rule** (`CudaSegment.Launch`, `CudaKernel.SharedPerBlock`, `HasIndependentPrologue`): besides §58.3's one-wave conditions, a
+kernel is launched as a dependent only when
+
+1. its shared memory on one SM at one wave spread over all SMs (static + dynamic + the driver's 1 KB reservation per block, times
+   ⌈blocks / SMs⌉) fits the previous kernel's shared memory per SM at its occupancy (the share its split must have), or
+2. the previous grid and its grid fit the SMs at one block each (its blocks find idle SMs), or
+3. it runs an independent prologue: its source issues `griddepcontrol.wait` itself after loads no earlier launch writes (the FP8
+   decode and prompt GEMMs' weight prefetch). Launched early, that prologue overlaps the previous kernel, which outweighs the placement
+   (Qwen3-8B-FP8 at 16 sequences: `gemm_fp8_decode` 42.8 against 45.3 µs end to end after `quantize_fp8` when launched late).
+
+The trigger stays at every kernel's entry: once a dependent is placed well, the earliest launch is the best one.
+
+Variants measured on the way (same-hold A/B, GPU ms min, 2 interleaved reps; `onnx/`, `steps/`):
+
+| variant | bert b1 | efficientnet b1 | phi-3.5 q4f16 | qwen2.5 q4 | Qwen3-8B-FP8 decode 16 / 64 | gpt-oss-20b decode 16 / 64 |
+|---|---:|---:|---:|---:|---:|---:|
+| `develop` (trigger at entry, every one-wave pair) | 1.10 | 0.755 | 3.63 | 2.094 | 12.19 / 15.60 | 11.98 / 16.85 |
+| no trigger (`SHARPLIGHT_CUDA_PDL_TRIGGER=0`) | 1.006 | 0.705 | 3.39 | 2.169 | 12.30 / 15.70 | 12.05 / 16.88 |
+| trigger before the first global store | 1.015 | 0.704 | 3.63 | 2.146 | 12.27 / 15.65 | - |
+| dependents only with ≥ 1 block per SM | 1.025 | 0.697 | 3.39 | 2.169 | 12.22 / 15.67 | 12.03 / 16.85 |
+| shared memory per SM ≤ the previous kernel's (rule 1 only) | 0.988 | 0.693 | 3.38 | 2.10 | 12.26 / 15.62 | 12.04 / 16.6-16.9 |
+| rules 1 + 3 | 0.990 | 0.694 | 3.38 | 2.10 | 12.20 / 15.61 | 12.04 / 16.90 |
+| **rules 1 + 2 + 3 (kept)** | **0.984** | **0.694** | **3.38** | **2.095** | **12.20-12.21 / 15.62-15.63** | **12.03 / 16.88-16.93** |
+| rule 2 counted at the dependent's occupancy | 1.015 | 0.694 | 3.38 | 2.096 | 12.20-12.21 / 15.58-15.65 | 12.01-12.02 / 16.83-16.90 |
+
+The kept rule takes bert b1 from 1.10 to 0.98 ms (11 % faster than `develop`, 2 % faster than no trigger at all), efficientnet
+from 0.755 to 0.694 (-8 %), phi-3.5 from 3.63 to 3.38 (-7 %) and keeps qwen2.5 q4's early launches (2.095 against 2.094). The LLM
+decode steps stay within 0-0.4 % of `develop` (gpt-oss-20b at 16 sequences 12.03 against 11.98 ms; the loss sits on a few short
+kernels after full-GPU grids, 99.3).
+
+LLM steps, final rule against `develop` (`BatchBench --text`, GPU ms min of 30 / 20, two alternations, `steps/final.txt`):
+
+| model | 1 seq | 16 seqs | 64 seqs | 512-token prompt | 16 decode + 256-token prompt |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b `develop` | 5.15 | 11.98 | 16.88-16.89 | 34.82-34.88 | 24.95-24.99 |
+| gpt-oss-20b r39 | 5.15 | 12.03 | 16.88-16.93 | 34.83-34.86 | 25.06-25.08 |
+| Qwen3-8B-FP8 `develop` | 10.98-10.99 | 12.19-12.20 | 15.62-15.63 | 34.09 (32.53 *) | 26.90 (25.53 *) |
+| Qwen3-8B-FP8 r39 | 10.98 | 12.20-12.21 | 15.62-15.63 | 34.02-34.16 | 26.92-27.15 |
+
+\* one disturbed round (first ms 56 against 42-45), not counted.
+
+### 99.2 Sector-split shared stores outside `cp.async`
+
+§97's limiter: the two 16-byte `cp.async` copies of one 32-byte global sector landing in different 32-byte shared granules hold
+the kernel at the software power cap. `read_energy.cu` gained the register path of the generated kernels (`PAT=3`: `ld.global`
+16 bytes into registers one stage ahead, `st.shared` after the stage's barrier, two stages) and `SPLIT=1` (a sector's halves
+`ROWS * C / 2` bytes apart, as §97's `[block][row]` layout) for both paths. Energy windows of 3 s, two rounds (`harness/re1.log`):
+
+| copy path, bytes per row and stage | sector halves together | split | change |
+|---|---:|---:|---:|
+| `cp.async`, 32 (§97's control) | 792 GB/s, 195-207 W, 2670-2700 MHz | **684-685 GB/s, 129-132 W, 1672 MHz** | -13.6 %, capped |
+| `ld.global` + `st.shared`, 32 | 328.7 GB/s, 152 W, 2805-2812 MHz | 328.7 GB/s, 149-158 W, 2805-2812 MHz | 0 |
+| `ld.global` + `st.shared`, 64 | 595.0-595.1 GB/s, 181-182 W, 2805-2812 MHz | 594.9-595.0 GB/s, 178-182 W, 2805 MHz | 0 |
+| `ld.global` + `st.shared`, 128 | 824.5-824.7 GB/s, 198-200 W, 2782-2805 MHz | 824.6-824.8 GB/s, 198-207 W, 2767-2805 MHz | 0 |
+
+The limiter is a property of the asynchronous copy's fill path: through registers, a split store costs nothing and runs uncapped at
+the full read rate. The generated Slang kernels (the LM head's `gemm_cm2`, the dense and K-quant matvecs, the Vulkan expert GEMMs)
+stage through registers, so the §97 rule does not apply to them and nothing changes there.
+
+`gemm_kq_native` is the one `cp.async` kernel with split sectors (§97.4). Its K-quant harness (`bench/s77_kq/bench_kq.cu`) gained an
+`ENERGY=seconds` window; §97's rejected parity layout against `develop`'s, 3 s each, two rounds (`harness/kqe1.log`, µs per launch
+including the host loop):
+
+| format, shape, rows | `develop` | parity layout | change |
+|---|---:|---:|---:|
+| Q4_K [4096 → 12288], 9 | 46.9-47.5 | 46.4-46.8 | -1.2 % |
+| Q4_K [4096 → 12288], 32 | 58.1-58.7 | 58.4-59.1 | +0.6 % |
+| Q4_K [12288 → 4096], 9 | 44.4-44.9 | 44.1-44.5 | -0.8 % |
+| Q4_K [12288 → 4096], 32 | 57.0-57.1 | 57.3-57.8 | +0.9 % |
+| Q6_K [4096 → 12288], 9 / 32 | 62.7-62.9 / 71.7-72.3 | 62.1-62.3 / 71.6-72.1 | -1.0 / -0.2 % |
+| Q6_K [12288 → 4096], 9 / 32 | 60.2 / 69.7-70.1 | 59.0-59.1 / 68.8-69.1 | -1.9 / -1.3 % |
+
+Both layouts draw the full 199-200 W at 1.88-2.07 GHz: the K-quant GEMM is power-limited, not capped by the limiter, and the layout
+moves it by -1.9 to +0.9 %. Not worth the extra shared memory (§97.4's verdict stands, now on sustained windows).
+
+### 99.3 The 16-sequence gpt-oss-20b decode step against vLLM's
+
+vLLM 0.33's step (`bench/s54_vllm_decode_profile.py --seqs 16 --words`, torch profiler, `profiles/vllm16_gpt-oss-20b.txt`) and ours
+(BatchBench `--sizes 16 --text`, nsys with graph nodes, `profiles/`), per step:
+
+| kernel class | vLLM 0.33 | ours | note |
+|---|---:|---:|---|
+| expert GEMMs (gate / up + down, 24 layers) | 6.50 ms (Marlin, 48 x 135.5 µs) | 9.46 ms (gate / up 254, down 140 µs mean) | different routing: see below |
+| dense GEMMs (qkv, o, router) | 2.14 ms (CUTLASS wmma, 36.3 / 16.8 µs) | 1.87 ms (o 36.5, qkv 31.2, router 4.3 µs) | ours 13 % less |
+| LM head (201,088 x 2880 bf16) | 1.45 ms (`gemvx`, outside the annotated step) | 1.43 ms (`gemm_sk`) | equal |
+| attention (sliding + full, 12 + 12) | 0.38 ms (`kernel_mha`) | 0.29 ms (`attn_decode_native`) | ours 24 % less |
+| routing, norms, rope, sampling | ~0.3 ms | ~0.6 ms | |
+| step | 9.51 ms annotated + 1.45 head ≈ 11.0 | 11.92 ms GPU unprofiled (13.65 under nsys) | |
+
+Everything but the expert GEMMs is equal or ahead. The expert GEMMs' time depends on the routing, and the two runs generate
+different text (vLLM's 16 greedy texts collapse into repetitions such as "war war war", which concentrates the routing). On the same
+routing (vLLM's 16-sequence routing recorded with `bench/s73_vllm_routing.py --seqs 16`, 1536 layer routings, 19.0 experts per layer;
+`harness/moe16.out`, energy windows of 3 s, two rounds):
+
+| product, routing | ours (`gemm_moe_native`, 32-row tiles) | Marlin (`s73_marlin_replay.py`) | ours / Marlin |
+|---|---:|---:|---:|
+| gate / up, vLLM's 16-sequence | 0.2231-0.2237 ms, 203 W, 2017-2060 MHz | 0.2317-0.2321 ms, 200 W, 2317-2355 MHz | **0.963** |
+| down, vLLM's 16-sequence | 0.1206-0.1211 ms, 197 W | 0.1196-0.1199 ms, 195-200 W | 1.008 |
+| gate / up, vLLM's 64-sequence (§97) | 0.3031-0.3039 ms | 0.3093-0.3100 ms | 0.980 |
+| down, vLLM's 64-sequence (§97) | 0.1629-0.1630 ms | 0.1584-0.1586 ms | 1.028 |
+
+Per layer at 16 sequences ours is 0.344 against Marlin's 0.351 ms (-2 %). No kernel class of the 16-sequence step is behind vLLM's
+on equal inputs; the serving ITL gap at 16 streams (99.4) sits in the prompt waves mixed into decode steps (ITL p95 / p99) and in
+the routing the generated text produces, not in a decode kernel.
+
+### 99.4 Serving against vLLM
+
+`bench/s16_serve.sh`, closed loop, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds per
+point, §95's defaults. One hold: gpt-oss-20b as r39, `develop`, vLLM, `develop`, r39, then Qwen3-8B-FP8 as r39, `develop`, vLLM (vLLM
+0.33, `--gpu-memory-utilization 0.6`; `serve/summary.txt`). Tok/s per round, TTFT p50 and inter-token latency (ms):
+
+| model, streams | `develop` | `perf/llm-r39` | vLLM 0.33 | r39 / `develop` | **r39 / vLLM** |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b, 16 | 1403 / 1419, 1411 / 1419 | 1380 / 1415, 1397 / 1415 | 1435 / 1426 | -0.8 % | **0.96-0.99** (means 0.980) |
+| the same: TTFT p50 / ITL mean, p95, p99 | 74-83 / 10.39-10.47, 20-22, 38-39 | 74-81 / 10.50-10.65, 20-22, 38-40 | 186-188 / 9.82-9.85, 10.3-10.4, 13-21 | | |
+| gpt-oss-20b, 64 | 3198 / 3226, 3185 / 3217 | 3197 / 3250, 3195 / 3214 | 3158 / 3109 | +0.2 % | **1.01-1.05** (means 1.026) |
+| the same: TTFT p50 / ITL mean, p95, p99 | 225-232 / 17.20-17.33, 32-38, 112-114 | 224-229 / 17.06-17.34, 33-37, 113-115 | 455-457 / 16.76-17.05, 15-17, 121 | | |
+| Qwen3-8B-FP8, 16 | 1102 / 1107 | 1101 / 1108 | 1118 / 1116 | 0 | 0.99 |
+| the same: TTFT p50 / ITL mean, p95, p99 | 73-77 / 13.64, 20-25, 37-38 | 73-78 / 13.65-13.68, 25, 38-39 | 176-186 / 12.86-12.89, 12.9-13.0, 15 | | |
+| Qwen3-8B-FP8, 64 | 2662 / 2665 | 2663 / 2663 | 2694 / 2693 | 0 | 0.99 |
+| the same: TTFT p50 / ITL mean, p95, p99 | 254-255 / 21.03-21.09, 39-41, 129 | 254-255 / 21.06-21.07, 35-37, 128-130 | 393-394 / 20.23-20.25, 20-22, 132 | | |
+
+Serving is unchanged by this round's change within the rounds' spread (gpt-oss at 16 streams: the first r39 round 1380 against
+1403-1411, the second rounds equal at 1415-1419). The positions against vLLM are those of §97.6: parity or better at 64 streams for
+gpt-oss-20b, 0.98-0.99 at 16 streams and for Qwen3-8B-FP8, our TTFT less than half of vLLM's, our ITL p95 about twice vLLM's (the
+prompt waves: a decode step that carries a prompt chunk takes 2-3x a pure decode step, 99.3).
+
+### 99.5 ONNX on CUDA against onnxruntime and TensorRT
+
+§98's harness and model set (`bench/onnx/parity_bench.py`, one process per measurement, two interleaved rounds, wall minimum of `Run`
+plus the read-back, one GPU hold per model), r39 and `develop` (`sl-cuda@base`) in the same holds as ORT 1.32's CUDA EP (TF32 on,
+its default, and off); TensorRT from §98's `trt.jsonl` (same machine, 2026-11-23). Wall ms; the GPU column is Sharplight's GPU
+timestamp span for strict precision (`onnx/onnx_gpu_final.jsonl`):
+
+| model | batch | strict | `develop` | change | GPU strict r39 / `develop` | fast | `develop` | change | ORT TF32 | ORT strict | ORT TensorRT (§98) | fast / TF32 | strict / strict | fast / TRT | parity |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| resnet50 | 1 | 0.78 | 0.80 | -3 % | 0.77 / 0.79 (-3 %) | 0.59 | 0.62 | -4 % | 1.35 | 2.65 | 1.07 | 0.44x | 0.29x | 0.55x | ok |
+| resnet50 | 8 | 3.36 | 3.37 | -0 % | 3.35 / 3.35 (-0 %) | 2.19 | 2.19 | -0 % | 3.15 | 5.20 | 2.03 | 0.70x | 0.65x | 1.08x | ok |
+| convnext-tiny | 1 | 1.15 | 1.17 | -1 % | 1.14 / 1.15 (-1 %) | 0.83 | 0.95 | -12 % | 1.58 | 1.62 | 0.75 | 0.53x | 0.71x | 1.11x | ok |
+| convnext-tiny | 8 | 4.30 | 4.30 | -0 % | 4.28 / 4.28 (+0 %) | 2.73 | 2.73 | +0 % | 3.67 | 5.49 | 2.24 | 0.75x | 0.78x | 1.22x | ok |
+| efficientnet-lite4 | 1 | 0.70 | 0.76 | -8 % | 0.69 / 0.75 (-8 %) | 0.57 | 0.62 | -7 % | 1.39 | 12.17 | 0.70 | 0.42x | 0.06x | 0.82x | ok |
+| mobilenetv2 | 1 | 0.33 | 0.34 | -2 % | 0.32 / 0.33 (-3 %) | 0.29 | 0.29 | -1 % | 0.79 | 0.70 | 0.29 | 0.37x | 0.47x | 1.01x | ok |
+| mobilenetv2 | 8 | 0.80 | 0.79 | +0 % | 0.78 / 0.78 (+0 %) | 0.59 | 0.58 | +1 % | 1.06 | 1.71 | 0.57 | 0.55x | 0.46x | 1.03x | ok |
+| yolov8n | 1 | 1.17 | 1.17 | -0 % | 0.94 / 0.95 (-0 %) | 0.95 | 0.95 | -0 % | 1.91 | 4.14 | 0.99 | 0.50x | 0.28x | 0.96x | ok |
+| yolov10n | 1 | 1.01 | 1.03 | -2 % | 1.00 / 1.02 (-2 %) | 0.85 | 0.86 | -1 % | 1.95 | 3.07 | 0.74 | 0.43x | 0.33x | 1.14x | ok |
+| ssd-10 (NMS) | 1 | 15.10 | 15.11 | -0 % | 15.01 / 15.03 (-0 %) | 8.84 | 8.84 | -0 % | 15.46 | 31.56 | 7.83 | 0.57x | 0.48x | 1.13x | rms 0.02122441121125358 |
+| bert-base (16 tok) | 1 | 1.16 | 1.28 | -9 % | 0.98 / 1.10 (-11 %) | 0.78 | 0.77 | +0 % | 1.97 | 1.98 | 1.16 | 0.39x | 0.58x | 0.67x | ok |
+| bert-base (16 tok) | 8 | 2.75 | 2.75 | -0 % | 1.76 / 1.76 (-0 %) | 1.84 | 1.86 | -1 % | 3.74 | 3.99 | 3.00 | 0.49x | 0.69x | 0.61x | ok |
+| vit-base | 1 | 2.30 | 2.31 | -0 % | 2.29 / 2.29 (-0 %) | 1.06 | 1.11 | -4 % | 1.74 | 3.18 | 1.29 | 0.61x | 0.72x | 0.82x | ok |
+| vit-base | 8 | 9.56 | 9.56 | +0 % | 9.53 / 9.52 (+0 %) | 4.40 | 4.41 | -0 % | 7.38 | 12.30 | 5.25 | 0.60x | 0.78x | 0.84x | ok |
+| whisper-tiny-encoder | 1 | 1.95 | 1.95 | +0 % | 1.76 / 1.76 (+0 %) | 1.15 | 1.15 | -0 % | 1.99 | 3.20 | 1.61 | 0.58x | 0.61x | 0.71x | ok |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 2.40 | 2.41 | -0 % | 2.09 / 2.09 (+0 %) | 2.39 | 2.40 | -0 % | 6.12 | 5.94 | - | 0.39x | 0.40x | - | ok |
+| phi3.5-mini q4f16 (GQA) | 1 | 4.03 | 4.28 | -6 % | 3.38 / 3.62 (-7 %) | 4.02 | 4.28 | -6 % | 4.61 | 4.60 | - | 0.87x | 0.88x | - | ok |
+| segformer-b0 | 1 | 2.86 | 2.88 | -1 % | 2.21 / 2.21 (-0 %) | 2.66 | 2.66 | +0 % | 3.69 | 4.10 | 2.37 | 0.72x | 0.70x | 1.13x | ok |
+| segformer-b0 | 8 | 21.02 | 21.52 | -2 % | 16.22 / 16.22 (+0 %) | 19.18 | 19.16 | +0 % | 31.59 | 35.73 | 27.37 | 0.61x | 0.59x | 0.70x | ok |
+| mobilesam-encoder | 1 | 7.62 | 7.61 | +0 % | 7.29 / 7.29 (-0 %) | 5.84 | 5.84 | -0 % | 9.83 | 12.42 | 4.74 | 0.59x | 0.61x | 1.23x | ok |
+| raft-large | 1 | 46.43 | 46.30 | +0 % | 42.80 / 42.78 (+0 %) | 35.25 | 35.25 | +0 % | 63.79 | 125.64 | 45.99 | 0.55x | 0.37x | 0.77x | ok |
+| fasterrcnn-12 (counts) | 1 | 11.14 | 11.15 | -0 % | 9.76 / 9.76 (+0 %) | 8.96 | 9.15 | -2 % | 11.11 | 20.14 | - | 0.81x | 0.55x | - | ok |
+| maskrcnn-12 (counts) | 1 | 11.34 | 11.43 | -1 % | 10.18 / 10.18 (-0 %) | 9.01 | 9.04 | -0 % | 11.19 | 20.15 | - | 0.81x | 0.56x | - | ok |
+
+The rule takes the batch-1 rows §98.4 flagged back past the 11-19 times: bert-base b1 GPU 1.10 → 0.98 ms (-11 %; 11-19: 1.01),
+efficientnet-lite4 0.75 → 0.69 (-8 %; 11-19: 0.70), phi-3.5-mini q4f16 3.62 → 3.38 (-7 %), resnet50 b1 -3 %, mobilenetv2 /
+yolov10n b1 -2-3 %, convnext b1 fast -12 % wall. No row is slower beyond the run-to-run spread (largest: mobilenetv2 b8 fast +1 %,
+0.59 against 0.58 ms). Batch 8 and the long-running models are unchanged: their grids fill the GPU, so dependents were placed well
+before too. Against ORT, Sharplight fast is ahead of TF32 on every row (0.37-0.87x) and strict ahead of ORT strict on every row
+(0.06-0.88x); phi-3.5 is now 0.87x of ORT (§98: 0.93x). TensorRT stays ahead on convnext (1.11 / 1.22x), mobilesam (1.23x),
+yolov10n (1.14x), segformer b1 (1.13x), ssd-10 (1.13x) and resnet50 b8 (1.08x); the efficientnet row moves from 0.89x to 0.82x.
+Strict parity passes on every row (ssd-10's relative RMS 2.1e-2 is §37.3's NMS tie order, identical in both builds).
+
+### 99.6 Correctness and tests
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt; `correct/`): byte-identical to `develop` for gpt-oss-20b
+  (md5 e733f049 / 8cb648ed, as in §97) and Qwen3-8B-FP8 (3879d8a4 / b9666631; also with `--fp8-block-scaled off`).
+* PplBench (wikitext-2, 4 x 3,072 tokens, prompt steps of 1,024 rows): the dumped logits are bit-identical to `develop`'s and between
+  two runs of the branch (gpt-oss-20b md5 55ff87d4, PPL 1806.6235; Qwen3-8B-FP8 4ab780cf, PPL 8.7358).
+* ONNX: every strict CUDA row passes against the ORT reference with §98's tolerances (99.5's parity column), the same relative RMS as
+  `develop` on every row (the change moves launches, not kernels).
+* Suites on GPU 0, `SHARPLIGHT_TEST_PROVIDER=cuda`, one class per process (`tests/`): `Sharplight.Cuda.Tests` 73, 0 failed, 1 skipped
+  (cuBLASLt not installed); `Sharplight.Serving.Tests` 401, 0 failed, 13 skipped; `Sharplight.Import.Onnx.Tests` 181, 0 failed,
+  28 skipped. `Sharplight.Vulkan.Tests` not run: only `Sharplight.Cuda` changed, no shared lowering or kernel source.
+
+### 99.7 Rejected and not kept
+
+* **Trigger before the epilogue** (the PTX of every kernel gets `griddepcontrol.launch_dependents` before its first global store;
+  `rejected/store_minfill_experiment.diff`): bert -8 %, efficientnet -7 %, but phi-3.5 unchanged, qwen2.5 q4 +2.5 %, Qwen3-8B-FP8
+  decode at 16 +0.7 % and its 512-token prompt step +1.5 %. The trigger's place is not what costs (99.1).
+* **Dependents only with at least one block per SM** (`SHARPLIGHT_CUDA_PDL_MIN_FILL`, same diff): recovers the ONNX rows but loses
+  qwen2.5 q4's early launches (+3.5 %) and 0.3-0.5 % of the LLM decode steps.
+* **Rule 2 counted at the dependent's full occupancy** (its grid fits the idle SMs at as many blocks per SM as it can hold): gpt-oss-20b
+  decode at 16 sequences 0.2 % better than the kept rule, bert b1 3 % worse (99.1's table).
+* **Sector-parity layout of `gemm_kq_native`** on sustained energy windows: -1.9 to +0.9 % (99.2).
+* Register-path copies with split sectors: nothing to fix (99.2).
+
+### 99.8 Gap to vLLM and ranked plan
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64, closed loop | 0.96-0.99 / **1.01-1.05** | 16: ITL mean 10.5 against 9.8 ms; the decode kernels are equal or ahead on equal inputs (99.3), the difference is the prompt waves (ITL p95 20-22 against 10.3 ms) |
+| Qwen3-8B-FP8 serving 16 / 64 | 0.99 / 0.99 | ITL mean 13.65 / 21.06 against 12.87 / 20.24: the FP8 prompt GEMMs (§94) and the step floor's waves |
+| ONNX on CUDA against ORT TF32 / strict / TensorRT | see 99.5 | |
+
+1. **Prompt waves at 16 streams** (gpt-oss ITL p95 2x vLLM's, mean +0.7 ms): the mixed step (16 decode rows + a 256-token chunk)
+   takes 25.0 ms against 12.0 ms for decode alone. Measure how vLLM's chunked prefill spreads the same arrivals (chunk size per step,
+   ITL per step) against our step floor, then size the chunk by its marginal cost per decode row (an owner default: the waves floor
+   stays; propose a measured alternative).
+2. **Dependent launches, the remaining 0.4 %** of gpt-oss-20b's 16-sequence decode: the pairs after full-GPU grids (`splitk_reduce` /
+   `rowreduce_narrow` of 180 blocks → a 16-block norm with shared memory, 0.4 µs each). A cheaper prologue in those norms (no shared
+   memory for a single-row reduction) would let rule 1 take them.
+3. **Down product on vLLM's routing** (1.008 of Marlin at 16 sequences, 1.028 at 64; gate / up 0.96-0.98): §97.8's item 3.
+4. **FP8 prompt GEMMs** (Qwen3-8B-FP8 at 16 / 64, §94.6), unchanged.
+5. ONNX: the rows still behind TensorRT (99.5): convnext, mobilesam, yolov10n, segformer b1, ssd-10 (§98.7 items 2-4).
+
+### 99.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+nvcc -O3 -arch=sm_120 bench/s99_pdl_placement.cu -o pdl
+for m in 0 1 2; do NA=108 NB=32 A_SMEM=0 B_SMEM=4224 A_US=3 B_US=40 MODE=$m ./pdl; done        # 99.1: the pile-up and its absence
+cd bench/s56_moe && for v in "0 0 32 4" "0 1 32 4" "3 0 128 2" "3 1 128 2"; do set -- $v
+  nvcc -O3 -arch=sm_120 -std=c++17 -DPAT=$1 -DSPLIT=$2 -DC=$3 -DS=$4 read_energy.cu -o re -ldl && SECONDS_RUN=3 ./re; done  # 99.2
+cd ../s77_kq && nvcc -O3 -arch=sm_120 -std=c++17 -DK=4096 -DN=12288 -DKQ_FMT=4 -DKQ_BM=16 -DKQ_STAGES=4 -DKQ_SPLIT=1 \
+  -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_kq_native.cu"' bench_kq.cu -o kq -ldl && ENERGY=3 ./kq 9
+python bench/s73_vllm_routing.py ~/models/hf/gpt-oss-20b --out vllm16_words.txt --seqs 16 --depth 256 --steps 64     # 99.3
+ROUTES=vllm16_words.txt LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=3 ./gu   # §97.9's gate / up harness build; ./dn for down
+python bench/s73_marlin_replay.py vllm16_words.txt --product gate_up --seconds 3 --energy --gpu 0
+python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --seqs 16 --words --skip 5 --gpu-util 0.6
+SHARPLIGHT_CUDA_PDL_SHARED=any ...   # the dependent rule of `develop` before this section, for A/B runs
+dotnet bench/BatchBench/bin/Release/net11.0/BatchBench.dll ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 \
+  --sizes 1,16,64 --modes greedy --reps 30 --text
+ONNX_BENCH_DLL_BASE=<develop build>/OnnxBench.dll python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 \
+  --engines sl-cuda,sl-cuda@base,sl-cuda-fast,sl-cuda-fast@base,ort-cuda,ort-cuda-strict
+```
