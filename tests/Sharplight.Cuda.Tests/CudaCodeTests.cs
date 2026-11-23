@@ -58,6 +58,33 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(120, true)]
+    [InlineData(89, false)]
+    public void MarkedKernelCarriesNvrtcMachineCodeOnComputeCapability12(int computeCapability, bool expected)
+    {
+        RequireNvrtc();
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("SHARPLIGHT_CUDA_NVRTC_SASS") is { Length: > 0 }, "SHARPLIGHT_CUDA_NVRTC_SASS overrides the marker.");
+        string source = SlangCompiler.CudaThreadsHeader + "64 1 1\n#define SL_NVRTC_SASS 1\nextern \"C\" __global__ void k(float* y) { y[threadIdx.x] *= 2.0f; }\n";
+        var translator = new NvrtcTranslator(computeCapability);
+
+        var ptx = CudaPtx.Parse(translator.Translate("marked.cu", "k", Encoding.UTF8.GetBytes(source)), "marked");
+        var plain = CudaPtx.Parse(translator.Translate("plain.cu", "k", Encoding.UTF8.GetBytes(source.Replace("#define SL_NVRTC_SASS 1\n", "", StringComparison.Ordinal))), "plain");
+
+        Assert.Equal(expected, ptx.Cubin is not null);
+        Assert.Equal(expected ? computeCapability : 0, ptx.CubinCapability);
+        Assert.Null(plain.Cubin);
+        Assert.Equal("k", ptx.Function);
+        Assert.Equal((64u, 1u, 1u), (ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ));
+        if (expected)
+        {
+            // An ELF image (the cubin), next to the PTX of the same kernel.
+            Assert.Equal((byte)0x7f, ptx.Cubin![0]);
+            Assert.Equal("ELF"u8.ToArray(), ptx.Cubin[1..4]);
+            Assert.Contains(".entry k", Encoding.UTF8.GetString(ptx.Code));
+        }
+    }
+
+    [Theory]
     [InlineData(75)]
     [InlineData(89)]
     [InlineData(120)]
