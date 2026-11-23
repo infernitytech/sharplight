@@ -1,0 +1,3 @@
+  Finished:    Sharplight.Cuda.Tests (ID = '3cf36b1dc64a0dacd3e795a4c766661779b6bdfd54d3564b5ad3a3920c4f769d')
+=== TEST EXECUTION SUMMARY ===
+   Sharplight.Cuda.Tests  Total: 72, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 32.439s

@@ -1,0 +1,13 @@
+[hold 12:42:32] ./bis.sh
+0 %, 2 MiB, 8.74 W
+dmin1 routes_same.txt    L=1  energy: 8 passes 3.94 s: 0.3362 ms per routing, 129.1 W, 43.446 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1761 nJ per weight byte, SM 1659 MHz, memory 13365 MHz
+dmin1 routes_same.txt    L=24 energy: 6 passes 3.00 s: 0.3416 ms per routing, 128.2 W, 43.829 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1776 nJ per weight byte, SM 1647 MHz, memory 13365 MHz
+dmin1 routes_uniform28.txt L=1  energy: 8 passes 3.98 s: 0.3399 ms per routing, 129.3 W, 43.964 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1782 nJ per weight byte, SM 1646 MHz, memory 13365 MHz
+dmin1 routes_uniform28.txt L=24 energy: 6 passes 3.01 s: 0.3418 ms per routing, 127.4 W, 43.584 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1766 nJ per weight byte, SM 1639 MHz, memory 13365 MHz
+rk                             PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 825.3 GB/s, 199.1 W, 0.2412 nJ per byte, SM 2557 MHz, memory 13365 MHz 
+dmin1 routes_same.txt    L=1  energy: 6 passes 3.01 s: 0.3429 ms per routing, 127.9 W, 43.904 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1779 nJ per weight byte, SM 1647 MHz, memory 13365 MHz
+dmin1 routes_same.txt    L=24 energy: 6 passes 3.01 s: 0.3419 ms per routing, 127.8 W, 43.756 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1773 nJ per weight byte, SM 1644 MHz, memory 13365 MHz
+dmin1 routes_uniform28.txt L=1  energy: 6 passes 3.00 s: 0.3417 ms per routing, 132.2 W, 45.222 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1833 nJ per weight byte, SM 1642 MHz, memory 13365 MHz
+dmin1 routes_uniform28.txt L=24 energy: 8 passes 3.99 s: 0.3407 ms per routing, 128.4 W, 43.768 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1774 nJ per weight byte, SM 1649 MHz, memory 13365 MHz
+rk                             PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 825.3 GB/s, 199.2 W, 0.2413 nJ per byte, SM 2557 MHz, memory 13365 MHz 
+[release 12:43:36]

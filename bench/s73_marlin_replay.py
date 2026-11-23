@@ -13,6 +13,7 @@ window to sample with s73_clock_sampler.py).
 """
 
 import argparse
+import statistics
 import time
 import types
 
@@ -71,6 +72,10 @@ def main() -> None:
     parser.add_argument("--hidden", type=int, default=3072, help="hidden size (vLLM's Marlin padding of gpt-oss's 2880)")
     parser.add_argument("--intermediate", type=int, default=2944, help="intermediate size (padded 2880)")
     parser.add_argument("--reps", type=int, default=10, help="timed replays for the best time")
+    parser.add_argument("--energy", action="store_true",
+                        help="read NVML's total energy counter around the sustained window (--gpu: NVML index) and print energy per "
+                             "routing and per weight byte (each touched expert's padded weights read once)")
+    parser.add_argument("--gpu", type=int, default=0, help="NVML index of the GPU for --energy")
     args = parser.parse_args()
 
     device = torch.device("cuda")
@@ -138,6 +143,18 @@ def main() -> None:
     print(f"marlin {args.product}: block_m {block_m}, {len(routes)} routings over {args.layers} layer copies: "
           f"{best / len(routes):.4f} ms per routing (best of {args.reps})")
 
+    nvml = None
+    if args.energy:
+        import pynvml
+        pynvml.nvmlInit()
+        nvml = pynvml.nvmlDeviceGetHandleByIndex(args.gpu)
+        warm = time.perf_counter() + 1.0
+        while time.perf_counter() < warm:
+            graph.replay()
+            torch.cuda.synchronize()
+        energy0 = pynvml.nvmlDeviceGetTotalEnergyConsumption(nvml)
+        wall0 = time.perf_counter()
+        clocks = []
     replays = 0
     start.record()
     deadline = time.perf_counter() + args.seconds
@@ -146,8 +163,24 @@ def main() -> None:
             graph.replay()
         replays += 4
         torch.cuda.synchronize()
+        if nvml is not None:
+            clocks.append(pynvml.nvmlDeviceGetClockInfo(nvml, pynvml.NVML_CLOCK_SM))
     end.record()
     end.synchronize()
+    if nvml is not None:
+        joules = (pynvml.nvmlDeviceGetTotalEnergyConsumption(nvml) - energy0) / 1000.0
+        wall = time.perf_counter() - wall0
+        per_expert = 0
+        if args.product in ("gate_up", "both"):
+            per_expert += 2 * INTERMEDIATE * (HIDDEN // 2 + HIDDEN // 32)
+        if args.product in ("down", "both"):
+            per_expert += HIDDEN * (INTERMEDIATE // 2 + INTERMEDIATE // 32)
+        touched = sum(sum(1 for c in counts if c > 0) for counts in routes) / len(routes)
+        weight_bytes = touched * per_expert
+        per_routing = joules / replays / len(routes)
+        print(f"marlin {args.product}: energy: {replays} replays {wall:.2f} s, {joules / wall:.1f} W, {per_routing * 1000:.3f} mJ per routing, "
+              f"{weight_bytes / 1e6:.1f} MB weights per routing ({touched:.2f} experts), {per_routing * 1e9 / weight_bytes:.4f} nJ per weight "
+              f"byte, SM {statistics.median(clocks):.0f} MHz")
     print(f"marlin {args.product}: sustained {replays} replays: {start.elapsed_time(end) / replays / len(routes):.4f} ms per routing")
 
 

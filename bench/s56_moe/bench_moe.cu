@@ -18,6 +18,33 @@
 #include <vector>
 #include <algorithm>
 #include <random>
+#include <chrono>
+#include <dlfcn.h>
+
+// ENERGY=seconds: NVML's total energy counter (mJ, libnvidia-ml loaded at run time) read around a sustained back-to-back window
+// without eviction, so energy per routing and per weight byte compare with bench/s73_marlin_replay.py --energy. NVML_GPU: the
+// NVML (physical) index of the GPU.
+struct NvmlEnergy
+{
+    void* lib = nullptr;
+    void* dev = nullptr;
+    int (*energy)(void*, unsigned long long*) = nullptr;
+    int (*clock)(void*, int, unsigned*) = nullptr;
+    bool open()
+    {
+        lib = dlopen("libnvidia-ml.so.1", RTLD_NOW);
+        if (!lib) { return false; }
+        auto init = (int (*)())dlsym(lib, "nvmlInit_v2");
+        auto handle = (int (*)(unsigned, void**))dlsym(lib, "nvmlDeviceGetHandleByIndex_v2");
+        energy = (int (*)(void*, unsigned long long*))dlsym(lib, "nvmlDeviceGetTotalEnergyConsumption");
+        clock = (int (*)(void*, int, unsigned*))dlsym(lib, "nvmlDeviceGetClockInfo");
+        unsigned idx = getenv("NVML_GPU") ? atoi(getenv("NVML_GPU")) : 0;
+        return init && handle && energy && init() == 0 && handle(idx, &dev) == 0;
+    }
+    unsigned long long mj() { unsigned long long v = 0; energy(dev, &v); return v; }
+    unsigned sm() { unsigned v = 0; clock(dev, 1, &v); return v; }
+    unsigned mem() { unsigned v = 0; clock(dev, 2, &v); return v; }
+};
 
 #ifndef E
 #define E 32
@@ -262,6 +289,54 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
             float ms; cudaEventElapsedTime(&ms, e0, e1); if (it > 0 && ms < best) best = ms;
         }
         printf("back to back over %d layer copies: %.4f ms per routing\n", layers, best / lines);
+        NvmlEnergy nv;
+        if (getenv("ENERGY") && nv.open())
+        {
+            double seconds = atof(getenv("ENERGY"));
+            auto launchAll = [&]() {
+                for (size_t l = 0; l < all.size(); l++)
+                {
+                    NmParams p;
+                    p.x = dx; p.w = copies[l % layers];
+#if DUAL
+                    p.w2 = copies[l % layers] + (size_t)N * ROW_BYTES;
+#endif
+                    p.scratch = dall + l * words; p.y = y; p.T = 64;
+#if BIAS && DUAL
+                    p.gt0 = dbias;
+#elif BIAS
+                    p.moe_bias = dbias;
+#endif
+                    dim3 grid((N + NM_BOUT - 1) / NM_BOUT, std::max(1u, all[l][0]));
+                    gemm_moe_native<<<grid, NM_THREADS, smemBytes>>>(p);
+                }
+            };
+            // One second of warm-up at the sustained clocks, then the measured window (whole passes).
+            auto t0 = std::chrono::steady_clock::now();
+            while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < 1.0) { launchAll(); cudaDeviceSynchronize(); }
+            unsigned long long e0mj = nv.mj();
+            unsigned smSum = 0, smN = 0, memSum = 0;
+            int passesE = 0;
+            cudaEventRecord(e0);
+            t0 = std::chrono::steady_clock::now();
+            while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < seconds)
+            {
+                launchAll(); launchAll(); cudaDeviceSynchronize(); passesE += 2; smSum += nv.sm(); memSum += nv.mem(); smN++;
+            }
+            cudaEventRecord(e1); cudaEventSynchronize(e1);
+            unsigned long long e1mj = nv.mj();
+            double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            float ms; cudaEventElapsedTime(&ms, e0, e1);
+            double j = (e1mj - e0mj) / 1000.0, per = ms / passesE / all.size();
+            // Weight bytes read per routing: each routing tile reads its expert's codes and scales of the matrix (or both of DUAL).
+            double tilesSum = 0;
+            for (auto& r : all) { tilesSum += r[0]; }
+            double bytes = tilesSum / all.size() * (double)N * ROW_BYTES * (DUAL ? 2 : 1);
+            printf("energy: %d passes %.2f s: %.4f ms per routing, %.1f W, %.3f mJ per routing, %.1f MB weights per routing (tile reads), "
+                   "%.4f nJ per weight byte, SM %u MHz, memory %u MHz\n",
+                   passesE, wall, per, j / wall, j * 1000.0 / passesE / all.size(), bytes / 1e6, j * 1e9 / passesE / all.size() / bytes,
+                   smN ? smSum / smN : 0, smN ? memSum / smN : 0);
+        }
     }
     cudaError_t err = cudaDeviceSynchronize();
     if (err) { printf("error %s\n", cudaGetErrorString(err)); return 1; }
@@ -272,7 +347,11 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
 
 int main(int argc, char** argv)
 {
+#ifdef NM_SMEM_BYTES
+    size_t smemBytes = (size_t)NM_SMEM_BYTES;   // a kernel variant with its own shared-memory layout (bench/results/s96/rejected)
+#else
     size_t smemBytes = (size_t)NM_STAGES * NM_STAGE_BYTES;
+#endif
     if (cudaFuncSetAttribute(gemm_moe_native, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes)) { printf("smem %zu too large\n", smemBytes); return 1; }
     std::vector<unsigned char> wh((size_t)E * EXPERT_BYTES);
     for (size_t i = 0; i < wh.size(); i++) wh[i] = (unsigned char)hash((unsigned)i);

@@ -17,5 +17,10 @@
     <Compile Include="../Sharplight.Vulkan.Tests/MemSource.cs" Link="Shared/MemSource.cs" />
     <Compile Include="../Sharplight.Vulkan.Tests/Rnd.cs" Link="Shared/Rnd.cs" />
     <Compile Include="../Sharplight.Vulkan.Tests/MemoryStore.cs" Link="Shared/MemoryStore.cs" />
+    <!-- Weights in a file, as routed experts left on disk read them. -->
+    <Compile Include="../Shared/FileWeights.cs" Link="Shared/FileWeights.cs" />
+    <Compile Include="../Shared/FileRangeSource.cs" Link="Shared/FileRangeSource.cs" />
+    <Compile Include="../Shared/EncodedFileRangeSource.cs" Link="Shared/EncodedFileRangeSource.cs" />
+    <Compile Include="../Shared/ReversedBlockEncoding.cs" Link="Shared/ReversedBlockEncoding.cs" />
   </ItemGroup>
 </Project>

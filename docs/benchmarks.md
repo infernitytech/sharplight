@@ -13142,7 +13142,7 @@ pod's host memory: 36 layers' experts on disk (59 GiB). Prompt "The capital of F
 | llama.cpp b11177 CUDA (`-ngl 99 -ncmoe 36`, mmap) | " Paris. It is the largest city in France, with a population of over 2 million people. ..." | 6.58 tok/s | 3.31 tok/s |
 | Sharplight CUDA, experts on disk (16 GiB cache, 31 layers on disk), `--batch 1` | " Paris. It is the largest city in France, and is" (12 tokens; llama.cpp's CPU text) | 7.74 tok/s (12 tokens); `--bench 8`: median 12.41, best 14.92 tok/s, 95 % hits | 5 tokens in 1.5 s |
 
-**Bug, open:** on CUDA with experts on disk, a prompt pass of more than one row gives wrong output on this model (`--batch 64`:
+**Bug (fixed in 87.10: not multi-row, a page-locking leak of the expert cache):** on CUDA with experts on disk, a prompt pass of more than one row gives wrong output on this model (`--batch 64`:
 " Paris, where else the hidden-googoorxmaent ..."; the same with `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`), while the same placement fed the prompt
 row by row (`--batch 1`), CUDA without experts on disk (" Paris. It is the largest city in France and is located"), and the CPU are right,
 and GLM-5.2 and DeepSeek-V3.1 are right in the same mode. So it needs `deepseek4`, CUDA segments and multi-row CPU expert products from
@@ -13178,7 +13178,7 @@ KL 1.2e-2 from llama.cpp's token-by-token decoding, llama.cpp's own prompt pass 
   their own instead of the widening; the CUDA split path could run more of the selected experts on the GPU.
 * The CUDA device reserve should grow with the number of segments (concurrent-lane streams and step graphs per segment) so that a 185-segment
   placement does not fail at the first graph capture; until then `SHARPLIGHT_DEVICE_RESERVE_MIB=3072` for Kimi-K3.
-* DeepSeek-V4-Flash on CUDA with experts on disk: multi-row prompt passes give wrong output (87.4); `--batch 1` works around it.
+* DeepSeek-V4-Flash on CUDA with experts on disk: multi-row prompt passes give wrong output (87.4); `--batch 1` works around it. Fixed (87.10).
 * Kimi K3.1 (no unsloth GGUF, no llama.cpp b11177 support), GLM-5.3 (same architecture as GLM-5.2), Mistral-Large-4-1T, Qwen3.8-2.4T-A95B
   (UD-Q1_0 397 GB), Muse-Spark-Open-816B and Nemotron-3-Ultra-550B (UD-IQ1_M 188 GB) were not run (time and the disk the feed builds need).
 * The DeepSeek-V3.1 GGUF lacks `expert_group_count`; a converter-side fix (or an importer default from the HF config when the file names
@@ -13231,7 +13231,69 @@ SHARPLIGHT_DEVICE_RESERVE_MIB=3072 $CLI ~/models/Kimi-K3/UD-Q1_0/Kimi-K3-UD-Q1_0
   `n_group 8, topk_group 4`: KL 3.4e-4 (5.6e-3 and another argmax without the groups); against the reference without groups the old routing had
   KL 3.4e-4 too, so the change only follows the model. llama.cpp b11177 still routes over all experts on this file.
 * **DeepSeek-V4-Flash multi-row prompts on CUDA with experts on disk**: not reproduced on random `deepseek4` checkpoints (model-support.md
-  9.1); the real file was gone from the pod. Still open.
+  9.1); the real file was gone from the pod. Fixed in 87.10.
+
+### 87.10 Follow-up (fix/dsv4-cuda-disk): the `--batch 64` failure was a page-locking leak of the expert cache
+
+The same unsloth/DeepSeek-V4-Flash-0731-GGUF `UD-IQ1_S` files (revision `fbbb5b93`) downloaded again to the pod's local disk (they stay as the
+huge-model demo), the same GPU 0 and limits as 87.4, `develop` at `9694870c` (after `4868f069`, the legacy-stream fix). CUDA, `--cpu-offload
+--experts-on-disk --expert-cache 16G --ctx 4096`, prompt "The capital of France is", greedy. Raw output in
+[`bench/results/s87/v4_disk_fix.txt`](../bench/results/s87/v4_disk_fix.txt).
+
+**Still reproducible on `develop`.** `--batch 64` gave a different wrong text in every run (" Paris, where the Eiffel Tower/overgrown/",
+" Paris, where the multinational and cultural, history, and, especially, his"); with the split decode's GPU share fixed
+(`SHARPLIGHT_SPARSE_GPU_SLOTS=3` or `6`) failed with `cuMemcpyHtoDAsync: invalid argument` in the sparse GPU compilation's
+copies from the cache slots in two of five runs. `--batch 1` and `--batch 4` were right.
+
+**Bisection.**
+
+* The prompt pass is right: the last row's logits of every split of the prompt (`--batch 1`, `4`, `5`, `7`; one row after five; the CPU
+  expert path only, `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`) differ from each other and from the CPU by KL 2-7e-2, the noise of a 1-bit file, with
+  the same argmax. On a 6-layer cut of the real file (`tools/truncate-gguf-remote.py` on the local shards: hash layers, compression ratios 0, 4
+  and 128, all five MoE layers' experts on disk with a 2 GiB cache) every CUDA path is within KL 2.5e-5 of the CPU, 19-row passes included.
+* Decode is wrong only when the GPU takes part: with the experts on the CPU alone (`SHARPLIGHT_SPARSE_EXPERT_ROWS=0` or
+  `SHARPLIGHT_SPARSE_GPU_SLOTS=0`) `--batch 64` is deterministic and coherent (" Paris.\", \"target\": \"Paris\", ..." twice: a near tie of the
+  model, `.` 23.60 against `.",` 23.40 at that position with `--batch 1`), with GPU slots it is wrong and changes from run to run.
+* The difference between `--batch 64` and `--batch 1` was the placement, not the rows: with 64 rows of activations the first placement ran
+  out of device memory, and the retry put one more layer's experts on the CPU (30 groups instead of 29). The expert cache had been laid out
+  for the first placement (its estimate says "87 weights in 29 layers") and was laid out again at the first pass, for 90 weights.
+
+**Cause.** `ExpertStore.PinFor` laid a stale layout out, which page-locks the new pools for every device (the one being added included), and
+then page-locked every pool again: two holds on the device's registration (`CudaDevice.TryRegisterHost`). Laying the pools out again released
+one hold and freed the pools while they stayed registered with the driver. The new pools, multi-GiB mappings at the same addresses, then
+counted as registered (the device found the same start and size and only added a holder), but the driver's registration still referred to
+the freed pages: the sparse GPU compilation copied stale experts (wrong text) or, where the ranges overlapped only in part, failed the copy.
+Only the GPU's copies read through the registration, so the CPU, CUDA without experts on disk and `--batch 1` (no second layout) were
+right; any second layout (another graph of the model registering more experts) would have hit it too. Nothing in it is specific to
+DeepSeek-V4.
+
+**Fix.** A pool is page-locked once per device (`ExpertStore.PinPoolLocked`), so every pool freed by a new layout is unregistered first.
+
+**Results** (after the fix):
+
+| run | text (24 tokens) | decode | prompt |
+|---|---|---:|---:|
+| Sharplight CUDA, experts on disk, `--batch 64` | " Paris. It is the largest city in France and is located in the north-central part of the country, on the Seine" (the CPU's text of 87.4, continued) | 7.15-7.24 tok/s | 5 tokens in 6.0-6.2 s |
+| same, default batch | the same text | 6.04 tok/s | 5 tokens in 5.4 s |
+| same, `--batch 64`, GPU slots fixed at 3 / 6 | " ... and is known for its art, culture, and history. Paris is home" / " Paris.\", \"target\": ..." (the near tie above) | 6.99 / 7.09 tok/s | |
+| same, `--batch 64 --bench 8` (64 decode steps, warm cache) | | best 14.94, median 12.10, mean 11.30 tok/s; GPU 21.9 ms per step; 94.3 % hits | 8 tokens in 598 ms (best) |
+| llama.cpp b11177 CUDA (`-ngl 99 -ncmoe 36 -fa on -t 10`, mmap, page cache warm) | " Paris. It is the largest city in France, with a population of over 2 million people. Paris is known for" | 7.15 tok/s | 5 tokens in 2.0 s |
+
+Decode in the 24-token text run equals llama.cpp's (7.15 tok/s each; ours starts from an empty cache and reads 11 GB from disk, llama.cpp
+ran last, with much of the mapped file in the page cache), the warm `--bench` steps are 1.7x llama.cpp's text rate (87.4: 6.58 tok/s). The first prompt is slower (5.4-6.2 s against 2.0 s): its rows run
+the CPU's expert products alone (passes of more than 4 rows do not split with the GPU) on a cold cache.
+
+**Tests.** `ExpertStoreTests.PoolsAreLockedOncePerDevice_AndReleasedBeforeTheyAreLaidOutAgain` (Core: the lock count per pool and device
+through `PinFor` with a stale layout and a second layout; fails before the fix), `DiskExpertRelayoutTests` (Cuda.Tests: a synthetic MoE with
+every layer's experts on disk and a 40 MiB cache, a second compilation registering one more layer, split passes against the CPU; fails
+2 of 2 runs before the fix: the GPU's share reads stale experts).
+
+| suite | result |
+|---|---|
+| Sharplight.Core.Tests `ExpertStoreTests` | 10 / 0 failed |
+| Sharplight.Cpu.Tests `DiskExpertTests` | 14 / 0 failed |
+| Sharplight.Cuda.Tests (with `DiskExpertRelayoutTests`) | 73 / 0 failed / 1 skipped |
+| Sharplight.Serving.Tests | 401 / 2 failed / 28 skipped after merging `develop` (`EngineTests.StepFloor_PolicyWhileSomeSequenceDecodes`, `MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached`: timing-dependent, run beside the CUDA suite; both classes passed 2 of 2 runs alone); 397 / 0 failed before the merge |
 
 ## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
 
@@ -14521,6 +14583,195 @@ sharplight ~/models/hf/Qwen3.8-27B-FP8 --provider cuda -n 120 -p "<prompt>" [--f
 QUIET_GPU=1 ROUNDS=2 [SHARPLIGHT_SERVER=<develop build>] bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda --step-floor always --fp8-block-scaled off   # the old defaults
 ```
+
+## 96. LLM round 37: the MXFP4 decode expert GEMM's energy per weight byte against Marlin, what draws it, and a clock limiter that holds our launches at ~1.7 GHz where the same copy stream outside the harness runs at 2.6 GHz; nothing kept (2026-11-23)
+
+Branch `perf/llm-r37` (`develop` at `bf88b937`, §94 merged; `develop` at `15492683` with §95's new defaults merged before hand-back, not re-measured). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82
+SMs, 200 W cap, driver 595.112 / CUDA 13.2), shared with other rounds. Every run held the verify lock and variants alternated in the
+same holds. One hold was disturbed by another process on the GPU (its numbers vary 2x between identical runs) and is discarded.
+vLLM 0.33 (venv `vllm-r12`) ran in the serving hold. The engine's code is unchanged. The round adds measurement tools and a rejected
+kernel forms (96.5). Raw output is in [`bench/results/s96/`](../bench/results/s96) (`harness/`, `scripts/`, `rejected/`, `serve/`,
+`steps/`).
+
+New tools:
+* `ENERGY=<seconds>` in `bench/s56_moe` reads NVML's total energy counter around a sustained back-to-back window. The window has no
+  eviction, runs after one second of warm-up and covers whole passes. It prints ms, W, mJ and nJ per weight byte per routing, plus the
+  SM and memory clock. Weight bytes are the bytes the routing tiles read: an expert split over two tiles counts twice.
+* `--energy` in `bench/s73_marlin_replay.py` prints the same figures. There the weight bytes are each touched expert's padded weights,
+  read once.
+* `bench/s56_moe/read_energy.cu` measures energy per byte of a copy pattern. It has these options: `PAT`, `C` (bytes per row and
+  stage), `S`, `HINT`, `KMODE=1` (the dual gate / up tile geometry of a decode launch), `SMEM_KB` (occupancy), `AHEAD` (the
+  GEMM's wait depth), `WORK` (SM load), `BUF_GB` / `SHUFFLE` (footprint) and `CONST_DATA`.
+* `bench/s73_clock_sampler.py` now also records NVML's instantaneous power field. It turned out to refresh as slowly as the averaged
+  one (6-17 distinct readings in 5 s), so it cannot show sub-millisecond peaks.
+
+### 96.1 Serving against vLLM
+
+`bench/s16_serve.sh`, closed loop, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds each.
+Ours (`--provider cuda`, the branch's binaries are `develop`'s) ran before and after vLLM in one hold; vLLM ran with
+`--gpu-memory-utilization 0.6` (`serve/`). Tok/s per round (ours before / after), TTFT p50 and inter-token latency (ms):
+
+| model, streams | `perf/llm-r37` (= `develop`) | vLLM 0.33 | ours / vLLM |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1100 / 1105, 1100 / 1105 | 1119 / 1116 | **0.983-0.990** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 106-109 / 13.56-13.59, 14.2-14.5, 52.7-52.9 | 156-166 / 12.92-12.93, 13.0-13.1, 14.8-15.6 | |
+| Qwen3-8B-FP8, 64 | 2638 / 2629, 2639 / 2641 | 2689 / 2686 | **0.978-0.983** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 257-263 / 21.22-21.26, 36-40, 132-134 | 398-405 / 20.19-20.28, 22-23, 133-134 | |
+| gpt-oss-20b, 16 | 1403 / 1422, 1391 / 1420 | 1411 / 1411 | **0.99-1.01** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 101-106 / 10.36-10.53, 11.2-11.9, 50.4-50.9 | 168-178 / 9.99-10.00, 10.5-10.8, 13.2-18.9 | |
+| gpt-oss-20b, 64 | 3064 / 3071, 3057 / 3068 | 3150 / 3194 | **0.957-0.975** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 235-238 / 18.06-18.16, 34-40, 118-119 | 376-470 / 16.47-16.95, 17, 120-121 | |
+
+All four points are within §94's spread. They are on the old defaults: §95's block-scaled FP8 and `waves` step floor (merged after this hold) move gpt-oss-20b at 16 streams by -1.4 to -3.6 % and Qwen3-8B-FP8 at 64 by +0.8-0.9 % (§95.2). gpt-oss-20b's 64-stream gap is in the decode steps (ITL mean 18.1 against 16.5-17.0 ms).
+BatchBench's 64-sequence `--text` decode step in the same hold took 16.90 ms GPU (16 sequences: 12.72), at a median of 2.3 GHz and
+196 W over the run (`steps/gptoss_text.txt`). The expert GEMMs are ~12.3 ms of that step and Marlin's ~11.3.
+
+### 96.2 Energy per weight byte: ours against Marlin on the same routings
+
+The §73 replay (24 layer copies, ms per routing = per layer) ran with `ENERGY=4` and `--energy`, one hold, alternated
+(`harness/energy_marlin_vs_ours.txt`):
+
+| routing, product | ours: ms, W, SM MHz | ours: MB read, nJ / byte | Marlin: ms, W, SM MHz | Marlin: MB read, nJ / byte | ours / Marlin time |
+|---|---:|---:|---:|---:|---:|
+| vLLM's (24.2 experts, 26.5 tiles), gate / up | 0.340, 191 W, 1752 | 233.6, 0.279 | 0.309, 199 W, 1961 | 232.8, 0.264 | 1.10 |
+| vLLM's, down | 0.177, 184 W, 1789 | 116.8, 0.279 | 0.158, 199 W, 1980 | 116.4, 0.271 | 1.12 |
+| ours (`--text`, 27.2 experts, 28.3 tiles), gate / up | 0.371, 190 W, 1709 | 249.7, 0.282 | 0.340, 198 W, 2017 | 261.7, 0.257 | 1.09 |
+| ours, down | 0.190, 181 W, 1766 | 124.9, 0.276 | 0.175, 198 W, 2055 | 130.8, 0.264 | 1.09 |
+
+* Per weight byte, Marlin takes 3-9 % less energy. It also draws the full 200 W at 1.96-2.06 GHz, while ours draws 181-191 W at
+  1.71-1.79 GHz, with NVML's software-power-cap reason (0x4) set in 95-100 % of the samples. Both effects together make ours 9-12 %
+  slower per routing in steady state. In DRAM terms that is ~685 GB/s for ours against ~755 for Marlin.
+* **§73.3's "par on our routing" was a measurement artifact.** That routing file has 216 lines, so a pass lasts ~80 ms, and the best
+  of 80 passes (0.338-0.347 ms) caught passes before the limiter settled. A 4 s window gives 0.370 ms on the same binary
+  (`harness/energy_*`). vLLM's routing has 1,464 lines (0.5 s per pass), so best-of-passes and the window agree there (0.339-0.341).
+  On both routings, ours is ~10 % behind Marlin in steady state.
+
+### 96.3 What draws the energy and what costs the time: ablations
+
+Diagnostic switches (`rejected/moe_diag_ablations.diff` on top of `rejected/moe_weight_ring_nm_cp.diff`; wrong products except
+`full`). vLLM's routing, energy windows, mean of two rounds in one hold (`harness/energy_ablation_r*.txt`):
+
+| variant | gate / up ms | down ms | W | SM MHz | DRAM GB/s (gate / up) |
+|---|---:|---:|---:|---:|---:|
+| full (`develop`'s kernel) | 0.3412 | 0.1772 | 186-192 | 1746-1790 | 685 |
+| no MMAs (the `ldmatrix` loads kept) | 0.3387 | 0.1729 | 177-184 | 1766-1791 | |
+| no decode (no code / scale shared loads, constant B fragments) | 0.3375 | 0.1711 | 162-164 | 1730-1813 | |
+| neither | 0.3351 | 0.1715 | 151 | 1726-1764 | |
+| no activation copies | 0.3289 | 0.1705 | 190 | 1772-1842 | |
+| no scale copies (5.9 % fewer DRAM bytes) | 0.3215 | 0.1664 | 195-198 | 1762-1812 | 684 |
+| no stores | 0.3362 | 0.1724 | 189-194 | 1736-1790 | |
+| code copies only (no activation / scale copies, decode, MMAs) | 0.3094 | 0.1585 | 149-152 | 1742-1768 | 711 |
+| the same without `ldmatrix` either (`bare`) | 0.3089-0.3091 | | 136-139 | 1719-1730 | 711 |
+| copy ring only inside this kernel (wait, barrier, copies; uniform 28-tile routing) | 0.335-0.343 against `bare`'s 0.340 | | 125-131 | 1627-1665 | 692-736 |
+| Marlin (96.2) | 0.309 | 0.158 | 199 | 1961-1980 | 755 |
+
+* The decode's arithmetic and shared-memory loads draw ~30 W (191 → 162 W) but cost only 1 % of the time. The MMAs cost 0.7 % and
+  ~8 W. Compute is not what holds the kernel back.
+* Removing the scale copies saves exactly the scale bytes (6 %) at the same DRAM rate, so the scale copies are not inefficient. The
+  activation copies (L2 hits) cost 3.6 %. The stores cost 1.5 %.
+* The core finding: **even the bare code-copy stream stays at ~711 GB/s and at ~1.73 GHz with the power-cap reason set, while it
+  draws only 125-150 W.** Every kernel form in this round shows the same pattern. Removing work raises neither the clock nor the
+  speed, and adding work (96.5) raises clock and power without making it faster. The SM clock is therefore not what bounds this
+  kernel's time, but something keeps the copy stream below the DRAM rate.
+
+### 96.4 The copy stream outside the GEMM: the same pattern reaches 800-830 GB/s at 2.6 GHz
+
+`read_energy.cu` runs the decode tiles' read pattern on random bytes (128 weight rows of 1,440 code bytes per block, cp.async ring,
+256-byte L2 hints). `KMODE=1` adds the exact dual gate / up row mapping and the (45, 28) grid of a decode launch, and `SMEM_KB=34`
+gives the GEMM's two blocks per SM. Results are in `harness/read_energy_*.txt`:
+
+| pattern | GB/s | W | SM MHz |
+|---|---:|---:|---:|
+| 32 bytes per row and stage (the GEMM's), 1-D grid, 4 GB buffer | 786-788 | 199 | 2550-2610 |
+| the same, tiles in random order over 7 GB | 783 | 199 | 2550 |
+| the GEMM's geometry (`KMODE=1`), six blocks per SM | 801 | 199 | 2565-2610 |
+| the GEMM's geometry, two blocks per SM (`SMEM_KB=34`) | 826-830 | 199 | 2550-2630 |
+| the same with the GEMM's wait depth (stage kb + 1 complete at step kb, `AHEAD=1`) | 825 | 199 | 2550-2617 |
+| 64 bytes per row and stage, two blocks per SM | 834 | 199 | 2752-2775 |
+| one contiguous run per block and stage (a Marlin-like repack), 32 / 64 bytes | 812-826 / 840 | 189-200 | 2767-2805 |
+| constant bytes instead of random (32 bytes per row) | 787 | 186-190 | 2805 |
+
+None of these runs is capped (reason 0x4 in 0-1 % of samples, `harness/clock_reasons.txt`). The bare copy ring inside
+`gemm_moe_native` reads the same bytes in the same order at 692-736 GB/s at 1.63-1.73 GHz, and it is capped. Bisected and ruled out
+as the cause:
+* the kernel's instruction mix (the minimal ring inside the kernel is capped too);
+* the footprint (1, 2, 4, 8 or 24 layer copies: identical, `harness/energy_layer_copies.txt`);
+* the routing's varying grid (a uniform 28-tile routing, `harness/routes_uniform28.txt`, is capped too);
+* data randomness (both random), occupancy, wait depth and ring depth (the rows above);
+* the copy granularity: the 64-byte form is 0-4 % in both places.
+
+What is left is the harness's host loop and the kernel's prologue (routing words, table build, launch parameters). So the limiter
+keys on something not yet identified. Whatever it is, it costs the decode expert GEMMs up to ~15 % of their copy rate (711 against
+826 GB/s). It explains §73.2's "power-capped at lower board power" without being a power problem: our kernel's energy per byte is
+not too high, its launches are clocked down. `harness/bisect_identical_routing.txt` (identical routing lines, so every launch has the
+same grid and experts) is capped too: 0.336-0.343 ms at 1.64-1.66 GHz and 128-132 W, with one or with 24 layer copies, while `read_energy.cu`
+in the same hold read 825 GB/s at 2.56 GHz. So neither the routing's variation nor the experts' spread triggers it.
+
+### 96.5 Kernel forms measured, not kept
+
+Energy windows, alternated in one hold with `develop`'s kernel, ms per routing (vLLM's / ours routing, `harness/energy_*.txt`):
+
+| form | gate / up | down | note |
+|---|---:|---:|---|
+| `develop` | 0.3398-0.3420 / 0.3699-0.3709 | 0.1767-0.1774 / 0.1902-0.1916 | 181-194 W, 1.71-1.80 GHz |
+| weight ring of its own, 64 contiguous bytes per row per copy (`NM_CP=2`, two slots; `rejected/moe_weight_ring_nm_cp.diff`) | 0.3387-0.3398 / 0.3668-0.3707 | 0.1770 / 0.1906-0.1910 | same time, +60-110 MHz, +5-8 W: more energy per byte |
+| the same with three slots (prefetch 4-5 steps deep) | 0.3401-0.3436 / 0.3685-0.3686 | 0.1921-0.1934 / 0.2054-0.2061 | down fits one block per SM |
+| 256-row dual tiles, three stages, two blocks per SM (half the activation traffic) | 0.3484-0.3509 / 0.3795-0.3805 | (256 rows, three stages) 0.1953-0.1968 / 0.2108-0.2113 | +2-3 % / +10 % |
+| 256-row dual tiles, four stages, one block per SM | 0.3539-0.3581 / 0.3801-0.3816 | | |
+| 256-row dual tiles with the 64-byte weight ring | 0.3472-0.3486 / 0.3768-0.3793 | | |
+| five stages (one more copy in flight) | 0.3407-0.3418 | (128 rows) 0.1804-0.1811 | 0 / +2 % |
+| three stages, three blocks per SM (80 registers fit) | 0.3451-0.3460 | (128 rows) 0.1830-0.1843 | +1.3 % / +3.5 % |
+| activation copies issued after the weight copies | 0.3413-0.3416 | 0.1791-0.1810 | 0 / +1 % |
+| 128-row down tiles | | 0.1793-0.1794 | +1 % |
+| `evict_first` policy on the weight copies (`createpolicy` + `L2::cache_hint`) | | | the launch faults; not pursued |
+
+Every product check of the kept-arithmetic forms (`NM_CP`) matches `develop`'s maxima at T = 32-2048 (`harness/`).
+
+### 96.6 Correctness and tests
+
+The engine's source is unchanged (bench tools only). The kernel, its lowering and the binaries are `develop`'s, so greedy text, logits
+and PPL are `develop`'s by construction. Neither greedy text nor PplBench was rerun.
+Suites ran on GPU 0 in a hold, on the branch after the merge of `develop` `15492683` (`tests/`). `Sharplight.Cuda.Tests`: 72, 0 failed,
+1 skipped (cuBLASLt not installed). `Sharplight.Serving.Tests`: 401, 0 failed, 13 skipped. An earlier run before the merge
+(`develop` `bf88b937`) had one failure, `ManySegmentPlacementTests.SegmentsThatDoNotFitTheirGraphsRunWithout` ("0 device segments
+hold 260 MiB after the steps, beyond the 160 MiB limit"). No engine code differs, the hold had just followed another round's test
+process, and the test passes after the merge. `Sharplight.Vulkan.Tests` were not run: no shared lowering or kernel changed.
+
+### 96.7 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64, closed loop | 0.99-1.01 / 0.957-0.975 | 64: decode steps, where the expert GEMMs are 9-12 % behind Marlin per routing (96.2): candidates: the clocked-down copy stream of 96.4 and experts with more than 32 items read twice (+9.5 % weight bytes on vLLM's routing) |
+| Qwen3-8B-FP8 serving 16 / 64 | 0.983-0.990 / 0.978-0.983 | 16: the step-budget floor in prompt waves (owner); 64: FP8 prompt GEMMs 5-8 % behind CUTLASS (§94) |
+
+Ranked levers:
+
+1. **What clocks the MoE launches down** (every MXFP4 / FP4 MoE decode on this GPU, and likely every streaming kernel). The same copy
+   stream runs at 826 GB/s and 2.6 GHz in `read_energy.cu` and at ~711 GB/s and 1.7 GHz in the harness. Finish the bisect between
+   the two binaries (host loop, launch parameters, the kernel prologue's dependent routing reads, the static table) and check the
+   engine's decode launches for the same trigger. The engine's mixed decode step runs at 2.3 GHz median at 196 W (`steps/`). Worth
+   up to ~15 % of the decode expert GEMMs, i.e. ~1.5-1.8 ms of a 64-sequence gpt-oss step, if the GEMM's copy rate follows the
+   microbenchmark's.
+2. **Experts with 33-64 items in one tile** (§75.3): on vLLM's routing the second 32-row tiles add 9.5 % weight bytes (26.5 tiles
+   for 24.2 experts). That is the other half of the 10 % gap to Marlin. Two launches by tile height.
+3. **Activation copies** (3.6 % of the expert GEMM): one copy of the activation stage per two column tiles (cluster or 256-row
+   tiles at no extra stage cost). The 256-row forms of 96.5 lost more elsewhere.
+4. **The step-budget policy** (owner, §93.4) and the FP8 prompt GEMM's SASS-level gap (§94.6 item 3), unchanged.
+
+### 96.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+R1=bench/results/s73/routing/vllm64_words.txt; R2=bench/results/s67/harness/routes64_text.txt
+cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DBIAS=1 -DNM_BM=32 -DNM_WM=1 -DNM_WN=8 \
+  -DNM_BN=128 -DNM_STAGES=4 -DNM_MINB=2 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o gu -ldl
+ROUTES=$R1 LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=4 ./gu             # energy window (NVML_GPU=<nvml index>)
+$VLLM_VENV/bin/python ../s73_marlin_replay.py $R1 --product gate_up --seconds 4 --energy --gpu <nvml index>
+nvcc -O3 -arch=sm_120 -std=c++17 -DPAT=0 -DC=32 -DHINT=256 -DMMA=1 -DKMODE=1 read_energy.cu -o rk -ldl && SECONDS_RUN=3 SMEM_KB=34 ./rk
+# ablations: git apply bench/results/s96/rejected/moe_weight_ring_nm_cp.diff, then .../moe_diag_ablations.diff; -DD_NOMMA=1, -DD_NODEC=1,
+# -DD_NOA=1, -DD_NOS=1, -DD_NOST=1, -DD_NOLDSM=1, -DD_MIN=1 (bench/results/s96/scripts/hb.sh builds both products)
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm gptoss ~/models/hf/gpt-oss-20b "16 64" --gpu-memory-utilization 0.6
 
 ## §ONNX. ONNX vs onnxruntime refresh (2026-11-23)
 

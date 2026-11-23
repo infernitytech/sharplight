@@ -1,0 +1,5 @@
+    Sharplight.Cuda.Tests.ManySegmentPlacementTests.SegmentsThatDoNotFitTheirGraphsRunWithout [FAIL]
+      0 device segments hold 260 MiB after the steps, beyond the 160 MiB limit (0 MiB counted)
+      Stack Trace:
+--
+   Sharplight.Cuda.Tests  Total: 71, Errors: 0, Failed: 1, Skipped: 1, Not Run: 0, Time: 55.047s
