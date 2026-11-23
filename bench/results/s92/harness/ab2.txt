@@ -1,0 +1,115 @@
+[hold 01:21:10] ./ab2.sh
+0 %, 2 MiB, 7.96 W
+== gu_132
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.598 ms 258 TFLOPS, 198.2 W, 0.768 pJ/flop
+  sustained: 1.514 ms 255 TFLOPS, 204.9 W, 0.803 pJ/flop
+== gu_130
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.584 ms 260 TFLOPS, 207.3 W, 0.797 pJ/flop
+  sustained: 1.499 ms 258 TFLOPS, 189.4 W, 0.735 pJ/flop
+== gu_129
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.562 ms 264 TFLOPS, 196.7 W, 0.745 pJ/flop
+  sustained: 1.470 ms 263 TFLOPS, 191.7 W, 0.729 pJ/flop
+== gu_132O1
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.635 ms 252 TFLOPS, 199.3 W, 0.790 pJ/flop
+  sustained: 1.543 ms 251 TFLOPS, 192.4 W, 0.768 pJ/flop
+== gu_132ru0
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.606 ms 257 TFLOPS, 198.2 W, 0.772 pJ/flop
+  sustained: 1.519 ms 254 TFLOPS, 206.9 W, 0.813 pJ/flop
+== gu_132ru10
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.607 ms 257 TFLOPS, 196.4 W, 0.765 pJ/flop
+  sustained: 1.519 ms 255 TFLOPS, 205.0 W, 0.805 pJ/flop
+== gu_130ru10
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.578 ms 261 TFLOPS, 206.9 W, 0.792 pJ/flop
+  sustained: 1.487 ms 260 TFLOPS, 194.9 W, 0.750 pJ/flop
+== dn_132
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.820 ms 251 TFLOPS, 200.6 W, 0.798 pJ/flop
+  sustained: 0.735 ms 263 TFLOPS, 202.3 W, 0.769 pJ/flop
+== dn_130
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.803 ms 257 TFLOPS, 198.3 W, 0.772 pJ/flop
+  sustained: 0.724 ms 267 TFLOPS, 200.5 W, 0.751 pJ/flop
+== dn_129
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.796 ms 259 TFLOPS, 199.7 W, 0.771 pJ/flop
+  sustained: 0.719 ms 269 TFLOPS, 201.5 W, 0.749 pJ/flop
+== dn_132O1
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.842 ms 245 TFLOPS, 199.1 W, 0.813 pJ/flop
+  sustained: 0.755 ms 256 TFLOPS, 204.4 W, 0.798 pJ/flop
+== dn_132ru0
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.824 ms 250 TFLOPS, 199.2 W, 0.796 pJ/flop
+  sustained: 0.736 ms 262 TFLOPS, 203.2 W, 0.774 pJ/flop
+== dn_132ru10
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.821 ms 251 TFLOPS, 188.7 W, 0.751 pJ/flop
+  sustained: 0.736 ms 263 TFLOPS, 189.1 W, 0.720 pJ/flop
+== dn_130ru10
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.802 ms 257 TFLOPS, 199.1 W, 0.774 pJ/flop
+  sustained: 0.723 ms 267 TFLOPS, 201.5 W, 0.754 pJ/flop
+== gu_132
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.623 ms 254 TFLOPS, 198.0 W, 0.779 pJ/flop
+  sustained: 1.530 ms 253 TFLOPS, 207.7 W, 0.822 pJ/flop
+== gu_130
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.588 ms 260 TFLOPS, 209.9 W, 0.809 pJ/flop
+  sustained: 1.498 ms 258 TFLOPS, 192.9 W, 0.748 pJ/flop
+== gu_129
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.584 ms 260 TFLOPS, 196.4 W, 0.754 pJ/flop
+  sustained: 1.491 ms 259 TFLOPS, 205.6 W, 0.793 pJ/flop
+== gu_132O1
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.645 ms 251 TFLOPS, 199.1 W, 0.794 pJ/flop
+  sustained: 1.551 ms 249 TFLOPS, 205.3 W, 0.824 pJ/flop
+== gu_132ru0
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.618 ms 255 TFLOPS, 197.7 W, 0.776 pJ/flop
+  sustained: 1.537 ms 252 TFLOPS, 192.6 W, 0.766 pJ/flop
+== gu_132ru10
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.613 ms 256 TFLOPS, 198.5 W, 0.777 pJ/flop
+  sustained: 1.525 ms 253 TFLOPS, 191.7 W, 0.756 pJ/flop
+== gu_130ru10
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.585 ms 260 TFLOPS, 198.0 W, 0.761 pJ/flop
+  sustained: 1.497 ms 258 TFLOPS, 192.8 W, 0.746 pJ/flop
+== dn_132
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.823 ms 251 TFLOPS, 189.7 W, 0.757 pJ/flop
+  sustained: 0.738 ms 262 TFLOPS, 190.6 W, 0.728 pJ/flop
+== dn_130
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.805 ms 256 TFLOPS, 199.6 W, 0.779 pJ/flop
+  sustained: 0.726 ms 266 TFLOPS, 202.4 W, 0.760 pJ/flop
+== dn_129
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.797 ms 259 TFLOPS, 198.6 W, 0.768 pJ/flop
+  sustained: 0.721 ms 268 TFLOPS, 197.9 W, 0.739 pJ/flop
+== dn_132O1
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.841 ms 245 TFLOPS, 200.1 W, 0.816 pJ/flop
+  sustained: 0.753 ms 257 TFLOPS, 202.2 W, 0.788 pJ/flop
+== dn_132ru0
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.824 ms 250 TFLOPS, 200.0 W, 0.800 pJ/flop
+  sustained: 0.740 ms 261 TFLOPS, 202.3 W, 0.774 pJ/flop
+== dn_132ru10
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.819 ms 252 TFLOPS, 200.4 W, 0.796 pJ/flop
+  sustained: 0.734 ms 263 TFLOPS, 201.4 W, 0.766 pJ/flop
+== dn_130ru10
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.801 ms 257 TFLOPS, 198.3 W, 0.770 pJ/flop
+  sustained: 0.723 ms 267 TFLOPS, 199.3 W, 0.745 pJ/flop
+[release 01:23:55]

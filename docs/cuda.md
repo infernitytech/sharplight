@@ -308,14 +308,21 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   scales (`E4M3_UE8M0` in e4m3.slang) and weights requantized to power-of-two scales at load (`WeightRepack.Fp8B128GroupedUe8m0`),
   accumulating all of K in the tensor cores (gate / up 1,612 → 1,463 µs per layer at 2,048 rows; a numerics change).
   Three more forms, all bit for bit the default path's results ([benchmarks.md §89](benchmarks.md)): `F8N_WG`
-  (`register_reallocation`, compiled for `compute_120f`; `SHARPLIGHT_FP8_WG=0` keeps the 9-warp form) makes the copy warp a whole
-  warpgroup that gives its registers to the computing warps (`setmaxnreg`: 40 for the copy warps, 232 instead of 168 for the
-  computing ones), which leaves room for `QOUT` with the f32 scales too, so the dual gate / up pair stores the down projection's E4M3
-  rows on the default path; `F8N_WUNI` (`SHARPLIGHT_FP8_UNIFORM_SCALES=0` turns it off) reads one weight scale per 128-row group and
+  (`register_reallocation`, compiled for `compute_120f`; opt-in with `SHARPLIGHT_FP8_WG=1` since [§92](benchmarks.md), the
+  default is the 9-warp form) makes the copy warp a whole warpgroup that gives its registers to the computing warps (`setmaxnreg`: 40
+  for the copy warps, 232 instead of 168 for the computing ones), which leaves room for `QOUT` with the f32 scales too, so the dual
+  gate / up pair stores the down projection's E4M3 rows. The CUDA 13.2 driver's PTX compiler drops `setmaxnreg` (its cubins target
+  `sm_120`), so through the driver the form ran as 12 warps of 168 registers; with NVRTC's machine code (below) the reallocation is
+  real, and the two-member multi-output launch then is not deterministic, hence off until that is fixed. `F8N_WUNI` (`SHARPLIGHT_FP8_UNIFORM_SCALES=0` turns it off) reads one weight scale per 128-row group and
   K block for weights whose groups share each block's scale (`WeightInfo.ScaleRowBlock` a multiple of 128: checkpoints with
   128 x 128 scale blocks, which the Hugging Face importer marks and packages store in their `WLAY` section), so the promotion
   multiplies once per row instead of once per element; `MULTI` runs a q / k / v group (the same E4M3 rows, one K) as one launch over
   the concatenated weight rows, each tile in one member's matrix (`SHARPLIGHT_MULTI_GEMM_TALL=0` keeps the members' launches).
+  On compute capability 12.x the kernel also gets machine code from NVRTC (it defines `SL_NVRTC_SASS`): NVRTC compiles it for the
+  device's real architecture next to the PTX, the code carries the cubin (a `// sharplight-cubin:` header line), and the device loads
+  it instead of the driver's compilation of the PTX (Qwen3-8B-FP8 prompt steps 2-5 % faster on the RTX PRO 4500 with driver 595;
+  [benchmarks.md §92](benchmarks.md)). `SHARPLIGHT_CUDA_NVRTC_SASS=0` turns it off, `all` applies it to every kernel and
+  `if:<text>` to the kernels whose source contains the text (diagnostics).
 
 - **`attn_prefill_native.cu`** (`native_attention`, compute capability 8.0+): causal attention of many queries against an f16 KV cache
   (prefill, prompt runs of serving steps, mixed steps' long runs) in the FlashAttention-2 form. A block takes 16 query rows per warp

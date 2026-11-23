@@ -21,7 +21,7 @@ namespace Sharplight.Cuda;
 internal sealed partial class NvrtcTranslator : KernelTranslator
 {
     /// <summary>Version of the options and the PTX post-processing; part of every cache key.</summary>
-    private const string OptionsVersion = "6";
+    private const string OptionsVersion = "7";
 
     /// <summary>The headers NVRTC needs for the half, bfloat16 and 8-bit float types (redistributable, see docs/cuda.md).</summary>
     private static readonly string[] s_headerNames = ["cuda_fp16.h", "cuda_fp16.hpp", "cuda_bf16.h", "cuda_bf16.hpp", "cuda_fp8.h", "cuda_fp8.hpp"];
@@ -46,7 +46,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     public override ShaderTarget SourceTarget => ShaderTarget.CudaSource;
 
     /// <inheritdoc />
-    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.DependentTrigger ? "" : "|pdl-wait")}{(DiagnosticSwitches.MinBlocks is { } bounds ? "|bounds=" + bounds : "")}";
+    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.DependentTrigger ? "" : "|pdl-wait")}{(DiagnosticSwitches.MinBlocks is { } bounds ? "|bounds=" + bounds : "")}{(DiagnosticSwitches.NvrtcSass is { } sass ? "|sass=" + sass : "")}";
 
     /// <summary>Kernels this process compiled with NVRTC and the time spent (diagnostics).</summary>
     public static (int Kernels, TimeSpan Time) Statistics => (Volatile.Read(ref s_compiled), Stopwatch.GetElapsedTime(0, Volatile.Read(ref s_ticks)));
@@ -94,6 +94,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
         }
 
         byte[] ptx;
+        byte[]? cubin = null;
         int dynamicShared = 0;
         bool dependent = false;
         try
@@ -102,7 +103,12 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
             source = SharedMemoryRewriter.Rewrite(source, out dynamicShared);
             dynamicShared = Math.Max(dynamicShared, declaredShared);
             dependent = ComputeCapability >= DependentLaunchCapability && WaitForPrevious(ref source);
-            ptx = Compile(source, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu", Options(ComputeCapability, FamilySpecific(source)), cubin: false);
+            string fileName = $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}.cu";
+            ptx = Compile(source, fileName, Options(ComputeCapability, FamilySpecific(source)), cubin: false);
+            if (CompilesSass(source, ComputeCapability))
+            {
+                cubin = Compile(source, fileName, Options(ComputeCapability, FamilySpecific(source), real: true), cubin: true);
+            }
         }
         catch (DllNotFoundException e)
         {
@@ -121,7 +127,8 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
 
         string sharedLine = dynamicShared > 0 ? $"{CudaPtx.SharedHeader}{dynamicShared}\n" : "";
         string dependentLine = dependent ? CudaPtx.DependentHeader + "\n" : "";
-        return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine + dependentLine), .. ptx];
+        string cubinLine = cubin is null ? "" : $"{CudaPtx.CubinHeader}sm_{ComputeCapability} {Convert.ToBase64String(cubin)}\n";
+        return [.. Encoding.UTF8.GetBytes(threadsLine + sharedLine + mapsLine + dependentLine + cubinLine), .. ptx];
     }
 
     /// <summary>
@@ -213,8 +220,8 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     /// <paramref name="familySpecific"/> targets the family-specific virtual architecture (<c>compute_XYf</c>, NVRTC 12.9 and later),
     /// whose PTX runs on the GPUs of the same major version only: the instructions of <see cref="FamilySpecific"/> kernels exist there only.
     /// </remarks>
-    internal static string[] Options(int computeCapability, bool familySpecific = false) =>
-        [$"-arch=compute_{computeCapability}{(familySpecific ? "f" : "")}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF", "-DSLANG_CUDA_ENABLE_BF16", "-DSLANG_CUDA_ENABLE_FP8"];
+    internal static string[] Options(int computeCapability, bool familySpecific = false, bool real = false) =>
+        [$"-arch={(real ? "sm" : "compute")}_{computeCapability}{(familySpecific ? "f" : "")}", "-default-device", "-std=c++17", "-w", "-DSLANG_CUDA_ENABLE_HALF", "-DSLANG_CUDA_ENABLE_BF16", "-DSLANG_CUDA_ENABLE_FP8"];
 
     /// <summary>
     /// True when <paramref name="source"/> is specialized with <c>SL_FAMILY_ARCH</c> (the block-scaled MMA of <c>gemm_fp8_tma.cu</c>,
@@ -222,6 +229,28 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     /// <c>compute_XY</c> PTX does not have.
     /// </summary>
     internal static bool FamilySpecific(string source) => source.Contains("\n#define SL_FAMILY_ARCH 1\n", StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when NVRTC also compiles <paramref name="source"/> to machine code for the real architecture (<c>sm_XY</c>), which the device
+    /// then loads instead of letting the driver compile the PTX: kernels that define <c>SL_NVRTC_SASS</c> (<see cref="SassMarker"/>), on
+    /// GPUs of compute capability 12.x. The driver's PTX compiler is whatever the installed driver brings; NVRTC's is the shipped release
+    /// (Sharplight.Cuda.Runtime), whose instruction schedule is the one measured. The FP8 TMA GEMM (<c>gemm_fp8_tma.cu</c>) asks for it:
+    /// on the RTX PRO 4500 (driver 595, CUDA 13.2) Qwen3-8B-FP8's prompt steps take 2-5 % less time with NVRTC 13.0's code of its 9-warp
+    /// form (benchmarks.md section 92), while most other kernels are as fast or faster from the driver. (The driver also drops
+    /// <c>setmaxnreg</c> from family-specific PTX: its cubins target <c>sm_120</c>.) The PTX stays in the code for other GPUs and as the fallback.
+    /// <c>SHARPLIGHT_CUDA_NVRTC_SASS=0</c> turns it off, <c>all</c> applies it to every kernel, <c>if:text</c> to the kernels whose source
+    /// contains the text (<c>\n</c> for a line break; diagnostics).
+    /// </summary>
+    internal static bool CompilesSass(string source, int computeCapability) => DiagnosticSwitches.NvrtcSass switch
+    {
+        "0" => false,
+        "all" => true,
+        ['i', 'f', ':', ..] text => source.Contains(text[3..].Replace("\\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal),
+        _ => computeCapability / 10 == 12 && source.Contains(SassMarker, StringComparison.Ordinal),
+    };
+
+    /// <summary>The line of a kernel source that asks for machine code from NVRTC (<see cref="CompilesSass"/>).</summary>
+    internal const string SassMarker = "\n#define SL_NVRTC_SASS 1\n";
 
     /// <summary>Compiles CUDA C++ with NVRTC into PTX (or SASS for one real architecture when <paramref name="cubin"/> is set).</summary>
     /// <exception cref="KernelCompilationException">NVRTC rejected the source.</exception>

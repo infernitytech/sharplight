@@ -234,8 +234,9 @@ public sealed class Fp8BlockScaledTests
             var modes = Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.RegisterReallocation) ? new[] { "0", "1" } : new[] { "1" };
             foreach (var mode in modes)
             {
-                RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "store" + mode), [Switch] = mode }, 2);
-                RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "separate" + mode), [Switch] = mode, ["SHARPLIGHT_FP8_QSTORE_MIN_ROWS"] = "0" }, 2);
+                // The copy warpgroup is opt-in (SHARPLIGHT_FP8_WG=1, benchmarks.md section 92).
+                RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "store" + mode), [Switch] = mode, ["SHARPLIGHT_FP8_WG"] = "1" }, 2);
+                RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "separate" + mode), [Switch] = mode, ["SHARPLIGHT_FP8_QSTORE_MIN_ROWS"] = "0", ["SHARPLIGHT_FP8_WG"] = "1" }, 2);
                 if (mode == "0")
                 {
                     // The 9-warp form (no store): the copy warpgroup's products are the same bit for bit.

@@ -393,13 +393,13 @@ internal sealed unsafe class CudaDevice : IComputeDevice
 
         if (cubin is null && _kernelBinaries)
         {
-            cubin = Link(ptx, $"{kernel.Name}:{kernel.EntryPoint}");
+            cubin = MachineCode(ptx, $"{kernel.Name}:{kernel.EntryPoint}");
             Interlocked.Increment(ref CubinsLinked);
             cache?.Put(cubinKey, cubin);
         }
 
         nint module;
-        fixed (byte* image = cubin ?? ptx.Code)
+        fixed (byte* image = cubin ?? NvrtcCode(ptx) ?? ptx.Code)
         {
             int result = CudaApi.cuModuleLoadData(&module, image);
             if (result != 0)
@@ -466,6 +466,12 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         };
     }
 
+    /// <summary>The kernel's machine code for this GPU: NVRTC's (<see cref="CudaPtx.Cubin"/>) when it is for this GPU, else the driver's.</summary>
+    private byte[] MachineCode(CudaPtx ptx, string what) => NvrtcCode(ptx) ?? Link(ptx, what);
+
+    /// <summary>The machine code NVRTC compiled with the kernel's PTX when it is for this GPU's compute capability, else null.</summary>
+    private byte[]? NvrtcCode(CudaPtx ptx) => ptx.Cubin is { } code && ptx.CubinCapability == Properties.ComputeCapability ? code : null;
+
     /// <summary>Compiles PTX into a cubin for this GPU with the driver's JIT linker. The context must be current.</summary>
     /// <exception cref="KernelCompilationException">The driver rejected the PTX (e.g. a PTX version newer than the driver).</exception>
     private static byte[] Link(CudaPtx ptx, string what)
@@ -528,7 +534,7 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             }
 
             var ptx = CudaPtx.Parse(code.ToArray(), key);
-            entries[CubinKeyPrefix + key[SlangCompiler.KernelKeyPrefix.Length..]] = Link(ptx, key);
+            entries[CubinKeyPrefix + key[SlangCompiler.KernelKeyPrefix.Length..]] = MachineCode(ptx, key);
         }
 
         var target = ArtifactTargets.Single(t => t.Kind == CubinKind);

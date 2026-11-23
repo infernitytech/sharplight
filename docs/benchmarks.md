@@ -13858,3 +13858,242 @@ SHARPLIGHT_SCHED_TRACE=1 ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf
 QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --gpu-memory-utilization 0.6
 ```
+
+## 92. LLM round 34: the FP8 prompt GEMM gets machine code from NVRTC (the driver drops `setmaxnreg` and spills), the copy warpgroup off by default (its real register reallocation races), open-loop Poisson arrivals in the load generator, the wave policy and the token-tile trim measured with them (2026-11-23)
+
+Branch `perf/llm-r34` (`develop` at `b4d4cb29`, with `perf/llm-r33`'s §91 merged). GPU 0 of the RunPod machine (RTX PRO 4500
+Blackwell 32 GB, 82 SMs, 200 W cap, driver 595.112 / CUDA 13.2), shared with other rounds; every run held the verify lock, `develop`
+(`perf-r34-base`) and vLLM 0.33 (venv `vllm-r12`) ran in the same holds, alternated. Raw output in
+[`bench/results/s92/`](../bench/results/s92) (scripts in `scripts/`, the rejected engine change in `rejected/`).
+
+Kept: (1) kernels that define `SL_NVRTC_SASS` (only `gemm_fp8_tma.cu`) get machine code from the shipped NVRTC on compute
+capability 12.x instead of the driver's compilation of their PTX; (2) the 9-warp form of the FP8 TMA GEMM is the default
+(`SHARPLIGHT_FP8_WG=1` for the copy warpgroup); (3) `bench/loadgen.py --rate` (open loop, Poisson) and `--ramp` (staggered closed loop),
+`bench/s16_serve.sh RATES= / RAMP= / PER_OVERRIDE=`. Greedy text, logits and PplBench are bit-identical to `develop` (92.6).
+
+### 92.1 Serving against vLLM
+
+`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds each; ours
+`--provider cuda`, vLLM `--gpu-memory-utilization 0.6` (`serve/`, `serve/summary.txt`). **Closed loop** (as §91), tok/s per round
+(develop before / after vLLM), TTFT p50 and inter-token latency (ms):
+
+| model, streams | `develop` b4d4cb29 | `perf/llm-r34` | vLLM 0.33 | r34 / vLLM | develop / vLLM |
+|---|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1029 / 1093, 1091 / 1094 | 1096 / 1100, 1101 / 1103 | 1120 / 1119 | **0.983-0.986** | 0.976-0.977 |
+| the same: TTFT p50 / ITL mean, p50, p99, max | 113-115 / 13.66, 12.47, 56.3, 61-75 | 108-110 / 13.58-13.63, 12.47, 53.5-54.0, 57-67 | 159-164 / 12.90, 12.41, 14.2-14.9, 108-110 | | |
+| Qwen3-8B-FP8, 64 | 2586 / 2580, 2572 / 2573 | 2593 / 2597, 2602 / 2602 | 2696 / 2687 | **0.965-0.968** | 0.955-0.960 |
+| the same: TTFT p50 / ITL mean, p50, p99 | 274-277 / 21.6, 16.3, 140-143 | 270-271 / 21.45-21.52, 16.3, 138-139 | 406-410 / 20.1-20.2, 16.03, 132-133 | | |
+| gpt-oss-20b, 16 | 1404 / 1416 | (no FP8 TMA GEMM: `develop`'s) | 1420 / 1386 | 0.99-1.02 | |
+| gpt-oss-20b, 64 | 3051 / 3028 | | 3115 / 3084 | 0.97-0.98 | |
+
+The FP8 GEMM change adds 0.7-0.9 % at 16 and 64 streams and takes 3-4 % off Qwen3-8B-FP8's TTFT; our TTFT p50 stays 31-34 % (16)
+and 33-34 % (64) below vLLM's. **Open loop** (Poisson arrivals, seeded per round, 7 / 17 requests per second for Qwen3-8B-FP8 and
+9 / 20 for gpt-oss-20b at 16 / 64 slots, about 85 % of the closed-loop rate; 8 requests per slot; TTFT counted from the arrival, so it
+includes waiting for a slot). The output rate is the arrival rate for every engine, so the comparison is latency, round 1 / round 2:
+
+| model, slots | engine | TTFT p50 | TTFT p95 | ITL mean | ITL p95 | ITL p99 |
+|---|---|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | `develop` | 91.1 / 44.0 | 812 / 462 | 14.21 / 13.96 | 29.8 / 29.8 | 31.3 / 32.2 |
+| | `perf/llm-r34` | 68.4 / 43.1 | 791 / 447 | 14.12 / 13.89 | 28.8 / 28.9 | 30.4 / 30.6 |
+| | vLLM | 80.8 / 58.6 | 786 / 452 | 13.85 / 13.60 | 24.4 / 24.0 | 33.6 / 25.5 |
+| Qwen3-8B-FP8, 64 | `develop` | 73.8 / 51.8 | 508 / 90 | 23.03 / 20.12 | 47.0 / 37.0 | 56.4 / 49.9 |
+| | `perf/llm-r34` | 70.1 / 51.4 | 448 / 86 | 22.51 / 19.74 | 45.6 / 35.2 | 61.4 / 47.6 |
+| | vLLM | 112.2 / 76.2 | 601 / 113 | 23.34 / 19.69 | 41.9 / 35.1 | 61.8 / 46.6 |
+| gpt-oss-20b, 16 | `develop` | 75.7 / 37.0 | 702 / 424 | 10.91 / 10.52 | 26.3 / 26.3 | 28.7 / 28.5 |
+| | vLLM | 183.7 / 52.9 | 750 / 450 | 10.98 / 10.58 | 25.4 / 25.3 | 27.6 / 27.7 |
+| gpt-oss-20b, 64 | `develop` | 191.6 / 50.4 | 627 / 84 | 20.71 / 18.08 | 42.9 / 36.6 | 49.8 / 46.4 |
+| | vLLM | 289.7 / 76.1 | 725 / 119 | 20.67 / 17.58 | 49.6 / 38.7 | 63.4 / 50.3 |
+
+With staggered arrivals the closed loop's 56 ms inter-token p99 is gone (30-61 ms against vLLM's 26-63, equal or lower at 64 slots),
+the mean inter-token latency is within 3 % of vLLM's (Qwen3-8B-FP8 +1.9 / +2.1 % at 16 slots, -3.6 / +0.3 % at 64; gpt-oss-20b
+-0.6 / -0.6 % and +0.2 / +2.8 %) and our TTFT p50 stays 15-59 % lower. The one point where vLLM leads clearly is Qwen3-8B-FP8's
+inter-token p95 at 16 slots (24 against 29 ms); the token-tile trim of 92.4 takes it to 22 ms.
+### 92.2 The FP8 prompt GEMM's toolchain: ptxas 13.0 is worth 1-2.5 %, the driver's JIT costs more
+
+§91.3 found ptxas 13.2 scheduling our mainloop differently from the ptxas 13.0 that built CUTLASS's cubin. First the harness
+(`bench/s86_bs/bench_fp8.cu` + `gemm_fp8_tma.cu` of `develop`, random E4M3 codes, 2,048 rows, sustained ms at the 200 W cap, two
+alternated rounds each; `harness/ab1.txt`, `ab2.txt`). The PTX is cicc 13.2's; the 13.0 / 12.9 forms assemble it with that ptxas
+(the `.version` lowered to 9.0 / 8.8; `scripts/ptxas130_wrapper.sh`):
+
+| ptxas | gate / up dual (f32 out) | down | gate / up dual, E4M3 store |
+|---|---:|---:|---:|
+| 13.2 (`-O3`, the default) | 1.593-1.623 | 0.809-0.823 | 1.656-1.658 |
+| 13.2 `-O1` | 1.635-1.645 | 0.841-0.842 | |
+| 13.2 `--register-usage-level` 0 / 10 | 1.606-1.618 / 1.607-1.613 | 0.824 / 0.819-0.821 | |
+| 13.2 `-O2`, `--allow-expensive-optimizations` | identical SASS to `-O3` | | |
+| 13.0 | 1.569-1.588 | 0.798-0.805 | 1.639-1.646 |
+| 13.0 `--register-usage-level` 10 | 1.578-1.585 | 0.801-0.802 | |
+| 12.9 | 1.562-1.584 | 0.796-0.797 | |
+
+The older ptxas is 1-2.5 % faster, not the 8-13 % of CUTLASS's lead, and no version or option puts a `.reuse` on our QMMAs or keeps
+the serpentine order of §91.3's `F8N_ORDER=2` / `F8N_WM=4` variant (all three versions schedule A-fragment-major). The harness's own
+PTX loaded through the driver's JIT runs like ptxas 13.2 offline (down 0.808-0.814 against 0.816-0.817; 13.0 0.800-0.801;
+`harness/driver_jit_vs_ptxas.txt`).
+
+In the model the picture differs. With a diagnostic hook that assembled every kernel's PTX with an external ptxas instead of the
+driver's JIT (not kept), Qwen3-8B-FP8's prompt steps (BatchBench, GPU ms min, `steps/ptxas_qwen.txt`, profiles `steps/prof_*`):
+
+| step | driver JIT | ptxas 13.0 | ptxas 12.9 |
+|---|---:|---:|---:|
+| 16 / 64 decode rows | 12.19 / 15.43 | 12.31 / 15.53 | 12.31 / 15.53 |
+| 750 prompt rows (3 prompts) | 54.93 | 51.18 (0.932) | 50.83 |
+| 2,000 prompt rows (8 prompts) | 135.63 | 126.13 (0.930) | 125.78 |
+| 48 decode + 1,000 prompt rows | 80.22 | 75.21 (0.938) | 74.67 |
+
+Per kernel (2,000 prompt rows; these runs had the copy warpgroup on, see below): every `gemm_fp8_tma` launch is 7-9 % faster (gate / up 1.701 → 1.551 ms, down 0.828 → 0.768,
+q / k / v 0.394 → 0.355, o 0.274 → 0.251), while `attn_decode_native` is 6 % slower, `gemm_fp8_decode` 1-2 %, and on gpt-oss-20b
+the MoE and f16 prompt GEMMs 1-4 % slower (its prompt step 113.1 → 115.7 ms). So the gain is specific to the FP8 TMA GEMM.
+
+Why the model gains more than the harness: the driver compiles the engine's family-specific PTX (`compute_120f`) for `sm_120`, and
+its cubins have **no `setmaxnreg`** (`USETMAXREG` count 0, also with `CU_JIT_TARGET` set to the family or the `a` target;
+`scripts/drvlink.py`), while ptxas 13.0 and 13.2 offline keep both. The copy-warpgroup form of §89 (`F8N_WG`: 12 warps, the copy
+warpgroup handing its registers to the computing warps) therefore ran as 12 warps of 168 registers and spilled: Qwen3.8-27B-FP8's
+eleven `gemm_fp8_tma` variants have 4-40 local loads / stores in the driver's code, 0-5 in ptxas 13.0's
+(`harness/qwen38_27b_fp8_tma_cubins.txt`).
+
+### 92.3 Machine code from NVRTC for the FP8 TMA GEMM (kept), and the copy warpgroup's race (default off)
+
+The engine ships NVRTC 13.0 (Sharplight.Cuda.Runtime), which contains ptxas 13.0. Kept: a kernel whose source defines
+`SL_NVRTC_SASS` gets machine code from NVRTC for the device's compute capability (`-arch=sm_XY[f]`) next to its PTX, on compute
+capability 12.x (`NvrtcTranslator.CompilesSass`); the cubin travels with the PTX in the kernel's code (a `// sharplight-cubin:` header
+line, base64) and the device loads it instead of the driver's compilation whenever it is for its own compute capability (other GPUs
+and older caches take the PTX as before). Only `gemm_fp8_tma.cu` asks for it (the per-kernel profile above: most kernels are as fast
+or faster from the driver). `SHARPLIGHT_CUDA_NVRTC_SASS=0` turns it off, `all` applies it to every kernel, `if:<text>` to the sources
+that contain the text. The translator's options version (cache keys) moves to 7.
+
+With NVRTC's code the copy warpgroup's register reallocation is real for the first time, and it is not deterministic:
+Qwen3.8-27B-FP8's PplBench logits (2,048 tokens, 512-row steps) changed from run to run (PPL 5.8429-5.8687 against `develop`'s
+5.8506), with and without concurrent launches. Bisected by kernel (`if:` forms, `correct/bisect/`): only the two-member multi-output
+launch (q / gate, K 5,120, members of 10,240 and 6,144 rows) changes the logits; the QOUT pair, the three-member q / k / v launch, the
+dual f32 launch and the plain launches with NVRTC's code each give `develop`'s bits. The same 27B run with the 9-warp form
+(`SHARPLIGHT_FP8_WG=0`) and NVRTC's code is bit-identical to `develop` in three of three runs. Not yet root-caused (a prompt-size
+two-member test of `Cuda.Tests` with a repeat check passes, so the trigger needs the model's sequence of launches); since the
+driver's code never reallocated, the 9-warp form becomes the default (`SHARPLIGHT_FP8_WG=1` brings the copy warpgroup back).
+Qwen3-8B-FP8 steps, same hold, alternated (`steps/wg_qwen.txt`):
+
+| step | `develop` (copy warpgroup, driver) | 9-warp, NVRTC (**kept**) | copy warpgroup, NVRTC (racy) | 9-warp, driver |
+|---|---:|---:|---:|---:|
+| 16 / 64 decode rows | 12.19 / 15.43 | 12.19 / 15.42 | 12.20 / 15.43 | 12.18 / 15.42 |
+| 750 prompt rows | 54.88 | 52.31 (0.953) | 51.23 (0.933) | 53.66 (0.978) |
+| 2,000 prompt rows | 135.67 | 132.53 (0.977) | 126.51 (0.932) | 135.76 (1.001) |
+| 15 decode + 250 prompt rows | 29.19 | 28.26 (0.968) | 27.96 (0.958) | 28.69 (0.982) |
+| 13 + 750 | 56.17 | 53.63 (0.955) | 52.39 (0.933) | 54.89 (0.977) |
+| 48 + 1,000 | 80.36 | 78.02 (0.971) | 75.20 (0.935) | 79.97 (0.995) |
+
+The kept form takes 2.3-4.7 % off every prompt-bearing step and leaves decode steps unchanged (a later hold, 16 slots: 750 / 2,000
+prompt rows 54.5 → 51.7 / 135.4 → 131.7-132.5 ms, `steps/final_steps.txt`); the copy warpgroup with real reallocation would take
+6.5-7 % (it also enables the E4M3 store, §89) once its race is fixed. A second FP8 model, Qwen3.8-27B-FP8 (4 slots, 1,024-row
+budget, `steps/final_steps27.txt`): 500 / 1,000 prompt rows 138.2 → 135.2-135.3 / 266.4-266.5 → 259.4-259.6 ms (-2.2 / -2.6 %),
+3 decode + 250 prompt rows 76.9-77.1 → 75.8-76.0, 4 decode rows 39.2 unchanged. Every checkpoint with 128 x 128-block FP8 weights
+(the f32-scale `F8E4M3_B128` path) on compute capability 12.x takes this kernel; gpt-oss-20b (MXFP4 experts, f16 attention) does not.
+
+### 92.4 The 16-stream waves: the step-budget policy and the token-tile trim, closed and open loop
+
+`loadgen.py` gains two arrival modes: `--ramp S` (closed loop, worker i starts after i · S / N seconds) and `--rate R` (open loop:
+concurrency x per-worker requests at seeded Poisson arrivals of R per second, at most `--max-concurrency` in flight, TTFT from the
+arrival; the JSON records `arrival`, `rate`, `send_ttft_*`). `s16_serve.sh` passes them as `RAMP=`, `RATES="16:7 64:17"` and
+`PER_OVERRIDE=`. Two policies, each against `perf/llm-r34` in the same holds:
+
+* **Full step budget** (`--min-step-tokens 0`: every step may take the whole 2,048-row budget instead of 32 rows per slot with a
+  768-row floor; the closest to vLLM's 2,048-token chunked steps).
+* **Token-tile trim** (§91.4's `serving_granule_trim.diff` on this branch, 32 rows).
+
+| | closed loop: tok/s (r1 / r2) | TTFT p50 | ITL mean / p95 / p99 / max | open loop: TTFT p50 | ITL mean / p95 / p99 |
+|---|---:|---:|---|---:|---|
+| Qwen3-8B-FP8, 16: r34 | 1096 / 1100, 1101 / 1103 | 108-110 | 13.6 / 14.3 / 53.5-54.0 / 57-67 | 68.4 / 43.1 | 14.12, 13.89 / 28.8 / 30.4-30.6 |
+| full budget | 1093 / 1097 | 168-177 | 13.1 / 14.1 / 16.3-17.0 / 134-137 | 70.8 / 43.8 | 14.15, 13.89 / 29.0 / 30.4-32.0 |
+| trim | 1093 / 1098 | 110-112 | 13.6 / 14.3 / 54.3-55.1 / 58-63 | 60.2 / 49.5 | **13.52, 13.36 / 21.6-21.9 / 25.8-26.9** |
+| vLLM | 1120 / 1119 | 159-164 | 12.9 / 13.0 / 14.2-14.9 / 108-110 | 80.8 / 58.6 | 13.85, 13.60 / 24.0-24.4 / 25.5-33.6 |
+| Qwen3-8B-FP8, 64: r34 | 2593 / 2597, 2602 / 2602 | 270-271 | 21.5 / 36-39 / 138-139 | 70.1 / 51.4 | 22.51, 19.74 / 35-46 / 48-61 |
+| full budget | 2599 / 2603 | 285-287 | 21.5 / 24 / 140-142 | 68.6 / 51.3 | 22.52, 19.75 / 35-45 / 48-54 |
+| trim | 2597 / 2605 | 269-270 | 21.5 / 37-39 / 138 | 69.1 / 57.2 | 22.36, 18.97 / 35-44 / 48-60 |
+| gpt-oss-20b, 16: `develop` | 1404 / 1416 | 102-107 | 10.4 / 11.6-12.0 / 50.7-50.8 | 75.7 / 37.0 | 10.91, 10.52 / 26.3 / 28.5-28.7 |
+| full budget | **1418 / 1440** | 154-190 | **9.8-9.9** / 10.9-11.1 / 12.1-15.0 | 95.5 / 37.9 | 10.97, 10.53 / 26.3-26.4 / 29.0-29.5 |
+| trim | | | | 156.8 / 51.2 | 11.05, 10.57 / 24.8-25.0 / 29.0-29.1 |
+| vLLM | 1420 / 1386 | 178-190 | 9.9-10.2 / 10.3-11.9 / 22.1-26.1 | 183.7 / 52.9 | 10.98, 10.58 / 25.3-25.4 / 27.6-27.7 |
+| gpt-oss-20b, 64: `develop` | 3051 / 3028 | 235-238 | 18.2-18.3 / 37-44 / 118-121 | 191.6 / 50.4 | 20.71, 18.08 / 37-43 / 46-50 |
+| full budget | **3071 / 3085** | 244-245 | 18.0-18.1 / 21 / 120-121 | 180.1 / 51.6 | 20.71, 17.96 / 37-43 / 48-56 |
+| trim | | | | 160.6 / 56.5 | 20.61, 18.12 / 36-44 / 49-56 |
+| vLLM | 3115 / 3084 | 424-478 | 17.0-17.2 / 16.5-18.4 / 120-121 | 289.7 / 76.1 | 20.67, 17.58 / 39-50 / 50-63 |
+
+What the closed loop's 56 ms inter-token p99 is: when a wave of 13-16 prompts arrives, the 768-row floor prefills it in 5-6 steps of
+~55 ms, and the prompts admitted first decode in the later ones, several long gaps each. vLLM prefills the wave in two 2,048-token
+steps: one gap of ~108 ms per request (its ITL max), under 1 % of a request's 127 gaps, so its p99 does not see it. With the full
+budget we do the same (ITL p99 16-17 ms, max 134-137) at the cost of vLLM's TTFT (168-177 ms). Throughput: Qwen3-8B-FP8 unchanged
+(its prompt GEMMs cost the same per row at 768 and 2,048 rows), gpt-oss-20b +1.0-1.7 % at 16 and +0.7-1.9 % at 64 streams (its MoE
+prompt GEMMs read every expert once per step, so fewer, larger steps read fewer weights), which brings it to 1.00-1.04 / 0.99-1.00 x
+vLLM. In the open loop the full budget changes nothing measurable (TTFT and inter-token latencies within the round-to-round spread):
+arrivals are staggered, so steps rarely carry more than one or two prompts. Not changed: the floor's only effect is closed-loop TTFT
+(our 31-51 % TTFT lead over vLLM in the §16 benchmark) against closed-loop ITL p99 and gpt-oss-20b's ~1.5 % — the owner's call
+(`--min-step-tokens 0` / `HostedModelDefaults.MinStepTokens` exist).
+
+The trim pays where §91.4 predicted, with staggered arrivals: Qwen3-8B-FP8 at 16 slots, inter-token mean -3.8 / -4.2 % and p95
+-24 / -25 % (28.8 → 21.9 and 28.9 → 21.6 ms, below vLLM's 24), p99 -12 / -15 %; at 64 the mean -0.7 / -3.9 %. For gpt-oss-20b, whose next decode step grows with the
+experts the held rows route to (§91.4: 1.8 ms saved for 1.3 ms more), the p95 drops 5-6 % but the mean rises 0.5-1.3 % and TTFT p50 rises at
+16 slots (75.7 → 156.8 and 37.0 → 51.2 ms; at 64 it falls 191.6 → 160.6 and rises 50.4 → 56.5). Closed loop: unchanged (as §91.4).
+Not kept as a fixed rule: it needs the step's real cost per token tile against the next decode step's, which the linear
+`StepCostModel` does not have; the diff is `rejected/serving_granule_trim.diff` (with its test).
+
+### 92.5 Not reached
+
+gpt-oss-20b's decode expert GEMMs against Marlin per byte (plan item 3) were not started; the round went into the copy warpgroup's
+race (92.3) and the serving matrix.
+
+### 92.6 Correctness and tests
+
+* Greedy text (120 tokens, the ~40-word and the 963-token prompt, CUDA; `correct/`): byte-identical to `develop` for Qwen3-8B-FP8 and
+  Qwen3.8-27B-FP8 (Qwen3-30B-A3B-FP8 does not fit the 32 GB GPU without offload in the CLI's defaults and was skipped). The
+  last-token logits of a ~2,900-token Qwen3-8B-FP8 prompt are bit-identical.
+* `PplBench` (wikitext-2 test, §86's method): the f16 logits dumps of every prompt row are byte-identical to `develop`'s for
+  Qwen3-8B-FP8 (12,288 tokens, 1,024-row steps, PPL 8.6693) and Qwen3.8-27B-FP8 (6,144 tokens, 512-row steps, PPL 6.6574), and the
+  27B run repeated gives the same bytes. No numerics change.
+* Before the 9-warp default (the copy warpgroup with NVRTC's code), Qwen3.8-27B-FP8's 963-token greedy text diverged after ~110
+  tokens and its PPL dumps changed from run to run (92.3); that form is opt-in now.
+* gpt-oss-20b has no FP8 TMA GEMM; its kernels and numbers are `develop`'s.
+* Suites (GPU 0, in a hold): `Sharplight.Cuda.Tests` 70 / 0 failed (1 skipped: cuBLASLt not installed); `Sharplight.Serving.Tests` 397 / 0 failed (13 skipped); `Sharplight.Vulkan.Tests`
+  one process per class for the FP8, GEMM, MoE, fusion, norm, RoPE, row-invariance and attention classes on both providers
+  (`SHARPLIGHT_TEST_PROVIDER=cuda|vulkan`, 32 processes) 1,412 / 0 failed (`tests/`). New tests: `MarkedKernelCarriesNvrtcMachineCodeOnComputeCapability12`
+  (NVRTC only, no GPU), `NativeFp8MultiGemmPromptRowsMatchTheCpu` (two- and three-member prompt-size multi-output launches against
+  the CPU, with a repeat-bit check); `E4m3StoreMatchesSeparateQuantization` runs the store on the opt-in copy warpgroup.
+
+### 92.7 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams, closed loop | 0.983-0.986 / 0.965-0.968 | the FP8 prompt GEMMs in the 16-stream waves and the 64-stream mixed steps (2-5 % faster now; the copy warpgroup would take 6.5-7 %) |
+| gpt-oss-20b serving 16 / 64, closed loop | 0.99-1.02 / 0.97-0.98 (1.00-1.04 / 0.99-1.00 with the full step budget) | 64: decode steps (expert GEMMs) |
+| open loop (Poisson, ~85 % load), both models | ITL mean within 3 %, TTFT p50 15-59 % lower | Qwen3-8B-FP8's ITL p95 at 16 slots (the token-tile trim fixes it) |
+
+Ranked levers:
+
+1. **Fix the copy warpgroup's race under real `setmaxnreg`** (every 128 x 128-block FP8 checkpoint on sm_12x): with NVRTC's code the
+   form is 6.5-7 % faster per prompt step than `develop` (2.5-3 % more than the kept 9-warp form) and brings the E4M3 store back; its
+   two-member multi-output launch is not deterministic in Qwen3.8-27B-FP8 (92.3). Reproduce it in a kernel test (the model's
+   operands and launch order: the prompt-size test with a repeat check passes), then audit what changes with real reallocation (the
+   scale ring and stage barriers between the single-thread producer and the 232-register consumers, registers live across
+   `setmaxnreg.dec`); `SHARPLIGHT_CUDA_NVRTC_SASS=if:...` and `SHARPLIGHT_FP8_WG=1` isolate it.
+2. **The step-budget floor's trade** (owner): `--min-step-tokens 0` gives gpt-oss-20b +1-1.9 % closed-loop throughput (parity with
+   vLLM at 16 and 64 streams) and vLLM's closed-loop ITL p99, for vLLM's closed-loop TTFT; neutral in the open loop. A middle form:
+   the floor only while no stream decodes (a wave), so the first prompts of a wave do not interleave with long prefill steps.
+3. **A tile-aware step cost for the token-tile trim**: trim only when the saved token tile costs more than the held rows add to the
+   next step (MoE models: the held rows' experts); the open-loop gain on Qwen3-8B-FP8 (ITL p95 -25 %) without gpt-oss-20b's TTFT cost.
+4. **NVRTC machine code for other kernels where it wins**: per-kernel from the ptxas 13.0 profile (`steps/prof_*`): the decode
+   attention and the MoE / f16 prompt GEMMs are faster from the driver, the `quantize_fp8` / `decode_combine` launches 8-10 % faster
+   from ptxas 13.0 (small in total); the marker is per kernel source.
+5. **gpt-oss-20b decode expert GEMMs** at 17-64 rows against Marlin per byte (§76.4, not reached here).
+
+### 92.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# harness: ptxas 13.0 / 12.9 under nvcc 13.2 (scripts/ptxas130_wrapper.sh as the toolkit's ptxas; bench/results/s91/rejected/mk.sh)
+PATH=<mixed-toolkit>/bin:$PATH bench/results/s91/rejected/mk.sh gu src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu 4096 12288 1
+python3 -I bench/results/s92/scripts/drvlink.py kernel.ptx kernel.cubin && cuobjdump -sass kernel.cubin | grep -c USETMAXREG   # the driver's JIT
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+[SHARPLIGHT_CUDA_NVRTC_SASS=0|all|if:<text>] [SHARPLIGHT_FP8_WG=1] $BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 \
+  --depth 256 --batch 2048 --modes greedy --reps 5 --mixed "16+0,64+0,0+250x3,0+250x8,15+250x1,13+250x3,48+250x4"
+PplBench ~/models/hf/Qwen3.8-27B-FP8 --provider cuda --text wikitext2_test.txt --seq 1024 --chunk 512 --tokens 2048 --dump a.f16   # twice: cmp
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda [--min-step-tokens 0]
+QUIET_GPU=1 ROUNDS=2 RATES="16:7 64:17" PER_OVERRIDE=8 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 RATES="16:7 64:17" PER_OVERRIDE=8 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --gpu-memory-utilization 0.6
+```

@@ -58,6 +58,33 @@ public sealed class CudaCodeTests
     }
 
     [Theory]
+    [InlineData(120, true)]
+    [InlineData(89, false)]
+    public void MarkedKernelCarriesNvrtcMachineCodeOnComputeCapability12(int computeCapability, bool expected)
+    {
+        RequireNvrtc();
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("SHARPLIGHT_CUDA_NVRTC_SASS") is { Length: > 0 }, "SHARPLIGHT_CUDA_NVRTC_SASS overrides the marker.");
+        string source = SlangCompiler.CudaThreadsHeader + "64 1 1\n#define SL_NVRTC_SASS 1\nextern \"C\" __global__ void k(float* y) { y[threadIdx.x] *= 2.0f; }\n";
+        var translator = new NvrtcTranslator(computeCapability);
+
+        var ptx = CudaPtx.Parse(translator.Translate("marked.cu", "k", Encoding.UTF8.GetBytes(source)), "marked");
+        var plain = CudaPtx.Parse(translator.Translate("plain.cu", "k", Encoding.UTF8.GetBytes(source.Replace("#define SL_NVRTC_SASS 1\n", "", StringComparison.Ordinal))), "plain");
+
+        Assert.Equal(expected, ptx.Cubin is not null);
+        Assert.Equal(expected ? computeCapability : 0, ptx.CubinCapability);
+        Assert.Null(plain.Cubin);
+        Assert.Equal("k", ptx.Function);
+        Assert.Equal((64u, 1u, 1u), (ptx.ThreadsX, ptx.ThreadsY, ptx.ThreadsZ));
+        if (expected)
+        {
+            // An ELF image (the cubin), next to the PTX of the same kernel.
+            Assert.Equal((byte)0x7f, ptx.Cubin![0]);
+            Assert.Equal("ELF"u8.ToArray(), ptx.Cubin[1..4]);
+            Assert.Contains(".entry k", Encoding.UTF8.GetString(ptx.Code));
+        }
+    }
+
+    [Theory]
     [InlineData(75)]
     [InlineData(89)]
     [InlineData(120)]
@@ -290,6 +317,24 @@ public sealed class CudaCodeTests
     [InlineData(64)]
     public void NativeFp8MultiGemmMatchesTheCpu(int rows)
     {
+        AssertMultiGemmMatchesTheCpu(rows, [512, 128, 128], 1024, 256);
+    }
+
+    /// <summary>
+    /// The tensor-copy form's multi-output launch at prompt sizes (128-row token tiles): two members of 10,240 and 6,144 outputs over
+    /// K = 5,120 (a gated attention's q / gate projection) and three members of q / k / v widths.
+    /// </summary>
+    [Theory]
+    [InlineData(300, new[] { 10240, 6144 }, 5120)]
+    [InlineData(300, new[] { 1280, 768 }, 1024)]
+    [InlineData(300, new[] { 1024, 256, 256 }, 1024)]
+    public void NativeFp8MultiGemmPromptRowsMatchTheCpu(int rows, int[] widths, int k)
+    {
+        AssertMultiGemmMatchesTheCpu(rows, widths, k, 512);
+    }
+
+    private static void AssertMultiGemmMatchesTheCpu(int rows, int[] widths, int k, int maxTokens)
+    {
         var provider = new CudaProvider();
         Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
         var info = provider.GetDevices()[0];
@@ -299,11 +344,21 @@ public sealed class CudaCodeTests
         // Three FP8 projections of the same activations (q / k / v: 512 + 128 + 128 outputs) at decode sizes run as one multi-output
         // launch of the hand-written GEMM's decode form (32-row token tiles up to 32 rows), each 64-row weight tile in one member's
         // matrix and stored to its output.
-        var expected = RunMultiProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows);
-        var actual = RunMultiProjection(provider.OpenDevice(info), rows);
+        var expected = RunMultiProjection(cpuProvider.OpenDevice(cpuProvider.GetDevices()[0]), rows, widths, k, maxTokens);
+        var actual = RunMultiProjection(provider.OpenDevice(info), rows, widths, k, maxTokens);
+        // The same launch again gives the same bits (the tile walk, the copies and the stores do not race).
+        for (int run = 0; run < 3; run++)
+        {
+            var again = RunMultiProjection(provider.OpenDevice(info), rows, widths, k, maxTokens);
+            for (int o = 0; o < actual.Length; o++)
+            {
+                Assert.Equal(actual[o], again[o]);
+            }
+        }
+
         var generated = new DeviceOptions();
         generated.DisabledFeatures.Add(DeviceFeatures.NativeGemmFp8);
-        var reference = RunMultiProjection(provider.OpenDevice(info, generated), rows);
+        var reference = RunMultiProjection(provider.OpenDevice(info, generated), rows, widths, k, maxTokens);
         for (int o = 0; o < expected.Length; o++)
         {
             double scale = expected[o].Max(MathF.Abs);
@@ -646,26 +701,25 @@ public sealed class CudaCodeTests
     /// y0, y1, y2 = x · W0ᵀ, x · W1ᵀ, x · W2ᵀ with FP8 weights [512 / 128 / 128, 1024] (a q / k / v group) on <paramref name="rows"/> rows,
     /// with activations the per-128 E4M3 quantization represents exactly (as <see cref="RunProjection"/>).
     /// </summary>
-    private static float[][] RunMultiProjection(IComputeDevice device, int rows)
+    private static float[][] RunMultiProjection(IComputeDevice device, int rows, int[] widths, int k, int maxTokens)
     {
-        int[] widths = [512, 128, 128];
         using (device)
         {
             var tg = new TG("cuda-multi-gemm");
-            var x = tg.InF("x", TG.T, 1024);
+            var x = tg.InF("x", TG.T, k);
             for (int o = 0; o < widths.Length; o++)
             {
-                tg.B.Output("y" + o, tg.B.MatMul(x, tg.RandW("w" + o, DataType.F8E4M3_B128, 0.05f, widths[o], 1024)));
+                tg.B.Output("y" + o, tg.B.MatMul(x, tg.RandW("w" + o, DataType.F8E4M3_B128, 0.05f, widths[o], k)));
             }
 
             var graph = tg.B.Build();
             using var model = CompiledModel.Compile(graph, new PlacementOptions
             {
                 Devices = [new DeviceSlot { Device = device }],
-                Compile = new CompileOptions { MaxTokens = 256, ContextLength = 256 },
+                Compile = new CompileOptions { MaxTokens = maxTokens, ContextLength = maxTokens },
                 ReservePerDevice = 0,
             });
-            var input = new float[rows * 1024];
+            var input = new float[rows * k];
             for (int i = 0; i < input.Length; i++)
             {
                 input[i] = (i % 5 - 2) * 0.5f;

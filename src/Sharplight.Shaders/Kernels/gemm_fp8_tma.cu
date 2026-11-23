@@ -52,6 +52,11 @@
 //
 // Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, MULTI, MULTI_O1, MULTI_O2, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads (F8N_WG: 384), F8N_SHARED bytes of dynamic shared memory.
+//
+// SL_NVRTC_SASS: NVRTC also compiles this kernel to machine code for the GPU (compute capability 12.x), which the device loads instead
+// of the driver's compilation of the PTX: on the RTX PRO 4500 the shipped NVRTC's code takes 3-5 % less time per prompt step than the
+// CUDA 13.2 driver's (NvrtcTranslator.CompilesSass, benchmarks.md section 92).
+#define SL_NVRTC_SASS 1
 #ifndef DUAL
 #define DUAL 0
 #endif

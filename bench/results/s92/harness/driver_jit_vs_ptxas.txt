@@ -1,0 +1,36 @@
+[hold 02:06:21] ./dump27.sh
+0 %, 2 MiB, 8.98 W
+| 0 | 500 (1) | 174.5 | 1046 / 0 | 139.61 / 139.61, 139.52 |  |
+== b_pf_dn_ptx
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.808 ms 255 TFLOPS, 200.4 W, 0.786 pJ/flop
+  sustained: 0.729 ms 265 TFLOPS, 200.5 W, 0.756 pJ/flop
+== b_pf_dn90_ptx
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.813 ms 254 TFLOPS, 201.0 W, 0.793 pJ/flop
+  sustained: 0.732 ms 264 TFLOPS, 200.7 W, 0.760 pJ/flop
+== b_pf_dn_132_cubin
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.816 ms 253 TFLOPS, 200.8 W, 0.795 pJ/flop
+  sustained: 0.734 ms 263 TFLOPS, 198.4 W, 0.754 pJ/flop
+== b_pf_dn_130_cubin
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.801 ms 257 TFLOPS, 198.1 W, 0.770 pJ/flop
+  sustained: 0.714 ms 271 TFLOPS, 200.7 W, 0.741 pJ/flop
+== b_pf_dn_ptx
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.814 ms 253 TFLOPS, 200.8 W, 0.793 pJ/flop
+  sustained: 0.730 ms 265 TFLOPS, 201.7 W, 0.762 pJ/flop
+== b_pf_dn90_ptx
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.815 ms 253 TFLOPS, 189.2 W, 0.748 pJ/flop
+  sustained: 0.735 ms 263 TFLOPS, 189.2 W, 0.719 pJ/flop
+== b_pf_dn_132_cubin
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.817 ms 252 TFLOPS, 201.0 W, 0.796 pJ/flop
+  sustained: 0.737 ms 262 TFLOPS, 201.0 W, 0.766 pJ/flop
+== b_pf_dn_130_cubin
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.800 ms 258 TFLOPS, 199.6 W, 0.774 pJ/flop
+  sustained: 0.719 ms 269 TFLOPS, 202.7 W, 0.754 pJ/flop
+[release 02:10:09]

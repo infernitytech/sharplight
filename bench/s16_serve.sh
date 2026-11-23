@@ -8,7 +8,9 @@
 # env: OUT_DIR (bench/results/s16), PORT (18080), READY_TIMEOUT (1500 s), CTX_PER_SLOT (512), SLOTS (max concurrency), ROUNDS (2), NATURAL=1 (natural
 #      prompts), SHARPLIGHT_SERVER (default: the Release build in this checkout), LLAMA_DIR / LLAMA_BUILD (b11177), VLLM_VENV
 #      (virtualenv with vLLM and httpx; its python also runs loadgen.py; LOADGEN_PY overrides), QUIET_GPU=1 (repeat a round, up to
-#      3 tries, when another process computed on the GPU during it; then it is kept and marked <round>.contaminated).
+#      3 tries, when another process computed on the GPU during it; then it is kept and marked <round>.contaminated),
+#      PER_OVERRIDE (requests per worker, default by concurrency), RAMP (seconds: closed loop with staggered worker starts),
+#      RATES ("16:7.5 64:18": open loop, Poisson arrivals of that many requests per second at that concurrency; see loadgen.py).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ENG=$1; NAME=$2; MP=$3; CONCS=$4; shift 4; EXTRA=("$@")
 OUT_DIR=${OUT_DIR:-$HERE/results/s16}; mkdir -p "$OUT_DIR"
@@ -63,6 +65,10 @@ NAT=""; [ "${NATURAL:-0}" = 1 ] && NAT="--natural"
 if [ $OK = 1 ]; then
   for N in $CONCS; do
     case $N in 1) PER=8;; 4) PER=6;; 16) PER=4;; *) PER=3;; esac
+    PER=${PER_OVERRIDE:-$PER}
+    ARR=()
+    [ -n "${RAMP:-}" ] && ARR+=(--ramp "$RAMP")
+    for RN in ${RATES:-}; do [ "${RN%%:*}" = "$N" ] && ARR+=(--rate "${RN#*:}"); done
     for R in $(seq "$ROUNDS"); do
       OUT=$OUT_DIR/serve_${ENG}_${NAME}_c${N}_r$R
       for TRY in 1 2 3; do
@@ -73,7 +79,7 @@ if [ $OK = 1 ]; then
         fi
         "$HERE/gpu_check.sh" > "$OUT.gpu.txt"
         timeout 1800 "$PY" -I "$HERE/loadgen.py" --url "http://127.0.0.1:$PORT" --model m -c "$N" --per-worker $PER --ignore-eos \
-          --metrics --seed "$R" $NAT --json "$OUT.json" | cut -c1-400
+          --metrics --seed "$R" $NAT "${ARR[@]}" --json "$OUT.json" | cut -c1-400
         [ "${QUIET_GPU:-0}" = 1 ] || break
         kill $MON 2>/dev/null; wait $MON 2>/dev/null; MON=
         [ -e "$OUT.foreign" ] || break
