@@ -1,0 +1,168 @@
+=== bert b8 vulkan strict new
+{'stage': 'ok', 'minMs': 3.364, 'gpuMinMs': 2.333, 'readMinMs': 3.324, 'error': None}
+GPU time 7.74 ms
+     1.563 ms  20.2%     36x  min     41.9 us  matmul [3072→768] f32 split-k gemm_cm2 T=8,128
+     1.492 ms  19.3%     36x  min     40.8 us  matmul [768→3072] f32 split-k gemm_cm2 T=8,128
+     1.265 ms  16.3%     36x  min     34.7 us  matmul [768→2304] f32 split-k gemm T=8,128
+     0.811 ms  10.5%      3x  min    270.3 us  matmul [768→30522] f32 fused[Add] gemm_cm2 T=8,128
+     0.640 ms   8.3%     39x  min     16.3 us  matmul [768→768] f32 split-k gemm T=8,128
+     0.332 ms   4.3%     78x  min      4.1 us  layernorm layernorm_wg T=8,128
+     0.311 ms   4.0%     75x  min      4.1 us  matmul split-k reduce splitk_reduce T=8,128
+     0.295 ms   3.8%     36x  min      8.2 us  attention fe T=8,128
+     0.221 ms   2.9%     36x  min      6.1 us  matmul split-k reduce fused[Add,Gelu] splitk_reduce T=8,128
+     0.166 ms   2.1%     39x  min      4.1 us  fused[Add,Add] main T=8,128
+     0.152 ms   2.0%     36x  min      4.1 us  fused[Add] main T=8,128
+     0.148 ms   1.9%     36x  min      4.0 us  matmul split-k reduce fused[Add,Add] splitk_reduce T=8,128
+     0.147 ms   1.9%     36x  min      4.1 us  matmul [768→3072] f32 x→split f16 split_rows T=8,128
+     0.147 ms   1.9%     36x  min      4.1 us  matmul [3072→768] f32 x→split f16 split_rows T=8,128
+     0.013 ms   0.2%      3x  min      4.0 us  fused[Cast] main T=8,128
+     0.012 ms   0.2%      3x  min      4.1 us  fused[Add,Gelu] main T=8,128
+     0.012 ms   0.2%      3x  min      4.1 us  matmul [768→30522] f32 x→split f16 split_rows T=8,128
+     0.012 ms   0.2%      3x  min      4.1 us  fused[Sub,Mul] main T=8,128
+
+=== bert b1 cuda strict new
+{'stage': 'ok', 'minMs': 1.276, 'gpuMinMs': 1.103, 'readMinMs': 1.257, 'error': None}
+GPU time 4.69 ms
+     0.716 ms  15.2%     36x  min     17.4 us  matmul [3072→768] f32 split-k gemm N=1,16*N=16|
+     0.676 ms  14.4%     36x  min     17.2 us  matmul [768→3072] f32 split-k gemm N=1,16*N=16|
+     0.571 ms  12.2%     36x  min     13.3 us  matmul [768→2304] f32 split-k gemm N=1,16*N=16|
+     0.558 ms  11.9%    147x  min      1.7 us  matmul split-k reduce splitk_reduce N=1,16*N=16|
+     0.496 ms  10.6%      3x  min    164.2 us  matmul [768→30522] f32 fused[Add] gemm_cm2 N=1,16*N=16|
+     0.411 ms   8.8%     78x  min      3.4 us  layernorm layernorm_wg N=1,16*N=16|
+     0.377 ms   8.0%     39x  min      7.2 us  matmul [768→768] f32 split-k gemm N=1,16*N=16|
+     0.298 ms   6.3%     36x  min      6.6 us  attention fe N=1,16*N=16|
+     0.260 ms   5.5%     75x  min      1.8 us  fused[Add,Add] main N=1,16*N=16|
+     0.147 ms   3.1%     39x  min      1.9 us  fused[Add,Gelu] main N=1,16*N=16|
+     0.126 ms   2.7%     36x  min      1.8 us  fused[Add] main N=1,16*N=16|
+     0.027 ms   0.6%      3x  min      3.3 us  fused[Cast] main N=1,16*N=16|
+     0.016 ms   0.3%      3x  min      3.5 us  fused[Sub,Mul] main N=1,16*N=16|
+     0.015 ms   0.3%      3x  min      3.7 us  matmul [768→30522] f32 x→split f16 split_rows N=1,16*N=16|
+
+=== effnet cuda strict new
+{'stage': 'ok', 'minMs': 0.767, 'gpuMinMs': 0.756, 'readMinMs': 0.751, 'error': None}
+GPU time 3.21 ms
+     0.313 ms   9.7%     24x  min     10.8 us  conv [272→1632 1x1 s1 g1] f32 fused[Clip] split-f16 cm gemm conv_cm 
+     0.240 ms   7.5%     18x  min     12.4 us  conv [160→960 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.237 ms   7.4%     21x  min     10.4 us  conv [1632→272 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.225 ms   7.0%     18x  min     11.3 us  conv [112→672 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.188 ms   5.9%     15x  min     11.2 us  conv [960→160 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.172 ms   5.3%     15x  min     10.4 us  conv [672→112 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.159 ms   5.0%     12x  min     12.4 us  conv [32→192 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.127 ms   3.9%     12x  min      9.2 us  conv [56→336 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.122 ms   3.8%      9x  min     13.2 us  conv [192→32 1x1 s1 g1] f32 fused[Add] split-f16 cm conv_cm 
+     0.114 ms   3.6%     21x  min      4.1 us  conv [1632→1632 5x5 s1 g1632] f32 fused[Clip] conv_dw 
+     0.110 ms   3.4%      9x  min     11.3 us  conv [336→56 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.084 ms   2.6%     15x  min      5.1 us  conv [960→960 5x5 s1 g960] f32 fused[Clip] conv_dw 
+     0.082 ms   2.5%     24x  min      2.8 us  conv [272→1632 1x1 s1 g1] f32 fused[Clip] split-f16 cm reduce conv_splitk_reduce 
+     0.076 ms   2.4%     15x  min      3.7 us  conv [672→672 3x3 s1 g672] f32 fused[Clip] conv_dw 
+     0.074 ms   2.3%     21x  min      2.8 us  conv [1632→272 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.071 ms   2.2%      9x  min      6.8 us  conv [192→192 3x3 s1 g192] f32 fused[Clip] conv_dw 
+     0.065 ms   2.0%      9x  min      6.4 us  conv [336→336 5x5 s1 g336] f32 fused[Clip] conv_dw 
+     0.064 ms   2.0%      3x  min     21.2 us  conv [24→144 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.045 ms   1.4%     15x  min      2.7 us  conv [960→160 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.045 ms   1.4%      3x  min     14.1 us  conv [192→56 1x1 s1 g1] f32 split-f16 cm conv_cm 
+     0.044 ms   1.4%     15x  min      2.7 us  conv [672→112 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.041 ms   1.3%      3x  min     13.0 us  conv [1632→448 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.039 ms   1.2%      3x  min     12.7 us  conv [336→112 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.039 ms   1.2%      3x  min     12.3 us  conv [448→1280 1x1 s1 g1] f32 fused[Clip] split-f16 cm gemm conv_cm 
+     0.037 ms   1.2%      3x  min     11.5 us  conv [672→160 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.037 ms   1.2%      3x  min      9.4 us  conv [3→32 3x3 s2 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.036 ms   1.1%      3x  min     11.4 us  conv [960→272 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.033 ms   1.0%      3x  min     11.0 us  conv [144→32 1x1 s1 g1] f32 split-f16 cm conv_cm 
+     0.032 ms   1.0%      3x  min      9.2 us  conv [144→144 3x3 s2 g144] f32 fused[Clip] conv_dw 
+     0.030 ms   0.9%      9x  min      2.7 us  conv [336→56 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.027 ms   0.8%      3x  min      7.3 us  conv [32→24 1x1 s1 g1] f32 split-f16 cm conv_cm 
+     0.026 ms   0.8%      3x  min      6.8 us  conv [32→32 3x3 s1 g32] f32 fused[Clip] conv_dw 
+     0.022 ms   0.7%      3x  min      7.3 us  conv [192→192 5x5 s2 g192] f32 fused[Clip] conv_dw 
+     0.022 ms   0.7%      3x  min      6.5 us  softmax softmax 
+     0.017 ms   0.5%      3x  min      5.0 us  matmul [1280→1000] f32 matvec_sk 
+     0.016 ms   0.5%      3x  min      5.0 us  conv [672→672 5x5 s1 g672] f32 fused[Clip] conv_dw 
+     0.016 ms   0.5%      3x  min      4.9 us  conv [960→960 5x5 s2 g960] f32 fused[Clip] conv_dw 
+     0.014 ms   0.4%      3x  min      4.2 us  pool pool 
+     0.012 ms   0.4%      3x  min      3.7 us  conv [336→336 3x3 s2 g336] f32 fused[Clip] conv_dw 
+     0.011 ms   0.3%      3x  min      3.1 us  conv [1632→1632 3x3 s1 g1632] f32 fused[Clip] conv_dw 
+
+=== bert b8 vulkan strict cbase
+{'stage': 'ok', 'minMs': 3.118, 'gpuMinMs': 2.032, 'readMinMs': 0.444, 'error': None}
+GPU time 6.90 ms
+     1.334 ms  19.3%     36x  min     35.7 us  matmul [3072→768] f32 split-k gemm_cm2 T=8,128
+     1.323 ms  19.2%     36x  min     36.7 us  matmul [768→3072] f32 split-k gemm_cm2 T=8,128
+     1.208 ms  17.5%     36x  min     32.6 us  matmul [768→2304] f32 split-k gemm T=8,128
+     0.633 ms   9.2%     39x  min     15.3 us  matmul [768→768] f32 split-k gemm T=8,128
+     0.541 ms   7.8%      3x  min    180.2 us  matmul [768→30522] f32 fused[Add] gemm_cm2 T=8,128
+     0.320 ms   4.6%     78x  min      4.1 us  layernorm layernorm_wg T=8,128
+     0.307 ms   4.5%     75x  min      4.1 us  matmul split-k reduce splitk_reduce T=8,128
+     0.295 ms   4.3%     36x  min      8.2 us  attention fe T=8,128
+     0.221 ms   3.2%     36x  min      6.1 us  matmul split-k reduce fused[Add,Gelu] splitk_reduce T=8,128
+     0.148 ms   2.2%     36x  min      4.1 us  matmul split-k reduce fused[Add,Add] splitk_reduce T=8,128
+     0.147 ms   2.1%     36x  min      4.1 us  fused[Add] main T=8,128
+     0.147 ms   2.1%     36x  min      4.1 us  matmul [3072→768] f32 x→split f16 split_rows T=8,128
+     0.127 ms   1.8%     36x  min      2.0 us  matmul [768→3072] f32 x→split f16 split_rows T=8,128
+     0.117 ms   1.7%     39x  min      2.0 us  fused[Add,Add] main T=8,128
+     0.010 ms   0.1%      3x  min      2.0 us  matmul [768→30522] f32 x→split f16 split_rows T=8,128
+     0.008 ms   0.1%      3x  min      2.0 us  fused[Add,Gelu] main T=8,128
+     0.006 ms   0.1%      3x  min      2.0 us  fused[Sub,Mul] main T=8,128
+     0.006 ms   0.1%      3x  min      1.5 us  fused[Cast] main T=8,128
+
+=== bert b1 cuda strict cbase
+{'stage': 'ok', 'minMs': 1.18, 'gpuMinMs': 1.01, 'readMinMs': 0.159, 'error': None}
+GPU time 4.42 ms
+     0.695 ms  15.7%     36x  min     17.3 us  matmul [3072→768] f32 split-k gemm N=1,16*N=16
+     0.658 ms  14.9%     36x  min     17.4 us  matmul [768→3072] f32 split-k gemm N=1,16*N=16
+     0.566 ms  12.8%     36x  min     13.8 us  matmul [768→2304] f32 split-k gemm N=1,16*N=16
+     0.495 ms  11.2%      3x  min    164.4 us  matmul [768→30522] f32 fused[Add] gemm_cm2 N=1,16*N=16
+     0.484 ms  11.0%    147x  min      1.7 us  matmul split-k reduce splitk_reduce N=1,16*N=16
+     0.366 ms   8.3%     39x  min      7.3 us  matmul [768→768] f32 split-k gemm N=1,16*N=16
+     0.366 ms   8.3%     78x  min      3.5 us  layernorm layernorm_wg N=1,16*N=16
+     0.271 ms   6.1%     36x  min      5.7 us  attention fe N=1,16*N=16
+     0.233 ms   5.3%     75x  min      1.8 us  fused[Add,Add] main N=1,16*N=16
+     0.131 ms   3.0%     39x  min      2.3 us  fused[Add,Gelu] main N=1,16*N=16
+     0.110 ms   2.5%     36x  min      2.2 us  fused[Add] main N=1,16*N=16
+     0.018 ms   0.4%      3x  min      2.6 us  fused[Cast] main N=1,16*N=16
+     0.013 ms   0.3%      3x  min      3.6 us  fused[Sub,Mul] main N=1,16*N=16
+     0.011 ms   0.3%      3x  min      3.0 us  matmul [768→30522] f32 x→split f16 split_rows N=1,16*N=16
+
+=== effnet cuda strict cbase
+{'stage': 'ok', 'minMs': 0.715, 'gpuMinMs': 0.702, 'readMinMs': 0.007, 'error': None}
+GPU time 3.21 ms
+     0.305 ms   9.5%     24x  min     10.7 us  conv [272→1632 1x1 s1 g1] f32 fused[Clip] split-f16 cm gemm conv_cm 
+     0.247 ms   7.7%     21x  min     10.4 us  conv [1632→272 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.237 ms   7.4%     18x  min     11.8 us  conv [160→960 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.228 ms   7.1%     18x  min     11.9 us  conv [112→672 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.184 ms   5.7%     15x  min     11.8 us  conv [960→160 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.178 ms   5.5%     15x  min     10.8 us  conv [672→112 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.153 ms   4.8%     12x  min     11.1 us  conv [32→192 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.130 ms   4.1%     12x  min      9.7 us  conv [56→336 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.125 ms   3.9%      9x  min     12.8 us  conv [192→32 1x1 s1 g1] f32 fused[Add] split-f16 cm conv_cm 
+     0.113 ms   3.5%      9x  min     11.9 us  conv [336→56 1x1 s1 g1] f32 fused[Add] split-f16 cm gemm conv_cm 
+     0.104 ms   3.2%     21x  min      3.7 us  conv [1632→1632 5x5 s1 g1632] f32 fused[Clip] conv_dw 
+     0.089 ms   2.8%     15x  min      4.6 us  conv [960→960 5x5 s1 g960] f32 fused[Clip] conv_dw 
+     0.078 ms   2.4%      9x  min      7.6 us  conv [192→192 3x3 s1 g192] f32 fused[Clip] conv_dw 
+     0.077 ms   2.4%     24x  min      2.3 us  conv [272→1632 1x1 s1 g1] f32 fused[Clip] split-f16 cm reduce conv_splitk_reduce 
+     0.066 ms   2.1%     21x  min      1.7 us  conv [1632→272 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.065 ms   2.0%      3x  min     21.1 us  conv [24→144 1x1 s1 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.062 ms   1.9%     15x  min      3.7 us  conv [672→672 3x3 s1 g672] f32 fused[Clip] conv_dw 
+     0.060 ms   1.9%      9x  min      5.8 us  conv [336→336 5x5 s1 g336] f32 fused[Clip] conv_dw 
+     0.045 ms   1.4%      3x  min      9.9 us  conv [3→32 3x3 s2 g1] f32 fused[Clip] split-f16 cm conv_cm 
+     0.044 ms   1.4%      3x  min     13.3 us  conv [192→56 1x1 s1 g1] f32 split-f16 cm conv_cm 
+     0.044 ms   1.4%     15x  min      2.2 us  conv [960→160 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.039 ms   1.2%      3x  min     11.9 us  conv [336→112 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.038 ms   1.2%     15x  min      1.8 us  conv [672→112 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.038 ms   1.2%      3x  min     11.9 us  conv [960→272 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.038 ms   1.2%      3x  min     11.9 us  conv [448→1280 1x1 s1 g1] f32 fused[Clip] split-f16 cm gemm conv_cm 
+     0.038 ms   1.2%      3x  min     11.9 us  conv [672→160 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.037 ms   1.2%      3x  min     11.9 us  conv [1632→448 1x1 s1 g1] f32 split-f16 cm gemm conv_cm 
+     0.037 ms   1.2%      3x  min     11.3 us  conv [144→32 1x1 s1 g1] f32 split-f16 cm conv_cm 
+     0.030 ms   0.9%      3x  min      6.6 us  conv [144→144 3x3 s2 g144] f32 fused[Clip] conv_dw 
+     0.028 ms   0.9%      3x  min      7.9 us  conv [32→24 1x1 s1 g1] f32 split-f16 cm conv_cm 
+     0.027 ms   0.8%      3x  min      5.4 us  conv [32→32 3x3 s1 g32] f32 fused[Clip] conv_dw 
+     0.024 ms   0.8%      9x  min      2.3 us  conv [336→56 1x1 s1 g1] f32 fused[Add] split-f16 cm reduce conv_splitk_reduce 
+     0.024 ms   0.8%      3x  min      6.8 us  conv [192→192 5x5 s2 g192] f32 fused[Clip] conv_dw 
+     0.020 ms   0.6%      3x  min      6.0 us  softmax softmax 
+     0.020 ms   0.6%      3x  min      5.6 us  matmul [1280→1000] f32 matvec_sk 
+     0.018 ms   0.6%      3x  min      5.6 us  conv [672→672 5x5 s1 g672] f32 fused[Clip] conv_dw 
+     0.018 ms   0.6%      3x  min      5.5 us  pool pool 
+     0.015 ms   0.5%      3x  min      3.7 us  conv [960→960 5x5 s2 g960] f32 fused[Clip] conv_dw 
+     0.013 ms   0.4%      3x  min      3.6 us  conv [336→336 3x3 s2 g336] f32 fused[Clip] conv_dw 
+     0.013 ms   0.4%      3x  min      3.8 us  conv [1632→1632 3x3 s1 g1632] f32 fused[Clip] conv_dw 
+

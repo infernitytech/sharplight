@@ -1,0 +1,6 @@
+survey/bert-base-uncased.model.json b8 vulkan [new] ok 3.149 2.025 True 2.13557367610967e-06 
+survey/bert-base-uncased.model.json b8 vulkan [base] ok 3.058 2.035 True 2.13557367610967e-06 
+survey/bert-base-uncased.model.json b8 vulkan [60abc095] ok 3.062 2.031 True 2.13557367610967e-06 
+survey/bert-base-uncased.model.json b8 vulkan [new] ok 3.062 2.021 True 2.13557367610967e-06 
+survey/bert-base-uncased.model.json b8 vulkan [base] ok 3.135 2.031 True 2.13557367610967e-06 
+survey/bert-base-uncased.model.json b8 vulkan [60abc095] ok 3.309 2.333 True 2.13557367610967e-06 

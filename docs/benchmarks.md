@@ -14521,3 +14521,246 @@ sharplight ~/models/hf/Qwen3.8-27B-FP8 --provider cuda -n 120 -p "<prompt>" [--f
 QUIET_GPU=1 ROUNDS=2 [SHARPLIGHT_SERVER=<develop build>] bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda --step-floor always --fp8-block-scaled off   # the old defaults
 ```
+
+## §ONNX. ONNX vs onnxruntime refresh (2026-11-23)
+
+The section 35 / 37 model set re-run on `develop` (15492683, after the FP8 / waves defaults of section 95) eight days and ~230
+merges later: CUDA provider rounds, NVRTC machine code, asynchronous executions and stream changes, dependent launches, FP8 defaults.
+Same harness (`bench/onnx/parity_bench.py`: one process per measurement, engines of a model back to back, rounds interleaved, wall
+minimum of `Run` plus the read-back of every output, minimum over rounds; Sharplight also reports the GPU timestamp span), same
+batches and precision modes (strict default, opt-in fast precision = `MatrixPrecision.Fast`; ORT CUDA EP with TF32 on (its default)
+and off; TensorRT EP with f32 engines and TF32 tactics, engine build excluded). New in the harness: the CUDA provider
+(`OnnxBench <manifest> cuda`, engines `sl-cuda`, `sl-cuda-fast`) and `engine@tag` engines that run the `OnnxBench.dll` of another
+build (`ONNX_BENCH_DLL_<TAG>`) for same-hold A/B runs.
+
+Machine: RTX PRO 4500 Blackwell (32 GB, **200 W power limit**, driver 595.112.07), GPU 0 (sections 35 / 37 ran on GPU 2 of the then
+three-GPU pod), shared with other agents: every GPU measurement ran inside a hold of the machine's GPU lock, one model per hold, two
+rounds. onnxruntime-gpu 1.32.0 with CUDA 13 / cuDNN 9.28 and TensorRT 10.16 (pip `tensorrt-cu13-libs<11`; ORT 1.32's TensorRT EP
+links `libnvinfer.so.10`). CPU: AMD EPYC 7443P, 8 threads pinned to cores 0-7, ~10-core container quota shared with other agents.
+Raw data in `bench/results/onnx-1123/`:
+
+* `gpu.jsonl`: 2 rounds of `sl-vulkan`, `sl-vulkan-fast`, `sl-cuda`, `sl-cuda-fast`, `ort-cuda`, `ort-cuda-strict`, 23 rows.
+* `trt.jsonl`: 1 round of `ort-trt` (the models TensorRT builds: not the com.microsoft MatMulNBits / GQA graphs, not the R-CNNs).
+* `gpu-ab.jsonl`: same-hold A/B, `develop` against the `OnnxBench` of `faeaf35a` (merge of `cuda/onnx-parity`, 2026-11-19, the
+  first commit with ONNX on CUDA), 2 rounds, on the rows that moved.
+* `cpu.jsonl` (2 rounds, min of 10) and `cpu-ab.jsonl` (3 rounds, min of 20, `develop` against the section 37 commit `9f4c8769`).
+* `cuda-pdl-*.log`, `llm-pdl-trigger.log`, `profiles-new-vs-1119.log`, `vulkan-bert-b8-recheck.log`: the diagnosis below.
+
+Builds older than 2026-11-19 cannot run on this pod: their Vulkan allocator has no memory-type fallback and fails with
+`ErrorOutOfDeviceMemory` on the first 128 MiB upload block (the BAR heap is full), so the 11-15 → 11-19 window has no same-hold A/B;
+against section 37 only the published numbers compare.
+
+### §ONNX.1 Verdict
+
+* **No code regression on Vulkan or CPU.** Every Vulkan row is within -1 / +5 % of section 37 (most +1-2 %), and the same-hold A/B
+  against the 11-19 build shows identical GPU time on every row checked (0 / ±1 %). The few-percent drift against section 37 is the
+  machine: onnxruntime on the same rows mostly moved by +5-24 % (TF32 vit b8 5.97 → 7.40, bert b8 3.19 → 3.80, yolov8n 1.71 → 1.91 ms;
+  strict raft 102.6 → 125.8 ms), so a different card under a 200 W limit; Sharplight moves much less than ORT does.
+* **Vulkan fast precision on BERT improved**: b1 GPU 1.04 → 0.75 ms (-28 %), b8 1.33 → 1.10 ms (-17 %) since 11-19.
+* **CUDA**: two small regressions since 11-19, both from **programmatic dependent launches** (LLM round 14, section 58.3), not from
+  kernels: bert-base b1 +9 % (GPU 1.01 → 1.10 ms) and efficientnet-lite4 +7 % (0.70 → 0.75 ms); see §ONNX.4. Everything else is
+  equal (resnet50, vit, whisper, ssd-10, segformer b1) or faster: qwen2.5-0.5b q4 3.00 → 2.39 ms (-20 %), phi-3.5-mini q4f16 4.65 →
+  4.29 ms (-8 %), Faster / Mask R-CNN 12.3 / 12.7 → 11.2 / 11.3 ms (-9 / -11 %; 11-19 numbers from `SurveyRunner`, docs/cuda.md).
+* **Against onnxruntime**: Sharplight fast beats ORT's TF32 default on every row on CUDA (0.38-0.93x) and on every row but
+  phi-3.5 on Vulkan (1.04x); strict beats ORT strict on every row (0.05-0.93x) except phi-3.5 on Vulkan (1.04x). phi-3.5-mini q4f16 is now **faster than ORT on CUDA**
+  (0.93x; Vulkan 1.04x). TensorRT stays ahead on convnext (1.22-1.26x), mobilesam (1.24x), yolov10n (1.16x), segformer b1 (1.16x),
+  ssd-10 (1.13x) and resnet50 b8 (1.08x); Sharplight fast leads on resnet50 b1, efficientnet-lite4, yolov8n, bert, vit, whisper, segformer b8 and raft.
+* **CUDA against Vulkan** (strict): CUDA is 5-18 % faster on the transformers and convnext, 4-17 % slower on the small CNNs
+  (resnet50 1.08-1.10x, efficientnet 1.17x, mobilenetv2 b8 1.12x), equal on ssd-10, raft, mobilesam.
+* **Correctness**: every strict row on both GPU providers passes against the ORT reference (relative RMS 3e-7 to 1.1e-5; phi-3.5
+  1.2e-4 as before) except ssd-10 (2.1e-2: the known NMS tie order of section 37.3, identical on Vulkan and CUDA). Fast rows are in
+  TF32's class (5e-4 to 5e-3; ssd-10 fast reorders more detections, as before). CPU parity passes on every row.
+
+### §ONNX.2 Vulkan (wall min ms; section 37 from its `gpu-after.jsonl`; flag: more than 3 % slower)
+
+| model | batch | strict | §37 | change | fast | §37 | change | ORT TF32 | ORT strict | fast / TF32 | strict / strict |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| resnet50 | 1 | 0.72 | 0.71 | +2% | 0.53 | 0.53 | -0% | 1.37 | 2.64 | 0.39x | 0.27x |
+| resnet50 | 8 | 3.14 | 3.06 | +3% | 2.16 | 2.09 | +3% **(!)** | 3.15 | 5.20 | 0.68x | 0.60x |
+| convnext-tiny | 1 | 1.40 | 1.39 | +1% | 1.00 | 0.99 | +1% | 1.58 | 1.62 | 0.63x | 0.87x |
+| convnext-tiny | 8 | 4.86 | 4.77 | +2% | 3.08 | 3.03 | +2% | 3.67 | 5.50 | 0.84x | 0.88x |
+| efficientnet-lite4 | 1 | 0.66 | 0.62 | +5% **(!)** | 0.54 | 0.53 | +1% | 1.41 | 12.17 | 0.38x | 0.05x |
+| mobilenetv2 | 1 | 0.32 | 0.31 | +2% | 0.28 | 0.27 | +1% | 0.77 | 0.68 | 0.36x | 0.47x |
+| mobilenetv2 | 8 | 0.71 | 0.70 | +1% | 0.59 | 0.60 | -1% | 1.06 | 1.71 | 0.56x | 0.41x |
+| yolov8n | 1 | 1.10 | 1.07 | +2% | 0.88 | 0.86 | +2% | 1.91 | 4.14 | 0.46x | 0.27x |
+| yolov10n | 1 | 0.99 | 0.98 | +1% | 0.83 | 0.82 | +1% | 1.95 | 3.07 | 0.42x | 0.32x |
+| ssd-10 (NMS) | 1 | 15.37 | 14.90 | +3% **(!)** | 9.41 | 9.19 | +2% | 15.54 | 31.42 | 0.61x | 0.49x |
+| bert-base (16 tok) | 1 | 1.35 | 1.33 | +1% | 0.97 | 0.96 | +1% | 1.97 | 2.00 | 0.49x | 0.67x |
+| bert-base (16 tok) | 8 | 2.98 | 3.01 | -1% | 2.32 | 2.06 | +12% **(!)** | 3.80 | 4.22 | 0.61x | 0.71x |
+| vit-base | 1 | 2.82 | 2.76 | +2% | 1.44 | 1.42 | +2% | 1.74 | 3.19 | 0.82x | 0.88x |
+| vit-base | 8 | 11.21 | 10.72 | +5% **(!)** | 4.92 | 4.72 | +4% **(!)** | 7.40 | 12.34 | 0.66x | 0.91x |
+| whisper-tiny-encoder | 1 | 2.12 | 1.95 | +9% **(!)** | 1.26 | 1.25 | +1% | 1.99 | 3.22 | 0.63x | 0.66x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 3.51 | 3.49 | +1% | 3.52 | 3.48 | +1% | 6.12 | 6.05 | 0.57x | 0.58x |
+| phi3.5-mini q4f16 (GQA) | 1 | 4.81 | 4.70 | +2% | 4.80 | 4.71 | +2% | 4.61 | 4.61 | 1.04x | 1.04x |
+| segformer-b0 | 1 | 2.99 | 2.86 | +5% **(!)** | 2.76 | 2.69 | +3% | 3.64 | 4.17 | 0.76x | 0.72x |
+| segformer-b0 | 8 | 22.70 | 21.53 | +5% **(!)** | 20.27 | 19.84 | +2% | 32.26 | 36.29 | 0.63x | 0.63x |
+| mobilesam-encoder | 1 | 7.67 | 7.55 | +2% | 6.05 | 5.99 | +1% | 9.94 | 12.55 | 0.61x | 0.61x |
+| raft-large | 1 | 48.29 | 46.49 | +4% **(!)** | 36.74 | 36.15 | +2% | 63.55 | 125.79 | 0.58x | 0.38x |
+| fasterrcnn-12 (counts) | 1 | 10.41 | 10.53 | -1% | 7.94 | 7.91 | +0% | 11.12 | 20.23 | 0.71x | 0.51x |
+| maskrcnn-12 (counts) | 1 | 11.18 | 10.98 | +2% | 8.68 | 8.48 | +2% | 11.36 | 20.13 | 0.76x | 0.56x |
+
+### §ONNX.3 CUDA (wall min ms; "11-19" is docs/cuda.md's batch-1 `SurveyRunner` number, a different harness: see the A/B below)
+
+| model | batch | strict | 11-19 (b1) | change | fast | ORT TF32 | ORT strict | ORT TensorRT | fast / TF32 | strict / strict | strict / TF32 | fast / TRT | CUDA / Vulkan strict |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| resnet50 | 1 | 0.80 | 0.81 | -1% | 0.62 | 1.37 | 2.64 | 1.07 | 0.45x | 0.30x | 0.58x | 0.58x | 1.10x |
+| resnet50 | 8 | 3.38 | - | - | 2.19 | 3.15 | 5.20 | 2.03 | 0.70x | 0.65x | 1.07x | 1.08x | 1.08x |
+| convnext-tiny | 1 | 1.17 | 1.15 | +2% | 0.94 | 1.58 | 1.62 | 0.75 | 0.60x | 0.72x | 0.74x | 1.26x | 0.83x |
+| convnext-tiny | 8 | 4.30 | - | - | 2.73 | 3.67 | 5.50 | 2.24 | 0.74x | 0.78x | 1.17x | 1.22x | 0.88x |
+| efficientnet-lite4 | 1 | 0.77 | 0.76 | +1% | 0.62 | 1.41 | 12.17 | 0.70 | 0.44x | 0.06x | 0.54x | 0.89x | 1.17x |
+| mobilenetv2 | 1 | 0.34 | 0.34 | -1% | 0.29 | 0.77 | 0.68 | 0.29 | 0.38x | 0.49x | 0.43x | 1.03x | 1.05x |
+| mobilenetv2 | 8 | 0.79 | - | - | 0.58 | 1.06 | 1.71 | 0.57 | 0.55x | 0.46x | 0.75x | 1.03x | 1.12x |
+| yolov8n | 1 | 1.17 | 1.18 | -1% | 0.96 | 1.91 | 4.14 | 0.99 | 0.50x | 0.28x | 0.61x | 0.97x | 1.07x |
+| yolov10n | 1 | 1.03 | 1.07 | -4% | 0.86 | 1.95 | 3.07 | 0.74 | 0.44x | 0.34x | 0.53x | 1.16x | 1.04x |
+| ssd-10 (NMS) | 1 | 15.17 | 15.20 | -0% | 8.87 | 15.54 | 31.42 | 7.83 | 0.57x | 0.48x | 0.98x | 1.13x | 0.99x |
+| bert-base (16 tok) | 1 | 1.27 | 1.18 | +8% **(!)** | 0.78 | 1.97 | 2.00 | 1.16 | 0.39x | 0.64x | 0.65x | 0.67x | 0.95x |
+| bert-base (16 tok) | 8 | 2.79 | - | - | 1.88 | 3.80 | 4.22 | 3.00 | 0.50x | 0.66x | 0.73x | 0.63x | 0.94x |
+| vit-base | 1 | 2.32 | 2.29 | +1% | 1.11 | 1.74 | 3.19 | 1.29 | 0.64x | 0.73x | 1.33x | 0.86x | 0.82x |
+| vit-base | 8 | 9.62 | - | - | 4.42 | 7.40 | 12.34 | 5.25 | 0.60x | 0.78x | 1.30x | 0.84x | 0.86x |
+| whisper-tiny-encoder | 1 | 1.96 | 1.92 | +2% | 1.15 | 1.99 | 3.22 | 1.61 | 0.58x | 0.61x | 0.98x | 0.71x | 0.92x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 2.39 | 3.00 | -20% | 2.40 | 6.12 | 6.05 | - | 0.39x | 0.40x | 0.39x | - | 0.68x |
+| phi3.5-mini q4f16 (GQA) | 1 | 4.29 | 4.65 | -8% | 4.29 | 4.61 | 4.61 | - | 0.93x | 0.93x | 0.93x | - | 0.89x |
+| segformer-b0 | 1 | 2.88 | 2.87 | +0% | 2.74 | 3.64 | 4.17 | 2.37 | 0.75x | 0.69x | 0.79x | 1.16x | 0.96x |
+| segformer-b0 | 8 | 21.57 | - | - | 19.29 | 32.26 | 36.29 | 27.37 | 0.60x | 0.59x | 0.67x | 0.70x | 0.95x |
+| mobilesam-encoder | 1 | 7.64 | 7.55 | +1% | 5.86 | 9.94 | 12.55 | 4.74 | 0.59x | 0.61x | 0.77x | 1.24x | 1.00x |
+| raft-large | 1 | 46.61 | - | - | 35.43 | 63.55 | 125.79 | 45.99 | 0.56x | 0.37x | 0.73x | 0.77x | 0.97x |
+| fasterrcnn-12 (counts) | 1 | 11.22 | 12.30 | -9% | 9.10 | 11.12 | 20.23 | - | 0.82x | 0.55x | 1.01x | - | 1.08x |
+| maskrcnn-12 (counts) | 1 | 11.32 | 12.70 | -11% | 9.08 | 11.36 | 20.13 | - | 0.80x | 0.56x | 1.00x | - | 1.01x |
+
+Same-hold A/B, GPU timestamp span in ms, `develop` / `faeaf35a` (11-19), minimum over 2 rounds (`gpu-ab.jsonl`):
+
+| model | batch | Vulkan strict | Vulkan fast | CUDA strict |
+|---|---:|---:|---:|---:|
+| bert-base (16 tok) | 1 | 1.13 / 1.13 (+0 %) | 0.75 / 1.04 (**-28 %**) | 1.10 / 1.01 (**+9 %**) |
+| bert-base (16 tok) | 8 | 2.02 / 2.03 (0 %, re-measured; first hold 2.34) | 1.10 / 1.33 (**-17 %**) | 1.76 / 1.76 (0 %) |
+| efficientnet-lite4 | 1 | 0.62 / 0.62 (+1 %) | 0.50 / 0.50 (0 %) | 0.75 / 0.70 (**+7 %**) |
+| resnet50 | 1 | 0.68 / 0.69 (0 %) | 0.50 / 0.49 (+1 %) | 0.79 / 0.79 (0 %) |
+| resnet50 | 8 | 3.10 / 3.09 (0 %) | 2.11 / 2.10 (0 %) | 3.36 / 3.37 (0 %) |
+| segformer-b0 | 1 | 2.30 / 2.29 (0 %) | 2.06 / 2.05 (0 %) | 2.21 / 2.21 (0 %) |
+| segformer-b0 | 8 | 16.70 / 16.82 (-1 %) | 14.74 / 14.76 (0 %) | 16.25 / 15.73 (+3 %) |
+| ssd-10 (NMS) | 1 | 15.18 / 15.18 (0 %) | 9.27 / 9.28 (0 %) | 15.08 / 15.15 (0 %) |
+| vit-base | 1 | 2.75 / 2.76 (0 %) | 1.38 / 1.38 (0 %) | 2.29 / 2.28 (0 %) |
+| vit-base | 8 | 11.08 / 11.10 (0 %) | 4.82 / 4.82 (0 %) | 9.54 / 9.44 (+1 %) |
+| whisper-tiny-encoder | 1 | 1.88 / 1.89 (0 %) | 1.03 / 1.03 (0 %) | 1.75 / 1.74 (+1 %) |
+
+The first A/B hold measured Vulkan bert b8 strict at 2.34 ms (+15 %); the profile showed every GEMM slower and the norms /
+attention unchanged, and a re-measurement (`vulkan-bert-b8-recheck.log`, two rounds, three builds) gave 2.02-2.03 ms for all three.
+The process that runs first after taking the lock is sometimes slow (resnet50 b1 Vulkan 3.68 ms in round 0, 0.72 ms in round 1 of
+`gpu.jsonl`): the GPU arrives warm from the previous holder's work. The minimum over interleaved rounds filters it; single-process
+comparisons should discard the first measurement of a hold.
+
+ORT on the same machine against section 37 (TensorRT: this round against section 35 / 37):
+
+| model | batch | TF32 | §37 | strict | §37 | TensorRT | §35/§37 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| resnet50 | 1 | 1.37 | 1.18 | 2.64 | 2.52 | 1.07 | 1.06 |
+| resnet50 | 8 | 3.15 | 2.94 | 5.20 | 5.36 | 2.03 | 2.00 |
+| convnext-tiny | 1 | 1.58 | 1.47 | 1.62 | 1.65 | 0.75 | 0.72 |
+| convnext-tiny | 8 | 3.67 | 4.01 | 5.50 | 5.97 | 2.24 | 2.20 |
+| efficientnet-lite4 | 1 | 1.41 | 1.24 | 12.17 | 12.20 | 0.70 | 0.69 |
+| mobilenetv2 | 1 | 0.77 | 0.71 | 0.68 | 0.69 | 0.29 | 0.33 |
+| mobilenetv2 | 8 | 1.06 | 1.05 | 1.71 | 1.63 | 0.57 | 0.56 |
+| yolov8n | 1 | 1.91 | 1.71 | 4.14 | 3.58 | 0.99 | 1.00 |
+| yolov10n | 1 | 1.95 | 1.72 | 3.07 | 2.56 | 0.74 | 0.72 |
+| ssd-10 (NMS) | 1 | 15.54 | 15.30 | 31.42 | 31.72 | 7.83 | 7.63 |
+| bert-base (16 tok) | 1 | 1.97 | 1.87 | 2.00 | 1.85 | 1.16 | 1.20 |
+| bert-base (16 tok) | 8 | 3.80 | 3.19 | 4.22 | 3.91 | 3.00 | 2.65 |
+| vit-base | 1 | 1.74 | 1.61 | 3.19 | 3.12 | 1.29 | 2.26 |
+| vit-base | 8 | 7.40 | 5.97 | 12.34 | 12.05 | 5.25 | 5.07 |
+| whisper-tiny-encoder | 1 | 1.99 | 1.89 | 3.22 | 3.08 | 1.61 | 1.56 |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 6.12 | 6.03 | 6.05 | 5.81 | - | - |
+| phi3.5-mini q4f16 (GQA) | 1 | 4.61 | 4.54 | 4.61 | 4.57 | - | - |
+| segformer-b0 | 1 | 3.64 | 3.28 | 4.17 | 4.23 | 2.37 | 2.18 |
+| segformer-b0 | 8 | 32.26 | 29.83 | 36.29 | 37.04 | 27.37 | 25.64 |
+| mobilesam-encoder | 1 | 9.94 | 9.64 | 12.55 | 12.41 | 4.74 | 4.55 |
+| raft-large | 1 | 63.55 | 59.69 | 125.79 | 102.59 | 45.99 | 44.47 |
+| fasterrcnn-12 (counts) | 1 | 11.12 | 10.55 | 20.23 | 17.43 | - | - |
+| maskrcnn-12 (counts) | 1 | 11.36 | 10.76 | 20.13 | 17.62 | - | - |
+
+### §ONNX.4 CUDA regression: the dependent-launch trigger
+
+Per-kernel profiles (`profiles-new-vs-1119.log`) of bert b1 and efficientnet-lite4 give the same kernel times on both builds
+(efficientnet 3.21 / 3.21 ms over 3 profiled runs); only the unprofiled run, where launches overlap, is slower. Switches on `develop`,
+same hold, GPU ms (`cuda-pdl-variants.log`, `cuda-pdl-trigger.log`, 2 interleaved reps each):
+
+| row | `develop` | `dependent_launches` off | `SHARPLIGHT_CUDA_PDL_TRIGGER=0` (wait only) | 11-19 | `SHARPLIGHT_CUDA_CONCURRENT=0` |
+|---|---:|---:|---:|---:|---:|
+| bert-base b1 | 1.10 | 1.01 | 1.00-1.01 | 1.01 | 1.10 |
+| efficientnet-lite4 b1 | 0.75 | 0.70 | 0.71 | 0.70 | 0.75 |
+| phi-3.5-mini q4f16 b1 | 3.62 | | 3.40 (-6 %) | | |
+| qwen2.5-0.5b q4 b1 | 2.09 | | 2.17 (**+4 %**) | | |
+| yolov8n / mobilenetv2 / convnext b1 | 0.95 / 0.33 / 1.16 | | 0.94 / 0.32 / 1.14 (-1-2 %) | | |
+| whisper / vit-base b1 | 1.75 / 2.29 | | 1.74 / 2.28 (0 %) | | |
+
+The cost is `griddepcontrol.launch_dependents` at every kernel's entry: with it, a one-wave dependent is launched as soon as its
+predecessor's blocks have started. Without the trigger (dependents still launched with programmatic serialization, waiting at
+entry) bert and efficientnet are back at the 11-19 times. It is not slot competition between the two kernels: launching as
+dependents only pairs whose blocks fit in one wave together (an experiment, not kept) made bert slower (1.14 ms), not faster.
+The trigger is not a uniform loss either: qwen2.5's MatMulNBits decoder gains 4 % from it, and on LLM decode steps
+(`llm-pdl-trigger.log`, `BatchBench --slots 64 --ctx 640 --depth 256`, GPU ms min, 2 reps) it is neutral or slightly positive:
+Qwen3-8B-FP8 at 1 / 16 / 64 sequences 10.98 / 12.18-12.20 / 15.57-15.59 with it against 10.97-10.99 / 12.30 / 15.66-15.67 without
+(-0 / -0.9 / -0.5 %), Qwen3-8B Q4_K_M 6.80-6.81 / 8.08 / 15.57-15.94 against 6.81-6.82 / 8.09-8.11 / 15.85-15.87 (within noise).
+Not changed in this round: flipping the default would cost the FP8 decode steps ~0.5-1 % and the q4 ONNX decoder 4 % to win 1-9 %
+on ONNX encoders and convnets. The generic fix is to move the trigger from the kernel entry to the end of the main loop (where
+CUTLASS / FlashAttention place it), so a dependent's launch overlaps only its predecessor's tail; that needs the trigger inserted
+per kernel template rather than by the translator's entry prologue (§ONNX.7).
+
+### §ONNX.5 CPU (min ms, 8 threads; noisy: the container's ~10 cores are shared, medians up to 2x the minima)
+
+| model | batch | SL CPU | §35 | change | §37 build, same session | ORT CPU | ORT §35 | SL / ORT |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| resnet50 | 1 | 12.5 | 12.7 | -2 % | - | 12.4 | 13.1 | 1.00x |
+| resnet50 | 8 | 89.4 | 92.7 | -4 % | - | 84.6 | 77.1 | 1.06x |
+| convnext-tiny | 1 | 28.2 | 30.1 | -6 % | 28.5 | 22.7 | 24.5 | 1.25x |
+| convnext-tiny | 8 | 192.7 | 177.1 | +9 % | 190.3 | 140.3 | 137.2 | 1.37x |
+| mobilenetv2 | 1 | 2.4 | 2.3 | +5 % | 2.4 | 2.1 | 1.9 | 1.16x |
+| mobilenetv2 | 8 | 14.6 | 13.1 | +11 % | 13.9 | 11.5 | 10.8 | 1.27x |
+| yolov8n | 1 | 20.1 | 20.0 | +1 % | - | 27.0 | 25.4 | 0.75x |
+| bert-base (16 tok) | 1 | 15.1 | 16.3 | -7 % | 15.9 | 13.5 | 12.8 | 1.12x |
+| bert-base (16 tok) | 8 | 50.5 | 49.7 | +2 % | 52.3 | 54.4 | 54.8 | 0.93x |
+| vit-base | 1 | 58.2 | 56.2 | +4 % | - | 61.1 | 59.8 | 0.95x |
+| vit-base | 8 | 452.3 | 448.1 | +1 % | - | 428.5 | 392.5 | 1.06x |
+| whisper-tiny-encoder | 1 | 79.4 | 84.5 | -6 % | 79.6 | 72.8 | 70.6 | 1.09x |
+| segformer-b0 | 1 | 49.5 | 47.9 | +3 % | 48.8 | 57.5 | 54.8 | 0.86x |
+| segformer-b0 | 8 | 391.7 | 378.4 | +4 % | 419.6 | 633.5 | 549.9 | 0.62x |
+| fasterrcnn-12 (counts) | 1 | 563.9 | 548.2 | +3 % | - | 369.2 | 306.4 | 1.53x |
+
+The same-session A/B against the section 37 build (`cpu-ab.jsonl`) is within ±5 % on every row with medians both ways (mobilenetv2 b8
+14.6 / 13.9 ms min but 16.8 / 17.1 ms median), so no CPU regression; the changes against section 35 are machine load (ORT moved by
+up to +20 % on the same rows: fasterrcnn 306 → 369 ms, segformer b8 550 → 634 ms).
+
+### §ONNX.6 Bisection and fixes
+
+* Vulkan: nothing to bisect (same-hold A/B equal since 11-19; the 11-15 → 11-19 window cannot run here, see above, and its
+  published drift of +1-5 % (whisper +9 %: 1.95 ms in section 37, 2.13 ms already on 11-19 in docs/cuda.md) matches ORT's +5 % drift on the
+  same rows).
+* CUDA bert b1 / efficientnet: localized to the dependent-launch trigger (LLM round 14, `f3d279f0`; dependent launches restricted to
+  one-wave pairs in `cf11d953`) by switch rather than by commit bisection; diagnosis and why it is not flipped in §ONNX.4.
+* CUDA segformer b8 +3 % GPU (16.25 / 15.73 ms): not investigated further (at the flag threshold).
+* No engine code changed in this round; the branch changes only the harness (`OnnxBench` CUDA provider, `parity_bench.py` engines).
+
+### §ONNX.7 Ranked plan
+
+1. **Dependent-launch trigger at the end of the main loop** instead of the kernel entry (CUDA, generic): +1-9 % on ONNX encoders and
+   convnets at batch 1 and phi-3.5 -6 %, while keeping the early launch the FP8 decode GEMMs and the q4 matvec benefit from. Measure on
+   the ONNX set plus Qwen3-8B-FP8 / gpt-oss-20b decode.
+2. **convnext against TensorRT** (CUDA fast 1.22-1.26x; Vulkan similar): the split-f16 GEMMs' activation pre-pass (`split_rows`) written
+   by the producing channel-strided LayerNorm, and the residual add through a transpose (section 37.5).
+3. **Detectors / mobilesam against TensorRT** (1.13-1.24x): double-buffered conv_cm pipeline and NHWC activations (section 37.5).
+4. **Small CNNs on CUDA vs Vulkan** (efficientnet 1.17x, resnet50 / mobilenetv2 b8 1.08-1.12x): profile conv_cm and the depthwise convs
+   on PTX against SPIR-V (the same Slang sources).
+5. **phi-3.5 on Vulkan** (1.04x of ORT; CUDA is at 0.93x): the Q4_0 f32-activation matvec and the decomposed rotary / attention launches.
+6. Strict encoders against TF32 (vit 1.30-1.33x on CUDA): by construction of the f32-accurate split; fast precision is at 0.60-0.64x.
+
+### §ONNX.8 Reproduce
+
+```bash
+. bench/onnx/env.sh   # ORT_VENV with onnxruntime-gpu 1.32; TRT_LIB = the tensorrt_libs directory of tensorrt-cu13-libs 10.x
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx SHARPLIGHT_VK_DEVICES=0 CUDA_VISIBLE_DEVICES=0
+python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 --engines sl-vulkan,sl-vulkan-fast,sl-cuda,sl-cuda-fast,ort-cuda,ort-cuda-strict
+python3 bench/onnx/parity_bench.py run trt.jsonl --rounds 1 --engines ort-trt --models "resnet50,convnext-tiny,..."
+ONNX_BENCH_DLL_CBASE=<11-19 build>/OnnxBench.dll python3 bench/onnx/parity_bench.py run ab.jsonl --rounds 2 \
+  --engines sl-vulkan,sl-vulkan@cbase,sl-cuda,sl-cuda@cbase --models "bert-base (16 tok),efficientnet-lite4"
+BENCH_THREADS=8 python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 2 --runs 10 --engines sl-cpu,ort-cpu --models "resnet50,..."
+SHARPLIGHT_CUDA_PDL_TRIGGER=0 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/survey/bert-base-uncased.model.json cuda --batch 1
+```

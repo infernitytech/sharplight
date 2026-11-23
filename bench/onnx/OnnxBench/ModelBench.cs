@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Sharplight.Cpu;
+using Sharplight.Cuda;
 using Sharplight.Graph;
 using Sharplight.Import.Onnx;
 using Sharplight.Models;
@@ -38,7 +39,12 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         result["splitHalf"] = arguments.SplitHalf;
         result["fastPrecision"] = arguments.FastPrecision;
 
-        IExecutionProvider provider = arguments.Provider == "cpu" ? new CpuExecutionProvider() : new VulkanProvider();
+        IExecutionProvider provider = arguments.Provider switch
+        {
+            "cpu" => new CpuExecutionProvider(),
+            CudaProvider.ProviderName => new CudaProvider(),
+            _ => new VulkanProvider(),
+        };
         var availability = provider.CheckAvailability();
         if (!availability.IsAvailable)
         {
@@ -239,7 +245,8 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
     private void Time(CompiledModel compiled, ComputeGraph graph, RunParameters run)
     {
         var buffers = graph.Outputs.Select(o => (o.Key, Buffer: new byte[(int)o.Value.Type.ByteSize(o.Value.Shape.Elements(run.Symbols))])).ToArray();
-        var segments = compiled.Segments.OfType<VulkanSegment>().ToArray();
+        var vulkanSegments = compiled.Segments.OfType<VulkanSegment>().ToArray();
+        var cudaSegments = compiled.Segments.OfType<CudaSegment>().ToArray();
         var wall = new List<double>();
         var gpu = new List<double>();
         var reads = new List<double>();
@@ -262,9 +269,9 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
 
             wall.Add(watch.Elapsed.TotalMilliseconds);
             reads.Add(wall[^1] - ran);
-            if (segments.Length > 0)
+            if (vulkanSegments.Length + cudaSegments.Length > 0)
             {
-                gpu.Add(segments.Sum(s => s.LastGpuMs));
+                gpu.Add(vulkanSegments.Sum(s => s.LastGpuMs) + cudaSegments.Sum(s => s.LastGpuMs));
             }
         }
 
@@ -285,8 +292,15 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
 
     private void Profile(CompiledModel compiled, RunParameters run)
     {
-        var segments = compiled.Segments.OfType<VulkanSegment>().ToArray();
-        foreach (var segment in segments)
+        var vulkanSegments = compiled.Segments.OfType<VulkanSegment>().ToArray();
+        var cudaSegments = compiled.Segments.OfType<CudaSegment>().ToArray();
+        foreach (var segment in vulkanSegments)
+        {
+            segment.Profile = true;
+            segment.ResetProfile();
+        }
+
+        foreach (var segment in cudaSegments)
         {
             segment.Profile = true;
             segment.ResetProfile();
@@ -297,7 +311,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
             compiled.Run(run);
         }
 
-        result["profile"] = string.Join("\n", segments.Select(s => s.ProfileReport(40)));
+        result["profile"] = string.Join("\n", vulkanSegments.Select(s => s.ProfileReport(40)).Concat(cudaSegments.Select(s => s.ProfileReport(40))));
     }
 
     /// <summary>Ops of the nodes placed on the fallback device (views excluded), with their count and the main device's refusal.</summary>
