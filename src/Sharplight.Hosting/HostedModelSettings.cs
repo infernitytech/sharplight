@@ -69,6 +69,9 @@ public sealed record HostedModelSettings
     /// <summary>Reduced-precision kernels allowed.</summary>
     public bool ReducedPrecision { get; init; }
 
+    /// <summary>The block-scaled FP8 mode where it applies (<see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/>).</summary>
+    public bool BlockScaledFp8 { get; init; } = true;
+
     /// <summary>Own idle timeout, or null for the host's.</summary>
     public TimeSpan? IdleTimeout { get; init; }
 
@@ -89,6 +92,9 @@ public sealed record HostedModelSettings
 
     /// <summary>Smallest token budget of the load-adaptive engine step, or null (the engine's default).</summary>
     public int? MinStepTokens { get; init; }
+
+    /// <summary>When the floor of the adaptive step budget applies, or null (the engine's default).</summary>
+    public Llm.Serving.StepFloorPolicy? StepFloor { get; init; }
 
     /// <summary>Prompt-lookup draft length (0 = off).</summary>
     public int NgramDraftTokens { get; init; }
@@ -139,6 +145,7 @@ public sealed record HostedModelSettings
             Workers = model.Workers is { } workers ? [.. workers.Where(w => !string.IsNullOrWhiteSpace(w))] : [],
             ExpertCacheBytes = model.ExpertCacheGiB is > 0 ? (long)(model.ExpertCacheGiB.Value * (1L << 30)) : null,
             ReducedPrecision = defaults.ReducedPrecision,
+            BlockScaledFp8 = model.BlockScaledFp8 ?? defaults.BlockScaledFp8,
             IdleTimeout = model.IdleTimeoutSeconds is > 0 ? TimeSpan.FromSeconds(model.IdleTimeoutSeconds.Value) : null,
             MaxQueue = defaults.MaxQueue,
             PrefillChunk = defaults.PrefillChunk,
@@ -146,6 +153,7 @@ public sealed record HostedModelSettings
             KvStateSnapshots = defaults.KvStateSnapshots,
             StepTokens = defaults.StepTokens,
             MinStepTokens = defaults.MinStepTokens,
+            StepFloor = defaults.StepFloor,
             NgramDraftTokens = defaults.NgramDraftTokens,
             MtpDraftTokens = defaults.MtpDraftTokens,
             SpeculationMaxBatch = defaults.SpeculationMaxBatch,

@@ -1,3 +1,4 @@
+using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Hosting;
 
 namespace Sharplight.Hosting.Tests;
@@ -94,5 +95,37 @@ public sealed class ModelHostingJsonTests
         Assert.Equal(["0", "vulkan:1"], DeviceSpecifications.Split(" 0, vulkan:1 "));
         Assert.True(DeviceSpecifications.IsCpu("CPU"));
         Assert.False(DeviceSpecifications.IsCpu("cpu,0"));
+    }
+
+    [Fact]
+    public void NumericsAndStepFloorSettingsRoundTrip()
+    {
+        var defaults = HostedModelSettings.Resolve(new HostedModelOptions { Name = "m", Path = "/m.slm" }, new HostedModelDefaults(), false);
+        Assert.True(defaults.BlockScaledFp8);
+        Assert.Null(defaults.StepFloor);
+
+        var options = ModelHostingJson.Parse("""
+            {
+              "defaults": { "blockScaledFp8": false, "stepFloor": "always" },
+              "models": [
+                { "name": "a", "path": "/a.slm" },
+                { "name": "b", "path": "/b.slm", "blockScaledFp8": true },
+              ],
+            }
+            """);
+        Assert.False(options.Defaults.BlockScaledFp8);
+        Assert.Equal(StepFloorPolicy.Always, options.Defaults.StepFloor);
+        var a = HostedModelSettings.Resolve(options.Models[0], options.Defaults, false);
+        var b = HostedModelSettings.Resolve(options.Models[1], options.Defaults, false);
+        Assert.False(a.BlockScaledFp8);
+        Assert.True(b.BlockScaledFp8);
+        Assert.Equal(StepFloorPolicy.Always, a.StepFloor);
+
+        var again = ModelHostingJson.Parse(ModelHostingJson.Serialize(options));
+        Assert.False(again.Defaults.BlockScaledFp8);
+        Assert.Equal(StepFloorPolicy.Always, again.Defaults.StepFloor);
+        Assert.True(again.Models[1].BlockScaledFp8);
+        Assert.Null(again.Models[0].BlockScaledFp8);
+        Assert.Equal(StepFloorPolicy.Full, ModelHostingJson.Parse("""{ "defaults": { "stepFloor": "Full" } }""").Defaults.StepFloor);
     }
 }

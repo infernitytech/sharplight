@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Samples;
@@ -6,7 +7,7 @@ namespace Sharplight.Samples;
 /// <summary>
 /// The device and sizing options shared by the LLM samples: <c>--cpu</c>, <c>--device</c>, <c>--ctx</c>, <c>--batch</c>,
 /// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--experts-on-disk</c>, <c>--expert-cache</c>, <c>--reduced-precision</c>,
-/// <c>--provider</c>.
+/// <c>--fp8-block-scaled</c>, <c>--provider</c>.
 /// </summary>
 public sealed class RuntimeOptionSet
 {
@@ -72,6 +73,9 @@ public sealed class RuntimeOptionSet
             + "(e.g. one f16 product in the chunked delta rule of Qwen3.5-style models, and their delta-rule state in bf16).",
     };
 
+    /// <summary><c>--fp8-block-scaled</c>.</summary>
+    public Option<string> BlockScaledFp8 { get; } = CreateBlockScaledFp8();
+
     /// <summary>Adds all options to <paramref name="command"/>.</summary>
     public void AddTo(Command command)
     {
@@ -86,6 +90,7 @@ public sealed class RuntimeOptionSet
         command.Options.Add(ExpertsOnDisk);
         command.Options.Add(ExpertCache);
         command.Options.Add(ReducedPrecision);
+        command.Options.Add(BlockScaledFp8);
     }
 
     /// <summary>Reads the parsed values.</summary>
@@ -97,12 +102,35 @@ public sealed class RuntimeOptionSet
             parseResult.GetValue(Context),
             parseResult.GetValue(Batch),
             DataType.Get(parseResult.GetValue(KvType)!),
-            parseResult.GetValue(DisableFeatures) ?? [],
+            DisabledFeatures(parseResult),
             parseResult.GetValue(CpuOffload),
             parseResult.GetValue(ReducedPrecision),
             parseResult.GetValue(Provider),
             parseResult.GetValue(ExpertsOnDisk),
             parseResult.GetValue(ExpertCache));
+    }
+
+    private IReadOnlyList<string> DisabledFeatures(ParseResult parseResult)
+    {
+        var features = parseResult.GetValue(DisableFeatures) ?? [];
+        return parseResult.GetValue(BlockScaledFp8) == "off" && !features.Contains(DeviceFeatures.BlockScaledFp8, StringComparer.OrdinalIgnoreCase)
+            ? [.. features, DeviceFeatures.BlockScaledFp8]
+            : features;
+    }
+
+    private static Option<string> CreateBlockScaledFp8()
+    {
+        var option = new Option<string>("--fp8-block-scaled")
+        {
+            Description = "Block-scaled FP8 (default on): models with block-scaled E4M3 weights run their prompt-sized products on the "
+                + "block-scaled MMA with power-of-two scales where the device has it (CUDA, compute capability 12.x; about 2 % more serving "
+                + "throughput, perplexity +0.3 to +0.8 %, the form vLLM uses by default). off keeps the checkpoints' f32 scales "
+                + "(the same as --disable-features block_scaled_fp8).",
+            DefaultValueFactory = _ => "on",
+            HelpName = "on|off",
+        };
+        option.AcceptOnlyFromAmong("on", "off");
+        return option;
     }
 
     private static Option<string> CreateKvType()

@@ -1506,9 +1506,11 @@ public sealed class InferenceEngine : IDisposable
             return _budget;
         }
 
-        // Prototype wave policies (DiagnosticSwitches.StepFloorWaves): while some sequence decodes, the whole budget, or no floor.
-        bool decoding = DiagnosticSwitches.StepFloorWaves is not null && _active.Exists(s => !s.Prefilling && s.Replay is null);
-        if (decoding && DiagnosticSwitches.StepFloorWaves == "full")
+        // The floor policy (EngineOptions.StepFloor, SHARPLIGHT_STEP_FLOOR_WAVES): while some sequence decodes, no floor (Waves), the
+        // whole budget (Full), or the floor as in a wave (Always).
+        var policy = DiagnosticSwitches.StepFloor ?? _opt.StepFloor;
+        bool decoding = policy != StepFloorPolicy.Always && _active.Exists(s => !s.Prefilling && s.Replay is null);
+        if (decoding && policy == StepFloorPolicy.Full)
         {
             return _budget;
         }
