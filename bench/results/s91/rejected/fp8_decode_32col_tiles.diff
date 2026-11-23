@@ -1,0 +1,77 @@
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu b/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu
+index 126fbc93..583499f3 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8_native.cu
+@@ -54,8 +54,15 @@
+ #else
+ #define F8N_STAGES 3
+ #endif
++#ifndef F8N_WM
+ #define F8N_WM 2
++#endif
++#ifndef F8N_WN
+ #define F8N_WN 4
++#endif
++#ifndef F8N_MINB
++#define F8N_MINB 1
++#endif
+ #define F8N_THREADS (F8N_WM * F8N_WN * 32)
+ #define F8N_TM (F8N_BM / F8N_WM)
+ #define F8N_TN (F8N_BN / F8N_WN)
+@@ -165,7 +172,7 @@ static __device__ __forceinline__ const f8n_u8* f8n_wrow(const F8nParams& p, con
+     return f8n_wcodes(w, row);
+ }
+ 
+-extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_native(F8nParams p)
++extern "C" __global__ void __launch_bounds__(F8N_THREADS, F8N_MINB) gemm_fp8_native(F8nParams p)
+ {
+     extern __shared__ __align__(128) f8n_u8 smem[];
+     const f8n_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs
+index f08cf01a..80d422ce 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs
+@@ -366,7 +366,7 @@ public sealed partial class GraphLowerer
+     private Func<Bindings, bool>? EmitNativeFp8MultiGemm(MultiGemmGroup group, List<MultiGemmPart> parts, long[] widths, long k, Func<Bindings, bool> serves)
+     {
+         var first = parts[0];
+-        int columns = NativeFp8DecodeColumns;
++        int columns = System.Environment.GetEnvironmentVariable("SL_R33_MULTI_BN") is { } r33 ? int.Parse(r33, CultureInfo.InvariantCulture) : NativeFp8DecodeColumns;
+         var xcap = DenseScaleCapacityOf(first.Activations);
+         if (columns == NativeFp8Tile || DiagnosticSwitches.NativeGemmMinRows is not null || parts.Count > 3 || xcap <= 0
+             || parts.Any(pt => !UseNativeFp8Gemm(pt.Weight.Type, pt.Weight.Shape[0], k)))
+@@ -385,7 +385,7 @@ public sealed partial class GraphLowerer
+             ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+             ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+         };
+-        KernelVariant[] variants = [NativeFp8Variant(n, k, null, xcap, 64, columns, tall, rowsOf, multi), NativeFp8Variant(n, k, null, xcap, 32, columns, shortRows, rowsOf, multi)];
++        KernelVariant[] variants = [NativeFp8Variant(n, k, null, xcap, 64, columns, tall, rowsOf, multi), NativeFp8Variant(n, k, null, xcap, 32, Math.Max(columns, 64), shortRows, rowsOf, multi)];
+         KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+         KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+         Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native", group.Members, variants,
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
+index cfc50406..ac59c295 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
+@@ -167,7 +167,7 @@ public sealed partial class GraphLowerer
+             variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) > NativeFp8ShortTileMaxRows, rows));
+             bool streaming = UseFp8DecodeKernel(n, k, dual);
+             bool Streams(long r) => streaming && r <= Fp8DecodeKernelMaxRows;
+-            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 32, decodeColumns,
++            variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 32, Math.Max(decodeColumns, 64),
+                 b => rows(b) >= minRows && Decode(rows(b)) && rows(b) <= NativeFp8ShortTileMaxRows && !Streams(rows(b)), rows));
+             if (streaming)
+             {
+@@ -228,6 +228,12 @@ public sealed partial class GraphLowerer
+         if (columns != NativeFp8Tile)
+         {
+             macros["F8N_BN"] = columns.ToString(CultureInfo.InvariantCulture);
++            if (columns == 32)
++            {
++                macros["F8N_WM"] = "4";
++                macros["F8N_WN"] = "2";
++                macros["F8N_MINB"] = "2";
++            }
+             if ((DiagnosticSwitches.Fp8L2Prefetch ?? NativeFp8DecodeL2Blocks) is > 0 and var l2)
+             {
+                 macros["F8N_L2"] = l2.ToString(CultureInfo.InvariantCulture);

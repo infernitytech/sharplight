@@ -1,0 +1,151 @@
+diff --git a/src/Sharplight.Core/Llm/DiagnosticSwitches.cs b/src/Sharplight.Core/Llm/DiagnosticSwitches.cs
+index 07c9dd78..f1a71c03 100644
+--- a/src/Sharplight.Core/Llm/DiagnosticSwitches.cs
++++ b/src/Sharplight.Core/Llm/DiagnosticSwitches.cs
+@@ -18,6 +18,8 @@ namespace Sharplight.Llm;
+ /// also when the decoder runs steps asynchronously (by default that work overlaps the next step on the device).</item>
+ /// <item><c>SHARPLIGHT_STEP_SNAPSHOTS=0</c>: recurrent-state snapshots for prefix caching are only copied after a step, so a snapshot
+ /// inside a prompt chunk cuts the chunk (<see cref="Serving.IBatchDecoder.SnapshotsInsideSteps"/> is false; for A/B measurements).</item>
++/// <item><c>SHARPLIGHT_STEP_TRIM_ROWS=&lt;n&gt;</c>: the serving engine's <see cref="Serving.EngineOptions.GranuleTrimRows"/> (for A/B
++/// measurements).</item>
+ /// <item><c>SHARPLIGHT_DEVICE_RESERVE_MIB=&lt;n&gt;</c>: device memory kept free on every device by a placement that
+ /// <see cref="LlmLoadOptions.ReservePerDevice"/> leaves at its default (for measurements).</item>
+ /// </list>
+@@ -36,6 +38,12 @@ internal static class DiagnosticSwitches
+     /// <summary>False when token emission must not overlap the next step (<c>SHARPLIGHT_ASYNC_EMIT=0</c>).</summary>
+     public static bool DeferEmits { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_ASYNC_EMIT") != "0";
+ 
++    /// <summary>
++    /// The <see cref="Serving.EngineOptions.GranuleTrimRows"/> forced for the process, or null (<c>SHARPLIGHT_STEP_TRIM_ROWS=n</c>, for A/B
++    /// measurements).
++    /// </summary>
++    public static int? GranuleTrimRows { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_TRIM_ROWS"), out int trim) && trim >= 0 ? trim : null;
++
+     /// <summary>The file of the serving step profile, or null.</summary>
+     public static string? StepProfile { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_PROFILE");
+ 
+diff --git a/src/Sharplight.Core/Llm/Serving/EngineOptions.cs b/src/Sharplight.Core/Llm/Serving/EngineOptions.cs
+index bb6fa1fc..0b0c4276 100644
+--- a/src/Sharplight.Core/Llm/Serving/EngineOptions.cs
++++ b/src/Sharplight.Core/Llm/Serving/EngineOptions.cs
+@@ -30,6 +30,14 @@ public sealed record EngineOptions
+     /// </summary>
+     public int BatchTokensGranule { get; set; } = 128;
+     /// <summary>
++    /// Prompt rows a step may leave for the next one so that its rows end on a whole <see cref="BatchTokensGranule"/>: when every waiting
++    /// prompt row fits the step (it is not cut by the budget) and the step's rows are at most this many past a multiple of the granule
++    /// (and at least one granule), that many rows of the last prompt chunk move to the next step. A prompt-sized GEMM's time follows its
++    /// count of token tiles, so 15 decode rows and a 250-row prompt (265 rows, three 128-row tiles) cost 28.3 ms on Qwen3-8B-FP8 and 15
++    /// + 241 rows 22.2 ms, while the 9 rows cost 0.2 ms in the next decode step (benchmarks.md §91). 0 turns it off.
++    /// </summary>
++    public int GranuleTrimRows { get; set; } = 32;
++    /// <summary>
+     /// Maximum prompt rows of one sequence per step (0, the default: the step's token budget, so a prompt takes whole passes of the
+     /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.
+     /// </summary>
+diff --git a/src/Sharplight.Core/Llm/Serving/InferenceEngine.cs b/src/Sharplight.Core/Llm/Serving/InferenceEngine.cs
+index 063fdab7..59ccc722 100644
+--- a/src/Sharplight.Core/Llm/Serving/InferenceEngine.cs
++++ b/src/Sharplight.Core/Llm/Serving/InferenceEngine.cs
+@@ -1840,6 +1840,7 @@ public sealed class InferenceEngine : IDisposable
+     /// <summary>Chunked prefill of admitted prompts, oldest admission first, with what is left of the token budget.</summary>
+     private void ScheduleChunkedPrefill(ref StepBudget budget)
+     {
++        int held = TrimToGranule(ref budget);
+         foreach (var s in _active)
+         {
+             if (!s.Prefilling || s.Replay is not null || s.Leader is not null || budget.Tokens <= 0)
+@@ -1890,6 +1891,54 @@ public sealed class InferenceEngine : IDisposable
+             budget.Tokens -= chunk;
+             budget.LogitsRows -= last ? 1 : 0;
+         }
++
++        // The rows held back stay unused (the step's row count is the budget it spent).
++        budget.Tokens += held;
++    }
++
++    /// <summary>
++    /// Lowers the prompt rows of the step so that its rows end on a whole <see cref="EngineOptions.BatchTokensGranule"/> when they would
++    /// end at most <see cref="EngineOptions.GranuleTrimRows"/> past one and every waiting prompt row fits the step: the last prompt chunk
++    /// then leaves that many rows to the next step, whose decode rows take them for little more. Returns the rows taken from the budget.
++    /// </summary>
++    private int TrimToGranule(ref StepBudget budget)
++    {
++        int trim = DiagnosticSwitches.GranuleTrimRows ?? _opt.GranuleTrimRows;
++        int granule = _opt.BatchTokensGranule;
++        if (trim <= 0 || granule <= 1 || budget.Tokens <= 0)
++        {
++            return 0;
++        }
++
++        long prompt = 0;
++        foreach (var s in _active)
++        {
++            if (s.Prefilling && s.Replay is null && s.Leader is null)
++            {
++                prompt += Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos);
++            }
++        }
++
++        if (prompt == 0 || prompt >= budget.Tokens)
++        {
++            return 0;
++        }
++
++        long rows = prompt;
++        foreach (var input in _inputs)
++        {
++            rows += input.Tokens.Length;
++        }
++
++        long over = rows % granule;
++        if (rows < granule || over == 0 || over > trim || over >= prompt)
++        {
++            return 0;
++        }
++
++        int held = budget.Tokens - (int)(prompt - over);
++        budget.Tokens -= held;
++        return held;
+     }
+ 
+     /// <summary>
+diff --git a/tests/Sharplight.Serving.Tests/EngineTests.cs b/tests/Sharplight.Serving.Tests/EngineTests.cs
+index c1d7bc60..6d5b7e84 100644
+--- a/tests/Sharplight.Serving.Tests/EngineTests.cs
++++ b/tests/Sharplight.Serving.Tests/EngineTests.cs
+@@ -122,6 +122,34 @@ public class EngineTests
+         Assert.Contains(rows, r => r > 40 + 4);
+     }
+ 
++    [Fact]
++    public async Task PromptRowsPastAGranule_MoveToTheNextStep()
++    {
++        var d = new FakeBatchDecoder(4, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(2) };
++        d.Script("a", loop: true);
++        using var e = Engine(d, new EngineOptions { MinBatchTokens = 0, BatchTokensGranule = 64, GranuleTrimRows = 16 });
++        var running = e.Submit(Req("r", max: 100000));
++        await T.WaitUntil(() => d.Steps.Count > 2);
++
++        // One decode row and a 70-row prompt: 71 rows, 7 past a granule, so the step takes 63 prompt rows and the next the other 7.
++        string prompt = new string('p', 69);
++        int start = d.Steps.Count;
++        var r = await e.Submit(Req(prompt, max: 2)).CompleteAsync();
++        int length = T.Prompt(prompt).Length;
++        var rows = d.Steps.Skip(start).Select(s => s.Sum(x => x.Rows)).ToList();
++        Assert.Equal("aa", r.Text);
++        Assert.Contains(64, rows);
++        Assert.DoesNotContain(rows, n => n == 1 + length);
++
++        // A prompt that ends further past the granule keeps its rows.
++        string wide = new string('q', 99);
++        start = d.Steps.Count;
++        await e.Submit(Req(wide, max: 2)).CompleteAsync();
++        Assert.Contains(d.Steps.Skip(start), s => s.Sum(x => x.Rows) == 1 + T.Prompt(wide).Length);
++        running.Cancel();
++        await running.CompleteAsync();
++    }
++
+     [Fact]
+     public async Task Cancel_RunningRequest_FreesSlot()
+     {

@@ -1,0 +1,395 @@
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu	2026-11-22 23:23:11.526988952 +0000
++++ mc.cu	2026-11-23 00:00:49.000000000 +0000
+@@ -55,6 +55,9 @@
+ #ifndef DUAL
+ #define DUAL 0
+ #endif
++#ifndef F8N_MC
++#define F8N_MC 0
++#endif
+ #ifndef F8N_BLOCK_SCALED
+ #define F8N_BLOCK_SCALED 0
+ #endif
+@@ -67,9 +70,17 @@
+ #if MULTI && (DUAL || QOUT)
+ #error "gemm_fp8_tma: MULTI with DUAL or QOUT"
+ #endif
++#ifndef TALL
++#define TALL 0
++#endif
++#if TALL
++#define F8N_BM 256
++#define F8N_STAGES 2
++#else
+ #define F8N_BM 128
+-#define F8N_BN 128
+ #define F8N_STAGES 3
++#endif
++#define F8N_BN 128
+ #define F8N_WM 2
+ #define F8N_WN 4
+ #define F8N_CONSUMERS (F8N_WM * F8N_WN * 32)
+@@ -89,7 +100,14 @@
+ #define F8N_FM (F8N_TM / 16)
+ #define F8N_FN (F8N_TN / 8)
+ #define F8N_STAGE_BYTES ((F8N_BM + F8N_BN) * 128)
++#if TALL
++// One weight scale per group and K block (F8N_WUNI): 16 bytes per matrix.
++#define F8N_SCALE_BYTES (F8N_BM * 4 + 32)
++#define F8N_WSD 4
++#else
+ #define F8N_SCALE_BYTES ((F8N_BM + F8N_BN) * 4)
++#define F8N_WSD (F8N_BN / 2)
++#endif
+ // Three code stages, two scale slots, eight barriers (full[3], empty[3], scales[2]).
+ #ifndef QOUT
+ #define QOUT 0
+@@ -101,7 +119,7 @@
+ #define F8N_WALK 128
+ #define F8N_QRS ((unsigned long long)N + N / 32)
+ #else
+-#define F8N_SHARED (F8N_STAGES * F8N_STAGE_BYTES + 2 * F8N_SCALE_BYTES + 64)
++#define F8N_SHARED (F8N_STAGES * F8N_STAGE_BYTES + 2 * F8N_SCALE_BYTES + 64 + (F8N_MC == 2 ? 64 : 0))
+ #define F8N_WALK F8N_BOUT
+ #endif
+ #define F8N_RS ((unsigned long long)K + K / 32)
+@@ -233,15 +251,32 @@
+     asm volatile("{\n .reg .b64 st;\n mbarrier.arrive.shared::cta.b64 st, [%0];\n}\n" :: "r"(bar) : "memory");
+ }
+ 
++#ifdef DBGWAIT
++__device__ unsigned* g_dbgh;
++static __device__ __forceinline__ void f8n_mbar_wait(f8n_u32 bar, f8n_u32 parity)
++{
++    for (long long it = 0;; it++)
++    {
++        f8n_u32 ok;
++        asm volatile("{\n .reg .pred p;\n mbarrier.try_wait.parity.shared::cta.b64 p, [%1], %2;\n selp.u32 %0, 1, 0, p;\n}\n" : "=r"(ok) : "r"(bar), "r"(parity) : "memory");
++        if (ok) return;
++        if (it == (1ll << 14)) { unsigned i = atomicAdd(&g_dbgh[0], 1); if (i < 500) { volatile unsigned* q = g_dbgh + 4 + i * 4; q[0] = blockIdx.x; q[1] = threadIdx.x; q[2] = bar & 1023; q[3] = parity; __threadfence_system(); } }
++    }
++}
++#define f8n_mbar_wait_cl f8n_mbar_wait
++#else
+ static __device__ __forceinline__ void f8n_mbar_wait(f8n_u32 bar, f8n_u32 parity)
+ {
+     asm volatile("{\n .reg .pred p;\n F8N_WAIT_%=:\n mbarrier.try_wait.parity.shared::cta.b64 p, [%0], %1;\n @!p bra F8N_WAIT_%=;\n}\n"
+                  :: "r"(bar), "r"(parity) : "memory");
+ }
++#endif
+ 
+ // Destination space of the bulk and tensor copies: the block's own shared memory (PTX 8.6, CUDA 12.8). The cluster form that older
+ // compilers take makes ptxas check at run time that the address is the block's, with a fallback call that needs local memory.
+-#if __CUDACC_VER_MAJOR__ > 12 || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 8)
++#if F8N_MC
++#define F8N_DST "shared::cluster"
++#elif __CUDACC_VER_MAJOR__ > 12 || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 8)
+ #define F8N_DST "shared::cta"
+ #else
+ #define F8N_DST "shared::cluster"
+@@ -259,6 +294,26 @@
+                  :: "r"(dst), "l"((f8n_u64)map), "r"(c0), "r"(c1), "r"(c2), "r"(bar) : "memory");
+ }
+ 
++static __device__ __forceinline__ void f8n_tma3_mc(f8n_u32 dst, const F8nTensorMap* map, int c0, int c1, int c2, f8n_u32 bar)
++{
++    asm volatile("cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes.multicast::cluster [%0], [%1, {%2, %3, %4}], [%5], %6;\n"
++                 :: "r"(dst), "l"((f8n_u64)map), "r"(c0), "r"(c1), "r"(c2), "r"(bar), "h"((unsigned short)3) : "memory");
++}
++
++static __device__ __forceinline__ void f8n_mbar_arrive_remote(f8n_u32 bar, f8n_u32 cta)
++{
++    asm volatile("{\n .reg .b32 ra;\n mapa.shared::cluster.u32 ra, %0, %1;\n mbarrier.arrive.release.cluster.shared::cluster.b64 _, [ra];\n}\n"
++                 :: "r"(bar), "r"(cta) : "memory");
++}
++
++#ifndef DBGWAIT
++static __device__ __forceinline__ void f8n_mbar_wait_cl(f8n_u32 bar, f8n_u32 parity)
++{
++    asm volatile("{\n .reg .pred p;\n F8N_WAITC_%=:\n mbarrier.try_wait.parity.acquire.cluster.shared::cta.b64 p, [%0], %1;\n @!p bra F8N_WAITC_%=;\n}\n"
++                 :: "r"(bar), "r"(parity) : "memory");
++}
++#endif
++
+ static __device__ __forceinline__ void f8n_bulk(f8n_u32 dst, const void* src, f8n_u32 bytes, f8n_u32 bar)
+ {
+     asm volatile("{\n .reg .u64 g;\n cvta.to.global.u64 g, %1;\n cp.async.bulk." F8N_DST ".global.mbarrier::complete_tx::bytes [%0], [g], %2, [%3];\n}\n"
+@@ -288,8 +343,25 @@
+ }
+ 
+ // Origin of this block's local tile v: tile blockIdx.x + v gridDim.x of the walk, or (QOUT) half v % 2 of tile pair v / 2.
++static __device__ __forceinline__ f8n_u32 f8n_rank()
++{
++#if F8N_MC
++    f8n_u32 r;
++    asm volatile("mov.u32 %0, %%cluster_ctarank;\n" : "=r"(r));
++    return r;
++#else
++    return 0;
++#endif
++}
++
+ static __device__ __forceinline__ void f8n_local(f8n_u32 v, f8n_u32 tilesX, f8n_u32& t0, f8n_u32& n0)
+ {
++#if F8N_MC
++    // Clusters of two walk tile pairs: token tiles 2 tp and 2 tp + 1 of one weight tile.
++    f8n_tile((blockIdx.x >> 1) + v * (gridDim.x >> 1), (tilesX + 1) >> 1, t0, n0);
++    t0 = t0 * 2 + f8n_rank() * F8N_BM;
++    return;
++#endif
+ #if QOUT
+     f8n_tile(blockIdx.x + (v >> 1) * gridDim.x, tilesX, t0, n0);
+     n0 += (v & 1) * F8N_BOUT;
+@@ -354,13 +426,24 @@
+ #endif
+ }
+ 
+-extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const __grid_constant__ F8nParams p)
++#if F8N_MC
++#define F8N_CLUSTER __cluster_dims__(2, 1, 1)
++#else
++#define F8N_CLUSTER
++#endif
++extern "C" __global__ void F8N_CLUSTER __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const __grid_constant__ F8nParams p)
+ {
+     extern __shared__ __align__(1024) f8n_u8 smem[];
+     const f8n_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
+     const f8n_u32 tilesX = (p.T + F8N_BM - 1) / F8N_BM, tiles = tilesX * (N / F8N_WALK);
+     const f8n_u32 nk = K / 128;
++#if F8N_MC
++    const f8n_u32 ptiles = ((tilesX + 1) >> 1) * (N / F8N_WALK), cl = blockIdx.x >> 1, ncl = gridDim.x >> 1;
++    const f8n_u32 myTiles = (cl < ptiles ? (ptiles - cl + ncl - 1) / ncl : 0) * (QOUT ? 2 : 1);
++    const f8n_u32 rank = f8n_rank();
++#else
+     const f8n_u32 myTiles = (blockIdx.x < tiles ? (tiles - blockIdx.x + gridDim.x - 1) / gridDim.x : 0) * (QOUT ? 2 : 1);
++#endif
+     const f8n_u32 total = myTiles * nk;
+     const f8n_u8* sx = p.x + (f8n_u64)XCAP * F8N_RS;
+     const f8n_u32 scaleRing = f8n_smem(smem + F8N_STAGES * F8N_STAGE_BYTES);
+@@ -371,10 +454,16 @@
+         for (int s = 0; s < F8N_STAGES; s++)
+         {
+             f8n_mbar_init(bars + s * 8, 1);
+-            f8n_mbar_init(bars + 24 + s * 8, F8N_CONSUMERS / 32);
++            f8n_mbar_init(bars + 24 + s * 8, (F8N_MC ? 2 : 1) * F8N_CONSUMERS / 32);
+         }
+         f8n_mbar_init(bars + 48, 1);
+         f8n_mbar_init(bars + 56, 1);
++#if F8N_MC == 2
++        for (int s = 0; s < F8N_STAGES; s++)
++        {
++            f8n_mbar_init(bars + 64 + s * 8, 1);
++        }
++#endif
+         asm volatile("fence.mbarrier_init.release.cluster;\n" ::: "memory");
+     }
+ #if QOUT
+@@ -384,15 +473,37 @@
+         rowMax[tid] = 0.0f;
+     }
+ #endif
++#if F8N_MC
++    asm volatile("barrier.cluster.arrive.release;\nbarrier.cluster.wait.acquire;\n" ::: "memory");
++#else
+     __syncthreads();
++#endif
+ 
+     if (warp >= F8N_WM * F8N_WN)
+     {
+ #if F8N_WG
+         asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n" :: "n"(F8N_COPY_REGS));
+ #endif
++#if F8N_MC == 2
++        if (warp == F8N_WM * F8N_WN + 1 && lane == 0)
++        {
++            // Forwarder: once this block's half of the weight tile of iteration m has landed, copy it to the peer's stage.
++            for (f8n_u32 m = 0; m < total; m++)
++            {
++                const f8n_u32 s = m % F8N_STAGES;
++                f8n_mbar_wait(bars + 64 + s * 8, (m / F8N_STAGES) & 1);
++                const f8n_u32 src = f8n_smem(smem + s * F8N_STAGE_BYTES) + (F8N_BM + rank * (F8N_BN / 2)) * 128;
++                asm volatile("{\n .reg .b32 rd, rb;\n mapa.shared::cluster.u32 rd, %0, %2;\n mapa.shared::cluster.u32 rb, %1, %2;\n"
++                             " cp.async.bulk.shared::cluster.shared::cta.mbarrier::complete_tx::bytes [rd], [%0], %3, [rb];\n}\n"
++                             :: "r"(src), "r"(bars + s * 8), "r"(rank ^ 1), "r"((F8N_BN / 2) * 128) : "memory");
++            }
++        }
++#endif
+         if (warp != F8N_WM * F8N_WN || lane != 0)
+         {
++#if F8N_MC
++            asm volatile("barrier.cluster.arrive.release;\nbarrier.cluster.wait.acquire;\n" ::: "memory");
++#endif
+             return;
+         }
+ 
+@@ -403,7 +514,11 @@
+         {
+             if (m >= F8N_STAGES)
+             {
++#if F8N_MC
++                f8n_mbar_wait_cl(bars + 24 + (m % F8N_STAGES) * 8, ((m / F8N_STAGES) - 1) & 1);
++#else
+                 f8n_mbar_wait(bars + 24 + (m % F8N_STAGES) * 8, ((m / F8N_STAGES) - 1) & 1);
++#endif
+             }
+ 
+             if (m < total)
+@@ -414,9 +529,32 @@
+                 }
+ 
+                 const f8n_u32 s = m % F8N_STAGES, dst = f8n_smem(smem + s * F8N_STAGE_BYTES), bar = bars + s * 8;
+-                f8n_mbar_expect(bar, F8N_STAGE_BYTES);
++#if defined(DIAG_NOCOPY)
++                f8n_mbar_arrive(bar);
++#elif defined(DIAG_NOB)
++                f8n_mbar_expect(bar, F8N_BM * 128);
+                 f8n_tma2(dst, &p.mx, codeKb * 128, ct0, bar);
++#else
++                f8n_mbar_expect(bar, F8N_STAGE_BYTES - (F8N_MC == 2 ? (F8N_BN / 2) * 128 : 0));
++                f8n_tma2(dst, &p.mx, codeKb * 128, ct0, bar);
++#endif
++#if defined(DIAG_NOCOPY) || defined(DIAG_NOB)
++#elif defined(MC_NOMULTI)
++                f8n_tma3(dst + F8N_BM * 128, &p.mw, codeKb * 128, 0, cn0 >> 7, bar);
++                f8n_tma3(dst + (F8N_BM + 64) * 128, &p.mw, codeKb * 128, 64, cn0 >> 7, bar);
++#elif F8N_MC == 2
++                f8n_mbar_expect(bars + 64 + s * 8, (F8N_BN / 2) * 128);
+ #if DUAL
++                f8n_tma3(dst + (F8N_BM + rank * (F8N_BN / 2)) * 128, rank ? &p.mw2 : &p.mw, codeKb * 128, cn0 & 127, cn0 >> 7, bars + 64 + s * 8);
++#else
++                f8n_tma3(dst + (F8N_BM + rank * (F8N_BN / 2)) * 128, &p.mw, codeKb * 128, rank * (F8N_BN / 2), cn0 >> 7, bars + 64 + s * 8);
++#endif
++#elif F8N_MC && DUAL
++                // Half the weight tile per block, multicast to both: rank 0 w's 64 rows, rank 1 w2's.
++                f8n_tma3_mc(dst + (F8N_BM + rank * (F8N_BN / 2)) * 128, rank == 0 ? &p.mw : &p.mw2, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
++#elif F8N_MC
++                f8n_tma3_mc(dst + (F8N_BM + rank * (F8N_BN / 2)) * 128, &p.mw, codeKb * 128, rank * (F8N_BN / 2), cn0 >> 7, bar);
++#elif DUAL
+                 f8n_tma3(dst + F8N_BM * 128, &p.mw, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
+                 f8n_tma3(dst + (F8N_BM + F8N_BN / 2) * 128, &p.mw2, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
+ #elif MULTI
+@@ -449,7 +587,12 @@
+                 const f8n_u32 slot = (m - 1) & 1, dst = scaleRing + slot * F8N_SCALE_BYTES, bar = bars + 48 + slot * 8;
+                 f8n_mbar_expect(bar, F8N_SCALE_BYTES);
+                 f8n_bulk(dst, sx + ((f8n_u64)scaleKb * XCAP + st0) * 4, F8N_BM * 4, bar);
+-#if DUAL
++#if TALL && DUAL
++                f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, 16, bar);
++                f8n_bulk(dst + F8N_BM * 4 + 16, f8n_wscales(p.w2, sn0) + scaleKb * 512, 16, bar);
++#elif TALL
++                f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, 16, bar);
++#elif DUAL
+                 f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_BN * 2, bar);
+                 f8n_bulk(dst + F8N_BM * 4 + F8N_BN * 2, f8n_wscales(p.w2, sn0) + scaleKb * 512, F8N_BN * 2, bar);
+ #elif MULTI
+@@ -473,6 +616,9 @@
+             }
+         }
+ 
++#if F8N_MC
++        asm volatile("barrier.cluster.arrive.release;\nbarrier.cluster.wait.acquire;\n" ::: "memory");
++#endif
+         return;
+     }
+ 
+@@ -527,20 +673,11 @@
+ 
+ #elif F8N_WUNI
+             // One weight scale per 128 rows and K block (and per matrix of the pair): the promotion's factors are per row of x.
+-            float xw[F8N_FM][2][1 + DUAL];
++            float wsd[1 + DUAL];
+ #pragma unroll
+-            for (int i = 0; i < F8N_FM; i++)
++            for (int d = 0; d <= DUAL; d++)
+             {
+-#pragma unroll
+-                for (int h = 0; h < 2; h++)
+-                {
+-                    const float xh = xs[wm * F8N_TM + i * 16 + g + h * 8];
+-#pragma unroll
+-                    for (int d = 0; d <= DUAL; d++)
+-                    {
+-                        xw[i][h][d] = xh * ws[d * (F8N_BN / 2)];
+-                    }
+-                }
++                wsd[d] = ws[d * F8N_WSD];
+             }
+ 
+ #else
+@@ -565,8 +702,12 @@
+ #endif
+             const f8n_u32 s = it % F8N_STAGES;
+             f8n_mbar_wait(bars + s * 8, (it / F8N_STAGES) & 1);
++#if F8N_MC == 2
++            f8n_mbar_wait(bars + 64 + s * 8, (it / F8N_STAGES) & 1);
++#endif
+             const f8n_u32 sa = f8n_smem(smem + s * F8N_STAGE_BYTES), sb = sa + F8N_BM * 128;
+             f8n_u32 b[4][F8N_FN][2];
++#ifndef DIAG_NOMMA
+ #pragma unroll
+             for (int kk = 0; kk < 4; kk++)
+             {
+@@ -577,6 +718,7 @@
+                     f8n_ldsm4(sb + f8n_swz(r, kk * 2 + ((lane >> 3) & 1)), b[kk][j][0], b[kk][j][1], b[kk][j + 1][0], b[kk][j + 1][1]);
+                 }
+             }
++#endif
+ 
+ #if F8N_BLOCK_SCALED
+ #pragma unroll
+@@ -596,6 +738,7 @@
+                 }
+             }
+ 
++#elif defined(DIAG_NOMMA)
+ #else
+ #pragma unroll
+             for (int i = 0; i < F8N_FM; i++)
+@@ -623,14 +766,25 @@
+                     }
+                 }
+ #if F8N_WUNI
++                float xw[2][1 + DUAL];
++#pragma unroll
++                for (int h = 0; h < 2; h++)
++                {
++                    const float xh = xs[wm * F8N_TM + i * 16 + g + h * 8];
++#pragma unroll
++                    for (int d = 0; d <= DUAL; d++)
++                    {
++                        xw[h][d] = xh * wsd[d];
++                    }
++                }
+ #pragma unroll
+                 for (int j = 0; j < F8N_FN; j++)
+                 {
+                     const int d = DUAL ? (j & 1) : 0;
+-                    acc[i][j][0] = fmaf(part[j][0], xw[i][0][d], acc[i][j][0]);
+-                    acc[i][j][1] = fmaf(part[j][1], xw[i][0][d], acc[i][j][1]);
+-                    acc[i][j][2] = fmaf(part[j][2], xw[i][1][d], acc[i][j][2]);
+-                    acc[i][j][3] = fmaf(part[j][3], xw[i][1][d], acc[i][j][3]);
++                    acc[i][j][0] = fmaf(part[j][0], xw[0][d], acc[i][j][0]);
++                    acc[i][j][1] = fmaf(part[j][1], xw[0][d], acc[i][j][1]);
++                    acc[i][j][2] = fmaf(part[j][2], xw[1][d], acc[i][j][2]);
++                    acc[i][j][3] = fmaf(part[j][3], xw[1][d], acc[i][j][3]);
+                 }
+ #else
+ #pragma unroll
+@@ -650,6 +804,9 @@
+             if (lane == 0)
+             {
+                 f8n_mbar_arrive(bars + 24 + s * 8);
++#if F8N_MC
++                f8n_mbar_arrive_remote(bars + 24 + s * 8, rank ^ 1);
++#endif
+             }
+         }
+ 
+@@ -802,4 +959,7 @@
+         }
+ #endif
+     }
++#if F8N_MC
++    asm volatile("barrier.cluster.arrive.release;\nbarrier.cluster.wait.acquire;\n" ::: "memory");
++#endif
+ }

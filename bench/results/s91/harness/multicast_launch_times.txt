@@ -1,0 +1,8 @@
+launch 1: 3762.245 ms, stuck waits 1980052
+  check T=256: max err 0.000366 of max 1.78e+03
+launch 2: 3737.056 ms, stuck waits 3959618
+launch 3: 3543.692 ms, stuck waits 5740295
+launch 4: 3723.464 ms, stuck waits 7658680
+launch 5: 3768.315 ms, stuck waits 9595336
+launch 6: 3699.528 ms, stuck waits 11529410
+launch 7: 3698.537 ms, stuck waits 13522059

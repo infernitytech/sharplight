@@ -1,0 +1,8 @@
+# Promotion after the next block's wait, with that block's first k-step fragments loaded before this block's last k-step
+# (rejected/fp8_tma_early_order_wm4_v4_pipe_nostore.diff, F8N_PIPE=2), vLLM's operands, 2,048 rows, sustained ms, two rounds,
+# alternated with the default in one hold:
+down 12288 -> 4096:            default 0.801 / 0.810   F8N_PIPE=2 0.823-0.825 / 0.831-0.832
+gate+up 4096 -> 24576 (f32):   default 1.646-1.650 / 1.657-1.658   F8N_PIPE=2 1.629-1.639 / 1.638-1.640
+gate/up dual, E4M3 store:      default 1.635-1.644 / 1.650-1.652   F8N_PIPE=2 1.716-1.719 / 1.726-1.727
+# The same statements with four MMAs per asm block in CUTLASS's order (F8N_ORDER=3): ptxas emits them A-fragment-major again and
+# sets no .reuse (cuobjdump of the compiled cubin); not timed.
