@@ -13683,3 +13683,178 @@ python3 bench/s60_steps.py steps.csv
 ROUNDS=1 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "64" --gpu-memory-utilization 0.6 --enable-logging-iteration-details
 QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda [--min-step-tokens 0]
 ```
+
+## 91. LLM round 33: the FP8 prompt GEMM's bytes per tile and its gap to CUTLASS's mainloop measured (no larger tile, cluster multicast or DSMEM path is faster on sm_120; CUTLASS's f32-scale kernel equals ours without the promotion's schedule), token-tile trimming in the serving engine (neutral on the benchmark), nothing kept (2026-11-23)
+
+Branch `perf/llm-r33` (`develop` at `b4d4cb29`, §90 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W
+cap), shared with other rounds; every run held the verify lock, and `develop` and vLLM 0.33 (venv `vllm-r12`) ran in the same holds. The
+round worked through §90's ranked levers; every change was measured against `develop` and none moved serving, so the branch adds this
+section and its raw output only ([`bench/results/s91/`](../bench/results/s91); the rejected forms as diffs in `rejected/`). No engine,
+kernel or lowering source changes, so greedy text, logits and PplBench are `develop`'s.
+
+### 91.1 Serving against vLLM (final hold)
+
+`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, closed loop, two rounds each;
+ours `--provider cuda` (`develop`, run before and after vLLM), vLLM `--gpu-memory-utilization 0.6` (`serve/final/`). Tok/s per round,
+TTFT p50 and inter-token latency (ms):
+
+| model, streams | `develop` b4d4cb29 (before / after vLLM) | vLLM 0.33 | ours / vLLM (second rounds) |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1091 / 1094, 1089 / 1092 | 1118 / 1113 | 0.98 |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 113-116 / 13.65-13.69, 12.46-12.50, 14.1-14.3, 56.4-56.5 | 158-194 / 12.90-12.94, 12.40-12.42, 13.0, 15.2-15.5 | |
+| Qwen3-8B-FP8, 64 | 2571 / 2572, 2580 / 2576 | 2630 / 2686 | 0.96 |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 276-277 / 21.59-21.65, 16.29-16.35, 37-42, 141-143 | 406-495 / 19.79-20.22, 16.01-16.05, 18.8-20.1, 133-134 | |
+| gpt-oss-20b, 16 | 1394 / 1416, 1390 / 1416 | 1387 / 1438 | 0.98 |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 102-107 / 10.40-10.54, 9.29-9.44, 11.3-11.7, 50.5-51.0 | 169-187 / 9.78-10.15, 9.30-9.68, 9.9-10.8, 13.1-13.3 | |
+| gpt-oss-20b, 64 | 3050 / 3061, 3046 / 3078 | 3171 / 3149 | 0.97-0.98 |
+| the same: TTFT p50 / ITL mean, p50, p95, p99 | 237-238 / 18.03-18.22, 13.49-13.78, 36-40, 118-120 | 370-446 / 16.65-17.01, 12.90-13.05, 16.4-17.3, 120-121 | |
+
+The points are §90's within their round-to-round spread (Qwen3-8B-FP8 0.98 / 0.96, gpt-oss-20b 0.98-1.0 / 0.97); our TTFT p50 stays
+28-47 % below vLLM's. The inter-token p99 at 16 streams (56 / 51 ms against vLLM's 15 / 13) is the prompt waves of 91.4.
+
+The gap at 64 streams is still the FP8 prompt GEMMs' per-row cost in the mixed steps (§90.2): on vLLM's own operands CUTLASS's
+f32-scale blockwise kernel runs gate + up in 1.469 ms and down in 0.756 against our 1.662 / 0.814 (91.3).
+
+### 91.2 More bytes per FP8 tile (§90 lever 1): every form measured, none faster on sm_120
+
+Kernel harness (`bench/s86_bs/bench_fp8.cu` with the variants of `rejected/`, final hold in `harness/final.txt`; sustained at the 200 W
+cap, ms, 2,048 rows, the harness's random E4M3 codes). First, where the default kernel's time goes:
+
+| form | gate / up 4,096 → 2 x 12,288 | down 12,288 → 4,096 |
+|---|---:|---:|
+| default (`gemm_fp8_tma.cu`: copy warpgroup, uniform scales) | 1.603 | 0.822 |
+| copies only (no MMA) | 0.855 (199 W) | 0.474 |
+| MMAs only (no code copies) | 1.126 (201 W) | 0.596 |
+| activation copies only (no weight tile) | 1.286 | 0.661 |
+
+Each half alone already draws the full 200 W: the copies alone move 3 GB from L2 into shared memory in 0.855 ms at the cap, so the kernel
+is bound by energy and the copies are about half of it. Fewer bytes per tile would pay if a form moved fewer bytes without losing the
+pipeline:
+
+| form | gate / up | down | |
+|---|---:|---:|---|
+| 256-row token tiles (warp tiles 128 x 32, no spills) | 1.905 | 1.077 | 48 KB stages: only two fit the 99 KB of shared memory |
+| 128-row tiles with two stages (for scale) | 2.181 | | two stages starve the warps; at equal stages the 256-row tile is 13 % faster, but three of its stages do not fit |
+| 2-CTA clusters, weight half-tiles by TMA multicast (`.multicast::cluster`) | | 3,700-3,830 ms per launch (256 rows) | correct but ~10^4 x slow on sm_120 (ptxas: "should be used on sm_90a / sm_100a ... substantially reduced performance"); one multicast copy alone works (`rejected/mctest*.cu`); 41 clusters of 2 fit at ~99 KB |
+| 2-CTA clusters, each block copies half the weight tile and forwards it to the peer (`cp.async.bulk.shared::cluster.shared::cta`) | 2.554 | 1.341 | the SM-to-SM copy costs more than the L2 read it saves |
+| 4 computing warps of 64 x 64 (a third fewer `ldmatrix` bytes) | 1.774 | | one warp per scheduler hides less |
+
+On this GPU the tile is capped by shared memory and the cluster paths do not pay: §90's lever 1 is closed.
+
+### 91.3 Our FP8 GEMM against CUTLASS's f32-scale kernel on the same data
+
+§86.1 compared CUTLASS's blockwise sm120 kernel with ours on different data (and power depends on the codes). Here both run vLLM's own
+operands (`rejected/dump_vllm.py`: random bf16 quantized per token / per 128 x 128 block with f32 scales, written to files that the
+harness loads; `harness/cutlass.txt`, `final.txt`), 2,048 rows, sustained ms:
+
+| GEMM | CUTLASS `cutlass_scaled_mm` (bf16 out) | ours (f32 out) | ours, outputs dead (diagnostic) |
+|---|---:|---:|---:|
+| gate + up as one 4,096 → 24,576 GEMM | 1.469 | 1.662 | 1.428 |
+| down 12,288 → 4,096 | 0.756 | 0.814 | 0.756 |
+| gate / up dual with the E4M3 store (the model's form) | | 1.651 | |
+
+CUTLASS's kernel (`harness/cutlass_sass.txt`, from nsys and `cuobjdump -sass`): one CTA per 128 x 128 x 128 tile (grid 16 x 192, not
+persistent), 384 threads with the same `setmaxnreg` 40 / 232 split as ours, 76 KB of shared memory, warp tiles 32 x 64, the same 64 QMMA
+and 64 FFMA (promotion) per K block and warp as ours, B fragments loaded per k-step and reused (`.reuse`) by two consecutive MMAs, the
+next block's fragments loaded during the last k-step, and a TMA store epilogue. With our outputs dead, ptxas drops the stores and most of
+the promotion, and our time equals CUTLASS's: the gap (8-13 %, of which ~2 % is the f32 output's DRAM writes on the 24,576-wide GEMM) is where the promotion and the epilogue sit in the pipeline, not the
+copies or the MMAs. Variants (all bit-identical, vLLM's operands, ms):
+
+| variant | gate + up 24,576 (f32) | down | gate / up dual, E4M3 store |
+|---|---:|---:|---:|
+| default | 1.662 | 0.814 | 1.651 |
+| stores into a 2 MB L2-resident window (no DRAM writes; diagnostic) | 1.626 | 0.803 | |
+| 16-byte stores (lane pairs swap half a fragment) | 1.641 | 0.809 | |
+| promotion after the next block's wait (fresh accumulators for the whole warp tile) | 1.622 | 0.837 | 1.683 |
+| the same, with the next block's first fragments loaded before the last k-step (CUTLASS's order; `harness/pipe2.txt`) | 1.629-1.640 | 0.823-0.832 | 1.716-1.727 |
+| A fragments in registers, stage released before the MMAs | | 0.813 | |
+| 4 x 2 warps (CUTLASS's 32 x 64 warp tiles) | | 0.811 | 1.697 |
+| the same with per-k-step fragments in serpentine order | | 0.811 | 1.632 |
+
+None moves the model's two FP8 GEMMs (the dual pair with the E4M3 store, and down) by more than ~1 %. ptxas (CUDA 13.2) schedules the
+MMAs A-fragment-major whatever the source order, even with four MMAs in one `asm` statement in CUTLASS's order, and sets no `.reuse` on
+our B operands (CUTLASS's sm_120 cubin was built by ptxas 13.0: 32 of its 128 QMMAs reuse B); the pipelined promotion spills on down.
+Not kept; the diffs are in `rejected/`.
+
+### 91.4 Prompt rows past a token tile, trimmed by the serving engine (measured, not kept)
+
+§90.2's token-tile quantization also hits steps that the budget does not cut: 15 decode rows and one 250-row prompt are 265 rows,
+three 128-row tiles. Steps (BatchBench, GPU ms min, `steps/trim/`):
+
+| step | Qwen3-8B-FP8 | gpt-oss-20b |
+|---|---:|---:|
+| 16 decode rows / + 9 / + 32 prompt rows | 12.17 / 12.39 / 12.85 | 9.23 / 10.55 / 12.40 |
+| 15 + 250 (265 rows) / 15 + 241 (256) | 28.29 / **22.24** | 25.74 / 23.97 |
+| 14 + 2 x 250 (514) / 14 + 2 x 242 (498) | 43.06 / **38.48** | 38.98 / 37.80 |
+
+So holding back 9 rows saves 6.0 ms on Qwen3-8B-FP8 for 0.2 ms in the next decode step (gpt-oss: 1.8 ms for 1.3 ms; its decode step
+grows with the experts the extra rows route to). The engine change (`rejected/serving_granule_trim.diff`, `EngineOptions.GranuleTrimRows`
+32, `SHARPLIGHT_STEP_TRIM_ROWS`): when every waiting prompt row fits the step and the step ends at most 32 rows past a multiple of
+`BatchTokensGranule`, the last prompt chunk leaves those rows to the next step (test `PromptRowsPastAGranule_MoveToTheNextStep`).
+Serving, Qwen3-8B-FP8, `develop` / trim 32 / trim 16 alternated in one hold (`serve/trim_ab/`): 16 streams 1082-1095 / 1084-1091 /
+1081-1089 tok/s, 64 streams 2539-2590 / 2573-2580 / 2573-2581: no change. The scheduler trace (`serve/trim_ab/sched_trace_qwen16_t32.txt`)
+says why: the closed-loop streams finish in waves, so prompts arrive 13-16 at a time and are prefilled in 5-6 steps of 759-768 rows
+(the 768-row minimum budget, six whole tiles, 53-58 ms each) between ~120 decode steps of 16 rows. The trim fired only on the one or
+two single-prompt steps per wave. Not kept: it pays only for traffic with staggered arrivals, which `bench/s16_serve.sh` does not make.
+
+### 91.5 Other levers measured
+
+* **32-row weight tiles for the FP8 decode form** (`rejected/fp8_decode_32col_tiles.diff`: 4 x 2 warps, two blocks per SM; 33-64 rows,
+  `steps/decode_bn32/`): every decode-form GEMM 15.90 → 16.30 ms at 64 rows, 14.74 → 16.2 at 48; q / k / v alone 15.90 → 15.88 at 64 but
+  14.76 → 14.93 at 48. More blocks do not raise the bandwidth of the 64-block o / down launches (674 / 724 GB/s). Not kept.
+* **Split-K for the mixed form's decode rows** (r32 lever 2): not built. The mixed decode launch is 122 µs per layer against ~96 in a
+  64-row decode step (`profile/Qwen3-8B-FP8_mixed.txt`): ~0.9 ms per 64-stream mixed step, 33 such steps per round, ~0.3 % of a round.
+  It needs partials indexed by decode-row ordinal (the run table has no such field) or scratch for every row of the step.
+* **Decode steps at 64 rows** (r32 lever 3): Qwen3-8B-FP8's step (`profile/Qwen3-8B-FP8_dec64p.txt`, depth 256) is gate / up 134 µs
+  (750 GB/s of weights), attention 98.6 (766 GB/s of keys and values), down 69.5 (724), q / k / v 42.3 (594), o 24.9 (674), LM head
+  1.59 ms (783); §84 put the GPU step at or below vLLM's. The serving gap at 64 streams (inter-token p50 16.3 against 16.05 ms) is the
+  attention's growth with context and ~75 µs of host gap per step (§90.2); nothing new found.
+* **gpt-oss-20b at 64 decode rows** (`profile/gpt-oss-20b_dec64p.txt`): the expert GEMMs read all 32 experts per layer (10 GB per
+  step), gate / up 277.5 µs min (282 MB: above the DRAM rate, so that call found part of it in L2) but 337 µs mean, down 150 / 180. An nsys trace with graph nodes shows
+  per-launch spreads of 108-340 µs, inflated by programmatic dependent launches that wait inside the kernel; the per-byte gap to Marlin
+  (§76.4) is unchanged.
+
+### 91.6 Correctness and tests
+
+No engine, kernel or lowering source changes (the branch adds this section and `bench/results/s91/`), so greedy text, logits and
+PplBench are `develop`'s; the GPU suites were not rerun. The trim experiment's `Sharplight.Serving.Tests` `EngineTests` passed with its
+new test (45 / 0 failed; the test fails with `SHARPLIGHT_STEP_TRIM_ROWS=0`), and was reverted with it. Every harness variant of 91.2-91.3
+matches the harness's reference within the default kernel's error (`check` lines in `harness/final.txt`; the copy-only and MMA-only
+diagnostics compute nothing).
+
+### 91.7 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams | 0.98 / 0.96 | the FP8 prompt GEMMs (8-13 % behind CUTLASS's f32-scale kernel on identical data, 91.3) in the 16-stream prompt waves and the 64-stream mixed steps; decode steps within 0.3-1.5 % |
+| gpt-oss-20b serving 16 / 64 streams | 0.98 / 0.97 | 64: decode steps (ITL p50 13.5-13.8 against 12.9-13.05: expert GEMMs) and prompt rows (§82) |
+
+Ranked levers:
+
+1. **The FP8 prompt GEMM's mainloop schedule** (Qwen3-8B-FP8, every 128 x 128-block FP8 checkpoint): CUTLASS's f32-scale kernel is
+   8-13 % faster on identical data and equals ours with the promotion and stores removed (91.3), so the MMAs and the copies are not the
+   limit; the promotion's FFMAs and the epilogue are, as ptxas 13.2 schedules them. Next: build `gemm_fp8_tma.cu` with ptxas 13.0 (the
+   CUTLASS cubin's) and with NVRTC's other optimization levels to see whether the scheduler, not the source, makes the difference; if so,
+   pick the toolchain per kernel. Failing that, the block-scaled mode (§86, +0.77 % PPL, the form DeepGEMM uses in vLLM by default)
+   removes the promotion and is the owner's decision.
+2. **Waves at 16 streams**: closed-loop streams finish together, so 13-16 prompts arrive at once and are prefilled in 5-6 steps of
+   ~760 rows (53-58 ms, inter-token p99 56 ms against vLLM's 25). The work is the same, but a policy that staggers admissions (or
+   the trim of 91.4 with staggered arrivals) changes the tail latency; needs a load generator with staggered or Poisson arrivals to judge.
+3. **Split-K for the mixed form's decode rows** (~0.9 ms per 64-stream mixed step, ~0.3 % of a round, 91.5).
+4. **gpt-oss-20b decode expert GEMMs** at 17-64 rows (per-byte gap to Marlin, §76.4) and its prompt rows (§82.6).
+
+### 91.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# harness: the kernel variants are diffs against gemm_fp8_tma.cu / bench/s86_bs/bench_fp8.cu (bench/results/s91/rejected/)
+python -I bench/results/s91/rejected/dump_vllm.py <dir>          # vLLM's operands + CUTLASS timings (vLLM venv)
+bench/results/s91/rejected/mk.sh <name> <kernel.cu> 12288 4096 0 -DLOADTAG='"<dir>/dn"' [-DF8N_PIPE=1|-DF8N_V4=1|-DF8N_WM=4 ...]
+BB=bench/BatchBench/bin/Release/net11.0/BatchBench
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 24 --ctx 640 --depth 256 --batch 2048 --modes greedy --reps 5 \
+  --mixed "16+0,16+9,16+32,15+250x1,15+241x1,14+250x2,14+242x2"                       # token tiles of small mixed steps
+$BB ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --modes greedy --reps 10 --text --sizes 64 --profile 64 --profile-mode greedy
+SHARPLIGHT_SCHED_TRACE=1 ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16" --provider cuda
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --gpu-memory-utilization 0.6
+```

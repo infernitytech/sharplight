@@ -1,0 +1,28 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 151936, device sampling: True, KV paged 960 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 64.2 | 474 / 0 | 12.25 / 12.26, 12.19 |  |
+| 15 | 250 (1) | 41.7 | 366 / 0 | 28.36 / 28.94, 28.30 |  |
+--- profile mixed 15+250x1 (greedy)
+GPU time 290.38 ms
+   129.292 ms  44.5%    360x  min    342.4 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=265,U=16,R=16|2,3
+    59.682 ms  20.6%    360x  min    159.2 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=265,U=16,R=16|2,3
+    30.204 ms  10.4%    360x  min     75.3 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=265,U=16,R=16|2,3
+    20.979 ms   7.2%    360x  min     53.6 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=265,U=16,R=16|2,3
+    15.735 ms   5.4%     10x  min   1568.4 us  matmul [4096→151936] f16 skinny gemm_sk T=265,U=16,R=16|2,3
+    10.663 ms   3.7%    360x  min     27.5 us  attention attn_decode_native T=265,U=16,R=16|2,3
+    10.531 ms   3.6%    720x  min     10.4 us  fused[Add]+RmsNorm main T=265,U=16,R=16|2,3
+     5.815 ms   2.0%    360x  min     13.8 us  attention attn_prefill_native T=265,U=16,R=16|2,3
+     4.584 ms   1.6%    360x  min     10.2 us  rope+qkv+cache_write rope_qkv T=265,U=16,R=16|2,3
+     2.246 ms   0.8%    360x  min      4.8 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=265,U=16,R=16|2,3
+     0.269 ms   0.1%     10x  min     26.0 us  sample sample T=265,U=16,R=16|2,3
+     0.226 ms   0.1%     20x  min      3.8 us  gather gather T=265,U=16,R=16|2,3
+     0.099 ms   0.0%     10x  min      8.4 us  RmsNorm main T=265,U=16,R=16|2,3
+     0.052 ms   0.0%     10x  min      3.5 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=265,U=16,R=16|2,3
+
+| 14 | 500 (2) | 44.5 | 366 / 0 | 43.15 / 43.31, 43.09 |  |
+| 12 | 1000 (4) | 73.5 | 366 / 0 | 72.04 / 72.12, 71.98 |  |
+| 0 | 250 (1) | 26.6 | 402 / 0 | 20.24 / 20.79, 20.18 |  |

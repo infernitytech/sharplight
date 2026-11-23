@@ -1,0 +1,6 @@
+gu ue8m0=True cutlass f32-scale GEMM: burst 1.321 ms, sustained 1.458 ms
+gu ue8m0=False cutlass f32-scale GEMM: burst 1.479 ms, sustained 1.469 ms
+gu torch.Size([2048, 4096]) torch.Size([2048, 32]) torch.Size([24576, 4096]) torch.Size([192, 32])
+dn ue8m0=True cutlass f32-scale GEMM: burst 0.700 ms, sustained 0.751 ms
+dn ue8m0=False cutlass f32-scale GEMM: burst 0.773 ms, sustained 0.756 ms
+dn torch.Size([2048, 12288]) torch.Size([2048, 96]) torch.Size([4096, 12288]) torch.Size([32, 96])

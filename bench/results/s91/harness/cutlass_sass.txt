@@ -1,0 +1,40 @@
+# vLLM 0.33 cutlass_scaled_mm on sm_120 (2,048 x 4,096 x 24,576 and 2,048 x 12,288 x 4,096), from nsys and cuobjdump -sass
+kernel: cutlass_3x_gemm_fp8_blockwise<bfloat16_t, 1, 128, 128, tuple<128,128,128>, tuple<1,1,1>, EpilogueScheduleAuto, KernelScheduleAuto>
+launch (grid x, y, z, block, registers, dynamic smem, ns): gate+up (16, 192, 1, 384, 168, 77824 B), down (16, 32, 1, 384, 168, 77824 B)
+setmaxnreg: USETMAXREG.DEALLOC 0x28 (40), USETMAXREG.TRY_ALLOC 0xe8 (232)
+instruction mix of the kernel (2 K blocks unrolled per main-loop body):
+    128 QMMA
+    128 FFMA
+     91 UIADD3
+     81 UIMAD
+     74 UMOV
+     72 FMUL
+     62 LDCU
+     61 UISETP
+     57 NOP
+     52 USHF
+     51 SYNCS
+     48 LDSM
+     46 USEL
+     41 MOV
+     36 BRA
+     34 ULEA
+QMMA with .reuse on the B operand: 32 of 128; ours (gemm_fp8_tma.cu, down): 0 of 64
+first QMMAs (CUTLASS):
+/*30c0*/                   QMMA.16832.F32.E4M3.E4M3 R4, R68, R72.reuse, RZ ;             
+/*3190*/                   QMMA.16832.F32.E4M3.E4M3 R8, R76, R72, RZ ;                   
+/*3200*/                   QMMA.16832.F32.E4M3.E4M3 R12, R76, R74.reuse, RZ ;            
+/*3230*/                   QMMA.16832.F32.E4M3.E4M3 R16, R68, R74, RZ ;                  
+/*3260*/                   QMMA.16832.F32.E4M3.E4M3 R20, R68, R80.reuse, RZ ;            
+/*3280*/                   QMMA.16832.F32.E4M3.E4M3 R24, R76, R80, RZ ;                  
+/*32a0*/                   QMMA.16832.F32.E4M3.E4M3 R28, R76, R82.reuse, RZ ;            
+/*32c0*/                   QMMA.16832.F32.E4M3.E4M3 R32, R68, R82, RZ ;                  
+first QMMAs (ours):
+/*1a20*/                   QMMA.16832.F32.E4M3.E4M3 R96, R120, R56, RZ ;                     
+/*1a30*/                   QMMA.16832.F32.E4M3.E4M3 R100, R120, R58, RZ ;                    
+/*1a40*/                   QMMA.16832.F32.E4M3.E4M3 R104, R120, R76, RZ ;                    
+/*1a50*/                   QMMA.16832.F32.E4M3.E4M3 R120, R120, R78, RZ ;                    
+/*1a60*/                   QMMA.16832.F32.E4M3.E4M3 R80, R92, R56, RZ ;                      
+/*1a70*/                   QMMA.16832.F32.E4M3.E4M3 R84, R92, R58, RZ ;                      
+/*1a80*/                   QMMA.16832.F32.E4M3.E4M3 R88, R92, R76, RZ ;                      
+/*1a90*/                   QMMA.16832.F32.E4M3.E4M3 R92, R92, R78, RZ ;                      
