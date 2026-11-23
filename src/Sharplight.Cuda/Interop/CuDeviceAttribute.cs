@@ -20,5 +20,6 @@ internal enum CuDeviceAttribute
     ComputeCapabilityMinor = 76,
     MaxSharedMemoryPerMultiprocessor = 81,
     MaxSharedMemoryPerBlockOptin = 97,
+    ReservedSharedMemoryPerBlock = 111,
     ClusterLaunch = 120,
 }

@@ -42,6 +42,9 @@ internal sealed class CudaDeviceProperties
 
     public long MaxSharedMemoryPerMultiprocessor { get; private init; }
 
+    /// <summary>Shared memory the driver reserves for every block that uses shared memory (bytes; 1 KB on compute capability 8.x-12.x).</summary>
+    public long ReservedSharedMemoryPerBlock { get; private init; }
+
     public int MaxThreadsPerBlock { get; private init; }
 
     public long L2CacheBytes { get; private init; }
@@ -103,6 +106,7 @@ internal sealed class CudaDeviceProperties
             MaxSharedMemoryPerBlock = Attribute(CuDeviceAttribute.MaxSharedMemoryPerBlock),
             MaxSharedMemoryOptin = Attribute(CuDeviceAttribute.MaxSharedMemoryPerBlockOptin),
             MaxSharedMemoryPerMultiprocessor = Attribute(CuDeviceAttribute.MaxSharedMemoryPerMultiprocessor),
+            ReservedSharedMemoryPerBlock = Attribute(CuDeviceAttribute.ReservedSharedMemoryPerBlock),
             MaxThreadsPerBlock = Attribute(CuDeviceAttribute.MaxThreadsPerBlock),
             L2CacheBytes = Attribute(CuDeviceAttribute.L2CacheSize),
             Integrated = Attribute(CuDeviceAttribute.Integrated) != 0,

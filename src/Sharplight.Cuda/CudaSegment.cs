@@ -86,13 +86,22 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private bool _previousOneWave;
 
     /// <summary>
-    /// <see cref="CudaKernel.SharedPerMultiprocessor"/> of the stream's previous kernel launch. A kernel is launched as its programmatic
-    /// dependent only when it needs no more shared memory per multiprocessor: the dependent's blocks are placed while the previous
-    /// kernel's last blocks run, and a multiprocessor whose L1 / shared split that kernel set cannot take blocks that need a larger
-    /// shared share, so they pile up on the few idle multiprocessors (RTX PRO 4500, bench/s99_pdl_placement.cu: 32 blocks of 4.2 KB after
-    /// 108 blocks without shared memory land 6 per multiprocessor on 3-4 of them and take 6x as long; benchmarks.md section 99.1).
+    /// Shared memory per multiprocessor of the stream's previous kernel launch at its occupancy (<see cref="CudaKernel.SharedPerBlock"/>
+    /// times <see cref="CudaKernel.BlocksPerMultiprocessor"/>): the shared share of the L1 / shared split its blocks run with. A kernel is
+    /// launched as its programmatic dependent only when the blocks it places on one multiprocessor (one wave spread over all of them)
+    /// fit that share: the dependent's blocks are placed while the previous kernel's last blocks run, and a multiprocessor whose split
+    /// has no room for them cannot take them, so they pile up on the few idle multiprocessors (RTX PRO 4500, bench/s99_pdl_placement.cu:
+    /// 32 blocks of 4.2 KB after 108 blocks without shared memory land 6 per multiprocessor on 3-4 of them and take 6x as long; after
+    /// 108 blocks of 1 KB they spread one per multiprocessor; benchmarks.md section 99.1). A dependent is also launched early when the
+    /// two grids fit the multiprocessors at one block each (<see cref="_previousBlocks"/>: its blocks find idle multiprocessors; counted
+    /// at the dependent's full occupancy instead, bert-base b1 gives back 3 %), and so is a kernel with an independent prologue
+    /// (<see cref="CudaKernel.HasIndependentPrologue"/>: the FP8 GEMMs' weight loads before their wait), whose overlap outweighs the
+    /// placement (Qwen3-8B-FP8 decode at 16 sequences 0.5 % faster).
     /// </summary>
     private long _previousShared;
+
+    /// <summary>Blocks of the stream's previous kernel launch (see <see cref="_previousShared"/>).</summary>
+    private long _previousBlocks;
     private readonly Queue<string> _recordOrder = new();
     private readonly nint _stream;
     /// <summary>Whether the stream's driver memory is counted as the device's (<see cref="CudaDevice.ChargeDriverMemory"/>).</summary>
@@ -1554,10 +1563,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             void* parameter = arguments;
             long blocks = (long)launch.GridX * launch.GridY * launch.GridZ;
             bool oneWave = kernel.ResidentBlocks > 0 && blocks <= kernel.ResidentBlocks;
+            int sms = _dev.Properties.Multiprocessors;
             bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave
-                             && (kernel.SharedPerMultiprocessor <= _previousShared || DiagnosticSwitches.DependentAnyShared);
+                             && (kernel.HasIndependentPrologue || _previousBlocks + blocks <= sms
+                                 || kernel.SharedPerBlock * ((blocks + sms - 1) / sms) <= _previousShared || DiagnosticSwitches.DependentAnyShared);
             _previousOneWave = oneWave;
-            _previousShared = kernel.SharedPerMultiprocessor;
+            _previousShared = kernel.SharedPerBlock * kernel.BlocksPerMultiprocessor;
+            _previousBlocks = blocks;
             int result = dependent
                 ? LaunchDependent(kernel, launch, &parameter)
                 : CudaApi.cuLaunchKernel(kernel.Function, launch.GridX, launch.GridY, launch.GridZ, kernel.ThreadsX, kernel.ThreadsY, kernel.ThreadsZ,
