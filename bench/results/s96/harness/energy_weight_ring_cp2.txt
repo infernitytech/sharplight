@@ -1,0 +1,27 @@
+[hold 09:56:36] ./en.sh x base cp2 cp2q3
+0 %, 2 MiB, 32.88 W
+09:56:36 r1 vllm   gu  base           energy: 10 passes 5.00 s: 0.3416 ms per routing, 191.1 W, 65.311 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2796 nJ per weight byte, SM 1747 MHz 
+09:56:45 r1 vllm   gu  cp2            energy: 10 passes 4.96 s: 0.3387 ms per routing, 199.6 W, 67.622 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2895 nJ per weight byte, SM 1820 MHz 
+09:56:54 r1 vllm   gu  cp2q3          energy: 10 passes 4.98 s: 0.3401 ms per routing, 200.8 W, 68.347 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2926 nJ per weight byte, SM 1837 MHz 
+09:57:03 r1 vllm   dn  base           energy: 16 passes 4.16 s: 0.1774 ms per routing, 187.7 W, 33.314 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2853 nJ per weight byte, SM 1792 MHz 
+09:57:10 r1 vllm   dn  cp2            energy: 16 passes 4.15 s: 0.1770 ms per routing, 196.9 W, 34.883 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2987 nJ per weight byte, SM 1912 MHz 
+09:57:17 r1 vllm   dn  cp2q3          energy: 16 passes 4.50 s: 0.1921 ms per routing, 199.1 W, 38.274 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3277 nJ per weight byte, SM 2082 MHz 
+09:57:24 r1 ours   gu  base           energy: 52 passes 4.16 s: 0.3699 ms per routing, 191.1 W, 70.757 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2833 nJ per weight byte, SM 1712 MHz 
+09:57:31 r1 ours   gu  cp2            energy: 52 passes 4.12 s: 0.3668 ms per routing, 198.8 W, 72.987 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2923 nJ per weight byte, SM 1786 MHz 
+09:57:37 r1 ours   gu  cp2q3          energy: 52 passes 4.14 s: 0.3685 ms per routing, 199.0 W, 73.383 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2938 nJ per weight byte, SM 1800 MHz 
+09:57:44 r1 ours   dn  base           energy: 98 passes 4.04 s: 0.1907 ms per routing, 183.7 W, 35.061 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2808 nJ per weight byte, SM 1765 MHz 
+09:57:50 r1 ours   dn  cp2            energy: 98 passes 4.04 s: 0.1910 ms per routing, 189.7 W, 36.248 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2903 nJ per weight byte, SM 1873 MHz 
+09:57:56 r1 ours   dn  cp2q3          energy: 92 passes 4.08 s: 0.2054 ms per routing, 200.1 W, 41.132 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3294 nJ per weight byte, SM 2068 MHz 
+09:58:02 r2 vllm   gu  base           energy: 10 passes 5.00 s: 0.3414 ms per routing, 194.3 W, 66.373 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2842 nJ per weight byte, SM 1740 MHz 
+09:58:11 r2 vllm   gu  cp2            energy: 10 passes 4.98 s: 0.3398 ms per routing, 200.4 W, 68.139 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2917 nJ per weight byte, SM 1796 MHz 
+09:58:20 r2 vllm   gu  cp2q3          energy: 8 passes 4.03 s: 0.3436 ms per routing, 202.6 W, 69.680 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2983 nJ per weight byte, SM 1813 MHz 
+09:58:29 r2 vllm   dn  base           energy: 16 passes 4.15 s: 0.1771 ms per routing, 186.7 W, 33.074 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2832 nJ per weight byte, SM 1800 MHz 
+09:58:35 r2 vllm   dn  cp2            energy: 16 passes 4.15 s: 0.1770 ms per routing, 194.9 W, 34.531 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2957 nJ per weight byte, SM 1912 MHz 
+09:58:42 r2 vllm   dn  cp2q3          energy: 16 passes 4.53 s: 0.1934 ms per routing, 198.2 W, 38.341 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3283 nJ per weight byte, SM 2065 MHz 
+09:58:50 r2 ours   gu  base           energy: 52 passes 4.16 s: 0.3703 ms per routing, 187.6 W, 69.495 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2783 nJ per weight byte, SM 1707 MHz 
+09:58:56 r2 ours   gu  cp2            energy: 50 passes 4.01 s: 0.3707 ms per routing, 193.0 W, 71.621 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2868 nJ per weight byte, SM 1769 MHz 
+09:59:03 r2 ours   gu  cp2q3          energy: 52 passes 4.14 s: 0.3686 ms per routing, 195.9 W, 72.300 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2895 nJ per weight byte, SM 1797 MHz 
+09:59:09 r2 ours   dn  base           energy: 98 passes 4.04 s: 0.1906 ms per routing, 189.6 W, 36.167 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2896 nJ per weight byte, SM 1765 MHz 
+09:59:15 r2 ours   dn  cp2            energy: 98 passes 4.04 s: 0.1906 ms per routing, 191.7 W, 36.549 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2927 nJ per weight byte, SM 1880 MHz 
+09:59:21 r2 ours   dn  cp2q3          energy: 90 passes 4.01 s: 0.2061 ms per routing, 198.4 W, 40.904 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3276 nJ per weight byte, SM 2058 MHz 
+[release 09:59:27]

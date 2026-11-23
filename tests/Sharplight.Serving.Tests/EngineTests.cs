@@ -123,6 +123,53 @@ public class EngineTests
     }
 
     [Fact]
+    public void StepFloor_DefaultsToWaves()
+    {
+        Assert.Equal(StepFloorPolicy.Waves, new EngineOptions().StepFloor);
+        Assert.Equal(StepFloorPolicy.Waves, default(StepFloorPolicy));
+    }
+
+    /// <summary>
+    /// Four prompts arriving while another sequence decodes: the waves policy (default) leaves the floor out (a step holds the oldest
+    /// prompt's rest plus a row per sequence), the old policy applies it, the full policy gives the step the whole budget.
+    /// </summary>
+    [Theory]
+    [InlineData(StepFloorPolicy.Waves)]
+    [InlineData(StepFloorPolicy.Always)]
+    [InlineData(StepFloorPolicy.Full)]
+    public async Task StepFloor_PolicyWhileSomeSequenceDecodes(StepFloorPolicy policy)
+    {
+        var d = new FakeBatchDecoder(8, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(3) };
+        d.Script("x", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 200, BatchTokensPerSequence = 10, BatchTokensGranule = 1, StepFloor = policy });
+        using var cts = new CancellationTokenSource();
+        var running = e.Submit(Req("a", max: 100000), cts.Token);
+        await using (var chunks = running.ReadAllAsync().GetAsyncEnumerator())
+        {
+            Assert.True(await chunks.MoveNextAsync());
+            int length = T.Prompt(new string('b', 100)).Length;
+            var hs = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('b' + i), 100), max: 2))).ToList();
+            await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+            cts.Cancel();
+
+            // Steps with prompt rows while slot 0 decodes.
+            int largest = d.Steps.ToList().Where(s => s.Any(x => x.Slot == 0 && x.Rows == 1) && s.Any(x => x.Rows > 1)).Max(s => s.Sum(x => x.Rows));
+            switch (policy)
+            {
+                case StepFloorPolicy.Waves:
+                    Assert.True(largest <= 5 + length, $"step of {largest} rows");
+                    break;
+                case StepFloorPolicy.Always:
+                    Assert.Equal(200, largest);
+                    break;
+                default:
+                    Assert.Equal(400, largest);
+                    break;
+            }
+        }
+    }
+
+    [Fact]
     public async Task Cancel_RunningRequest_FreesSlot()
     {
         var d = new FakeBatchDecoder(1) { StepDelay = TimeSpan.FromMilliseconds(2) };

@@ -110,6 +110,7 @@ public sealed class LlmModel : IDisposable
             MaxBatchTokens = load.MaxBatchTokens,
             Adapter = load.Adapter,
             DisabledFeatures = new HashSet<string>(load.DisabledFeatures, StringComparer.Ordinal),
+            BlockScaledFp8 = load.BlockScaledFp8,
             AllowReducedPrecision = load.AllowReducedPrecision,
             Log = load.Log,
             Progress = load.Progress,
@@ -261,7 +262,7 @@ public sealed class LlmModel : IDisposable
         int maskToken = DiffusionMaskToken();
         int context = DiffusionContext(null);
         var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, [.. _options.Devices], _options.Fallback, context, 1,
-            _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), CacheFor, _options.Log);
+            _options.CompileDisabledFeatures(), CacheFor, _options.Log);
         ReportReady(WellKnown.DenoiseGraph);
         return new DiffusionGenerator(runner, Tokenizer, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
     }
@@ -274,7 +275,7 @@ public sealed class LlmModel : IDisposable
     {
         int maskToken = DiffusionMaskToken();
         var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, [.. _options.Devices], _options.Fallback, context,
-            Math.Max(1, slots), _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), CacheFor, _options.Log);
+            Math.Max(1, slots), _options.CompileDisabledFeatures(), CacheFor, _options.Log);
         ReportReady(WellKnown.DenoiseGraph);
         return new Serving.DiffusionBatchDecoder(runner, Math.Max(1, slots), context, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
     }
@@ -671,7 +672,7 @@ public sealed class LlmModel : IDisposable
             SymbolBounds = runBound > 0
                 ? new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength), [WellKnown.RunSymbol] = runBound }
                 : new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength) },
-            DisabledFeatures = _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal),
+            DisabledFeatures = _options.CompileDisabledFeatures(),
             AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,
             Progress = _options.Progress,
@@ -864,7 +865,7 @@ public sealed class LlmModel : IDisposable
         var sw = Stopwatch.StartNew();
         Architectures.TryFindMultimodal(Definition.Architecture, out var multimodal);
         var enc = VisionEncoder.Create(Definition, [.. _options.Devices], _options.Fallback, _options.ImageTokens,
-            new HashSet<string>(_options.DisabledFeatures, StringComparer.Ordinal), CacheFor, multimodal);
+            _options.CompileDisabledFeatures(), CacheFor, multimodal);
         _options.Log?.Invoke($"Compiled '{WellKnown.VisionEncodeGraph}' (up to {enc.MaxPatches / enc.Parameters.MergeUnit} image tokens) in {sw.ElapsedMilliseconds} ms\n{enc.Compiled.Plan.Describe()}");
         return enc;
     }

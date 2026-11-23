@@ -87,6 +87,7 @@ internal static class HostingOptionsBuilder
         defaults.ReducedPrecision |= runtime.ReducedPrecision;
         defaults.StepTokens = settings.StepTokens ?? defaults.StepTokens;
         defaults.MinStepTokens = settings.MinStepTokens ?? defaults.MinStepTokens;
+        defaults.StepFloor = settings.StepFloor ?? defaults.StepFloor;
         defaults.KvCacheTokens = settings.KvCacheTokens ?? defaults.KvCacheTokens;
         defaults.PrefixCache &= !settings.NoPrefixCache;
         defaults.KvStateSnapshots = settings.KvStateSnapshots ?? defaults.KvStateSnapshots;

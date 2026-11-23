@@ -1,0 +1,13 @@
+[hold 11:48:24] ./occ.sh
+0 %, 2 MiB, 31.67 W
+rk_0_32                  PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 801.4 GB/s, 199.0 W, 0.2484 nJ per byte, SM 2610 MHz, memory 13365 MHz 
+rk_0_32 SMEM_KB=34       PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 830.1 GB/s, 198.8 W, 0.2395 nJ per byte, SM 2610 MHz, memory 13365 MHz 
+rk_0_32_s8 SMEM_KB=34    PAT=0 C=32 S=8 HINT=256 ROWS=128 MMA=1 WORK=0: 828.9 GB/s, 198.9 W, 0.2399 nJ per byte, SM 2587 MHz, memory 13365 MHz 
+rk_0_64 SMEM_KB=34       PAT=0 C=64 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 834.3 GB/s, 199.6 W, 0.2392 nJ per byte, SM 2775 MHz, memory 13365 MHz 
+rk_0_32 SMEM_KB=24       PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 820.2 GB/s, 199.2 W, 0.2429 nJ per byte, SM 2572 MHz, memory 13365 MHz 
+rk_0_32                  PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 801.5 GB/s, 199.0 W, 0.2483 nJ per byte, SM 2565 MHz, memory 13365 MHz 
+rk_0_32 SMEM_KB=34       PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 829.9 GB/s, 198.6 W, 0.2393 nJ per byte, SM 2580 MHz, memory 13365 MHz 
+rk_0_32_s8 SMEM_KB=34    PAT=0 C=32 S=8 HINT=256 ROWS=128 MMA=1 WORK=0: 828.7 GB/s, 198.0 W, 0.2389 nJ per byte, SM 2550 MHz, memory 13365 MHz 
+rk_0_64 SMEM_KB=34       PAT=0 C=64 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 834.2 GB/s, 198.8 W, 0.2383 nJ per byte, SM 2752 MHz, memory 13365 MHz 
+rk_0_32 SMEM_KB=24       PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 820.2 GB/s, 198.5 W, 0.2420 nJ per byte, SM 2542 MHz, memory 13365 MHz 
+[release 11:49:07]

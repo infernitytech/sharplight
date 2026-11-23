@@ -68,6 +68,12 @@ public sealed class HostedModelOptions
     /// </summary>
     public bool? ExpertsOnDisk { get; set; }
 
+    /// <summary>
+    /// The block-scaled FP8 mode for this model (see <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/>); null =
+    /// <see cref="HostedModelDefaults.BlockScaledFp8"/>.
+    /// </summary>
+    public bool? BlockScaledFp8 { get; set; }
+
     /// <summary>With <see cref="ExpertsOnDisk"/>: GiB of host memory for the cache of experts read from disk; null = sized from the free host memory.</summary>
     public double? ExpertCacheGiB { get; set; }
 

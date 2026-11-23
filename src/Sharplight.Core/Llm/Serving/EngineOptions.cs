@@ -21,6 +21,13 @@ public sealed record EngineOptions
     /// budget, whose larger GEMMs prefill more rows per second.
     /// </summary>
     public int MinBatchTokens { get; set; } = 768;
+    /// <summary>
+    /// When the floor of the adaptive step budget (<see cref="MinBatchTokens"/>) applies: <see cref="StepFloorPolicy.Waves"/> (default) only
+    /// while no sequence decodes, <see cref="StepFloorPolicy.Always"/> to every step (the earlier default), <see cref="StepFloorPolicy.Full"/>
+    /// the whole budget while some sequence decodes. The environment variable <c>SHARPLIGHT_STEP_FLOOR_WAVES</c> (<c>1</c>, <c>0</c>,
+    /// <c>full</c>) overrides it for the process.
+    /// </summary>
+    public StepFloorPolicy StepFloor { get; set; } = StepFloorPolicy.Waves;
     /// <summary>Rows per sequence holding a slot that the adaptive step budget allows (see <see cref="MinBatchTokens"/>).</summary>
     public int BatchTokensPerSequence { get; set; } = 32;
     /// <summary>

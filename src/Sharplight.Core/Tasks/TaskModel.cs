@@ -279,7 +279,7 @@ public sealed class TaskModel : IDisposable
                 MaxTokens = maxTokens ?? Options.MaxBatchTokens,
                 ContextLength = contextLength ?? Options.ContextLength,
                 SymbolBounds = symbolBounds ?? new Dictionary<string, long>(),
-                DisabledFeatures = new HashSet<string>(Options.DisabledFeatures, StringComparer.Ordinal),
+                DisabledFeatures = Options.CompileDisabledFeatures(),
                 AllowReducedPrecision = Options.AllowReducedPrecision,
                 CacheFor = Artifacts.For,
                 Progress = Options.Progress,

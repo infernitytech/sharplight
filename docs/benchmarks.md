@@ -12857,7 +12857,8 @@ The weights' second rounding is most of the change (+0.56 of +0.77 %); the activ
 (120 tokens, the ~40-word and the 963-token prompt, CUDA) is byte-identical to the f32-scale path; the last-token logits of a ~2,900-token
 prompt differ by KL 3.4e-4 (max |Δ| 2.15, same top-1).
 
-**Decision: off by default.** The rule was ±0.3 % perplexity and comparable to vLLM's: Qwen3-8B-FP8 changes by +0.77 % (vLLM's own E8M0
+**Decision: off by default** (superseded on 2026-11-23: the owner made the block-scaled mode the default where it applies, with a
+setting to turn it off; see §95). The rule was ±0.3 % perplexity and comparable to vLLM's: Qwen3-8B-FP8 changes by +0.77 % (vLLM's own E8M0
 path +0.95 %, so comparable, but outside ±0.3 %); Qwen3.8-27B-FP8 +0.26 %. `SHARPLIGHT_FP8_BLOCK_SCALED=1` turns it on; the owner can
 decide per model class. The default path is bit-identical to `develop` (greedy text of gpt-oss-20b, Qwen3-8B-FP8 on CUDA and Vulkan and
 Qwen2.5-7B Q4_K_M on CUDA byte-identical; last-token logits of Qwen3-8B-FP8 and gpt-oss-20b bit-identical; `PplBench` argmax hash and
@@ -14266,6 +14267,8 @@ use the kernel. The fence costs the 9-warp form 0.3-1.1 %, which is why it is th
 
 ### 93.4 The step budget in prompt waves: two prototypes (not the default; the owner's call)
 
+(2026-11-23: the owner made `=1` the default policy, `EngineOptions.StepFloor = Waves`; see §95.)
+
 §92.4 found the closed loop's 16-stream ITL p99 of ~53 ms to come from the 768-row floor: a wave of 13-16 prompts is prefilled in
 5-6 steps of ~55 ms, and the prompts admitted first decode through all of them. Two prototypes behind `SHARPLIGHT_STEP_FLOOR_WAVES`
 (`InferenceEngine.StepTokens`, diagnostics only, default off), both changing only the steps that carry prompt rows at 16 slots (at 64
@@ -14522,4 +14525,251 @@ SHARPLIGHT_CUDA_NVRTC_SASS='if:#define SL_NVRTC_SASS 1|void quantize_fp8(|void d
   BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --modes greedy --reps 20 --sizes 16,32,48,64
 QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --gpu-memory-utilization 0.6
+```
+
+## 95. Defaults changed by the owner: block-scaled FP8 where it applies, the waves step floor (2026-11-23)
+
+The owner decided two defaults on 2026-11-23, each with a setting to turn it back:
+
+* **Block-scaled FP8** (§86.2-86.3, §89.4): on by default (`TaskLoadOptions.BlockScaledFp8`, CLI `--fp8-block-scaled on|off`, hosting
+  `blockScaledFp8`, `SHARPLIGHT_FP8_BLOCK_SCALED=1|0` as the process-wide override). It applies only where the device has
+  `block_scaled_fp8` (CUDA, compute capability 12.x), `native_gemm_fp8` and `tensor_copies`, and only to compiled segments with
+  `f8e4m3_b128` matrices in the FP8 GEMM's 128-row groups (`GraphLowerer.HasGroupedFp8Weights`): keyed on quant format, block shape and
+  device features, never on model names. Segments without such weights compile exactly as before (no `E4M3_UE8M0` macro on their kernels).
+  Turning it off disables `block_scaled_fp8` for the load's compilations. Vulkan has no block-scaled MMA: FP8 models there are unchanged.
+* **Step floor `waves`** (§93.4's `SHARPLIGHT_STEP_FLOOR_WAVES=1`): `EngineOptions.StepFloor = StepFloorPolicy.Waves` (default),
+  `Always` (the earlier default), `Full`; CLI `--step-floor waves|always|full`, hosting `stepFloor`, `SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full`
+  as the override.
+
+### 95.1 Numerics (CUDA, RTX PRO 4500 Blackwell; `develop` 9694870c against this branch)
+
+`PplBench` as in §86.3 (wikitext-2, 4 x 3,072 tokens, prompt steps of 1,024 rows):
+
+| model | `develop` (f32 scales) | new default (block-scaled) | change | repeated run |
+|---|---:|---:|---:|---|
+| Qwen3-8B-FP8 | 8.6693 | 8.7358 | +0.77 % | identical (logits dump hash and perplexity, 2 runs) |
+| Qwen3.8-27B-FP8 | 5.6904 | 5.7054 | +0.26 % | identical (2 runs) |
+
+Both equal §86.3's block-scaled values (Qwen3.8-27B-FP8 5.7052 there; the 0.0002 is the later rounds' block-scaled kernel changes).
+Greedy text (120 tokens, the ~40-word and the 963-token prompt): Qwen3-8B-FP8 byte-identical to `develop` for both prompts (as in
+§86.3); Qwen3.8-27B-FP8 diverges after ~80 tokens of the short prompt (both continuations coherent) and within the 963-token prompt's
+continuation. With `--fp8-block-scaled off` both FP8 models are byte-identical to `develop`. Non-FP8 models are byte-identical to
+`develop`: gpt-oss-20b (MXFP4), Qwen2.5-7B-Instruct Q4_K_M (GGUF) and Qwen3-8B (BF16).
+
+### 95.2 Serving (closed loop, same hold, `develop` then this branch, 2 rounds each)
+
+| model, streams | build | tok/s | TTFT p50 ms | ITL mean ms | ITL p95 | ITL p99 |
+|---|---|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | `develop` | 1103 / 1106 | 109 / 106 | 13.6 | 14.3 | 52.8 / 52.7 |
+| | new defaults | 1104 / 1109 | **78 / 73** | 13.6 | 23.2 / 20.6 | **38.3 / 37.5** |
+| Qwen3-8B-FP8, 64 | `develop` | 2636 / 2636 | 261 / 257 | 21.2 | 36.6 / 36.5 | 131 / 133 |
+| | new defaults | **2657 / 2661** (+0.8-0.9 %) | 256 / 252 | 21.1 | 36.6 / 36.9 | 129 / 129 |
+| gpt-oss-20b, 16 | `develop` | 1405 / 1416 | 106 / 102 | 10.4 | 11.9 / 11.4 | 50.6 / 50.4 |
+| | new defaults | 1355 / 1395 (-3.6 / -1.4 %) | **86 / 77** | 10.8 / 10.6 | 23.7 / 21.6 | **41.2 / 40.1** |
+| gpt-oss-20b, 64 | `develop` | 3030 / 3076 | 237 / 235 | 18.2 / 18.1 | 47.7 / 36.1 | 114 / 118 |
+| | new defaults | 3050 / 3067 | 237 / 235 | 18.2 / 18.1 | 39.1 / 36.1 | 118 / 119 |
+
+As expected: at 16 streams TTFT p50 -28 to -31 % (Qwen3-8B-FP8) / -19 to -25 % (gpt-oss-20b) and ITL p99 -28 % / -19 %, with the
+higher ITL p95 of §93.4; gpt-oss-20b's 16-stream throughput -1.4 to -3.6 % (§93.4: -1.7 %; its MoE prompt steps read every expert),
+Qwen3-8B-FP8's unchanged. At 64 streams the step policy is neutral and the block-scaled mode lifts Qwen3-8B-FP8 by 0.8-0.9 % in this
+hold (§86.5 measured more before the copy-warpgroup default of §89 / §93 narrowed the f32-scale path's gap); gpt-oss-20b (no FP8
+weights) is within the rounds' spread.
+
+### 95.3 Reproduce
+
+```bash
+PplBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --dump a.f16
+sharplight ~/models/hf/Qwen3.8-27B-FP8 --provider cuda -n 120 -p "<prompt>" [--fp8-block-scaled off]
+QUIET_GPU=1 ROUNDS=2 [SHARPLIGHT_SERVER=<develop build>] bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda --step-floor always --fp8-block-scaled off   # the old defaults
+```
+
+## 96. LLM round 37: the MXFP4 decode expert GEMM's energy per weight byte against Marlin, what draws it, and a clock limiter that holds our launches at ~1.7 GHz where the same copy stream outside the harness runs at 2.6 GHz; nothing kept (2026-11-23)
+
+Branch `perf/llm-r37` (`develop` at `bf88b937`, §94 merged; `develop` at `15492683` with §95's new defaults merged before hand-back, not re-measured). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82
+SMs, 200 W cap, driver 595.112 / CUDA 13.2), shared with other rounds. Every run held the verify lock and variants alternated in the
+same holds. One hold was disturbed by another process on the GPU (its numbers vary 2x between identical runs) and is discarded.
+vLLM 0.33 (venv `vllm-r12`) ran in the serving hold. The engine's code is unchanged. The round adds measurement tools and a rejected
+kernel forms (96.5). Raw output is in [`bench/results/s96/`](../bench/results/s96) (`harness/`, `scripts/`, `rejected/`, `serve/`,
+`steps/`).
+
+New tools:
+* `ENERGY=<seconds>` in `bench/s56_moe` reads NVML's total energy counter around a sustained back-to-back window. The window has no
+  eviction, runs after one second of warm-up and covers whole passes. It prints ms, W, mJ and nJ per weight byte per routing, plus the
+  SM and memory clock. Weight bytes are the bytes the routing tiles read: an expert split over two tiles counts twice.
+* `--energy` in `bench/s73_marlin_replay.py` prints the same figures. There the weight bytes are each touched expert's padded weights,
+  read once.
+* `bench/s56_moe/read_energy.cu` measures energy per byte of a copy pattern. It has these options: `PAT`, `C` (bytes per row and
+  stage), `S`, `HINT`, `KMODE=1` (the dual gate / up tile geometry of a decode launch), `SMEM_KB` (occupancy), `AHEAD` (the
+  GEMM's wait depth), `WORK` (SM load), `BUF_GB` / `SHUFFLE` (footprint) and `CONST_DATA`.
+* `bench/s73_clock_sampler.py` now also records NVML's instantaneous power field. It turned out to refresh as slowly as the averaged
+  one (6-17 distinct readings in 5 s), so it cannot show sub-millisecond peaks.
+
+### 96.1 Serving against vLLM
+
+`bench/s16_serve.sh`, closed loop, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds each.
+Ours (`--provider cuda`, the branch's binaries are `develop`'s) ran before and after vLLM in one hold; vLLM ran with
+`--gpu-memory-utilization 0.6` (`serve/`). Tok/s per round (ours before / after), TTFT p50 and inter-token latency (ms):
+
+| model, streams | `perf/llm-r37` (= `develop`) | vLLM 0.33 | ours / vLLM |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1100 / 1105, 1100 / 1105 | 1119 / 1116 | **0.983-0.990** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 106-109 / 13.56-13.59, 14.2-14.5, 52.7-52.9 | 156-166 / 12.92-12.93, 13.0-13.1, 14.8-15.6 | |
+| Qwen3-8B-FP8, 64 | 2638 / 2629, 2639 / 2641 | 2689 / 2686 | **0.978-0.983** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 257-263 / 21.22-21.26, 36-40, 132-134 | 398-405 / 20.19-20.28, 22-23, 133-134 | |
+| gpt-oss-20b, 16 | 1403 / 1422, 1391 / 1420 | 1411 / 1411 | **0.99-1.01** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 101-106 / 10.36-10.53, 11.2-11.9, 50.4-50.9 | 168-178 / 9.99-10.00, 10.5-10.8, 13.2-18.9 | |
+| gpt-oss-20b, 64 | 3064 / 3071, 3057 / 3068 | 3150 / 3194 | **0.957-0.975** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 235-238 / 18.06-18.16, 34-40, 118-119 | 376-470 / 16.47-16.95, 17, 120-121 | |
+
+All four points are within §94's spread. They are on the old defaults: §95's block-scaled FP8 and `waves` step floor (merged after this hold) move gpt-oss-20b at 16 streams by -1.4 to -3.6 % and Qwen3-8B-FP8 at 64 by +0.8-0.9 % (§95.2). gpt-oss-20b's 64-stream gap is in the decode steps (ITL mean 18.1 against 16.5-17.0 ms).
+BatchBench's 64-sequence `--text` decode step in the same hold took 16.90 ms GPU (16 sequences: 12.72), at a median of 2.3 GHz and
+196 W over the run (`steps/gptoss_text.txt`). The expert GEMMs are ~12.3 ms of that step and Marlin's ~11.3.
+
+### 96.2 Energy per weight byte: ours against Marlin on the same routings
+
+The §73 replay (24 layer copies, ms per routing = per layer) ran with `ENERGY=4` and `--energy`, one hold, alternated
+(`harness/energy_marlin_vs_ours.txt`):
+
+| routing, product | ours: ms, W, SM MHz | ours: MB read, nJ / byte | Marlin: ms, W, SM MHz | Marlin: MB read, nJ / byte | ours / Marlin time |
+|---|---:|---:|---:|---:|---:|
+| vLLM's (24.2 experts, 26.5 tiles), gate / up | 0.340, 191 W, 1752 | 233.6, 0.279 | 0.309, 199 W, 1961 | 232.8, 0.264 | 1.10 |
+| vLLM's, down | 0.177, 184 W, 1789 | 116.8, 0.279 | 0.158, 199 W, 1980 | 116.4, 0.271 | 1.12 |
+| ours (`--text`, 27.2 experts, 28.3 tiles), gate / up | 0.371, 190 W, 1709 | 249.7, 0.282 | 0.340, 198 W, 2017 | 261.7, 0.257 | 1.09 |
+| ours, down | 0.190, 181 W, 1766 | 124.9, 0.276 | 0.175, 198 W, 2055 | 130.8, 0.264 | 1.09 |
+
+* Per weight byte, Marlin takes 3-9 % less energy. It also draws the full 200 W at 1.96-2.06 GHz, while ours draws 181-191 W at
+  1.71-1.79 GHz, with NVML's software-power-cap reason (0x4) set in 95-100 % of the samples. Both effects together make ours 9-12 %
+  slower per routing in steady state. In DRAM terms that is ~685 GB/s for ours against ~755 for Marlin.
+* **§73.3's "par on our routing" was a measurement artifact.** That routing file has 216 lines, so a pass lasts ~80 ms, and the best
+  of 80 passes (0.338-0.347 ms) caught passes before the limiter settled. A 4 s window gives 0.370 ms on the same binary
+  (`harness/energy_*`). vLLM's routing has 1,464 lines (0.5 s per pass), so best-of-passes and the window agree there (0.339-0.341).
+  On both routings, ours is ~10 % behind Marlin in steady state.
+
+### 96.3 What draws the energy and what costs the time: ablations
+
+Diagnostic switches (`rejected/moe_diag_ablations.diff` on top of `rejected/moe_weight_ring_nm_cp.diff`; wrong products except
+`full`). vLLM's routing, energy windows, mean of two rounds in one hold (`harness/energy_ablation_r*.txt`):
+
+| variant | gate / up ms | down ms | W | SM MHz | DRAM GB/s (gate / up) |
+|---|---:|---:|---:|---:|---:|
+| full (`develop`'s kernel) | 0.3412 | 0.1772 | 186-192 | 1746-1790 | 685 |
+| no MMAs (the `ldmatrix` loads kept) | 0.3387 | 0.1729 | 177-184 | 1766-1791 | |
+| no decode (no code / scale shared loads, constant B fragments) | 0.3375 | 0.1711 | 162-164 | 1730-1813 | |
+| neither | 0.3351 | 0.1715 | 151 | 1726-1764 | |
+| no activation copies | 0.3289 | 0.1705 | 190 | 1772-1842 | |
+| no scale copies (5.9 % fewer DRAM bytes) | 0.3215 | 0.1664 | 195-198 | 1762-1812 | 684 |
+| no stores | 0.3362 | 0.1724 | 189-194 | 1736-1790 | |
+| code copies only (no activation / scale copies, decode, MMAs) | 0.3094 | 0.1585 | 149-152 | 1742-1768 | 711 |
+| the same without `ldmatrix` either (`bare`) | 0.3089-0.3091 | | 136-139 | 1719-1730 | 711 |
+| copy ring only inside this kernel (wait, barrier, copies; uniform 28-tile routing) | 0.335-0.343 against `bare`'s 0.340 | | 125-131 | 1627-1665 | 692-736 |
+| Marlin (96.2) | 0.309 | 0.158 | 199 | 1961-1980 | 755 |
+
+* The decode's arithmetic and shared-memory loads draw ~30 W (191 → 162 W) but cost only 1 % of the time. The MMAs cost 0.7 % and
+  ~8 W. Compute is not what holds the kernel back.
+* Removing the scale copies saves exactly the scale bytes (6 %) at the same DRAM rate, so the scale copies are not inefficient. The
+  activation copies (L2 hits) cost 3.6 %. The stores cost 1.5 %.
+* The core finding: **even the bare code-copy stream stays at ~711 GB/s and at ~1.73 GHz with the power-cap reason set, while it
+  draws only 125-150 W.** Every kernel form in this round shows the same pattern. Removing work raises neither the clock nor the
+  speed, and adding work (96.5) raises clock and power without making it faster. The SM clock is therefore not what bounds this
+  kernel's time, but something keeps the copy stream below the DRAM rate.
+
+### 96.4 The copy stream outside the GEMM: the same pattern reaches 800-830 GB/s at 2.6 GHz
+
+`read_energy.cu` runs the decode tiles' read pattern on random bytes (128 weight rows of 1,440 code bytes per block, cp.async ring,
+256-byte L2 hints). `KMODE=1` adds the exact dual gate / up row mapping and the (45, 28) grid of a decode launch, and `SMEM_KB=34`
+gives the GEMM's two blocks per SM. Results are in `harness/read_energy_*.txt`:
+
+| pattern | GB/s | W | SM MHz |
+|---|---:|---:|---:|
+| 32 bytes per row and stage (the GEMM's), 1-D grid, 4 GB buffer | 786-788 | 199 | 2550-2610 |
+| the same, tiles in random order over 7 GB | 783 | 199 | 2550 |
+| the GEMM's geometry (`KMODE=1`), six blocks per SM | 801 | 199 | 2565-2610 |
+| the GEMM's geometry, two blocks per SM (`SMEM_KB=34`) | 826-830 | 199 | 2550-2630 |
+| the same with the GEMM's wait depth (stage kb + 1 complete at step kb, `AHEAD=1`) | 825 | 199 | 2550-2617 |
+| 64 bytes per row and stage, two blocks per SM | 834 | 199 | 2752-2775 |
+| one contiguous run per block and stage (a Marlin-like repack), 32 / 64 bytes | 812-826 / 840 | 189-200 | 2767-2805 |
+| constant bytes instead of random (32 bytes per row) | 787 | 186-190 | 2805 |
+
+None of these runs is capped (reason 0x4 in 0-1 % of samples, `harness/clock_reasons.txt`). The bare copy ring inside
+`gemm_moe_native` reads the same bytes in the same order at 692-736 GB/s at 1.63-1.73 GHz, and it is capped. Bisected and ruled out
+as the cause:
+* the kernel's instruction mix (the minimal ring inside the kernel is capped too);
+* the footprint (1, 2, 4, 8 or 24 layer copies: identical, `harness/energy_layer_copies.txt`);
+* the routing's varying grid (a uniform 28-tile routing, `harness/routes_uniform28.txt`, is capped too);
+* data randomness (both random), occupancy, wait depth and ring depth (the rows above);
+* the copy granularity: the 64-byte form is 0-4 % in both places.
+
+What is left is the harness's host loop and the kernel's prologue (routing words, table build, launch parameters). So the limiter
+keys on something not yet identified. Whatever it is, it costs the decode expert GEMMs up to ~15 % of their copy rate (711 against
+826 GB/s). It explains §73.2's "power-capped at lower board power" without being a power problem: our kernel's energy per byte is
+not too high, its launches are clocked down. `harness/bisect_identical_routing.txt` (identical routing lines, so every launch has the
+same grid and experts) is capped too: 0.336-0.343 ms at 1.64-1.66 GHz and 128-132 W, with one or with 24 layer copies, while `read_energy.cu`
+in the same hold read 825 GB/s at 2.56 GHz. So neither the routing's variation nor the experts' spread triggers it.
+
+### 96.5 Kernel forms measured, not kept
+
+Energy windows, alternated in one hold with `develop`'s kernel, ms per routing (vLLM's / ours routing, `harness/energy_*.txt`):
+
+| form | gate / up | down | note |
+|---|---:|---:|---|
+| `develop` | 0.3398-0.3420 / 0.3699-0.3709 | 0.1767-0.1774 / 0.1902-0.1916 | 181-194 W, 1.71-1.80 GHz |
+| weight ring of its own, 64 contiguous bytes per row per copy (`NM_CP=2`, two slots; `rejected/moe_weight_ring_nm_cp.diff`) | 0.3387-0.3398 / 0.3668-0.3707 | 0.1770 / 0.1906-0.1910 | same time, +60-110 MHz, +5-8 W: more energy per byte |
+| the same with three slots (prefetch 4-5 steps deep) | 0.3401-0.3436 / 0.3685-0.3686 | 0.1921-0.1934 / 0.2054-0.2061 | down fits one block per SM |
+| 256-row dual tiles, three stages, two blocks per SM (half the activation traffic) | 0.3484-0.3509 / 0.3795-0.3805 | (256 rows, three stages) 0.1953-0.1968 / 0.2108-0.2113 | +2-3 % / +10 % |
+| 256-row dual tiles, four stages, one block per SM | 0.3539-0.3581 / 0.3801-0.3816 | | |
+| 256-row dual tiles with the 64-byte weight ring | 0.3472-0.3486 / 0.3768-0.3793 | | |
+| five stages (one more copy in flight) | 0.3407-0.3418 | (128 rows) 0.1804-0.1811 | 0 / +2 % |
+| three stages, three blocks per SM (80 registers fit) | 0.3451-0.3460 | (128 rows) 0.1830-0.1843 | +1.3 % / +3.5 % |
+| activation copies issued after the weight copies | 0.3413-0.3416 | 0.1791-0.1810 | 0 / +1 % |
+| 128-row down tiles | | 0.1793-0.1794 | +1 % |
+| `evict_first` policy on the weight copies (`createpolicy` + `L2::cache_hint`) | | | the launch faults; not pursued |
+
+Every product check of the kept-arithmetic forms (`NM_CP`) matches `develop`'s maxima at T = 32-2048 (`harness/`).
+
+### 96.6 Correctness and tests
+
+The engine's source is unchanged (bench tools only). The kernel, its lowering and the binaries are `develop`'s, so greedy text, logits
+and PPL are `develop`'s by construction. Neither greedy text nor PplBench was rerun.
+Suites ran on GPU 0 in a hold, on the branch after the merge of `develop` `15492683` (`tests/`). `Sharplight.Cuda.Tests`: 72, 0 failed,
+1 skipped (cuBLASLt not installed). `Sharplight.Serving.Tests`: 401, 0 failed, 13 skipped. An earlier run before the merge
+(`develop` `bf88b937`) had one failure, `ManySegmentPlacementTests.SegmentsThatDoNotFitTheirGraphsRunWithout` ("0 device segments
+hold 260 MiB after the steps, beyond the 160 MiB limit"). No engine code differs, the hold had just followed another round's test
+process, and the test passes after the merge. `Sharplight.Vulkan.Tests` were not run: no shared lowering or kernel changed.
+
+### 96.7 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64, closed loop | 0.99-1.01 / 0.957-0.975 | 64: decode steps, where the expert GEMMs are 9-12 % behind Marlin per routing (96.2): candidates: the clocked-down copy stream of 96.4 and experts with more than 32 items read twice (+9.5 % weight bytes on vLLM's routing) |
+| Qwen3-8B-FP8 serving 16 / 64 | 0.983-0.990 / 0.978-0.983 | 16: the step-budget floor in prompt waves (owner); 64: FP8 prompt GEMMs 5-8 % behind CUTLASS (§94) |
+
+Ranked levers:
+
+1. **What clocks the MoE launches down** (every MXFP4 / FP4 MoE decode on this GPU, and likely every streaming kernel). The same copy
+   stream runs at 826 GB/s and 2.6 GHz in `read_energy.cu` and at ~711 GB/s and 1.7 GHz in the harness. Finish the bisect between
+   the two binaries (host loop, launch parameters, the kernel prologue's dependent routing reads, the static table) and check the
+   engine's decode launches for the same trigger. The engine's mixed decode step runs at 2.3 GHz median at 196 W (`steps/`). Worth
+   up to ~15 % of the decode expert GEMMs, i.e. ~1.5-1.8 ms of a 64-sequence gpt-oss step, if the GEMM's copy rate follows the
+   microbenchmark's.
+2. **Experts with 33-64 items in one tile** (§75.3): on vLLM's routing the second 32-row tiles add 9.5 % weight bytes (26.5 tiles
+   for 24.2 experts). That is the other half of the 10 % gap to Marlin. Two launches by tile height.
+3. **Activation copies** (3.6 % of the expert GEMM): one copy of the activation stage per two column tiles (cluster or 256-row
+   tiles at no extra stage cost). The 256-row forms of 96.5 lost more elsewhere.
+4. **The step-budget policy** (owner, §93.4) and the FP8 prompt GEMM's SASS-level gap (§94.6 item 3), unchanged.
+
+### 96.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+R1=bench/results/s73/routing/vllm64_words.txt; R2=bench/results/s67/harness/routes64_text.txt
+cd bench/s56_moe && nvcc -O3 -arch=sm_120 -std=c++17 -DK=2880 -DN=2880 -DNFULL=5760 -DDUAL=1 -DBIAS=1 -DNM_BM=32 -DNM_WM=1 -DNM_WN=8 \
+  -DNM_BN=128 -DNM_STAGES=4 -DNM_MINB=2 -DKFILE='"../../src/Sharplight.Shaders/Kernels/gemm_moe_native.cu"' bench_moe.cu -o gu -ldl
+ROUTES=$R1 LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=4 ./gu             # energy window (NVML_GPU=<nvml index>)
+$VLLM_VENV/bin/python ../s73_marlin_replay.py $R1 --product gate_up --seconds 4 --energy --gpu <nvml index>
+nvcc -O3 -arch=sm_120 -std=c++17 -DPAT=0 -DC=32 -DHINT=256 -DMMA=1 -DKMODE=1 read_energy.cu -o rk -ldl && SECONDS_RUN=3 SMEM_KB=34 ./rk
+# ablations: git apply bench/results/s96/rejected/moe_weight_ring_nm_cp.diff, then .../moe_diag_ablations.diff; -DD_NOMMA=1, -DD_NODEC=1,
+# -DD_NOA=1, -DD_NOS=1, -DD_NOST=1, -DD_NOLDSM=1, -DD_MIN=1 (bench/results/s96/scripts/hb.sh builds both products)
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm gptoss ~/models/hf/gpt-oss-20b "16 64" --gpu-memory-utilization 0.6
 ```

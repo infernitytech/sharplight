@@ -1,0 +1,25 @@
+[hold 11:52:21] ./occ2.sh
+0 %, 2 MiB, 30.86 W
+rk_0_32 SMEM_KB=34       PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 830.0 GB/s, 199.3 W, 0.2401 nJ per byte, SM 2632 MHz, memory 13365 MHz 
+rk_s4_a1 SMEM_KB=34      PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 825.4 GB/s, 198.9 W, 0.2410 nJ per byte, SM 2617 MHz, memory 13365 MHz 
+rk_s5_a1 SMEM_KB=41      PAT=0 C=32 S=5 HINT=256 ROWS=128 MMA=1 WORK=0: 828.7 GB/s, 198.3 W, 0.2393 nJ per byte, SM 2565 MHz, memory 13365 MHz 
+rk_s8_a1 SMEM_KB=34      PAT=0 C=32 S=8 HINT=256 ROWS=128 MMA=1 WORK=0: 828.9 GB/s, 198.8 W, 0.2398 nJ per byte, SM 2572 MHz, memory 13365 MHz 
+gu_dbare                 energy: 8 passes 3.62 s: 0.3089 ms per routing, 137.0 W, 42.368 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1814 nJ per weight byte, SM 1728 MHz, memory 13365 MHz
+gu_dfull                 energy: 8 passes 3.99 s: 0.3408 ms per routing, 192.4 W, 65.625 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2810 nJ per weight byte, SM 1747 MHz
+gu_s3b3                  energy: 6 passes 3.04 s: 0.3460 ms per routing, 196.0 W, 67.904 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2907 nJ per weight byte, SM 1744 MHz, memory 13365 MHz
+gu_s3b2                  energy: 6 passes 3.03 s: 0.3444 ms per routing, 197.0 W, 67.918 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2908 nJ per weight byte, SM 1832 MHz, memory 13365 MHz
+dn_dfull                 energy: 12 passes 3.11 s: 0.1767 ms per routing, 185.6 W, 32.833 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2812 nJ per weight byte, SM 1806 MHz
+dn_s3b3                  energy: 12 passes 3.22 s: 0.1830 ms per routing, 204.3 W, 37.415 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3204 nJ per weight byte, SM 1929 MHz, memory 13365 MHz
+dn_s4b3                  energy: 12 passes 3.14 s: 0.1788 ms per routing, 201.1 W, 35.988 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3082 nJ per weight byte, SM 1872 MHz, memory 13365 MHz
+rk_0_32 SMEM_KB=34       PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 829.9 GB/s, 198.2 W, 0.2388 nJ per byte, SM 2550 MHz, memory 13365 MHz 
+rk_s4_a1 SMEM_KB=34      PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 825.3 GB/s, 199.0 W, 0.2411 nJ per byte, SM 2550 MHz, memory 13365 MHz 
+rk_s5_a1 SMEM_KB=41      PAT=0 C=32 S=5 HINT=256 ROWS=128 MMA=1 WORK=0: 828.5 GB/s, 198.3 W, 0.2394 nJ per byte, SM 2520 MHz, memory 13365 MHz 
+rk_s8_a1 SMEM_KB=34      PAT=0 C=32 S=8 HINT=256 ROWS=128 MMA=1 WORK=0: 828.6 GB/s, 204.9 W, 0.2473 nJ per byte, SM 2527 MHz, memory 13365 MHz 
+gu_dbare                 energy: 8 passes 3.62 s: 0.3091 ms per routing, 138.7 W, 42.907 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1837 nJ per weight byte, SM 1719 MHz, memory 13365 MHz
+gu_dfull                 energy: 8 passes 4.00 s: 0.3411 ms per routing, 192.5 W, 65.710 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2813 nJ per weight byte, SM 1740 MHz
+gu_s3b3                  energy: 6 passes 3.03 s: 0.3451 ms per routing, 191.9 W, 66.274 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2838 nJ per weight byte, SM 1742 MHz, memory 13365 MHz
+gu_s3b2                  energy: 6 passes 3.04 s: 0.3458 ms per routing, 203.1 W, 70.297 mJ per routing, 233.6 MB weights per routing (tile reads), 0.3010 nJ per weight byte, SM 1817 MHz, memory 13365 MHz
+dn_dfull                 energy: 12 passes 3.11 s: 0.1768 ms per routing, 187.2 W, 33.128 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2837 nJ per weight byte, SM 1799 MHz
+dn_s3b3                  energy: 12 passes 3.24 s: 0.1843 ms per routing, 197.2 W, 36.363 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3114 nJ per weight byte, SM 1907 MHz, memory 13365 MHz
+dn_s4b3                  energy: 12 passes 3.15 s: 0.1792 ms per routing, 195.0 W, 34.971 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2995 nJ per weight byte, SM 1864 MHz, memory 13365 MHz
+[release 11:54:25]

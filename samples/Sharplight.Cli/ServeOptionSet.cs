@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using Sharplight.Samples;
+using Sharplight.Llm.Serving;
 using Sharplight.Samples.Hub;
 
 namespace Sharplight.Cli;
@@ -103,6 +104,13 @@ internal sealed class ServeOptionSet
         Description = "Compute every prompt in full instead of reusing the cached KV of earlier prompts with the same prefix.",
     };
     private readonly Option<int?> _minStepTokens = OptionFactory.OptionalInteger("--min-step-tokens", "Smallest token budget of a step while few sequences run (default 768: a wave of prompts is prefilled in smaller steps and streams sooner; 0: every step uses the whole budget).", minimum: 0, helpName: "tokens");
+    private readonly Option<string?> _stepFloor = new("--step-floor")
+    {
+        Description = "When the --min-step-tokens floor applies: waves (default: only while no sequence decodes, so the prompts of a wave that "
+            + "were admitted first decode through shorter steps), always (every step; the earlier default) or full (while some sequence decodes, "
+            + "every step may use the whole budget). SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full overrides it.",
+        HelpName = "policy",
+    };
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
     private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
@@ -151,6 +159,7 @@ internal sealed class ServeOptionSet
         _store = store;
         _sampleRuntime = sampleRuntime;
         _api.AcceptOnlyFromAmong(ApiOpenAi, ApiAnthropic, ApiBoth);
+        _stepFloor.AcceptOnlyFromAmong("waves", "always", "full");
     }
 
     private readonly Option<string[]> _workers = OptionFactory.CommaSeparatedList(
@@ -175,6 +184,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_prefillChunk);
         command.Options.Add(_stepTokens);
         command.Options.Add(_minStepTokens);
+        command.Options.Add(_stepFloor);
         command.Options.Add(_kvTokens);
         command.Options.Add(_allowCacheSalt);
         command.Options.Add(_noPrefixCache);
@@ -235,6 +245,7 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_prefillChunk),
             parseResult.GetValue(_stepTokens),
             parseResult.GetValue(_minStepTokens),
+            ParseStepFloor(parseResult.GetValue(_stepFloor)),
             parseResult.GetValue(_kvTokens),
             parseResult.GetValue(_draftTokens),
             parseResult.GetValue(_mtpTokens),
@@ -254,6 +265,17 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_noPrefixCache),
             parseResult.GetValue(_kvSnapshots),
             parseResult.GetValue(_workers) ?? []);
+    }
+
+    private static StepFloorPolicy? ParseStepFloor(string? value)
+    {
+        return value switch
+        {
+            "waves" => StepFloorPolicy.Waves,
+            "always" => StepFloorPolicy.Always,
+            "full" => StepFloorPolicy.Full,
+            _ => null,
+        };
     }
 
     private static ApiSurface ParseApi(string value)
