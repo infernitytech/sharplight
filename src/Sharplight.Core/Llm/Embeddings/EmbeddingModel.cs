@@ -106,7 +106,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 
             var artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
             var runner = PackedBatchRunner.Compile(def, WellKnown.EmbedGraph, WellKnown.EmbeddingsOutput, [.. options.Devices], options.Fallback,
-                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), artifacts.For, options.Log);
+                options.MaxBatchTokens, options.MaxBatchSequences, options.CompileDisabledFeatures(), artifacts.For, options.Log);
             return new EmbeddingModel(def, tok, runner, artifacts, options.ResolveMaxLength(def));
         }
         catch

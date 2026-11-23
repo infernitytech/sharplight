@@ -61,8 +61,38 @@ public class TaskLoadOptions
     /// <summary>Device features (<see cref="DeviceFeatures"/>) not to use when compiling.</summary>
     public ISet<string> DisabledFeatures { get; set; } = new HashSet<string>(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The block-scaled FP8 mode (default on): where the device multiplies E4M3 operands with a power-of-two scale per 32 values in the
+    /// tensor cores (<see cref="DeviceFeatures.BlockScaledFp8"/>, CUDA on compute capability 12.x), matrices of block-scaled E4M3 weights
+    /// (128-value scale groups) are requantized to power-of-two scales at load, activations get power-of-two scales, and prompt-sized
+    /// products run on the block-scaled MMA. It is the form vLLM uses by default (DeepGEMM's E8M0 scales): about 2 % more serving throughput
+    /// at 64 streams, perplexity +0.3 to +0.8 % against f32 scales (benchmarks.md §86.3, §89.4). False keeps the checkpoint's f32 scales
+    /// (as <see cref="DisabledFeatures"/> with <see cref="DeviceFeatures.BlockScaledFp8"/> does). Ignored for models without such weights
+    /// and on devices without the feature. The environment variable <c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c> overrides it for the process.
+    /// </summary>
+    public bool BlockScaledFp8 { get; set; } = true;
+
     /// <summary>Opt-in: let kernels trade precision for speed (see <see cref="CompileOptions.AllowReducedPrecision"/>).</summary>
     public bool AllowReducedPrecision { get; set; }
+
+    /// <summary>
+    /// The device features compilations of this load must not use: <see cref="DisabledFeatures"/>, plus
+    /// <see cref="DeviceFeatures.BlockScaledFp8"/> when <see cref="BlockScaledFp8"/> (or <c>SHARPLIGHT_FP8_BLOCK_SCALED</c>) turns the mode off.
+    /// </summary>
+    internal HashSet<string> CompileDisabledFeatures()
+    {
+        var features = new HashSet<string>(DisabledFeatures, StringComparer.Ordinal);
+        if (!(Llm.DiagnosticSwitches.Fp8BlockScaled ?? BlockScaledFp8))
+        {
+            features.Add(DeviceFeatures.BlockScaledFp8);
+        }
+        else if (Llm.DiagnosticSwitches.Fp8BlockScaled == true)
+        {
+            features.Remove(DeviceFeatures.BlockScaledFp8);
+        }
+
+        return features;
+    }
 
     /// <summary>
     /// Precompiled-artifact routing shared with other loads, or <see langword="null"/> to consult the artifact sets stored in the model

@@ -85,7 +85,8 @@ public static class DeviceFeatures
     /// MMA itself (CUDA: <c>mma.sync ... kind::mxf8f6f4.block_scale</c>, compute capability 12.x). The provider's prompt-sized FP8 GEMM
     /// then accumulates a whole tile in the tensor cores instead of promoting every 128-value block in registers; it needs power-of-two
     /// activation and weight scales, so block-scaled E4M3 weights are requantized at load and activations get power-of-two scales (a
-    /// numerics change: <c>SHARPLIGHT_FP8_BLOCK_SCALED</c> chooses it). Disabling it keeps the f32 scales and the promoting GEMM.
+    /// numerics change, on by default where the model has such weights; <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/> and
+    /// <c>SHARPLIGHT_FP8_BLOCK_SCALED</c> choose it). Disabling it keeps the f32 scales and the promoting GEMM.
     /// </summary>
     public const string BlockScaledFp8 = "block_scaled_fp8";
 
