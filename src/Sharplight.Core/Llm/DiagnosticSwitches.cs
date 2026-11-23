@@ -41,6 +41,12 @@ internal static class DiagnosticSwitches
     public static bool DeferEmits { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_ASYNC_EMIT") != "0";
 
     /// <summary>
+    /// The <see cref="Serving.EngineOptions.BatchTokensPerSequence"/> forced for the process (<c>SHARPLIGHT_STEP_ROWS_PER_SEQUENCE=n</c>, for
+    /// A/B measurements), or null.
+    /// </summary>
+    public static int? BatchTokensPerSequence { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_ROWS_PER_SEQUENCE"), out int rows) && rows > 0 ? rows : null;
+
+    /// <summary>
     /// The step-floor policy forced for the process (<c>SHARPLIGHT_STEP_FLOOR_WAVES</c>, benchmarks.md section 93.4), overriding
     /// <see cref="Serving.EngineOptions.StepFloor"/>: <c>1</c> <see cref="Serving.StepFloorPolicy.Waves"/>, <c>0</c>
     /// <see cref="Serving.StepFloorPolicy.Always"/>, <c>full</c> <see cref="Serving.StepFloorPolicy.Full"/>. Null: the engine options decide.

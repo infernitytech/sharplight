@@ -738,6 +738,9 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool MultiGemmTall { get; } = Read("SHARPLIGHT_MULTI_GEMM_TALL") != "0";
 
+    /// <summary><c>SHARPLIGHT_MULTI_GEMM_MAX_ROWS=n</c>: the largest batch the split-K multi-output GEMM serves, or null for the default.</summary>
+    public static long? MultiGemmMaxRows { get; } = Read("SHARPLIGHT_MULTI_GEMM_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_MULTI_DEBUG=1</c>: report on stderr why a multi-output group got no GEMM.</summary>
     public static bool MultiGemmDebug { get; } = Read("SHARPLIGHT_MULTI_DEBUG") == "1";
 

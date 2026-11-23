@@ -212,6 +212,8 @@ public sealed class FusionTests
     [InlineData("bf16", 40, true)]
     [InlineData("bf16", 64, true)]
     [InlineData("bf16", 200, true)]
+    [InlineData("bf16", 300, true)]
+    [InlineData("bf16", 448, true)]
     [InlineData("f16", 100, false)]
     [InlineData("f16", 300, false)]
     [InlineData("q8_0", 64, false)]

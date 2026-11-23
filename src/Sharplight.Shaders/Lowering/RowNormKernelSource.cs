@@ -118,7 +118,10 @@ internal sealed class RowNormKernelSource
         _unroll = _iterations <= MaxUnrolledIterations;
 
         AppendParams();
-        _sb.AppendLine($"groupshared float red[{Threads}];");
+        // The subgroup reduction keeps one partial sum per subgroup (subgroups of at least 4 lanes), the tree reduction one per thread.
+        // A small array keeps the kernel's shared memory within what a programmatic dependent finds next to a running kernel without any
+        // (CUDA: 1 KB plus the driver's reservation; benchmarks.md section 100.3).
+        _sb.AppendLine($"groupshared float red[{(UseSubgroupOps ? Math.Max(1, Threads / 4) : Threads)}];");
         if (Fp8Output is not null || Q8Output is not null)
         {
             // One padding word per 32 values: the quantization's lanes read four consecutive values each (a stride of four words),

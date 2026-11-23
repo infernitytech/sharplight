@@ -6,8 +6,14 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
-    /// <summary>Largest batch the multi-output GEMM serves (decode and small mixed steps; it bounds its split-K scratch).</summary>
-    private const long MultiGemmMaxRows = 256;
+    /// <summary>
+    /// Largest batch the multi-output GEMM serves (<c>SHARPLIGHT_MULTI_GEMM_MAX_ROWS</c>; it bounds its split-K scratch). It serves only
+    /// the batches whose members all run their own split-K launches, so above 256 rows only projections that stay on gemm_cm2 there take
+    /// it: f16 projections with a bias row below <see cref="NativeBiasGemmMinRows"/>, at the row counts that still split K (mixed decode +
+    /// prompt steps of 257 to ~512 rows). RTX PRO 4500, 16 decode rows + one or two prompts of 250-500 rows, GPU ms against 256: Qwen2.5-1.5B
+    /// -0.5 to -1.6 %, gpt-oss-20b -0.5 % at 266 rows (benchmarks.md section 100.2).
+    /// </summary>
+    private static long MultiGemmMaxRows => DiagnosticSwitches.MultiGemmMaxRows ?? 1024;
 
     /// <summary>Most weight matrices one multi-output GEMM concatenates (splitk.slang MULTI).</summary>
     private const int MultiGemmMaxMembers = 3;

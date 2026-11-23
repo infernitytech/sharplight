@@ -100,6 +100,15 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// </summary>
     private long _previousShared;
 
+    /// <summary>
+    /// Shared memory per multiprocessor (driver reservation included) a dependent's blocks always find next to a running kernel, even one
+    /// without shared memory: twice the driver's reservation per block (<c>SHARPLIGHT_CUDA_PDL_SHARED_FLOOR</c> overrides it). RTX PRO 4500,
+    /// bench/s99_pdl_placement.cu, 16 blocks after 108 / 180 / 328 blocks without shared memory: up to 1.5 KB of dynamic shared memory
+    /// per block (2.5 KB with the reservation) they spread one per multiprocessor, from 2 KB (3 KB) they pile up (benchmarks.md
+    /// section 100.3). It admits the one-row norms (1 KB of reduction scratch) after full-GPU reductions.
+    /// </summary>
+    private long DependentSharedFloor => DiagnosticSwitches.DependentSharedFloor ?? 2L * _dev.Properties.ReservedSharedMemoryPerBlock;
+
     /// <summary>Blocks of the stream's previous kernel launch (see <see cref="_previousShared"/>).</summary>
     private long _previousBlocks;
     private readonly Queue<string> _recordOrder = new();
@@ -1566,7 +1575,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             int sms = _dev.Properties.Multiprocessors;
             bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave
                              && (kernel.HasIndependentPrologue || _previousBlocks + blocks <= sms
-                                 || kernel.SharedPerBlock * ((blocks + sms - 1) / sms) <= _previousShared || DiagnosticSwitches.DependentAnyShared);
+                                 || kernel.SharedPerBlock * ((blocks + sms - 1) / sms) <= Math.Max(_previousShared, DependentSharedFloor)
+                                 || DiagnosticSwitches.DependentAnyShared);
             _previousOneWave = oneWave;
             _previousShared = kernel.SharedPerBlock * kernel.BlocksPerMultiprocessor;
             _previousBlocks = blocks;
