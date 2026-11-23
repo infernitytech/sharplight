@@ -380,7 +380,12 @@ Round 13 ([benchmarks.md §57.2](benchmarks.md)) revised these limits: a model's
 limit, so burst timings of ablations mostly measure clock (the "no code loads" ablation kept 2.7 GHz instead of 2.2 because the
 tensor cores multiplied stale shared memory). Per SM cycle `gemm_fp8_native.cu` reaches 65 % of the MMA peak, `gemm_fp8_tma.cu` 76 %
 and CUTLASS ~90 %; the block barrier per K block cost 13 points and the per-output promotion 9. Measure FP8 kernels in FLOPs per SM
-cycle or sustained (`bench/s57_gemm`), not in bursts.
+cycle or sustained (`bench/s57_gemm`), not in bursts. Round 33 ([benchmarks.md §91](benchmarks.md)) on sm_120: the copies alone and the
+MMAs alone each reach the 200 W cap, yet no form with fewer bytes per tile pays: 256-row tiles leave room for two 48 KB stages only
+(19 % slower), TMA multicast within a 2-CTA cluster is correct but ~10^4 x slow (ptxas warns that it is meant for sm_90a / sm_100a),
+and forwarding half a weight tile to the peer block over DSMEM is 60 % slower. On identical operands CUTLASS's f32-scale blockwise
+kernel is 8-13 % faster than `gemm_fp8_tma.cu` and as fast as ours with the outputs dead (stores and promotion dropped), so the gap is
+the promotion's and epilogue's schedule, which ptxas 13.2 does not take from the source order.
 
 **CUDA graphs** (`launch_graphs`). A segment records its launches once per symbol binding (kernel, grid, arguments); positions and
 lengths are runtime scalars uploaded before the launches, so every decode step of a sequence repeats one recording. When a recording

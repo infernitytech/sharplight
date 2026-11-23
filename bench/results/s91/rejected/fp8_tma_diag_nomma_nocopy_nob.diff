@@ -1,0 +1,45 @@
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu	2026-11-22 23:23:11.526988952 +0000
++++ diag.cu	2026-11-22 23:25:43.000000000 +0000
+@@ -414,9 +414,17 @@
+                 }
+ 
+                 const f8n_u32 s = m % F8N_STAGES, dst = f8n_smem(smem + s * F8N_STAGE_BYTES), bar = bars + s * 8;
++#if defined(DIAG_NOCOPY)
++                f8n_mbar_arrive(bar);
++#elif defined(DIAG_NOB)
++                f8n_mbar_expect(bar, F8N_BM * 128);
++                f8n_tma2(dst, &p.mx, codeKb * 128, ct0, bar);
++#else
+                 f8n_mbar_expect(bar, F8N_STAGE_BYTES);
+                 f8n_tma2(dst, &p.mx, codeKb * 128, ct0, bar);
+-#if DUAL
++#endif
++#if defined(DIAG_NOCOPY) || defined(DIAG_NOB)
++#elif DUAL
+                 f8n_tma3(dst + F8N_BM * 128, &p.mw, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
+                 f8n_tma3(dst + (F8N_BM + F8N_BN / 2) * 128, &p.mw2, codeKb * 128, cn0 & 127, cn0 >> 7, bar);
+ #elif MULTI
+@@ -567,6 +575,7 @@
+             f8n_mbar_wait(bars + s * 8, (it / F8N_STAGES) & 1);
+             const f8n_u32 sa = f8n_smem(smem + s * F8N_STAGE_BYTES), sb = sa + F8N_BM * 128;
+             f8n_u32 b[4][F8N_FN][2];
++#ifndef DIAG_NOMMA
+ #pragma unroll
+             for (int kk = 0; kk < 4; kk++)
+             {
+@@ -577,6 +586,7 @@
+                     f8n_ldsm4(sb + f8n_swz(r, kk * 2 + ((lane >> 3) & 1)), b[kk][j][0], b[kk][j][1], b[kk][j + 1][0], b[kk][j + 1][1]);
+                 }
+             }
++#endif
+ 
+ #if F8N_BLOCK_SCALED
+ #pragma unroll
+@@ -596,6 +606,7 @@
+                 }
+             }
+ 
++#elif defined(DIAG_NOMMA)
+ #else
+ #pragma unroll
+             for (int i = 0; i < F8N_FM; i++)

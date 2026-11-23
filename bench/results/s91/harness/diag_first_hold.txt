@@ -1,0 +1,99 @@
+[hold 23:27:36] ./diag_run.sh
+0 %, 2 MiB, 8.95 W
+== b_gu_base
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.592 ms 259 TFLOPS, 208.8 W, 0.806 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.393 ms 296 TFLOPS 75 GB/s of weights
+  sustained: 1.508 ms 256 TFLOPS, 191.7 W, 0.748 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.460 ms 265 TFLOPS 71 GB/s of weights
+== b_gu_nomma
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 0.849 ms 486 TFLOPS, 199.0 W, 0.410 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 0.797 ms 518 TFLOPS 130 GB/s of weights
+  sustained: 0.792 ms 488 TFLOPS, 195.2 W, 0.400 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 0.780 ms 495 TFLOPS 133 GB/s of weights
+== b_gu_nocopy
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 1.112 ms 371 TFLOPS, 202.3 W, 0.546 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.061 ms 389 TFLOPS 98 GB/s of weights
+  sustained: 1.053 ms 367 TFLOPS, 195.8 W, 0.533 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.040 ms 372 TFLOPS 100 GB/s of weights
+== b_gu_nob
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 1.277 ms 323 TFLOPS, 195.8 W, 0.606 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.176 ms 351 TFLOPS 88 GB/s of weights
+  sustained: 1.211 ms 319 TFLOPS, 194.4 W, 0.609 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.186 ms 326 TFLOPS 88 GB/s of weights
+== b_dn_base
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.816 ms 253 TFLOPS, 199.0 W, 0.788 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.723 ms 285 TFLOPS 72 GB/s of weights
+  sustained: 0.728 ms 265 TFLOPS, 203.5 W, 0.767 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.698 ms 277 TFLOPS 74 GB/s of weights
+== b_dn_nomma
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.469 ms 440 TFLOPS, 193.2 W, 0.439 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.457 ms 451 TFLOPS 114 GB/s of weights
+  sustained: 0.422 ms 458 TFLOPS, 198.7 W, 0.434 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.422 ms 458 TFLOPS 123 GB/s of weights
+== b_dn_nocopy
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.590 ms 349 TFLOPS, 197.0 W, 0.564 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.582 ms 354 TFLOPS 89 GB/s of weights
+  sustained: 0.515 ms 375 TFLOPS, 210.0 W, 0.560 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.508 ms 381 TFLOPS 102 GB/s of weights
+== b_dn_nob
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.654 ms 315 TFLOPS, 200.1 W, 0.635 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.618 ms 333 TFLOPS 84 GB/s of weights
+  sustained: 0.581 ms 333 TFLOPS, 194.8 W, 0.586 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.567 ms 341 TFLOPS 91 GB/s of weights
+== b_gu_base
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.610 ms 256 TFLOPS, 197.8 W, 0.772 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.415 ms 291 TFLOPS 73 GB/s of weights
+  sustained: 1.523 ms 254 TFLOPS, 193.7 W, 0.763 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.481 ms 261 TFLOPS 70 GB/s of weights
+== b_gu_nomma
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 0.861 ms 479 TFLOPS, 197.6 W, 0.412 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 0.803 ms 514 TFLOPS 129 GB/s of weights
+  sustained: 0.802 ms 482 TFLOPS, 196.7 W, 0.408 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 0.793 ms 488 TFLOPS 131 GB/s of weights
+== b_gu_nocopy
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 1.132 ms 364 TFLOPS, 199.4 W, 0.547 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.065 ms 387 TFLOPS 97 GB/s of weights
+  sustained: 1.073 ms 360 TFLOPS, 196.3 W, 0.545 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.055 ms 366 TFLOPS 98 GB/s of weights
+== b_gu_nob
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 1.291 ms 319 TFLOPS, 193.8 W, 0.607 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.186 ms 348 TFLOPS 88 GB/s of weights
+  sustained: 1.225 ms 316 TFLOPS, 207.4 W, 0.657 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.198 ms 323 TFLOPS 87 GB/s of weights
+== b_dn_base
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.820 ms 251 TFLOPS, 199.9 W, 0.795 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.729 ms 283 TFLOPS 71 GB/s of weights
+  sustained: 0.736 ms 263 TFLOPS, 201.9 W, 0.769 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.707 ms 274 TFLOPS 73 GB/s of weights
+== b_dn_nomma
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.474 ms 435 TFLOPS, 191.7 W, 0.441 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.459 ms 449 TFLOPS 113 GB/s of weights
+  sustained: 0.426 ms 454 TFLOPS, 198.8 W, 0.438 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.424 ms 456 TFLOPS 122 GB/s of weights
+== b_dn_nocopy
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.594 ms 347 TFLOPS, 195.0 W, 0.562 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.582 ms 354 TFLOPS 89 GB/s of weights
+  sustained: 0.520 ms 372 TFLOPS, 194.3 W, 0.523 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.512 ms 377 TFLOPS 101 GB/s of weights
+== b_dn_nob
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.659 ms 313 TFLOPS, 198.7 W, 0.635 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.621 ms 332 TFLOPS 84 GB/s of weights
+  sustained: 0.581 ms 332 TFLOPS, 192.9 W, 0.580 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.567 ms 341 TFLOPS 91 GB/s of weights
+[release 23:29:07]
