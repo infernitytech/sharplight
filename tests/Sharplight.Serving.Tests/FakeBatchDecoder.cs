@@ -73,6 +73,8 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     /// <summary>Logits of the tokens other than the scripted one (default: all -10); decides what a token mask falls back to.</summary>
     public float[]? Bias { get; set; }
     public TimeSpan StepDelay { get; set; }
+    /// <summary>Extra delay of a step by its rows (a device whose cost follows token tiles, say).</summary>
+    public Func<int, TimeSpan>? StepDelayForRows { get; set; }
     public int FailAfterSteps { get; set; } = -1;
     public List<(int Slot, int Rows, bool Logits)[]> Steps { get; } = [];
     /// <summary>Embedding width of a decoder with media input (0: token rows only).</summary>
@@ -361,6 +363,11 @@ public sealed class FakeBatchDecoder : IBatchDecoder
         if (StepDelay > TimeSpan.Zero)
         {
             Thread.Sleep(StepDelay);
+        }
+
+        if (StepDelayForRows?.Invoke(inputs.Sum(i => i.Tokens.Length)) is { } extra && extra > TimeSpan.Zero)
+        {
+            Thread.Sleep(extra);
         }
 
         if (inputs.Sum(i => i.OutputRows) > MaxLogitsRows)

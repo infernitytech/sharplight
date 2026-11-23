@@ -20,6 +20,8 @@ namespace Sharplight.Llm;
 /// inside a prompt chunk cuts the chunk (<see cref="Serving.IBatchDecoder.SnapshotsInsideSteps"/> is false; for A/B measurements).</item>
 /// <item><c>SHARPLIGHT_DEVICE_RESERVE_MIB=&lt;n&gt;</c>: device memory kept free on every device by a placement that
 /// <see cref="LlmLoadOptions.ReservePerDevice"/> leaves at its default (for measurements).</item>
+/// <item><c>SHARPLIGHT_STEP_TILE_AWARE=0|1</c>: prompt rows scheduled around token tiles on measured prices, overriding
+/// <see cref="Serving.EngineOptions.TileAwarePrompts"/>.</item>
 /// <item><c>SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full</c>: the serving scheduler's step-floor policy, overriding
 /// <see cref="Serving.EngineOptions.StepFloor"/> (waves, always, full).</item>
 /// <item><c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c>: the block-scaled FP8 mode on (where the device has it) or off for every load of the
@@ -45,6 +47,17 @@ internal static class DiagnosticSwitches
     /// A/B measurements), or null.
     /// </summary>
     public static int? BatchTokensPerSequence { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_ROWS_PER_SEQUENCE"), out int rows) && rows > 0 ? rows : null;
+
+    /// <summary>
+    /// The <see cref="Serving.EngineOptions.TileAwarePrompts"/> forced for the process (<c>SHARPLIGHT_STEP_TILE_AWARE=0|1</c>, for A/B
+    /// measurements), or null.
+    /// </summary>
+    public static bool? TileAwarePrompts { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_TILE_AWARE") switch
+    {
+        "1" => true,
+        "0" => false,
+        _ => null,
+    };
 
     /// <summary>
     /// The step-floor policy forced for the process (<c>SHARPLIGHT_STEP_FLOOR_WAVES</c>, benchmarks.md section 93.4), overriding

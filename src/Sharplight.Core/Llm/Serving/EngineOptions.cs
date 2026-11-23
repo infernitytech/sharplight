@@ -43,6 +43,14 @@ public sealed record EngineOptions
     /// </summary>
     public int BatchTokensGranule { get; set; } = 128;
     /// <summary>
+    /// Prompt rows scheduled around token tiles (<see cref="BatchTokensGranule"/>) on measured prices (default on): a step whose rows would
+    /// end a few rows past a tile holds those prompt rows back for a later step's decode rows, and a prompt that the budget cuts a few
+    /// rows short of its end takes them in this step, each only when the step costs measured on this engine say it is cheaper (the cost of
+    /// another token tile against what the rows add to a decode step; benchmarks.md §101). The environment variable
+    /// <c>SHARPLIGHT_STEP_TILE_AWARE=0|1</c> overrides it for the process.
+    /// </summary>
+    public bool TileAwarePrompts { get; set; } = true;
+    /// <summary>
     /// Maximum prompt rows of one sequence per step (0, the default: the step's token budget, so a prompt takes whole passes of the
     /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.
     /// </summary>
