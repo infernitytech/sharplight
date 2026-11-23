@@ -2,11 +2,11 @@ using System.Globalization;
 
 namespace OnnxBench;
 
-/// <summary>Command line of the benchmark: <c>OnnxBench &lt;manifest.json&gt; &lt;cpu|vulkan&gt; [options]</c>.</summary>
+/// <summary>Command line of the benchmark: <c>OnnxBench &lt;manifest.json&gt; &lt;cpu|vulkan|cuda&gt; [options]</c>.</summary>
 internal sealed class BenchArguments
 {
     public const string Usage =
-        "usage: OnnxBench <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--fast-precision] [--no-split-f16] [--no-fuse-projections] [--vary-input]\n" +
+        "usage: OnnxBench <manifest.json> <cpu|vulkan|cuda> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--fast-precision] [--no-split-f16] [--no-fuse-projections] [--vary-input]\n" +
         "  the \"model\" entry of the manifest resolves against $SHARPLIGHT_ONNX_MODELS.";
 
     public required string ManifestPath { get; init; }
@@ -37,7 +37,7 @@ internal sealed class BenchArguments
 
     public static BenchArguments? Parse(string[] args)
     {
-        if (args.Length < 2 || args[1] is not ("cpu" or "vulkan"))
+        if (args.Length < 2 || args[1] is not ("cpu" or "vulkan" or "cuda"))
         {
             return null;
         }

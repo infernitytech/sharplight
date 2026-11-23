@@ -4,7 +4,7 @@ usage:
   parity_bench.py run <out.jsonl> [--rounds R] [--engines e1,e2,...] [--models m1,m2,...] [--runs N]
   parity_bench.py table <out.jsonl> [<before.jsonl>]
 
-Engines: sl-cpu, ort-cpu, sl-vulkan, sl-vulkan-rp (AllowReducedPrecision), sl-vulkan-fast (MatrixPrecision.Fast: one f16 product of
+Engines: sl-cpu, ort-cpu, sl-vulkan, sl-cuda, sl-cuda-fast (the CUDA provider, strict and MatrixPrecision.Fast), sl-vulkan-rp (AllowReducedPrecision), sl-vulkan-fast (MatrixPrecision.Fast: one f16 product of
 row-scaled inputs per multiply-add, TF32's accuracy class), sl-vulkan-simt (strict with SplitHalfMatMul off: f32
 SIMT GEMMs instead of the split-f16 tensor-core GEMM), ort-cuda (TF32 allowed, the EP default), ort-cuda-strict (use_tf32=0), ort-trt (TensorRT EP, f32 engines with TF32 tactics; needs the TensorRT libraries). Every measurement is its own process. The engines of one model run back to back and the
 rounds repeat the whole set, so A/B pairs are interleaved in time; the table reports the minimum over the rounds of each
@@ -15,6 +15,8 @@ onnxruntime: intra_op_num_threads). Environment:
   SHARPLIGHT_ONNX_MODELS  directory with the models and ref/ manifests (required)
   ORT_PYTHON              python with onnxruntime-gpu (default: python3; source bench/onnx/env.sh for the CUDA libs)
   ONNX_BENCH_DLL          OnnxBench.dll (default: bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll)
+  ONNX_BENCH_DLL_<TAG>    OnnxBench.dll of another build for the engines named <engine>@<tag> (A/B and bisection, e.g.
+                          sl-cpu@base with ONNX_BENCH_DLL_BASE)
   BENCH_MIN_FREE_GB       wait before each run until this much memory is available (default 20)
 """
 import json
@@ -45,7 +47,7 @@ MODELS = {
     "fasterrcnn-12 (counts)": ("survey/fasterrcnn-12.json", [1]),
     "maskrcnn-12 (counts)": ("survey/maskrcnn-12.json", [1]),
 }
-ENGINES = ["sl-cpu", "ort-cpu", "sl-vulkan", "sl-vulkan-rp", "sl-vulkan-fast", "sl-vulkan-simt", "ort-cuda", "ort-cuda-strict", "ort-trt"]
+ENGINES = ["sl-cpu", "ort-cpu", "sl-vulkan", "sl-vulkan-rp", "sl-vulkan-fast", "sl-vulkan-simt", "sl-cuda", "sl-cuda-fast", "ort-cuda", "ort-cuda-strict", "ort-trt"]
 CPU_ENGINES = {"sl-cpu", "ort-cpu"}
 
 
@@ -61,15 +63,18 @@ def wait_for_memory():
 
 
 def command(engine, manifest, batch, runs, threads):
+    engine, _, build = engine.partition("@")
     if engine.startswith("sl-"):
         dll = os.environ.get("ONNX_BENCH_DLL", os.path.join(HERE, "OnnxBench/bin/Release/net11.0/OnnxBench.dll"))
-        provider = "cpu" if engine == "sl-cpu" else "vulkan"
+        if build:
+            dll = os.environ["ONNX_BENCH_DLL_" + build.upper()]
+        provider = "cpu" if engine == "sl-cpu" else "cuda" if engine.startswith("sl-cuda") else "vulkan"
         cmd = ["dotnet", dll, manifest, provider, "--runs", str(runs), "--batch", str(batch)]
         if engine == "sl-vulkan-rp":
             cmd.append("--reduced-precision")
         if engine == "sl-vulkan-simt":
             cmd.append("--no-split-f16")
-        if engine == "sl-vulkan-fast":
+        if engine in ("sl-vulkan-fast", "sl-cuda-fast"):
             cmd.append("--fast-precision")
     else:
         python = os.environ.get("ORT_PYTHON", "python3")
@@ -147,6 +152,7 @@ def table(path, before=None):
     now = aggregate(path)
     old = aggregate(before) if before else {}
     engines = [e for e in ENGINES if any(k[2] == e for k in now)]
+    engines += sorted({k[2] for k in now} - set(engines))
     print("| model | batch | " + " | ".join(engines) + " | SL/ORT CPU | SL/ORT CUDA |")
     print("|---|---|" + "---|" * (len(engines) + 2))
     for name, (_, batches) in MODELS.items():

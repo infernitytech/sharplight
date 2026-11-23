@@ -8,5 +8,6 @@
     <ProjectReference Include="../../../src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
     <ProjectReference Include="../../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
   </ItemGroup>
 </Project>
