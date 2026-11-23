@@ -408,6 +408,24 @@ Devices without f16 matrix units keep strict. Open: the q4 decoders and the SIMT
 - Later: tensor and expert parallel across nodes for RDMA networks (InfiniBand / RoCE) and large MoE models; over TCP the
   per-layer all-reduces cost several milliseconds per token.
 
+## Android (later)
+
+Target: Sharplight as an on-device runtime on Android (arm64), first for ONNX models on the CPU, where the desktop CPU provider
+already runs at 0.62-1.53x onnxruntime's time (§98), then small LLMs. The competitor there is onnxruntime Mobile with XNNPACK and
+llama.cpp's ARM CPU and Adreno OpenCL backends. Not started.
+
+- **Runtime**: Core, importers and the CPU and Vulkan providers built for `android-arm64` (.NET for Android, NativeAOT for size and
+  startup); a small sample app.
+- **CPU first**: most CPU kernels use portable `Vector128` / `Vector256`, which map to NEON; the paths written with x86
+  intrinsics (AVX2 / AVX-512 / FMA) need arm64 counterparts. Then dot-product (`sdot`), int8 matrix (`i8mm`) and, on the
+  newest chips, SME2 kernels; big.LITTLE-aware threading (pin to performance cores); measure against onnxruntime + XNNPACK.
+- **Vulkan second**: a mobile capability profile checked against Android's Vulkan baseline profile (no cooperative matrix, so
+  the shader-math GEMMs; subgroup sizes 16-128; small storage-buffer ranges, so weights split across bindings; f16 / int8
+  arithmetic), plus a per-driver workaround list (Adreno, Mali, Xclipse, PowerVR).
+- **NPU later**: an execution provider for phone NPUs (Qualcomm QNN / Hexagon, MediaTek NeuroPilot, LiteRT on Google Tensor)
+  for fixed-shape graphs; an OpenCL path for Adreno only if Vulkan stays behind there.
+- Testing needs real devices (one Adreno, one Mali at least) or a device farm; the emulator's Vulkan is not representative.
+
 ## Other
 
 - `optimize` command for `.slm` packages.
