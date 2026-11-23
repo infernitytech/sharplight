@@ -90,6 +90,83 @@ static __device__ __forceinline__ float nm_epi_bias(float a, float b)
 #endif
 #include KFILE
 
+#if DUAL
+// RD=1 (section 97's bisect): the energy window launches read_energy.cu's KMODE copy ring instead of the GEMM, on the same routing
+// tiles, weights, grid and dynamic shared memory: each block copies the 32 code bytes per K step of its 128 dual weight rows
+// (gemm_moe_native's row mapping, 256-byte L2 hints) into a ring of 4 stages, waits, synchronizes, reads one word.
+// RD=2: also the tile's scale rows (gemm_moe_native's scale copies), RD=3: also the activation rows (its activation copies),
+// RD=4: both, RD=5: both and the E8M0 table of the prologue. The ring's stage stride is gemm_moe_native's stage size.
+// F (bits): 1 the codes stored [block][row] in the stage as gemm_moe_native does (else row-major), 2 one barrier per step (the
+// wait's), 4 the codes at offset 4096 of the stage (after the activations), 8 row-major with each row's two halves swapped, 16 the
+// halves 64 bytes apart in one 128-byte line ([r / 4][block][r % 4]), 32 the halves 128 bytes apart ([r / 8][block][r % 8]).
+template <int M, int F = 0>
+__global__ void __launch_bounds__(256, 2) rd_h(NmParams p)
+{
+    extern __shared__ __align__(128) unsigned char rsm[];
+    const unsigned tile = blockIdx.y;
+    if (tile >= p.scratch[0])
+    {
+        return;
+    }
+    const unsigned char* b0 = p.w + (unsigned long long)p.scratch[1 + 3 * tile] * EXPERT_BYTES;
+    const unsigned char* b1 = p.w2 + (unsigned long long)p.scratch[1 + 3 * tile] * EXPERT_BYTES;
+    const int nk = (K / 2) / 32;
+    const unsigned rowOff = p.scratch[2 + 3 * tile], tileRows = p.scratch[3 + 3 * tile];
+    const unsigned ar = threadIdx.x >> 3, ac = threadIdx.x & 7;
+    const bool aLive = ar < tileRows;
+    const unsigned char* aSrc = p.x + (unsigned long long)(rowOff + (aLive ? ar : 0)) * K * 2 + ac * 16;
+    const bool sLive = threadIdx.x < 16;
+    const unsigned char* sSrc;
+    {
+        unsigned q = threadIdx.x % 4, m = threadIdx.x / 4 % 2, b = threadIdx.x / 8 % 2;
+        sSrc = (m ? b1 : b0) + (unsigned long long)(blockIdx.x * 4 + q) * 16 * ROW_BYTES + 16 * (K / 2) + b * 16;
+    }
+    __shared__ unsigned tab[256];
+    if (M == 5)
+    {
+        tab[threadIdx.x] = threadIdx.x * 0x10001u;
+    }
+    auto load = [&](int s, int kb) {
+        for (int i = 0; i < 1; i++)
+        {
+            int idx = threadIdx.x, r = idx / 2, c = idx % 2;
+            int n = blockIdx.x * 64 + (r >> 4) * 8 + (r & 7);
+            const unsigned char* half = ((r >> 3) & 1) ? b1 : b0;
+            const void* src = half + (size_t)(n >> 4) * 16 * ROW_BYTES + (size_t)(n & 15) * (K / 2) + kb * 32 + c * 16;
+            unsigned st = (unsigned)__cvta_generic_to_shared(rsm + s * 8448);
+            if ((M == 3 || M >= 4) && aLive)
+            {
+                asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(st + 4096 + ar * 128 + ((ac ^ (ar & 7)) << 4)), "l"(aSrc + kb * 128));
+            }
+            unsigned cb = idx & 1, cr = idx >> 1;
+            unsigned cd = (F & 1) ? (cb * 128 + cr) * 16 : (F & 8) ? (idx ^ 1) * 16 : (F & 16) ? ((cr >> 2) * 8 + cb * 4 + (cr & 3)) * 16
+                        : (F & 32) ? ((cr >> 3) * 16 + cb * 8 + (cr & 7)) * 16 : idx * 16;
+            asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;\n" :: "r"(st + ((F & 4) ? 4096u : 0u) + cd), "l"(src));
+            if ((M == 2 || M >= 4) && sLive)
+            {
+                asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;\n" :: "r"(st + 8192 + threadIdx.x * 16), "l"(sSrc + kb * 32));
+            }
+        }
+    };
+    for (int s = 0; s < 3; s++) { load(s, s); asm volatile("cp.async.commit_group;\n" ::); }
+    unsigned acc = 0;
+    for (int kb = 0; kb < nk; kb++)
+    {
+        asm volatile("cp.async.wait_group 1;\n" ::);
+        __syncthreads();
+        acc ^= *(unsigned*)(rsm + (kb % 4) * 8448 + threadIdx.x * 4) + (M == 5 ? tab[acc & 255] : 0u);
+        if (!(F & 2))
+        {
+            __syncthreads();
+        }
+        int nx = kb + 3;
+        if (nx < nk) { load(nx % 4, nx); }
+        asm volatile("cp.async.commit_group;\n" ::);
+    }
+    if (acc == 0x12345678) { p.y[0] = (float)acc; }
+}
+#endif
+
 static unsigned hash(unsigned x)
 {
     x *= 2654435761u; x ^= x >> 13; x *= 0x5bd1e995u; x ^= x >> 15; return x;
@@ -293,6 +370,21 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
         if (getenv("ENERGY") && nv.open())
         {
             double seconds = atof(getenv("ENERGY"));
+            const int rdMode = getenv("RD") ? atoi(getenv("RD")) : 0;
+#if DUAL
+            cudaFuncSetAttribute(rd_h<1>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<2>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<3>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<4>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<5>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 1>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 2>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 4>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 7>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 8>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 16>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 32>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+#endif
             auto launchAll = [&]() {
                 for (size_t l = 0; l < all.size(); l++)
                 {
@@ -308,6 +400,27 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
                     p.moe_bias = dbias;
 #endif
                     dim3 grid((N + NM_BOUT - 1) / NM_BOUT, std::max(1u, all[l][0]));
+#if DUAL
+                    if (rdMode)
+                    {
+                        switch (rdMode)
+                        {
+                        case 2: rd_h<2><<<grid, 256, smemBytes>>>(p); break;
+                        case 3: rd_h<3><<<grid, 256, smemBytes>>>(p); break;
+                        case 4: rd_h<4><<<grid, 256, smemBytes>>>(p); break;
+                        case 5: rd_h<5><<<grid, 256, smemBytes>>>(p); break;
+                        case 11: rd_h<1, 1><<<grid, 256, smemBytes>>>(p); break;
+                        case 12: rd_h<1, 2><<<grid, 256, smemBytes>>>(p); break;
+                        case 14: rd_h<1, 4><<<grid, 256, smemBytes>>>(p); break;
+                        case 17: rd_h<1, 7><<<grid, 256, smemBytes>>>(p); break;
+                        case 18: rd_h<1, 8><<<grid, 256, smemBytes>>>(p); break;
+                        case 116: rd_h<1, 16><<<grid, 256, smemBytes>>>(p); break;
+                        case 132: rd_h<1, 32><<<grid, 256, smemBytes>>>(p); break;
+                        default: rd_h<1><<<grid, 256, smemBytes>>>(p); break;
+                        }
+                        continue;
+                    }
+#endif
                     gemm_moe_native<<<grid, NM_THREADS, smemBytes>>>(p);
                 }
             };

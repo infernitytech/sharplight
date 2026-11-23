@@ -68,7 +68,10 @@
 #define NM_BOUT NM_BN
 #define NM_MATS 1
 #endif
-// Stage: [NM_BM rows of 128 bytes][2 blocks][NM_BN rows of 16 code bytes][2 blocks][NM_MATS][NM_BOUT / 16 groups of 16 scales]
+// Stage: [NM_BM rows of 128 bytes][NM_BN rows][2 blocks of 16 code bytes][NM_MATS][NM_BOUT / 16 groups][2 blocks of 16 scales].
+// Each weight row's (and scale row's) two 16-byte copies of a K step read one 32-byte sector, and they land side by side in shared
+// memory (nm_cpos). Where they landed 2 KB apart ([block][row]), the same copies ran with the clock held at ~1.7 GHz under the
+// software power cap at 130-150 W and ~20 % slower (RTX PRO 4500, section 97 of docs/benchmarks.md).
 #define NM_A_BYTES (NM_BM * 128)
 #define NM_C_BYTES (2 * NM_BN * 16)
 #define NM_S_BYTES (2 * NM_MATS * (NM_BOUT / 16) * 16)
@@ -207,6 +210,14 @@ static __device__ __forceinline__ nm_u32 nm_swz(nm_u32 r, nm_u32 c)
     return r * 128u + ((c ^ (r & 7u)) << 4);
 }
 
+// Byte offset of block b's 16 code bytes of weight row r in a stage's code part: the row's two blocks side by side (one global
+// sector, one 32-byte run of shared memory), swapped in rows with bit 2 set so that the 16-byte loads of 8 consecutive rows' block b
+// (decodeUnit) cover all banks.
+static __device__ __forceinline__ nm_u32 nm_cpos(nm_u32 r, nm_u32 b)
+{
+    return (r * 2u + (b ^ ((r >> 2) & 1u))) * 16u;
+}
+
 // The MMAs of the first F row fragments of a warp (rows r0 ..) for 32-value block b of a stage at sa, with the block's decoded B
 // fragments of the warp's columns; dec(j) (the decode of unit j of the next block) is issued between them, so its shared-memory
 // latency and arithmetic fill the tensor pipe's gaps instead of stalling both warps of a scheduler at once.
@@ -285,7 +296,7 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
     const nm_u32 nk = K / 64;
 
     // Copies per thread and K step: activations (NM_BM rows x 8 chunks; rows past the tile are not copied: their products are
-    // never stored), codes (NM_BN rows x 2 blocks, stored [block][row]) and scales (per block and matrix, the 16-byte scale rows
+    // never stored), codes (NM_BN rows x 2 blocks, stored [row][block] by nm_cpos) and scales (per block and matrix, the 16-byte scale rows
     // of the tile's 16-row groups). Source addresses advance by a constant per K step.
 #define NM_A_PER ((NM_BM * 8 + NM_THREADS - 1) / NM_THREADS)
 #define NM_C_PER ((NM_BN * 2 + NM_THREADS - 1) / NM_THREADS)
@@ -321,7 +332,8 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
     const bool sLive = tid < 2 * NM_MATS * (NM_BOUT / 16);
     const unsigned char* sSrc;
     {
-        nm_u32 q = tid % (NM_BOUT / 16), m = tid / (NM_BOUT / 16) % NM_MATS, b = tid / (NM_BOUT / 16) / NM_MATS % 2;
+        // Thread pairs take the two blocks of one scale row (one sector), stored side by side: [matrix][group][block].
+        nm_u32 b = tid & 1u, q = (tid >> 1) % (NM_BOUT / 16), m = (tid >> 1) / (NM_BOUT / 16) % NM_MATS;
 #if DUAL
         const unsigned char* mat = m ? wb2 : wb;
 #else
@@ -347,7 +359,7 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
             if ((NM_BN * 2) % NM_THREADS == 0 || tid + i * NM_THREADS < NM_BN * 2)
             {
                 nm_u32 idx = tid + i * NM_THREADS;
-                nm_cp16w(base + NM_A_BYTES + ((idx & 1) * NM_BN + (idx >> 1)) * 16, cSrc[i] + kb * 32);
+                nm_cp16w(base + NM_A_BYTES + nm_cpos(idx >> 1, idx & 1), cSrc[i] + kb * 32);
             }
         }
         if (sLive)
@@ -395,14 +407,14 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
     auto decodeUnit = [&](nm_u32 s, nm_u32 b, int j, nm_u32 (&bf)[NM_FN][4]) {
         const nm_u32 sc = smem0 + s * NM_STAGE_BYTES + NM_A_BYTES, ss = sc + NM_C_BYTES;
         nm_u32 row = wn * NM_TN + j * 8 + g;
-        uint4 raw = nm_lds128(sc + (b * NM_BN + row) * 16);
+        uint4 raw = nm_lds128(sc + nm_cpos(row, b));
         nm_u32 u = nm_prmt(upper ? raw.y : raw.x, upper ? raw.w : raw.z, sel);
 #if DUAL
         nm_u32 f = row >> 3, m = f & 1, orow = (f >> 1) * 8 + g;
 #else
         nm_u32 m = 0, orow = row;
 #endif
-        nm_u32 e8 = nm_lds8(ss + ((b * NM_MATS + m) * (NM_BOUT / 16) + orow / 16) * 16 + orow % 16);
+        nm_u32 e8 = nm_lds8(ss + ((m * (NM_BOUT / 16) + orow / 16) * 2 + b) * 16 + orow % 16);
         nm_u32 s1, s2;
 #if NM_TABLE
         nm_halves(sScale[e8], s1, s2);

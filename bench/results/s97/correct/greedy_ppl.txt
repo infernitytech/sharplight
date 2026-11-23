@@ -1,0 +1,12 @@
+[hold 13:41:04] ./corr1.sh
+0 %, 2 MiB, 32.00 W
+gpt-oss-20b cuda p40 base rc=0 e733f049
+gpt-oss-20b cuda p1000 base rc=0 8cb648ed
+gpt-oss-20b cuda p40 new rc=0 e733f049
+gpt-oss-20b cuda p1000 new rc=0 8cb648ed
+ppl gptoss base 1 rc=0 55ff87d4 PPL 1806.6235
+ppl gptoss new 1 rc=0 55ff87d4 PPL 1806.6235
+ppl gptoss new 2 rc=0 55ff87d4 PPL 1806.6235
+./corr1.sh: line 7: 1423918 Aborted                 (core dumped) XDG_CACHE_HOME=$WORK/cache_bb_$v $T/bench/BatchBench/bin/Release/net11.0/BatchBench $MOSS --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 64 --modes greedy --reps 20 --text --profile --profile-top 15 > $OUT/steps/profile64_$v.txt 2>&1
+./corr1.sh: line 7: 1424266 Aborted                 (core dumped) XDG_CACHE_HOME=$WORK/cache_bb_$v $T/bench/BatchBench/bin/Release/net11.0/BatchBench $MOSS --provider cuda --slots 64 --ctx 640 --depth 256 --sizes 64 --modes greedy --reps 20 --text --profile --profile-top 15 > $OUT/steps/profile64_$v.txt 2>&1
+[release 13:45:41]

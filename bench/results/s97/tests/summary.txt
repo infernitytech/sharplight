@@ -1,0 +1,5 @@
+[hold 14:20:39] ./tests.sh
+0 %, 2 MiB, 134.75 W
+Cuda.Tests: Total: 73, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 39.717s 
+Serving.Tests: Total: 401, Errors: 0, Failed: 0, Skipped: 13, Not Run: 0, Time: 81.957s 
+[release 14:22:44]

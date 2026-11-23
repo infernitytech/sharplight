@@ -1,0 +1,2 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 99 %, 15696 MiB, 199.99 W, 2032 MHz, 13365 MHz, 66, P1
+1462363, <base checkout>/samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15664 MiB
