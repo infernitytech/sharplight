@@ -97,7 +97,8 @@ static __device__ __forceinline__ float nm_epi_bias(float a, float b)
 // RD=2: also the tile's scale rows (gemm_moe_native's scale copies), RD=3: also the activation rows (its activation copies),
 // RD=4: both, RD=5: both and the E8M0 table of the prologue. The ring's stage stride is gemm_moe_native's stage size.
 // F (bits): 1 the codes stored [block][row] in the stage as gemm_moe_native does (else row-major), 2 one barrier per step (the
-// wait's), 4 the codes at offset 4096 of the stage (after the activations).
+// wait's), 4 the codes at offset 4096 of the stage (after the activations), 8 row-major with each row's two halves swapped, 16 the
+// halves 64 bytes apart in one 128-byte line ([r / 4][block][r % 4]), 32 the halves 128 bytes apart ([r / 8][block][r % 8]).
 template <int M, int F = 0>
 __global__ void __launch_bounds__(256, 2) rd_h(NmParams p)
 {
@@ -137,7 +138,9 @@ __global__ void __launch_bounds__(256, 2) rd_h(NmParams p)
             {
                 asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(st + 4096 + ar * 128 + ((ac ^ (ar & 7)) << 4)), "l"(aSrc + kb * 128));
             }
-            unsigned cd = (F & 1) ? ((idx & 1) * 128 + (idx >> 1)) * 16 : idx * 16;
+            unsigned cb = idx & 1, cr = idx >> 1;
+            unsigned cd = (F & 1) ? (cb * 128 + cr) * 16 : (F & 8) ? (idx ^ 1) * 16 : (F & 16) ? ((cr >> 2) * 8 + cb * 4 + (cr & 3)) * 16
+                        : (F & 32) ? ((cr >> 3) * 16 + cb * 8 + (cr & 7)) * 16 : idx * 16;
             asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;\n" :: "r"(st + ((F & 4) ? 4096u : 0u) + cd), "l"(src));
             if ((M == 2 || M >= 4) && sLive)
             {
@@ -378,6 +381,9 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
             cudaFuncSetAttribute(rd_h<1, 2>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
             cudaFuncSetAttribute(rd_h<1, 4>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
             cudaFuncSetAttribute(rd_h<1, 7>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 8>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 16>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
+            cudaFuncSetAttribute(rd_h<1, 32>, cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smemBytes);
 #endif
             auto launchAll = [&]() {
                 for (size_t l = 0; l < all.size(); l++)
@@ -407,6 +413,9 @@ static int routes(const char* file, const unsigned char* dx, const unsigned char
                         case 12: rd_h<1, 2><<<grid, 256, smemBytes>>>(p); break;
                         case 14: rd_h<1, 4><<<grid, 256, smemBytes>>>(p); break;
                         case 17: rd_h<1, 7><<<grid, 256, smemBytes>>>(p); break;
+                        case 18: rd_h<1, 8><<<grid, 256, smemBytes>>>(p); break;
+                        case 116: rd_h<1, 16><<<grid, 256, smemBytes>>>(p); break;
+                        case 132: rd_h<1, 32><<<grid, 256, smemBytes>>>(p); break;
                         default: rd_h<1><<<grid, 256, smemBytes>>>(p); break;
                         }
                         continue;

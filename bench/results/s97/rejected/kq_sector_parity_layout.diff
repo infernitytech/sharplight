@@ -1,0 +1,73 @@
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_kq_native.cu b/src/Sharplight.Shaders/Kernels/gemm_kq_native.cu
+index 8726f060..e85805fa 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_kq_native.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_kq_native.cu
+@@ -83,8 +83,13 @@
+ #else
+ #define KQ_WCH ((KQ_BB + 14 + 15) / 16)
+ #endif
++// KQ_WS: 16-byte chunks per weight row in a stage, the window plus one, odd. A row's window starts at chunk kq_wpos (0 or 1), so
++// each chunk keeps the 32-byte parity of its source: the two 16-byte copies of one 32-byte global sector land in one 32-byte
++// granule of shared memory. Copies whose halves landed in different granules held the clock down under the software power cap
++// (RTX PRO 4500, docs/benchmarks.md section 97). The odd stride keeps the loads of 8 consecutive rows on distinct banks.
++#define KQ_WS ((KQ_WCH + 1) | 1)
+ #define KQ_XBYTES (KQ_BM * 512)
+-#define KQ_WBYTES (KQ_BN * KQ_WCH * 16)
++#define KQ_WBYTES (KQ_BN * KQ_WS * 16)
+ #define KQ_STAGE_BYTES (KQ_XBYTES + KQ_WBYTES)
+ // KQ_WST > KQ_STAGES: the weight blocks in a ring of their own, KQ_WST - 1 superblocks ahead (the activations KQ_STAGES - 1 ahead);
+ // dynamic shared memory KQ_STAGES * KQ_XBYTES + KQ_WST * KQ_WBYTES.
+@@ -152,6 +157,13 @@ struct KqParams
+     kq_u32 T;
+ };
+ 
++// First chunk of weight row r's window in a stage (KQ_WS): 0 or 1, so that chunk r KQ_WS + kq_wpos + c has the 32-byte parity of the
++// window's source chunk c (the 16-byte aligned start of block).
++static __device__ __forceinline__ kq_u32 kq_wpos(kq_u32 r, const unsigned char* block)
++{
++    return ((kq_u32)((kq_u64)block >> 4) ^ (r * KQ_WS)) & 1u;
++}
++
+ static __device__ __forceinline__ void kq_cp16(kq_u32 dst, const void* src, kq_u32 bytes)
+ {
+     asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;\n" :: "r"(dst), "l"(src), "r"(bytes));
+@@ -336,7 +348,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS, KQ_MIN_BLOCKS) gemm_kq_
+             const unsigned char* block = kq_row(p, m, n0, r, wend) + (kq_u64)sb * KQ_BB;
+             const unsigned char* src = (const unsigned char*)((kq_u64)block & ~15ull) + c * 16;
+             long long left = wend - src;
+-            kq_cp16(wbase + (r * KQ_WCH + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
++            kq_cp16(wbase + (r * KQ_WS + kq_wpos(r, block) + c) * 16, left > 0 ? src : m.w, left >= 16 ? 16u : left > 0 ? (kq_u32)left : 0u);
+         }
+ #if KQ_PF > 0
+         if (tid < KQ_BN && sb + KQ_PF < sb1)
+@@ -449,7 +461,7 @@ extern "C" __global__ void __launch_bounds__(KQ_THREADS, KQ_MIN_BLOCKS) gemm_kq_
+             kq_u32 r = wn * 8 * KQ_FN + j * 8 + g;
+             const unsigned char* wend;
+             const unsigned char* block = kq_row(p, m, n0, r, wend) + (kq_u64)(sb0 + step) * KQ_BB;
+-            blk[j] = wstage + r * KQ_WCH * 16 + ((kq_u64)block & 15ull);
++            blk[j] = wstage + (r * KQ_WS + kq_wpos(r, block)) * 16 + ((kq_u64)block & 15ull);
+         }
+ 
+         // The A fragments of chunk q (16 values of the superblock) and the products with the B fragments b[j][0..1].
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.KQuantGemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.KQuantGemm.cs
+index a4e4961d..f07ad1e5 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.KQuantGemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.KQuantGemm.cs
+@@ -29,13 +29,15 @@ public sealed partial class GraphLowerer
+ 
+     /// <summary>
+     /// Dynamic shared memory of one stage of <c>gemm_kq_native.cu</c>: <paramref name="tileRows"/> activation rows of 256 f16 values and
+-    /// the 16-byte windows of 64 weight rows' blocks (the block itself when every block starts 16-byte aligned, else 14 bytes more).
++    /// the 16-byte windows of 64 weight rows' blocks (the block itself when every block starts 16-byte aligned, else 14 bytes more), each
++    /// row padded to an odd chunk count with room to start its window at its source's 32-byte parity (<c>KQ_WS</c>).
+     /// </summary>
+     private static int NativeKQuantStageBytes(int tileRows, int blockBytes, long k)
+     {
+         bool aligned = blockBytes % 16 == 0 && k / 256 * blockBytes % 16 == 0;
+         int chunks = aligned ? blockBytes / 16 : (blockBytes + 14 + 15) / 16;
+-        return tileRows * 512 + NativeKQuantColumns * chunks * 16;
++        int rowChunks = (chunks + 1) | 1;
++        return tileRows * 512 + NativeKQuantColumns * rowChunks * 16;
+     }
+ 
+     /// <summary>
