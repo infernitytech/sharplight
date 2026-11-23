@@ -1,0 +1,20 @@
+gptoss_strace_1/serve_sharplight_gptoss.server.log: steps 588, with prompt rows 38 (6.5%), time 6292 ms, in prompt steps 1356 ms
+  prompt rows hist (128 buckets): [(0, 1), (128, 6), (256, 4), (384, 27)]
+  prompts per prompt step: [(1, 7), (2, 19), (3, 8), (4, 4)]
+  steps <=32 rows past a 128 tile: 7, mean ms 28.2
+  decode-only step ms median 8.89, mean rows 14.5
+qwen_strace_1/serve_sharplight_qwen.server.log: steps 588, with prompt rows 38 (6.5%), time 8200 ms, in prompt steps 1298 ms
+  prompt rows hist (128 buckets): [(0, 1), (128, 6), (256, 4), (384, 27)]
+  prompts per prompt step: [(1, 7), (2, 19), (3, 8), (4, 4)]
+  steps <=32 rows past a 128 tile: 7, mean ms 28.6
+  decode-only step ms median 12.46, mean rows 14.5
+qwen_vtrace_2/steps.1910329: steps 584, with prompt rows 12 (2.1%), time 8166 ms, in prompt steps 626 ms
+  prompt rows hist (128 buckets): [(128, 4), (1664, 4), (1920, 4)]
+  prompts per prompt step: [(1, 4), (7, 4), (8, 3), (9, 1)]
+  steps <=32 rows past a 128 tile: 0, mean ms 0.0
+  decode-only step ms median 12.40, mean rows 14.6
+gptoss_vtrace_2/steps.1906854: steps 588, with prompt rows 14 (2.4%), time 6507 ms, in prompt steps 633 ms
+  prompt rows hist (128 buckets): [(128, 5), (384, 1), (1152, 1), (1408, 1), (1664, 2), (1920, 4)]
+  prompts per prompt step: [(1, 5), (2, 1), (5, 1), (6, 1), (7, 2), (8, 1), (9, 3)]
+  steps <=32 rows past a 128 tile: 0, mean ms 0.0
+  decode-only step ms median 9.29, mean rows 14.5

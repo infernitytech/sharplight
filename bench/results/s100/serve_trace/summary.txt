@@ -1,0 +1,4 @@
+gptoss_strace_1  c16  r1:    1392 tok/s  ttft p50     82  itl mean  10.54 p95   22.1 p99   39.5  err 0
+gptoss_vtrace_2  c16  r1:    1365 tok/s  ttft p50    179  itl mean  10.29 p95   15.7 p99   20.4  err 0
+qwen_strace_1    c16  r1:    1094 tok/s  ttft p50     78  itl mean  13.76 p95   24.4 p99   37.6  err 0
+qwen_vtrace_2    c16  r1:    1108 tok/s  ttft p50    162  itl mean  13.04 p95   14.5 p99   17.1  err 0

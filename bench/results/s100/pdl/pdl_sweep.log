@@ -1,0 +1,54 @@
+NA=108 B_SMEM=0: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.64 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=108 B_SMEM=256: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.64 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=108 B_SMEM=512: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.65 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=108 B_SMEM=1024: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.64 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=108 B_SMEM=1536: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.65 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=108 B_SMEM=2048: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 154.92 us; SMs holding k blocks of B (per launch): 1:1.1 2:0.3 3:1.5 4:1.3 5:0.3 6:0.5 no error 
+
+NA=108 B_SMEM=3072: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 155.67 us; SMs holding k blocks of B (per launch): 1:1.3 2:0.2 3:1.1 4:1.3 5:0.5 6:0.5 no error 
+
+NA=108 B_SMEM=4096: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 148.31 us; SMs holding k blocks of B (per launch): 1:1.7 2:0.5 3:1.4 4:1.4 5:0.2 6:0.4 no error 
+
+NA=108 B_SMEM=6144: NA=108 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 163.16 us; SMs holding k blocks of B (per launch): 1:1.0 2:0.2 3:1.0 4:1.3 5:0.5 6:0.7 no error 
+
+NA=180 B_SMEM=0: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.78 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=180 B_SMEM=256: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.78 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=180 B_SMEM=512: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.78 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=180 B_SMEM=1024: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.78 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=180 B_SMEM=1536: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.78 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=180 B_SMEM=2048: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 195.47 us; SMs holding k blocks of B (per launch): 1:4.7 2:0.1 3:0.3 4:0.3 5:0.3 6:1.2 no error 
+
+NA=180 B_SMEM=3072: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 200.83 us; SMs holding k blocks of B (per launch): 1:6.0 2:0.0 4:0.2 5:0.3 6:1.2 no error 
+
+NA=180 B_SMEM=4096: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 196.46 us; SMs holding k blocks of B (per launch): 1:5.6 2:0.0 3:0.2 4:0.4 5:0.3 6:1.1 no error 
+
+NA=180 B_SMEM=6144: NA=180 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 187.29 us; SMs holding k blocks of B (per launch): 1:5.6 2:0.1 3:0.1 4:0.3 5:0.3 6:1.2 no error 
+
+NA=328 B_SMEM=0: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.79 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=328 B_SMEM=256: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.79 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=328 B_SMEM=512: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.79 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=328 B_SMEM=1024: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.79 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=328 B_SMEM=1536: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 33.79 us; SMs holding k blocks of B (per launch): 1:16.0 no error 
+
+NA=328 B_SMEM=2048: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 197.44 us; SMs holding k blocks of B (per launch): 1:7.5 2:0.1 3:0.0 4:0.1 5:0.2 6:1.2 no error 
+
+NA=328 B_SMEM=3072: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 199.44 us; SMs holding k blocks of B (per launch): 1:6.3 2:0.4 3:0.1 4:0.2 5:0.0 6:1.3 no error 
+
+NA=328 B_SMEM=4096: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 146.79 us; SMs holding k blocks of B (per launch): 1:10.2 2:0.1 5:0.1 6:0.8 no error 
+
+NA=328 B_SMEM=6144: NA=328 NB=16 A_US=3.0 B_US=40.0 MODE=1: B span 200.77 us; SMs holding k blocks of B (per launch): 1:6.6 2:0.3 4:0.1 5:0.2 6:1.3 no error 
+
