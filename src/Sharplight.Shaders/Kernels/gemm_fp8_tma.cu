@@ -650,7 +650,10 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
             }
 
 #endif
-            // Stage s and scale slot it % 2 are read (the fragments and scales are in registers).
+            // Stage s and scale slot it % 2 are read (the fragments and scales are in registers). The reads are the generic proxy's
+            // and the producer's next copies into the stage write through the async proxy: without the proxy fence the release does
+            // not order them, and a copy can land before a late read of this warp (one 16-byte row of codes, benchmarks.md section 93).
+            asm volatile("fence.proxy.async.shared::cta;\n" ::: "memory");
             __syncwarp();
             if (lane == 0)
             {

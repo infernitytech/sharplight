@@ -1506,6 +1506,13 @@ public sealed class InferenceEngine : IDisposable
             return _budget;
         }
 
+        // Prototype wave policies (DiagnosticSwitches.StepFloorWaves): while some sequence decodes, the whole budget, or no floor.
+        bool decoding = DiagnosticSwitches.StepFloorWaves is not null && _active.Exists(s => !s.Prefilling && s.Replay is null);
+        if (decoding && DiagnosticSwitches.StepFloorWaves == "full")
+        {
+            return _budget;
+        }
+
         // The oldest prompt still prefilling may always take a whole step: a lone long prompt keeps the full budget, only prompts
         // that compete with each other are spread over smaller steps.
         long oldest = 0;
@@ -1534,7 +1541,7 @@ public sealed class InferenceEngine : IDisposable
         // Whole token tiles: a prompt-sized GEMM's time follows its count of token tiles, so a budget inside a tile is rounded up.
         long granule = Math.Max(1, _opt.BatchTokensGranule);
         rows = (rows + granule - 1) / granule * granule;
-        return (int)Math.Clamp(rows, _minBudget, _budget);
+        return (int)Math.Clamp(rows, decoding ? Math.Min(granule, _budget) : _minBudget, _budget);
     }
 
     private void StepOnce()

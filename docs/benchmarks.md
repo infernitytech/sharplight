@@ -14097,3 +14097,218 @@ QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8
 QUIET_GPU=1 ROUNDS=2 RATES="16:7 64:17" PER_OVERRIDE=8 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 QUIET_GPU=1 ROUNDS=2 RATES="16:7 64:17" PER_OVERRIDE=8 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --gpu-memory-utilization 0.6
 ```
+
+## 93. LLM round 35: the copy warpgroup's race root-caused (a missing proxy fence between the computing warps' reads of a stage and the next tensor copy into it), the copy warpgroup and the E4M3 store back by default, wave policies of the step budget prototyped (2026-11-23)
+
+Branch `perf/llm-r35` (`develop` at `eaecacbb`, §92 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap, driver 595.112 / CUDA 13.2), shared with other rounds; every run held the verify lock, `develop` (`perf-r35-base`
+worktree) and vLLM 0.33 (venv `vllm-r12`) ran in the same holds, alternated. Raw output in
+[`bench/results/s93/`](../bench/results/s93) (scripts in `scripts/`, the race harness in `harness/`).
+
+Kept: (1) `gemm_fp8_tma.cu`'s computing threads issue `fence.proxy.async.shared::cta` before their warp releases a stage (93.2);
+(2) the copy-warpgroup form is the default again (`SHARPLIGHT_FP8_WG=0` keeps the 9-warp form), and with it the gate / up pair's
+E4M3 store; (3) `register_reallocation` is reported only while NVRTC's machine code is on; (4) a regression test,
+`CudaCodeTests.NativeFp8MultiGemmRepeatsBitForBit`; (5) prototype step-budget policies behind `SHARPLIGHT_STEP_FLOOR_WAVES` (off).
+Greedy text, logits and five repeated PplBench runs per model are bit-identical to `develop` (93.5). Changes are keyed on the kernel
+and device features (every 128 x 128-block FP8 checkpoint on compute capability 12.x), not on models.
+
+### 93.1 Serving against vLLM
+
+`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds each; ours
+`--provider cuda`, vLLM `--gpu-memory-utilization 0.6` (`serve/`). **Closed loop**, one hold, order `develop`, r35, vLLM, r35,
+`develop` (tok/s per round, TTFT p50 and inter-token latency in ms):
+
+| model, streams | `develop` eaecacbb | `perf/llm-r35` | vLLM 0.33 | r35 / vLLM | `develop` / vLLM |
+|---|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1101 / 1104, 1099 / 1102 | 1099 / 1103, 1103 / 1106 | 1123 / 1116 | **0.986** (0.979-0.992) | 0.984 |
+| the same: TTFT p50 / ITL mean, p95, p99 | 108-110 / 13.58-13.60, 14.3-16.0, 53.4-53.8 | 104-108 / 13.56-13.59, 14.5-15.7, 52.4-52.7 | 157-167 / 12.87-12.93, 12.9-13.2, 14.6-15.7 | | |
+| Qwen3-8B-FP8, 64 | 2608 / 2600, 2599 / 2600 | 2637 / 2632, 2640 / 2637 | 2696 / 2692 | **0.979** (0.977-0.980) | 0.966 |
+| the same: TTFT p50 / ITL mean, p95, p99 | 268-273 / 21.42-21.45, 36-39, 136-140 | 260-263 / 21.20-21.25, 36-41, 130-133 | 401-412 / 20.09-20.21, 21-22, 132-133 | | |
+
+The copy warpgroup adds 1.3 % at 64 streams (0.966 → 0.979x vLLM: the 64-stream rounds carry mixed steps of prompt chunks and
+decode rows, 93.3) and leaves 16 streams where they were (0.984 → 0.986x, within the rounds' spread; TTFT p50 -3 %). Our TTFT p50
+stays 31-38 % (16) and 34-37 % (64) below vLLM's. **Open loop** (Poisson arrivals as §92.1: 7 / 17 requests per second at 16 / 64
+slots, 8 requests per slot, TTFT from the arrival; round 1 / round 2; output rate = arrival rate for every engine):
+
+| Qwen3-8B-FP8, slots | engine | TTFT p50 | TTFT p95 | ITL mean | ITL p95 | ITL p99 |
+|---|---|---:|---:|---:|---:|---:|
+| 16 | `develop` | 71.8 / 43.5 | 791 / 443 | 14.12 / 13.87 | 28.8 / 28.8 | 30.4 / 31.0 |
+| | `perf/llm-r35` | 61.1 / 42.9 | 769 / 428 | 14.08 / 13.84 | 28.5 / 28.5 | 29.8 / 30.5 |
+| | vLLM | 72.9 / 59.2 | 805 / 444 | 13.83 / 13.54 | 24.6 / 24.0 | 38.2 / 26.2 |
+| 64 | `develop` | 67.0 / 51.7 | 460 / 84 | 22.47 / 19.70 | 45.2 / 35.8 | 54.0 / 47.5 |
+| | `perf/llm-r35` | 62.7 / 52.8 | 401 / 84 | 22.12 / 19.57 | 44.3 / 36.0 | 61.3 / 48.8 |
+| | vLLM | 114.2 / 77.7 | 606 / 112 | 23.37 / 19.47 | 43.6 / 35.2 | 59.8 / 46.3 |
+
+Open loop the mean inter-token latency is within 2.2 % of vLLM's at 16 slots (+1.8 / +2.2 %) and equal or lower at 64 (-5.3 / +0.5 %),
+TTFT p50 is 16-45 % lower, and vLLM's one clear lead stays the 16-slot ITL p95 (24 against 28.5 ms, §92.4: the token-tile trim's
+case).
+### 93.2 The copy warpgroup's race: a missing proxy fence before a stage's release
+
+**Reproducer.** `bench/results/s93/harness/multi_det.cu` launches `gemm_fp8_tma.cu` with the shapes, macros and machine code of
+Qwen3.8-27B-FP8's q / gate launch (K 5,120, members of 10,240 and 6,144 rows, `XCAP` 512, `F8N_WG`, `F8N_WUNI`, 512 rows, 82 blocks)
+on fixed operands and compares every output of every launch bit for bit with an nvcc 13.2 build's (`harness/summary.txt`). The cubin
+the 27B run cached (NVRTC 13.0) gives different bits in 3-7 % of the launches, with or without programmatic dependent launches and
+with or without a memory-bound kernel between the launches, so neither the launch order nor a neighbouring kernel is needed: the
+isolated test of §92 missed it because its activation rows were all equal (`(i % 5 - 2) / 2` over K = 5,120) and its weights had per-row
+scales (no `F8N_WUNI`, whose shorter promotion is what tightens the timing: 0 of 299 launches differ with `F8N_WUNI=0`). The same PTX
+through ptxas 13.2 also races (2 of 149), the nvcc 13.2 build of the same source does not (0 of 396): the PTX's schedule, not the
+assembler, makes it likely. `bench/results/s93/scripts/nvrtc.py` reproduces the engine's PTX byte for byte, so source variants could be
+compiled with the engine's NVRTC and replayed.
+
+**What is wrong.** A bad launch has 32-256 wrong outputs, always whole rows of one warp's 32 columns, 5-30 % off: one warp's A
+fragment of one row (16 bytes of E4M3 codes) for one K block. Scales of 1.0 everywhere still race (not the scale ring), and so do
+activation codes that repeat every 128 values (not a stale K block of the same token tile): the warp read the stage after the
+producer's next tensor copy (a later token tile's rows) had landed in it. The protocol (full / empty barriers, parities, the scale ring
+reused once iteration m - 3 is released, `setmaxnreg` placement, the member selection) is right in the PTX and the SASS; what is
+missing is the cross-proxy order. The computing warps read a stage with `ldmatrix` / `ld.shared` (the generic proxy) and release it
+with `mbarrier.arrive` (release semantics, generic proxy); the producer's `cp.async.bulk.tensor` then writes it through the async proxy,
+and the PTX memory model orders generic-proxy accesses with later async-proxy accesses only through `fence.proxy.async`. Ordering the
+fragment loads before the arrive by data dependencies (every accumulator used by an empty `asm` before the arrive) does not help
+(13 of 299); `fence.proxy.async.shared::cta` before the release does (0 of 299, then 0 of 1,999 with the final source).
+
+**Fix (kept).** Each computing thread issues `fence.proxy.async.shared::cta` before the warp's release of a stage (one per K block).
+Cost on the harness, 1,000 launches back to back: copy warpgroup 0.3643-0.3647 → 0.3651-0.3653 ms (+0.2 %), 9-warp form
+0.3755-0.3763 → 0.3775-0.3779 (+0.5 %; that form never showed the race, 0 of 999, but has the same protocol and gets the fence too).
+With the fence the copy warpgroup is the default again (`SHARPLIGHT_FP8_WG=0` keeps the 9-warp form), and the device reports
+`register_reallocation` only while NVRTC's machine code is on: through the driver's JIT the form has no `setmaxnreg` and spills (§92.2),
+so `SHARPLIGHT_CUDA_NVRTC_SASS=0` now also means the 9-warp form. The dual gate / up pair's E4M3 store (`QOUT`, §89) comes back with it
+(it needs the copy warpgroup's registers outside the block-scaled mode).
+
+**Regression test.** `CudaCodeTests.NativeFp8MultiGemmRepeatsBitForBit`: the q / gate shapes with 128 x 128-block weights (`F8N_WUNI`)
+at 512 rows on random activations, 300 runs of one compiled step, every output bit-identical to the first run. Without the fence it
+failed (3 of 99 runs differed in the first version of the test); with it, it passes.
+### 93.3 Prompt steps: the copy warpgroup back (same hold, alternated)
+
+BatchBench steps, GPU ms min of 5, two rounds each (r1 / r2), `develop` (9-warp form), this branch (copy warpgroup with the fence,
+the E4M3 store of the gate / up pair) and this branch with `SHARPLIGHT_FP8_WG=0` (the 9-warp form with the fence)
+(`steps/steps.txt`, `steps/summary.txt`):
+
+| step | `develop` | `perf/llm-r35` | ratio | r35 9-warp (`WG=0`) | ratio |
+|---|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, 16 / 64 decode rows | 12.20 / 15.42, 12.19 / 15.39 | 12.20 / 15.43, 12.19 / 15.44 | 1.00 | 12.21 / 15.42 | 1.00 |
+| 750 prompt rows (3 prompts) | 51.94 / 52.31 | 51.37 / 51.56 | **0.989** | 52.50 / 52.78 | 1.011 |
+| 2,000 prompt rows (8 prompts) | 132.09 / 132.72 | 126.89 / 127.57 | **0.961** | 133.12 / 133.97 | 1.008 |
+| 15 decode + 250 prompt rows | 28.05 / 28.14 | 28.15 / 28.00 | 0.998 | 28.31 / 28.41 | 1.009 |
+| 13 + 750 | 53.43 / 53.85 | 52.59 / 52.78 | **0.984** | 53.92 / 54.38 | 1.009 |
+| 48 + 1,000 | 77.75 / 78.12 | 75.35 / 75.74 | **0.969** | 78.31 / 78.84 | 1.007 |
+| Qwen3.8-27B-FP8, 4 decode rows | 39.18 / 39.18 | 39.18 / 39.19 | 1.00 | 39.18 / 39.14 | 1.00 |
+| 500 prompt rows | 135.21 / 134.82 | 131.02 / 131.02 | **0.972** | 135.84 / 135.25 | 1.003 |
+| 1,000 prompt rows | 259.43 / 259.22 | 250.96 / 251.87 | **0.968** | 260.44 / 259.88 | 1.003 |
+| 3 decode + 250 prompt rows | 75.67 / 75.66 | 73.93 / 74.10 | **0.977** | 75.62 / 75.88 | 1.00 |
+
+The copy warpgroup takes 1.1-3.9 % off Qwen3-8B-FP8's prompt-bearing steps and 2.3-3.2 % off Qwen3.8-27B-FP8's (both: every
+128 x 128-block FP8 checkpoint on compute capability 12.x), less than §92.3's 6.5-7 % estimate against the driver-compiled copy
+warpgroup (that baseline was 2-4 % slower than today's 9-warp `develop`). Part of it is the gate / up pair's E4M3 store (36 launches
+fewer per step on Qwen3-8B-FP8: 402 → 366 dispatches, the `quantize_fp8` launches of the down projection's input). Decode steps do not
+use the kernel. The fence costs the 9-warp form 0.3-1.1 %, which is why it is the copy warpgroup that carries the default.
+
+### 93.4 The step budget in prompt waves: two prototypes (not the default; the owner's call)
+
+§92.4 found the closed loop's 16-stream ITL p99 of ~53 ms to come from the 768-row floor: a wave of 13-16 prompts is prefilled in
+5-6 steps of ~55 ms, and the prompts admitted first decode through all of them. Two prototypes behind `SHARPLIGHT_STEP_FLOOR_WAVES`
+(`InferenceEngine.StepTokens`, diagnostics only, default off), both changing only the steps that carry prompt rows at 16 slots (at 64
+slots the adaptive budget is already the full 2,048 rows):
+
+* `=1` (**floor only in waves**): the 768-row floor applies only while no sequence decodes; while some sequence decodes the budget is
+  32 rows per slot rounded up to a token tile (512 rows at 16 slots), so the prompts a wave admitted first decode through steps of
+  ~40 instead of ~55 ms.
+* `=full` (**whole budget while decoding**): while some sequence decodes every step may take the whole budget (§92's
+  `--min-step-tokens 0` except for the very first step of a wave).
+
+Closed loop, same holds as 93.1 (`serve/closed_pol`, `serve/closed_g`), round 1 / round 2:
+
+| 16 streams | tok/s | TTFT p50 | ITL mean | ITL p95 | ITL p99 | ITL max |
+|---|---:|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8, r35 (default policy) | 1099 / 1103 | 107-108 | 13.59-13.61 | 14.4 | 53.1-53.2 | 57-62 |
+| floor only in waves (`=1`) | 1098 / 1103 | **75-78** | 13.69 | 20.4-25.7 | **38.1-38.3** | 42-51 |
+| whole budget while decoding (`=full`) | 1098 / 1102 | 160-173 | 13.09-13.10 | 13.9-14.0 | 15.0-16.9 | 130-131 |
+| `--min-step-tokens 0` | 1094 / 1103 | 159-179 | 13.08-13.12 | 13.9-14.0 | 14.7-17.8 | 130-138 |
+| vLLM | 1123 / 1116 | 157-167 | 12.87-12.93 | 12.9-13.2 | 14.6-15.7 | 109-110 |
+| gpt-oss-20b, `develop` (default policy) | 1395 / 1416 | 101-106 | 10.39-10.51 | 11.2-11.6 | 50.6-50.7 | 56-73 |
+| floor only in waves (`=1`) | 1373 / 1391 (-1.6 / -1.8 %) | **77-85** | 10.65-10.67 | 21.3-23.6 | **39.8-40.8** | 44-59 |
+| whole budget while decoding (`=full`) | **1414 / 1438** (+1.4 / +1.6 %) | 151-194 | 9.82-9.88 | 10.9-11.0 | 11.9-15.4 | 115-124 |
+| `--min-step-tokens 0` | 1417 / 1437 | 155-195 | 9.82-9.86 | 11.0-11.2 | 12.2-14.7 | 117-124 |
+| vLLM | 1413 / 1392 | 171-203 | 9.97-10.10 | 10.7-11.3 | 12.7-19.9 | 118-122 |
+
+At 64 streams the four policies are within the rounds' spread for Qwen3-8B-FP8 (2630-2647 tok/s); for gpt-oss-20b
+`--min-step-tokens 0` gives 3077 / 3082 against 3056 / 3068 (+0.5 %), `=full` 3056 / 3081 and `=1` 3056 / 3066.
+
+* `=full` is `--min-step-tokens 0` in the closed loop: a closed-loop wave always arrives while a few streams of the previous one still
+  decode, so the floor's only remaining step is the first. It buys vLLM's ITL p99 and gpt-oss-20b's +1.5 % for vLLM's TTFT.
+* `=1` is a third point: TTFT p50 -28 % (Qwen3-8B-FP8) / -22 % (gpt-oss-20b) against the default and about half of vLLM's, ITL p99
+  -28 % / -20 %, the mean +0.7 % / +2 %; free for Qwen3-8B-FP8's throughput, -1.7 % for gpt-oss-20b (its MoE prompt GEMMs read every
+  expert per step, so more, smaller steps read more weights: the same effect §92.4 measured in the other direction).
+* Open loop (`serve/poisson`, `serve/poisson_g`): every policy is within the rounds' spread of the default for both models (Qwen3-8B-FP8
+  at 16 slots: TTFT p50 58.7-68.3 / 42.0-44.1 ms, ITL mean 14.06-14.10 / 13.82-13.84, p95 28.5 for all four; gpt-oss-20b at 16 slots:
+  TTFT p50 69-82 / 38-40, ITL mean 10.93-10.97 / 10.51-10.61, p95 26.2-26.5): staggered arrivals rarely form waves.
+
+Not changed. The trade is TTFT against ITL p99 (and for MoE models ~1.5 % of closed-loop throughput either way): `=1` is the best
+latency point for both on the closed-loop benchmark, `=full` / `--min-step-tokens 0` the best throughput point for MoE models and the
+one that matches vLLM's tail; the default sits in between. The owner decides; promoting either needs only a `HostedModelDefaults`
+/ `EngineOptions` property in place of the switch.
+
+### 93.5 Correctness
+
+* Greedy text (120 tokens, the ~40-word and the 963-token prompt, CUDA; `correct/`): byte-identical to `develop` for Qwen3-8B-FP8 and
+  Qwen3.8-27B-FP8 (the 27B's 963-token text, which diverged after ~110 tokens with §92's racy copy warpgroup, is `develop`'s
+  `8bf70d24`). The last-token logits of a ~2,900-token Qwen3-8B-FP8 prompt are bit-identical.
+* `PplBench` (wikitext-2 test, §86's method), five runs of this branch against one of `develop`, f16 logits dumps of every prompt row:
+  Qwen3-8B-FP8 (12,288 tokens, 1,024-row steps, PPL 8.6693), Qwen3.8-27B-FP8 (6,144 tokens, 512-row steps, PPL 6.6574) and
+  Qwen3.8-27B-FP8 at §92.3's setting (2,048 tokens, 512-row steps, PPL 5.8506): all fifteen dumps byte-identical to `develop`'s
+  (`correct/correct.txt`). Before the fix the last setting gave PPL 5.8441-5.8687 from run to run (`correct/repro_ppl_27b.txt`:
+  two runs with the copy warpgroup, three with `SHARPLIGHT_CUDA_PDL_TRIGGER=0`, all different).
+* gpt-oss-20b has no FP8 TMA GEMM; its kernels are `develop`'s (the serving rows of 93.4 differ only in the step policy).
+
+### 93.6 Tests
+
+GPU 0, in a hold (`tests/summary.txt`): `Sharplight.Cuda.Tests` 71 / 0 failed (1 skipped: cuBLASLt not installed), with the new
+`NativeFp8MultiGemmRepeatsBitForBit`; `Sharplight.Serving.Tests` 397 / 0 failed (13 skipped); `Sharplight.Vulkan.Tests` one process
+per class for the FP8, GEMM, MoE, fusion, norm, RoPE, row-invariance and attention classes on both providers
+(`SHARPLIGHT_TEST_PROVIDER=cuda|vulkan`, 32 processes) 1,412 / 0 failed (2 skipped on Vulkan: block-scaled FP8). The new test failed
+with the fence removed (93.2).
+
+### 93.7 Not reached
+
+gpt-oss-20b's decode expert GEMMs against Marlin per byte (plan item 3): not started; the round went into the race (its reproducer
+and the fence), the copy warpgroup's measurements and the wave policies. §73.2's numbers stand: Marlin ~10 % more efficient per weight
+byte on the same routing, ours held ~300 MHz lower by the power limiter.
+
+### 93.8 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams, closed loop | 0.986 / 0.979 | 16: the waves' step policy (TTFT against tail, 93.4) and the FP8 prompt GEMMs; 64: mixed steps |
+| gpt-oss-20b serving 16 / 64, closed loop | 0.99-1.02 / 0.98-0.99 (1.00-1.03 / 0.99 with `=full` or `--min-step-tokens 0`) | 64: decode steps (expert GEMMs) |
+| open loop (Poisson, ~85 % load), Qwen3-8B-FP8 | ITL mean +2 % (16) / -5 to +0.5 % (64), TTFT p50 16-45 % lower | Qwen3-8B-FP8's ITL p95 at 16 slots |
+
+Ranked levers:
+
+1. **The wave policy** (owner, 93.4): `=1` brings the closed-loop TTFT p50 to about half of vLLM's and cuts our ITL p99 by 28 % at no cost for dense
+   FP8 models (-1.7 % for MoE); `=full` buys vLLM's tail and +1.5 % on MoE. A combined rule (floor only in waves for dense models'
+   costs, whole budget where the step's weight reads dominate, i.e. a step cost that knows the MoE weight reads per step) would take
+   both; it needs the step cost model of lever 3.
+2. **The FP8 prompt GEMM's remaining gap to CUTLASS** (§91.3: 8-13 % on identical operands from the instruction order, which no
+   ptxas version or option reproduced; §92.2): now that the model runs the copy-warpgroup form that §91's harness measured, its gap
+   is the one the model sees, and the 64-stream mixed steps are where it shows (0.979x).
+3. **A tile- and weight-aware step cost** for the token-tile trim (§92.4) and lever 1: the trim's open-loop ITL p95 gain (-25 % at 16
+   slots, below vLLM's) without gpt-oss-20b's TTFT cost.
+4. **gpt-oss-20b decode expert GEMMs** at 17-64 rows against Marlin per byte (§73, not reached again).
+5. **NVRTC machine code for `quantize_fp8` / `decode_combine`** (8-10 % faster from ptxas 13.0, §92.7; small in total).
+
+### 93.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# the race harness: the engine's NVRTC (libnvrtc of Sharplight.Cuda.Runtime on LD_LIBRARY_PATH) for the cubin, nvcc 13.2 for the reference
+D="-DK=5120 -DN=16384 -DMULTI=2 -DMULTI_O1=10240 -DMULTI_O2=16384 -DY_STRIDE=10240 -DXCAP=512 -DDUAL=0 -DF8N_WUNI=1 -DF8N_WG=1"
+python3 -I bench/results/s93/scripts/nvrtc.py kernel_with_pdl_prologue.cu k.cubin $D -DSL_FAMILY_ARCH=1
+nvcc -O3 -gencode arch=compute_120f,code=sm_120f -std=c++17 $D -DKFILE='"src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu"' \
+  bench/results/s93/harness/multi_det.cu -o det -lcuda
+CUBIN=k.cubin REPS=300 [XS1=1] [WS1=1] [XREP=1] [PDL=1] [NOISE=1] [TIME=1] ./det
+dotnet run --project tests/Sharplight.Cuda.Tests -c Release -- -method "*NativeFp8MultiGemmRepeatsBitForBit"
+[SHARPLIGHT_FP8_WG=0] BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --batch 2048 --modes greedy \
+  --reps 5 --mixed "16+0,64+0,0+250x3,0+250x8,15+250x1,13+250x3,48+250x4"
+PplBench ~/models/hf/Qwen3.8-27B-FP8 --provider cuda --text wikitext2_test.txt --seq 1024 --chunk 512 --tokens 2048 --dump a.f16   # x5: cmp
+[SHARPLIGHT_STEP_FLOOR_WAVES=1|full] QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 RATES="16:7 64:17" PER_OVERRIDE=8 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+```

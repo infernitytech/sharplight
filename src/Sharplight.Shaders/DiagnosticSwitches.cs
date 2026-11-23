@@ -300,14 +300,13 @@ internal static class DiagnosticSwitches
     public static bool NativeFp8Tma { get; } = IsNotZero("SHARPLIGHT_FP8_TMA");
 
     /// <summary>
-    /// <c>SHARPLIGHT_FP8_WG=1</c> runs <c>gemm_fp8_tma.cu</c> with a copy warpgroup that hands its registers to the computing warps
-    /// (<c>F8N_WG</c>) where the device has <c>register_reallocation</c>; default: the 9-warp form (one copy warp, 168 registers per
-    /// computing thread). Off by default since benchmarks.md section 92: the CUDA 13.2 driver's PTX compiler drops <c>setmaxnreg</c>
-    /// (its cubins target <c>sm_120</c>, not <c>sm_120f</c>), so the form ran as 12 warps of 168 registers and spilled, no faster than
-    /// the 9-warp form; with the machine code from NVRTC (<c>SL_NVRTC_SASS</c>) the reallocation is real, and the multi-output launch
-    /// of two members then gives results that change from run to run (Qwen3.8-27B-FP8's q / gate projection), which needs fixing first.
+    /// <c>SHARPLIGHT_FP8_WG=0</c> runs <c>gemm_fp8_tma.cu</c> in its 9-warp form (one copy warp, 168 registers per computing thread)
+    /// instead of the copy warpgroup that hands its registers to the computing warps (<c>F8N_WG</c>, the default where the device has
+    /// <c>register_reallocation</c>). Off by default in benchmarks.md section 92, when the copy warpgroup's multi-output launch changed
+    /// from run to run with NVRTC's machine code; the cause was the missing proxy fence between the computing warps' reads of a stage
+    /// and the next tensor copy into it (section 93).
     /// </summary>
-    public static bool Fp8CopyWarpgroup { get; } = IsSet("SHARPLIGHT_FP8_WG");
+    public static bool Fp8CopyWarpgroup { get; } = IsNotZero("SHARPLIGHT_FP8_WG");
 
     /// <summary>
     /// <c>SHARPLIGHT_FP8_UNIFORM_SCALES=0</c>: <c>gemm_fp8_tma.cu</c> promotes every K block with per-row weight scales even for weights

@@ -130,8 +130,12 @@ internal sealed class CudaDeviceProperties
         if (ComputeCapability / 10 == 12 && DriverVersion >= 12090)
         {
             features.Add(DeviceFeatures.BlockScaledFp8);
-            // setmaxnreg (gemm_fp8_tma.cu, F8N_WG) is in the same family-specific PTX.
-            features.Add(DeviceFeatures.RegisterReallocation);
+            // setmaxnreg (gemm_fp8_tma.cu, F8N_WG) is in the same family-specific PTX. The driver's compilation of that PTX drops it
+            // (benchmarks.md section 92), so the copy warpgroup only pays with NVRTC's machine code (NvrtcTranslator.CompilesSass).
+            if (DiagnosticSwitches.NvrtcSass != "0")
+            {
+                features.Add(DeviceFeatures.RegisterReallocation);
+            }
         }
 
         return features;

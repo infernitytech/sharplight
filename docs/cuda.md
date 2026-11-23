@@ -308,12 +308,14 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   scales (`E4M3_UE8M0` in e4m3.slang) and weights requantized to power-of-two scales at load (`WeightRepack.Fp8B128GroupedUe8m0`),
   accumulating all of K in the tensor cores (gate / up 1,612 → 1,463 µs per layer at 2,048 rows; a numerics change).
   Three more forms, all bit for bit the default path's results ([benchmarks.md §89](benchmarks.md)): `F8N_WG`
-  (`register_reallocation`, compiled for `compute_120f`; opt-in with `SHARPLIGHT_FP8_WG=1` since [§92](benchmarks.md), the
-  default is the 9-warp form) makes the copy warp a whole warpgroup that gives its registers to the computing warps (`setmaxnreg`: 40
+  (`register_reallocation`, compiled for `compute_120f`; the default, `SHARPLIGHT_FP8_WG=0` keeps the 9-warp form) makes the copy warp a whole warpgroup that gives its registers to the computing warps (`setmaxnreg`: 40
   for the copy warps, 232 instead of 168 for the computing ones), which leaves room for `QOUT` with the f32 scales too, so the dual
   gate / up pair stores the down projection's E4M3 rows. The CUDA 13.2 driver's PTX compiler drops `setmaxnreg` (its cubins target
   `sm_120`), so through the driver the form ran as 12 warps of 168 registers; with NVRTC's machine code (below) the reallocation is
-  real, and the two-member multi-output launch then is not deterministic, hence off until that is fixed. `F8N_WUNI` (`SHARPLIGHT_FP8_UNIFORM_SCALES=0` turns it off) reads one weight scale per 128-row group and
+  real, so the device reports `register_reallocation` only while that machine code is on (not with
+  `SHARPLIGHT_CUDA_NVRTC_SASS=0`). The computing warps release a stage after `fence.proxy.async.shared::cta`: their reads of it
+  (`ldmatrix`, `ld.shared`) are the generic proxy's and the next tensor copy into it the async proxy's, which the barrier's release
+  alone does not order; without it a copy could land before a late warp's read (the run-to-run differences of §92, [§93](benchmarks.md)). `F8N_WUNI` (`SHARPLIGHT_FP8_UNIFORM_SCALES=0` turns it off) reads one weight scale per 128-row group and
   K block for weights whose groups share each block's scale (`WeightInfo.ScaleRowBlock` a multiple of 128: checkpoints with
   128 x 128 scale blocks, which the Hugging Face importer marks and packages store in their `WLAY` section), so the promotion
   multiplies once per row instead of once per element; `MULTI` runs a q / k / v group (the same E4M3 rows, one K) as one launch over
