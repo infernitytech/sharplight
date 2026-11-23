@@ -60,11 +60,8 @@ internal static unsafe partial class CudaApi
     [LibraryImport(CudaLibraries.Driver)]
     public static partial int cuMemFreeHost(void* pointer);
 
-    [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuMemcpyHtoD_v2")]
-    public static partial int cuMemcpyHtoD(ulong destination, void* source, nuint bytes);
-
-    [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuMemcpyDtoH_v2")]
-    public static partial int cuMemcpyDtoH(void* destination, ulong source, nuint bytes);
+    // No synchronous cuMemcpyHtoD / cuMemcpyDtoH: they run on the legacy stream, which fails while another thread captures a graph
+    // (CUDA_ERROR_STREAM_CAPTURE_IMPLICIT). Copies go on a segment's or the device's stream and are waited for there.
 
     [LibraryImport(CudaLibraries.Driver, EntryPoint = "cuMemcpyHtoDAsync_v2")]
     public static partial int cuMemcpyHtoDAsync(ulong destination, void* source, nuint bytes, nint stream);
