@@ -298,7 +298,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `deepseek2` | DeepSeek V2/V2-Lite/V3/R1, Kimi-K2, GLM-4.7-Flash, Moonlight | MLA (absorbed cache), MoE sigmoid/softmax + bias + groups + shared, yarn mscale, MTP | **supported** (latent_decoder; MTP layers loaded but unused; real DeepSeek-V3.1 Q4_K_M, 405 GB, with experts on disk: greedy identical to llama.cpp b11177 up to a near tie (0.008 logit), and its first 6 layers within KL 3.4e-4 of transformers in float32 on CPU, CUDA and Vulkan, llama.cpp 7.5e-4 to 2e-3; benchmarks section 87) | - | deepseek_v2, deepseek_v3, kimi_k2 | gguf/DeepSeek-V2-Lite-Chat, hf/tiny-random-deepseek-v3.1, hf/tiny-random-glm-4.7-flash |
 | `deepseek2-ocr` | DeepSeek-OCR | deepseek2 text decoder + vision | **supported** (text and images: DeepSeek-OCR, Unlimited-OCR, DeepSeek-OCR-2) | - | deepseek_vl_v2 (OCR), deepseek_ocr2, unlimited_ocr | hf/tiny-random-{deepseek,unlimited}-ocr[-sam12], hf/tiny-random-deepseek-ocr2[-sam12, -remote-sam12], gguf/tiny-random-deepseek-ocr[2]-sam12-f32 (+mmproj) |
 | `deepseek32` | DeepSeek-V3.2 | MLA + DSA lightning indexer | **supported** (dense and sparse regime) | - | deepseek_v32 | hf/tiny-random-deepseek-v32(-sparse), gguf/tiny-random-deepseek-v32(-sparse)-f32.gguf |
-| `deepseek4` | DeepSeek-V4 | hyper-connections (Sinkhorn), compressed/sparse attention, sinks, MoE hash/groups | **supported** (CPU and Vulkan, single-sequence, batched and paged; real DeepSeek-V4-Flash UD-IQ1_S vs llama.cpp b11177, CPU and CUDA; CUDA with experts on disk needs `--batch 1`, section 9.1) | - | deepseek_v4 | hf/tiny-random-deepseek-v4, gguf/tiny-random-deepseek-v4-f32 (llama.cpp 8ca5a80 with f32 caches) |
+| `deepseek4` | DeepSeek-V4 | hyper-connections (Sinkhorn), compressed/sparse attention, sinks, MoE hash/groups | **supported** (CPU and Vulkan, single-sequence, batched and paged; real DeepSeek-V4-Flash UD-IQ1_S vs llama.cpp b11177, CPU and CUDA, also with experts on disk, section 9.1) | - | deepseek_v4 | hf/tiny-random-deepseek-v4, gguf/tiny-random-deepseek-v4-f32 (llama.cpp 8ca5a80 with f32 caches) |
 | `deepseek41` | DeepSeek-V4.1 | as v4 + PLE n-gram | **supported** (GGUF; tiny model vs a numpy reference of llama.cpp's graph and llama.cpp 8ca5a80 token by token, f32 caches; CPU and Vulkan, batched decoding matches single-sequence) | - | - | gguf/tiny-random-deepseek-v41.gguf |
 | `xing4_0` | xing4.0 | MLA + manifold HC + MoE | **supported** | - | xing4_0 (remote code) | hf/tiny-random-xing4-0[-unclamped] (+ f32 GGUFs; llama.cpp ids on the unclamped model) |
 | `plm` | PLM-1.8B | MLA + ReLU2 | **supported** | - | - | gguf/tiny-random-plm-f32.gguf |
@@ -764,7 +764,7 @@ transformers in float32 on the dequantized weights (`tools/latent-moe-gguf-refer
 | Model | File | Verdict | Reference |
 |---|---|---|---|
 | Kimi K3 | unsloth/Kimi-K3-GGUF UD-Q1_0 (466 GB; experts in the narrow IQ1_XXXS type) | verified (truncated) | llama.cpp b11177 on the first 4 layers with the experts widened to IQ1_S (KL 4e-4 against its token-by-token decoding, as close as its own prompt pass); the full model runs (CUDA, CPU; coherent text) but has no reference on this pod: llama.cpp b11177 lacks the narrow types, the fork that has them was not built. UD-TQ1_0 / UD-TQ2_0 (509 / 551 GB) did not fit the disk budget |
-| DeepSeek-V4-Flash 0731 | unsloth/DeepSeek-V4-Flash-0731-GGUF UD-IQ1_S (82.5 GB) | verified, CUDA partial | llama.cpp b11177, full model (greedy identical for 8 tokens up to a near tie); bug: CUDA with experts on disk gives wrong output for multi-row prompt passes (`--batch 1`, CPU and CUDA without experts on disk are right), open: not reproduced on random checkpoints (below) |
+| DeepSeek-V4-Flash 0731 | unsloth/DeepSeek-V4-Flash-0731-GGUF UD-IQ1_S (82.5 GB) | verified | llama.cpp b11177, full model (greedy identical for 8 tokens up to a near tie); CUDA with experts on disk once gave wrong text with `--batch 64` (fixed, below and benchmarks 87.10) |
 | DeepSeek-V3.1 | unsloth/DeepSeek-V3.1-GGUF Q4_K_M (405 GB) | verified | llama.cpp b11177, full model (greedy identical up to a 0.008-logit near tie); transformers float32, first 6 layers (KL 2-3e-4 on CPU, CUDA, Vulkan; llama.cpp 7.5e-4 to 2e-3). The file has no `expert_group_count` (llama.cpp then routes over all 256 experts); since fix/huge-moe-cuda the importer defaults `deepseek2` files with 256 sigmoid experts, 8 per token, to DeepSeek-V3's group-limited routing (8 groups, best 4): KL 3.4e-4 against transformers with the groups on the 6-layer cut, 5.6e-3 without them |
 | GLM-5.2 | unsloth/GLM-5.2-GGUF UD-Q2_K_XL (254 GB) | verified | llama.cpp b11177, full model (greedy identical for 9 tokens up to a three-way near tie of llama.cpp itself); transformers float32, first 6 layers (KL 1.6e-4; llama.cpp 9.6e-4). On these real weights llama.cpp's glm-dsa graph agrees with transformers within its quantization noise, unlike on the tiny random checkpoints (section 4) |
 
@@ -781,11 +781,14 @@ Not verified this round:
   lent to one capture at a time; streams and step graphs are counted against the device, a graph that does not fit is not captured (the step
   runs launch by launch) and placements keep the device's per-segment estimate free (hardware.md). `SHARPLIGHT_DEVICE_RESERVE_MIB=3072` is no
   longer needed for the failure mode above.
-- **DeepSeek-V4-Flash on CUDA with experts on disk, multi-row prompt passes** (open): not reproduced. The checkpoint is no longer on the pod;
-  tiny and wider random `deepseek4` checkpoints (8, 64 and 256 experts, hash layers, f32 and Q4_0/MXFP4 experts, HF and GGUF) with every
-  layer's experts on disk on CUDA (cache of a few slots, so chunked passes and next-chunk reads; 256 experts also with the split decode twins)
-  give the logits and text of the resident placement and of the CPU for `--batch 1` and `--batch 64`. Untested: the real IQ1_S / IQ2_XXS /
-  IQ3_XXS / MXFP4 expert mix at 4096 x 2048, a 16 GiB cache with page-locked slot pools, real disk latency. `--batch 1` remains the workaround.
+- **DeepSeek-V4-Flash on CUDA with experts on disk, `--batch 64`** (fixed in fix/dsv4-cuda-disk, benchmarks 87.10): not a multi-row bug
+  and not specific to the model. With `--batch 64` the first placement ran out of device memory and the retry put one more layer's experts
+  on the CPU, so the expert cache laid its pools out again at the first pass. The pools had been page-locked twice for the GPU and were
+  released once, so the freed pools stayed registered, and the new pools at the same addresses counted as registered with the freed pages:
+  the GPU's share of the split decode passes copied stale experts (wrong text, different from run to run) or failed the copy
+  (`cuMemcpyHtoDAsync: invalid argument`). `--batch 1` placed without a retry. A pool is now page-locked once per device
+  (`ExpertStoreTests`, and `DiskExpertRelayoutTests` on CUDA with a synthetic model whose cache is laid out again). The re-downloaded
+  checkpoint stays on the pod as the huge-model demo.
 
 ## 10. Real-checkpoint sweep (bring-up round 10, 2026-11-15)
 

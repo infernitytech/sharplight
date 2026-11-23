@@ -13141,7 +13141,7 @@ pod's host memory: 36 layers' experts on disk (59 GiB). Prompt "The capital of F
 | llama.cpp b11177 CUDA (`-ngl 99 -ncmoe 36`, mmap) | " Paris. It is the largest city in France, with a population of over 2 million people. ..." | 6.58 tok/s | 3.31 tok/s |
 | Sharplight CUDA, experts on disk (16 GiB cache, 31 layers on disk), `--batch 1` | " Paris. It is the largest city in France, and is" (12 tokens; llama.cpp's CPU text) | 7.74 tok/s (12 tokens); `--bench 8`: median 12.41, best 14.92 tok/s, 95 % hits | 5 tokens in 1.5 s |
 
-**Bug, open:** on CUDA with experts on disk, a prompt pass of more than one row gives wrong output on this model (`--batch 64`:
+**Bug (fixed in 87.10: not multi-row, a page-locking leak of the expert cache):** on CUDA with experts on disk, a prompt pass of more than one row gives wrong output on this model (`--batch 64`:
 " Paris, where else the hidden-googoorxmaent ..."; the same with `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`), while the same placement fed the prompt
 row by row (`--batch 1`), CUDA without experts on disk (" Paris. It is the largest city in France and is located"), and the CPU are right,
 and GLM-5.2 and DeepSeek-V3.1 are right in the same mode. So it needs `deepseek4`, CUDA segments and multi-row CPU expert products from
@@ -13177,7 +13177,7 @@ KL 1.2e-2 from llama.cpp's token-by-token decoding, llama.cpp's own prompt pass 
   their own instead of the widening; the CUDA split path could run more of the selected experts on the GPU.
 * The CUDA device reserve should grow with the number of segments (concurrent-lane streams and step graphs per segment) so that a 185-segment
   placement does not fail at the first graph capture; until then `SHARPLIGHT_DEVICE_RESERVE_MIB=3072` for Kimi-K3.
-* DeepSeek-V4-Flash on CUDA with experts on disk: multi-row prompt passes give wrong output (87.4); `--batch 1` works around it.
+* DeepSeek-V4-Flash on CUDA with experts on disk: multi-row prompt passes give wrong output (87.4); `--batch 1` works around it. Fixed (87.10).
 * Kimi K3.1 (no unsloth GGUF, no llama.cpp b11177 support), GLM-5.3 (same architecture as GLM-5.2), Mistral-Large-4-1T, Qwen3.8-2.4T-A95B
   (UD-Q1_0 397 GB), Muse-Spark-Open-816B and Nemotron-3-Ultra-550B (UD-IQ1_M 188 GB) were not run (time and the disk the feed builds need).
 * The DeepSeek-V3.1 GGUF lacks `expert_group_count`; a converter-side fix (or an importer default from the HF config when the file names
@@ -13230,7 +13230,69 @@ SHARPLIGHT_DEVICE_RESERVE_MIB=3072 $CLI ~/models/Kimi-K3/UD-Q1_0/Kimi-K3-UD-Q1_0
   `n_group 8, topk_group 4`: KL 3.4e-4 (5.6e-3 and another argmax without the groups); against the reference without groups the old routing had
   KL 3.4e-4 too, so the change only follows the model. llama.cpp b11177 still routes over all experts on this file.
 * **DeepSeek-V4-Flash multi-row prompts on CUDA with experts on disk**: not reproduced on random `deepseek4` checkpoints (model-support.md
-  9.1); the real file was gone from the pod. Still open.
+  9.1); the real file was gone from the pod. Fixed in 87.10.
+
+### 87.10 Follow-up (fix/dsv4-cuda-disk): the `--batch 64` failure was a page-locking leak of the expert cache
+
+The same unsloth/DeepSeek-V4-Flash-0731-GGUF `UD-IQ1_S` files (revision `fbbb5b93`) downloaded again to the pod's local disk (they stay as the
+huge-model demo), the same GPU 0 and limits as 87.4, `develop` at `9694870c` (after `4868f069`, the legacy-stream fix). CUDA, `--cpu-offload
+--experts-on-disk --expert-cache 16G --ctx 4096`, prompt "The capital of France is", greedy. Raw output in
+[`bench/results/s87/v4_disk_fix.txt`](../bench/results/s87/v4_disk_fix.txt).
+
+**Still reproducible on `develop`.** `--batch 64` gave a different wrong text in every run (" Paris, where the Eiffel Tower/overgrown/",
+" Paris, where the multinational and cultural, history, and, especially, his"); with the split decode's GPU share fixed
+(`SHARPLIGHT_SPARSE_GPU_SLOTS=3` or `6`) failed with `cuMemcpyHtoDAsync: invalid argument` in the sparse GPU compilation's
+copies from the cache slots in two of five runs. `--batch 1` and `--batch 4` were right.
+
+**Bisection.**
+
+* The prompt pass is right: the last row's logits of every split of the prompt (`--batch 1`, `4`, `5`, `7`; one row after five; the CPU
+  expert path only, `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`) differ from each other and from the CPU by KL 2-7e-2, the noise of a 1-bit file, with
+  the same argmax. On a 6-layer cut of the real file (`tools/truncate-gguf-remote.py` on the local shards: hash layers, compression ratios 0, 4
+  and 128, all five MoE layers' experts on disk with a 2 GiB cache) every CUDA path is within KL 2.5e-5 of the CPU, 19-row passes included.
+* Decode is wrong only when the GPU takes part: with the experts on the CPU alone (`SHARPLIGHT_SPARSE_EXPERT_ROWS=0` or
+  `SHARPLIGHT_SPARSE_GPU_SLOTS=0`) `--batch 64` is deterministic and coherent (" Paris.\", \"target\": \"Paris\", ..." twice: a near tie of the
+  model, `.` 23.60 against `.",` 23.40 at that position with `--batch 1`), with GPU slots it is wrong and changes from run to run.
+* The difference between `--batch 64` and `--batch 1` was the placement, not the rows: with 64 rows of activations the first placement ran
+  out of device memory, and the retry put one more layer's experts on the CPU (30 groups instead of 29). The expert cache had been laid out
+  for the first placement (its estimate says "87 weights in 29 layers") and was laid out again at the first pass, for 90 weights.
+
+**Cause.** `ExpertStore.PinFor` laid a stale layout out, which page-locks the new pools for every device (the one being added included), and
+then page-locked every pool again: two holds on the device's registration (`CudaDevice.TryRegisterHost`). Laying the pools out again released
+one hold and freed the pools while they stayed registered with the driver. The new pools, multi-GiB mappings at the same addresses, then
+counted as registered (the device found the same start and size and only added a holder), but the driver's registration still referred to
+the freed pages: the sparse GPU compilation copied stale experts (wrong text) or, where the ranges overlapped only in part, failed the copy.
+Only the GPU's copies read through the registration, so the CPU, CUDA without experts on disk and `--batch 1` (no second layout) were
+right; any second layout (another graph of the model registering more experts) would have hit it too. Nothing in it is specific to
+DeepSeek-V4.
+
+**Fix.** A pool is page-locked once per device (`ExpertStore.PinPoolLocked`), so every pool freed by a new layout is unregistered first.
+
+**Results** (after the fix):
+
+| run | text (24 tokens) | decode | prompt |
+|---|---|---:|---:|
+| Sharplight CUDA, experts on disk, `--batch 64` | " Paris. It is the largest city in France and is located in the north-central part of the country, on the Seine" (the CPU's text of 87.4, continued) | 7.15-7.24 tok/s | 5 tokens in 6.0-6.2 s |
+| same, default batch | the same text | 6.04 tok/s | 5 tokens in 5.4 s |
+| same, `--batch 64`, GPU slots fixed at 3 / 6 | " ... and is known for its art, culture, and history. Paris is home" / " Paris.\", \"target\": ..." (the near tie above) | 6.99 / 7.09 tok/s | |
+| same, `--batch 64 --bench 8` (64 decode steps, warm cache) | | best 14.94, median 12.10, mean 11.30 tok/s; GPU 21.9 ms per step; 94.3 % hits | 8 tokens in 598 ms (best) |
+| llama.cpp b11177 CUDA (`-ngl 99 -ncmoe 36 -fa on -t 10`, mmap, page cache warm) | " Paris. It is the largest city in France, with a population of over 2 million people. Paris is known for" | 7.15 tok/s | 5 tokens in 2.0 s |
+
+Decode in the 24-token text run equals llama.cpp's (7.15 tok/s each; ours starts from an empty cache and reads 11 GB from disk, llama.cpp
+ran last, with much of the mapped file in the page cache), the warm `--bench` steps are 1.7x llama.cpp's text rate (87.4: 6.58 tok/s). The first prompt is slower (5.4-6.2 s against 2.0 s): its rows run
+the CPU's expert products alone (passes of more than 4 rows do not split with the GPU) on a cold cache.
+
+**Tests.** `ExpertStoreTests.PoolsAreLockedOncePerDevice_AndReleasedBeforeTheyAreLaidOutAgain` (Core: the lock count per pool and device
+through `PinFor` with a stale layout and a second layout; fails before the fix), `DiskExpertRelayoutTests` (Cuda.Tests: a synthetic MoE with
+every layer's experts on disk and a 40 MiB cache, a second compilation registering one more layer, split passes against the CPU; fails
+2 of 2 runs before the fix: the GPU's share reads stale experts).
+
+| suite | result |
+|---|---|
+| Sharplight.Core.Tests `ExpertStoreTests` | 10 / 0 failed |
+| Sharplight.Cpu.Tests `DiskExpertTests` | 14 / 0 failed |
+| Sharplight.Cuda.Tests | CUDA_TESTS_RESULT |
+| Sharplight.Serving.Tests | 397 / 0 failed / 28 skipped |
 
 ## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
 
