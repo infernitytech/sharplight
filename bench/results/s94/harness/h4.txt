@@ -1,0 +1,114 @@
+[hold 08:53:49] <out>/h3.sh 3 dnv0 dnv4 g0 g4 gu0 gu4 dn0r dn4r
+0 %, 2 MiB, 49.94 W
+== dnv0 r1
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.791 ms 261 TFLOPS, 199.5 W, 0.765 pJ/flop
+  sustained: 0.705 ms 274 TFLOPS, 203.8 W, 0.743 pJ/flop
+== dnv4 r1
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.786 ms 262 TFLOPS, 199.7 W, 0.762 pJ/flop
+  sustained: 0.706 ms 274 TFLOPS, 203.4 W, 0.743 pJ/flop
+== g0 r1
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.554 ms 265 TFLOPS, 197.4 W, 0.744 pJ/flop
+  sustained: 1.470 ms 263 TFLOPS, 204.7 W, 0.778 pJ/flop
+== g4 r1
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.552 ms 266 TFLOPS, 197.7 W, 0.744 pJ/flop
+  sustained: 1.469 ms 263 TFLOPS, 205.4 W, 0.780 pJ/flop
+== gu0 r1
+  check T=2048: max err 0 of max 0
+  sustained: 1.634 ms 252 TFLOPS, 188.9 W, 0.748 pJ/flop
+  sustained: 1.546 ms 250 TFLOPS, 194.4 W, 0.777 pJ/flop
+== gu4 r1
+  check T=2048: max err 0 of max 0
+  sustained: 1.640 ms 251 TFLOPS, 195.5 W, 0.778 pJ/flop
+  sustained: 1.550 ms 249 TFLOPS, 205.2 W, 0.823 pJ/flop
+== dn0r r1
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.805 ms 256 TFLOPS, 200.4 W, 0.782 pJ/flop
+  sustained: 0.724 ms 267 TFLOPS, 188.2 W, 0.705 pJ/flop
+== dn4r r1
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.802 ms 257 TFLOPS, 199.3 W, 0.775 pJ/flop
+  sustained: 0.720 ms 269 TFLOPS, 189.9 W, 0.707 pJ/flop
+== dnv0 r2
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.795 ms 259 TFLOPS, 199.6 W, 0.770 pJ/flop
+  sustained: 0.713 ms 271 TFLOPS, 190.3 W, 0.703 pJ/flop
+== dnv4 r2
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.794 ms 260 TFLOPS, 199.9 W, 0.770 pJ/flop
+  sustained: 0.713 ms 271 TFLOPS, 201.4 W, 0.743 pJ/flop
+== g0 r2
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.575 ms 262 TFLOPS, 208.2 W, 0.795 pJ/flop
+  sustained: 1.487 ms 260 TFLOPS, 203.5 W, 0.783 pJ/flop
+== g4 r2
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.570 ms 263 TFLOPS, 206.5 W, 0.786 pJ/flop
+  sustained: 1.481 ms 261 TFLOPS, 203.9 W, 0.781 pJ/flop
+== gu0 r2
+  check T=2048: max err 0 of max 0
+  sustained: 1.637 ms 252 TFLOPS, 198.0 W, 0.786 pJ/flop
+  sustained: 1.544 ms 250 TFLOPS, 208.0 W, 0.831 pJ/flop
+== gu4 r2
+  check T=2048: max err 0 of max 0
+  sustained: 1.631 ms 253 TFLOPS, 199.4 W, 0.789 pJ/flop
+  sustained: 1.544 ms 250 TFLOPS, 193.7 W, 0.774 pJ/flop
+== dn0r r2
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.802 ms 257 TFLOPS, 200.7 W, 0.781 pJ/flop
+  sustained: 0.722 ms 268 TFLOPS, 200.2 W, 0.748 pJ/flop
+== dn4r r2
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.801 ms 257 TFLOPS, 197.7 W, 0.769 pJ/flop
+  sustained: 0.721 ms 268 TFLOPS, 201.9 W, 0.753 pJ/flop
+== dnv0 r3
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.796 ms 259 TFLOPS, 200.2 W, 0.773 pJ/flop
+  sustained: 0.715 ms 270 TFLOPS, 199.9 W, 0.740 pJ/flop
+== dnv4 r3
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.794 ms 260 TFLOPS, 197.8 W, 0.762 pJ/flop
+  sustained: 0.712 ms 271 TFLOPS, 202.3 W, 0.745 pJ/flop
+== g0 r3
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.574 ms 262 TFLOPS, 195.9 W, 0.748 pJ/flop
+  sustained: 1.480 ms 261 TFLOPS, 204.3 W, 0.782 pJ/flop
+== g4 r3
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.566 ms 263 TFLOPS, 197.4 W, 0.750 pJ/flop
+  sustained: 1.480 ms 261 TFLOPS, 204.0 W, 0.781 pJ/flop
+== gu0 r3
+  check T=2048: max err 0 of max 0
+  sustained: 1.637 ms 252 TFLOPS, 200.7 W, 0.797 pJ/flop
+  sustained: 1.547 ms 250 TFLOPS, 193.2 W, 0.773 pJ/flop
+== gu4 r3
+  check T=2048: max err 0 of max 0
+  sustained: 1.634 ms 252 TFLOPS, 199.5 W, 0.790 pJ/flop
+  sustained: 1.543 ms 251 TFLOPS, 207.4 W, 0.828 pJ/flop
+== dn0r r3
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.804 ms 257 TFLOPS, 200.1 W, 0.780 pJ/flop
+  sustained: 0.724 ms 267 TFLOPS, 198.9 W, 0.746 pJ/flop
+== dn4r r3
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.802 ms 257 TFLOPS, 199.4 W, 0.776 pJ/flop
+  sustained: 0.722 ms 268 TFLOPS, 202.9 W, 0.758 pJ/flop
+22ac596fbe8f791376657e2945b5f815  out_dn0r.bin
+22ac596fbe8f791376657e2945b5f815  out_dn3r.bin
+22ac596fbe8f791376657e2945b5f815  out_dn4r.bin
+838291c0caa9d082165cdf29c8f3d22b  out_dnv0.bin
+838291c0caa9d082165cdf29c8f3d22b  out_dnv2.bin
+838291c0caa9d082165cdf29c8f3d22b  out_dnv3.bin
+838291c0caa9d082165cdf29c8f3d22b  out_dnv4.bin
+76be4896590eb5099b3c115863f84ff6  out_g0.bin
+76be4896590eb5099b3c115863f84ff6  out_g2.bin
+76be4896590eb5099b3c115863f84ff6  out_g3.bin
+76be4896590eb5099b3c115863f84ff6  out_g4.bin
+c70d0dd26dedccb7f266d1d1e013f78b  out_gu0.bin
+c70d0dd26dedccb7f266d1d1e013f78b  out_gu2.bin
+c70d0dd26dedccb7f266d1d1e013f78b  out_gu3.bin
+c70d0dd26dedccb7f266d1d1e013f78b  out_gu4.bin
+[release 08:56:17]

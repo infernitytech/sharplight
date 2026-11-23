@@ -1,0 +1,19 @@
+--- <out>/harness/bench_mc.cu	2026-11-23 00:03:29.000000000 +0000
++++ bench_mc.cu	2026-11-23 08:33:51.907936092 +0000
+@@ -303,6 +303,16 @@
+         LAUNCH(p);
+         cudaError_t e = cudaDeviceSynchronize();
+         if (e) { printf("error %s\n", cudaGetErrorString(e)); return 1; }
++        if (M == CHECK_T && getenv("DUMP"))
++        {
++#if QOUT
++            size_t nb = (size_t)QCAP * (N + N / 32) + (size_t)(N / 128) * QCAP * 4;
++#else
++            size_t nb = (size_t)M * N * 4;
++#endif
++            std::vector<unsigned char> h(nb); cudaMemcpy(h.data(), y, nb, cudaMemcpyDeviceToHost);
++            FILE* df = fopen(getenv("DUMP"), "wb"); fwrite(h.data(), 1, nb, df); fclose(df);
++        }
+         if (M == CHECK_T)
+         {
+             unsigned char *rc = upload(std::vector<unsigned char>(x.c.begin(), x.c.begin() + (size_t)M * K)), *rw = upload(w.c), *rw2 = upload(w2.c);

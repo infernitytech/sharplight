@@ -14312,3 +14312,152 @@ PplBench ~/models/hf/Qwen3.8-27B-FP8 --provider cuda --text wikitext2_test.txt -
 [SHARPLIGHT_STEP_FLOOR_WAVES=1|full] QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 QUIET_GPU=1 ROUNDS=2 RATES="16:7 64:17" PER_OVERRIDE=8 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
 ```
+
+## 94. LLM round 36: the FP8 prompt GEMM's promotion moved into the next K block, k-major MMA order, a 24 / 240 register split and 16-byte weight-scale copies measured against CUTLASS (none faster), NVRTC machine code for `quantize_fp8` / `decode_combine` measured (neutral), nothing kept (2026-11-23)
+
+Branch `perf/llm-r36` (`develop` at `f9877350`, §93 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap, driver 595.112 / CUDA 13.2), shared with other rounds; every run held the verify lock, variants alternated in the same
+holds, vLLM 0.33 (venv `vllm-r12`) in the serving hold. Raw output in [`bench/results/s94/`](../bench/results/s94) (harness variants as
+diffs in `rejected/`, scripts in `scripts/`). The only source change is diagnostic: `SHARPLIGHT_CUDA_NVRTC_SASS=if:a|b` selects the
+kernels whose source contains any of the `|`-separated texts (used for 94.3). The default code path is `develop`'s, so greedy text,
+logits and PplBench are `develop`'s (94.4).
+
+### 94.1 Serving against vLLM
+
+`bench/s16_serve.sh`, closed loop, 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds each;
+ours `--provider cuda` before and after vLLM in one hold, vLLM `--gpu-memory-utilization 0.6` (`serve/`, `serve/summary.txt`). Tok/s
+per round (ours before / after), TTFT p50 and inter-token latency (ms):
+
+| model, streams | `perf/llm-r36` (= `develop`) | vLLM 0.33 | ours / vLLM |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8, 16 | 1102 / 1106, 1103 / 1105 | 1119 / 1120 | **0.984-0.988** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 106-107 / 13.57-13.58, 14.2-14.3, 52.6-52.9 | 162-176 / 12.88-12.89, 12.9-13.3, 14.9-15.1 | |
+| Qwen3-8B-FP8, 64 | 2646 / 2637, 2637 / 2635 | 2699 / 2684 | **0.976-0.983** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 257-262 / 21.19-21.25, 36-38, 132-134 | 393-428 / 20.13-20.24, 20-22, 132-134 | |
+| gpt-oss-20b, 16 | 1405 / 1418, 1402 / 1417 | 1426 / 1413 | **0.98-1.00** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 102-107 / 10.39-10.45, 11.3-11.5, 50.6-50.9 | 153-171 / 9.84-9.92, 10.3-10.8, 12.2-12.6 | |
+| gpt-oss-20b, 64 | 3056 / 3084, 3050 / 3075 | 3172 / 3140 | **0.96-0.98** |
+| the same: TTFT p50 / ITL mean, p95, p99 | 237-238 / 17.99-18.20, 34-40, 118-119 | 370-457 / 16.64-17.17, 17.1-17.4, 121 | |
+
+§93's points within their spread (Qwen3-8B-FP8 0.986 / 0.979, gpt-oss-20b 0.99-1.02 / 0.98-0.99); our TTFT p50 stays 34-38 % (16) and
+34-44 % (64) below vLLM's. The closed loop's ITL p99 of ~51-53 ms at 16 streams is the step-budget floor in prompt waves (§93.4, the
+owner's call, unchanged).
+
+### 94.2 The FP8 prompt GEMM against CUTLASS: four bit-identical forms, none faster
+
+Harness: `bench/s86_bs/bench_fp8.cu` with §91's `LOADTAG` loader and an output dump (`scripts/bench_mc_dump.diff`), launching the
+kernel's machine code from the engine's NVRTC 13.0 (`scripts/mkv.sh`: the copy warpgroup, `F8N_WUNI`, the model's macros), so the
+harness runs the code the model runs (§92-93). Sustained ms at the 200 W cap, 2,048 rows; `v` = vLLM's operands (`dump_vllm.py`),
+`r` = the harness's random codes; three rounds alternated per hold (`harness/h1.txt`, `h3.txt`, `h4.txt`, `h5.txt`). Every variant's
+outputs (f32, or the E4M3 rows with their scales) are byte-identical to the default's (`md5` lines in the files).
+
+| form | down 12,288 → 4,096 (v) | down (r) | 4,096 → 24,576 f32 (v) | gate / up dual + E4M3 store (r) |
+|---|---:|---:|---:|---:|
+| CUTLASS `cutlass_scaled_mm`, f32 scales, bf16 out (`harness/cutlass.txt`) | 0.748 | | 1.457 | |
+| default (`gemm_fp8_tma.cu`, NVRTC 13.0) | 0.783-0.796 | 0.797-0.805 | 1.554-1.576 | 1.628-1.640 |
+| k-major MMA order, B-fragment-major (serpentine) source order (`rejected/fp8_tma_kmajor_bmajor_order.diff`) | 0.803 | 0.807-0.812 | | 1.622-1.635 |
+| promotion of block k inside block k + 1's MMAs (232 registers; spills 5 values per block) (`rejected/fp8_tma_promotion_in_next_block.diff`) | 0.861-0.871 | | 1.718-1.720 | 1.691-1.699 |
+| the same with a 24 / 240 register split (one spill per block) | 0.835-0.846 | 0.850 | 1.644-1.661 | 1.702-1.711 |
+| default with a 24 / 240 register split (no local memory) | 0.788-0.796 | | 1.556-1.569 | 1.636-1.641 |
+| 16-byte weight-scale copies with `F8N_WUNI` (512 → 16 bytes per block and matrix) (`rejected/fp8_tma_16byte_weight_scale_copies.diff`) | 0.786-0.794 | 0.801-0.802 | 1.552-1.570 | 1.631-1.640 |
+
+With NVRTC's code and the copy warpgroup the gap to CUTLASS on its own operands is 5-6 % on down and 7-8 % on the 24,576-wide GEMM (of
+which ~2 % is the f32 output's DRAM writes against CUTLASS's bf16), down from §91.3's 8-13 %. What the forms show:
+
+* **ptxas keeps its own MMA order.** The k-major source with every fragment's accumulator live and the MMAs B-fragment-major (each B
+  fragment feeding the four row fragments in a row, serpentine) assembles to the same A-fragment-major SASS as the default (the
+  last MMA of each A fragment writes its result into the A registers), still with no `.reuse` (`QMMA ... .reuse` 0 of 64); 0-1 % slower.
+  CUTLASS's 32 of 128 B-reusing QMMAs are not reachable from PTX source order with NVRTC 13.0 either.
+* **The promotion's place matters, in the other direction.** In the default SASS each group of four promotion FFMAs follows the QMMA
+  it reads by one MMA, so the warp waits on the tensor core's latency at the end of every K block; the pipelined form (block k's
+  products promoted inside block k + 1's MMAs, the same FFMAs in the same order per accumulator, so bit-identical) removes those waits
+  but is 5-10 % slower: it needs 64 more live registers, spills at 232 and still loses 5-7 % at 240 with one spill per block. So the
+  dependent FFMAs are not what costs the time at the power cap; §91.3's "outputs dead" diagnostic removed the FFMAs and the stores
+  together and does not separate them.
+* **Registers alone do nothing**: the default at 240 registers (`setmaxnreg` 24 / 240, the budget balances the launch's 168 x 384)
+  has the same instruction order and time.
+* **Fewer scale bytes**: with uniform weight scales the promotion reads one weight scale per group and K block, so the producer can
+  copy 16 instead of 512 bytes per matrix (1.5 % of a stage's bytes). 0-0.4 % faster, within the rounds' spread; not kept.
+* `fma.rn.f32x2` (packed FFMA, to halve the promotion's instructions) assembles to two FFMAs on sm_120 (`rejected/fma_f32x2_probe.cu`).
+
+Not measured further on model steps or in serving, since no form is faster in the harness.
+
+### 94.3 NVRTC machine code for `quantize_fp8` and `decode_combine` (§93 lever 5): neutral, not kept
+
+§92.2's per-kernel profile had both 8-10 % faster from NVRTC 13.0's code than from the driver's. Both are Slang kernels, so a marker
+would need plumbing through the Slang path; measured first with `SHARPLIGHT_CUDA_NVRTC_SASS=if:#define SL_NVRTC_SASS 1|void
+quantize_fp8(|void decode_combine(` (the FP8 TMA GEMM keeps its code), BatchBench decode steps, GPU ms min of 20, three rounds
+alternated in one hold (`steps/sass_decode.txt`):
+
+| step | Qwen3-8B-FP8: default / with | ratio | gpt-oss-20b: default / with | ratio |
+|---|---:|---:|---:|---:|
+| 16 rows | 12.19-12.22 / 12.18-12.19 | 0.998 | 9.19-9.20 / 9.20-9.21 | 1.001 |
+| 32 rows | 13.39-13.41 / 13.36-13.37 | 0.997 | 10.39-10.40 / 10.38-10.39 | 0.999 |
+| 48 rows | 14.79-14.81 / 14.81-14.85 | 1.002 | 12.15-12.17 / 12.11-12.31 | 1.003 |
+| 64 rows | 16.01-16.04 / 16.01-16.03 | 1.000 | 13.00-13.06 / 12.96-13.03 | 0.998 |
+
+Within ±0.3 % with mixed signs: the two kernels are ~0.3 % of a decode step, and their 8-10 % is below the step's noise. Not kept.
+
+A side observation from the first form of this test (`steps/sass_steps.txt`): in one hold, Qwen3-8B-FP8's prompt-bearing steps ran
+4-8 % faster in the later rounds of *both* configurations (15 decode + 250 prompt rows 27.7 → 25.6-25.9 ms, 48 + 1,000 75.0 → 68.8-73.1)
+while decode steps did not move, and a repeat in the next hold (`steps/cachetest.txt`, warm and fresh kernel caches alternated) gave
+the slow numbers every time. The compute-bound steps move with the power limiter's state, not with the code; every comparison in this
+section is same-hold and alternated for that reason.
+
+### 94.4 Correctness and tests
+
+The default code path is unchanged (the diagnostic switch's parsing is the only source change). In one hold
+(`correct/`, `tests/`): greedy text (120 tokens, the ~40-word and the ~1,000-token prompt, CUDA) of `develop` and this branch,
+PplBench (wikitext-2 test, 12,288 tokens, 1,024-row steps) of Qwen3-8B-FP8 once on `develop` and twice on this branch:
+| | Qwen3-8B-FP8 | gpt-oss-20b |
+|---|---|---|
+| greedy text, ~40-word prompt (`develop` / branch, md5) | `3879d8a4` / `3879d8a4` | `e733f049` / `e733f049` |
+| greedy text, ~1,000-token prompt | `b9666631` / `b9666631` | `8cb648ed` / `8cb648ed` |
+| PplBench logits dump (`develop` / branch run 1 / run 2) | `870cfe93` / `870cfe93` / `870cfe93`, PPL 8.6693 each | |
+
+Byte-identical text, byte-identical and repeatable logits. Suites (GPU 0, in the hold): `Sharplight.Cuda.Tests` 71 / 0 failed
+(1 skipped: cuBLASLt not installed); `Sharplight.Serving.Tests` 397 with 1 failed, 13 skipped: `ModelHostTests.ConcurrentRequests_ToTwoModels_RunInParallel_AndStayIsolated`
+(CPU models, a wall-time ratio: "single 362 ms, 8 mixed 1872 ms" at a load average of 7 from other rounds), which passed twice when
+rerun alone; it does not touch the CUDA provider. `Sharplight.Vulkan.Tests` were not run (no shared lowering or kernel changed).
+
+### 94.5 Not reached
+
+gpt-oss-20b's decode expert GEMMs against Marlin per byte (plan item 2): not started again. The round went into the FP8 GEMM forms
+(94.2) and the toolchain test (94.3). What §73 and §76 already excluded (layout, prefetch form, 64-row tiles, integer E8M0 factors) and
+§73.2's observation (ours held ~300 MHz lower by the power limiter at a lower board power) stand.
+
+### 94.6 Gap to vLLM and next levers
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64 streams, closed loop | 0.984-0.988 / 0.976-0.983 | 16: the step-budget floor in prompt waves (owner); 64: mixed steps with FP8 prompt GEMMs 5-8 % behind CUTLASS |
+| gpt-oss-20b serving 16 / 64, closed loop | 0.98-1.00 / 0.96-0.98 | 64: decode steps (expert GEMMs, ~10 % per byte behind Marlin) and the MoE prompt rows |
+
+Ranked levers:
+
+1. **The step-budget policy** (owner, §93.4): the largest measured lever on the closed-loop benchmark for both models
+   (`--min-step-tokens 0` / `=full`: gpt-oss-20b +1.5 %, vLLM's ITL tail; `=1`: TTFT half of vLLM's).
+2. **gpt-oss-20b decode expert GEMMs** at 17-64 rows (every MXFP4 / FP4 MoE): ours is held ~300 MHz below Marlin by the power limiter
+   at lower board power (§73.2), so the next measurement is energy per weight byte (the clock sampler on both kernels on one routing)
+   and what in our kernel draws it (the per-copy 256-byte L2 hints, the decode arithmetic), not more layouts.
+3. **The FP8 prompt GEMM's remaining 5-8 %**: from source the order is fixed by ptxas (94.2). What is left is SASS-level: a
+   post-assembly pass that sets `.reuse` bits and reorders QMMAs in the cubin NVRTC returns (as CUTLASS's cubin has them), or the
+   block-scaled mode (no promotion; §86, owner's call). Both bigger than a round's kernel edit; the first needs a validated SASS
+   rewriter for sm_120.
+4. **Split-K for the mixed form's decode rows** (§91.5, ~0.3 % of a 64-stream round).
+
+### 94.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# harness: NVRTC 13.0 machine code of a kernel file into bench_fp8.cu (scripts/mkv.sh; libnvrtc from Sharplight.Cuda.Runtime)
+python -I bench/results/s91/rejected/dump_vllm.py <vd>                     # vLLM's operands + CUTLASS timings (vLLM venv)
+VD=<vd> scripts/mkv.sh dnv0 src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu dn v      # down on vLLM's operands
+scripts/mkv.sh gu0 src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu gu r                # gate / up with the E4M3 store
+scripts/mkv.sh dnv5 <kernel with a rejected diff> dn v -DF8N_PIPE=0 -DF8N_COPY_REGS=24 -DF8N_MMA_REGS=240
+DUMP=out.bin ./b_dnv0                                                       # outputs for the byte comparison
+SHARPLIGHT_CUDA_NVRTC_SASS='if:#define SL_NVRTC_SASS 1|void quantize_fp8(|void decode_combine(' \
+  BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 --modes greedy --reps 20 --sizes 16,32,48,64
+QUIET_GPU=1 ROUNDS=2 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+QUIET_GPU=1 ROUNDS=2 VLLM_VENV=<venv> bench/s16_serve.sh vllm qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --gpu-memory-utilization 0.6
+```

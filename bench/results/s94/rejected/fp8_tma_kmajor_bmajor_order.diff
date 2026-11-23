@@ -1,0 +1,74 @@
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
+@@ -69,6 +69,12 @@
+ #ifndef MULTI
+ #define MULTI 0
+ #endif
++#ifndef F8N_ORDER
++#define F8N_ORDER 0
++#endif
++#ifndef F8N_SERP
++#define F8N_SERP 1
++#endif
+ #if MULTI && (DUAL || QOUT)
+ #error "gemm_fp8_tma: MULTI with DUAL or QOUT"
+ #endif
+@@ -601,6 +607,58 @@
+                 }
+             }
+ 
++#elif F8N_ORDER == 1
++            // k-major over the whole warp tile: fresh accumulators for every fragment, per k-step the A fragments of all rows,
++            // then the MMAs B-fragment-major (each B fragment feeds the F8N_FM consecutive MMAs of its column).
++            float part[F8N_FM][F8N_FN][4];
++#pragma unroll
++            for (int i = 0; i < F8N_FM; i++)
++            {
++#pragma unroll
++                for (int j = 0; j < F8N_FN; j++)
++                {
++#pragma unroll
++                    for (int e = 0; e < 4; e++)
++                    {
++                        part[i][j][e] = 0.0f;
++                    }
++                }
++            }
++#pragma unroll
++            for (int kk = 0; kk < 4; kk++)
++            {
++                f8n_u32 a[F8N_FM][4];
++#pragma unroll
++                for (int i = 0; i < F8N_FM; i++)
++                {
++                    f8n_u32 r = wm * F8N_TM + i * 16 + (lane & 15);
++                    f8n_ldsm4(sa + f8n_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
++                }
++#pragma unroll
++                for (int j = 0; j < F8N_FN; j++)
++                {
++#pragma unroll
++                    for (int ii = 0; ii < F8N_FM; ii++)
++                    {
++                        const int i = F8N_SERP ? ((j & 1) ? F8N_FM - 1 - ii : ii) : ii;
++                        f8n_mma(part[i][j], a[i], b[kk][j][0], b[kk][j][1]);
++                    }
++                }
++            }
++#pragma unroll
++            for (int i = 0; i < F8N_FM; i++)
++            {
++#pragma unroll
++                for (int j = 0; j < F8N_FN; j++)
++                {
++                    const int d = DUAL ? (j & 1) : 0;
++                    acc[i][j][0] = fmaf(part[i][j][0], xw[i][0][d], acc[i][j][0]);
++                    acc[i][j][1] = fmaf(part[i][j][1], xw[i][0][d], acc[i][j][1]);
++                    acc[i][j][2] = fmaf(part[i][j][2], xw[i][1][d], acc[i][j][2]);
++                    acc[i][j][3] = fmaf(part[i][j][3], xw[i][1][d], acc[i][j][3]);
++                }
++            }
++
+ #else
+ #pragma unroll
+             for (int i = 0; i < F8N_FM; i++)

@@ -1,0 +1,50 @@
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
+@@ -95,6 +95,14 @@
+ #define F8N_FN (F8N_TN / 8)
+ #define F8N_STAGE_BYTES ((F8N_BM + F8N_BN) * 128)
+ #define F8N_SCALE_BYTES ((F8N_BM + F8N_BN) * 4)
++// Bytes the producer copies into a scale slot per K block: with F8N_WUNI (outside the block-scaled mode, which reads every row's
++// scale) only the first 16 bytes of the weight scales (DUAL: of each matrix's), since the promotion reads one scale per group.
++#if F8N_WUNI && !F8N_BLOCK_SCALED
++#define F8N_WSCALE_COPY 16
++#define F8N_SCALE_TX (F8N_BM * 4 + (1 + DUAL) * 16)
++#else
++#define F8N_SCALE_TX F8N_SCALE_BYTES
++#endif
+ // Three code stages, two scale slots, eight barriers (full[3], empty[3], scales[2]).
+ #ifndef QOUT
+ #define QOUT 0
+@@ -452,11 +460,16 @@
+                 }
+ 
+                 const f8n_u32 slot = (m - 1) & 1, dst = scaleRing + slot * F8N_SCALE_BYTES, bar = bars + 48 + slot * 8;
+-                f8n_mbar_expect(bar, F8N_SCALE_BYTES);
++                f8n_mbar_expect(bar, F8N_SCALE_TX);
+                 f8n_bulk(dst, sx + ((f8n_u64)scaleKb * XCAP + st0) * 4, F8N_BM * 4, bar);
+ #if DUAL
++#ifdef F8N_WSCALE_COPY
++                f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_WSCALE_COPY, bar);
++                f8n_bulk(dst + F8N_BM * 4 + F8N_BN * 2, f8n_wscales(p.w2, sn0) + scaleKb * 512, F8N_WSCALE_COPY, bar);
++#else
+                 f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_BN * 2, bar);
+                 f8n_bulk(dst + F8N_BM * 4 + F8N_BN * 2, f8n_wscales(p.w2, sn0) + scaleKb * 512, F8N_BN * 2, bar);
++#endif
+ #elif MULTI
+                 {
+                     f8n_u32 first, width;
+@@ -465,8 +478,14 @@
+ #if MULTI > 2
+                     wp = mi == 2 ? p.w_2 : wp;
+ #endif
++                    #ifdef F8N_WSCALE_COPY
++                    f8n_bulk(dst + F8N_BM * 4, f8n_wscales(wp, sn0 - first) + scaleKb * 512, F8N_WSCALE_COPY, bar);
++#else
+                     f8n_bulk(dst + F8N_BM * 4, f8n_wscales(wp, sn0 - first) + scaleKb * 512, F8N_BN * 4, bar);
++#endif
+                 }
++#elif defined(F8N_WSCALE_COPY)
++                f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_WSCALE_COPY, bar);
+ #else
+                 f8n_bulk(dst + F8N_BM * 4, f8n_wscales(p.w, sn0) + scaleKb * 512, F8N_BN * 4, bar);
+ #endif
