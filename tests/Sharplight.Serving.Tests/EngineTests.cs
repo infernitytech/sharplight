@@ -129,6 +129,12 @@ public class EngineTests
         Assert.Equal(StepFloorPolicy.Waves, default(StepFloorPolicy));
     }
 
+    [Fact]
+    public void StepRowsPerSequence_DefaultsTo48()
+    {
+        Assert.Equal(48, new EngineOptions().BatchTokensPerSequence);
+    }
+
     /// <summary>
     /// Four prompts arriving while another sequence decodes: the waves policy (default) leaves the floor out (a step holds the oldest
     /// prompt's rest plus a row per sequence), the old policy applies it, the full policy gives the step the whole budget.

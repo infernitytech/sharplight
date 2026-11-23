@@ -111,6 +111,9 @@ internal sealed class ServeOptionSet
             + "every step may use the whole budget). SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full overrides it.",
         HelpName = "policy",
     };
+    private readonly Option<int?> _stepRowsPerSequence = OptionFactory.OptionalInteger("--step-rows-per-sequence", "Prompt rows per sequence holding a slot "
+        + "that a step may carry while some sequence decodes (default 48; larger: fewer, longer prompt steps, lower ITL p95, higher TTFT). "
+        + "SHARPLIGHT_STEP_ROWS_PER_SEQUENCE overrides it.", minimum: 1, helpName: "rows");
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
     private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
@@ -185,6 +188,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_stepTokens);
         command.Options.Add(_minStepTokens);
         command.Options.Add(_stepFloor);
+        command.Options.Add(_stepRowsPerSequence);
         command.Options.Add(_kvTokens);
         command.Options.Add(_allowCacheSalt);
         command.Options.Add(_noPrefixCache);
@@ -246,6 +250,7 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_stepTokens),
             parseResult.GetValue(_minStepTokens),
             ParseStepFloor(parseResult.GetValue(_stepFloor)),
+            parseResult.GetValue(_stepRowsPerSequence),
             parseResult.GetValue(_kvTokens),
             parseResult.GetValue(_draftTokens),
             parseResult.GetValue(_mtpTokens),

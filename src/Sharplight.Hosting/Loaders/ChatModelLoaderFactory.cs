@@ -54,7 +54,8 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
         return load;
     }
 
-    private static ChatModelOptions CreateChatOptions(HostedModelLoadContext context)
+    /// <summary>The chat model's options for a hosted model: its engine settings, speculators and service defaults.</summary>
+    internal static ChatModelOptions CreateChatOptions(HostedModelLoadContext context)
     {
         var settings = context.Settings;
         var chat = new ChatModelOptions
@@ -70,6 +71,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
                 MaxBatchTokens = settings.StepTokens ?? 0,
                 MinBatchTokens = settings.MinStepTokens ?? new EngineOptions().MinBatchTokens,
                 StepFloor = settings.StepFloor ?? new EngineOptions().StepFloor,
+                BatchTokensPerSequence = settings.StepRowsPerSequence ?? new EngineOptions().BatchTokensPerSequence,
                 SpeculationMaxBatch = settings.SpeculationMaxBatch,
             },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,

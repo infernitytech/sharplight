@@ -28,8 +28,14 @@ public sealed record EngineOptions
     /// <c>full</c>) overrides it for the process.
     /// </summary>
     public StepFloorPolicy StepFloor { get; set; } = StepFloorPolicy.Waves;
-    /// <summary>Rows per sequence holding a slot that the adaptive step budget allows (see <see cref="MinBatchTokens"/>).</summary>
-    public int BatchTokensPerSequence { get; set; } = 32;
+    /// <summary>
+    /// Rows per sequence holding a slot that the adaptive step budget allows (see <see cref="MinBatchTokens"/>), rounded up to
+    /// <see cref="BatchTokensGranule"/>: while some sequence decodes, a step of 16 slots carries at most 768 rows by default. Larger values
+    /// prefill a wave of prompts in fewer, longer steps (fewer decode gaps carry a prompt: lower ITL p95, slightly higher throughput on
+    /// MoE models) at the cost of TTFT and the ITL p99 of the prompts admitted first (benchmarks.md §100.1). Default 48. The environment
+    /// variable <c>SHARPLIGHT_STEP_ROWS_PER_SEQUENCE</c> overrides it for the process.
+    /// </summary>
+    public int BatchTokensPerSequence { get; set; } = 48;
     /// <summary>
     /// The adaptive step budget (see <see cref="MinBatchTokens"/>) is rounded up to a multiple of this many rows (1: no rounding). A
     /// prompt-sized GEMM's time follows the count of its token tiles (128 rows on the CUDA provider's FP8 and f16 GEMMs), so a budget

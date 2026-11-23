@@ -96,6 +96,9 @@ public sealed record HostedModelSettings
     /// <summary>When the floor of the adaptive step budget applies, or null (the engine's default).</summary>
     public Llm.Serving.StepFloorPolicy? StepFloor { get; init; }
 
+    /// <summary>Rows per sequence holding a slot that the adaptive step budget allows, or null (the engine's default).</summary>
+    public int? StepRowsPerSequence { get; init; }
+
     /// <summary>Prompt-lookup draft length (0 = off).</summary>
     public int NgramDraftTokens { get; init; }
 
@@ -154,6 +157,7 @@ public sealed record HostedModelSettings
             StepTokens = defaults.StepTokens,
             MinStepTokens = defaults.MinStepTokens,
             StepFloor = defaults.StepFloor,
+            StepRowsPerSequence = defaults.StepRowsPerSequence,
             NgramDraftTokens = defaults.NgramDraftTokens,
             MtpDraftTokens = defaults.MtpDraftTokens,
             SpeculationMaxBatch = defaults.SpeculationMaxBatch,
