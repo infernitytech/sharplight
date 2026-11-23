@@ -239,13 +239,13 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     /// form (benchmarks.md section 92), while most other kernels are as fast or faster from the driver. (The driver also drops
     /// <c>setmaxnreg</c> from family-specific PTX: its cubins target <c>sm_120</c>.) The PTX stays in the code for other GPUs and as the fallback.
     /// <c>SHARPLIGHT_CUDA_NVRTC_SASS=0</c> turns it off, <c>all</c> applies it to every kernel, <c>if:text</c> to the kernels whose source
-    /// contains the text (<c>\n</c> for a line break; diagnostics).
+    /// contains the text (<c>\n</c> for a line break, <c>|</c> between alternatives; diagnostics).
     /// </summary>
     internal static bool CompilesSass(string source, int computeCapability) => DiagnosticSwitches.NvrtcSass switch
     {
         "0" => false,
         "all" => true,
-        ['i', 'f', ':', ..] text => source.Contains(text[3..].Replace("\\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal),
+        ['i', 'f', ':', ..] text => text[3..].Split('|').Any(t => source.Contains(t.Replace("\\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal)),
         _ => computeCapability / 10 == 12 && source.Contains(SassMarker, StringComparison.Ordinal),
     };
 
