@@ -197,6 +197,7 @@ public sealed partial class GraphLowerer
             Mode = mode,
             Epsilon = eps,
             UseSubgroupOps = _opt.Has(DeviceFeatures.SubgroupOps),
+            CompactReduction = _compiler.CompilesCuda(_opt.Target),
             HeadNormExpression = head?.Expression,
             HeadHasWeight = head?.Weight is not null,
             HeadMode = head?.Mode ?? 0,

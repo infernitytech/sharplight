@@ -99,6 +99,13 @@ internal sealed class RowNormKernelSource
     /// <summary>Epsilon added before the reciprocal square root.</summary>
     public required float Epsilon { get; init; }
 
+    /// <summary>
+    /// True when the subgroup reduction keeps one partial sum per 4 lanes (subgroups have at least 4) instead of one per thread: a small
+    /// array keeps the kernel's shared memory within what a programmatic dependent finds next to a running kernel without any (CUDA:
+    /// 1 KB plus the driver's reservation; benchmarks.md section 100.3). Targets without dependent launches keep the per-thread array.
+    /// </summary>
+    public bool CompactReduction { get; init; }
+
     /// <summary>True when subgroup arithmetic may be used for the reduction.</summary>
     public required bool UseSubgroupOps { get; init; }
 
@@ -118,10 +125,7 @@ internal sealed class RowNormKernelSource
         _unroll = _iterations <= MaxUnrolledIterations;
 
         AppendParams();
-        // The subgroup reduction keeps one partial sum per subgroup (subgroups of at least 4 lanes), the tree reduction one per thread.
-        // A small array keeps the kernel's shared memory within what a programmatic dependent finds next to a running kernel without any
-        // (CUDA: 1 KB plus the driver's reservation; benchmarks.md section 100.3).
-        _sb.AppendLine($"groupshared float red[{(UseSubgroupOps ? Math.Max(1, Threads / 4) : Threads)}];");
+        _sb.AppendLine($"groupshared float red[{(UseSubgroupOps && CompactReduction ? Math.Max(1, Threads / 4) : Threads)}];");
         if (Fp8Output is not null || Q8Output is not null)
         {
             // One padding word per 32 values: the quantization's lanes read four consecutive values each (a stride of four words),
