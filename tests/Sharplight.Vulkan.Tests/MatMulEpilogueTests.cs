@@ -28,7 +28,7 @@ public sealed class MatMulEpilogueTests
     }
 
     /// <summary>
-    /// q / k / v = norm(x)·Wᵀ + b with bias weights (a transformer layer's attention projections: one multi-output GEMM at 9-256 rows)
+    /// q / k / v = norm(x)·Wᵀ + b with bias weights (a transformer layer's attention projections: one multi-output GEMM at the row counts that split K, 9 to ~500 rows)
     /// and a 32-wide router with its bias, for single-row, skinny, split-K and plain GEMM row counts: f16 weights in gpt-oss-20b's
     /// shapes (the biases in the split-K reduction), Q8_0 / Q4_K weights in gpt-oss / Qwen2.5-1.5B / 7B shapes and FP8 weights (the
     /// biases as their own launch after the GEMM, which must follow the multi-output GEMM that writes the products).
@@ -62,9 +62,9 @@ public sealed class MatMulEpilogueTests
         // per value. A bias read before its product is written (or a product missing its bias, 0.5 on average) is far off either way.
         bool fp8 = type.StartsWith("f8", StringComparison.Ordinal);
         double tolerance = fp8 ? 0.15 : weightType.IsQuantized ? 6e-2 : 2e-3;
-        Diff.Check($"MatMul({type}) q/k/v/router + bias", g, [Rows(1), Rows(5), Rows(16), Rows(40), Rows(64), Rows(300)], atol: tolerance,
+        Diff.Check($"MatMul({type}) q/k/v/router + bias", g, [Rows(1), Rows(5), Rows(16), Rows(40), Rows(64), Rows(300), Rows(448)], atol: tolerance,
             rtol: fp8 ? 5e-2 : tolerance,
-            maxTokens: 300, what: $"{k}->{qWidth}+{kvWidth}+{kvWidth}");
+            maxTokens: 448, what: $"{k}->{qWidth}+{kvWidth}+{kvWidth}");
     }
 
     /// <summary>

@@ -1539,7 +1539,7 @@ public sealed class InferenceEngine : IDisposable
         long now = Stopwatch.GetTimestamp();
         _load = Stopwatch.GetElapsedTime(_loadTimestamp, now) > LoadHoldTime ? _active.Count : Math.Max(_active.Count, _load - 1);
         _loadTimestamp = now;
-        long rows = Math.Max((long)_load * Math.Max(1, _opt.BatchTokensPerSequence), _active.Count + oldest);
+        long rows = Math.Max((long)_load * Math.Max(1, DiagnosticSwitches.BatchTokensPerSequence ?? _opt.BatchTokensPerSequence), _active.Count + oldest);
         // Whole token tiles: a prompt-sized GEMM's time follows its count of token tiles, so a budget inside a tile is rounded up.
         long granule = Math.Max(1, _opt.BatchTokensGranule);
         rows = (rows + granule - 1) / granule * granule;

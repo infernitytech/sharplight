@@ -15497,3 +15497,223 @@ dotnet bench/BatchBench/bin/Release/net11.0/BatchBench.dll ~/models/hf/Qwen3-8B-
 ONNX_BENCH_DLL_BASE=<develop build>/OnnxBench.dll python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 \
   --engines sl-cuda,sl-cuda@base,sl-cuda-fast,sl-cuda-fast@base,ort-cuda,ort-cuda-strict
 ```
+
+## 100. LLM round 40: prompt waves at 16 streams measured against vLLM's scheduler step by step (equal prompt cost per token, three times as many prompt-bearing steps), the step budget per sequence as a measured proposal, the multi-output q / k / v GEMM up to the row counts that split K, a shared-memory floor for dependent launches (2026-11-23)
+
+Branch `perf/llm-r40` (`develop` at `fe4c4e53`, §99 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap, driver 595.112 / CUDA 13.2), shared with other rounds; every GPU run held the verify lock, `develop` (`perf-r40-base`
+worktree) and the branch alternated in the same holds, vLLM 0.33 (venv `vllm-r12`) in the same holds as the engines it is compared
+with. Raw output in [`bench/results/s100/`](../bench/results/s100) (`steps/`, `serve/`, `serve_trace/`, `serve_pol/`, `pdl/`,
+`prof/`, `onnx/`, `correct/`, `tests/`, `sim/`, `scripts/`).
+
+Kept (all keyed on shapes, row counts, bias rows, shared memory and device attributes; nothing on models):
+
+1. The split-K multi-output q / k / v GEMM serves up to 1,024 rows instead of 256 (`GraphLowerer.MultiGemmMaxRows`,
+   `SHARPLIGHT_MULTI_GEMM_MAX_ROWS`). It still serves only the batches where every member would run its own split-K launch, so above
+   256 rows it takes f16 projections with a bias row (they stay on gemm_cm2 below `NativeBiasGemmMinRows`, 1,024) at the row counts
+   that still split K: mixed decode + prompt steps of 257 to ~512 rows. One launch and one reduction instead of three of each (100.2).
+2. Dependent launches (§99.1's rule 1) may always need twice the driver's shared-memory reservation per block, whatever the previous
+   kernel's share (`CudaSegment.DependentSharedFloor`, `SHARPLIGHT_CUDA_PDL_SHARED_FLOOR`), and the fused row norm keeps one partial
+   sum per 4 lanes instead of one per thread with subgroup arithmetic on CUDA targets (`RowNormKernelSource.CompactReduction`: 1 KB at
+   1,024 threads, 256 B at 256; Vulkan keeps `develop`'s array),
+   so the one-row norms after full-GPU reductions launch early again (100.3).
+3. Diagnostic switches for A/B runs: `SHARPLIGHT_STEP_ROWS_PER_SEQUENCE` (the serving engine's `BatchTokensPerSequence`).
+
+The owner default `StepFloor = Waves` is unchanged; 100.1 measures the step budget per sequence as a proposal.
+
+### 100.1 Prompt waves at 16 streams: vLLM's steps against ours
+
+**What vLLM schedules.** vLLM 0.33 on this GPU defaults to `max_num_batched_tokens` 2,048 for the API server (32 GB, its "other
+hardware" row; `--max-model-len 512` keeps it there). A scheduler hook (`scripts/vlog/sitecustomize.py`, loaded in the engine-core
+process through `PYTHONPATH`, writes every `Scheduler.schedule` result: tokens, decode rows, prompt rows, prompt requests) and our
+`SHARPLIGHT_SCHED_TRACE=1` on the same closed-loop run (16 streams, 64 requests of ~250 prompt + 128 output tokens, `serve_trace/`;
+the first tenth of the steps left out):
+
+| | steps | steps with prompt rows | time in them | prompt rows per prompt step | prompts per prompt step | decode-only step (median) |
+|---|---:|---:|---:|---|---|---:|
+| gpt-oss-20b, ours | 588 | 38 (6.5 %) | 1,356 of 6,292 ms | 384-511 rows in 27 of 38 | mostly 2 (2-4) | 8.89 ms |
+| gpt-oss-20b, vLLM | 588 | 14 (2.4 %) | 633 of 6,507 ms (+ ~540 spread over the next steps by async scheduling) | 1,206-2,047 in 9 of 14 | 5-9 | 9.29 ms |
+| Qwen3-8B-FP8, ours | 588 | 38 (6.5 %) | 1,298 of 8,200 ms | as above | as above | 12.46 ms |
+| Qwen3-8B-FP8, vLLM | 584 | 12 (2.1 %) | 626 of 8,166 ms (+ ~450) | 1,750-2,047 in 8 of 12 | 7-9 | 12.40 ms |
+
+vLLM keeps the 16 closed-loop streams in lockstep: each wave of 16 arrivals is prefilled in one 250-row step and two steps of
+~2,000 and ~1,750 rows (Qwen3-8B-FP8 ~96 and ~107 ms; the whole wave ~230 ms for 4,000 prompt tokens, ~57 µs per token). Ours
+spreads a wave over ~9 steps of 512 rows (32 per slot, one 128-row tile multiple) at ~35 ms, ~2 prompts each; the streams then
+finish at different times and every later arrival brings its own prompt-bearing step. The total prompt work per wave is the same
+(ours: 51 µs per prompt row on gpt-oss-20b, 48 on Qwen3-8B-FP8, both marginal over the decode step, below); what differs is how
+often a step carries it: 6.5 % of our steps against 2.1-2.4 % of vLLM's, which is exactly the ITL p95 difference (a p95 sees the
+prompt steps once they are more than 5 % of the gaps).
+
+**What a mixed step costs** (BatchBench `--mixed`, `--text`, GPU ms min of 10, two rounds within 0.3 %, `steps/mix_*`):
+
+| gpt-oss-20b | 0 prompt rows | 128 | 256 | 496-512 | 1,008-1,024 | 2,032-2,048 |
+|---|---:|---:|---:|---:|---:|---:|
+| prompt only (0 decode rows) | - | 15.35 | 21.88 | 35.15 | 59.46 | 112.47 |
+| 16 decode rows + prompt | 9.14 | 17.98 | 24.94 | 35.89 | 60.07 | 113.15 |
+| 16 decode + 2 / 4 / 8 prompts of 250 | | | 37.32 (500) | | 62.56 (1,000) | 111.16 (2,000) |
+
+A prompt step costs ~8.8 ms plus 51 µs per row on gpt-oss-20b (linear: no token-tile steps, its expert GEMMs tile per expert); the
+16 decode rows add 0.7-3.1 ms to a prompt step against 9.1 ms on their own, so the mixed step is already cheaper than a decode step
+plus a prompt step (24.9 against 9.1 + 21.9 ms). Per prompt-bearing step a closed loop pays ~2.4-3 ms over its decode rows' share
+(16 + 256 against 0 + 256: the 16 rows' expert tiles +53 µs per layer, the q / k / v launches +47 µs, the 3rd token tile of o
++17 µs, the decode attention launch +9.5 µs). Qwen3-8B-FP8's prompt GEMMs follow their 128-row token tiles instead (`steps/mr_*`):
+16 + 128 rows 17.8 ms, 0 + 250 18.8, 16 + 250 (266 rows, three tiles) 27.0, 0 + 368 28.2, 16 + 496 36.0.
+
+**The step budget per sequence** (the Waves floor kept; while some sequence decodes the budget is `BatchTokensPerSequence` rows per
+slot, 32 by default, i.e. 512 at 16 slots). Closed loop, one hold, order `develop`-equal r40, 64, 48, `full` (the whole 2,048 while
+decoding), vLLM (`serve_pol/`; tok/s per round, TTFT p50, ITL mean / p95 / p99 in ms):
+
+| 16 streams | gpt-oss-20b tok/s | TTFT p50 | ITL mean / p95 / p99 | Qwen3-8B-FP8 tok/s | TTFT p50 | ITL mean / p95 / p99 |
+|---|---:|---:|---|---:|---:|---|
+| 32 rows per slot (default, Waves) | 1404 / 1420 | 74-81 | 10.44-10.46 / 20.4-22.1 / 38-39 | 1102 / 1109 | 73-77 | 13.64-13.67 / 24.4-25.6 / 37.5-37.6 |
+| 48 rows per slot | **1421 / 1433** (+1.0 %) | 94-101 | 10.27 / **11.9** / 47 | 1104 / 1107 | 93-97 | 13.55 / **14.7-15.3** / 49-50 |
+| 64 rows per slot | 1418 / 1428 (+0.8 %) | 109-114 | 10.21-10.23 / 11.5-11.8 / 52 | 1105 / 1106 | 112 | 13.47 / 14.4 / 54-55 |
+| `full` (whole budget while decoding) | 1436 / 1461 (+2.6 %) | 144-186 | 9.70-9.77 / 10.8-10.9 / 12-14.5 | 1103 / 1108 | 156-168 | 13.07-13.09 / 14.0-14.2 / 16-18 |
+| vLLM 0.33 | 1415 / 1419 | 177-194 | 9.85-9.99 / 10.6 / 14-24 | 1116 / 1114 | 158-162 | 12.95-12.97 / 12.8-13.5 / 14-15 |
+
+A closed-loop simulator with these step costs (`sim/sim.py`) reproduces the ordering (Waves 1,352, 64 per slot 1,366, full 1,373
+tok/s at 16 streams; TTFT 73 / 98 / 171 ms; ITL p95 24 / 10 / 10; p99 37 / 49 / 10) and shows why: a larger budget per slot
+prefills a wave in fewer, longer steps, so fewer of the gaps carry a prompt (p95 halves) but the prompts admitted first decode
+through longer steps (p99 grows), and fewer prompt-bearing steps pay the ~2.4 ms each (MoE: +0.8-1.0 % throughput; Qwen3-8B-FP8's
+throughput does not move, its prompt work is the same in any budget). No per-slot budget wins throughput and every latency at once:
+
+* **Proposal (owner's call, not changed):** 48 rows per slot while decoding (`EngineOptions.BatchTokensPerSequence = 48`; the Waves
+  floor unchanged). Measured: gpt-oss-20b +1.0 % (to vLLM's 1,417, 1.00-1.01x), ITL p95 20-22 → 11.9 ms (vLLM 10.6), ITL mean -1.7 %,
+  TTFT p50 74-81 → 94-101 ms (still half of vLLM's 177-194); Qwen3-8B-FP8 ITL p95 25 → 15 ms (vLLM 13-13.5), throughput equal; the
+  cost is the closed-loop ITL p99 (38 → 47-50 ms; vLLM 14-24). At 64 streams the budget is the whole 2,048 rows either way.
+* `full` remains the best throughput / tail point for MoE models (+2.6 %, ITL p99 at vLLM's) at vLLM's TTFT (§93.4).
+
+### 100.2 The multi-output q / k / v GEMM at the row counts that split K
+
+The 16 + 256-row profile (`steps/prof_*`) shows gpt-oss-20b's q / k / v running as one multi-output split-K GEMM at 256 rows
+(63.2 + 8.4 µs reduction per layer) but as three launches at 272 (q split-K 83.9, k and v 17.7 each, three reductions), because
+`MultiGemmMaxRows` stopped the multi-output form at 256 rows while the members (f16 weights with a bias row, kept on gemm_cm2 below
+1,024 rows by `NativeBiasGemmMinRows`) still split K up to ~512 rows. Raising the bound to 1,024 changes no batch where any member
+runs another kernel: the multi-output GEMM serves only rows where every member's own split launch would run.
+
+GPU ms min, same holds, base (`develop`) / r40 (`steps/mr_*`, `steps/fin_*`; dispatches per step 534 → 438 where it serves):
+
+| step | gpt-oss-20b | Qwen2.5-1.5B (bf16, q / k / v biases) | Qwen3-8B-FP8 (no biases; FP8 tall GEMMs) |
+|---|---:|---:|---:|
+| 16 decode + 250 prompt rows | 24.32 / 24.20, 24.59 / 24.47, 24.07 / 24.01, 24.17 / 24.23 (-0.5 to +0.2 %) | 11.59 / 11.50, 11.62 / 11.55 (-0.7 %) | 26.96 / 26.90 (=) |
+| 16 + 368 | 28.71 / 28.73, 28.92 / 28.84 (=) | 12.21 / 12.14, 12.22 / 11.99 (-0.6 to -1.9 %) | 29.46 / 29.52 (=) |
+| 16 + 496 | 35.93 / 35.97 (=, split 1: not served) | 14.85 / 14.72, 14.82 / 14.60 (-0.9 to -1.5 %) | 36.02 / 36.08 (=) |
+| 16 + 2 x 250 | 37.29 / 37.30 (=) | 17.14 / 16.92, 17.07 / 16.73 (-1.3 to -2.0 %) | |
+| decode 1 / 16 / 64 | equal | equal | equal |
+
+The gain is small on gpt-oss-20b (-0.1 ms per 266-row mixed step on three of four pairs; the profile's 48 µs per layer for the
+three launches is mostly overlapped in the replayed graph) and 1-2 % on the dense bf16 model with biases (Qwen2.5 / Qwen2-style q / k / v at 266-500 rows); FP8 and unbiased f16
+projections run their tall multi-output GEMMs from 256 rows as before (dispatch counts unchanged). Benefits: every f16 / bf16 model
+with q / k / v biases (Qwen2 / 2.5, gpt-oss, other biased-projection families) in mixed decode + prompt steps. Vulkan: the f16
+multi-output form is CUDA-only (§61); the FP8 family's split form is unchanged in the Vulkan steps (`steps/vk_*`, `steps/vk2_*`: Qwen3-8B-FP8 16 + 250 / 368 / 496 rows 38.41 / 43.10 / 51.37 against 38.33 / 43.20 / 51.24 ms; Qwen2.5-1.5B equal within its bimodal 16 + 2 x 250 row, 17.85-18.9 ms in every variant including `SHARPLIGHT_MULTI_GEMM_MAX_ROWS=256`). The compact norm array of 100.3 is CUDA-only (Vulkan has no dependent launches; its norms are `develop`'s).
+
+### 100.3 Dependent launches: a shared-memory floor, the one-row norms' scratch
+
+§99.8's item 2 (the remaining ~0.4 % of gpt-oss-20b's 16-sequence decode: short kernels after full-GPU grids launched late). The
+placement harness (`bench/s99_pdl_placement.cu`, `pdl/pdl_sweep.log`): kernel B of 16 blocks after A of 108 / 180 / 328 blocks
+(1-4 per SM) without shared memory, B's dynamic shared memory swept, trigger at A's entry:
+
+| B's dynamic shared / block (+1 KB reservation) | 0 | 256 B | 512 B | 1 KB | 1.5 KB | 2 KB | 3 KB | 4 KB | 6 KB |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| B span after 108 blocks of A, µs | 33.6 | 33.6 | 33.7 | 33.6 | 33.7 | **154.9** | 155.7 | 148.3 | 163.2 |
+| after 180 / 328 blocks of A | 33.8 / 33.8 | 33.8 / 33.8 | 33.8 / 33.8 | 33.8 / 33.8 | 33.8 / 33.8 | **195.5 / 197.4** | 200.8 / 199.4 | 196.5 / 146.8 | 187.3 / 200.8 |
+
+Up to 2.5 KB per block with the reservation, B's blocks spread one per SM next to any A without shared memory; from 3 KB they pile
+onto the idle SMs, whatever A's occupancy. §99's rule 1 counted a kernel without shared memory as a share of 0, so every dependent
+with any shared memory (which always carries the 1 KB reservation) launched late after it. Kept: the share a dependent may always
+need is twice the driver's reservation per block (2 KB here; device attribute, not a constant). The fused row norms (`main_0`, 16
+blocks, two per layer) used a 256-float reduction array (`red[Threads]`, 1 KB + 1 KB) even with subgroup sums, which need one float
+per subgroup; it is now `Threads / 4` floats (subgroups of at least 4 lanes), so the norm after `rowreduce_narrow` (180 blocks)
+launches early: nsys of the 16-sequence step, end-to-end time per launch 2.54 → 2.11 µs (`SHARPLIGHT_CUDA_PDL_SHARED=any`: 2.14).
+The norm after `splitk_reduce` keeps its 12 KB (the quantized-row staging of its int-dot output) and stays late.
+
+Effect on whole steps is within the run-to-run spread: gpt-oss-20b at 1 / 16 / 64 sequences 5.15 / 12.01-12.03 / 16.80-16.86 ms
+against 5.14-5.15 / 12.01-12.03 / 16.82-16.87 (`steps/dec_*`, `steps/fin_*`); Qwen3-8B-FP8 equal (10.98 / 12.20-12.21 / 15.59-15.64).
+The rest of the 0.25 % that `=any` still gains (11.83-11.84 against 11.86-11.87 ms) is gemm_cm2's 184-block split launch after a
+16-block `to_f16_ranged` (31.1 against 32.9 µs per layer), which is §99.7's rejected "rule 2 at the dependent's occupancy" (bert b1
++3 %); not changed. ONNX on CUDA, r40 against `develop` in the same holds (`onnx/onnx_floor.jsonl`, GPU ms min, 2 rounds): bert-base
+b1 / b8 0.982 / 1.763 (both), efficientnet-lite4 0.693 / 0.694, phi-3.5 q4f16 3.378 / 3.384, qwen2.5-0.5b q4 2.096 / 2.094,
+resnet50 b1 / b8 0.766 / 0.765, 3.355 / 3.356, mobilenetv2 b1 / b8 equal, yolov10n 1.002 / 1.003, whisper-tiny encoder 1.753 /
+1.755: -0.2 to +0.1 %, parity RMS identical on every row.
+
+### 100.4 Serving against vLLM
+
+`bench/s16_serve.sh`, closed loop, 16 / 64 slots of 512 tokens, ~250-token prompts, 128 output tokens, two rounds per point, §95's
+defaults (Waves, 32 rows per slot). One hold: gpt-oss-20b as r40, `develop`, vLLM, `develop`, r40, then Qwen3-8B-FP8 as r40, `develop`,
+vLLM (`serve/summary.txt`). Tok/s per round, TTFT p50, ITL mean / p95 / p99 (ms):
+
+| model, streams | `develop` | `perf/llm-r40` | vLLM 0.33 | r40 / `develop` | **r40 / vLLM** |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b, 16 | 1402 / 1417, 1401 / 1417 | 1405 / 1418, 1409 / 1416 | 1408 / 1423 | +0.2 % | **0.99-1.00** (means 0.997) |
+| the same: TTFT p50 / ITL mean, p95, p99 | 74-80 / 10.46-10.49, 20-22, 38-39 | 74-81 / 10.39-10.49, 20-22, 38-40 | 180-192 / 9.88-10.07, 10.5-10.7, 21-26 | | |
+| gpt-oss-20b, 64 | 3187 / 3216, 3188 / 3209 | 3193 / 3217, 3189 / 3231 | 3127 / 3211 | +0.2 % | **1.00-1.03** (means 1.012) |
+| the same: TTFT p50 / ITL mean, p95, p99 | 224-228 / 17.25-17.38, 33-37, 113-115 | 227-230 / 17.14-17.37, 32-41, 111-115 | 462-473 / 16.32-17.00, 16.5-17.2, 120 | | |
+| Qwen3-8B-FP8, 16 | 1102 / 1108 | 1101 / 1106 | 1122 / 1117 | -0.1 % | 0.98-0.99 |
+| the same: TTFT p50 / ITL mean, p95, p99 | 73-78 / 13.64, 20-25, 38 | 73-78 / 13.68, 25, 37.5-38 | 159-165 / 12.88-12.89, 12.9-13.4, 14-16 | | |
+| Qwen3-8B-FP8, 64 | 2652 / 2671 | 2657 / 2665 | 2691 / 2694 | 0 | 0.99 |
+| the same: TTFT p50 / ITL mean, p95, p99 | 254 / 21.04-21.14, 38-44, 126-129 | 253-255 / 21.07-21.08, 36-39, 128-129 | 394-400 / 20.21-20.26, 22, 133 | | |
+
+The kept changes are within the rounds' spread on serving (they take 0.1-0.5 % off steps that are a fraction of the run). The positions
+against vLLM are §99's: gpt-oss-20b at parity (0.99-1.00 at 16, 1.00-1.03 at 64), Qwen3-8B-FP8 0.98-0.99, our TTFT less than half of
+vLLM's; at 16 streams the ITL p95 difference is the prompt-step share of 100.1 (48 rows per slot: 11.9 / 15 ms against vLLM's
+10.6 / 13).
+
+### 100.5 Correctness and tests
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt; `correct/`): byte-identical to `develop` for gpt-oss-20b
+  (e733f049 / 8cb648ed), Qwen3-8B-FP8 (3879d8a4 / b9666631, also with `--fp8-block-scaled off`) and Qwen2.5-1.5B (125d601f / b9666631),
+  the model whose q / k / v the multi-output GEMM now takes in more steps (its prompt and decode steps do not reach 257-512 rows with
+  one sequence, the mixed steps where it serves are checked by the tests below).
+* PplBench (wikitext-2, 4 x 3,072 tokens, prompt steps of 1,024 rows): dumped logits bit-identical to `develop` and between runs
+  (gpt-oss-20b 55ff87d4, PPL 1806.6235; Qwen3-8B-FP8 4ab780cf, PPL 8.7358).
+* ONNX: strict parity unchanged on every row measured (100.3).
+* Suites on GPU 0, one class per process (`tests/`): `Sharplight.Cuda.Tests` 71, 0 failed, 1 skipped (cuBLASLt not installed);
+  `Sharplight.Serving.Tests` 401, 0 failed, 13 skipped; `Sharplight.Import.Onnx.Tests` 181, 0 failed, 28 skipped (all with
+  `SHARPLIGHT_TEST_PROVIDER=cuda`); `Sharplight.Vulkan.Tests` fusion, epilogue (with the new 300 / 448-row q / k / v cases), norm, MoE,
+  FP8 and f16-range classes on both providers, 348 / 348, 0 failed (the Vulkan run predates the CUDA-only guard of the compact norm
+  array, which makes Vulkan's norms `develop`'s again).
+
+### 100.6 Rejected and not kept
+
+* **A token-tile trim / cost-aware chunking for 16-stream waves** (not built): the traces show the trim's case (a step ≤ 32 rows past a
+  tile boundary) in 7 of 588 steps, ~3 ms each on Qwen3-8B-FP8 and nothing on gpt-oss-20b (no tile steps): ≤ 0.3 % of a run.
+* **`SHARPLIGHT_CUDA_PDL_SHARED=any` / rule 2 at the dependent's occupancy** for the remaining 0.25 % (100.3): costs bert b1 3 % (§99).
+* **Policies 64 rows per slot and `full`** as defaults: owner's call (100.1); 48 is proposed.
+
+### 100.7 Gap to vLLM and ranked plan
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64, closed loop | **0.99-1.00 / 1.00-1.03** | 16: prompt-bearing steps on 6.5 % of the steps against vLLM's 2.4 % (equal prompt cost per token, 100.1); 48 rows per slot: 1.00-1.01 |
+| Qwen3-8B-FP8 serving 16 / 64 | 0.98-0.99 / 0.99 | ITL mean 13.68 / 21.07 against 12.89 / 20.23: the prompt steps' share and the FP8 prompt GEMMs (§94) |
+
+1. **Step budget per slot 48** (owner decision, 100.1): gpt-oss-20b to vLLM's throughput at 16 streams and ITL p95 at ~vLLM's, TTFT
+   still half of vLLM's; costs closed-loop ITL p99.
+2. **Prompt-step tails**: a prompt cut by the budget leaves a 9-16-row tail (a KV-block-aligned cut, `ClipPrefillChunk`) that costs a
+   whole prompt-bearing step later (Qwen3-8B-FP8: 17.3 ms for 15 decode + 10 prompt rows against 12.5). Letting the last chunk of a
+   prompt finish when it is short of the budget by less than a block, or holding the prompt whole for the next step, needs a
+   tile-aware step cost (§93.8 item 3).
+3. **FP8 prompt GEMMs** (Qwen3-8B-FP8, 5-8 % behind CUTLASS, §94): not reached this round; Qwen3-8B-FP8's prompt steps are ~16 % of its
+   16-stream time, so the remaining gap is worth ~1 %.
+4. **The 12 KB row norm before the int-dot router** launched late (100.3, ~10 µs per step) and gemm_cm2 after 16-block kernels
+   (~40 µs per step on gpt-oss-20b): a placement rule that knows which SMs the previous grid leaves idle.
+5. ONNX rows still behind TensorRT (§99.5).
+
+### 100.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# 100.1: vLLM scheduler steps (the hook logs every schedule() result to $VLLM_STEP_LOG.<pid>), ours with SHARPLIGHT_SCHED_TRACE=1
+VLLM_STEP_LOG=steps PYTHONPATH=bench/results/s100/scripts/vlog CONCS=16 ROUNDS=1 bench/s16_serve.sh vllm gptoss ~/models/hf/gpt-oss-20b 16 --gpu-memory-utilization 0.6
+SHARPLIGHT_SCHED_TRACE=1 CONCS=16 ROUNDS=1 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b 16 --provider cuda
+python3 bench/results/s100/scripts/steps_an.py
+SHARPLIGHT_STEP_ROWS_PER_SEQUENCE=48 ROUNDS=2 bench/s16_serve.sh sharplight gptoss ~/models/hf/gpt-oss-20b 16 --provider cuda
+python3 bench/results/s100/sim/sim.py
+BatchBench ~/models/hf/gpt-oss-20b --provider cuda --slots 64 --ctx 2560 --depth 256 --batch 2048 --modes greedy --reps 10 --text \
+  --mixed 16+0,0+128,0+256,16+128,16+256,0+512,16+496,16+1008,0+1024,16+2032,0+2048 [--profile 0,1,2]
+# 100.2: SHARPLIGHT_MULTI_GEMM_MAX_ROWS=256 for the earlier bound
+# 100.3
+nvcc -O3 -arch=sm_120 bench/s99_pdl_placement.cu -o pdl
+for na in 108 180 328; do for bs in 0 1024 1536 2048 3072; do NA=$na NB=16 A_SMEM=0 B_SMEM=$bs A_US=3 B_US=40 MODE=1 ./pdl; done; done
+SHARPLIGHT_CUDA_PDL_SHARED_FLOOR=0 ...   # rule 1 as in §99
+```

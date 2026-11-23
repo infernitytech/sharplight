@@ -1,0 +1,102 @@
+# hold 20:22:27 apps: 
+== Qwen2.5-1.5B-Instruct base 1
+| 16 | 0 (0) | 35.0 | 398 / 0 | 4.89 / 4.90, 4.85 |  |
+| 16 | 128 (1) | 31.1 | 398 / 0 | 8.02 / 8.04, 7.97 | 0.024 |
+| 16 | 250 (1) | 30.1 | 454 / 0 | 11.65 / 11.99, 11.59 | 0.027 |
+| 16 | 256 (1) | 16.4 | 454 / 0 | 11.95 / 12.29, 11.90 | 0.028 |
+| 16 | 368 (1) | 14.8 | 454 / 0 | 12.26 / 12.43, 12.21 | 0.020 |
+| 16 | 496 (1) | 16.2 | 454 / 0 | 14.92 / 15.23, 14.85 | 0.020 |
+| 0 | 250 (1) | 17.9 | 398 / 0 | 8.89 / 8.89, 8.84 |  |
+| 0 | 368 (1) | 17.0 | 454 / 0 | 11.85 / 12.00, 11.81 |  |
+| 16 | 500 (2) | 18.7 | 454 / 0 | 17.19 / 17.50, 17.14 | 0.025 |
+== Qwen2.5-1.5B-Instruct mr1024 1
+| 16 | 0 (0) | 43.9 | 398 / 0 | 4.89 / 4.90, 4.84 |  |
+| 16 | 128 (1) | 33.5 | 398 / 0 | 7.99 / 8.01, 7.95 | 0.024 |
+| 16 | 250 (1) | 32.1 | 342 / 0 | 11.55 / 11.91, 11.50 | 0.027 |
+| 16 | 256 (1) | 14.9 | 342 / 0 | 11.93 / 12.15, 11.88 | 0.027 |
+| 16 | 368 (1) | 14.4 | 342 / 0 | 12.20 / 12.36, 12.14 | 0.020 |
+| 16 | 496 (1) | 15.9 | 342 / 0 | 14.78 / 15.00, 14.72 | 0.020 |
+| 0 | 250 (1) | 15.7 | 398 / 0 | 8.86 / 8.88, 8.81 |  |
+| 0 | 368 (1) | 15.1 | 342 / 0 | 11.88 / 11.95, 11.84 |  |
+| 16 | 500 (2) | 18.2 | 342 / 0 | 16.97 / 17.31, 16.92 | 0.024 |
+== Qwen2.5-1.5B-Instruct base 2
+| 16 | 0 (0) | 46.0 | 398 / 0 | 4.89 / 4.91, 4.85 |  |
+| 16 | 128 (1) | 27.3 | 398 / 0 | 8.03 / 8.06, 7.97 | 0.024 |
+| 16 | 250 (1) | 26.1 | 454 / 0 | 11.68 / 12.02, 11.62 | 0.027 |
+| 16 | 256 (1) | 15.6 | 454 / 0 | 11.97 / 12.17, 11.91 | 0.028 |
+| 16 | 368 (1) | 14.1 | 454 / 0 | 12.28 / 12.38, 12.22 | 0.020 |
+| 16 | 496 (1) | 16.6 | 454 / 0 | 14.88 / 15.22, 14.82 | 0.020 |
+| 0 | 250 (1) | 17.1 | 398 / 0 | 8.86 / 8.88, 8.82 |  |
+| 0 | 368 (1) | 16.9 | 454 / 0 | 11.85 / 11.97, 11.81 |  |
+| 16 | 500 (2) | 18.7 | 454 / 0 | 17.12 / 17.51, 17.07 | 0.024 |
+== Qwen2.5-1.5B-Instruct mr1024 2
+| 16 | 0 (0) | 37.2 | 398 / 0 | 4.90 / 4.92, 4.84 |  |
+| 16 | 128 (1) | 32.1 | 398 / 0 | 8.05 / 8.07, 7.98 | 0.025 |
+| 16 | 250 (1) | 27.6 | 342 / 0 | 11.63 / 11.99, 11.55 | 0.027 |
+| 16 | 256 (1) | 15.2 | 342 / 0 | 11.96 / 12.15, 11.89 | 0.028 |
+| 16 | 368 (1) | 17.2 | 342 / 0 | 12.06 / 12.23, 11.99 | 0.019 |
+| 16 | 496 (1) | 17.8 | 342 / 0 | 14.66 / 15.02, 14.60 | 0.020 |
+| 0 | 250 (1) | 17.9 | 398 / 0 | 8.85 / 8.87, 8.82 |  |
+| 0 | 368 (1) | 14.2 | 342 / 0 | 11.92 / 12.00, 11.88 |  |
+| 16 | 500 (2) | 20.8 | 342 / 0 | 16.78 / 17.30, 16.73 | 0.024 |
+# release 20:23:25 apps: 
+20:23:25 lock held (bert-base (16 tok)); apps: 
+r0 bert-base (16 tok) b1 sl-cuda: ok min 1.156 med 1.168 parity True 
+r0 bert-base (16 tok) b1 sl-cuda@base: ok min 1.159 med 1.163 parity True 
+r0 bert-base (16 tok) b8 sl-cuda: ok min 2.754 med 2.779 parity True 
+r0 bert-base (16 tok) b8 sl-cuda@base: ok min 2.849 med 2.879 parity True 
+r1 bert-base (16 tok) b1 sl-cuda: ok min 1.164 med 1.171 parity True 
+r1 bert-base (16 tok) b1 sl-cuda@base: ok min 1.158 med 1.165 parity True 
+r1 bert-base (16 tok) b8 sl-cuda: ok min 2.763 med 2.784 parity True 
+r1 bert-base (16 tok) b8 sl-cuda@base: ok min 2.761 med 2.776 parity True 
+20:24:03 released (bert-base (16 tok))
+20:24:03 lock held (efficientnet-lite4); apps: 
+r0 efficientnet-lite4 b1 sl-cuda: ok min 0.703 med 0.713 parity True 
+r0 efficientnet-lite4 b1 sl-cuda@base: ok min 0.704 med 0.713 parity True 
+r1 efficientnet-lite4 b1 sl-cuda: ok min 0.703 med 0.707 parity True 
+r1 efficientnet-lite4 b1 sl-cuda@base: ok min 0.704 med 0.713 parity True 
+20:24:17 released (efficientnet-lite4)
+20:24:17 lock held (phi3.5-mini q4f16 (GQA)); apps: 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-cuda: ok min 4.025 med 4.041 parity True 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-cuda@base: ok min 4.043 med 4.077 parity True 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-cuda: ok min 4.031 med 4.052 parity True 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-cuda@base: ok min 4.043 med 4.059 parity True 
+20:24:53 released (phi3.5-mini q4f16 (GQA))
+20:24:53 lock held (qwen2.5-0.5b q4 (MatMulNBits)); apps: 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cuda: ok min 2.399 med 2.408 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cuda@base: ok min 2.426 med 2.44 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cuda: ok min 2.422 med 2.441 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cuda@base: ok min 2.41 med 2.427 parity True 
+20:25:32 released (qwen2.5-0.5b q4 (MatMulNBits))
+20:25:32 lock held (resnet50); apps: 
+r0 resnet50 b1 sl-cuda: ok min 0.777 med 0.788 parity True 
+r0 resnet50 b1 sl-cuda@base: ok min 0.778 med 0.786 parity True 
+r0 resnet50 b8 sl-cuda: ok min 3.374 med 3.391 parity True 
+r0 resnet50 b8 sl-cuda@base: ok min 3.372 med 3.389 parity True 
+r1 resnet50 b1 sl-cuda: ok min 0.779 med 0.786 parity True 
+r1 resnet50 b1 sl-cuda@base: ok min 0.777 med 0.786 parity True 
+r1 resnet50 b8 sl-cuda: ok min 3.383 med 3.417 parity True 
+r1 resnet50 b8 sl-cuda@base: ok min 3.375 med 3.395 parity True 
+20:26:03 released (resnet50)
+20:26:03 lock held (mobilenetv2); apps: 
+r0 mobilenetv2 b1 sl-cuda: ok min 0.33 med 0.332 parity True 
+r0 mobilenetv2 b1 sl-cuda@base: ok min 0.33 med 0.331 parity True 
+r0 mobilenetv2 b8 sl-cuda: ok min 0.794 med 0.803 parity True 
+r0 mobilenetv2 b8 sl-cuda@base: ok min 0.793 med 0.8 parity True 
+r1 mobilenetv2 b1 sl-cuda: ok min 0.33 med 0.334 parity True 
+r1 mobilenetv2 b1 sl-cuda@base: ok min 0.329 med 0.332 parity True 
+r1 mobilenetv2 b8 sl-cuda: ok min 0.795 med 0.801 parity True 
+r1 mobilenetv2 b8 sl-cuda@base: ok min 0.799 med 0.801 parity True 
+20:26:23 released (mobilenetv2)
+20:26:23 lock held (yolov10n); apps: 
+r0 yolov10n b1 sl-cuda: ok min 1.011 med 1.021 parity True 
+r0 yolov10n b1 sl-cuda@base: ok min 1.019 med 1.022 parity True 
+r1 yolov10n b1 sl-cuda: ok min 1.021 med 1.023 parity True 
+r1 yolov10n b1 sl-cuda@base: ok min 1.014 med 1.022 parity True 
+20:26:45 released (yolov10n)
+20:26:45 lock held (whisper-tiny-encoder); apps: 
+r0 whisper-tiny-encoder b1 sl-cuda: ok min 1.953 med 1.959 parity True 
+r0 whisper-tiny-encoder b1 sl-cuda@base: ok min 1.943 med 1.969 parity True 
+r1 whisper-tiny-encoder b1 sl-cuda: ok min 1.95 med 1.963 parity True 
+r1 whisper-tiny-encoder b1 sl-cuda@base: ok min 1.946 med 1.955 parity True 
+20:27:02 released (whisper-tiny-encoder)

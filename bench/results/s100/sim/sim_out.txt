@@ -1,0 +1,8 @@
+N=16 waves    tok/s   1352 ttft p50     73 itl mean 11.21 p95  24.3 p99  36.8
+N=16 full     tok/s   1373 ttft p50    171 itl mean 10.39 p95  10.0 p99  10.0
+N=16 waves64  tok/s   1366 ttft p50     98 itl mean 10.96 p95  10.0 p99  49.2
+N=16 waves16  tok/s   1336 ttft p50     49 itl mean 11.47 p95  24.6 p99  24.9
+N=64 waves    tok/s   2776 ttft p50    213 itl mean 20.78 p95  31.9 p99 111.0
+N=64 full     tok/s   2778 ttft p50    237 itl mean 20.73 p95  16.4 p99 118.7
+N=64 waves64  tok/s   2778 ttft p50    237 itl mean 20.73 p95  16.4 p99 118.7
+N=64 waves16  tok/s   2744 ttft p50    134 itl mean 21.40 p95  67.0 p99  67.1

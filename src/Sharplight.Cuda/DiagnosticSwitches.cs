@@ -43,6 +43,12 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool DependentAnyShared { get; } = Read("SHARPLIGHT_CUDA_PDL_SHARED") == "any";
 
+    /// <summary>
+    /// <c>SHARPLIGHT_CUDA_PDL_SHARED_FLOOR=bytes</c>: the shared memory per multiprocessor a dependent may always need, whatever the previous
+    /// kernel's share (see CudaSegment's dependent rule), or null for the default (twice the driver's reservation per block).
+    /// </summary>
+    public static long? DependentSharedFloor { get; } = Read("SHARPLIGHT_CUDA_PDL_SHARED_FLOOR") is { } f ? long.Parse(f, System.Globalization.CultureInfo.InvariantCulture) : null;
+
     public static long? MaxSharedMemory { get; } = Read("SHARPLIGHT_CUDA_MAX_SHARED") is { } v ? long.Parse(v, System.Globalization.CultureInfo.InvariantCulture) : null;
 
     /// <summary><c>SHARPLIGHT_CUDA_CONCURRENT</c> (default on).</summary>

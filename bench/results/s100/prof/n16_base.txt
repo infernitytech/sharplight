@@ -1,0 +1,10 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 201088, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 16 | 36.7 | 522 / 0 | 12.04 / 13.55, 11.95 |
+Collecting data...
+Generating '/workspace/work/tmp/nsys-report-c049.qdstrm'
+[1/1] [0%                          ] n16_base.nsys-rep[1/1] [0%                          ] n16_base.nsys-rep[1/1] [===========52%              ] n16_base.nsys-rep[1/1] [====26%                     ] n16_base.nsys-rep[1/1] [===========51%              ] n16_base.nsys-rep[1/1] [=======38%                  ] n16_base.nsys-rep[1/1] [===========50%              ] n16_base.nsys-rep[1/1] [========================100%] n16_base.nsys-rep[1/1] [========================100%] n16_base.nsys-rep
+Generated:
+	/workspace/work/perf-r40/prof/n16_base.nsys-rep
