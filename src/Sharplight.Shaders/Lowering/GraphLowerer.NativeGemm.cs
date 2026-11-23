@@ -310,7 +310,8 @@ public sealed partial class GraphLowerer
     /// True when <c>gemm_fp8_tma.cu</c> runs with a copy warpgroup (<c>F8N_WG</c>, <see cref="DeviceFeatures.RegisterReallocation"/>):
     /// the four copy warps keep 40 registers and hand the rest to the eight computing warps (232 instead of the 168 per thread that a
     /// 288-thread block gets, since the register file is split by warps per scheduler). The promotion's accumulators then leave room
-    /// for the E4M3 store (<see cref="Fp8StoreMinRows"/>) with the f32 scales too. <c>SHARPLIGHT_FP8_WG=0</c> keeps the 9-warp form.
+    /// for the E4M3 store (<see cref="Fp8StoreMinRows"/>) with the f32 scales too. Only with <c>SHARPLIGHT_FP8_WG=1</c> (see
+    /// <see cref="DiagnosticSwitches.Fp8CopyWarpgroup"/>); the default is the 9-warp form.
     /// </summary>
     private bool NativeFp8CopyWarpgroup => DiagnosticSwitches.Fp8CopyWarpgroup && NativeFp8TensorCopies && _opt.Has(DeviceFeatures.RegisterReallocation);
 

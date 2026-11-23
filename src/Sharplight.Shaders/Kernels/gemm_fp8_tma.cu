@@ -54,8 +54,8 @@
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads (F8N_WG: 384), F8N_SHARED bytes of dynamic shared memory.
 //
 // SL_NVRTC_SASS: NVRTC also compiles this kernel to machine code for the GPU (compute capability 12.x), which the device loads instead
-// of the driver's compilation of the PTX: the shipped NVRTC's instruction schedule of the mainloop is 7-9 % faster than the CUDA 13.2
-// driver's on the RTX PRO 4500 (NvrtcTranslator.CompilesSass, benchmarks.md section 92).
+// of the driver's compilation of the PTX: on the RTX PRO 4500 the shipped NVRTC's code takes 3-5 % less time per prompt step than the
+// CUDA 13.2 driver's (NvrtcTranslator.CompilesSass, benchmarks.md section 92).
 #define SL_NVRTC_SASS 1
 #ifndef DUAL
 #define DUAL 0

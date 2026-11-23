@@ -49,7 +49,7 @@ internal static class DiagnosticSwitches
 
     /// <summary>
     /// <c>SHARPLIGHT_CUDA_NVRTC_SASS</c>: which kernels NVRTC also compiles to machine code (see NvrtcTranslator.CompilesSass): unset, the
-    /// kernels that ask for it; <c>0</c> none (the driver compiles every kernel's PTX); <c>all</c> every kernel.
+    /// kernels that ask for it; <c>0</c> none (the driver compiles every kernel's PTX); <c>all</c> every kernel; <c>if:text</c> the kernels whose source contains the text.
     /// </summary>
     public static string? NvrtcSass { get; } = Read("SHARPLIGHT_CUDA_NVRTC_SASS");
 

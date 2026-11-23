@@ -235,15 +235,17 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     /// then loads instead of letting the driver compile the PTX: kernels that define <c>SL_NVRTC_SASS</c> (<see cref="SassMarker"/>), on
     /// GPUs of compute capability 12.x. The driver's PTX compiler is whatever the installed driver brings; NVRTC's is the shipped release
     /// (Sharplight.Cuda.Runtime), whose instruction schedule is the one measured. The FP8 TMA GEMM (<c>gemm_fp8_tma.cu</c>) asks for it:
-    /// on the RTX PRO 4500 (driver 595, CUDA 13.2) its prompt-sized launches take 7-9 % less time from NVRTC 13.0 than from the driver
-    /// (Qwen3-8B-FP8, 2,000 prompt rows: gate / up 1.70 → 1.55 ms, down 0.83 → 0.77; benchmarks.md section 92), while most other kernels
-    /// are as fast or faster from the driver. The PTX stays in the code for other GPUs and as the fallback.
-    /// <c>SHARPLIGHT_CUDA_NVRTC_SASS=0</c> turns it off, <c>all</c> applies it to every kernel (diagnostics).
+    /// on the RTX PRO 4500 (driver 595, CUDA 13.2) Qwen3-8B-FP8's prompt steps take 2-5 % less time with NVRTC 13.0's code of its 9-warp
+    /// form (benchmarks.md section 92), while most other kernels are as fast or faster from the driver. (The driver also drops
+    /// <c>setmaxnreg</c> from family-specific PTX: its cubins target <c>sm_120</c>.) The PTX stays in the code for other GPUs and as the fallback.
+    /// <c>SHARPLIGHT_CUDA_NVRTC_SASS=0</c> turns it off, <c>all</c> applies it to every kernel, <c>if:text</c> to the kernels whose source
+    /// contains the text (<c>\n</c> for a line break; diagnostics).
     /// </summary>
     internal static bool CompilesSass(string source, int computeCapability) => DiagnosticSwitches.NvrtcSass switch
     {
         "0" => false,
         "all" => true,
+        ['i', 'f', ':', ..] text => source.Contains(text[3..].Replace("\\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal),
         _ => computeCapability / 10 == 12 && source.Contains(SassMarker, StringComparison.Ordinal),
     };
 
