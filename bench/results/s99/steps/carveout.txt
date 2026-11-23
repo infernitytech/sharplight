@@ -1,0 +1,124 @@
+# hold 17:53:36 apps: 
+== Qwen3-8B-FP8 base 1
+| 1 | 38.4 | 401 / 0 | 11.03 / 11.10, 10.98 |
+| 16 | 35.6 | 474 / 0 | 12.23 / 12.28, 12.18 |
+| 64 | 21.5 | 367 / 0 | 15.67 / 15.92, 15.61 |
+| 0 | 512 (1) | 46.0 | 366 / 0 | 33.88 / 34.97, 33.83 |  |
+| 16 | 256 (1) | 42.5 | 366 / 0 | 27.06 / 27.71, 27.00 |  |
+== Qwen3-8B-FP8 carve 1
+| 1 | 39.3 | 401 / 0 | 11.04 / 11.11, 11.00 |
+| 16 | 38.6 | 474 / 0 | 12.30 / 12.37, 12.26 |
+| 64 | 21.0 | 367 / 0 | 15.66 / 15.93, 15.61 |
+| 0 | 512 (1) | 44.2 | 366 / 0 | 34.21 / 35.13, 34.05 |  |
+| 16 | 256 (1) | 41.9 | 366 / 0 | 27.18 / 27.81, 27.11 |  |
+== Qwen3-8B-FP8 rule 1
+| 1 | 38.4 | 401 / 0 | 11.03 / 11.10, 10.98 |
+| 16 | 37.7 | 474 / 0 | 12.30 / 12.37, 12.26 |
+| 64 | 22.1 | 367 / 0 | 15.69 / 15.94, 15.64 |
+| 0 | 512 (1) | 44.9 | 366 / 0 | 34.12 / 35.12, 34.07 |  |
+| 16 | 256 (1) | 42.4 | 366 / 0 | 27.26 / 27.86, 27.18 |  |
+== Qwen3-8B-FP8 base 2
+| 1 | 39.5 | 401 / 0 | 11.03 / 11.10, 10.98 |
+| 16 | 37.9 | 474 / 0 | 12.24 / 12.30, 12.20 |
+| 64 | 22.6 | 367 / 0 | 15.68 / 15.91, 15.63 |
+| 0 | 512 (1) | 44.8 | 366 / 0 | 34.10 / 35.14, 34.03 |  |
+| 16 | 256 (1) | 44.0 | 366 / 0 | 26.93 / 27.85, 26.86 |  |
+== Qwen3-8B-FP8 carve 2
+| 1 | 37.1 | 401 / 0 | 11.02 / 11.09, 10.98 |
+| 16 | 35.1 | 474 / 0 | 12.30 / 12.38, 12.25 |
+| 64 | 21.4 | 367 / 0 | 15.72 / 15.96, 15.67 |
+| 0 | 512 (1) | 44.5 | 366 / 0 | 34.77 / 35.16, 34.67 |  |
+| 16 | 256 (1) | 49.4 | 366 / 0 | 27.32 / 27.83, 27.25 |  |
+== Qwen3-8B-FP8 rule 2
+| 1 | 36.3 | 401 / 0 | 11.04 / 11.11, 10.98 |
+| 16 | 36.5 | 474 / 0 | 12.30 / 12.38, 12.26 |
+| 64 | 21.7 | 367 / 0 | 15.73 / 15.96, 15.68 |
+| 0 | 512 (1) | 45.7 | 366 / 0 | 34.36 / 35.14, 34.31 |  |
+| 16 | 256 (1) | 43.4 | 366 / 0 | 27.15 / 27.85, 27.07 |  |
+# release 17:56:45 apps: 
+# hold 17:56:45 apps: 
+== gpt-oss-20b base 1
+| 1 | 23.6 | 377 / 0 | 5.19 / 5.20, 5.16 |
+| 16 | 31.5 | 522 / 0 | 12.02 / 13.56, 11.97 |
+| 64 | 23.2 | 403 / 0 | 16.85 / 17.68, 16.81 |
+| 0 | 512 (1) | 65.2 | 534 / 0 | 34.94 / 35.64, 34.89 |  |
+| 16 | 256 (1) | 46.9 | 534 / 0 | 24.91 / 25.57, 24.84 |  |
+== gpt-oss-20b carve 1
+| 1 | 28.1 | 377 / 0 | 5.19 / 5.20, 5.15 |
+| 16 | 19.9 | 522 / 0 | 12.09 / 13.62, 12.04 |
+| 64 | 23.5 | 403 / 0 | 17.01 / 17.69, 16.91 |
+| 0 | 512 (1) | 62.9 | 534 / 0 | 34.93 / 35.60, 34.87 |  |
+| 16 | 256 (1) | 46.8 | 534 / 0 | 25.20 / 25.64, 25.14 |  |
+== gpt-oss-20b rule 1
+| 1 | 23.3 | 377 / 0 | 5.20 / 5.22, 5.16 |
+| 16 | 32.2 | 522 / 0 | 12.11 / 13.63, 12.06 |
+| 64 | 22.8 | 403 / 0 | 16.99 / 17.70, 16.94 |
+| 0 | 512 (1) | 65.6 | 534 / 0 | 35.02 / 35.65, 34.91 |  |
+| 16 | 256 (1) | 45.8 | 534 / 0 | 25.17 / 25.67, 25.12 |  |
+== gpt-oss-20b base 2
+| 1 | 23.6 | 377 / 0 | 5.19 / 5.20, 5.16 |
+| 16 | 32.1 | 522 / 0 | 12.02 / 13.57, 11.99 |
+| 64 | 23.0 | 403 / 0 | 16.90 / 17.70, 16.85 |
+| 0 | 512 (1) | 64.7 | 534 / 0 | 34.98 / 35.69, 34.92 |  |
+| 16 | 256 (1) | 46.2 | 534 / 0 | 25.03 / 25.57, 24.94 |  |
+== gpt-oss-20b carve 2
+| 1 | 24.1 | 377 / 0 | 5.18 / 5.20, 5.15 |
+| 16 | 35.3 | 522 / 0 | 12.07 / 13.61, 12.03 |
+| 64 | 22.9 | 403 / 0 | 16.89 / 17.69, 16.85 |
+| 0 | 512 (1) | 65.5 | 534 / 0 | 35.00 / 35.70, 34.94 |  |
+| 16 | 256 (1) | 44.8 | 534 / 0 | 25.21 / 25.68, 25.15 |  |
+== gpt-oss-20b rule 2
+| 1 | 23.6 | 377 / 0 | 5.19 / 5.20, 5.15 |
+| 16 | 33.3 | 522 / 0 | 12.08 / 13.62, 12.04 |
+| 64 | 23.7 | 403 / 0 | 16.92 / 17.69, 16.88 |
+| 0 | 512 (1) | 66.5 | 534 / 0 | 34.95 / 35.64, 34.88 |  |
+| 16 | 256 (1) | 45.7 | 534 / 0 | 25.17 / 25.60, 25.11 |  |
+# release 18:00:46 apps: 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.28 1.105 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [carve] ok 1.221 0.991 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [rule] ok 1.157 0.987 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.285 1.104 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [carve] ok 1.161 0.989 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [rule] ok 1.167 0.988 True 2.2749300909834697e-06 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.765 0.755 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [carve] ok 0.703 0.694 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [rule] ok 0.704 0.692 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.766 0.756 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [carve] ok 0.703 0.694 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [rule] ok 0.703 0.693 True 1.536657414800256e-06 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.286 3.632 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [carve] ok 4.045 3.381 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [rule] ok 4.034 3.378 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.287 3.629 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [carve] ok 4.05 3.383 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [rule] ok 4.049 3.382 True 0.00011656719252801049 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.416 2.095 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [carve] ok 2.422 2.102 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [rule] ok 2.423 2.102 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.398 2.095 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [carve] ok 2.406 2.101 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [rule] ok 2.417 2.103 True 1.0371637632552237e-05 
+resnet50-v1-12.json b1 cuda [base] ok 0.8 0.789 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [carve] ok 0.775 0.766 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [rule] ok 0.777 0.766 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [base] ok 0.8 0.788 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [carve] ok 0.776 0.764 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [rule] ok 0.778 0.767 True 1.6636816683468024e-06 
+zoo/convnext-tiny.json b1 cuda [base] ok 1.169 1.155 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [carve] ok 1.149 1.137 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [rule] ok 1.15 1.138 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [base] ok 1.168 1.157 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [carve] ok 1.148 1.135 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [rule] ok 1.153 1.138 True 3.1944887524925805e-06 
+whisper-tiny-encoder.json b1 cuda [base] ok 1.944 1.756 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [carve] ok 1.944 1.754 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [rule] ok 1.945 1.758 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [base] ok 1.946 1.757 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [carve] ok 1.95 1.756 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [rule] ok 1.943 1.755 True 2.83255333685831e-06 
+segformer-b0.json b1 cuda [base] ok 2.893 2.217 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [carve] ok 2.932 2.214 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [rule] ok 2.897 2.212 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [base] ok 2.874 2.216 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [carve] ok 2.905 2.209 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [rule] ok 2.894 2.212 True 2.7814386515462874e-07 

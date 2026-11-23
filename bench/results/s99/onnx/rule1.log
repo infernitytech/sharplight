@@ -1,0 +1,110 @@
+# hold 17:33:24 apps: 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.272 1.099 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [rule] ok 1.161 0.988 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [any] ok 1.329 1.098 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [notrig] ok 1.197 1.024 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.289 1.102 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [rule] ok 1.16 0.99 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [any] ok 1.274 1.101 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [notrig] ok 1.192 1.018 True 2.2749300909834697e-06 
+# release 17:33:48 apps: 
+# hold 17:33:48 apps: 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.765 0.756 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [rule] ok 0.703 0.694 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [any] ok 0.765 0.755 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [notrig] ok 0.716 0.707 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.763 0.753 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [rule] ok 0.704 0.694 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [any] ok 0.766 0.757 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [notrig] ok 0.716 0.706 True 1.536657414800256e-06 
+# release 17:33:59 apps: 
+# hold 17:33:59 apps: 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.289 3.626 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [rule] ok 4.03 3.381 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [any] ok 4.272 3.622 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [notrig] ok 4.051 3.399 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.274 3.625 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [rule] ok 4.035 3.381 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [any] ok 4.281 3.622 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [notrig] ok 4.046 3.391 True 0.00011656719252801049 
+# release 17:34:52 apps: 
+# hold 17:34:52 apps: 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.411 2.094 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [rule] ok 2.411 2.1 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [any] ok 2.408 2.095 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [notrig] ok 2.485 2.174 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.403 2.093 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [rule] ok 2.407 2.099 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [any] ok 2.426 2.095 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [notrig] ok 2.481 2.172 True 1.0371637632552237e-05 
+# release 17:35:55 apps: 
+# hold 17:35:55 apps: 
+zoo/yolov8n.json b1 cuda [base] ok 1.17 0.952 True 3.071552077505911e-07 
+zoo/yolov8n.json b1 cuda [rule] ok 1.162 0.943 True 3.071552077505911e-07 
+zoo/yolov8n.json b1 cuda [any] ok 1.17 0.95 True 3.071552077505911e-07 
+zoo/yolov8n.json b1 cuda [notrig] ok 1.161 0.942 True 3.071552077505911e-07 
+zoo/yolov8n.json b1 cuda [base] ok 1.169 0.95 True 3.071552077505911e-07 
+zoo/yolov8n.json b1 cuda [rule] ok 1.163 0.945 True 3.071552077505911e-07 
+zoo/yolov8n.json b1 cuda [any] ok 1.165 0.95 True 3.071552077505911e-07 
+zoo/yolov8n.json b1 cuda [notrig] ok 1.158 0.94 True 3.071552077505911e-07 
+# release 17:36:07 apps: 
+# hold 17:36:07 apps: 
+mobilenetv2-12.json b1 cuda [base] ok 0.335 0.325 True 2.386781695119143e-06 
+mobilenetv2-12.json b1 cuda [rule] ok 0.332 0.318 True 2.386781695119143e-06 
+mobilenetv2-12.json b1 cuda [any] ok 0.337 0.326 True 2.386781695119143e-06 
+mobilenetv2-12.json b1 cuda [notrig] ok 0.335 0.325 True 2.386781695119143e-06 
+mobilenetv2-12.json b1 cuda [base] ok 0.335 0.325 True 2.386781695119143e-06 
+mobilenetv2-12.json b1 cuda [rule] ok 0.331 0.317 True 2.386781695119143e-06 
+mobilenetv2-12.json b1 cuda [any] ok 0.335 0.325 True 2.386781695119143e-06 
+mobilenetv2-12.json b1 cuda [notrig] ok 0.341 0.327 True 2.386781695119143e-06 
+# release 17:36:17 apps: 
+# hold 17:36:17 apps: 
+zoo/convnext-tiny.json b1 cuda [base] ok 1.167 1.155 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [rule] ok 1.148 1.138 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [any] ok 1.169 1.155 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [notrig] ok 1.155 1.142 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [base] ok 1.167 1.155 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [rule] ok 1.148 1.138 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [any] ok 1.168 1.151 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [notrig] ok 1.155 1.143 True 3.1944887524925805e-06 
+# release 17:36:32 apps: 
+# hold 17:36:32 apps: 
+resnet50-v1-12.json b1 cuda [base] ok 0.801 0.79 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [rule] ok 0.779 0.768 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [any] ok 0.802 0.788 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [notrig] ok 0.785 0.772 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [base] ok 0.801 0.789 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [rule] ok 0.777 0.766 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [any] ok 0.802 0.788 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [notrig] ok 0.781 0.77 True 1.6636816683468024e-06 
+# release 17:37:02 apps: 
+# hold 17:37:02 apps: 
+vit-base-patch16-224.json b1 cuda [base] ok 2.308 2.292 True 1.2020537316162322e-06 
+vit-base-patch16-224.json b1 cuda [rule] ok 2.297 2.28 True 1.2020537316162322e-06 
+vit-base-patch16-224.json b1 cuda [any] ok 2.304 2.288 True 1.2020537316162322e-06 
+vit-base-patch16-224.json b1 cuda [notrig] ok 2.301 2.284 True 1.2020537316162322e-06 
+vit-base-patch16-224.json b1 cuda [base] ok 2.304 2.285 True 1.2020537316162322e-06 
+vit-base-patch16-224.json b1 cuda [rule] ok 2.293 2.279 True 1.2020537316162322e-06 
+vit-base-patch16-224.json b1 cuda [any] ok 2.306 2.29 True 1.2020537316162322e-06 
+vit-base-patch16-224.json b1 cuda [notrig] ok 2.304 2.285 True 1.2020537316162322e-06 
+# release 17:37:36 apps: 
+# hold 17:37:36 apps: 
+whisper-tiny-encoder.json b1 cuda [base] ok 1.946 1.755 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [rule] ok 1.951 1.758 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [any] ok 1.944 1.755 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [notrig] ok 1.948 1.743 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [base] ok 1.953 1.757 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [rule] ok 1.95 1.756 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [any] ok 1.959 1.756 True 2.83255333685831e-06 
+whisper-tiny-encoder.json b1 cuda [notrig] ok 1.945 1.746 True 2.83255333685831e-06 
+# release 17:38:09 apps: 
+# hold 17:38:10 apps: 
+segformer-b0.json b1 cuda [base] ok 2.873 2.213 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [rule] ok 2.911 2.21 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [any] ok 2.891 2.213 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [notrig] ok 2.852 2.192 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [base] ok 2.901 2.212 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [rule] ok 2.913 2.209 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [any] ok 2.882 2.216 True 2.7814386515462874e-07 
+segformer-b0.json b1 cuda [notrig] ok 2.887 2.19 True 2.7814386515462874e-07 
+# release 17:39:51 apps: 

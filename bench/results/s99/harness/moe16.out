@@ -1,0 +1,55 @@
+# hold 17:23:57 apps: 
+1536 $OUT/harness/vllm16_words.txt
+== round 1 vllm16_words.txt
+ours gate_up: back to back over 24 layer copies: 0.2227 ms per routing
+ours gate_up: energy: 10 passes 3.43 s: 0.2231 ms per routing, 203.5 W, 45.433 mJ per routing, 167.6 MB weights per routing (tile reads), 0.2710 nJ per weight byte, SM 2060 MHz, memory 13365 MHz
+ours gate_up: routes 1536 (1536 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+ours down: back to back over 24 layer copies: 0.1200 ms per routing
+ours down: energy: 18 passes 3.34 s: 0.1206 ms per routing, 197.6 W, 23.841 mJ per routing, 83.8 MB weights per routing (tile reads), 0.2845 nJ per weight byte, SM 2192 MHz, memory 13365 MHz
+ours down: routes 1536 (1536 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+marlin gate_up: marlin gate_up: block_m 8, 1536 routings over 24 layer copies: 0.2317 ms per routing (best of 10)
+marlin gate_up: marlin gate_up: energy: 12 replays 4.28 s, 200.2 W, 46.468 mJ per routing, 182.8 MB weights per routing (19.02 experts), 0.2542 nJ per weight byte, SM 2355 MHz
+marlin gate_up: marlin gate_up: sustained 12 replays: 0.2320 ms per routing
+marlin down: marlin down: block_m 8, 1536 routings over 24 layer copies: 0.1196 ms per routing (best of 10)
+marlin down: marlin down: energy: 20 replays 3.69 s, 199.9 W, 23.975 mJ per routing, 91.4 MB weights per routing (19.02 experts), 0.2623 nJ per weight byte, SM 2400 MHz
+marlin down: marlin down: sustained 20 replays: 0.1198 ms per routing
+== round 1 vllm64_words.txt
+ours gate_up: back to back over 24 layer copies: 0.3023 ms per routing
+ours gate_up: energy: 8 passes 3.55 s: 0.3031 ms per routing, 196.8 W, 59.681 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2555 nJ per weight byte, SM 1856 MHz, memory 13365 MHz
+ours gate_up: routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+ours down: back to back over 24 layer copies: 0.1622 ms per routing
+ours down: energy: 14 passes 3.34 s: 0.1629 ms per routing, 203.4 W, 33.164 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2840 nJ per weight byte, SM 2045 MHz, memory 13365 MHz
+ours down: routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+marlin gate_up: marlin gate_up: block_m 16, 1464 routings over 24 layer copies: 0.3079 ms per routing (best of 10)
+marlin gate_up: marlin gate_up: energy: 8 replays 3.62 s, 198.1 W, 61.319 mJ per routing, 232.8 MB weights per routing (24.23 experts), 0.2634 nJ per weight byte, SM 1931 MHz
+marlin gate_up: marlin gate_up: sustained 8 replays: 0.3093 ms per routing
+marlin down: marlin down: block_m 16, 1464 routings over 24 layer copies: 0.1575 ms per routing (best of 10)
+marlin down: marlin down: energy: 16 replays 3.71 s, 204.4 W, 32.395 mJ per routing, 116.4 MB weights per routing (24.23 experts), 0.2783 nJ per weight byte, SM 1972 MHz
+marlin down: marlin down: sustained 16 replays: 0.1584 ms per routing
+== round 2 vllm16_words.txt
+ours gate_up: back to back over 24 layer copies: 0.2233 ms per routing
+ours gate_up: energy: 10 passes 3.44 s: 0.2237 ms per routing, 202.9 W, 45.413 mJ per routing, 167.6 MB weights per routing (tile reads), 0.2709 nJ per weight byte, SM 2017 MHz, memory 13365 MHz
+ours gate_up: routes 1536 (1536 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+ours down: back to back over 24 layer copies: 0.1205 ms per routing
+ours down: energy: 18 passes 3.35 s: 0.1211 ms per routing, 196.5 W, 23.820 mJ per routing, 83.8 MB weights per routing (tile reads), 0.2842 nJ per weight byte, SM 2153 MHz, memory 13365 MHz
+ours down: routes 1536 (1536 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+marlin gate_up: marlin gate_up: block_m 8, 1536 routings over 24 layer copies: 0.2318 ms per routing (best of 10)
+marlin gate_up: marlin gate_up: energy: 12 replays 4.28 s, 200.4 W, 46.530 mJ per routing, 182.8 MB weights per routing (19.02 experts), 0.2546 nJ per weight byte, SM 2317 MHz
+marlin gate_up: marlin gate_up: sustained 12 replays: 0.2321 ms per routing
+marlin down: marlin down: block_m 8, 1536 routings over 24 layer copies: 0.1196 ms per routing (best of 10)
+marlin down: marlin down: energy: 20 replays 3.68 s, 194.7 W, 23.360 mJ per routing, 91.4 MB weights per routing (19.02 experts), 0.2556 nJ per weight byte, SM 2385 MHz
+marlin down: marlin down: sustained 20 replays: 0.1199 ms per routing
+== round 2 vllm64_words.txt
+ours gate_up: back to back over 24 layer copies: 0.3027 ms per routing
+ours gate_up: energy: 8 passes 3.56 s: 0.3039 ms per routing, 201.6 W, 61.294 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2624 nJ per weight byte, SM 1835 MHz, memory 13365 MHz
+ours gate_up: routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.0000 ms per routing
+ours down: back to back over 24 layer copies: 0.1626 ms per routing
+ours down: energy: 14 passes 3.34 s: 0.1630 ms per routing, 203.0 W, 33.121 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2836 nJ per weight byte, SM 2040 MHz, memory 13365 MHz
+ours down: routes 1464 (1464 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.0000 ms per routing
+marlin gate_up: marlin gate_up: block_m 16, 1464 routings over 24 layer copies: 0.3084 ms per routing (best of 10)
+marlin gate_up: marlin gate_up: energy: 8 replays 3.63 s, 197.5 W, 61.267 mJ per routing, 232.8 MB weights per routing (24.23 experts), 0.2631 nJ per weight byte, SM 1950 MHz
+marlin gate_up: marlin gate_up: sustained 8 replays: 0.3100 ms per routing
+marlin down: marlin down: block_m 16, 1464 routings over 24 layer copies: 0.1576 ms per routing (best of 10)
+marlin down: marlin down: energy: 16 replays 3.72 s, 198.4 W, 31.483 mJ per routing, 116.4 MB weights per routing (24.23 experts), 0.2704 nJ per weight byte, SM 1976 MHz
+marlin down: marlin down: sustained 16 replays: 0.1586 ms per routing
+# release 17:28:38

@@ -1,0 +1,12 @@
+steps 21.0, span per step 12502.7 us, incremental sum 12502.7 us, idle gaps 138.8 us
+  6047.1 us inc   6062.1 us dur  72.0x grid    384  gemm_fp8_native
+  3078.6 us inc   3275.4 us dur  72.0x grid    128  gemm_fp8_decode
+  1549.2 us inc   1549.0 us dur   1.0x grid   4748  gemm_sk
+  1001.2 us inc    994.3 us dur  36.0x grid    512  attn_decode_native
+   307.2 us inc    406.9 us dur 144.0x grid    192  quantize_fp8
+   155.5 us inc   1207.5 us dur  73.0x grid     16  main_0
+   145.3 us inc    138.5 us dur  36.0x grid    512  decode_combine
+   106.9 us inc      4.1 us dur   2.0x grid     64  gather
+    85.3 us inc   1252.7 us dur  36.0x grid    192  rope_qkv
+    25.2 us inc     25.0 us dur   1.0x grid     16  sample
+     1.2 us inc      1.8 us dur   1.0x grid     16  to_f16_ranged

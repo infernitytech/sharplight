@@ -1,0 +1,24 @@
+# hold 18:19:22 apps: 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.276 1.103 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [fin] ok 1.157 0.983 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.277 1.101 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [fin] ok 1.155 0.985 True 2.2749300909834697e-06 
+# release 18:19:34 apps: 
+# hold 18:19:34 apps: 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.276 3.63 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [fin] ok 4.047 3.387 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.282 3.624 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [fin] ok 4.037 3.38 True 0.00011656719252801049 
+# release 18:20:00 apps: 
+# hold 18:20:00 apps: 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.417 2.098 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [fin] ok 2.398 2.094 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.409 2.095 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [fin] ok 2.395 2.095 True 1.0371637632552237e-05 
+# release 18:20:31 apps: 
+# hold 18:20:31 apps: 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.763 0.753 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [fin] ok 0.704 0.694 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.765 0.756 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [fin] ok 0.703 0.694 True 1.536657414800256e-06 
+# release 18:20:36 apps: 

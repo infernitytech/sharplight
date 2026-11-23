@@ -1,0 +1,34 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.FourModelInstances_OneDevice_FourThreads_Stress [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.TwoModels_OneDevice_Concurrent_EqualsSeparate_AndMemoryReturns [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Host_OffloadsLayersToTheCpu_WhenTheGpuBudgetIsTooSmall [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Host_TwoChatModels_Concurrent_Eviction_And_MemoryReturns [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.DevicePool_OpensEachDeviceOnce [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Estimate_CoversTheActualDeviceUsage(rel: "Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf", slots: 1, ctx: 1024, batch: 128) [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Estimate_CoversTheActualDeviceUsage(rel: "Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf", slots: 4, ctx: 4096, batch: 512) [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Estimate_CoversTheActualDeviceUsage(rel: "SmolLM2-360M-Instruct/smollm2-360m-instruct-q8_0.g"···, slots: 4, ctx: 2048, batch: 512) [SKIP]
+[0m[37m      model not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Estimate_CoversTheActualDeviceUsage(rel: "Llama-3.2-1B-Instruct/Llama-3.2-1B-Instruct-Q8_0.g"···, slots: 2, ctx: 8192, batch: 512) [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Estimate_CoversTheActualDeviceUsage(rel: "gemma-3-1b-it/gemma-3-1b-it-Q8_0.gguf", slots: 4, ctx: 4096, batch: 256) [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Estimate_CoversTheActualDeviceUsage(rel: "Qwen3.5-0.8B/Qwen3.5-0.8B-BF16.gguf", slots: 4, ctx: 2048, batch: 256) [SKIP]
+[0m[37m      model not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Estimate_CoversTheActualDeviceUsage(rel: "OLMoE-1B-7B-0924-Instruct/OLMoE-1B-7B-0924-Instruc"···, slots: 2, ctx: 2048, batch: 256) [SKIP]
+[0m[37m      models not found
+[0m[93m    Sharplight.Serving.Tests.MultiModelRealTests.Host_RefusesAModel_ThatDoesNotFit [SKIP]
+[0m[37m      models not found
+[0m[37m  Finished:    Sharplight.Serving.Tests (ID = '58a16a649d0e50be604d262896dfb4b5294c45de6836e65a41f55fbcc404de49')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 13, Not Run: 0, Time: 0.219s
+[0m[0m

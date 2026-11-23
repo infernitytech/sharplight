@@ -1,0 +1,8 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Import.Onnx.Tests
+[0m[37m  Discovered:  Sharplight.Import.Onnx.Tests
+[0m[37m  Starting:    Sharplight.Import.Onnx.Tests
+[0m[37m  Finished:    Sharplight.Import.Onnx.Tests (ID = '3b465e6c1abdc73d5472491376b90170e2a102bd6e8b3b46f62f1c27d9bdefc3')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Import.Onnx.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.715s
+[0m[0m

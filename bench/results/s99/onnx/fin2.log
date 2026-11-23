@@ -1,0 +1,36 @@
+# hold 18:25:55 apps: 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.279 1.106 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [fin2] ok 1.19 1.015 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [base] ok 1.276 1.103 True 2.2749300909834697e-06 
+survey/bert-base-uncased.model.json b1 cuda [fin2] ok 1.185 1.014 True 2.2749300909834697e-06 
+# release 18:26:07 apps: 
+# hold 18:26:07 apps: 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.292 3.635 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [fin2] ok 4.031 3.386 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [base] ok 4.286 3.627 True 0.00011656719252801049 
+survey/phi35-mini-q4f16.json b1 cuda [fin2] ok 4.034 3.38 True 0.00011656719252801049 
+# release 18:26:34 apps: 
+# hold 18:26:34 apps: 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.399 2.094 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [fin2] ok 2.398 2.096 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [base] ok 2.415 2.097 True 1.0371637632552237e-05 
+survey/qwen2.5-0.5b.model_q4.json b1 cuda [fin2] ok 2.403 2.096 True 1.0371637632552237e-05 
+# release 18:27:05 apps: 
+# hold 18:27:05 apps: 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.763 0.754 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [fin2] ok 0.704 0.694 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [base] ok 0.767 0.756 True 1.536657414800256e-06 
+efficientnet-lite4-11.json b1 cuda [fin2] ok 0.703 0.694 True 1.536657414800256e-06 
+# release 18:27:11 apps: 
+# hold 18:27:11 apps: 
+zoo/convnext-tiny.json b1 cuda [base] ok 1.169 1.155 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [fin2] ok 1.155 1.138 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [base] ok 1.169 1.157 True 3.1944887524925805e-06 
+zoo/convnext-tiny.json b1 cuda [fin2] ok 1.158 1.139 True 3.1944887524925805e-06 
+# release 18:27:37 apps: 
+# hold 18:27:37 apps: 
+resnet50-v1-12.json b1 cuda [base] ok 0.802 0.792 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [fin2] ok 0.78 0.767 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [base] ok 0.8 0.789 True 1.6636816683468024e-06 
+resnet50-v1-12.json b1 cuda [fin2] ok 0.778 0.768 True 1.6636816683468024e-06 
+# release 18:27:52 apps: 
