@@ -333,6 +333,92 @@ public sealed class CudaCodeTests
         AssertMultiGemmMatchesTheCpu(rows, widths, k, 512);
     }
 
+    /// <summary>
+    /// The tensor-copy FP8 GEMM gives the same bits on every run of one compiled step: the two-member multi-output launch of a gated
+    /// attention's q / gate projection (10,240 + 6,144 outputs, K = 5,120, 128 x 128 scale blocks) at 512 rows, on activations that differ
+    /// per row and K block.
+    /// Its computing warps used to release a stage without the proxy fence before the next tensor copy into it, and a few percent of
+    /// the launches then read one 16-byte row of the next K block's codes (benchmarks.md section 93).
+    /// </summary>
+    [Fact]
+    public void NativeFp8MultiGemmRepeatsBitForBit()
+    {
+        var provider = new CudaProvider();
+        Assert.SkipUnless(provider.CheckAvailability().IsAvailable, "No CUDA device.");
+        var info = provider.GetDevices()[0];
+        Assert.SkipUnless(info.Features.Contains(DeviceFeatures.NativeGemmFp8) && info.Features.Contains(DeviceFeatures.TensorCopies),
+            "The GPU has no FP8 GEMM with tensor copies (compute capability below 9.0).");
+        const int rows = 512, k = 5120, runs = 300;
+        int[] widths = [10240, 6144];
+        using var device = provider.OpenDevice(info);
+        var tg = new TG("cuda-multi-gemm-repeat");
+        var x = tg.InF("x", TG.T, k);
+        for (int o = 0; o < widths.Length; o++)
+        {
+            // 128 x 128 scale blocks (every block's scale shared by a 128-row group, F8N_WUNI): the form whose shorter promotion raced.
+            var raw = Rnd.WeightBytes(DataType.F8E4M3_B128, (long)widths[o] * k, 40 + o, 0.05f);
+            long rowBytes = k / 128 * 132;
+            for (long r = 0; r < widths[o]; r++)
+            {
+                for (long b = 0; b < k / 128; b++)
+                {
+                    Array.Copy(raw, r / 128 * 128 * rowBytes + b * 132, raw, r * rowBytes + b * 132, 4);
+                }
+            }
+
+            string name = "w" + o;
+            tg.Weights[name] = new WeightInfo { Name = name, Type = DataType.F8E4M3_B128, Shape = new Shape(widths[o], k), Source = new MemSource(raw), ScaleRowBlock = 128 };
+            tg.B.Output("y" + o, tg.B.MatMul(x, tg.B.Weight(name)));
+        }
+
+        var graph = tg.B.Build();
+        using var model = CompiledModel.Compile(graph, new PlacementOptions
+        {
+            Devices = [new DeviceSlot { Device = device }],
+            Compile = new CompileOptions { MaxTokens = rows, ContextLength = rows },
+            ReservePerDevice = 0,
+        });
+        var input = new float[rows * k];
+        var random = new Random(7);
+        for (int i = 0; i < input.Length; i++)
+        {
+            input[i] = (float)(random.NextDouble() * 2 - 1);
+        }
+
+        model.SetInput(graph.Inputs.Single(), System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+        var parameters = new RunParameters();
+        parameters.Symbols["T"] = rows;
+        var first = new float[widths.Length][];
+        var again = new float[widths.Length][];
+        for (int o = 0; o < widths.Length; o++)
+        {
+            first[o] = new float[rows * widths[o]];
+            again[o] = new float[rows * widths[o]];
+        }
+
+        model.Run(parameters);
+        for (int o = 0; o < widths.Length; o++)
+        {
+            model.GetOutput<float>("y" + o, first[o]);
+        }
+
+        int differing = 0;
+        for (int run = 1; run < runs; run++)
+        {
+            model.Run(parameters);
+            bool same = true;
+            for (int o = 0; o < widths.Length; o++)
+            {
+                model.GetOutput<float>("y" + o, again[o]);
+                same &= first[o].AsSpan().SequenceEqual(again[o]);
+            }
+
+            differing += same ? 0 : 1;
+        }
+
+        Assert.Equal(0, differing);
+    }
+
     private static void AssertMultiGemmMatchesTheCpu(int rows, int[] widths, int k, int maxTokens)
     {
         var provider = new CudaProvider();
