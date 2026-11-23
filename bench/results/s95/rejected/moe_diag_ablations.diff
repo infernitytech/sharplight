@@ -1,0 +1,161 @@
+--- src/Sharplight.Shaders/Kernels/gemm_moe_native.cu	2026-11-23 09:55:18.966030955 +0000
++++ /root/perf-r37-work/k_diag.cu	2026-11-23 12:02:11.444732308 +0000
+@@ -1,3 +1,27 @@
++#ifndef D_MIN
++#define D_MIN 0
++#endif
++#ifndef D_NOLDSM
++#define D_NOLDSM 0
++#endif
++#ifndef D_EF
++#define D_EF 0
++#endif
++#ifndef D_ALAST
++#define D_ALAST 0
++#endif
++#ifndef D_NOMMA
++#define D_NOMMA 0
++#endif
++#ifndef D_NODEC
++#define D_NODEC 0
++#endif
++#ifndef D_NOA
++#define D_NOA 0
++#endif
++#ifndef D_NOS
++#define D_NOS 0
++#endif
+ // Expert-grouped MXFP4 GEMM written in CUDA C++ for the CUDA provider (DeviceFeatures.NativeGemmMoe, compute capability 8.0 and
+ // later): the grouped form of a MatMulId with MXFP4R expert weights (WeightRepack.Mxfp4Split) for batches with many rows per
+ // expert. Each block computes one routing tile (moe_route in moe.slang: [0] = tile count, [1 + 3i ..] = tile i {expert, row
+@@ -149,6 +173,12 @@
+ #endif
+ static __device__ __forceinline__ void nm_cp16w(nm_u32 dst, const void* src)
+ {
++#if D_EF
++    nm_u64 pol;
++    asm volatile("createpolicy.fractional.L2::evict_first.b64 %0, 1.0;\n" : "=l"(pol));
++    asm volatile("cp.async.cg.shared.global.L2::cache_hint.L2::256B [%0], [%1], 16, %2;\n" :: "r"(dst), "l"(src), "l"(pol));
++    return;
++#endif
+ #if NM_PF == 256
+     asm volatile("cp.async.cg.shared.global.L2::256B [%0], [%1], 16;\n" :: "r"(dst), "l"(src));
+ #elif NM_PF == 128
+@@ -167,6 +197,9 @@
+ 
+ static __device__ __forceinline__ void nm_mma(float* c, const nm_u32* a, nm_u32 b0, nm_u32 b1)
+ {
++#if D_NOMMA
++    c[0] += __uint_as_float(a[0] ^ b0); c[1] += __uint_as_float(b1 ^ a[3]); return;
++#endif
+     asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%0,%1,%2,%3};\n"
+                  : "+f"(c[0]), "+f"(c[1]), "+f"(c[2]), "+f"(c[3])
+                  : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b0), "r"(b1));
+@@ -246,7 +279,11 @@
+         {
+             nm_u32 a[4];
+             nm_u32 r = r0 + i * 16 + (lane & 15);
++#if D_NOLDSM
++            a[0] = r; a[1] = b; a[2] = h; a[3] = lane;
++#else
+             nm_ldsm4(sa + nm_swz(r, b * 4 + h * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
++#endif
+ #pragma unroll
+             for (int j = 0; j < NM_FN; j++)
+             {
+@@ -391,14 +428,16 @@
+ 
+     auto load = [&](nm_u32 s, nm_u32 kb) {
+         nm_u32 base = (nm_u32)__cvta_generic_to_shared(smem + s * NM_A_STRIDE);
++#if !D_ALAST
+ #pragma unroll
+         for (nm_u32 i = 0; i < NM_A_PER; i++)
+         {
+-            if (aLive[i])
++            if (aLive[i] && !D_NOA)
+             {
+                 nm_cp16(base + aDst[i], aSrc[i] + kb * 128);
+             }
+         }
++#endif
+ #if NM_CP == 1
+ #pragma unroll
+         for (nm_u32 i = 0; i < NM_C_PER; i++)
+@@ -409,11 +448,21 @@
+                 nm_cp16w(base + NM_A_BYTES + ((idx & 1) * NM_BN + (idx >> 1)) * 16, cSrc[i] + kb * 32);
+             }
+         }
+-        if (sLive)
++        if (sLive && !D_NOS)
+         {
+             nm_cp16w(base + NM_A_BYTES + NM_C_BYTES + tid * 16, sSrc + kb * 32);
+         }
+ #endif
++#if D_ALAST
++#pragma unroll
++        for (nm_u32 i = 0; i < NM_A_PER; i++)
++        {
++            if (aLive[i] && !D_NOA)
++            {
++                nm_cp16(base + aDst[i], aSrc[i] + kb * 128);
++            }
++        }
++#endif
+     };
+ #if NM_CP > 1
+     // Codes and scales of K steps m NM_CP .. into weight slot m % NM_CQ: chunk ch (16 bytes) of a row is step ch / 2's block ch % 2,
+@@ -493,6 +542,10 @@
+         const nm_u32 sc = smem0 + kb % NM_STAGES * NM_STAGE_BYTES + NM_A_BYTES, ss = sc + NM_C_BYTES;
+ #endif
+         nm_u32 row = wn * NM_TN + j * 8 + g;
++#if D_NODEC
++        bf[j][0] = 0x3c003c00u + kb; bf[j][1] = 0x3c003c00u + b; bf[j][2] = 0x3c003c00u + row; bf[j][3] = 0x3c003c00u;
++        return;
++#endif
+         uint4 raw = nm_lds128(sc + (b * NM_BN + row) * 16);
+         nm_u32 u = nm_prmt(upper ? raw.y : raw.x, upper ? raw.w : raw.z, sel);
+ #if DUAL
+@@ -586,6 +639,29 @@
+             mmas(f, cur, 1, bf1, [&](int j) { if (more) { decodeUnit(kb + 1, 0, j, bf0); } });
+         }
+     };
++#if D_MIN
++    // Copy ring only (the read_energy.cu loop inside this kernel): wait, barrier, next copies.
++    {
++        nm_u32 accm = 0;
++        for (nm_u32 kb = 0; kb < nk; kb++)
++        {
++            asm volatile("cp.async.wait_group %0;\n" :: "n"(NM_STAGES - 3));
++            __syncthreads();
++            accm ^= *(const nm_u32*)(smem + (kb % NM_STAGES) * NM_A_STRIDE + NM_A_BYTES + tid * 4);
++#if D_MIN > 1
++            __syncthreads();
++#endif
++            nm_u32 next = kb + NM_STAGES - 1;
++            if (next < nk)
++            {
++                load(next % NM_STAGES, next);
++            }
++            asm volatile("cp.async.commit_group;\n" ::);
++        }
++        if (accm == 0x12345678u) { p.y[tid] = 1.0f; }
++        return;
++    }
++#endif
+     switch (liveFrags)
+     {
+ #define NM_CASE(F) case F: mainLoop(NmFrags<F>{}); break;
+@@ -609,6 +685,13 @@
+         break;
+     }
+     asm volatile("cp.async.wait_group 0;\n" ::);
++#if D_NOST
++    if (p.T != 12345u)
++    {
++        if (acc[0][0][0] == 1.2345f) { p.y[tid] = acc[0][1][1]; }
++        return;
++    }
++#endif
+ 
+ #pragma unroll
+     for (int i = 0; i < NM_FM; i++)
