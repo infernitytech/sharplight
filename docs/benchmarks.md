@@ -13292,8 +13292,8 @@ every layer's experts on disk and a 40 MiB cache, a second compilation registeri
 |---|---|
 | Sharplight.Core.Tests `ExpertStoreTests` | 10 / 0 failed |
 | Sharplight.Cpu.Tests `DiskExpertTests` | 14 / 0 failed |
-| Sharplight.Cuda.Tests | CUDA_TESTS_RESULT |
-| Sharplight.Serving.Tests | 397 / 0 failed / 28 skipped |
+| Sharplight.Cuda.Tests (with `DiskExpertRelayoutTests`) | 73 / 0 failed / 1 skipped |
+| Sharplight.Serving.Tests | 401 / 2 failed / 28 skipped after merging `develop` (`EngineTests.StepFloor_PolicyWhileSomeSequenceDecodes`, `MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached`: timing-dependent, run beside the CUDA suite; both classes passed 2 of 2 runs alone); 397 / 0 failed before the merge |
 
 ## 88. Multi-node round 1: pipeline parallel over segment workers on loopback (2026-11-22)
 
