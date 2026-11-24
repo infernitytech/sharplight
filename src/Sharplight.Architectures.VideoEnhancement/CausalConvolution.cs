@@ -42,7 +42,9 @@ internal sealed class CausalConvolution
         {
             if (_caches.TryGetValue(prefix, out var cache))
             {
-                padded = _b.Concat(0, cache, x);
+                // Through a view: a cache produced in place in the next chunk's padded input would hold that whole input (all its frames)
+                // allocated from the previous chunk on, for every convolution at once.
+                padded = _b.Concat(0, _b.After(cache, x), x);
             }
             else
             {
