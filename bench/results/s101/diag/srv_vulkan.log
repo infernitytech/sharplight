@@ -1,0 +1,62 @@
+Option '--provider' expects a single argument but 2 were provided.
+
+Description:
+  Serves one or several models over the OpenAI and/or Anthropic HTTP API; models that are not in the store are pulled first.
+
+Usage:
+  sharplight [<model>] serve [<model>...] [options]
+
+Arguments:
+  <model>  Model to load: a .gguf file, a .slm package, a Hugging Face checkpoint directory, a stored model (see 'list') or a Hugging Face repository owner/name[:tag], pulled when not stored. Omit it to only list devices.
+  <model>  Models to serve: stored models (owner/name[:tag] or short name), Hugging Face repositories (pulled when missing), .slm/.gguf files or checkpoint directories.
+
+Options:
+  --model <NAME=MODEL[,key=value...]>  Serve another model (file, stored or Hub model) under NAME; repeatable. Per-model keys: ctx, slots, batch, device (auto, cpu, an index, a device id such as vulkan:1, or several joined with +), mmproj, template, lazy, pin, idle (seconds), offload, kind (chat, embedding, reranker), task (a task kind such as speech-recognition).
+  --config <file>                      Hosting JSON file: host-wide settings, model defaults and a "models" list (docs/hosting.md). Options given on the command line win.
+  --model-name <name>                  Model id reported for a single positional model (default: its file name, or the model name as given).
+  --listen, --urls <url>               Address to listen on. [default: http://127.0.0.1:8080]
+  --api <anthropic|both|openai>        Which API to expose. [default: both]
+  --api-key <key>                      Require this key (Authorization: Bearer or x-api-key); repeatable. Also protects /admin.
+  --cors <origin>                      Allow this CORS origin ("*" for any); repeatable.
+  --cpu                                Run on the CPU provider instead of a GPU.
+  --provider <name>                    GPU provider to run on (metal, vulkan, cuda); default: the first available one (Metal on Apple silicon, else Vulkan).
+  --device <index>                     Index of the device to use (see the CLI's --devices). [default: 0]
+  --ctx <tokens>                       Context length in tokens (per sequence). [default: 4096]
+  --batch <rows>                       Maximum rows (prompt tokens) per forward pass (0: up to 2048, chosen from the model's footprint and the free device memory). [default: 0]
+  --kv-type <type>                     KV cache element type: f16, f32, q8_0 (half the memory of f16) or q4_0 (a quarter, less accurate). Caches whose rows are not whole 32-value blocks stay f16. [default: f16]
+  --disable-features <features>        Comma-separated device features never to use, e.g. matrix_f16,float16 (diagnostics and fallback testing).
+  --cpu-offload                        Run layers that do not fit in device memory, and ops the device cannot execute, on the CPU.
+  --experts-on-disk                    With --cpu-offload: routed experts of mixture-of-experts models that fit neither the GPU nor host memory stay in the model file and are read from disk on demand into a cache (models larger than RAM + VRAM; decode at the disk's speed).
+  --expert-cache <size>                With --experts-on-disk: host memory for the cache of experts read from disk, e.g. 24G (default: sized from the free host memory). A cache smaller than the experts on the CPU leaves them on disk even when they would fit.
+  --reduced-precision                  Opt-in: faster kernels at reduced (f16) precision where the default keeps near-f32 accuracy (e.g. one f16 product in the chunked delta rule of Qwen3.5-style models, and their delta-rule state in bf16).
+  --fp8-block-scaled <on|off>          Block-scaled FP8 (default on): models with block-scaled E4M3 weights run their prompt-sized products on the block-scaled MMA with power-of-two scales where the device has it (CUDA, compute capability 12.x; about 2 % more serving throughput, perplexity +0.3 to +0.8 %, the form vLLM uses by default). off keeps the checkpoints' f32 scales (the same as --disable-features block_scaled_fp8). [default: on]
+  --slots <count>                      Concurrent sequences batched per forward pass, each with up to --ctx tokens of context (from a paged pool shared by the slots, see --kv-tokens). [default: 4]
+  --max-queue <count>                  Waiting requests per model before answering 429. [default: 64]
+  --prefill-chunk <rows>               Prompt rows per step and sequence, interleaved with decoding (0: the step's rows, see --batch). [default: 0]
+  --step-tokens <tokens>               Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).
+  --min-step-tokens <tokens>           Smallest token budget of a step while few sequences run (default 768: a wave of prompts is prefilled in smaller steps and streams sooner; 0: every step uses the whole budget).
+  --step-floor <policy>                When the --min-step-tokens floor applies: waves (default: only while no sequence decodes, so the prompts of a wave that were admitted first decode through shorter steps), always (every step; the earlier default) or full (while some sequence decodes, every step may use the whole budget). SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full overrides it.
+  --kv-tokens <tokens>                 Paged KV cache: one pool of this many tokens (K/M suffixes) shared by all --slots, each growing up to --ctx as needed; admission and preemption follow free cache blocks, and prompts share cached blocks by content (prefix caching). Default: --slots x --ctx tokens where the device runs the paged kernels; 0: every slot reserves --ctx tokens (contiguous cache).
+  --allow-cache-salt                   Accept the cache_salt request field (vLLM's prefix-cache salt) from clients; it can only narrow prefix-cache sharing.
+  --no-prefix-cache                    Compute every prompt in full instead of reusing the cached KV of earlier prompts with the same prefix.
+  --kv-snapshots <count>               Recurrent-state snapshots kept for prefix caching of models with recurrent state (gated delta nets, Mamba, RWKV); each costs one sequence's state. Default: what fits in half the KV pool's memory or 512 MiB, at most two per slot; 0: no prefix caching for such models.
+  --speculate-ngram <tokens>           Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off). [default: 0]
+  --speculate-mtp <tokens>             Multi-token-prediction speculative decoding with the model's own MTP head: draft this many tokens per step (0 = off; models without a head fall back to --speculate-ngram). [default: 0]
+  --speculate-max-batch <sequences>    Speculate only while at most this many sequences decode (larger batches are compute bound). [default: 16]
+  --mmproj <file>                      Vision projector for the models without their own (images are not served yet).
+  --chat-template <file>               Use this Jinja chat template instead of the models' own.
+  --temp <t>                           Default temperature for requests that give none. [default: 0.7]
+  --vram-reserve <size>                Device memory kept free for other applications (K/M/G suffixes; default 1G).
+  --vram-budget <size>                 Never use more than this much device memory in total (default: what the driver reports as available).
+  --max-loaded <count>                 At most this many models resident at once; loading another evicts the least recently used idle one.
+  --lazy                               Load models on their first request instead of at startup.
+  --idle-timeout <seconds>             Unload models that served nothing for this long; they reload on demand.
+  --on-demand                          Also serve every model of the model store by name (ollama-style): it loads on its first request; combine with --idle-timeout and --max-loaded / --vram-reserve to unload idle and least recently used models.
+  --workers <host:port,...>            Segment workers (sharplight segment-worker) that run the later pipeline stages of the positional models on other machines, in order.
+  --revision <rev>                     Branch, tag or commit to pull; it is resolved to a commit that every file is pinned to. [default: main]
+  --keep-source                        Keep the downloaded GGUF/safetensors/ONNX files next to the package instead of deleting them.
+  --no-precompile                      Do not precompile the package for the local GPU (kernels are then compiled at the first load).
+  --no-pull                            Fail instead of pulling models that are not in the model store.
+  -?, -h, --help                       Show help and usage information
+  --models-dir <dir>                   Model store for pulled models (default: $SHARPLIGHT_MODELS, else the location chosen with 'store use', else the 'models' folder of the storage location: portable, system or custom, see 'storage').
+

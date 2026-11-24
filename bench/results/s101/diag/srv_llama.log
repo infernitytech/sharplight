@@ -1,0 +1,111 @@
+Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [61 ms]
+Loaded Llama-3.1-8B-Instruct (decoder): 292 tensors, 16.06 GB, vocab 128256 [2719 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 138 / 138 (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 16.06 / 16.06 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' for 16 sequences x 1024 tokens, paged KV cache of 16384 tokens in 48901 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 34 groups, 16.96 GiB weights+state
+1 segment(s): [0@0: 709 nodes]
+Ready (decode)
+[sched] prepared 16 decode step shapes in 1 ms
+Model 'Llama-3' loaded in 52378 ms (estimated 18764 MiB, resident 17982 MiB).
+Serving 'Llama-3' (both API, VRAM reserve 1 GiB) on http://127.0.0.1:18090
+  Llama-3 [Chat] Loaded 17981 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 18270 MiB (ours 17982 MiB), available 13856 MiB
+[sched]  152.58 ms rows   768 decode   0 active  16 P6@0+20/20 P1@0+65/65 P14@0+20/20 P13@0+65/65 P5@0+80/80 P15@0+50/50 P2@0+140/140 P16@0+110/110 recompute P17@0+35/35 P3@0+35/35 P18@0+50/50 P19@0+96/125 recompute P4@0+2/95
+[sched]   48.82 ms rows   309 decode  11 active  16 P7@32+108/140 attach32 P8@16+4/20 attach16 P19@96+29/125 P4@2+93/95 P20@16+64/80 attach16
+[sched]   35.30 ms rows    16 decode  16 active  16
+[sched]   28.40 ms rows    16 decode  16 active  16
+[sched]   19.97 ms rows    16 decode  16 active  16
+[sched]   19.94 ms rows    16 decode  16 active  16
+[sched]   19.94 ms rows    16 decode  16 active  16
+[sched]   19.94 ms rows    16 decode  16 active  16
+[sched]   19.94 ms rows    16 decode  16 active  16
+[sched]   19.96 ms rows    16 decode  16 active  16
+[sched]   19.97 ms rows    16 decode  16 active  16
+[sched]   19.97 ms rows    16 decode  16 active  16
+[sched]   19.97 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   19.99 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.03 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.05 ms rows    16 decode  16 active  16
+[sched]   20.03 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.05 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.05 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.08 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.08 ms rows    16 decode  16 active  16
+[sched]   62.10 ms rows   511 decode   5 active  16 P9@0+95/95 P10@0+125/125 P11@0+35/35 P12@0+110/110 P24@80+15/95 P25@16+94/110 P27@32+32/140
+[sched]   50.42 ms rows   316 decode   6 active  16 P21@32+18/50 attach32 P22@48+17/65 attach48 P23@64+16/80 attach64 P26@16+109/125 attach16 P27@64+76/140 P28@16+4/20 P29@16+19/35 P30@32+18/50 P31@48+17/65 P32@64+16/80
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   19.99 ms rows    16 decode  16 active  16
+[sched]   19.99 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   19.99 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   19.98 ms rows    16 decode  16 active  16
+[sched]   19.99 ms rows    16 decode  16 active  16
+[sched]   19.98 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.00 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.01 ms rows    16 decode  16 active  16
+[sched]   20.03 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.03 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.02 ms rows    16 decode  16 active  16
+[sched]   20.03 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.03 ms rows    16 decode  16 active  16
+[sched]   20.05 ms rows    16 decode  16 active  16
+[sched]   20.05 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.05 ms rows    16 decode  16 active  16
+[sched]   20.05 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.04 ms rows    16 decode  16 active  16
+[sched]   20.06 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.07 ms rows    16 decode  16 active  16
+[sched]   20.08 ms rows    16 decode  16 active  16
+[sched]   23.07 ms rows    10 decode  10 active  10

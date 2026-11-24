@@ -1,0 +1,10 @@
+Graph optimization (sharplight-ir/1): decode 1084 -> 1084 nodes, decode_embeddings 1083 -> 1083 nodes [37 ms]
+Loaded gpt-oss-20b (decoder): 412 tensors, 13.78 GB, vocab 201088 [1381 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 163 / 163, 163 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 13.78 / 13.78 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 9585 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 26 groups, 13.02 GiB weights+state
+1 segment(s): [0@0: 1085 nodes]
+Ready (decode)
+prompt: 963 tok in 127 ms (7589.7 tok/s) | generated: 120 tok, 180.63 tok/s

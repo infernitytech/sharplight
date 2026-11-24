@@ -1,0 +1,2 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 18726 MiB, 199.99 W, 2790 MHz, 13365 MHz, 52, P1
+2085980, VLLM::EngineCore, 18716 MiB
