@@ -96,12 +96,12 @@ public sealed class MatMulTests
     /// Prompt batches whose tiles of the CUDA provider's hand-written f16 GEMM (bf16 weights stored as f16) do not fill whole waves of
     /// the SMs run stream-K (the last waves' K steps shared evenly by every SM's block, the partial sums of a tile split between blocks
     /// added by the block holding its first K step), against the CPU oracle with activations that f16 represents exactly: 128 rows
-    /// (64 x 256 tiles, each split across two or three blocks), 300 rows (64 x 256 tiles, a partial last token tile) and 258 rows
+    /// (64 x 256 tiles, each split across two or three blocks), 300 rows of 5,120 outputs (64 x 256 tiles, a partial last token tile) and 258 rows
     /// of 8,448 outputs (64 x 256 tiles, a full wave walked tile by tile first).
     /// </summary>
     [Theory]
     [InlineData(128, 4096, 4096)]
-    [InlineData(300, 6144, 4096)]
+    [InlineData(300, 5120, 2880)]
     [InlineData(258, 8448, 1024)]
     public void StreamKTiles(int t, int n, int k)
     {
@@ -115,7 +115,7 @@ public sealed class MatMulTests
     }
 
     /// <summary>
-    /// A batch whose shared tiles fill at least a wave (300 rows of 6,144 outputs: 120 64 x 256 tiles) runs the CUDA provider's f16 GEMM
+    /// A batch whose shared tiles fill at least a wave (300 rows of 5,120 outputs: 100 64 x 256 tiles) runs the CUDA provider's f16 GEMM
     /// stream-K with each cut tile continued from the previous block's accumulators: its outputs equal bit for bit those of the same rows
     /// in a batch of 2,100 rows, which walks tile by tile (every tile configuration sums K in the same order).
     /// </summary>
@@ -123,7 +123,7 @@ public sealed class MatMulTests
     public void StreamKMatchesTileWalkBitwise()
     {
         Gpu.RequireCuda();
-        var (part, whole) = RunPrefix("bf16", 300, 2100, 6144, 4096);
+        var (part, whole) = RunPrefix("bf16", 300, 2100, 5120, 2880);
         Assert.Equal(whole, part);
     }
 

@@ -42,9 +42,9 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Estimated stream-K costs of the hand-written f16 GEMM (<c>H_SK</c>): a K step as a tile-by-tile one, a block's fixup 8 steps.
-    /// Llama-3.1-8B and gpt-oss-20b prompt steps of 128-2,048 rows (benchmarks.md section 104): the gains at 256-2,048 rows hold from
-    /// 4 to 21 steps; above 8 the 64 x 256 tiles of q / k / v at 266 rows lose stream-K (-8 %), below it a 2,880-output projection at 266
-    /// rows is 9 % slower stream-K.
+    /// Llama-3.1-8B, Qwen3-8B and gpt-oss-20b prompt steps of 128-2,048 rows (benchmarks.md section 104): the gains at 256-2,048 rows
+    /// hold from 4 to 21 steps; above 8 the q / k / v GEMMs at 256 rows lose stream-K, below it a 2,880-output projection at 266 rows is
+    /// 9 % slower stream-K.
     /// </summary>
     private static readonly (double Step, double Fixup) s_f16StreamKCost = (1.0, 8);
 
@@ -125,7 +125,7 @@ public sealed partial class GraphLowerer
     /// Least estimated gain for which a launch runs stream-K: within it the estimate does not tell the walks apart (and stream-K changes
     /// the summation order for nothing).
     /// </summary>
-    private const double StreamKMinGain = 0.04;
+    private const double StreamKMinGain = 0.05;
 
     /// <summary>
     /// Emits the stream-K launch of a hand-written GEMM (<paramref name="variants"/>, its stream-K variants) with the <paramref name="args"/>
