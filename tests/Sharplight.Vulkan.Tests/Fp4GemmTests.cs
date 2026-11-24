@@ -59,6 +59,27 @@ public sealed class Fp4GemmTests
     }
 
     /// <summary>
+    /// Three products of the same activations (a q / k / v group): on CUDA with <c>block_scaled_fp4</c> one multi-output FP4 launch over
+    /// the concatenated weight rows, each block in one member's matrix; exact activations, so every output matches the oracle.
+    /// </summary>
+    [Theory]
+    [InlineData("nvfp4_gs", 16)]
+    [InlineData("nvfp4", 64)]
+    [InlineData("nvfp4_gs", 200)]
+    public void SharedActivations(string fmt, int t)
+    {
+        const int K = 768;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var type = DataType.Get(fmt);
+        tg.B.Output("q", tg.B.MatMul(x, tg.RandW("wq", type, 1f, 512, K)));
+        tg.B.Output("k", tg.B.MatMul(x, tg.RandW("wk", type, 1f, 128, K)));
+        tg.B.Output("v", tg.B.MatMul(x, tg.RandW("wv", type, 1f, 128, K)));
+        Diff.Check("Fp4Gemm.shared." + fmt, tg.B.Build(), new Step(t, 0, (x, ExactFp4(t, K, 13))), atol: Atol(fmt), rtol: Rtol(fmt), maxTokens: 256,
+            what: $"T={t}");
+    }
+
+    /// <summary>
     /// Random activations: the FP4 GEMM quantizes them to E2M1 with an E4M3 scale per 16 values (about 9 % relative error per value,
     /// the W4A4 mode), so the products are about 9 % (relative L2) away from the oracle's; the other paths quantize activations to
     /// 8 bits or none. A wrong scale or layout gives errors of order 1.

@@ -27,8 +27,11 @@
 // routing tile of moe_route (moe.slang; S slots, MAXTILES) against F4_BN weight rows of the tile's expert, reading the FP4 rows of its
 // items' tokens (X_TOKEN: row item / S) or of the items themselves, and stores y[item, n].
 //
+// MULTI (2 or 3): the q / k / v group sharing x as one launch over the concatenated rows of its matrices (N all rows, MULTI_O1 /
+// MULTI_O2 the members' first rows, multiples of F4_BN), each block's weight tile in one member, stored to that member's output.
+//
 // Specialization macros: K, N, Y_STRIDE, F4_BM, F4_BN, F4_WM, F4_WN, F4_STAGES, F4_GS, DUAL, F4N_EPI2 (DUAL), F4_MINB, F4_MOE (with
-// EXPERT_BYTES, S, MAXTILES, X_TOKEN). Grid: x = token tiles, y = weight tiles; F4_MOE: x = weight tiles,
+// EXPERT_BYTES, S, MAXTILES, X_TOKEN), MULTI, MULTI_O1, MULTI_O2. Grid: x = token tiles, y = weight tiles; F4_MOE: x = weight tiles,
 // y = routing tiles (blocks past the tile count return).
 #define SL_FAMILY_ARCH 1
 #define SL_NVRTC_SASS 1
@@ -56,6 +59,12 @@ typedef unsigned long long f4n_u64;
 #endif
 #ifndef X_TOKEN
 #define X_TOKEN 0
+#endif
+#ifndef MULTI
+#define MULTI 0
+#endif
+#if MULTI && (DUAL || F4_MOE)
+#error "gemm_fp4_native: MULTI with DUAL or F4_MOE"
 #endif
 #define F4_THREADS (F4_WM * F4_WN * 32)
 #define F4_TM (F4_BM / F4_WM)
@@ -92,6 +101,16 @@ struct F4nParams
     const f4n_u32* route;
 #endif
     float* y;
+#if MULTI
+    const f4n_u8* w_1;
+#if MULTI > 2
+    const f4n_u8* w_2;
+#endif
+    float* y_1;
+#if MULTI > 2
+    float* y_2;
+#endif
+#endif
     f4n_u32 T;
 };
 
@@ -145,13 +164,13 @@ static __device__ __forceinline__ f4n_u32 f4n_swz(f4n_u32 r, f4n_u32 c)
 }
 
 // Weight matrix row of B tile row r of the block's matrices w / w2 (rows past the matrix are clamped: their outputs are never stored).
-static __device__ __forceinline__ const f4n_u8* f4n_wrow(const f4n_u8* w, const f4n_u8* w2, f4n_u32 n0, f4n_u32 r)
+static __device__ __forceinline__ const f4n_u8* f4n_wrow(const f4n_u8* w, const f4n_u8* w2, f4n_u32 n0, f4n_u32 r, f4n_u32 nb)
 {
 #if DUAL
     w = ((r >> 3) & 1) ? w2 : w;
-    f4n_u32 row = min(n0 + (r >> 4) * 8 + (r & 7), (f4n_u32)N - 1);
+    f4n_u32 row = min(n0 + (r >> 4) * 8 + (r & 7), nb - 1);
 #else
-    f4n_u32 row = min(n0 + r, (f4n_u32)N - 1);
+    f4n_u32 row = min(n0 + r, nb - 1);
 #endif
     return w + (f4n_u64)row * F4_WRB;
 }
@@ -183,7 +202,8 @@ extern "C" __global__ void __launch_bounds__(F4_THREADS, F4_MINB) gemm_fp4_nativ
         return;
     }
 
-    const f4n_u32 n0 = blockIdx.x * F4_BOUT;
+    const f4n_u32 n0 = blockIdx.x * F4_BOUT, nb = N, ys = Y_STRIDE;
+    float* const yb = p.y;
     const f4n_u32 expert = p.route[1 + 3 * blockIdx.y], offset = p.route[2 + 3 * blockIdx.y], tileRows = p.route[3 + 3 * blockIdx.y];
     const f4n_u8* wb = p.w + (f4n_u64)expert * EXPERT_BYTES;
 #if DUAL
@@ -202,8 +222,33 @@ extern "C" __global__ void __launch_bounds__(F4_THREADS, F4_MINB) gemm_fp4_nativ
     const f4n_u32 id = blockIdx.y * gridDim.x + blockIdx.x, groupBlocks = 16 * gridDim.y;
     const f4n_u32 first = id / groupBlocks * 16, groupRows = min(gridDim.x - first, 16u);
     const f4n_u32 t0 = (first + id % groupBlocks % groupRows) * F4_BM;
-    const f4n_u32 n0 = id % groupBlocks / groupRows * F4_BOUT;
+    f4n_u32 n0 = id % groupBlocks / groupRows * F4_BOUT, nb = N, ys = Y_STRIDE;
     const f4n_u8* wb = p.w;
+    float* yb = p.y;
+#if MULTI
+    // The member matrix the block's weight tile lies in: rows [0, MULTI_O1) of w into y, [MULTI_O1, MULTI_O2) of w_1 into y_1, the
+    // rest of w_2 into y_2 (dense rows of each member's width).
+    if (n0 >= MULTI_O1)
+    {
+#if MULTI > 2
+        const bool third = n0 >= MULTI_O2;
+        wb = third ? p.w_2 : p.w_1;
+        yb = third ? p.y_2 : p.y_1;
+        nb = third ? N - MULTI_O2 : MULTI_O2 - MULTI_O1;
+        n0 -= third ? MULTI_O2 : MULTI_O1;
+#else
+        wb = p.w_1;
+        yb = p.y_1;
+        nb = N - MULTI_O1;
+        n0 -= MULTI_O1;
+#endif
+    }
+    else
+    {
+        nb = MULTI_O1;
+    }
+    ys = nb;
+#endif
 #if DUAL
     const f4n_u8* wb2 = p.w2;
 #else
@@ -233,7 +278,7 @@ extern "C" __global__ void __launch_bounds__(F4_THREADS, F4_MINB) gemm_fp4_nativ
             if (idx < F4_BN * chunks)
             {
                 f4n_u32 r = idx / chunks, c = idx % chunks;
-                const f4n_u8* src = f4n_wrow(wb, wb2, n0, r) + (f4n_u64)kb * F4_WSTEP;
+                const f4n_u8* src = f4n_wrow(wb, wb2, n0, r, nb) + (f4n_u64)kb * F4_WSTEP;
 #if F4_GS
                 f4n_u32 shift = 0;
 #else
@@ -324,7 +369,7 @@ extern "C" __global__ void __launch_bounds__(F4_THREADS, F4_MINB) gemm_fp4_nativ
 #if F4_GS
             brow[j] = sb + r * F4_BROW;
 #else
-            f4n_u32 shift = (f4n_u32)((f4n_u64)(f4n_wrow(wb, wb2, n0, r) + (f4n_u64)kb * F4_WSTEP) >> 4) & 1u;
+            f4n_u32 shift = (f4n_u32)((f4n_u64)(f4n_wrow(wb, wb2, n0, r, nb) + (f4n_u64)kb * F4_WSTEP) >> 4) & 1u;
             brow[j] = sb + r * F4_BROW + shift * 16;
 #endif
         }
@@ -373,8 +418,8 @@ extern "C" __global__ void __launch_bounds__(F4_THREADS, F4_MINB) gemm_fp4_nativ
         f4n_u32 n = n0 + wn * F4_TN + j * 8 + c4 * 2;
         const f4n_u8* w = wb;
 #endif
-        ws[j][0] = f4n_wscale(w, min(n, (f4n_u32)N - 1));
-        ws[j][1] = f4n_wscale(w, min(n + 1, (f4n_u32)N - 1));
+        ws[j][0] = f4n_wscale(w, min(n, nb - 1));
+        ws[j][1] = f4n_wscale(w, min(n + 1, nb - 1));
     }
 
 #pragma unroll
@@ -391,7 +436,7 @@ extern "C" __global__ void __launch_bounds__(F4_THREADS, F4_MINB) gemm_fp4_nativ
             }
 
             const float gx = *(const float*)(p.x + (f4n_u64)xrows[r] * F4_XRB + (f4n_u64)(K / 256) * F4_XREC);
-            float* yr = p.y + (f4n_u64)t * Y_STRIDE;
+            float* yr = yb + (f4n_u64)t * ys;
 #if DUAL
 #pragma unroll
             for (int j = 0; j < F4_FN; j += 2)
@@ -406,11 +451,11 @@ extern "C" __global__ void __launch_bounds__(F4_THREADS, F4_MINB) gemm_fp4_nativ
                 f4n_u32 n = n0 + wn * F4_TN + j * 8 + c4 * 2;
                 float v0 = acc[i][j][h * 2] * (gx * ws[j][0]), v1 = acc[i][j][h * 2 + 1] * (gx * ws[j][1]);
 #endif
-                if (n + 1 < N)
+                if (n + 1 < nb)
                 {
                     *(float2*)(yr + n) = make_float2(v0, v1);
                 }
-                else if (n < N)
+                else if (n < nb)
                 {
                     yr[n] = v0;
                 }

@@ -520,7 +520,7 @@ public sealed partial class GraphLowerer
             // Emitted under the outer condition only, so that matmuls reading the same rows (q / k / v) share the FP4 activations.
             var beforeFp4 = _launchCondition;
             _launchCondition = outer;
-            EmitNativeFp4Gemm(plan);
+            EmitNativeFp4Gemm(plan, epilogue is not null);
             _launchCondition = b => (beforeFp4?.Invoke(b) ?? true) && plan.RowCount(b) < NativeFp4MinRows;
         }
         else if (library)

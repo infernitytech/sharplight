@@ -48,8 +48,12 @@ public sealed partial class GraphLowerer
     private CompiledKernel QuantizeFp4Kernel(long k, long xStride)
         => _compiler.CompileCuda("quantize_fp4.cu", "", "quantize_fp4", 128, 0, _opt.Target, Macros(("K", k), ("X_STRIDE", xStride)), _opt.Cache);
 
-    /// <summary>Emits the FP4 activation quantization and the FP4 GEMM launches of planned matmul <paramref name="p"/> for batches from <see cref="NativeFp4MinRows"/> rows.</summary>
-    private void EmitNativeFp4Gemm(MatMulPlan p)
+    /// <summary>
+    /// Emits the FP4 activation quantization and the FP4 GEMM launches of planned matmul <paramref name="p"/> for batches from
+    /// <see cref="NativeFp4MinRows"/> rows. A member of a q / k / v group without an epilogue (<paramref name="hasEpilogue"/> false)
+    /// leaves the batches the group's multi-output launch serves to it (<see cref="EmitNativeFp4MultiGemm"/>).
+    /// </summary>
+    private void EmitNativeFp4Gemm(MatMulPlan p, bool hasEpilogue)
     {
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
         long minRows = NativeFp4MinRows;
@@ -61,9 +65,62 @@ public sealed partial class GraphLowerer
         string label = MatMulLabel(p);
         var quantized = QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, p.K, minRows, rowsMax, ActivationCode.Fp4);
         long yStride = long.Parse(p.Macros["Y_STRIDE"], CultureInfo.InvariantCulture);
-        Emit($"{label} fp4", [p.Node], NativeFp4Variants(p.W.Type, p.N, p.K, yStride, null, minRows, rowsMax, p.RowCount),
+        var variants = NativeFp4Variants(p.W.Type, p.N, p.K, yStride, null, minRows, rowsMax, p.RowCount);
+        if (!hasEpilogue && p.RowsPerLead == 1 && DiagnosticSwitches.MultiGemmTall && _multiGemmOf.TryGetValue(p.Node, out var group)
+            && group.Fp4Parts.TryAdd(p.Node, new MultiGemmTallPart(quantized, p.W, p.Y, null, null, p.RowCount, minRows, rowsMax,
+                TallCondition(minRows, p.RowCount), TokenArg(p.X, p.RowsPerLead))))
+        {
+            variants = Unless(variants, b => !(group.Fp4Serves?.Invoke(b) ?? false));
+        }
+
+        Emit($"{label} fp4", [p.Node], variants,
             [Pointer(quantized), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
             [quantized, p.W], [p.Y]);
+    }
+
+    /// <summary>
+    /// The multi-output form of the FP4 GEMM (<c>MULTI</c>) over the concatenated weight rows of a q / k / v group whose members all run
+    /// on the FP4 GEMM from the same FP4 activation rows (<see cref="MultiGemmGroup.Fp4Parts"/>): one launch instead of one per member,
+    /// each block's weight tile in one member's matrix. The short k / v matrices alone fill a fraction of the SMs at decode batches
+    /// (Qwen3-8B, 64 rows: k and v 12.6 µs each for 2.6 MB, q 19.7 µs).
+    /// </summary>
+    private void EmitNativeFp4MultiGemm(MultiGemmGroup group)
+    {
+        if (group.Members.Count > 3 || !group.Members.All(group.Fp4Parts.ContainsKey))
+        {
+            return;
+        }
+
+        var parts = group.Members.Select(m => group.Fp4Parts[m]).ToList();
+        var first = parts[0];
+        if (parts.Any(pt => pt.Activations.Buffer != first.Activations.Buffer || pt.Activations.ByteOffset != first.Activations.ByteOffset
+                            || pt.MinRows != first.MinRows || pt.MaxRows != first.MaxRows || pt.Weight.Type != first.Weight.Type
+                            || pt.Weight.Shape[1] != first.Weight.Shape[1] || !DenseRowsOf(pt.Output, pt.Weight.Shape[0]) || pt.Weight.Shape[0] % 128 != 0))
+        {
+            return;
+        }
+
+        long[] widths = [.. parts.Select(pt => pt.Weight.Shape[0])];
+        long n = widths.Sum();
+        long k = first.Weight.Shape[1];
+        var rowsOf = first.Rows;
+        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b));
+        var multi = new Dictionary<string, string>
+        {
+            ["MULTI"] = widths.Length.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (widths.Length > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture),
+        };
+        var variants = NativeFp4Variants(first.Weight.Type, n, k, n, null, first.MinRows, first.MaxRows, rowsOf, multi);
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        var outer = _launchCondition;
+        _launchCondition = null;
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp4", group.Members, Unless(variants, serves),
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
+        _launchCondition = outer;
+        group.Fp4Serves = serves;
     }
 
     /// <summary>
@@ -104,9 +161,12 @@ public sealed partial class GraphLowerer
         _ => (128, 128, 2, 4, 2, 1),
     };
 
-    /// <summary>Launch variants of the FP4 GEMM for batches of <paramref name="minRows"/> to <paramref name="maxRows"/> rows, one per tile shape.</summary>
+    /// <summary>
+    /// Launch variants of the FP4 GEMM for batches of <paramref name="minRows"/> to <paramref name="maxRows"/> rows, one per tile shape, with
+    /// the <paramref name="extra"/> macros (the multi-output form's).
+    /// </summary>
     private KernelVariant[] NativeFp4Variants(DataType type, long n, long k, long yStride, string? dualEpilogue, long minRows, long maxRows,
-        Func<Bindings, long> rows)
+        Func<Bindings, long> rows, IReadOnlyDictionary<string, string>? extra = null)
     {
         bool dual = dualEpilogue is not null;
         long[] bounds = [16, 32, 64, 256, long.MaxValue];
@@ -127,6 +187,11 @@ public sealed partial class GraphLowerer
             var tile = NativeFp4Tile(low, dual);
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", yStride), ("F4_BM", tile.Bm), ("F4_BN", tile.Bn), ("F4_WM", tile.Wm), ("F4_WN", tile.Wn),
                 ("F4_STAGES", tile.Stages), ("F4_MINB", tile.MinBlocks), ("F4_GS", type == DataType.NVFP4_GS ? 1 : 0), ("DUAL", dual ? 1 : 0));
+            foreach (var (name, value) in extra ?? new Dictionary<string, string>())
+            {
+                macros[name] = value;
+            }
+
             var kernel = _compiler.CompileCuda("gemm_fp4_native.cu", dualEpilogue?.Replace("F8N_EPI2", "F4N_EPI2", StringComparison.Ordinal) ?? "",
                 "gemm_fp4_native", tile.Wm * tile.Wn * 32, tile.Stages * (tile.Bm + tile.Bn) * 160, _opt.Target, macros, _opt.Cache);
             long from = low, to = high;

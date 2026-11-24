@@ -108,6 +108,7 @@ public sealed partial class GraphLowerer
         {
             EmitNativeF16TallMultiGemm(group);
             EmitNativeFp8TallMultiGemm(group);
+            EmitNativeFp4MultiGemm(group);
             EmitMultiGemm(group);
             foreach (var emit in group.AfterEmit)
             {
