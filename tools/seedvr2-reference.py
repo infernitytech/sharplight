@@ -91,6 +91,7 @@ def main():
     else:
         from projects.video_diffusion_sr.color_fix import wavelet_reconstruction
 
+    patch_rope_tables()
     device = torch.device(args.device)
     if not torch.distributed.is_initialized():
         # The official decorators synchronize ranks; one process is its own group.
@@ -222,8 +223,7 @@ def main():
         stages["enhance"] = time.perf_counter() - t0
         t5 = time.perf_counter()
         if args.save_video:
-            import mediapy
-            mediapy.write_video(args.save_video, out, fps=24)
+            save_video(args.save_video, out, 24)
         stages["write"] = time.perf_counter() - t5
         stages["total"] = time.perf_counter() - start
         if dump:
@@ -275,6 +275,26 @@ def main():
     print(f"peak {peak / 2**30:.2f} GiB, output {dump['output'].shape}")
 
 
+def patch_rope_tables():
+    """
+    The 3B's RoPE builds its frequency table for a 1024 × 128 × 128 grid (8.4 GB in f32) and slices the windows' corners out of it, which
+    does not fit next to the f32 weights on a 32 GB GPU. The table of positions [0, n) is the prefix of the large one (integer positions,
+    the same frequencies), so this builds only the corner each window needs: the same values, without the memory.
+    """
+    import torch
+    from models.dit_v2.rope import NaMMRotaryEmbedding3d
+
+    def get_freqs(self, vid_shape, txt_shape):
+        vid_list, txt_list = [], []
+        for (f, h, w), l in zip(vid_shape.tolist(), txt_shape[:, 0].tolist()):
+            vid = self.get_axial_freqs(l + f, h, w)[l:l + f]
+            vid_list.append(vid.reshape(-1, vid.size(-1)))
+            txt_list.append(self.get_axial_freqs(l)[:l].repeat(1, 3).reshape(-1, vid.size(-1)))
+        return torch.cat(vid_list, dim=0), torch.cat(txt_list, dim=0)
+
+    NaMMRotaryEmbedding3d.get_freqs = get_freqs
+
+
 def load_dit(config, path, dtype):
     """The DiT built on the meta device and assigned the checkpoint's tensors in dtype (the 7B does not fit a 32 GB GPU in f32)."""
     import torch
@@ -305,6 +325,21 @@ def cut_videos(videos):
     return torch.cat([videos, videos[:, -1:].repeat(1, missing, 1, 1)], dim=1)
 
 
+def save_video(path, frames, fps):
+    """H.264 in MP4 through PyAV (the official script writes with mediapy, which drives the same libx264 through the ffmpeg binary)."""
+    import av
+    with av.open(path, "w") as container:
+        stream = container.add_stream("libx264", rate=fps)
+        stream.width = frames.shape[2]
+        stream.height = frames.shape[1]
+        stream.pix_fmt = "yuv420p"
+        for frame in frames:
+            for packet in stream.encode(av.VideoFrame.from_ndarray(frame, format="rgb24")):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+
+
 def load_frames(path, limit):
     if path.endswith(".npy"):
         frames = np.load(path)
@@ -312,8 +347,10 @@ def load_frames(path, limit):
         from PIL import Image
         frames = np.asarray(Image.open(path).convert("RGB"))[None]
     else:
-        import mediapy
-        frames = mediapy.read_video(path)
+        # PyAV, which the official script's torchvision.io.read_video wraps (newer torchvision releases dropped it).
+        import av
+        with av.open(path) as container:
+            frames = np.stack([frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)])
     frames = np.ascontiguousarray(frames[:limit] if limit > 0 else frames)
     return frames
 

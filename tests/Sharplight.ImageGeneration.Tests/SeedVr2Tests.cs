@@ -20,16 +20,27 @@ namespace Sharplight.ImageGeneration.Tests;
 [Collection(LargeModelCollection.Name)]
 public sealed class SeedVr2Tests
 {
-    /// <summary>The model a reference was made with: the official 3B files, or the 7B as its fp16 safetensors conversion.</summary>
+    /// <summary>
+    /// The model a reference was made with: the official 3B files, the 3B's fp16 safetensors conversion (ComfyUI, numz/SeedVR2_comfyUI; not a
+    /// plain cast of the official weights, 0.8-3 % apart) or the 7B's.
+    /// </summary>
     private static string ModelPath(string reference)
-        => Path.Combine(Env.VideoRoot, "seedvr2", reference.Contains("-7b-", StringComparison.Ordinal) ? "SeedVR2-7B-fp16" : "SeedVR2-3B");
+    {
+        string folder = reference.Contains("-7b-", StringComparison.Ordinal) ? "SeedVR2-7B-fp16"
+            : reference.Contains("-comfy-fp16", StringComparison.Ordinal) ? "SeedVR2-3B-fp16"
+            : "SeedVR2-3B";
+        return Path.Combine(Env.VideoRoot, "seedvr2", folder);
+    }
 
     private static string Reference(string name) => Path.Combine(Env.VideoRoot, "seedvr2", "references", name);
 
     private static bool Available(string reference) => Directory.Exists(ModelPath(reference)) && File.Exists(Path.Combine(Reference(reference), "index.json"));
 
-    /// <summary>Reference runs checked on the CPU: the tiny clip in f32 (5 frames of 104 × 56 → 208 × 112).</summary>
-    public static TheoryData<string> CpuCases => ["tiny-cpu-fp32"];
+    /// <summary>
+    /// Reference runs checked on the CPU: the tiny clip in f32 (5 frames of 104 × 56 → 208 × 112) with the official weights and with the fp16
+    /// safetensors conversion (the official code on the same weights).
+    /// </summary>
+    public static TheoryData<string> CpuCases => ["tiny-cpu-fp32", "tiny-cpu-fp32-comfy-fp16"];
 
     /// <summary>
     /// Reference runs checked on the GPU: the tiny clip, and 17 frames of 416 × 240 → 832 × 480 from the official bf16 runs on CUDA (3B: the

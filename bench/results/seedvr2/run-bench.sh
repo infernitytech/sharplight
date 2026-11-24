@@ -28,14 +28,16 @@ for case in $CASES; do
     name="$TAG-$clip"
     log="$OUT/$name-pytorch.log"
     : > "$log"
-    # DiT and VAE resident together when they fit (faster); otherwise the official script's offloading between the stages.
-    for offload in --no-offload ""; do
+    # The fastest setting that fits: DiT and VAE resident together, else the official script's offloading between the stages, else (the
+    # official f32 weights plus activations exceed 32 GB at large sizes) the DiT's weights held in bf16, which autocast multiplies in anyway.
+    for setting in "--no-offload|$DIT_WEIGHTS" "|$DIT_WEIGHTS" "|bf16"; do
+        IFS='|' read -r offload weights <<< "$setting"
         "$here/peak-memory.sh" "$log" "$PYTHON" "$repo/tools/seedvr2-reference.py" --repo "$SEEDVR_REPO" --shims "$SHIMS" --color-fix-file "$COLOR_FIX" \
-            --model "$ARCH" --dit "$DIT" --dit-weights "$DIT_WEIGHTS" --vae "$VAE" --pos-emb "$MODEL/pos_emb.pt" --neg-emb "$MODEL/neg_emb.pt" \
+            --model "$ARCH" --dit "$DIT" --dit-weights "$weights" --vae "$VAE" --pos-emb "$MODEL/pos_emb.pt" --neg-emb "$MODEL/neg_emb.pt" \
             --input "$INPUTS/$clip.mp4" --res-h "$outH" --res-w "$outW" --device cuda --dit-dtype bf16 --vae-dtype bf16 --attention flash $offload \
             --repeat "$RUNS" --seed 42 --timing-json "$OUT/$name-pytorch.json" --save-video "$OUT/$name-pytorch.mp4" --out "$OUT/$name-pytorch-dump" >> "$log" 2>&1 \
-            && break
-        echo "pytorch run with '$offload' failed" >> "$log"
+            && { echo "pytorch setting: offload '${offload:-official}', DiT weights $weights" >> "$log"; break; }
+        echo "pytorch run with offload '${offload:-official}', DiT weights $weights failed" >> "$log"
     done
     for provider in $PROVIDERS; do
         # Correctness first: the frames PyTorch decoded and its noise, compared with its output.
