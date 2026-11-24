@@ -13,13 +13,11 @@ namespace Sharplight.Architectures.VideoEnhancement;
 /// is resized (antialiased bicubic) to the output size, padded to the network's multiples, encoded by the causal VAE (the latent sampled
 /// from its distribution), restored in one step from noise at the model's timestep by the DiT conditioned on that latent and the model's
 /// precomputed text embedding, decoded, colour-corrected against the resized input and cropped back. All batches are encoded first, then
-/// restored, then decoded, so only one network's weights and activations need to be on the device at a time when memory is tight.
+/// restored, then decoded; compiled graphs stay for later requests unless the device runs out of memory, which releases them, so only one
+/// network's weights and activations need to fit at a time.
 /// </summary>
 internal sealed class SeedVrEnhancer : IVideoEnhancer
 {
-    /// <summary>When the weights take more than this fraction of the device memory, one stage's graphs are held at a time.</summary>
-    private const double HoldOneStageFraction = 0.25;
-
     /// <summary>The noise of batch b is stream 2b, its encoder sample stream 2b + 1.</summary>
     private const int StreamsPerBatch = 2;
 
@@ -30,7 +28,6 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     private readonly float _timestep;
     private readonly int _latentChannels;
     private readonly int _spatialDownscale;
-    private readonly bool _holdOneStage;
     private bool _disposed;
 
     /// <summary>Creates the enhancer for a loaded SeedVR2 model.</summary>
@@ -49,9 +46,6 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
             description.ConfigValue(SeedVrConfigKeys.FrameMultiple, 4),
             ParseColorCorrection(description.ConfigValue(SeedVrConfigKeys.ColorCorrection, "wavelet")),
             0);
-        long weightBytes = model.Definition.Weights.Values.Sum(w => w.ByteSize);
-        long deviceBytes = model.Options.Devices.Sum(slot => slot.MemoryLimit ?? slot.Device.GetMemoryInfo().Capacity);
-        _holdOneStage = deviceBytes > 0 && weightBytes > deviceBytes * HoldOneStageFraction;
         Metadata = TaskClientMetadata.For(model.Definition);
     }
 
@@ -112,12 +106,7 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
         }
 
         _disposed = true;
-        foreach (var compiled in _compiled.Values)
-        {
-            compiled.Dispose();
-        }
-
-        _compiled.Clear();
+        ReleaseAll();
         _gate.Dispose();
     }
 
@@ -141,22 +130,12 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
                 kept = batches == 1 ? clip : null;
             }
 
-            if (_holdOneStage)
-            {
-                ReleaseStage(SeedVrGraphs.VaeEncode);
-            }
-
             var restored = new float[batches][];
             for (int b = 0; b < batches; b++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 emit(new VideoEnhancementUpdate(VideoEnhancementPhase.Restoring, b, batches));
                 restored[b] = Restore(plan, b, conditions[b], b == 0 ? options.InitialNoise : null);
-            }
-
-            if (_holdOneStage)
-            {
-                ReleaseStage(SeedVrGraphs.Restore);
             }
 
             var all = new List<ImageInput>(request.Frames.Count);
@@ -191,14 +170,16 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     private float[] Encode(EnhancementPlan plan, int index, float[] clip, float[]? explicitNoise)
     {
         var batch = plan.Batches[index];
-        var encoder = Compiled(ModelComponentRoles.Vae, SeedVrGraphs.VaeEncode, Dimensions(plan, batch));
-        encoder.SetInput<float>(Input(encoder, VideoDiffusionGraphs.Frames), clip);
-        encoder.Run(new RunParameters());
         int size = LatentSize(plan, batch);
         var mean = new float[size];
         var deviation = new float[size];
-        encoder.GetOutput<float>(SeedVrGraphs.Mean, mean);
-        encoder.GetOutput<float>(SeedVrGraphs.Deviation, deviation);
+        RunGraph(ModelComponentRoles.Vae, SeedVrGraphs.VaeEncode, Dimensions(plan, batch),
+            encoder => encoder.SetInput<float>(Input(encoder, VideoDiffusionGraphs.Frames), clip),
+            encoder =>
+            {
+                encoder.GetOutput<float>(SeedVrGraphs.Mean, mean);
+                encoder.GetOutput<float>(SeedVrGraphs.Deviation, deviation);
+            });
         var noise = explicitNoise?.AsSpan(0, size).ToArray() ?? LatentNoise.Draw(plan.Seed, StreamsPerBatch * index + 1, size);
         for (int i = 0; i < size; i++)
         {
@@ -212,15 +193,17 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     private float[] Restore(EnhancementPlan plan, int index, float[] condition, float[]? explicitNoise)
     {
         var batch = plan.Batches[index];
-        var transformer = Compiled(ModelComponentRoles.Transformer, SeedVrGraphs.Restore, Dimensions(plan, batch));
         int size = LatentSize(plan, batch);
         var latent = explicitNoise?.AsSpan(0, size).ToArray() ?? LatentNoise.Draw(plan.Seed, StreamsPerBatch * index, size);
-        transformer.SetInput<float>(Input(transformer, VideoDiffusionGraphs.Latent), latent);
-        transformer.SetInput<float>(Input(transformer, SeedVrGraphs.Condition), condition);
-        transformer.SetInput<float>(Input(transformer, VideoDiffusionGraphs.Timestep), [_timestep]);
-        transformer.Run(new RunParameters());
         var prediction = new float[size];
-        transformer.GetOutput<float>(VideoDiffusionGraphs.Prediction, prediction);
+        RunGraph(ModelComponentRoles.Transformer, SeedVrGraphs.Restore, Dimensions(plan, batch),
+            transformer =>
+            {
+                transformer.SetInput<float>(Input(transformer, VideoDiffusionGraphs.Latent), latent);
+                transformer.SetInput<float>(Input(transformer, SeedVrGraphs.Condition), condition);
+                transformer.SetInput<float>(Input(transformer, VideoDiffusionGraphs.Timestep), [_timestep]);
+            },
+            transformer => transformer.GetOutput<float>(VideoDiffusionGraphs.Prediction, prediction));
         float sigma = _timestep / 1000f;
         for (int i = 0; i < size; i++)
         {
@@ -234,19 +217,20 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     private List<ImageInput> Decode(EnhancementPlan plan, EnhancementBatch batch, float[] latent, float[] reference)
     {
         var dimensions = Dimensions(plan, batch);
-        var decoder = Compiled(ModelComponentRoles.Vae, SeedVrGraphs.VaeDecode, dimensions);
-        decoder.SetInput<float>(Input(decoder, VideoDiffusionGraphs.Latent), latent);
-        decoder.Run(new RunParameters());
         var decoded = new float[reference.Length];
-        decoder.GetOutput<float>(VideoDiffusionGraphs.Frames, decoded);
+        RunGraph(ModelComponentRoles.Vae, SeedVrGraphs.VaeDecode, dimensions,
+            decoder => decoder.SetInput<float>(Input(decoder, VideoDiffusionGraphs.Latent), latent),
+            decoder => decoder.GetOutput<float>(VideoDiffusionGraphs.Frames, decoded));
         switch (plan.ColorCorrection)
         {
             case VideoColorCorrection.Wavelet:
-                var corrector = Compiled(ModelComponentRoles.Vae, SeedVrGraphs.ColorCorrect, dimensions);
-                corrector.SetInput<float>(Input(corrector, VideoDiffusionGraphs.Frames), decoded);
-                corrector.SetInput<float>(Input(corrector, SeedVrGraphs.Reference), reference);
-                corrector.Run(new RunParameters());
-                corrector.GetOutput<float>(SeedVrGraphs.Output, decoded);
+                RunGraph(ModelComponentRoles.Vae, SeedVrGraphs.ColorCorrect, dimensions,
+                    corrector =>
+                    {
+                        corrector.SetInput<float>(Input(corrector, VideoDiffusionGraphs.Frames), decoded);
+                        corrector.SetInput<float>(Input(corrector, SeedVrGraphs.Reference), reference);
+                    },
+                    corrector => corrector.GetOutput<float>(SeedVrGraphs.Output, decoded));
                 return ClipPixels.ToImages(decoded, batch.Count, plan.PaddedWidth, plan.PaddedHeight, plan.Width, plan.Height, signed: false);
             case VideoColorCorrection.AdaIn:
                 AdaptiveInstanceNorm.Apply(decoded, reference, batch.PaddedFrames, plan.PaddedWidth * plan.PaddedHeight);
@@ -266,26 +250,44 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
         [VideoDiffusionGraphs.Width] = plan.PaddedWidth,
     };
 
-    private CompiledModel Compiled(string role, string graph, IReadOnlyDictionary<string, long> dimensions)
+    /// <summary>
+    /// Runs one graph: compiles it once per size (kept for later requests), binds its inputs, runs it and reads its outputs. The stages share
+    /// the device: when it runs out of memory, every compiled graph is released (the DiT's weights and the VAE's activations need not fit
+    /// together) and the graph is compiled again, from the cached kernels, and run once more.
+    /// </summary>
+    private void RunGraph(string role, string graph, IReadOnlyDictionary<string, long> dimensions, Action<CompiledModel> bind, Action<CompiledModel> read)
     {
         string key = $"{graph}@{dimensions[VideoDiffusionGraphs.Width]}x{dimensions[VideoDiffusionGraphs.Height]}x{dimensions[VideoDiffusionGraphs.FramesDimension]}";
-        if (!_compiled.TryGetValue(key, out var compiled))
+        for (int attempt = 0; ; attempt++)
         {
-            compiled = _model.CompileComponent(role, graph, null, dimensions);
-            _compiled[key] = compiled;
-        }
+            try
+            {
+                if (!_compiled.TryGetValue(key, out var compiled))
+                {
+                    compiled = _model.CompileComponent(role, graph, null, dimensions);
+                    _compiled[key] = compiled;
+                }
 
-        return compiled;
+                bind(compiled);
+                compiled.Run(new RunParameters());
+                read(compiled);
+                return;
+            }
+            catch (DeviceOutOfMemoryException) when (attempt == 0 && _compiled.Count > 0)
+            {
+                ReleaseAll();
+            }
+        }
     }
 
-    /// <summary>Releases the compiled graphs of one stage (all sizes); they are compiled again from the cached kernels when needed.</summary>
-    private void ReleaseStage(string graph)
+    private void ReleaseAll()
     {
-        foreach (string key in _compiled.Keys.Where(k => k.StartsWith(graph + "@", StringComparison.Ordinal)).ToList())
+        foreach (var compiled in _compiled.Values)
         {
-            _compiled.Remove(key, out var compiled);
-            compiled!.Dispose();
+            compiled.Dispose();
         }
+
+        _compiled.Clear();
     }
 
     private static Graph.Value Input(CompiledModel model, string name) => model.Graph.Inputs.Single(i => i.Name == name);

@@ -630,8 +630,9 @@ ImageInput still = await enhancer.EnhanceImageAsync(PngCodec.Read("photo.png"), 
   reproducing another implementation's run exactly the explicit `InitialNoise` and `EncoderNoise` (the encoder's latent sample).
 - `VideoEnhancementDefaults` (via `GetService`) reports the default scale, the size and frame multiples, the default colour correction and
   frames per batch.
-- Stages: all batches are encoded first, then restored, then decoded, so with large weights only one network's graphs need to be on the
-  device at a time (the others are released and compiled again from the cached kernels).
+- Stages: all batches are encoded first, then restored, then decoded. Compiled graphs stay for later requests; when the device runs out of
+  memory they are released and the graph compiled again from the cached kernels, so only one network's weights and activations need to
+  fit at a time.
 - `sharplight-enhance-video` (samples/Sharplight.EnhanceVideo) enhances a video file or a PNG:
   `sharplight-enhance-video -m SeedVR2-3B -i input.mp4 -H 1080 -b 33 -o output.mp4`.
 
