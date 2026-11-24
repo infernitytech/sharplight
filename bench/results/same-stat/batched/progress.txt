@@ -1,0 +1,4 @@
+11:04:49 round A cuda done
+13:04:32 round A vulkan done
+14:42:30 round B cuda done
+15:57:14 round B vulkan done

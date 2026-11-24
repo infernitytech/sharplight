@@ -1,0 +1,22 @@
+== 2026-11-24T11:54:29Z sharplight qwen3-8b vulkan A
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2048 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 64 steps after 64 warm-up steps (slots refilled to the depth before the warm-up and the timed steps); first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 30.0 | 546 / 401 | 7.25 / 7.34, 7.15; mean 7.33 ± 0.03 | 7.47 / 7.65, 7.33; mean 7.63 ± 0.06 |
+| 16 | 24.0 | 546 / 401 | 9.67 / 9.79, 9.53; mean 9.79 ± 0.06 | 10.20 / 10.71, 9.35; mean 10.60 ± 0.28 |
+| 32 | 21.3 | 546 / 401 | 14.28 / 14.52, 14.13; mean 14.52 ± 0.14 | 15.35 / 15.61, 13.91; mean 15.66 ± 0.26 |
+| 48 | 20.9 | 546 / 401 | 17.77 / 18.04, 17.63; mean 18.03 ± 0.16 | 19.04 / 19.47, 17.26; mean 19.47 ± 0.25 |
+| 64 | 25.3 | 546 / 401 | 21.81 / 22.22, 21.72; mean 22.23 ± 0.23 | 23.61 / 24.18, 21.19; mean 24.13 ± 0.27 |
+exit 0
+== 2026-11-24T15:19:38Z sharplight qwen3-8b vulkan B
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2048 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 64 steps after 64 warm-up steps (slots refilled to the depth before the warm-up and the timed steps); first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 19.3 | 546 / 401 | 7.33 / 7.40, 7.19; mean 7.41 ± 0.05 | 7.46 / 7.66, 7.36; mean 7.63 ± 0.09 |
+| 16 | 22.0 | 546 / 401 | 9.73 / 9.85, 9.63; mean 9.84 ± 0.06 | 10.26 / 10.55, 9.48; mean 10.55 ± 0.16 |
+| 32 | 19.4 | 546 / 401 | 14.41 / 14.63, 14.32; mean 14.63 ± 0.13 | 15.48 / 15.88, 14.05; mean 15.88 ± 0.25 |
+| 48 | 22.3 | 546 / 401 | 17.89 / 18.19, 17.77; mean 18.19 ± 0.19 | 19.37 / 20.04, 17.26; mean 20.05 ± 0.39 |
+| 64 | 27.4 | 546 / 401 | 22.03 / 22.40, 21.84; mean 22.37 ± 0.21 | 24.18 / 24.54, 21.15; mean 24.55 ± 0.24 |
+exit 0
