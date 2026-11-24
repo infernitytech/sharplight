@@ -9,8 +9,9 @@ namespace Sharplight.Architectures.VideoEnhancement;
 /// Builds the encoder (<see cref="SeedVrGraphs.VaeEncode"/>) and decoder (<see cref="SeedVrGraphs.VaeDecode"/>) graphs of SeedVR2's causal
 /// video VAE (an SD3-style VAE inflated to 3-D: 16 latent channels, 8× spatial and 4× temporal compression) for one clip size. Activations
 /// are frames-first [F, C, H, W]; every group norm and the mid-block attention work per frame, and every convolution is causal in time
-/// (<see cref="CausalConvolution"/>), so the graphs run the clip in chunks along time within one graph and peak memory follows one chunk:
-/// the encoder takes the first frame, then four frames per latent frame; the decoder one latent frame at a time.
+/// (<see cref="CausalConvolution"/>), so the graphs run the clip in chunks along time within one graph, each chunk after the previous one
+/// (<see cref="GraphBuilder.After"/>), and peak memory follows one chunk: the encoder takes the first frame, then four frames per latent
+/// frame; the decoder one latent frame at a time.
 /// </summary>
 /// <remarks>
 /// Canonical weights under <c>vae.</c> (the official names; 3-D kernels folded to [O, kt·C, kh, kw]): <c>encoder.conv_in</c>,
@@ -69,7 +70,8 @@ internal sealed class SeedVrVaeGraphBuilder
         {
             using var _ = _b.Group($"chunk.{chunk}");
             int count = chunk == 0 ? 1 : _hp.TemporalDownscale;
-            var x = _conv.Apply(_b.Slice(clip, 0, start, count), P + "encoder.conv_in");
+            var chunkFrames = _b.Slice(clip, 0, start, count);
+            var x = _conv.Apply(chunk == 0 ? chunkFrames : _b.After(chunkFrames, deviations[^1]), P + "encoder.conv_in");
             start += count;
             for (int i = 0; i < levels; i++)
             {
@@ -111,7 +113,8 @@ internal sealed class SeedVrVaeGraphBuilder
         for (int chunk = 0; chunk < latentFrames; chunk++)
         {
             using var _ = _b.Group($"chunk.{chunk}");
-            var x = _conv.Apply(_b.Slice(framesFirst, 0, chunk, 1), P + "decoder.conv_in");
+            var frame = _b.Slice(framesFirst, 0, chunk, 1);
+            var x = _conv.Apply(chunk == 0 ? frame : _b.After(frame, outputs[^1]), P + "decoder.conv_in");
             x = MidBlock(x, P + "decoder.mid_block");
             for (int i = 0; i < levels; i++)
             {

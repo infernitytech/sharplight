@@ -92,6 +92,15 @@ public static partial class StandardOps
         return [new TensorType(i[0].Type, new Shape(perm.Select(p => i[0].Shape[p])))];
     });
 
+    /// <summary>
+    /// Control dependency: y is x itself (a view, nothing is copied), available only once <c>after</c> has been computed. Inputs: x (any),
+    /// after (any; only its completion matters, its values are not read). Output: x's type and shape. Backends that order independent work
+    /// by dependency level rather than graph order (the shared GPU lowering) otherwise start every independent chunk of a chunked or tiled
+    /// computation at once; chaining each chunk's first input after the previous chunk's result keeps them sequential, so the activation
+    /// memory of one chunk is reused by the next.
+    /// </summary>
+    public static readonly OpSchema After = new("After", OpCategory.View, 2, 2, Same);
+
     /// <summary>Materializes a (possibly strided) view into a dense row-major tensor. Input: x. Output: same type and shape.</summary>
     public static readonly OpSchema Contiguous = new("Contiguous", OpCategory.Data, 1, 1, Same);
 

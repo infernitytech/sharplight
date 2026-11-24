@@ -7,7 +7,8 @@ namespace Sharplight.Architectures.VideoEnhancement;
 /// kernel of kt time taps (stored folded as [O, kt·C, kh, kw], time-tap-major) sees the kt input frames ending at each output frame: the
 /// first chunk is preceded by kt − 1 copies of its first frame, later chunks by the last kt − stride frames the convolution saw before
 /// (its cache, kept per convolution between chunks). Spatial borders are zero-padded. Large inputs are convolved in pieces (groups of
-/// output frames, then bands of output rows with their halo) so the stacked frame windows of one piece stay within a byte budget.
+/// output frames, then bands of output rows with their halo), chained one after the other (<see cref="GraphBuilder.After"/>), so the stacked
+/// frame windows of one piece stay within a byte budget.
 /// </summary>
 internal sealed class CausalConvolution
 {
@@ -67,6 +68,7 @@ internal sealed class CausalConvolution
         long bands = Math.Clamp((frameBytes + PieceBytes - 1) / PieceBytes, 1, outputRows);
         long bandRows = (outputRows + bands - 1) / bands;
         var pieces = new List<Value>();
+        Value? previous = null;
         for (long start = 0; start < outputs; start += group)
         {
             long count = Math.Min(group, outputs - start);
@@ -74,7 +76,8 @@ internal sealed class CausalConvolution
             for (long row = 0; row < outputRows; row += bandRows)
             {
                 long rows = Math.Min(bandRows, outputRows - row);
-                rowsOut.Add(Piece(padded, weight, bias, taps, temporalStride, start, count, row, rows, kernel, spatialStride, padding, height));
+                previous = Piece(padded, weight, bias, taps, temporalStride, start, count, row, rows, kernel, spatialStride, padding, height, previous);
+                rowsOut.Add(previous);
             }
 
             pieces.Add(rowsOut.Count == 1 ? rowsOut[0] : _b.Concat(2, [.. rowsOut]));
@@ -83,9 +86,12 @@ internal sealed class CausalConvolution
         return pieces.Count == 1 ? pieces[0] : _b.Concat(0, [.. pieces]);
     }
 
-    /// <summary>Output frames [start, start + count) and rows [row, row + rows) of one convolution.</summary>
+    /// <summary>
+    /// Output frames [start, start + count) and rows [row, row + rows) of one convolution. The piece's windows are taken only after the previous
+    /// piece's output exists, so the pieces run one after the other and the stacked windows of only one piece are in memory at a time.
+    /// </summary>
     private Value Piece(Value padded, Value weight, Value? bias, int taps, int temporalStride, long start, long count, long row, long rows, long kernel,
-        int spatialStride, long[] padding, long height)
+        int spatialStride, long[] padding, long height, Value? previous)
     {
         long first = row * spatialStride - padding[0];
         long last = (row + rows - 1) * spatialStride - padding[0] + kernel;
@@ -97,7 +103,8 @@ internal sealed class CausalConvolution
         for (int j = 0; j < taps; j++)
         {
             var frames = _b.Slice(padded, 0, start * temporalStride + j, temporalStride == 1 ? count : 1);
-            windows[j] = inputStart == 0 && inputRows == height ? frames : _b.Slice(frames, 2, inputStart, inputRows);
+            var window = inputStart == 0 && inputRows == height ? frames : _b.Slice(frames, 2, inputStart, inputRows);
+            windows[j] = previous is null ? window : _b.After(window, previous);
         }
 
         var input = taps == 1 ? windows[0] : _b.Concat(1, windows);
