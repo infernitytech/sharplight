@@ -1,0 +1,44 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2048 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 16 | 29.4 | 546 / 0 | 8.93 / 8.94, 8.88 |
+--- profile batch 16 (greedy)
+GPU time 212.60 ms
+    60.163 ms  28.3%    720x  min     81.6 us  matmul2 [4096→12288]x2 nvfp4_gs fused[Silu,Mul] fp4 gemm_fp4_native T=16,U=16,R=16|2,3
+    31.936 ms  15.0%    720x  min     41.9 us  matmul [12288→4096] nvfp4_gs fp4 gemm_fp4_native T=16,U=16,R=16|2,3
+    31.071 ms  14.6%     20x  min   1551.7 us  matmul [4096→151936] f16 skinny gemm_sk T=16,U=16,R=16|2,3
+    24.900 ms  11.7%   1440x  min     15.1 us  matmul [4096→4096] nvfp4_gs fp4 gemm_fp4_native T=16,U=16,R=16|2,3
+    20.765 ms   9.8%    720x  min     26.4 us  attention attn_decode_native T=16,U=16,R=16|2,3
+    11.864 ms   5.6%   1440x  min      6.5 us  matmul [4096→1024] nvfp4_gs fp4 gemm_fp4_native T=16,U=16,R=16|2,3
+     7.075 ms   3.3%   1440x  min      3.0 us  fused[Add]+RmsNorm main T=16,U=16,R=16|2,3
+     6.471 ms   3.0%   1440x  min      2.8 us  matmul [4096→4096] nvfp4_gs x→fp4 quantize_fp4 T=16,U=16,R=16|2,3
+     5.613 ms   2.6%    720x  min      6.0 us  matmul [12288→4096] nvfp4_gs x→fp4 quantize_fp4 T=16,U=16,R=16|2,3
+     4.766 ms   2.2%    720x  min      4.6 us  attention combine decode_combine T=16,U=16,R=16|2,3
+     3.835 ms   1.8%    720x  min      3.7 us  rope+qkv+cache_write rope_qkv T=16,U=16,R=16|2,3
+     3.185 ms   1.5%    720x  min      2.8 us  matmul2 [4096→12288]x2 nvfp4_gs fused[Silu,Mul] x→fp4 quantize_fp4 T=16,U=16,R=16|2,3
+     0.543 ms   0.3%     20x  min     26.3 us  sample sample T=16,U=16,R=16|2,3
+     0.221 ms   0.1%     40x  min      3.5 us  gather gather T=16,U=16,R=16|2,3
+     0.108 ms   0.1%     20x  min      4.3 us  RmsNorm main T=16,U=16,R=16|2,3
+     0.084 ms   0.0%     20x  min      3.5 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=16,U=16,R=16|2,3
+
+| 64 | 17.1 | 511 / 0 | 12.22 / 12.32, 12.18 |
+--- profile batch 64 (greedy)
+GPU time 282.03 ms
+    74.801 ms  26.5%    720x  min     99.2 us  attention attn_decode_native T=64,U=64,R=64|2,3
+    63.457 ms  22.5%    720x  min     85.8 us  matmul2 [4096→12288]x2 nvfp4_gs fused[Silu,Mul] fp4 gemm_fp4_native T=64,U=64,R=64|2,3
+    34.346 ms  12.2%    720x  min     46.0 us  matmul [12288→4096] nvfp4_gs fp4 gemm_fp4_native T=64,U=64,R=64|2,3
+    31.781 ms  11.3%     20x  min   1585.2 us  matmul [4096→151936] f16 gemm_cm2 T=64,U=64,R=64|2,3
+    28.342 ms  10.0%   1440x  min     17.5 us  matmul [4096→4096] nvfp4_gs fp4 gemm_fp4_native T=64,U=64,R=64|2,3
+    18.151 ms   6.4%   1440x  min     11.4 us  matmul [4096→1024] nvfp4_gs fp4 gemm_fp4_native T=64,U=64,R=64|2,3
+     9.041 ms   3.2%   1440x  min      4.3 us  fused[Add]+RmsNorm main T=64,U=64,R=64|2,3
+     6.647 ms   2.4%   1440x  min      3.2 us  matmul [4096→4096] nvfp4_gs x→fp4 quantize_fp4 T=64,U=64,R=64|2,3
+     6.208 ms   2.2%    720x  min      6.9 us  matmul [12288→4096] nvfp4_gs x→fp4 quantize_fp4 T=64,U=64,R=64|2,3
+     4.333 ms   1.5%    720x  min      4.8 us  rope+qkv+cache_write rope_qkv T=64,U=64,R=64|2,3
+     3.253 ms   1.2%    720x  min      3.2 us  matmul2 [4096→12288]x2 nvfp4_gs fused[Silu,Mul] x→fp4 quantize_fp4 T=64,U=64,R=64|2,3
+     1.077 ms   0.4%     20x  min     52.3 us  sample sample T=64,U=64,R=64|2,3
+     0.288 ms   0.1%     40x  min      5.4 us  gather gather T=64,U=64,R=64|2,3
+     0.112 ms   0.0%     20x  min      4.5 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=64,U=64,R=64|2,3
+     0.106 ms   0.0%     20x  min      4.8 us  RmsNorm main T=64,U=64,R=64|2,3
+     0.087 ms   0.0%     20x  min      3.1 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=64,U=64,R=64|2,3
+
