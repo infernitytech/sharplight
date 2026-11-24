@@ -51,7 +51,10 @@ public sealed partial class GraphLowerer
     /// <summary>The own channels-last tensors of parts read in place, by part.</summary>
     private readonly Dictionary<Value, TensorRef> _channelsLastOwned = [];
 
-    /// <summary>Parts of concatenations read in place that are slices of another value (through Slice and After), with that value.</summary>
+    /// <summary>
+    /// Parts of concatenations read in place that are another value or slices of it (through Slice and After), with that value (a
+    /// causal convolution's windows repeat a one-frame chunk).
+    /// </summary>
     private readonly Dictionary<Value, Value> _channelsLastViews = [];
 
     /// <summary>The (source, concatenation output) pairs of <see cref="_channelsLastViews"/>: the copy of the source must outlive the concatenation's reader.</summary>
@@ -218,7 +221,7 @@ public sealed partial class GraphLowerer
             foreach (var part in concat.Inputs)
             {
                 var slot = inPlace ? new ChannelsLastSlot(y, part, form.Type, 0, 0) : new ChannelsLastSlot(y, y, form.Type, channel, 0);
-                if (!PlanChannelsLastPart(part, slot, readers, singleNodeUnits) && inPlace && ViewSource(part, producers) is { } source && source != part)
+                if (!PlanChannelsLastPart(part, slot, readers, singleNodeUnits) && inPlace && ViewSource(part, producers) is { } source)
                 {
                     _channelsLastViews[part] = source;
                     _channelsLastViewReads.Add((source, y));
