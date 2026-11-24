@@ -3058,7 +3058,7 @@ were deleted afterwards except the diffusers references and the tiny pipelines.
 
 Video restoration and super-resolution models are of kind `video-enhancement` (see [api-overview.md](api-overview.md) "Video enhancement"):
 the frames of a clip or one image in, restored and enlarged frames out. Core only gained the model-agnostic task types (`IVideoEnhancer`,
-request, options, result, updates, defaults); no Core op was added. SeedVR2 lives outside Core: the importer `Sharplight.Import.SeedVr`
+request, options, result, updates, defaults) and one generic op (`After`, a control dependency, below). SeedVR2 lives outside Core: the importer `Sharplight.Import.SeedVr`
 and the architecture package `Sharplight.Architectures.VideoEnhancement` (adapter, graph builders, pipeline and its task client factory).
 
 | family | formats | status | verified |
@@ -3097,7 +3097,12 @@ Architecture (ByteDance-Seed/SeedVR, projects/inference_seedvr2_{3b,7b}.py):
 
 Implementation notes:
 
-- No new op. Window attention is gathers and batched attention: the windows are grouped by size, per group the rows of its windows (video
+- One new op, generic: `After(x, y)` (StandardOps, a view): x itself, available only once y is computed, a control dependency. The shared
+  GPU lowering schedules independent units by dependency level, which started all time chunks of a chunked VAE graph at once (each chunk
+  one level behind the previous through the causal caches): 105 GB of activations for 33 frames at 960p. Chaining each chunk's input
+  after the previous chunk's result, and each convolution piece's windows after the previous piece, keeps them sequential. CPU runs graphs in
+  order and passes the value through; Vulkan, CUDA and Metal lower it as a view.
+- Window attention is gathers and batched attention: the windows are grouped by size, per group the rows of its windows (video
   tokens, then the text rows) are gathered into one batch for the `Attention` op's batched form, the outputs gathered back and the text rows
   averaged with `Reduce` (`WindowAttentionPlan`). The 3B's RoPE is the `Rope` op with per-pair frequency divisors (the same trick as the
   axial RoPE of FLUX / Wan); the 7B's fractional positions rotate through constant cosine / sine tables (`WindowRotation`).

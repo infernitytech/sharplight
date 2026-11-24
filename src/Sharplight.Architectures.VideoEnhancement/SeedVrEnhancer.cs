@@ -128,16 +128,17 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
         try
         {
             int batches = plan.Batches.Count;
-            var references = new float[batches][];
+            // The resized clip is the encoder's input and the colour correction's reference; one batch keeps it, longer requests prepare it
+            // again for decoding instead of holding every batch's pixels.
+            float[]? kept = null;
             var conditions = new float[batches][];
             for (int b = 0; b < batches; b++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 emit(new VideoEnhancementUpdate(VideoEnhancementPhase.Encoding, b, batches));
-                var batch = plan.Batches[b];
-                var frames = request.Frames.Skip(batch.Start).Take(batch.Count).ToList();
-                references[b] = ClipPixels.Prepare(frames, plan.Width, plan.Height, plan.PaddedWidth, plan.PaddedHeight, batch.PaddedFrames);
-                conditions[b] = Encode(plan, b, references[b], b == 0 ? options.EncoderNoise : null);
+                var clip = Prepare(request, plan, b);
+                conditions[b] = Encode(plan, b, clip, b == 0 ? options.EncoderNoise : null);
+                kept = batches == 1 ? clip : null;
             }
 
             if (_holdOneStage)
@@ -163,7 +164,8 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 emit(new VideoEnhancementUpdate(VideoEnhancementPhase.Decoding, b, batches));
-                var images = Decode(plan, plan.Batches[b], restored[b], references[b]);
+                var images = Decode(plan, plan.Batches[b], restored[b], kept ?? Prepare(request, plan, b));
+                restored[b] = [];
                 all.AddRange(images);
                 emit(new VideoEnhancementUpdate(VideoEnhancementPhase.Decoding, b, batches, images));
             }
@@ -175,6 +177,14 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>The frames of batch <paramref name="index"/> resized and padded: [frames, 3, H, W] in [−1, 1].</summary>
+    private static float[] Prepare(VideoEnhancementRequest request, EnhancementPlan plan, int index)
+    {
+        var batch = plan.Batches[index];
+        var frames = request.Frames.Skip(batch.Start).Take(batch.Count).ToList();
+        return ClipPixels.Prepare(frames, plan.Width, plan.Height, plan.PaddedWidth, plan.PaddedHeight, batch.PaddedFrames);
     }
 
     /// <summary>Encodes one batch and samples the latent: mean + deviation · noise (scaled latent space, [C, T, h, w]).</summary>

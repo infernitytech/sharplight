@@ -141,6 +141,50 @@ public sealed class SeedVr2Tests
         Assert.True(worst > (data.Bf16 ? 30 : 40), $"worst frame PSNR {worst:F1} dB");
     }
 
+    /// <summary>
+    /// Batches, images and sizes the network does not take, on the CPU: the tiny clip one frame per batch at 210 × 115 (padded to 224 × 128
+    /// and cropped back), the same frames as one batch with AdaIN and without colour correction, and one image with a scale.
+    /// </summary>
+    [Fact]
+    public async Task BatchesImagesAndOddSizes()
+    {
+        const string reference = "tiny-cpu-fp32";
+        Assert.SkipWhen(!Available(reference), "SeedVR2-3B or the tiny reference missing");
+        using var model = Env.Load(ModelPath(reference), Env.Cpu());
+        using var enhancer = Env.Clients.Create<IVideoEnhancer>(model);
+        var defaults = (VideoEnhancementDefaults)enhancer.GetService(typeof(VideoEnhancementDefaults))!;
+        Assert.Equal(16, defaults.SizeMultiple);
+        Assert.Equal(4, defaults.FrameMultiple);
+        var frames = new ReferenceRun(Reference(reference)).InputFrames();
+        var token = TestContext.Current.CancellationToken;
+        var batches = new List<int>();
+        VideoEnhancementResult? perFrame = null;
+        await foreach (var update in enhancer.EnhanceStreamingAsync(new VideoEnhancementRequest { Frames = frames, FramesPerSecond = 12 },
+            new VideoEnhancementOptions { Width = 210, Height = 115, FramesPerBatch = 1, Seed = 3 }, token))
+        {
+            if (update.Frames is { } done)
+            {
+                batches.Add(done.Count);
+            }
+
+            perFrame = update.Result ?? perFrame;
+        }
+
+        Assert.Equal(Enumerable.Repeat(1, frames.Count), batches);
+        Assert.All(perFrame!.Frames, f => Assert.True(f.Width == 210 && f.Height == 115));
+        Assert.Equal(12, perFrame.FramesPerSecond);
+        foreach (var correction in new[] { VideoColorCorrection.AdaIn, VideoColorCorrection.None })
+        {
+            var whole = await enhancer.EnhanceAsync(new VideoEnhancementRequest { Frames = frames },
+                new VideoEnhancementOptions { Height = 112, ColorCorrection = correction, Seed = 3 }, token);
+            Assert.Equal(frames.Count, whole.Frames.Count);
+            Assert.True(whole.Width == 208 && whole.Height == 112, $"{whole.Width}x{whole.Height}");
+        }
+
+        var image = await enhancer.EnhanceImageAsync(frames[0], new VideoEnhancementOptions { Scale = 1.5f, Seed = 3 }, token);
+        Assert.True(image.Width == 156 && image.Height == 84, $"{image.Width}x{image.Height}");
+    }
+
     /// <summary>The CPU, the Vulkan GPU or (with SHARPLIGHT_TEST_CUDA=1) the first CUDA GPU, or null when unavailable.</summary>
     private static DeviceSlot? Device(string name)
     {
