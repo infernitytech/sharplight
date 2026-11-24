@@ -1,0 +1,38 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Cuda.Tests
+[0m[37m  Discovered:  Sharplight.Cuda.Tests
+[0m[37m  Starting:    Sharplight.Cuda.Tests
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 9) [FAIL]
+[0m[37m      fp8, 9 rows: row 0 is 2.07E-002 (relative L2) away from its single-row result
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(85,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 12) [FAIL]
+[0m[37m      fp8, 12 rows: row 0 is 2.07E-002 (relative L2) away from its single-row result
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(85,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 16) [FAIL]
+[0m[37m      fp8, 16 rows: row 0 is 2.07E-002 (relative L2) away from its single-row result
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(85,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 24) [FAIL]
+[0m[37m      fp8, 24 rows: row 0 is 2.07E-002 (relative L2) away from its single-row result
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(85,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 40) [FAIL]
+[0m[37m      fp8, 40 rows: row 0 is 2.07E-002 (relative L2) away from its single-row result
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(85,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[37m  Finished:    Sharplight.Cuda.Tests (ID = 'a2d207b0f40ac9a75429c1e57023578c6168a5a51fb3c8f42e4092fbe727a0f2')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Cuda.Tests  Total: 15, Errors: 0, Failed: 5, Skipped: 0, Not Run: 0, Time: 30.391s
+[0m[0m

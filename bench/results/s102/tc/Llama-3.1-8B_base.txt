@@ -1,0 +1,3 @@
+textcheck wave 16: 16/16 identical to single-request, 0 part within 3 words, 0 garbage -> ok
+textcheck wave 32: 32/32 identical to single-request, 0 part within 3 words, 0 garbage -> ok
+textcheck: clean

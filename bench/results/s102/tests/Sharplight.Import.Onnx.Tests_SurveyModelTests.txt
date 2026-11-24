@@ -1,0 +1,28 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Import.Onnx.Tests
+[0m[37m  Discovered:  Sharplight.Import.Onnx.Tests
+[0m[37m  Starting:    Sharplight.Import.Onnx.Tests
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "deberta-v3-small", provider: "cpu") [SKIP]
+[0m[37m      survey reference or model missing for 'deberta-v3-small' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "deberta-v3-small", provider: "gpu") [SKIP]
+[0m[37m      survey reference or model missing for 'deberta-v3-small' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "bertsquad-12-int8", provider: "cpu") [SKIP]
+[0m[37m      survey reference or model missing for 'bertsquad-12-int8' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "bertsquad-12-int8", provider: "gpu") [SKIP]
+[0m[37m      survey reference or model missing for 'bertsquad-12-int8' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "dpt-hybrid-midas", provider: "cpu") [SKIP]
+[0m[37m      survey reference or model missing for 'dpt-hybrid-midas' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "dpt-hybrid-midas", provider: "gpu") [SKIP]
+[0m[37m      survey reference or model missing for 'dpt-hybrid-midas' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "zoo/silero-vad", provider: "cpu") [SKIP]
+[0m[37m      survey reference or model missing for 'zoo/silero-vad' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "zoo/silero-vad", provider: "gpu") [SKIP]
+[0m[37m      survey reference or model missing for 'zoo/silero-vad' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "zoo/gpt2-merged", provider: "cpu") [SKIP]
+[0m[37m      survey reference or model missing for 'zoo/gpt2-merged' (bench/onnx/make_survey_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.SurveyModelTests.Survey(name: "zoo/gpt2-merged", provider: "gpu") [SKIP]
+[0m[37m      survey reference or model missing for 'zoo/gpt2-merged' (bench/onnx/make_survey_refs.py)
+[0m[37m  Finished:    Sharplight.Import.Onnx.Tests (ID = 'a199137835f6a209df281099c7998b14231127c28f186648470ca874a25816e7')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Import.Onnx.Tests  Total: 27, Errors: 0, Failed: 0, Skipped: 10, Not Run: 0, Time: 48.730s
+[0m[0m

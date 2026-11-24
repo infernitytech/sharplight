@@ -1,0 +1,15 @@
+[hold 01:41:43] ./serve_ab.sh <path> new base qwen
+0 %, 2 MiB, 31.44 W
+ready=1 after 41 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.427488202927634, "agg_tok_s": 1102.9300587473197, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 73.87438481555635, "ttft_p50_ms": 96.21130197774619, "ttft_p95_ms": 261.47950719459914, "itl_mean_ms": 13.53649174198499, "itl_p50_ms": 12.477828015107661, "itl_p95_m
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 8.986246683984064, "agg_tok_s": 2734.8459111189454, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 48.22646745145596, "ttft_p50_ms": 269.9186239624396, "ttft_p95_ms": 717.9136625491083, "itl_mean_ms": 20.73550174510677, "itl_p50_ms": 16.23123901663348, "itl_p95_
+textcheck wave 16: 4/16 identical to single-request, 3 part within 3 words, 0 garbage -> ok
+textcheck wave 64: 17/64 identical to single-request, 13 part within 3 words, 0 garbage -> ok
+textcheck: clean
+ready=1 after 10 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.444884055992588, "agg_tok_s": 1100.352932079048, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 73.66623756994915, "ttft_p50_ms": 96.04327147826552, "ttft_p95_ms": 260.99439499666914, "itl_mean_ms": 13.574739704202466, "itl_p50_ms": 12.503613019362092, "itl_p95_m
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 9.009783866000362, "agg_tok_s": 2727.701392787108, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 48.04878467632798, "ttft_p50_ms": 269.83505894895643, "ttft_p95_ms": 704.0243684721645, "itl_mean_ms": 20.812180926870898, "itl_p50_ms": 16.268874518573284, "itl_p9
+textcheck wave 16: 4/16 identical to single-request, 3 part within 3 words, 0 garbage -> ok
+textcheck wave 64: 23/64 identical to single-request, 13 part within 3 words, 0 garbage -> ok
+textcheck: clean
+[release 01:43:46]
