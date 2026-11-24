@@ -97,9 +97,9 @@ double Median(List<double> l)
 }
 
 var segments = dec.Compiled.Segments.OfType<VulkanSegment>()
-    .Select(v => new SegmentView(() => v.LastGpuMs, on => v.Profile = on, v.ResetProfile, v.ProfileReport, v.Stats))
+    .Select(v => new SegmentView(() => v.LastGpuMs, on => v.Profile = on, v.ResetProfile, v.ProfileReport, v.Stats, () => v.LastRunTimings))
     .Concat(dec.Compiled.Segments.OfType<CudaSegment>()
-        .Select(c => new SegmentView(() => c.LastGpuMs, on => c.Profile = on, c.ResetProfile, c.ProfileReport, c.Stats)))
+        .Select(c => new SegmentView(() => c.LastGpuMs, on => c.Profile = on, c.ResetProfile, c.ProfileReport, c.Stats, () => c.LastRunTimings)))
     .ToList();
 var tokens = new int[slots];
 var logprobs = new float[slots];
@@ -186,6 +186,7 @@ if (mixed is not null)
         var first = Stopwatch.StartNew();
         Step(mode, Inputs());
         double firstMs = first.Elapsed.TotalMilliseconds;
+        Console.Error.WriteLine($"[first] {spec}: {firstMs:F1} ms; " + string.Join("; ", segments.Select(s => s.Timings()).Select(t => $"recorded {t.Recorded} record {t.RecordMs:F1} submit {t.SubmitMs:F1} wait {t.WaitMs:F1} gpu {t.GpuMs:F1}")));
         var stats = segments.Select(s => s.Stats(d + p * n)).Aggregate((0, 0), (a, x) => (a.Item1 + x.Dispatches, a.Item2 + x.Barriers));
         for (int i = 0; i < 3; i++) Step(mode, Inputs());
         var wall = new List<double>();
