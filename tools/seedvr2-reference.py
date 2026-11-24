@@ -46,6 +46,8 @@ def parse():
     p.add_argument("--seed", type=int, default=666)
     p.add_argument("--device", default="cuda")
     p.add_argument("--dit-dtype", choices=["bf16", "fp32"], default="bf16", help="bf16: the official autocast")
+    p.add_argument("--dit-weights", choices=["fp32", "bf16", "fp16"], default="fp32",
+                   help="dtype the DiT's weights are held in (fp32: official; bf16 for the 7B on a 32 GB GPU); .safetensors DiTs are always cast")
     p.add_argument("--vae-dtype", choices=["bf16", "fp32"], default="bf16", help="bf16: the official VAE dtype")
     p.add_argument("--attention", choices=["flash", "sdpa"], default="flash")
     p.add_argument("--no-memory-limit", action="store_true", help="skip the official conv / norm memory limits (VAE)")
@@ -103,7 +105,10 @@ def main():
     OmegaConf.set_readonly(runner.config, False)
     runner.config.vae.checkpoint = args.vae
     runner.config.vae.dtype = "bfloat16" if args.vae_dtype == "bf16" else "float32"
-    runner.configure_dit_model(device="cpu", checkpoint=args.dit)
+    if args.dit.endswith(".safetensors") or args.dit_weights != "fp32":
+        runner.dit = load_dit(config, args.dit, getattr(torch, {"fp32": "float32", "bf16": "bfloat16", "fp16": "float16"}[args.dit_weights]))
+    else:
+        runner.configure_dit_model(device="cpu", checkpoint=args.dit)
     runner.dit.to(device)
     import common.distributed.basic as basic
     basic.get_device = lambda: device
@@ -268,6 +273,23 @@ def main():
             json.dump({"runs": runs, "peak_bytes": peak, "frames": int(frames.shape[0]),
                        "input": list(frames.shape), "output": list(dump["output"].shape), "args": vars(args)}, f, indent=1)
     print(f"peak {peak / 2**30:.2f} GiB, output {dump['output'].shape}")
+
+
+def load_dit(config, path, dtype):
+    """The DiT built on the meta device and assigned the checkpoint's tensors in dtype (the 7B does not fit a 32 GB GPU in f32)."""
+    import torch
+    from common.config import create_object
+    from common.distributed.meta_init_utils import meta_non_persistent_buffer_init_fn
+    with torch.device("meta"):
+        dit = create_object(config.dit.model)
+    if path.endswith(".safetensors"):
+        from safetensors import safe_open
+        with safe_open(path, framework="pt") as f:
+            state = {k: f.get_tensor(k).to(dtype) for k in f.keys()}
+    else:
+        state = {k: v.to(dtype) for k, v in torch.load(path, map_location="cpu", mmap=True).items()}
+    print(dit.load_state_dict(state, strict=True, assign=True))
+    return meta_non_persistent_buffer_init_fn(dit).eval()
 
 
 def cut_videos(videos):

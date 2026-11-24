@@ -11,7 +11,8 @@ using Sharplight.Vision;
 namespace Sharplight.ImageGeneration.Tests;
 
 /// <summary>
-/// SeedVR2-3B (the official seedvr2_ema_3b.pth, ema_vae.pth and pos_emb.pt in <c>{video root}/seedvr2/SeedVR2-3B</c>) against the official
+/// SeedVR2 (3B: the official seedvr2_ema_3b.pth, ema_vae.pth and pos_emb.pt in <c>{video root}/seedvr2/SeedVR2-3B</c>; 7B: the fp16 safetensors
+/// conversion with ema_vae_fp16.safetensors and the same embeddings in <c>{video root}/seedvr2/SeedVR2-7B-fp16</c>) against the official
 /// inference path (tools/seedvr2-reference.py; references in <c>{video root}/seedvr2/references/{name}</c>): the VAE encoder's distribution,
 /// the DiT's prediction from the same noise and encoder sample, the decoded frames and the colour-corrected output, then the whole
 /// <see cref="IVideoEnhancer"/> run from the same noise. Skips when the files or the device are missing.
@@ -19,17 +20,22 @@ namespace Sharplight.ImageGeneration.Tests;
 [Collection(LargeModelCollection.Name)]
 public sealed class SeedVr2Tests
 {
-    private static string ModelPath => Path.Combine(Env.VideoRoot, "seedvr2", "SeedVR2-3B");
+    /// <summary>The model a reference was made with: the official 3B files, or the 7B as its fp16 safetensors conversion.</summary>
+    private static string ModelPath(string reference)
+        => Path.Combine(Env.VideoRoot, "seedvr2", reference.Contains("-7b-", StringComparison.Ordinal) ? "SeedVR2-7B-fp16" : "SeedVR2-3B");
 
     private static string Reference(string name) => Path.Combine(Env.VideoRoot, "seedvr2", "references", name);
 
-    private static bool Available(string reference) => Directory.Exists(ModelPath) && File.Exists(Path.Combine(Reference(reference), "index.json"));
+    private static bool Available(string reference) => Directory.Exists(ModelPath(reference)) && File.Exists(Path.Combine(Reference(reference), "index.json"));
 
     /// <summary>Reference runs checked on the CPU: the tiny clip in f32 (5 frames of 104 × 56 → 208 × 112).</summary>
     public static TheoryData<string> CpuCases => ["tiny-cpu-fp32"];
 
-    /// <summary>Reference runs checked on the GPU: the tiny clip, and 17 frames of 416 × 240 → 832 × 480 from the official bf16 run on CUDA.</summary>
-    public static TheoryData<string> GpuCases => ["tiny-cpu-fp32", "fox-480p-cuda-bf16"];
+    /// <summary>
+    /// Reference runs checked on the GPU: the tiny clip, and 17 frames of 416 × 240 → 832 × 480 from the official bf16 runs on CUDA (3B: the
+    /// official files; 7B: seedvr2_ema_7b_fp16.safetensors held in bf16).
+    /// </summary>
+    public static TheoryData<string> GpuCases => ["tiny-cpu-fp32", "fox-480p-cuda-bf16", "fox-480p-7b-cuda-bf16"];
 
     [Theory]
     [MemberData(nameof(CpuCases))]
@@ -58,8 +64,8 @@ public sealed class SeedVr2Tests
     private static void GraphsMatchReference(string reference, string device)
     {
         var slot = Available(reference) ? Device(device) : null;
-        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing (CUDA runs with SHARPLIGHT_TEST_CUDA=1)");
-        using var model = Env.Load(ModelPath, slot!);
+        Assert.SkipWhen(slot is null, $"SeedVR2, the reference '{reference}' or the {device} device missing (CUDA runs with SHARPLIGHT_TEST_CUDA=1)");
+        using var model = Env.Load(ModelPath(reference), slot!);
         var data = new ReferenceRun(Reference(reference));
         var dimensions = data.Dimensions;
 
@@ -89,8 +95,8 @@ public sealed class SeedVr2Tests
     private static async Task EnhanceMatchesReference(string reference, string device)
     {
         var slot = Available(reference) ? Device(device) : null;
-        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing (CUDA runs with SHARPLIGHT_TEST_CUDA=1)");
-        using var model = Env.Load(ModelPath, slot!);
+        Assert.SkipWhen(slot is null, $"SeedVR2, the reference '{reference}' or the {device} device missing (CUDA runs with SHARPLIGHT_TEST_CUDA=1)");
+        using var model = Env.Load(ModelPath(reference), slot!);
         using var enhancer = Env.Clients.Create<IVideoEnhancer>(model);
         var data = new ReferenceRun(Reference(reference));
         var frames = data.InputFrames();
@@ -119,7 +125,7 @@ public sealed class SeedVr2Tests
             worst = Math.Min(worst, psnr);
         }
 
-        TestContext.Current.SendDiagnosticMessage($"SeedVR2-3B {reference} on {device}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB (frames: {string.Join(" ", perFrame)})");
+        TestContext.Current.SendDiagnosticMessage($"SeedVR2 {reference} on {device}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB (frames: {string.Join(" ", perFrame)})");
         Assert.True(worst > (data.Bf16 ? 30 : 40), $"worst frame PSNR {worst:F1} dB");
     }
 
@@ -143,7 +149,7 @@ public sealed class SeedVr2Tests
     private static void Check(string what, float[] actual, float[] expected, double tolerance)
     {
         var (maxAbs, rms) = Env.Compare(actual, expected);
-        TestContext.Current.SendDiagnosticMessage($"SeedVR2-3B {what}: max abs {maxAbs:E2}, relative RMS {rms:E2}");
+        TestContext.Current.SendDiagnosticMessage($"SeedVR2 {what}: max abs {maxAbs:E2}, relative RMS {rms:E2}");
         Assert.True(rms < tolerance, $"{what}: max abs {maxAbs}, relative RMS {rms}");
     }
 

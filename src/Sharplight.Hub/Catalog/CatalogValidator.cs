@@ -11,7 +11,7 @@ public static partial class CatalogValidator
     /// <summary>The task kinds an entry may have.</summary>
     public static IReadOnlyList<string> Kinds { get; } =
     [
-        ModelKinds.TextGeneration, ModelKinds.SpeechRecognition, ModelKinds.SpeechSynthesis, ModelKinds.ImageGeneration, ModelKinds.VideoGeneration,
+        ModelKinds.TextGeneration, ModelKinds.SpeechRecognition, ModelKinds.SpeechSynthesis, ModelKinds.ImageGeneration, ModelKinds.VideoGeneration, ModelKinds.VideoEnhancement,
         ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.ImageSegmentation,
         ModelKinds.SemanticSegmentation, ModelKinds.DepthEstimation, ModelKinds.Ocr, ModelKinds.ImageUpscaling, ModelKinds.AudioCodec,
         ModelKinds.VoiceActivity, ModelKinds.AudioSeparation, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioGeneration, EmbeddingsKind, RerankerKind,
