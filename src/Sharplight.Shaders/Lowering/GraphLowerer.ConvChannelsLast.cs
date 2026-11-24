@@ -102,7 +102,7 @@ public sealed partial class GraphLowerer
         var form = new ConvChannelsLastForm(type, warpsM, 2, wideTiles < TargetWorkgroups ? 2 : 4, 0);
         if (DiagnosticSwitches.ConvChannelsLastTile is [int tileWarpsM, int tileWarpsN, int tileFragN, ..] tile)
         {
-            form = form with { WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, Stages = tile.Length > 3 ? tile[3] : 0 };
+            form = form with { WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, Stages = tile.Length > 3 && ConvAsyncCopies ? tile[3] : 0 };
         }
         else if (ConvAsyncCopies)
         {

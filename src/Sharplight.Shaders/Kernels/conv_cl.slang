@@ -415,27 +415,38 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(sA, (slice + j * 16) / 4, FRAG_N * 4);
         }
         GroupMemoryBarrierWithGroupSync();
+        // All loads (staged results, bias, residual) before the first store: the compiler cannot tell that y does not alias them,
+        // so a load after a store would wait for it (a fused residual add ran 3.5 x slower with the loads between the stores).
+        float v[FRAG_N * 8];
+        uint64_t at[FRAG_N * 8];
+        bool inside[FRAG_N * 8];
         [ForceUnroll]
         for (uint e = 0; e < FRAG_N * 8; e++)
         {
             uint w = lane + e * 32;
             uint m = mBase + wm + i * 16 + w / (FRAG_N * 16);
             uint col = colBase + wn + w % (FRAG_N * 16);
-            if (m < OG && col < NC)
+            inside[e] = m < OG && col < NC;
+            uint n = col / HW;
+            uint o = g * OG + m;
+            at[e] = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + (col - n * HW);
+            uint staged = slice + w;
+            v[e] = asfloat(sA[staged / 4][staged % 4]);
+#if SPLITK == 1 && HAS_BIAS
+            v[e] += inside[e] ? p.bias[o] : 0.0;
+#endif
+#if SPLITK == 1 && EPI && EPI_RES
+            v[e] = conv_epi(v[e], inside[e] ? p.res[at[e]] : 0.0);
+#elif SPLITK == 1 && EPI
+            v[e] = conv_epi(v[e], 0.0);
+#endif
+        }
+        [ForceUnroll]
+        for (uint e = 0; e < FRAG_N * 8; e++)
+        {
+            if (inside[e])
             {
-                uint n = col / HW;
-                uint pix = col - n * HW;
-                uint o = g * OG + m;
-                uint at = slice + w;
-                float v = asfloat(sA[at / 4][at % 4]);
-                uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
-#if SPLITK == 1
-#if HAS_BIAS
-                v += p.bias[o];
-#endif
-                CONV_EPI(v, idx);
-#endif
-                p.y[idx] = v;
+                p.y[at[e]] = v[e];
             }
         }
         GroupMemoryBarrierWithGroupSync();

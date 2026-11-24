@@ -85,7 +85,7 @@ foreach (var spec in cases)
     var (ms, report) = Measure(device, c, xType, weightType, strict, iters);
     double gflop = c.GigaFlops;
     Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-        $"BENCH {c.Label,-34} {c.N}x{c.C}x{c.H}x{c.W} -> {c.O} k{c.K} s{c.Stride} parts {c.Parts}  {ms,9:F3} ms  {gflop / ms,7:F1} TFLOPS"));
+        $"BENCH {c.Label,-34} {c.N}x{c.C}x{c.H}x{c.W} -> {c.O} k{c.K} s{c.Stride} parts {c.Parts}{(c.Residual ? " +res" : "")}  {ms,9:F3} ms  {gflop / ms,7:F1} TFLOPS"));
     if (top > 0)
     {
         Console.WriteLine(report);
@@ -127,6 +127,13 @@ static (double Ms, string Report) Measure(IComputeDevice device, ConvCase c, Dat
     long pad = c.K / 2;
     var y = b.Emit1("Conv", [x, w, bias], Attributes.From(("strides", new long[] { c.Stride, c.Stride }), ("pads", new[] { pad, pad, pad, pad }),
         ("dilations", new long[] { 1, 1 }), ("groups", 1L)));
+    if (c.Residual)
+    {
+        var residual = b.Input("r", InputRole.Other, DataType.F32, new Shape([c.N, c.O, (c.H + 2 * pad - c.K) / c.Stride + 1, (c.W + 2 * pad - c.K) / c.Stride + 1]));
+        inputs.Add(residual);
+        y = b.Add(y, residual);
+    }
+
     b.Output("y", y);
     using var model = CompiledModel.Compile(b.Build(), new PlacementOptions
     {
@@ -136,14 +143,14 @@ static (double Ms, string Report) Measure(IComputeDevice device, ConvCase c, Dat
     });
     foreach (var input in inputs)
     {
-        long count = c.N * (c.C / c.Parts) * c.H * c.W;
+        long count = input.Shape.Elements();
         var values = new float[count];
         for (long i = 0; i < count; i++)
         {
             values[i] = (float)(random.NextDouble() * 2 - 1);
         }
 
-        if (xType == DataType.F16)
+        if (input.Type == DataType.F16)
         {
             model.SetInput<Half>(input, values.Select(v => (Half)v).ToArray());
         }
