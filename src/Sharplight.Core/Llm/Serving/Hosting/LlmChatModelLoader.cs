@@ -55,6 +55,9 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
         public IReadOnlyList<MemoryRequirement> Requirements => reqs;
         public bool CanOffload => owner.Fallback is not null;
 
+        /// <summary>Bytes a shrunk default cache leaves unused for the placement's rounding.</summary>
+        private const long ShrinkMargin = 256L << 20;
+
         /// <summary>
         /// With a default-sized paged KV cache on one device: the footprint with the smallest cache <see cref="KvTokensFor"/> shrinks
         /// to (one full context plus a block per slot).
@@ -68,7 +71,7 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
                     return null;
                 }
 
-                return fp.Total - (kv.Tokens - kv.Least) * kv.PerToken;
+                return fp.Total - (kv.Tokens - kv.Least) * kv.PerToken + ShrinkMargin;
             }
         }
 
@@ -159,8 +162,10 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
                 return null;
             }
 
+            // One allocation granule of margin: placement rounds cache rows to whole blocks and groups to sub-allocation blocks, so a pool
+            // sized to the last byte did not fit (Qwen3-8B-FP8, 256 slots: 6 MiB short, benchmarks.md §105).
             var (tokens, least, perToken) = kv;
-            long fit = (limit - (fp.Total - tokens * perToken)) / perToken;
+            long fit = (limit - ShrinkMargin - (fp.Total - tokens * perToken)) / perToken;
             long shrunk = Math.Clamp(fit, least, tokens);
             if (shrunk < tokens)
             {

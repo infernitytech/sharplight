@@ -10,11 +10,11 @@ here (vLLM's kernel names do not carry shapes).
 import re, sys
 
 CLASSES = [
-    ("moe", re.compile(r"moe|topk|expert|marlin_moe|align_block", re.I)),
+    ("moe", re.compile(r"moe|topk|expert|align_block", re.I)),
     ("attention", re.compile(r"flash|attn|attention|paged|decode_with|prefill_with|merge_state|reshape_and_cache", re.I)),
+    ("gemm", re.compile(r"gemm|cutlass|xmma|nvjet|wgmma|marlin|matmul|splitKreduce|split_k_reduce", re.I)),
     ("norm", re.compile(r"norm", re.I)),
-    ("quant", re.compile(r"quant|fp8|scaled_fp4|cvt", re.I)),
-    ("gemm", re.compile(r"gemm|cutlass|xmma|nvjet|wgmma|deep_gemm|marlin|matmul|splitKreduce|sm\d+_", re.I)),
+    ("quant", re.compile(r"quant|scaled_fp4|cvt", re.I)),
     ("act_rope_sample", re.compile(r"act_and_mul|silu|rotary|rope|sampl|argmax|softmax|gather|index|scatter|copy|elementwise|reduce", re.I)),
 ]
 LINE = re.compile(r"^\s*([\d.]+) ms\s+([\d.]+)%\s+([\d.]+)x\s+([\d.]+) us/call\s+(.*)$")
