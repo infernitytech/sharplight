@@ -451,6 +451,13 @@ public sealed class ModelHost : IDisposable
                     continue;
                 }
 
+                if (i == 0 && p.ShrinkableTo is { } least && avail >= least)
+                {
+                    limit = avail;
+                    _opt.Log?.Invoke($"Model '{name}' needs {req.Bytes / 1048576.0:F0} MiB on {req.Domain.Name} with its default caches; {avail / 1048576.0:F0} MiB are free, so its caches shrink to fit.");
+                    break;
+                }
+
                 if (i == 0 && p.CanOffload)
                 {
                     limit = Math.Max(0, avail);
