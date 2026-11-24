@@ -16418,3 +16418,219 @@ FIRST=1 CONCS="16 64" ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf/Qw
 SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.Fp8GemmTests
 dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.HazardOrderTests
 ```
+
+## 104. LLM round 44: stream-K for the hand-written f16 / bf16 and FP8 GEMMs whose tiles do not fill whole waves, bit-identical to the tile walk wherever the shared tiles fill a wave (dense prompt steps: bf16 -2 to -9 %, FP8 -1 to -5 %; MoE -1 to -2 %) (2026-11-24)
+
+Branch `perf/llm-r44` (`develop` at `978b1112`, §103 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap), shared with other rounds; every GPU run held the verify lock; `develop` (`perf-r44-base` worktree) and the branch
+alternated in the same holds, vLLM 0.33 (venv `vllm-r12`) in the same holds. Raw output in [`bench/results/s104/`](../bench/results/s104)
+(`steps/`, `prof/`, `ab/`, `correct/`, `tests/`, `sim/`, `scripts/`).
+
+Kept (keyed on tile, wave and K-step counts and the kernels' measured stream-K costs; nothing on models):
+
+1. **Stream-K in `gemm_fp8_tma.cu` (`F8N_SK`) and `gemm_f16_native.cu` (`H_SK`)**, a separate kernel variant and launch (the
+   tile-by-tile kernels compile to the same SASS as `develop`'s, compared with `cuobjdump -sass`). G blocks (at most one per SM)
+   walk the full waves but the last tile by tile; the K steps of the remaining G to 2G tiles (all tiles below two waves) are cut
+   into G equal ranges, one per block. G is the largest multiple of the token tiles not above the SMs, and the shared tiles are
+   walked token tile by token tile: the G / token-tiles blocks that read one weight tile for different token tiles then read
+   each of its K steps at the same time, so it is fetched once (the first, tile-ordered version lost that reuse: Llama-3.1-8B down
+   projection at 768 rows 765 → 1,111 µs, 104.6).
+2. **Bit-identical where the shared tiles fill a wave** (at least G of them, "chain"): every range then spans a tile's K steps, so a
+   tile is cut at most once. A block first multiplies the first K steps of the tile its range ends in and leaves the f32
+   accumulators in its slot (`streamk0..2` buffers, one f32 tile per block: 128 x 128 FP8, up to 128 x 256 f16) with a release flag; then its whole tiles;
+   last, the rest of the tile its range starts in, continuing the previous block's accumulators (acquire). Each output sums its K
+   steps in the order of the tile walk: the same results bit for bit as `develop` and as the same rows in batches that do not run
+   stream-K (tests, 104.5). Fewer shared tiles than blocks (batches whose tiles fill less than one wave) cut a tile into two or more
+   ranges: the blocks that start inside a tile leave partial sums, the block holding its first K step adds them in block order
+   (deterministic, a different rounding). A block waits only for work its partners do before their wait, and all blocks are
+   resident at once, so the waits end (dependent launches start only after every block of this one started).
+3. **Selection** (`GraphLowerer.StreamK.cs`): a launch's time in K steps of one block, tile by tile `⌈tiles / SMs⌉ · K steps`,
+   stream-K `whole waves · K steps + ⌈shared K steps / G⌉ · c + F` with the kernel's measured `c` and `F` (FP8 tensor copies 1.12
+   and 4, f16 1.0 and 8); stream-K when at least 5 % faster, never for a single token tile (each weight tile then has one reader: the
+   launch streams weights at the memory's pace and more blocks only add fixups: Qwen3-8B-FP8 at 128 rows 2-15 % slower per
+   projection), at most 16 token tiles (one group of the rasterized order). The f16 tile configuration estimate (§102) compares the
+   fastest stream-K configuration with the fastest tile-by-tile one; the FP8 64-row / 128-row choice counts the 128-row tiles'
+   stream-K time. Applies to single and multi-output (q / k / v) FP8 GEMMs and to every f16 prompt GEMM (single, bias, dual,
+   multi-output); the dual FP8 GEMM keeps its walk (its E4M3-storing form pairs tiles, 104.6). `SHARPLIGHT_STREAM_K=0` turns it off,
+   `SHARPLIGHT_STREAM_K_COST=x` overrides `F`.
+
+### 104.1 Where the waves were short
+
+At 16 decode rows + a 240- / 250-row prompt chunk (the 16-stream prompt steps) the N = 4,096 projections have 32-96 tiles on 82 SMs:
+one under-filled wave, or a second wave of 14 tiles (FP8 at 266 rows, where the estimate picked `gemm_fp8_native.cu`'s 64-row tiles
+instead, §103.2). Per layer (BatchBench `--profile`, µs, `prof/fin_*`; same holds, `develop` / r44):
+
+| GEMM | 256 rows | 266 rows | 768 rows |
+|---|---:|---:|---:|
+| Qwen3-8B-FP8 down [12288 → 4096] | 101.1 / **94.3** | 151.2 / **137.1** | 317.0 / **282.0** |
+| q / k / v [4096 → 6144] | 69.7 / **49.3** | 66.0 / 66.7 | 134.0 / 135.0 |
+| o [4096 → 4096] | 34.0 / 33.9 | 52.8 / **46.3** | 104.6 / **94.3** |
+| gate / up (dual, E4M3 out; not stream-K) | 224.4 / 226.2 | 278.5 / 278.4 | 613.0 / 637.1 * |
+| Llama-3.1-8B down [14336 → 4096] | 250.2 / **216.2** | 297.9 / 298.0 | 766.8 / **615.4** |
+| q / k / v [4096 → 6144] | 123.8 / **94.4** | 127.9 / 129.2 | 263.0 / 261.9 |
+| o [4096 → 4096] | 67.8 / **64.9** | 75.9 / 75.9 | 222.4 / **182.6** |
+| gate / up (dual) [4096 → 2 x 14336] | 420.8 / 430.1 * | 580.6 / 581.7 | 1312.8 / 1331.3 * |
+
+\* Not stream-K in either build: the same kernels, slower beside the stream-K launches (one profile each; the 200 W card runs the
+busier steps at lower clocks, §103.1's caveat). Bold: stream-K.
+
+### 104.2 Step times
+
+BatchBench (24 slots, 256-token contexts, GPU ms min of 10 steps; ABBA in one hold). `develop` against r44 (`steps/fd_*`, order
+`develop`, r44, r44, `develop`; the mean of the two runs' minima):
+
+| decode + prompt rows | Qwen3-8B-FP8 | Llama-3.1-8B | Qwen3-8B (bf16) | gpt-oss-20b |
+|---|---:|---:|---:|---:|
+| 16 + 0 | 12.21 → 12.21 (+0.0 %) | 20.42 → 20.47 (+0.2 %) | 20.80 → 20.73 (-0.3 %) | 9.39 → 9.39 (+0.1 %) |
+| 16 + 112 | 14.66 → 14.67 (+0.0 %) | 25.47 → 25.56 (+0.4 %) | 25.99 → 26.04 (+0.2 %) | 16.38 → 16.48 (+0.6 %) |
+| 16 + 240 | 20.67 → 19.95 (**-3.5 %**) | 34.20 → 32.66 (**-4.5 %**) | 35.69 → 33.23 (**-6.9 %**) | 22.80 → 22.60 (-0.8 %) |
+| 16 + 250 | 25.89 → 24.52 (**-5.3 %**) | 40.98 → 41.16 (+0.4 %) | 41.26 → 41.31 (+0.1 %) | 24.44 → 24.47 (+0.1 %) |
+| 16 + 304 | 26.70 → 25.84 (**-3.2 %**) | 42.81 → 43.03 (+0.5 %) | 43.13 → 43.23 (+0.2 %) | 26.57 → 26.41 (-0.6 %) |
+| 16 + 496 | 36.14 → 35.30 (-2.3 %) | 62.81 → 60.69 (**-3.4 %**) | 60.83 → 59.14 (-2.8 %) | 36.07 → 35.65 (-1.2 %) |
+| 16 + 752 | 52.67 → 51.80 (-1.7 %) | 92.28 → 87.08 (**-5.6 %**) | 95.54 → 87.41 (**-8.5 %**) | 48.73 → 48.83 (+0.2 %) |
+| 16 + 1008 | 67.90 → 66.45 (-2.1 %) | 116.50 → 112.22 (**-3.7 %**) | 118.93 → 114.62 (**-3.6 %**) | 60.27 → 59.75 (-0.9 %) |
+| 16 + 1040 | 72.56 → 71.90 (-0.9 %) | 124.15 → 122.72 (-1.1 %) | 121.60 → 123.81 * | 63.62 → 62.54 (-1.7 %) |
+| 16 + 2032 | 135.00 → 133.95 (-0.8 %) | 236.54 → 226.34 (**-4.3 %**) | 235.64 → 228.14 (**-3.2 %**) | 113.54 → 113.78 (+0.2 %) |
+
+\* `develop`'s two runs 124.52 and 118.69 ms; r44 123.73 and 123.88.
+
+The same build with `SHARPLIGHT_STREAM_K=0` / `=1` (no host-code difference but the stream-K launches; `steps/m5_*` for
+Llama-3.1-8B with the final selection, `steps/ch_*` for the others, whose choices the final 5 % least gain changes only for the
+bf16 q / k / v at 266-320 rows):
+
+| decode + prompt rows | Qwen3-8B-FP8 | Llama-3.1-8B | Qwen3-8B (bf16) | gpt-oss-20b |
+|---|---:|---:|---:|---:|
+| 16 + 0 | +0.0 % | +0.1 % | -0.3 % | +0.3 % |
+| 16 + 112 | +0.1 % | – | -0.3 % | +0.3 % |
+| 16 + 240 | -2.8 % | -5.0 % | -6.9 % | -1.2 % |
+| 16 + 250 | -5.0 % | -0.1 % | -0.3 % | +0.5 % |
+| 16 + 304 | -3.0 % | +0.1 % | +0.4 % | +0.2 % |
+| 16 + 496 | +0.1 % | -3.5 % | -3.8 % | -1.3 % |
+| 16 + 752 | -1.7 % | -5.5 % | -8.7 % | +0.1 % |
+| 16 + 1008 | -2.2 % | – | -4.5 % | -0.8 % |
+| 16 + 1040 | -0.5 % | – | -2.5 % | -1.6 % |
+| 16 + 2032 | -0.5 % | – | -4.1 % | +0.0 % |
+
+Steps without stream-K launches (16 + 0, 16 + 112, Llama-3.1-8B at 16 + 250 / 304) move by -0.3 to +0.6 % against `develop`: the
+same kernels, with the stream-K partial-sum buffers in the activation memory (up to 3 x 10.5 MB) and the GPU's idle history
+(§103.1) as the differences; the same build's A/B there is -0.3 to +0.3 %.
+
+Which model classes benefit: every model whose dense projections run the hand-written f16 GEMM (bf16 / f16 checkpoints of dense
+transformers, the attention projections of MoE models) or the FP8 tensor-copy GEMM (block-scaled FP8 checkpoints), in prompt-bearing
+steps whose tiles end a short wave: two to sixteen token tiles, i.e. 129 to 2,048 rows for the 128-row tiles. Qwen3-8B (bf16,
+36 layers, other projection shapes than Llama's 32) is the additional dense model: -4 to -9 % from 256 rows. MoE models gain in
+their attention projections only (gpt-oss-20b -1 to -2 %; its experts run `gemm_moe_native.cu`). Decode steps (16 rows) run none of
+it (+0.0-0.3 %, within the runs' spread).
+
+### 104.3 Serving: `develop` against r44 against vLLM, with the text check
+
+`bench/s16_serve.sh` with `FIRST=1`, 16 / 64 slots of 512 tokens, ~250-token prompts, 128 output tokens, closed loop, one round per
+configuration, order `develop`, r44, vLLM, r44, `develop` per model in one hold (`ab/`). Every Sharplight server's batched text check is
+clean (vLLM's gpt-oss-20b run flagged one of 64 batched texts: a run of 15 periods). Tok/s, TTFT p50, ITL mean / p95 / p99 / max (ms);
+two values are the two runs. "First": the TTFT of one request alone on the fresh server, then of a second (ms).
+
+| model, streams | `develop` | r44 | vLLM 0.33 | r44 / vLLM |
+|---|---|---|---|---:|
+| Qwen3-8B-FP8, first / second request | 26 / 22, 27 / 22 | 26 / 21, 27 / 22 | 47 / 57 | |
+| 16: tok/s | 1106, 1104 | 1109, 1111 | 1115 | 0.995 |
+| TTFT / ITL mean, p95, p99, max | 95-97 / 13.56-13.57, 15.3-15.8, 47.9-48.2, 57.0-61.3 | 91-96 / 13.50-13.53, 14.5-16.3, 47.5-49.2, 53.7-54.9 | 173 / 12.96, 13.6, 21.0, 108.5 | |
+| 64: tok/s | 2738, 2737 | 2742, 2739 | 2692 | **1.02** |
+| TTFT / ITL mean, p95, p99, max | 266-288 / 20.69-20.89, 24.3-26.8, 130.6, 139-141 | 266-270 / 20.76-20.85, 25.1-27.4, 129.3-130.9, 140-143 | 400 / 20.21, 25.5, 133.0, 136.3 | |
+| gpt-oss-20b, first / second | 30-31 / 24-25 | 29-30 / 24-25 | 37 / 37 | |
+| 16: tok/s | 1446, 1435 | 1439, 1438 | 1402 | **1.03** |
+| TTFT / ITL mean, p95, p99, max | 91-92 / 10.23-10.29, 12.6-13.3, 45.2-45.7, 51.6-52.9 | 96-97 / 10.24-10.25, 12.8-13.0, 47.8-47.9, 53.8-56.7 | 199 / 10.04, 10.6, 27.5, 118.9 | |
+| 64: tok/s | 3230, 3230 | 3228, 3228 | 3140 | **1.03** |
+| TTFT / ITL mean, p95, p99, max | 236-238 / 17.23-17.24, 28.6-29.8, 115.4-115.8, 122 | 238-239 / 17.22-17.23, 28.9-31.6, 115.7, 125-126 | 376 / 17.00, 16.5, 120.4, 129.1 | |
+| Llama-3.1-8B (bf16), first / second | 44 / 38-40 | 44-48 / 38 | 47 / 41 | |
+| 16: tok/s | 664, 667 | 671, 669 | 676 | 0.99 |
+| TTFT / ITL mean, p95, p99, max | 164-170 / 22.45-22.57, 23.7-23.8, 75.5-90.9, 98-104 | 159-160 / 22.41-22.48, 22.9-23.8, 85.2-85.5, 91-92 | 362 / 21.28, 21.9, 25.5, 227.2 | |
+| 64: tok/s | 1719, 1715 | 1737, 1738 | 1713 | **1.01** |
+| TTFT / ITL mean, p95, p99, max | 504-509 / 32.48-32.55, 33.4-35.1, 233.4-235.4, 243-245 | 488-489 / 32.23-32.26, 34.9-35.1, 223.6-223.7, 233-240 | 697 / 31.39, 30.1, 231.7, 241.4 | |
+
+Llama-3.1-8B gains most: +1.2 % tok/s at 64 streams (its 64-stream prompt steps carry several prompt chunks, hundreds of rows,
+where the bf16 steps are 3-6 % shorter), TTFT p50 -4 % and ITL p99 -4 %; at 16 streams +0.7 % (0.98 → 0.99 of vLLM). Qwen3-8B-FP8 and gpt-oss-20b move by
+less than the runs' spread: in the closed loop their prompt-bearing steps are mostly one 250-row chunk (16 + ~250 rows), where the
+FP8 step is 5 % shorter (104.2) but such steps are ~11 % of the steps; gpt-oss-20b's attention projections are a small share of its
+steps. The 16-stream gap to vLLM is no longer in GEMM waves: ITL p99 47-49 against 21-27 ms is the prompt-step share (§100), and
+the mean is within 4-5 %.
+
+### 104.4 Correctness
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt, whose prompt GEMMs run stream-K: 963 rows are 8 token tiles;
+  `correct/`): byte-identical to `develop` for gpt-oss-20b (e733f049 / 8cb648ed), Qwen3-8B-FP8 (3879d8a4 / b9666631, also with
+  `--fp8-block-scaled off`) and Llama-3.1-8B (f50af9d0 / b9666631).
+* PplBench (wikitext-2, 4 x 3,072 tokens): dumped logits bit-identical to `develop` with prompt steps of 1,024 and of 1,000 rows,
+  where the down, o and q / k / v GEMMs run stream-K in chain mode: Qwen3-8B-FP8 4ab780cf (PPL 8.7358) / abfe9a19 (8.7369),
+  Llama-3.1-8B b32ebb32 / bca5cc44 (6.6821); the same hashes in two runs.
+* Batches whose tiles fill less than a wave (the partial-sum fixup) round differently from `develop`; deterministic run to run. The
+  first version of the round summed partial sums for every cut tile (no chain): Qwen3-8B-FP8 PPL 8.7358 → 8.7497 at 1,024-row steps
+  (8.7524 / 8.7509 at 1,000 / 1,040), logits mean |Δ| 0.15 with 3 % of the arg-maxes changed, the same with block-scaled FP8 off
+  (8.6693 → 8.6709, mean |Δ| 0.12): the E4M3 activations of the next GEMMs turn a last-bit difference into a quantization step,
+  layer after layer; Llama-3.1-8B (bf16 activations) 6.6821 unchanged, mean |Δ| 0.0016. Chain mode was added for that.
+* Batched text: the text check of every serving run is clean (104.3).
+
+### 104.5 Tests
+
+* Suites on GPU 0, one class per process (`tests/`), on the final build: `Sharplight.Cuda.Tests` and `Sharplight.Serving.Tests` with
+  `SHARPLIGHT_TEST_PROVIDER=cuda` 494, 1 failed, 14 skipped: `EngineTests.TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore`
+  copied the fake device's step list while the engine appended to it ("Destination array was not long enough"; a race of the test,
+  no GPU involved), the class passed in three reruns; `Fp8GemmTests` (52), `DualGemmTests` (13) and `MatMulTests.StreamK*` on CUDA,
+  0 failed. On the first commit of the round: the CUDA suites 494, 0 failed; `MatMulTests`, `DualGemmTests`, `Fp8GemmTests`,
+  `FusionTests`, `HazardOrderTests` on Vulkan 342, 0 failed (shared lowering; no Vulkan kernel changed).
+* New: `Fp8GemmTests.StreamKTiles` and `MatMulTests.StreamKTiles` (batches that run stream-K in both modes against the CPU oracle:
+  tiles cut into two to four ranges, a partial last token tile, full waves walked first, then the shared tiles), and
+  `*.StreamKMatchesTileWalkBitwise` (CUDA only: a 266- / 300-row batch that runs stream-K in chain mode against the same rows of a
+  2,100-row batch that walks tiles, bit for bit). `DualMatchesSeparateBitwise` (f16 and FP8) still holds: chain mode or no stream-K
+  at those shapes.
+
+### 104.6 Rejected and not kept
+
+* **The shared tiles in tile order**: blocks that read one weight tile for different token tiles read its K steps at different
+  times, so the weights are fetched again: Llama-3.1-8B down projection at 768 rows 765 → 1,111 µs, Qwen3-8B-FP8 down at 256 rows
+  102 → 108 µs. Walked token tile by token tile on a multiple of the token tiles: 615 and 94 µs.
+* **Partial sums for every cut tile**: not bit-identical where it could be (104.4); kept only below a wave of shared tiles.
+* **Stream-K on a single token tile**: Qwen3-8B-FP8 at 128 rows down 75.9 → 78.7 µs, q / k / v 39.6 → 41.2, o 27.4 → 31.6 (the
+  64-row tiles of `gemm_fp8_native.cu` it replaced already filled the wave; memory-bound).
+* **Smaller least gain** (none or 4 %): the 64 x 256 q / k / v tiles at 266-320 rows (estimated 4.4 %) were 10 % faster as a GEMM
+  but the Llama-3.1-8B step 0.6-1.0 % slower; a 2,880-output projection of gpt-oss-20b (estimated 3 %) 69 → 75 µs.
+* **A larger f16 fixup estimate** (21 K steps, fitted on two shapes): the q / k / v gains at 256 rows go.
+* **Stream-K for the dual FP8 GEMM instead of its E4M3 store** (QOUT off from 256 rows, the dual GEMM then stream-K plus the
+  separate `quantize_fp8`; `steps/qo_*`): -2.9 % per step at 16 + 240, -1.3 % at 16 + 250, but +2.1 % at 16 + 496 and +1.9 % at
+  16 + 2032. Not kept: choosing needs the quantize launch's cost; the dual FP8 GEMM keeps QOUT and its walk.
+* **Variant selection per new step shape** (§103.6 item 2): not done. The first runs of new shapes record in 3-8 ms while the GPU
+  runs the step (`[first]` lines: wall = GPU time at every measured shape), so the selection is not on the step's path at these
+  sizes.
+
+### 104.7 Gap to vLLM and ranked plan
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64, closed (text checked) | 0.995 / 1.02 | 16: ITL mean 13.5 against 13.0, p99 48 against 21 (prompt-step share); the dual gate / up GEMM's pair walk |
+| gpt-oss-20b serving 16 / 64, closed | 1.03 / 1.03 | 16: ITL p99 48 against 28 (prompt steps); q / k / v on `gemm_cm2` below 1,024 rows |
+| Llama-3.1-8B (bf16) serving 16 / 64, closed | 0.99 / 1.01 | 16: ITL mean 22.4 against 21.3, p99 85 against 26 (prompt waves); gate / up at 266 rows |
+
+1. **The dual FP8 gate / up GEMM** (40-46 % of an FP8 prompt step): its E4M3-storing form walks pairs of 64-output tiles, so at 256
+   rows 192 pairs fill 2.34 waves of 82 SMs and take 3 (224 µs against 189 µs for the non-storing form, 104.6). Stream-K over the
+   pairs (a pair's two halves as one chain unit), or the QOUT / stream-K choice with a measured quantize cost.
+2. **gpt-oss-20b q / k / v with bias at 256-1,023 rows** runs `gemm_cm2` with split-K (91 µs at 266 rows, 86 TFLOPS) because the
+   hand-written bias GEMM starts at 1,024 rows (`NativeBiasGemmMinRows`, measured before stream-K); re-measure with stream-K.
+3. **bf16 gate / up at 266 rows** (Llama-3.1-8B 580 µs against 421 at 256): two full token tiles and one of 10 rows on 64 x 256
+   tiles; a token tile height between 64 and 128 (96 rows) or a mixed last tile.
+4. **FP8 prompt GEMMs 5-8 % behind CUTLASS** (§94).
+5. **Placement rule aware of the SMs the previous grid leaves idle** (§100.7 item 4).
+
+### 104.8 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# 104.1 / 104.2 (SHARPLIGHT_STREAM_K=0 for the walk without it; per-GEMM times: --profile <entries> --profile-mode greedy)
+BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 24 --ctx 2560 --depth 256 --batch 2048 --modes greedy --reps 10 --text \
+  --mixed 16+0,16+112,16+240,16+250,16+304,16+496,16+752,16+1008,16+1040,16+2032
+# 104.3
+FIRST=1 CONCS="16 64" ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+# 104.4
+PplBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --dump q8.f16
+# tests
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.Fp8GemmTests
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method Sharplight.Vulkan.Tests.MatMulTests.StreamKMatchesTileWalkBitwise
+```

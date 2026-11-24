@@ -28,8 +28,18 @@
 // block still streams its whole weight tile, but its MMAs (what a full tile's time is) shrink with its rows, so a batch a few rows
 // past a tile boundary no longer pays a whole tile of tensor work (benchmarks.md section 102). Full tiles run the loop unchanged.
 //
+// H_SK (prompt tiles, H_CFG 0, 1 or 3): stream-K for batches whose tiles do not fill whole waves of the gridDim.x blocks (a 1-D grid,
+// at most one block per SM), as gemm_fp8_tma.cu's F8N_SK: the tiles past the last full wave but one (all of them below two waves)
+// share their K steps evenly, one range per block after its tiles of the full waves; a range that starts inside a tile leaves its
+// partial sums (part: one slot of H_BM x H_BN floats per block, in the threads' register order) and raises its flag (flags[blockIdx.x]);
+// the block holding the tile's first K step adds the following blocks' partial sums in block order, clears their flags and stores:
+// the same results run to run, a different rounding than the tile-by-tile grid. With at least gridDim.x shared tiles (chain) a tile
+// is cut at most once and its first K steps come first: a block multiplies the head of the tile its range ends in before its whole
+// tiles and leaves the accumulators, and finishes the tile its range starts in last from the previous block's accumulators, so
+// every output sums its K steps in the grid's order: the same results bit for bit.
+//
 // Specialization macros: K, N (all rows with MULTI), Y_STRIDE, H_CFG, H_DBN (H_CFG 2), DUAL, H_EPI2 (DUAL), MULTI, MULTI_O1,
-// MULTI_O2, H_BIAS, H_XRS. Requires K % 64 == 0, 16-byte aligned operands and an even Y_STRIDE (MULTI: even widths). Grid:
+// MULTI_O2, H_BIAS, H_XRS, H_SK. Requires K % 64 == 0, 16-byte aligned operands and an even Y_STRIDE (MULTI: even widths). Grid:
 // x = token tiles, y = weight tiles.
 #ifndef DUAL
 #define DUAL 0
@@ -45,6 +55,12 @@
 #endif
 #ifndef MULTI
 #define MULTI 0
+#endif
+#ifndef H_SK
+#define H_SK 0
+#endif
+#if H_SK && H_CFG == 2
+#error "gemm_f16_native: H_SK with the decode form"
 #endif
 #if H_BIAS && DUAL
 #error "the bias epilogue is for single matrices"
@@ -127,6 +143,10 @@ struct HParams
     const float* bias_2;
 #endif
 #endif
+#endif
+#if H_SK
+    float* part;
+    h_u32* flags;
 #endif
     h_u32 T;
 };
@@ -213,191 +233,405 @@ static __device__ __forceinline__ HMember h_member(const HParams& p, h_u32& n0)
     return m;
 }
 
+#if H_SK
+// The stream-K walk of a block: dpTiles tiles in full waves (tile blockIdx.x + v gridDim.x for v < dpTiles / gridDim.x), then the
+// K steps [begin, end) of the remaining tiles (global K-step indices tile * nk + kb); with chain (at least gridDim.x shared tiles),
+// head first: [head, end), the whole tiles [tail, head), then [begin, tail) (gemm_fp8_tma.cu's F8nWalk).
+struct HWalk
+{
+    h_u32 dpIters;
+    h_u32 begin;
+    h_u32 end;
+    h_u32 skTiles;
+    h_u32 dpTiles;
+};
+
+// Chain: at least gridDim.x shared tiles. Its head [h_head, end) (empty when the range ends on a tile) and tail [begin, h_tail)
+// (empty when the range starts on one).
+static __device__ __forceinline__ bool h_chain(const HWalk& w)
+{
+    return w.skTiles >= gridDim.x;
+}
+
+static __device__ __forceinline__ h_u32 h_head(const HWalk& w)
+{
+    return w.end / (K / 64) * (K / 64);
+}
+
+static __device__ __forceinline__ h_u32 h_tail(const HWalk& w)
+{
+    return (w.begin + K / 64 - 1) / (K / 64) * (K / 64);
+}
+
+// Start of block b's stream-K range (global K-step index).
+static __device__ __forceinline__ h_u32 h_sk_begin(h_u32 b, h_u32 dpTiles, h_u32 skTiles, h_u32 nk)
+{
+    return dpTiles * nk + (h_u32)((h_u64)skTiles * nk * b / gridDim.x);
+}
+
+// The grid's tile of the walk's tile index: the full waves' tiles in the rasterized order, the shared tiles token tile by token tile.
+// With gridDim.x a multiple of the token tiles (at most H_GROUP: the raster then walks each weight tile's token tiles in turn) the
+// shared tiles are whole weight tiles; ordered token tile by token tile, the blocks that read the same weight tile's K step for
+// different token tiles, gridDim.x / tilesX apart, read it at the same step, so it is fetched once.
+static __device__ __forceinline__ h_u32 h_walk_tile(const HWalk& w, h_u32 tile, h_u32 tilesX)
+{
+    if (tile < w.dpTiles || tilesX > H_GROUP || gridDim.x % tilesX != 0)
+    {
+        return tile;
+    }
+
+    const h_u32 s = tile - w.dpTiles, columns = w.skTiles / tilesX;
+    return (w.dpTiles / tilesX + s % columns) * tilesX + s / columns;
+}
+
+static __device__ __forceinline__ HWalk h_walk(h_u32 tiles, h_u32 nk)
+{
+    HWalk w;
+    w.dpTiles = tiles >= 2 * gridDim.x ? (tiles / gridDim.x - 1) * gridDim.x : 0;
+    w.skTiles = tiles - w.dpTiles;
+    w.dpIters = w.dpTiles / gridDim.x * nk;
+    w.begin = h_sk_begin(blockIdx.x, w.dpTiles, w.skTiles, nk);
+    w.end = h_sk_begin(blockIdx.x + 1, w.dpTiles, w.skTiles, nk);
+    return w;
+}
+
+// Global K-step index of the block's step m past its full-wave tiles (chain: head, whole tiles, tail).
+static __device__ __forceinline__ h_u32 h_walk_global(const HWalk& w, h_u32 m)
+{
+    if (!h_chain(w))
+    {
+        return w.begin + m;
+    }
+
+    const h_u32 head = h_head(w), tail = h_tail(w), headLength = w.end - head, middle = head - tail;
+    return m < headLength ? head + m : m < headLength + middle ? tail + (m - headLength) : w.begin + (m - headLength - middle);
+}
+#endif
+
 extern "C" __global__ void __launch_bounds__(H_THREADS, H_CFG == 2 ? 2 : 1) gemm_f16_native(HParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const h_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const h_u32 wm = warp / H_WN, wn = warp % H_WN;
-    const h_u32 id = blockIdx.y * gridDim.x + blockIdx.x, groupBlocks = H_GROUP * gridDim.y;
-    const h_u32 first = id / groupBlocks * H_GROUP, groupRows = min(gridDim.x - first, (h_u32)H_GROUP);
-    const h_u32 t0 = (first + id % groupBlocks % groupRows) * H_BM;
-    h_u32 n0 = id % groupBlocks / groupRows * H_BOUT;
-    const HMember m = h_member(p, n0);
     const h_u32 nk = K / 64;
-
-    // Rows of the batch in this token tile, the tile rows the fragments with such rows cover (multiples of 16), and how many of
-    // this warp's fragments hold rows of the batch (warp-uniform).
-    const h_u32 tileRows = min(p.T - t0, (h_u32)H_BM), usedRows = (tileRows + 15u) & ~15u;
-    const h_u32 warpRow = wm * H_TM, fragments = usedRows > warpRow ? min((usedRows - warpRow) / 16u, (h_u32)H_FM) : 0u;
-
-    auto load = [&](h_u32 s, h_u32 kb, auto partial) {
-        h_u32 base = (h_u32)__cvta_generic_to_shared(smem + s * H_STAGE_BYTES);
-        const h_u32 k0 = kb * 128;
-#pragma unroll
-        for (h_u32 i = 0; i < H_BM * 8 / H_THREADS; i++)
+#if H_SK
+    // Tiles of the grid the tile-by-tile form would launch, rasterized the same way; a segment is a tile's K steps [kbBegin, kbEnd).
+    const h_u32 tilesX = (p.T + H_BM - 1) / H_BM, tilesY = (N + H_BOUT - 1) / H_BOUT;
+    const HWalk walk = h_walk(tilesX * tilesY, nk);
+    const h_u32 total = walk.dpIters + (walk.end - walk.begin);
+    for (h_u32 step = 0; step < total;)
+    {
+        h_u32 id, kbBegin;
+        if (step < walk.dpIters)
         {
-            h_u32 idx = tid + i * H_THREADS, r = idx >> 3, c = idx & 7;
-            if constexpr (decltype(partial)::value)
+            id = blockIdx.x + step / nk * gridDim.x;
+            kbBegin = 0;
+        }
+        else
+        {
+            const h_u32 g = h_walk_global(walk, step - walk.dpIters);
+            id = g / nk;
+            kbBegin = g % nk;
+        }
+
+        const bool head = h_chain(walk) && step >= walk.dpIters && step - walk.dpIters < walk.end - h_head(walk);
+        const h_u32 kbEnd = head ? walk.end - h_head(walk) : min(nk, kbBegin + (total - step));
+        step += kbEnd - kbBegin;
+        // The previous segment's last stage reads are done before this one's copies.
+        __syncthreads();
+        const h_u32 tile = id;
+        id = h_walk_tile(walk, id, tilesX);
+        const h_u32 groupBlocks = H_GROUP * tilesY;
+        const h_u32 first = id / groupBlocks * H_GROUP, groupRows = min(tilesX - first, (h_u32)H_GROUP);
+#define H_KB0 kbBegin
+#define H_KB1 kbEnd
+#else
+    {
+        const h_u32 id = blockIdx.y * gridDim.x + blockIdx.x, groupBlocks = H_GROUP * gridDim.y;
+        const h_u32 first = id / groupBlocks * H_GROUP, groupRows = min(gridDim.x - first, (h_u32)H_GROUP);
+#define H_KB0 0
+#define H_KB1 nk
+#endif
+        const h_u32 t0 = (first + id % groupBlocks % groupRows) * H_BM;
+        h_u32 n0 = id % groupBlocks / groupRows * H_BOUT;
+        const HMember m = h_member(p, n0);
+
+        // Rows of the batch in this token tile, the tile rows the fragments with such rows cover (multiples of 16), and how many of
+        // this warp's fragments hold rows of the batch (warp-uniform).
+        const h_u32 tileRows = min(p.T - t0, (h_u32)H_BM), usedRows = (tileRows + 15u) & ~15u;
+        const h_u32 warpRow = wm * H_TM, fragments = usedRows > warpRow ? min((usedRows - warpRow) / 16u, (h_u32)H_FM) : 0u;
+
+        auto load = [&](h_u32 s, h_u32 kb, auto partial) {
+            h_u32 base = (h_u32)__cvta_generic_to_shared(smem + s * H_STAGE_BYTES);
+            const h_u32 k0 = kb * 128;
+#pragma unroll
+            for (h_u32 i = 0; i < H_BM * 8 / H_THREADS; i++)
             {
-                if (r < usedRows)
+                h_u32 idx = tid + i * H_THREADS, r = idx >> 3, c = idx & 7;
+                if constexpr (decltype(partial)::value)
+                {
+                    if (r < usedRows)
+                    {
+                        h_cp16(base + h_swz(r, c), p.x + (h_u64)min(t0 + r, p.T - 1) * H_RS + k0 + c * 16);
+                    }
+                }
+                else
                 {
                     h_cp16(base + h_swz(r, c), p.x + (h_u64)min(t0 + r, p.T - 1) * H_RS + k0 + c * 16);
                 }
             }
-            else
-            {
-                h_cp16(base + h_swz(r, c), p.x + (h_u64)min(t0 + r, p.T - 1) * H_RS + k0 + c * 16);
-            }
-        }
 #pragma unroll
-        for (h_u32 i = 0; i < H_BN * 8 / H_THREADS; i++)
-        {
-            h_u32 idx = tid + i * H_THREADS, r = idx >> 3, c = idx & 7;
-            h_cp16(base + H_BM * 128 + h_swz(r, c), h_wrow(p, m, n0, r) + k0 + c * 16);
-        }
-    };
+            for (h_u32 i = 0; i < H_BN * 8 / H_THREADS; i++)
+            {
+                h_u32 idx = tid + i * H_THREADS, r = idx >> 3, c = idx & 7;
+                h_cp16(base + H_BM * 128 + h_swz(r, c), h_wrow(p, m, n0, r) + k0 + c * 16);
+            }
+        };
 
-    float acc[H_FM][H_FN][4];
+        float acc[H_FM][H_FN][4];
 #pragma unroll
-    for (int i = 0; i < H_FM; i++)
-    {
-#pragma unroll
-        for (int j = 0; j < H_FN; j++)
+        for (int i = 0; i < H_FM; i++)
         {
 #pragma unroll
-            for (int e = 0; e < 4; e++)
+            for (int j = 0; j < H_FN; j++)
             {
-                acc[i][j][e] = 0.0f;
-            }
-        }
-    }
-
-    auto mainLoop = [&](auto partial) {
-        constexpr bool Partial = decltype(partial)::value;
 #pragma unroll
-        for (int s = 0; s < H_STAGES - 1; s++)
-        {
-            if (s < (int)nk)
-            {
-                load(s, s, partial);
-            }
-            asm volatile("cp.async.commit_group;\n" ::);
-        }
-
-        for (h_u32 kb = 0; kb < nk; kb++)
-        {
-            asm volatile("cp.async.wait_group %0;\n" :: "n"(H_STAGES - 2));
-            __syncthreads();
-            h_u32 next = kb + H_STAGES - 1;
-            if (next < nk)
-            {
-                load(next % H_STAGES, next, partial);
-            }
-            asm volatile("cp.async.commit_group;\n" ::);
-            if constexpr (Partial)
-            {
-                if (fragments == 0)
+                for (int e = 0; e < 4; e++)
                 {
-                    continue;
+                    acc[i][j][e] = 0.0f;
                 }
             }
-
-            const h_u32 sa = (h_u32)__cvta_generic_to_shared(smem + (kb % H_STAGES) * H_STAGE_BYTES), sb = sa + H_BM * 128;
-#pragma unroll
-            for (h_u32 kk = 0; kk < 4; kk++)
+        }
+#if H_SK
+        if (h_chain(walk) && kbBegin > 0)
+        {
+            // The tile's last K steps: continue the accumulators of the previous block's head (its first work), so every output
+            // sums its K steps in the order of the grid without stream-K.
+            if (tid == 0)
             {
-                h_u32 a[H_FM][4], b[H_FN][2];
-#pragma unroll
-                for (int i = 0; i < H_FM; i++)
+                h_u32 ready = 0;
+                do
                 {
-                    if (!Partial || (h_u32)i < fragments)
+                    asm volatile("ld.acquire.gpu.global.u32 %0, [%1];\n" : "=r"(ready) : "l"(p.flags + blockIdx.x - 1) : "memory");
+                } while (ready == 0);
+                p.flags[blockIdx.x - 1] = 0;
+            }
+
+            __syncthreads();
+            const float4* previous = (const float4*)p.part + (h_u64)(blockIdx.x - 1) * (H_FM * H_FN * H_THREADS);
+#pragma unroll
+            for (int i = 0; i < H_FM; i++)
+            {
+#pragma unroll
+                for (int j = 0; j < H_FN; j++)
+                {
+                    const float4 v = __ldcg(previous + (i * H_FN + j) * H_THREADS + tid);
+                    acc[i][j][0] = v.x;
+                    acc[i][j][1] = v.y;
+                    acc[i][j][2] = v.z;
+                    acc[i][j][3] = v.w;
+                }
+            }
+        }
+#endif
+
+        auto mainLoop = [&](auto partial) {
+            constexpr bool Partial = decltype(partial)::value;
+#pragma unroll
+            for (int s = 0; s < H_STAGES - 1; s++)
+            {
+                if (s < (int)(H_KB1 - H_KB0))
+                {
+                    load(s, H_KB0 + s, partial);
+                }
+                asm volatile("cp.async.commit_group;\n" ::);
+            }
+
+            for (h_u32 kb = H_KB0; kb < H_KB1; kb++)
+            {
+                asm volatile("cp.async.wait_group %0;\n" :: "n"(H_STAGES - 2));
+                __syncthreads();
+                h_u32 next = kb + H_STAGES - 1;
+                if (next < H_KB1)
+                {
+                    load((next - H_KB0) % H_STAGES, next, partial);
+                }
+                asm volatile("cp.async.commit_group;\n" ::);
+                if constexpr (Partial)
+                {
+                    if (fragments == 0)
                     {
-                        h_u32 r = wm * H_TM + i * 16 + (lane & 15);
-                        h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
+                        continue;
                     }
                 }
+
+                const h_u32 sa = (h_u32)__cvta_generic_to_shared(smem + ((kb - H_KB0) % H_STAGES) * H_STAGE_BYTES), sb = sa + H_BM * 128;
 #pragma unroll
-                for (int j = 0; j < H_FN; j += 2)
+                for (h_u32 kk = 0; kk < 4; kk++)
                 {
-                    h_u32 r = wn * H_TN + j * 8 + (lane & 7) + ((lane >> 4) << 3);
-                    h_ldsm4(sb + h_swz(r, kk * 2 + ((lane >> 3) & 1)), b[j][0], b[j][1], b[j + 1][0], b[j + 1][1]);
-                }
+                    h_u32 a[H_FM][4], b[H_FN][2];
 #pragma unroll
-                for (int i = 0; i < H_FM; i++)
-                {
-                    if (!Partial || (h_u32)i < fragments)
+                    for (int i = 0; i < H_FM; i++)
                     {
-#pragma unroll
-                        for (int j = 0; j < H_FN; j++)
+                        if (!Partial || (h_u32)i < fragments)
                         {
-                            h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
+                            h_u32 r = wm * H_TM + i * 16 + (lane & 15);
+                            h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
+                        }
+                    }
+#pragma unroll
+                    for (int j = 0; j < H_FN; j += 2)
+                    {
+                        h_u32 r = wn * H_TN + j * 8 + (lane & 7) + ((lane >> 4) << 3);
+                        h_ldsm4(sb + h_swz(r, kk * 2 + ((lane >> 3) & 1)), b[j][0], b[j][1], b[j + 1][0], b[j + 1][1]);
+                    }
+#pragma unroll
+                    for (int i = 0; i < H_FM; i++)
+                    {
+                        if (!Partial || (h_u32)i < fragments)
+                        {
+#pragma unroll
+                            for (int j = 0; j < H_FN; j++)
+                            {
+                                h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
+                            }
                         }
                     }
                 }
             }
-        }
-    };
-    if (!H_PARTIAL || tileRows == H_BM)
-    {
-        mainLoop(h_flag<false>{});
-    }
-    else
-    {
-        mainLoop(h_flag<true>{});
-    }
-    asm volatile("cp.async.wait_group 0;\n" ::);
-
-    const h_u32 g = lane >> 2, c4 = lane & 3;
-#pragma unroll
-    for (int i = 0; i < H_FM; i++)
-    {
-#pragma unroll
-        for (int h = 0; h < 2; h++)
+        };
+        if (!H_PARTIAL || tileRows == H_BM)
         {
-            h_u32 t = t0 + wm * H_TM + i * 16 + g + h * 8;
-            if (t >= p.T)
+            mainLoop(h_flag<false>{});
+        }
+        else
+        {
+            mainLoop(h_flag<true>{});
+        }
+        asm volatile("cp.async.wait_group 0;\n" ::);
+
+#if H_SK
+        if (h_chain(walk) ? head : kbBegin > 0)
+        {
+            // A range that starts inside the tile (chain: the head) leaves its partial sums (its accumulators) for the block that
+            // holds the tile's first K step (that continues the tile).
+            float4* slot = (float4*)p.part + (h_u64)blockIdx.x * (H_FM * H_FN * H_THREADS);
+#pragma unroll
+            for (int i = 0; i < H_FM; i++)
             {
-                continue;
+#pragma unroll
+                for (int j = 0; j < H_FN; j++)
+                {
+                    __stcg(slot + (i * H_FN + j) * H_THREADS + tid, make_float4(acc[i][j][0], acc[i][j][1], acc[i][j][2], acc[i][j][3]));
+                }
             }
 
+            __threadfence();
+            __syncthreads();
+            if (tid == 0)
+            {
+                asm volatile("st.release.gpu.global.u32 [%0], %1;\n" :: "l"(p.flags + blockIdx.x), "r"(1u) : "memory");
+            }
+
+            continue;
+        }
+
+        if (!h_chain(walk) && kbEnd < nk)
+        {
+            // The tile's other K steps: the partial sums of the following blocks whose ranges start inside it, in block order.
+            const h_u32 tileEnd = (tile + 1) * nk;
+            h_u32 last = blockIdx.x + 1;
+            while (last + 1 < gridDim.x && h_sk_begin(last + 1, walk.dpTiles, walk.skTiles, nk) < tileEnd)
+            {
+                last++;
+            }
+
+            if (tid == 0)
+            {
+                for (h_u32 c = blockIdx.x + 1; c <= last; c++)
+                {
+                    h_u32 ready = 0;
+                    do
+                    {
+                        asm volatile("ld.acquire.gpu.global.u32 %0, [%1];\n" : "=r"(ready) : "l"(p.flags + c) : "memory");
+                    } while (ready == 0);
+                    p.flags[c] = 0;
+                }
+            }
+
+            __syncthreads();
+            for (h_u32 c = blockIdx.x + 1; c <= last; c++)
+            {
+                const float4* other = (const float4*)p.part + (h_u64)c * (H_FM * H_FN * H_THREADS);
+#pragma unroll
+                for (int i = 0; i < H_FM; i++)
+                {
+#pragma unroll
+                    for (int j = 0; j < H_FN; j++)
+                    {
+                        const float4 v = __ldcg(other + (i * H_FN + j) * H_THREADS + tid);
+                        acc[i][j][0] += v.x;
+                        acc[i][j][1] += v.y;
+                        acc[i][j][2] += v.z;
+                        acc[i][j][3] += v.w;
+                    }
+                }
+            }
+        }
+#endif
+
+        const h_u32 g = lane >> 2, c4 = lane & 3;
+#pragma unroll
+        for (int i = 0; i < H_FM; i++)
+        {
+#pragma unroll
+            for (int h = 0; h < 2; h++)
+            {
+                h_u32 t = t0 + wm * H_TM + i * 16 + g + h * 8;
+                if (t >= p.T)
+                {
+                    continue;
+                }
+
 #if MULTI
-            float* yr = m.y + (h_u64)t * m.rows;
+                float* yr = m.y + (h_u64)t * m.rows;
 #else
-            float* yr = m.y + (h_u64)t * Y_STRIDE;
+                float* yr = m.y + (h_u64)t * Y_STRIDE;
 #endif
 #ifdef H_XRS
-            const h_u32 scaleWord = *(const h_u32*)(p.x + H_XRS + (h_u64)t * 4);
-            const float rowInverse = scaleWord == 0 ? 1.0f : __uint_as_float(scaleWord);
+                const h_u32 scaleWord = *(const h_u32*)(p.x + H_XRS + (h_u64)t * 4);
+                const float rowInverse = scaleWord == 0 ? 1.0f : __uint_as_float(scaleWord);
 #endif
 #if DUAL
 #pragma unroll
-            for (int j = 0; j < H_FN; j += 2)
-            {
-                h_u32 n = n0 + (wn * H_TN) / 2 + (j / 2) * 8 + c4 * 2;
-                float v0 = H_EPI2(acc[i][j][h * 2], acc[i][j + 1][h * 2]);
-                float v1 = H_EPI2(acc[i][j][h * 2 + 1], acc[i][j + 1][h * 2 + 1]);
+                for (int j = 0; j < H_FN; j += 2)
+                {
+                    h_u32 n = n0 + (wn * H_TN) / 2 + (j / 2) * 8 + c4 * 2;
+                    float v0 = H_EPI2(acc[i][j][h * 2], acc[i][j + 1][h * 2]);
+                    float v1 = H_EPI2(acc[i][j][h * 2 + 1], acc[i][j + 1][h * 2 + 1]);
 #else
 #pragma unroll
-            for (int j = 0; j < H_FN; j++)
-            {
-                h_u32 n = n0 + wn * H_TN + j * 8 + c4 * 2;
-                float v0 = acc[i][j][h * 2], v1 = acc[i][j][h * 2 + 1];
+                for (int j = 0; j < H_FN; j++)
+                {
+                    h_u32 n = n0 + wn * H_TN + j * 8 + c4 * 2;
+                    float v0 = acc[i][j][h * 2], v1 = acc[i][j][h * 2 + 1];
 #ifdef H_XRS
-                v0 *= rowInverse;
-                v1 *= rowInverse;
+                    v0 *= rowInverse;
+                    v1 *= rowInverse;
 #endif
 #if H_BIAS
-                v0 += m.bias[min(n, m.rows - 1)];
-                v1 += m.bias[min(n + 1, m.rows - 1)];
+                    v0 += m.bias[min(n, m.rows - 1)];
+                    v1 += m.bias[min(n + 1, m.rows - 1)];
 #endif
 #endif
-                if (n + 1 < m.rows)
-                {
-                    *(float2*)(yr + n) = make_float2(v0, v1);
-                }
-                else if (n < m.rows)
-                {
-                    yr[n] = v0;
+                    if (n + 1 < m.rows)
+                    {
+                        *(float2*)(yr + n) = make_float2(v0, v1);
+                    }
+                    else if (n < m.rows)
+                    {
+                        yr[n] = v0;
+                    }
                 }
             }
         }

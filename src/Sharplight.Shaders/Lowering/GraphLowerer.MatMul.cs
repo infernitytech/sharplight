@@ -205,7 +205,7 @@ public sealed partial class GraphLowerer
             var half = QuantizedActivations(label, [a, bNode, .. group], a.Inputs[0], x, xStride, rowsPerLead, K, LibraryGemmMinRows, rowsMax, ActivationCode.F16);
             if (!_rangeScales.ContainsKey(half))
             {
-                Emit($"{label} native", [a, bNode, .. group], NativeF16Variants(N, K, rowsMax, f16Epilogue, rows, LibraryGemmMinRows),
+                EmitNativeF16($"{label} native", [a, bNode, .. group], sk => NativeF16Variants(N, K, rowsMax, f16Epilogue, rows, LibraryGemmMinRows, streamK: sk),
                     [Pointer(half), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
                     [half, weightA, weightB], [y]);
                 nativeDual = r => r >= LibraryGemmMinRows;

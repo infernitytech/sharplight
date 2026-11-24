@@ -783,6 +783,12 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_PARTIAL=0</c>: the FP8 tensor-copy GEMM runs its full main loop on a token tile past the batch's last row too (comparisons), or null for the default (the partial form for batches a few rows past a tile).</summary>
     public static bool? NativeFp8Partial { get; } = Read("SHARPLIGHT_NATIVE_FP8_PARTIAL") is { } v ? v != "0" : null;
 
+    /// <summary><c>SHARPLIGHT_STREAM_K=0</c>: the hand-written GEMMs walk their tiles whole in every batch (comparisons), or null for the default (stream-K where the tiles do not fill whole waves, see <c>GraphLowerer.StreamK</c>).</summary>
+    public static bool? StreamK { get; } = Read("SHARPLIGHT_STREAM_K") is { } v ? v != "0" : null;
+
+    /// <summary><c>SHARPLIGHT_STREAM_K_COST=x</c>: the cost in K steps of a block's stream-K fixup that the estimate assumes (tuning), or null for the default.</summary>
+    public static double? StreamKCost { get; } = Read("SHARPLIGHT_STREAM_K_COST") is { } v ? double.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_F16_PARTIAL=0</c>: the hand-written f16 GEMM's prompt tiles run the full main loop on a token tile past the batch's last row too (comparisons), or null for the default (the partial loop).</summary>
     public static bool? NativeF16Partial { get; } = Read("SHARPLIGHT_NATIVE_F16_PARTIAL") is { } v ? v != "0" : null;
 

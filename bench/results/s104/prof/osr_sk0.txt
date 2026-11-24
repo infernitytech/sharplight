@@ -1,0 +1,110 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 201088, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 16+250: 38.0 ms; recorded True record 7.7 submit 0.0 wait 21.0 gpu 29.3
+| 16 | 250 (1) | 38.0 | 438 / 0 | 23.29 / 24.54, 23.20 |  |
+--- profile mixed 16+250 (greedy)
+GPU time 249.25 ms
+   105.819 ms  42.5%    240x  min    362.8 us  matmul-id [32x2880→5760] mxfp4rx2 fused native token rows sorted f16 gemm_moe_native T=266,U=17,R=17|2,3
+    60.157 ms  24.1%    240x  min    209.3 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=266,U=17,R=17|2,3
+    22.981 ms   9.2%    240x  min     91.4 us  matmul [2880→4096+512+512] f16 split-k gemm_cm2 T=266,U=17,R=17|2,3
+    17.309 ms   6.9%    240x  min     69.0 us  matmul [4096→2880] f16 native gemm_f16_native T=266,U=17,R=17|2,3
+    14.688 ms   5.9%     10x  min   1466.2 us  matmul [2880→201088] f16 gemm_cm2 T=266,U=17,R=17|2,3
+     3.624 ms   1.5%    240x  min      9.8 us  attention attn_decode_native T=266,U=17,R=17|2,3
+     3.081 ms   1.2%    240x  min     11.1 us  attention attn_prefill_native T=266,U=17,R=17|2,3
+     2.859 ms   1.1%    240x  min      9.8 us  matmul [2880→32] f16 split-k gemm_cm2 T=266,U=17,R=17|2,3
+     2.574 ms   1.0%    240x  min      9.0 us  rope+qkv+cache_write rope_qkv T=266,U=17,R=17|2,3
+     2.513 ms   1.0%    240x  min      9.0 us  fused[Add,Add]+RmsNorm main T=266,U=17,R=17|2,3
+     2.500 ms   1.0%    240x  min      8.8 us  matmul [2880→4096+512+512] split-k reduce splitk_reduce T=266,U=17,R=17|2,3
+     2.099 ms   0.8%    240x  min      6.9 us  fused[Add]+RmsNorm main T=266,U=17,R=17|2,3
+     1.997 ms   0.8%    240x  min      5.5 us  ReduceSum rowreduce_narrow T=266,U=17,R=17|2,3
+     1.339 ms   0.5%    240x  min      3.7 us  matmul [4096→2880] f16 x→ranged f16 to_f16_ranged T=266,U=17,R=17|2,3
+     1.080 ms   0.4%    240x  min      2.8 us  moe-route [32 experts] moe_route T=266,U=17,R=17|2,3
+     1.020 ms   0.4%    240x  min      2.8 us  matmul [2880→32] f16 x→f16 to_f16 T=266,U=17,R=17|2,3
+     0.926 ms   0.4%    240x  min      2.2 us  moe-range-fixup moe_range_fixup T=266,U=17,R=17|2,3
+     0.803 ms   0.3%    240x  min      1.9 us  matmul split-k reduce fused[Add] splitk_reduce T=266,U=17,R=17|2,3
+     0.342 ms   0.1%     10x  min     33.0 us  sample sample T=266,U=17,R=17|2,3
+     0.222 ms   0.1%     20x  min      3.5 us  gather gather T=266,U=17,R=17|2,3
+     0.072 ms   0.0%     10x  min      5.0 us  RmsNorm main T=266,U=17,R=17|2,3
+     0.066 ms   0.0%     10x  min      4.8 us  matmul [2880→201088] f16 f16 range f16_range_unscale T=266,U=17,R=17|2,3
+     0.050 ms   0.0%     10x  min      4.4 us  router topk_788 topk_softmax T=266,U=17,R=17|2,3
+     0.050 ms   0.0%     10x  min      3.9 us  router topk_878 topk_softmax T=266,U=17,R=17|2,3
+     0.049 ms   0.0%     10x  min      4.2 us  router topk_518 topk_softmax T=266,U=17,R=17|2,3
+     0.049 ms   0.0%     10x  min      4.3 us  router topk_113 topk_softmax T=266,U=17,R=17|2,3
+     0.049 ms   0.0%     10x  min      3.9 us  router topk_923 topk_softmax T=266,U=17,R=17|2,3
+     0.049 ms   0.0%     10x  min      3.6 us  router topk_68 topk_softmax T=266,U=17,R=17|2,3
+     0.048 ms   0.0%     10x  min      3.7 us  router topk_23 topk_softmax T=266,U=17,R=17|2,3
+     0.048 ms   0.0%     10x  min      3.6 us  router topk_158 topk_softmax T=266,U=17,R=17|2,3
+     0.048 ms   0.0%     10x  min      4.2 us  router topk_338 topk_softmax T=266,U=17,R=17|2,3
+     0.048 ms   0.0%     10x  min      4.4 us  router topk_473 topk_softmax T=266,U=17,R=17|2,3
+     0.048 ms   0.0%     10x  min      4.1 us  router topk_653 topk_softmax T=266,U=17,R=17|2,3
+     0.047 ms   0.0%     10x  min      4.1 us  router topk_833 topk_softmax T=266,U=17,R=17|2,3
+     0.047 ms   0.0%     10x  min      3.7 us  router topk_1013 topk_softmax T=266,U=17,R=17|2,3
+     0.047 ms   0.0%     10x  min      4.2 us  router topk_293 topk_softmax T=266,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      3.9 us  router topk_698 topk_softmax T=266,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.1 us  router topk_563 topk_softmax T=266,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.2 us  router topk_248 topk_softmax T=266,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      3.9 us  router topk_1058 topk_softmax T=266,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      3.8 us  router topk_428 topk_softmax T=266,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.0 us  router topk_383 topk_softmax T=266,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.2 us  router topk_608 topk_softmax T=266,U=17,R=17|2,3
+     0.045 ms   0.0%     10x  min      3.3 us  router topk_203 topk_softmax T=266,U=17,R=17|2,3
+     0.044 ms   0.0%     10x  min      3.6 us  router topk_743 topk_softmax T=266,U=17,R=17|2,3
+     0.044 ms   0.0%     10x  min      3.4 us  matmul [2880→201088] f16 x→ranged f16 to_f16_ranged T=266,U=17,R=17|2,3
+     0.044 ms   0.0%     10x  min      3.3 us  router topk_968 topk_softmax T=266,U=17,R=17|2,3
+
+[first] 16+304: 30.4 ms; recorded True record 5.0 submit 0.0 wait 25.2 gpu 30.2
+| 16 | 304 (1) | 30.4 | 438 / 0 | 25.99 / 26.82, 25.94 |  |
+--- profile mixed 16+304 (greedy)
+GPU time 272.80 ms
+   117.792 ms  43.2%    240x  min    411.6 us  matmul-id [32x2880→5760] mxfp4rx2 fused native token rows sorted f16 gemm_moe_native T=320,U=17,R=17|2,3
+    67.495 ms  24.7%    240x  min    230.4 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=320,U=17,R=17|2,3
+    23.778 ms   8.7%    240x  min     92.7 us  matmul [2880→4096+512+512] f16 split-k gemm_cm2 T=320,U=17,R=17|2,3
+    18.631 ms   6.8%    240x  min     73.6 us  matmul [4096→2880] f16 native gemm_f16_native T=320,U=17,R=17|2,3
+    14.744 ms   5.4%     10x  min   1472.7 us  matmul [2880→201088] f16 gemm_cm2 T=320,U=17,R=17|2,3
+     3.744 ms   1.4%    240x  min      9.8 us  attention attn_decode_native T=320,U=17,R=17|2,3
+     3.568 ms   1.3%    240x  min     12.1 us  attention attn_prefill_native T=320,U=17,R=17|2,3
+     2.989 ms   1.1%    240x  min     10.0 us  rope+qkv+cache_write rope_qkv T=320,U=17,R=17|2,3
+     2.904 ms   1.1%    240x  min     10.0 us  matmul [2880→32] f16 split-k gemm_cm2 T=320,U=17,R=17|2,3
+     2.727 ms   1.0%    240x  min      9.7 us  matmul [2880→4096+512+512] split-k reduce splitk_reduce T=320,U=17,R=17|2,3
+     2.665 ms   1.0%    240x  min      9.3 us  fused[Add,Add]+RmsNorm main T=320,U=17,R=17|2,3
+     2.444 ms   0.9%    240x  min      6.2 us  ReduceSum rowreduce_narrow T=320,U=17,R=17|2,3
+     2.264 ms   0.8%    240x  min      7.6 us  fused[Add]+RmsNorm main T=320,U=17,R=17|2,3
+     1.377 ms   0.5%    240x  min      3.9 us  matmul [4096→2880] f16 x→ranged f16 to_f16_ranged T=320,U=17,R=17|2,3
+     1.076 ms   0.4%    240x  min      2.9 us  moe-route [32 experts] moe_route T=320,U=17,R=17|2,3
+     1.053 ms   0.4%    240x  min      3.0 us  matmul [2880→32] f16 x→f16 to_f16 T=320,U=17,R=17|2,3
+     0.863 ms   0.3%    240x  min      2.1 us  moe-range-fixup moe_range_fixup T=320,U=17,R=17|2,3
+     0.820 ms   0.3%    240x  min      1.9 us  matmul split-k reduce fused[Add] splitk_reduce T=320,U=17,R=17|2,3
+     0.340 ms   0.1%     10x  min     33.3 us  sample sample T=320,U=17,R=17|2,3
+     0.224 ms   0.1%     20x  min      2.9 us  gather gather T=320,U=17,R=17|2,3
+     0.068 ms   0.0%     10x  min      5.7 us  matmul [2880→201088] f16 f16 range f16_range_unscale T=320,U=17,R=17|2,3
+     0.065 ms   0.0%     10x  min      5.4 us  RmsNorm main T=320,U=17,R=17|2,3
+     0.058 ms   0.0%     10x  min      4.1 us  router topk_878 topk_softmax T=320,U=17,R=17|2,3
+     0.051 ms   0.0%     10x  min      4.0 us  router topk_293 topk_softmax T=320,U=17,R=17|2,3
+     0.051 ms   0.0%     10x  min      4.0 us  router topk_968 topk_softmax T=320,U=17,R=17|2,3
+     0.050 ms   0.0%     10x  min      4.4 us  router topk_248 topk_softmax T=320,U=17,R=17|2,3
+     0.049 ms   0.0%     10x  min      4.1 us  router topk_1058 topk_softmax T=320,U=17,R=17|2,3
+     0.049 ms   0.0%     10x  min      3.6 us  router topk_68 topk_softmax T=320,U=17,R=17|2,3
+     0.048 ms   0.0%     10x  min      3.9 us  router topk_518 topk_softmax T=320,U=17,R=17|2,3
+     0.047 ms   0.0%     10x  min      4.3 us  router topk_383 topk_softmax T=320,U=17,R=17|2,3
+     0.047 ms   0.0%     10x  min      4.0 us  router topk_158 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.0 us  router topk_698 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.3 us  router topk_743 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      3.7 us  router topk_833 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.1 us  router topk_23 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.1 us  router topk_338 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.1 us  router topk_1013 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      3.7 us  router topk_608 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.1 us  router topk_653 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.3 us  router topk_203 topk_softmax T=320,U=17,R=17|2,3
+     0.046 ms   0.0%     10x  min      4.1 us  router topk_923 topk_softmax T=320,U=17,R=17|2,3
+     0.045 ms   0.0%     10x  min      4.1 us  router topk_788 topk_softmax T=320,U=17,R=17|2,3
+     0.045 ms   0.0%     10x  min      3.6 us  router topk_473 topk_softmax T=320,U=17,R=17|2,3
+     0.045 ms   0.0%     10x  min      4.1 us  router topk_428 topk_softmax T=320,U=17,R=17|2,3
+     0.044 ms   0.0%     10x  min      3.7 us  router topk_113 topk_softmax T=320,U=17,R=17|2,3
+     0.044 ms   0.0%     10x  min      3.6 us  router topk_563 topk_softmax T=320,U=17,R=17|2,3
+     0.042 ms   0.0%     10x  min      3.2 us  matmul [2880→201088] f16 x→ranged f16 to_f16_ranged T=320,U=17,R=17|2,3
+

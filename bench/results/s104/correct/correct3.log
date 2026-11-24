@@ -1,0 +1,8 @@
+Fp8GemmTests rc=0 Total: 51, Errors: 0, Failed: 0, Skipped: 0
+DualGemmTests rc=0 Total: 13, Errors: 0, Failed: 0, Skipped: 0
+MatMulTests.StreamKTiles rc=0 Total: 3, Errors: 0, Failed: 0, Skipped: 0
+ppl q8c new 1 rc=0 4ab780cf PPL 8.7358
+ppl q8c new 2 rc=0 4ab780cf PPL 8.7358
+ppl q8c new 1 rc=0 abfe9a19 PPL 8.7369
+ppl llc new 1 rc=0 b32ebb32 PPL 6.6821
+ppl llc new 1 rc=0 bca5cc44 PPL 6.6821

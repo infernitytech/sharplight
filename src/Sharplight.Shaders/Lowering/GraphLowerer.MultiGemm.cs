@@ -512,14 +512,14 @@ public sealed partial class GraphLowerer
         };
         Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b));
         var rowsOf = first.Rows;
-        var variants = Unless(NativeF16Variants(n, k, first.MaxRows, null, rowsOf, first.MinRows, bias, first.RangeScales, Allowed, multi), serves);
+        KernelVariant[] Variants(bool sk) => Unless(NativeF16Variants(n, k, first.MaxRows, null, rowsOf, first.MinRows, bias, first.RangeScales, Allowed, multi, sk), serves);
         KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
         KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
         KernelArg[] firstBias = bias ? [Pointer(first.Bias!)] : [];
         KernelArg[] biases = bias ? [.. parts.Skip(1).Select(pt => Pointer(pt.Bias!))] : [];
         var outer = _launchCondition;
         _launchCondition = null;
-        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native{(bias ? " fused[Add]" : "")}", group.Members, variants,
+        EmitNativeF16($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} native{(bias ? " fused[Add]" : "")}", group.Members, Variants,
             [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. firstBias, .. weights, .. outputs, .. biases, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight), .. bias ? parts.Select(pt => pt.Bias!) : []], [.. parts.Select(pt => pt.Output)]);
         _launchCondition = outer;
@@ -557,15 +557,21 @@ public sealed partial class GraphLowerer
         long n = widths.Sum();
         long k = first.Weight.Shape[1];
         var rowsOf = first.Rows;
-        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b)) && NativeFp8TileRows(rowsOf(b), n, false) == NativeFp8Tile;
-        var variants = NativeFp8TmaVariants(n, k, null, xcap, serves, rowsOf, uniformScales: parts.All(pt => pt.UniformScales), multiWidths: widths);
+        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b)) && NativeFp8TileRows(rowsOf(b), n, k, false) == NativeFp8Tile;
+        bool uniform = parts.All(pt => pt.UniformScales);
+        var variants = NativeFp8TmaVariants(n, k, null, xcap, serves, rowsOf, uniformScales: uniform, multiWidths: widths, streamK: false);
+        var streamKVariants = NativeFp8StreamKUsed(n, k, first.MinRows, first.MaxRows)
+            ? NativeFp8TmaVariants(n, k, null, xcap, serves, rowsOf, uniformScales: uniform, multiWidths: widths, streamK: true) : [];
         KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
         KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
         var outer = _launchCondition;
         _launchCondition = null;
-        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8 native", group.Members, variants,
-            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
-            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
+        string label = $"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8 native";
+        KernelArg[] args = [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens];
+        TensorRef[] reads = [first.Activations, .. parts.Select(pt => pt.Weight)];
+        TensorRef[] writes = [.. parts.Select(pt => pt.Output)];
+        Emit(label, group.Members, variants, args, reads, writes);
+        EmitStreamK(label, group.Members, streamKVariants, args, reads, writes, NativeFp8StreamKSlotBytes);
         _launchCondition = outer;
         group.TallServes = serves;
     }

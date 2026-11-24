@@ -36,14 +36,21 @@ public sealed partial class GraphLowerer
     private KernelVariant[] NativeFp8MemberVariants(MatMulPlan p, TensorRef quantized, long xcap, long min, long max)
     {
         bool uniform = UniformFp8ScaleGroups(p.Node.Inputs[1], p.W);
-        var variants = NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount, uniform);
+        // On tensor copies the stream-K variants of the 128-row tiles are a launch of their own (with the partial sums and flags).
+        bool? streamK = NativeFp8TensorCopies ? false : null;
+        var variants = NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount, uniform, streamK);
+        var streamKVariants = streamK is null ? [] : NativeFp8Variants(p.N, p.K, null, xcap, min, max, p.RowCount, uniform, streamK: true);
+        void EmitMatMulStreamK(KernelVariant[] sk) => EmitStreamK($"{MatMulLabel(p)} fp8 native", [p.Node], sk,
+            [Pointer(quantized), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)], [quantized, p.W], [p.Y], NativeFp8StreamKSlotBytes);
         if (!NativeFp8TensorCopies || p.RowsPerLead != 1 || !p.Y.IsDense || p.Macros.GetValueOrDefault("Y_STRIDE") != p.N.ToString(CultureInfo.InvariantCulture))
         {
+            EmitMatMulStreamK(streamKVariants);
             return variants;
         }
 
         var notMulti = NoteMultiGemmTallPart(p.Node, new MultiGemmTallPart(quantized, p.W, p.Y, null, null, p.RowCount, min, p.X.Shape[0],
             TallCondition(min, p.RowCount), TokenArg(p.X), Fp8: true, UniformScales: uniform));
+        EmitMatMulStreamK(Unless(streamKVariants, notMulti));
         return Unless(variants, notMulti);
     }
 

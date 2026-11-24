@@ -56,7 +56,21 @@
 // change. A separate kernel: the extra loop forms make the full form spill registers, so batches whose last tile is full or nearly
 // full keep the kernel without them.
 //
-// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, MULTI, MULTI_O1, MULTI_O2, QOUT, QCAP and F8N_PARTIAL. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+// F8N_SK (not with QOUT): stream-K for launches whose tiles do not fill whole waves of the gridDim.x blocks. The tiles past the
+// last full wave but one (all of them below two waves) are not walked tile by tile: their K blocks, tile after tile, are cut into
+// gridDim.x equal ranges, one per block, after the block's tiles of the full waves (one slot of 128 x 128 floats per block in part,
+// in the consumer threads' register order, and a flag per block in flags; every launch leaves the flags zero):
+//  * At least gridDim.x shared tiles (chain): a range spans a tile's K blocks or more, so a tile is cut at most once. A block first
+//    multiplies the first K blocks of the tile its range ends in, leaves the accumulators in its slot and raises its flag
+//    (release); then its whole tiles; last, the K blocks of the tile its range starts in, from the previous block's accumulators
+//    (its flag, acquire). Each output sums its K blocks in the order of the walk without stream-K: the same results bit for bit.
+//  * Fewer: a block whose range starts inside a tile leaves the f32 partial sums of the K blocks it covers and raises its flag;
+//    the block holding the tile's first K block waits for the flags of the following blocks that share the tile, adds their sums
+//    in block order to its own, clears the flags and stores. The same results run to run, a different rounding than without it.
+// A block waits only for work its partners do before their wait (the chain's heads come first, the partial sums of a range that
+// starts inside a tile too), and all blocks are resident at once (at most one per SM), so the waits end.
+//
+// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, MULTI, MULTI_O1, MULTI_O2, QOUT, QCAP, F8N_PARTIAL and F8N_SK. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads (F8N_WG: 384), F8N_SHARED bytes of dynamic shared memory.
 //
 // SL_NVRTC_SASS: NVRTC also compiles this kernel to machine code for the GPU (compute capability 12.x), which the device loads instead
@@ -80,6 +94,12 @@
 #endif
 #if MULTI && (DUAL || QOUT)
 #error "gemm_fp8_tma: MULTI with DUAL or QOUT"
+#endif
+#ifndef F8N_SK
+#define F8N_SK 0
+#endif
+#if F8N_SK && QOUT
+#error "gemm_fp8_tma: F8N_SK with QOUT"
 #endif
 #define F8N_BM 128
 #define F8N_BN 128
@@ -153,6 +173,10 @@ struct F8nParams
 #if MULTI > 2
     float* y_2;
 #endif
+#endif
+#if F8N_SK
+    float* part;
+    f8n_u32* flags;
 #endif
     f8n_u32 T;
     F8nTensorMap mx;
@@ -319,6 +343,102 @@ static __device__ __forceinline__ void f8n_local(f8n_u32 v, f8n_u32 tilesX, f8n_
 #endif
 }
 
+#if F8N_SK
+// The stream-K walk of a block (F8N_SK): dpTiles tiles in full waves (walk tile blockIdx.x + v gridDim.x for v < dpTiles / gridDim.x),
+// then the K blocks [begin, end) of the remaining tiles (global K-block indices tile * nk + kb of the walk's tiles, f8n_walk_tile).
+// With at least gridDim.x shared tiles (chain: every range spans a tile's K blocks or more) a tile is cut at most once, and the
+// range is walked head first: the first K blocks of the tile it ends in [head, end), then its whole tiles, then the last K blocks
+// of the tile it starts in [begin, tail) as its last work, continuing the accumulators of the previous block's head.
+struct F8nWalk
+{
+    f8n_u32 dpIters;
+    f8n_u32 begin;
+    f8n_u32 end;
+    f8n_u32 skTiles;
+    f8n_u32 dpTiles;
+    bool chain;
+    f8n_u32 head;
+    f8n_u32 tail;
+};
+
+// Start of block b's stream-K range (global K-block index).
+static __device__ __forceinline__ f8n_u32 f8n_sk_begin(f8n_u32 b, f8n_u32 dpTiles, f8n_u32 skTiles, f8n_u32 nk)
+{
+    return dpTiles * nk + (f8n_u32)((f8n_u64)skTiles * nk * b / gridDim.x);
+}
+
+static __device__ __forceinline__ F8nWalk f8n_walk(f8n_u32 tiles, f8n_u32 nk)
+{
+    F8nWalk w;
+    // Full waves but the last (all below two waves) are walked tile by tile.
+    w.dpTiles = tiles >= 2 * gridDim.x ? (tiles / gridDim.x - 1) * gridDim.x : 0;
+    w.skTiles = tiles - w.dpTiles;
+    w.dpIters = w.dpTiles / gridDim.x * nk;
+    w.begin = f8n_sk_begin(blockIdx.x, w.dpTiles, w.skTiles, nk);
+    w.end = f8n_sk_begin(blockIdx.x + 1, w.dpTiles, w.skTiles, nk);
+    w.chain = w.skTiles >= gridDim.x;
+    // Chain: the head [head, end) (empty when the range ends on a tile) and the tail [begin, tail) (empty when it starts on one).
+    w.head = w.end % nk != 0 ? w.end / nk * nk : w.end;
+    w.tail = w.begin % nk != 0 ? (w.begin / nk + 1) * nk : w.begin;
+    return w;
+}
+
+// The tile of the walk's tile index (its position in the walk): the full waves' tiles in the grouped order, the shared tiles token
+// tile by token tile. With gridDim.x a multiple of the token tiles (at most F8N_TILE_ORDER: the grouped order then walks each weight
+// tile's token tiles in turn) the shared tiles are whole weight tiles; ordered token tile by token tile, the blocks that read the same
+// weight tile's K block for different token tiles, gridDim.x / tilesX apart, read it at the same step, so it is fetched once.
+static __device__ __forceinline__ f8n_u32 f8n_walk_tile(const F8nWalk& w, f8n_u32 tile, f8n_u32 tilesX)
+{
+    if (tile < w.dpTiles || tilesX > F8N_TILE_ORDER || gridDim.x % tilesX != 0)
+    {
+        return tile;
+    }
+
+    const f8n_u32 s = tile - w.dpTiles, columns = w.skTiles / tilesX;
+    return (w.dpTiles / tilesX + s % columns) * tilesX + s / columns;
+}
+
+// Global K-block index of the block's iteration m past its full-wave tiles (chain: head, whole tiles, tail).
+static __device__ __forceinline__ f8n_u32 f8n_walk_global(const F8nWalk& w, f8n_u32 m)
+{
+    if (!w.chain)
+    {
+        return w.begin + m;
+    }
+
+    const f8n_u32 headLength = w.end - w.head, middle = w.head - w.tail;
+    return m < headLength ? w.head + m : m < headLength + middle ? w.tail + (m - headLength) : w.begin + (m - headLength - middle);
+}
+
+// Tile and K block of the block's iteration m.
+static __device__ __forceinline__ void f8n_walk_at(const F8nWalk& w, f8n_u32 m, f8n_u32 nk, f8n_u32& tile, f8n_u32& kb)
+{
+    if (m < w.dpIters)
+    {
+        tile = blockIdx.x + m / nk * gridDim.x;
+        kb = m % nk;
+    }
+    else
+    {
+        const f8n_u32 g = f8n_walk_global(w, m - w.dpIters);
+        tile = g / nk;
+        kb = g % nk;
+    }
+}
+
+// The segment of the walk at the block's iteration m: its tile and K blocks [kbBegin, kbEnd).
+static __device__ __forceinline__ void f8n_walk_segment(const F8nWalk& w, f8n_u32 m, f8n_u32 nk, f8n_u32 total, f8n_u32& tile, f8n_u32& kbBegin,
+    f8n_u32& kbEnd)
+{
+    f8n_walk_at(w, m, nk, tile, kbBegin);
+    kbEnd = min(nk, kbBegin + (total - m));
+    if (w.chain && m >= w.dpIters && m - w.dpIters < w.end - w.head)
+    {
+        kbEnd = w.end - w.head;
+    }
+}
+#endif
+
 #if QOUT
 // Scale of a 128-value group with absolute maximum amax as e4m3_group_scale computes it (e4m3.slang): amax / 448, or with
 // F8N_BLOCK_SCALED (E4M3_UE8M0) 2^ceil(log2(amax / 448)) with 1 for an all-zero group.
@@ -381,8 +501,13 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
     const f8n_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const f8n_u32 tilesX = (p.T + F8N_BM - 1) / F8N_BM, tiles = tilesX * (N / F8N_WALK);
     const f8n_u32 nk = K / 128;
+#if F8N_SK
+    const F8nWalk walk = f8n_walk(tiles, nk);
+    const f8n_u32 total = walk.dpIters + (walk.end - walk.begin);
+#else
     const f8n_u32 myTiles = (blockIdx.x < tiles ? (tiles - blockIdx.x + gridDim.x - 1) / gridDim.x : 0) * (QOUT ? 2 : 1);
     const f8n_u32 total = myTiles * nk;
+#endif
     const f8n_u8* sx = p.x + (f8n_u64)XCAP * F8N_RS;
     const f8n_u32 scaleRing = f8n_smem(smem + F8N_STAGES * F8N_STAGE_BYTES);
     // full[s] at bars + 8 s, empty[s] at bars + 24 + 8 s, scales[s] at bars + 48 + 8 s.
@@ -429,10 +554,18 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
 
             if (m < total)
             {
+#if F8N_SK
+                {
+                    f8n_u32 tile;
+                    f8n_walk_at(walk, m, nk, tile, codeKb);
+                    f8n_tile(f8n_walk_tile(walk, tile, tilesX), tilesX, ct0, cn0);
+                }
+#else
                 if (codeKb == 0)
                 {
                     f8n_local(codeLt, tilesX, ct0, cn0);
                 }
+#endif
 
                 const f8n_u32 s = m % F8N_STAGES, dst = f8n_smem(smem + s * F8N_STAGE_BYTES), bar = bars + s * 8;
                 f8n_mbar_expect(bar, F8N_STAGE_BYTES);
@@ -462,10 +595,18 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
 
             if (m >= 1)
             {
+#if F8N_SK
+                {
+                    f8n_u32 tile;
+                    f8n_walk_at(walk, m - 1, nk, tile, scaleKb);
+                    f8n_tile(f8n_walk_tile(walk, tile, tilesX), tilesX, st0, sn0);
+                }
+#else
                 if (scaleKb == 0)
                 {
                     f8n_local(scaleLt, tilesX, st0, sn0);
                 }
+#endif
 
                 const f8n_u32 slot = (m - 1) & 1, dst = scaleRing + slot * F8N_SCALE_BYTES, bar = bars + 48 + slot * 8;
                 f8n_mbar_expect(bar, F8N_SCALE_BYTES);
@@ -521,10 +662,61 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
     // The first tile's outputs of the current pair.
     float held[F8N_FM][2][F8N_FN / 2][2];
 #endif
+#if F8N_SK
+    // Segments of the walk: a tile's K blocks [kbBegin, kbEnd) at the block's iterations itBase + kb.
+    for (f8n_u32 m = 0; m < total;)
+    {
+        f8n_u32 tile, kbBegin, kbEnd;
+        f8n_walk_segment(walk, m, nk, total, tile, kbBegin, kbEnd);
+        const f8n_u32 itBase = m - kbBegin;
+        m += kbEnd - kbBegin;
+        f8n_u32 t0, n0;
+        f8n_tile(f8n_walk_tile(walk, tile, tilesX), tilesX, t0, n0);
+#define F8N_KB_BEGIN kbBegin
+#define F8N_KB_END kbEnd
+#define F8N_IT(kb) (itBase + (kb))
+#else
     for (f8n_u32 lt = 0; lt < myTiles; lt++)
     {
         f8n_u32 t0, n0;
         f8n_local(lt, tilesX, t0, n0);
+#define F8N_KB_BEGIN 0
+#define F8N_KB_END nk
+#define F8N_IT(kb) (lt * nk + (kb))
+#endif
+#if F8N_SK
+        if (walk.chain && kbBegin > 0)
+        {
+            // The tile's last K blocks: continue the accumulators of the previous block's head (its first work), so every output
+            // sums its K blocks in the order of the walk without stream-K.
+            if (tid == 0)
+            {
+                f8n_u32 ready = 0;
+                do
+                {
+                    asm volatile("ld.acquire.gpu.global.u32 %0, [%1];\n" : "=r"(ready) : "l"(p.flags + blockIdx.x - 1) : "memory");
+                } while (ready == 0);
+                p.flags[blockIdx.x - 1] = 0;
+            }
+
+            asm volatile("bar.sync 1, %0;\n" :: "r"(F8N_CONSUMERS) : "memory");
+            const float4* previous = (const float4*)p.part + (f8n_u64)(blockIdx.x - 1) * (F8N_FM * F8N_FN * F8N_CONSUMERS);
+#pragma unroll
+            for (int i = 0; i < F8N_FM; i++)
+            {
+#pragma unroll
+                for (int j = 0; j < F8N_FN; j++)
+                {
+                    const float4 v = __ldcg(previous + (i * F8N_FN + j) * F8N_CONSUMERS + tid);
+                    acc[i][j][0] = v.x;
+                    acc[i][j][1] = v.y;
+                    acc[i][j][2] = v.z;
+                    acc[i][j][3] = v.w;
+                }
+            }
+        }
+
+#endif
         // FA: the fragments of this warp's rows that the loop multiplies (a compiler constant; F8N_PARTIAL: fewer for a warp with at
         // most 32 rows of the batch in this tile, none for a warp without rows).
 #if F8N_PARTIAL
@@ -535,9 +727,9 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
         {
             constexpr int FA = F8N_FM;
 #endif
-            for (f8n_u32 kb = 0; kb < nk; kb++)
+            for (f8n_u32 kb = F8N_KB_BEGIN; kb < F8N_KB_END; kb++)
             {
-                const f8n_u32 it = lt * nk + kb;
+                const f8n_u32 it = F8N_IT(kb);
                 f8n_mbar_wait(bars + 48 + (it & 1) * 8, (it >> 1) & 1);
                 const float* xs = (const float*)(smem + F8N_STAGES * F8N_STAGE_BYTES + (it & 1) * F8N_SCALE_BYTES);
                 const float* ws = xs + F8N_BM;
@@ -805,6 +997,77 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
             }
         }
 #else
+#if F8N_SK
+        // A range that starts inside the tile: its partial sums for the block that holds the tile's first K block.
+        float4* slot = (float4*)p.part + (f8n_u64)blockIdx.x * (F8N_FM * F8N_FN * F8N_CONSUMERS);
+        // Without chain: a range that starts inside the tile leaves its partial sums; chain: the head leaves its accumulators.
+        if (walk.chain ? kbBegin == 0 && kbEnd < nk : kbBegin > 0)
+        {
+#pragma unroll
+            for (int i = 0; i < F8N_FM; i++)
+            {
+#pragma unroll
+                for (int j = 0; j < F8N_FN; j++)
+                {
+                    __stcg(slot + (i * F8N_FN + j) * F8N_CONSUMERS + tid, make_float4(acc[i][j][0], acc[i][j][1], acc[i][j][2], acc[i][j][3]));
+                    acc[i][j][0] = acc[i][j][1] = acc[i][j][2] = acc[i][j][3] = 0.0f;
+                }
+            }
+
+            __threadfence();
+            asm volatile("bar.sync 1, %0;\n" :: "r"(F8N_CONSUMERS) : "memory");
+            if (tid == 0)
+            {
+                asm volatile("st.release.gpu.global.u32 [%0], %1;\n" :: "l"(p.flags + blockIdx.x), "r"(1u) : "memory");
+            }
+
+            continue;
+        }
+
+        if (!walk.chain && kbEnd < nk)
+        {
+            // The tile's other K blocks: the partial sums of the following blocks whose ranges start inside it, in block order.
+            const f8n_u32 tileEnd = (tile + 1) * nk;
+            f8n_u32 last = blockIdx.x + 1;
+            while (last + 1 < gridDim.x && f8n_sk_begin(last + 1, walk.dpTiles, walk.skTiles, nk) < tileEnd)
+            {
+                last++;
+            }
+
+            if (tid == 0)
+            {
+                for (f8n_u32 c = blockIdx.x + 1; c <= last; c++)
+                {
+                    f8n_u32 ready = 0;
+                    do
+                    {
+                        asm volatile("ld.acquire.gpu.global.u32 %0, [%1];\n" : "=r"(ready) : "l"(p.flags + c) : "memory");
+                    } while (ready == 0);
+                    p.flags[c] = 0;
+                }
+            }
+
+            asm volatile("bar.sync 1, %0;\n" :: "r"(F8N_CONSUMERS) : "memory");
+            for (f8n_u32 c = blockIdx.x + 1; c <= last; c++)
+            {
+                const float4* other = (const float4*)p.part + (f8n_u64)c * (F8N_FM * F8N_FN * F8N_CONSUMERS);
+#pragma unroll
+                for (int i = 0; i < F8N_FM; i++)
+                {
+#pragma unroll
+                    for (int j = 0; j < F8N_FN; j++)
+                    {
+                        const float4 v = __ldcg(other + (i * F8N_FN + j) * F8N_CONSUMERS + tid);
+                        acc[i][j][0] += v.x;
+                        acc[i][j][1] += v.y;
+                        acc[i][j][2] += v.z;
+                        acc[i][j][3] += v.w;
+                    }
+                }
+            }
+        }
+
+#endif
         // The output and its row stride (MULTI: the member the tile's columns lie in, dense rows of its width).
         float* yb = p.y;
         f8n_u32 ys = Y_STRIDE;
