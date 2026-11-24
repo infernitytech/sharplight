@@ -273,8 +273,9 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
                 read(compiled);
                 return;
             }
-            catch (DeviceOutOfMemoryException) when (attempt == 0 && _compiled.Count > 0)
+            catch (Exception error) when (attempt == 0 && _compiled.Count > 0 && error is DeviceOutOfMemoryException or InsufficientMemoryException)
             {
+                // An allocation failed, or placement found no room for the weights next to the graphs already compiled.
                 ReleaseAll();
             }
         }

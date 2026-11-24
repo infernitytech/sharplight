@@ -9,7 +9,8 @@
 #   ARCH          3b (default) or 7b; DIT / VAE the files PyTorch loads (default: the official 3B names in MODEL);
 #   DIT_WEIGHTS   fp32 (default, official) or bf16 (the 7B on a 32 GB GPU); TAG prefixes the result names (default: ARCH)
 #   INPUTS        folder with the clips (<name>.mp4 and <name>.u8)    OUT        results folder
-#   CASES         "name:inW:inH:outW:outH ..." (default below)        PROVIDERS  "cuda vulkan" (default)
+#   CASES         "name:inW:inH:outW:outH[:sharplight-only] ..." (default below; sharplight-only skips PyTorch, e.g. sizes it cannot fit)
+#   PROVIDERS     "cuda vulkan" (default)
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
@@ -24,8 +25,9 @@ DIT_WEIGHTS=${DIT_WEIGHTS:-fp32}
 TAG=${TAG:-$ARCH}
 mkdir -p "$OUT"
 for case in $CASES; do
-    IFS=: read -r clip inW inH outW outH <<< "$case"
+    IFS=: read -r clip inW inH outW outH only <<< "$case"
     name="$TAG-$clip"
+    if [ "$only" != "sharplight-only" ]; then
     log="$OUT/$name-pytorch.log"
     : > "$log"
     # The fastest setting that fits: DiT and VAE resident together, else the official script's offloading between the stages, else (the
@@ -39,14 +41,17 @@ for case in $CASES; do
             && { echo "pytorch setting: offload '${offload:-official}', DiT weights $weights" >> "$log"; break; }
         echo "pytorch run with offload '${offload:-official}', DiT weights $weights failed" >> "$log"
     done
+    fi
     for provider in $PROVIDERS; do
-        # Correctness first: the frames PyTorch decoded and its noise, compared with its output.
+        # Correctness first (when PyTorch ran): the frames PyTorch decoded and its noise, compared with its output.
+        if [ -f "$OUT/$name-pytorch-dump/index.json" ]; then
         frames=$("$PYTHON" -c "import json,sys; print(json.load(open(sys.argv[1]))['tensors']['input_frames'][0])" "$OUT/$name-pytorch-dump/index.json")
         "$bench" --model "$MODEL" --provider "$provider" --input "$OUT/$name-pytorch-dump/input_frames.u8" --input-shape "${frames}x${inH}x${inW}" \
             --width "$outW" --height "$outH" --runs 1 --warmup 0 --reduced-precision --noise "$OUT/$name-pytorch-dump" \
             --output-u8 "$OUT/$name-sharplight-$provider-parity.u8" > "$OUT/$name-sharplight-$provider-parity.log" 2>&1
         "$PYTHON" "$here/psnr.py" "$OUT/$name-sharplight-$provider-parity.u8" "$OUT/$name-pytorch-dump/output.u8" "$outW" "$outH" \
             >> "$OUT/$name-sharplight-$provider-parity.log"
+        fi
         log="$OUT/$name-sharplight-$provider.log"
         : > "$log"
         "$here/peak-memory.sh" "$log" "$bench" --model "$MODEL" --provider "$provider" --input "$INPUTS/$clip.mp4" --width "$outW" --height "$outH" \

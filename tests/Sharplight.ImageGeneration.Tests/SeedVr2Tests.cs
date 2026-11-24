@@ -97,7 +97,8 @@ public sealed class SeedVr2Tests
 
         var prediction = GraphRunner.Run(model, ModelComponentRoles.Transformer, SeedVrGraphs.Restore, VideoDiffusionGraphs.Prediction, 0, dimensions,
             (VideoDiffusionGraphs.Latent, data.Tensor("noise")), (SeedVrGraphs.Condition, condition), (VideoDiffusionGraphs.Timestep, new[] { 1000f }));
-        Check("DiT prediction", prediction, data.Tensor("prediction"), data.Bf16 ? 5e-2 : 2e-2);
+        // bf16 references multiply in bf16 throughout (the 7B's weights held in bf16 too); the f32 reference differs only by bf16 attention.
+        Check("DiT prediction", prediction, data.Tensor("prediction"), data.Bf16 ? 1e-1 : 2e-2);
 
         var decoded = GraphRunner.Run(model, ModelComponentRoles.Vae, SeedVrGraphs.VaeDecode, VideoDiffusionGraphs.Frames, 0, dimensions,
             (VideoDiffusionGraphs.Latent, data.Tensor("restored")));
