@@ -395,7 +395,7 @@ public sealed class ModelHost : IDisposable
                 e.LoadedAt = e.LastUsed = _opt.Time.GetUtcNow();
                 SetState(e, ModelState.Loaded);
             }
-            _opt.Log?.Invoke($"Model '{e.Reg.Name}' loaded in {sw.ElapsedMilliseconds} ms (estimated {e.Estimated / 1048576.0:F0} MiB, resident {instance.ResidentBytes / 1048576.0:F0} MiB{(limit is null ? "" : ", offloaded to fit")}).");
+            _opt.Log?.Invoke($"Model '{e.Reg.Name}' loaded in {sw.ElapsedMilliseconds} ms (estimated {e.Estimated / 1048576.0:F0} MiB, resident {instance.ResidentBytes / 1048576.0:F0} MiB{(limit is null ? "" : ", fitted to the free memory")}).");
         }
         catch (Exception ex)
         {
