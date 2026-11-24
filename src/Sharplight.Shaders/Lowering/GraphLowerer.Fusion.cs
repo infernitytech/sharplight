@@ -124,7 +124,8 @@ public sealed partial class GraphLowerer
         {
             if (n.Op.Category == OpCategory.View)
             {
-                if (openValues is not null && openValues.Contains(n.Inputs[0]))
+                // Any input: a view that also waits for another value (After) must follow the group producing it.
+                if (openValues is not null && n.Inputs.Any(openValues.Contains))
                 {
                     Close();
                 }
