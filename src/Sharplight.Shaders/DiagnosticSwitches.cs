@@ -912,10 +912,13 @@ internal static class DiagnosticSwitches
     public static bool ConvChannelsLast { get; } = IsNotZero("SHARPLIGHT_CONV_CHANNELS_LAST");
 
     /// <summary>
-    /// Tuning override of conv_cl's tile: <c>SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN</c> (subgroup rows and columns, 16-pixel
-    /// fragments per subgroup); unset, the lowering chooses.
+    /// Tuning override of conv_cl's tile: <c>SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN[,stages]</c> (subgroup rows and columns,
+    /// 16-pixel fragments per subgroup, asynchronous-copy stages or 0 for the register prefetch); unset, the lowering chooses.
     /// </summary>
     public static int[]? ConvChannelsLastTile { get; } = Read("SHARPLIGHT_CONV_CL_TILE")?.Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray();
+
+    /// <summary>Whether conv_cl may stream its tiles with asynchronous copies on CUDA (<c>SHARPLIGHT_CONV_ASYNC=0</c> disables).</summary>
+    public static bool ConvAsyncCopies { get; } = IsNotZero("SHARPLIGHT_CONV_ASYNC");
 
     /// <summary>Keeps conv_cm's channel-major reduction order for the split-f16 forms (no tap-major weights).</summary>
     public static bool ConvNoTapMajor { get; } = IsSet("SHARPLIGHT_CONV_NO_TAP_MAJOR");

@@ -103,6 +103,17 @@ void conv_cl_stage(uint3 dtid : SV_DispatchThreadID, uniform StageParams p)
 #define TBN (WARPS_N * FRAG_N * 16)
 #define A_ITEMS (TBM * KG / NT)
 #define B_ITEMS (TBN * KG / NT)
+// CL_ASYNC (CUDA, compute capability 8.0 and later): the tiles stream into a ring of CL_STAGES shared buffers by asynchronous
+// copies (cp.async, zero-filled outside the tensors), so the loads of the next CL_STAGES - 1 steps are in flight during each
+// step's products without passing through registers. Otherwise two buffers and a register prefetch of the next step.
+#ifndef CL_ASYNC
+#define CL_ASYNC 0
+#endif
+#if CL_ASYNC
+#define NBUF CL_STAGES
+#else
+#define NBUF 2
+#endif
 
 #if XBF16
 typealias Elem = BFloat16;
@@ -137,50 +148,111 @@ struct ConvParams
     uint N;
 };
 
-// A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, two buffers each.
-groupshared uint4 sA[2 * TBM * SAS / 8];
-groupshared uint4 sB[2 * TBN * SAS / 8];
+// A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, NBUF buffers each.
+groupshared uint4 sA[NBUF * TBM * SAS / 8];
+groupshared uint4 sB[NBUF * TBN * SAS / 8];
 groupshared float sC[WARPS_M * WARPS_N * 256];
 
 Acc mma(MatA a, MatB b, Acc c) { return coopMatMulAdd<float, false>(a, b, c); }
 
-// Global loads of the K step at k0 into registers; zero outside the tensors and at or past kEnd. A item it: row
-// (tid + it * NT) / KG; B item it: pixel (tid + it * NT) / KG; both at the thread's k group q = tid % KG.
-void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint64_t bbase[B_ITEMS], int ih0[B_ITEMS], int iw0[B_ITEMS],
-    out uint4 a[A_ITEMS], out uint4 b[B_ITEMS])
+// The thread's input pixels (B items): image base plus the top-left tap's offset, and that tap's row and column (rows far outside
+// the map mark pixels past the batch, so the bounds check rejects them without another flag).
+struct Pixels
 {
-    uint kq = k0 + (tid % KG) * 8;
-    bool kin = kq < kEnd;
-    [ForceUnroll]
-    for (uint it = 0; it < A_ITEMS; it++)
-    {
-        uint r = (tid + it * NT) / KG;
-        a[it] = 0;
-        if (kin && (OG % TBM == 0 || mBase + r < OG))
-        {
-            a[it] = p.w[(uint64_t(g * OG + mBase + r) * KTOT + kq) / 8];
-        }
-    }
+    uint64_t base[B_ITEMS];
+    int ih0[B_ITEMS];
+    int iw0[B_ITEMS];
+};
 
+// The K step at k0 for the thread's k group q = tid % KG: element offset of the tap and channel within a pixel, the tap's
+// row and column offsets, and whether k0 + 8 q is inside the split.
+struct KStep
+{
+    uint64_t offset;
+    int dh;
+    int dw;
+    bool inside;
+};
+
+KStep k_step(uint g, uint k0, uint kEnd, uint tid)
+{
+    KStep s;
+    uint kq = k0 + (tid % KG) * 8;
     uint tap = kq / CG;
     uint c = kq - tap * CG;
     uint kh = tap / KW;
-    int dh = int(kh) * DH;
-    int dw = int(tap - kh * KW) * DW;
-    uint64_t koff = uint64_t(int64_t(dh) * XS_H + int64_t(dw) * XS_W) + g * CG + c;
+    s.dh = int(kh) * DH;
+    s.dw = int(tap - kh * KW) * DW;
+    s.offset = uint64_t(int64_t(s.dh) * XS_H + int64_t(s.dw) * XS_W) + g * CG + c;
+    s.inside = kq < kEnd;
+    return s;
+}
+
+bool a_inside(uint mBase, uint tid, uint it, KStep s)
+{
+    return s.inside && (OG % TBM == 0 || mBase + (tid + it * NT) / KG < OG);
+}
+
+// Index (in uint4s) of A item it's 8 weights.
+uint64_t a_index(uint g, uint mBase, uint k0, uint tid, uint it)
+{
+    return (uint64_t(g * OG + mBase + (tid + it * NT) / KG) * KTOT + k0 + (tid % KG) * 8) / 8;
+}
+
+bool b_inside(Pixels px, uint it, KStep s)
+{
+    int ih = px.ih0[it] + s.dh;
+    int iw = px.iw0[it] + s.dw;
+#if NOPAD
+    return s.inside && px.ih0[it] != 0x40000000;
+#else
+    return s.inside && uint(ih) < uint(H) && uint(iw) < uint(W);
+#endif
+}
+
+// Shared index (in uint4s) of item it of buffer buf: A row / B pixel (tid + it * NT) / KG, k group tid % KG.
+uint a_slot(uint buf, uint tid, uint it) { return (buf * TBM + (tid + it * NT) / KG) * (SAS / 8) + tid % KG; }
+uint b_slot(uint buf, uint tid, uint it) { return (buf * TBN + (tid + it * NT) / KG) * (SAS / 8) + tid % KG; }
+
+#if CL_ASYNC
+// Issues the copies of the K step at k0 into buffer buf.
+void issue(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixels px, uint buf)
+{
+    KStep s = k_step(g, k0, kEnd, tid);
+    [ForceUnroll]
+    for (uint it = 0; it < A_ITEMS; it++)
+    {
+        bool in = a_inside(mBase, tid, it, s);
+        cu_cp_async16(sA, a_slot(buf, tid, it), uint64_t(p.w) + (in ? a_index(g, mBase, k0, tid, it) * 16 : 0), in);
+    }
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
     {
-        int ih = ih0[it] + dh;
-        int iw = iw0[it] + dw;
-        b[it] = 0;
-#if NOPAD
-        if (kin && ih0[it] != 0x40000000)
+        bool in = b_inside(px, it, s);
+        cu_cp_async16(sB, b_slot(buf, tid, it), uint64_t(p.x) + (in ? (px.base[it] + s.offset) * 2 : 0), in);
+    }
+}
 #else
-        if (kin && uint(ih) < uint(H) && uint(iw) < uint(W))
-#endif
+// Global loads of the K step at k0 into registers; zero outside the tensors and at or past kEnd.
+void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixels px, out uint4 a[A_ITEMS], out uint4 b[B_ITEMS])
+{
+    KStep s = k_step(g, k0, kEnd, tid);
+    [ForceUnroll]
+    for (uint it = 0; it < A_ITEMS; it++)
+    {
+        a[it] = 0;
+        if (a_inside(mBase, tid, it, s))
         {
-            b[it] = p.x[(bbase[it] + koff) / 8];
+            a[it] = p.w[a_index(g, mBase, k0, tid, it)];
+        }
+    }
+    [ForceUnroll]
+    for (uint it = 0; it < B_ITEMS; it++)
+    {
+        b[it] = 0;
+        if (b_inside(px, it, s))
+        {
+            b[it] = p.x[(px.base[it] + s.offset) / 8];
         }
     }
 }
@@ -190,14 +262,38 @@ void stage(uint buf, uint tid, uint4 a[A_ITEMS], uint4 b[B_ITEMS])
     [ForceUnroll]
     for (uint it = 0; it < A_ITEMS; it++)
     {
-        uint idx = tid + it * NT;
-        sA[(buf * TBM + idx / KG) * (SAS / 8) + idx % KG] = a[it];
+        sA[a_slot(buf, tid, it)] = a[it];
     }
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
     {
-        uint idx = tid + it * NT;
-        sB[(buf * TBN + idx / KG) * (SAS / 8) + idx % KG] = b[it];
+        sB[b_slot(buf, tid, it)] = b[it];
+    }
+}
+#endif
+
+// The products of the K step in buffer buf.
+void products(uint buf, uint wm, uint wn, inout Acc acc[FRAG_M][FRAG_N])
+{
+    [ForceUnroll]
+    for (uint kk = 0; kk < TBK; kk += 16)
+    {
+        MatB bf[FRAG_N];
+        [ForceUnroll]
+        for (int j = 0; j < FRAG_N; j++)
+        {
+            bf[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sB, ((buf * TBN + wn + j * 16) * SAS + kk) / 8, SAS / 8);
+        }
+        [ForceUnroll]
+        for (int i = 0; i < FRAG_M; i++)
+        {
+            MatA af = MatA.Load<CoopMatMatrixLayout.RowMajor>(sA, ((buf * TBM + wm + i * 16) * SAS + kk) / 8, SAS / 8);
+            [ForceUnroll]
+            for (int j = 0; j < FRAG_N; j++)
+            {
+                acc[i][j] = mma(af, bf[j], acc[i][j]);
+            }
+        }
     }
 }
 
@@ -218,11 +314,7 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     const uint wm = (sg / WARPS_N) * (FRAG_M * 16);
     const uint wn = (sg % WARPS_N) * (FRAG_N * 16);
 
-    // The input pixels of the thread's B items: image base and the top-left tap's row and column (rows far outside the map
-    // mark pixels past the batch, so the bounds check rejects them without another flag).
-    uint64_t bbase[B_ITEMS];
-    int ih0[B_ITEMS];
-    int iw0[B_ITEMS];
+    Pixels px;
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
     {
@@ -232,10 +324,9 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         uint boh = bpix / WO;
         uint bow = bpix - boh * WO;
         bool valid = bj < NC;
-        bbase[it] = valid ? uint64_t(bn) * XS_N : 0;
-        ih0[it] = valid ? int(boh) * SH - PH : 0x40000000;
-        iw0[it] = int(bow) * SW - PW;
-        bbase[it] += uint64_t(int64_t(ih0[it] == 0x40000000 ? 0 : ih0[it]) * XS_H + int64_t(iw0[it]) * XS_W);
+        px.ih0[it] = valid ? int(boh) * SH - PH : 0x40000000;
+        px.iw0[it] = int(bow) * SW - PW;
+        px.base[it] = valid ? uint64_t(bn) * XS_N + uint64_t(int64_t(px.ih0[it]) * XS_H + int64_t(px.iw0[it]) * XS_W) : 0;
     }
 
     Acc acc[FRAG_M][FRAG_N];
@@ -249,9 +340,42 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         }
     }
 
+#if CL_ASYNC
+    const uint steps = (kEnd - kBeg + TBK - 1) / TBK;
+    [ForceUnroll]
+    for (uint s = 0; s + 1 < NBUF; s++)
+    {
+        if (s < steps)
+        {
+            issue(p, g, mBase, kBeg + s * TBK, kEnd, tid, px, s);
+        }
+        cu_cp_commit();
+    }
+    for (uint step = 0; step < steps; step++)
+    {
+#if NBUF == 2
+        cu_cp_wait0();
+#elif NBUF == 3
+        cu_cp_wait1();
+#elif NBUF == 4
+        cu_cp_wait2();
+#else
+        cu_cp_wait3();
+#endif
+        GroupMemoryBarrierWithGroupSync();
+        uint next = step + NBUF - 1;
+        if (next < steps)
+        {
+            issue(p, g, mBase, kBeg + next * TBK, kEnd, tid, px, next % NBUF);
+        }
+        cu_cp_commit();
+        products(step % NBUF, wm, wn, acc);
+    }
+    cu_cp_wait0();
+#else
     uint4 a[A_ITEMS];
     uint4 b[B_ITEMS];
-    fetch(p, g, mBase, kBeg, kEnd, tid, bbase, ih0, iw0, a, b);
+    fetch(p, g, mBase, kBeg, kEnd, tid, px, a, b);
     stage(0, tid, a, b);
     GroupMemoryBarrierWithGroupSync();
     uint buf = 0;
@@ -260,30 +384,10 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         bool more = k0 + TBK < kEnd;
         if (more)
         {
-            fetch(p, g, mBase, k0 + TBK, kEnd, tid, bbase, ih0, iw0, a, b);
+            fetch(p, g, mBase, k0 + TBK, kEnd, tid, px, a, b);
         }
 
-        [ForceUnroll]
-        for (uint kk = 0; kk < TBK; kk += 16)
-        {
-            MatB bf[FRAG_N];
-            [ForceUnroll]
-            for (int j = 0; j < FRAG_N; j++)
-            {
-                bf[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sB, ((buf * TBN + wn + j * 16) * SAS + kk) / 8, SAS / 8);
-            }
-            [ForceUnroll]
-            for (int i = 0; i < FRAG_M; i++)
-            {
-                MatA af = MatA.Load<CoopMatMatrixLayout.RowMajor>(sA, ((buf * TBM + wm + i * 16) * SAS + kk) / 8, SAS / 8);
-                [ForceUnroll]
-                for (int j = 0; j < FRAG_N; j++)
-                {
-                    acc[i][j] = mma(af, bf[j], acc[i][j]);
-                }
-            }
-        }
-
+        products(buf, wm, wn, acc);
         if (more)
         {
             stage(buf ^ 1, tid, a, b);
@@ -291,6 +395,7 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         GroupMemoryBarrierWithGroupSync();
         buf ^= 1;
     }
+#endif
 
     // ---- epilogue: each subgroup stages one accumulator at a time in its shared slice; guarded store (+ bias) ----
     uint64_t outBase = uint64_t(split) * uint64_t(p.N) * (O * HW);

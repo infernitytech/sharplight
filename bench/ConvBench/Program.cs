@@ -1,4 +1,5 @@
 // ConvBench [--provider cuda|vulkan] [--strict] [--x-type f32|f16] [--weight-type f32|f16] [--iters 20] [--filter text] [--cases "label:N:C:H:W:O:k:s[:parts]" ...]
+// ConvBench --vae <image-generation model> --size N [--runs 5] [--provider ...] [--strict] [--top K]: the model's VAE decoder (VaeDecodeBench).
 // GPU time of single 2-D convolutions (bias, "same" padding) compiled alone: the sum over the graph's launches of each launch's
 // minimum time across the timed runs (the GPU is shared, so minimums), with the TFLOPS of the convolution's multiply-adds. A case with
 // parts > 1 convolves the channel concatenation of that many inputs (the stacked frame windows of a causal 3-D convolution), so the
@@ -22,6 +23,9 @@ int iters = 20;
 string? filter = null;
 var cases = new List<string>();
 int top = 0;
+string? vae = null;
+int size = 1024;
+int runs = 5;
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
@@ -33,6 +37,9 @@ for (int i = 0; i < args.Length; i++)
         case "--iters": iters = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
         case "--filter": filter = args[++i]; break;
         case "--top": top = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
+        case "--vae": vae = args[++i]; break;
+        case "--size": size = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
+        case "--runs": runs = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
         case "--cases":
             while (i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
             {
@@ -60,6 +67,12 @@ if (!catalog.TryFind(provider, out var executionProvider))
 }
 
 using var device = executionProvider.OpenDevice(executionProvider.GetDevices()[0]);
+if (vae is not null)
+{
+    VaeDecodeBench.Run(services.GetRequiredService<ModelLoader>(), device, vae, size, strict, runs, top);
+    return 0;
+}
+
 Console.WriteLine($"# {executionProvider.Name} {device.Info.Name}, {(strict ? "strict" : "reduced")} precision, x {xType}, weights {weightType}, {iters} runs");
 foreach (var spec in cases)
 {
@@ -186,50 +199,3 @@ static (Dictionary<string, (double Ms, int Count, double MinMs)> Data, string Re
     VulkanSegment vulkan => (vulkan.ProfileData, vulkan.ProfileReport(8)),
     _ => ([], ""),
 };
-
-/// <summary>One convolution: batch N, C input channels (over Parts concatenated inputs), H x W map, O outputs, K x K kernel.</summary>
-internal sealed record ConvCase(string Label, long N, long C, long H, long W, long O, long K, long Stride, int Parts)
-{
-    public double GigaFlops
-    {
-        get
-        {
-            long ho = (H + 2 * (K / 2) - K) / Stride + 1;
-            long wo = (W + 2 * (K / 2) - K) / Stride + 1;
-            return 2.0 * N * O * ho * wo * C * K * K * 1e-9;
-        }
-    }
-
-    public static ConvCase Parse(string spec)
-    {
-        var p = spec.Split(':');
-        long L(int i) => long.Parse(p[i], CultureInfo.InvariantCulture);
-        return new ConvCase(p[0], L(1), L(2), L(3), L(4), L(5), L(6), L(7), p.Length > 8 ? int.Parse(p[8], CultureInfo.InvariantCulture) : 1);
-    }
-}
-
-/// <summary>The default shapes: SeedVR2's causal 3-D VAE (3 stacked frame windows, 480 x 832 output), an SDXL VAE decoder at 1024 x 1024, ESRGAN and ResNet layers.</summary>
-internal static class DefaultCases
-{
-    public static readonly string[] All =
-    [
-        "seedvr2 384>128 480x832:1:384:480:832:128:3:1:3",
-        "seedvr2 768>128 480x832:1:768:480:832:128:3:1:3",
-        "seedvr2 768>256 240x416:1:768:240:416:256:3:1:3",
-        "seedvr2 1536>256 240x416:1:1536:240:416:256:3:1:3",
-        "seedvr2 1536>512 120x208:1:1536:120:208:512:3:1:3",
-        "seedvr2 1536>512 60x104 x4:4:1536:60:104:512:3:1:3",
-        "sdxl-vae 512>512 128x128:1:512:128:128:512:3:1",
-        "sdxl-vae 512>512 256x256:1:512:256:256:512:3:1",
-        "sdxl-vae 512>512 512x512:1:512:512:512:512:3:1",
-        "sdxl-vae 512>256 512x512:1:512:512:512:256:3:1",
-        "sdxl-vae 256>256 512x512:1:256:512:512:256:3:1",
-        "sdxl-vae 256>128 1024x1024:1:256:1024:1024:128:3:1",
-        "sdxl-vae 128>128 1024x1024:1:128:1024:1024:128:3:1",
-        "esrgan 64>64 480x832:1:64:480:832:64:3:1",
-        "esrgan 192>64 480x832:1:192:480:832:64:3:1",
-        "resnet 256>256 14x14 b32:32:256:14:14:256:3:1",
-        "resnet 64>64 56x56 b8:8:64:56:56:64:3:1",
-        "1x1 512>512 256x256:1:512:256:256:512:1:1",
-    ];
-}
