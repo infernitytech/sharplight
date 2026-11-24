@@ -113,6 +113,13 @@ Engine defaults that changed on 2026-11-23 (all can be set back):
 | `stepFloor` (defaults; `EngineOptions.StepFloor`) | `waves` | when the `minStepTokens` floor of the load-adaptive step budget applies: `waves` only while no sequence decodes (at 16 closed-loop streams TTFT p50 -22 to -28 %, ITL p99 -20 to -28 %, throughput unchanged for a dense FP8 model and -1.7 % for gpt-oss-20b; neutral at 64 streams; benchmarks.md §93.4), `always` every step (the earlier default), `full` the whole budget while some sequence decodes (lowest ITL tail, longest TTFT). `SHARPLIGHT_STEP_FLOOR_WAVES=1\|0\|full` overrides it for the process |
 | `stepRowsPerSequence` (defaults; `EngineOptions.BatchTokensPerSequence`) | `48` (was 32) | prompt rows per sequence holding a slot that a step may carry while some sequence decodes (rounded up to a 128-row token tile: 768 rows at 16 slots). At 16 closed-loop streams against 32: ITL p95 about halved (gpt-oss-20b 20-22 → 12 ms, Qwen3-8B-FP8 25 → 15 ms), throughput +1 % on gpt-oss-20b and unchanged on Qwen3-8B-FP8, TTFT p50 +20 ms and closed-loop ITL p99 +25 % (benchmarks.md §100.1, §101). At 64 streams the budget is the whole step either way. `SHARPLIGHT_STEP_ROWS_PER_SEQUENCE=n` overrides it for the process |
 
+`kvAdmission` (defaults; `EngineOptions.KvAdmission`, `serve --kv-admission`, `SHARPLIGHT_KV_ADMISSION=queue|preempt`): what a paged KV cache
+does when it runs short. `queue` (default) admits a request only with room for its prompt and up to 64 tokens of growth, so new requests wait
+while the pool is full; `preempt` admits on the prompt alone and preempts the newest running sequences (recomputed later) when the running ones
+need blocks, as vLLM does: at KV saturation a lower time to first token for some throughput (Llama-3.1-8B bf16, 256 streams over a pool of
+100,480 tokens: TTFT p50 1.9 against 3.9 s, -4 % tok/s; docs/kv-cache.md 2.5, benchmarks.md §108). Both admit the same requests while the pool
+has room.
+
 Delegates that are not part of the JSON form: `Log` (load, unload and eviction messages; default the manager's `ILogger`),
 `ConfigureLoad` (adjust each model's load options: progress, logging, compilation artifacts) and `ConfigureChat` (adjust each chat
 model's options: request callbacks, speculators, service defaults).

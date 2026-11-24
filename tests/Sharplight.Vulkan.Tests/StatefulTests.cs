@@ -126,7 +126,8 @@ public sealed class StatefulTests
         }
         // f16 caches run on tensor cores with f16 queries and probabilities: allow for their rounding. q8_0 caches are quantized by both
         // backends, which may round a value to a neighbouring quant.
-        var (atol, rtol) = cacheType switch { "f16" => (1e-3, 3e-3), "f8e4m3_b32" => (5e-3, 2e-2), _ => (3e-3, 1e-2) };
+        // f8e4m3_b32: queries scaled by 3 sharpen the softmax, so one E4M3 code (1/16 apart) rounded the other way moves an output by ~1e-2.
+        var (atol, rtol) = cacheType switch { "f16" => (1e-3, 3e-3), "f8e4m3_b32" => (1e-2, 3e-2), _ => (3e-3, 1e-2) };
         Diff.Check("CachedAttention.wide", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx,
             what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv} window={window} softcap={softcap} sinks={sinks}");
     }
