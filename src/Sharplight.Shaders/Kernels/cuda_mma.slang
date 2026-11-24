@@ -9,9 +9,6 @@
 // 2 c + (e & 1) + 8 ((e >> 1) & 1) (B: column g + 8 (e >> 2), row 2 c + ...). Fragments of 16-bit and 8-bit operands load from
 // shared memory with ldmatrix (one x4 per fragment, .trans for the transposed layouts), from device memory element by element.
 //
-// cu_cp_async16 / cu_cp_commit / cu_cp_wait0..3 expose cp.async (compute capability 8.0 and later) to kernels that stream tiles into
-// shared memory without passing through registers (conv_cl's CL_ASYNC ring).
-//
 // Register order: A (16x16 f16 / bf16, 16x32 int8 / e4m3): r = (a0, a1, a2, a3) of mma.sync (rows 0-7 / 8-15 of K block 0, then
 // of K block 1). B (16x16, 32x16): r = (b0, b1) of the columns 0-7, then (b0, b1) of the columns 8-15. Accumulators: t0 = the
 // c0..c3 of the columns 0-7, t1 = those of the columns 8-15.
@@ -177,18 +174,6 @@ __device__ __forceinline__ void sl_acch_st(P* arr, unsigned element, unsigned st
     }
 }
 
-// Asynchronous 16-byte copies from device to shared memory (cp.async, compute capability 8.0 and later): element `element` of the
-// shared array gets the 16 bytes at src, or zeros when pred is false (src is then not read).
-template<class T, size_t N>
-__device__ __forceinline__ void sl_cp16(FixedArray<T, N>* arr, unsigned element, unsigned long long src, bool pred)
-{
-    unsigned sa = (unsigned)__cvta_generic_to_shared(sl_wbytes(arr) + (size_t)element * sizeof(T));
-    asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;" :: "r"(sa), "l"(src), "r"(pred ? 16 : 0) : "memory");
-}
-__device__ __forceinline__ void sl_cp_commit() { asm volatile("cp.async.commit_group;" ::: "memory"); }
-template<int N>
-__device__ __forceinline__ void sl_cp_wait() { asm volatile("cp.async.wait_group %0;" :: "n"(N) : "memory"); }
-
 __device__ __forceinline__ float4 sl_mma_f16(uint4 a, uint2 b, float4 c)
 {
     float4 d;
@@ -268,33 +253,6 @@ CU_LD16(cu_ld_brow, "sl_ld16<true, true>($0, $1, $2)")
 CU_ACC(float4, "sl_acc_ld<float4>($0, $1, $2, $3, $4)", "sl_acc_st<float4>($0, $1, $2, $3, $4, $5)", cu_accf_ld, cu_accf_st)
 CU_ACC(int4, "sl_acc_ld<int4>($0, $1, $2, $3, $4)", "sl_acc_st<int4>($0, $1, $2, $3, $4, $5)", cu_acci_ld, cu_acci_st)
 CU_ACC(uint2, "sl_acch_ld($0, $1, $2, $3, $4)", "sl_acch_st($0, $1, $2, $3, $4, $5)", cu_acch_ld, cu_acch_st)
-
-// cp.async (see sl_cp16): copy 16 bytes from device address src into element `element` of a shared array, zeros unless pred;
-// commit the copies issued so far as one group; wait until at most 0 / 1 / 2 / 3 groups are pending.
-void cu_cp_async16<CuE, let CuN : int>(__ref groupshared CuE[CuN] data, uint element, uint64_t src, bool pred)
-{
-    __target_switch { case cuda: __requirePrelude(CU_MMA_PRELUDE); __intrinsic_asm "sl_cp16($0, $1, $2, $3)"; }
-}
-void cu_cp_commit()
-{
-    __target_switch { case cuda: __requirePrelude(CU_MMA_PRELUDE); __intrinsic_asm "sl_cp_commit()"; }
-}
-void cu_cp_wait0()
-{
-    __target_switch { case cuda: __requirePrelude(CU_MMA_PRELUDE); __intrinsic_asm "sl_cp_wait<0>()"; }
-}
-void cu_cp_wait1()
-{
-    __target_switch { case cuda: __requirePrelude(CU_MMA_PRELUDE); __intrinsic_asm "sl_cp_wait<1>()"; }
-}
-void cu_cp_wait2()
-{
-    __target_switch { case cuda: __requirePrelude(CU_MMA_PRELUDE); __intrinsic_asm "sl_cp_wait<2>()"; }
-}
-void cu_cp_wait3()
-{
-    __target_switch { case cuda: __requirePrelude(CU_MMA_PRELUDE); __intrinsic_asm "sl_cp_wait<3>()"; }
-}
 
 float4 cu_mma_f16(uint4 a, uint2 b, float4 c)
 {

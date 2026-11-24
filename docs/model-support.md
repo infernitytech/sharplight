@@ -3115,6 +3115,10 @@ Implementation notes:
   the decoder's levels after the temporal upsampling) run frame by frame. Every op of the VAE but the causal convolutions works per
   frame, so chunking changes nothing. Activations (CUDA lowering, any clip length): encoder 4.6 / 9.5 / 14.0 / 18.3 GB and decoder
   7.6 / 18.3 / 29.4 / 38.2 GB at 480p / 720p / 960p / 1080p.
+- Under reduced precision on GPUs with 16-bit matrices the convolutions run on the shared channels-last kernel `conv_cl` (f16
+  operands, f32 accumulation; [benchmarks.md](benchmarks.md) section §CONV): the stacked windows are not copied any more, the
+  convolution reads its three windows in place: the chunk's frames from one channels-last f16 copy, the cached frames converted
+  from the f16 cache directly.
 - A fix in the shared GPU lowering came with it: a view (here `After`) closed an open fused group only when its first input came from
   that group, so an `After` whose second input did ran ahead of it and the chunks overlapped again (3 GB more per chunk).
 - The pipeline encodes all batches, then restores them, then decodes them; compiled graphs stay until the device runs out of memory,

@@ -4,9 +4,8 @@
 //                  x is channels-last 16-bit (XS_C = 1, f16 or with XBF16 bf16): a staged item of 8 k is 8 channels of one
 //                  input pixel, one 16-byte load and one bounds check; w is dense [O][KTOT] of the same type, tap-major. A
 //                  workgroup of WARPS_M x WARPS_N subgroups computes (WARPS_M * FRAG_M * 16) o x (WARPS_N * FRAG_N * 16) pix,
-//                  one barrier per K step of TBK (32 or 64): the shared tiles are double buffered with the next step's global loads
-//                  in registers during this step's products, or (CL_ASYNC, CUDA) a ring of CL_STAGES buffers filled by
-//                  asynchronous copies. y dense [N, O, HO, WO] f32 (+ bias, fused epilogue), stored along the pixels through
+//                  the next K step's global loads are in registers during this step's products: TBK = 32 with two shared
+//                  buffers (one barrier per step), or TBK = 64 with one (CL_SINGLE, two barriers per step). y dense [N, O, HO, WO] f32 (+ bias, fused epilogue), stored along the pixels through
 //                  the A tiles; SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce (conv.slang).
 //                  Needs CG % 8 == 0 and XS_N, XS_H, XS_W multiples of 8 (16-byte aligned items). X_PARTS > 1: x is a channel
 //                  concatenation read from its parts in place (see ConvParams).
@@ -108,20 +107,12 @@ void conv_cl_stage(uint3 dtid : SV_DispatchThreadID, uniform StageParams p)
 #define A_ITEMS (TBM * KG / NT)
 #define B_ITEMS (TBN * KG / NT)
 #define M_TILES ((OG + TBM - 1) / TBM)
-// CL_ASYNC (CUDA, compute capability 8.0 and later): the tiles stream into a ring of CL_STAGES shared buffers by asynchronous
-// copies (cp.async, zero-filled outside the tensors), so the loads of the next CL_STAGES - 1 steps are in flight during each
-// step's products without passing through registers. Otherwise two buffers and a register prefetch of the next step.
-#ifndef CL_ASYNC
-#define CL_ASYNC 0
-#endif
-// CL_SINGLE (register prefetch, for TBK = 64 within 48 KB of shared memory): one buffer, the next step's loads still in registers
-// during the products, two barriers per step.
+// CL_SINGLE (TBK = 64 within 48 KB of shared memory): one buffer, the next step's loads still in registers during the products,
+// two barriers per step. Otherwise two buffers, one barrier per step.
 #ifndef CL_SINGLE
 #define CL_SINGLE 0
 #endif
-#if CL_ASYNC
-#define NBUF CL_STAGES
-#elif CL_SINGLE
+#if CL_SINGLE
 #define NBUF 1
 #else
 #define NBUF 2
@@ -262,25 +253,6 @@ bool b_inside(Pixels px, uint it, KStep s)
 uint a_slot(uint buf, uint tid, uint it) { return (buf * TBM + (tid + it * NT) / KG) * (SAS / 8) + tid % KG; }
 uint b_slot(uint buf, uint tid, uint it) { return (buf * TBN + (tid + it * NT) / KG) * (SAS / 8) + tid % KG; }
 
-#if CL_ASYNC
-// Issues the copies of the K step at k0 into buffer buf.
-void issue(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixels px, uint buf)
-{
-    KStep s = k_step(p, g, k0, kEnd, tid);
-    [ForceUnroll]
-    for (uint it = 0; it < A_ITEMS; it++)
-    {
-        bool in = a_inside(mBase, tid, it, s);
-        cu_cp_async16(sA, a_slot(buf, tid, it), uint64_t(p.w) + (in ? a_index(g, mBase, k0, tid, it) * 16 : 0), in);
-    }
-    [ForceUnroll]
-    for (uint it = 0; it < B_ITEMS; it++)
-    {
-        bool in = b_inside(px, it, s);
-        cu_cp_async16(sB, b_slot(buf, tid, it), s.x + (in ? (px.base[it] + s.offset) * 2 : 0), in);
-    }
-}
-#else
 // Global loads of the K step at k0 into registers; zero outside the tensors and at or past kEnd.
 void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixels px, out uint4 a[A_ITEMS], out uint4 b[B_ITEMS])
 {
@@ -318,7 +290,6 @@ void stage(uint buf, uint tid, uint4 a[A_ITEMS], uint4 b[B_ITEMS])
         sB[b_slot(buf, tid, it)] = b[it];
     }
 }
-#endif
 
 // The products of the K step in buffer buf.
 void products(uint buf, uint wm, uint wn, inout Acc acc[FRAG_M][FRAG_N])
@@ -389,39 +360,6 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         }
     }
 
-#if CL_ASYNC
-    const uint steps = (kEnd - kBeg + TBK - 1) / TBK;
-    [ForceUnroll]
-    for (uint s = 0; s + 1 < NBUF; s++)
-    {
-        if (s < steps)
-        {
-            issue(p, g, mBase, kBeg + s * TBK, kEnd, tid, px, s);
-        }
-        cu_cp_commit();
-    }
-    for (uint step = 0; step < steps; step++)
-    {
-#if NBUF == 2
-        cu_cp_wait0();
-#elif NBUF == 3
-        cu_cp_wait1();
-#elif NBUF == 4
-        cu_cp_wait2();
-#else
-        cu_cp_wait3();
-#endif
-        GroupMemoryBarrierWithGroupSync();
-        uint next = step + NBUF - 1;
-        if (next < steps)
-        {
-            issue(p, g, mBase, kBeg + next * TBK, kEnd, tid, px, next % NBUF);
-        }
-        cu_cp_commit();
-        products(step % NBUF, wm, wn, acc);
-    }
-    cu_cp_wait0();
-#else
     uint4 a[A_ITEMS];
     uint4 b[B_ITEMS];
     fetch(p, g, mBase, kBeg, kEnd, tid, px, a, b);
@@ -453,7 +391,6 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         buf ^= 1;
 #endif
     }
-#endif
 
     // ---- epilogue: per row of fragments, each subgroup stages its 16 x (FRAG_N * 16) results in the (now free) A tiles and
     // stores them along the pixels, 32 consecutive outputs per store (+ bias, fused epilogue) ----

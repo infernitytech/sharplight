@@ -20,10 +20,10 @@ public sealed partial class GraphLowerer
     /// The conv_cl configuration: the 16-bit type of the operands and the tile (subgroup rows and columns of 64 output channels x
     /// <see cref="FragN"/> 16-pixel fragments each).
     /// </summary>
-    private readonly record struct ConvChannelsLastForm(DataType Type, int WarpsM, int WarpsN, int FragN, int Stages, int TileK = (int)ConvMatrixTileK)
+    private readonly record struct ConvChannelsLastForm(DataType Type, int WarpsM, int WarpsN, int FragN, int TileK)
     {
-        /// <summary>Shared operand buffers: the asynchronous copies' ring, else two (one with <see cref="Stages"/> -1, <c>CL_SINGLE</c>).</summary>
-        public int Buffers => Stages > 0 ? Stages : Stages < 0 ? 1 : 2;
+        /// <summary>Shared operand buffers: two for 32-value K steps, one for 64 (<c>CL_SINGLE</c>).</summary>
+        public int Buffers => TileK == 64 ? 1 : 2;
 
         public long TileRows => WarpsM * ConvMatrixWarpRows;
 
@@ -80,10 +80,11 @@ public sealed partial class GraphLowerer
         => form.Buffers * form.TileRows * (form.TileK + 8) * 2 >= form.WarpsM * form.WarpsN * form.FragN * 1024L;
 
     /// <summary>
-    /// True when conv_cl streams its tiles with asynchronous copies (<c>CL_ASYNC</c>): a CUDA C++ target on a device of compute
-    /// capability 8.0 or later (<see cref="DeviceFeatures.NativeGemmF16"/>, which needs the same instructions).
+    /// K per step of conv_cl: 32 with two shared buffers on CUDA C++ targets, 64 with one elsewhere, where the two buffers of 64-value
+    /// steps exceed the 48 KB a Vulkan compute shader gets on NVIDIA (benchmarks.md section §CONV: on CUDA the 32-value form is 3-11 %
+    /// faster for SeedVR2's convolutions, on Vulkan the 64-value form 2-8 % for all measured shapes).
     /// </summary>
-    private bool ConvAsyncCopies => _opt.Has(DeviceFeatures.NativeGemmF16) && _compiler.CompilesCuda(_opt.Target) && DiagnosticSwitches.ConvAsyncCopies;
+    private int ConvChannelsLastTileK => _compiler.CompilesCuda(_opt.Target) ? 32 : 64;
 
     /// <summary>
     /// The conv_cl form of convolution <paramref name="n"/>, or null when it does not apply: reduced precision, 16-bit matrices
@@ -127,23 +128,10 @@ public sealed partial class GraphLowerer
         int warpsM = outputsPerGroup >= 2 * ConvMatrixWarpRows ? 2 : 1;
         // 128-pixel tiles, or 64 when those would not fill the device (small maps at batch 1).
         long wideTiles = (columns + 127) / 128 * ((outputsPerGroup + warpsM * ConvMatrixWarpRows - 1) / (warpsM * ConvMatrixWarpRows)) * groups;
-        var form = new ConvChannelsLastForm(type, warpsM, 2, wideTiles < TargetWorkgroups ? 2 : 4, 0);
+        var form = new ConvChannelsLastForm(type, warpsM, 2, wideTiles < TargetWorkgroups ? 2 : 4, ConvChannelsLastTileK);
         if (DiagnosticSwitches.ConvChannelsLastTile is [int tileWarpsM, int tileWarpsN, int tileFragN, ..] tile)
         {
-            form = form with
-            {
-                WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, Stages = tile.Length > 3 && (ConvAsyncCopies || tile[3] < 0) ? tile[3] : 0,
-                TileK = tile.Length > 4 ? tile[4] : form.TileK,
-            };
-        }
-        else if (ConvAsyncCopies)
-        {
-            // The deepest ring of asynchronous copies that fits (four steps in flight on 99 KB devices with 128 x 128 tiles).
-            form = form with { Stages = 4 };
-            while (form.Stages > 2 && ConvChannelsLastSharedBytes(form) > _opt.MaxSharedMemory)
-            {
-                form = form with { Stages = form.Stages - 1 };
-            }
+            form = form with { WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, TileK = tile.Length > 3 ? tile[3] : form.TileK };
         }
 
         return ConvChannelsLastSharedBytes(form) <= _opt.MaxSharedMemory && ConvChannelsLastEpilogueFits(form) ? form : null;
@@ -586,8 +574,8 @@ public sealed partial class GraphLowerer
             ("C", channelsTotal), ("H", x.Shape[2]), ("W", x.Shape[3]), ("O", O), ("HO", y.Shape[2]), ("WO", y.Shape[3]), ("CG", CG), ("OG", OG), ("G", G),
             ("KH", KH), ("KW", KW), ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("DH", dl[0]), ("DW", dl[1]),
             ("XS_N", x.Strides[0]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]), ("NOPAD", pd.All(p => p == 0)), ("XBF16", form.Type == DataType.BF16),
-            ("WARPS_M", form.WarpsM), ("WARPS_N", form.WarpsN), ("FRAG_M", 4), ("FRAG_N", form.FragN), ("CL_ASYNC", form.Stages > 0), ("CL_SINGLE", form.Stages < 0),
-            ("CL_STAGES", form.Buffers), ("X_PARTS", Math.Max(1, parts.Count)), ("PART_C", x.Shape[1]), ("TBK", form.TileK),
+            ("WARPS_M", form.WarpsM), ("WARPS_N", form.WarpsN), ("FRAG_M", 4), ("FRAG_N", form.FragN), ("CL_SINGLE", form.Buffers == 1),
+            ("X_PARTS", Math.Max(1, parts.Count)), ("PART_C", x.Shape[1]), ("TBK", form.TileK),
         };
         string name = $"conv {n.Output.Name} [{channelsTotal}→{O} {KH}x{KW} s{st[0]} g{G}]{fusedLabel} {form.Type.Name} channels-last{(parts.Count > 0 ? $" {parts.Count} parts" : "")}";
         var extra = parts.Skip(1).ToArray();
