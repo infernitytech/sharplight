@@ -1,0 +1,750 @@
+{
+ "url": "http://127.0.0.1:18080",
+ "max_tokens": 48,
+ "prompts": 8,
+ "waves": [
+  {
+   "requests": 16,
+   "identical": 0,
+   "early": 8,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 8,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1,000 words. The essay should be written in English, and should be written in a formal academic tone. The essay should be written in a formal academic tone. The essay should be written"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Provide an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nThe girl's name is Lila. She is 12 years old, with long brown hair and green eyes. She lives in a small village near the forest. The"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's Perspective**\n\n"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century, with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts of plant cells, and this energy is used to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while the oxygen is"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your career opportunities, 2) It can enhance your cognitive abilities, and 3) It can help you connect with people from different cultures.\nQ: What"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, the activities you did, and your feelings during the trip. Use descriptive language and vivid imagery to bring the experience to life. Make sure to include at least one metaphor or simile. Also, the letter"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1,500 words. The essay should be written in English, and the user should be able to read it without any difficulty. The essay should be written in a formal academic tone, with clear"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Provide an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nThe girl's name is Lila. She is 12 years old, with long brown hair and green eyes. She lives in a small village near the forest. The"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's Perspective**\n\n"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century, with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts of plant cells, and this energy is used to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while the oxygen is"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your career opportunities, 2) It can enhance your cognitive abilities, and 3) It can help you connect with people from different cultures.\nQ: What"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, the activities you did, and your feelings during the trip. Use descriptive language and vivid imagery to bring the experience to life. Make sure to include at least one metaphor or simile. Also, the letter"
+    }
+   ]
+  },
+  {
+   "requests": 64,
+   "identical": 0,
+   "early": 29,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1000 words, with a clear structure, and include at least three different examples from different regions of the world. The essay should be written in English, and the user should be able to copy"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 19,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept, not just the answer. Additionally, explain how the teacher can help the student understand the concept, not just the answer. Also, explain how the teacher can help the student"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nThe girl's name is Lila. She is 12 years old, with long brown hair and green eyes. She lives in a small village near the forest. The"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's Perspective**\n\n"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century, with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press played a crucial role in the"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts of plant cells, and this energy is used to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while the oxygen is"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your career opportunities, 2) It can help you better understand other cultures, and 3) It can enhance your cognitive abilities.\nQ: What are three"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, the activities you did, and your feelings during the trip. Use descriptive language and vivid imagery to make the experience come alive. Also, include a personal reflection on how the trip affected you. The letter should"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1,500 words. The essay should be written in English, and the user should be able to copy and paste the text into a word processor. The essay should be written in a formal academic"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Provide an example. Step by step, with an example. Also, explain how the teacher can help the student understand the concept behind"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nThe girl's name is Elara, and she is 12 years old. She lives in a small village called Willowbrook. The book is called \"The Whispering"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from the Perspective of a Doctor"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century, with the invention of the movable-type printing press by Johannes Gutenberg. This innovation revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press played a crucial role in the"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts of plant cells, and this energy is used to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while the oxygen is"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your career opportunities, 2) It can enhance your cognitive abilities, and 3) It can help you connect with people from different cultures.\nQ: What"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, the activities you did, and your feelings during the trip. Use descriptive language and vivid imagery to bring the experience to life. Make sure to include at least one metaphor or simile. Also, the letter"
+    },
+    {
+     "i": 16,
+     "prompt": 0,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1,500 words. The essay should be written in English, and the user should be able to copy and paste the text into a word document. The essay should be written in a formal academic"
+    },
+    {
+     "i": 17,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Provide an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 18,
+     "prompt": 2,
+     "same_words": 9,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nIn the heart of the forest, there was a girl named Elara who had always felt a deep connection to nature. One day, while exploring the woods, she stumbled upon"
+    },
+    {
+     "i": 19,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n**Comparison of Cities and Villages from the Perspective of a Doctor**\n\n"
+    },
+    {
+     "i": 20,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century, with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of"
+    },
+    {
+     "i": 21,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts, which then uses the energy to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while oxygen is released as a by"
+    },
+    {
+     "i": 22,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your cognitive abilities, such as problem-solving and multitasking. 2) It can enhance your career opportunities, as many employers value bilingual employees. 3)"
+    },
+    {
+     "i": 23,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, the activities you did, and your feelings during the trip. Use descriptive language and vivid imagery to make the experience come alive. Also, include a personal reflection on how the trip affected you. The letter should"
+    },
+    {
+     "i": 24,
+     "prompt": 0,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\n\nThe essay should be written in English, and the content should be original, not copied from any other source. The essay should be written in a formal academic tone, with clear"
+    },
+    {
+     "i": 25,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Provide an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 26,
+     "prompt": 2,
+     "same_words": 9,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nIn the heart of the forest, there was a girl named Lila who loved to explore. One day, while wandering through the woods, she stumbled upon a mysterious book."
+    },
+    {
+     "i": 27,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's Perspective**\n\n"
+    },
+    {
+     "i": 28,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century, with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press played a crucial role in the"
+    },
+    {
+     "i": 29,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts of plant cells, and this energy is used to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while oxygen is released"
+    },
+    {
+     "i": 30,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your career opportunities, 2) It can enhance your cognitive abilities, and 3) It can help you connect with people from different cultures.\nQ: What"
+    },
+    {
+     "i": 31,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, the activities you did, and your feelings during the trip. Use descriptive language and vivid imagery to bring the experience to life. Make sure to address the friend by name and include a personal touch, such as"
+    },
+    {
+     "i": 32,
+     "prompt": 0,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be written in English, and the content should be in English. The essay should be written in English, and the content should be in English. The essay should"
+    },
+    {
+     "i": 33,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Provide an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 34,
+     "prompt": 2,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nThe girl's name is Lila. She is 12 years old, with long brown hair and green eyes. She lives in a small village near the forest. The"
+    },
+    {
+     "i": 35,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's Perspective**\n\n"
+    },
+    {
+     "i": 36,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century, when Johannes Gutenberg invented the movable-type printing press. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books, which"
+    },
+    {
+     "i": 37,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts, which then uses the energy to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while the oxygen is released as a"
+    },
+    {
+     "i": 38,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your career opportunities, 2) It can help you understand other cultures better, and 3) It can enhance your cognitive abilities.\nQ: What are three"
+    },
+    {
+     "i": 39,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, activities, and your feelings during the trip. Use descriptive language and vivid imagery to make the experience come alive. Also, include at least one personal anecdote or story from the trip. The letter should be"
+    },
+    {
+     "i": 40,
+     "prompt": 0,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\n**The Role of Water and Power in Modern History**\n\nWater has always been a fundamental element of human existence, shaping civilizations, economies, and political landscapes. In modern history,"
+    },
+    {
+     "i": 41,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Additionally, explain how the teacher can help the student apply the concept to other problems. Use the example of a math problem, such"
+    },
+    {
+     "i": 42,
+     "prompt": 2,
+     "same_words": 9,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nIn the heart of the forest, there was a girl named Lila. She had always been curious and adventurous, and she loved exploring the woods. One day, while wandering"
+    },
+    {
+     "i": 43,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's Perspective**\n\n"
+    },
+    {
+     "i": 44,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing by Johannes Gutenberg. The printing press was a revolutionary invention that changed the way information was disseminated and had a profound impact on the development of the modern world. The"
+    },
+    {
+     "i": 45,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts of plant cells, which converts light energy into chemical energy. This chemical energy is used to convert carbon dioxide and water into glucose and oxygen. The overall equation for photosynthesis is "
+    },
+    {
+     "i": 46,
+     "prompt": 6,
+     "same_words": 9,
+     "identical": false,
+     "flags": [],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it's easier to learn a second language when you're young. Third, it's easier to learn a second language when you're young"
+    },
+    {
+     "i": 47,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include details about the scenery, activities, and your feelings during the trip. Use descriptive language and vivid imagery to make the experience come alive. Make sure to include at least one specific memory or moment that stands out to you. Also, include"
+    },
+    {
+     "i": 48,
+     "prompt": 0,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be written in English, and the content should be original and not copied from any other source. The essay should be written in a formal academic style, with clear"
+    },
+    {
+     "i": 49,
+     "prompt": 1,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Additionally, explain how the teacher can help the student apply the concept to other problems. Use an example. Also, explain how the"
+    },
+    {
+     "i": 50,
+     "prompt": 2,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 51,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the perspective of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's Perspective**\n\n"
+    },
+    {
+     "i": 52,
+     "prompt": 4,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the way information was disseminated, making books more accessible and affordable. The printing press allowed for the mass production of texts"
+    },
+    {
+     "i": 53,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts of plant cells, which then uses the energy to convert carbon dioxide and water into glucose and oxygen. The glucose is used by the plant for energy and growth, while the oxygen is"
+    },
+    {
+     "i": 54,
+     "prompt": 6,
+     "same_words": 9,
+     "identical": false,
+     "flags": [],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it's easier to learn a second language when you're young. Third, it's easier to learn a second language when you're young"
+    },
+    {
+     "i": 55,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include details about the scenery, activities, and your feelings during the trip. Use descriptive language and vivid imagery to make the experience come alive. Make sure to include at least one specific memory that stands out to you. Also, include a closing"
+    },
+    {
+     "i": 56,
+     "prompt": 0,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words in length, with each paragraph containing at least 150 words. The essay should be written in English, and the tone should be formal and academic. The essay should be"
+    },
+    {
+     "i": 57,
+     "prompt": 1,
+     "same_words": 19,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept, not just the answer. Additionally, explain how the teacher can help the student understand the concept, not just the answer. Also, explain how the teacher can help the student"
+    },
+    {
+     "i": 58,
+     "prompt": 2,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\n\nThe girl was named Lila. She was 12 years old and had a wild, adventurous spirit. She lived in a small village nestled in the mountains. The village"
+    },
+    {
+     "i": 59,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English. Please write in English. Please write in English. Please write in English. Please write in English. Please write in English. Please write in English. Please write in English. Please write in English. Please write in"
+    },
+    {
+     "i": 60,
+     "prompt": 4,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, who"
+    },
+    {
+     "i": 61,
+     "prompt": 5,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " sunlight is absorbed by chlorophyll in the chloroplasts, which then uses water and carbon dioxide to produce glucose and oxygen. The glucose is used by the plant for energy, and oxygen is released as a byproduct. Now, I"
+    },
+    {
+     "i": 62,
+     "prompt": 6,
+     "same_words": 9,
+     "identical": false,
+     "flags": [],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it's easier to learn a second language when you're in a country where the language is spoken. Third, it's easier to learn"
+    },
+    {
+     "i": 63,
+     "prompt": 7,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Include specific details about the scenery, the activities you did, and your feelings during the trip. Use descriptive language and vivid imagery to bring the experience to life. Make sure to include at least one metaphor or simile. Also, the letter"
+    }
+   ]
+  }
+ ],
+ "ok": true,
+ "references": [
+  " The essay should be at least 1,500 words. The essay should be written in English, and the essay should be written in a formal academic tone. The essay should be written in a formal academic tone. The essay should",
+  " Also, explain how the teacher can help the student understand the concept, not just the answer. Use an example. Step by step, with an example. Also, explain how the teacher can help the student understand the concept, not just the",
+  " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a moral or lesson. The story should be written in third person. The story should be written",
+  " Use bullet points. Here's a list of cities and villages from the point of view of a doctor, with advantages, disadvantages, and a final recommendation:\n\n**Advantages of Cities:**\n- Access to advanced medical facilities and technology.\n-",
+  " the mid-14th century with the invention of movable type by the German goldsmith and printer Johannes Gutenberg. This innovation revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass",
+  " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The chemical equation for this process is 6CO2 + 6H2O + light energy \u2192 C6H12O6 + ",
+  " Well, first of all, it's good for your brain. It keeps your brain active and healthy. Second, it helps you to make friends with people from other countries. Third, it helps you to get a better job.\nQ:",
+  " Include sensory details and vivid imagery. Use a conversational tone. Make sure to include at least three specific details about the environment and at least three specific details about the activities you did. Also, include a personal reflection on the experience. ("
+ ]
+}

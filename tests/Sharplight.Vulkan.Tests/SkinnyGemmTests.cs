@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -26,6 +27,9 @@ public sealed class SkinnyGemmTests
     // (8-bit activations, an error proportional to the weight rows' norms).
     private static double Atol(string fmt) => fmt is "q8_0" or "nvfp4" ? 3.0 : 1.5e-1;
 
+    // The skinny GEMM's rows of NVFP4 weights go to the FP4 GEMM where the device has block_scaled_fp4 (Fp4GemmTests checks it).
+    private static IReadOnlySet<string>? Disabled(string fmt) => fmt == "nvfp4" ? new HashSet<string> { DeviceFeatures.BlockScaledFp4 } : null;
+
     [Theory]
     [MemberData(nameof(Cases))]
     public void Single(string fmt, int t)
@@ -35,7 +39,8 @@ public sealed class SkinnyGemmTests
         var tg = new TG();
         var x = tg.InF("x", TG.T, K);
         tg.B.Output("y", tg.B.MatMul(x, tg.RandW("w", DataType.Get(fmt), 1f, N, K)));
-        Diff.Check("Skinny." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt), rtol: 1e-2, what: $"T={t}");
+        Diff.Check("Skinny." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt), rtol: 1e-2, what: $"T={t}",
+            disabledFeatures: Disabled(fmt));
     }
 
     [Theory]
@@ -56,7 +61,7 @@ public sealed class SkinnyGemmTests
         bool exactActivations = fmt == "nvfp4" && t <= 8;
         double atol = exactActivations ? 1e-1 : fmt switch { "q8_0" => 6e-1, "nvfp4" => 3.0, _ => 1e-1 };
         var xs = exactActivations ? Rnd.ExactInt8((long)t * K, 3) : Rnd.F((long)t * K, 3);
-        Diff.Check("Skinny.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, xs)), atol: atol, rtol: 2e-2, what: $"T={t}");
+        Diff.Check("Skinny.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, xs)), atol: atol, rtol: 2e-2, what: $"T={t}", disabledFeatures: Disabled(fmt));
     }
 
     /// <summary>

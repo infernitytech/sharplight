@@ -23,4 +23,10 @@ internal enum ActivationCode
     /// SPLIT_PARTS 1, the single-product GEMM of fast matrix precision).
     /// </summary>
     ScaledF16,
+
+    /// <summary>
+    /// Per row, for each 256 values of K a 160-byte record of 128 E2M1 code bytes, 16 E4M3 scales (one per 16 values) and 16 bytes of
+    /// padding, then 32 bytes with the row's f32 global scale (<c>quantize_fp4</c> in gemm_fp4_native.cu, the FP4 GEMM).
+    /// </summary>
+    Fp4,
 }

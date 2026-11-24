@@ -1,0 +1,8 @@
+Loaded nvidia_Qwen3-8B-FP4 (decoder): 399 tensors, 6.83 GB, vocab 151936 [1420 ms]
+Compiling 868 / 868 (AMD EPYC 7443 24-Core Processor)
+Compiled 'decode' in 543 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 38 groups, 6.92 GiB weights+state
+1 segment(s): [0@0: 868 nodes]
+Ready (decode)
+The capital of France is Paris. The capital of Germany is Berlin. The capital of Italy is Rome.
+prompt: 5 tok in 15584 ms (0.3 tok/s) | generated: 16 tok, 1.94 tok/s

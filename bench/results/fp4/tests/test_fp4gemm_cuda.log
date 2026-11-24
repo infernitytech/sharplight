@@ -1,0 +1,32 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Vulkan.Tests
+[0m[37m  Discovered:  Sharplight.Vulkan.Tests
+[0m[37m  Starting:    Sharplight.Vulkan.Tests
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.RandomActivations(fmt: "nvfp4", t: 24) [FAIL]
+[0m[37m      Fp4Gemm.random.nvfp4 T=24 step 0 output y[2]: vulkan 16.1239166 vs cpu 6.50386 (|d|=9.62E+000, tol=6.33E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(75,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.RandomActivations(String fmt, Int32 t)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.RandomActivations(fmt: "nvfp4_gs", t: 64) [FAIL]
+[0m[37m      Fp4Gemm.random.nvfp4_gs T=64 step 0 output y[3]: vulkan 9.68696976 vs cpu -1.83511555 (|d|=1.15E+001, tol=6.09E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(75,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.RandomActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.RandomActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.RandomActivations(fmt: "nvfp4_gs", t: 256) [FAIL]
+[0m[37m      Fp4Gemm.random.nvfp4_gs T=256 step 0 output y[3]: vulkan 9.68696976 vs cpu -1.83511555 (|d|=1.15E+001, tol=6.09E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(75,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.RandomActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.RandomActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[37m  Finished:    Sharplight.Vulkan.Tests (ID = '74c871a5f1496b591030e809677aa36a31df3773c6fadd740ea9d04c34897092')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Vulkan.Tests  Total: 23, Errors: 0, Failed: 3, Skipped: 0, Not Run: 0, Time: 27.839s
+[0m[0m

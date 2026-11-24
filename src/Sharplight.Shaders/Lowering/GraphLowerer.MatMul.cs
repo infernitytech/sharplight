@@ -197,6 +197,9 @@ public sealed partial class GraphLowerer
         // The hand-written f16 GEMM serves the pair from LibraryGemmMinRows rows as one dual launch with the group as its epilogue
         // (instead of two GEMMs and the elementwise launch), unless x's f16 copy is row-ranged (its scaling must be undone before
         // a nonlinear epilogue).
+        // NVFP4 pairs on the block-scaled FP4 MMA: one dual FP4 GEMM with the group in its store.
+        var fp4Dual = dualFp8 ? _ => false : EmitDualFp4Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
+            a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueCudaSource(a, bNode, group, output));
         Func<long, bool> nativeDual = _ => false;
         if (!dualFp8 && library && NativeGemmF16 && DualEpilogueCudaSource(a, bNode, group, output) is { } f16Epilogue)
         {
@@ -216,11 +219,14 @@ public sealed partial class GraphLowerer
         var kquantDual = dualFp8 ? null : EmitNativeKQuantDualGemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
             a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueCudaSource(a, bNode, group, output),
             DualEpilogueSource(a, bNode, group, output, "gemm_kq.slang"), fusedBelow);
+        var dualCondition = _launchCondition;
+        _launchCondition = b => (dualCondition?.Invoke(b) ?? true) && !fp4Dual(rows(b));
         var dualGemm2 = dualFp8 ? null : EmitDualGemm2($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
             a.Inputs[0], x, xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "matmul.slang"), output,
             library ? LibraryGemmMinRows : long.MaxValue);
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && dualFp8Serves(rows(b))) && !nativeDual(rows(b))
-                                && !(dualGemm2?.Invoke(rows(b)) ?? false) && !(kquantDual?.Invoke(rows(b)) ?? false);
+                                && !(dualGemm2?.Invoke(rows(b)) ?? false) && !(kquantDual?.Invoke(rows(b)) ?? false)
+                                && !fp4Dual(rows(b));
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);
@@ -465,14 +471,15 @@ public sealed partial class GraphLowerer
         Func<Bindings, bool> intDotEpilogue = _ => false;
         bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
-        bool nativeBias = !mmq && !fp8Gemm && UseNativeBiasGemm(plan, epilogue);
-        bool library = !mmq && !fp8Gemm && (UseLibraryGemm(plan, epilogue is not null) || nativeBias);
+        bool fp4Gemm = !mmq && !fp8Gemm && UseNativeFp4Gemm(plan);
+        bool nativeBias = !mmq && !fp8Gemm && !fp4Gemm && UseNativeBiasGemm(plan, epilogue);
+        bool library = !mmq && !fp8Gemm && !fp4Gemm && (UseLibraryGemm(plan, epilogue is not null) || nativeBias);
         bool skinny = UseSkinnyGemm(plan);
         long skinnyMin = intDot ? IntDotSkinnyMinRows(plan.W.Type, plan.K, plan.N) : SkinnyMinRows;
         bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N, plan.W.Type) >= skinnyMin;
         // One f16 copy of x for every f16 tensor-core launch of this matmul (skinny GEMM, gemm_cm2), emitted under the outer
         // condition so that the matmuls reading the same rows (Q/K/V, gate/up, ...) share it.
-        var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows(plan.W.Type, plan.N, plan.K) : null);
+        var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows(plan.W.Type, plan.N, plan.K) : fp4Gemm ? NativeFp4MinRows : null);
         if (intDot)
         {
             var outsideIntDot = OutsideIntDotRange(plan.X, plan.RowsPerLead, plan.W.Type, plan.K);
@@ -507,6 +514,14 @@ public sealed partial class GraphLowerer
             _launchCondition = outer;
             EmitFp8Gemm(plan);
             _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows(plan.W.Type, plan.N, plan.K);
+        }
+        else if (fp4Gemm)
+        {
+            // Emitted under the outer condition only, so that matmuls reading the same rows (q / k / v) share the FP4 activations.
+            var beforeFp4 = _launchCondition;
+            _launchCondition = outer;
+            EmitNativeFp4Gemm(plan, epilogue is not null);
+            _launchCondition = b => (beforeFp4?.Invoke(b) ?? true) && plan.RowCount(b) < NativeFp4MinRows;
         }
         else if (library)
         {

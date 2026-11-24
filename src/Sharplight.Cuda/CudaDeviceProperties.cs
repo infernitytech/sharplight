@@ -134,6 +134,8 @@ internal sealed class CudaDeviceProperties
         if (ComputeCapability / 10 == 12 && DriverVersion >= 12090)
         {
             features.Add(DeviceFeatures.BlockScaledFp8);
+            // The block-scaled E2M1 MMA (gemm_fp4_native.cu) is in the same family-specific PTX.
+            features.Add(DeviceFeatures.BlockScaledFp4);
             // setmaxnreg (gemm_fp8_tma.cu, F8N_WG) is in the same family-specific PTX. The driver's compilation of that PTX drops it
             // (benchmarks.md section 92), so the copy warpgroup only pays with NVRTC's machine code (NvrtcTranslator.CompilesSass).
             if (DiagnosticSwitches.NvrtcSass != "0")
@@ -155,7 +157,7 @@ internal sealed class CudaDeviceProperties
     /// from 8.9 (Ada, Hopper, Blackwell) also E4M3 (<c>mma.sync ... e4m3</c>), the 8-bit float types and the hand-written
     /// FP8 GEMM (<see cref="DeviceFeatures.NativeGemmFp8"/>); from 9.0 (Hopper, Blackwell) tensor copies
     /// (<see cref="DeviceFeatures.TensorCopies"/>); on 12.x (Blackwell workstation and desktop GPUs) with a CUDA 12.9 driver or later
-    /// (<see cref="Features"/>) the block-scaled E4M3 MMA (<see cref="DeviceFeatures.BlockScaledFp8"/>). Turing (7.5) has
+    /// (<see cref="Features"/>) the block-scaled E4M3 and E2M1 MMAs (<see cref="DeviceFeatures.BlockScaledFp8"/>, <see cref="DeviceFeatures.BlockScaledFp4"/>). Turing (7.5) has
     /// <c>mma.sync</c> only in smaller shapes and keeps the SIMT kernels.
     /// </summary>
     public static IReadOnlySet<string> FeaturesFor(int computeCapability)

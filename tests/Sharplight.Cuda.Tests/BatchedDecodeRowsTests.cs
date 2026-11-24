@@ -41,6 +41,12 @@ public sealed partial class BatchedDecodeRowsTests
     [InlineData("mxfp4-moe", 40)]
     [InlineData("fp8-moe", 16)]
     [InlineData("fp8-moe", 40)]
+    [InlineData("nvfp4", 9)]
+    [InlineData("nvfp4", 16)]
+    [InlineData("nvfp4", 40)]
+    [InlineData("nvfp4", 64)]
+    [InlineData("nvfp4-moe", 12)]
+    [InlineData("nvfp4-moe", 40)]
     public void BatchedRowsMatchSingleRows(string format, int rows)
     {
         var provider = new CudaProvider();
@@ -68,11 +74,15 @@ public sealed partial class BatchedDecodeRowsTests
             routes[t * Routes + 1] = (t * 3 + 1) % Experts == t % Experts ? (t + 1) % Experts : (t * 3 + 1) % Experts;
         }
 
+        bool fp4 = format.StartsWith("nvfp4", StringComparison.Ordinal);
         var batched = Run(model, x, ids, input, routes, rows);
         Assert.Equal(batched, Run(model, x, ids, input, routes, rows));
         for (int t = 0; t < rows; t++)
         {
-            var single = Run(model, x, ids, input.AsSpan(t * Hidden, Hidden).ToArray(), routes.AsSpan(t * Routes, Routes).ToArray(), 1);
+            // NVFP4 batches from 9 rows quantize their activations to FP4 per row and a single row runs the 8-bit integer-dot matvec, so
+            // their reference is the row repeated as a 9-row batch: every kernel then computes it alone in its row, in the same K order.
+            int copies = fp4 ? 9 : 1;
+            var single = Run(model, x, ids, Repeat(input.AsSpan(t * Hidden, Hidden), copies), Repeat(routes.AsSpan(t * Routes, Routes), copies), copies);
             double error = 0, norm = 0;
             for (int i = 0; i < Hidden; i++)
             {
@@ -85,7 +95,8 @@ public sealed partial class BatchedDecodeRowsTests
             // after eight layers they part by 2.1 %. Rows that read another layer's activations (section 101.4's stale lines) are
             // 20-50 % away.
             double relative = Math.Sqrt(error / Math.Max(norm, 1e-30));
-            Assert.True(relative <= (format == "fp8" ? 5e-2 : 2e-2), $"{format}, {rows} rows: row {t} is {relative:E2} (relative L2) away from its single-row result");
+            double bound = format switch { "fp8" => 5e-2, "nvfp4" or "nvfp4-moe" => 1e-6, _ => 2e-2 };
+            Assert.True(relative <= bound, $"{format}, {rows} rows: row {t} is {relative:E2} (relative L2) away from its single-row result");
         }
     }
 
@@ -104,11 +115,12 @@ public sealed partial class BatchedDecodeRowsTests
         Assert.SkipWhen(NvrtcTranslator.NvrtcVersion is null, "NVRTC is not installed (Sharplight.Cuda.Runtime).");
         var provider = new CudaProvider();
         // A Blackwell workstation GPU's opt-in shared memory, so that the hand-written GEMMs (FP8 prompt and decode forms, f16) serve.
-        var profile = CudaCodeTests.Profile(120, 99 * 1024);
+        // With the block-scaled MMAs a CUDA 12.9 driver adds on 12.x, so that the FP4 GEMMs are checked too.
+        var profile = CudaCodeTests.Profile(120, 99 * 1024, DeviceFeatures.BlockScaledFp8, DeviceFeatures.BlockScaledFp4);
         var portable = await provider.CompilePortableAsync(new PortableCompilationRequest(profile, (device, artifacts, cancellationToken) =>
         {
             CudaCodeTests.Workload(device, artifacts, cancellationToken);
-            foreach (var format in new[] { "fp8", "bf16", "mxfp4-moe", "fp8-moe" })
+            foreach (var format in new[] { "fp8", "bf16", "mxfp4-moe", "fp8-moe", "nvfp4", "nvfp4-moe" })
             {
                 using var model = CompiledModel.Compile(BuildStack(format).Graph, new PlacementOptions
                 {
@@ -164,6 +176,7 @@ public sealed partial class BatchedDecodeRowsTests
         {
             "fp8" or "fp8-moe" => DataType.F8E4M3_B128,
             "bf16" => DataType.BF16,
+            "nvfp4" or "nvfp4-moe" => DataType.NVFP4_GS,
             _ => DataType.MXFP4,
         };
         var h = x;
@@ -187,6 +200,18 @@ public sealed partial class BatchedDecodeRowsTests
 
         tg.B.Output("y", h);
         return (tg.B.Build(), x, ids);
+    }
+
+    /// <summary><paramref name="copies"/> copies of <paramref name="row"/> back to back.</summary>
+    private static T[] Repeat<T>(ReadOnlySpan<T> row, int copies)
+    {
+        var result = new T[row.Length * copies];
+        for (int c = 0; c < copies; c++)
+        {
+            row.CopyTo(result.AsSpan(c * row.Length));
+        }
+
+        return result;
     }
 
     private static float[] Run(CompiledModel model, Value x, Value? ids, float[] input, int[] routes, int rows)

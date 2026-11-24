@@ -848,6 +848,15 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static long? Fp8StoreMinRows { get; } = Read("SHARPLIGHT_FP8_QSTORE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary><c>SHARPLIGHT_NATIVE_FP4=0</c>: keep NVFP4 matmuls off the FP4 GEMM (<c>gemm_fp4_native.cu</c>) where the device has <c>block_scaled_fp4</c>.</summary>
+    public static bool NativeFp4 { get; } = IsNotZero("SHARPLIGHT_NATIVE_FP4");
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP4_MOE=0</c>: keep NVFP4 expert products off the grouped FP4 GEMM (the dense ones keep it).</summary>
+    public static bool NativeFp4Moe { get; } = IsNotZero("SHARPLIGHT_NATIVE_FP4_MOE");
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP4_MIN_ROWS=n</c>: activation rows from which the FP4 GEMM serves NVFP4 matmuls, or null for the default.</summary>
+    public static long? NativeFp4MinRows { get; } = Read("SHARPLIGHT_NATIVE_FP4_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
     public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 

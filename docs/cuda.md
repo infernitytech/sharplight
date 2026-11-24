@@ -76,7 +76,8 @@ graph segment ──GraphLowerer──▶ KernelProgram (launches, buffers, args
   is fixed at 32) on every listed GPU; from compute capability 8.0 the tensor-core features `matrix_f16`, `matrix_bf16`, `matrix_int8`,
   `matrix_mma_layout`, the `bf16` type, `native_gemm_f16` and `native_gemm_kquant`; from 8.9 (Ada, Hopper, Blackwell) `matrix_fp8`, `fp8` and
   `native_gemm_fp8` ([kernels written in CUDA C++](#kernels-written-in-cuda-c)); from 9.0 `tensor_copies`; on 12.x with a CUDA 12.9
-  driver or later `block_scaled_fp8` (the block-scaled E4M3 MMA, used only in the opt-in block-scaled FP8 mode) and `register_reallocation`
+  driver or later `block_scaled_fp8` (the block-scaled E4M3 MMA, used only in the opt-in block-scaled FP8 mode), `block_scaled_fp4` (the
+  block-scaled E2M1 MMA: the FP4 GEMM of NVFP4 weights) and `register_reallocation`
   (`setmaxnreg`: the FP8 GEMM's copy warpgroup); `library_gemm` when cuBLASLt is installed
   ([library GEMM](#library-gemm-cublaslt)); `launch_graphs` (not a code-generation feature, like `kernel_binaries`). The CUDA provider then selects the same tensor-core kernels as the Vulkan
   provider on the same GPU, except the `matrix_workgroup` ones (`VK_NV_cooperative_matrix2` has no CUDA counterpart in
@@ -248,6 +249,21 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   (`SHARPLIGHT_FP8_GROUPED=1` turns it on anywhere, [benchmarks.md §54.7](benchmarks.md)). The dual gate / up pair takes the decode
   form from 9 rows (the skinny GEMM keeps 1-8), and the first stages' weight copies are issued before `griddepcontrol.wait`, so a
   programmatic dependent starts its weight stream while the launch that writes x still runs ([benchmarks.md §84](benchmarks.md)).
+
+- **`gemm_fp4_native.cu`** and **`quantize_fp4.cu`** (`block_scaled_fp4`, compute capability 12.x with a CUDA 12.9+ driver, compiled
+  for `compute_120f` with NVRTC machine code): matmuls of NVFP4 weights (`nvfp4`, and `nvfp4_gs` with its second-level scale, which is
+  the same in every block of a row) from 9 activation rows (`SHARPLIGHT_NATIVE_FP4_MIN_ROWS`); below, the integer-dot matvec. The
+  activations are quantized to FP4 per row (`quantize_fp4.cu`: E2M1 codes, an E4M3 scale per 16 values under the row's f32 scale
+  amax / 2688, 160-byte records per 256 values, a numerics change like the W4A4 mode of the checkpoints' producers: about 9 % relative
+  error per activation); the weights are read in their stored 36- / 40-byte blocks (cp.async into shared memory, 32-byte sectors kept in
+  one granule, [benchmarks.md §97](benchmarks.md)) and multiplied by `mma.sync.m16n8k64.kind::mxf4nvf4.block_scale.scale_vec::4X` with
+  both operands' 16-value scales applied in the MMA and f32 accumulation over all of K; the store multiplies by the activation row's
+  and the weight row's f32 scales. Tiles: 16 / 32 / 64 token rows over 32-64 weight rows at decode batches, 64 x 128 and 128 x 128 above
+  (`NativeFp4Tile`); the gate / up pair runs one dual launch with the group in its store; `F4_MOE` is the expert-grouped form over
+  `moe_route` tiles (16 / 32 / 64 rows) for NVFP4 expert stacks, whose gate / up products run as two launches and the group.
+  `quantize_fp4` is a file of its own so that it gets the dependency wait at its entry (a source that issues
+  `griddepcontrol.wait` itself gets none). `SHARPLIGHT_NATIVE_FP4=0` (or disabling `block_scaled_fp4`) keeps NVFP4 matmuls on the
+  integer-dot matvec, the skinny GEMM and the GEMMs on dequantized weights; `SHARPLIGHT_NATIVE_FP4_MOE=0` only the expert products.
 
 - **`gemm_fp8_decode.cu`** (`native_gemm_fp8`): single block-scaled E4M3 matmuls at 9-16 rows in the grouped layout. No shared-memory
   stages: every warp loads 16 bytes per lane of its 32 weight rows and of the 16 activation rows straight into registers (the same

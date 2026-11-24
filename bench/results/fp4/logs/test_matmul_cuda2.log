@@ -1,0 +1,17 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Vulkan.Tests
+[0m[37m  Discovered:  Sharplight.Vulkan.Tests
+[0m[37m  Starting:    Sharplight.Vulkan.Tests
+[0m[91m    Sharplight.Vulkan.Tests.QuantFormatTests.MatMulIdGrouped(type: "nvfp4_gs") [FAIL]
+[0m[37m      MatMulId.nvfp4_gs  step 0 output y[884]: vulkan 0.684994519 vs cpu 0.616979599 (|d|=6.80E-002, tol=5.62E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/QuantFormatTests.cs(101,0): at Sharplight.Vulkan.Tests.QuantFormatTests.MatMulId(String type, Int32 tokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/QuantFormatTests.cs(81,0): at Sharplight.Vulkan.Tests.QuantFormatTests.MatMulIdGrouped(String type)
+[0m[37m           at InvokeStub_QuantFormatTests.MatMulIdGrouped(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[37m  Finished:    Sharplight.Vulkan.Tests (ID = '74c871a5f1496b591030e809677aa36a31df3773c6fadd740ea9d04c34897092')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Vulkan.Tests  Total: 433, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 31.854s
+[0m[0m
