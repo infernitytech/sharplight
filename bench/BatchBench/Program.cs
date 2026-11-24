@@ -16,6 +16,8 @@
 // vocabulary of bench/loadgen.py, the serving benchmark's prompts) and, in the greedy / sampled modes, every decode step feeds back the
 // tokens the previous step chose for its rows (the serving engine's decode steps), so mixture-of-experts layers route as they do on text.
 // --feedback: random-token prompts, but the chosen tokens fed back as with --text (the workload of bench/s54_vllm_decode_profile.py).
+// --hold-ms N (with --mixed): after timing an entry, keep running its step for N ms and print "[stamp] <entry> <unix ms start> <end>
+// steps <n> gpu_ms <mean>" on stderr, a sustained window that a power / clock sampler (bench/s73_clock_sampler.py) can be matched to.
 // --provider vulkan|cuda picks the GPU provider (default: the first available one, Vulkan); profiles of CUDA steps need
 // SHARPLIGHT_CUDA_PROFILE-style per-launch timing, which --profile switches on per segment like on Vulkan.
 using System.Diagnostics;
@@ -155,6 +157,7 @@ Console.WriteLine("Per mode: wall ms min / median, GPU ms min; first = wall ms o
 Console.WriteLine($"| batch | first ms | dispatches / barriers | {string.Join(" | ", modes)} |");
 Console.WriteLine($"|---|---|---|{string.Concat(modes.Select(_ => "---|"))}");
 string? mixed = Opt("--mixed");
+int holdMs = int.Parse(Opt("--hold-ms", "0")!);
 if (mixed is not null)
 {
     string mode = modes[0];
@@ -198,6 +201,22 @@ if (mixed is not null)
             Step(mode, inputs);
             wall.Add(sw.Elapsed.TotalMilliseconds);
             gpu = Math.Min(gpu, segments.Sum(s => s.Gpu()));
+        }
+
+        if (holdMs > 0)
+        {
+            long start = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var held = Stopwatch.StartNew();
+            int steps = 0;
+            double gpuSum = 0;
+            while (held.Elapsed.TotalMilliseconds < holdMs)
+            {
+                Step(mode, Inputs());
+                gpuSum += segments.Sum(s => s.Gpu());
+                steps++;
+            }
+
+            Console.Error.WriteLine($"[stamp] {spec} {start} {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()} steps {steps} gpu_ms {gpuSum / steps:F3}");
         }
 
         if (n == 0) baseline[d] = gpu;

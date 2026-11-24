@@ -13,6 +13,7 @@
 #      RATES ("16:7.5 64:18": open loop, Poisson arrivals of that many requests per second at that concurrency; see loadgen.py),
 #      TEXT_CHECK (1: after the rounds, bench/textcheck.py compares batched greedy texts of natural prompts with single-request ones
 #      and the script exits 3 when it finds garbage; 0 skips it), TEXT_CHECK_WAVES (concurrent requests per wave, default "16,<SLOTS>"),
+#      LOADGEN_ARGS (more loadgen.py arguments for the rounds, e.g. "--length-mix --gauges"),
 #      FIRST=1 (before the rounds, one request alone on the fresh server, then a second: the cold and the warm single-request TTFT in
 #      $OUT_DIR/serve_<engine>_<name>_first<1|2>.json).
 # Text check result: $OUT_DIR/serve_<engine>_<name>.textcheck.json (+ .textcheck.FAIL when garbage was found).
@@ -90,7 +91,7 @@ if [ $OK = 1 ]; then
         fi
         "$HERE/gpu_check.sh" > "$OUT.gpu.txt"
         timeout 1800 "$PY" -I "$HERE/loadgen.py" --url "http://127.0.0.1:$PORT" --model m -c "$N" --per-worker $PER --ignore-eos \
-          --metrics --seed "$R" $NAT "${ARR[@]}" --json "$OUT.json" | cut -c1-400
+          --metrics --seed "$R" $NAT "${ARR[@]}" ${LOADGEN_ARGS:-} --json "$OUT.json" | cut -c1-400
         [ "${QUIET_GPU:-0}" = 1 ] || break
         kill $MON 2>/dev/null; wait $MON 2>/dev/null; MON=
         [ -e "$OUT.foreign" ] || break
