@@ -4,7 +4,8 @@
 // a ring of 64-value K steps (128-byte rows, XOR swizzle) in dynamic shared memory, ldmatrix and mma.sync.m16n8k16.
 //
 // Tiles (H_CFG): 0 = 128 tokens x 256 weight rows, 2 x 4 warps of 64 x 64 outputs, two stages (96 KB); 1 = 128 x 128, 2 x 2 warps
-// of 64 x 64, three stages (96 KB), for grids that the wide tile would fill in few waves; 2 = the decode form for batches of at
+// of 64 x 64, three stages (96 KB), for grids that the wide tile would fill in few waves; 3 = 64 x 256, 2 x 4 warps of 32 x 64, two
+// stages (80 KB), for batches whose last 128-row token tile would be mostly empty (benchmarks.md section 102); 2 = the decode form for batches of at
 // most 64 rows: 64 tokens x H_DBN (default 64) weight rows, 2 x (H_DBN / 16) warps of 32 x 16 outputs, four stages, no K split (one
 // launch where the generated GEMMs split K and reduce). Blocks are rasterized in groups of H_GROUP token tiles that walk all weight
 // tiles, so a group's activations stay in L2 while the weights stream through.
@@ -22,6 +23,11 @@
 // start at byte H_XRS of x (common.slang, f16_range_scale); the store multiplies each row's products by the inverse of its scale
 // (before the bias; exact: a power of two), as the unscale launch (and the Add) would.
 //
+// A token tile past the last row (the last tile of a batch that is not a multiple of H_BM rows) runs a partial main loop: a warp
+// multiplies only its 16-row fragments that hold rows of the batch, and no block copies x rows past the last such fragment. The
+// block still streams its whole weight tile, but its MMAs (what a full tile's time is) shrink with its rows, so a batch a few rows
+// past a tile boundary no longer pays a whole tile of tensor work (benchmarks.md section 102). Full tiles run the loop unchanged.
+//
 // Specialization macros: K, N (all rows with MULTI), Y_STRIDE, H_CFG, H_DBN (H_CFG 2), DUAL, H_EPI2 (DUAL), MULTI, MULTI_O1,
 // MULTI_O2, H_BIAS, H_XRS. Requires K % 64 == 0, 16-byte aligned operands and an even Y_STRIDE (MULTI: even widths). Grid:
 // x = token tiles, y = weight tiles.
@@ -33,6 +39,9 @@
 #endif
 #ifndef H_BIAS
 #define H_BIAS 0
+#endif
+#ifndef H_PARTIAL
+#define H_PARTIAL 1
 #endif
 #ifndef MULTI
 #define MULTI 0
@@ -53,6 +62,11 @@
 #define H_BN 128
 #define H_WN 2
 #define H_STAGES 3
+#elif H_CFG == 3
+#define H_BM 64
+#define H_BN 256
+#define H_WN 4
+#define H_STAGES 2
 #else
 #ifndef H_DBN
 #define H_DBN 64
@@ -79,6 +93,13 @@
 
 typedef unsigned int h_u32;
 typedef unsigned long long h_u64;
+
+// A compile-time flag passed to the main loop (full or partial token tile).
+template <bool B>
+struct h_flag
+{
+    static constexpr bool value = B;
+};
 
 struct HParams
 {
@@ -192,7 +213,7 @@ static __device__ __forceinline__ HMember h_member(const HParams& p, h_u32& n0)
     return m;
 }
 
-extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm_f16_native(HParams p)
+extern "C" __global__ void __launch_bounds__(H_THREADS, H_CFG == 2 ? 2 : 1) gemm_f16_native(HParams p)
 {
     extern __shared__ __align__(128) unsigned char smem[];
     const h_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
@@ -204,14 +225,29 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
     const HMember m = h_member(p, n0);
     const h_u32 nk = K / 64;
 
-    auto load = [&](h_u32 s, h_u32 kb) {
+    // Rows of the batch in this token tile, the tile rows the fragments with such rows cover (multiples of 16), and how many of
+    // this warp's fragments hold rows of the batch (warp-uniform).
+    const h_u32 tileRows = min(p.T - t0, (h_u32)H_BM), usedRows = (tileRows + 15u) & ~15u;
+    const h_u32 warpRow = wm * H_TM, fragments = usedRows > warpRow ? min((usedRows - warpRow) / 16u, (h_u32)H_FM) : 0u;
+
+    auto load = [&](h_u32 s, h_u32 kb, auto partial) {
         h_u32 base = (h_u32)__cvta_generic_to_shared(smem + s * H_STAGE_BYTES);
         const h_u32 k0 = kb * 128;
 #pragma unroll
         for (h_u32 i = 0; i < H_BM * 8 / H_THREADS; i++)
         {
             h_u32 idx = tid + i * H_THREADS, r = idx >> 3, c = idx & 7;
-            h_cp16(base + h_swz(r, c), p.x + (h_u64)min(t0 + r, p.T - 1) * H_RS + k0 + c * 16);
+            if constexpr (decltype(partial)::value)
+            {
+                if (r < usedRows)
+                {
+                    h_cp16(base + h_swz(r, c), p.x + (h_u64)min(t0 + r, p.T - 1) * H_RS + k0 + c * 16);
+                }
+            }
+            else
+            {
+                h_cp16(base + h_swz(r, c), p.x + (h_u64)min(t0 + r, p.T - 1) * H_RS + k0 + c * 16);
+            }
         }
 #pragma unroll
         for (h_u32 i = 0; i < H_BN * 8 / H_THREADS; i++)
@@ -236,54 +272,78 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_BM == 64 ? 2 : 1) gemm
         }
     }
 
+    auto mainLoop = [&](auto partial) {
+        constexpr bool Partial = decltype(partial)::value;
 #pragma unroll
-    for (int s = 0; s < H_STAGES - 1; s++)
-    {
-        if (s < (int)nk)
+        for (int s = 0; s < H_STAGES - 1; s++)
         {
-            load(s, s);
-        }
-        asm volatile("cp.async.commit_group;\n" ::);
-    }
-
-    for (h_u32 kb = 0; kb < nk; kb++)
-    {
-        asm volatile("cp.async.wait_group %0;\n" :: "n"(H_STAGES - 2));
-        __syncthreads();
-        h_u32 next = kb + H_STAGES - 1;
-        if (next < nk)
-        {
-            load(next % H_STAGES, next);
-        }
-        asm volatile("cp.async.commit_group;\n" ::);
-
-        const h_u32 sa = (h_u32)__cvta_generic_to_shared(smem + (kb % H_STAGES) * H_STAGE_BYTES), sb = sa + H_BM * 128;
-#pragma unroll
-        for (h_u32 kk = 0; kk < 4; kk++)
-        {
-            h_u32 a[H_FM][4], b[H_FN][2];
-#pragma unroll
-            for (int i = 0; i < H_FM; i++)
+            if (s < (int)nk)
             {
-                h_u32 r = wm * H_TM + i * 16 + (lane & 15);
-                h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
+                load(s, s, partial);
             }
-#pragma unroll
-            for (int j = 0; j < H_FN; j += 2)
+            asm volatile("cp.async.commit_group;\n" ::);
+        }
+
+        for (h_u32 kb = 0; kb < nk; kb++)
+        {
+            asm volatile("cp.async.wait_group %0;\n" :: "n"(H_STAGES - 2));
+            __syncthreads();
+            h_u32 next = kb + H_STAGES - 1;
+            if (next < nk)
             {
-                h_u32 r = wn * H_TN + j * 8 + (lane & 7) + ((lane >> 4) << 3);
-                h_ldsm4(sb + h_swz(r, kk * 2 + ((lane >> 3) & 1)), b[j][0], b[j][1], b[j + 1][0], b[j + 1][1]);
+                load(next % H_STAGES, next, partial);
             }
-#pragma unroll
-            for (int i = 0; i < H_FM; i++)
+            asm volatile("cp.async.commit_group;\n" ::);
+            if constexpr (Partial)
             {
-#pragma unroll
-                for (int j = 0; j < H_FN; j++)
+                if (fragments == 0)
                 {
-                    h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
+                    continue;
+                }
+            }
+
+            const h_u32 sa = (h_u32)__cvta_generic_to_shared(smem + (kb % H_STAGES) * H_STAGE_BYTES), sb = sa + H_BM * 128;
+#pragma unroll
+            for (h_u32 kk = 0; kk < 4; kk++)
+            {
+                h_u32 a[H_FM][4], b[H_FN][2];
+#pragma unroll
+                for (int i = 0; i < H_FM; i++)
+                {
+                    if (!Partial || (h_u32)i < fragments)
+                    {
+                        h_u32 r = wm * H_TM + i * 16 + (lane & 15);
+                        h_ldsm4(sa + h_swz(r, kk * 2 + (lane >> 4)), a[i][0], a[i][1], a[i][2], a[i][3]);
+                    }
+                }
+#pragma unroll
+                for (int j = 0; j < H_FN; j += 2)
+                {
+                    h_u32 r = wn * H_TN + j * 8 + (lane & 7) + ((lane >> 4) << 3);
+                    h_ldsm4(sb + h_swz(r, kk * 2 + ((lane >> 3) & 1)), b[j][0], b[j][1], b[j + 1][0], b[j + 1][1]);
+                }
+#pragma unroll
+                for (int i = 0; i < H_FM; i++)
+                {
+                    if (!Partial || (h_u32)i < fragments)
+                    {
+#pragma unroll
+                        for (int j = 0; j < H_FN; j++)
+                        {
+                            h_mma(acc[i][j], a[i], b[j][0], b[j][1]);
+                        }
+                    }
                 }
             }
         }
+    };
+    if (!H_PARTIAL || tileRows == H_BM)
+    {
+        mainLoop(h_flag<false>{});
+    }
+    else
+    {
+        mainLoop(h_flag<true>{});
     }
     asm volatile("cp.async.wait_group 0;\n" ::);
 
