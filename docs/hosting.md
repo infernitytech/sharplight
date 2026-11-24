@@ -77,6 +77,7 @@ trailing commas allowed, sizes as bytes or `"2G"`):
     "cpuOffload": false,
     "blockScaledFp8": true,
     "stepFloor": "waves",
+    "stepRowsPerSequence": 48,
     "maxQueue": 64
   },
   "models": [
@@ -97,18 +98,19 @@ trailing commas allowed, sizes as bytes or `"2G"`):
 | `lazy` | models without their own `lazy` load on the first request instead of at startup |
 | `onDemand` | also serve the models of the registered `IHostedModelResolver` |
 | `disabledFeatures` | device features no model may use (fallback testing, broken drivers) |
-| `defaults` | per-model settings for models that do not set their own: device, context, batch rows, slots, paged KV cache (`kvCacheTokens`), KV type, CPU offload, reduced precision, block-scaled FP8 (`blockScaledFp8`, below), queue limit, prefill chunk, step tokens (`stepTokens`, `minStepTokens`, `stepFloor`, below), n-gram and MTP speculation, projector, chat template |
+| `defaults` | per-model settings for models that do not set their own: device, context, batch rows, slots, paged KV cache (`kvCacheTokens`), KV type, CPU offload, reduced precision, block-scaled FP8 (`blockScaledFp8`, below), queue limit, prefill chunk, step tokens (`stepTokens`, `minStepTokens`, `stepFloor`, `stepRowsPerSequence`, below), n-gram and MTP speculation, projector, chat template |
 
 Per model: `name`, `path`, `kind` (`chat` default, `embedding`, `reranker`, `task` with `task` = the task kind), `device`,
 `contextLength`, `batchTokens`, `slots`, `kvCacheTokens`, `kvCacheType`, `projector`, `chatTemplate`, `auxiliary` (files by role),
 `lazy`, `pinned`, `cpuOffload`, `blockScaledFp8`, `idleTimeoutSeconds`, `workers` (segment workers for the later pipeline stages), `description`. `HostedModelSettings.Resolve` merges a model with the defaults.
 
-Engine defaults that changed on 2026-11-23 (both can be set back):
+Engine defaults that changed on 2026-11-23 (all can be set back):
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `blockScaledFp8` (defaults or per model; `TaskLoadOptions.BlockScaledFp8`) | `true` | models with block-scaled E4M3 weights run their prompt-sized products on the block-scaled MMA with power-of-two scales where the device has it (CUDA, compute capability 12.x): about 2 % more serving throughput at 64 streams, perplexity +0.3 to +0.8 % against the checkpoints' f32 scales, the form vLLM uses by default. `false` keeps the f32 scales. No effect on other models and devices (docs/cuda.md, "Block-scaled FP8 by default"). `SHARPLIGHT_FP8_BLOCK_SCALED=1\|0` overrides it for the process |
 | `stepFloor` (defaults; `EngineOptions.StepFloor`) | `waves` | when the `minStepTokens` floor of the load-adaptive step budget applies: `waves` only while no sequence decodes (at 16 closed-loop streams TTFT p50 -22 to -28 %, ITL p99 -20 to -28 %, throughput unchanged for a dense FP8 model and -1.7 % for gpt-oss-20b; neutral at 64 streams; benchmarks.md §93.4), `always` every step (the earlier default), `full` the whole budget while some sequence decodes (lowest ITL tail, longest TTFT). `SHARPLIGHT_STEP_FLOOR_WAVES=1\|0\|full` overrides it for the process |
+| `stepRowsPerSequence` (defaults; `EngineOptions.BatchTokensPerSequence`) | `48` (was 32) | prompt rows per sequence holding a slot that a step may carry while some sequence decodes (rounded up to a 128-row token tile: 768 rows at 16 slots). At 16 closed-loop streams against 32: ITL p95 about halved (gpt-oss-20b 20-22 → 12 ms, Qwen3-8B-FP8 25 → 15 ms), throughput +1 % on gpt-oss-20b and unchanged on Qwen3-8B-FP8, TTFT p50 +20 ms and closed-loop ITL p99 +25 % (benchmarks.md §100.1, §101). At 64 streams the budget is the whole step either way. `SHARPLIGHT_STEP_ROWS_PER_SEQUENCE=n` overrides it for the process |
 
 Delegates that are not part of the JSON form: `Log` (load, unload and eviction messages; default the manager's `ILogger`),
 `ConfigureLoad` (adjust each model's load options: progress, logging, compilation artifacts) and `ConfigureChat` (adjust each chat

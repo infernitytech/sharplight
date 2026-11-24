@@ -28,14 +28,28 @@ public sealed record EngineOptions
     /// <c>full</c>) overrides it for the process.
     /// </summary>
     public StepFloorPolicy StepFloor { get; set; } = StepFloorPolicy.Waves;
-    /// <summary>Rows per sequence holding a slot that the adaptive step budget allows (see <see cref="MinBatchTokens"/>).</summary>
-    public int BatchTokensPerSequence { get; set; } = 32;
+    /// <summary>
+    /// Rows per sequence holding a slot that the adaptive step budget allows (see <see cref="MinBatchTokens"/>), rounded up to
+    /// <see cref="BatchTokensGranule"/>: while some sequence decodes, a step of 16 slots carries at most 768 rows by default. Larger values
+    /// prefill a wave of prompts in fewer, longer steps (fewer decode gaps carry a prompt: lower ITL p95, slightly higher throughput on
+    /// MoE models) at the cost of TTFT and the ITL p99 of the prompts admitted first (benchmarks.md §100.1). Default 48. The environment
+    /// variable <c>SHARPLIGHT_STEP_ROWS_PER_SEQUENCE</c> overrides it for the process.
+    /// </summary>
+    public int BatchTokensPerSequence { get; set; } = 48;
     /// <summary>
     /// The adaptive step budget (see <see cref="MinBatchTokens"/>) is rounded up to a multiple of this many rows (1: no rounding). A
     /// prompt-sized GEMM's time follows the count of its token tiles (128 rows on the CUDA provider's FP8 and f16 GEMMs), so a budget
     /// of 1,824 rows costs what 1,920 would (benchmarks.md §90).
     /// </summary>
     public int BatchTokensGranule { get; set; } = 128;
+    /// <summary>
+    /// Prompt rows scheduled around token tiles (<see cref="BatchTokensGranule"/>) on measured prices (default on): a step whose rows would
+    /// end a few rows past a tile holds those prompt rows back for a later step's decode rows, and a prompt that the budget cuts a few
+    /// rows short of its end takes them in this step, each only when the step costs measured on this engine say it is cheaper (the cost of
+    /// another token tile against what the rows add to a decode step; benchmarks.md §101). The environment variable
+    /// <c>SHARPLIGHT_STEP_TILE_AWARE=0|1</c> overrides it for the process.
+    /// </summary>
+    public bool TileAwarePrompts { get; set; } = true;
     /// <summary>
     /// Maximum prompt rows of one sequence per step (0, the default: the step's token budget, so a prompt takes whole passes of the
     /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.

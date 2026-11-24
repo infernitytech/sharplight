@@ -1,0 +1,57 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 151936, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 40.3 | 474 / 0 | 12.24 / 12.27, 12.19 |  |
+--- profile mixed 16+0 (greedy)
+GPU time 136.35 ms
+    49.136 ms  36.0%    360x  min    133.0 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_native T=16,U=16,R=16|2,3
+    25.145 ms  18.4%    360x  min     67.7 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_decode T=16,U=16,R=16|2,3
+    15.572 ms  11.4%     10x  min   1554.2 us  matmul [4096→151936] f16 skinny gemm_sk T=16,U=16,R=16|2,3
+    13.388 ms   9.8%    360x  min     34.6 us  matmul [4096→4096+1024+1024] f8e4m3_b128g native gemm_fp8_native T=16,U=16,R=16|2,3
+    10.178 ms   7.5%    360x  min     26.4 us  attention attn_decode_native T=16,U=16,R=16|2,3
+     9.340 ms   6.9%    360x  min     24.2 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_decode T=16,U=16,R=16|2,3
+     3.560 ms   2.6%    720x  min      3.0 us  fused[Add]+RmsNorm main T=16,U=16,R=16|2,3
+     2.474 ms   1.8%    720x  min      2.0 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=16,U=16,R=16|2,3
+     2.406 ms   1.8%    360x  min      4.9 us  attention combine decode_combine T=16,U=16,R=16|2,3
+     1.974 ms   1.4%    360x  min      3.6 us  rope+qkv+cache_write rope_qkv T=16,U=16,R=16|2,3
+     1.514 ms   1.1%    360x  min      2.4 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=16,U=16,R=16|2,3
+     1.155 ms   0.8%    360x  min      2.0 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] x→fp8 quantize_fp8 T=16,U=16,R=16|2,3
+     0.275 ms   0.2%     10x  min     26.6 us  sample sample T=16,U=16,R=16|2,3
+     0.126 ms   0.1%     20x  min      3.7 us  gather gather T=16,U=16,R=16|2,3
+     0.058 ms   0.0%     10x  min      4.2 us  RmsNorm main T=16,U=16,R=16|2,3
+     0.049 ms   0.0%     10x  min      3.6 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=16,U=16,R=16|2,3
+
+| 15 | 10 (1) | 28.2 | 402 / 0 | 12.40 / 12.45, 12.35 |  |
+--- profile mixed 15+10 (greedy)
+GPU time 137.41 ms
+    49.110 ms  35.7%    360x  min    132.9 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_native T=25,U=16,R=16|2,3
+    26.369 ms  19.2%    360x  min     69.9 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=25,U=16,R=16|2,3
+    15.591 ms  11.3%     10x  min   1556.5 us  matmul [4096→151936] f16 skinny gemm_sk T=25,U=16,R=16|2,3
+    14.045 ms  10.2%    360x  min     36.4 us  matmul [4096→4096+1024+1024] f8e4m3_b128g native gemm_fp8_native T=25,U=16,R=16|2,3
+    10.395 ms   7.6%    360x  min     27.1 us  attention attn_decode_native T=25,U=16,R=16|2,3
+     9.728 ms   7.1%    360x  min     23.8 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=25,U=16,R=16|2,3
+     4.151 ms   3.0%    720x  min      3.9 us  fused[Add]+RmsNorm main T=25,U=16,R=16|2,3
+     2.438 ms   1.8%    360x  min      5.4 us  attention combine decode_combine T=25,U=16,R=16|2,3
+     2.028 ms   1.5%    360x  min      4.1 us  rope+qkv+cache_write rope_qkv T=25,U=16,R=16|2,3
+     1.637 ms   1.2%    360x  min      2.8 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=25,U=16,R=16|2,3
+     1.419 ms   1.0%    360x  min      2.1 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=25,U=16,R=16|2,3
+     0.277 ms   0.2%     10x  min     27.1 us  sample sample T=25,U=16,R=16|2,3
+     0.120 ms   0.1%     20x  min      4.2 us  gather gather T=25,U=16,R=16|2,3
+     0.053 ms   0.0%     10x  min      4.8 us  RmsNorm main T=25,U=16,R=16|2,3
+     0.044 ms   0.0%     10x  min      3.0 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=25,U=16,R=16|2,3
+
+| 16 | 16 (1) | 31.2 | 402 / 0 | 12.58 / 12.61, 12.53 | 0.021 |
+| 16 | 32 (1) | 28.6 | 366 / 0 | 13.03 / 13.20, 12.98 | 0.025 |
+| 16 | 112 (1) | 20.9 | 402 / 0 | 14.91 / 15.18, 14.86 | 0.024 |
+| 16 | 240 (1) | 29.0 | 366 / 0 | 20.54 / 21.39, 20.49 | 0.035 |
+| 16 | 250 (1) | 29.3 | 366 / 0 | 27.39 / 27.69, 27.34 | 0.061 |
+| 16 | 496 (1) | 37.9 | 366 / 0 | 36.07 / 36.23, 36.02 | 0.048 |
+| 16 | 512 (1) | 42.9 | 366 / 0 | 40.52 / 40.62, 40.47 | 0.055 |
+| 16 | 752 (1) | 54.8 | 366 / 0 | 52.62 / 52.76, 52.56 | 0.054 |
+| 16 | 762 (1) | 59.5 | 366 / 0 | 57.66 / 57.73, 57.60 | 0.060 |
+| 16 | 784 (1) | 60.4 | 366 / 0 | 58.04 / 58.20, 57.98 | 0.058 |
+| 0 | 10 (1) | 20.9 | 474 / 0 | 11.28 / 11.31, 11.25 |  |
+| 0 | 128 (1) | 18.5 | 402 / 0 | 13.87 / 14.03, 13.82 |  |

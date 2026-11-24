@@ -89,10 +89,20 @@ static __device__ __forceinline__ uint4 f8d_ldw(const f8d_u8* p)
     return v;
 }
 
-// An activation load: every warp of the K range reads the same rows.
+// An activation load: every warp of the K range reads the same rows. Through L2 only (ld.global.cg), never the non-coherent L1 path:
+// launched as a programmatic dependent, this grid starts while earlier launches still run on its SMs, and an L1 line of x cached
+// there before the launch that writes x finished would survive griddepcontrol.wait (stale rows: garbage text at 9-16 decode rows).
 static __device__ __forceinline__ uint4 f8d_ldx(const f8d_u8* p)
 {
-    return __ldg((const uint4*)p);
+    uint4 v;
+    asm volatile("ld.global.cg.v4.u32 {%0,%1,%2,%3}, [%4];\n" : "=r"(v.x), "=r"(v.y), "=r"(v.z), "=r"(v.w) : "l"(p) : "memory");
+    return v;
+}
+
+// An activation scale load, through L2 only like f8d_ldx.
+static __device__ __forceinline__ float f8d_ldxs(const f8d_u8* p)
+{
+    return __ldcg((const float*)p);
 }
 
 static __device__ __forceinline__ void f8d_mma(float* c, f8d_u32 a0, f8d_u32 a1, f8d_u32 a2, f8d_u32 a3, f8d_u32 b0, f8d_u32 b1)
@@ -185,8 +195,8 @@ extern "C" __global__ void __launch_bounds__(F8D_THREADS) gemm_fp8_decode(F8dPar
         {
             s.x[j][0] = f8d_ldx(xc[j] + kb * 128);
             s.x[j][1] = f8d_ldx(xc[j] + kb * 128 + 64);
-            s.sx[j][0] = __ldg((const float*)(xsc[j][0] + kb * 4));
-            s.sx[j][1] = __ldg((const float*)(xsc[j][1] + kb * 4));
+            s.sx[j][0] = f8d_ldxs(xsc[j][0] + kb * 4);
+            s.sx[j][1] = f8d_ldxs(xsc[j][1] + kb * 4);
         }
     };
 

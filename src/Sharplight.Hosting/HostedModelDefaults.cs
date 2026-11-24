@@ -72,6 +72,12 @@ public sealed class HostedModelDefaults
     /// </summary>
     public Llm.Serving.StepFloorPolicy? StepFloor { get; set; }
 
+    /// <summary>
+    /// Rows per sequence holding a slot that the adaptive step budget allows
+    /// (<see cref="Llm.Serving.EngineOptions.BatchTokensPerSequence"/>); null = the engine's default (48).
+    /// </summary>
+    public int? StepRowsPerSequence { get; set; }
+
     /// <summary>Draft length of prompt-lookup speculation; 0 disables it.</summary>
     public int NgramDraftTokens { get; set; }
 

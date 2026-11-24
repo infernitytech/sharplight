@@ -15717,3 +15717,185 @@ nvcc -O3 -arch=sm_120 bench/s99_pdl_placement.cu -o pdl
 for na in 108 180 328; do for bs in 0 1024 1536 2048 3072; do NA=$na NB=16 A_SMEM=0 B_SMEM=$bs A_US=3 B_US=40 MODE=1 ./pdl; done; done
 SHARPLIGHT_CUDA_PDL_SHARED_FLOOR=0 ...   # rule 1 as in §99
 ```
+
+## 101. LLM round 41: 48 prompt rows per slot as the owner default and a setting, prompt rows scheduled around token tiles on measured step prices (open loop: dense FP8 / bf16 ITL p95 -23 to -25 %, mean -4 %; MoE unchanged), the "prompt tail" of §100.7 re-measured (a host recording, not GPU work), batched Qwen3-8B-FP8 garbage since §84 found and fixed (stale L1 reads under dependent launches) (2026-11-23)
+
+Branch `perf/llm-r41` (`develop` at `45fd9b1d`, §100 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap), shared with other rounds; every GPU run held the verify lock, `develop` (`perf-r41-base` worktree, at `8d6b8e1b`: the
+same code as `45fd9b1d`) and the branch alternated in the same holds, vLLM 0.33 (venv `vllm-r12`) in the same holds. Raw output in
+[`bench/results/s101/`](../bench/results/s101) (`steps/`, `ab/`, `abp/`, `abl/`, `ablp/`, `trace48/`, `prof48/`, `tr41/`, `tr41p/`,
+`correct/`, `diag/`, `tests/`, `sim/`, `scripts/`).
+
+Kept (keyed on token tiles, row counts, measured step times and launch semantics; nothing on models):
+
+1. **Owner decision: 48 prompt rows per slot while decoding** (`EngineOptions.BatchTokensPerSequence` 32 → 48, §100.1's proposal),
+   now a real setting like `StepFloor`: `serve --step-rows-per-sequence N`, hosting key `stepRowsPerSequence` (defaults),
+   `SHARPLIGHT_STEP_ROWS_PER_SEQUENCE=n` still overrides it; docs/hosting.md and the CLI README updated; tests for the option
+   plumbing (JSON round trip, hosting settings to `EngineOptions`, the engine default).
+2. **Prompt rows scheduled around token tiles on measured prices** (`EngineOptions.TileAwarePrompts`, default on;
+   `SHARPLIGHT_STEP_TILE_AWARE=0|1`). A new `TileStepCost` fits prompt-bearing steps online as `a + b · rows + c · tiles`
+   (`tiles = ⌈rows / BatchTokensGranule⌉`, exponentially weighted least squares, a small ridge on `c`) and prices a few prompt rows
+   that ride a later decode step against the decode-only step of the same decode rows. With these prices the scheduler
+   * holds back the prompt rows that would make a step start another token tile (§91.4's trim) when every waiting prompt row fits
+     the step, at most a quarter tile ends past it, the step decodes and the tile costs more than the rows will in a later decode
+     step, by 2 % of the step's predicted time;
+   * lets a prompt that the budget cuts a few rows short of its end take them in this step when they cost less here than later
+     (the move the other way; it never fired in these runs: the budgets are tile multiples, so the rows always start a tile).
+   Tile-quantized prompt GEMMs learn a large `c` and hold (Qwen3-8B-FP8 3.3-7.4 ms per tile in the traces, Llama-3.1-8B bf16
+   likewise), linear-cost steps learn `c` ≈ 0 and do not (gpt-oss-20b, whose expert GEMMs tile per expert: 0.0-1.0 ms, 6 holds in a
+   Poisson run against Qwen3-8B-FP8's 146). This is what §92.4 asked for before keeping the trim.
+3. **Batched Qwen3-8B-FP8 produced garbage on CUDA since §84** (r29, `4c636f76`): `gemm_fp8_decode.cu` (the register-streaming FP8
+   decode GEMM for 9-16 rows) read its activation rows with `__ldg` (`ld.global.nc`, the non-coherent L1 path). Launched as a
+   programmatic dependent, its blocks start while earlier launches still run on their SMs, and an L1 line of `x` cached before the
+   launch that writes `x` finished survives `griddepcontrol.wait`. It now reads `x` and its scales through L2 only (`ld.global.cg` /
+   `__ldcg`), as `gemm_fp8_native.cu` always did (`cp.async.cg`). See 101.4.
+
+### 101.1 What the "prompt tail" of §100.7 costs
+
+§100.7 item 2 read a 25-row step (15 decode rows + a 10-row prompt tail) at 17.3 ms against 12.5 for decode only. BatchBench (GPU ms
+min of 10, `steps/tail_*`):
+
+| step (decode + prompt rows) | 16 + 0 | 15 + 10 | 16 + 16 | 16 + 32 | 16 + 112 | 16 + 240 | 16 + 250 | 16 + 496 | 16 + 512 | 16 + 752 | 16 + 762 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8 | 12.19 | **12.35** | 12.53 | 12.98 | 14.86 | 20.49 | **27.34** | 36.02 | **40.47** | 52.56 | **57.60** |
+| gpt-oss-20b | 9.13 | 11.09 | 11.94 | 12.18 | 15.72 | 22.24 | 24.75 | 35.89 | 37.45 | 48.41 | 49.61 |
+| Llama-3.1-8B (bf16) | 20.50 | 21.15 | | | 25.33 | 34.01 | **51.27** | 62.01 | **69.95** | | |
+
+The tail's GPU cost is 0.16 ms on Qwen3-8B-FP8; the 17.3 ms of the trace was the step's first run: a new step shape (rows, logits
+rows, runs) is recorded launch by launch on the host (~400 launches), which a small step cannot hide behind its GPU time (the
+serving step profile, `prof48/`: recorded prompt steps carry 5-8 ms of recording each, hidden behind their GPU time; the one recorded
+small step 12 ms against 22 GPU). Holding the tail changes nothing there, and with 48 rows per slot tail-only steps are rare
+(`trace48/`: 1 of 1,173 steps on Qwen3-8B-FP8, 0 on gpt-oss-20b, closed loop 16 + 64 streams). What does cost GPU time is the other
+side of the same boundary: a step a few rows past a token tile pays the whole tile (Qwen3-8B-FP8 +6.9 ms for the 10 rows from 256 to
+266, Llama-3.1-8B +17.3 ms, gpt-oss-20b +2.5), which item 2 now avoids where it pays. A closed-loop simulator with the KV-block-aligned
+cut (`sim/sim.py`) agrees that absorbing tails changes 0-2 of ~75 prompt-bearing steps per run.
+
+### 101.2 Serving: `develop`-32, `develop`-48, r41-48 against vLLM
+
+`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token prompts, 128 output tokens. Closed loop: one round per configuration,
+the order `develop`-32, `develop`-48, r41, r41 tile-aware off, vLLM, r41, `develop`-48, r41 off, `develop`-32 in one hold per model
+(`ab/`); open loop (Poisson, §92.4's rates, ~85 % load): `develop`-48, r41, r41 off, vLLM, r41, `develop`-48, r41 off (`abp/`).
+`develop`-48 is `develop` with `SHARPLIGHT_STEP_ROWS_PER_SEQUENCE=48`. Tok/s, TTFT p50, ITL mean / p95 / p99 (ms); two values are
+the two rounds.
+
+**Closed loop:**
+
+| model, streams | `develop`-32 | `develop`-48 | r41-48 | vLLM 0.33 | r41 / vLLM |
+|---|---|---|---|---|---:|
+| Qwen3-8B-FP8, 16: tok/s | 1105, 1102 | 1104, 1101 | 1103, 1102 | 1120 | 0.98 |
+| TTFT / ITL mean, p95, p99 | 79-80 / 13.64-13.69, 25-26, 38 | 96-98 / 13.58, 14.7-14.9, 49-50 | 96-99 / 13.55-13.57, 14.5-15.4, 49.5 | 166 / 12.90, 12.8, 14.2 | |
+| Qwen3-8B-FP8, 64: tok/s | 2733, 2728 | 2732, 2730 | 2728, 2730 | 2701 | **1.01** |
+| TTFT / ITL mean, p95, p99 | 267-284 / 20.84-20.87, 26-27, 129-130 | 270-271 / 20.75-20.84, 24.1, 130-132 | 270-273 / 20.75-20.76, 23.5-24.3, 130 | 397 / 20.18, 20.8, 133 | |
+| gpt-oss-20b, 16: tok/s | 1389, 1400 | 1408, 1427 | 1406, 1413 | 1404 | **1.00-1.01** |
+| TTFT / ITL mean, p95, p99 | 81-82 / 10.46-10.57, 21-22, 40 | 99-102 / 10.23-10.37, 11.8-11.9, 48 | 99-103 / 10.33-10.37, 12.2-12.7, 47-49 | 179 / 10.08, 10.7, 24.7 | |
+| gpt-oss-20b, 64: tok/s | 3190, 3195 | 3212, 3213 | 3193, 3211 | 3200 | **1.00** |
+| TTFT / ITL mean, p95, p99 | 229-230 / 17.31-17.35, 32-36, 113-115 | 236-239 / 17.26-17.28, 30.5-32.5, 116 | 237 / 17.26-17.36, 33, 115-116 | 434 / 16.47, 15.3, 121 | |
+
+48 rows per slot against 32 (the owner decision, measured again): ITL p95 at 16 streams 25-26 → 15 ms (Qwen3-8B-FP8) and 21-22 →
+12 ms (gpt-oss-20b), gpt-oss-20b +1.0-1.9 % tok/s at 16 and +0.6 % at 64, TTFT p50 +17-20 ms, closed-loop ITL p99 38-40 → 48-50 ms.
+The tile-aware schedule is neutral in the closed loop on every row (r41 against r41 off, `ab/*xn48off*`: within the round-to-round
+spread), as §91.4 and §100.6 predicted: the waves' prompt steps are budget-cut and end on tiles already.
+
+**Open loop (Poisson):**
+
+| model, streams | `develop`-48 | r41-48 | r41-48, tile-aware off | vLLM 0.33 |
+|---|---|---|---|---|
+| Qwen3-8B-FP8, 16: TTFT p50 / ITL mean, p95, p99 | 57-58 / 14.08, 28.0-28.1, 29.4-29.5 | 56-57 / **13.44-13.47, 21.0-21.1, 25.4-25.6** | 58-64 / 14.07-14.10, 28.1-28.2, 29.6-30.1 | 74 / 13.87, 24.3, 34.0 |
+| Qwen3-8B-FP8, 64 | 60-62 / 21.71-21.78, 42.2-42.9, 54-58 | 61-62 / 21.61-21.64, 41.7-42.4, 57-59 | 61-62 / 21.84-21.85, 41.9-42.4, 58-59 | 111 / 23.19, 42.8, 52.5 |
+| gpt-oss-20b, 16 | 59 / 10.72, 24.9, 28.3 | 55-60 / 10.71-10.72, 24.9-25.0, 26.4-26.7 | 58 / 10.71, 25.0, 26.6 | 108 / 10.86, 25.5, 27.8 |
+| gpt-oss-20b, 64 | 63 / 18.96, 40.5, 52.6 | 63-65 / 18.96-19.15, 40.1-40.5, 52.1-52.3 | 62 / 18.92, 40.5, 52.8 | 168 / 20.26, 49.1, 62.9 |
+
+Qwen3-8B-FP8 at 16 streams: ITL mean -4.5 %, p95 -25 % (28 → 21 ms, now 14 % below vLLM's 24.3), p99 -13 %, TTFT unchanged; at 64
+streams ITL mean -0.5 % (the steps are mostly full budgets). gpt-oss-20b does not move (its fitted tile price is ~0, so it holds in 6
+steps of a run; §92.4's fixed trim cost it +0.5-1.3 % ITL mean). Open-loop throughput is the arrival rate (equal everywhere).
+
+**Additional model, Llama-3.1-8B-Instruct (bf16, dense f16-path GEMMs; `abl/`, `ablp/`; open loop at 4.3 / 11 requests per second):**
+
+| | `develop`-48 | r41-48 | r41-48, off |
+|---|---|---|---|
+| closed 16: tok/s, TTFT / ITL mean, p95, p99 | 660, 664; 166 / 22.53-22.65, 22.7-23.4, 89-90 | 663, 665; 176-178 / 22.44-22.50, 22.6-23.3, 88-89 | 663; 166 / 22.56, 23.0, 89.8 |
+| closed 64 | 1721, 1717; 512-531 / 32.44-32.47, 33-36, 232-234 | 1712, 1712; 514-516 / 32.52, 34-36, 233 | 1719; 516 / 32.46, 32.8, 232.5 |
+| open 16: TTFT / ITL mean, p95, p99 | 355-413 / 23.73-23.81, 52.0-52.1, 53.8 | **108-112 / 22.68-22.72, 40.3-40.4, 44.8-45.1** | 420 / 23.81, 52.2, 53.7 |
+| open 64 | 130-132 / 36.53-36.57, 73.3-73.4, 105-106 | 129-130 / 36.37-36.42, 73.6-73.7, 105.5-106.4 | 134 / 36.65, 73.5, 106.2 |
+
+The bf16 model confirms the dense FP8 result in the open loop (ITL mean -4.4 %, p95 -23 %; TTFT p50 355 → 108 ms, because the saved
+tiles keep the 16-slot queue short at this load); closed loop within the spread (64 streams -0.3 % tok/s, inside the two develop
+rounds' 0.2 % spread plus noise).
+
+Which model classes benefit: every model whose prompt-step cost follows whole token tiles (dense FP8 and f16 / bf16 projections
+on CUDA; the fit decides per model and device), under traffic whose steps do not end on tiles by themselves (staggered arrivals,
+single prompts beside decoding streams: real serving more than closed-loop waves). MoE models with per-expert tiling are left as
+they are by their own prices.
+
+### 101.3 Correctness and tests
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt; `correct/`): byte-identical to `develop` for gpt-oss-20b
+  (e733f049 / 8cb648ed) and Qwen3-8B-FP8 (3879d8a4 / b9666631, also with `--fp8-block-scaled off`): single sequences never hold rows
+  (the scheduler holds only while other sequences decode).
+* Batched greedy through the server (32 concurrent requests, staggered by 4 ms, 16 slots, `correct/batch_*`, `diag/`) is not
+  run-to-run deterministic on `develop` (batch composition depends on arrival timing: gpt-oss-20b 3 of 32 texts differ between two
+  `develop` runs, 2-5 between `develop` and r41), so it checks sanity, not identity. It found 101.4.
+* PplBench: no kernel of a prompt step changed (the fix of 101.4 is in the 9-16-row decode kernel), so not rerun.
+* Suites on GPU 0 with `SHARPLIGHT_TEST_PROVIDER=cuda`, one class per process (`tests/`): `Sharplight.Cuda.Tests` 71, 0 failed, 1 skipped (cuBLASLt not installed); `Sharplight.Serving.Tests` 408, 1 failed, 13 skipped (`MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached`, the timing-dependent test of §87; 4 of 4 reruns pass with the tile-aware schedule on, and it failed 1 of 4 with it off); `Sharplight.Hosting.Tests` 30, 0 failed (with the new `StepRowsPerSequenceRoundTripsAndReachesTheEngine`). New: `TileStepCostTests` (4: the fit on tiled and on linear steps, held-row prices, no prices before enough steps) and `EngineTests.TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore` (on / off; a fake decoder whose prompt steps cost whole tiles), `EngineTests.StepRowsPerSequence_DefaultsTo48`. Import.Onnx / Vulkan suites not rerun: no shared lowering changed (the kernel fix is in a CUDA-only hand-written kernel).
+
+### 101.4 Batched Qwen3-8B-FP8 garbage since §84, and its fix
+
+A server with 16 slots and 32 concurrent greedy requests (`scripts/batch_greedy.py`) answered garbage on `develop` for every request
+of Qwen3-8B-FP8 ("Okay,!!! Write a detailed essay about the role of!!未经授权okia..."); one request alone was correct, as were
+Qwen3-8B (bf16), Llama-3.1-8B and gpt-oss-20b batched. `bench/s16_serve.sh` does not look at the text (random-word prompts,
+`ignore_eos`), so every Qwen3-8B-FP8 serving number since §84 ran on garbage tokens (their cost per step is that of correct ones: the
+kernels do the same work). Bisected on `develop`'s merges (`diag/`): `perf/llm-r28` (`8246ce2e`) correct, `perf/llm-r29`
+(`e9c118ee`) garbage on all 32. On `develop`: garbage with `SHARPLIGHT_ATTN_MIXED=0`, `SHARPLIGHT_FP8_WG=0`,
+`SHARPLIGHT_CUDA_CONCURRENT=0` (and 23 of 32 with `SHARPLIGHT_FP8_TMA=0`); correct with `SHARPLIGHT_CUDA_SYNC=1`,
+`SHARPLIGHT_CUDA_PDL_TRIGGER=0` and `SHARPLIGHT_FP8_DECODE_KERNEL=0`: a dependent-launch race in `gemm_fp8_decode.cu`. That kernel
+loads only weights before `griddepcontrol.wait` and its activations after it, but through `__ldg`; the wait makes the previous
+launch's writes visible in L2, not in a non-coherent L1 line of the same rows that the SM cached before (the rows of `x` are rewritten
+by every layer's `quantize_fp8`, and the SM runs earlier launches' blocks while this grid's blocks start). Fixed by reading `x` and
+its scales with `ld.global.cg` / `__ldcg`. After the fix: 0 of 32 garbage in two runs (and 0 of 32 for gpt-oss-20b);
+decode steps of 9-16 rows +0.02-0.03 ms (Qwen3-8B-FP8 at 9 / 12 / 16 rows 11.99-12.00 / 12.02-12.03 / 12.39-12.40 → 12.01-12.02 /
+12.05 / 12.41 ms, 1 / 8 / 24 / 32 rows equal; `steps/dec_*`); serving with correct text equal to the numbers above (`abfix/`: 16 / 64
+streams 1100, 1102 / 2731, 2731 tok/s against vLLM's 1119 / 2699 in the same hold: 0.98 / 1.01).
+
+### 101.5 Rejected and not kept
+
+* **Absorbing budget-cut tails by a fixed rule** (simulated, `sim/`): 0-2 fewer prompt-bearing steps of ~75 per closed-loop run at 32
+  or 48 rows per slot; kept only as the price-driven move of item 2 (never fired here).
+* **MoE token-row reads off** (`SHARPLIGHT_MOE_TOKEN_ROWS=0`) for the 1.8-2.8 ms that a few prompt rows add to a gpt-oss-20b decode
+  step (101.1): equal or 0.1-0.6 ms slower at 16 + 10 to 16 + 496 rows (`steps/tok_*`); the cost is the routed items' extra experts.
+
+### 101.6 Gap to vLLM and ranked plan
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| gpt-oss-20b serving 16 / 64, closed | 1.00-1.01 / 1.00 | 16: ITL p95 12 against 10.7 ms (prompt steps among decode steps), p99 48 against 25 (48-row steps of the first prompts) |
+| Qwen3-8B-FP8 serving 16 / 64, closed | 0.98 / 1.01 | 16: ITL mean 13.55 against 12.90 (prompt-step share, FP8 prompt GEMMs §94) |
+| open loop 16, Qwen3-8B-FP8 / gpt-oss-20b | ITL mean 0.97 / 0.99, p95 0.86 / 0.98, TTFT 0.76 / 0.53 | ahead |
+
+1. **Re-measure Qwen3-8B-FP8 against vLLM with correct text** (101.4) and add a text check to `bench/s16_serve.sh` (a few greedy
+   natural prompts after the rounds, compared against a single-request run), so that a batched-only numeric bug cannot hide again.
+   Audit every hand-written CUDA kernel that issues its own `griddepcontrol.wait` or runs as a dependent for `ld.global.nc` reads of
+   activations (`grep __ldg src/Sharplight.Shaders/Kernels/*.cu`).
+2. **bf16 / f16 GEMMs at 257-384 rows** (101.1: Llama-3.1-8B 16 + 250 rows 51.3 ms against 34.0 at 256 and 62.0 at 512): the third
+   token tile costs half a 256-row step; the GEMM path chosen there (split-K or tile shape) is the lever, for every dense f16 / bf16
+   model's mixed steps.
+3. **First runs of new step shapes are host-bound for small steps** (101.1: ~400 launches recorded launch by launch, 5-12 ms): a
+   cheaper recorder (or recording the launch list once per kernel set and patching grids) helps every model's small mixed steps and
+   prefix-cache-hit prompts.
+4. **FP8 prompt GEMMs** 5-8 % behind CUTLASS (§94; not reached this round).
+5. **Placement rule aware of the SMs the previous grid leaves idle** (§100.7 item 4, ~0.25 % of a decode step; not reached).
+
+### 101.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# 101.1
+BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 24 --ctx 2560 --depth 256 --batch 2048 --modes greedy --reps 10 --text \
+  --mixed 16+0,15+10,16+16,16+32,16+112,16+240,16+250,16+496,16+512,16+752,16+762
+# 101.2 (develop-48 = develop with SHARPLIGHT_STEP_ROWS_PER_SEQUENCE=48; tile-aware off: SHARPLIGHT_STEP_TILE_AWARE=0)
+CONCS="16 64" ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+RATES="16:7 64:17" PER_OVERRIDE=8 CONCS="16 64" ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+SHARPLIGHT_SCHED_TRACE=1 ...   # "held<=n (tile c ms, row b ms)" marks the steps that held rows
+# 101.4
+sharplight serve ~/models/hf/Qwen3-8B-FP8 --slots 16 --ctx 1024 --temp 0 --provider cuda &
+python3 bench/results/s101/scripts/batch_greedy.py http://127.0.0.1:18080 out.jsonl 32 48
+```

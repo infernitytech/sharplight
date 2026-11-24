@@ -113,6 +113,9 @@ public sealed class InferenceEngine : IDisposable
     private readonly long[] _promptEndSaved = new long[2], _promptEndRestored = new long[2];
     // What steps and state copies cost, learnt from the steps run (prices the prefix cache's waits, recomputations and snapshots).
     private readonly StepCostModel _cost;
+    private readonly TileStepCost? _tiles;
+    /// <summary>Prompt rows the current step held back for a later one (<see cref="HoldRowsPastTile"/>; scheduler trace).</summary>
+    private int _heldRows;
 
     // Image and audio prompts: encoder outputs by content hash, and the contents the next encode stage runs (scratch).
     private readonly MediaEmbeddingCache _mediaCache;
@@ -188,6 +191,7 @@ public sealed class InferenceEngine : IDisposable
         _minBudget = _opt.MinBatchTokens > 0 ? Math.Min(_opt.MinBatchTokens, _budget) : _budget;
         _prefillChunk = _opt.PrefillChunk > 0 ? _opt.PrefillChunk : _budget;
         _cost = _opt.StepCost ?? new StepCostModel();
+        _tiles = (DiagnosticSwitches.TileAwarePrompts ?? _opt.TileAwarePrompts) && _opt.BatchTokensGranule > 1 ? new TileStepCost(_opt.BatchTokensGranule) : null;
         _mediaCache = new MediaEmbeddingCache(Math.Max(0, _opt.MediaCacheBytes));
         _specRequests = new SpeculationRequest[decoder.SlotCount];
         _specViews = new ContextView[decoder.SlotCount];
@@ -1597,6 +1601,13 @@ public sealed class InferenceEngine : IDisposable
             : _decoder.Step(_inputs);
         var elapsed = Stopwatch.GetElapsedTime(t0);
         Metrics.Step(stepTokens - budget.Tokens, _inputs.Count, elapsed);
+        if (_tiles is not null && !(_cost.Seen > 16 && elapsed.TotalMilliseconds > 3 * _cost.StepMs(stepTokens - budget.Tokens) + 1))
+        {
+            // Steps far slower than the linear estimate (a new step shape recorded, a shared device) would distort the tile prices.
+            var (decodeRows, promptRows, _) = ProfileRows();
+            _tiles.Observe(decodeRows, promptRows, elapsed.TotalMilliseconds);
+        }
+
         _cost.Observe(stepTokens - budget.Tokens, elapsed.TotalMilliseconds);
         if (DiagnosticSwitches.SchedulerTrace)
         {
@@ -1675,6 +1686,11 @@ public sealed class InferenceEngine : IDisposable
             {
                 decode += n;
             }
+        }
+
+        if (_heldRows > 0 && _tiles is not null)
+        {
+            sb.Append(System.Globalization.CultureInfo.InvariantCulture, $" held<={_heldRows} (tile {_tiles.TileMs:F2} ms, row {_tiles.RowMs:F4} ms)");
         }
 
         Console.Error.WriteLine($"[sched] {elapsed.TotalMilliseconds,7:F2} ms rows {rows,5} decode {decode,3} active {_active.Count,3}{sb}");
@@ -1849,8 +1865,11 @@ public sealed class InferenceEngine : IDisposable
     /// <summary>Chunked prefill of admitted prompts, oldest admission first, with what is left of the token budget.</summary>
     private void ScheduleChunkedPrefill(ref StepBudget budget)
     {
-        foreach (var s in _active)
+        int held = HoldRowsPastTile(ref budget);
+        _heldRows = held;
+        for (int i = 0; i < _active.Count; i++)
         {
+            var s = _active[i];
             if (!s.Prefilling || s.Replay is not null || s.Leader is not null || budget.Tokens <= 0)
             {
                 continue;
@@ -1873,8 +1892,17 @@ public sealed class InferenceEngine : IDisposable
                 }
             }
 
-            int chunk = Math.Min(Math.Min(Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
+            int rest = s.Prompt.Length - s.PromptPos;
+            int room = KvRoom(s.Slot!, budget.KvBlocks);
+            int chunk = Math.Min(Math.Min(Math.Min(_prefillChunk, rest), budget.Tokens), room);
+            bool budgetCut = chunk == budget.Tokens && chunk < rest && rest <= Math.Min(_prefillChunk, room);
             chunk = ClipPrefillChunk(s, chunk);
+            if (held == 0 && budgetCut && chunk < rest && TakesWholeRest(i, chunk, rest))
+            {
+                chunk = rest;
+                s.TraceClip += " whole";
+            }
+
             chunk = ClipToEncodedMedia(s, s.PromptPos, chunk);
             if (chunk <= 0)
             {
@@ -1899,6 +1927,92 @@ public sealed class InferenceEngine : IDisposable
             budget.Tokens -= chunk;
             budget.LogitsRows -= last ? 1 : 0;
         }
+
+        // The rows held back stay unused (the step's row count is the budget it spent).
+        budget.Tokens += held;
+    }
+
+    /// <summary>Rows of the inputs scheduled so far in this step, and whether one of them is a decode row.</summary>
+    private (int Rows, bool Decodes) ScheduledRows()
+    {
+        int rows = 0;
+        bool decodes = false;
+        for (int i = 0; i < _inputs.Count; i++)
+        {
+            rows += _inputs[i].Tokens.Length;
+            decodes |= !_stepReplay[i] && !_stepSeqs[i].Prefilling;
+        }
+
+        return (rows, decodes);
+    }
+
+    /// <summary>
+    /// Holds back the prompt rows that would make the step start another token tile (<see cref="EngineOptions.BatchTokensGranule"/>) when
+    /// every waiting prompt row fits the step, at most <see cref="TileStepCost.HeldMaxRows"/> rows end past the tile, the step decodes
+    /// (the held rows join a later step's decode rows) and the measured prices say the tile costs more than those rows will in a later
+    /// step (<see cref="TileStepCost"/>). Returns the rows taken from the budget.
+    /// </summary>
+    private int HoldRowsPastTile(ref StepBudget budget)
+    {
+        if (_tiles is null || budget.Tokens <= 0 || SnapshotsState)
+        {
+            return 0;
+        }
+
+        long prompt = 0;
+        foreach (var s in _active)
+        {
+            if (s.Prefilling && s.Replay is null && s.Leader is null)
+            {
+                prompt += Math.Min(_prefillChunk, s.Prompt.Length - s.PromptPos);
+            }
+        }
+
+        var (scheduled, decodes) = ScheduledRows();
+        if (prompt == 0 || prompt >= budget.Tokens || !decodes)
+        {
+            return 0;
+        }
+
+        int rows = scheduled + (int)prompt;
+        int over = rows % _tiles.TileRows;
+        if (rows < _tiles.TileRows || over == 0 || over > _tiles.HeldMaxRows || over >= prompt
+            || !_tiles.Moves(rows, over))
+        {
+            return 0;
+        }
+
+        int held = budget.Tokens - ((int)prompt - over);
+        budget.Tokens -= held;
+        return held;
+    }
+
+    /// <summary>
+    /// Whether the prompt chunk of the sequence at <paramref name="index"/> in <see cref="_active"/>, cut by the step's budget to
+    /// <paramref name="chunk"/> of its <paramref name="rest"/> rows, takes the whole rest instead: when at most
+    /// <see cref="TileStepCost.HeldMaxRows"/> rows would be left, no other prompt waits (they would ride with it), the step decodes, the
+    /// decoder takes the rows, and the measured prices say those rows cost less here (with the token tile they may start) than in a
+    /// later step of decode rows.
+    /// </summary>
+    private bool TakesWholeRest(int index, int chunk, int rest)
+    {
+        int left = rest - chunk;
+        if (_tiles is null || left <= 0 || left > _tiles.HeldMaxRows || SnapshotsState)
+        {
+            return false;
+        }
+
+        for (int j = index + 1; j < _active.Count; j++)
+        {
+            if (_active[j].Prefilling || _active[j].Replay is not null)
+            {
+                return false;
+            }
+        }
+
+        var (scheduled, decodes) = ScheduledRows();
+        int rows = scheduled + rest;
+        return decodes && rows <= _budget && _tiles.Takes(rows, left);
     }
 
     /// <summary>

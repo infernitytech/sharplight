@@ -20,6 +20,7 @@ namespace Sharplight.Cli;
 /// <param name="StepTokens">Token budget per engine step; null uses the model's batch size.</param>
 /// <param name="MinStepTokens">Smallest token budget of the load-adaptive step; null: the engine's default, 0: always the full budget.</param>
 /// <param name="StepFloor">When the step floor applies (<see cref="StepFloorPolicy"/>); null: the engine's default (waves).</param>
+/// <param name="StepRowsPerSequence">Rows per sequence holding a slot that the adaptive step budget allows; null: the engine's default (48).</param>
 /// <param name="KvCacheTokens">Paged KV cache size in tokens shared by the slots; null: the default (every slot's full context, paged
 /// with prefix caching where the device supports it); 0: the contiguous per-slot cache.</param>
 /// <param name="NgramDraftTokens">Draft length of prompt-lookup speculation; 0 disables it.</param>
@@ -56,6 +57,7 @@ internal sealed record ServeSettings(
     int? StepTokens,
     int? MinStepTokens,
     StepFloorPolicy? StepFloor,
+    int? StepRowsPerSequence,
     long? KvCacheTokens,
     int NgramDraftTokens,
     int MtpDraftTokens,

@@ -1,0 +1,15 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0m[91m    Sharplight.Serving.Tests.MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached [FAIL]
+[0m[37m      Assert.Equal() Failure: Values differ
+[0m[37m      Expected: 1
+[0m[37m      Actual:   2
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Serving.Tests/MultimodalEngineTests.cs(131,0): at Sharplight.Serving.Tests.MultimodalEngineTests.OneImageInSeveralPromptsIsEncodedOnceAndCached()
+[0m[37m        --- End of stack trace from previous location ---
+[0m[37m  Finished:    Sharplight.Serving.Tests (ID = 'eebc6c896419facde43f27412931a85044a8564203a718aa7a1f3b10bf8737f2')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 6, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 0.388s
+[0m[0m

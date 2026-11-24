@@ -1,3 +1,4 @@
+using Sharplight.Hosting.Loaders;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Hosting;
 
@@ -127,5 +128,27 @@ public sealed class ModelHostingJsonTests
         Assert.True(again.Models[1].BlockScaledFp8);
         Assert.Null(again.Models[0].BlockScaledFp8);
         Assert.Equal(StepFloorPolicy.Full, ModelHostingJson.Parse("""{ "defaults": { "stepFloor": "Full" } }""").Defaults.StepFloor);
+    }
+
+    [Fact]
+    public void StepRowsPerSequenceRoundTripsAndReachesTheEngine()
+    {
+        var unset = HostedModelSettings.Resolve(new HostedModelOptions { Name = "m", Path = "/m.slm" }, new HostedModelDefaults(), false);
+        Assert.Null(unset.StepRowsPerSequence);
+        Assert.Equal(48, EngineOf(unset).BatchTokensPerSequence);
+        Assert.Equal(48, new EngineOptions().BatchTokensPerSequence);
+
+        var options = ModelHostingJson.Parse("""{ "defaults": { "stepRowsPerSequence": 32 }, "models": [ { "name": "a", "path": "/a.slm" } ] }""");
+        Assert.Equal(32, options.Defaults.StepRowsPerSequence);
+        var a = HostedModelSettings.Resolve(options.Models[0], options.Defaults, false);
+        Assert.Equal(32, a.StepRowsPerSequence);
+        Assert.Equal(32, EngineOf(a).BatchTokensPerSequence);
+        Assert.Equal(32, ModelHostingJson.Parse(ModelHostingJson.Serialize(options)).Defaults.StepRowsPerSequence);
+    }
+
+    private static EngineOptions EngineOf(HostedModelSettings settings)
+    {
+        var context = new HostedModelLoadContext(settings, new ModelHostingOptions(), null!, null!);
+        return ChatModelLoaderFactory.CreateChatOptions(context).Engine;
     }
 }

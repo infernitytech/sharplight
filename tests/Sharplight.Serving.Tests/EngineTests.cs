@@ -129,6 +129,12 @@ public class EngineTests
         Assert.Equal(StepFloorPolicy.Waves, default(StepFloorPolicy));
     }
 
+    [Fact]
+    public void StepRowsPerSequence_DefaultsTo48()
+    {
+        Assert.Equal(48, new EngineOptions().BatchTokensPerSequence);
+    }
+
     /// <summary>
     /// Four prompts arriving while another sequence decodes: the waves policy (default) leaves the floor out (a step holds the oldest
     /// prompt's rest plus a row per sequence), the old policy applies it, the full policy gives the step the whole budget.
@@ -167,6 +173,57 @@ public class EngineTests
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// A decoder whose prompt steps cost whole 32-row tiles (10 ms each) and whose decode steps with a few prompt rows cost 2 ms: once the
+    /// engine has priced both, a prompt that would end 3 rows past a tile leaves them to the next step, and with the tile-aware schedule
+    /// off it does not.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore(bool tileAware)
+    {
+        var d = new FakeBatchDecoder(4, maxBatchTokens: 400)
+        {
+            StepDelayForRows = rows => TimeSpan.FromMilliseconds(rows <= 1 ? 1 : rows <= 9 ? 2 : 10 * ((rows + 31) / 32)),
+        };
+        d.Script("a", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 0, BatchTokensGranule = 32, TileAwarePrompts = tileAware });
+        using var cts = new CancellationTokenSource();
+        var running = e.Submit(Req("r", max: 100000), cts.Token);
+        await T.WaitUntil(() => d.Steps.Count > 20);
+
+        // Prompt steps of one to four tiles (none ends 1-8 rows past a tile), and decode steps carrying a few held rows.
+        int[] sizes = [40, 70, 100, 50, 80, 110, 45, 75, 105, 55, 85, 115, 42, 72, 102, 52];
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            await e.Submit(Req(new string((char)('c' + i), sizes[i]), max: 2)).CompleteAsync();
+        }
+
+        // One decode row and a prompt of 66 rows: 67 rows, 3 past the second tile.
+        string prompt = "x";
+        while (T.Prompt(prompt).Length < 66)
+        {
+            prompt += "x";
+        }
+
+        int start = d.Steps.Count;
+        var r = await e.Submit(Req(prompt, max: 2)).CompleteAsync();
+        Assert.Equal("aa", r.Text);
+        var all = d.Steps.ToList().Select(s => s.Sum(x => x.Rows)).ToList();
+        var rows = all.Skip(start).ToList();
+        if (tileAware)
+        {
+            Assert.True(rows.Contains(64) && !rows.Contains(67), string.Join(",", all));
+        }
+        else
+        {
+            Assert.Contains(67, rows);
+        }
+
+        cts.Cancel();
     }
 
     [Fact]

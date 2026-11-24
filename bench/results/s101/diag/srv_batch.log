@@ -1,0 +1,111 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [77 ms]
+Loaded Qwen3-8B-FP8 (decoder): 399 tensors, 9.65 GB, vocab 151936 [755 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 162 / 162, 162 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 9.65 / 9.65 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' for 16 sequences x 1024 tokens, paged KV cache of 16384 tokens in 8217 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 11.24 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+[sched] prepared 16 decode step shapes in 1 ms
+Model 'Qwen3-8B-FP8' loaded in 9632 ms (estimated 12611 MiB, resident 12082 MiB).
+Serving 'Qwen3-8B-FP8' (both API, VRAM reserve 1 GiB) on http://127.0.0.1:18090
+  Qwen3-8B-FP8 [Chat] Loaded 12082 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 12672 MiB (ours 12082 MiB), available 19454 MiB
+[sched]  117.04 ms rows   768 decode   0 active  16 P8@0+19/19 P9@0+139/139 P4@0+64/64 P5@0+49/49 P6@0+109/109 P1@0+34/34 P11@0+19/19 P7@0+79/79 P3@0+79/79 P10@0+139/139 P12@0+19/19 P2@0+16/124 P13@0+3/49
+[sched]   34.80 ms rows   401 decode  11 active  16 P2@16+108/124 P13@3+46/49 P14@0+124/124 P15@16+18/34 attach16 P16@0+94/94
+[sched]   37.16 ms rows    16 decode  16 active  16
+[sched]   19.81 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.61 ms rows    16 decode  16 active  16
+[sched]   11.63 ms rows    16 decode  16 active  16
+[sched]   11.61 ms rows    16 decode  16 active  16
+[sched]   11.61 ms rows    16 decode  16 active  16
+[sched]   11.61 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.63 ms rows    16 decode  16 active  16
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.66 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.66 ms rows    16 decode  16 active  16
+[sched]   11.66 ms rows    16 decode  16 active  16
+[sched]   11.67 ms rows    16 decode  16 active  16
+[sched]   11.66 ms rows    16 decode  16 active  16
+[sched]   11.67 ms rows    16 decode  16 active  16
+[sched]   11.68 ms rows    16 decode  16 active  16
+[sched]   11.69 ms rows    16 decode  16 active  16
+[sched]   11.69 ms rows    16 decode  16 active  16
+[sched]   11.69 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.74 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.72 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.72 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   38.18 ms rows   512 decode   5 active  16 P17@32+17/49 P18@0+64/64 P19@32+62/94 P20@16+18/34 P21@0+109/109 P23@64+15/79 P24@80+14/94 P25@0+109/109 P26@16+96/124 P27@32+3/139
+[sched]   34.38 ms rows   225 decode   8 active  16 P22@48+16/64 attach48 P26@112+12/124 P27@35+104/139 P28@0+19/19 P29@16+18/34 P30@32+17/49 P31@48+16/64 P32@64+15/79
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.63 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.62 ms rows    16 decode  16 active  16
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.64 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.66 ms rows    16 decode  16 active  16
+[sched]   11.65 ms rows    16 decode  16 active  16
+[sched]   11.66 ms rows    16 decode  16 active  16
+[sched]   11.67 ms rows    16 decode  16 active  16
+[sched]   11.69 ms rows    16 decode  16 active  16
+[sched]   11.68 ms rows    16 decode  16 active  16
+[sched]   11.68 ms rows    16 decode  16 active  16
+[sched]   11.67 ms rows    16 decode  16 active  16
+[sched]   11.68 ms rows    16 decode  16 active  16
+[sched]   11.68 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.69 ms rows    16 decode  16 active  16
+[sched]   11.72 ms rows    16 decode  16 active  16
+[sched]   11.69 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.69 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.70 ms rows    16 decode  16 active  16
+[sched]   11.72 ms rows    16 decode  16 active  16
+[sched]   11.72 ms rows    16 decode  16 active  16
+[sched]   11.74 ms rows    16 decode  16 active  16
+[sched]   11.71 ms rows    16 decode  16 active  16
+[sched]   11.74 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.72 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   11.73 ms rows    16 decode  16 active  16
+[sched]   31.66 ms rows     8 decode   8 active   8
