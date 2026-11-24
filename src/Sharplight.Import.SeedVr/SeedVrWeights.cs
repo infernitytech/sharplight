@@ -140,8 +140,9 @@ internal static partial class SeedVrWeights
         weights[canonical] = HfTransforms.ToF32(tensors.Values.First().ToWeightInfo(), canonical);
     }
 
+    /// <summary>Vectors (biases, norms, modulation rows, frequencies) in f32; matrices as stored (f32, f16, bf16 or the fp8 conversions' E4M3).</summary>
     private static void Add(Dictionary<string, WeightInfo> weights, string canonical, WeightInfo info)
-        => weights[canonical] = info.Shape.Rank <= 1 || info.Type.IsQuantized ? HfTransforms.ToF32(info, canonical) : info.As(canonical);
+        => weights[canonical] = info.Shape.Rank <= 1 ? HfTransforms.ToF32(info, canonical) : info.As(canonical);
 
     /// <summary>
     /// A 3-D convolution kernel [O, C, kt, kh, kw] as the 2-D kernel [O, kt·C, kh, kw] of the frame windows stacked along the channels

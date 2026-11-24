@@ -1,9 +1,10 @@
 // VideoEnhancementBench --model <seedvr2 folder or .slm> --input <clip.mp4 | frames.u8> [--input-shape FxHxW] --width W --height H
 //                       [--provider cuda|vulkan|cpu] [--batch N] [--runs 5] [--warmup 1] [--reduced-precision]
-//                       [--output-u8 out.u8] [--output-video out.mp4] [--json results.json]
+//                       [--output-u8 out.u8] [--output-video out.mp4] [--json results.json] [--noise <reference dump folder>]
 // Times IVideoEnhancer runs end to end: decode the input file, enhance (per phase: encoding = resize + VAE encoder, restoring = DiT,
 // decoding = VAE decoder + colour correction), encode the output file; after the warm-up runs (kernel compilation, weight upload) the
-// median of the timed runs is reported. The frames of the last run can be written raw for a PSNR check against another implementation.
+// median of the timed runs is reported. The frames of the last run can be written raw for a PSNR check against another implementation;
+// --noise takes the initial noise and the encoder sample of a tools/seedvr2-reference.py dump, so the run reproduces that one.
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -51,7 +52,15 @@ for (int run = 0; run < options.Warmup + options.Runs; run++)
     var phases = new Dictionary<VideoEnhancementPhase, double>();
     var enhance = Stopwatch.StartNew();
     await foreach (var update in enhancer.EnhanceStreamingAsync(new VideoEnhancementRequest { Frames = frames, FramesPerSecond = fps },
-        new VideoEnhancementOptions { Width = options.Width, Height = options.Height, FramesPerBatch = options.Batch, Seed = 42 }))
+        new VideoEnhancementOptions
+        {
+            Width = options.Width,
+            Height = options.Height,
+            FramesPerBatch = options.Batch,
+            Seed = 42,
+            InitialNoise = options.Noise is { } noise ? ReadFloats(Path.Combine(noise, "noise.f32")) : null,
+            EncoderNoise = options.Noise is { } encoder ? ReadFloats(Path.Combine(encoder, "latent_eps.f32")) : null,
+        }))
     {
         phases.TryAdd(update.Phase, enhance.Elapsed.TotalSeconds);
         last = update.Result ?? last;
@@ -111,6 +120,14 @@ static double Median(IEnumerable<double> values)
     return sorted.Length % 2 == 1 ? sorted[sorted.Length / 2] : (sorted[sorted.Length / 2 - 1] + sorted[sorted.Length / 2]) / 2;
 }
 
+static float[] ReadFloats(string path)
+{
+    var bytes = File.ReadAllBytes(path);
+    var values = new float[bytes.Length / sizeof(float)];
+    Buffer.BlockCopy(bytes, 0, values, 0, bytes.Length);
+    return values;
+}
+
 static async Task<(List<ImageInput> Frames, double Fps)> ReadAsync(VideoDecoderCatalog decoders, Options options)
 {
     if (options.Input.EndsWith(".u8", StringComparison.OrdinalIgnoreCase))
@@ -123,18 +140,4 @@ static async Task<(List<ImageInput> Frames, double Fps)> ReadAsync(VideoDecoderC
 
     var clip = await decoders.ReadClipAsync(options.Input);
     return ([.. clip.Frames], clip.FramesPerSecond);
-}
-
-internal sealed record Options(string Model, string Input, string? InputShape, int Width, int Height, string Provider, int? Batch, int Runs, int Warmup,
-    bool ReducedPrecision, string? OutputU8, string? OutputVideo, string? Json)
-{
-    public static Options Parse(string[] args)
-    {
-        string? Get(string name) => Array.IndexOf(args, name) is int i and >= 0 && i + 1 < args.Length ? args[i + 1] : null;
-        return new Options(Get("--model")!, Get("--input")!, Get("--input-shape"), int.Parse(Get("--width")!, CultureInfo.InvariantCulture),
-            int.Parse(Get("--height")!, CultureInfo.InvariantCulture), Get("--provider") ?? "cuda",
-            Get("--batch") is { } batch ? int.Parse(batch, CultureInfo.InvariantCulture) : null,
-            int.Parse(Get("--runs") ?? "5", CultureInfo.InvariantCulture), int.Parse(Get("--warmup") ?? "1", CultureInfo.InvariantCulture),
-            args.Contains("--reduced-precision"), Get("--output-u8"), Get("--output-video"), Get("--json"));
-    }
 }

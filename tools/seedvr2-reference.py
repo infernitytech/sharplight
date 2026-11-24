@@ -137,8 +137,12 @@ def main():
 
     def run_once(dump):
         stages = {}
+        start = time.perf_counter()
+        # End to end: the input file is decoded on every run (the first decode above only sized the clip).
+        clip = torch.from_numpy(load_frames(args.input, args.frames)).permute(0, 3, 1, 2).float() / 255.0
+        stages["read"] = time.perf_counter() - start
         t0 = time.perf_counter()
-        x = transform(video.to(device))
+        x = transform(clip.to(device))
         padded = cut_videos(x)
         sync()
         stages["preprocess"] = time.perf_counter() - t0
@@ -210,7 +214,13 @@ def main():
             fixed = wavelet_reconstruction(sample_t.float().cpu(), reference[: sample_t.size(0)].float().cpu())
         out = rearrange(fixed, "t c h w -> t h w c").clip(-1, 1).mul(0.5).add(0.5).mul(255).round().to(torch.uint8).cpu().numpy()
         stages["color_fix"] = time.perf_counter() - t4
-        stages["total"] = time.perf_counter() - t0
+        stages["enhance"] = time.perf_counter() - t0
+        t5 = time.perf_counter()
+        if args.save_video:
+            import mediapy
+            mediapy.write_video(args.save_video, out, fps=24)
+        stages["write"] = time.perf_counter() - t5
+        stages["total"] = time.perf_counter() - start
         if dump:
             pred = captured["prediction"].reshape(noise.shape)
             return stages, {
@@ -253,9 +263,6 @@ def main():
             json.dump({"tensors": shapes, "model": args.model, "res_h": args.res_h, "res_w": args.res_w, "seed": args.seed,
                        "frames": int(frames.shape[0]), "input": os.path.basename(args.input), "dit_dtype": args.dit_dtype,
                        "vae_dtype": args.vae_dtype, "attention": args.attention, "timestep": 1000.0}, f, indent=1)
-    if args.save_video:
-        import mediapy
-        mediapy.write_video(args.save_video, dump["output"], fps=24)
     if args.timing_json:
         with open(args.timing_json, "w") as f:
             json.dump({"runs": runs, "peak_bytes": peak, "frames": int(frames.shape[0]),

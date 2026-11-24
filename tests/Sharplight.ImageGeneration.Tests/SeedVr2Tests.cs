@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Sharplight.Architectures.SeedVr;
+using Sharplight.Cuda;
 using Sharplight.Models;
+using Sharplight.Runtime;
 using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
 using Sharplight.Vision;
@@ -38,6 +40,10 @@ public sealed class SeedVr2Tests
     public void GraphsMatchReferenceOnVulkan(string reference) => GraphsMatchReference(reference, "vulkan");
 
     [Theory]
+    [MemberData(nameof(GpuCases))]
+    public void GraphsMatchReferenceOnCuda(string reference) => GraphsMatchReference(reference, "cuda");
+
+    [Theory]
     [MemberData(nameof(CpuCases))]
     public Task EnhanceMatchesReferenceOnCpu(string reference) => EnhanceMatchesReference(reference, "cpu");
 
@@ -45,10 +51,14 @@ public sealed class SeedVr2Tests
     [MemberData(nameof(GpuCases))]
     public Task EnhanceMatchesReferenceOnVulkan(string reference) => EnhanceMatchesReference(reference, "vulkan");
 
+    [Theory]
+    [MemberData(nameof(GpuCases))]
+    public Task EnhanceMatchesReferenceOnCuda(string reference) => EnhanceMatchesReference(reference, "cuda");
+
     private static void GraphsMatchReference(string reference, string device)
     {
-        var slot = Available(reference) ? Env.Device(device) : null;
-        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing");
+        var slot = Available(reference) ? Device(device) : null;
+        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing (CUDA runs with SHARPLIGHT_TEST_CUDA=1)");
         using var model = Env.Load(ModelPath, slot!);
         var data = new ReferenceRun(Reference(reference));
         var dimensions = data.Dimensions;
@@ -78,8 +88,8 @@ public sealed class SeedVr2Tests
 
     private static async Task EnhanceMatchesReference(string reference, string device)
     {
-        var slot = Available(reference) ? Env.Device(device) : null;
-        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing");
+        var slot = Available(reference) ? Device(device) : null;
+        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing (CUDA runs with SHARPLIGHT_TEST_CUDA=1)");
         using var model = Env.Load(ModelPath, slot!);
         using var enhancer = Env.Clients.Create<IVideoEnhancer>(model);
         var data = new ReferenceRun(Reference(reference));
@@ -111,6 +121,23 @@ public sealed class SeedVr2Tests
 
         TestContext.Current.SendDiagnosticMessage($"SeedVR2-3B {reference} on {device}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB (frames: {string.Join(" ", perFrame)})");
         Assert.True(worst > (data.Bf16 ? 30 : 40), $"worst frame PSNR {worst:F1} dB");
+    }
+
+    /// <summary>The CPU, the Vulkan GPU or (with SHARPLIGHT_TEST_CUDA=1) the first CUDA GPU, or null when unavailable.</summary>
+    private static DeviceSlot? Device(string name)
+    {
+        if (name != "cuda")
+        {
+            return Env.Device(name);
+        }
+
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_CUDA") != "1")
+        {
+            return null;
+        }
+
+        var cuda = new CudaProvider();
+        return cuda.CheckAvailability().IsAvailable ? new DeviceSlot { Device = cuda.OpenDevice(cuda.GetDevices()[0]) } : null;
     }
 
     private static void Check(string what, float[] actual, float[] expected, double tolerance)
