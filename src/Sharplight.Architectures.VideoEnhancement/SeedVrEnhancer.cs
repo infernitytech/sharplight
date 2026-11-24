@@ -243,11 +243,12 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     private int LatentSize(EnhancementPlan plan, EnhancementBatch batch)
         => _latentChannels * batch.LatentFrames * (plan.PaddedHeight / _spatialDownscale) * (plan.PaddedWidth / _spatialDownscale);
 
-    private static Dictionary<string, long> Dimensions(EnhancementPlan plan, EnhancementBatch batch) => new(StringComparer.Ordinal)
+    private Dictionary<string, long> Dimensions(EnhancementPlan plan, EnhancementBatch batch) => new(StringComparer.Ordinal)
     {
         [VideoDiffusionGraphs.FramesDimension] = batch.LatentFrames,
         [VideoDiffusionGraphs.Height] = plan.PaddedHeight,
         [VideoDiffusionGraphs.Width] = plan.PaddedWidth,
+        [SeedVrGraphs.HalfCaches] = _model.Options.AllowReducedPrecision ? 1 : 0,
     };
 
     /// <summary>

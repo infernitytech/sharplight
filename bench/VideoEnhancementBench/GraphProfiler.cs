@@ -27,6 +27,7 @@ internal static class GraphProfiler
             [VideoDiffusionGraphs.FramesDimension] = latentFrames,
             [VideoDiffusionGraphs.Height] = height,
             [VideoDiffusionGraphs.Width] = width,
+            ["half_caches"] = model.Options.AllowReducedPrecision ? 1 : 0,
         };
         foreach (var (role, graph) in s_graphs)
         {
@@ -72,6 +73,7 @@ internal static class GraphProfiler
             [VideoDiffusionGraphs.FramesDimension] = (frames - 1) / 4 + 1,
             [VideoDiffusionGraphs.Height] = height,
             [VideoDiffusionGraphs.Width] = width,
+            ["half_caches"] = model.Options.AllowReducedPrecision ? 1 : 0,
         };
         foreach (var (role, graph) in s_graphs)
         {

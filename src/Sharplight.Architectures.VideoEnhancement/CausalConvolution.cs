@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Tensors;
 
 namespace Sharplight.Architectures.VideoEnhancement;
 
@@ -17,10 +18,16 @@ internal sealed class CausalConvolution
 
     private readonly GraphBuilder _b;
     private readonly Dictionary<string, Value> _caches = new(StringComparer.Ordinal);
+    private readonly DataType _cacheType;
 
     /// <summary>Creates the helper for one graph.</summary>
     /// <param name="b">The graph.</param>
-    public CausalConvolution(GraphBuilder b) => _b = b;
+    /// <param name="cacheType">The type the caches are kept in between chunks (F16 halves them where the products are rounded to F16 anyway).</param>
+    public CausalConvolution(GraphBuilder b, DataType cacheType)
+    {
+        _b = b;
+        _cacheType = cacheType;
+    }
 
     /// <summary>Convolves one chunk of frames.</summary>
     /// <param name="x">The chunk [n, C, H, W].</param>
@@ -37,31 +44,19 @@ internal sealed class CausalConvolution
         int taps = (int)(weight.Shape[1].Fixed / channels);
         long kernel = weight.Shape[2].Fixed;
         var padding = pads ?? [kernel / 2, kernel / 2, kernel / 2, kernel / 2];
-        var padded = x;
-        if (taps > 1)
+        // The frames the kernel slides over: the previous chunk's last frames (or copies of the first frame), then the chunk. They are not
+        // copied into one tensor; each piece takes its windows from the parts.
+        var padded = new PaddedFrames(_b, x, taps > 1 ? taps - 1 : 0, taps > 1 ? _caches.GetValueOrDefault(prefix) : null);
+        if (taps > 1 && taps - temporalStride is int keep and > 0)
         {
-            if (_caches.TryGetValue(prefix, out var cache))
-            {
-                // Through a view: a cache produced in place in the next chunk's padded input would hold that whole input (all its frames)
-                // allocated from the previous chunk on, for every convolution at once.
-                padded = _b.Concat(0, _b.After(cache, x), x);
-            }
-            else
-            {
-                var first = _b.Slice(x, 0, 0, 1);
-                padded = _b.Concat(0, [.. Enumerable.Repeat(first, taps - 1), x]);
-            }
-
-            int keep = taps - temporalStride;
-            long frames = padded.Shape[0].Fixed;
-            if (keep > 0)
-            {
-                _caches[prefix] = _b.Contiguous(_b.Slice(padded, 0, frames - keep, keep));
-            }
+            // The caches of every convolution live from one chunk to the next (several GB at 1080p in F32).
+            var tail = padded.Range(padded.Count - keep, keep)
+                .Select(part => _cacheType == part.Type ? _b.Contiguous(part) : _b.Emit1("Cast", [part], Attributes.From(("type", _cacheType.Name))))
+                .ToArray();
+            _caches[prefix] = tail.Length == 1 ? tail[0] : _b.Concat(0, tail);
         }
 
-        long paddedFrames = padded.Shape[0].Fixed;
-        long outputs = (paddedFrames - taps) / temporalStride + 1;
+        long outputs = (padded.Count - taps) / temporalStride + 1;
         long height = x.Shape[2].Fixed;
         long width = x.Shape[3].Fixed;
         long outputRows = (height + padding[0] + padding[2] - kernel) / spatialStride + 1;
@@ -92,7 +87,7 @@ internal sealed class CausalConvolution
     /// Output frames [start, start + count) and rows [row, row + rows) of one convolution. The piece's windows are taken only after the previous
     /// piece's output exists, so the pieces run one after the other and the stacked windows of only one piece are in memory at a time.
     /// </summary>
-    private Value Piece(Value padded, Value weight, Value? bias, int taps, int temporalStride, long start, long count, long row, long rows, long kernel,
+    private Value Piece(PaddedFrames padded, Value weight, Value? bias, int taps, int temporalStride, long start, long count, long row, long rows, long kernel,
         int spatialStride, long[] padding, long height, Value? previous)
     {
         long first = row * spatialStride - padding[0];
@@ -104,9 +99,11 @@ internal sealed class CausalConvolution
         var windows = new Value[taps];
         for (int j = 0; j < taps; j++)
         {
-            var frames = _b.Slice(padded, 0, start * temporalStride + j, temporalStride == 1 ? count : 1);
-            var window = inputStart == 0 && inputRows == height ? frames : _b.Slice(frames, 2, inputStart, inputRows);
-            windows[j] = previous is null ? window : _b.After(window, previous);
+            var parts = padded.Range(start * temporalStride + j, temporalStride == 1 ? count : 1)
+                .Select(part => inputStart == 0 && inputRows == height ? part : _b.Slice(part, 2, inputStart, inputRows))
+                .Select(part => previous is null ? part : _b.After(part, previous))
+                .ToArray();
+            windows[j] = parts.Length == 1 ? parts[0] : _b.Concat(0, parts);
         }
 
         var input = taps == 1 ? windows[0] : _b.Concat(1, windows);

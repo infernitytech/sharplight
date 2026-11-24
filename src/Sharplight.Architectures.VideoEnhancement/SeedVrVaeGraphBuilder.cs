@@ -32,11 +32,11 @@ internal sealed class SeedVrVaeGraphBuilder
     private readonly SeedVrVaeHyperParameters _hp;
     private readonly CausalConvolution _conv;
 
-    private SeedVrVaeGraphBuilder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, string name)
+    private SeedVrVaeGraphBuilder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, string name, DataType cacheType)
     {
         _b = new GraphBuilder(name, weights);
         _hp = hp;
-        _conv = new CausalConvolution(_b);
+        _conv = new CausalConvolution(_b, cacheType);
     }
 
     /// <summary>Builds the encoder graph of a clip of <paramref name="frames"/> frames (1 + 4k).</summary>
@@ -45,8 +45,9 @@ internal sealed class SeedVrVaeGraphBuilder
     /// <param name="frames">Frames of the clip.</param>
     /// <param name="height">Height in pixels (a multiple of the spatial compression).</param>
     /// <param name="width">Width in pixels.</param>
-    public static ComputeGraph BuildEncoder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, int frames, int height, int width)
-        => new SeedVrVaeGraphBuilder(weights, hp, SeedVrGraphs.VaeEncode).Encoder(frames, height, width);
+    /// <param name="cacheType">The type the causal-convolution caches are kept in between chunks.</param>
+    public static ComputeGraph BuildEncoder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, int frames, int height, int width, DataType cacheType)
+        => new SeedVrVaeGraphBuilder(weights, hp, SeedVrGraphs.VaeEncode, cacheType).Encoder(frames, height, width);
 
     /// <summary>Builds the decoder graph of a latent clip.</summary>
     /// <param name="weights">Canonical weight lookup.</param>
@@ -54,8 +55,10 @@ internal sealed class SeedVrVaeGraphBuilder
     /// <param name="latentFrames">Latent frames.</param>
     /// <param name="latentHeight">Latent height.</param>
     /// <param name="latentWidth">Latent width.</param>
-    public static ComputeGraph BuildDecoder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, int latentFrames, int latentHeight, int latentWidth)
-        => new SeedVrVaeGraphBuilder(weights, hp, SeedVrGraphs.VaeDecode).Decoder(latentFrames, latentHeight, latentWidth);
+    /// <param name="cacheType">The type the causal-convolution caches are kept in between chunks.</param>
+    public static ComputeGraph BuildDecoder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, int latentFrames, int latentHeight, int latentWidth,
+        DataType cacheType)
+        => new SeedVrVaeGraphBuilder(weights, hp, SeedVrGraphs.VaeDecode, cacheType).Decoder(latentFrames, latentHeight, latentWidth);
 
     private ComputeGraph Encoder(int frames, int height, int width)
     {
@@ -74,9 +77,9 @@ internal sealed class SeedVrVaeGraphBuilder
             using var _ = _b.Group($"chunk.{chunk}");
             int count = chunk == 0 ? 1 : _hp.TemporalDownscale;
             var chunkFrames = _b.Slice(clip, 0, start, count);
-            var x = _conv.Apply(chunk == 0 ? chunkFrames : _b.After(chunkFrames, deviations[^1]), P + "encoder.conv_in");
+            var x = FullResolutionEncoder(chunk == 0 ? chunkFrames : _b.After(chunkFrames, deviations[^1]));
             start += count;
-            for (int i = 0; i < levels; i++)
+            for (int i = 1; i < levels; i++)
             {
                 string p = $"{P}encoder.down_blocks.{i}";
                 for (int j = 0; _b.HasWeight($"{p}.resnets.{j}.conv1.weight"); j++)
@@ -106,6 +109,34 @@ internal sealed class SeedVrVaeGraphBuilder
         return _b.Build();
     }
 
+    /// <summary>
+    /// The encoder's input convolution and first level (full resolution, no temporal downsampling) frame by frame, one after the other: the
+    /// activations there are the largest of the encoder; the frames are joined again at half resolution.
+    /// </summary>
+    private Value FullResolutionEncoder(Value chunk)
+    {
+        string p = $"{P}encoder.down_blocks.0";
+        var frames = new List<Value>();
+        for (long f = 0; f < chunk.Shape[0].Fixed; f++)
+        {
+            var frame = _b.Slice(chunk, 0, f, 1);
+            var x = _conv.Apply(frames.Count == 0 ? frame : _b.After(frame, frames[^1]), P + "encoder.conv_in");
+            for (int j = 0; _b.HasWeight($"{p}.resnets.{j}.conv1.weight"); j++)
+            {
+                x = ResidualBlock(x, $"{p}.resnets.{j}");
+            }
+
+            if (_b.HasWeight($"{p}.downsamplers.0.conv.weight"))
+            {
+                x = _conv.Apply(x, $"{p}.downsamplers.0.conv", temporalStride: 1, spatialStride: 2, pads: [0, 0, 1, 1]);
+            }
+
+            frames.Add(x);
+        }
+
+        return frames.Count == 1 ? frames[0] : _b.Concat(0, [.. frames]);
+    }
+
     private ComputeGraph Decoder(int latentFrames, int latentHeight, int latentWidth)
     {
         var latent = _b.Input(VideoDiffusionGraphs.Latent, InputRole.Other, DataType.F32, new Shape(_hp.LatentChannels, latentFrames, latentHeight, latentWidth));
@@ -119,26 +150,45 @@ internal sealed class SeedVrVaeGraphBuilder
             var frame = _b.Slice(framesFirst, 0, chunk, 1);
             var x = _conv.Apply(chunk == 0 ? frame : _b.After(frame, outputs[^1]), P + "decoder.conv_in");
             x = MidBlock(x, P + "decoder.mid_block");
-            for (int i = 0; i < levels; i++)
+            for (int i = 0; i < temporalLevels; i++)
             {
-                string p = $"{P}decoder.up_blocks.{i}";
-                for (int j = 0; _b.HasWeight($"{p}.resnets.{j}.conv1.weight"); j++)
-                {
-                    x = ResidualBlock(x, $"{p}.resnets.{j}");
-                }
-
-                if (_b.HasWeight($"{p}.upsamplers.0.conv.weight"))
-                {
-                    x = Upsample(x, $"{p}.upsamplers.0", temporal: i < temporalLevels, dropRepeatedFirst: chunk == 0);
-                    x = _conv.Apply(x, $"{p}.upsamplers.0.conv");
-                }
+                x = UpBlock(x, i, temporal: true, chunk == 0);
             }
 
-            outputs.Add(_conv.Apply(_b.Silu(GroupNorm(x, P + "decoder.conv_norm_out")), P + "decoder.conv_out"));
+            // The levels after the temporal upsampling hold the largest activations; they run frame by frame, one after the other.
+            for (long f = 0; f < x.Shape[0].Fixed; f++)
+            {
+                var y = _b.Slice(x, 0, f, 1);
+                y = f == 0 ? y : _b.After(y, outputs[^1]);
+                for (int i = temporalLevels; i < levels; i++)
+                {
+                    y = UpBlock(y, i, temporal: false, chunk == 0);
+                }
+
+                outputs.Add(_conv.Apply(_b.Silu(GroupNorm(y, P + "decoder.conv_norm_out")), P + "decoder.conv_out"));
+            }
         }
 
         _b.Output(VideoDiffusionGraphs.Frames, outputs.Count == 1 ? outputs[0] : _b.Concat(0, [.. outputs]));
         return _b.Build();
+    }
+
+    /// <summary>Decoder level <paramref name="index"/>: its residual blocks, then its upsampler (temporal for the first levels) and convolution.</summary>
+    private Value UpBlock(Value x, int index, bool temporal, bool firstChunk)
+    {
+        string p = $"{P}decoder.up_blocks.{index}";
+        for (int j = 0; _b.HasWeight($"{p}.resnets.{j}.conv1.weight"); j++)
+        {
+            x = ResidualBlock(x, $"{p}.resnets.{j}");
+        }
+
+        if (_b.HasWeight($"{p}.upsamplers.0.conv.weight"))
+        {
+            x = Upsample(x, $"{p}.upsamplers.0", temporal, dropRepeatedFirst: firstChunk);
+            x = _conv.Apply(x, $"{p}.upsamplers.0.conv");
+        }
+
+        return x;
     }
 
     /// <summary>Per-chunk latent frames [t, C, h, w] → the scaled latent clip [C, T, h, w].</summary>

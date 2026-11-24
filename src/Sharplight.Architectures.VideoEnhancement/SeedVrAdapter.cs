@@ -1,6 +1,7 @@
 using Sharplight.Graph;
 using Sharplight.ImageGeneration;
 using Sharplight.Models;
+using Sharplight.Tensors;
 using Sharplight.VideoGeneration;
 
 namespace Sharplight.Architectures.VideoEnhancement;
@@ -65,11 +66,12 @@ public sealed class SeedVrAdapter : IModelAdapter
         int latentHeight = height / vae.SpatialDownscale;
         int latentWidth = width / vae.SpatialDownscale;
         int frames = (latentFrames - 1) * vae.TemporalDownscale + 1;
+        var cacheType = options.Dimensions.GetValueOrDefault(SeedVrGraphs.HalfCaches, 0) != 0 ? DataType.F16 : DataType.F32;
         var graphs = new Dictionary<string, ComputeGraph>
         {
             [SeedVrGraphs.Restore] = SeedVrTransformerGraphBuilder.Build(src.Weight, transformer, latentFrames, latentHeight, latentWidth),
-            [SeedVrGraphs.VaeEncode] = SeedVrVaeGraphBuilder.BuildEncoder(src.Weight, vae, frames, height, width),
-            [SeedVrGraphs.VaeDecode] = SeedVrVaeGraphBuilder.BuildDecoder(src.Weight, vae, latentFrames, latentHeight, latentWidth),
+            [SeedVrGraphs.VaeEncode] = SeedVrVaeGraphBuilder.BuildEncoder(src.Weight, vae, frames, height, width, cacheType),
+            [SeedVrGraphs.VaeDecode] = SeedVrVaeGraphBuilder.BuildDecoder(src.Weight, vae, latentFrames, latentHeight, latentWidth, cacheType),
             [SeedVrGraphs.ColorCorrect] = WaveletColorGraphBuilder.Build(frames, height, width),
         };
         return new ModelDefinition

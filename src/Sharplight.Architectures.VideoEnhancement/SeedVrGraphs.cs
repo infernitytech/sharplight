@@ -29,6 +29,12 @@ internal static class SeedVrGraphs
     /// <summary>The restoration DiT graph.</summary>
     public const string Restore = "restore";
 
+    /// <summary>
+    /// Dimension (0 or 1): 1 keeps the VAE's causal-convolution caches between chunks in F16 (for devices that round the products to F16 under
+    /// reduced precision anyway); 0, the default, in F32.
+    /// </summary>
+    public const string HalfCaches = "half_caches";
+
     /// <summary>The VAE encoder graph of a clip.</summary>
     public const string VaeEncode = "vae_encode";
 
