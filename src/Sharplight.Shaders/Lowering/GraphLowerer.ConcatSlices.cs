@@ -53,7 +53,7 @@ public sealed partial class GraphLowerer
         {
             foreach (var node in unit.Nodes)
             {
-                if (node.Op.Name == "Concat")
+                if (node.Op.Name == "Concat" && !_channelsLastConcats.ContainsKey(node.Output))
                 {
                     PlanConcatSlices(node, producers, consumers);
                 }

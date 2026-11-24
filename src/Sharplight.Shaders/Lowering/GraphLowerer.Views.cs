@@ -249,6 +249,12 @@ public sealed partial class GraphLowerer
 
     private void LowerConcat(Node n)
     {
+        if (_channelsLastConcats.TryGetValue(n.Output, out var channelsLastType))
+        {
+            LowerConcatChannelsLast(n, channelsLastType);
+            return;
+        }
+
         var y = Produce(n.Output);
         int axis = n.Attributes.Get<int>("axis");
         if (axis < 0)
