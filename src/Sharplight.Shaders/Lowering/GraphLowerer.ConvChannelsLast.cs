@@ -22,8 +22,8 @@ public sealed partial class GraphLowerer
     /// </summary>
     private readonly record struct ConvChannelsLastForm(DataType Type, int WarpsM, int WarpsN, int FragN, int Stages, int TileK = (int)ConvMatrixTileK)
     {
-        /// <summary>Shared operand buffers: the asynchronous copies' ring, else two.</summary>
-        public int Buffers => Stages > 0 ? Stages : 2;
+        /// <summary>Shared operand buffers: the asynchronous copies' ring, else two (one with <see cref="Stages"/> -1, <c>CL_SINGLE</c>).</summary>
+        public int Buffers => Stages > 0 ? Stages : Stages < 0 ? 1 : 2;
 
         public long TileRows => WarpsM * ConvMatrixWarpRows;
 
@@ -132,7 +132,7 @@ public sealed partial class GraphLowerer
         {
             form = form with
             {
-                WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, Stages = tile.Length > 3 && ConvAsyncCopies ? tile[3] : 0,
+                WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, Stages = tile.Length > 3 && (ConvAsyncCopies || tile[3] < 0) ? tile[3] : 0,
                 TileK = tile.Length > 4 ? tile[4] : form.TileK,
             };
         }
@@ -586,7 +586,7 @@ public sealed partial class GraphLowerer
             ("C", channelsTotal), ("H", x.Shape[2]), ("W", x.Shape[3]), ("O", O), ("HO", y.Shape[2]), ("WO", y.Shape[3]), ("CG", CG), ("OG", OG), ("G", G),
             ("KH", KH), ("KW", KW), ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("DH", dl[0]), ("DW", dl[1]),
             ("XS_N", x.Strides[0]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]), ("NOPAD", pd.All(p => p == 0)), ("XBF16", form.Type == DataType.BF16),
-            ("WARPS_M", form.WarpsM), ("WARPS_N", form.WarpsN), ("FRAG_M", 4), ("FRAG_N", form.FragN), ("CL_ASYNC", form.Stages > 0),
+            ("WARPS_M", form.WarpsM), ("WARPS_N", form.WarpsN), ("FRAG_M", 4), ("FRAG_N", form.FragN), ("CL_ASYNC", form.Stages > 0), ("CL_SINGLE", form.Stages < 0),
             ("CL_STAGES", form.Buffers), ("X_PARTS", Math.Max(1, parts.Count)), ("PART_C", x.Shape[1]), ("TBK", form.TileK),
         };
         string name = $"conv {n.Output.Name} [{channelsTotal}→{O} {KH}x{KW} s{st[0]} g{G}]{fusedLabel} {form.Type.Name} channels-last{(parts.Count > 0 ? $" {parts.Count} parts" : "")}";

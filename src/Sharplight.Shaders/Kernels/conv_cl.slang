@@ -114,8 +114,15 @@ void conv_cl_stage(uint3 dtid : SV_DispatchThreadID, uniform StageParams p)
 #ifndef CL_ASYNC
 #define CL_ASYNC 0
 #endif
+// CL_SINGLE (register prefetch, for TBK = 64 within 48 KB of shared memory): one buffer, the next step's loads still in registers
+// during the products, two barriers per step.
+#ifndef CL_SINGLE
+#define CL_SINGLE 0
+#endif
 #if CL_ASYNC
 #define NBUF CL_STAGES
+#elif CL_SINGLE
+#define NBUF 1
 #else
 #define NBUF 2
 #endif
@@ -430,12 +437,21 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         }
 
         products(buf, wm, wn, acc);
+#if CL_SINGLE
+        GroupMemoryBarrierWithGroupSync();
+        if (more)
+        {
+            stage(0, tid, a, b);
+        }
+        GroupMemoryBarrierWithGroupSync();
+#else
         if (more)
         {
             stage(buf ^ 1, tid, a, b);
         }
         GroupMemoryBarrierWithGroupSync();
         buf ^= 1;
+#endif
     }
 #endif
 
