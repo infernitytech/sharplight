@@ -8,7 +8,8 @@
 //                  in registers during this step's products, or (CL_ASYNC, CUDA) a ring of CL_STAGES buffers filled by
 //                  asynchronous copies. y dense [N, O, HO, WO] f32 (+ bias, fused epilogue), stored along the pixels through
 //                  the A tiles; SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce (conv.slang).
-//                  Needs CG % 8 == 0 and XS_N, XS_H, XS_W multiples of 8 (16-byte aligned items).
+//                  Needs CG % 8 == 0 and XS_N, XS_H, XS_W multiples of 8 (16-byte aligned items). X_PARTS > 1: x is a channel
+//                  concatenation read from its parts in place (see ConvParams).
 //  conv_cl_stage : converts x [N, C, H, W] (strides XS_*, XFMT f32 / f16 / bf16) to the channels-last 16-bit layout, channel
 //                  range [C_OFF, C_OFF + C) of a tensor with strides OS_N, OS_H, OS_W (channel stride 1): one convolution's
 //                  input, or one part of a channel concatenation that only convolutions read. Each thread converts V (8 or 16)
@@ -137,12 +138,30 @@ typealias MatB = CoopMat<Elem, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.Ma
 typealias Acc = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
 #endif
 
+// X_PARTS > 1: x is the channel concatenation of X_PARTS tensors of PART_C channels each with the same strides (x, x1, x2, x3),
+// e.g. the stacked frame windows of a causal 3-D convolution, read in place (one group).
+#ifndef X_PARTS
+#define X_PARTS 1
+#endif
+#if X_PARTS > 1 && G != 1
+#error "conv_cl: a concatenated input takes one group"
+#endif
+
 struct ConvParams
 {
     uint4* x;
     uint4* w;
     float* bias;
     float* y;
+#if X_PARTS > 1
+    uint4* x1;
+#endif
+#if X_PARTS > 2
+    uint4* x2;
+#endif
+#if X_PARTS > 3
+    uint4* x3;
+#endif
 #if EPI_RES
     float* res;
 #endif
@@ -168,17 +187,18 @@ struct Pixels
     int iw0[B_ITEMS];
 };
 
-// The K step at k0 for the thread's k group q = tid % KG: element offset of the tap and channel within a pixel, the tap's
-// row and column offsets, and whether k0 + 8 q is inside the split.
+// The K step at k0 for the thread's k group q = tid % KG: the address of the input tensor (part) it reads, the element offset of
+// the tap and channel within a pixel, the tap's row and column offsets, and whether k0 + 8 q is inside the split.
 struct KStep
 {
+    uint64_t x;
     uint64_t offset;
     int dh;
     int dw;
     bool inside;
 };
 
-KStep k_step(uint g, uint k0, uint kEnd, uint tid)
+KStep k_step(ConvParams p, uint g, uint k0, uint kEnd, uint tid)
 {
     KStep s;
     uint kq = k0 + (tid % KG) * 8;
@@ -187,6 +207,20 @@ KStep k_step(uint g, uint k0, uint kEnd, uint tid)
     uint kh = tap / KW;
     s.dh = int(kh) * DH;
     s.dw = int(tap - kh * KW) * DW;
+#if X_PARTS > 1
+    uint part = c / PART_C;
+    c -= part * PART_C;
+    s.x = uint64_t(p.x);
+    s.x = part == 1 ? uint64_t(p.x1) : s.x;
+#if X_PARTS > 2
+    s.x = part == 2 ? uint64_t(p.x2) : s.x;
+#endif
+#if X_PARTS > 3
+    s.x = part == 3 ? uint64_t(p.x3) : s.x;
+#endif
+#else
+    s.x = uint64_t(p.x);
+#endif
     s.offset = uint64_t(int64_t(s.dh) * XS_H + int64_t(s.dw) * XS_W) + g * CG + c;
     s.inside = kq < kEnd;
     return s;
@@ -222,7 +256,7 @@ uint b_slot(uint buf, uint tid, uint it) { return (buf * TBN + (tid + it * NT) /
 // Issues the copies of the K step at k0 into buffer buf.
 void issue(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixels px, uint buf)
 {
-    KStep s = k_step(g, k0, kEnd, tid);
+    KStep s = k_step(p, g, k0, kEnd, tid);
     [ForceUnroll]
     for (uint it = 0; it < A_ITEMS; it++)
     {
@@ -233,14 +267,14 @@ void issue(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixel
     for (uint it = 0; it < B_ITEMS; it++)
     {
         bool in = b_inside(px, it, s);
-        cu_cp_async16(sB, b_slot(buf, tid, it), uint64_t(p.x) + (in ? (px.base[it] + s.offset) * 2 : 0), in);
+        cu_cp_async16(sB, b_slot(buf, tid, it), s.x + (in ? (px.base[it] + s.offset) * 2 : 0), in);
     }
 }
 #else
 // Global loads of the K step at k0 into registers; zero outside the tensors and at or past kEnd.
 void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixels px, out uint4 a[A_ITEMS], out uint4 b[B_ITEMS])
 {
-    KStep s = k_step(g, k0, kEnd, tid);
+    KStep s = k_step(p, g, k0, kEnd, tid);
     [ForceUnroll]
     for (uint it = 0; it < A_ITEMS; it++)
     {
@@ -256,7 +290,7 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, Pixel
         b[it] = 0;
         if (b_inside(px, it, s))
         {
-            b[it] = p.x[(px.base[it] + s.offset) / 8];
+            b[it] = *(uint4*)(s.x + (px.base[it] + s.offset) * 2);
         }
     }
 }

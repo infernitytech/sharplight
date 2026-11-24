@@ -28,18 +28,43 @@ public sealed partial class GraphLowerer
         public long TileRows => WarpsM * ConvMatrixWarpRows;
 
         public long TileColumns => WarpsN * FragN * 16L;
-
-        public int Threads => WarpsM * WarpsN * 32;
     }
 
-    /// <summary>Concatenations lowered as channels-last 16-bit stagings of their parts (see <see cref="PlanChannelsLastConcats"/>).</summary>
-    private readonly Dictionary<Value, DataType> _channelsLastConcats = [];
+    /// <summary>Most parts of a concatenated input conv_cl reads in place (<c>X_PARTS</c>).</summary>
+    private const int ConvChannelsLastMaxParts = 4;
 
-    /// <summary>Parts of those concatenations (or of their parts) that the unit producing them stages in place, by value.</summary>
+    /// <summary>
+    /// Concatenations lowered as channels-last 16-bit stagings of their parts, with their type and whether the convolution reads the
+    /// parts in place (see <see cref="PlanChannelsLastConcats"/>).
+    /// </summary>
+    private readonly Dictionary<Value, (DataType Type, bool InPlace)> _channelsLastConcats = [];
+
+    /// <summary>Parts of those concatenations (or of their parts) that the unit producing them stages, by value.</summary>
     private readonly Dictionary<Value, ChannelsLastSlot> _channelsLastParts = [];
 
-    /// <summary>Where a part is staged: the channels-last concatenation output, its type, and the part's channel and batch offsets.</summary>
-    private readonly record struct ChannelsLastSlot(Value Concat, DataType Type, long Channel, long Batch);
+    /// <summary>
+    /// Where a part is staged: the concatenation's output, the value whose channels-last tensor holds it (the output, or the part for
+    /// concatenations read in place), its type, and the part's channel and batch offsets there.
+    /// </summary>
+    private readonly record struct ChannelsLastSlot(Value Concat, Value Owner, DataType Type, long Channel, long Batch);
+
+    /// <summary>The own channels-last tensors of parts read in place, by part.</summary>
+    private readonly Dictionary<Value, TensorRef> _channelsLastOwned = [];
+
+    /// <summary>Parts of concatenations read in place that are slices of another value (through Slice and After), with that value.</summary>
+    private readonly Dictionary<Value, Value> _channelsLastViews = [];
+
+    /// <summary>The (source, concatenation output) pairs of <see cref="_channelsLastViews"/>: the copy of the source must outlive the concatenation's reader.</summary>
+    private readonly List<(Value Source, Value Concat)> _channelsLastViewReads = [];
+
+    /// <summary>Values whose parts are read from one channels-last copy (they cover the value at least once).</summary>
+    private readonly HashSet<Value> _channelsLastSources = [];
+
+    /// <summary>The channels-last copies of <see cref="_channelsLastSources"/>, while their values live.</summary>
+    private readonly Dictionary<Value, TensorRef> _channelsLastCopies = [];
+
+    /// <summary>The parts a convolution reads in place for a concatenated input, by the concatenation's output.</summary>
+    private readonly Dictionary<Value, List<TensorRef>> _channelsLastInputs = [];
 
     /// <summary>The channels-last 16-bit weights [O, KH·KW·CG] (tap-major) of each constant conv weight, by weight and type.</summary>
     private readonly Dictionary<(Value Weight, DataType Type), TensorRef> _channelsLastWeights = [];
@@ -119,17 +144,25 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Marks the channel concatenations (rank 4, axis 1) whose only reader is a conv_cl convolution's input and whose parts are
-    /// floats of whole 8-channel items: <see cref="LowerConcat"/> stages each part into its channel range of a channels-last
-    /// 16-bit output instead of copying it, and the convolution reads that output directly. A part that is the only output
-    /// read of a single-node unit converting or gathering other tensors (a Cast between float types, a Concat along the batch
-    /// axis, e.g. a causal convolution's cached frames and the chunk's frames) is staged in place by that unit instead, from the
-    /// unit's own inputs (<see cref="_channelsLastParts"/>), so neither the converted nor the gathered tensor is materialized.
+    /// floats of whole 8-channel items, so they are not copied as such:
+    /// <list type="bullet">
+    /// <item>Two to four parts of one shape into a one-group convolution (the stacked frame windows of a causal 3-D convolution):
+    /// the convolution reads the parts in place (<c>X_PARTS</c>), each a channels-last 16-bit tensor. A part that is a slice of a
+    /// value the parts of these concatenations cover at least once in total (the frames of a chunk, which the windows of a causal
+    /// convolution's pieces take one tap after the other) is a view of that value's channels-last copy, staged once
+    /// (<see cref="_channelsLastSources"/>); any other part is staged into a tensor of its own.</item>
+    /// <item>Otherwise the output is one channels-last 16-bit tensor and each part is staged into its channel range.</item>
+    /// </list>
+    /// A part that is the only output read of a single-node unit converting or gathering other tensors (a Cast between float types,
+    /// a Concat along the batch axis, e.g. a causal convolution's cached frames and the chunk's frames) is staged by that unit from
+    /// its own inputs (<see cref="_channelsLastParts"/>), so neither the converted nor the gathered tensor is materialized.
     /// </summary>
     private void PlanChannelsLastConcats(List<LoweringUnit> units)
     {
         var readers = new Dictionary<Value, List<(Node Node, int Index)>>();
         var concats = new List<Node>();
         var singleNodeUnits = new Dictionary<Value, Node>();
+        var producers = new Dictionary<Value, Node>();
         foreach (var unit in units)
         {
             if (unit.Node is { } single && unit.Fused is null && unit.Dual is null && unit.ConvHead is null)
@@ -143,6 +176,11 @@ public sealed partial class GraphLowerer
 
             foreach (var node in unit.Nodes)
             {
+                foreach (var output in node.Outputs)
+                {
+                    producers[output] = node;
+                }
+
                 for (int i = 0; i < node.Inputs.Length; i++)
                 {
                     if (!readers.TryGetValue(node.Inputs[i], out var list))
@@ -160,6 +198,7 @@ public sealed partial class GraphLowerer
             }
         }
 
+        var coverage = new Dictionary<Value, long>();
         foreach (var concat in concats)
         {
             var y = concat.Output;
@@ -171,31 +210,83 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            _channelsLastConcats[y] = form.Type;
+            var first = concat.Inputs[0].Shape;
+            bool inPlace = concat.Inputs.Length is >= 2 and <= ConvChannelsLastMaxParts && uses[0].Node.Attributes.Get("groups", 1L) == 1
+                           && concat.Inputs.All(i => i.Shape.Dims.SequenceEqual(first.Dims));
+            _channelsLastConcats[y] = (form.Type, inPlace);
             long channel = 0;
             foreach (var part in concat.Inputs)
             {
-                PlanChannelsLastPart(part, new ChannelsLastSlot(y, form.Type, channel, 0), readers, singleNodeUnits);
+                var slot = inPlace ? new ChannelsLastSlot(y, part, form.Type, 0, 0) : new ChannelsLastSlot(y, y, form.Type, channel, 0);
+                if (!PlanChannelsLastPart(part, slot, readers, singleNodeUnits) && inPlace && ViewSource(part, producers) is { } source && source != part)
+                {
+                    _channelsLastViews[part] = source;
+                    _channelsLastViewReads.Add((source, y));
+                    coverage[source] = coverage.GetValueOrDefault(source) + part.Shape.Dims.Aggregate(1L, (a, d) => a * Bound(d));
+                }
+
                 channel += part.Shape[1].Fixed;
+            }
+        }
+
+        foreach (var (source, elements) in coverage)
+        {
+            if (elements >= source.Shape.Dims.Aggregate(1L, (a, d) => a * Bound(d)) && source.Rank == 4
+                && (source.Type == DataType.F32 || source.Type == DataType.F16 || source.Type == DataType.BF16))
+            {
+                _channelsLastSources.Add(source);
             }
         }
     }
 
-    /// <summary>Registers <paramref name="part"/> as staged in place at <paramref name="slot"/> when its producer qualifies (see <see cref="PlanChannelsLastConcats"/>).</summary>
-    private void PlanChannelsLastPart(Value part, ChannelsLastSlot slot, Dictionary<Value, List<(Node Node, int Index)>> readers, Dictionary<Value, Node> singleNodeUnits)
+    /// <summary>The value <paramref name="part"/> is a slice of (through Slice and After), or <paramref name="part"/> itself.</summary>
+    private static Value ViewSource(Value part, Dictionary<Value, Node> producers)
+    {
+        while (producers.TryGetValue(part, out var producer) && producer.Op.Name is "Slice" or "After")
+        {
+            part = producer.Inputs[0];
+        }
+
+        return part;
+    }
+
+    /// <summary>
+    /// Keeps the values whose channels-last copies the planned concatenations read (<see cref="_channelsLastSources"/>) alive until
+    /// the last convolution reading them (the copy is released with its value, see <see cref="ReleaseRootScratch"/>).
+    /// </summary>
+    private void ExtendChannelsLastSources()
+    {
+        foreach (var (source, concat) in _channelsLastViewReads)
+        {
+            var root = RootOf(source);
+            if (_channelsLastSources.Contains(source) && _lastUse.TryGetValue(RootOf(concat), out int last) && _lastUse.TryGetValue(root, out int current)
+                && last > current)
+            {
+                _lastUse[root] = last;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Registers <paramref name="part"/> as staged by its producer at <paramref name="slot"/> when the producer qualifies (see
+    /// <see cref="PlanChannelsLastConcats"/>); false otherwise.
+    /// </summary>
+    private bool PlanChannelsLastPart(Value part, ChannelsLastSlot slot, Dictionary<Value, List<(Node Node, int Index)>> readers, Dictionary<Value, Node> singleNodeUnits)
     {
         if (!singleNodeUnits.TryGetValue(part, out var producer) || _segmentOutputs.Contains(part) || readers[part].Count != 1 || _channelsLastParts.ContainsKey(part)
             || producer.Inputs.Any(i => i.Rank != 4 || i.Type != DataType.F32 && i.Type != DataType.F16 && i.Type != DataType.BF16))
         {
-            return;
+            return false;
         }
 
         if (producer.Op.Name == "Cast" && part.Type == DataType.F32)
         {
             _channelsLastParts[part] = slot;
+            return true;
         }
-        else if (producer.Op.Name == "Concat" && producer.Attributes.Get<int>("axis") is 0 or -4 && producer.Inputs.All(i => !i.Shape[0].IsSymbolic)
-                 && producer.Inputs.Distinct().Count() == producer.Inputs.Length)
+
+        if (producer.Op.Name == "Concat" && producer.Attributes.Get<int>("axis") is 0 or -4 && producer.Inputs.All(i => !i.Shape[0].IsSymbolic)
+            && producer.Inputs.Distinct().Count() == producer.Inputs.Length)
         {
             _channelsLastParts[part] = slot;
             long batch = slot.Batch;
@@ -204,7 +295,11 @@ public sealed partial class GraphLowerer
                 PlanChannelsLastPart(input, slot with { Batch = batch }, readers, singleNodeUnits);
                 batch += input.Shape[0].Fixed;
             }
+
+            return true;
         }
+
+        return false;
     }
 
     /// <summary>
@@ -232,28 +327,134 @@ public sealed partial class GraphLowerer
         return true;
     }
 
-    /// <summary>The channels-last concatenation output of <paramref name="slot"/> (allocated on first use), from its batch offset on.</summary>
+    /// <summary>
+    /// The channels-last tensor of <paramref name="slot"/> (allocated on first use) from its batch offset on: the concatenation's
+    /// output, or the part's own tensor (released with the concatenation's output).
+    /// </summary>
     private TensorRef ChannelsLastTarget(ChannelsLastSlot slot)
     {
-        var y = _refs.TryGetValue(slot.Concat, out var existing) ? existing : ProduceChannelsLast(slot.Concat, slot.Type);
-        return y with { ByteOffset = y.ByteOffset + slot.Batch * y.Strides[0] * y.Type.ElementSize };
-    }
-
-    /// <summary>The concatenation planned by <see cref="PlanChannelsLastConcats"/>: each part not staged in place is staged into its channel range.</summary>
-    private void LowerConcatChannelsLast(Node n, DataType type)
-    {
-        long offset = 0;
-        foreach (var input in n.Inputs)
+        TensorRef target;
+        if (slot.Owner == slot.Concat)
         {
-            if (!_channelsLastParts.ContainsKey(input))
-            {
-                StageChannelsLast(Ref(input), ChannelsLastTarget(new ChannelsLastSlot(n.Output, type, offset, 0)), offset, [n], $"concat {n.Output.Name} channels-last");
-            }
-
-            offset += input.Shape[1].Fixed;
+            target = _refs.TryGetValue(slot.Concat, out var existing) ? existing : ProduceChannelsLast(slot.Concat, slot.Type);
+        }
+        else if (!_channelsLastOwned.TryGetValue(slot.Owner, out target!))
+        {
+            target = ChannelsLastScratch(slot.Owner.Shape, slot.Type, slot.Concat);
+            _channelsLastOwned[slot.Owner] = target;
         }
 
-        _ = ChannelsLastTarget(new ChannelsLastSlot(n.Output, type, 0, 0));
+        return target with { ByteOffset = target.ByteOffset + slot.Batch * target.Strides[0] * target.Type.ElementSize };
+    }
+
+    /// <summary>A channels-last tensor of <paramref name="shape"/> in the arena, released with <paramref name="owner"/>'s root.</summary>
+    private TensorRef ChannelsLastScratch(Shape shape, DataType type, Value owner)
+    {
+        var bounds = BoundShape(shape);
+        var allocation = new object();
+        long offset = _alloc.Allocate(allocation, Math.Max(16, type.ByteSize(bounds.Aggregate(1L, (a, b) => a * b))));
+        var root = RootOf(owner);
+        if (!_rootScratch.TryGetValue(root, out var list))
+        {
+            _rootScratch[root] = list = [];
+        }
+
+        list.Add(allocation);
+        return new TensorRef(_arena, offset, type, bounds, ChannelsLastStrides(bounds), shape.Symbol);
+    }
+
+    /// <summary>
+    /// The concatenation planned by <see cref="PlanChannelsLastConcats"/>. Read in place: the parts' channels-last tensors (the
+    /// copies of their sources, their own staged tensors), or, when their strides differ, one tensor they are staged into. Else
+    /// each part not staged by its producer is staged into its channel range.
+    /// </summary>
+    private void LowerConcatChannelsLast(Node n, DataType type, bool inPlace)
+    {
+        if (!inPlace)
+        {
+            long offset = 0;
+            foreach (var input in n.Inputs)
+            {
+                if (!_channelsLastParts.ContainsKey(input))
+                {
+                    StageChannelsLast(Ref(input), ChannelsLastTarget(new ChannelsLastSlot(n.Output, n.Output, type, offset, 0)), offset, [n], $"concat {n.Output.Name} channels-last");
+                }
+
+                offset += input.Shape[1].Fixed;
+            }
+
+            _ = ChannelsLastTarget(new ChannelsLastSlot(n.Output, n.Output, type, 0, 0));
+            return;
+        }
+
+        var parts = new List<TensorRef>();
+        foreach (var input in n.Inputs)
+        {
+            var slot = new ChannelsLastSlot(n.Output, input, type, 0, 0);
+            if (_channelsLastParts.ContainsKey(input))
+            {
+                parts.Add(ChannelsLastTarget(slot));
+            }
+            else if (_channelsLastViews.TryGetValue(input, out var source) && _channelsLastSources.Contains(source)
+                     && ChannelsLastView(Ref(input), source, type, n) is { } view)
+            {
+                parts.Add(view);
+            }
+            else
+            {
+                var own = ChannelsLastTarget(slot);
+                StageChannelsLast(Ref(input), own, 0, [n], $"concat {n.Output.Name} part channels-last");
+                parts.Add(own);
+            }
+        }
+
+        if (parts.All(p => IsChannelsLast(p, type) && p.Strides.SequenceEqual(parts[0].Strides)))
+        {
+            _channelsLastInputs[n.Output] = parts;
+            return;
+        }
+
+        var y = ProduceChannelsLast(n.Output, type);
+        long channel = 0;
+        foreach (var part in parts)
+        {
+            StageChannelsLast(part, y, channel, [n], $"concat {n.Output.Name} channels-last");
+            channel += part.Shape[1];
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="part"/> (a slice of <paramref name="source"/>'s dense tensor: same strides) as a view of the source's
+    /// channels-last copy, staged on first use and released with the source; null when it is no such slice.
+    /// </summary>
+    private TensorRef? ChannelsLastView(TensorRef part, Value source, DataType type, Node concat)
+    {
+        var whole = Ref(source);
+        if (whole.Rank != 4 || !whole.IsDense || part.Buffer != whole.Buffer || part.Type != whole.Type || !part.Strides.SequenceEqual(whole.Strides)
+            || part.ByteOffset < whole.ByteOffset)
+        {
+            return null;
+        }
+
+        long element = (part.ByteOffset - whole.ByteOffset) / whole.Type.ElementSize;
+        long n = element / whole.Strides[0];
+        long c = element % whole.Strides[0] / whole.Strides[1];
+        long h = element % whole.Strides[1] / whole.Strides[2];
+        long w = element % whole.Strides[2];
+        if (c % 8 != 0)
+        {
+            return null;
+        }
+
+        if (!_channelsLastCopies.TryGetValue(source, out var copy))
+        {
+            copy = ChannelsLastScratch(source.Shape, type, source);
+            StageChannelsLast(whole, copy, 0, [concat], $"{source.Name} channels-last copy");
+            _channelsLastCopies[source] = copy;
+        }
+
+        long offset = n * copy.Strides[0] + c + h * copy.Strides[2] + w * copy.Strides[3];
+        return copy with { ByteOffset = copy.ByteOffset + offset * type.ElementSize, Shape = part.Shape, Symbol = part.Symbol };
     }
 
     /// <summary>A channels-last 16-bit (<paramref name="type"/>) tensor for <paramref name="v"/>, allocated in the arena under its value.</summary>
@@ -338,12 +539,21 @@ public sealed partial class GraphLowerer
     /// <summary>Lowers convolution <paramref name="n"/> (with <paramref name="epilogue"/>'s group in its store) through conv_cl.</summary>
     private void LowerConvChannelsLast(Node n, Node[] nodes, ConvEpilogue? fused, ConvEpilogueCode? epilogue, ConvChannelsLastForm form, string fusedLabel)
     {
-        var input = Ref(n.Inputs[0]);
-        var x = input;
-        if (!IsChannelsLast(input, form.Type))
+        TensorRef x;
+        var parts = _channelsLastInputs.GetValueOrDefault(n.Inputs[0]) ?? [];
+        if (parts.Count > 0)
         {
-            x = Temp(form.Type, input.Shape, input.Symbol) with { Strides = ChannelsLastStrides(input.Shape) };
-            StageChannelsLast(input, x, 0, [n], $"conv {n.Output.Name} stage channels-last");
+            x = parts[0];
+        }
+        else
+        {
+            x = Ref(n.Inputs[0]);
+            if (!IsChannelsLast(x, form.Type))
+            {
+                var input = x;
+                x = Temp(form.Type, input.Shape, input.Symbol) with { Strides = ChannelsLastStrides(input.Shape) };
+                StageChannelsLast(input, x, 0, [n], $"conv {n.Output.Name} stage channels-last");
+            }
         }
 
         var w = ChannelsLastWeights(n.Inputs[1], form.Type);
@@ -362,15 +572,18 @@ public sealed partial class GraphLowerer
         long HW = y.Shape[2] * y.Shape[3];
         long K = CG * KH * KW;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
+        long channelsTotal = parts.Count > 0 ? parts.Count * x.Shape[1] : x.Shape[1];
         var macros = new List<(string, object)>
         {
-            ("C", x.Shape[1]), ("H", x.Shape[2]), ("W", x.Shape[3]), ("O", O), ("HO", y.Shape[2]), ("WO", y.Shape[3]), ("CG", CG), ("OG", OG), ("G", G),
+            ("C", channelsTotal), ("H", x.Shape[2]), ("W", x.Shape[3]), ("O", O), ("HO", y.Shape[2]), ("WO", y.Shape[3]), ("CG", CG), ("OG", OG), ("G", G),
             ("KH", KH), ("KW", KW), ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("DH", dl[0]), ("DW", dl[1]),
             ("XS_N", x.Strides[0]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]), ("NOPAD", pd.All(p => p == 0)), ("XBF16", form.Type == DataType.BF16),
             ("WARPS_M", form.WarpsM), ("WARPS_N", form.WarpsN), ("FRAG_M", 4), ("FRAG_N", form.FragN), ("CL_ASYNC", form.Stages > 0),
-            ("CL_STAGES", form.Buffers),
+            ("CL_STAGES", form.Buffers), ("X_PARTS", Math.Max(1, parts.Count)), ("PART_C", x.Shape[1]),
         };
-        string name = $"conv {n.Output.Name} [{x.Shape[1]}→{O} {KH}x{KW} s{st[0]} g{G}]{fusedLabel} {form.Type.Name} channels-last";
-        EmitConvMatrix(name, nodes, "conv_cl.slang", "conv_cl", macros, epilogue, x, w, [], [], bias, y, G, OG, HW, K, bound, form.TileRows, form.TileColumns);
+        string name = $"conv {n.Output.Name} [{channelsTotal}→{O} {KH}x{KW} s{st[0]} g{G}]{fusedLabel} {form.Type.Name} channels-last{(parts.Count > 0 ? $" {parts.Count} parts" : "")}";
+        var extra = parts.Skip(1).ToArray();
+        EmitConvMatrix(name, nodes, "conv_cl.slang", "conv_cl", macros, epilogue, x, w, [.. extra.Select(p => (KernelArg)Pointer(p))], extra, bias, y, G, OG, HW, K, bound,
+            form.TileRows, form.TileColumns);
     }
 }

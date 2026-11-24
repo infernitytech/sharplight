@@ -90,6 +90,7 @@ public sealed partial class GraphLowerer
         PlanChannelsLastConcats(units);
         PlanConcatSlices(units);
         ComputeLiveness(units);
+        ExtendChannelsLastSources();
         LowerUnits(units);
         CopyNonMaterializedOutputs();
         foreach (var check in _deferredCopyChecks)

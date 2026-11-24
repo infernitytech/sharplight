@@ -24,7 +24,8 @@ public sealed class ConvChannelsLastTests
     }
 
     /// <summary>Runs <paramref name="g"/> against the oracle and asserts that a channels-last launch ran when the device supports it.</summary>
-    private static void Check(string op, ComputeGraph g, IReadOnlyList<Step> steps, double atol, double rtol, string what, bool bf16 = false)
+    private static void Check(string op, ComputeGraph g, IReadOnlyList<Step> steps, double atol, double rtol, string what, bool bf16 = false, int parts = 0,
+        string? alsoLaunched = null)
     {
         ICompiledSegment? segment = null;
         IReadOnlySet<string>? disabled = bf16 ? new HashSet<string> { DeviceFeatures.MatrixF16 } : null;
@@ -38,7 +39,11 @@ public sealed class ConvChannelsLastTests
             : features.Contains(DeviceFeatures.MatrixF16) && features.Contains(DeviceFeatures.Float16);
         if (supported && segment is not null && LaunchNames(segment) is { } names)
         {
-            Assert.Contains(names, n => n.Contains("channels-last", StringComparison.Ordinal));
+            Assert.Contains(names, n => n.Contains(parts > 0 ? $"channels-last {parts} parts" : "channels-last", StringComparison.Ordinal));
+            if (alsoLaunched is not null)
+            {
+                Assert.True(names.Any(n => n.Contains(alsoLaunched, StringComparison.Ordinal)), $"no {alsoLaunched} among: {string.Join("; ", names)}");
+            }
         }
     }
 
@@ -115,6 +120,57 @@ public sealed class ConvChannelsLastTests
         var half = Rnd.F(3L * c * hw * hw, 97).Select(v => (Half)v).ToArray();
         var step = new Step(1, 0, (a, Rnd.F(2L * c * hw * hw, 96)), (h, half), (r, Rnd.F(2L * 64 * hw * hw, 98)));
         Check("Conv.channels-last.concat", tg.B.Build(), [step], 2e-2, 1e-2, "concat");
+    }
+
+    /// <summary>
+    /// A causal 3-D convolution over frames as the stacked windows of its pieces (as video VAEs build them): 3 time taps over 2 cached
+    /// f16 frames and 5 f32 frames, pieces of 1 and 2 output frames whose windows are slices of the frames, casts of cached slices and
+    /// batch concatenations of both. The convolution reads the windows in place (3 parts), the frames from one channels-last copy.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void StackedFrameWindows(int group)
+    {
+        const int c = 32;
+        const int hw = 14;
+        const int frames = 5;
+        const int cached = 2;
+        var tg = new TG();
+        var x = tg.In("x", DataType.F32, frames, c, hw, hw);
+        var cache = tg.In("cache", DataType.F16, cached, c, hw, hw);
+        var w = tg.RandW("w", DataType.F32, 0.5f / MathF.Sqrt(3 * c * 9), 48, 3 * c, 3, 3);
+        var attrs = Attributes.From(("strides", new long[] { 1, 1 }), ("pads", new long[] { 1, 1, 1, 1 }), ("dilations", new long[] { 1, 1 }), ("groups", 1L));
+        Value Frames(long start, long count)
+        {
+            var parts = new List<Value>();
+            if (start < cached)
+            {
+                long leading = Math.Min(start + count, cached) - start;
+                parts.Add(tg.B.Emit1("Cast", [tg.B.Slice(cache, 0, start, leading)], Attributes.From(("type", "f32"))));
+            }
+
+            if (start + count > cached)
+            {
+                long from = Math.Max(start, cached) - cached;
+                parts.Add(tg.B.Slice(x, 0, from, start + count - cached - from));
+            }
+
+            return parts.Count == 1 ? parts[0] : tg.B.Concat(0, [.. parts]);
+        }
+
+        var pieces = new List<Value>();
+        for (int start = 0; start < frames; start += group)
+        {
+            int count = Math.Min(group, frames - start);
+            var windows = Enumerable.Range(0, 3).Select(j => Frames(start + j, count)).ToArray();
+            pieces.Add(tg.B.Emit1("Conv", [tg.B.Concat(1, windows), w, tg.RandW("b" + start, DataType.F32, 0.5f, 48)], attrs));
+        }
+
+        tg.B.Output("y", tg.B.Concat(0, [.. pieces]));
+        var half = Rnd.F((long)cached * c * hw * hw, 101).Select(v => (Half)v).ToArray();
+        var step = new Step(1, 0, (x, Rnd.F((long)frames * c * hw * hw, 100)), (cache, half));
+        Check("Conv.channels-last.windows", tg.B.Build(), [step], 2e-2, 1e-2, $"group {group}", parts: 3, alsoLaunched: "copy conv_cl_stage");
     }
 
     /// <summary>
