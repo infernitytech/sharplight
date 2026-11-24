@@ -140,10 +140,20 @@ async def one(client, args, prompt, max_tokens=None):
     t1 = time.perf_counter()
     if not times: return {"error": "no tokens"}
     gaps = [b - a for a, b in zip(times, times[1:])]
-    return {"ttft": times[0] - t0, "latency": t1 - t0, "gaps": gaps, "chunks": len(times),
+    return {"ttft": times[0] - t0, "latency": t1 - t0, "gaps": gaps, "chunks": len(times), "times": times,
             "prompt_tokens": (usage or {}).get("prompt_tokens"), "completion_tokens": (usage or {}).get("completion_tokens", len(times))}
 
+FINISHED = []  # perf_counter time at which each closed-loop worker sent its last request's last token
+
+
 async def worker(client, args, rng, out, index):
+    try:
+        await work(client, args, rng, out, index)
+    finally:
+        FINISHED.append(time.perf_counter())
+
+
+async def work(client, args, rng, out, index):
     for k in range(args.per_worker):
         long = args.long_every > 0 and (k + index) % args.long_every == args.long_every - 1
         if args.length_mix:
@@ -238,6 +248,9 @@ async def main():
             gauge_stop.set(); await gauge_task
         m1 = await scrape(client, args.url) if args.metrics else None
     ok = [r for r in res if "error" not in r]; errs = [r["error"] for r in res if "error" in r]
+    # Steady window of a closed loop: from the start until the first worker is done, every stream has a request in flight.
+    steady_end = min(FINISHED) if FINISHED and args.rate <= 0 else float("nan")
+    steady_chunks = sum(1 for r in ok for t in r["times"] if t <= steady_end) if FINISHED and args.rate <= 0 else 0
     toks = sum(r["completion_tokens"] for r in ok)
     gaps = [g for r in ok for g in r["gaps"]]
     short = [r for r in ok if not r.get("long")]
@@ -261,7 +274,7 @@ async def main():
            "send_ttft_p50_ms": pct([r.get("send_ttft", r["ttft"]) for r in ok], 50) * 1e3,
            "send_ttft_p95_ms": pct([r.get("send_ttft", r["ttft"]) for r in ok], 95) * 1e3,
            "latency_p50_s": pct([r["latency"] for r in ok], 50), "error_samples": errs[:3], "natural": args.natural,
-           "length_mix": args.length_mix, "total_prompt_tokens": sum(r["prompt_tokens"] or 0 for r in ok),
+           "length_mix": args.length_mix, "steady_s": steady_end - t0, "steady_tok_s": steady_chunks / (steady_end - t0) if steady_chunks else float("nan"), "total_prompt_tokens": sum(r["prompt_tokens"] or 0 for r in ok),
            "itl_p90_ms": pct(gaps, 90) * 1e3, "ttft_p90_ms": pct(ttft, 90) * 1e3,
            "tpot_mean_ms": statistics.mean([(r["latency"] - r["ttft"]) / (r["completion_tokens"] - 1) * 1e3 for r in ok if r["completion_tokens"] > 1] or [float("nan")])}
     if gauge_samples:

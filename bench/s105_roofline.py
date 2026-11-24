@@ -2,7 +2,7 @@
 """Per-step roofline of BatchBench profiles (docs/benchmarks.md section 105).
 
 usage: s105_roofline.py --profile bb.txt [--samples clocks.csv --stamps bb.err] --layers 36 --kv-heads 8 --head-dim 128
-                        [--window-layers 0 --window 0] [--experts 32 --topk 4] [--depth 256] [--steps 10] [--bw 825]
+                        [--window-layers 0 --window 0] [--experts 32 --topk 4] [--depth 256] [--steps 10]  (--depth: the prefilled context; with --stamps each entry's grown context is used) [--bw 825]
                         [--peak-f16 235 --peak-fp8 474] [--json out.json]
 
 Reads the "--- profile mixed D+P" sections of a BatchBench run (--mixed ... --profile 0,1,... --modes greedy), classifies every
@@ -39,7 +39,9 @@ def classify(name):
             return "moe", k, n, mats, experts, dtype
         return ("lm_head" if n >= 32768 else "gemm"), k, n, mats, 0, dtype
     if head == "attention":
-        return ("attn_decode" if "decode" in name else "attn_prompt"), 0, 0, 0, 0, ""
+        if "combine" in name:
+            return "attn_combine", 0, 0, 0, 0, ""
+        return ("attn_decode" if "attn_decode" in name or " decode" in name else "attn_prompt"), 0, 0, 0, 0, ""
     if head in ("matmul", "matmul2", "matmul-id"):
         return "convert", 0, 0, 0, 0, ""
     if "RmsNorm" in name or "LayerNorm" in name or "fused[" in head:
@@ -107,8 +109,26 @@ def power_windows(samples, stamps):
     return out
 
 
+def entry_depths(stamps, initial, slots):
+    """{entry: mean context of its decode rows during its profile}: every step of an entry (1 first + 3 warm-up + reps + the
+    --hold-ms steps, then the 10 profiled ones) appends a token to each of its decode slots 0..D-1 (BatchBench --mixed)."""
+    ctx = [initial] * slots
+    out = {}
+    for line in open(stamps, encoding="utf-8", errors="replace"):
+        m = re.match(r"\[stamp\] (\S+) \d+ \d+ steps (\d+)", line)
+        if not m:
+            continue
+        d = int(m.group(1).split("+")[0])
+        before = 1 + 3 + 10 + int(m.group(2))
+        out[m.group(1)] = statistics.mean(ctx[s] + before + 5 for s in range(d)) if d else initial
+        for s in range(d):
+            ctx[s] += before + 10
+    return out
+
+
 def analyse(args):
     secs = sections(args.profile)
+    depths = entry_depths(args.stamps, args.depth, 4096) if args.stamps else {}
     times = step_times(args.profile)
     power = power_windows(args.samples, args.stamps) if args.samples and args.stamps else {}
     kv_row = 2 * args.kv_heads * args.head_dim * 2  # K and V, f16, per token per layer
@@ -120,6 +140,7 @@ def analyse(args):
         rows = int(d) + p * n
         logits_rows = int(d) + n
         steps = args.steps
+        depth = depths.get(entry, args.depth)
         cls = {}
         for total_ms, count, name in lines:
             c, k, nn, mats, experts, dtype = classify(name)
@@ -140,7 +161,7 @@ def analyse(args):
                 fl = launches * 2.0 * routed * k * nn
             elif c == "attn_decode":
                 full = args.layers - args.window_layers
-                share = (full * args.depth + args.window_layers * min(args.depth, args.window or args.depth)) / args.layers
+                share = (full * depth + args.window_layers * min(depth, args.window or depth)) / args.layers
                 b = launches * int(d) * share * kv_row
                 fl = launches * int(d) * share * 4.0 * args.kv_heads * args.q_per_kv * args.head_dim
             elif c == "attn_prompt":
@@ -156,7 +177,7 @@ def analyse(args):
         tot_b = sum(v["bytes"] for v in cls.values())
         tot_f = sum(v["flops"] for v in cls.values())
         kern_ms = sum(v["ms"] for v in cls.values())
-        r = {"rows": rows, "step_ms": step_ms, "kernel_ms": kern_ms, "bytes_gb": tot_b / 1e9, "tflop": tot_f / 1e12,
+        r = {"rows": rows, "depth": depth, "step_ms": step_ms, "kernel_ms": kern_ms, "bytes_gb": tot_b / 1e9, "tflop": tot_f / 1e12,
              "gbps": tot_b / (step_ms * 1e-3) / 1e9, "tflops": tot_f / (step_ms * 1e-3) / 1e12,
              "bw_frac": tot_b / (step_ms * 1e-3) / 1e9 / args.bw, "classes": {}}
         for c, v in sorted(cls.items(), key=lambda kv: -kv[1]["ms"]):
@@ -185,7 +206,7 @@ def main():
     res = analyse(args)
     for entry, r in res.items():
         pw = f", {r['power_w']:.0f} W, SM {r['sm_mhz']:.0f} MHz, {r['at_cap']:.0%} at cap" if "power_w" in r else ""
-        print(f"{entry}: {r['rows']} rows, {r['step_ms']:.2f} ms, {r['bytes_gb']:.2f} GB -> {r['gbps']:.0f} GB/s "
+        print(f"{entry}: {r['rows']} rows at ~{r['depth']:.0f} tokens, {r['step_ms']:.2f} ms, {r['bytes_gb']:.2f} GB -> {r['gbps']:.0f} GB/s "
               f"({r['bw_frac']:.0%} of {args.bw:.0f}), {r['tflops']:.1f} TFLOPS{pw}")
         for c, v in r["classes"].items():
             print(f"    {c:12s} {v['ms']:7.3f} ms {v['share']:5.1%}  {v['gbps']:5.0f} GB/s ({v['bw_frac']:4.0%})  "
