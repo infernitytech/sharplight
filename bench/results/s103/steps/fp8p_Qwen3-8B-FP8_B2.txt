@@ -1,0 +1,26 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 151936, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 16+0: 23.4 ms; recorded True record 6.1 submit 0.0 wait 9.7 gpu 16.4
+| 16 | 0 (0) | 23.4 | 474 / 0 | 12.27 / 12.28, 12.20 |  |
+[first] 16+240: 26.9 ms; recorded True record 7.1 submit 0.0 wait 18.7 gpu 25.9
+| 16 | 240 (1) | 26.9 | 366 / 0 | 20.31 / 21.26, 20.24 | 0.033 |
+[first] 16+250: 28.5 ms; recorded True record 4.0 submit 0.9 wait 23.5 gpu 28.3
+| 16 | 250 (1) | 28.5 | 366 / 0 | 25.81 / 26.38, 25.77 | 0.054 |
+[first] 16+304: 28.4 ms; recorded True record 2.7 submit 0.0 wait 25.6 gpu 28.2
+| 16 | 304 (1) | 28.4 | 366 / 0 | 26.57 / 27.01, 26.50 | 0.047 |
+[first] 16+496: 38.5 ms; recorded True record 3.8 submit 0.0 wait 34.6 gpu 38.3
+| 16 | 496 (1) | 38.5 | 366 / 0 | 36.14 / 36.27, 36.08 | 0.048 |
+[first] 16+512: 41.3 ms; recorded True record 4.5 submit 0.0 wait 36.7 gpu 41.1
+| 16 | 512 (1) | 41.3 | 366 / 0 | 38.76 / 38.90, 38.71 | 0.052 |
+[first] 16+762: 58.0 ms; recorded True record 3.9 submit 0.0 wait 53.8 gpu 57.7
+| 16 | 762 (1) | 58.0 | 366 / 0 | 56.10 / 56.22, 56.01 | 0.057 |
+[first] 16+1008: 70.8 ms; recorded True record 4.3 submit 0.0 wait 66.2 gpu 70.5
+| 16 | 1008 (1) | 70.8 | 366 / 0 | 68.29 / 68.54, 68.23 | 0.056 |
+[first] 16+1040: 74.4 ms; recorded True record 3.7 submit 0.0 wait 70.3 gpu 74.0
+| 16 | 1040 (1) | 74.4 | 366 / 0 | 72.52 / 72.68, 72.44 | 0.058 |
+[first] 16+2032: 138.0 ms; recorded True record 5.2 submit 0.0 wait 132.3 gpu 137.5
+| 16 | 2032 (1) | 138.0 | 366 / 0 | 135.70 / 136.09, 135.63 | 0.061 |

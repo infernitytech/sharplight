@@ -171,7 +171,7 @@ public sealed partial class GraphLowerer
             NoteDenseScales(copy, outRows);
             _fp8Copies[output!] = (copy, storeMin);
             long qcap = DenseScaleCapacityOf(copy);
-            Emit($"{label} fp8 e4m3 out", nodes, [NativeFp8TmaVariant(n, k, cudaEpilogue, xcap, b => rows(b) >= storeMin, rows, qcap, uniformScales)],
+            Emit($"{label} fp8 e4m3 out", nodes, NativeFp8TmaVariants(n, k, cudaEpilogue, xcap, b => rows(b) >= storeMin, rows, qcap, uniformScales),
                 [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(copy), TokenArg(x, rowsPerLead)],
                 [quantized, weightA, weightB], [copy]);
         }

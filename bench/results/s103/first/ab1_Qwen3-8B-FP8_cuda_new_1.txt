@@ -1,0 +1,28 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 151936, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 15+10: 25.2 ms; recorded True record 6.7 submit 0.0 wait 10.0 gpu 17.3
+| 15 | 10 (1) | 25.2 | 402 / 0 | 12.33 / 12.36, 12.27 |  |
+[first] 14+10: 14.0 ms; recorded True record 3.0 submit 0.0 wait 10.9 gpu 13.9
+| 14 | 10 (1) | 14.0 | 403 / 0 | 12.31 / 12.33, 12.25 |  |
+[first] 13+11: 14.5 ms; recorded True record 3.6 submit 1.2 wait 9.7 gpu 14.4
+| 13 | 11 (1) | 14.5 | 403 / 0 | 12.28 / 12.28, 12.22 |  |
+[first] 12+12: 13.9 ms; recorded True record 2.9 submit 0.0 wait 10.8 gpu 13.8
+| 12 | 12 (1) | 13.9 | 403 / 0 | 12.23 / 12.25, 12.16 |  |
+[first] 16+16: 15.9 ms; recorded True record 4.9 submit 0.0 wait 10.9 gpu 15.8
+| 16 | 16 (1) | 15.9 | 402 / 0 | 12.54 / 12.55, 12.49 |  |
+[first] 15+17: 14.0 ms; recorded True record 2.6 submit 0.0 wait 11.4 gpu 14.0
+| 15 | 17 (1) | 14.0 | 402 / 0 | 12.53 / 12.54, 12.47 |  |
+[first] 16+240: 22.9 ms; recorded True record 3.2 submit 0.0 wait 19.6 gpu 22.8
+| 16 | 240 (1) | 22.9 | 366 / 0 | 20.87 / 21.13, 20.81 |  |
+[first] 15+241: 23.0 ms; recorded True record 3.0 submit 0.0 wait 19.9 gpu 22.9
+| 15 | 241 (1) | 23.0 | 366 / 0 | 20.82 / 21.34, 20.75 |  |
+[first] 16+250: 29.8 ms; recorded True record 3.6 submit 0.0 wait 26.0 gpu 29.7
+| 16 | 250 (1) | 29.8 | 366 / 0 | 27.09 / 27.56, 27.03 |  |
+[first] 8+0: 15.9 ms; recorded True record 4.6 submit 0.0 wait 11.3 gpu 15.9
+| 8 | 0 (0) | 15.9 | 474 / 0 | 12.65 / 12.66, 12.61 |  |
+[first] 24+0: 14.4 ms; recorded True record 2.7 submit 0.0 wait 11.7 gpu 14.4
+| 24 | 0 (0) | 14.4 | 403 / 0 | 13.01 / 13.04, 12.97 |  |

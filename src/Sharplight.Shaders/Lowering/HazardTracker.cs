@@ -14,9 +14,42 @@ internal sealed class HazardTracker
 
     /// <summary>True when <paramref name="launch"/> conflicts with a launch recorded since the last barrier.</summary>
     public bool Conflicts(KernelLaunch launch)
-        => launch.Reads.Any(r => _pendingWrites.Any(w => w.Range.Overlaps(r)))
-           || launch.Writes.Any(w => _pendingWrites.Any(p => p.Range.Overlaps(w) && (p.Group is null || !ReferenceEquals(p.Group, launch.WriteGroup)))
-                                     || _pendingReads.Any(p => p.Overlaps(w)));
+    {
+        // Indexed loops: LINQ over the access lists allocates closures and enumerators per check.
+        for (int r = 0; r < launch.Reads.Count; r++)
+        {
+            var read = launch.Reads[r];
+            foreach (var (range, _) in _pendingWrites)
+            {
+                if (range.Overlaps(read))
+                {
+                    return true;
+                }
+            }
+        }
+
+        for (int w = 0; w < launch.Writes.Count; w++)
+        {
+            var write = launch.Writes[w];
+            foreach (var (range, group) in _pendingWrites)
+            {
+                if (range.Overlaps(write) && (group is null || !ReferenceEquals(group, launch.WriteGroup)))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var range in _pendingReads)
+            {
+                if (range.Overlaps(write))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Forgets all pending accesses (a barrier was placed).</summary>
     public void Clear()
@@ -102,7 +135,6 @@ internal sealed class HazardTracker
 
     private static List<(KernelLaunch Launch, int Index, KernelVariant Variant, bool BarrierBefore)> Order(List<(KernelLaunch Launch, int Index, KernelVariant Variant)> pending, bool reorder)
     {
-
         var order = new List<(KernelLaunch, int, KernelVariant, bool)>(pending.Count);
         var batch = new HazardTracker();
         if (!reorder)
@@ -122,43 +154,44 @@ internal sealed class HazardTracker
             return order;
         }
 
-        var deferred = new HazardTracker();
-        var next = new List<(KernelLaunch Launch, int Index, KernelVariant Variant)>(pending.Count);
+        // Positions in pending (which stays in program order); conflicts between two launches are computed once.
+        var conflicts = new LaunchConflicts([.. pending.Select(p => p.Launch)]);
+        var remaining = new List<int>(Enumerable.Range(0, pending.Count));
+        var next = new List<int>(pending.Count);
+        var taken = new List<int>();
+        var deferred = new List<int>();
         bool barrierBefore = false;
-        while (pending.Count > 0)
+        while (remaining.Count > 0)
         {
             // One barrier batch: take launches in program order while they fit; a launch that conflicts with the batch is
             // deferred, and so is every later one that conflicts with a deferred launch.
-            batch.Clear();
+            taken.Clear();
             deferred.Clear();
             next.Clear();
-            int examined = 0;
-            bool first = true;
-            for (int i = 0; i < pending.Count; i++)
+            for (int i = 0; i < remaining.Count; i++)
             {
-                var item = pending[i];
-                if (examined >= Lookahead)
+                int position = remaining[i];
+                if (deferred.Count >= Lookahead)
                 {
-                    next.AddRange(pending.Skip(i));
+                    next.AddRange(remaining.GetRange(i, remaining.Count - i));
                     break;
                 }
 
-                // deferred.Conflicts: item reads what a deferred launch writes, or writes what one reads or writes.
-                if (first || (!batch.Conflicts(item.Launch) && !deferred.Conflicts(item.Launch)))
+                // A deferred launch's conflict: the position reads what it writes, or writes what it reads or writes.
+                if (taken.Count == 0 || (!conflicts.Any(position, taken) && !conflicts.Any(position, deferred)))
                 {
-                    order.Add((item.Launch, item.Index, item.Variant, barrierBefore && first));
-                    batch.Add(item.Launch);
-                    first = false;
+                    var item = pending[position];
+                    order.Add((item.Launch, item.Index, item.Variant, barrierBefore && taken.Count == 0));
+                    taken.Add(position);
                 }
                 else
                 {
-                    deferred.Add(item.Launch);
-                    next.Add(item);
-                    examined++;
+                    deferred.Add(position);
+                    next.Add(position);
                 }
             }
 
-            (pending, next) = (next, pending);
+            (remaining, next) = (next, remaining);
             barrierBefore = true;
         }
 

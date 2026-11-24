@@ -1,0 +1,46 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 151936, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 16+240: 32.1 ms; recorded True record 4.9 submit 0.0 wait 18.5 gpu 23.9
+| 16 | 240 (1) | 32.1 | 366 / 0 | 20.01 / 21.04, 19.93 |  |
+--- profile mixed 16+240 (greedy)
+GPU time 211.11 ms
+    84.386 ms  40.0%    360x  min    223.6 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=256,U=17,R=17|2,3
+    37.572 ms  17.8%    360x  min     98.1 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=256,U=17,R=17|2,3
+    26.315 ms  12.5%    360x  min     69.2 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=256,U=17,R=17|2,3
+    15.467 ms   7.3%     10x  min   1544.1 us  matmul [4096→151936] f16 gemm_cm2 T=256,U=17,R=17|2,3
+    13.446 ms   6.4%    360x  min     34.3 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=256,U=17,R=17|2,3
+    10.932 ms   5.2%    360x  min     28.3 us  attention attn_decode_native T=256,U=17,R=17|2,3
+    10.196 ms   4.8%    720x  min      9.5 us  fused[Add]+RmsNorm main T=256,U=17,R=17|2,3
+     5.422 ms   2.6%    360x  min     13.1 us  attention attn_prefill_native T=256,U=17,R=17|2,3
+     4.283 ms   2.0%    360x  min      9.6 us  rope+qkv+cache_write rope_qkv T=256,U=17,R=17|2,3
+     2.344 ms   1.1%    360x  min      4.8 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=256,U=17,R=17|2,3
+     0.273 ms   0.1%     10x  min     26.0 us  sample sample T=256,U=17,R=17|2,3
+     0.258 ms   0.1%     20x  min      4.3 us  gather gather T=256,U=17,R=17|2,3
+     0.099 ms   0.0%     10x  min      8.3 us  RmsNorm main T=256,U=17,R=17|2,3
+     0.068 ms   0.0%     10x  min      5.3 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=256,U=17,R=17|2,3
+     0.051 ms   0.0%     10x  min      3.8 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=256,U=17,R=17|2,3
+
+[first] 16+250: 28.4 ms; recorded True record 4.1 submit 0.0 wait 24.1 gpu 28.3
+| 16 | 250 (1) | 28.4 | 366 / 0 | 25.58 / 26.21, 25.50 |  |
+--- profile mixed 16+250 (greedy)
+GPU time 263.12 ms
+   104.826 ms  39.8%    360x  min    277.5 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=266,U=17,R=17|2,3
+    59.250 ms  22.5%    360x  min    153.5 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=266,U=17,R=17|2,3
+    27.282 ms  10.4%    360x  min     66.5 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=266,U=17,R=17|2,3
+    20.957 ms   8.0%    360x  min     53.0 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=266,U=17,R=17|2,3
+    15.478 ms   5.9%     10x  min   1545.9 us  matmul [4096→151936] f16 gemm_cm2 T=266,U=17,R=17|2,3
+    11.401 ms   4.3%    360x  min     30.1 us  attention attn_decode_native T=266,U=17,R=17|2,3
+    10.569 ms   4.0%    720x  min     10.2 us  fused[Add]+RmsNorm main T=266,U=17,R=17|2,3
+     5.797 ms   2.2%    360x  min     13.2 us  attention attn_prefill_native T=266,U=17,R=17|2,3
+     4.513 ms   1.7%    360x  min     10.3 us  rope+qkv+cache_write rope_qkv T=266,U=17,R=17|2,3
+     2.309 ms   0.9%    360x  min      4.9 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=266,U=17,R=17|2,3
+     0.274 ms   0.1%     10x  min     26.9 us  sample sample T=266,U=17,R=17|2,3
+     0.255 ms   0.1%     20x  min      3.7 us  gather gather T=266,U=17,R=17|2,3
+     0.092 ms   0.0%     10x  min      8.2 us  RmsNorm main T=266,U=17,R=17|2,3
+     0.065 ms   0.0%     10x  min      5.8 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=266,U=17,R=17|2,3
+     0.050 ms   0.0%     10x  min      3.5 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=266,U=17,R=17|2,3
+

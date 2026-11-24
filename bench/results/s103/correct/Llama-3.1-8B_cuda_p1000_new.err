@@ -1,0 +1,10 @@
+Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [39 ms]
+Loaded Llama-3.1-8B-Instruct (decoder): 292 tensors, 16.06 GB, vocab 128256 [885 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 141 / 141, 141 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 16.06 / 16.06 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 3057 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 34 groups, 15.46 GiB weights+state
+1 segment(s): [0@0: 709 nodes]
+Ready (decode)
+prompt: 964 tok in 146 ms (6588.0 tok/s) | generated: 120 tok, 52.34 tok/s

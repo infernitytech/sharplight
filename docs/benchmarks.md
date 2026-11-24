@@ -16171,3 +16171,250 @@ CONCS="16 64" ROUNDS=1 bench/s16_serve.sh sharplight llama ~/models/hf/Llama-3.1
 # tests
 SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Cuda.Tests -c Release -- -class Sharplight.Cuda.Tests.BatchedDecodeRowsTests
 ```
+
+## 103. LLM round 43: the first-run stalls of new step shapes were the host's barrier placement, not kernel loading (first steps of new shapes -12 to -18 ms, CUDA and Vulkan); a partial form of the FP8 tensor-copy GEMM for batches a few rows past a token tile (Qwen3-8B-FP8 16 + 250 rows -4.5 %, + 512 -4.0 %, Qwen3-1.7B-FP8 -2.5 to -2.9 %) (2026-11-24)
+
+Branch `perf/llm-r43` (`develop` at `8c1a4d23`, §102 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap), shared with other rounds; every GPU run held the verify lock; `develop` (`perf-r43-base` worktree) and the branch alternated
+in the same holds, vLLM 0.33 (venv `vllm-r12`) in the same holds. Raw output in [`bench/results/s103/`](../bench/results/s103)
+(`first/`, `steps/`, `ab/`, `correct/`, `tests/`, `scripts/`).
+
+Kept (keyed on launch lists, row counts and tile heights; nothing on models):
+
+1. **Barrier batches from remembered pairwise conflicts** (`HazardTracker.Order`, `LaunchConflicts`): the placement of a launch set
+   that has not run before costs 1-4 ms instead of 8-28 ms. Same placement as before (tests against the original rule on random
+   programs; the same order on the programs of Qwen3-8B-FP8, checked in the process). Variant selection (`KernelLaunch.Select`) and
+   the in-order tracker without LINQ.
+2. **A partial form of the FP8 tensor-copy GEMM** (`gemm_fp8_tma.cu`, `F8N_PARTIAL`): for batches whose last 128-row token tile
+   holds 1-96 rows, a second kernel variant whose consumer warps multiply only their 16-row fragments with rows of the batch (one,
+   two or none of four; the fragment count is a compiler constant, so the MMA loop has no branch). Other batches keep the kernel
+   without it, whose SASS is unchanged.
+3. `bench/s16_serve.sh` `FIRST=1`: one request alone on the fresh server, then a second, before the rounds (cold and warm
+   single-request TTFT). BatchBench prints a first run's record / wait / GPU split (`[first]` on stderr).
+
+### 103.1 First runs of new step shapes: what the stall was
+
+§102.7 measured 10-33 ms more for the first run of a step shape that needed "kernel variants not used before" and planned to load
+every kernel module ahead of use. The modules are already loaded ahead of use: `CudaDevice.Compile` (and `VulkanDevice.Compile` for
+pipelines) loads every variant of every launch of the program before it returns (`LoadKernels`, `cuModuleLoadData` plus the
+attribute and occupancy queries that make the driver load the function), and no kernel is loaded during the steps
+(`SHARPLIGHT_CUDA_TRACE=1`: no `[cuda] kernel` line after the load). The driver's own lazy loading does not matter either: with
+`CUDA_MODULE_LOADING=EAGER` the first runs cost the same (Llama-3.1-8B 15 + 10: 56.9 / 57.3 ms against 52.3 / 57.7 lazy; 16 + 16:
+30.7 / 29.9 against 30.0 / 43.2; `first/first_*`).
+
+The first run of a shape records its launches while it launches them (§64); timing its parts (`first/first_trace*`):
+
+| Llama-3.1-8B, first run | wall | record | of it: variant selection | barrier placement | launches |
+|---|---:|---:|---:|---:|---:|
+| 15 + 10 (first mixed step) | 55-58 | 29-32 | 3-7 | 12-28 | 2-3 |
+| 14 + 10 (launch set seen) | 24-26 | 5-7 | 2-3 | cached | 2-3 |
+| 16 + 16 (new launch set) | 32-43 | 12-23 | 1-2 | 8-20 | 2-3 |
+
+The large first-run costs come with a launch set whose barrier placement is not cached yet (the cache key is the set of launches
+that run; a new row count that selects the same launches reuses it). `HazardTracker.Order` filled each barrier batch by checking
+every examined launch against the union of the batch's and the deferred launches' accesses with LINQ over the access lists:
+~500 ns per pair of launches (closures and interface enumerators, several per pair), and a 582-launch decode-plus-prompt step of a
+dense 8B model examines ~18,000 pairs. Now each pair's conflict is computed once from array copies of the accesses and kept as two
+bits of a triangular matrix (`LaunchConflicts`; past 4096 launches a dictionary); the second placement of the same list took
+0.4-1.6 ms in the process, the first 1.4-8 ms (cold caches, first JIT of the paths).
+
+First run of a step shape, wall ms (BatchBench, 24 slots, 256-token contexts; `first/ab1_*`, `first/vk1_*`; two runs, order
+`develop`, branch, branch, `develop`):
+
+| model, provider | shape | `develop` | r43 | steady GPU ms (both) |
+|---|---|---|---|---:|
+| Llama-3.1-8B, CUDA | 15 + 10 (first mixed) | 52.9, 58.0 | 35.1, 43.9 | 21.1 |
+| | 16 + 16 | 31.5, 41.8 | 24.5, 25.8 | 21.5 |
+| | 16 + 240 | 38.6, 40.3 | 35.7, 36.6 | 33.9-34.0 |
+| | 8 + 0 | 25.7, 26.4 | 22.7, 22.6 | 19.8-19.9 |
+| Qwen3-8B-FP8, CUDA | 15 + 10 | 40.3, 43.9 | 25.2, 25.6 | 12.3 |
+| | 16 + 16 | 31.5, 28.1 | 15.9, 16.1 | 12.5 |
+| | 16 + 240 | 34.0, 35.8 | 22.9, 23.2 | 20.1-20.8 * |
+| | 8 + 0 | 19.9, 18.7 | 15.9, 15.9 | 12.5-12.6 |
+| gpt-oss-20b, CUDA | 15 + 10 | 41.5, 44.7 | 25.0, 24.8 | 11.3 |
+| | 16 + 16 | 31.9, 33.2 | 14.8, 21.3 | 11.7-11.8 |
+| | 16 + 240 | 41.5, 41.5 | 25.4, 28.2 | 22.7-23.0 * |
+| | 8 + 0 | 13.6, 15.8 | 11.9, 11.5 | 7.9 |
+| Llama-3.1-8B, Vulkan | 15 + 10 | 62.4, 81.8 | 54.4, 38.0 | 20.9 |
+| | 16 + 16 | 30.7, 31.7 | 28.2, 26.9 | 21.3 |
+| | 16 + 240 | 58.1, 48.9 | 46.3, 46.4 | 41.3-41.8 |
+| | 8 + 0 | 31.0, 33.7 | 23.1, 23.6 | 20.1-20.3 |
+
+\* The steady state of a shape is the same work (the same launches, variants and order, checked), but its GPU minimum over the 10
+timed steps depends on how long the GPU idled in the first run just before them: Qwen3-8B-FP8 16 + 240 ran at 19.6-19.7 ms after
+`develop`'s 34-ms first run and at 20.1-20.4 after the branch's 23-ms one, and at 19.61 on the branch when the first run was slowed by
+a diagnostic (`steps/g240_*`); with 60 timed steps instead of 10 both are within 0.9 % (20.05 against 20.23) and the other shapes of
+the run are 0.1-0.2 ms faster on the branch. A power / clock-history effect of the 200 W card, not a change of work; every kernel
+comparison below therefore compares builds with the same host code (`perf-r43-bis`: `develop` with item 1 only).
+
+Which model classes benefit: every model on every provider that records launch lists (CUDA, Vulkan, Metal use `HazardTracker`), in
+every step shape whose set of launches has not run before: serving's first mixed steps, new prompt-chunk heights, the first steps
+after a prefix-cache hit, speculative-decoding verify widths. A placement still costs ~1-4 ms per new launch set and the variant
+selection 1-3 ms per new shape (2,313 launches of Llama-3.1-8B's program evaluated); the device overlaps most of it (§64).
+
+### 103.2 FP8 prompt GEMMs a few rows past a token tile
+
+Qwen3-8B-FP8 16 + 250 rows (266) against 16 + 240 (256), per layer (BatchBench `--profile`, `steps/prof_*`, µs):
+
+| GEMM | 256 rows | 266, `develop` kernels | 266, r43 | kernel at 266 |
+|---|---:|---:|---:|---|
+| gate / up (dual, E4M3 out) | 223.6 | 298.1 | 275.1 | tensor copies, 128-row tiles |
+| down (12288 → 4096) | 98.1 | 160.2 | 151.4 | 64-row tiles (`gemm_fp8_native`) |
+| q / k / v (multi) | 69.2 | 65.8 | 65.8 | tensor copies |
+| o (4096 → 4096) | 34.3 | 53.7 | 52.1 | 64-row tiles |
+
+The 266 rows run three 128-row token tiles; the third holds 10 rows. Of the cliff (+7 ms per step) the gate / up pair is +2.0 ms
+and down + o +3.0: at 256 rows the down and o tiles fill 64 of the 82 SMs in one wave, at 266 they need a second wave (96 tiles) or
+the 64-row tiles of `gemm_fp8_native.cu` (the estimate's choice; forced to the tensor-copy tiles with the partial form, down takes
+195.6 µs: its partial tiles are copy-bound, not MMA-bound, and cost nearly a full tile).
+
+The partial form: a warp's rows of a tile are 64 (two warp rows of four 16-row fragments). A warp with at most 32 rows of the batch
+in the tile runs a copy of the consumer loop compiled for one or two fragments, a warp with none only waits for each stage and
+releases it. r42 tried a runtime fragment count inside the MMA loop (full tiles +5-7 %); here the fragment count is a template
+constant of a lambda, so each form is straight-line code. Three forms in one kernel make the full form spill (ptxas: 40-byte stack
+frame, 84 / 100 bytes spill stores / loads for the dual form; any second form spills), and ABBA full-tile steps were +0.3-0.7 %
+slower; so the partial forms are a second kernel variant (`F8N_PARTIAL=1`), selected for batches whose rows modulo 128 are 1-96, and
+the kernel without them compiles to the same SASS as `develop`'s (compared with `cuobjdump -sass`).
+
+BatchBench (GPU ms min of 10; order A, B, B, A; A = `perf-r43-bis`, B = r43; `steps/fp8q_*`):
+
+| Qwen3-8B-FP8 | A | B | change |
+|---|---|---|---:|
+| 16 + 0 | 12.19, 12.19 | 12.20, 12.20 | +0.1 % |
+| 16 + 240 (256) | 20.21, 20.23 | 20.25, 20.33 | +0.3 % |
+| 16 + 250 (266) | 26.90, 27.00 | 25.76, 25.74 | **-4.5 %** |
+| 16 + 304 (320) | 27.20, 27.45 | 26.50, 26.49 | **-3.0 %** |
+| 16 + 336 (352) | 29.11, 29.32 | 28.78, 28.66 | -1.4 % |
+| 16 + 496 (512) | 35.83, 36.04 | 35.91, 35.95 | -0.0 % |
+| 16 + 512 (528) | 40.13, 40.33 | 38.61, 38.69 | **-4.0 %** |
+| 16 + 1008 (1024) | 67.55, 67.91 | 67.61, 67.65 | -0.1 % |
+| 16 + 1040 (1056) | 73.45, 73.54 | 72.16, 72.22 | **-1.8 %** |
+| 16 + 2032 (2048) | 134.20, 134.94 | 134.34, 134.73 | -0.0 % |
+
+| Qwen3-1.7B-FP8 (converted here, 128 x 128 blocks) | A | B | change |
+|---|---|---|---:|
+| 16 + 240 | 6.40, 6.40 | 6.40, 6.40 | 0 |
+| 16 + 250 | 7.34, 7.33 | 7.18, 7.11 | **-2.6 %** |
+| 16 + 304 | 7.44, 7.42 | 7.25, 7.20 | **-2.8 %** |
+| 16 + 336 | 8.00, 8.01 | 7.85, 7.85 | -1.9 % |
+| 16 + 496 | 9.69, 9.75 | 9.67, 9.68 | -0.5 % |
+| 16 + 512 | 10.33, 10.33 | 10.03, 10.04 | **-2.9 %** |
+| 16 + 1008 | 17.02, 16.99 | 16.98, 16.91 | -0.3 % |
+| 16 + 1040 | 18.55, 18.46 | 18.36, 18.12 | -1.3 % |
+| 16 + 2032 | 34.03, 33.97 | 33.81, 32.71 | -1.9 % |
+
+The FP8 cliff at the third tile is now +5.5 ms (Qwen3-8B-FP8 16 + 240 → 16 + 250) instead of +6.8. Which model classes benefit:
+every model with block-scaled FP8 dense projections on CUDA (FP8 checkpoints of dense transformers, the attention projections of
+FP8 MoE models), in every step whose rows end 1-96 past a 128-row tile; Qwen3-1.7B-FP8 is a 128 x 128-block conversion of Qwen3-1.7B
+made for this round (hidden 2048, intermediate 6144: other GEMM shapes than the 8B), since no second FP8 checkpoint fits the 32 GB
+card with 24 slots (Qwen3.8-27B-FP8: 32.35 GiB needed).
+
+### 103.3 Serving: `develop` against r43 against vLLM, with the text check
+
+`bench/s16_serve.sh` with `FIRST=1`, 16 / 64 slots of 512 tokens, ~250-token prompts, 128 output tokens, closed loop, one round per
+configuration, order `develop`, r43, vLLM, r43, `develop` per model in one hold (`ab/`). Every server's batched text check is clean.
+Tok/s, TTFT p50, ITL mean / p95 / p99 / max (ms); two values are the two runs. "First": the TTFT of one request alone on the fresh
+server, then of a second (ms).
+
+| model, streams | `develop` | r43 | vLLM 0.33 | r43 / vLLM |
+|---|---|---|---|---:|
+| Qwen3-8B-FP8, first / second request | 26 / 22 | 28 / 22 | 54 / 55 | |
+| 16: tok/s | 1109 * | 1109, 1106 | 1119 | 0.99 |
+| TTFT / ITL mean, p95, p99, max | 98 / 13.51, 14.4, 50.6, 60.6 | 95-96 / 13.52-13.55, 14.6, 49.2-49.3, 56.1-59.0 | 162 / 12.88, 13.3, 15.4, 110.1 | |
+| 64: tok/s | 2696, 2728 | 2739, 2739 | 2691 | **1.02** |
+| TTFT / ITL mean, p95, p99, max | 266-269 / 20.91-21.25, 27.0-39.3, 131, 144-166 | 266 / 20.88-20.89, 24.0-24.8, 130.0-130.1, 136-139 | 436 / 20.02, 21.0, 131.9, 148.2 | |
+| gpt-oss-20b, first / second | 29-30 / 25 | 29 / 24-25 | 35 / 33 | |
+| 16: tok/s | 1427, 1407 | 1442, 1441 | 1395 | **1.03** |
+| TTFT / ITL mean, p95, p99, max | 95 / 10.31-10.46, 11.7-12.8, 47.3-47.9, 63.8-64.3 | 94-95 / 10.24-10.25, 12.0-12.7, 47.2-48.2, **54.0-54.3** | 214 / 10.19, 11.0, 24.4, 118.2 | |
+| 64: tok/s | 3182, 3196 | 3224, 3226 | 3140 | **1.03** |
+| TTFT / ITL mean, p95, p99, max | 237-238 / 17.39-17.45, 31.8-33.1, 116.7, 125-129 | 237 / 17.23-17.25, 30.8-31.2, 115.3, 122-127 | 477 / 16.82, 17.4, 119.7, 127.0 | |
+| Llama-3.1-8B (bf16), first / second | 42-45 / 38 | 43-45 / 38 | 43 / 42 | |
+| 16: tok/s | 662, 667 | 666, 665 | 676 | 0.98 |
+| TTFT / ITL mean, p95, p99, max | 166-194 / 22.51-22.56, 22.9-23.9, 90.4-91.4, 99.4 | 166-193 / 22.48-22.56, 22.9-23.0, 91.1-91.2, 97.8-98.2 | 326 / 21.27, 22.3, 24.9, 229.0 | |
+| 64: tok/s | 1713, 1716 | 1713, 1715 | 1708 | 1.00 |
+| TTFT / ITL mean, p95, p99, max | 509-513 / 32.51-32.64, 33.4-34.8, 234.3, 241-247 | 503-510 / 32.56-32.62, 33.3-33.9, 234.4-235.3, 242-245 | 696 / 31.48, 31.4, 230.1, 241.0 | |
+
+\* The first `develop` Qwen3-8B-FP8 round (`ab/qwen_base_1`, 719 tok/s, ITL p95 75 ms) ran while a build of this round took the
+host's cores (the steps are host-paced then); its 64-stream round and the second `develop` server are in the table.
+
+gpt-oss-20b gains most (+1.0-1.4 % tok/s, ITL max at 16 streams 64 → 54 ms): its first runs of new shapes cost the most on
+`develop` relative to its short steps (16 + 240: 41.5 against 22.7 ms, 103.1), and serving keeps meeting new launch sets. The cold first request is not slower: its shapes (one 250-row prompt, then single decode rows) record few launch sets.
+Time to ready is unchanged (37-54 s against 40-60 s; the first r43 Qwen3-8B-FP8 server compiled the partial kernels, 54 s, the second
+read them from the cache, 40 s).
+
+The closed loop barely moves for Qwen3-8B-FP8 (its prompt steps are budget-cut on tiles, §101); the open loop is where steps end off
+a tile (Poisson, 7 / 17 requests per second; `abp/`, order `develop`, r43, r43, `develop`):
+
+| Qwen3-8B-FP8, open loop | `develop` | r43 |
+|---|---|---|
+| 16: TTFT p50, p99 / ITL mean, p95, p99 | 57 / 803-958 / 13.44-14.06, 20.9-28.2, 25.6-29.8 | 57-58 / 803-814 / 13.43-13.46, 21.0-21.1, 25.1-25.5 |
+| 64: TTFT p50, p99 / ITL mean, p95, p99 | 62-63 / 414-443 / 21.55-21.64, 41.5-41.7, 58.6-58.8 | 58-60 / **381-386** / **21.14-21.19**, 40.0-40.6, 56.1-57.9 |
+
+At 64 streams ITL mean -2 %, p99 -3 %, TTFT p99 -11 %. Throughput is the arrival rate.
+
+### 103.4 Correctness and tests
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt, whose prompt GEMMs take the partial form: 963 = 7 x 128 + 67;
+  `correct/`): byte-identical to `develop` for gpt-oss-20b (e733f049 / 8cb648ed), Qwen3-8B-FP8 (3879d8a4 / b9666631, also with
+  `--fp8-block-scaled off`), Llama-3.1-8B (f50af9d0 / b9666631) and Qwen3-1.7B-FP8 (77bd6c11 / b9666631; 2af53622 with
+  `--fp8-block-scaled off`).
+* Batched text: the text check of every serving run is clean (103.3).
+* PplBench (wikitext-2, 4 x 3,072 tokens): dumped logits bit-identical to `develop` for Qwen3-8B-FP8 with prompt steps of 1,000 rows
+  (the 72-row last step of each sequence takes the partial form: abfe9a19, PPL 8.7369) and of 1,040 rows (16 rows past a tile:
+  4ab780cf, PPL 8.7358), and for Llama-3.1-8B (1,000 rows bca5cc44, 1,024 rows b32ebb32, PPL 6.6821, as in §102).
+* Suites on GPU 0, one class per process (`tests/`): `Sharplight.Cuda.Tests` and `Sharplight.Serving.Tests` with
+  `SHARPLIGHT_TEST_PROVIDER=cuda` 494, 0 failed, 14 skipped; `Sharplight.Vulkan.Tests` on Vulkan 1,790, 0 failed, 28 skipped (the
+  barrier placement is shared lowering); `Fp8GemmTests`, `Fp8BlockScaledTests`, `DualGemmTests`, `HazardOrderTests` on CUDA 74, 0
+  failed. New: `HazardOrderTests` (the placement against the original rule on random programs of 40-900 launches, with shared
+  buffers, overlapping ranges and write groups), `Fp8GemmTests.PartialTokenTiles` (266, 280, 300, 344 rows against the CPU oracle;
+  it fails with the one-fragment form broken), `DualMatchesSeparateBitwise` at 266 and 300 rows.
+
+### 103.5 Rejected and not kept
+
+* **Loading kernel modules ahead of first use** (§102.8 item 1): nothing to do; every variant is loaded at compile on CUDA and Vulkan,
+  and `CUDA_MODULE_LOADING=EAGER` changes no first run (103.1).
+* **The partial forms in the one FP8 kernel** (no second variant): full-tile steps +0.3-0.7 % (spills); a version with two forms
+  (full, one fragment) spilled as well (ptxas 56-byte frame).
+* **The tensor-copy tiles for down / o at 266 rows** (`SHARPLIGHT_FP8_TALL_COST=0.5`): down 195.6 µs against 151-160 on the 64-row
+  tiles; the partial tiles of a two-wave launch are copy-bound. The estimate's choice stands.
+* **The f16 configuration estimate from measured tile times** (§102.8 item 3): its premise, full-tile steps 0.2-0.5 % slower since
+  §102, does not hold up. With the partial loop off (`SHARPLIGHT_NATIVE_F16_PARTIAL=0`, same build, ABBA) Llama-3.1-8B full-tile
+  steps are the same (16 + 240: 33.87 / 34.21 against 34.00 / 34.05; 16 + 2032: 234.19 / 235.65 against 234.82 / 235.70;
+  `steps/f16p_*`), the 64 x 256 tiles are not chosen there, and runs of identical work differ by this much with the GPU's idle
+  history (103.1). Not built.
+* FP8 prompt GEMMs against CUTLASS (§94): not reached this round.
+
+### 103.6 Gap to vLLM and ranked plan
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64, closed (text checked) | 0.99 / 1.02 | 16: ITL mean 13.52 against 12.88, p99 49 against 15 (prompt-step share) |
+| gpt-oss-20b serving 16 / 64, closed | 1.03 / 1.03 | 16: ITL p99 47 against 24 (48-row prompt steps) |
+| Llama-3.1-8B (bf16) serving 16 / 64, closed | 0.98 / 1.00 | 16: ITL mean 22.5 against 21.3, p99 91 against 25 (prompt waves) |
+
+1. **Down / o projections at one to two waves of tiles** (103.2): the FP8 cliff that is left (+5.5 ms per step at 266 rows) is mostly
+   the second wave of 128-row tiles (or the slower 64-row kernel) on N = 4096 GEMMs; a stream-K split of the K loop over the idle SMs
+   (f32 partial sums reduced by the last block of a tile) would balance a 96-tile launch over 82 SMs (estimate: 196 → ~120 µs for
+   down). Generic for every GEMM whose tiles do not fill whole waves; f16 and FP8.
+2. **Host cost of a new step shape** (103.1): variant selection 1-3 ms over all launches of the program (the `When` predicates of
+   2,313 launches) and 1-4 ms of placement remain per new launch set; cache the selection per (row count bucket) or evaluate only the
+   launches whose variants differ.
+3. **FP8 prompt GEMMs 5-8 % behind CUTLASS** (§94).
+4. **Placement rule aware of the SMs the previous grid leaves idle** (§100.7 item 4).
+
+### 103.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# 103.1 (first runs: the [first] lines on stderr; CUDA_MODULE_LOADING=EAGER for the driver comparison)
+BatchBench ~/models/hf/Llama-3.1-8B-Instruct --provider cuda --slots 24 --ctx 2560 --depth 256 --batch 2048 --modes greedy --reps 5 --text \
+  --mixed 15+10,14+10,13+11,12+12,16+16,15+17,16+240,15+241,16+250,8+0,24+0
+# 103.2 (partial form off: SHARPLIGHT_NATIVE_FP8_PARTIAL=0; per-GEMM times: --profile <entries>)
+BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 24 --ctx 2560 --depth 256 --batch 2048 --modes greedy --reps 10 --text \
+  --mixed 16+0,16+240,16+250,16+304,16+336,16+496,16+512,16+1008,16+1040,16+2032
+# 103.3
+FIRST=1 CONCS="16 64" ROUNDS=1 bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "16 64" --provider cuda
+# tests
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.Fp8GemmTests
+dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.HazardOrderTests
+```

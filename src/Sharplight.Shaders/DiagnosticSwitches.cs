@@ -780,6 +780,9 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_F16_CONFIG=n</c>: the prompt tile configuration of the hand-written f16 GEMM (0, 1 or 3, see gemm_f16_native.cu) for every batch it may serve, or null for the estimate per batch (comparisons).</summary>
     public static int? NativeF16Config { get; } = Read("SHARPLIGHT_NATIVE_F16_CONFIG") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary><c>SHARPLIGHT_NATIVE_FP8_PARTIAL=0</c>: the FP8 tensor-copy GEMM runs its full main loop on a token tile past the batch's last row too (comparisons), or null for the default (the partial form for batches a few rows past a tile).</summary>
+    public static bool? NativeFp8Partial { get; } = Read("SHARPLIGHT_NATIVE_FP8_PARTIAL") is { } v ? v != "0" : null;
+
     /// <summary><c>SHARPLIGHT_NATIVE_F16_PARTIAL=0</c>: the hand-written f16 GEMM's prompt tiles run the full main loop on a token tile past the batch's last row too (comparisons), or null for the default (the partial loop).</summary>
     public static bool? NativeF16Partial { get; } = Read("SHARPLIGHT_NATIVE_F16_PARTIAL") is { } v ? v != "0" : null;
 

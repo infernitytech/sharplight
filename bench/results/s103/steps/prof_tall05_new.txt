@@ -1,0 +1,32 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 151936, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 16+240: 32.7 ms; recorded True record 5.5 submit 0.0 wait 18.3 gpu 24.3
+| 16 | 240 (1) | 32.7 | 366 / 0 | 20.08 / 21.32, 20.01 |  |
+[first] 16+250: 28.0 ms; recorded True record 2.8 submit 0.0 wait 25.0 gpu 27.9
+| 16 | 250 (1) | 28.0 | 366 / 0 | 26.58 / 26.87, 26.51 |  |
+--- profile mixed 16+250 (greedy)
+GPU time 271.10 ms
+   100.962 ms  37.2%    360x  min    274.7 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=266,U=17,R=17|2,3
+    71.817 ms  26.5%    360x  min    195.6 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=266,U=17,R=17|2,3
+    25.235 ms   9.3%    360x  min     65.8 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=266,U=17,R=17|2,3
+    23.942 ms   8.8%    360x  min     63.6 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=266,U=17,R=17|2,3
+    15.457 ms   5.7%     10x  min   1544.3 us  matmul [4096→151936] f16 gemm_cm2 T=266,U=17,R=17|2,3
+    11.126 ms   4.1%    360x  min     28.9 us  attention attn_decode_native T=266,U=17,R=17|2,3
+
+[first] 16+304: 29.7 ms; recorded True record 3.4 submit 0.8 wait 25.3 gpu 29.6
+| 16 | 304 (1) | 29.7 | 366 / 0 | 27.71 / 28.06, 27.67 |  |
+--- profile mixed 16+304 (greedy)
+GPU time 282.42 ms
+   106.148 ms  37.6%    360x  min    289.0 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=320,U=17,R=17|2,3
+    73.803 ms  26.1%    360x  min    201.8 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=320,U=17,R=17|2,3
+    25.903 ms   9.2%    360x  min     65.2 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=320,U=17,R=17|2,3
+    24.720 ms   8.8%    360x  min     65.7 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=320,U=17,R=17|2,3
+    15.484 ms   5.5%     10x  min   1546.4 us  matmul [4096→151936] f16 gemm_cm2 T=320,U=17,R=17|2,3
+    11.591 ms   4.1%    360x  min     30.3 us  attention attn_decode_native T=320,U=17,R=17|2,3
+
+[first] 16+368: 32.3 ms; recorded True record 3.8 submit 0.0 wait 28.4 gpu 32.2
+| 16 | 368 (1) | 32.3 | 366 / 0 | 29.70 / 29.93, 29.64 |  |

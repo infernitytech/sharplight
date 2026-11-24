@@ -1,0 +1,213 @@
+[cuda] kernel matmul.slang:gemm_cm2 99f00d78fee9 block 256x1x1 (max 1024), dynamic shared 0 B in 32.3 ms
+[cuda] kernel matmul.slang:gemm_cm2 29268113e941 block 256x1x1 (max 896), dynamic shared 0 B in 32.3 ms
+[cuda] kernel data.slang:gather 8ce995e3b52d block 128x1x1 (max 1024), dynamic shared 0 B in 32.3 ms
+[cuda] kernel matmul.slang:gemm_cm2 f9271ef198f2 block 128x1x1 (max 256), dynamic shared 0 B in 32.8 ms
+[cuda] kernel matmul.slang:gemm_cm2 29c09e847c04 block 128x1x1 (max 512), dynamic shared 0 B in 33.0 ms
+[cuda] kernel matmul.slang:gemm_sk ed5b0d61fb52 block 256x1x1 (max 768), dynamic shared 0 B in 33.6 ms
+[cuda] kernel matmul.slang:gemm_cm2 ad691ba36e47 block 128x1x1 (max 256), dynamic shared 0 B in 34.4 ms
+[cuda] kernel matmul.slang:gemm_cm2 43699ada3892 block 128x1x1 (max 512), dynamic shared 0 B in 2.7 ms
+[cuda] kernel matmul.slang:matvec_sk 9bc21a17c170 block 256x1x1 (max 1024), dynamic shared 0 B in 3.2 ms
+[cuda] kernel matmul.slang:gemm_cm2 07ba6d06f238 block 256x1x1 (max 640), dynamic shared 0 B in 4.2 ms
+[cuda] kernel matmul_dual.slang:gemm_cm2 037dc20d3ecd block 128x1x1 (max 256), dynamic shared 0 B in 38.6 ms
+[cuda] kernel matmul.slang:gemm_cm2 6752daa7cb8d block 128x1x1 (max 256), dynamic shared 0 B in 39.4 ms
+[cuda] kernel data.slang:f16_range_fixup 77233abad32c block 256x1x1 (max 1024), dynamic shared 0 B in 1.4 ms
+[cuda] kernel matmul.slang:splitk_reduce 5911ff318158 block 256x1x1 (max 1024), dynamic shared 0 B in 6.4 ms
+[cuda] kernel matmul.slang:gemm_cm2 4ed8a69eedd0 block 256x1x1 (max 640), dynamic shared 0 B in 4.7 ms
+[cuda] kernel elementwise.slang:main ab088f33f929 block 1024x1x1 (max 1024), dynamic shared 0 B in 8.4 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 9149eb38d27e block 128x1x1 (max 128), dynamic shared 98304 B in 42.6 ms
+[cuda] kernel matmul.slang:gemm_cm2 2309bf5f4217 block 128x1x1 (max 256), dynamic shared 0 B in 5.1 ms
+[cuda] kernel matmul.slang:splitk_reduce 2cb1a40422e6 block 256x1x1 (max 1024), dynamic shared 0 B in 5.0 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native c345adef8117 block 256x1x1 (max 256), dynamic shared 98304 B in 4.3 ms
+[cuda] kernel matmul.slang:splitk_reduce e5ec37630117 block 256x1x1 (max 1024), dynamic shared 0 B in 4.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 bd83a871ca09 block 128x1x1 (max 256), dynamic shared 0 B in 4.7 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 0c8bb78154a8 block 256x1x1 (max 256), dynamic shared 81920 B in 4.0 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native ea009d37deab block 256x1x1 (max 256), dynamic shared 65536 B in 3.0 ms
+[cuda] kernel matmul.slang:matvec_sk 6122e65f8817 block 256x1x1 (max 1024), dynamic shared 0 B in 9.9 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 298693c03ec7 block 128x1x1 (max 128), dynamic shared 98304 B in 2.9 ms
+[cuda] kernel matmul.slang:splitk_reduce a61812eb50b0 block 256x1x1 (max 1024), dynamic shared 0 B in 3.0 ms
+[cuda] kernel matmul.slang:gemm_cm2 875c81f87a1a block 128x1x1 (max 512), dynamic shared 0 B in 15.3 ms
+[cuda] kernel matmul.slang:gemm_sk dd244ca3f23f block 256x1x1 (max 768), dynamic shared 0 B in 3.4 ms
+[cuda] kernel data.slang:f16_range_unscale cfcd6c0a3052 block 64x1x1 (max 1024), dynamic shared 0 B in 4.6 ms
+[cuda] kernel matmul.slang:gemm_cm2 615186e316cc block 256x1x1 (max 896), dynamic shared 0 B in 5.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 171fa9a469b3 block 256x1x1 (max 1024), dynamic shared 0 B in 5.5 ms
+[cuda] kernel elementwise.slang:main d1a9ebc88804 block 256x1x1 (max 1024), dynamic shared 0 B in 11.3 ms
+[cuda] kernel elementwise.slang:main f2683d45433b block 1024x1x1 (max 1024), dynamic shared 0 B in 54.7 ms
+[cuda] kernel matmul.slang:gemm_cm2 3470a4640965 block 256x1x1 (max 640), dynamic shared 0 B in 6.2 ms
+[cuda] kernel matmul.slang:splitk_reduce a971a3b33bcc block 256x1x1 (max 1024), dynamic shared 0 B in 22.7 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native de723425a768 block 256x1x1 (max 256), dynamic shared 81920 B in 9.6 ms
+[cuda] kernel matmul.slang:splitk_reduce 0bc04783f6bc block 256x1x1 (max 1024), dynamic shared 0 B in 9.6 ms
+[cuda] kernel matmul.slang:splitk_reduce 51a919a741db block 256x1x1 (max 1024), dynamic shared 0 B in 14.6 ms
+[cuda] kernel elementwise.slang:main 35939c09919c block 256x1x1 (max 1024), dynamic shared 0 B in 5.4 ms
+[cuda] kernel rope.slang:rope_qkv 898cf5aec49e block 128x1x1 (max 1024), dynamic shared 0 B in 1.8 ms
+[cuda] kernel matmul.slang:gemm_cm2 a4d87248c396 block 128x1x1 (max 256), dynamic shared 0 B in 5.9 ms
+[cuda] kernel matmul.slang:gemm_cm2 107c36eb75dc block 128x1x1 (max 512), dynamic shared 0 B in 9.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 697d478703b5 block 128x1x1 (max 512), dynamic shared 0 B in 13.6 ms
+[cuda] kernel attn_decode_native.cu:attn_decode_native 3831993705d2 block 128x1x1 (max 128), dynamic shared 0 B in 4.9 ms
+[cuda] kernel matmul.slang:gemm_sk ce1209428a21 block 128x1x1 (max 640), dynamic shared 0 B in 9.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 86a19aa867e8 block 256x1x1 (max 1024), dynamic shared 0 B in 17.1 ms
+[cuda] kernel elementwise.slang:main ce0f0e2663c3 block 1024x1x1 (max 1024), dynamic shared 0 B in 13.4 ms
+[cuda] kernel data.slang:gather e862b7d3f852 block 128x1x1 (max 1024), dynamic shared 0 B in 6.9 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 056842721521 block 256x1x1 (max 256), dynamic shared 65536 B in 16.0 ms
+[cuda] kernel matmul.slang:splitk_reduce f6c207769616 block 256x1x1 (max 1024), dynamic shared 0 B in 11.3 ms
+[cuda] kernel matmul.slang:splitk_reduce c1c1ea955fd1 block 256x1x1 (max 1024), dynamic shared 0 B in 8.7 ms
+[cuda] kernel matmul.slang:gemm_cm2 41a0edde16b4 block 256x1x1 (max 640), dynamic shared 0 B in 5.3 ms
+[cuda] kernel attn_prefill_native.cu:attn_prefill_native db58e50a5c18 block 256x1x1 (max 256), dynamic shared 98304 B in 5.3 ms
+[cuda] kernel matmul.slang:matvec_sk e061432c4a95 block 128x1x1 (max 1024), dynamic shared 0 B in 5.0 ms
+[cuda] kernel data.slang:to_f16_ranged b5b0918952dc block 256x1x1 (max 1024), dynamic shared 0 B in 5.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 9688630ef775 block 128x1x1 (max 512), dynamic shared 0 B in 6.6 ms
+[cuda] kernel matmul.slang:gemm_cm2 da5911d0e364 block 256x1x1 (max 640), dynamic shared 0 B in 9.0 ms
+[cuda] kernel elementwise.slang:main 58ad50e7ce29 block 256x1x1 (max 1024), dynamic shared 0 B in 4.9 ms
+[cuda] kernel attn_decode_native.cu:attn_decode_native 9c087a77b25a block 128x1x1 (max 128), dynamic shared 0 B in 4.1 ms
+[cuda] kernel matmul.slang:gemm_cm2 8ef193d857aa block 128x1x1 (max 256), dynamic shared 0 B in 5.1 ms
+[cuda] kernel matmul.slang:matvec 065cb0430ffb block 128x1x1 (max 1024), dynamic shared 0 B in 5.1 ms
+[cuda] kernel elementwise.slang:main 251668edae54 block 1024x1x1 (max 1024), dynamic shared 0 B in 10.3 ms
+[cuda] kernel matmul.slang:gemm_cm2 502829730c6d block 256x1x1 (max 640), dynamic shared 0 B in 5.1 ms
+[cuda] kernel matmul.slang:gemm_cm2 bf893cec62db block 128x1x1 (max 256), dynamic shared 0 B in 5.4 ms
+[cuda] kernel data.slang:to_f16_ranged 0a73d7934dd1 block 256x1x1 (max 1024), dynamic shared 0 B in 5.3 ms
+[cuda] kernel matmul.slang:gemm_cm2 29f13559a737 block 256x1x1 (max 1024), dynamic shared 0 B in 14.0 ms
+[cuda] kernel matmul.slang:gemm_cm2 155726195773 block 128x1x1 (max 256), dynamic shared 0 B in 6.0 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 291b2213d275 block 256x1x1 (max 256), dynamic shared 98304 B in 24.7 ms
+[cuda] kernel elementwise.slang:main 7b5fcfed9981 block 256x1x1 (max 1024), dynamic shared 0 B in 5.4 ms
+[cuda] kernel matmul.slang:gemm_cm2 e712d39f3ab1 block 128x1x1 (max 256), dynamic shared 0 B in 5.2 ms
+[cuda] kernel attn_prefill_native.cu:attn_prefill_native 71541ef1c644 block 256x1x1 (max 256), dynamic shared 98304 B in 9.2 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native ede844976aaf block 256x1x1 (max 256), dynamic shared 98304 B in 4.1 ms
+[cuda] kernel matmul.slang:gemm_cm2 f6e3c979530d block 128x1x1 (max 512), dynamic shared 0 B in 4.1 ms
+[cuda] kernel matmul.slang:splitk_reduce af97666f8c47 block 256x1x1 (max 1024), dynamic shared 0 B in 4.6 ms
+[cuda] kernel elementwise.slang:main 7c97f78cd798 block 256x1x1 (max 1024), dynamic shared 0 B in 20.8 ms
+[cuda] kernel matmul.slang:splitk_reduce a91c8b5d48ec block 256x1x1 (max 1024), dynamic shared 0 B in 1.4 ms
+[cuda] kernel matmul.slang:gemm_cm2 b1fdba983362 block 256x1x1 (max 1024), dynamic shared 0 B in 12.2 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 5fe9c41c2bcd block 128x1x1 (max 128), dynamic shared 98304 B in 4.8 ms
+[cuda] kernel matmul.slang:gemm_cm2 3d9618112e7c block 256x1x1 (max 640), dynamic shared 0 B in 4.9 ms
+[cuda] kernel matmul.slang:gemm_cm2 700b48e2b0ed block 256x1x1 (max 896), dynamic shared 0 B in 11.4 ms
+[cuda] kernel matmul.slang:gemm_sk d8a6a679b742 block 128x1x1 (max 640), dynamic shared 0 B in 19.3 ms
+[cuda] kernel data.slang:f16_range_unscale 7f2dddde7ec9 block 64x1x1 (max 1024), dynamic shared 0 B in 8.5 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native f141f24a45d5 block 256x1x1 (max 256), dynamic shared 98304 B in 4.2 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 1b56a640433d block 256x1x1 (max 256), dynamic shared 81920 B in 3.2 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native b10ae0fbc7da block 128x1x1 (max 128), dynamic shared 98304 B in 10.7 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 7d60dbab3dba block 256x1x1 (max 256), dynamic shared 81920 B in 0.8 ms
+[cuda] kernel matmul.slang:matvec_sk a6649620ead6 block 128x1x1 (max 1024), dynamic shared 0 B in 3.2 ms
+[cuda] kernel attention.slang:fe 15e355614f1b block 256x1x1 (max 256), dynamic shared 0 B in 11.7 ms
+[cuda] kernel elementwise.slang:main 7a4b8c3502b1 block 1024x1x1 (max 1024), dynamic shared 0 B in 13.7 ms
+[cuda] kernel matmul.slang:gemm_sk 7aa43825329a block 256x1x1 (max 768), dynamic shared 0 B in 4.8 ms
+[cuda] kernel matmul.slang:gemm_cm2 eb9e96d5d440 block 128x1x1 (max 256), dynamic shared 0 B in 7.3 ms
+[cuda] kernel data.slang:to_f16 329886cde192 block 256x1x1 (max 1024), dynamic shared 0 B in 11.0 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 6b507970cac6 block 256x1x1 (max 256), dynamic shared 65536 B in 4.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 b0503b4b1db0 block 128x1x1 (max 512), dynamic shared 0 B in 10.9 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 5850e2bec326 block 256x1x1 (max 256), dynamic shared 65536 B in 7.7 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native f8537c95bb78 block 128x1x1 (max 128), dynamic shared 98304 B in 7.7 ms
+[cuda] kernel matmul.slang:gemm_cm2 376dac397a04 block 128x1x1 (max 512), dynamic shared 0 B in 10.7 ms
+[cuda] kernel matmul.slang:matvec_sk 35dfe3e9fa19 block 256x1x1 (max 1024), dynamic shared 0 B in 4.9 ms
+[cuda] kernel attention.slang:main b2dd41f7e60f block 128x1x1 (max 1024), dynamic shared 0 B in 7.0 ms
+[cuda] kernel elementwise.slang:main 7595f9d93119 block 256x1x1 (max 1024), dynamic shared 0 B in 7.2 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 57104db2b88d block 256x1x1 (max 256), dynamic shared 98304 B in 5.5 ms
+[cuda] kernel matmul_dual.slang:gemm_sk 2246f1f9a785 block 128x1x1 (max 640), dynamic shared 0 B in 5.0 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 217a68691847 block 128x1x1 (max 128), dynamic shared 98304 B in 1.2 ms
+[cuda] kernel matmul.slang:matvec 2ef3e525937f block 128x1x1 (max 1024), dynamic shared 0 B in 11.3 ms
+[cuda] kernel matmul.slang:gemm_cm2 deb743397361 block 256x1x1 (max 1024), dynamic shared 0 B in 8.0 ms
+[cuda] kernel matmul.slang:matvec 29b24cd425ea block 128x1x1 (max 1024), dynamic shared 0 B in 5.8 ms
+[cuda] kernel matmul.slang:gemm_cm2 40563fa747d8 block 256x1x1 (max 896), dynamic shared 0 B in 9.1 ms
+[cuda] kernel matmul.slang:gemm_cm2 015aa30ad765 block 128x1x1 (max 256), dynamic shared 0 B in 12.1 ms
+[cuda] kernel matmul_dual.slang:matvec_sk b640aa49a515 block 128x1x1 (max 1024), dynamic shared 0 B in 5.3 ms
+[cuda] kernel attention.slang:decode_combine cfae0c6102a3 block 128x1x1 (max 640), dynamic shared 0 B in 8.3 ms
+[cuda] kernel matmul.slang:gemm_cm2 bbe1144ac834 block 128x1x1 (max 512), dynamic shared 0 B in 5.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 677bb09337dc block 256x1x1 (max 640), dynamic shared 0 B in 11.9 ms
+[cuda] kernel matmul.slang:gemm_cm2 8b982f0f041d block 128x1x1 (max 512), dynamic shared 0 B in 4.7 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 44b9e339777c block 256x1x1 (max 256), dynamic shared 81920 B in 8.6 ms
+[cuda] kernel data.slang:to_f16_ranged 155ccd5da5ac block 256x1x1 (max 1024), dynamic shared 0 B in 3.5 ms
+[cuda] kernel matmul.slang:gemm_cm2 c943ca3d7e55 block 256x1x1 (max 640), dynamic shared 0 B in 16.0 ms
+[cuda] kernel matmul.slang:gemm_cm2 b17f1d70c0be block 256x1x1 (max 640), dynamic shared 0 B in 4.0 ms
+[cuda] kernel data.slang:fill 20ca68b73201 block 256x1x1 (max 1024), dynamic shared 0 B in 11.3 ms
+[cuda] kernel matmul.slang:gemm_sk 76d41a969f92 block 256x1x1 (max 768), dynamic shared 0 B in 3.8 ms
+[cuda] kernel matmul.slang:gemm_cm2 c7580452f252 block 256x1x1 (max 640), dynamic shared 0 B in 4.6 ms
+[cuda] kernel matmul.slang:gemm_cm2 43a47fce12d9 block 256x1x1 (max 1024), dynamic shared 0 B in 15.3 ms
+[cuda] kernel matmul.slang:splitk_reduce ea8f68b96e1c block 256x1x1 (max 1024), dynamic shared 0 B in 10.7 ms
+[cuda] kernel matmul.slang:gemm_cm2 e420ceb26e53 block 128x1x1 (max 256), dynamic shared 0 B in 4.7 ms
+[cuda] kernel matmul.slang:splitk_reduce 7dc0d7717338 block 256x1x1 (max 1024), dynamic shared 0 B in 1.4 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 563810293905 block 256x1x1 (max 256), dynamic shared 98304 B in 7.2 ms
+[cuda] kernel matmul.slang:gemm_cm2 d7d14fe0cb8c block 128x1x1 (max 256), dynamic shared 0 B in 7.1 ms
+[cuda] kernel matmul.slang:gemm_cm2 744056ddbd95 block 128x1x1 (max 256), dynamic shared 0 B in 10.5 ms
+[cuda] kernel matmul_dual.slang:matvec 76715763dc2c block 128x1x1 (max 1024), dynamic shared 0 B in 14.3 ms
+[cuda] kernel matmul.slang:gemm_cm2 24b569a7e61e block 128x1x1 (max 256), dynamic shared 0 B in 7.2 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 23b87f5c382f block 256x1x1 (max 256), dynamic shared 65536 B in 3.2 ms
+[cuda] kernel matmul.slang:matvec_sk 1f237add382d block 128x1x1 (max 1024), dynamic shared 0 B in 9.1 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native a296aacc1783 block 256x1x1 (max 256), dynamic shared 98304 B in 2.4 ms
+[cuda] kernel matmul.slang:gemm_cm2 bff3341de0ab block 128x1x1 (max 256), dynamic shared 0 B in 4.4 ms
+[cuda] kernel matmul.slang:gemm_cm2 0962d3dceb07 block 128x1x1 (max 512), dynamic shared 0 B in 10.1 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native 5a981f1c7e83 block 128x1x1 (max 128), dynamic shared 98304 B in 2.7 ms
+[cuda] kernel matmul.slang:gemm_cm2 a4adfb4be6b6 block 128x1x1 (max 256), dynamic shared 0 B in 2.6 ms
+[cuda] kernel matmul.slang:matvec 6a8b690a8e93 block 128x1x1 (max 1024), dynamic shared 0 B in 4.8 ms
+[cuda] kernel gemm_f16_native.cu:gemm_f16_native e1b4d857a339 block 256x1x1 (max 256), dynamic shared 81920 B in 1.8 ms
+[cuda] kernel matmul.slang:gemm_cm2 4dd570192811 block 256x1x1 (max 640), dynamic shared 0 B in 3.9 ms
+[cuda] kernel matmul.slang:gemm_cm2 c037c18171d8 block 256x1x1 (max 1024), dynamic shared 0 B in 3.0 ms
+[cuda] kernel matmul.slang:gemm_cm2 1f2693ee6319 block 128x1x1 (max 256), dynamic shared 0 B in 2.8 ms
+[cuda] kernel data.slang:f16_range_unscale 7d2746ad6ddb block 64x1x1 (max 1024), dynamic shared 0 B in 2.0 ms
+[cuda] kernel sample.slang:sample c4e521c67bab block 256x1x1 (max 896), dynamic shared 0 B in 4.1 ms
+[tmp] order 6.4 of 64 launches (program False, 64 run) first reset layers.0.k_cache
+[tmp] loop 2.4; slow: 1.32 reset layers.0.k_cache fill pack 1.32 launch 0.00 (1 > 0.3 ms, 1.3 ms)
+decoder: MultiSequenceDecoder, slots 24, vocab 128256, device sampling: True, KV paged 3840 x 16
+[tmp] copies 0.8 check+evict 0.7
+[tmp] order 24.3 of 2313 launches (program True, 325 run) first gather inp_embd
+[tmp] loop 2.4; slow: 0.31 fused[Add]+RmsNorm main pack 0.01 launch 0.32 (1 > 0.3 ms, 0.3 ms)
+[cuda] recorded T=256,U=1,R=1|2,3: 325 launches
+[cuda] segment 0: captured a graph of 325 launches
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 17.6 of 2313 launches (program True, 582 run) first gather inp_embd
+[tmp] loop 3.2; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=25,U=16,R=16|2,3: 582 launches
+[first] 15+10: 48.1 ms; recorded True record 21.5 submit 0.0 wait 17.6 gpu 39.5
+[cuda] segment 0: captured a graph of 582 launches
+| 15 | 10 (1) | 48.1 | 582 / 0 | 21.17 / 21.18, 21.10 |  |
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 2.6 of 2313 launches (program True, 582 run) first gather inp_embd
+[tmp] loop 2.5; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=24,U=15,R=15|2,3: 582 launches
+[first] 14+10: 24.2 ms; recorded True record 5.4 submit 0.0 wait 18.7 gpu 24.0
+[cuda] segment 0: captured a graph of 582 launches
+| 14 | 10 (1) | 24.2 | 583 / 0 | 21.11 / 21.11, 21.05 |  |
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 3.1 of 2313 launches (program True, 582 run) first gather inp_embd
+[tmp] loop 2.4; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=24,U=14,R=14|2,3: 582 launches
+[first] 13+11: 24.6 ms; recorded True record 5.9 submit 1.3 wait 17.4 gpu 24.5
+[cuda] segment 0: captured a graph of 582 launches
+| 13 | 11 (1) | 24.6 | 583 / 0 | 21.07 / 21.09, 21.02 |  |
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 2.9 of 2313 launches (program True, 582 run) first gather inp_embd
+[tmp] loop 2.3; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=24,U=13,R=13|2,3: 582 launches
+[first] 12+12: 24.3 ms; recorded True record 5.4 submit 0.0 wait 18.8 gpu 24.1
+[cuda] segment 0: captured a graph of 582 launches
+| 12 | 12 (1) | 24.3 | 583 / 0 | 21.05 / 21.11, 20.97 |  |
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 10.0 of 2313 launches (program True, 583 run) first gather inp_embd
+[tmp] loop 2.1; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=32,U=17,R=17|2,3: 583 launches
+[first] 16+16: 32.2 ms; recorded True record 12.5 submit 0.0 wait 19.6 gpu 31.9
+[cuda] segment 0: captured a graph of 583 launches
+| 16 | 16 (1) | 32.2 | 582 / 0 | 21.58 / 21.59, 21.53 |  |
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 3.1 of 2313 launches (program True, 582 run) first gather inp_embd
+[tmp] loop 2.1; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=32,U=16,R=16|2,3: 582 launches
+[first] 15+17: 25.2 ms; recorded True record 5.6 submit 0.0 wait 19.5 gpu 25.0
+[cuda] segment 0: captured a graph of 582 launches
+| 15 | 17 (1) | 25.2 | 582 / 0 | 21.52 / 21.57, 21.47 |  |
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 3.5 of 2313 launches (program True, 359 run) first gather inp_embd
+[tmp] loop 1.5; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=256,U=17,R=17|2,3: 359 launches
+[first] 16+240: 37.9 ms; recorded True record 5.2 submit 0.0 wait 32.6 gpu 37.7
+[cuda] segment 0: captured a graph of 359 launches
+| 16 | 240 (1) | 37.9 | 358 / 0 | 34.08 / 34.15, 34.01 |  |
+[tmp] copies 0.0 check+evict 0.0
+[tmp] order 6.4 of 2313 launches (program True, 358 run) first gather inp_embd
+[tmp] loop 1.5; slow:  (0 > 0.3 ms, 0.0 ms)
+[cuda] recorded T=256,U=16,R=16|2,3: 358 launches
+[first] 15+241: 40.2 ms; recorded True record 8.2 submit 0.0 wait 31.9 gpu 40.0
+[cuda] segment 0: captured a graph of 358 launches
+| 15 | 241 (1) | 40.2 | 358 / 0 | 34.06 / 34.13, 34.02 |  |

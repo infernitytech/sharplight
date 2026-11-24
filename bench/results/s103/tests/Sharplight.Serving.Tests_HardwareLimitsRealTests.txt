@@ -1,0 +1,10 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0m[vulkan] too small: InsufficientMemoryException: Model does not fit: needs 0.14 GiB, group 'input' (0.03 GiB) has no room and no fallback device is configured.
+[cuda] too small: InsufficientMemoryException: Model does not fit: needs 0.14 GiB, group 'input' (0.03 GiB) has no room and no fallback device is configured.
+[37m  Finished:    Sharplight.Serving.Tests (ID = '7f22930de4f7f460850ccbb915d32ecbd93964132ae25be860aba46948bf9dee')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.616s
+[0m[0m

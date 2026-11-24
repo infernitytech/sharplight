@@ -155,15 +155,15 @@ public sealed partial class GraphLowerer
         }
 
         used.Add(NativeFp8TileRows(maxRows, n, dual));
-        var variants = used.Select(tileRows =>
+        var variants = used.SelectMany(tileRows =>
         {
             bool Serves(Bindings b) => rows(b) >= minRows && !Decode(rows(b)) && NativeFp8TileRows(rows(b), n, dual) == tileRows;
             if (tileRows == NativeFp8Tile && NativeFp8TensorCopies)
             {
-                return NativeFp8TmaVariant(n, k, dualEpilogue, xcap, Serves, rows, uniformScales: uniformScales);
+                return NativeFp8TmaVariants(n, k, dualEpilogue, xcap, Serves, rows, uniformScales: uniformScales);
             }
 
-            return NativeFp8Variant(n, k, dualEpilogue, xcap, tileRows, NativeFp8Tile, Serves, rows);
+            return [NativeFp8Variant(n, k, dualEpilogue, xcap, tileRows, NativeFp8Tile, Serves, rows)];
         }).ToList();
         if (decodeForm)
         {
@@ -376,13 +376,39 @@ public sealed partial class GraphLowerer
         && n.Inputs[1].Weight?.Type == DataType.F8E4M3_B128 && NativeFp8GroupedWeight(n.Inputs[1]));
 
     /// <summary>
-    /// The launch variant of <c>gemm_fp8_tma.cu</c> (block-scaled with <see cref="Fp8BlockScaled"/>) for the batches <paramref name="serves"/> selects: one block per SM at most, each
+    /// The launch variants of <c>gemm_fp8_tma.cu</c> (block-scaled with <see cref="Fp8BlockScaled"/>) for the batches <paramref name="serves"/> selects (the
+    /// partial form for batches a few rows past a token tile, the full form for the others): one block per SM at most, each
     /// walking its share of the 128-row tiles, with the tensor maps over x (its <paramref name="xcap"/> rows) and the 128-row weight groups.
     /// A non-zero <paramref name="qcap"/>: the dual form stores the outputs as E4M3 activation rows with power-of-two scales and a dense
     /// scale copy of that many rows (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>, see <see cref="Fp8StoreMinRows"/>) instead of f32 rows.
     /// </summary>
-    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0,
+    private KernelVariant[] NativeFp8TmaVariants(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0,
         bool uniformScales = false, long[]? multiWidths = null)
+    {
+        if (DiagnosticSwitches.NativeFp8Partial is false)
+        {
+            return [NativeFp8TmaVariant(n, k, dualEpilogue, xcap, serves, rows, qcap, uniformScales, multiWidths, partial: false)];
+        }
+
+        // A batch whose last token tile holds at most 96 rows runs the form whose consumer warps multiply only their fragments with rows
+        // (F8N_PARTIAL); every other batch keeps the form without it, whose main loop fits the registers without spilling.
+        bool Tail(Bindings b) => rows(b) % NativeFp8Tile is > 0 and <= NativeFp8PartialMaxTailRows;
+        return
+        [
+            NativeFp8TmaVariant(n, k, dualEpilogue, xcap, b => serves(b) && Tail(b), rows, qcap, uniformScales, multiWidths, partial: true),
+            NativeFp8TmaVariant(n, k, dualEpilogue, xcap, serves, rows, qcap, uniformScales, multiWidths, partial: false),
+        ];
+    }
+
+    /// <summary>
+    /// Most rows in the last token tile of a batch for which the FP8 tensor-copy GEMM runs its partial form: the two warp rows of a tile
+    /// hold 64 rows each, and the partial loop skips the fragments of a warp row past its 32nd row of the batch (with more, both run whole).
+    /// </summary>
+    private const long NativeFp8PartialMaxTailRows = 96;
+
+    /// <summary>One form of <see cref="NativeFp8TmaVariants"/>: with <paramref name="partial"/>, the consumer loop's forms for warps with fewer rows (<c>F8N_PARTIAL</c>).</summary>
+    private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap,
+        bool uniformScales, long[]? multiWidths, bool partial)
     {
         bool dual = dualEpilogue is not null;
         long rowBytes = k + k / 32;
@@ -432,6 +458,11 @@ public sealed partial class GraphLowerer
             // Weights whose 128-row groups share each block's scale (128 x 128 scale blocks): the promotion multiplies by one factor per
             // row of x, the same products as the per-row form.
             macros["F8N_WUNI"] = "1";
+        }
+
+        if (partial)
+        {
+            macros["F8N_PARTIAL"] = "1";
         }
 
         var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", warpgroup ? NativeFp8TmaWarpgroupThreads : NativeFp8TmaThreads,

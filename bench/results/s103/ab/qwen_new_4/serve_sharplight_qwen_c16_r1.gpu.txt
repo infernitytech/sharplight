@@ -1,0 +1,2 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 3 %, 15007 MiB, 171.48 W, 2475 MHz, 13365 MHz, 50, P1
+2456355, sharplight, 14988 MiB
