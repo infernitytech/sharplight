@@ -587,6 +587,6 @@ public sealed partial class GraphLowerer
         string name = $"conv {n.Output.Name} [{channelsTotal}→{O} {KH}x{KW} s{st[0]} g{G}]{fusedLabel} {form.Type.Name} channels-last{(parts.Count > 0 ? $" {parts.Count} parts" : "")}";
         var extra = parts.Skip(1).ToArray();
         EmitConvMatrix(name, nodes, "conv_cl.slang", "conv_cl", macros, epilogue, x, w, [.. extra.Select(p => (KernelArg)Pointer(p))], extra, bias, y, G, OG, HW, K, bound,
-            form.TileRows, form.TileColumns);
+            form.TileRows, form.TileColumns, linearTiles: true);
     }
 }

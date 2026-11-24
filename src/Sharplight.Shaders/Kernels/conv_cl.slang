@@ -105,6 +105,7 @@ void conv_cl_stage(uint3 dtid : SV_DispatchThreadID, uniform StageParams p)
 #define TBN (WARPS_N * FRAG_N * 16)
 #define A_ITEMS (TBM * KG / NT)
 #define B_ITEMS (TBN * KG / NT)
+#define M_TILES ((OG + TBM - 1) / TBM)
 // CL_ASYNC (CUDA, compute capability 8.0 and later): the tiles stream into a ring of CL_STAGES shared buffers by asynchronous
 // copies (cp.async, zero-filled outside the tensors), so the loads of the next CL_STAGES - 1 steps are in flight during each
 // step's products without passing through registers. Otherwise two buffers and a register prefetch of the next step.
@@ -345,8 +346,9 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     const uint split = gid.z % SPLITK;
     const uint HW = HO * WO;
     const uint NC = p.N * HW;
-    const uint mBase = gid.y * TBM;
-    const uint colBase = gid.x * TBN;
+    // The output-channel tiles of a pixel tile are adjacent workgroups, so they read its input while it is in L2.
+    const uint mBase = (gid.x % M_TILES) * TBM;
+    const uint colBase = (gid.x / M_TILES) * TBN;
     const uint kBeg = split * KPS;
     const uint kEnd = min(uint(KTOT), kBeg + KPS);
     const uint wm = (sg / WARPS_N) * (FRAG_M * 16);

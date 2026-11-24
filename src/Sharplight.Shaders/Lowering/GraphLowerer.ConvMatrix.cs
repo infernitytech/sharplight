@@ -160,11 +160,13 @@ public sealed partial class GraphLowerer
     /// Emits an implicit-GEMM convolution kernel (<paramref name="entry"/> of <paramref name="file"/>: conv_cm, conv_cl) over tiles of
     /// <paramref name="tileRows"/> output channels x <paramref name="tileColumns"/> pixels, split along K where the grid would not
     /// fill the device (<see cref="ChooseConvMatrixSplit"/>; partials through a workspace and conv_splitk_reduce, which then adds the
-    /// bias and applies the epilogue). The kernel takes (x, w, bias, y, <paramref name="extraArgs"/>, [residual], N).
+    /// bias and applies the epilogue). The kernel takes (x, w, bias, y, <paramref name="extraArgs"/>, [residual], N). With
+    /// <paramref name="linearTiles"/> the grid's x runs over the pixel tiles times the channel tiles (the kernel splits it, channel tile
+    /// fastest), else x over the pixel tiles and y over the channel tiles.
     /// </summary>
     private void EmitConvMatrix(string label, Node[] nodes, string file, string entry, List<(string, object)> macros, ConvEpilogueCode? epilogue,
         TensorRef x, TensorRef w, KernelArg[] extraArgs, TensorRef[] extraReads, TensorRef? bias, TensorRef y, long G, long OG, long HW, long K, long bound,
-        long tileRows, long tileColumns, long tileK = ConvMatrixTileK)
+        long tileRows, long tileColumns, long tileK = ConvMatrixTileK, bool linearTiles = false)
     {
         long O = G * OG;
         Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, tileColumns, tileK);
@@ -176,7 +178,9 @@ public sealed partial class GraphLowerer
         var variants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
             var kernel = ConvKernel(file, entry, Macros([.. kernelMacros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
-            return (kernel, batch => new Grid(Grid.Div(batch * HW, tileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
+            return (kernel, batch => linearTiles
+                ? new Grid(Grid.Div(batch * HW, tileColumns) * Grid.Div(OG, tileRows), 1, (uint)(G * cfg.Split))
+                : new Grid(Grid.Div(batch * HW, tileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
         });
         var dst = ws ?? y;
         var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
