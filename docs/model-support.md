@@ -3109,8 +3109,14 @@ Implementation notes:
 - The causal 3-D convolutions are 2-D convolutions over the frame windows stacked along the channels (the importer folds the kernel's time
   taps into its input channels, time-tap-major). The VAE graphs run the clip in chunks along time inside one graph (the encoder the first
   frame, then four frames per latent frame; the decoder one latent frame at a time), each convolution keeping its last kt − stride input
-  frames for the next chunk, and convolve in pieces (output frames, then row bands with their halo) of at most 1 GB of stacked input, so
-  memory follows one chunk; every op of the VAE but the causal convolutions works per frame, so chunking changes nothing.
+  frames for the next chunk (in f16 under reduced precision, the adapter's `half_caches` dimension), and convolve in pieces (output
+  frames, then row bands with their halo) of at most 1 GB of stacked input. The windows are taken from the cache and the chunk directly
+  (`PaddedFrames`), never copied into one padded tensor, and the full-resolution levels (the encoder's input convolution and first level,
+  the decoder's levels after the temporal upsampling) run frame by frame. Every op of the VAE but the causal convolutions works per
+  frame, so chunking changes nothing. Activations (CUDA lowering, any clip length): encoder 4.6 / 9.5 / 14.0 / 18.3 GB and decoder
+  7.6 / 18.3 / 29.4 / 38.2 GB at 480p / 720p / 960p / 1080p.
+- A fix in the shared GPU lowering came with it: a view (here `After`) closed an open fused group only when its first input came from
+  that group, so an `After` whose second input did ran ahead of it and the chunks overlapped again (3 GB more per chunk).
 - The pipeline encodes all batches, then restores them, then decodes them; compiled graphs stay until the device runs out of memory,
   which releases them (the f32 3B's DiT and the VAE's activations at 960p do not fit a 32 GB GPU together).
 - The official 3B builds its RoPE table for a 1024 × 128 × 128 grid (8.4 GB in f32) and slices each window's corner out of it; next to
@@ -3121,10 +3127,21 @@ Verification (tools/seedvr2-reference.py instruments the official inference: sam
 intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Tests, CUDA with `SHARPLIGHT_TEST_CUDA=1`):
 
 - Tiny clip in f32 on the CPU (5 frames of 104 × 56 → 208 × 112, the official fp32 run with the flash-attention semantics on the CPU):
-  VAE encoder mean 3.2e-6, deviation 6.3e-6, decoder 3.1e-6 relative RMS; DiT prediction 7.6e-3 relative RMS (2 blocks 4e-5, 8 blocks
+  VAE encoder mean 3.2e-6, deviation 6.3e-6, decoder 3.1e-6 relative RMS; DiT prediction 9.6e-3 relative RMS with the DiT's matrices in f16 (7.6e-3 in f32; 2 blocks 4e-5, 8 blocks
   2.9e-4: bf16 rounding flips amplified over the depth; the official fp32 and fp64 runs differ by 1.7e-3 after 16 blocks); the whole
-  enhancement 50.4 dB worst frame. 7B (fp16 safetensors, 2 blocks): 7.9e-5 relative RMS.
+  enhancement 49.3 dB worst frame (50.4 dB in f32). 7B (fp16 safetensors, 2 blocks): 7.9e-5 relative RMS.
 - The ComfyUI fp16 conversion of the 3B (numz/SeedVR2_comfyUI `seedvr2_ema_3b_fp16.safetensors`) is not a plain cast of the official
   weights: its tensors are 0.8-3 % (relative norm) away from `seedvr2_ema_3b.pth` (the time embedding most). The official code on those
   weights and Sharplight on the same file agree at 55.0 dB (tiny clip, CPU); parity runs therefore compare each file with the official code
   on the same file.
+- GPU (`fox-480p-cuda-bf16`: 17 frames of the fox clip, 416 × 240 → 832 × 480, the official run on CUDA in bf16, its default): graphs
+  on CUDA and Vulkan encoder 1.6e-2, DiT 2.7e-2, decoder 3.4e-3 relative RMS (the bf16 VAE of the reference); the whole enhancement
+  48.9 dB worst frame on CUDA, 48.8 dB on Vulkan. Tiny clip: CUDA 49.0 dB, Vulkan 49.3 dB, CPU 49.3 dB (DiT 9.6e-3, encoder 3.2e-6,
+  decoder 3.1e-6); the ComfyUI fp16 file 55.1 dB.
+- 7B (`seedvr2_ema_7b_fp16.safetensors` against the official code on the same file with bf16-held weights, 17 frames 480p): DiT
+  7.1e-2 relative RMS, whole enhancement 43.6 dB worst frame on CUDA and Vulkan (44.8 dB in the benchmark's parity run): the bf16
+  weights of the reference account for it.
+- Speed and memory against the official PyTorch inference: [benchmarks.md](benchmarks.md) section 107. In short: the DiT is as fast as
+  PyTorch's (flash attention, bf16); the VAE is about 2 × slower (its convolutions run with f32 activations on the shared implicit-GEMM
+  kernel); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
+  GPU. 1080p output needs 38 GB of decoder activations and does not fit 32 GB yet (spatial tiling of the VAE is not implemented).

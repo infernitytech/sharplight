@@ -1,0 +1,17 @@
+16:34:46.976 Graph optimization (sharplight-ir/1): restore 7946 -> 7185 nodes, vae_encode 2709 -> 1922 nodes, vae_decode 5348 -> 3701 nodes, color_correct 14 -> 14 nodes [386 ms]
+16:34:46.980 Loaded seedvr2_ema_3b (seedvr, video-enhancement, components transformer, vae): 856 tensors, 7.79 GB [626 ms]
+seedvr2_ema_3b on vulkan (NVIDIA RTX PRO 4500 Blackwell), loaded in 0.6 s
+16:34:47.836 Graph optimization (sharplight-ir/1): restore 8746 -> 7985 nodes, vae_encode 5925 -> 4564 nodes, vae_decode 12080 -> 8965 nodes, color_correct 14 -> 14 nodes [669 ms]
+16:34:47.836 Rebuilt seedvr2_ema_3b for frames=9, height=480, width=832, half_caches=1 [718 ms]
+16:34:49.642 Compiled 'vae_encode' in 1802 ms
+16:34:49.642 vae_encode@832x480x9: 5.09 GiB on the device
+16:34:57.651 Compiled 'restore' in 3824 ms
+16:34:57.651 restore@832x480x9: 8.14 GiB on the device
+16:34:59.765 Compiled 'vae_decode' in 875 ms
+16:34:59.765 vae_decode@832x480x9: 8.32 GiB on the device
+16:35:10.652 Compiled 'color_correct' in 476 ms
+16:35:10.652 color_correct@832x480x9: 0.75 GiB on the device
+timed read 0.02 s, encoding 6.80 s, restoring 5.07 s, decoding 11.84 s, enhance 23.72 s, write 0.00 s, total 23.74 s
+median of 1: read 0.02 s, encoding 6.80 s, restoring 5.07 s, decoding 11.84 s, enhance 23.72 s, write 0.00 s, total 23.74 s
+frames 50.5 50.9 51.0 51.2 51.0 51.5 51.4 51.4 51.3 51.6 51.6 51.6 51.5 51.1 51.1 51.2 51.2 51.4 51.3 51.2 51.4 51.6 51.6 51.5 51.3 51.4 51.4 51.3 51.2 51.4 51.1 51.0 50.9
+worst 50.52 dB, mean 51.28 dB

@@ -28268,7 +28268,7 @@
       "companions": [],
       "verification": {
         "reference": "official PyTorch inference (ByteDance-Seed/SeedVR)",
-        "summary": "PENDING",
+        "summary": "whole enhancement vs official code: 49.3 dB CPU (tiny, f32), 48.9 dB CUDA / 48.8 dB Vulkan (480p, bf16 reference); 7B 43.6 dB",
         "providers": [
           "CPU",
           "Vulkan",

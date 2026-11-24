@@ -461,7 +461,7 @@ worst frame. Supported: any output size or scale, batches of 1 + 4k frames, wave
 <!-- verified-catalog:table 8.1 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Formats | Verification | Notes | Verified |
 |---|---|---|---|---|---|
-| SeedVR2 3B | ByteDance-Seed/SeedVR2-3B | official folder (.pth DiT, VAE, text embeddings); fp16 safetensors conversion; .slm | PENDING | one-step video restoration and super-resolution; videos and images, any size, batches of 1 + 4k frames | 2026-11-24 |
+| SeedVR2 3B | ByteDance-Seed/SeedVR2-3B | official folder (.pth DiT, VAE, text embeddings); fp16 safetensors conversion; .slm | whole enhancement vs official code: 49.3 dB CPU (tiny, f32), 48.9 dB CUDA / 48.8 dB Vulkan (480p, bf16 reference); 7B 43.6 dB | one-step video restoration and super-resolution; videos and images, any size, batches of 1 + 4k frames | 2026-11-24 |
 <!-- verified-catalog:end -->
 
 ## 9. Known unsupported or not working
