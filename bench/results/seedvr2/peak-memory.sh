@@ -5,7 +5,7 @@ log=$1; shift
 pid=$!
 peak=0
 while kill -0 $pid 2>/dev/null; do
-    used=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits | awk -F', ' -v p=$pid '$1==p {print $2}')
+    used=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits | awk -F', ' -v p=$pid '$1==p {s+=$2} END {print s+0}')
     if [ -n "$used" ] && [ "$used" -gt "$peak" ]; then peak=$used; fi
     sleep 0.1
 done
