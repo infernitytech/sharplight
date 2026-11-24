@@ -571,6 +571,12 @@ internal static class DiagnosticSwitches
     public static bool AttentionMixed { get; } = IsNotZero("SHARPLIGHT_ATTN_MIXED");
 
     /// <summary>
+    /// True (default) when the flash half of a mixed attention step runs no blocks in steps none of whose runs can reach its minimum run
+    /// rows (decode-only steps beyond the decode kernel's rows); <c>SHARPLIGHT_ATTN_MIXED_SKIP=0</c> launches it anyway (A/B runs).
+    /// </summary>
+    public static bool AttentionMixedSkip { get; } = IsNotZero("SHARPLIGHT_ATTN_MIXED_SKIP");
+
+    /// <summary>
     /// Mean rows per run below which a multi-sequence step takes the mixed attention form (<c>SHARPLIGHT_ATTN_MIXED_RUN_ROWS=n</c>; unset:
     /// the lowering's default).
     /// </summary>
