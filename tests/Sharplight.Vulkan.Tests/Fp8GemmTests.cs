@@ -56,6 +56,22 @@ public sealed class Fp8GemmTests
     }
 
     /// <summary>
+    /// Batches a few rows past a 128-row token tile, which the CUDA provider's tensor-copy GEMM runs in its partial form (warps with
+    /// 1-16, 17-32 or no rows of the batch in the last tile: 266, 280, 300 and 344 rows), against the CPU oracle with activations that
+    /// E4M3 represents exactly.
+    /// </summary>
+    [Theory]
+    [InlineData(266)]
+    [InlineData(280)]
+    [InlineData(300)]
+    [InlineData(344)]
+    public void PartialTokenTiles(int t)
+    {
+        const int K = 1024, N = 6144;
+        Run("f8e4m3_b128", t, N, K, Rnd.ExactFp8((long)t * K, 13), atol: 2e-3, rtol: 1e-3, maxTokens: 512);
+    }
+
+    /// <summary>
     /// Row counts below the compiled maximum, in the ranges where the fp8 GEMM with <c>SHARPLIGHT_FP8_SHORT_TILES=1</c> takes 64-row
     /// tiles above 64 rows (129-192, 257-320) and splits K: every (tile height, split) of the row counts a step may bind has its
     /// launch variant (the split variants were probed every 128 rows, so those buckets had none and stored nothing).
@@ -112,6 +128,8 @@ public sealed class Fp8GemmTests
     /// fusion). The second graph also outputs the gate product, which keeps its pair on the separate GEMMs.
     /// </summary>
     [Theory]
+    [InlineData(266)]
+    [InlineData(300)]
     [InlineData(512)]
     [InlineData(636)]
     public void DualMatchesSeparateBitwise(int t)

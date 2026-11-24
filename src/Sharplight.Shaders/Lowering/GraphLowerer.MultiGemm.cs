@@ -558,12 +558,12 @@ public sealed partial class GraphLowerer
         long k = first.Weight.Shape[1];
         var rowsOf = first.Rows;
         Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b)) && NativeFp8TileRows(rowsOf(b), n, false) == NativeFp8Tile;
-        var variant = NativeFp8TmaVariant(n, k, null, xcap, serves, rowsOf, uniformScales: parts.All(pt => pt.UniformScales), multiWidths: widths);
+        var variants = NativeFp8TmaVariants(n, k, null, xcap, serves, rowsOf, uniformScales: parts.All(pt => pt.UniformScales), multiWidths: widths);
         KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
         KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
         var outer = _launchCondition;
         _launchCondition = null;
-        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8 native", group.Members, [variant],
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8 native", group.Members, variants,
             [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
             [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
         _launchCondition = outer;

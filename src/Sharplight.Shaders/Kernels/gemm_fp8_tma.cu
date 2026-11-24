@@ -50,7 +50,13 @@
 // of each member's width; N all rows, MULTI_O1 and MULTI_O2 multiples of 128), each with its own tensor map (mw_1, mw_2): a tile lies
 // in one member, so each output is the product the member's own launch computes.
 //
-// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, MULTI, MULTI_O1, MULTI_O2, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+// F8N_PARTIAL: a warp whose rows of a token tile hold at most 32 rows of the batch runs a form of the consumer loop that multiplies
+// only its fragments with rows (one or two of four; none: it only waits for the stages and releases them), for batches a few rows
+// past a token tile, whose last tile otherwise costs a full tile's MMAs. Every output's products are the same, so results do not
+// change. A separate kernel: the extra loop forms make the full form spill registers, so batches whose last tile is full or nearly
+// full keep the kernel without them.
+//
+// Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, F8N_WG, F8N_WUNI, MULTI, MULTI_O1, MULTI_O2, QOUT, QCAP and F8N_PARTIAL. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
 // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads (F8N_WG: 384), F8N_SHARED bytes of dynamic shared memory.
 //
 // SL_NVRTC_SASS: NVRTC also compiles this kernel to machine code for the GPU (compute capability 12.x), which the device loads instead
@@ -68,6 +74,9 @@
 #endif
 #ifndef MULTI
 #define MULTI 0
+#endif
+#ifndef F8N_PARTIAL
+#define F8N_PARTIAL 0
 #endif
 #if MULTI && (DUAL || QOUT)
 #error "gemm_fp8_tma: MULTI with DUAL or QOUT"
@@ -192,6 +201,13 @@ static __device__ __forceinline__ f8n_u32 f8n_member(f8n_u32 n0, f8n_u32& first,
     return 0;
 #endif
 }
+
+// A compiler constant as a type (the fragment count of the consumer loop's forms).
+template <int V>
+struct f8n_int
+{
+    static constexpr int value = V;
+};
 
 static __device__ __forceinline__ f8n_u32 f8n_smem(const void* p)
 {
@@ -509,157 +525,189 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS, 1) gemm_fp8_tma(const 
     {
         f8n_u32 t0, n0;
         f8n_local(lt, tilesX, t0, n0);
-        for (f8n_u32 kb = 0; kb < nk; kb++)
+        // FA: the fragments of this warp's rows that the loop multiplies (a compiler constant; F8N_PARTIAL: fewer for a warp with at
+        // most 32 rows of the batch in this tile, none for a warp without rows).
+#if F8N_PARTIAL
+        auto kLoop = [&](auto active)
         {
-            const f8n_u32 it = lt * nk + kb;
-            f8n_mbar_wait(bars + 48 + (it & 1) * 8, (it >> 1) & 1);
-            const float* xs = (const float*)(smem + F8N_STAGES * F8N_STAGE_BYTES + (it & 1) * F8N_SCALE_BYTES);
-            const float* ws = xs + F8N_BM;
+            constexpr int FA = decltype(active)::value;
+#else
+        {
+            constexpr int FA = F8N_FM;
+#endif
+            for (f8n_u32 kb = 0; kb < nk; kb++)
+            {
+                const f8n_u32 it = lt * nk + kb;
+                f8n_mbar_wait(bars + 48 + (it & 1) * 8, (it >> 1) & 1);
+                const float* xs = (const float*)(smem + F8N_STAGES * F8N_STAGE_BYTES + (it & 1) * F8N_SCALE_BYTES);
+                const float* ws = xs + F8N_BM;
 #if F8N_BLOCK_SCALED
-            // UE8M0 scales: the exponent fields of the power-of-two f32 scales. A: lanes 4g, 4g + 2 give row g, 4g + 1, 4g + 3 row
-            // g + 8 of a fragment; B: every lane of quad g column g.
-            f8n_u32 xe[F8N_FM], we[F8N_FN];
+                // UE8M0 scales: the exponent fields of the power-of-two f32 scales. A: lanes 4g, 4g + 2 give row g, 4g + 1, 4g + 3 row
+                // g + 8 of a fragment; B: every lane of quad g column g.
+                f8n_u32 xe[F8N_FM], we[F8N_FN];
 #pragma unroll
-            for (int i = 0; i < F8N_FM; i++)
-            {
-                xe[i] = __float_as_uint(xs[wm * F8N_TM + i * 16 + g + (c4 & 1) * 8]) >> 23;
-            }
+                for (int i = 0; i < FA; i++)
+                {
+                    xe[i] = __float_as_uint(xs[wm * F8N_TM + i * 16 + g + (c4 & 1) * 8]) >> 23;
+                }
 #pragma unroll
-            for (int j = 0; j < F8N_FN; j++)
-            {
-                we[j] = __float_as_uint(ws[f8n_brow(wn, j) + g]) >> 23;
-            }
+                for (int j = 0; j < F8N_FN; j++)
+                {
+                    we[j] = __float_as_uint(ws[f8n_brow(wn, j) + g]) >> 23;
+                }
 
 #elif F8N_WUNI
-            // One weight scale per 128 rows and K block (and per matrix of the pair): the promotion's factors are per row of x.
-            float xw[F8N_FM][2][1 + DUAL];
+                // One weight scale per 128 rows and K block (and per matrix of the pair): the promotion's factors are per row of x.
+                float xw[F8N_FM][2][1 + DUAL];
 #pragma unroll
-            for (int i = 0; i < F8N_FM; i++)
-            {
-#pragma unroll
-                for (int h = 0; h < 2; h++)
+                for (int i = 0; i < FA; i++)
                 {
-                    const float xh = xs[wm * F8N_TM + i * 16 + g + h * 8];
 #pragma unroll
-                    for (int d = 0; d <= DUAL; d++)
+                    for (int h = 0; h < 2; h++)
                     {
-                        xw[i][h][d] = xh * ws[d * (F8N_BN / 2)];
+                        const float xh = xs[wm * F8N_TM + i * 16 + g + h * 8];
+#pragma unroll
+                        for (int d = 0; d <= DUAL; d++)
+                        {
+                            xw[i][h][d] = xh * ws[d * (F8N_BN / 2)];
+                        }
                     }
                 }
-            }
 
 #else
-            float xv[F8N_FM][2];
-            float2 wv[F8N_FN];
+                float xv[F8N_FM][2];
+                float2 wv[F8N_FN];
 #pragma unroll
-            for (int i = 0; i < F8N_FM; i++)
-            {
-                xv[i][0] = xs[wm * F8N_TM + i * 16 + g];
-                xv[i][1] = xs[wm * F8N_TM + i * 16 + g + 8];
-            }
-#pragma unroll
-            for (int j = 0; j < F8N_FN; j++)
-            {
-#if DUAL
-                wv[j] = *(const float2*)(ws + (j & 1) * (F8N_BN / 2) + wn * (F8N_TN / 2) + (j >> 1) * 8 + c4 * 2);
-#else
-                wv[j] = *(const float2*)(ws + wn * F8N_TN + j * 8 + c4 * 2);
-#endif
-            }
-
-#endif
-            const f8n_u32 s = it % F8N_STAGES;
-            f8n_mbar_wait(bars + s * 8, (it / F8N_STAGES) & 1);
-            const f8n_u32 sa = f8n_smem(smem + s * F8N_STAGE_BYTES), sb = sa + F8N_BM * 128;
-            f8n_u32 b[4][F8N_FN][2];
-#pragma unroll
-            for (int kk = 0; kk < 4; kk++)
-            {
-#pragma unroll
-                for (int j = 0; j < F8N_FN; j += 2)
+                for (int i = 0; i < FA; i++)
                 {
-                    f8n_u32 r = f8n_brow(wn, j + (lane >> 4)) + (lane & 7);
-                    f8n_ldsm4(sb + f8n_swz(r, kk * 2 + ((lane >> 3) & 1)), b[kk][j][0], b[kk][j][1], b[kk][j + 1][0], b[kk][j + 1][1]);
+                    xv[i][0] = xs[wm * F8N_TM + i * 16 + g];
+                    xv[i][1] = xs[wm * F8N_TM + i * 16 + g + 8];
                 }
-            }
+#pragma unroll
+                for (int j = 0; j < F8N_FN; j++)
+                {
+#if DUAL
+                    wv[j] = *(const float2*)(ws + (j & 1) * (F8N_BN / 2) + wn * (F8N_TN / 2) + (j >> 1) * 8 + c4 * 2);
+#else
+                    wv[j] = *(const float2*)(ws + wn * F8N_TN + j * 8 + c4 * 2);
+#endif
+                }
+
+#endif
+                const f8n_u32 s = it % F8N_STAGES;
+                f8n_mbar_wait(bars + s * 8, (it / F8N_STAGES) & 1);
+                const f8n_u32 sa = f8n_smem(smem + s * F8N_STAGE_BYTES), sb = sa + F8N_BM * 128;
+                f8n_u32 b[4][F8N_FN][2];
+#pragma unroll
+                for (int kk = 0; kk < (FA > 0 ? 4 : 0); kk++)
+                {
+#pragma unroll
+                    for (int j = 0; j < F8N_FN; j += 2)
+                    {
+                        f8n_u32 r = f8n_brow(wn, j + (lane >> 4)) + (lane & 7);
+                        f8n_ldsm4(sb + f8n_swz(r, kk * 2 + ((lane >> 3) & 1)), b[kk][j][0], b[kk][j][1], b[kk][j + 1][0], b[kk][j + 1][1]);
+                    }
+                }
 
 #if F8N_BLOCK_SCALED
 #pragma unroll
-            for (int i = 0; i < F8N_FM; i++)
-            {
-#pragma unroll
-                for (int kk = 0; kk < 4; kk++)
+                for (int i = 0; i < FA; i++)
                 {
-                    f8n_u32 a[4];
-                    f8n_u32 r = wm * F8N_TM + i * 16 + (lane & 15);
-                    f8n_ldsm4(sa + f8n_swz(r, kk * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
 #pragma unroll
-                    for (int j = 0; j < F8N_FN; j++)
+                    for (int kk = 0; kk < 4; kk++)
                     {
-                        f8n_mma(acc[i][j], a, b[kk][j][0], b[kk][j][1], xe[i], we[j]);
+                        f8n_u32 a[4];
+                        f8n_u32 r = wm * F8N_TM + i * 16 + (lane & 15);
+                        f8n_ldsm4(sa + f8n_swz(r, kk * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
+#pragma unroll
+                        for (int j = 0; j < F8N_FN; j++)
+                        {
+                            f8n_mma(acc[i][j], a, b[kk][j][0], b[kk][j][1], xe[i], we[j]);
+                        }
                     }
                 }
-            }
 
 #else
 #pragma unroll
-            for (int i = 0; i < F8N_FM; i++)
-            {
-                float part[F8N_FN][4];
-#pragma unroll
-                for (int j = 0; j < F8N_FN; j++)
+                for (int i = 0; i < FA; i++)
                 {
-#pragma unroll
-                    for (int e = 0; e < 4; e++)
-                    {
-                        part[j][e] = 0.0f;
-                    }
-                }
-#pragma unroll
-                for (int kk = 0; kk < 4; kk++)
-                {
-                    f8n_u32 a[4];
-                    f8n_u32 r = wm * F8N_TM + i * 16 + (lane & 15);
-                    f8n_ldsm4(sa + f8n_swz(r, kk * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
+                    float part[F8N_FN][4];
 #pragma unroll
                     for (int j = 0; j < F8N_FN; j++)
                     {
-                        f8n_mma(part[j], a, b[kk][j][0], b[kk][j][1]);
+#pragma unroll
+                        for (int e = 0; e < 4; e++)
+                        {
+                            part[j][e] = 0.0f;
+                        }
                     }
-                }
+#pragma unroll
+                    for (int kk = 0; kk < 4; kk++)
+                    {
+                        f8n_u32 a[4];
+                        f8n_u32 r = wm * F8N_TM + i * 16 + (lane & 15);
+                        f8n_ldsm4(sa + f8n_swz(r, kk * 2 + (lane >> 4)), a[0], a[1], a[2], a[3]);
+#pragma unroll
+                        for (int j = 0; j < F8N_FN; j++)
+                        {
+                            f8n_mma(part[j], a, b[kk][j][0], b[kk][j][1]);
+                        }
+                    }
 #if F8N_WUNI
 #pragma unroll
-                for (int j = 0; j < F8N_FN; j++)
-                {
-                    const int d = DUAL ? (j & 1) : 0;
-                    acc[i][j][0] = fmaf(part[j][0], xw[i][0][d], acc[i][j][0]);
-                    acc[i][j][1] = fmaf(part[j][1], xw[i][0][d], acc[i][j][1]);
-                    acc[i][j][2] = fmaf(part[j][2], xw[i][1][d], acc[i][j][2]);
-                    acc[i][j][3] = fmaf(part[j][3], xw[i][1][d], acc[i][j][3]);
-                }
+                    for (int j = 0; j < F8N_FN; j++)
+                    {
+                        const int d = DUAL ? (j & 1) : 0;
+                        acc[i][j][0] = fmaf(part[j][0], xw[i][0][d], acc[i][j][0]);
+                        acc[i][j][1] = fmaf(part[j][1], xw[i][0][d], acc[i][j][1]);
+                        acc[i][j][2] = fmaf(part[j][2], xw[i][1][d], acc[i][j][2]);
+                        acc[i][j][3] = fmaf(part[j][3], xw[i][1][d], acc[i][j][3]);
+                    }
 #else
 #pragma unroll
-                for (int j = 0; j < F8N_FN; j++)
-                {
-                    acc[i][j][0] = fmaf(part[j][0], xv[i][0] * wv[j].x, acc[i][j][0]);
-                    acc[i][j][1] = fmaf(part[j][1], xv[i][0] * wv[j].y, acc[i][j][1]);
-                    acc[i][j][2] = fmaf(part[j][2], xv[i][1] * wv[j].x, acc[i][j][2]);
-                    acc[i][j][3] = fmaf(part[j][3], xv[i][1] * wv[j].y, acc[i][j][3]);
-                }
+                    for (int j = 0; j < F8N_FN; j++)
+                    {
+                        acc[i][j][0] = fmaf(part[j][0], xv[i][0] * wv[j].x, acc[i][j][0]);
+                        acc[i][j][1] = fmaf(part[j][1], xv[i][0] * wv[j].y, acc[i][j][1]);
+                        acc[i][j][2] = fmaf(part[j][2], xv[i][1] * wv[j].x, acc[i][j][2]);
+                        acc[i][j][3] = fmaf(part[j][3], xv[i][1] * wv[j].y, acc[i][j][3]);
+                    }
 #endif
-            }
+                }
 
 #endif
-            // Stage s and scale slot it % 2 are read (the fragments and scales are in registers). The reads are the generic proxy's
-            // and the producer's next copies into the stage write through the async proxy: without the proxy fence the release does
-            // not order them, and a copy can land before a late read of this warp (one 16-byte row of codes, benchmarks.md section 93).
-            asm volatile("fence.proxy.async.shared::cta;\n" ::: "memory");
-            __syncwarp();
-            if (lane == 0)
-            {
-                f8n_mbar_arrive(bars + 24 + s * 8);
+                // Stage s and scale slot it % 2 are read (the fragments and scales are in registers). The reads are the generic proxy's
+                // and the producer's next copies into the stage write through the async proxy: without the proxy fence the release does
+                // not order them, and a copy can land before a late read of this warp (one 16-byte row of codes, benchmarks.md section 93).
+                asm volatile("fence.proxy.async.shared::cta;\n" ::: "memory");
+                __syncwarp();
+                if (lane == 0)
+                {
+                    f8n_mbar_arrive(bars + 24 + s * 8);
+                }
             }
+#if F8N_PARTIAL
+        };
+        const int rowsLeft = (int)p.T - (int)(t0 + wm * F8N_TM);
+        if (rowsLeft > 32)
+        {
+            kLoop(f8n_int<F8N_FM>{});
         }
+        else if (rowsLeft > 16)
+        {
+            kLoop(f8n_int<2>{});
+        }
+        else if (rowsLeft > 0)
+        {
+            kLoop(f8n_int<1>{});
+        }
+        else
+        {
+            kLoop(f8n_int<0>{});
+        }
+#else
+        }
+#endif
 
 #if QOUT
         // The tile's outputs (half lt % 2 of the pair) and each row's absolute maximum over them, combined across the quad and the
