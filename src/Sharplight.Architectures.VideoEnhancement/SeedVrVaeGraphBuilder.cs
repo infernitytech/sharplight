@@ -169,7 +169,7 @@ internal sealed class SeedVrVaeGraphBuilder
             }
         }
 
-        _b.Output(VideoDiffusionGraphs.Frames, outputs.Count == 1 ? outputs[0] : _b.Concat(0, [.. outputs]));
+        _b.Output(VideoDiffusionGraphs.Frames, ConcatFrames(outputs));
         return _b.Build();
     }
 
@@ -191,10 +191,21 @@ internal sealed class SeedVrVaeGraphBuilder
         return x;
     }
 
+    /// <summary>Concatenates frame groups along the frames, in rounds of at most 64 inputs (the op's limit).</summary>
+    private Value ConcatFrames(List<Value> parts)
+    {
+        while (parts.Count > 1)
+        {
+            parts = [.. parts.Chunk(64).Select(chunk => chunk.Length == 1 ? chunk[0] : _b.Concat(0, chunk))];
+        }
+
+        return parts[0];
+    }
+
     /// <summary>Per-chunk latent frames [t, C, h, w] → the scaled latent clip [C, T, h, w].</summary>
     private Value LatentLayout(List<Value> chunks, float scale)
     {
-        var all = chunks.Count == 1 ? chunks[0] : _b.Concat(0, [.. chunks]);
+        var all = ConcatFrames(chunks);
         return _b.Scale(_b.Contiguous(_b.Permute(all, 1, 0, 2, 3)), scale);
     }
 
