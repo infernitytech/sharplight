@@ -174,6 +174,32 @@ public sealed class ConvChannelsLastTests
     }
 
     /// <summary>
+    /// Row bands of stacked frame windows (a causal convolution's pieces at large sizes): two overlapping bands of three frames, each
+    /// window a band of one frame, read in place as views of the frames' channels-last copy at row offsets.
+    /// </summary>
+    [Fact]
+    public void BandedFrameWindows()
+    {
+        const int c = 24;
+        const int height = 20;
+        const int width = 16;
+        var tg = new TG();
+        var x = tg.In("x", DataType.F32, 3, c, height, width);
+        var w = tg.RandW("w", DataType.F32, 0.5f / MathF.Sqrt(3 * c * 9), 32, 3 * c, 3, 3);
+        var attrs = Attributes.From(("strides", new long[] { 1, 1 }), ("pads", new long[] { 0, 1, 0, 1 }), ("dilations", new long[] { 1, 1 }), ("groups", 1L));
+        var bands = new List<Value>();
+        foreach (var (row, rows) in new[] { (0L, 12L), (8L, 12L) })
+        {
+            var windows = Enumerable.Range(0, 3).Select(j => tg.B.Slice(tg.B.Slice(x, 0, j, 1), 2, row, rows)).ToArray();
+            bands.Add(tg.B.Emit1("Conv", [tg.B.Concat(1, windows), w], attrs));
+        }
+
+        tg.B.Output("y", tg.B.Concat(2, [.. bands]));
+        var step = new Step(1, 0, (x, Rnd.F(3L * c * height * width, 102)));
+        Check("Conv.channels-last.bands", tg.B.Build(), [step], 2e-2, 1e-2, "bands", parts: 3, alsoLaunched: "copy conv_cl_stage");
+    }
+
+    /// <summary>
     /// An f16 activation read directly (no conversion launch before the staging; the CPU oracle takes f32 convolution inputs, so
     /// it convolves the same values as f32).
     /// </summary>
