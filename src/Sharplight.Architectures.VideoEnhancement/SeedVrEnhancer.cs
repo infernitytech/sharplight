@@ -6,7 +6,7 @@ using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
 using Sharplight.Vision;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// The <see cref="IVideoEnhancer"/> of SeedVR2 models (the official inference path of projects/inference_seedvr2_*.py): each batch of frames

@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// The index tables that run window attention with generic ops: every window attends over its own video tokens followed by all text tokens.

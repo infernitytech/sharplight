@@ -4,7 +4,7 @@ using Sharplight.Models;
 using Sharplight.Tensors;
 using Sharplight.VideoGeneration;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// Builds the restoration graph (<see cref="SeedVrGraphs.Restore"/>) of a SeedVR2 DiT for one latent size: the noisy latent, the encoded

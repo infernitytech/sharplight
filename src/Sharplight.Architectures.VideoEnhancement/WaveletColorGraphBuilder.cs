@@ -4,7 +4,7 @@ using Sharplight.Models;
 using Sharplight.Tensors;
 using Sharplight.VideoGeneration;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// Builds the wavelet colour transfer (<see cref="SeedVrGraphs.ColorCorrect"/>) of SeedVR2's inference scripts for one clip size: the

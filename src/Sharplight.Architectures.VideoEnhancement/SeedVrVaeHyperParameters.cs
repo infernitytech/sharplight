@@ -1,6 +1,6 @@
 using Sharplight.Models;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>Hyper-parameters of the SeedVR2 causal video VAE, read from <c>seedvr.vae.*</c>.</summary>
 internal sealed record SeedVrVaeHyperParameters

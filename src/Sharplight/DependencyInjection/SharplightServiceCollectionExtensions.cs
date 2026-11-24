@@ -60,7 +60,7 @@ public static class SharplightServiceCollectionExtensions
                 .AddSileroVadImporter()
                 .AddUltralyticsImporter()
                 .AddSeedVrImporter()
-                .AddSeedVrArchitecture()
+                .AddVideoEnhancementArchitectures()
                 .AddDiffusersImporter()
                 .AddPackageImporter();
         }

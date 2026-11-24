@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// The window partitions of SeedVR2's attention (the official <c>720pwin_by_size_bysize</c> and <c>720pswin_by_size_bysize</c>): the window

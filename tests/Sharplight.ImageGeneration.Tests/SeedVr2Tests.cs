@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Sharplight.Architectures.SeedVr;
+using Sharplight.Architectures.VideoEnhancement;
 using Sharplight.Cuda;
 using Sharplight.Models;
 using Sharplight.Runtime;

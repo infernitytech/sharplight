@@ -2,7 +2,7 @@ using Sharplight.Models;
 using Sharplight.Tasks;
 using Sharplight.VideoEnhancement;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>Creates a <see cref="SeedVrEnhancer"/> for every <see cref="ModelKinds.VideoEnhancement"/> model built by <see cref="SeedVrAdapter"/>.</summary>
 internal sealed class SeedVrEnhancerFactory : ITaskClientFactory

@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>One batch of a video-enhancement request: a run of input frames restored together.</summary>
 /// <param name="Start">Index of its first input frame.</param>

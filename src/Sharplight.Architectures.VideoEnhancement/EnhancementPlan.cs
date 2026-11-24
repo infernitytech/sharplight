@@ -1,6 +1,6 @@
 using Sharplight.VideoEnhancement;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>The resolved sizes, batches and settings of one video-enhancement request.</summary>
 internal sealed record EnhancementPlan

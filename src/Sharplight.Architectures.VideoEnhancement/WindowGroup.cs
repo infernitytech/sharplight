@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>Equally sized attention windows packed into one batched attention.</summary>
 /// <param name="Count">Windows in the group.</param>

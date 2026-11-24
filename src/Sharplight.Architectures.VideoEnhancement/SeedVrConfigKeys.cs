@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>Configuration keys of the SeedVR2 model description (model-level unless noted).</summary>
 internal static class SeedVrConfigKeys

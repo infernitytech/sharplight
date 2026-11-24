@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// Adaptive instance normalization of planar clips (the <c>adain_color_fix</c> of SeedVR's colour_fix.py): every frame and channel of the

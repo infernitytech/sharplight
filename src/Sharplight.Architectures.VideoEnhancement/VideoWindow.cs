@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>One attention window: the half-open token ranges [start, end) along frames, rows and columns of the patch grid.</summary>
 /// <param name="FrameStart">First frame.</param>

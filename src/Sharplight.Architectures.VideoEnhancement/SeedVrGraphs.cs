@@ -1,6 +1,6 @@
 using Sharplight.VideoGeneration;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// The graph contract between <see cref="SeedVrAdapter"/> and <see cref="SeedVrEnhancer"/>: graph, value and dimension names. Latent videos

@@ -1,6 +1,6 @@
 using Sharplight.Graph;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// Causal 3-D convolutions over frames-first activations [F, C, H, W] that are processed chunk by chunk along time within one graph. A

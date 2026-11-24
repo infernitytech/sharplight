@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Tensors;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// The rotary position embedding of SeedVR2's window attention for one window layout. Positions are local to each token's window; every axis

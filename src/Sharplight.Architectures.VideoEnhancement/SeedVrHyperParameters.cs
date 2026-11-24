@@ -1,6 +1,6 @@
 using Sharplight.Models;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>Hyper-parameters of a SeedVR2 restoration DiT, read from <c>seedvr.transformer.*</c>.</summary>
 internal sealed record SeedVrHyperParameters

@@ -1,4 +1,4 @@
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>Sparse one-dimensional resampling taps: per output, the first source index, the tap count and the weights (<paramref name="Max"/> per output).</summary>
 /// <param name="Start">First source index per output.</param>

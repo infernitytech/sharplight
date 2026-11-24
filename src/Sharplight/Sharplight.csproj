@@ -26,7 +26,7 @@
     <ProjectReference Include="../Sharplight.Import.SileroVad/Sharplight.Import.SileroVad.csproj" />
     <ProjectReference Include="../Sharplight.Import.Ultralytics/Sharplight.Import.Ultralytics.csproj" />
     <ProjectReference Include="../Sharplight.Import.SeedVr/Sharplight.Import.SeedVr.csproj" />
-    <ProjectReference Include="../Sharplight.Architectures.SeedVr/Sharplight.Architectures.SeedVr.csproj" />
+    <ProjectReference Include="../Sharplight.Architectures.VideoEnhancement/Sharplight.Architectures.VideoEnhancement.csproj" />
     <ProjectReference Include="../Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../Sharplight.Metal/Sharplight.Metal.csproj" />
     <ProjectReference Include="../Sharplight.Vulkan/Sharplight.Vulkan.csproj" />

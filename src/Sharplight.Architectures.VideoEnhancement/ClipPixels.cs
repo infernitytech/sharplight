@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using Sharplight.Vision;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// Conversions between 8-bit frames and the planar clips the graphs take ([F, 3, H, W] floats in [−1, 1]): antialiased bicubic resizing

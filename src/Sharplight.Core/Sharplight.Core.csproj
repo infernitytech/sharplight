@@ -20,7 +20,7 @@
     <InternalsVisibleTo Include="Sharplight.Speech.Tests" />
     <InternalsVisibleTo Include="BatchBench" />
     <InternalsVisibleTo Include="Sharplight.Distributed" />
-    <InternalsVisibleTo Include="Sharplight.Architectures.SeedVr" />
+    <InternalsVisibleTo Include="Sharplight.Architectures.VideoEnhancement" />
     <InternalsVisibleTo Include="Sharplight.Distributed.Tests" />
   </ItemGroup>
 </Project>

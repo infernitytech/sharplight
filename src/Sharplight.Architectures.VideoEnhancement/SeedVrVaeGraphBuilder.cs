@@ -3,7 +3,7 @@ using Sharplight.Models;
 using Sharplight.Tensors;
 using Sharplight.VideoGeneration;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// Builds the encoder (<see cref="SeedVrGraphs.VaeEncode"/>) and decoder (<see cref="SeedVrGraphs.VaeDecode"/>) graphs of SeedVR2's causal

@@ -598,8 +598,8 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 Video restoration and super-resolution models are of kind `video-enhancement` with the client `IVideoEnhancer`: the frames of a clip
 (or one image) in, restored and usually enlarged frames out, one per input frame. The kind and its types are model-agnostic and live in
 Core (`Sharplight.VideoEnhancement`); implementations come from architecture packages. SeedVR2 (3B and 7B, one-step restoration DiT with a
-causal video VAE) is the first: `Sharplight.Import.SeedVr` reads its checkpoints, `Sharplight.Architectures.SeedVr` builds the graphs and
-registers the client (`services.AddSeedVrImporter().AddSeedVrArchitecture()`; `AddSharplight()` includes both).
+causal video VAE) is the first: `Sharplight.Import.SeedVr` reads its checkpoints, `Sharplight.Architectures.VideoEnhancement` builds the graphs and
+registers the client (`services.AddSeedVrImporter().AddVideoEnhancementArchitectures()`; `AddSharplight()` includes both).
 
 ```csharp
 var services = new ServiceCollection()

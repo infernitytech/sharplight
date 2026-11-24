@@ -3,7 +3,7 @@ using Sharplight.ImageGeneration;
 using Sharplight.Models;
 using Sharplight.VideoGeneration;
 
-namespace Sharplight.Architectures.SeedVr;
+namespace Sharplight.Architectures.VideoEnhancement;
 
 /// <summary>
 /// Builds SeedVR2 (one-step video restoration and super-resolution, 3B and 7B; architecture <c>seedvr</c>) as a
