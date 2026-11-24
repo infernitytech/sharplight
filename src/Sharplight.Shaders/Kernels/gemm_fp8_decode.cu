@@ -89,6 +89,15 @@ static __device__ __forceinline__ uint4 f8d_ldw(const f8d_u8* p)
     return v;
 }
 
+// A weight scale load: read once, kept out of L1 like f8d_ldw. Every non-coherent load of a dependent kernel carries
+// L1::no_allocate and reads weights (data no launch of a step writes): Cuda.Tests BatchedDecodeRowsTests checks the PTX for it.
+static __device__ __forceinline__ float f8d_ldws(const f8d_u8* p)
+{
+    float v;
+    asm volatile("ld.global.nc.L1::no_allocate.f32 %0, [%1];\n" : "=f"(v) : "l"(p));
+    return v;
+}
+
 // An activation load: every warp of the K range reads the same rows. Through L2 only (ld.global.cg), never the non-coherent L1 path:
 // launched as a programmatic dependent, this grid starts while earlier launches still run on its SMs, and an L1 line of x cached
 // there before the launch that writes x finished would survive griddepcontrol.wait (stale rows: garbage text at 9-16 decode rows).
@@ -185,8 +194,8 @@ extern "C" __global__ void __launch_bounds__(F8D_THREADS) gemm_fp8_decode(F8dPar
                 s.w[f][h][0] = f8d_ldw(wc[f] + h * 8 * K + kb * 128);
                 s.w[f][h][1] = f8d_ldw(wc[f] + h * 8 * K + kb * 128 + 64);
             }
-            s.sw[f][0] = __ldg((const float*)(wsc[f] + kb * 512));
-            s.sw[f][1] = __ldg((const float*)(wsc[f] + kb * 512 + 32));
+            s.sw[f][0] = f8d_ldws(wsc[f] + kb * 512);
+            s.sw[f][1] = f8d_ldws(wsc[f] + kb * 512 + 32);
         }
     };
     auto loadX = [&](F8dStage& s, f8d_u32 kb) {

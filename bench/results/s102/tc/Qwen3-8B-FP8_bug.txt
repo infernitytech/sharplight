@@ -1,0 +1,11 @@
+textcheck wave 16: 0/16 identical to single-request, 4 early partings, 12 garbage -> FAIL
+  #0 ['early:0', 'script:CJK,THAI']: '! \n\n**Title:!!! Norway!!! Chron.scoreilst! Eg!!!อamping哪个! Secret!!! imitation! compartir於是!!!!!大大 s'
+  #1 ['early:4', 'script:CJK']: ' Also, explain how!画er鲜ifest graphic Veowy Cascadeachel Valent! while!!!icc为目标十条aac!性IGHivor JV阏oke涂'
+  #2 ['early:4', 'script:CJK']: ' The story should have!FIXME bugs!见解!!isti有条件仿真 cach TForm规则!!! invol!辎!!!!Resolvewyn抵抗! collateral '
+  #3 ['early:4', 'script:CJK']: ' Use the following structure!!ats resolution noble!!ogan reused <<公益性!部分内容!more!!!!!��opyright人生的!自由'
+textcheck wave 32: 0/32 identical to single-request, 8 early partings, 24 garbage -> FAIL
+  #0 ['early:0', 'script:CJK,CYRILLIC,HANGUL']: '! synaptic鹦발 Pangign!去哪里!!错!!酿酒/perl!!!!相比 Bytes印/trans!!!折! transl GIRuite楽!!!!斯edImage!!!!!чёт带到In'
+  #1 ['early:4', 'script:CJK']: ' Also, explain how this process supports (1!激cketVMLINUX) the\nI!!!!gold!!!! Rejectbucks那些! habit勺!!!'
+  #2 ['early:3', 'script:CJK']: ' The story should be at!画!rans名列!不成注明出处OLS!Greg注明出处!!!!不成!说什么 Kenutto朝MocksHCTX fun的灵魂鹫!!!!用!实践活动oz!'
+  #3 ['early:3', 'script:CJK,HANGUL']: ' Use the following structureselected radio wave路能!!VMLINUX Advisors is a consulting firm MD!!-byte不利'
+textcheck: GARBAGE

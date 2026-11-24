@@ -10,7 +10,10 @@
 #      (virtualenv with vLLM and httpx; its python also runs loadgen.py; LOADGEN_PY overrides), QUIET_GPU=1 (repeat a round, up to
 #      3 tries, when another process computed on the GPU during it; then it is kept and marked <round>.contaminated),
 #      PER_OVERRIDE (requests per worker, default by concurrency), RAMP (seconds: closed loop with staggered worker starts),
-#      RATES ("16:7.5 64:18": open loop, Poisson arrivals of that many requests per second at that concurrency; see loadgen.py).
+#      RATES ("16:7.5 64:18": open loop, Poisson arrivals of that many requests per second at that concurrency; see loadgen.py),
+#      TEXT_CHECK (1: after the rounds, bench/textcheck.py compares batched greedy texts of natural prompts with single-request ones
+#      and the script exits 3 when it finds garbage; 0 skips it), TEXT_CHECK_WAVES (concurrent requests per wave, default "16,<SLOTS>").
+# Text check result: $OUT_DIR/serve_<engine>_<name>.textcheck.json (+ .textcheck.FAIL when garbage was found).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ENG=$1; NAME=$2; MP=$3; CONCS=$4; shift 4; EXTRA=("$@")
 OUT_DIR=${OUT_DIR:-$HERE/results/s16}; mkdir -p "$OUT_DIR"
@@ -94,5 +97,16 @@ if [ $OK = 1 ]; then
     done
   done
 fi
+TC=0
+if [ $OK = 1 ] && [ "${TEXT_CHECK:-1}" = 1 ]; then
+  # Batched greedy text against single-request text (docs/benchmarks.md section 102): speed rounds never read their text.
+  TCOUT=$OUT_DIR/serve_${ENG}_${NAME}.textcheck
+  WAVES=${TEXT_CHECK_WAVES:-$(printf '%s\n' 16 "$SLOTS" | sort -nu | paste -sd,)}
+  rm -f "$TCOUT.FAIL"
+  timeout 1800 "$PY" -I "$HERE/textcheck.py" --url "http://127.0.0.1:$PORT" --model m --waves "$WAVES" --json "$TCOUT.json"
+  TC=$?
+  [ $TC = 0 ] || { echo "TEXT CHECK FAILED (rc=$TC): batched greedy text differs from single-request text, see $TCOUT.json" | tee "$TCOUT.FAIL" >&2; }
+fi
 # The server runs in its own process group (set -m): the EXIT trap stops the group, so worker processes (vLLM's engine core) go with it.
 cleanup; trap - EXIT; sleep 5
+[ $TC = 0 ] || exit 3

@@ -443,20 +443,29 @@ public sealed partial class GraphLowerer
         return new KernelVariant(serves, kernel, b => new Grid((uint)Math.Min(sms, (long)Grid.Div(rows(b), NativeFp8Tile) * columns)));
     }
 
-    /// <summary>Threads per block of <c>gemm_f16_native.cu</c> per tile configuration (0: 128 x 256, 1: 128 x 128).</summary>
-    private static readonly int[] s_nativeF16Threads = [256, 128];
+    /// <summary>
+    /// The prompt tile configurations of <c>gemm_f16_native.cu</c> (H_CFG; 2 is the decode form, chosen apart): 0 = 128 x 256, 1 = 128 x
+    /// 128, 3 = 64 x 256.
+    /// </summary>
+    private static readonly int[] s_nativeF16Configs = [0, 1, 3];
+
+    /// <summary>Threads per block of <c>gemm_f16_native.cu</c> per tile configuration (index: H_CFG).</summary>
+    private static readonly int[] s_nativeF16Threads = [256, 128, 0, 256];
+
+    /// <summary>Token rows per tile of <c>gemm_f16_native.cu</c> per tile configuration.</summary>
+    private static readonly int[] s_nativeF16TileRows = [128, 128, 0, 64];
 
     /// <summary>Weight rows per tile of <c>gemm_f16_native.cu</c> per tile configuration.</summary>
-    private static readonly int[] s_nativeF16TileColumns = [256, 128];
+    private static readonly int[] s_nativeF16TileColumns = [256, 128, 0, 256];
 
-    /// <summary>Dynamic shared memory of <c>gemm_f16_native.cu</c> per tile configuration: two stages of 384 rows, three of 256 rows.</summary>
-    private static readonly int[] s_nativeF16Shared = [2 * 384 * 128, 3 * 256 * 128];
+    /// <summary>Dynamic shared memory of <c>gemm_f16_native.cu</c> per tile configuration: two stages of 384 rows, three of 256, two of 320.</summary>
+    private static readonly int[] s_nativeF16Shared = [2 * 384 * 128, 3 * 256 * 128, 0, 2 * 320 * 128];
 
     /// <summary>
-    /// Relative speed of the f16 tile configurations at full waves (RTX PRO 4500 Blackwell, Qwen3-8B shapes at 2048 rows: 128 x 256
-    /// 155-161 TFLOPS, 128 x 128 140-150).
+    /// Relative speed (outputs per time) of the f16 tile configurations at full waves (RTX PRO 4500 Blackwell, Qwen3-8B shapes at 2048
+    /// rows: 128 x 256 155-161 TFLOPS, 128 x 128 140-150; 64 x 256 SPEED3 of 128 x 256 on Llama-3.1-8B shapes, benchmarks.md section 102).
     /// </summary>
-    private static readonly double[] s_nativeF16Speed = [1.0, 0.94];
+    private static readonly double[] s_nativeF16Speed = [1.0, 0.94, 0, DiagnosticSwitches.NativeF16Speed3 ?? 0.85];
 
     /// <summary>
     /// True when the f16 products of the library GEMM path (bf16 weights stored as f16, the f16 copies of x) run on the hand-written
@@ -465,13 +474,22 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool NativeGemmF16 => _opt.Has(DeviceFeatures.NativeGemmF16) && _compiler.CompilesCuda(_opt.Target);
 
-    /// <summary>The tile configuration of the hand-written f16 GEMM with the fewest estimated waves of work for a batch.</summary>
+    /// <summary>
+    /// The tile configuration of the hand-written f16 GEMM with the least estimated time for a batch: its waves of tiles times a tile's
+    /// outputs over the configuration's speed (a tile past the batch's last row costs like a full one), or
+    /// <c>SHARPLIGHT_NATIVE_F16_CONFIG</c> when that is allowed.
+    /// </summary>
     private int NativeF16Config(long rows, long n, bool dual, Func<int, bool>? allowed = null)
     {
+        if (DiagnosticSwitches.NativeF16Config is { } forced && s_nativeF16Configs.Contains(forced) && (allowed is null || allowed(forced)))
+        {
+            return forced;
+        }
+
         int sms = Math.Max(1, _opt.ComputeUnits);
         double best = double.MaxValue;
         int config = -1;
-        for (int c = 0; c < s_nativeF16TileColumns.Length; c++)
+        foreach (int c in s_nativeF16Configs)
         {
             if (allowed is not null && !allowed(c))
             {
@@ -479,8 +497,8 @@ public sealed partial class GraphLowerer
             }
 
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
-            long tiles = Grid.Div(rows, 128) * ((n + columns - 1) / columns);
-            double cost = (double)((tiles + sms - 1) / sms) * s_nativeF16TileColumns[c] / s_nativeF16Speed[c];
+            long tiles = Grid.Div(rows, s_nativeF16TileRows[c]) * ((n + columns - 1) / columns);
+            double cost = (double)((tiles + sms - 1) / sms) * s_nativeF16TileRows[c] * s_nativeF16TileColumns[c] / s_nativeF16Speed[c];
             if (cost < best)
             {
                 best = cost;
@@ -502,7 +520,7 @@ public sealed partial class GraphLowerer
     {
         bool dual = dualEpilogue is not null;
         var used = new SortedSet<int>();
-        for (long r = minRows; r <= Math.Max(minRows, maxRows); r += 128)
+        for (long r = minRows; r <= Math.Max(minRows, maxRows); r += 64)
         {
             used.Add(NativeF16Config(r, n, dual, allowed));
         }
@@ -512,6 +530,11 @@ public sealed partial class GraphLowerer
         return [.. used.Select(c =>
         {
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("DUAL", dual ? 1 : 0), ("H_CFG", c));
+            if (DiagnosticSwitches.NativeF16Partial is false)
+            {
+                macros["H_PARTIAL"] = "0";
+            }
+
             foreach (var (key, value) in extra ?? new Dictionary<string, string>())
             {
                 macros[key] = value;
@@ -531,7 +554,7 @@ public sealed partial class GraphLowerer
                 "gemm_f16_native", s_nativeF16Threads[c], s_nativeF16Shared[c], _opt.Target, macros, _opt.Cache);
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
             return new KernelVariant(b => rows(b) >= minRows && NativeF16Config(rows(b), n, dual, allowed) == c, kernel,
-                b => new Grid(Grid.Div(rows(b), 128), Grid.Div(n, columns)));
+                b => new Grid(Grid.Div(rows(b), s_nativeF16TileRows[c]), Grid.Div(n, columns)));
         })];
     }
 

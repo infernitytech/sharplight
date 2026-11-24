@@ -1,0 +1,8 @@
+[hold 00:17:33] ./job1.sh
+0 %, 2 MiB, 30.66 W
+Qwen3-8B-FP8 bug rc=1 textcheck: GARBAGE
+Qwen3-8B-FP8 base rc=1 textcheck: GARBAGE
+gpt-oss-20b base rc=1 textcheck: GARBAGE
+Llama-3.1-8B base rc=0 textcheck: clean
+Terminated
+[release 00:32:12]

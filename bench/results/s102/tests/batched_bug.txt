@@ -1,0 +1,67 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Cuda.Tests
+[0m[37m  Discovered:  Sharplight.Cuda.Tests
+[0m[37m  Starting:    Sharplight.Cuda.Tests
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 9) [FAIL]
+[0m[37m      Assert.Equal() Failure: Collections differ
+[0m[37m                 ↓ (pos 0)
+[0m[37m      Expected: [0.498640239, 1.42520559, 0.225442946, 0.215781212, 1.98052669, ···]
+[0m[37m      Actual:   [0.270533442, 1.60776913, 0.177614748, 0.364808559, 1.76095998, ···]
+[0m[37m                 ↑ (pos 0)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(72,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 12) [FAIL]
+[0m[37m      Assert.Equal() Failure: Collections differ
+[0m[37m                 ↓ (pos 0)
+[0m[37m      Expected: [0.498640239, 1.42520559, 0.225442946, 0.215781212, 1.98052669, ···]
+[0m[37m      Actual:   [0.359510988, 1.50729823, 0.207736611, 0.294450343, 1.93855083, ···]
+[0m[37m                 ↑ (pos 0)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(72,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 16) [FAIL]
+[0m[37m      Assert.Equal() Failure: Collections differ
+[0m[37m                 ↓ (pos 0)
+[0m[37m      Expected: [0.498640239, 1.42520559, 0.225442946, 0.215781212, 1.98052669, ···]
+[0m[37m      Actual:   [0.422504723, 1.58431816, 0.194173932, 0.24522759, 2.0472219, ···]
+[0m[37m                 ↑ (pos 0)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(72,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 24) [FAIL]
+[0m[37m      fp8, 24 rows: row 0 is 2.07E-002 (relative L2) away from its single-row result
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(85,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(format: "fp8", rows: 40) [FAIL]
+[0m[37m      fp8, 40 rows: row 0 is 2.07E-002 (relative L2) away from its single-row result
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(85,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(String format, Int32 rows)
+[0m[37m           at InvokeStub_BatchedDecodeRowsTests.BatchedRowsMatchSingleRows(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Cuda.Tests.BatchedDecodeRowsTests.DependentKernelsReadEarlierOutputsCoherently [FAIL]
+[0m[37m      non-coherent loads in dependent kernels:
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f37, [%rd14];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f38, [%rd15];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f39, [%rd20];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f40, [%rd21];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.v4.u32 {%r144,%r145,%r146,%r147}, [%rd1];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.v4.u32 {%r148,%r149,%r150,%r151}, [%rd33];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f41, [%rd34];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f42, [%rd35];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.v4.u32 {%r152,%r153,%r154,%r155}, [%rd2];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.v4.u32 {%r156,%r157,%r158,%r159}, [%rd37];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f43, [%rd38];
+[0m[37m      kernel/e1291a4d48b3a6ab1cde00cbd3f8a1db: ld.global.nc.f32 %f44, [%rd39];
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/BatchedDecodeRowsTests.cs(139,0): at Sharplight.Cuda.Tests.BatchedDecodeRowsTests.DependentKernelsReadEarlierOutputsCoherently()
+[0m[37m        --- End of stack trace from previous location ---
+[0m[37m  Finished:    Sharplight.Cuda.Tests (ID = 'bc7ca494ff3592168b4a20593e8926904b81b85b7e9f6d2f6245221b72690b4c')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Cuda.Tests  Total: 15, Errors: 0, Failed: 6, Skipped: 0, Not Run: 0, Time: 39.880s
+[0m[0m

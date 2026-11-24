@@ -15899,3 +15899,275 @@ SHARPLIGHT_SCHED_TRACE=1 ...   # "held<=n (tile c ms, row b ms)" marks the steps
 sharplight serve ~/models/hf/Qwen3-8B-FP8 --slots 16 --ctx 1024 --temp 0 --provider cuda &
 python3 bench/results/s101/scripts/batch_greedy.py http://127.0.0.1:18080 out.jsonl 32 48
 ```
+
+## 102. LLM round 42: every serving run reads its text (a batched greedy text check, on by default) and CUDA tests of batched decode rows against single rows; dependent kernels audited for non-coherent loads; f16 / bf16 prompt GEMMs a few rows past a token tile (Llama-3.1-8B 16 + 250 rows -20 %, Qwen3-8B -18 %) (2026-11-24)
+
+Branch `perf/llm-r42` (`develop` at `6628182f`, §101 merged). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs,
+200 W cap), shared with other rounds; every GPU run held the verify lock, `develop` (`perf-r42-base` worktree, `6628182f`) and the
+branch alternated in the same holds (ABBA for step times), vLLM 0.33 (venv `vllm-r12`) in the same holds. Raw output in
+[`bench/results/s102/`](../bench/results/s102) (`tc/`, `steps/`, `ab/`, `correct/`, `tests/`, `scripts/`).
+
+Kept (keyed on row counts, tile waves, launch semantics and load paths; nothing on models):
+
+1. **A batched text check in every serving run.** `bench/textcheck.py` sends a few natural greedy prompts one at a time (the
+   single-request references), then waves of concurrent requests that cycle the same prompts, staggered by 4 ms so that their steps
+   mix prompt rows with 1 to N decode rows and the rows fall again as requests finish, and compares each batched text with its
+   reference. Batched steps are not bit-identical to single-sequence steps (other kernels, other summation orders), so a parting
+   alone is reported, not judged, unless more than half of a wave parts within three words; a request is garbage when it repeats a
+   token six times in a row more than its reference does, when punctuation-only tokens are more than a quarter of it and three times
+   the reference's share, when it carries a script the reference does not (CJK, Cyrillic, ... in an English answer), or when it fails.
+   `bench/s16_serve.sh` runs it after its rounds by default (waves of 16 and of the slot count; `TEXT_CHECK=0` skips it,
+   `TEXT_CHECK_WAVES` sets the waves), writes `serve_<engine>_<name>.textcheck.json` and exits 3 with a `.textcheck.FAIL` marker on
+   garbage. It runs against vLLM and llama-server too. `--rejudge` judges a stored report again.
+2. **CUDA tests of batched decode rows** (`Sharplight.Cuda.Tests` `BatchedDecodeRowsTests`): an eight-layer stack (RmsNorm, a
+   1024 x 1024 projection or a routed expert product, the residual add; every layer rewrites the same scratch activations, every
+   kernel launches as a programmatic dependent) in FP8 (E4M3, 128-value blocks), bf16, MXFP4 experts and FP8 experts, at 9, 12, 16
+   (the register-streaming FP8 decode GEMM and the skinny GEMMs), 24, 40 and 64 rows (the hand-written GEMMs' decode and prompt
+   tiles): every row must match the stack run on that row alone (2 % relative L2, 5 % for dense FP8, whose single rows take the
+   skinny GEMV path: 2.1 % after eight layers), and two batched runs must agree bit for bit. A second test compiles these stacks
+   and the code tests' workload for compute capability 12.0 with NVRTC (no GPU needed) and fails when a dependent kernel's PTX has an
+   `ld.global.nc` load that neither carries `L1::no_allocate` (the convention for weight streams, which no launch of a step writes)
+   nor reads a compiler constant table (`__cudart_i2opi_f`). Both tests fail on `develop` with §101.4's fix reverted (the FP8 rows at
+   9-16 differ between two batched runs; the PTX check finds the `__ldg` of `x`), both pass on the branch.
+3. **The audit** (102.2): no other kernel reads an earlier launch's output through the non-coherent path. `gemm_fp8_decode.cu`'s
+   weight scales, the one remaining `__ldg`, now load with `ld.global.nc.L1::no_allocate` like its weight codes (no cost: 9 / 12 / 16
+   decode rows 11.95-11.96 / 11.96 / 12.27 ms before and after).
+4. **f16 / bf16 prompt GEMMs a few rows past a token tile** (`gemm_f16_native.cu`): a token tile past the batch's last row runs a
+   partial main loop (a warp multiplies only its 16-row fragments that hold rows of the batch, and no x rows past them are copied;
+   full tiles run the loop as before), and a third prompt tile configuration of 64 x 256 (2 x 4 warps of 32 x 64, two stages, 80 KB)
+   joins the per-batch wave estimate, which now counts each configuration's tile rows. Llama-3.1-8B 16 + 250 rows 51.7 → 41.1 ms
+   (-20 %), Qwen3-8B (bf16) 50.6 → 41.4 (-18 %); full-tile steps +0.2-0.5 %. PplBench logits bit-identical (every output sums its K
+   steps in the same order in every configuration).
+
+### 102.1 The text check against §101.4's bug, `develop` and vLLM
+
+`tc/`: a server with 16 slots (`--ctx 1024`, greedy), 8 prompts, 48 tokens, waves of 16 and 32 requests (32: half of them queue).
+"Bug" is `develop` with §101.4's fix reverted (`ld.global.nc` reads of `x` in `gemm_fp8_decode.cu`).
+
+| server | wave 16: identical / part within 3 words / garbage | wave 32 | verdict |
+|---|---|---|---|
+| Qwen3-8B-FP8, bug | 0 / 2 / **14** | 0 / 3 / **29** | garbage ("!! Norway!!! Chron.scoreilst! Eg!!!อamping哪个!") |
+| Qwen3-8B-FP8, `develop` | 3 / 3 / 0 | 12 / 6 / 0 | clean |
+| gpt-oss-20b, `develop` | 8 / 0 / 0 | 18 / 0 / 0 | clean |
+| Llama-3.1-8B (bf16), `develop` | 16 / 0 / 0 | 32 / 0 / 0 | clean |
+
+The serving rounds of 102.4 ran it after every server (waves of 16 and 64, 21 servers): all clean. Texts identical to the
+single-request text (wave 16 / wave 64), ours against vLLM 0.33 on the same prompts:
+
+| model | Sharplight `develop` and r42 | vLLM 0.33 |
+|---|---|---|
+| Qwen3-8B-FP8 | 3-7 / 13-23 | 4 / 19 |
+| gpt-oss-20b | 9 / 32-35 | 9 / 42 |
+| Llama-3.1-8B (bf16) | 16 / 64 | 11 / 38 |
+
+vLLM's batched greedy text parts from its single-request text as often as ours (more often on Llama), so the partings on
+Qwen3-8B-FP8 are batch non-determinism, not a second bug.
+
+A fixed "parts early" rule does not separate the two: on a healthy Qwen3-8B-FP8 server a third to a half of the batched texts part
+within the first eight words, fluently (" Well, first of all, it's easier to learn a second language when you're young" against the
+reference's " 1. It helps you understand other cultures better"; the raw completions of these prompts have near ties from the first
+token), which is why the check judges the text itself and counts partings only in bulk.
+
+### 102.2 Audit: non-coherent loads in kernels that launch as dependents
+
+From compute capability 9.0 every kernel the CUDA provider compiles starts with `griddepcontrol.wait` (or issues it after
+weight-only work) and launches as a programmatic dependent of the one before it. A dependent grid starts while the earlier launches
+still run, and `ld.global.nc` is defined only for data that is read-only for the kernel's lifetime; `griddepcontrol.wait` makes the
+earlier grids' writes visible to coherent loads (`ld.global`, `.ca` / `.cg`, `cp.async`, tensor copies), not to non-coherent L1 lines
+cached before (§101.4). The audit:
+
+* **Hand-written kernels** (`src/Sharplight.Shaders/Kernels/*.cu`): `attn_decode_native`, `attn_prefill_native`, `gemm_f16_native`,
+  `gemm_fp8_native`, `gemm_kq_native`, `gemm_moe_native` copy their activations with `cp.async.cg` (L2 only) and read scalars with
+  plain loads through non-`__restrict__` struct members; `gemm_fp8_tma` uses tensor and bulk copies; `gemm_kq_native` reads its
+  split-K partials with `__ldcg`. `gemm_fp8_decode` read its weight scales with `__ldg` (weights: never written by a step's launches,
+  but now `L1::no_allocate` so that the rule of the PTX test has no exception).
+* **Generated kernels** (Slang → CUDA C++ → NVRTC): the Slang sources and the CUDA prelude issue no `__ldg`, and the buffers are plain
+  pointers in the parameter struct (no `const __restrict__`), so NVRTC emits no non-coherent loads of buffers. The PTX of every
+  kernel compiled for batched serving of Qwen3-8B-FP8, gpt-oss-20b and Llama-3.1-8B (`SHARPLIGHT_CUDA_DUMP_SOURCE`, 162 / 169 /
+  138 compiled modules, `dump/`) has `ld.global.nc` in two places only: `gemm_fp8_decode` (weights) and `rope_qkv` (the `__cudart_i2opi_f` table of
+  `sinf` / `cosf`'s range reduction, a compiler constant).
+* Texture paths: none.
+
+Nothing else to fix; the PTX test of item 2 keeps it that way for the kernels it compiles.
+
+### 102.3 f16 / bf16 GEMMs at 257-384 rows
+
+§101.1 measured Llama-3.1-8B (bf16) 16 + 250 rows at 51.3 ms against 34.0 at 16 + 240 and 62.0 at 16 + 496: the 266 rows run three
+128-row token tiles, and the third, with 10 rows, cost as much tensor work as a full one. Two changes, both keyed on the batch's rows
+against the tile height:
+
+* **Partial tiles**: the warps of a token tile past the batch's last row skip the MMAs (and the x copies) of their fragments past it
+  (`SHARPLIGHT_NATIVE_F16_PARTIAL=0` turns it off). A partial block still streams its whole weight tile (from L2: the grouped order
+  runs a weight tile's token tiles back to back), so it saves about a third of the tile at 266 rows.
+* **64 x 256 tiles** (configuration 3): five 64-row tiles for 266 rows instead of three 128-row ones (with the partial loop, the fifth
+  costs little). Forced on every GEMM (`SHARPLIGHT_NATIVE_F16_CONFIG=3`) it runs at ~0.85 of the 128 x 256 tiles' rate at full waves
+  (Llama 16 + 1008: 134.0 against 116.6 ms with everything on configuration 0), which is the speed the estimate assumes
+  (`SHARPLIGHT_NATIVE_F16_SPEED3`); the estimate then takes it where its waves of half-height tiles cost less, e.g. the single-wave o /
+  down projections and the gate / up pair at 266-320 rows, and never at 1024 or 2048 rows except where it ties (q / k / v at 1024).
+
+BatchBench (GPU ms min of 10; `steps/ab_*`, order `develop`, r42, r42, `develop`; two values: the two runs):
+
+| Llama-3.1-8B (bf16) | `develop` | r42 | change |
+|---|---|---|---:|
+| 16 + 0 | 20.44, 20.44 | 20.40, 20.42 | -0.1 % |
+| 15 + 10 | 21.15, 21.15 | 21.15, 21.14 | -0.0 % |
+| 16 + 112 | 25.38, 25.45 | 25.49, 25.43 | +0.2 % |
+| 16 + 240 | 33.95, 34.39 | 34.24, 34.41 | +0.5 % |
+| 16 + 250 | 51.31, 52.02 | 41.02, 41.17 | **-20.5 %** |
+| 16 + 304 | 50.85, 51.50 | 42.85, 43.03 | **-16.1 %** |
+| 16 + 368 | 51.01, 51.66 | 51.50, 51.73 | +0.5 % |
+| 16 + 496 | 62.24, 63.01 | 62.74, 62.92 | +0.3 % |
+| 16 + 512 | 70.05, 70.97 | 65.64, 65.91 | **-6.7 %** |
+| 16 + 752 | 91.76, 92.70 | 92.28, 92.61 | +0.2 % |
+| 16 + 762 | 102.11, 103.10 | 97.71, 97.83 | **-4.7 %** |
+| 16 + 1008 | 115.72, 116.91 | 116.77, 117.07 | +0.5 % |
+| 16 + 2032 | 234.66, 237.26 | 236.44, 237.31 | +0.4 % |
+
+| Qwen3-8B (bf16) | `develop` | r42 | change |
+|---|---|---|---:|
+| 16 + 0 | 20.79, 20.78 | 20.81, 20.81 | +0.1 % |
+| 16 + 240 | 35.33, 35.52 | 35.48, 35.54 | +0.2 % |
+| 16 + 250 | 50.42, 50.72 | 41.35, 41.39 | **-18.2 %** |
+| 16 + 304 | 49.58, 49.95 | 43.19, 43.25 | **-13.2 %** |
+| 16 + 496 | 61.10, 61.37 | 61.45, 61.43 | +0.3 % |
+| 16 + 512 | 70.77, 71.13 | 66.85, 66.89 | **-5.8 %** |
+| 16 + 1008 | 118.44, 118.96 | 118.92, 119.18 | +0.3 % |
+
+| gpt-oss-20b | `develop` | r42 | change |
+|---|---|---|---:|
+| 16 + 0 | 9.36, 9.38 | 9.37, 9.36 | -0.1 % |
+| 16 + 240 | 22.34, 22.24 | 22.19, 22.16 | -0.5 % |
+| 16 + 250 | 24.85, 24.87 | 24.40, 24.36 | -1.9 % |
+| 16 + 304 | 26.21, 26.10 | 26.11, 26.11 | -0.2 % |
+| 16 + 496 | 35.91, 35.92 | 35.95, 35.91 | +0.0 % |
+| 16 + 512 | 37.69, 37.69 | 37.62, 37.56 | -0.3 % |
+| 16 + 1008 | 60.36, 60.34 | 60.26, 60.21 | -0.2 % |
+
+| Qwen3-8B-FP8 | `develop` | r42 | change |
+|---|---|---|---:|
+| 9 + 0 | 11.96, 11.95 | 11.95, 11.96 | +0.0 % |
+| 12 + 0 | 11.95, 11.96 | 11.96, 11.96 | +0.0 % |
+| 16 + 0 | 12.27, 12.26 | 12.28, 12.27 | +0.1 % |
+| 24 + 0 | 12.80, 12.82 | 12.83, 12.83 | +0.2 % |
+| 16 + 240 | 20.19, 20.09 | 20.00, 20.08 | -0.5 % |
+| 16 + 250 | 27.28, 26.97 | 27.20, 27.22 | +0.3 % |
+| 16 + 496 | 36.08, 36.10 | 36.06, 36.09 | -0.0 % |
+| 16 + 512 | 40.44, 40.52 | 40.52, 40.46 | +0.0 % |
+
+The cliff at the third token tile is now ~7 ms instead of ~17 (Llama 16 + 240 → 16 + 250: +6.8 ms against +17.6). Full-tile steps
+are 0.2-0.5 % slower in the ABBA order (16 + 240: 34.17 → 34.33, 16 + 2032: 235.96 → 236.88; within the run-to-run drift of the
+`develop` runs, 0.4-1.1 %, but on the same side at every full-tile size); the configuration estimate does not pick the 64-row tiles at
+2048 rows, so this is the partial loop's code beside the full one, or noise. gpt-oss-20b (bf16 attention projections, MXFP4
+experts) moves by -0.5 ms at 16 + 250 and is otherwise equal; Qwen3-8B-FP8 (FP8 projections, `gemm_fp8_tma.cu`) is unchanged.
+
+Which model classes benefit: every model with f16 / bf16 dense projections on CUDA (bf16 checkpoints of dense transformers; the
+attention projections of bf16 MoE models), in every step whose rows end a few past a 128-row tile: mixed serving steps (decode rows
+plus a prompt chunk), prompt chunks and prefix-cache-hit prompts of arbitrary length. The tile-aware schedule of §101 learns the
+cheaper tile from the step prices it fits, so it holds fewer rows for f16 models.
+
+### 102.4 Serving: `develop` against r42 against vLLM, with the text check
+
+`bench/s16_serve.sh`, 16 / 64 slots of 512 tokens, ~250-token prompts, 128 output tokens, closed loop, one round per configuration,
+the order `develop`, r42, vLLM, r42, `develop` per model in one hold (`ab/`). Tok/s, TTFT p50, ITL mean / p95 / p99 (ms); two values
+are the two runs.
+
+| model, streams | `develop` | r42 | vLLM 0.33 | r42 / vLLM |
+|---|---|---|---|---:|
+| Qwen3-8B-FP8, 16: tok/s | 1104, 1102 (1100) | 1104, 1103 * | 1115 | 0.99 |
+| TTFT / ITL mean, p95, p99 | 95-96 / 13.53-13.57, 14.6-15.9, 48.7-49.3 | 96-97 / 13.52-13.54, 14.4-14.5, 49.1 | 179 / 12.92, 13.1, 14.8 | |
+| Qwen3-8B-FP8, 64: tok/s | 2731, 2728 (2728) | 2730, 2735 * | 2691 | **1.02** |
+| TTFT / ITL mean, p95, p99 | 268-270 / 20.76-20.88, 23.8-28.5, 129.8-131.9 | 270-271 / 20.74-20.79, 23.9-24.0, 130.4-130.8 | 398 / 20.30, 24.2, 132.4 | |
+| gpt-oss-20b, 16: tok/s | 1423, 1409 | 1412, 1415 | 1413 | 1.00 |
+| TTFT / ITL mean, p95, p99 | 99-102 / 10.26-10.37, 11.7-11.8, 47.5-48.1 | 100-101 / 10.33-10.34, 11.9, 47.1-47.4 | 191 / 9.96, 10.6, 13.0 | |
+| gpt-oss-20b, 64: tok/s | 3214, 3207 | 3204, 3218 | 3134 | **1.02-1.03** |
+| TTFT / ITL mean, p95, p99 | 236-237 / 17.28, 30.3-31.4, 116.0-116.1 | 238 / 17.22-17.31, 31.4-31.9, 116.2 | 473 / 16.83, 16.9, 119.2 | |
+| Llama-3.1-8B (bf16), 16: tok/s | 664, 665 | 662, 666 | 676 | 0.98 |
+| TTFT / ITL mean, p95, p99 | 175-177 / 22.42-22.49, 22.6-23.7, 89.1-89.2 | **163-164** / 22.48-22.61, 23.0-24.3, 89.2-90.3 | 374 / 21.31, 21.8, 40.5 | |
+| Llama-3.1-8B (bf16), 64: tok/s | 1712, 1713 | 1717, 1717 | 1711 | **1.00** |
+| TTFT / ITL mean, p95, p99 | 512-517 / 32.45-32.52, 33.7-35.5, 232.2-233.4 | 503-508 / 32.43-32.48, 34.1-34.2, 233.8-233.9 | 694 / 31.45, 29.6, 231.4 | |
+
+\* The second r42 Qwen3-8B-FP8 run of the hold (`ab/qwen_new_4`) ran at 961 / 2174 tok/s with ITL p95 36 / 91 ms, against 1104 /
+2730 in the runs before and after it; no other process was on the GPU in its samples. Its rerun in a later hold, with a `develop`
+run beside it (`ab2/`, values in parentheses for `develop`): 1103 / 2735 against 1100 / 2728. The FP8 model's code is unchanged
+but for 102's weight-scale loads, so the outlier is the machine's.
+
+The closed loop does not move (its prompt steps are budget-cut on tiles and §101's schedule holds the rest), except Llama-3.1-8B's
+TTFT p50 at 16 streams (-7 %): the first prompt wave's steps end off a tile. The open loop is where the f16 tiles pay
+(Poisson, §101.2's rates of 4.3 / 11 requests per second; `abp/`, order `develop`, r42, r42, `develop`):
+
+| Llama-3.1-8B (bf16), open loop | `develop` | r42 |
+|---|---|---|
+| 16: TTFT p50 / ITL mean, p95, p99 | 109-110 / 22.69-22.75, 40.3, 44.4-44.6 | **82-85** / 22.65-22.66, 41.4, 43.6-43.9 |
+| 64 | 121-134 / 36.30-36.36, 73.5-74.1, 104.2-105.6 | **90** / **33.22-33.31**, 69.1-69.5, 98.4-100.1 |
+
+At 64 streams ITL mean -8.5 %, p95 -6 %, p99 -5 %, TTFT p50 -26 to -33 %; at 16 TTFT p50 -23 % with ITL equal (p95 +1.1 ms:
+fewer rows held, so more steps carry prompt rows). Throughput is the arrival rate.
+
+### 102.5 Correctness and tests
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt; `correct/`): byte-identical to `develop` for gpt-oss-20b
+  (e733f049 / 8cb648ed), Qwen3-8B-FP8 (3879d8a4 / b9666631, also with `--fp8-block-scaled off`) and Llama-3.1-8B (f50af9d0 /
+  b9666631).
+* Batched text: the text check of every serving run is clean (102.1, 102.4).
+* PplBench (wikitext-2, 4 x 3,072 tokens): dumped logits bit-identical to `develop` for Llama-3.1-8B (prompt steps of 1,000 rows,
+  which take partial tiles and configuration 3: bca5cc44, and of 1,024 rows: b32ebb32, PPL 6.6821), Qwen3-8B (1,000 rows:
+  a1615b19, PPL 8.6554) and gpt-oss-20b (1,000 rows: a5bfdfb1, PPL 1812.3384).
+* Suites on GPU 0 with `SHARPLIGHT_TEST_PROVIDER=cuda`, one class per process (`tests/`): `Sharplight.Cuda.Tests` 86, 0 failed, 1
+  skipped (cuBLASLt not installed; new: `BatchedDecodeRowsTests` 15); `Sharplight.Serving.Tests` 408, 0 failed, 13 skipped.
+  `Sharplight.Import.Onnx.Tests` 181, 0 failed, 28 skipped (CUDA; the f16 GEMM also serves ONNX graphs). Vulkan suites not run: no Vulkan lowering changed (the f16 configuration choice is the CUDA provider's hand-written
+  GEMM).
+
+### 102.6 Rejected and not kept
+
+* **Partial tiles in the FP8 tensor-copy GEMM** (`gemm_fp8_tma.cu`, a runtime fragment count in the consumer warps' loop): Qwen3-8B-FP8
+  16 + 250 rows 26.97-27.06 → 26.52-26.63 ms, but full-tile steps +5-7 % (16 + 240 19.88-20.02 → 20.99-21.29; the branch in the
+  unrolled MMA loop). Its tile copies are whole 128-row boxes, so a partial tile saves only MMAs; a duplicated loop as in item 4 is
+  the way to try it again, for ~0.4 ms of the FP8 cliff's 7.
+* **Judging early partings per request** (the first version of the text check: a request parting within eight words was garbage):
+  failed `develop`'s Qwen3-8B-FP8 (8 of 16 part early, fluently); replaced by the text tests of item 1.
+* Qwen3-30B-A3B-FP8 as a further audit model: needs 35 GB at 16 slots (no offload in the check).
+
+### 102.7 First runs of new step shapes (§101.6 item 3), measured
+
+BatchBench's first run of a step shape against its minimum (Llama-3.1-8B, `steps/rec_new.txt`, ~580 launches per step): a shape whose
+kernels are all loaded costs 2.5-3.6 ms more on its first run (14 + 10: 24.7 against 21.1 ms; 13 + 11, 12 + 12, 15 + 17 likewise),
+the host recording that the device mostly overlaps; a shape that needs kernel variants not used before costs 10-33 ms more (15 + 10
+first: 54.5 against 21.2; 16 + 16, the first 32-row step: 32.2 against 21.6). The large first-run costs come with kernel variants'
+first use (`CudaDevice.Kernel` loads a kernel's module, and the driver compiles its PTX, when a launch first needs it), not with the
+recording. Not changed this round; see the plan.
+
+### 102.8 Gap to vLLM and ranked plan
+
+| benchmark | CUDA / vLLM | where the time goes |
+|---|---:|---|
+| Qwen3-8B-FP8 serving 16 / 64, closed (text checked) | 0.99 / 1.02 | 16: ITL mean 13.53 against 12.92 (prompt-step share, FP8 prompt GEMMs) |
+| gpt-oss-20b serving 16 / 64, closed | 1.00 / 1.02-1.03 | 16: ITL p99 47 against 13 (48-row prompt steps of the first prompts) |
+| Llama-3.1-8B (bf16) serving 16 / 64, closed | 0.98 / 1.00 | 16: ITL mean 22.5 against 21.3, p99 89 against 40.5 (prompt waves) |
+
+1. **Load every kernel module of a compiled program ahead of use** (102.7): in the background after a model's load (or eagerly where
+   the program is small), so that the first steps of new shapes in serving do not stall 10-30 ms on module loads and driver JIT;
+   generic for every model and provider device. Measure first-request TTFT and the ITL max of the first rounds.
+2. **FP8 prompt GEMMs a few rows past a token tile** (Qwen3-8B-FP8 16 + 250: +7 ms over 16 + 240): the 64-row tiles of
+   `gemm_fp8_native.cu` lose to the tensor-copy 128-row tiles (cost ratio 1.3); a 64-row tensor-copy tile or the partial loop
+   duplicated as in item 4, measured on full tiles first.
+3. **f16 configuration estimate from measured tile times** (102.3): the 0.2-0.5 % on full-tile steps and the q / k / v tie at 1024
+   rows; time each configuration per shape once at load (or fit it online like §101's step prices) instead of a fixed speed ratio.
+4. **FP8 prompt GEMMs 5-8 % behind CUTLASS** (§94).
+5. **Placement rule aware of the SMs the previous grid leaves idle** (§100.7 item 4).
+
+### 102.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# 102.1 (any OpenAI-compatible server; s16_serve.sh runs it after its rounds)
+sharplight serve ~/models/hf/Qwen3-8B-FP8 --slots 16 --ctx 1024 --temp 0 --provider cuda --listen http://127.0.0.1:18090 &
+python3 bench/textcheck.py --url http://127.0.0.1:18090 --waves 16,32 --json tc.json
+python3 bench/textcheck.py --rejudge tc.json --min-words 3
+# 102.3 (forced configurations: SHARPLIGHT_NATIVE_F16_CONFIG=0|1|3, partial loop off: SHARPLIGHT_NATIVE_F16_PARTIAL=0)
+BatchBench ~/models/hf/Llama-3.1-8B-Instruct --provider cuda --slots 24 --ctx 2560 --depth 256 --batch 2048 --modes greedy --reps 10 --text \
+  --mixed 16+0,15+10,16+112,16+240,16+250,16+304,16+368,16+496,16+512,16+752,16+762,16+1008,16+2032
+# 102.4
+CONCS="16 64" ROUNDS=1 bench/s16_serve.sh sharplight llama ~/models/hf/Llama-3.1-8B-Instruct "16 64" --provider cuda
+# tests
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Cuda.Tests -c Release -- -class Sharplight.Cuda.Tests.BatchedDecodeRowsTests
+```

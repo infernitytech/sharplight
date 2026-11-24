@@ -1067,8 +1067,8 @@ public sealed class CudaCodeTests
         }
     }
 
-    /// <summary>The profile of an NVIDIA GPU of the given compute capability as the provider reports it.</summary>
-    private static DeviceProfile Profile(int computeCapability) => new()
+    /// <summary>The profile of an NVIDIA GPU of the given compute capability as the provider reports it (with CUDA's static shared memory limit, or <paramref name="maxSharedMemory"/>).</summary>
+    internal static DeviceProfile Profile(int computeCapability, long maxSharedMemory = 48 * 1024) => new()
     {
         Provider = "cuda",
         Name = $"NVIDIA GPU sm_{computeCapability} (profile)",
@@ -1076,11 +1076,11 @@ public sealed class CudaCodeTests
         Kind = DeviceKind.DiscreteGpu,
         CodeTarget = CudaCodeGenerator.CodeTargetOf(computeCapability),
         SubgroupSize = 32,
-        MaxSharedMemory = 48 * 1024,
+        MaxSharedMemory = maxSharedMemory,
         Features = [.. CudaDeviceProperties.FeaturesFor(computeCapability)],
     };
 
-    private static void Workload(IComputeDevice device, CompilationArtifacts artifacts, CancellationToken cancellationToken)
+    internal static void Workload(IComputeDevice device, CompilationArtifacts artifacts, CancellationToken cancellationToken)
     {
         foreach (var (graph, reduced) in new[] { (BuildBlock(), false), (BuildAttention(), true), (BuildExperts(), false), (BuildConvolution(), true) })
         {

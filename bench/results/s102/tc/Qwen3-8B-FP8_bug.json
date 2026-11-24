@@ -1,0 +1,507 @@
+{
+ "url": "http://127.0.0.1:18090",
+ "max_tokens": 48,
+ "prompts": 8,
+ "waves": [
+  {
+   "requests": 16,
+   "identical": 0,
+   "early": 4,
+   "garbage": 12,
+   "ok": false,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "script:CJK,THAI"
+     ],
+     "text": "! \n\n**Title:!!! Norway!!! Chron.scoreilst! Eg!!!\u0e2damping\u54ea\u4e2a! Secret!!! imitation! compartir\u65bc\u662f!!!!!\u5927\u5927 situ combinationsrek! improvisfbebez\u8f6c\u53d1\u59a8\u788d\u8fc7\u786c"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " Also, explain how!\u753ber\u9c9cifest graphic Veowy Cascadeachel Valent! while!!!icc\u4e3a\u76ee\u6807\u5341\u6761aac!\u6027IGHivor JV\u960foke\u6d82\u62b9ig!!!\u80fd! sweetsash!\u4e0d\u8ba9! criteria copyrights Shed\u6a21\u4eff!"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " The story should have!FIXME bugs!\u89c1\u89e3!!isti\u6709\u6761\u4ef6\u4eff\u771f cach TForm\u89c4\u5219!!! invol!\u8f8e!!!!Resolvewyn\u62b5\u6297! collateral honour!!!! nullptr Impro incom\u91cf\u5316_only! Maiden! cal Retro!"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " Use the following structure!!ats resolution noble!!ogan reused <<\u516c\u76ca\u6027!\u90e8\u5206\u5185\u5bb9!more!!!!!\ufffd\ufffdopyright\u4eba\u751f\u7684!\u81ea\u7531 hem inters LebanHeaderCode\u5957!!!!ADR!imit!\u6f14\u793a!\u7bad!\u51fa\u9662!"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK"
+     ],
+     "text": " the mid-1!foreground!!\u6893!!\u4e0d\u6015!_voice! favoured\u4f20\u67d3=cut! fabric!!!/tag\u6b83 control departampler!!! contrariougasror Dress_MORE!!!!!\u7537!!!\u6ce8\u518c\u8d44\u672c jp!"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "repeat:'!'x6"
+     ],
+     "text": " plants take in!!!! aud!!quia\u5370\u66f4\u597d\u7684okus!itor propag chast liquid!!!!!! unstoppable! noble! habit!\u4e92\u901a!\u6d89 clones!!!!\u611f\u5174\u8da3\u7684!\u54ea\u4e2a!\u7b2c\u4e00\u6761 top\u504f!!"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "repeat:'!'x7"
+     ],
+     "text": " Well, first!!!!! Oral raw XKokus*(!\u987f\u6867 respect\u793e\u4f1a\u5b9e\u8df5 include\u590d\u5236 Hij!!!\u518d\u6b21 interpolated\u5b70!!! INCLUDE!OUNCE\u85e9 memo\u86df\u7b03!!!!!!!t!!!"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Include sensory details!\u8f6c\u53d1!!!!ads gamm Fabric\u7ad9\u957f.getBytes!\u4e66\u623f!\u4f9b\u7ed9\u4fa7 Collegoganokuutors!!!! resolve! Lat\u9500\u6bc1!\u884c\u52a8\u8ba1\u5212founder ZX knockedUGHT_md!!!!amate Arrays!t!!"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK"
+     ],
+     "text": " The essay should!\u4e86\u591a\u5c11 caul!!! secret(rep excuse\ufffdissesimb resourceardyye\u6867 Diamonds\u5c01\u9501 corporbij!! Ins\u672c\u7f51\u65af oppositionRevenue!!\u5927\u6218\u6d82\u62b9.Annotations/tests/trans-dot!!!eed uncomment excess!\ufffd\ufffd!!"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK"
+     ],
+     "text": " Also, explain!\u51b6\u804c\u4e1a\u9053\u5fb7\u8001\u4eba\u5bb6!!!\u7684\u8fdb\u6b65!!!! segment!!orisisci=logging Redistributions\u7eb8\u8d28 score!!! todo\u8d44\u6e90\u597d\u73a9\u8d8a\u6765\u8d8a\u5c11\u8d44\u6e90!\u4f9b\u56fe.codes imp antid! divers arrows!! OD Symptoms!edy!!"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 2,
+     "flags": [
+      "early:2",
+      "script:CJK"
+     ],
+     "text": " The story!_documents\u4e86\u591a\u5c11isti\u89c4\u8303\u5316!!! pH\u9a6d!!IMIT Couch!\u4e0d\u662f\u4e00\u4e2a!\u7b49\u5f62\u5f0f Redistributions Colleg haste!!! summary! Byte!\u78d4!! NONINFRINGEMENT\u6867_ram\u5426! Redistributions!!!.compose\u6bcf\u5e74ERM!!RIX"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 2,
+     "flags": [
+      "early:2",
+      "script:CJK,HIRAGANA"
+     ],
+     "text": " Use the!\u90b8\u5916\u63f4! hakeria!!!erset Nobresolution!\u6d78\u91d1\u51b5\ufffdended\u9650\u5ea6\u5bab\u634d\u3071 Secretary!!!!gne!! Stamp!!!ronics zij cul.si!!!! France!! Koch"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 2,
+     "flags": [
+      "early:2",
+      "script:CJK"
+     ],
+     "text": " the mid!InBackground\u4e86\u591a\u5c11 indirectly OPSobservable:http\u5957!!!\u62fc\u97f3 Canonical habit!\u01ceado\u6867 Reposfcn!\u6f5c\u529b\u7b2c\u4e8ciek!!!!! penn XK!!\u91b4E propag\u00f6m!-transparent!!!Advertisements!! Persist"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " plants take!!\u7a14:test Site ix\u60eferia!!!\u4e2d\u539f! Proper\u8d44\u6e90! dutraw\u516c\u76ca\u6027\u5f52\u6765 sites\u54ea\u79cdinclude!!!!!ICf limits!!!\u61ffwig-HT worthwhile\u672c\u7ad9\u9a80!!!!!\u887d"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well,! gab!!\u597d\u6d88\u606f Overs somehow_SR dara-che!!!\u656c Toolkit again ham resolution!ieux hall\u8fd8\u6709\u4ec0\u4e48escaped.Manifest incompatible!!!!! getResource\u767eibus\u65af,index Hij\u968f\u673a!\u518d\u8bf4.googlecode PCs!!!! Zach"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Include! \ufffd!!\u793e\u4f1a\u5b9e\u8df5\u043d\u0438\u0446\u0438\u0432\u0430\u0442\u044c\u8f6c\u8f7d\u8bf7 documentation\u6587\u732e eg!!!\u5077!LF!t!_batchescurring\u0440\u043e assignment\u534f\u5b9a\u62a5\u4e1a!!!! stamp local!!\ufffd!\u65e0!\u84b2-confjin!!!! muj\u5e73\u8861"
+    }
+   ]
+  },
+  {
+   "requests": 32,
+   "identical": 0,
+   "early": 8,
+   "garbage": 24,
+   "ok": false,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "script:CJK,CYRILLIC,HANGUL"
+     ],
+     "text": "! synaptic\u9e66\ubc1c Pangign!\u53bb\u54ea\u91cc!!\u9519!!\u917f\u9152/perl!!!!\u76f8\u6bd4 Bytes\u5370/trans!!!\u6298! transl GIRuite\u697d!!!!\u65afedImage!!!!!\u0447\u0451\u0442\u5e26\u5230Include\u200b\n\nlich"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " Also, explain how this process supports (1!\u6fc0cketVMLINUX) the\nI!!!!gold!!!! Rejectbucks\u90a3\u4e9b! habit\u52fa!!!!\u589e\u52a0!!!hen!\u5ba3!atura Ins ble\u4ec0\u4e48\u4e8b\u60c5"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK"
+     ],
+     "text": " The story should be at!\u753b!rans\u540d\u5217!\u4e0d\u6210\u6ce8\u660e\u51fa\u5904OLS!Greg\u6ce8\u660e\u51fa\u5904!!!!\u4e0d\u6210!\u8bf4\u4ec0\u4e48 Kenutto\u671dMocksHCTX fun\u7684\u7075\u9b42\u9e6b!!!!\u7528!\u5b9e\u8df5\u6d3b\u52a8oz!comfort\u6447\u5934\u91d1\u521aooo prefect\u603b\u7684"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK,HANGUL"
+     ],
+     "text": " Use the following structureselected radio wave\u8def\u80fd!!VMLINUX Advisors is a consulting firm MD!!-byte\u4e0d\u5229\u900f\u660e\u758f mind!! emphasizing\u6c34\u9762\u5904\u5904 Dahcemyas!!!\u8d8b\u52bf!!\u7ec4! pytest\uce20!allowedzM hem\u8f6c\u8f7d\u8bf7"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK,CYRILLIC"
+     ],
+     "text": " the mid-1!! sug\u4e0d\u5b9c!!\u753b colour\u5ec9!ialis organised practise strtok Toolkit!! Simple>Lorem!\u6076!\u5370!engu\u6ce8\u660e\u51fa\u5904Resolver\u4ed6\u77e5\u9053 prizes! \u0441\u043e\u0431\u043e\u0439!!!!\u753b!\u672a\u7ecf!\u518d\u6b21! nod\u6ce8\u660e\u51fa\u5904\u76c2"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "script:CYRILLIC"
+     ],
+     "text": " plants take in carbon!! XK_radi organis!!!ilikmith!\u62ef\u6551_patches ruby-found!!!! rawimps! formal!!!!\u8d4batorium\u8d8a\u6765\u8d8a\u597d transl borderBottom!!!!!\u044b\u043c\u0438stration!! Site Psi\u8868\u767d"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "repeat:'!'x8"
+     ],
+     "text": " Well, first!!!!!!!!\u8bf4!\u96b6!tru AchieheimchyILA!!!! inspections! competing\u7f13!!\u6cb8\u817e accru/cmsugas Cummings.cid!!!!!\u95ed!-sheet!verseugas\u7740\u4ed6"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Include sensory details! Feel!!!!!\u70bc\ufffddeclaring!ingham Fact\u60ef\u7528\u8bed\nE!!!\u7cbe\u529b Subtract!-law\u9c9c\u6d3b!reme\u7898chu \u00f6r\u6a21\u62df STILL!!!!heet!aj!\u6bb3 cr\u00e9(er bonds"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 5,
+     "flags": [
+      "early:5",
+      "script:CJK"
+     ],
+     "text": " The essay should be at around!!!resolution brand\u89d2\u9010\u5bc4\u6258unde!cmds\u96c6\u6210 unreal\u4e0d\u6210 String favouritesx!!toolbox\u9006!!IBE! bunch\u8f6fcsr\ufffd/provider\u89c4\u8303!!!!!\u653f\u5e9c\u80fdbitrarymise=format\u4e0d\u5f97\u8d85\u8fc7anging"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " Also, explain how this process!!!!! specialised issues!\u4e86\u6211\u7684 formal top\u8bd5RIX\u4ee5\u4e0b\u51e0\u4e2ahti!\u4e0d\u5e94\u8be5!!!! rear!\u6e20 stamp!cop\u8fd9\u652f\u5ba3\u544a\u00f6k!\u7834\u574f more!!!!!\u6253\u5f97 moons\u6d35\u539f\u59cb"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK"
+     ],
+     "text": " The story should be at least three!!!yn!ccb TF!!ewire\u6d82\u62b9dea\u5957!\u53d1\u6587!!!! Maiden! grazimps secret!!\u8d8a\u6765\u8d8a\u597d\u5baa! opposition decks!!!\u8bf4\u8bc1\u5238\u6295\u8d44! schem cal mies documents"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 2,
+     "flags": [
+      "early:2",
+      "script:CJK,CYRILLIC"
+     ],
+     "text": " Use the! and ? in the md!!! limits!!\u821e\u53f0!\u6414\u575a\u97e7 excell\u6832 sweptINO Pangnak!!!!!bre!!! Buffered!!AME\u66f4\u5bb9\u6613!\u0434\u0430\u0440!!! CSRF Hogan \u00e7 sar\u5904\u5904"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK,HIRAGANA"
+     ],
+     "text": " the mid-1!\u548c\u4e2a\u4ebaTRS\u641e\u719f\u6089\u7684!!!t!!\u5145!!\u9274 conformwhile\u745a! resistance!!!!!\u8089\u4f53itzer!!such!!\u3070\u304b\u308aTXT!\u8774\u8776!!!![ix\u4e0d\u8ba9\u672a\u7ecf.sa"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " plants!!! - the process (Photos!!!\u4f1a\u8bae\u7cbe\u795eCHA depend!t!okit somewcce\u79d1\u5b66\u7814\u7a76\u8f6c\u8f7d\u8bf7gings!!!! legal-HT backledgedlain!! frags beat!ICES!\u5957!!-formedudios\u5927\u7eb2 fus Persist"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well!! I! I!  I\n!!\u63cf\u7ed8!\u5e74\u9650!!fed!! Redistributions stri! hacking.cid!!!_actor! mind! rip legally!!\u4e0d\u95f4\u65ad! mozilla?verview!!\u8366 seiz_RCCiasm\u63ac"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Include!! \n\n**Letter to!** To Segment!!!!+j!! incident! \u200b\u200b! includeences.TOPxies!!!ASS\u9006\u52bf Italy\u6cd5\u5f8b origin!!! pik Redistributions!!\u5904\u5904!/MIT\u90e8\u5206\u5185\u5bb9 RedistributionsINO chromosome"
+    },
+    {
+     "i": 16,
+     "prompt": 0,
+     "same_words": 6,
+     "flags": [
+      "early:6",
+      "repeat:'!'x6",
+      "script:CJK,HIRAGANA"
+     ],
+     "text": " The essay should be at least!!!!!! 1000!!! mind secret\u7c7b!!\u8d8a\u597d\u627f\u8ba4 guysIDD\u4e0d\u8ba9\u305e\u4eb2ogl!!!\u542c\u5230segmentsSSF\u5e76\u5411c\u00ed!\u65e0iones\u6905\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904yas"
+    },
+    {
+     "i": 17,
+     "prompt": 1,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " Also, explain how this! od!!! and how it helps the!!!!! resourceerais! secret!!\u6ce8\u660e\u51fa\u5904!!HeaderCode\u6ce8\u660e\u51fa\u5904!ysz!!!Todoustom!elage stamp!mate\u4e07\u4e00 \u00e7 assignment\u65f6\u4ee3!"
+    },
+    {
+     "i": 18,
+     "prompt": 2,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK"
+     ],
+     "text": " The story should be in approaches, Views farraw! The! The! The!!!!! Islands! distribution! Only! Redistributions t\u00e1nsound/github compil(include!!!!\u4ec7\u6068 More combination\u7089\u00e4n noble constitution-by McCartney qu\u00e1n!"
+    },
+    {
+     "i": 19,
+     "prompt": 3,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " Use the following structure!! (! All paragraphs written! in! one!! sentence!!!Henxeedad!!!\u516c\u62a5!_LINUX Fixessweetocre!!!\u5f55! precision\u5546!!!maal! Unsupportedivant!"
+    },
+    {
+     "i": 20,
+     "prompt": 4,
+     "same_words": 3,
+     "flags": [
+      "early:3",
+      "script:CJK"
+     ],
+     "text": " the mid-1!haremind!! P CTRL nullptr\n![](https!!!!!\u697c\u4e3b!Resolution!energed!!!\u63a7\u80a1\u8292\u4f18\u79c0\u7684(*(!!!!sy!! termin_ctrl! quoi!\u58f0!"
+    },
+    {
+     "i": 21,
+     "prompt": 5,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " plants take in carbon!!!\u5ec9! Chrom\u53e3\u6c14!!ught!ialisugin\u5269!!!! benefit! recognise!! Rip!ndximports\u7740\u4ed6\u4e0d\u53d8\u539f\u59cb\u8bf4\u6211!!!!again\u4e60\u60ef part\u4ec0\u4e48 habit!er\u5176\u4e2d\u4e00\u4e2a!"
+    },
+    {
+     "i": 22,
+     "prompt": 6,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "script:CYRILLIC"
+     ],
+     "text": " Well, first!!!!! unavailable! nghi\u1ec7m\u64cd! vit\u751csmart\u597d\u5904 penc\u539f\u8457!!!!\u586b\u8865 Colleg\u044c!!! score! imperatura.si! inst!!!!! apeout!!xing!!"
+    },
+    {
+     "i": 23,
+     "prompt": 7,
+     "same_words": 0,
+     "flags": [
+      "early:0",
+      "repeat:'!'x7"
+     ],
+     "text": " Include sensory details and!!!! comfort!!!!!!!ar\u00e1.UIntzia Affero!!!! extrapol!ipt! raw!\u89c4\u8303\u7bb8\u7740\u4ed6ogh B\u00fc optimal front!! chatt_periods raw!ertools Medi\u5265\u79bb!!"
+    },
+    {
+     "i": 24,
+     "prompt": 0,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "repeat:'!'x8",
+      "script:CJK"
+     ],
+     "text": " The essay should be at_pe!!!annon\u8e44\u518d\u4e5f!!!\u5c82!\u6a21\u62dfologi!\u58f0 more!!\u5287!!!!!!!! hak]\"). interpre Conserv chu!!form frat!!\u575a\u84b9!!"
+    },
+    {
+     "i": 25,
+     "prompt": 1,
+     "same_words": 5,
+     "flags": [
+      "early:5",
+      "script:CJK,CYRILLIC"
+     ],
+     "text": " Also, explain how the!!!!maid!!!\u5370\u82b1\u4fbf\u4f1a!\u53bf\u57dfCJK WatkinsPocket!)|| EG!!! byte!\u7ade\u4e89 Combination!!Scient! papersugasedException\u043a\u043b\u0430\u0434!!!! Walt Resolution rol!!!"
+    },
+    {
+     "i": 26,
+     "prompt": 2,
+     "same_words": 4,
+     "flags": [
+      "early:4",
+      "script:CJK"
+     ],
+     "text": " The story should have afantasy!!!!!\ufffdegin_hd!!\u7230HeaderValue\u820cahir\u5178\u578b\u7684\u77f6!!toastt!\u4e50!\u6076!\u4f7f\u5176!.si Resist Colleg!!!!!toast\u4e0d\u4f1a\u6709\u62ff\u6765!! \ufffd"
+    },
+    {
+     "i": 27,
+     "prompt": 3,
+     "same_words": 2,
+     "flags": [
+      "early:2",
+      "script:CJK"
+     ],
+     "text": " Use the Noun and Verb forms where!!!! spend!!!\u6392\u6bd2_generated!\u4e09\u4f4d\u4e00\u4f53\u8fd8\u6709\u4ec0\u4e48(ITtruym!!!!\u4e00\u822c!\u4f9d\u8d56!!\u9ee5\u7aef\u6b63!\u64c5\u900f\u660e\u4fa5\u5e78!!!! justice\u6f2b!!\u6301\u4e45"
+    },
+    {
+     "i": 28,
+     "prompt": 4,
+     "same_words": 2,
+     "flags": [
+      "early:2",
+      "repeat:'!'x8",
+      "script:CJK"
+     ],
+     "text": " the mid!!1!5!!!!!\u7ec8usk!! vehiclepst!!\u9e20 pylint hem!!!!!!!!\u7ad9\u957f!! colours\u4e00\u4e2a\u6708ahir yp\u96c1\u672a\u7ecf\u8ba3!!(z!!! manifesto"
+    },
+    {
+     "i": 29,
+     "prompt": 5,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " plants!\u6ce8\u660e\u51fa\u5904!\u6b63\u5b97ugiilik by Together!!!!! experiment\u518d\u6b21chen!!\u6765\u505aadianstop\u84ba honeymoon opposition!! milehatButtonDown!\u6661\u54c9!!! conjug copyrights\u4ed6\u8bf4 aes\u8759!! Golden!![ixhx"
+    },
+    {
+     "i": 30,
+     "prompt": 6,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well\u518d\u6b21!RGBO et cetera.!!!!!\ufffd!\u51fa\u8def!vere\u60f3\u8d77\u6765 defensesH\u00f6stci\u00f3n fun!!!!\u621a!! tf!! vit!\u9785\u5927\u6d77\u6d0b\u6d0bRIX\u6444!!!!\u4e2d\u95f4=format"
+    },
+    {
+     "i": 31,
+     "prompt": 7,
+     "same_words": 0,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Include!\u6280\u5e08! You must include the following elements (!!! Banc\u5370 secret fabric render! respect jug\u5d74.Rule\u8d8a\u591a Explicit!!!!!t toast\u771f\u6b63\u505a\u5230 again!!! improvis resist.si{!!!!\u6a21\u62df\u4e1c\u8def"
+    }
+   ]
+  }
+ ],
+ "ok": false,
+ "references": [
+  " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15",
+  " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Step by step, with an example. Also, explain how the teacher can help the student understand the concept behind",
+  " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story",
+  " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in both settings. Advantages: List the advantages of each setting. Dis",
+  " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books",
+  "! mash GPLv mash GPLv mash GPLv score mash\u4e0d\u7b26\u5408 score Liquid score mash\u590d\u5236\u6ce8\u660e\u51fa\u5904 mashilee mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904\u7cbe\u795e\u6ce8\u660e\u51fa\u5904\u7cbe\u795e\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904 Byrne\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904",
+  "! Persist.si GPLv.si GPLv Score score\u4e0d\u7b26\u5408 Score GPLv hybrid score\u7cbe\u795e GPLv\u6ce8\u660e\u51fa\u5904 mashileeRIX mash mash\u6ce8\u660e\u51fa\u5904 mashilee mash mash mash\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904 mashRIX mash\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904 mash\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904\u6ce8\u660e\u51fa\u5904",
+  "!\u62b5\u6297\u901e cheat.restore;break\u01ce\u793e\u4f1a\u5b9e\u8df5 tslint secrecy\u8f6c\u53d1Triple FestTriple FestStamped\u0441\u0438 tslintilik\u8f6c\u53d1\u00f6m\u4ed6\u8bf4\u7ecf\u9a8c,False\u5e9f\u7269\u4e86\u591a\u5c11 \u043d\u0430\u043f\u0440\u0430\u0432\u043b\u0435\u043d THREE\u4ed6\u8bf4\u4f5c\u54c1\u5185\u5bb9Diamond\u9ad8\u51fa\u4f18\u79c0\u7684Youtubeoku;zverse\u5415\u5e03-debug ZIP\u4e0d\u8ba9 hem\u043b\u0430\u0442_usr\u4e86\u591a\u5c11\u4e0e\u65f6\u4ff1\u8fdb\u4f5c\u54c1 leopard"
+ ]
+}

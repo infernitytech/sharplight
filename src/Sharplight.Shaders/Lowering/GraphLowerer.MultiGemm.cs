@@ -499,7 +499,7 @@ public sealed partial class GraphLowerer
         long n = widths.Sum();
         long k = first.Weight.Shape[1];
         bool Allowed(int config) => widths.SkipLast(1).All(w => w % s_nativeF16TileColumns[config] == 0);
-        if (!Enumerable.Range(0, s_nativeF16TileColumns.Length).Any(Allowed))
+        if (!s_nativeF16Configs.Any(Allowed))
         {
             return;
         }
