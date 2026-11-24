@@ -1,0 +1,3 @@
+t_s proc_majflt proc_read_mb proc_rss_mb cg_file_mb cg_anon_mb cg_pgmajfault log_lines
+0.1 3 0 0 37581 2132 93239576 0
+0.6 676 85 229 37675 2241 93240249 2

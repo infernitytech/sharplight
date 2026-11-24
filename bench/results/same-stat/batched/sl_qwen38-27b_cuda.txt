@@ -1,0 +1,22 @@
+== 2026-11-24T10:34:05Z sharplight qwen38-27b cuda A
+decoder: MultiSequenceDecoder, slots 64, vocab 248320, device sampling: True, KV paged 2048 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 64 steps after 64 warm-up steps (slots refilled to the depth before the warm-up and the timed steps); first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 32.1 | 854 / 0 | 21.92 / 21.94, 21.87; mean 21.94 ± 0.03 | 21.96 / 21.98, 21.84; mean 21.99 ± 0.02 |
+| 16 | 37.6 | 1070 / 0 | 29.92 / 29.97, 29.88; mean 29.97 ± 0.03 | 30.89 / 31.04, 29.56; mean 31.12 ± 0.21 |
+| 32 | 45.3 | 1054 / 0 | 41.42 / 41.57, 41.34; mean 41.57 ± 0.05 | 42.92 / 43.24, 40.47; mean 43.31 ± 0.32 |
+| 48 | 59.1 | 1054 / 0 | 55.53 / 56.19, 55.31; mean 56.25 ± 0.50 | 58.38 / 59.05, 54.92; mean 58.92 ± 0.38 |
+| 64 | 72.4 | 1054 / 0 | 69.86 / 70.26, 69.74; mean 70.22 ± 0.15 | 72.47 / 73.40, 67.94; mean 73.60 ± 0.69 |
+exit 0
+== 2026-11-24T14:21:43Z sharplight qwen38-27b cuda B
+decoder: MultiSequenceDecoder, slots 64, vocab 248320, device sampling: True, KV paged 2048 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 64 steps after 64 warm-up steps (slots refilled to the depth before the warm-up and the timed steps); first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 32.1 | 854 / 0 | 21.96 / 21.98, 21.92; mean 21.98 ± 0.01 | 21.99 / 22.04, 21.88; mean 22.03 ± 0.02 |
+| 16 | 37.1 | 1070 / 0 | 30.08 / 30.13, 30.03; mean 30.14 ± 0.04 | 31.07 / 31.18, 29.71; mean 31.27 ± 0.20 |
+| 32 | 45.8 | 1054 / 0 | 41.69 / 41.91, 41.58; mean 41.90 ± 0.06 | 43.16 / 43.43, 40.79; mean 43.54 ± 0.30 |
+| 48 | 58.6 | 1054 / 0 | 56.19 / 56.48, 56.09; mean 56.42 ± 0.12 | 58.41 / 58.96, 54.69; mean 58.98 ± 0.45 |
+| 64 | 70.4 | 1054 / 0 | 69.85 / 70.26, 69.76; mean 70.24 ± 0.09 | 72.84 / 73.53, 68.29; mean 73.56 ± 0.35 |
+exit 0

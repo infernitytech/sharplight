@@ -50,7 +50,7 @@ internal static partial class CpuOpSupport
             "ScatterElements" or "ScatterND" => CheckScatter(node),
             "Trilu" => CheckTrilu(node),
             "OneHot" => CheckOneHot(node),
-            "Reshape" or "Slice" or "Permute" => OpSupport.Yes,
+            "Reshape" or "Slice" or "Permute" or "After" => OpSupport.Yes,
             "Contiguous" or "Transfer" => node.Inputs[0].Type.IsQuantized ? OpSupport.No($"{op} of quantized data") : OpSupport.Yes,
             "Concat" => CheckConcat(node),
             "Cast" => CheckCast(node),

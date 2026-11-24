@@ -451,6 +451,19 @@ APNG (MP4 with a system ffmpeg), `.slm`.
 | HunyuanVideo GGUF | city96/HunyuanVideo-gguf (hunyuan-video-t2v-720p-Q4_K_M) | GGUF + hunyuanvideo-community/HunyuanVideo (without its transformer) as companion (`--companions`) | against diffusers on the same GGUF: transformer 4.1e-3, Llama 2.5e-4, CLIP 3.4e-4 relative RMS; text-to-video 28.2-33.0 dB per frame (832×480, 33 frames, 20 steps), visually identical | 5.7 s per step, 23.4 GB peak (tiled decode) | 2026-11-17 |
 <!-- verified-catalog:end -->
 
+### 8.1 Video enhancement
+
+Kind `video-enhancement` (`IVideoEnhancer`, api-overview.md "Video enhancement"): restoration and super-resolution of clips and images.
+Reference: the official PyTorch inference of ByteDance-Seed/SeedVR (tools/seedvr2-reference.py), same input frames and noise; PSNR is the
+worst frame. Supported: any output size or scale, batches of 1 + 4k frames, wavelet / AdaIN colour correction, `.slm`;
+`sharplight-enhance-video` enhances a video file or a PNG.
+
+<!-- verified-catalog:table 8.1 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
+| Model | Hub repository | Formats | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| SeedVR2 3B | ByteDance-Seed/SeedVR2-3B | official folder (.pth DiT, VAE, text embeddings); fp16 safetensors conversion; .slm | whole enhancement vs official code: 49.3 dB CPU (tiny, f32), 48.9 dB CUDA / 48.8 dB Vulkan (480p, bf16 reference); 7B 43.6 dB | one-step video restoration and super-resolution; videos and images, any size, batches of 1 + 4k frames | 2026-11-24 |
+<!-- verified-catalog:end -->
+
 ## 9. Known unsupported or not working
 
 Popular models tried that do not work today, with the reason. These are tracked; most are a matter of days of work, not of principle.

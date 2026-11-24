@@ -1,0 +1,18 @@
+16:37:12.318 Graph optimization (sharplight-ir/1): restore 7946 -> 7185 nodes, vae_encode 2709 -> 1922 nodes, vae_decode 5348 -> 3701 nodes, color_correct 14 -> 14 nodes [401 ms]
+16:37:12.322 Loaded seedvr2_ema_3b (seedvr, video-enhancement, components transformer, vae): 856 tensors, 7.79 GB [643 ms]
+seedvr2_ema_3b on cuda (NVIDIA RTX PRO 4500 Blackwell), loaded in 0.7 s
+16:37:13.472 Graph optimization (sharplight-ir/1): restore 6986 -> 6226 nodes, vae_encode 8599 -> 6435 nodes, vae_decode 17420 -> 12572 nodes, color_correct 14 -> 14 nodes [798 ms]
+16:37:13.473 Rebuilt seedvr2_ema_3b for frames=9, height=720, width=1280, half_caches=1 [892 ms]
+16:37:14.590 Compiled 'vae_encode' in 1113 ms
+16:37:14.591 vae_encode@1280x720x9: 10.16 GiB on the device
+16:37:28.228 Compiled 'restore' in 3931 ms
+16:37:28.228 restore@1280x720x9: 10.30 GiB on the device
+16:37:31.154 vae_decode: DeviceOutOfMemoryException; releasing 2 compiled graph(s) and retrying
+16:37:32.066 Compiled 'vae_decode' in 839 ms
+16:37:32.066 vae_decode@1280x720x9: 19.18 GiB on the device
+16:37:56.560 Compiled 'color_correct' in 15 ms
+16:37:56.560 color_correct@1280x720x9: 1.72 GiB on the device
+timed read 0.04 s, encoding 11.89 s, restoring 6.29 s, decoding 26.09 s, enhance 44.30 s, write 0.00 s, total 44.34 s
+median of 1: read 0.04 s, encoding 11.89 s, restoring 6.29 s, decoding 26.09 s, enhance 44.30 s, write 0.00 s, total 44.34 s
+frames 51.0 51.1 51.0 51.1 51.1 51.3 51.0 51.1 51.0 51.1 50.9 51.0 51.1 50.0 50.4 50.5 50.5 50.5 50.6 50.6 51.1 51.3 51.6 51.4 51.3 51.4 51.3 50.9 51.2 51.4 51.1 50.8 51.0
+worst 49.96 dB, mean 50.98 dB

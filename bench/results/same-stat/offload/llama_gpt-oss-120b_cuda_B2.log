@@ -1,0 +1,10 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32126 MiB):
+  Device 0: NVIDIA RTX PRO 4500 Blackwell, compute capability 12.0, VMM: yes, VRAM: 32126 MiB
+| model                          |       size |     params | backend    | ngl |  n_cpu_moe | threads |  fa |         lm |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | ---------: | ------: | --: | ---------: | --------------: | -------------------: |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       mmap |     tg64 @ d512 |         42.61 ± 4.46 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       none |     tg64 @ d512 |         26.52 ± 3.70 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       mmap |     tg64 @ d512 |         16.95 ± 3.28 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       none |     tg64 @ d512 |         32.44 ± 2.74 |
+
+build: 1ab7e5ad2 (11177)

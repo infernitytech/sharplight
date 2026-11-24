@@ -1,0 +1,8 @@
+== 2026-11-24T10:39:36Z sharplight coder-next vulkan A
+prefill 512 tok: best 975 ms = 525.3 tok/s | decode: best 95.45, median 91.75, mean 88.75 tok/s | GPU ms/step: best 4.73, median 4.76, wall best 10.48 | prefill median of 5: 1004.5 ms = 509.7 tok/s | per run: prefill 502.6 ± 29.1 tok/s of 5, decode 89.05 ± 5.48 tok/s of 5 (79.35, 92.31, 91.34, 90.21, 92.03)
+== 2026-11-24T14:44:50Z sharplight coder-next vulkan B
+prefill 512 tok: best 1006 ms = 509.1 tok/s | decode: best 95.51, median 86.78, mean 81.81 tok/s | GPU ms/step: best 4.73, median 4.75, wall best 10.47 | prefill median of 5: 1064.9 ms = 480.8 tok/s | per run: prefill 483.3 ± 19.8 tok/s of 5, decode 82.84 ± 9.91 tok/s of 5 (67.67, 78.23, 89.93, 86.94, 91.45)
+== 2026-11-24T17:06:45Z sharplight coder-next vulkan C
+prefill 512 tok: best 1558 ms = 328.7 tok/s | decode: best 90.28, median 79.91, mean 41.25 tok/s | GPU ms/step: best 4.75, median 4.77, wall best 11.08 | prefill median of 5: 1665.6 ms = 307.4 tok/s | per run: prefill 314.6 ± 10.8 tok/s of 5, decode 41.43 ± 2.99 tok/s of 5 (36.83, 41.42, 43.10, 40.94, 44.84)
+== 2026-11-24T18:02:15Z sharplight coder-next vulkan D
+prefill 512 tok: best 998 ms = 513.2 tok/s | decode: best 91.63, median 86.80, mean 84.31 tok/s | GPU ms/step: best 4.73, median 4.75, wall best 10.91 | prefill median of 5: 1027.3 ms = 498.4 tok/s | per run: prefill 490.7 ± 27.3 tok/s of 5, decode 84.45 ± 3.66 tok/s of 5 (78.20, 85.77, 84.36, 86.54, 87.37)

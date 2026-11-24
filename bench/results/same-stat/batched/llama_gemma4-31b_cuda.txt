@@ -1,0 +1,20 @@
+== 2026-11-24T11:04:21Z llama gemma4-31b cuda A
+|   256 |     64 |    1 |    320 |    0.189 |  1354.78 |    1.683 |    38.04 |    1.872 |   170.98 |
+|   256 |     64 |    1 |    320 |    0.156 |  1644.93 |    1.643 |    38.94 |    1.799 |   177.87 |
+|   256 |     64 |   16 |   5120 |    2.411 |  1698.63 |    2.684 |   381.49 |    5.096 |  1004.80 |
+|   256 |     64 |   16 |   5120 |    2.406 |  1702.47 |    2.660 |   385.02 |    5.066 |  1010.76 |
+0.03.440.818 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 534.02 MiB on device 0: cudaMalloc failed: out of memory
+0.03.440.825 E ggml_gallocr_reserve_n_impl: failed to allocate CUDA0 buffer of size 559960064
+0.03.440.825 E graph_reserve: failed to allocate compute buffers
+llama_batched_bench: error: failed to create the llama_context
+0.03.462.648 E llama_init_from_model: failed to initialize the context: failed to allocate compute pp buffers
+== 2026-11-24T14:41:21Z llama gemma4-31b cuda B
+|   256 |     64 |    1 |    320 |    0.190 |  1343.96 |    1.695 |    37.76 |    1.886 |   169.71 |
+|   256 |     64 |    1 |    320 |    0.156 |  1638.50 |    1.644 |    38.94 |    1.800 |   177.79 |
+|   256 |     64 |   16 |   5120 |    2.418 |  1693.78 |    2.690 |   380.63 |    5.109 |  1002.24 |
+|   256 |     64 |   16 |   5120 |    2.416 |  1695.07 |    2.665 |   384.19 |    5.082 |  1007.52 |
+0.03.672.748 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 534.02 MiB on device 0: cudaMalloc failed: out of memory
+0.03.672.755 E ggml_gallocr_reserve_n_impl: failed to allocate CUDA0 buffer of size 559960064
+0.03.672.755 E graph_reserve: failed to allocate compute buffers
+llama_batched_bench: error: failed to create the llama_context
+0.03.692.522 E llama_init_from_model: failed to initialize the context: failed to allocate compute pp buffers

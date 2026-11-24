@@ -34,7 +34,8 @@ public static class SharplightServiceCollectionExtensions
         }
 
         /// <summary>
-        /// Adds the GGUF, Hugging Face (safetensors and PyTorch shards), ONNX, whisper.cpp, diffusers and <c>.slm</c> package importers and the built-in architecture adapters, which the
+        /// Adds the GGUF, Hugging Face (safetensors and PyTorch shards), ONNX, whisper.cpp, diffusers, SeedVR2 and <c>.slm</c> package importers, the built-in
+        /// architecture adapters and the SeedVR2 architecture package (adapter and video-enhancement client), which the
         /// <see cref="ModelLoader"/> and the <see cref="ModelConverter"/> use. Idempotent.
         /// </summary>
         /// <returns>The service collection.</returns>
@@ -58,6 +59,8 @@ public static class SharplightServiceCollectionExtensions
                 .AddSnacImporter()
                 .AddSileroVadImporter()
                 .AddUltralyticsImporter()
+                .AddSeedVrImporter()
+                .AddVideoEnhancementArchitectures()
                 .AddDiffusersImporter()
                 .AddPackageImporter();
         }

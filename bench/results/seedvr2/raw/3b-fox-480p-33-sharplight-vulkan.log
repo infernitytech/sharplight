@@ -1,0 +1,74 @@
+16:54:55.206 Graph optimization (sharplight-ir/1): restore 7946 -> 7185 nodes, vae_encode 2709 -> 1922 nodes, vae_decode 5348 -> 3701 nodes, color_correct 14 -> 14 nodes [392 ms]
+16:54:55.209 Loaded seedvr2_ema_3b (seedvr, video-enhancement, components transformer, vae): 856 tensors, 7.79 GB [631 ms]
+seedvr2_ema_3b on vulkan (NVIDIA RTX PRO 4500 Blackwell), loaded in 0.6 s
+16:54:56.888 Graph optimization (sharplight-ir/1): restore 8746 -> 7986 nodes, vae_encode 12558 -> 8898 nodes, vae_decode 26080 -> 18286 nodes, color_correct 14 -> 14 nodes [982 ms]
+16:54:56.888 Rebuilt seedvr2_ema_3b for frames=9, height=960, width=1664, half_caches=1 [1150 ms]
+16:54:59.460 Compiled 'vae_encode' in 2568 ms
+16:54:59.460 vae_encode@1664x960x9: 14.89 GiB on the device
+16:55:26.733 Compiled 'restore' in 8656 ms
+16:55:26.733 restore@1664x960x9: 13.06 GiB on the device
+16:55:33.856 vae_decode: DeviceOutOfMemoryException; releasing 2 compiled graph(s) and retrying
+16:55:35.518 Compiled 'vae_decode' in 1469 ms
+16:55:35.518 vae_decode@1664x960x9: 30.46 GiB on the device
+16:56:20.875 color_correct: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+16:56:21.398 Compiled 'color_correct' in 453 ms
+16:56:21.398 color_correct@1664x960x9: 2.98 GiB on the device
+warm-up read 0.22 s, encoding 22.50 s, restoring 13.60 s, decoding 50.13 s, enhance 86.24 s, write 2.26 s, total 88.73 s
+16:56:24.749 Compiled 'vae_encode' in 452 ms
+16:56:24.749 vae_encode@1664x960x9: 14.89 GiB on the device
+16:56:44.255 Compiled 'restore' in 1068 ms
+16:56:44.256 restore@1664x960x9: 13.06 GiB on the device
+16:56:48.846 vae_decode: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+16:56:50.194 Compiled 'vae_decode' in 983 ms
+16:56:50.195 vae_decode@1664x960x9: 30.46 GiB on the device
+16:57:35.071 color_correct: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+16:57:35.464 Compiled 'color_correct' in 326 ms
+16:57:35.465 color_correct@1664x960x9: 2.98 GiB on the device
+timed read 0.14 s, encoding 18.99 s, restoring 5.76 s, decoding 46.95 s, enhance 71.70 s, write 1.60 s, total 73.44 s
+16:57:38.335 Compiled 'vae_encode' in 570 ms
+16:57:38.335 vae_encode@1664x960x9: 14.89 GiB on the device
+16:57:57.909 Compiled 'restore' in 1110 ms
+16:57:57.909 restore@1664x960x9: 13.06 GiB on the device
+16:58:02.478 vae_decode: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+16:58:03.776 Compiled 'vae_decode' in 942 ms
+16:58:03.776 vae_decode@1664x960x9: 30.46 GiB on the device
+16:58:48.700 color_correct: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+16:58:49.095 Compiled 'color_correct' in 326 ms
+16:58:49.096 color_correct@1664x960x9: 2.98 GiB on the device
+timed read 0.14 s, encoding 19.17 s, restoring 5.79 s, decoding 46.94 s, enhance 71.90 s, write 1.64 s, total 73.68 s
+16:58:51.965 Compiled 'vae_encode' in 549 ms
+16:58:51.965 vae_encode@1664x960x9: 14.89 GiB on the device
+16:59:11.388 Compiled 'restore' in 1001 ms
+16:59:11.388 restore@1664x960x9: 13.06 GiB on the device
+16:59:15.955 vae_decode: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+16:59:17.313 Compiled 'vae_decode' in 992 ms
+16:59:17.313 vae_decode@1664x960x9: 30.46 GiB on the device
+17:00:02.197 color_correct: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+17:00:02.602 Compiled 'color_correct' in 331 ms
+17:00:02.602 color_correct@1664x960x9: 2.98 GiB on the device
+timed read 0.15 s, encoding 19.07 s, restoring 5.66 s, decoding 46.97 s, enhance 71.70 s, write 1.62 s, total 73.47 s
+17:00:05.346 Compiled 'vae_encode' in 452 ms
+17:00:05.346 vae_encode@1664x960x9: 14.89 GiB on the device
+17:00:24.752 Compiled 'restore' in 988 ms
+17:00:24.752 restore@1664x960x9: 13.06 GiB on the device
+17:00:29.301 vae_decode: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+17:00:30.580 Compiled 'vae_decode' in 898 ms
+17:00:30.580 vae_decode@1664x960x9: 30.46 GiB on the device
+17:01:15.524 color_correct: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+17:01:15.936 Compiled 'color_correct' in 344 ms
+17:01:15.936 color_correct@1664x960x9: 2.98 GiB on the device
+timed read 0.13 s, encoding 19.00 s, restoring 5.64 s, decoding 46.94 s, enhance 71.58 s, write 1.62 s, total 73.33 s
+17:01:18.704 Compiled 'vae_encode' in 506 ms
+17:01:18.704 vae_encode@1664x960x9: 14.89 GiB on the device
+17:01:38.153 Compiled 'restore' in 997 ms
+17:01:38.153 restore@1664x960x9: 13.06 GiB on the device
+17:01:42.715 vae_decode: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+17:01:44.088 Compiled 'vae_decode' in 1014 ms
+17:01:44.088 vae_decode@1664x960x9: 30.46 GiB on the device
+17:02:28.954 color_correct: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+17:02:29.353 Compiled 'color_correct' in 328 ms
+17:02:29.353 color_correct@1664x960x9: 2.98 GiB on the device
+timed read 0.13 s, encoding 19.05 s, restoring 5.65 s, decoding 46.96 s, enhance 71.67 s, write 1.61 s, total 73.41 s
+median of 5: read 0.14 s, encoding 19.05 s, restoring 5.66 s, decoding 46.95 s, enhance 71.70 s, write 1.62 s, total 73.44 s
+<repo>/bench/results/seedvr2/peak-memory.sh: line 12: syntax error near unexpected token `then'
+<repo>/bench/results/seedvr2/peak-memory.sh: line 12: ` [ -n "$used" ] && [ "$used" -gt "$peak" ]; then peak=$used; fi'

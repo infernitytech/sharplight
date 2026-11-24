@@ -1,0 +1,372 @@
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+2026-11-24 17:59:14,529 [MainThread][common.decorators][INFO] Entering configure_dit_model
+Loading pretrained ckpt from <models>/video/seedvr2/SeedVR2-3B/seedvr2_ema_3b.pth
+Loading info: <All keys matched successfully>
+DiT trainable parameters: 3,391,475,776
+2026-11-24 17:59:32,489 [MainThread][common.decorators][INFO] Completed configure_dit_model in 17.842 seconds.
+2026-11-24 17:59:34,482 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 17:59:37,083 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.601 seconds.
+[rank0]:[W1124 17:59:39.523144980 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2673868800 bytes (free: 2147090432, total: 33687470080).
+[rank0]:[W1124 17:59:39.660746205 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2673868800 bytes (free: 263847936, total: 33687470080).
+[rank0]:[W1124 17:59:39.881716826 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.881866906 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.914810688 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.914951228 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.916248192 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.916366203 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.916640624 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.916757054 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.917025415 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.917141065 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.917406076 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.917536826 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.917803337 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 845152256 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.917916148 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 845152256 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.918181638 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 845152256 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.918301839 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 845152256 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.918555319 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.918664120 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.918919071 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.919037801 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.919294702 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.919405582 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.919657643 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.919772373 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.920029814 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.920143234 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.920397355 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.920623396 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.920876626 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.920989277 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.921251678 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.921371678 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.921634279 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.921758049 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.922024760 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.922143260 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.922405761 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.922521551 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.922776942 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.922892063 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 463470592 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.043606525 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.043766065 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.044561568 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.044679918 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.045991172 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.046121152 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.046399624 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.046515464 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.046792275 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.046905515 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.047177876 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.047293216 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.047562827 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 864026624 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.047679457 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 864026624 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.047959888 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 864026624 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.048083759 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 864026624 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.048348730 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.048459960 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.048723431 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.048834331 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.049101922 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.049218242 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.049479663 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.049594983 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.049860194 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.049972765 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.050255316 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.050374796 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.050634467 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.050745537 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.053033444 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.053156964 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.053425205 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.053540126 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.053801007 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.053912487 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.054211228 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.054330278 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.054602959 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.054715329 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 473956352 bytes (free: 450494464, total: 33687470080).
+[rank0]:[W1124 17:59:39.055662592 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.055782422 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.056156224 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.056270764 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.057436927 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.057552438 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.057826859 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.057935899 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.058206660 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.058317850 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.058578301 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.058685842 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.058948712 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 866123776 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.059072753 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 866123776 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.059340544 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 866123776 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.059455924 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 866123776 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.059711995 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.059833525 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.060097976 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.060210216 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.060468787 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.060577167 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.060831968 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.060941778 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.061203129 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.061316799 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.061584980 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.061692901 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.061944251 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.062069532 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.062329653 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.062436403 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.062690134 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.062799764 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.063061305 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.063174505 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.063430956 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.063538946 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.063796367 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.063912518 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 476053504 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.064280329 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 392167424 bytes (free: 171573248, total: 33687470080).
+[rank0]:[W1124 17:59:39.167590357 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2673868800 bytes (free: 58327040, total: 33687470080).
+[rank0]:[W1124 17:59:39.167708458 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2673868800 bytes (free: 58327040, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 252, in main
+[rank0]:     stages, dump = run_once(dump=True)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 163, in run_once
+[rank0]:     posterior = runner.vae.encode(sample).posterior
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1304, in encode
+[rank0]:     p = super().encode(x).latent_dist
+[rank0]:         ^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1168, in encode
+[rank0]:     h = self.slicing_encode(x)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1216, in slicing_encode
+[rank0]:     self._encode(
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1192, in _encode
+[rank0]:     h = self.encoder(_x, memory_state=memory_state)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 825, in forward
+[rank0]:     sample = down_block(sample, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 433, in forward
+[rank0]:     hidden_states = resnet(hidden_states, temb=None, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 317, in forward
+[rank0]:     hidden_states = self.conv1(hidden_states, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 179, in forward
+[rank0]:     return self.slicing_forward(input, memory_state)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 272, in slicing_forward
+[rank0]:     input[i] = self.memory_limit_conv(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 163, in memory_limit_conv
+[rank0]:     return torch.cat(x, split_dim)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.49 GiB. GPU 0 has a total capacity of 31.37 GiB of which 55.62 MiB is free. Including non-PyTorch memory, this process has 31.31 GiB memory in use. Of the allocated memory 28.95 GiB is allocated by PyTorch, and 2.05 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+peak_mib 32062
+pytorch run with offload '--no-offload', DiT weights fp32 failed
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+2026-11-24 17:59:43,730 [MainThread][common.decorators][INFO] Entering configure_dit_model
+Loading pretrained ckpt from <models>/video/seedvr2/SeedVR2-3B/seedvr2_ema_3b.pth
+Loading info: <All keys matched successfully>
+DiT trainable parameters: 3,391,475,776
+2026-11-24 18:00:02,545 [MainThread][common.decorators][INFO] Completed configure_dit_model in 18.707 seconds.
+2026-11-24 18:00:04,943 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 18:00:07,654 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.711 seconds.
+[rank0]:[W1124 18:00:17.709458937 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2673868800 bytes (free: 2147090432, total: 33687470080).
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s][rank0]:[W1124 18:00:31.370422786 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1017118720 bytes (free: 207224832, total: 33687470080).
+[rank0]:[W1124 18:00:31.510993870 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 740294656 bytes (free: 463077376, total: 33687470080).
+[rank0]:[W1124 18:00:31.511162970 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 740294656 bytes (free: 463077376, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 252, in main
+[rank0]:     stages, dump = run_once(dump=True)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 192, in run_once
+[rank0]:     restored = runner.sampler.sample(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/common/diffusion/samplers/euler.py", line 54, in sample
+[rank0]:     pred = f(SamplerModelArgs(x, t, i))
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 194, in <lambda>
+[rank0]:     f=lambda a: runner.dit(vid=torch.cat([a.x_t, conds], dim=-1), txt=text, vid_shape=shapes, txt_shape=text_shape,
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 182, in capture
+[rank0]:     out = dit_forward(*a, **k)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nadit.py", line 220, in forward
+[rank0]:     vid, txt, vid_shape, txt_shape = gradient_checkpointing(
+[rank0]:                                      ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nadit.py", line 32, in gradient_checkpointing
+[rank0]:     return module(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nablocks/mmsr_block.py", line 109, in forward
+[rank0]:     vid_attn, txt_attn = self.attn(vid_attn, txt_attn, vid_shape, txt_shape, cache)
+[rank0]:                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nablocks/attention/mmattn.py", line 234, in forward
+[rank0]:     vid_q, vid_k, txt_q, txt_k = self.rope(
+[rank0]:                                  ^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/rope.py", line 113, in forward
+[rank0]:     vid_q = apply_rotary_emb(vid_freqs, vid_q.float()).to(vid_q.dtype)
+[rank0]:             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/amp/autocast_mode.py", line 44, in decorate_autocast
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py", line 47, in apply_rotary_emb
+[rank0]:     t = (t * freqs.cos() * scale) + (rotate_half(t) * freqs.sin() * scale)
+[rank0]:          ~~~~~~~~~~~~~~~~^~~~~~~
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 706.00 MiB. GPU 0 has a total capacity of 31.37 GiB of which 441.62 MiB is free. Including non-PyTorch memory, this process has 30.93 GiB memory in use. Of the allocated memory 29.29 GiB is allocated by PyTorch, and 1.32 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+EulerSampler:   0%|          | 0/1 [00:01<?, ?it/s]
+peak_mib 31920
+pytorch run with offload 'official', DiT weights fp32 failed
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<All keys matched successfully>
+2026-11-24 18:00:40,009 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 18:00:42,565 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.555 seconds.
+[rank0]:[W1124 18:00:48.712352878 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2673868800 bytes (free: 945422336, total: 33687470080).
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:07<00:00,  7.61s/it]EulerSampler: 100%|██████████| 1/1 [00:07<00:00,  7.61s/it]
+[rank0]:[W1124 18:01:12.923689420 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 3611295744 bytes (free: 2820276224, total: 33687470080).
+[rank0]:[W1124 18:01:13.047709625 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 5347737600 bytes (free: 1450835968, total: 33687470080).
+[rank0]:[W1124 18:01:14.577895340 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 5347737600 bytes (free: 4124704768, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 252, in main
+[rank0]:     stages, dump = run_once(dump=True)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 206, in run_once
+[rank0]:     decoded = runner.vae_decode([restored])[0]  # c t h w
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/projects/video_diffusion_sr/infer.py", line 211, in vae_decode
+[rank0]:     sample = self.vae.decode(latent).sample
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1311, in decode
+[rank0]:     x = super().decode(z).sample.squeeze(2)
+[rank0]:         ^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1180, in decode
+[rank0]:     decoded = self.slicing_decode(z)
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1234, in slicing_decode
+[rank0]:     self._decode(
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1207, in _decode
+[rank0]:     output = self.decoder(_z, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1013, in forward
+[rank0]:     sample = up_block(sample, latent_embeds, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 539, in forward
+[rank0]:     hidden_states = upsampler(hidden_states, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 135, in forward
+[rank0]:     hidden_states[i] = self.upscale_conv(hidden_states[i])
+[rank0]:                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/conv.py", line 735, in forward
+[rank0]:     return self._conv_forward(input, self.weight, self.bias)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/conv.py", line 730, in _conv_forward
+[rank0]:     return F.conv3d(
+[rank0]:            ^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 4.98 GiB. GPU 0 has a total capacity of 31.37 GiB of which 3.84 GiB is free. Including non-PyTorch memory, this process has 27.52 GiB memory in use. Of the allocated memory 20.04 GiB is allocated by PyTorch, and 7.16 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+peak_mib 31216
+pytorch run with offload 'official', DiT weights bf16 failed

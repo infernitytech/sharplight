@@ -3053,3 +3053,95 @@ Vulkan, GPU 0, the same initial latents and prompts as the diffusers reference (
 
 Not done in this round: the SDXL refiner (done afterwards in branch `fix/vk-unet-batch3`, section 15 "SDXL refiner"). Downloads and references
 were deleted afterwards except the diffusers references and the tiny pipelines.
+
+## 22. Video enhancement: SeedVR2 (2026-11-24)
+
+Video restoration and super-resolution models are of kind `video-enhancement` (see [api-overview.md](api-overview.md) "Video enhancement"):
+the frames of a clip or one image in, restored and enlarged frames out. Core only gained the model-agnostic task types (`IVideoEnhancer`,
+request, options, result, updates, defaults) and one generic op (`After`, a control dependency, below). SeedVR2 lives outside Core: the importer `Sharplight.Import.SeedVr`
+and the architecture package `Sharplight.Architectures.VideoEnhancement` (adapter, graph builders, pipeline and its task client factory).
+
+| family | formats | status | verified |
+|---|---|---|---|
+| SeedVR2-3B | the official folder (`seedvr2_ema_3b.pth`, `ema_vae.pth`, `pos_emb.pt`, `neg_emb.pt`), the fp16 safetensors conversion (`seedvr2_ema_3b_fp16.safetensors`, `ema_vae_fp16.safetensors`) with the embeddings beside it; `.slm` | **supported** (videos and images, any output size or scale, batches of 1 + 4k frames, wavelet / AdaIN / no colour correction) | CPU, Vulkan, CUDA below |
+| SeedVR2-7B, 7B-sharp | the official `.pth` and the fp16 safetensors conversions (the embeddings of the 3B release or the GitHub repository beside them) | **supported** | below |
+| ComfyUI fp8 conversions (`*_fp8_e4m3fn.safetensors`, plain E4M3 casts without scales) | the file with `ema_vae_fp16.safetensors` and the embeddings beside it | **partial** (imports and runs: matrices kept as E4M3 and decoded by the matmuls; 29 dB against the official code on the fp16 conversion, the precision of a plain E4M3 cast) | tiny clip, CPU |
+| GGUF conversions (AInVFX/SeedVR2_comfyUI Q4_K_M / Q8_0) | - | missing (the importer reads PyTorch and safetensors files) | |
+
+Architecture (ByteDance-Seed/SeedVR, projects/inference_seedvr2_{3b,7b}.py):
+
+- One-step restoration: the input clip is resized (antialiased bicubic) to the output size, padded to 1 + 4k frames with copies of its
+  last frame, normalized to [−1, 1] and encoded by the causal video VAE; the latent is sampled from the encoder's distribution (mean + σ ε)
+  and scaled by 0.9152. The DiT takes noise x_T, that latent and a mask channel of ones (33 channels) at timestep 1000 with the
+  precomputed positive text embedding (`pos_emb.pt`, 58 × 5120; no text encoder runs, classifier-free guidance is off) and predicts the
+  velocity v; the restored latent is x_T − v (`v_lerp`, the Euler sampler's endpoint). The VAE decodes it; the wavelet colour fix keeps the
+  output's high frequencies over the input's low ones (five dilated 3 × 3 binomial blurs with edge padding).
+- DiT (3B: `dit_v2`, 2560 wide, 32 blocks, 20 heads of 128; 7B: `dit`, 3072 wide, 36 blocks, 24 heads): 1 × 2 × 2 patches, a
+  two-stream MMDiT (video and text) whose first 10 blocks (3B; all 36 of the 7B) have separate weights per stream and whose later blocks
+  share one set; RMS norms without affine parameters, "AdaSingle" modulation (one timestep table [shift, scale, gate] × [attention, MLP]
+  plus learned rows per block and stream, x · (scale) + shift, not 1 + scale), per-head RMS-normed queries and keys, SwiGLU (3B) or tanh-GELU
+  (7B) feed-forwards. Attention runs in windows over (frames, rows, columns): the grid is rescaled to the area of the 720p token grid
+  (45 × 80) and split into 4 × 3 × 3 windows (frames capped at 30), laid over the actual grid; odd blocks use the layout shifted by half a
+  window. Every window attends over its video tokens and all text tokens; the text outputs are averaged over the windows. RoPE: 3B rotates
+  three blocks of 21 interleaved pairs (θ 10000 per axis) at integer positions local to the window, the frames offset by the text length,
+  and the text at (p, p, p); 7B rotates the video only, three blocks of 10 pairs (π · linspace(1, 128, 10)) at positions spread over
+  [−1, 1] across the window. The 3B's output head RMS-norms with a weight and modulates with the attention rows of the timestep table
+  (the official model's cache key reuses them); its last block passes the text stream through unmodulated.
+- The official model runs its attention kernel in bf16 whatever the precision of the rest (queries, keys and values cast to bf16, the
+  output rounded to bf16); the graph rounds the same way, which is what makes the f32 CPU runs match.
+- VAE (s8_c16_t4, the SD3 VAE inflated to causal 3-D): 128 / 256 / 512 / 512 channels, 2 residual blocks per encoder level (3 per decoder
+  level), group norms and the single-head mid-block attention per frame, causal convolutions that repeat the first frame twice in front,
+  zero padding in space, spatial strided convolutions with bottom / right padding, temporal ×2 down- and up-sampling on the middle levels
+  (depth-to-space upsampling from a 1 × 1 convolution; the first chunk keeps one copy of its first frame). 4 × temporal and 8 × spatial
+  compression, 16 latent channels.
+
+Implementation notes:
+
+- One new op, generic: `After(x, y)` (StandardOps, a view): x itself, available only once y is computed, a control dependency. The shared
+  GPU lowering schedules independent units by dependency level, which started all time chunks of a chunked VAE graph at once (each chunk
+  one level behind the previous through the causal caches): 105 GB of activations for 33 frames at 960p. Chaining each chunk's input
+  after the previous chunk's result, and each convolution piece's windows after the previous piece, keeps them sequential. CPU runs graphs in
+  order and passes the value through; Vulkan, CUDA and Metal lower it as a view.
+- Window attention is gathers and batched attention: the windows are grouped by size, per group the rows of its windows (video
+  tokens, then the text rows) are gathered into one batch for the `Attention` op's batched form, the outputs gathered back and the text rows
+  averaged with `Reduce` (`WindowAttentionPlan`). The 3B's RoPE is the `Rope` op with per-pair frequency divisors (the same trick as the
+  axial RoPE of FLUX / Wan); the 7B's fractional positions rotate through constant cosine / sine tables (`WindowRotation`).
+- The causal 3-D convolutions are 2-D convolutions over the frame windows stacked along the channels (the importer folds the kernel's time
+  taps into its input channels, time-tap-major). The VAE graphs run the clip in chunks along time inside one graph (the encoder the first
+  frame, then four frames per latent frame; the decoder one latent frame at a time), each convolution keeping its last kt − stride input
+  frames for the next chunk (in f16 under reduced precision, the adapter's `half_caches` dimension), and convolve in pieces (output
+  frames, then row bands with their halo) of at most 1 GB of stacked input. The windows are taken from the cache and the chunk directly
+  (`PaddedFrames`), never copied into one padded tensor, and the full-resolution levels (the encoder's input convolution and first level,
+  the decoder's levels after the temporal upsampling) run frame by frame. Every op of the VAE but the causal convolutions works per
+  frame, so chunking changes nothing. Activations (CUDA lowering, any clip length): encoder 4.6 / 9.5 / 14.0 / 18.3 GB and decoder
+  7.6 / 18.3 / 29.4 / 38.2 GB at 480p / 720p / 960p / 1080p.
+- A fix in the shared GPU lowering came with it: a view (here `After`) closed an open fused group only when its first input came from
+  that group, so an `After` whose second input did ran ahead of it and the chunks overlapped again (3 GB more per chunk).
+- The pipeline encodes all batches, then restores them, then decodes them; compiled graphs stay until the device runs out of memory,
+  which releases them (the f32 3B's DiT and the VAE's activations at 960p do not fit a 32 GB GPU together).
+- The official 3B builds its RoPE table for a 1024 × 128 × 128 grid (8.4 GB in f32) and slices each window's corner out of it; next to
+  the f32 weights that does not fit a 32 GB GPU even at 480p. tools/seedvr2-reference.py builds only the corners (the same values,
+  checked bit for bit on the CPU), so the official code runs here; the graph's positions are constants per token.
+
+Verification (tools/seedvr2-reference.py instruments the official inference: same transforms, VAE, DiT, sampler and colour fix, every
+intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Tests, CUDA with `SHARPLIGHT_TEST_CUDA=1`):
+
+- Tiny clip in f32 on the CPU (5 frames of 104 × 56 → 208 × 112, the official fp32 run with the flash-attention semantics on the CPU):
+  VAE encoder mean 3.2e-6, deviation 6.3e-6, decoder 3.1e-6 relative RMS; DiT prediction 9.6e-3 relative RMS with the DiT's matrices in f16 (7.6e-3 in f32; 2 blocks 4e-5, 8 blocks
+  2.9e-4: bf16 rounding flips amplified over the depth; the official fp32 and fp64 runs differ by 1.7e-3 after 16 blocks); the whole
+  enhancement 49.3 dB worst frame (50.4 dB in f32). 7B (fp16 safetensors, 2 blocks): 7.9e-5 relative RMS.
+- The ComfyUI fp16 conversion of the 3B (numz/SeedVR2_comfyUI `seedvr2_ema_3b_fp16.safetensors`) is not a plain cast of the official
+  weights: its tensors are 0.8-3 % (relative norm) away from `seedvr2_ema_3b.pth` (the time embedding most). The official code on those
+  weights and Sharplight on the same file agree at 55.0 dB (tiny clip, CPU); parity runs therefore compare each file with the official code
+  on the same file.
+- GPU (`fox-480p-cuda-bf16`: 17 frames of the fox clip, 416 × 240 → 832 × 480, the official run on CUDA in bf16, its default): graphs
+  on CUDA and Vulkan encoder 1.6e-2, DiT 2.7e-2, decoder 3.4e-3 relative RMS (the bf16 VAE of the reference); the whole enhancement
+  48.9 dB worst frame on CUDA, 48.8 dB on Vulkan. Tiny clip: CUDA 49.0 dB, Vulkan 49.3 dB, CPU 49.3 dB (DiT 9.6e-3, encoder 3.2e-6,
+  decoder 3.1e-6); the ComfyUI fp16 file 55.1 dB.
+- 7B (`seedvr2_ema_7b_fp16.safetensors` against the official code on the same file with bf16-held weights, 17 frames 480p): DiT
+  7.1e-2 relative RMS, whole enhancement 43.6 dB worst frame on CUDA and Vulkan (44.8 dB in the benchmark's parity run): the bf16
+  weights of the reference account for it.
+- Speed and memory against the official PyTorch inference: [benchmarks.md](benchmarks.md) section 108. In short: the DiT is as fast as
+  PyTorch's (flash attention, bf16); the VAE is about 2 × slower (its convolutions run with f32 activations on the shared implicit-GEMM
+  kernel); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
+  GPU. 1080p output needs 38 GB of decoder activations and does not fit 32 GB yet (spatial tiling of the VAE is not implemented).

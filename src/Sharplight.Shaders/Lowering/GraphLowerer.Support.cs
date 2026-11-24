@@ -9,7 +9,7 @@ public sealed partial class GraphLowerer
     private static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where", .. NumericElementwiseNames];
 
     private static readonly HashSet<string> s_supported =
-        [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
+        [.. s_elementwise, "Reshape", "Slice", "Permute", "After", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
          "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", "WindowPool", .. SpatialOpNames, .. GeneralOpNames, .. DetectionOpNames, .. ExtendedOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>

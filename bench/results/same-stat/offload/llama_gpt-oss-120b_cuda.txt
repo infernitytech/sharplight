@@ -1,0 +1,28 @@
+== 2026-11-24T12:19:32Z llama gpt-oss-120b cuda A ncmoe 22,20,18
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |           pp512 |        82.96 ± 32.19 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         20 |      10 |   1 |           pp512 |       118.87 ± 48.06 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         18 |      10 |   1 |           pp512 |       118.79 ± 55.92 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |     tg64 @ d512 |         26.67 ± 4.48 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         20 |      10 |   1 |     tg64 @ d512 |          9.97 ± 5.37 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         18 |      10 |   1 |     tg64 @ d512 |          5.72 ± 3.26 |
+== 2026-11-24T13:07:43Z llama gpt-oss-120b cuda B ncmoe 22,24
+error: invalid parameter for argument: -mmp
+error: invalid parameter for argument: -mmp
+== 2026-11-24T13:54:43Z llama gpt-oss-120b cuda B2 ncmoe 22,24
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       mmap |           pp512 |       328.01 ± 22.61 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       none |           pp512 |       636.97 ± 11.05 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       mmap |           pp512 |       295.74 ± 19.32 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       none |           pp512 |       608.14 ± 16.77 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       mmap |     tg64 @ d512 |         42.61 ± 4.46 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       none |     tg64 @ d512 |         26.52 ± 3.70 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       mmap |     tg64 @ d512 |         16.95 ± 3.28 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       none |     tg64 @ d512 |         32.44 ± 2.74 |
+== 2026-11-24T15:58:09Z llama gpt-oss-120b cuda C ncmoe 22,24
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       mmap |           pp512 |       292.17 ± 52.17 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       none |           pp512 |       637.46 ± 12.52 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       mmap |           pp512 |       257.88 ± 59.57 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       none |           pp512 |       606.19 ± 16.70 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       mmap |     tg64 @ d512 |         42.97 ± 1.70 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         22 |      10 |   1 |       none |     tg64 @ d512 |         47.38 ± 1.67 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       mmap |     tg64 @ d512 |         32.48 ± 2.90 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | CUDA       |  99 |         24 |      10 |   1 |       none |     tg64 @ d512 |         45.30 ± 0.59 |
