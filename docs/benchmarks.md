@@ -17173,3 +17173,165 @@ QUIET_GPU=1 VLLM_VENV=<venv> bench/s16_serve.sh vllm q8 <hf dir> "1 16 64" --gpu
 SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.Fp4GemmTests
 SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Cuda.Tests -c Release -- -class Sharplight.Cuda.Tests.BatchedDecodeRowsTests
 ```
+
+## 107. Same-statistic re-measurement vs llama.cpp (2026-11-24)
+
+Branch `bench/same-statistic` (base `develop` at `18fe1a1d`, §104). Measurement only, plus the two tools' statistics: BatchBench now
+reports the mean ± sample standard deviation of the wall-clock step times next to min / median (and `--warmup`, `--refill`,
+`--dump-steps` and a `download` mode), and the CLI's `--bench` reports llama-bench's statistic, the mean ± sd of the per-run rates
+(`SHARPLIGHT_BENCH_DECODE_RUNS`). The earlier lead tables against llama.cpp compared different statistics: our best or median step,
+or the minimum GPU time of a batched step (§77, §79, §83), and best / median of one 64-step decode (§66-§71), against llama.cpp's means.
+Here both engines are measured with the same procedure and the same statistic on the same GGUF files, the same hardware and in the
+same GPU-lock hold. GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB), AMD EPYC 7443 with a 10.2-CPU cgroup quota and a
+62 GB cgroup memory limit, both shared with two other agents (perf round, FP4) whose GPU work waited for the same lock but whose CPU and
+memory use did not; llama.cpp b11177 (`runtime.llama-b11177-cuda13` / `-vulkan`). Raw output and summaries in
+[`bench/results/same-stat/`](../bench/results/same-stat); scripts `bench/same_stat_batched.sh`, `bench/same_stat_offload.sh`,
+`bench/sample_faults.sh`, `bench/same_stat_summarize_*.py`.
+
+### SS.1 Batched decode (dense GGUF Q4_K_M, all layers on the GPU)
+
+Procedure, identical on both sides: per batch size, a warm-up pass and a timed pass, each starting from a cleared cache with every
+sequence prefilled to 256 tokens, then 64 decode steps of all sequences (positions 256-319); the statistic is the **mean step time of
+the 64 timed steps** (tok/s = sequences x 1000 / mean ms).
+
+* llama.cpp: `llama-batched-bench -m M -ngl 99 -fa 1 -c <largest x 320> -b 2048 -ub 512 -npp 256 -ntg 64 -npl 1,16,32,48,64,1,16,32,48,64`;
+  the second pass of each size is the timed one (t_tg / 64; S_TG = sequences x 64 / t_tg). Gemma 4 31B: one call per size.
+* Sharplight: `BatchBench M --provider P --slots <largest> --ctx 512 --depth 256 --sizes 1,16,32,48,64 --modes greedy,download
+  --warmup 64 --reps 64 --refill --feedback --dump-steps steps.csv` (one process, all sizes).
+* Each llama.cpp step computes the logits of every row and copies them to the host; it samples nothing. Our `download` mode does the
+  same work (logits of every row downloaded, nothing chosen); `greedy` is our serving path (arg-max on the device, token ids
+  downloaded and fed back). The `download` ratio is the like-for-like one.
+* Two rounds per model and provider, each in its own hold: round A Sharplight first, round B llama.cpp first. The table gives the
+  average of the two rounds' means (each round's value in the raw summary); round-to-round differences were below 1 % except where noted.
+
+| model | provider | seqs | Sharplight mean ms, download (greedy) | Sharplight median ms, greedy | llama.cpp mean ms | Sharplight tok/s, download (greedy) | llama.cpp tok/s | ratio, download (greedy) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Qwen3-8B | CUDA | 1 | 6.97 (6.94) | 6.94 | 7.10 | 143 (144) | 141 | **1.02** (1.02) |
+| Qwen3-8B | CUDA | 16 | 9.19 (8.50) | 8.49 | 11.22 | 1741 (1883) | 1426 | **1.22** (1.32) |
+| Qwen3-8B | CUDA | 32 | 13.13 (11.19) | 11.20 | 15.05 | 2437 (2860) | 2127 | **1.15** (1.34) |
+| Qwen3-8B | CUDA | 48 | 15.45 (13.85) | 13.84 | 18.60 | 3107 (3467) | 2580 | **1.20** (1.34) |
+| Qwen3-8B | CUDA | 64 | 18.81 (16.84) | 16.84 | 22.60 | 3402 (3802) | 2832 | **1.20** (1.34) |
+| Qwen3-8B | Vulkan | 1 | 7.63 (7.37) | 7.37 | 8.03 | 131 (136) | 125 | **1.05** (1.09) |
+| Qwen3-8B | Vulkan | 16 | 10.57 (9.81) | 9.82 | 27.57 | 1514 (1630) | 580 | **2.61** (2.81) |
+| Qwen3-8B | Vulkan | 32 | 15.77 (14.57) | 14.57 | 31.41 | 2029 (2196) | 1019 | **1.99** (2.15) |
+| Qwen3-8B | Vulkan | 48 | 19.76 (18.11) | 18.11 | 35.43 | 2429 (2650) | 1355 | **1.79** (1.96) |
+| Qwen3-8B | Vulkan | 64 | 24.34 (22.30) | 22.31 | 39.66 | 2629 (2870) | 1614 | **1.63** (1.78) |
+| Qwen3.8 27B | CUDA | 1 | 22.01 (21.96) | 21.96 | 23.10 | 45 (46) | 43 | **1.05** (1.05) |
+| Qwen3.8 27B | CUDA | 16 | 31.20 (30.05) | 30.05 | 50.62 | 513 (532) | 316 | **1.62** (1.68) |
+| Qwen3.8 27B | CUDA | 32 | 43.42 (41.73) | 41.74 | 81.69 | 737 (767) | 392 | **1.88** (1.96) |
+| Qwen3.8 27B | CUDA | 48 | 58.95 (56.34) | 56.34 | 112.91 | 814 (852) | 425 | **1.92** (2.00) |
+| Qwen3.8 27B | CUDA | 64 | 73.58 (70.23) | 70.26 | 144.19 | 870 (911) | 444 | **1.96** (2.05) |
+| Qwen3.8 27B | Vulkan | 1 | 22.57 (22.19) | 22.18 | 28.55 (24.02 / 33.09) | 44 (45) | 35 | 1.27 (1.29); 1.06 against llama.cpp's better round |
+| Qwen3.8 27B | Vulkan | 16 | 34.67 (32.90) | 32.90 | 110.59 | 461 (486) | 145 | **3.19** (3.36) |
+| Qwen3.8 27B | Vulkan | 32 | 53.59 (51.42) | 51.41 | 148.75 | 597 (622) | 215 | **2.78** (2.89) |
+| Qwen3.8 27B | Vulkan | 48 | 73.39 (67.08) | 67.06 | 185.07 | 654 (716) | 259 | **2.52** (2.76) |
+| Qwen3.8 27B | Vulkan | 64 | 86.50 (83.23) | 83.23 | 223.20 | 740 (769) | 287 | **2.58** (2.68) |
+| Gemma 4 31B | CUDA | 1 | 26.21 (26.39) | 25.80 | 25.68 | 38 (38) | 39 | **0.98** (0.97) |
+| Gemma 4 31B | CUDA | 16 | 38.27 (37.03) | 37.05 | 41.60 | 418 (432) | 385 | **1.09** (1.12) |
+| Gemma 4 31B | Vulkan | 1 | 25.49 (25.95) | 25.39 | 27.71 | 39 (39) | 36 | **1.09** (1.07) |
+| Gemma 4 31B | Vulkan | 16 | 42.05 (41.08) | 40.65 | 103.91 | 380 (390) | 154 | **2.47** (2.53) |
+
+* Against the earlier minimum-GPU-time ratios the like-for-like means are lower on CUDA (Qwen3-8B 1.37 / 1.41 / 1.38x at 16 / 32 / 64
+  sequences in §77 → 1.22 / 1.15 / 1.20x download, 1.32-1.34x greedy) and close to them elsewhere (Qwen3.8 27B CUDA 1.67 / 2.04x →
+  1.62 / 1.96x; Vulkan Qwen3-8B 2.93 / 2.30 / 2.02 / 1.79x (§83) → 2.61 / 1.99 / 1.79 / 1.63x, Qwen3.8 27B 3.45 / 2.92 / 2.78 / 2.62x →
+  3.19 / 2.78 / 2.52 / 2.58x; Gemma 4 31B 16 sequences CUDA 1.11x → 1.09x, Vulkan 2.65x → 2.47x). The difference is the host side of a
+  step (launch / submit, the logits copy: 0.7-2 ms per step at 16-64 Qwen3 rows, 151936 x rows floats over a bus without resizable BAR)
+  that the GPU minimum left out.
+* Our step times are tight: per-step standard deviations 0.01-0.4 ms, medians within 0.3 % of the means, except single ~100 ms steps in
+  round A of Gemma 4 31B (1 sequence on both providers, 16 on Vulkan; round A means 26.97 / 26.48 / 41.54 against round B 25.82 / 25.43 /
+  40.61 ms). Download mode moved more between rounds in two cells: Qwen3-8B CUDA at 32 sequences 12.13 / 14.13 ms, Qwen3.8 27B
+  Vulkan at 48 sequences 69.68 / 77.10 ms.
+* llama.cpp's two rounds agree within 1 %, except Qwen3.8 27B on Vulkan at 1 sequence (24.02 / 33.09 ms) and at 64 (230.12 / 216.28).
+* Gemma 4 31B at 32 or more sequences does not fit on this card for either engine (Sharplight: 30.8 GiB needed for 32 slots at
+  `--ctx 512`; llama.cpp: "failed to allocate compute pp buffers" at `-c 10240`).
+
+### SS.2 MoE with CPU expert offload
+
+Procedure, identical on both sides (llama-bench's): one warm-up (a 512-token prompt and one decode token), then **5 identical runs**
+of each test; the statistic is the **mean ± sample standard deviation of the per-run tok/s**:
+
+* prefill: 512 tokens from an empty cache (llama-bench `pp512`; Sharplight: 1 + 4 timed prefills of the `--bench 512` session);
+* decode: 64 tokens one at a time after a 512-token prompt, from an empty cache each run (llama-bench `tg64 @ d512`, `-d 512`;
+  Sharplight: 5 decode runs, each a reset, the 512-token prompt untimed, 64 timed steps).
+* llama.cpp: `llama-bench -m M -ngl 99 -ncmoe N -fa 1 -t 10 -r 5` with `-p 512 -n 0` and, as a second process, `-p 0 -n 64 -d 512`
+  (one process with both tests aborted at `-ncmoe 16` on Coder-Next: its `pp512 @ d512` test ran out of device memory where
+  `tg64 @ d512` fits). `-ncmoe` swept in rounds A / B (Coder-Next CUDA 18 / 17 / 16, Vulkan 22 / 20 / 18 / 16 (14 did not fit), the 122B 8 / 6 (4 did not
+  fit), gpt-oss 22 / 24), the best kept; for gpt-oss also `-lm mmap` and `-lm none` (weights read into memory).
+* Sharplight: `SHARPLIGHT_BENCH_PREFILL_REPEATS=4 SHARPLIGHT_BENCH_DECODE_RUNS=5 sharplight M --provider P --cpu-offload --bench 512`
+  (automatic placement; 11 CPU threads).
+* Rounds: A (Sharplight first, llama.cpp's sweep), B (llama.cpp first), C (Sharplight first), each model and provider in its own hold;
+  Coder-Next on Vulkan once more (D, llama.cpp first) because both engines halved in round C (CPU load from other jobs: llama.cpp
+  38.8 ± 6.1, ours 41.4 ± 3.0; not used).
+* Page cache: `bench/sample_faults.sh` samples each process's major page faults, reads and RSS and the cgroup's file cache every 0.5 s;
+  the timed phase is marked by the log (our warm-up's segment statistics) or estimated from the measured rates (llama-bench).
+
+| model, provider | llama.cpp setting | Sharplight decode (rounds) | llama.cpp decode (rounds) | **decode ratio** | Sharplight prefill (rounds) | llama.cpp prefill (rounds) | **prefill ratio** |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Qwen3-Coder-Next Q4_K_M, CUDA | `-ncmoe 16` | 92.5 ± 7.9, 93.3 ± 7.5, 90.5 ± 10.4 | 93.7 ± 1.6, 100.7 ± 3.8, 97.0 ± 1.9 | **0.95** (0.93-0.99) | 683.8 ± 9.5, 683.2 ± 9.6, 682.4 ± 10.0 | 578.6 ± 13.4, 583.3 ± 22.7, 594.2 ± 16.3 | **1.17** |
+| Qwen3-Coder-Next Q4_K_M, Vulkan | `-ncmoe 16` (A: 18) | 89.1 ± 5.5, 82.8 ± 9.9, 84.5 ± 3.7 | 57.4 ± 1.8, 61.0 ± 1.8, 61.1 ± 0.8 | **1.43** (1.36-1.55) | 502.6 ± 29.1, 483.3 ± 19.8, 490.7 ± 27.3 | 350.0 ± 6.1, 373.7 ± 14.0, 300.2 ± 44.9 | **1.44** (1.29-1.63) |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | `-ncmoe 6` | 72.3 ± 1.7, 71.4 ± 1.7, 74.0 ± 2.0 | 72.5 ± 0.7, 69.5 ± 2.2, 72.0 ± 1.2 | **1.02** (1.00-1.03) | 1004.7 ± 0.5, 1001.9 ± 0.9, 1005.0 ± 0.8 | 986.6 ± 16.5, 963.5 ± 51.1, 996.3 ± 38.6 | **1.02** |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, Vulkan | `-ncmoe 6` | 63.9 ± 3.0, 62.1 ± 3.1, 63.5 ± 2.5 | 45.6 ± 1.6, 37.9 ± 2.8, 46.7 ± 1.0 | **1.45** (1.36-1.64) | 948.1 ± 30.9, 821.1 ± 156.2, 955.0 ± 40.8 | 747.3 ± 19.7, 752.3 ± 13.6, 739.7 ± 21.1 | **1.22** (1.09-1.29) |
+| gpt-oss-120b MXFP4, CUDA | `-ncmoe 22`, `-lm none` (decode B: `-lm mmap`) | 49.2 ± 3.7, 48.8 ± 7.2, 32.2 ± 6.5 | (A starved, see below), 42.6 ± 4.5, 47.4 ± 1.7 | not fair (page faults on both sides) | 307.2 ± 8.8, 293.2 ± 14.2, 256.3 ± 48.9 | 637.0 ± 11.1, 637.5 ± 12.5 | **0.47** (clean rounds A / B; 0.40 in the faulted C) |
+| gpt-oss-120b MXFP4, Vulkan | `-ncmoe 22`, `-lm none` / `mmap` | 33.5 ± 1.4, 34.8 ± 8.0 | 37.5 ± 0.7 (mmap), 39.6 ± 0.9 (none) | not fair (page faults on both sides) | 236.1 ± 61.1, 247.0 ± 50.2 | 545.6 ± 10.0, 544.2 ± 9.9 | 0.44 (ours faulted) |
+
+tok/s; ratios are the average of our rounds over the average of llama.cpp's rounds (in brackets the range of the per-round ratios).
+
+* **Coder-Next and Qwen3.5-122B ran without page-cache pressure on either side**: 0 major faults in our marked timed phases (rounds
+  B-D; round A's windows were estimated and include the end of the load), 0-700 in llama.cpp's estimated windows with no growth in the
+  tg phase; the cgroup kept 38-55 GB of file cache for the 48.5 / 36.6 GB files throughout.
+* **gpt-oss-120b cannot be compared fairly on this pod.** The 63.4 GB file is larger than the 62 GB cgroup, which the other agents'
+  processes share (their anonymous memory moved between 1.5 and 20 GB during the rounds). Round A read the file from the network mount
+  (`~/models/gguf` → `/workspace`), whose page cache is dropped on every open: llama-bench reloads the model per `-ncmoe` value, the
+  cgroup's file cache fell from 54 GB to under 10 GB at each reload, and llama.cpp decoded at 5.7-26.7 tok/s (4300 major faults in
+  its timed phase); ours, one process, ran with 11 faults (49.2 ± 3.7). Rounds B / C used a local-disk copy of the same file; then both
+  engines faulted inside their timed phases on some runs (ours 1400-19000 major faults, llama.cpp's mapped mode 800-28000), and our
+  per-run decode rates spread from 22 to 53 tok/s. The decode rows are therefore not publishable either way; a fair run needs a quiet
+  pod or more memory than the file.
+* **gpt-oss-120b prefill: llama.cpp is 2.1x faster** with its weights read into memory (`-lm none`, 637 tok/s on CUDA, 545 on Vulkan,
+  ± 2 % between rounds); with mapped weights it ran 128-328 tok/s (± 7-50 %). Our clean runs (A, B on CUDA, 11 / 1427 faults) gave
+  293-307 tok/s. The §59-§71 "prefill 2.7-2.8x" against llama.cpp's 109-110 tok/s compared against its mapped mode on the network
+  mount, starved; that claim does not hold.
+* Our decode runs are wider than llama.cpp's (± 2-10 % against ± 1-4 %): the first of the five runs is the slowest in nearly every
+  set (Coder-Next CUDA 74.6-79.9 against 94-100 for runs 2-5), as the split balance (§66) probes CPU / GPU shares again after a reset.
+  The mean counts it, as llama-bench's mean counts its runs; by the median step (§66-§71's statistic) Coder-Next CUDA is 94-97 tok/s.
+* Against the earlier best-step / median-step claims: Coder-Next CUDA 0.91-0.98x (§71) → 0.95x by the mean, Vulkan 1.5-1.7x (§71,
+  against §66's llama.cpp at `-ncmoe 20`) → 1.43x against llama.cpp at its better `-ncmoe 16`; the 122B CUDA 1.04-1.10x → 1.02x, Vulkan
+  1.45-1.5x → 1.45x; prefill Coder-Next 1.12x (CUDA) / 1.41x (Vulkan) → 1.17x / 1.44x, the 122B 1.05x / 1.33x → 1.02x / 1.22x.
+
+### SS.3 Which rows are fair to publish
+
+* **Fair**: every batched row in SS.1 by the `download` mean (like-for-like work), the greedy mean as our serving path with that note;
+  the Qwen3.8 27B Vulkan single-sequence row only against llama.cpp's better round (1.06x). Offload: Qwen3-Coder-Next and
+  Qwen3.5-122B-A10B, both providers, decode and prefill (CUDA: parity, 0.95x / 1.02x decode; Vulkan: 1.43x / 1.45x decode).
+* **Fair, a loss**: gpt-oss-120b prefill on CUDA (0.47x of llama.cpp with read-in weights).
+* **Not fair, do not publish**: gpt-oss-120b decode on both providers and its Vulkan prefill (page faults inside the timed phases;
+  memory shared with other jobs), Gemma 4 31B at 32+ sequences (does not fit), Coder-Next Vulkan round C (disturbed, both engines).
+* Earlier claims to withdraw: gpt-oss-120b offload leads (§66-§71: decode 1.4-1.5x, prefill 2.7-2.8x).
+
+### SS.4 Changes
+
+* `bench/BatchBench`: the mean and sample standard deviation of the wall-clock step times per mode (the cell keeps its
+  "min / median, GPU min" prefix, so `bench/s74_summarize.py` still parses it); `--warmup N` (default 5), `--refill` (each batch size's
+  warm-up and timed steps start from slots reset and prefilled to `--depth`), `--dump-steps <file>` (CSV: batch, mode, step, wall ms,
+  GPU ms), a `download` mode.
+* `samples/Sharplight.Cli` `--bench`: `SHARPLIGHT_BENCH_DECODE_RUNS=R` (R decode runs of 64 steps after the prompt, default 1); the
+  summary ends with `per run: prefill mean ± sd tok/s of N, decode mean ± sd tok/s of R (per-run values)`.
+* `bench/same_stat_batched.sh`, `bench/same_stat_offload.sh`, `bench/sample_faults.sh`, `bench/same_stat_summarize_batched.py`,
+  `bench/same_stat_summarize_offload.py`.
+
+### SS.5 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i> LLAMA_ROOT=...
+F=~/models-local/feed1   # the feed's GGUF copies (Qwen3-8B, Qwen3.8-27B, gemma-4-31B-it Q4_K_M)
+for P in cuda vulkan; do
+  bench/same_stat_batched.sh out qwen3-8b $F/qwen3-8b/Qwen3-8B-Q4_K_M.gguf $P 1,16,32,48,64 A sl-first
+  bench/same_stat_batched.sh out qwen38-27b $F/qwen38-27b/Qwen3.8-27B-Q4_K_M.gguf $P 1,16,32,48,64 A sl-first
+  bench/same_stat_batched.sh out gemma4-31b $F/gemma-4-31b/gemma-4-31B-it-Q4_K_M.gguf $P 1,16,32 A sl-first per-size
+done
+G=~/models-local/gguf
+bench/same_stat_offload.sh out coder-next $G/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf cuda 16 B llama-first
+bench/same_stat_offload.sh out qwen35-122b $G/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf vulkan 6 B llama-first
+LLAMA_EXTRA="-lm mmap,none" bench/same_stat_offload.sh out gpt-oss-120b <local copy>/gpt-oss-120b-MXFP4.gguf cuda 22,24 B llama-first
+python3 bench/same_stat_summarize_batched.py out; python3 bench/same_stat_summarize_offload.py out
+```

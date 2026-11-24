@@ -1,0 +1,18 @@
+== 2026-11-24T13:03:46Z llama gemma4-31b vulkan A
+|   256 |     64 |    1 |    320 |    0.216 |  1187.81 |    1.831 |    34.96 |    2.046 |   156.38 |
+|   256 |     64 |    1 |    320 |    0.199 |  1289.62 |    1.834 |    34.89 |    2.033 |   157.42 |
+|   256 |     64 |   16 |   5120 |    3.155 |  1298.45 |    6.644 |   154.12 |    9.799 |   522.53 |
+|   256 |     64 |   16 |   5120 |    3.095 |  1323.30 |    6.668 |   153.58 |    9.763 |   524.44 |
+ggml_vulkan: Device memory allocation of size 4210688 failed.
+ggml_vulkan: vk::Device::allocateMemory: ErrorOutOfDeviceMemory
+terminate called after throwing an instance of 'vk::SystemError'
+  what():  vk::Device::allocateMemory: ErrorOutOfDeviceMemory
+== 2026-11-24T15:55:29Z llama gemma4-31b vulkan B
+|   256 |     64 |    1 |    320 |    0.305 |   838.90 |    1.756 |    36.45 |    2.061 |   155.26 |
+|   256 |     64 |    1 |    320 |    0.200 |  1278.55 |    1.713 |    37.36 |    1.913 |   167.26 |
+|   256 |     64 |   16 |   5120 |    3.070 |  1334.13 |    6.611 |   154.88 |    9.682 |   528.84 |
+|   256 |     64 |   16 |   5120 |    3.083 |  1328.39 |    6.632 |   154.41 |    9.715 |   527.01 |
+ggml_vulkan: Device memory allocation of size 4210688 failed.
+ggml_vulkan: vk::Device::allocateMemory: ErrorOutOfDeviceMemory
+terminate called after throwing an instance of 'vk::SystemError'
+  what():  vk::Device::allocateMemory: ErrorOutOfDeviceMemory

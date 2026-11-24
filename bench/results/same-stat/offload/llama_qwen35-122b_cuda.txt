@@ -1,0 +1,13 @@
+== 2026-11-24T11:06:11Z llama qwen35-122b cuda A ncmoe 8,6,4
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          8 |      10 |   1 |           pp512 |       871.55 ± 27.29 |
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |           pp512 |       986.64 ± 16.50 |
+llama_bench: error: failed to load model '~/models-local/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf'
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          8 |      10 |   1 |     tg64 @ d512 |         66.71 ± 0.68 |
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |     tg64 @ d512 |         72.51 ± 0.68 |
+llama_bench: error: failed to load model '~/models-local/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf'
+== 2026-11-24T15:21:19Z llama qwen35-122b cuda B ncmoe 6
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |           pp512 |       963.46 ± 51.11 |
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |     tg64 @ d512 |         69.54 ± 2.16 |
+== 2026-11-24T17:33:02Z llama qwen35-122b cuda C ncmoe 6
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |           pp512 |       996.33 ± 38.62 |
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |     tg64 @ d512 |         71.98 ± 1.17 |

@@ -1,0 +1,10 @@
+ggml_vulkan: Found 1 Vulkan devices:
+ggml_vulkan: 0 = NVIDIA RTX PRO 4500 Blackwell (NVIDIA) | uma: 0 | fp16: 1 | bf16: 1 | fp4: 0 | warp size: 32 | shared memory: 49152 | int dot: 1 | matrix cores: NV_coopmat2
+| model                          |       size |     params | backend    | ngl |  n_cpu_moe | threads |  fa |         lm |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | ---------: | ------: | --: | ---------: | --------------: | -------------------: |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | Vulkan     |  99 |         22 |      10 |   1 |       mmap |     tg64 @ d512 |         36.79 ± 1.02 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | Vulkan     |  99 |         22 |      10 |   1 |       none |     tg64 @ d512 |         39.58 ± 0.85 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | Vulkan     |  99 |         24 |      10 |   1 |       mmap |     tg64 @ d512 |         32.11 ± 2.40 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | Vulkan     |  99 |         24 |      10 |   1 |       none |     tg64 @ d512 |         37.45 ± 0.41 |
+
+build: 1ab7e5ad2 (11177)
