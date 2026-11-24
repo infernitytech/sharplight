@@ -39,6 +39,14 @@ static __device__ __forceinline__ float q4n_e4m3_value(f4n_u32 code)
     return e == 0 ? (float)m * (1.0f / 512.0f) : __int_as_float((int)(((e + 120u) << 23) | (m << 20)));
 }
 
+// The value of the E2M1 code in the low nibble of c.
+static __device__ __forceinline__ float q4n_e2m1_value(f4n_u32 c)
+{
+    // The doubled magnitudes 0, 1, 2, 3, 4, 6, 8, 12 as nibbles.
+    float m = (float)((0xC8643210u >> ((c & 7u) * 4)) & 15u) * 0.5f;
+    return (c & 8u) ? -m : m;
+}
+
 // The byte of two E2M1 codes: lo in the low nibble, hi in the high one.
 static __device__ __forceinline__ f4n_u32 q4n_e2m1x2(float lo, float hi)
 {
@@ -97,9 +105,6 @@ extern "C" __global__ void __launch_bounds__(Q4N_THREADS) quantize_fp4(Q4nParams
     f4n_u8* qr = p.q + (f4n_u64)row * F4_XRB;
     for (f4n_u32 g = tid; g < K / 16; g += Q4N_THREADS)
     {
-        f4n_u32 code = q4n_e4m3(amax[g] * toScale);
-        float scale = q4n_e4m3_value(code) * gx;
-        float inv = scale > 0.0f ? 1.0f / scale : 0.0f;
         const float4* v4 = (const float4*)(xr + g * 16);
         float v[16];
 #pragma unroll
@@ -111,12 +116,35 @@ extern "C" __global__ void __launch_bounds__(Q4N_THREADS) quantize_fp4(Q4nParams
             v[i * 4 + 2] = f.z;
             v[i * 4 + 3] = f.w;
         }
-        f4n_u32 lo = 0, hi = 0;
+        // Two candidate scales: the group maximum at 6 (the largest E2M1 value) and at 4 (finer steps for the other values, the maximum
+        // off by at most a third); the one with the smaller squared error is kept.
+        f4n_u32 code = 0, lo = 0, hi = 0;
+        float best = 3.4e38f;
 #pragma unroll
-        for (int i = 0; i < 4; i++)
+        for (int c = 0; c < 2; c++)
         {
-            lo |= q4n_e2m1x2(v[i] * inv, v[i + 8] * inv) << (8 * i);
-            hi |= q4n_e2m1x2(v[i + 4] * inv, v[i + 12] * inv) << (8 * i);
+            f4n_u32 cand = q4n_e4m3(amax[g] * toScale * (c == 0 ? 1.0f : 1.5f));
+            float scale = q4n_e4m3_value(cand) * gx;
+            float inv = scale > 0.0f ? 1.0f / scale : 0.0f;
+            f4n_u32 l = 0, h = 0;
+            float err = 0.0f;
+#pragma unroll
+            for (int i = 0; i < 4; i++)
+            {
+                f4n_u32 b0 = q4n_e2m1x2(v[i] * inv, v[i + 8] * inv), b1 = q4n_e2m1x2(v[i + 4] * inv, v[i + 12] * inv);
+                l |= b0 << (8 * i);
+                h |= b1 << (8 * i);
+                float d0 = v[i] - q4n_e2m1_value(b0) * scale, d1 = v[i + 8] - q4n_e2m1_value(b0 >> 4) * scale;
+                float d2 = v[i + 4] - q4n_e2m1_value(b1) * scale, d3 = v[i + 12] - q4n_e2m1_value(b1 >> 4) * scale;
+                err += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
+            }
+            if (err < best)
+            {
+                best = err;
+                code = cand;
+                lo = l;
+                hi = h;
+            }
         }
         f4n_u8* rec = qr + (f4n_u64)(g / 16) * F4_XREC;
         *(uint2*)(rec + (g % 16) * 8) = make_uint2(lo, hi);

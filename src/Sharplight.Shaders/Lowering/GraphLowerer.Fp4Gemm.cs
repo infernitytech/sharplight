@@ -165,28 +165,38 @@ public sealed partial class GraphLowerer
     /// grouped FP4 GEMM over the routing tiles of <paramref name="scratch"/> (moe_route) for batches above <paramref name="matvecMaxItems"/>
     /// items, storing the product per item into <paramref name="y"/>.
     /// </summary>
-    private void EmitNativeFp4Moe(string label, Node node, TensorRef x, long xStride, long rowsPerLead, bool perSlot, TensorRef w, TensorRef ids, TensorRef y,
-        long maxTiles, long matvecMaxItems, Func<Bindings, long> items, Func<Bindings, int> tile, Func<Bindings, uint> tiles, TensorRef scratch, KernelArg scratchArg)
+    /// <remarks>
+    /// With <paramref name="dual"/> (the second expert stack of a gate / up pair and the CUDA form of the group, <see cref="DualEpilogueCudaSource"/>)
+    /// one launch multiplies both stacks and stores the group into <paramref name="y"/>.
+    /// </remarks>
+    private void EmitNativeFp4Moe(string label, Node[] nodes, Node node, TensorRef x, long xStride, long rowsPerLead, bool perSlot, TensorRef w, TensorRef ids, TensorRef y,
+        long maxTiles, long matvecMaxItems, Func<Bindings, long> items, Func<Bindings, int> tile, Func<Bindings, uint> tiles, TensorRef scratch, KernelArg scratchArg,
+        (TensorRef W2, string Epilogue)? dual = null)
     {
         long n = w.Shape[1];
         long k = w.Shape[2];
         long slots = ids.Shape[1];
         long rowsMax = x.Shape[0] * rowsPerLead;
         long minRows = Math.Min(rowsMax, perSlot ? matvecMaxItems + 1 : matvecMaxItems / slots + 1);
-        var quantized = QuantizedActivations(label, [node], node.Inputs[0], x, xStride, rowsPerLead, k, minRows, rowsMax, ActivationCode.Fp4);
+        var quantized = QuantizedActivations(label, nodes, node.Inputs[0], x, xStride, rowsPerLead, k, minRows, rowsMax, ActivationCode.Fp4);
         var variants = new List<KernelVariant>();
+        bool isDual = dual is not null;
         foreach (int bm in NativeFp4MoeTiles)
         {
-            var shape = NativeFp4Tile(bm, dual: false);
+            var shape = NativeFp4Tile(bm, isDual);
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("F4_BM", shape.Bm), ("F4_BN", shape.Bn), ("F4_WM", shape.Wm), ("F4_WN", shape.Wn),
-                ("F4_STAGES", shape.Stages), ("F4_MINB", shape.MinBlocks), ("F4_GS", w.Type == DataType.NVFP4_GS ? 1 : 0), ("DUAL", 0), ("F4_MOE", 1),
+                ("F4_STAGES", shape.Stages), ("F4_MINB", shape.MinBlocks), ("F4_GS", w.Type == DataType.NVFP4_GS ? 1 : 0), ("DUAL", isDual ? 1 : 0), ("F4_MOE", 1),
                 ("EXPERT_BYTES", w.Type.ByteSize(k) * n + "ull"), ("S", slots), ("MAXTILES", maxTiles), ("X_TOKEN", perSlot ? 0 : 1));
-            var kernel = _compiler.CompileCuda("gemm_fp4_native.cu", "", "gemm_fp4_native", shape.Wm * shape.Wn * 32, shape.Stages * (shape.Bm + shape.Bn) * 160,
-                _opt.Target, macros, _opt.Cache);
-            int columns = shape.Bn;
+            var kernel = _compiler.CompileCuda("gemm_fp4_native.cu", dual?.Epilogue.Replace("F8N_EPI2", "F4N_EPI2", StringComparison.Ordinal) ?? "", "gemm_fp4_native",
+                shape.Wm * shape.Wn * 32, shape.Stages * (shape.Bm + shape.Bn) * 160, _opt.Target, macros, _opt.Cache);
+            int columns = isDual ? shape.Bn / 2 : shape.Bn;
             variants.Add(new KernelVariant(b => items(b) > matvecMaxItems && tile(b) == bm, kernel, b => new Grid(Grid.Div(n, columns), tiles(b))));
         }
 
-        Emit($"{label} fp4", [node], [.. variants], [Pointer(quantized), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)], [quantized, w, scratch], [y]);
+        KernelArg[] args = dual is { } d
+            ? [Pointer(quantized), Pointer(w), Pointer(d.W2), scratchArg, Pointer(y), TokenArg(ids)]
+            : [Pointer(quantized), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)];
+        TensorRef[] reads = dual is { } r ? [quantized, w, r.W2, scratch] : [quantized, w, scratch];
+        Emit($"{label} fp4", nodes, [.. variants], args, reads, [y]);
     }
 }

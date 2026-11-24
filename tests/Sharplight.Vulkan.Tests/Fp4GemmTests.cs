@@ -23,7 +23,7 @@ public sealed class Fp4GemmTests
     /// <summary>
     /// Activations FP4 represents exactly (E2M1 values times a power of two per 16-value group, each group holding its largest value
     /// and the row's first group the row's maximum 6): the FP4 GEMM's quantization keeps them, so the products match the oracle to f32
-    /// rounding. K = 1,280 has an odd number of 256-value steps (NVFP4 steps then start on either half of a 32-byte sector).
+    /// rounding (the other paths' f16 tensor-core products of NVFP4_GS weights to about 0.5 %). K = 1,280 has an odd number of 256-value steps (NVFP4 steps then start on either half of a 32-byte sector).
     /// </summary>
     [Theory]
     [MemberData(nameof(Cases))]
@@ -34,7 +34,7 @@ public sealed class Fp4GemmTests
         var tg = new TG();
         var x = tg.InF("x", TG.T, K);
         tg.B.Output("y", tg.B.MatMul(x, tg.RandW("w", DataType.Get(fmt), 1f, N, K)));
-        Diff.Check("Fp4Gemm.exact." + fmt, tg.B.Build(), new Step(t, 0, (x, ExactFp4(t, K, 7))), atol: 2e-3, rtol: 1e-3, maxTokens: 300,
+        Diff.Check("Fp4Gemm.exact." + fmt, tg.B.Build(), new Step(t, 0, (x, ExactFp4(t, K, 7))), atol: 2e-3, rtol: Rtol(fmt), maxTokens: 300,
             what: $"T={t}");
     }
 
@@ -53,7 +53,7 @@ public sealed class Fp4GemmTests
         var gate = tg.B.MatMul(x, tg.RandW("wg", DataType.Get(fmt), 0.2f, N, K));
         var up = tg.B.MatMul(x, tg.RandW("wu", DataType.Get(fmt), 0.2f, N, K));
         tg.B.Output("y", tg.B.Mul(tg.B.Silu(gate), up));
-        Diff.Check("Fp4Gemm.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, ExactFp4(t, K, 9))), atol: 2e-3, rtol: 2e-3, maxTokens: 300,
+        Diff.Check("Fp4Gemm.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, ExactFp4(t, K, 9))), atol: 2e-3, rtol: Rtol(fmt), maxTokens: 300,
             what: $"T={t}");
     }
 
@@ -87,6 +87,56 @@ public sealed class Fp4GemmTests
 
         double relative = Math.Sqrt(error / norm);
         Assert.True(relative < 0.15, $"{fmt}, T={t}: {relative:E2} (relative L2) away from the oracle");
+    }
+
+    /// <summary>Relative tolerance of the exact-activation checks: tight for NVFP4, the f16 products of NVFP4_GS weights on the other paths.</summary>
+    private static double Rtol(string fmt) => fmt == "nvfp4_gs" ? 1e-2 : 4e-3;
+
+    /// <summary>
+    /// A routed expert MLP of NVFP4 expert stacks (gate / up with SiLU · mul, then down per slot, summed over the slots) at batched decode
+    /// and prompt sizes: on CUDA with <c>block_scaled_fp4</c> the grouped FP4 GEMM (the gate / up pair as one dual launch), whose FP4
+    /// activations put the result about 10 % (relative L2) from the oracle; a wrong routing tile, expert offset or epilogue is of order 1.
+    /// </summary>
+    [Theory]
+    [InlineData("nvfp4_gs", 12)]
+    [InlineData("nvfp4_gs", 70)]
+    [InlineData("nvfp4", 200)]
+    public void RoutedExperts(string fmt, int t)
+    {
+        Gpu.Require();
+        const int K = 512;
+        const int N = 256;
+        const int Experts = 8;
+        const int Slots = 2;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, Slots);
+        var type = DataType.Get(fmt);
+        var gate = tg.B.Emit1("MatMulId", [x, tg.RandW("wg", type, 0.2f, Experts, N, K), ids]);
+        var up = tg.B.Emit1("MatMulId", [x, tg.RandW("wu", type, 0.2f, Experts, N, K), ids]);
+        var h = tg.B.Mul(tg.B.Silu(gate), up);
+        var down = tg.B.Emit1("MatMulId", [h, tg.RandW("wd", type, 0.2f, Experts, K, N), ids]);
+        tg.B.Output("y", tg.B.Reshape(tg.B.Emit1("ReduceSum", [tg.B.Permute(down, 0, 2, 1)]), 0, K));
+        var graph = tg.B.Build();
+        var routes = new int[t * Slots];
+        for (int r = 0; r < t; r++)
+        {
+            routes[r * Slots] = r % Experts;
+            routes[r * Slots + 1] = (r * 3 + 1) % Experts == r % Experts ? (r + 1) % Experts : (r * 3 + 1) % Experts;
+        }
+
+        Step[] steps = [new Step(t, 0, (x, Rnd.F((long)t * K, 5)), (ids, routes))];
+        var gpu = Diff.RunVulkan(graph, steps, maxTokens: 256)[0];
+        var cpu = Diff.RunCpu(graph, steps, maxTokens: 256)[0];
+        double error = 0, norm = 0;
+        for (int i = 0; i < cpu.Length; i++)
+        {
+            error += (gpu[i] - (double)cpu[i]) * (gpu[i] - cpu[i]);
+            norm += (double)cpu[i] * cpu[i];
+        }
+
+        double relative = Math.Sqrt(error / norm);
+        Assert.True(relative < 0.2, $"{fmt}, T={t}: {relative:E2} (relative L2) away from the oracle");
     }
 
     /// <summary>

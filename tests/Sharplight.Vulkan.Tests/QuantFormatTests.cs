@@ -1,3 +1,4 @@
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -95,7 +96,10 @@ public sealed class QuantFormatTests
         int[] expertIds = [.. Enumerable.Range(0, tokens * S).Select(_ => rng.Next(E))];
         bool grouped = tokens * S > 16;
         var xData = grouped ? Rnd.F((long)tokens * K, 3) : Rnd.ExactInt8((long)tokens * K, 3);   // see MatMul
+        // NVFP4 experts take the grouped FP4 GEMM where the device has block_scaled_fp4 (FP4 activations; Fp4GemmTests checks it). Their
+        // random weights (one second-level scale per NVFP4_GS tensor) put the 8-bit activations of the grouped path up to 0.07 off.
+        IReadOnlySet<string>? disabled = type.StartsWith("nvfp4", StringComparison.Ordinal) ? new HashSet<string> { DeviceFeatures.BlockScaledFp4 } : null;
         Diff.Check("MatMulId." + type, tg.B.Build(), new Step(tokens, 0, (x, xData), (ids, expertIds)),
-            atol: grouped ? 5e-2 : 2e-3, rtol: grouped ? 1e-2 : 1e-3, maxTokens: 128);
+            atol: grouped ? (disabled is null ? 5e-2 : 1e-1) : 2e-3, rtol: grouped ? 1e-2 : 1e-3, maxTokens: 128, disabledFeatures: disabled);
     }
 }

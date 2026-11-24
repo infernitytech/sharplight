@@ -276,8 +276,24 @@ public sealed partial class GraphLowerer
         // the group's launch reading them back.
         Func<Bindings, bool>? fused = null;
         var dualY = Produce(output);
-        // NVFP4 experts on the grouped FP4 GEMM run the two products and the group as their own launches.
-        if (DiagnosticSwitches.MoeDual != 0 && dualY.IsDense && !UseNativeFp4Moe(a, w.Type, N, K, Ref(a.Inputs[0]).Shape[^1]))
+        // NVFP4 experts on the grouped FP4 GEMM: one dual launch with the group in its store when the group reads only the pair, else
+        // the two products and the group as their own launches.
+        bool fp4 = UseNativeFp4Moe(a, w.Type, N, K, Ref(a.Inputs[0]).Shape[^1]);
+        string? fp4Epilogue = fp4 && gathers.Count == 0 && dualY.IsDense && Ref(bNode.Inputs[1]).Type == w.Type && UseIntDotExpertMatvec(a, w.Type, K)
+            ? DualEpilogueCudaSource(a, bNode, group, output)
+            : null;
+        if (fp4Epilogue is not null)
+        {
+            fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [], "", [a, bNode, .. group], false, fp4Epilogue));
+            if (fused is not null)
+            {
+                // The integer-dot matvec above serves the other batches, so the partner and the group have nothing left to run.
+                _launchCondition = outer;
+                return;
+            }
+        }
+
+        if (DiagnosticSwitches.MoeDual != 0 && dualY.IsDense && !fp4)
         {
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N, "matmul.slang")!;
             fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group], false,
@@ -682,7 +698,9 @@ public sealed partial class GraphLowerer
         Func<Bindings, bool> nativeRows = b => nativeMoe && items(b) > mv && items(b) >= nativeMinItems && !isWide(b) && (!skinnyMoe || items(b) > skinnyItems);
         Func<Bindings, bool> isNative = b => nativeOn && nativeRows(b);
         // NVFP4 experts on the block-scaled FP4 MMA (CUDA 12.x): every batch above the matvec range on the grouped FP4 GEMM.
-        bool fp4Moe = dual is null && single is null && !skipGrouped && y.IsDense && UseNativeFp4Moe(n, w.Type, N, K, xs);
+        // A dual pair takes it with the group in its store when the group reads no per-expert tables (its CUDA form as for dense pairs).
+        var fp4Dual = dual is { Tables.Length: 0, Halves: false, Cuda: not null, Y.IsDense: true } dd4 && dd4.W2.Type == w.Type ? dd4 : default;
+        bool fp4Moe = (dual is null || fp4Dual.Cuda is not null) && single is null && !skipGrouped && y.IsDense && UseNativeFp4Moe(n, w.Type, N, K, xs);
         int[] routeTiles = skinnyMoe ? [.. new[] { MoeSkinnyTile, wideTile }.Where(t => t > 0), .. coopTiles] : coopTiles;
         routeTiles = fp4Moe ? [.. routeTiles, .. NativeFp4MoeTiles] : routeTiles;
         routeTiles = [.. routeTiles.Distinct()];
@@ -715,8 +733,9 @@ public sealed partial class GraphLowerer
 
         if (fp4Moe)
         {
-            EmitNativeFp4Moe(label, n, x, xs, rowsPerLead, perSlot, w, ids, y, maxTiles, mv, items, tile, tiles, scratch, scratchArg);
-            return null;
+            EmitNativeFp4Moe(label, fp4Dual.Nodes ?? [n], n, x, xs, rowsPerLead, perSlot, w, ids, fp4Dual.Cuda is null ? y : fp4Dual.Y, maxTiles, mv, items, tile,
+                tiles, scratch, scratchArg, fp4Dual.Cuda is null ? null : (fp4Dual.W2, fp4Dual.Cuda));
+            return fp4Dual.Cuda is null ? null : b => items(b) > mv;
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };
