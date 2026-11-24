@@ -1,0 +1,10 @@
+Graph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [74 ms]
+Loaded Qwen3-1.7B-FP8 (decoder): 310 tensors, 2.08 GB, vocab 151936 [752 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 159 / 159, 159 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 2.08 / 2.08 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 4283 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 30 groups, 2.37 GiB weights+state
+1 segment(s): [0@0: 677 nodes]
+Ready (decode)
+prompt: 963 tok in 68 ms (14145.0 tok/s) | generated: 120 tok, 281.98 tok/s

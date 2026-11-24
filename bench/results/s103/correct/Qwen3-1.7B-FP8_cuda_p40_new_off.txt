@@ -1,0 +1,11 @@
+Write a detailed essay about the role of water and power in modern history. Explain the history, give concrete examples and discuss open questions. The essay should be written in English, with a clear structure and logical flow, and be around 1000 words. Use academic language and avoid colloquial expressions. Avoid using markdown and keep paragraphs short and focused. Use the following structure:
+
+Introduction
+- Briefly introduce the topic
+- Mention the importance of water and power in human history
+- State the purpose of the essay
+
+Body 1: Water
+- Discuss the historical significance of water in human civilization
+- Mention the development of water management systems
+- Discuss the role of water in agriculture, industry, and urban development

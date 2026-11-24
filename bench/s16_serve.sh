@@ -12,7 +12,9 @@
 #      PER_OVERRIDE (requests per worker, default by concurrency), RAMP (seconds: closed loop with staggered worker starts),
 #      RATES ("16:7.5 64:18": open loop, Poisson arrivals of that many requests per second at that concurrency; see loadgen.py),
 #      TEXT_CHECK (1: after the rounds, bench/textcheck.py compares batched greedy texts of natural prompts with single-request ones
-#      and the script exits 3 when it finds garbage; 0 skips it), TEXT_CHECK_WAVES (concurrent requests per wave, default "16,<SLOTS>").
+#      and the script exits 3 when it finds garbage; 0 skips it), TEXT_CHECK_WAVES (concurrent requests per wave, default "16,<SLOTS>"),
+#      FIRST=1 (before the rounds, one request alone on the fresh server, then a second: the cold and the warm single-request TTFT in
+#      $OUT_DIR/serve_<engine>_<name>_first<1|2>.json).
 # Text check result: $OUT_DIR/serve_<engine>_<name>.textcheck.json (+ .textcheck.FAIL when garbage was found).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ENG=$1; NAME=$2; MP=$3; CONCS=$4; shift 4; EXTRA=("$@")
@@ -65,6 +67,12 @@ while kill -0 $SP 2>/dev/null; do
 done
 echo "ready=$OK after $((SECONDS - T0)) s" | tee "$LOG.ready"
 NAT=""; [ "${NATURAL:-0}" = 1 ] && NAT="--natural"
+if [ $OK = 1 ] && [ "${FIRST:-0}" = 1 ]; then
+  for F in 1 2; do
+    timeout 600 "$PY" -I "$HERE/loadgen.py" --url "http://127.0.0.1:$PORT" --model m -c 1 --per-worker 1 --ignore-eos --seed $F $NAT \
+      --json "$OUT_DIR/serve_${ENG}_${NAME}_first$F.json" | cut -c1-400
+  done
+fi
 if [ $OK = 1 ]; then
   for N in $CONCS; do
     case $N in 1) PER=8;; 4) PER=6;; 16) PER=4;; *) PER=3;; esac

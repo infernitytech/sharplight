@@ -1,0 +1,28 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 128256, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 15+10: 54.4 ms; recorded True record 12.5 submit 0.1 wait 19.6 gpu 20.9
+| 15 | 10 (1) | 54.4 | 774 / 514 | 21.15 / 21.18, 20.94 |  |
+[first] 14+10: 27.1 ms; recorded True record 5.8 submit 0.1 wait 21.0 gpu 20.9
+| 14 | 10 (1) | 27.1 | 775 / 518 | 21.03 / 21.17, 20.91 |  |
+[first] 13+11: 27.2 ms; recorded True record 5.9 submit 0.1 wait 21.1 gpu 21.0
+| 13 | 11 (1) | 27.2 | 775 / 518 | 21.17 / 21.21, 20.96 |  |
+[first] 12+12: 25.4 ms; recorded True record 4.1 submit 0.1 wait 21.1 gpu 21.0
+| 12 | 12 (1) | 25.4 | 775 / 518 | 21.09 / 21.17, 20.96 |  |
+[first] 16+16: 28.2 ms; recorded True record 6.6 submit 0.1 wait 21.4 gpu 21.4
+| 16 | 16 (1) | 28.2 | 774 / 514 | 21.50 / 21.59, 21.36 |  |
+[first] 15+17: 25.9 ms; recorded True record 4.3 submit 0.0 wait 21.4 gpu 21.3
+| 15 | 17 (1) | 25.9 | 774 / 514 | 21.42 / 21.48, 21.34 |  |
+[first] 16+240: 46.3 ms; recorded True record 5.2 submit 0.0 wait 41.0 gpu 41.0
+| 16 | 240 (1) | 46.3 | 646 / 450 | 41.82 / 41.92, 41.72 |  |
+[first] 15+241: 49.0 ms; recorded True record 7.8 submit 0.0 wait 41.1 gpu 41.0
+| 15 | 241 (1) | 49.0 | 646 / 450 | 41.86 / 41.96, 41.76 |  |
+[first] 16+250: 58.5 ms; recorded True record 2.5 submit 0.0 wait 55.9 gpu 55.8
+| 16 | 250 (1) | 58.5 | 646 / 450 | 56.20 / 56.26, 56.11 |  |
+[first] 8+0: 23.1 ms; recorded True record 2.7 submit 0.0 wait 20.3 gpu 20.3
+| 8 | 0 (0) | 23.1 | 486 / 357 | 20.33 / 20.35, 20.25 |  |
+[first] 24+0: 24.3 ms; recorded True record 2.3 submit 0.0 wait 21.9 gpu 21.9
+| 24 | 0 (0) | 24.3 | 775 / 518 | 21.80 / 21.84, 21.72 |  |

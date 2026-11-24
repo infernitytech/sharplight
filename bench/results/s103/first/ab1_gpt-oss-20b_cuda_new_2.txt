@@ -1,0 +1,28 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 201088, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 15+10: 24.8 ms; recorded True record 6.8 submit 0.0 wait 9.2 gpu 16.5
+| 15 | 10 (1) | 24.8 | 450 / 0 | 11.37 / 11.49, 11.30 |  |
+[first] 14+10: 12.6 ms; recorded True record 3.0 submit 0.0 wait 9.5 gpu 12.5
+| 14 | 10 (1) | 12.6 | 451 / 0 | 10.97 / 11.60, 10.91 |  |
+[first] 13+11: 14.8 ms; recorded True record 5.7 submit 1.5 wait 7.5 gpu 14.7
+| 13 | 11 (1) | 14.8 | 451 / 0 | 11.22 / 11.32, 11.15 |  |
+[first] 12+12: 13.4 ms; recorded True record 3.5 submit 0.0 wait 9.8 gpu 13.3
+| 12 | 12 (1) | 13.4 | 451 / 0 | 11.20 / 11.32, 11.13 |  |
+[first] 16+16: 21.3 ms; recorded True record 11.2 submit 0.0 wait 10.1 gpu 21.2
+| 16 | 16 (1) | 21.3 | 450 / 0 | 11.84 / 12.35, 11.76 |  |
+[first] 15+17: 15.3 ms; recorded True record 4.8 submit 0.0 wait 10.4 gpu 15.2
+| 15 | 17 (1) | 15.3 | 450 / 0 | 11.81 / 12.16, 11.75 |  |
+[first] 16+240: 28.2 ms; recorded True record 7.7 submit 0.0 wait 20.3 gpu 27.9
+| 16 | 240 (1) | 28.2 | 438 / 0 | 22.95 / 23.25, 22.88 |  |
+[first] 15+241: 28.8 ms; recorded True record 8.9 submit 0.0 wait 19.6 gpu 28.5
+| 15 | 241 (1) | 28.8 | 438 / 0 | 23.03 / 23.32, 22.97 |  |
+[first] 16+250: 26.8 ms; recorded True record 3.6 submit 0.0 wait 23.0 gpu 26.6
+| 16 | 250 (1) | 26.8 | 438 / 0 | 24.00 / 24.86, 23.93 |  |
+[first] 8+0: 11.5 ms; recorded True record 5.0 submit 0.0 wait 6.4 gpu 11.4
+| 8 | 0 (0) | 11.5 | 450 / 0 | 7.95 / 8.16, 7.90 |  |
+[first] 24+0: 12.9 ms; recorded True record 3.5 submit 0.0 wait 9.2 gpu 12.7
+| 24 | 0 (0) | 12.9 | 451 / 0 | 10.83 / 11.08, 10.76 |  |
