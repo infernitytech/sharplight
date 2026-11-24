@@ -104,6 +104,38 @@ public sealed partial class GraphLowerer
         _ => (128, 128, 2, 4, 2, 1),
     };
 
+    /// <summary>
+    /// <paramref name="tile"/> with fewer weight rows per block (down to 16, 32 for the dual form) while its decode-sized grid over
+    /// <paramref name="n"/> outputs would give fewer than two blocks per SM: narrow products (k / v projections, the 4,096 outputs of
+    /// o / down at 64-row tiles) otherwise stream their weights from a fraction of the SMs. The warps along weight rows shrink with it.
+    /// <c>SHARPLIGHT_NATIVE_FP4_NARROW=0</c> keeps the tile.
+    /// </summary>
+    private (int Bm, int Bn, int Wm, int Wn, int Stages, int MinBlocks) NarrowedFp4Tile((int Bm, int Bn, int Wm, int Wn, int Stages, int MinBlocks) tile, long n,
+        bool dual)
+    {
+        long target = 2L * (_opt.ComputeUnits > 0 ? _opt.ComputeUnits : 82);
+        if (tile.Bm > 64 || !DiagnosticSwitches.NativeFp4Narrow)
+        {
+            return tile;
+        }
+
+        int bn = tile.Bn;
+        int floor = dual ? 32 : 16;
+        while (bn > floor && Grid.Div(n, dual ? bn / 2 : bn) < target)
+        {
+            bn /= 2;
+        }
+
+        if (bn == tile.Bn)
+        {
+            return tile;
+        }
+
+        // Dual tiles need 16 weight rows per warp (an 8-row group of each matrix); single ones 8.
+        int wn = Math.Max(1, Math.Min(tile.Wn, bn / (dual ? 16 : 8)));
+        return tile with { Bn = bn, Wn = wn, MinBlocks = Math.Min(4, tile.MinBlocks * 2) };
+    }
+
     /// <summary>Launch variants of the FP4 GEMM for batches of <paramref name="minRows"/> to <paramref name="maxRows"/> rows, one per tile shape.</summary>
     private KernelVariant[] NativeFp4Variants(DataType type, long n, long k, long yStride, string? dualEpilogue, long minRows, long maxRows,
         Func<Bindings, long> rows)
@@ -124,7 +156,7 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            var tile = NativeFp4Tile(low, dual);
+            var tile = NarrowedFp4Tile(NativeFp4Tile(low, dual), n, dual);
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", yStride), ("F4_BM", tile.Bm), ("F4_BN", tile.Bn), ("F4_WM", tile.Wm), ("F4_WN", tile.Wn),
                 ("F4_STAGES", tile.Stages), ("F4_MINB", tile.MinBlocks), ("F4_GS", type == DataType.NVFP4_GS ? 1 : 0), ("DUAL", dual ? 1 : 0));
             var kernel = _compiler.CompileCuda("gemm_fp4_native.cu", dualEpilogue?.Replace("F8N_EPI2", "F4N_EPI2", StringComparison.Ordinal) ?? "",
