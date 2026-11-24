@@ -9,6 +9,9 @@
 // 2 c + (e & 1) + 8 ((e >> 1) & 1) (B: column g + 8 (e >> 2), row 2 c + ...). Fragments of 16-bit and 8-bit operands load from
 // shared memory with ldmatrix (one x4 per fragment, .trans for the transposed layouts), from device memory element by element.
 //
+// cu_cp_async16 / cu_cp_commit / cu_cp_wait0..3 expose cp.async (compute capability 8.0 and later) to kernels that stream tiles into
+// shared memory without passing through registers (conv_cl's CL_ASYNC ring).
+//
 // Register order: A (16x16 f16 / bf16, 16x32 int8 / e4m3): r = (a0, a1, a2, a3) of mma.sync (rows 0-7 / 8-15 of K block 0, then
 // of K block 1). B (16x16, 32x16): r = (b0, b1) of the columns 0-7, then (b0, b1) of the columns 8-15. Accumulators: t0 = the
 // c0..c3 of the columns 0-7, t1 = those of the columns 8-15.

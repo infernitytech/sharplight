@@ -3,10 +3,11 @@
 //                  im2col(x)[k, pix] per group g, pix over N*HO*WO, the reduction tap-major (k = (kh * KW + kw) * CG + c).
 //                  x is channels-last 16-bit (XS_C = 1, f16 or with XBF16 bf16): a staged item of 8 k is 8 channels of one
 //                  input pixel, one 16-byte load and one bounds check; w is dense [O][KTOT] of the same type, tap-major. A
-//                  workgroup of WARPS_M x WARPS_N subgroups computes (WARPS_M * FRAG_M * 16) o x (WARPS_N * FRAG_N * 16) pix;
-//                  the shared tiles are double buffered and the next K step's global loads are in registers while this
-//                  step's products run, so there is one barrier per K step of TBK = 32. y dense [N, O, HO, WO] f32 (+ bias,
-//                  fused epilogue); SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce (conv.slang).
+//                  workgroup of WARPS_M x WARPS_N subgroups computes (WARPS_M * FRAG_M * 16) o x (WARPS_N * FRAG_N * 16) pix,
+//                  one barrier per K step of TBK = 32: the shared tiles are double buffered with the next step's global loads
+//                  in registers during this step's products, or (CL_ASYNC, CUDA) a ring of CL_STAGES buffers filled by
+//                  asynchronous copies. y dense [N, O, HO, WO] f32 (+ bias, fused epilogue), stored along the pixels through
+//                  the A tiles; SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce (conv.slang).
 //                  Needs CG % 8 == 0 and XS_N, XS_H, XS_W multiples of 8 (16-byte aligned items).
 //  conv_cl_stage : converts x [N, C, H, W] (strides XS_*, XFMT f32 / f16 / bf16) to the channels-last 16-bit layout, channel
 //                  range [C_OFF, C_OFF + C) of a tensor with strides OS_N, OS_H, OS_W (channel stride 1): one convolution's
