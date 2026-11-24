@@ -61,4 +61,11 @@ internal static class Gpu
         Assert.SkipUnless(TestSwitches.Provider == "vulkan", "Tests Vulkan internals; the provider under test is " + TestSwitches.Provider);
         Require();
     }
+
+    /// <summary>Requires the CUDA provider under test (tests of properties of its hand-written kernels, such as stream-K's summation order).</summary>
+    public static void RequireCuda()
+    {
+        Assert.SkipUnless(TestSwitches.Provider == "cuda", "Tests CUDA kernels; the provider under test is " + TestSwitches.Provider);
+        Require();
+    }
 }

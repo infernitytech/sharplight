@@ -32,8 +32,11 @@
 // at most one block per SM), as gemm_fp8_tma.cu's F8N_SK: the tiles past the last full wave but one (all of them below two waves)
 // share their K steps evenly, one range per block after its tiles of the full waves; a range that starts inside a tile leaves its
 // partial sums (part: one slot of H_BM x H_BN floats per block, in the threads' register order) and raises its flag (flags[blockIdx.x]);
-// the block holding the tile's first K step adds the following blocks' partial sums in block order, clears their flags and stores.
-// Each output sums its K ranges in a fixed order: the same results run to run, a different rounding than the tile-by-tile grid.
+// the block holding the tile's first K step adds the following blocks' partial sums in block order, clears their flags and stores:
+// the same results run to run, a different rounding than the tile-by-tile grid. With at least gridDim.x shared tiles (chain) a tile
+// is cut at most once and its first K steps come first: a block multiplies the head of the tile its range ends in before its whole
+// tiles and leaves the accumulators, and finishes the tile its range starts in last from the previous block's accumulators, so
+// every output sums its K steps in the grid's order: the same results bit for bit.
 //
 // Specialization macros: K, N (all rows with MULTI), Y_STRIDE, H_CFG, H_DBN (H_CFG 2), DUAL, H_EPI2 (DUAL), MULTI, MULTI_O1,
 // MULTI_O2, H_BIAS, H_XRS, H_SK. Requires K % 64 == 0, 16-byte aligned operands and an even Y_STRIDE (MULTI: even widths). Grid:
@@ -232,7 +235,8 @@ static __device__ __forceinline__ HMember h_member(const HParams& p, h_u32& n0)
 
 #if H_SK
 // The stream-K walk of a block: dpTiles tiles in full waves (tile blockIdx.x + v gridDim.x for v < dpTiles / gridDim.x), then the
-// K steps [begin, end) of the remaining tiles (global K-step indices tile * nk + kb).
+// K steps [begin, end) of the remaining tiles (global K-step indices tile * nk + kb); with chain (at least gridDim.x shared tiles),
+// head first: [head, end), the whole tiles [tail, head), then [begin, tail) (gemm_fp8_tma.cu's F8nWalk).
 struct HWalk
 {
     h_u32 dpIters;
@@ -241,6 +245,23 @@ struct HWalk
     h_u32 skTiles;
     h_u32 dpTiles;
 };
+
+// Chain: at least gridDim.x shared tiles. Its head [h_head, end) (empty when the range ends on a tile) and tail [begin, h_tail)
+// (empty when the range starts on one).
+static __device__ __forceinline__ bool h_chain(const HWalk& w)
+{
+    return w.skTiles >= gridDim.x;
+}
+
+static __device__ __forceinline__ h_u32 h_head(const HWalk& w)
+{
+    return w.end / (K / 64) * (K / 64);
+}
+
+static __device__ __forceinline__ h_u32 h_tail(const HWalk& w)
+{
+    return (w.begin + K / 64 - 1) / (K / 64) * (K / 64);
+}
 
 // Start of block b's stream-K range (global K-step index).
 static __device__ __forceinline__ h_u32 h_sk_begin(h_u32 b, h_u32 dpTiles, h_u32 skTiles, h_u32 nk)
@@ -273,6 +294,18 @@ static __device__ __forceinline__ HWalk h_walk(h_u32 tiles, h_u32 nk)
     w.end = h_sk_begin(blockIdx.x + 1, w.dpTiles, w.skTiles, nk);
     return w;
 }
+
+// Global K-step index of the block's step m past its full-wave tiles (chain: head, whole tiles, tail).
+static __device__ __forceinline__ h_u32 h_walk_global(const HWalk& w, h_u32 m)
+{
+    if (!h_chain(w))
+    {
+        return w.begin + m;
+    }
+
+    const h_u32 head = h_head(w), tail = h_tail(w), headLength = w.end - head, middle = head - tail;
+    return m < headLength ? head + m : m < headLength + middle ? tail + (m - headLength) : w.begin + (m - headLength - middle);
+}
 #endif
 
 extern "C" __global__ void __launch_bounds__(H_THREADS, H_CFG == 2 ? 2 : 1) gemm_f16_native(HParams p)
@@ -296,12 +329,13 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_CFG == 2 ? 2 : 1) gemm
         }
         else
         {
-            const h_u32 g = walk.begin + (step - walk.dpIters);
+            const h_u32 g = h_walk_global(walk, step - walk.dpIters);
             id = g / nk;
             kbBegin = g % nk;
         }
 
-        const h_u32 kbEnd = min(nk, kbBegin + (total - step));
+        const bool head = h_chain(walk) && step >= walk.dpIters && step - walk.dpIters < walk.end - h_head(walk);
+        const h_u32 kbEnd = head ? walk.end - h_head(walk) : min(nk, kbBegin + (total - step));
         step += kbEnd - kbBegin;
         // The previous segment's last stage reads are done before this one's copies.
         __syncthreads();
@@ -368,6 +402,38 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_CFG == 2 ? 2 : 1) gemm
                 }
             }
         }
+#if H_SK
+        if (h_chain(walk) && kbBegin > 0)
+        {
+            // The tile's last K steps: continue the accumulators of the previous block's head (its first work), so every output
+            // sums its K steps in the order of the grid without stream-K.
+            if (tid == 0)
+            {
+                h_u32 ready = 0;
+                do
+                {
+                    asm volatile("ld.acquire.gpu.global.u32 %0, [%1];\n" : "=r"(ready) : "l"(p.flags + blockIdx.x - 1) : "memory");
+                } while (ready == 0);
+                p.flags[blockIdx.x - 1] = 0;
+            }
+
+            __syncthreads();
+            const float4* previous = (const float4*)p.part + (h_u64)(blockIdx.x - 1) * (H_FM * H_FN * H_THREADS);
+#pragma unroll
+            for (int i = 0; i < H_FM; i++)
+            {
+#pragma unroll
+                for (int j = 0; j < H_FN; j++)
+                {
+                    const float4 v = __ldcg(previous + (i * H_FN + j) * H_THREADS + tid);
+                    acc[i][j][0] = v.x;
+                    acc[i][j][1] = v.y;
+                    acc[i][j][2] = v.z;
+                    acc[i][j][3] = v.w;
+                }
+            }
+        }
+#endif
 
         auto mainLoop = [&](auto partial) {
             constexpr bool Partial = decltype(partial)::value;
@@ -445,9 +511,10 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_CFG == 2 ? 2 : 1) gemm
         asm volatile("cp.async.wait_group 0;\n" ::);
 
 #if H_SK
-        if (kbBegin > 0)
+        if (h_chain(walk) ? head : kbBegin > 0)
         {
-            // A range that starts inside the tile: its partial sums for the block that holds the tile's first K step.
+            // A range that starts inside the tile (chain: the head) leaves its partial sums (its accumulators) for the block that
+            // holds the tile's first K step (that continues the tile).
             float4* slot = (float4*)p.part + (h_u64)blockIdx.x * (H_FM * H_FN * H_THREADS);
 #pragma unroll
             for (int i = 0; i < H_FM; i++)
@@ -469,7 +536,7 @@ extern "C" __global__ void __launch_bounds__(H_THREADS, H_CFG == 2 ? 2 : 1) gemm
             continue;
         }
 
-        if (kbEnd < nk)
+        if (!h_chain(walk) && kbEnd < nk)
         {
             // The tile's other K steps: the partial sums of the following blocks whose ranges start inside it, in block order.
             const h_u32 tileEnd = (tile + 1) * nk;

@@ -89,6 +89,49 @@ public sealed class Fp8GemmTests
     }
 
     /// <summary>
+    /// A batch whose shared tiles fill at least a wave (266 rows of 4,096 outputs: 96 tiles) runs the CUDA provider's tensor-copy GEMM
+    /// stream-K with each cut tile continued from the previous block's accumulators: its outputs equal bit for bit those of the same rows
+    /// in a batch of 2,100 rows, whose 17 token tiles walk tile by tile.
+    /// </summary>
+    [Fact]
+    public void StreamKMatchesTileWalkBitwise()
+    {
+        Gpu.RequireCuda();
+        var (part, whole) = RunPrefix("f8e4m3_b128", 266, 2100, 4096, 8192);
+        Assert.Equal(whole, part);
+    }
+
+    /// <summary>
+    /// The outputs of the first <paramref name="rows"/> rows of a [<paramref name="n"/>, <paramref name="k"/>] matmul of <paramref name="fmt"/>
+    /// weights run as a batch of <paramref name="rows"/> and as one of <paramref name="wholeRows"/> rows (bit patterns).
+    /// </summary>
+    private static (int[] Part, int[] Whole) RunPrefix(string fmt, int rows, int wholeRows, int n, int k)
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, k);
+        tg.B.Output("y", tg.B.MatMul(x, tg.RandW("w", DataType.Get(fmt), 0.05f, n, k)));
+        using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
+        {
+            Devices = [new DeviceSlot { Device = Gpu.Device! }],
+            Compile = new CompileOptions { MaxTokens = wholeRows },
+            ReservePerDevice = 0,
+        });
+        var input = Rnd.F((long)wholeRows * k, 21);
+        int[] Run(int t)
+        {
+            m.SetInput(x, MemoryMarshal.AsBytes(input.AsSpan(0, t * k)));
+            var p = new RunParameters();
+            p.Symbols["T"] = t;
+            m.Run(p);
+            var y = new float[(long)t * n];
+            m.GetOutput<float>("y", y);
+            return [.. y.Take(rows * n).Select(BitConverter.SingleToInt32Bits)];
+        }
+
+        return (Run(rows), Run(wholeRows));
+    }
+
+    /// <summary>
     /// Row counts below the compiled maximum, in the ranges where the fp8 GEMM with <c>SHARPLIGHT_FP8_SHORT_TILES=1</c> takes 64-row
     /// tiles above 64 rows (129-192, 257-320) and splits K: every (tile height, split) of the row counts a step may bind has its
     /// launch variant (the split variants were probed every 128 rows, so those buckets had none and stored nothing).

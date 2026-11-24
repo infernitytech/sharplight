@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -110,6 +112,49 @@ public sealed class MatMulTests
         tg.B.Output("y", tg.B.MatMul(x, w));
         Diff.Check("MatMul.streamk", tg.B.Build(), new Step(t, 0, (x, Rnd.ExactInt8((long)t * k, 11))), atol: 2e-3, rtol: 1e-3, maxTokens: t,
             what: $"T={t} N={n} K={k}");
+    }
+
+    /// <summary>
+    /// A batch whose shared tiles fill at least a wave (300 rows of 6,144 outputs: 120 64 x 256 tiles) runs the CUDA provider's f16 GEMM
+    /// stream-K with each cut tile continued from the previous block's accumulators: its outputs equal bit for bit those of the same rows
+    /// in a batch of 2,100 rows, which walks tile by tile (every tile configuration sums K in the same order).
+    /// </summary>
+    [Fact]
+    public void StreamKMatchesTileWalkBitwise()
+    {
+        Gpu.RequireCuda();
+        var (part, whole) = RunPrefix("bf16", 300, 2100, 6144, 4096);
+        Assert.Equal(whole, part);
+    }
+
+    /// <summary>
+    /// The outputs of the first <paramref name="rows"/> rows of a [<paramref name="n"/>, <paramref name="k"/>] matmul of <paramref name="fmt"/>
+    /// weights run as a batch of <paramref name="rows"/> and as one of <paramref name="wholeRows"/> rows (bit patterns).
+    /// </summary>
+    private static (int[] Part, int[] Whole) RunPrefix(string fmt, int rows, int wholeRows, int n, int k)
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, k);
+        tg.B.Output("y", tg.B.MatMul(x, tg.RandW("w", DataType.Get(fmt), 0.05f, n, k)));
+        using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
+        {
+            Devices = [new DeviceSlot { Device = Gpu.Device! }],
+            Compile = new CompileOptions { MaxTokens = wholeRows },
+            ReservePerDevice = 0,
+        });
+        var input = Rnd.F((long)wholeRows * k, 21);
+        int[] Run(int t)
+        {
+            m.SetInput(x, MemoryMarshal.AsBytes(input.AsSpan(0, t * k)));
+            var p = new RunParameters();
+            p.Symbols["T"] = t;
+            m.Run(p);
+            var y = new float[(long)t * n];
+            m.GetOutput<float>("y", y);
+            return [.. y.Take(rows * n).Select(BitConverter.SingleToInt32Bits)];
+        }
+
+        return (Run(rows), Run(wholeRows));
     }
 
     [Theory]
