@@ -28,6 +28,26 @@ public sealed class CompiledModel : IDisposable
     private readonly int[] _residentIn;
     private readonly bool _keepsResident = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_RESIDENT") is not ("0" or "false");
     /// <summary>
+    /// Per streamed segment whose compilation copies only the experts a pass selects (<see cref="IStreamedSegment.StreamsSelectedExperts"/>):
+    /// the ids input those experts are read from, else null. A pass of many rows selects only part of a large bank (a 512-token prompt over
+    /// 128 experts of top 4 reads about half of them), and the copies over the bus are what such a pass waits for; the copy starts once the
+    /// segment before it produced the ids instead of while it runs. The last streamed segment of each memory (the one that stays resident) is
+    /// copied whole. <c>SHARPLIGHT_STREAM_SELECTED_EXPERTS=0</c> copies every expert.
+    /// </summary>
+    private readonly Value?[] _selectedExpertIds;
+    /// <summary>
+    /// Per streamed segment of <see cref="_selectedExpertIds"/> and row count: the passes since its last selection when that selected nearly
+    /// all experts (<see cref="WholeBankFraction"/>), so its copies start ahead as whole copies again (they overlap the segment before it);
+    /// every <see cref="SelectionProbeInterval"/> passes it selects once more, as the routing changes with the text.
+    /// </summary>
+    private readonly Dictionary<(int Segment, long Rows), int> _wholeBankPasses = [];
+    /// <summary>The share of a bank's experts from which a selection copies about as much as the whole bank.</summary>
+    private const double WholeBankFraction = 0.9;
+    /// <summary>Whole-bank passes between two selections of a segment that selected nearly all experts.</summary>
+    private const int SelectionProbeInterval = 8;
+    /// <summary>Per segment, whether the current run copies its selected experts (<see cref="SelectsExperts"/>, decided when the run starts).</summary>
+    private readonly bool[] _selectingNow;
+    /// <summary>
     /// Per CPU segment of routed experts: its GPU compilation that copies in only the experts a pass selects
     /// (<see cref="CompileOptions.SparseExpertSlots"/>), or null. Small passes (decode) run the slots of every row partly there and partly on the
     /// CPU at the same time (<see cref="RunSplit"/>).
@@ -143,6 +163,17 @@ public sealed class CompiledModel : IDisposable
                 }
             }
         }
+
+        _selectedExpertIds = new Value?[segments.Length];
+        _selectingNow = new bool[segments.Length];
+        bool selects = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_SELECTED_EXPERTS") is not ("0" or "false");
+        for (int i = 0; i < streamed.Length && selects; i++)
+        {
+            if (streamed[i] is IStreamedSegment { StreamsSelectedExperts: true } && !_residentIn.Contains(i))
+            {
+                _selectedExpertIds[i] = SparseExpertIds(segments[i].Segment);
+            }
+        }
     }
 
     /// <summary>Starts the copy of streamed segment <paramref name="i"/>'s weights into its memory, unless the memory still holds them.</summary>
@@ -152,6 +183,75 @@ public sealed class CompiledModel : IDisposable
         segment.WeightsResident = _residentIn[buffer] == i;
         segment.BeginStreaming();
         _residentIn[buffer] = i;
+    }
+
+    /// <summary>
+    /// Starts the copy of streamed segment <paramref name="i"/>'s weights for the pass about to run it: of its expert banks only the experts
+    /// the pass selects when it streams selected experts (<see cref="_selectedExpertIds"/>) and the ids are on the host, else all of them.
+    /// </summary>
+    private void Stream(int i, IStreamedSegment segment, RunParameters parameters)
+    {
+        int buffer = _streamBufferOf[i];
+        if (!_selectingNow[i] || _selectedExpertIds[i] is not { } ids || _residentIn[buffer] == i || !_hostValues.TryGetValue(ids, out var hostIds))
+        {
+            Stream(i, segment);
+            return;
+        }
+
+        var expertIds = MemoryMarshal.Cast<byte, int>(hostIds.AsSpan(0, (int)ByteCount(ids, parameters)));
+        long rows = ids.Shape.Resolve(parameters.Symbols)[0];
+        int experts = _segments[i].Segment.Nodes.Where(n => n.Op.Name == "MatMulId").Max(n => (int)n.Inputs[1].Shape[0].Fixed);
+        if (SelectedFraction(expertIds, experts) >= WholeBankFraction)
+        {
+            _wholeBankPasses[(i, rows)] = 0;
+        }
+        else
+        {
+            _wholeBankPasses.Remove((i, rows));
+        }
+
+        segment.WeightsResident = false;
+        segment.BeginStreaming(expertIds);
+        _residentIn[buffer] = -1;
+    }
+
+    /// <summary>The share of <paramref name="experts"/> experts that <paramref name="expertIds"/> selects.</summary>
+    private static double SelectedFraction(ReadOnlySpan<int> expertIds, int experts)
+    {
+        Span<bool> used = experts <= 4096 ? stackalloc bool[experts] : new bool[experts];
+        int count = 0;
+        foreach (int id in expertIds)
+        {
+            if ((uint)id < (uint)experts && !used[id])
+            {
+                used[id] = true;
+                count++;
+            }
+        }
+
+        return (double)count / experts;
+    }
+
+    /// <summary>
+    /// Whether streamed segment <paramref name="i"/> copies the experts its pass selects (when its ids are known) rather than its whole
+    /// banks ahead: it selects them unless its last selection at this row count selected nearly all experts, and then once every
+    /// <see cref="SelectionProbeInterval"/> passes.
+    /// </summary>
+    private bool SelectsExperts(int i, RunParameters parameters)
+    {
+        if (_selectedExpertIds[i] is not { } ids)
+        {
+            return false;
+        }
+
+        var key = (i, ids.Shape.Resolve(parameters.Symbols)[0]);
+        if (!_wholeBankPasses.TryGetValue(key, out int passes))
+        {
+            return true;
+        }
+
+        _wholeBankPasses[key] = passes + 1;
+        return passes + 1 >= SelectionProbeInterval;
     }
 
     /// <summary>
@@ -733,7 +833,8 @@ public sealed class CompiledModel : IDisposable
                 continue;
             }
 
-            if (Runner(j, parameters) is not IStreamedSegment next || busy[StreamBufferOf(j)])
+            // A segment that copies the experts its pass selects starts when the ids are known (the segment before it ran).
+            if (Runner(j, parameters) is not IStreamedSegment next || busy[StreamBufferOf(j)] || _selectingNow[j] && _residentIn[StreamBufferOf(j)] != j)
             {
                 return;
             }
@@ -883,6 +984,11 @@ public sealed class CompiledModel : IDisposable
 
         for (int i = 0; i < _segments.Length; i++)
         {
+            _selectingNow[i] = SelectsExperts(i, parameters);
+        }
+
+        for (int i = 0; i < _segments.Length; i++)
+        {
             long started = _segmentTimes is null ? 0 : Stopwatch.GetTimestamp();
             if (RunSplit(i, parameters))
             {
@@ -898,7 +1004,7 @@ public sealed class CompiledModel : IDisposable
             var seg = Runner(i, parameters);
             if (seg is IStreamedSegment streamed && seg == _streamed[i])
             {
-                Stream(i, streamed);
+                Stream(i, streamed, parameters);
             }
 
             BeginStreamingAhead(i, parameters);

@@ -152,6 +152,67 @@ public sealed class StreamedExpertsTests
         }
     }
 
+    /// <summary>
+    /// Large passes over routed CPU layers copy only the experts they select into the streaming memory (the rest of the memory keeps the
+    /// experts of earlier layers and passes) and match the GPU-only compilation, pass after pass with different routings.
+    /// </summary>
+    [Fact]
+    public void StreamedSelectedExpertsMatchTheGpu()
+    {
+        Gpu.Require();
+        var mapped = new List<NativeSource>();
+        try
+        {
+            // Twenty rows of two slots select at most 40 of 96 experts.
+            const int experts = 96;
+            const int rows = 20;
+            const long expertBytes = 2L * experts * Inner * Hidden * sizeof(float);
+            const long routerBytes = experts * Hidden * sizeof(float);
+            var graph = BuildRoutedGraph(out var x, mapped, experts);
+            var split = new PlacementOptions
+            {
+                // The dense layers and routers, the streaming memory, the sparse banks and half a layer more: most experts move to the CPU.
+                Devices = [new DeviceSlot { Device = Gpu.Device!, MemoryLimit = Layers * (DenseBytes + routerBytes) + expertBytes + expertBytes / 2 + (128 << 10) }],
+                Fallback = new DeviceSlot { Device = Gpu.Cpu },
+                Compile = Compile,
+                ReservePerDevice = 0,
+                ReservePerSegment = 0,
+                StreamExpertsMinRows = MinRows,
+            };
+            using var model = CompiledModel.Compile(graph, split);
+            Assert.True(model.StreamedSegmentCount >= 2, $"{model.StreamedSegmentCount} streamed segments");
+            using var gpu = CompiledModel.Compile(graph, new PlacementOptions { Devices = [new DeviceSlot { Device = Gpu.Device! }], Compile = Compile });
+            float[] Run(CompiledModel m, float[] input)
+            {
+                m.SetInput(x, System.Runtime.InteropServices.MemoryMarshal.AsBytes(input.AsSpan()));
+                var p = new RunParameters();
+                p.Symbols["T"] = rows;
+                m.Run(p);
+                var y = new float[rows * Hidden];
+                m.GetOutput<float>("y", y);
+                return y;
+            }
+
+            for (int pass = 0; pass < 4; pass++)
+            {
+                var input = Rnd.F(rows * Hidden, 3 + pass);
+                var expected = Run(gpu, input);
+                var actual = Run(model, input);
+                for (int i = 0; i < actual.Length; i++)
+                {
+                    Assert.True(Math.Abs(expected[i] - actual[i]) <= 1e-4 + 1e-4 * Math.Abs(expected[i]), $"pass {pass} [{i}]: {actual[i]} vs the GPU's {expected[i]}");
+                }
+            }
+        }
+        finally
+        {
+            foreach (var source in mapped)
+            {
+                source.Dispose();
+            }
+        }
+    }
+
     [Theory]
     [InlineData(40, 1)]
     [InlineData(40, 2)]
