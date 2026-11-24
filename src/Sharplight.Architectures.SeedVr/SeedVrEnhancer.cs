@@ -162,6 +162,7 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
             for (int b = 0; b < batches; b++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                emit(new VideoEnhancementUpdate(VideoEnhancementPhase.Decoding, b, batches));
                 var images = Decode(plan, plan.Batches[b], restored[b], references[b]);
                 all.AddRange(images);
                 emit(new VideoEnhancementUpdate(VideoEnhancementPhase.Decoding, b, batches, images));
