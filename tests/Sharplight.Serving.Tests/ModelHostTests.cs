@@ -116,6 +116,27 @@ public class ModelHostTests
     }
 
     [Fact]
+    public async Task OverBudget_ShrinksDefaultCaches_InsteadOfRefusing()
+    {
+        var pool = new FakePool("gpu", 10 * GiB) { External = 5 * GiB };
+        var l = new FakeLoader(pool, 8 * GiB) { ShrinkableTo = 4 * GiB };
+        using var host = Host(reserve: 0);
+        host.Register(Reg("m", l));
+        using var lease = await host.AcquireAsync("m");
+        Assert.Equal(5 * GiB, l.LastLimit);          // loaded into what is free, no offload needed
+        Assert.Equal(5 * GiB, lease.Model.ResidentBytes);
+    }
+
+    [Fact]
+    public async Task OverBudget_Refuses_WhenEvenShrunkCachesDoNotFit()
+    {
+        var pool = new FakePool("gpu", 10 * GiB) { External = 7 * GiB };
+        using var host = Host(reserve: 0);
+        host.Register(Reg("m", new FakeLoader(pool, 8 * GiB) { ShrinkableTo = 4 * GiB }));
+        await Assert.ThrowsAsync<ModelDoesNotFitException>(() => host.AcquireAsync("m"));
+    }
+
+    [Fact]
     public async Task Eviction_UnloadsLeastRecentlyUsedIdleModel()
     {
         var pool = new FakePool("gpu", 10 * GiB);

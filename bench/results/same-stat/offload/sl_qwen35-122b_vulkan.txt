@@ -1,0 +1,6 @@
+== 2026-11-24T11:56:14Z sharplight qwen35-122b vulkan A
+prefill 512 tok: best 523 ms = 979.2 tok/s | decode: best 69.50, median 66.67, mean 63.78 tok/s | GPU ms/step: best 8.51, median 8.56, wall best 14.39 | prefill median of 5: 537.8 ms = 952.0 tok/s | per run: prefill 948.1 ± 30.9 tok/s of 5, decode 63.89 ± 2.97 tok/s of 5 (59.36, 62.59, 65.56, 65.04, 66.91)
+== 2026-11-24T15:43:11Z sharplight qwen35-122b vulkan B
+prefill 512 tok: best 507 ms = 1010.1 tok/s | decode: best 68.96, median 64.00, mean 61.94 tok/s | GPU ms/step: best 8.50, median 8.55, wall best 14.50 | prefill median of 5: 695.0 ms = 736.7 tok/s | per run: prefill 821.1 ± 156.2 tok/s of 5, decode 62.07 ± 3.09 tok/s of 5 (56.79, 63.16, 64.17, 64.23, 61.99)
+== 2026-11-24T17:51:10Z sharplight qwen35-122b vulkan C
+prefill 512 tok: best 508 ms = 1008.4 tok/s | decode: best 69.40, median 65.37, mean 63.38 tok/s | GPU ms/step: best 8.52, median 8.57, wall best 14.41 | prefill median of 5: 538.7 ms = 950.4 tok/s | per run: prefill 955.0 ± 40.8 tok/s of 5, decode 63.46 ± 2.49 tok/s of 5 (59.99, 61.70, 65.29, 64.63, 65.67)

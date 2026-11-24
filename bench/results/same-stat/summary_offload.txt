@@ -1,0 +1,63 @@
+## coder-next_cuda
+SL A: pp512 683.8 ± 9.5 (n=5), tg64@512 92.51 ± 7.87 (n=5: 79.81, 90.82, 97.80, 94.39, 99.72); step best/median 106.38 / 96.64; timed phase (estimated) 14 s: 931 majflt, 423 MB read; whole run 29287 majflt, 46356 MB read, min cgroup cache 43764 MB
+SL B: pp512 683.2 ± 9.6 (n=5), tg64@512 93.26 ± 7.51 (n=5: 79.89, 95.60, 96.31, 96.85, 97.67); step best/median 102.12 / 96.87; timed phase (marked) 11 s: 0 majflt, 0 MB read; whole run 1014 majflt, 220 MB read, min cgroup cache 53703 MB
+SL C: pp512 682.4 ± 10.0 (n=5), tg64@512 90.54 ± 10.42 (n=5: 74.64, 85.86, 93.98, 99.63, 98.59); step best/median 104.22 / 94.22; timed phase (marked) 11 s: 0 majflt, 0 MB read; whole run 29868 majflt, 46386 MB read, min cgroup cache 32160 MB
+llama A: pp512 550.56 ± 13.30 (ncmoe 18); tg64 93.24 ± 2.29 (ncmoe 18); pp512 @ d512 560.00 ± 9.24 (ncmoe 18); tg64 @ d512 94.03 ± 1.90 (ncmoe 18); pp512 589.86 ± 12.80 (ncmoe 16); tg64 100.37 ± 2.03 (ncmoe 16); timed phase (estimated) 32 s: 840 majflt, 151 MB read; whole run 841 majflt, 151 MB read, min cgroup cache 47254 MB
+llama A2: tg64 @ d512 73.01 ± 24.90 (ncmoe 17); tg64 @ d512 93.67 ± 1.63 (ncmoe 16); timed phase (estimated) 20 s: 3185 majflt, 12813 MB read; whole run 3905 majflt, 12909 MB read, min cgroup cache 38374 MB
+llama A2pp: pp512 471.66 ± 108.39 (ncmoe 17); pp512 578.64 ± 13.42 (ncmoe 16); timed phase (estimated) 25 s: 3662 majflt, 20804 MB read; whole run 4471 majflt, 47739 MB read, min cgroup cache 42558 MB
+llama B: tg64 @ d512 100.66 ± 3.84 (ncmoe 16); timed phase (estimated) 5 s: 702 majflt, 127 MB read; whole run 741 majflt, 127 MB read, min cgroup cache 55385 MB
+llama Bpp: pp512 583.31 ± 22.67 (ncmoe 16); timed phase (estimated) 13 s: 45 majflt, 34044 MB read; whole run 1298 majflt, 47758 MB read, min cgroup cache 50795 MB
+llama C: tg64 @ d512 97.03 ± 1.93 (ncmoe 16); timed phase (estimated) 5 s: 0 majflt, 0 MB read; whole run 38 majflt, 0 MB read, min cgroup cache 52850 MB
+llama Cpp: pp512 594.16 ± 16.33 (ncmoe 16); timed phase (estimated) 6 s: 691 majflt, 86 MB read; whole run 801 majflt, 95 MB read, min cgroup cache 52664 MB
+## coder-next_vulkan
+SL A: pp512 502.6 ± 29.1 (n=5), tg64@512 89.05 ± 5.48 (n=5: 79.35, 92.31, 91.34, 90.21, 92.03); step best/median 95.45 / 91.75; timed phase (estimated) 18 s: 35362 majflt, 8296 MB read; whole run 103097 majflt, 46594 MB read, min cgroup cache 48245 MB
+SL B: pp512 483.3 ± 19.8 (n=5), tg64@512 82.84 ± 9.91 (n=5: 67.67, 78.23, 89.93, 86.94, 91.45); step best/median 95.51 / 86.78; timed phase (marked) 15 s: 0 majflt, 0 MB read; whole run 452 majflt, 111 MB read, min cgroup cache 53012 MB
+SL C: pp512 314.6 ± 10.8 (n=5), tg64@512 41.43 ± 2.99 (n=5: 36.83, 41.42, 43.10, 40.94, 44.84); step best/median 90.28 / 79.91; timed phase (marked) 25 s: 0 majflt, 0 MB read; whole run 103075 majflt, 47281 MB read, min cgroup cache 50700 MB
+SL D: pp512 490.7 ± 27.3 (n=5), tg64@512 84.45 ± 3.66 (n=5: 78.20, 85.77, 84.36, 86.54, 87.37); step best/median 91.63 / 86.80; timed phase (marked) 15 s: 0 majflt, 0 MB read; whole run 502 majflt, 187 MB read, min cgroup cache 53382 MB
+llama A: tg64 @ d512 50.14 ± 1.79 (ncmoe 22); tg64 @ d512 54.90 ± 1.86 (ncmoe 20); tg64 @ d512 57.37 ± 1.81 (ncmoe 18); timed phase (estimated) 36 s: 44 majflt, 0 MB read; whole run 44 majflt, 0 MB read, min cgroup cache 48396 MB
+llama App: pp512 300.38 ± 2.33 (ncmoe 22); pp512 322.34 ± 4.64 (ncmoe 20); pp512 350.02 ± 6.14 (ncmoe 18); timed phase (estimated) 45 s: 323 majflt, 72 MB read; whole run 324 majflt, 72 MB read, min cgroup cache 48266 MB
+llama B: tg64 @ d512 56.82 ± 1.21 (ncmoe 18); tg64 @ d512 61.03 ± 1.78 (ncmoe 16); timed phase (estimated) 24 s: 0 majflt, 0 MB read; whole run 140 majflt, 16 MB read, min cgroup cache 55427 MB
+llama Bpp: pp512 312.89 ± 23.41 (ncmoe 18); pp512 373.69 ± 13.97 (ncmoe 16); timed phase (estimated) 31 s: 2185 majflt, 797 MB read; whole run 13756 majflt, 52997 MB read, min cgroup cache 37540 MB
+llama C: tg64 @ d512 38.78 ± 6.12 (ncmoe 16); timed phase (estimated) 8 s: 0 majflt, 0 MB read; whole run 39 majflt, 0 MB read, min cgroup cache 53380 MB
+llama Cpp: pp512 229.19 ± 87.35 (ncmoe 16); timed phase (estimated) 12 s: 716 majflt, 212 MB read; whole run 738 majflt, 215 MB read, min cgroup cache 53118 MB
+llama D: tg64 @ d512 61.14 ± 0.78 (ncmoe 16); timed phase (estimated) 11 s: 169 majflt, 11194 MB read; whole run 205 majflt, 11197 MB read, min cgroup cache 50068 MB
+llama Dpp: pp512 300.15 ± 44.87 (ncmoe 16); timed phase (estimated) 18 s: 580 majflt, 46662 MB read; whole run 33507 majflt, 60439 MB read, min cgroup cache 41034 MB
+## gpt-oss-120b_cuda
+SL A: pp512 307.2 ± 8.8 (n=5), tg64@512 49.19 ± 3.65 (n=5: 42.90, 51.24, 50.42, 52.03, 49.36); step best/median 54.70 / 50.57; timed phase (marked) 24 s: 11 majflt, 1 MB read; whole run 181440 majflt, 176 MB read, min cgroup cache 33179 MB
+SL B: pp512 293.2 ± 14.2 (n=5), tg64@512 48.79 ± 7.15 (n=5: 36.04, 51.80, 52.61, 52.27, 51.24); step best/median 54.77 / 52.62; timed phase (marked) 24 s: 1427 majflt, 158 MB read; whole run 31452 majflt, 60692 MB read, min cgroup cache 37748 MB
+SL C: pp512 256.3 ± 48.9 (n=5), tg64@512 32.23 ± 6.48 (n=5: 22.51, 32.84, 39.08, 29.94, 36.78); step best/median 53.86 / 46.52; timed phase (marked) 31 s: 5284 majflt, 87 MB read; whole run 35755 majflt, 60684 MB read, min cgroup cache 29749 MB
+llama A: tg64 @ d512 26.67 ± 4.48 (ncmoe 22); tg64 @ d512 9.97 ± 5.37 (ncmoe 20); tg64 @ d512 5.72 ± 3.26 (ncmoe 18); timed phase (estimated) 118 s: 4321 majflt, 1 MB read; whole run 200350 majflt, 120 MB read, min cgroup cache 334 MB
+llama App: pp512 82.96 ± 32.19 (ncmoe 22); pp512 118.87 ± 48.06 (ncmoe 20); pp512 118.79 ± 55.92 (ncmoe 18); timed phase (estimated) 106 s: 532 majflt, 1 MB read; whole run 49413 majflt, 129 MB read, min cgroup cache 317 MB
+llama B: ; 
+llama B2: tg64 @ d512 42.61 ± 4.46 (ncmoe 22, lm mmap); tg64 @ d512 26.52 ± 3.70 (ncmoe 22, lm none); tg64 @ d512 16.95 ± 3.28 (ncmoe 24, lm mmap); tg64 @ d512 32.44 ± 2.74 (ncmoe 24, lm none); timed phase (estimated) 13 s: 783 majflt, 45755 MB read; whole run 118356 majflt, 233386 MB read, min cgroup cache 13674 MB
+llama B2pp: pp512 328.01 ± 22.61 (ncmoe 22, lm mmap); pp512 636.97 ± 11.05 (ncmoe 22, lm none); pp512 295.74 ± 19.32 (ncmoe 24, lm mmap); pp512 608.14 ± 16.77 (ncmoe 24, lm none); timed phase (estimated) 52 s: 519 majflt, 97110 MB read; whole run 9855 majflt, 229723 MB read, min cgroup cache 15979 MB
+llama Bpp: ; 
+llama C: tg64 @ d512 42.97 ± 1.70 (ncmoe 22, lm mmap); tg64 @ d512 47.38 ± 1.67 (ncmoe 22, lm none); tg64 @ d512 32.48 ± 2.90 (ncmoe 24, lm mmap); tg64 @ d512 45.30 ± 0.59 (ncmoe 24, lm none); timed phase (estimated) 54 s: 925 majflt, 89184 MB read; whole run 80223 majflt, 200776 MB read, min cgroup cache 15506 MB
+llama Cpp: pp512 292.17 ± 52.17 (ncmoe 22, lm mmap); pp512 637.46 ± 12.52 (ncmoe 22, lm none); pp512 257.88 ± 59.57 (ncmoe 24, lm mmap); pp512 606.19 ± 16.70 (ncmoe 24, lm none); timed phase (estimated) 55 s: 520 majflt, 92498 MB read; whole run 40098 majflt, 195955 MB read, min cgroup cache 15532 MB
+## gpt-oss-120b_vulkan
+SL B: pp512 236.1 ± 61.1 (n=5), tg64@512 33.52 ± 1.35 (n=5: 31.82, 34.58, 34.93, 33.82, 32.43); step best/median 49.62 / 44.09; timed phase (marked) 31 s: 18610 majflt, 3463 MB read; whole run 63857 majflt, 30503 MB read, min cgroup cache 40807 MB
+SL C: pp512 247.0 ± 50.2 (n=5), tg64@512 34.80 ± 8.00 (n=5: 32.18, 35.76, 39.67, 43.69, 22.73); step best/median 49.25 / 40.44; timed phase (marked) 9 s: 19173 majflt, 589 MB read; whole run 108761 majflt, 58768 MB read, min cgroup cache 32541 MB
+llama B: tg64 @ d512 37.46 ± 0.67 (ncmoe 22, lm mmap); tg64 @ d512 23.93 ± 10.85 (ncmoe 22, lm none); tg64 @ d512 24.18 ± 6.30 (ncmoe 24, lm mmap); tg64 @ d512 34.97 ± 0.81 (ncmoe 24, lm none); timed phase (estimated) 67 s: 15191 majflt, 36501 MB read; whole run 21943 majflt, 68865 MB read, min cgroup cache 54280 MB
+llama Bpp: pp512 171.14 ± 20.16 (ncmoe 22, lm mmap); pp512 545.62 ± 10.04 (ncmoe 22, lm none); pp512 170.34 ± 25.03 (ncmoe 24, lm mmap); pp512 522.44 ± 11.89 (ncmoe 24, lm none); timed phase (estimated) 70 s: 8274 majflt, 83616 MB read; whole run 16494 majflt, 103701 MB read, min cgroup cache 40331 MB
+llama C: tg64 @ d512 36.79 ± 1.02 (ncmoe 22, lm mmap); tg64 @ d512 39.58 ± 0.85 (ncmoe 22, lm none); tg64 @ d512 32.11 ± 2.40 (ncmoe 24, lm mmap); tg64 @ d512 37.45 ± 0.41 (ncmoe 24, lm none); timed phase (estimated) 58 s: 28172 majflt, 34969 MB read; whole run 49927 majflt, 81268 MB read, min cgroup cache 54200 MB
+llama Cpp: pp512 127.50 ± 24.82 (ncmoe 22, lm mmap); pp512 544.21 ± 9.85 (ncmoe 22, lm none); pp512 182.68 ± 10.44 (ncmoe 24, lm mmap); pp512 523.47 ± 11.83 (ncmoe 24, lm none); timed phase (estimated) 75 s: 17435 majflt, 45591 MB read; whole run 50980 majflt, 151463 MB read, min cgroup cache 30197 MB
+## qwen35-122b_cuda
+SL A: pp512 1004.7 ± 0.5 (n=5), tg64@512 72.34 ± 1.67 (n=5: 70.02, 71.12, 73.70, 73.29, 73.55); step best/median 76.17 / 73.47; timed phase (estimated) 13 s: 698 majflt, 689 MB read; whole run 28960 majflt, 35010 MB read, min cgroup cache 49836 MB
+SL B: pp512 1001.9 ± 0.9 (n=5), tg64@512 71.36 ± 1.73 (n=5: 68.79, 70.40, 72.31, 72.92, 72.39); step best/median 76.49 / 72.36; timed phase (marked) 10 s: 0 majflt, 0 MB read; whole run 1043 majflt, 220 MB read, min cgroup cache 54109 MB
+SL C: pp512 1005.0 ± 0.8 (n=5), tg64@512 73.96 ± 2.00 (n=5: 70.53, 73.97, 74.74, 75.40, 75.19); step best/median 77.12 / 75.96; timed phase (marked) 10 s: 0 majflt, 0 MB read; whole run 28674 majflt, 35045 MB read, min cgroup cache 35854 MB
+llama A: tg64 @ d512 66.71 ± 0.68 (ncmoe 8); tg64 @ d512 72.51 ± 0.68 (ncmoe 6); timed phase (estimated) 16 s: 38 majflt, 0 MB read; whole run 38 majflt, 0 MB read, min cgroup cache 50029 MB
+llama App: pp512 871.55 ± 27.29 (ncmoe 8); pp512 986.64 ± 16.50 (ncmoe 6); timed phase (estimated) 20 s: 130 majflt, 11 MB read; whole run 247 majflt, 90 MB read, min cgroup cache 49830 MB
+llama B: tg64 @ d512 69.54 ± 2.16 (ncmoe 6); timed phase (estimated) 5 s: 12 majflt, 3 MB read; whole run 51 majflt, 3 MB read, min cgroup cache 54869 MB
+llama Bpp: pp512 963.46 ± 51.11 (ncmoe 6); timed phase (estimated) 11 s: 0 majflt, 18347 MB read; whole run 792 majflt, 35035 MB read, min cgroup cache 37817 MB
+llama C: tg64 @ d512 71.98 ± 1.17 (ncmoe 6); timed phase (estimated) 5 s: 0 majflt, 0 MB read; whole run 35 majflt, 0 MB read, min cgroup cache 54138 MB
+llama Cpp: pp512 996.33 ± 38.62 (ncmoe 6); timed phase (estimated) 5 s: 693 majflt, 89 MB read; whole run 818 majflt, 100 MB read, min cgroup cache 53952 MB
+## qwen35-122b_vulkan
+SL A: pp512 948.1 ± 30.9 (n=5), tg64@512 63.89 ± 2.97 (n=5: 59.36, 62.59, 65.56, 65.04, 66.91); step best/median 69.50 / 66.67; timed phase (estimated) 14 s: 16234 majflt, 5541 MB read; whole run 45092 majflt, 34983 MB read, min cgroup cache 48462 MB
+SL B: pp512 821.1 ± 156.2 (n=5), tg64@512 62.07 ± 3.09 (n=5: 56.79, 63.16, 64.17, 64.23, 61.99); step best/median 68.96 / 64.00; timed phase (marked) 11 s: 0 majflt, 0 MB read; whole run 284 majflt, 134 MB read, min cgroup cache 45114 MB
+SL C: pp512 955.0 ± 40.8 (n=5), tg64@512 63.46 ± 2.49 (n=5: 59.99, 61.70, 65.29, 64.63, 65.67); step best/median 69.40 / 65.37; timed phase (marked) 10 s: 0 majflt, 0 MB read; whole run 44855 majflt, 34997 MB read, min cgroup cache 35182 MB
+llama A: tg64 @ d512 44.18 ± 0.80 (ncmoe 8); tg64 @ d512 45.59 ± 1.64 (ncmoe 6); timed phase (estimated) 27 s: 0 majflt, 0 MB read; whole run 35 majflt, 0 MB read, min cgroup cache 48474 MB
+llama App: pp512 645.92 ± 8.55 (ncmoe 8); pp512 747.25 ± 19.68 (ncmoe 6); timed phase (estimated) 22 s: 0 majflt, 0 MB read; whole run 90 majflt, 20 MB read, min cgroup cache 48446 MB
+llama B: tg64 @ d512 37.91 ± 2.78 (ncmoe 6); timed phase (estimated) 6 s: 107 majflt, 6 MB read; whole run 145 majflt, 6 MB read, min cgroup cache 52741 MB
+llama Bpp: pp512 752.30 ± 13.63 (ncmoe 6); timed phase (estimated) 12 s: 8 majflt, 20351 MB read; whole run 343 majflt, 34957 MB read, min cgroup cache 38865 MB
+llama C: tg64 @ d512 46.70 ± 0.95 (ncmoe 6); timed phase (estimated) 6 s: 0 majflt, 0 MB read; whole run 33 majflt, 0 MB read, min cgroup cache 53931 MB
+llama Cpp: pp512 739.72 ± 21.13 (ncmoe 6); timed phase (estimated) 7 s: 287 majflt, 5 MB read; whole run 306 majflt, 8 MB read, min cgroup cache 53898 MB

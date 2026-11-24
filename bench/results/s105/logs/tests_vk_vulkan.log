@@ -1,0 +1,8 @@
+# hold 10:26:12 apps: 
+Sharplight.Vulkan.Tests PagedAttentionTests rc=0 Total: 14, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests FullAttentionTests rc=0 Total: 30, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests SparseAttentionTests rc=0 Total: 15, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests StatefulTests rc=0 Total: 78, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests CompressedKvTests rc=0 Total: 12, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests FusionTests rc=0 Total: 107, Errors: 0, Failed: 0, Skipped: 0
+# release 10:27:03

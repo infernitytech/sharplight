@@ -1,7 +1,0 @@
-Unhandled exception. System.NotSupportedException: No registered importer can open 'base|base|X=1'. Registered formats: gguf, esrgan, hf, onnx, whisper.cpp, kokoro, acestep, stable-audio, chatterbox, voxcpm, f5tts, vocos, xtts, cosyvoice, snac, silero-vad, ultralytics-onnx, diffusers, sharplight
-   at Sharplight.Models.ModelImporterCatalog.Open(String path) in $TREE/src/Sharplight.Core/Models/ModelImporterCatalog.cs:line 51
-   at Sharplight.Models.ModelImporterCatalog.OpenSet(String path, IEnumerable`1 auxiliary) in $TREE/src/Sharplight.Core/Models/ModelImporterCatalog.cs:line 83
-   at Sharplight.Models.ModelLoader.Open(String path, IEnumerable`1 auxiliary) in $TREE/src/Sharplight.Core/Models/ModelLoader.cs:line 43
-   at Sharplight.Models.ModelLoader.Load(String path, IEnumerable`1 auxiliary, AdapterOptions adapter, IProgress`1 progress, Action`1 log, CancellationToken cancellationToken, Func`2 transformSources) in $TREE/src/Sharplight.Core/Models/ModelLoader.cs:line 90
-   at Sharplight.Llm.LlmModel.Load(ModelLoader loader, String path, LlmLoadOptions options) in $TREE/src/Sharplight.Core/Llm/LlmModel.cs:line 172
-   at Program.<Main>$(String[] args) in $TREE/bench/BatchBench/Program.cs:line 53

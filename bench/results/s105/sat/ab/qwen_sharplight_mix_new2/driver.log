@@ -1,0 +1,8 @@
+ready=1 after 60 s
+{"concurrency": 128, "requests": 1024, "errors": 0, "wall_s": 74.71830130193848, "agg_tok_s": 2753.729627344485, "out_tokens": 205754, "avg_out_tokens": 200.931640625, "avg_prompt_tokens": 291.8984375, "shared_prefix_words": 0, "per_stream_tok_s": 30.846246660827838, "ttft_p50_ms": 101.01330000907183, "ttft_p95_ms": 1588.3838664682116, "itl_mean_ms": 32.41885507159341, "itl_p50_ms": 25.91968548949
+{"concurrency": 256, "requests": 2048, "errors": 0, "wall_s": 129.69175605999772, "agg_tok_s": 3168.4666202676694, "out_tokens": 410924, "avg_out_tokens": 200.646484375, "avg_prompt_tokens": 286.8408203125, "shared_prefix_words": 0, "per_stream_tok_s": 17.14764286930824, "ttft_p50_ms": 219.00016901781783, "ttft_p95_ms": 2973.319108557189, "itl_mean_ms": 58.31705311462097, "itl_p50_ms": 47.65812901
+textcheck wave 16: 5/16 identical to single-request, 3 part within 3 words, 0 garbage -> ok
+textcheck wave 256: 90/256 identical to single-request, 38 part within 3 words, 1 garbage -> FAIL
+  #64 ['symbols:0.28']: ' The essay should be at least 1500 words.\n**The Role of Water and Power in Modern History**  \n**Intr'
+textcheck: GARBAGE
+TEXT CHECK FAILED (rc=1): batched greedy text differs from single-request text, see <path>

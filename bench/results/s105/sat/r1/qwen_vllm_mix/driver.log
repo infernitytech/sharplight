@@ -1,0 +1,7 @@
+ready=1 after 202 s
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 26.79116416501347, "agg_tok_s": 1456.7489400466811, "out_tokens": 39028, "avg_out_tokens": 203.27083333333334, "avg_prompt_tokens": 305.328125, "shared_prefix_words": 0, "per_stream_tok_s": 47.51932646804671, "ttft_p50_ms": 113.24823292670771, "ttft_p95_ms": 1129.430476948619, "itl_mean_ms": 21.04406931509072, "itl_p50_ms": 16.03115297621
+{"concurrency": 128, "requests": 384, "errors": 0, "wall_s": 36.874003116972744, "agg_tok_s": 2178.0385423635416, "out_tokens": 80313, "avg_out_tokens": 209.1484375, "avg_prompt_tokens": 296.0520833333333, "shared_prefix_words": 0, "per_stream_tok_s": 29.687799370171078, "ttft_p50_ms": 166.29729501437396, "ttft_p95_ms": 2165.221358014969, "itl_mean_ms": 33.683870856549696, "itl_p50_ms": 22.8335759
+{"concurrency": 256, "requests": 768, "errors": 0, "wall_s": 59.54277969303075, "agg_tok_s": 2602.2130777031134, "out_tokens": 154943, "avg_out_tokens": 201.74869791666666, "avg_prompt_tokens": 286.390625, "shared_prefix_words": 0, "per_stream_tok_s": 15.217879438335062, "ttft_p50_ms": 315.7613890361972, "ttft_p95_ms": 4552.397137857042, "itl_mean_ms": 65.71217784002937, "itl_p50_ms": 37.846971070
+textcheck wave 16: 2/16 identical to single-request, 1 part within 3 words, 0 garbage -> ok
+textcheck wave 256: 67/256 identical to single-request, 32 part within 3 words, 0 garbage -> ok
+textcheck: clean

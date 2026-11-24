@@ -1,0 +1,22 @@
+== 2026-11-24T10:41:17Z llama coder-next vulkan A ncmoe 22,20,18
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         22 |      10 |   1 |           pp512 |        300.38 ± 2.33 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         20 |      10 |   1 |           pp512 |        322.34 ± 4.64 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         18 |      10 |   1 |           pp512 |        350.02 ± 6.14 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         22 |      10 |   1 |     tg64 @ d512 |         50.14 ± 1.79 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         20 |      10 |   1 |     tg64 @ d512 |         54.90 ± 1.86 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         18 |      10 |   1 |     tg64 @ d512 |         57.37 ± 1.81 |
+== 2026-11-24T14:43:17Z llama coder-next vulkan B ncmoe 18,16,14
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         18 |      10 |   1 |           pp512 |       312.89 ± 23.41 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |           pp512 |       373.69 ± 13.97 |
+ggml_vulkan: vk::Device::allocateMemory: ErrorOutOfDeviceMemory
+llama_bench: error: failed to load model '~/models-local/gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf'
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         18 |      10 |   1 |     tg64 @ d512 |         56.82 ± 1.21 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |     tg64 @ d512 |         61.03 ± 1.78 |
+ggml_vulkan: vk::Device::allocateMemory: ErrorOutOfDeviceMemory
+llama_bench: error: failed to load model '~/models-local/gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf'
+== 2026-11-24T17:07:37Z llama coder-next vulkan C ncmoe 16
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |           pp512 |       229.19 ± 87.35 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |     tg64 @ d512 |         38.78 ± 6.12 |
+== 2026-11-24T18:01:16Z llama coder-next vulkan D ncmoe 16
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |           pp512 |       300.15 ± 44.87 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |     tg64 @ d512 |         61.14 ± 0.78 |

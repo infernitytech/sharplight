@@ -76,16 +76,16 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     /// <summary>Extra delay of a step by its rows (a device whose cost follows token tiles, say).</summary>
     public Func<int, TimeSpan>? StepDelayForRows { get; set; }
     public int FailAfterSteps { get; set; } = -1;
-    public List<(int Slot, int Rows, bool Logits)[]> Steps { get; } = [];
+    public RecordedList<(int Slot, int Rows, bool Logits)[]> Steps { get; } = new();
     /// <summary>Embedding width of a decoder with media input (0: token rows only).</summary>
     public int EmbeddingWidth { get; set; }
     /// <summary>Rope position axes per row.</summary>
     public int PositionAxes { get; set; } = 1;
     /// <summary>Every row fed, per step input: slot, cache position, rope position (first axis), first value of its embedding row or NaN.</summary>
-    public List<(int Slot, int Position, int Rope, float Embedding)> Rows { get; } = [];
-    public List<int[]> LogitsRowsPerStep { get; } = [];
-    public List<(int Slot, int Length)> Truncations { get; } = [];
-    public List<int> Resets { get; } = [];
+    public RecordedList<(int Slot, int Position, int Rope, float Embedding)> Rows { get; } = new();
+    public RecordedList<int[]> LogitsRowsPerStep { get; } = new();
+    public RecordedList<(int Slot, int Length)> Truncations { get; } = new();
+    public RecordedList<int> Resets { get; } = new();
 
     /// <summary>Replies with <paramref name="reply"/> (then end-of-generation) after a prompt ending in <see cref="Marker"/>; repeats if <paramref name="loop"/>.</summary>
     public void Script(string reply, bool loop = false)

@@ -7,6 +7,8 @@ public sealed class FakeLoader : IHostedModelLoader
     private readonly FakePool _pool;
     private readonly long _bytes;
     private readonly bool _offload;
+    /// <summary>What <see cref="IPreparedModel.ShrinkableTo"/> reports (null: the model cannot shrink its caches).</summary>
+    public long? ShrinkableTo { get; init; }
     public int Prepares, Loads;
     public long? LastLimit;
     public Func<FakeBatchDecoder>? MakeDecoder;
@@ -31,6 +33,7 @@ public sealed class FakeLoader : IHostedModelLoader
     {
         public IReadOnlyList<MemoryRequirement> Requirements => [new MemoryRequirement(o._pool, o._bytes)];
         public bool CanOffload => o._offload;
+        public long? ShrinkableTo => o.ShrinkableTo;
         public LoadedModel Load(long? limit)
         {
             Interlocked.Increment(ref o.Loads);

@@ -1,0 +1,14 @@
+[first] 16+0: 33.2 ms; recorded True record 7.6 submit 0.0 wait 17.5 gpu 25.7
+[stamp] 16+0 1795512034906 1795512035425 steps 25 gpu_ms 20.720
+[first] 64+0: 29.4 ms; recorded True record 7.7 submit 0.0 wait 21.6 gpu 29.3
+[stamp] 64+0 1795512036040 1795512036563 steps 22 gpu_ms 23.713
+[first] 128+0: 38.3 ms; recorded True record 7.5 submit 1.0 wait 29.7 gpu 38.1
+[stamp] 128+0 1795512037322 1795512037829 steps 15 gpu_ms 33.703
+[first] 256+0: 49.9 ms; recorded True record 4.0 submit 0.0 wait 45.8 gpu 49.8
+[stamp] 256+0 1795512038898 1795512039432 steps 11 gpu_ms 48.435
+[first] 256+256x7: 254.5 ms; recorded True record 3.6 submit 0.0 wait 249.3 gpu 252.9
+Unhandled exception. System.InvalidOperationException: The step needs 240 KV blocks, 128 are free.
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.GrowBlocksForStep(IReadOnlyList`1 inputs) in ~/sl-worktrees/perf-r45-base/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 1048
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in ~/sl-worktrees/perf-r45-base/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 650
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in ~/sl-worktrees/perf-r45-base/bench/BatchBench/Program.cs:line 122
+   at Program.<Main>$(String[] args) in ~/sl-worktrees/perf-r45-base/bench/BatchBench/Program.cs:line 201

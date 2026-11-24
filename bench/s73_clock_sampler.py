@@ -3,7 +3,7 @@
 Usage: python bench/s73_clock_sampler.py --gpu 0 --out samples.csv -- <command ...>
 
 Starts the command, samples every --interval seconds (default 2 ms; NVML refreshes the power reading about every 10-20 ms,
-the clocks on each query) until it exits, writes time,sm_mhz,mem_mhz,power_w,temp_c,reasons,instant_w rows to --out (reasons: NVML's clock
+the clocks on each query) until it exits, writes time,sm_mhz,mem_mhz,power_w,temp_c,reasons,instant_w,unix_ms rows to --out (reasons: NVML's clock
 event reason bits, e.g. 0x4 software power cap, 0x20 software thermal slowdown, 0x40 hardware thermal, 0x80 hardware power brake) and
 prints the median SM clock and power, and the share of samples with each reason, over the samples whose power is above --busy watts (the kernel's sustained window, not its start-up). The GPU index
 is NVML's (physical) index; CUDA_VISIBLE_DEVICES of the command is left as it is.
@@ -51,14 +51,14 @@ def main() -> int:
         temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
         reasons = pynvml.nvmlDeviceGetCurrentClocksEventReasons(handle)
         instant = instant_power(handle)
-        samples.append((time.perf_counter() - start, sm, mem, power, temp, reasons, instant))
+        samples.append((time.perf_counter() - start, sm, mem, power, temp, reasons, instant, time.time() * 1000.0))
         time.sleep(args.interval)
     pynvml.nvmlShutdown()
 
     with open(args.out, "w", encoding="utf-8") as f:
-        f.write("time,sm_mhz,mem_mhz,power_w,temp_c,reasons,instant_w\n")
-        for t, sm, mem, power, temp, reasons, instant in samples:
-            f.write(f"{t:.4f},{sm},{mem},{power:.1f},{temp},{reasons:#x},{instant:.1f}\n")
+        f.write("time,sm_mhz,mem_mhz,power_w,temp_c,reasons,instant_w,unix_ms\n")
+        for t, sm, mem, power, temp, reasons, instant, unix in samples:
+            f.write(f"{t:.4f},{sm},{mem},{power:.1f},{temp},{reasons:#x},{instant:.1f},{unix:.0f}\n")
     busy = [s for s in samples if s[3] > args.busy]
     if busy:
         sm_median = statistics.median(s[1] for s in busy)

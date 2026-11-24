@@ -1,0 +1,30 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 32126 MiB):
+  Device 0: NVIDIA RTX PRO 4500 Blackwell, compute capability 12.0, VMM: yes, VRAM: 32126 MiB
+| model                          |       size |     params | backend    | ngl |  n_cpu_moe | threads |  fa |            test |                  t/s |
+| ------------------------------ | ---------: | ---------: | ---------- | --: | ---------: | ------: | --: | --------------: | -------------------: |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         18 |      10 |   1 |           pp512 |       550.56 ± 13.30 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         18 |      10 |   1 |            tg64 |         93.24 ± 2.29 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         18 |      10 |   1 |    pp512 @ d512 |        560.00 ± 9.24 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         18 |      10 |   1 |     tg64 @ d512 |         94.03 ± 1.90 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         16 |      10 |   1 |           pp512 |       589.86 ± 12.80 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         16 |      10 |   1 |            tg64 |        100.37 ± 2.03 |
+<path> CUDA error
+<path>)[0x73a95014739b]
+<path>)[0x73a95014781c]
+<path>)[0x73a9501479fb]
+<path>)[0x73a94d28a207]
+<path>)[0x73a94d2a44e3]
+<path>)[0x73a94d2de6b3]
+<path>)[0x73a94d2a05fb]
+<path>)[0x73a950166e97]
+<path>)[0x73a9503f5591]
+<path>)[0x73a9503f8f86]
+<path>)[0x73a9504013c8]
+<path>)[0x73a9504027ac]
+<path>)[0x73a9504027ef]
+<path>)[0x73a950fcf111]
+<path>)[0x73a950fde1b1]
+/lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x73a950b111ca]
+/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x73a950b1128b]
+<path>)[0x5874d250d2a5]
+<path> line 16: 2965451 Aborted                 (core dumped) "$@"

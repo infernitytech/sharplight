@@ -1,0 +1,6 @@
+qwen B rc=0
+gptoss A rc=0
+gptoss B rc=0
+llama A rc=0
+llama B rc=250
+qwen A2 rc=0

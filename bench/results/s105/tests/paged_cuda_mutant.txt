@@ -1,0 +1,96 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Vulkan.Tests
+[0m[37m  Discovered:  Sharplight.Vulkan.Tests
+[0m[37m  Starting:    Sharplight.Vulkan.Tests
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(cacheType: "f16", D: 64, valueDims: 64, Hq: 8, Hkv: 2) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=64 v_dims=64 Hq=8 Hkv=2 step 0 output o[0]: vulkan 0 vs cpu 0.990722656 (|d|=9.91E-001, tol=6.95E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(42,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(cacheType: "f16", D: 64, valueDims: 64, Hq: 16, Hkv: 2) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=64 v_dims=64 Hq=16 Hkv=2 step 0 output o[0]: vulkan 0 vs cpu 0.990722656 (|d|=9.91E-001, tol=6.95E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(42,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.PagedAttentionMatchesCpu(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(cacheType: "f16", D: 128, valueDims: 128, Hq: 16, Hkv: 4) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=128 v_dims=128 Hq=16 Hkv=4 step 0 output o[0]: vulkan 0 vs cpu 0.990722656 (|d|=9.91E-001, tol=6.95E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(42,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.PagedAttentionMatchesCpu(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(cacheType: "f16", D: 256, valueDims: 256, Hq: 24, Hkv: 4) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=256 v_dims=256 Hq=24 Hkv=4 step 0 output o[0]: vulkan 0 vs cpu 0.990722656 (|d|=9.91E-001, tol=6.95E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(42,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.PagedAttentionMatchesCpu(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(cacheType: "f16", D: 512, valueDims: 512, Hq: 32, Hkv: 4) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=512 v_dims=512 Hq=32 Hkv=4 step 0 output o[0]: vulkan 0 vs cpu 0.990722656 (|d|=9.91E-001, tol=6.95E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(42,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.PagedAttentionMatchesCpu(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(cacheType: "q8_0", D: 64, valueDims: 64, Hq: 8, Hkv: 2) [FAIL]
+[0m[37m      CachedAttention.paged q8_0 D=64 v_dims=64 Hq=8 Hkv=2 step 0 output o[0]: vulkan 0 vs cpu 0.988220215 (|d|=9.88E-001, tol=1.49E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(42,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.PagedAttentionMatchesCpu(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(cacheType: "f32", D: 64, valueDims: 64, Hq: 4, Hkv: 4) [FAIL]
+[0m[37m      CachedAttention.paged f32 D=64 v_dims=64 Hq=4 Hkv=4 step 0 output o[0]: vulkan 0 vs cpu 0.990694106 (|d|=9.91E-001, tol=6.95E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(42,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.PagedAttentionMatchesCpu(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.PagedAttentionMatchesCpu(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(cacheType: "f16", D: 128, valueDims: 128, Hq: 16, Hkv: 4) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=128 v_dims=128 Hq=16 Hkv=4 step 2 output o[145408]: vulkan -0.0466938615 vs cpu 0.0482986383 (|d|=9.50E-002, tol=2.24E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(62,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(cacheType: "f16", D: 64, valueDims: 64, Hq: 8, Hkv: 2) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=64 v_dims=64 Hq=8 Hkv=2 step 2 output o[36352]: vulkan -0.298955858 vs cpu -0.589418232 (|d|=2.90E-001, tol=4.95E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(62,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.ManySequencesDecodeOneRowEach(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(cacheType: "f16", D: 256, valueDims: 256, Hq: 8, Hkv: 2) [FAIL]
+[0m[37m      CachedAttention.paged f16 D=256 v_dims=256 Hq=8 Hkv=2 step 2 output o[145408]: vulkan -0.340295672 vs cpu -0.205750361 (|d|=1.35E-001, tol=3.03E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(62,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.ManySequencesDecodeOneRowEach(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(cacheType: "q8_0", D: 64, valueDims: 64, Hq: 8, Hkv: 2) [FAIL]
+[0m[37m      CachedAttention.paged q8_0 D=64 v_dims=64 Hq=8 Hkv=2 step 2 output o[36352]: vulkan -0.301323742 vs cpu -0.591265738 (|d|=2.90E-001, tol=1.09E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(164,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.Check(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv, Int32 slots, Int32 slotContext, Int32 poolBlocks, List`1 script, Int32 resetStep, Int32 maxTokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/PagedAttentionTests.cs(62,0): at Sharplight.Vulkan.Tests.PagedAttentionTests.ManySequencesDecodeOneRowEach(String cacheType, Int32 D, Int32 valueDims, Int32 Hq, Int32 Hkv)
+[0m[37m           at InvokeStub_PagedAttentionTests.ManySequencesDecodeOneRowEach(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithManyArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[37m  Finished:    Sharplight.Vulkan.Tests (ID = '5eed669d5fe0f1974f77183acd3e3537e5d660f574fc2075cbdff33a3a3a1fd0')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Vulkan.Tests  Total: 14, Errors: 0, Failed: 11, Skipped: 0, Not Run: 0, Time: 1.524s
+[0m[0m

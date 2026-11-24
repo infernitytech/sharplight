@@ -1,0 +1,4 @@
+== 2026-11-24T13:44:22Z sharplight gpt-oss-120b vulkan B
+prefill 512 tok: best 1854 ms = 276.2 tok/s | decode: best 49.62, median 44.09, mean 33.47 tok/s | GPU ms/step: best 4.61, median 4.63, wall best 20.15 | prefill median of 5: 2020.1 ms = 253.5 tok/s | per run: prefill 236.1 ± 61.1 tok/s of 5, decode 33.52 ± 1.35 tok/s of 5 (31.82, 34.58, 34.93, 33.82, 32.43)
+== 2026-11-24T16:10:16Z sharplight gpt-oss-120b vulkan C
+prefill 512 tok: best 1629 ms = 314.3 tok/s | decode: best 49.25, median 40.44, mean 33.08 tok/s | GPU ms/step: best 4.61, median 4.64, wall best 20.31 | prefill median of 5: 1982.7 ms = 258.2 tok/s | per run: prefill 247.0 ± 50.2 tok/s of 5, decode 34.80 ± 8.00 tok/s of 5 (32.18, 35.76, 39.67, 43.69, 22.73)

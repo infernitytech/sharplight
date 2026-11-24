@@ -1,0 +1,7 @@
+ready=1 after 263 s
+{"concurrency": 16, "requests": 16, "errors": 0, "wall_s": 1.8644400220364332, "agg_tok_s": 1098.4531418517145, "out_tokens": 2048, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250, "shared_prefix_words": 0, "per_stream_tok_s": 76.63882906834112, "ttft_p50_ms": 156.5829174942337, "ttft_p95_ms": 262.3758747940883, "itl_mean_ms": 13.048216056488418, "itl_p50_ms": 12.552328000310808, "itl_p95_ms": 1
+round 1: another GPU process appeared, repeating (try 1)
+{"concurrency": 16, "requests": 16, "errors": 0, "wall_s": 1.8859297949820757, "agg_tok_s": 1085.936499571271, "out_tokens": 2048, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250, "shared_prefix_words": 0, "per_stream_tok_s": 76.70735839432405, "ttft_p50_ms": 177.06814751727507, "ttft_p95_ms": 282.1925100288354, "itl_mean_ms": 13.036558955131413, "itl_p50_ms": 12.614607985597104, "itl_p95_ms": 1
+round 1: another GPU process appeared, repeating (try 2)
+{"concurrency": 16, "requests": 16, "errors": 0, "wall_s": 1.9057512930594385, "agg_tok_s": 1074.6418000389754, "out_tokens": 2048, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250, "shared_prefix_words": 0, "per_stream_tok_s": 75.16486844259383, "ttft_p50_ms": 216.90046292496845, "ttft_p95_ms": 276.0199343028944, "itl_mean_ms": 13.304087677127205, "itl_p50_ms": 12.55481701809913, "itl_p95_ms": 1
+round 1: another GPU process in every try, kept as contaminated
