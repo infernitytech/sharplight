@@ -169,6 +169,7 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `speech-synthesis` | `ISpeechSynthesizer` | `SynthesizeAsync(text)` | `SynthesizeStreamingAsync` → `AudioBuffer` | `SpeechSynthesisOptions` | `SpeechSynthesisResult` |
 | `image-generation` | `IImageGenerator` | `GenerateAsync(ImageGenerationRequest)` | `GenerateStreamingAsync` → `ImageGenerationUpdate` | `ImageGenerationOptions` | `ImageGenerationResult` |
 | `video-generation` | `IVideoGenerator` | `GenerateAsync(VideoGenerationRequest)` | `GenerateStreamingAsync` → `VideoGenerationUpdate` | `VideoGenerationOptions` | `VideoGenerationResult` |
+| `video-enhancement` | `IVideoEnhancer` | `EnhanceAsync(VideoEnhancementRequest)`, `EnhanceImageAsync(ImageInput)` | `EnhanceStreamingAsync` → `VideoEnhancementUpdate` (finished frames batch by batch) | `VideoEnhancementOptions` (size or scale, frames per batch, colour correction, seed) | `VideoEnhancementResult` |
 | `image-classification` | `IImageClassifier` | `ClassifyAsync(ImageInput)` | - (one image, one result) | `ImageClassificationOptions` | `ImageClassification` |
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 | `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
@@ -591,6 +592,49 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   the same family as `Auxiliary[AuxiliaryRoles.TextEncoder]` and `Auxiliary[AuxiliaryRoles.Vae]` (`WanCompanionAdapter` merges its umT5
   encoder, tokenizer and VAE).
 - `sharplight-generate-video` (samples/Sharplight.GenerateVideo) is a command-line front end.
+
+### Video enhancement
+
+Video restoration and super-resolution models are of kind `video-enhancement` with the client `IVideoEnhancer`: the frames of a clip
+(or one image) in, restored and usually enlarged frames out, one per input frame. The kind and its types are model-agnostic and live in
+Core (`Sharplight.VideoEnhancement`); implementations come from architecture packages. SeedVR2 (3B and 7B, one-step restoration DiT with a
+causal video VAE) is the first: `Sharplight.Import.SeedVr` reads its checkpoints, `Sharplight.Architectures.VideoEnhancement` builds the graphs and
+registers the client (`services.AddSeedVrImporter().AddVideoEnhancementArchitectures()`; `AddSharplight()` includes both).
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddVideoEnhancer(o => { o.ModelPath = "SeedVR2-3B"; o.Devices = [slot]; });   // seedvr2_ema_3b.pth, ema_vae.pth, pos_emb.pt
+await using var provider = services.BuildServiceProvider();
+var enhancer = provider.GetRequiredService<IVideoEnhancer>();
+
+var clip = await provider.GetRequiredService<VideoDecoderCatalog>().ReadClipAsync("input-480p.mp4");
+var options = new VideoEnhancementOptions { Height = 1080, FramesPerBatch = 33, Seed = 7 };
+await foreach (var update in enhancer.EnhanceStreamingAsync(VideoEnhancementRequest.FromClip(clip), options))
+{
+    Console.Write($"\r{update.Phase} batch {update.Batch + 1}/{update.TotalBatches}");   // update.Frames: a finished batch
+    if (update.Result is { } result)
+    {
+        await provider.GetRequiredService<VideoEncoderCatalog>().SaveAsync(result.ToClip(), "output-1080p.mp4");
+    }
+}
+
+ImageInput still = await enhancer.EnhanceImageAsync(PngCodec.Read("photo.png"), new VideoEnhancementOptions { Scale = 2 });
+```
+
+- Options (`VideoEnhancementOptions`): `Width` / `Height` (one of them keeps the input's aspect ratio) or `Scale` (default: the model's, 2);
+  the result has exactly that size (the network runs on the next multiple of its size step, 16 for SeedVR2, with edge padding that is
+  cropped off). `FramesPerBatch`: frames restored together (default 0, the whole clip; a batch is padded to 1 + 4k frames with copies of
+  its last frame, as the official script does); smaller batches bound memory for long clips. `ColorCorrection`: `Wavelet` (default: the
+  output's high frequencies over the input's low frequencies), `AdaIn` (per-frame channel mean and deviation) or `None`. `Seed`, and for
+  reproducing another implementation's run exactly the explicit `InitialNoise` and `EncoderNoise` (the encoder's latent sample).
+- `VideoEnhancementDefaults` (via `GetService`) reports the default scale, the size and frame multiples, the default colour correction and
+  frames per batch.
+- Stages: all batches are encoded first, then restored, then decoded. Compiled graphs stay for later requests; when the device runs out of
+  memory they are released and the graph compiled again from the cached kernels, so only one network's weights and activations need to
+  fit at a time.
+- `sharplight-enhance-video` (samples/Sharplight.EnhanceVideo) enhances a video file or a PNG:
+  `sharplight-enhance-video -m SeedVR2-3B -i input.mp4 -H 1080 -b 33 -o output.mp4`.
 
 ## 1. Load a model (text generation)
 

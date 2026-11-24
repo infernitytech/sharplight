@@ -1,0 +1,297 @@
+using Sharplight.Graph;
+using Sharplight.Models;
+using Sharplight.Tensors;
+using Sharplight.VideoGeneration;
+
+namespace Sharplight.Architectures.VideoEnhancement;
+
+/// <summary>
+/// Builds the encoder (<see cref="SeedVrGraphs.VaeEncode"/>) and decoder (<see cref="SeedVrGraphs.VaeDecode"/>) graphs of SeedVR2's causal
+/// video VAE (an SD3-style VAE inflated to 3-D: 16 latent channels, 8× spatial and 4× temporal compression) for one clip size. Activations
+/// are frames-first [F, C, H, W]; every group norm and the mid-block attention work per frame, and every convolution is causal in time
+/// (<see cref="CausalConvolution"/>), so the graphs run the clip in chunks along time within one graph, each chunk after the previous one
+/// (<see cref="GraphBuilder.After"/>), and peak memory follows one chunk: the encoder takes the first frame, then four frames per latent
+/// frame; the decoder one latent frame at a time.
+/// </summary>
+/// <remarks>
+/// Canonical weights under <c>vae.</c> (the official names; 3-D kernels folded to [O, kt·C, kh, kw]): <c>encoder.conv_in</c>,
+/// <c>encoder.down_blocks.{i}.resnets.{j}.norm1|conv1|norm2|conv2|conv_shortcut</c>, <c>encoder.down_blocks.{i}.downsamplers.0.conv</c>
+/// (spatial for the first level, spatial and temporal for the next two), <c>encoder.mid_block.resnets.0|1</c>,
+/// <c>encoder.mid_block.attentions.0.group_norm|to_q|to_k|to_v|to_out.0</c>, <c>encoder.conv_norm_out</c>, <c>encoder.conv_out</c> (mean
+/// and log-variance); the decoder alike with <c>up_blocks.{i}.upsamplers.0.upscale_conv</c> (1×1 to r·C channels, then depth-to-space by
+/// 2×2 spatially and 2 in time for the first two levels) and <c>upsamplers.0.conv</c>.
+/// </remarks>
+internal sealed class SeedVrVaeGraphBuilder
+{
+    private const string P = "vae.";
+
+    /// <summary>The score matrix of one block of the mid-block attention stays below this many bytes.</summary>
+    private const long AttentionScoreBytes = 512L << 20;
+
+    private readonly GraphBuilder _b;
+    private readonly SeedVrVaeHyperParameters _hp;
+    private readonly CausalConvolution _conv;
+
+    private SeedVrVaeGraphBuilder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, string name, DataType cacheType)
+    {
+        _b = new GraphBuilder(name, weights);
+        _hp = hp;
+        _conv = new CausalConvolution(_b, cacheType);
+    }
+
+    /// <summary>Builds the encoder graph of a clip of <paramref name="frames"/> frames (1 + 4k).</summary>
+    /// <param name="weights">Canonical weight lookup.</param>
+    /// <param name="hp">The VAE hyper-parameters.</param>
+    /// <param name="frames">Frames of the clip.</param>
+    /// <param name="height">Height in pixels (a multiple of the spatial compression).</param>
+    /// <param name="width">Width in pixels.</param>
+    /// <param name="cacheType">The type the causal-convolution caches are kept in between chunks.</param>
+    public static ComputeGraph BuildEncoder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, int frames, int height, int width, DataType cacheType)
+        => new SeedVrVaeGraphBuilder(weights, hp, SeedVrGraphs.VaeEncode, cacheType).Encoder(frames, height, width);
+
+    /// <summary>Builds the decoder graph of a latent clip.</summary>
+    /// <param name="weights">Canonical weight lookup.</param>
+    /// <param name="hp">The VAE hyper-parameters.</param>
+    /// <param name="latentFrames">Latent frames.</param>
+    /// <param name="latentHeight">Latent height.</param>
+    /// <param name="latentWidth">Latent width.</param>
+    /// <param name="cacheType">The type the causal-convolution caches are kept in between chunks.</param>
+    public static ComputeGraph BuildDecoder(Func<string, WeightInfo?> weights, SeedVrVaeHyperParameters hp, int latentFrames, int latentHeight, int latentWidth,
+        DataType cacheType)
+        => new SeedVrVaeGraphBuilder(weights, hp, SeedVrGraphs.VaeDecode, cacheType).Decoder(latentFrames, latentHeight, latentWidth);
+
+    private ComputeGraph Encoder(int frames, int height, int width)
+    {
+        if ((frames - 1) % _hp.TemporalDownscale != 0)
+        {
+            throw new ArgumentException($"SeedVR2 VAE: {frames} frames is not 1 + {_hp.TemporalDownscale}k.");
+        }
+
+        var clip = _b.Input(VideoDiffusionGraphs.Frames, InputRole.Other, DataType.F32, new Shape(frames, 3, height, width));
+        int levels = _hp.BlockChannels.Length;
+        var means = new List<Value>();
+        var deviations = new List<Value>();
+        int start = 0;
+        for (int chunk = 0; start < frames; chunk++)
+        {
+            using var _ = _b.Group($"chunk.{chunk}");
+            int count = chunk == 0 ? 1 : _hp.TemporalDownscale;
+            var chunkFrames = _b.Slice(clip, 0, start, count);
+            var x = FullResolutionEncoder(chunk == 0 ? chunkFrames : _b.After(chunkFrames, deviations[^1]));
+            start += count;
+            for (int i = 1; i < levels; i++)
+            {
+                string p = $"{P}encoder.down_blocks.{i}";
+                for (int j = 0; _b.HasWeight($"{p}.resnets.{j}.conv1.weight"); j++)
+                {
+                    x = ResidualBlock(x, $"{p}.resnets.{j}");
+                }
+
+                if (_b.HasWeight($"{p}.downsamplers.0.conv.weight"))
+                {
+                    // Zero padding on the bottom and right only, stride 2; the levels with a 3-tap kernel also halve the frames.
+                    string conv = $"{p}.downsamplers.0.conv";
+                    int taps = (int)(_b.Weight(conv + ".weight").Shape[1].Fixed / x.Shape[1].Fixed);
+                    x = _conv.Apply(x, conv, temporalStride: taps > 1 ? 2 : 1, spatialStride: 2, pads: [0, 0, 1, 1]);
+                }
+            }
+
+            x = MidBlock(x, P + "encoder.mid_block");
+            x = _conv.Apply(_b.Silu(GroupNorm(x, P + "encoder.conv_norm_out")), P + "encoder.conv_out");
+            int latent = _hp.LatentChannels;
+            means.Add(_b.Slice(x, 1, 0, latent));
+            var logVariance = _b.Emit1("Clip", [_b.Slice(x, 1, latent, latent)], Attributes.From(("min", -30f), ("max", 20f)));
+            deviations.Add(_b.Unary("Exp", _b.Scale(logVariance, 0.5f)));
+        }
+
+        _b.Output(SeedVrGraphs.Mean, LatentLayout(means, _hp.ScalingFactor));
+        _b.Output(SeedVrGraphs.Deviation, LatentLayout(deviations, _hp.ScalingFactor));
+        return _b.Build();
+    }
+
+    /// <summary>
+    /// The encoder's input convolution and first level (full resolution, no temporal downsampling) frame by frame, one after the other: the
+    /// activations there are the largest of the encoder; the frames are joined again at half resolution.
+    /// </summary>
+    private Value FullResolutionEncoder(Value chunk)
+    {
+        string p = $"{P}encoder.down_blocks.0";
+        var frames = new List<Value>();
+        for (long f = 0; f < chunk.Shape[0].Fixed; f++)
+        {
+            var frame = _b.Slice(chunk, 0, f, 1);
+            var x = _conv.Apply(frames.Count == 0 ? frame : _b.After(frame, frames[^1]), P + "encoder.conv_in");
+            for (int j = 0; _b.HasWeight($"{p}.resnets.{j}.conv1.weight"); j++)
+            {
+                x = ResidualBlock(x, $"{p}.resnets.{j}");
+            }
+
+            if (_b.HasWeight($"{p}.downsamplers.0.conv.weight"))
+            {
+                x = _conv.Apply(x, $"{p}.downsamplers.0.conv", temporalStride: 1, spatialStride: 2, pads: [0, 0, 1, 1]);
+            }
+
+            frames.Add(x);
+        }
+
+        return frames.Count == 1 ? frames[0] : _b.Concat(0, [.. frames]);
+    }
+
+    private ComputeGraph Decoder(int latentFrames, int latentHeight, int latentWidth)
+    {
+        var latent = _b.Input(VideoDiffusionGraphs.Latent, InputRole.Other, DataType.F32, new Shape(_hp.LatentChannels, latentFrames, latentHeight, latentWidth));
+        var framesFirst = _b.Contiguous(_b.Permute(_b.Scale(latent, 1f / _hp.ScalingFactor), 1, 0, 2, 3));
+        int levels = _hp.BlockChannels.Length;
+        int temporalLevels = (int)Math.Log2(_hp.TemporalDownscale);
+        var outputs = new List<Value>();
+        for (int chunk = 0; chunk < latentFrames; chunk++)
+        {
+            using var _ = _b.Group($"chunk.{chunk}");
+            var frame = _b.Slice(framesFirst, 0, chunk, 1);
+            var x = _conv.Apply(chunk == 0 ? frame : _b.After(frame, outputs[^1]), P + "decoder.conv_in");
+            x = MidBlock(x, P + "decoder.mid_block");
+            for (int i = 0; i < temporalLevels; i++)
+            {
+                x = UpBlock(x, i, temporal: true, chunk == 0);
+            }
+
+            // The levels after the temporal upsampling hold the largest activations; they run frame by frame, one after the other.
+            for (long f = 0; f < x.Shape[0].Fixed; f++)
+            {
+                var y = _b.Slice(x, 0, f, 1);
+                y = f == 0 ? y : _b.After(y, outputs[^1]);
+                for (int i = temporalLevels; i < levels; i++)
+                {
+                    y = UpBlock(y, i, temporal: false, chunk == 0);
+                }
+
+                outputs.Add(_conv.Apply(_b.Silu(GroupNorm(y, P + "decoder.conv_norm_out")), P + "decoder.conv_out"));
+            }
+        }
+
+        _b.Output(VideoDiffusionGraphs.Frames, ConcatFrames(outputs));
+        return _b.Build();
+    }
+
+    /// <summary>Decoder level <paramref name="index"/>: its residual blocks, then its upsampler (temporal for the first levels) and convolution.</summary>
+    private Value UpBlock(Value x, int index, bool temporal, bool firstChunk)
+    {
+        string p = $"{P}decoder.up_blocks.{index}";
+        for (int j = 0; _b.HasWeight($"{p}.resnets.{j}.conv1.weight"); j++)
+        {
+            x = ResidualBlock(x, $"{p}.resnets.{j}");
+        }
+
+        if (_b.HasWeight($"{p}.upsamplers.0.conv.weight"))
+        {
+            x = Upsample(x, $"{p}.upsamplers.0", temporal, dropRepeatedFirst: firstChunk);
+            x = _conv.Apply(x, $"{p}.upsamplers.0.conv");
+        }
+
+        return x;
+    }
+
+    /// <summary>Concatenates frame groups along the frames, in rounds of at most 64 inputs (the op's limit).</summary>
+    private Value ConcatFrames(List<Value> parts)
+    {
+        while (parts.Count > 1)
+        {
+            parts = [.. parts.Chunk(64).Select(chunk => chunk.Length == 1 ? chunk[0] : _b.Concat(0, chunk))];
+        }
+
+        return parts[0];
+    }
+
+    /// <summary>Per-chunk latent frames [t, C, h, w] → the scaled latent clip [C, T, h, w].</summary>
+    private Value LatentLayout(List<Value> chunks, float scale)
+    {
+        var all = ConcatFrames(chunks);
+        return _b.Scale(_b.Contiguous(_b.Permute(all, 1, 0, 2, 3)), scale);
+    }
+
+    /// <summary>GroupNorm, SiLU, conv1, GroupNorm, SiLU, conv2, plus the input (through the 1×1 shortcut when the width changes).</summary>
+    private Value ResidualBlock(Value x, string p)
+    {
+        var h = _conv.Apply(_b.Silu(GroupNorm(x, p + ".norm1")), p + ".conv1");
+        h = _conv.Apply(_b.Silu(GroupNorm(h, p + ".norm2")), p + ".conv2");
+        var shortcut = _b.HasWeight(p + ".conv_shortcut.weight") ? _conv.Apply(x, p + ".conv_shortcut") : x;
+        return _b.Add(shortcut, h);
+    }
+
+    /// <summary>Residual block, per-frame single-head attention, residual block.</summary>
+    private Value MidBlock(Value x, string p)
+    {
+        x = ResidualBlock(x, p + ".resnets.0");
+        if (_b.HasWeight(p + ".attentions.0.to_q.weight"))
+        {
+            x = FrameAttention(x, p + ".attentions.0");
+        }
+
+        return ResidualBlock(x, p + ".resnets.1");
+    }
+
+    /// <summary>
+    /// GroupNorm, then single-head self-attention among the pixels of each frame, projected and added to the input. The 512-wide head runs as
+    /// two batched products around a softmax, in blocks of query rows so the score matrix of a block stays below
+    /// <see cref="AttentionScoreBytes"/> (a flash-attention kernel for so wide a head is far slower than the products).
+    /// </summary>
+    private Value FrameAttention(Value x, string p)
+    {
+        long frames = x.Shape[0].Fixed;
+        long channels = x.Shape[1].Fixed;
+        long pixels = x.Shape[2].Fixed * x.Shape[3].Fixed;
+        var normed = GroupNorm(x, p + ".group_norm");
+        var tokens = _b.Reshape(_b.Contiguous(_b.Permute(_b.Reshape(normed, frames, channels, pixels), 0, 2, 1)), frames * pixels, channels);
+        var q = _b.Reshape(Linear(tokens, p + ".to_q"), frames, pixels, channels);
+        var k = _b.Reshape(Linear(tokens, p + ".to_k"), frames, pixels, channels);
+        var v = _b.Reshape(Linear(tokens, p + ".to_v"), frames, pixels, channels);
+        long blockRows = Math.Clamp(AttentionScoreBytes / (pixels * sizeof(float)), 1, pixels);
+        var blocks = new List<Value>();
+        Value? previous = null;
+        for (long row = 0; row < pixels; row += blockRows)
+        {
+            long rows = Math.Min(blockRows, pixels - row);
+            var queries = _b.Slice(q, 1, row, rows);
+            // One block after the other: their score matrices would otherwise all be in flight at once.
+            queries = previous is null ? queries : _b.After(queries, previous);
+            var scores = _b.Emit1("BatchMatMul", [queries, k], Attributes.From(("trans_b", true), ("alpha", 1f / MathF.Sqrt(channels))));
+            var weights = _b.Emit1("Softmax", [scores]);
+            previous = _b.Emit1("BatchMatMul", [weights, v]);
+            blocks.Add(previous);
+        }
+
+        var attended = blocks.Count == 1 ? blocks[0] : _b.Concat(1, [.. blocks]);
+        var projected = Linear(_b.Reshape(attended, frames * pixels, channels), p + ".to_out.0");
+        var back = _b.Contiguous(_b.Permute(_b.Reshape(projected, frames, pixels, channels), 0, 2, 1));
+        return _b.Add(x, _b.Reshape(back, x.Shape[0].Fixed, channels, x.Shape[2].Fixed, x.Shape[3].Fixed));
+    }
+
+    /// <summary>
+    /// The 1×1 convolution to r·C channels and the depth-to-space rearrangement (channels ordered (row, column, time, channel)) to 2×2 the
+    /// pixels and, for temporal levels, 2× the frames; the first chunk keeps one copy of its first frame.
+    /// </summary>
+    private Value Upsample(Value x, string p, bool temporal, bool dropRepeatedFirst)
+    {
+        long frames = x.Shape[0].Fixed;
+        long channels = x.Shape[1].Fixed;
+        long height = x.Shape[2].Fixed;
+        long width = x.Shape[3].Fixed;
+        int time = temporal ? 2 : 1;
+        var expanded = _conv.Apply(x, p + ".upscale_conv");
+        var split = _b.Reshape(expanded, frames, 2, 2, time, channels, height, width);
+        var ordered = _b.Contiguous(_b.Permute(split, 0, 3, 4, 5, 1, 6, 2));
+        var result = _b.Reshape(ordered, frames * time, channels, height * 2, width * 2);
+        if (temporal && dropRepeatedFirst)
+        {
+            long count = frames * time;
+            result = count == 2 ? _b.Slice(result, 0, 0, 1) : _b.Concat(0, _b.Slice(result, 0, 0, 1), _b.Slice(result, 0, 2, count - 2));
+        }
+
+        return result;
+    }
+
+    private Value GroupNorm(Value x, string prefix)
+        => _b.Emit1("GroupNorm", [x, _b.Weight(prefix + ".weight"), _b.Weight(prefix + ".bias")], Attributes.From(("groups", (long)_hp.Groups), ("eps", _hp.Eps)));
+
+    private Value Linear(Value x, string module) => _b.Linear(x, module + ".weight", module + ".bias");
+}

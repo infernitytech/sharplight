@@ -1,0 +1,250 @@
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+2026-11-24 14:53:20,392 [MainThread][common.decorators][INFO] Entering configure_dit_model
+Loading pretrained ckpt from <models>/video/seedvr2/SeedVR2-3B/seedvr2_ema_3b.pth
+Loading info: <All keys matched successfully>
+DiT trainable parameters: 3,391,475,776
+2026-11-24 14:53:39,086 [MainThread][common.decorators][INFO] Completed configure_dit_model in 18.594 seconds.
+2026-11-24 14:53:41,014 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 14:53:43,770 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.755 seconds.
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.06s/it]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.06s/it]
+[rank0]:[W1124 14:53:53.027259827 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1593835520 bytes (free: 685375488, total: 33687470080).
+[rank0]:[W1124 14:53:54.528984455 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2950692864 bytes (free: 819593216, total: 33687470080).
+[rank0]:[W1124 14:53:54.766183028 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.766315988 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.802434718 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.802573718 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.802898199 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.803013990 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.803287291 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.803398351 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.803658742 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.803766862 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.804049713 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1484783616 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.804164173 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1484783616 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.804427624 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1484783616 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.804534415 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1484783616 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.804793655 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.804901865 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.805166846 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.805279017 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.805533678 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.805641058 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.805895848 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.806009549 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.806272280 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.806380450 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.806633991 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.806740151 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.806994632 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.807114152 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.807373623 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.807480253 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.807735144 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.807841935 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.808110026 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.808222446 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.808478447 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.808585587 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.808838958 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.808945478 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 815792128 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.823113481 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 478150656 bytes (free: 389677056, total: 33687470080).
+[rank0]:[W1124 14:53:54.823232641 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 478150656 bytes (free: 389677056, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 252, in main
+[rank0]:     stages, dump = run_once(dump=True)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 206, in run_once
+[rank0]:     decoded = runner.vae_decode([restored])[0]  # c t h w
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/projects/video_diffusion_sr/infer.py", line 211, in vae_decode
+[rank0]:     sample = self.vae.decode(latent).sample
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1311, in decode
+[rank0]:     x = super().decode(z).sample.squeeze(2)
+[rank0]:         ^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1180, in decode
+[rank0]:     decoded = self.slicing_decode(z)
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1234, in slicing_decode
+[rank0]:     self._decode(
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1207, in _decode
+[rank0]:     output = self.decoder(_z, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1013, in forward
+[rank0]:     sample = up_block(sample, latent_embeds, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 539, in forward
+[rank0]:     hidden_states = upsampler(hidden_states, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 153, in forward
+[rank0]:     hidden_states = self.conv(hidden_states, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 179, in forward
+[rank0]:     return self.slicing_forward(input, memory_state)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 272, in slicing_forward
+[rank0]:     input[i] = self.memory_limit_conv(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 152, in memory_limit_conv
+[rank0]:     x[idx] = self.memory_limit_conv(
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 101, in memory_limit_conv
+[rank0]:     x = safe_pad_operation(x, padding, value=0.0)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/common/utils.py", line 20, in safe_pad_operation
+[rank0]:     return F.pad(x, padding, mode=mode, value=value)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/functional.py", line 5849, in pad
+[rank0]:     return torch._C._nn.pad(input, pad, mode, value)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 456.00 MiB. GPU 0 has a total capacity of 31.37 GiB of which 371.62 MiB is free. Including non-PyTorch memory, this process has 31.00 GiB memory in use. Of the allocated memory 27.90 GiB is allocated by PyTorch, and 2.79 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+peak_mib 31746
+pytorch run with offload '--no-offload', DiT weights fp32 failed
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+2026-11-24 14:53:58,688 [MainThread][common.decorators][INFO] Entering configure_dit_model
+Loading pretrained ckpt from <models>/video/seedvr2/SeedVR2-3B/seedvr2_ema_3b.pth
+Loading info: <All keys matched successfully>
+DiT trainable parameters: 3,391,475,776
+2026-11-24 14:54:16,849 [MainThread][common.decorators][INFO] Completed configure_dit_model in 18.056 seconds.
+2026-11-24 14:54:18,811 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 14:54:21,544 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.732 seconds.
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.75s/it]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.75s/it]
+[rank0]:[W1124 14:54:54.984472537 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1593835520 bytes (free: 500826112, total: 33687470080).
+{"read": 0.3781820519361645, "preprocess": 0.02748208399862051, "vae_encode": 18.09449011599645, "dit": 4.75178346701432, "vae_decode": 26.931020788033493, "color_fix": 17.218490658095106, "enhance": 67.0232785519911, "write": 1.2793792879674584, "total": 68.68084497202653}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s][rank0]:[W1124 14:55:49.085179016 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 327155712 bytes (free: 268042240, total: 33687470080).
+[rank0]:[W1124 14:55:49.182470622 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 327155712 bytes (free: 297402368, total: 33687470080).
+[rank0]:[W1124 14:55:49.199276983 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 327155712 bytes (free: 299499520, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 256, in main
+[rank0]:     stages, _ = run_once(dump=False)
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 192, in run_once
+[rank0]:     restored = runner.sampler.sample(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/common/diffusion/samplers/euler.py", line 54, in sample
+[rank0]:     pred = f(SamplerModelArgs(x, t, i))
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 194, in <lambda>
+[rank0]:     f=lambda a: runner.dit(vid=torch.cat([a.x_t, conds], dim=-1), txt=text, vid_shape=shapes, txt_shape=text_shape,
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 182, in capture
+[rank0]:     out = dit_forward(*a, **k)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nadit.py", line 220, in forward
+[rank0]:     vid, txt, vid_shape, txt_shape = gradient_checkpointing(
+[rank0]:                                      ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nadit.py", line 32, in gradient_checkpointing
+[rank0]:     return module(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nablocks/mmsr_block.py", line 109, in forward
+[rank0]:     vid_attn, txt_attn = self.attn(vid_attn, txt_attn, vid_shape, txt_shape, cache)
+[rank0]:                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nablocks/attention/mmattn.py", line 234, in forward
+[rank0]:     vid_q, vid_k, txt_q, txt_k = self.rope(
+[rank0]:                                  ^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/rope.py", line 114, in forward
+[rank0]:     vid_k = apply_rotary_emb(vid_freqs, vid_k.float()).to(vid_k.dtype)
+[rank0]:             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/amp/autocast_mode.py", line 44, in decorate_autocast
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py", line 47, in apply_rotary_emb
+[rank0]:     t = (t * freqs.cos() * scale) + (rotate_half(t) * freqs.sin() * scale)
+[rank0]:                                      ~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 312.00 MiB. GPU 0 has a total capacity of 31.37 GiB of which 285.62 MiB is free. Including non-PyTorch memory, this process has 31.09 GiB memory in use. Of the allocated memory 29.70 GiB is allocated by PyTorch, and 1.07 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+EulerSampler:   0%|          | 0/1 [00:01<?, ?it/s]
+peak_mib 31862
+pytorch run with offload 'official', DiT weights fp32 failed
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<All keys matched successfully>
+2026-11-24 14:56:00,498 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 14:56:04,205 [MainThread][common.decorators][INFO] Completed configure_vae_model in 3.707 seconds.
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.14s/it]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.14s/it]
+[rank0]:[W1124 14:56:25.981262676 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1887436800 bytes (free: 859439104, total: 33687470080).
+{"read": 0.5259914520429447, "preprocess": 0.07919508102349937, "vae_encode": 10.156430513015948, "dit": 4.140835024998523, "vae_decode": 15.427305190940388, "color_fix": 7.399593833019026, "enhance": 37.203370822942816, "write": 0.9786080020712689, "total": 38.70797576708719}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:03<00:00,  3.06s/it]EulerSampler: 100%|██████████| 1/1 [00:03<00:00,  3.06s/it]
+{"read": 0.3989705960266292, "preprocess": 0.017740273964591324, "vae_encode": 9.427345881005749, "dit": 3.0613289460306987, "vae_decode": 15.195370953995734, "color_fix": 6.56509879603982, "enhance": 34.26689331093803, "write": 0.5945650649955496, "total": 35.26043317303993}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.87s/it]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.87s/it]
+{"read": 0.3802585080265999, "preprocess": 0.016308550024405122, "vae_encode": 9.36705956608057, "dit": 2.87406106304843, "vae_decode": 15.311132273986004, "color_fix": 6.535182391991839, "enhance": 34.103750695008785, "write": 1.0006087819347158, "total": 35.48462145507801}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.91s/it]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.91s/it]
+{"read": 0.4416470950236544, "preprocess": 0.05317862390074879, "vae_encode": 9.371657439973205, "dit": 2.90859966899734, "vae_decode": 15.71312182804104, "color_fix": 6.009623648948036, "enhance": 34.05618852993939, "write": 1.0040930920513347, "total": 35.50193286698777}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.91s/it]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.91s/it]
+{"read": 0.48561274097301066, "preprocess": 0.0563408030429855, "vae_encode": 9.763003680971451, "dit": 2.9147202180465683, "vae_decode": 15.573109438060783, "color_fix": 4.697513030958362, "enhance": 33.00469503097702, "write": 0.6397052640095353, "total": 34.13001806603279}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.87s/it]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.87s/it]
+{"read": 0.3799139760667458, "preprocess": 0.016995062003843486, "vae_encode": 8.824566330993548, "dit": 2.8715711049735546, "vae_decode": 14.746779761975631, "color_fix": 4.689174644998275, "enhance": 31.14909478498157, "write": 0.5929072799626738, "total": 32.121919531025924}
+peak 21.68 GiB, output (33, 720, 1280, 3)
+peak_mib 31298
+pytorch setting: offload 'official', DiT weights bf16

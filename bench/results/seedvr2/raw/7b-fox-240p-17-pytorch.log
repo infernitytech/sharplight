@@ -1,0 +1,25 @@
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<All keys matched successfully>
+2026-11-24 14:31:17,955 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 14:31:20,509 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.554 seconds.
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.64s/it]EulerSampler: 100%|██████████| 1/1 [00:02<00:00,  2.64s/it]
+{"read": 0.10092756093945354, "preprocess": 0.022697540000081062, "vae_encode": 1.1151104900054634, "dit": 2.644975434988737, "vae_decode": 2.1924365129088983, "color_fix": 1.4416184740839526, "enhance": 7.416849502013065, "write": 0.20870479207951576, "total": 7.726485805003904}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]
+{"read": 0.10262418503407389, "preprocess": 0.003971222089603543, "vae_encode": 0.9143263919977471, "dit": 1.3064543389482424, "vae_decode": 2.176377334049903, "color_fix": 1.3089529059361666, "enhance": 5.710090923006646, "write": 0.17820733797270805, "total": 5.990925776073709}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.30s/it]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.30s/it]
+{"read": 0.10129334102384746, "preprocess": 0.003929881029762328, "vae_encode": 0.9152875860454515, "dit": 1.3059424069942906, "vae_decode": 2.1764606839278713, "color_fix": 1.3157654569949955, "enhance": 5.717393624945544, "write": 0.17504735803231597, "total": 5.99373691494111}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]
+{"read": 0.10138791205827147, "preprocess": 0.00377130089327693, "vae_encode": 0.9149766949703917, "dit": 1.307887502014637, "vae_decode": 2.180934258038178, "color_fix": 1.3041715909494087, "enhance": 5.7117492279503495, "write": 0.18187337997369468, "total": 5.99501290905755}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]
+{"read": 0.10203951399307698, "preprocess": 0.003936312044970691, "vae_encode": 0.9148569440003484, "dit": 1.3085208750562742, "vae_decode": 2.1809740980388597, "color_fix": 1.290303769055754, "enhance": 5.698600078001618, "write": 0.1688627990661189, "total": 5.969505151035264}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]EulerSampler: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]
+{"read": 0.10229605494532734, "preprocess": 0.0038724920013919473, "vae_encode": 0.9155758660053834, "dit": 1.3104236510116607, "vae_decode": 2.183533275965601, "color_fix": 1.4062321350211278, "enhance": 5.819645510055125, "write": 0.16923955001402646, "total": 6.09118382493034}
+peak 25.79 GiB, output (17, 480, 832, 3)
+peak_mib 30724
+pytorch setting: offload '--no-offload', DiT weights bf16

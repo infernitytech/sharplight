@@ -354,6 +354,35 @@
           "title": "Verified"
         }
       ]
+    },
+    {
+      "id": "8.1",
+      "columns": [
+        {
+          "key": "model",
+          "title": "Model"
+        },
+        {
+          "key": "repositories",
+          "title": "Hub repository"
+        },
+        {
+          "key": "formats",
+          "title": "Formats"
+        },
+        {
+          "key": "verification",
+          "title": "Verification"
+        },
+        {
+          "key": "notes",
+          "title": "Notes"
+        },
+        {
+          "key": "date",
+          "title": "Verified"
+        }
+      ]
     }
   ],
   "entries": [
@@ -28175,6 +28204,88 @@
           "cells": {
             "repositories": "stabilityai/stable-audio-3-medium-base",
             "kind": "audio generation (music, sound effects)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "seedvr2-3b",
+      "name": "SeedVR2 3B",
+      "kind": "video-enhancement",
+      "family": "SeedVR2",
+      "architecture": "seedvr",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "ByteDance Seed",
+        "countryOfOrigin": "CN",
+        "url": "https://seed.bytedance.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "official",
+          "label": "Official checkpoint (F32)",
+          "format": "pytorch",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 17158192019,
+          "companions": [],
+          "repository": "ByteDance-Seed/SeedVR2-3B",
+          "revision": "37255ff8cccfb01071b87f635a5948ca8d53117c",
+          "include": [
+            "seedvr2_ema_3b.pth",
+            "ema_vae.pth",
+            "pos_emb.pt",
+            "neg_emb.pt"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "seedvr2_ema_3b.pth",
+              "size": 13566090228,
+              "sha256": "6bcc5ac59447e97b100477480aebb01be2ec724c8340bb83faae21f64848604b"
+            },
+            {
+              "path": "ema_vae.pth",
+              "size": 1002691902,
+              "sha256": "c7df8a67e68b7f9aca3d5d2153d2ce8ab4373687741a0f9ce87cb356ace51cac"
+            },
+            {
+              "path": "pos_emb.pt",
+              "size": 595100,
+              "sha256": "fa07a14844314772266b66c3b95deb0027696d8fe7065721263db5176f45d799"
+            },
+            {
+              "path": "neg_emb.pt",
+              "size": 656540,
+              "sha256": "6a43e5800ef2354f1c156d27535834da055cbec8248298b8923492bba2076581"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "official PyTorch inference (ByteDance-Seed/SeedVR)",
+        "summary": "whole enhancement vs official code: 49.3 dB CPU (tiny, f32), 48.9 dB CUDA / 48.8 dB Vulkan (480p, bf16 reference); 7B 43.6 dB",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-24",
+        "tests": [
+          "SeedVr2Tests"
+        ]
+      },
+      "notes": "one-step video restoration and super-resolution; videos and images, any size, batches of 1 \u002B 4k frames",
+      "doc": [
+        {
+          "section": "8.1",
+          "cells": {
+            "repositories": "ByteDance-Seed/SeedVR2-3B",
+            "formats": "official folder (.pth DiT, VAE, text embeddings); fp16 safetensors conversion; .slm"
           }
         }
       ]

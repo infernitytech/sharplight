@@ -1,0 +1,42 @@
+17:03:17.015 Graph optimization (sharplight-ir/1): restore 7946 -> 7185 nodes, vae_encode 2709 -> 1922 nodes, vae_decode 5348 -> 3701 nodes, color_correct 14 -> 14 nodes [404 ms]
+17:03:17.019 Loaded seedvr2_ema_3b (seedvr, video-enhancement, components transformer, vae): 856 tensors, 7.79 GB [645 ms]
+seedvr2_ema_3b on vulkan (NVIDIA RTX PRO 4500 Blackwell), loaded in 0.7 s
+17:03:18.786 Graph optimization (sharplight-ir/1): restore 8746 -> 7986 nodes, vae_encode 12693 -> 9033 nodes, vae_decode 27883 -> 19413 nodes, color_correct 14 -> 14 nodes [944 ms]
+17:03:18.786 Rebuilt seedvr2_ema_3b for frames=9, height=1088, width=1920, half_caches=1 [1127 ms]
+17:03:22.068 Compiled 'vae_encode' in 3277 ms
+17:03:22.069 vae_encode@1920x1088x9: 19.32 GiB on the device
+17:03:53.572 restore: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+17:03:57.210 Compiled 'restore' in 3498 ms
+17:03:57.210 restore@1920x1088x9: 15.07 GiB on the device
+17:04:05.440 vae_decode: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+Unhandled exception. Sharplight.Runtime.DeviceOutOfMemoryException: NVIDIA RTX PRO 4500 Blackwell: out of memory allocating 38827.7 MiB for activations buffer activations. Tried: 38827.7 MiB Device in type 1 (device-local, heap 0): ErrorOutOfDeviceMemory. Heaps: [0] device-local 32623 MiB, budget 32080.3 MiB, process usage 280.1 MiB, Sharplight 256 MiB; [1] host 193188.9 MiB, budget 193188.9 MiB, process usage 11.6 MiB, Sharplight 0 MiB; [2] device-local 246 MiB, budget 226.6 MiB, process usage 19.4 MiB, Sharplight 16 MiB; Largest allocation 8796093022208 MiB. Free memory on the device (other models or applications), lower the context length or batch size, or place part of the model on another device.
+   at Sharplight.Vulkan.MemoryAllocator.Allocate(UInt64 size, MemoryUsage usage, String purpose) in <repo>/src/Sharplight.Vulkan/MemoryAllocator.cs:line 116
+   at Sharplight.Vulkan.VulkanSegment.<>c__DisplayClass68_0.<ShareArena>b__0(Int64 n) in <repo>/src/Sharplight.Vulkan/VulkanSegment.cs:line 504
+   at Sharplight.Runtime.SharedArena`1.Acquire(Int64 bytes, Func`2 allocate, Action`1 free, Boolean& allocated) in <repo>/src/Sharplight.Core/Runtime/SharedArena.cs:line 38
+   at Sharplight.Vulkan.VulkanSegment.ShareArena(VulkanDevice dev, Object scope, String key, BufferDecl b, UInt64 size) in <repo>/src/Sharplight.Vulkan/VulkanSegment.cs:line 504
+   at Sharplight.Vulkan.VulkanSegment..ctor(VulkanDevice dev, GraphSegment segment, KernelProgram program, CompileOptions options) in <repo>/src/Sharplight.Vulkan/VulkanSegment.cs:line 254
+   at Sharplight.Vulkan.VulkanDevice.Compile(GraphSegment segment, CompileOptions options) in <repo>/src/Sharplight.Vulkan/VulkanDevice.cs:line 534
+   at Sharplight.Runtime.CompiledModel.CompilePlaced(ComputeGraph graph, PlacementOptions placement, Boolean retryOnStreamingOom, StrongBox`1 shortfall) in <repo>/src/Sharplight.Core/Runtime/CompiledModel.cs:line 339
+   at Sharplight.Runtime.CompiledModel.Compile(ComputeGraph graph, PlacementOptions placement) in <repo>/src/Sharplight.Core/Runtime/CompiledModel.cs:line 231
+   at Sharplight.Tasks.TaskModel.Compile(ComputeGraph graph, IReadOnlyDictionary`2 symbolBounds, Nullable`1 maxTokens, Nullable`1 contextLength) in <repo>/src/Sharplight.Core/Tasks/TaskModel.cs:line 290
+   at Sharplight.Tasks.TaskModel.CompileComponent(String role, String graph, IReadOnlyDictionary`2 symbolBounds, IReadOnlyDictionary`2 dimensions) in <repo>/src/Sharplight.Core/Tasks/TaskModel.cs:line 216
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.RunGraph(String role, String graph, IReadOnlyDictionary`2 dimensions, Action`1 bind, Action`1 read) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 268
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.Decode(EnhancementPlan plan, EnhancementBatch batch, Single[] latent, Single[] reference) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 221
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.Run(VideoEnhancementRequest request, VideoEnhancementOptions options, EnhancementPlan plan, Action`1 emit, CancellationToken cancellationToken) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 130
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.<>c__DisplayClass15_0.<EnhanceStreamingAsync>b__0(Action`1 emit, CancellationToken token) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 97
+   at Sharplight.Tasks.BackgroundCompute.<>c__DisplayClass3_1`1.<StreamBlocking>b__1() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 71
+   at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+--- End of stack trace from previous location ---
+   at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+   at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+--- End of stack trace from previous location ---
+   at Sharplight.Tasks.BackgroundCompute.<>c__DisplayClass4_0`1.<<Pump>b__0>d.MoveNext() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 83
+--- End of stack trace from previous location ---
+   at Sharplight.Tasks.BackgroundCompute.Pump[T](Func`3 produce, CancellationToken cancellationToken)+MoveNext() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 97
+   at Sharplight.Tasks.BackgroundCompute.Pump[T](Func`3 produce, CancellationToken cancellationToken)+MoveNext() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 110
+   at Sharplight.Tasks.BackgroundCompute.Pump[T](Func`3 produce, CancellationToken cancellationToken)+System.Threading.Tasks.Sources.IValueTaskSource<System.Boolean>.GetResult()
+   at Program.<Main>$(String[] args) in <repo>/bench/VideoEnhancementBench/Program.cs:line 70
+   at Program.<Main>$(String[] args) in <repo>/bench/VideoEnhancementBench/Program.cs:line 70
+   at Program.<Main>(String[] args)
+<repo>/bench/results/seedvr2/peak-memory.sh: line 12: 3846413 Aborted                 (core dumped) "$@"
+peak_mib 20161

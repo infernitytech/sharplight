@@ -1,0 +1,43 @@
+17:02:34.820 Graph optimization (sharplight-ir/1): restore 7946 -> 7185 nodes, vae_encode 2709 -> 1922 nodes, vae_decode 5348 -> 3701 nodes, color_correct 14 -> 14 nodes [406 ms]
+17:02:34.824 Loaded seedvr2_ema_3b (seedvr, video-enhancement, components transformer, vae): 856 tensors, 7.79 GB [650 ms]
+seedvr2_ema_3b on cuda (NVIDIA RTX PRO 4500 Blackwell), loaded in 0.7 s
+17:02:36.636 Graph optimization (sharplight-ir/1): restore 8746 -> 7986 nodes, vae_encode 12693 -> 9033 nodes, vae_decode 27883 -> 19413 nodes, color_correct 14 -> 14 nodes [980 ms]
+17:02:36.637 Rebuilt seedvr2_ema_3b for frames=9, height=1088, width=1920, half_caches=1 [1171 ms]
+17:02:37.837 Compiled 'vae_encode' in 1197 ms
+17:02:37.838 vae_encode@1920x1088x9: 19.32 GiB on the device
+17:03:03.207 restore: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+17:03:06.492 Compiled 'restore' in 3233 ms
+17:03:06.492 restore@1920x1088x9: 15.13 GiB on the device
+17:03:12.597 vae_decode: DeviceOutOfMemoryException; releasing 1 compiled graph(s) and retrying
+Unhandled exception. Sharplight.Runtime.DeviceOutOfMemoryException: NVIDIA RTX PRO 4500 Blackwell: out of memory allocating 38827.7 MiB for activations buffer activations. cuMemAlloc: out of memory (2). Device: 32126 MiB, free 31820 MiB (all processes), Sharplight 0 MiB. Free memory on the device (other models or applications), lower the context length or batch size, or place part of the model on another device.
+   at Sharplight.Cuda.CudaDevice.Allocate(Int64 bytes, String purpose) in <repo>/src/Sharplight.Cuda/CudaDevice.cs:line 579
+   at Sharplight.Cuda.CudaSegment.<>c__DisplayClass79_0.<ShareArena>b__0(Int64 n) in <repo>/src/Sharplight.Cuda/CudaSegment.cs:line 353
+   at Sharplight.Runtime.SharedArena`1.Acquire(Int64 bytes, Func`2 allocate, Action`1 free, Boolean& allocated) in <repo>/src/Sharplight.Core/Runtime/SharedArena.cs:line 38
+   at Sharplight.Cuda.CudaSegment.ShareArena(Object scope, String key, BufferDecl b, Int64 bytes) in <repo>/src/Sharplight.Cuda/CudaSegment.cs:line 353
+   at Sharplight.Cuda.CudaSegment.AllocateBuffer(BufferDecl b) in <repo>/src/Sharplight.Cuda/CudaSegment.cs:line 306
+   at Sharplight.Cuda.CudaSegment..ctor(CudaDevice dev, GraphSegment segment, KernelProgram program, CompileOptions options) in <repo>/src/Sharplight.Cuda/CudaSegment.cs:line 176
+   at Sharplight.Cuda.CudaDevice.Compile(GraphSegment segment, CompileOptions options) in <repo>/src/Sharplight.Cuda/CudaDevice.cs:line 287
+   at Sharplight.Runtime.CompiledModel.CompilePlaced(ComputeGraph graph, PlacementOptions placement, Boolean retryOnStreamingOom, StrongBox`1 shortfall) in <repo>/src/Sharplight.Core/Runtime/CompiledModel.cs:line 339
+   at Sharplight.Runtime.CompiledModel.Compile(ComputeGraph graph, PlacementOptions placement) in <repo>/src/Sharplight.Core/Runtime/CompiledModel.cs:line 231
+   at Sharplight.Tasks.TaskModel.Compile(ComputeGraph graph, IReadOnlyDictionary`2 symbolBounds, Nullable`1 maxTokens, Nullable`1 contextLength) in <repo>/src/Sharplight.Core/Tasks/TaskModel.cs:line 290
+   at Sharplight.Tasks.TaskModel.CompileComponent(String role, String graph, IReadOnlyDictionary`2 symbolBounds, IReadOnlyDictionary`2 dimensions) in <repo>/src/Sharplight.Core/Tasks/TaskModel.cs:line 216
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.RunGraph(String role, String graph, IReadOnlyDictionary`2 dimensions, Action`1 bind, Action`1 read) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 268
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.Decode(EnhancementPlan plan, EnhancementBatch batch, Single[] latent, Single[] reference) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 221
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.Run(VideoEnhancementRequest request, VideoEnhancementOptions options, EnhancementPlan plan, Action`1 emit, CancellationToken cancellationToken) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 130
+   at Sharplight.Architectures.VideoEnhancement.SeedVrEnhancer.<>c__DisplayClass15_0.<EnhanceStreamingAsync>b__0(Action`1 emit, CancellationToken token) in <repo>/src/Sharplight.Architectures.VideoEnhancement/SeedVrEnhancer.cs:line 97
+   at Sharplight.Tasks.BackgroundCompute.<>c__DisplayClass3_1`1.<StreamBlocking>b__1() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 71
+   at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+--- End of stack trace from previous location ---
+   at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
+   at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+--- End of stack trace from previous location ---
+   at Sharplight.Tasks.BackgroundCompute.<>c__DisplayClass4_0`1.<<Pump>b__0>d.MoveNext() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 83
+--- End of stack trace from previous location ---
+   at Sharplight.Tasks.BackgroundCompute.Pump[T](Func`3 produce, CancellationToken cancellationToken)+MoveNext() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 97
+   at Sharplight.Tasks.BackgroundCompute.Pump[T](Func`3 produce, CancellationToken cancellationToken)+MoveNext() in <repo>/src/Sharplight.Core/Tasks/BackgroundCompute.cs:line 110
+   at Sharplight.Tasks.BackgroundCompute.Pump[T](Func`3 produce, CancellationToken cancellationToken)+System.Threading.Tasks.Sources.IValueTaskSource<System.Boolean>.GetResult()
+   at Program.<Main>$(String[] args) in <repo>/bench/VideoEnhancementBench/Program.cs:line 70
+   at Program.<Main>$(String[] args) in <repo>/bench/VideoEnhancementBench/Program.cs:line 70
+   at Program.<Main>(String[] args)
+<repo>/bench/results/seedvr2/peak-memory.sh: line 12: 3844261 Aborted                 (core dumped) "$@"
+peak_mib 32096

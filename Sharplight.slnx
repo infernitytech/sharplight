@@ -27,6 +27,8 @@
     <Project Path="src/Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
     <Project Path="src/Sharplight.Import.SileroVad/Sharplight.Import.SileroVad.csproj" />
     <Project Path="src/Sharplight.Import.Ultralytics/Sharplight.Import.Ultralytics.csproj" />
+    <Project Path="src/Sharplight.Import.SeedVr/Sharplight.Import.SeedVr.csproj" />
+    <Project Path="src/Sharplight.Architectures.VideoEnhancement/Sharplight.Architectures.VideoEnhancement.csproj" />
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
     <Project Path="src/Sharplight.Video/Sharplight.Video.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
@@ -52,6 +54,7 @@
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
     <Project Path="samples/Sharplight.GenerateImage/Sharplight.GenerateImage.csproj" />
     <Project Path="samples/Sharplight.GenerateVideo/Sharplight.GenerateVideo.csproj" />
+    <Project Path="samples/Sharplight.EnhanceVideo/Sharplight.EnhanceVideo.csproj" />
     <Project Path="samples/Sharplight.Transcribe/Sharplight.Transcribe.csproj" />
     <Project Path="samples/Sharplight.Vision/Sharplight.Vision.csproj" />
   </Folder>

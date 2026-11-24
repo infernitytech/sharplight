@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Sharplight.ImageGeneration;
+using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
 using Sharplight.Llm;
 using Sharplight.Models;
@@ -357,6 +358,26 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The same service collection.</returns>
         public IServiceCollection AddVideoGenerator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<IVideoGenerator>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IVideoEnhancer"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>). The model's
+        /// architecture package registers the implementation (<c>AddSharplight()</c> includes the shipped ones).
+        /// </summary>
+        /// <param name="configure">Configures the model to load.</param>
+        /// <param name="serviceKey">Registers the client as a keyed service under this key, or <see langword="null"/> for the default service.</param>
+        /// <returns>The same service collection.</returns>
+        public IServiceCollection AddVideoEnhancer(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IVideoEnhancer>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IVideoEnhancer"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).
+        /// </summary>
+        /// <param name="configure">Configures the model to load.</param>
+        /// <param name="serviceKey">Registers the client as a keyed service under this key, or <see langword="null"/> for the default service.</param>
+        /// <returns>The same service collection.</returns>
+        public IServiceCollection AddVideoEnhancer(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IVideoEnhancer>(configure, serviceKey);
     }
 
     private static TClient CreateClient<TClient>(IServiceProvider provider, TaskModelKey modelKey)

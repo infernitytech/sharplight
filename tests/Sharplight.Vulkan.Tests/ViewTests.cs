@@ -19,6 +19,24 @@ public sealed class ViewTests
     }
 
     /// <summary>
+    /// <c>After</c> passes its first input through unchanged once its second is computed: two independent chains, the second started after the
+    /// first (as chunked work is sequenced), read through slices and permutes of the passed-through value.
+    /// </summary>
+    [Fact]
+    public void AfterPassesTheValueThrough()
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 4, 6);
+        var y = tg.InF("y", TG.T, 4, 6);
+        var first = tg.B.Silu(tg.B.Scale(x, 2f));
+        var second = tg.B.After(tg.B.Slice(y, 2, 1, 4), first);
+        tg.B.Output("first", first);
+        tg.B.Output("second", tg.B.Add(tg.B.Contiguous(tg.B.Permute(second, 0, 2, 1)), tg.B.Contiguous(tg.B.Permute(tg.B.Slice(first, 2, 0, 4), 0, 2, 1))));
+        Diff.Check("Views.after", tg.B.Build(), new Step(5, 0, (x, Rnd.F(5 * 24, 1)), (y, Rnd.F(5 * 24, 2))), atol: 1e-6, rtol: 1e-6);
+    }
+
+    /// <summary>
     /// Concatenations of several inputs run as one launch: strided, permuted and dense inputs of different extents along an
     /// inner and the outer axis, f32 and integer elements.
     /// </summary>

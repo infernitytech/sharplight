@@ -17335,3 +17335,112 @@ bench/same_stat_offload.sh out qwen35-122b $G/Qwen3.5-122B-A10B/Qwen3.5-122B-A10
 LLAMA_EXTRA="-lm mmap,none" bench/same_stat_offload.sh out gpt-oss-120b <local copy>/gpt-oss-120b-MXFP4.gguf cuda 22,24 B llama-first
 python3 bench/same_stat_summarize_batched.py out; python3 bench/same_stat_summarize_offload.py out
 ```
+
+## 108. SeedVR2 video restoration against the official PyTorch inference: 49-50 dB parity; the DiT on par, the VAE ~2 × slower (1.3-1.6 × end to end); Sharplight's memory is constant in clip length, so 960p output runs where the official script runs out of memory on 32 GB (2026-11-24)
+
+Branch `feat/seedvr2` (`develop` at `2d2b1e54`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, driver 595.112, shared with
+other rounds: every timing run held the bench lock). PyTorch 2.14 (CUDA 13.0) running the official inference code
+(ByteDance-Seed/SeedVR, `projects/video_diffusion_sr/infer.py`) through `tools/seedvr2-reference.py`. Scripts and raw output are in
+[`bench/results/seedvr2/`](../bench/results/seedvr2) (`run-bench.sh`, `peak-memory.sh`, `psnr.py`, `summarize.py`; `raw/` holds the
+logs, timing JSONs, the round scripts, the CUDA memory and profile output; local paths replaced by `<repo>`, `<work>`, `<models>`).
+
+Setup (identical on both sides):
+
+* Checkpoint: the official `seedvr2_ema_3b.pth` + `ema_vae.pth` + `pos_emb.pt` (the 7B: `seedvr2_ema_7b_fp16.safetensors`, which
+  PyTorch holds in bf16 since its f32 copy plus activations do not fit 32 GB). Sharplight loads the same folder (f16 matrices).
+* Input: a 30 fps fox clip at 416 × 240, 640 × 360, 832 × 480 and 960 × 544, 33 or 65 frames (17 for the 7B), upscaled 2 × with the
+  wavelet colour fix, seed 42, one batch holding all frames.
+* PyTorch in its fast settings: the DiT and VAE autocast to bf16 (the official default), flash attention (vLLM's flash-attn build;
+  the official script has no `torch.compile` option), DiT and VAE resident together (`--no-offload`) when they fit; otherwise the
+  official offloading between stages; otherwise also the DiT weights held in bf16. The colour fix runs on the CPU, as officially.
+* Sharplight: `bench/VideoEnhancementBench` with `--reduced-precision` (f16 products, f32 activations), CUDA and Vulkan.
+* Time: median of 5 runs after one warm-up, end to end (decode the input file, enhance, encode the output video), plus the
+  per-stage split. Peak memory: nvidia-smi samples of the process every 100 ms.
+* Correctness before timing: Sharplight run on the frames PyTorch decoded and with PyTorch's noise, compared with PyTorch's output
+  frames (`psnr.py`, worst frame).
+
+### 108.1 Results
+
+3B, 33 frames, 416 × 240 → 832 × 480 (PyTorch: no offload, f32 weights):
+
+| implementation | total | read | encode (resize + VAE encoder) | DiT | decode (VAE decoder + colour fix) | write | peak memory | worst frame vs PyTorch |
+|---|---|---|---|---|---|---|---|---|
+| PyTorch (official, CUDA) | **10.08 s** | 0.18 s | 1.77 s | 1.32 s | 6.45 s (4.22 + 2.23 CPU) | 0.35 s | 31.1 GiB | |
+| Sharplight CUDA | 15.69 s | 0.06 s | 3.94 s | **1.06 s** | 10.16 s | 0.44 s | **23.1 GiB** | 50.5 dB |
+| Sharplight Vulkan | 16.27 s | 0.06 s | 4.12 s | 1.16 s | 10.50 s | 0.44 s | 23.0 GiB ¹ | 50.5 dB |
+
+3B, 65 frames, 416 × 240 → 832 × 480 (PyTorch: no offload, f32 weights):
+
+| implementation | total | read | encode | DiT | decode | write | peak memory | worst frame vs PyTorch |
+|---|---|---|---|---|---|---|---|---|
+| PyTorch (official, CUDA) | **19.35 s** | 0.35 s | 3.50 s | 2.49 s | 12.36 s | 0.66 s | 30.7 GiB | |
+| Sharplight CUDA | 30.80 s | 0.08 s | 7.79 s | **2.03 s** | 20.04 s | 0.84 s | 26.1 GiB | 50.5 dB |
+| Sharplight Vulkan | 31.99 s | 0.09 s | 8.14 s | 2.26 s | 20.65 s | 0.85 s | 25.9 GiB | 50.4 dB |
+
+3B, 33 frames, 640 × 360 → 1280 × 720 (PyTorch: no offload and offload with f32 weights run out of memory; offload with the DiT
+weights in bf16 runs):
+
+| implementation | total | read | encode | DiT | decode | write | peak memory | worst frame vs PyTorch |
+|---|---|---|---|---|---|---|---|---|
+| PyTorch (official, CUDA) | **35.26 s** | 0.40 s | 9.39 s | 2.91 s | 21.32 s | 0.64 s | 30.6 GiB | |
+| Sharplight CUDA | 40.74 s | 0.09 s | 10.51 s | 3.45 s | 25.60 s | 0.96 s | **21.7 GiB** | 50.0 dB |
+| Sharplight Vulkan | 41.88 s | 0.09 s | 10.60 s | 3.83 s | 26.40 s | 0.96 s | 21.3 GiB ¹ | 50.0 dB |
+
+3B, 33 frames, 832 × 480 → 1664 × 960: **PyTorch runs out of memory in all three settings**, in the VAE decoder
+(`causal_inflation_lib.memory_limit_conv`, also with offloading and bf16 DiT weights; `raw/3b-fox-480p-33-pytorch.log`).
+
+| implementation | total | read | encode | DiT | decode | write | peak memory |
+|---|---|---|---|---|---|---|---|
+| PyTorch (official, CUDA) | out of memory | | | | | | |
+| Sharplight CUDA | **72.20 s** | 0.13 s | 18.47 s | 5.83 s | 46.00 s | 1.60 s | 30.8 GiB |
+| Sharplight Vulkan | 73.44 s | 0.14 s | 19.05 s | 5.66 s | 46.95 s | 1.62 s | not recorded ² |
+
+3B, 33 frames, 960 × 544 → 1920 × 1088: both run out of memory. PyTorch in the VAE decoder in all three settings; Sharplight in the
+VAE decoder too, which needs 38.8 GB of activations at this size (`raw/memory-cuda.log`).
+
+7B (fp16 safetensors), 17 frames, 416 × 240 → 832 × 480 (PyTorch: no offload, DiT weights in bf16):
+
+| implementation | total | read | encode | DiT | decode | write | peak memory | worst frame vs PyTorch |
+|---|---|---|---|---|---|---|---|---|
+| PyTorch (official, CUDA) | **5.99 s** | 0.10 s | 0.92 s | 1.31 s | 3.49 s | 0.18 s | 30.0 GiB | |
+| Sharplight CUDA | 8.11 s | 0.05 s | 1.94 s | **0.90 s** | 4.99 s | 0.22 s | 29.8 GiB | 44.8 dB |
+| Sharplight Vulkan | 8.36 s | 0.04 s | 2.00 s | 1.02 s | 5.07 s | 0.22 s | 30.0 GiB | 44.8 dB |
+
+¹ Half the recorded value: nvidia-smi lists a Vulkan process twice with the same memory, and the first version of `peak-memory.sh`
+added both (fixed for the later runs, which take the largest entry). ² The script was replaced while this run was in progress.
+
+### 108.2 Where the time goes
+
+* **DiT: on par or faster.** 1.06 s against 1.32 s (3B, 480p), 0.90 s against 1.31 s (7B). The profile (`raw/profile-cuda-480p.log`,
+  GPU time 1.03 s) is the f16 GEMMs (65 %), the batched window attention (8 %) and gathers / norms.
+* **VAE: about 2 × slower.** Encoder 3.94 s against 1.77 s, decoder 10.16 s against 4.22 s + 2.23 s of colour fix on the CPU (480p).
+  The encoder's GPU time is 3.8 s, 80 % in `conv_cm`, the shared implicit-GEMM convolution with f32 activations and f16 products:
+  8.7 ms for a 384 → 128 3 × 3 convolution over one 480 × 832 frame (~40 TFLOPS; the same GPU's f16 GEMM reaches ~140), while
+  PyTorch's whole encoder (cuDNN, bf16) takes 1.77 s. The rest: casts and concatenations of the frame windows (~10 %), group norms and SiLU (~7 %). A faster
+  convolution (f16 activations, no stacked-window staging) is the work that would close the gap for every VAE, not only this one.
+* **At large sizes the stages take turns on the device.** At 720p and 960p the DiT's weights (7.8 GB) and the VAE's activations do
+  not fit together; the enhancer releases its compiled graphs on an out-of-memory error and compiles again from the cached kernels
+  (11 to 17 releases over the six runs, ~1-2 s each), which the totals include.
+
+### 108.3 Memory
+
+Activations of the VAE graphs at 33 frames (CUDA lowering, `raw/memory-cuda.log`; the same for 9 or 65 frames):
+
+| output size | VAE encoder | DiT (restore) | VAE decoder |
+|---|---|---|---|
+| 832 × 480 | 5.1 GB | 8.2 GB | 8.3 GB |
+| 1280 × 720 | 10.2 GB | 10.3 GB | 19.2 GB |
+| 1664 × 960 | 14.9 GB | 13.1 GB | 30.5 GB |
+| 1920 × 1088 | 19.3 GB | 15.1 GB | 38.8 GB (does not fit) |
+
+Before this round the VAE's memory grew with the clip (encoder 27.6 GB at 33 frames of 480p, 61 GB at 720p): the GPU lowering's
+level scheduling started all chunks at once. Three changes made it constant: the generic `After` op (a control dependency) chaining
+chunks and convolution pieces; a fix in the lowering's fusion (a view closed an open fused group only when its *first* input came from
+it, so `After` did not hold); and taking the causal-convolution windows from the cache and the chunk directly, with f16 caches and the
+full-resolution levels run frame by frame.
+
+### 108.4 Not done
+
+* 1080p output: needs spatial tiling of the VAE (the official script has none either; it fails at the same size).
+* The VAE's convolution speed (108.2).
+* `torch.compile`: not offered by the official inference script, so not used.

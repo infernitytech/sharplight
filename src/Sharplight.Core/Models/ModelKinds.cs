@@ -46,6 +46,12 @@ public static class ModelKinds
     /// <summary>Image in, larger image out.</summary>
     public const string ImageUpscaling = "image-upscaling";
 
+    /// <summary>
+    /// Video frames (or one image) in, restored and usually enlarged frames out: super-resolution and restoration of whole clips
+    /// (<c>Sharplight.VideoEnhancement.IVideoEnhancer</c>).
+    /// </summary>
+    public const string VideoEnhancement = "video-enhancement";
+
     /// <summary>Audio in, discrete codes out and codes back to audio (<c>Sharplight.Audio.IAudioCodec</c>).</summary>
     public const string AudioCodec = "audio-codec";
 

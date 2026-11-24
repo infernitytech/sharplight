@@ -39,6 +39,10 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Permute":
                 LowerPermute(n);
                 return;
+            case "After":
+                // Graph order already runs the dependency first: the value passes through.
+                _refs[n.Output] = Ref(n.Inputs[0]);
+                return;
             case "Expand":
                 LowerExpand(n);
                 return;

@@ -44,6 +44,10 @@ public sealed partial class GraphLowerer
             case "Permute":
                 _refs[n.Output] = ViewPermute(Ref(n.Inputs[0]), n.Attributes.Get<int[]>("perm"));
                 break;
+            case "After":
+                // The ordering comes from the schedule (the unit's level follows both inputs); the value passes through.
+                _refs[n.Output] = Ref(n.Inputs[0]);
+                break;
             case "Contiguous":
                 EmitCopy(Ref(n.Inputs[0]), Produce(n.Output), "contiguous", [n]);
                 break;

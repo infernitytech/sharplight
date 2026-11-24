@@ -318,6 +318,14 @@ public sealed class GraphBuilder
     public Value Permute(Value x, params int[] perm) => Emit1("Permute", [x], Attributes.From(("perm", perm)));
     /// <summary>Materializes a view (for example after <see cref="Permute"/>) into a dense row-major tensor.</summary>
     public Value Contiguous(Value x) => Emit1("Contiguous", [x]);
+    /// <summary>
+    /// <paramref name="x"/> itself, scheduled only after <paramref name="after"/> has been computed (<see cref="StandardOps.After"/>): keeps
+    /// independent chunks of a chunked computation sequential.
+    /// </summary>
+    /// <param name="x">The value.</param>
+    /// <param name="after">The value whose computation must come first; its contents are not read.</param>
+    public Value After(Value x, Value after) => Emit1("After", [x, after]);
+
     /// <summary>Concatenates the operands along <paramref name="axis"/>.</summary>
     public Value Concat(int axis, params Value[] xs) => Emit1("Concat", xs, Attributes.From(("axis", axis)));
     /// <summary>Selects rows of <paramref name="table"/> by integer <paramref name="indices"/> (embedding lookup).</summary>
