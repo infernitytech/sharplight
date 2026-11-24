@@ -11,7 +11,7 @@ import re, sys
 
 CLASSES = [
     ("moe", re.compile(r"moe|topk|expert|align_block", re.I)),
-    ("attention", re.compile(r"flash|attn|attention|paged|decode_with|prefill_with|merge_state|reshape_and_cache", re.I)),
+    ("attention", re.compile(r"flash|attn|attention|kernel_mha|paged|decode_with|prefill_with|merge_state|reshape_and_cache", re.I)),
     ("gemm", re.compile(r"gemm|cutlass|xmma|nvjet|wgmma|marlin|matmul|splitKreduce|split_k_reduce", re.I)),
     ("norm", re.compile(r"norm", re.I)),
     ("quant", re.compile(r"quant|scaled_fp4|cvt", re.I)),

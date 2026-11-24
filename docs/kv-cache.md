@@ -244,7 +244,10 @@ Defaults and sizing:
   speculation (a single-sequence session), the contiguous cache of section 1 remains.
 - Hosted chat models (`LlmChatModelLoader`, so `sharplight serve` and Studio): when the model host has to load a model into less memory
   than its footprint (`IPreparedModel.Load(limit)`), a default-sized pool shrinks to fit (to at least one full context plus a block per
-  slot) before layers are offloaded; an explicit `ChatModelOptions.KvCacheTokens` is kept.
+  slot, leaving one 256 MiB allocation granule) before layers are offloaded; an explicit `ChatModelOptions.KvCacheTokens` is kept. The
+  host takes that path whenever the smallest pool would fit (`IPreparedModel.ShrinkableTo`), with or without a CPU fallback, so
+  `sharplight serve MODEL --slots 256 --ctx 2560` fills the free memory with KV blocks the way vLLM's `gpu_memory_utilization` does
+  instead of refusing the model (benchmarks.md §105.5: Qwen3-8B-FP8 143,264 tokens, Llama-3.1-8B 111,069, gpt-oss-20b 613,478 on 32 GB).
 - `EngineOptions.PrefixCache` (default on; `sharplight serve --no-prefix-cache`) turns all prefix reuse off.
 
 Hashing and namespaces (`KvBlockHash`):

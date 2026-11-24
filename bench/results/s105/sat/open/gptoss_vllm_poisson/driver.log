@@ -1,0 +1,8 @@
+ready=1 after 87 s
+{"concurrency": 256, "requests": 768, "errors": 0, "wall_s": 45.83953062607907, "agg_tok_s": 3314.7154415572336, "out_tokens": 151945, "avg_out_tokens": 197.84505208333334, "avg_prompt_tokens": 292.703125, "shared_prefix_words": 0, "per_stream_tok_s": 32.05100298314713, "ttft_p50_ms": 140.9432968357578, "ttft_p95_ms": 254.8914825660177, "itl_mean_ms": 31.20027165845057, "itl_p50_ms": 22.1494035213
+textcheck wave 16: 10/16 identical to single-request, 0 part within 3 words, 0 garbage -> ok
+textcheck wave 256: 171/256 identical to single-request, 0 part within 3 words, 2 garbage -> FAIL
+  #119 ["repeat:'.'x18"]: ' The letter should be in a very short form, but it must contain the following: 1) The first letter o'
+  #151 ["repeat:'.'x21"]: ' The letter should be in a style that is reminiscent of a 19th-century novel, and it should contain '
+textcheck: GARBAGE
+TEXT CHECK FAILED (rc=1): batched greedy text differs from single-request text, see <path>

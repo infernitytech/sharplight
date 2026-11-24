@@ -1,0 +1,3 @@
+[first] 1+0: 35.4 ms; recorded True record 5.3 submit 0.0 wait 21.6 gpu 22.7
+[first] 16+0: 24.9 ms; recorded True record 5.8 submit 0.0 wait 19.0 gpu 24.8
+[first] 64+0: 49.7 ms; recorded True record 27.1 submit 1.1 wait 21.4 gpu 49.6

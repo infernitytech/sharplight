@@ -1,0 +1,7 @@
+07:32:29 start qwen sharplight fixed concs=16 64 128 256 rates= args=--provider cuda --max-queue 4096 --kv-tokens 127632
+07:35:39 end qwen sharplight fixed rc=0
+07:35:39 start qwen vllm fixed concs=16 64 128 256 rates= args=--gpu-memory-utilization 0.9 --max-num-batched-tokens 2048
+07:39:08 end qwen vllm fixed rc=0
+07:39:08 start qwen sharplight mix concs=64 128 256 rates= args=--provider cuda --max-queue 4096 --kv-tokens 127632
+07:44:53 end qwen sharplight mix rc=0
+07:44:53 start qwen vllm mix concs=64 128 256 rates= args=--gpu-memory-utilization 0.9 --max-num-batched-tokens 2048

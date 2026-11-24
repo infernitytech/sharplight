@@ -1,0 +1,2284 @@
+{
+ "url": "http://127.0.0.1:18080",
+ "max_tokens": 48,
+ "prompts": 8,
+ "waves": [
+  {
+   "requests": 16,
+   "identical": 4,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nThe girl is named Lila. She is 12 years old, with long brown hair and green eyes. She lives in a small village near the forest. She is"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: 1. Introduction 2. Advantages of cities 3. Disadvantages of cities 4. Advantages of villages 5. Disadvantages of villages 6. Final recommendation. Use the following"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 11,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable-type printing press by Johannes Gutenberg. This invention marked a pivotal moment in human history, revolutionizing the way information was disseminated and stored. Before Gutenberg, the primary method of"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they convert these into glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. The overall equation is 6CO2"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 16,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you understand other cultures better. 2. It can improve your job opportunities. 3. It makes you smarter.\nQ: What are three good reasons to learn a second language?\nA: 1. It"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. The letter"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the underlying concepts and not just the answer. Use an example. Step by step, with an example. Also, explain how the teacher can help the student understand the underlying concepts and not"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Make sure to use the correct medical terminology. Also, ensure that the language is formal and academic. Use the following words:"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 11,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable-type printing press by Johannes Gutenberg. This invention marked a pivotal moment in human history, revolutionizing the way information was disseminated and stored. Before Gutenberg, the primary method of"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a 500-word article about photosynthesis, including the following elements: the role"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 16,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you understand other cultures better. 2. It can improve your job opportunities. 3. It can make you smarter.\nQ: What are three good reasons to learn a second language?\nA: 1."
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a conversational tone. Make sure to include at least three specific details about the trip. Also, include a personal reflection on the experience. \n\nOkay, so I need to write a letter to a"
+    }
+   ]
+  },
+  {
+   "requests": 256,
+   "identical": 79,
+   "early": 36,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Use bullet points. Here's a list of cities and villages from the point of view of a doctor. Here's a list of cities and villages from the point of view of a doctor. Here's a list of cities and villages from the"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 22,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the way information was disseminated, making books more accessible and affordable. Before the printing press, books were painstakingly copied"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. The overall equation is 6CO2 + "
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 15,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to include at least three specific details about the environment and three specific details about the activities you did. Also, include a personal reflection on the experience. Use a friendly and conversational tone. \n\n"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the underlying concepts and not just the answer. Use an example. Step by step, with an example. Also, explain how the teacher can help the student understand the underlying concepts and not"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Keep the language simple and clear. Use the following words: access to medical facilities, population density, availability of specialists, cost"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they convert these into glucose and oxygen. The glucose is used for energy, and oxygen is released as a byproduct. Now, write a paragraph that explains the process of photosynthesis"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it's easier to learn a second language when you're in a country where the language is spoken. Third, it's easier to learn"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to include at least three specific examples of things you did or saw during the trip. Also, include a personal reflection on how the trip affected you. Use a friendly and conversational tone. Keep"
+    },
+    {
+     "i": 16,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 17,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 18,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 19,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Make sure to use the correct medical terminology. Also, ensure that the language is formal and academic. Use the following words:"
+    },
+    {
+     "i": 20,
+     "prompt": 4,
+     "same_words": 11,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable-type printing press by Johannes Gutenberg. This invention marked a pivotal moment in human history, revolutionizing the way information was disseminated and stored. Before Gutenberg, the primary method of"
+    },
+    {
+     "i": 21,
+     "prompt": 5,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they convert these into glucose and oxygen. The glucose is used for energy, and oxygen is released into the atmosphere. Now, write a 1000-word article on the"
+    },
+    {
+     "i": 22,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 23,
+     "prompt": 7,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery to make the experience come alive. Also, include a personal reflection on the significance of the trip. Use a friendly and conversational tone, and make sure to include at least one anecdote or story from the"
+    },
+    {
+     "i": 24,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 25,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 26,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 27,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Keep it concise. Use the following language: \"In terms of healthcare access, cities offer better facilities and more specialized services."
+    },
+    {
+     "i": 28,
+     "prompt": 4,
+     "same_words": 11,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 29,
+     "prompt": 5,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. The overall equation is 6CO2 + "
+    },
+    {
+     "i": 30,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 31,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to mention the activities you did, the people you were with, and the emotions you felt. Also, the letter should be written in a friendly and conversational tone, with some humor and personal"
+    },
+    {
+     "i": 32,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 33,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 34,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 35,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n**Comparison of Cities and Villages from the Perspective of a"
+    },
+    {
+     "i": 36,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 37,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is divided into two main stages: the light-dependent reactions and the light-independent reactions (Calvin cycle). In the light-dependent reactions, which"
+    },
+    {
+     "i": 38,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it's easier to learn a second language when you're in a country where the language is spoken. Third, it's easier to learn"
+    },
+    {
+     "i": 39,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to mention the activities you did, the people you met, and the emotions you felt. Keep the tone warm and personal. Also, include a personal anecdote about a near-miss incident that"
+    },
+    {
+     "i": 40,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 41,
+     "prompt": 1,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the underlying concepts and not just the answer. Use an example. Step by step, with an example. Also, explain how the teacher can help the student understand the underlying concepts and not"
+    },
+    {
+     "i": 42,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 43,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n**Comparison of Cities and Villages from the Perspective of a"
+    },
+    {
+     "i": 44,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 45,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is divided into two main stages: the light-dependent reactions and the light-independent reactions (Calvin cycle). The light-dependent reactions occur in the"
+    },
+    {
+     "i": 46,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your cognitive abilities, such as problem-solving and multitasking. 2) It can enhance your career opportunities by making you more competitive in the job market. "
+    },
+    {
+     "i": 47,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. The letter"
+    },
+    {
+     "i": 48,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 49,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 50,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 51,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n**Comparison of Cities and Villages from the Perspective of a"
+    },
+    {
+     "i": 52,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 53,
+     "prompt": 5,
+     "same_words": 35,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a 500-word article for a general audience about photosynthesis, making sure to"
+    },
+    {
+     "i": 54,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your cognitive abilities, such as problem-solving and multitasking. 2) It can enhance your career opportunities, as many employers value bilingual employees. 3)"
+    },
+    {
+     "i": 55,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places and activities you did. Also, include a personal anecdote about a funny or memorable moment. Keep the letter around 500"
+    },
+    {
+     "i": 56,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 57,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 58,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 59,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's"
+    },
+    {
+     "i": 60,
+     "prompt": 4,
+     "same_words": 22,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the way information was disseminated, making books more accessible and affordable. Prior to this, books were painstakingly copied by"
+    },
+    {
+     "i": 61,
+     "prompt": 5,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a 500-word article about photosynthesis, including the following elements: the role"
+    },
+    {
+     "i": 62,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your cognitive abilities, such as problem-solving and multitasking. 2) It can enhance your career opportunities by making you more competitive in the job market. "
+    },
+    {
+     "i": 63,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. The letter"
+    },
+    {
+     "i": 64,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 65,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 66,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 67,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n**Comparison of Cities and Villages from the Perspective of a"
+    },
+    {
+     "i": 68,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 69,
+     "prompt": 5,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. The overall equation is 6CO2 + "
+    },
+    {
+     "i": 70,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your cognitive abilities, such as problem-solving and multitasking. 2) It can enhance your career opportunities by making you more competitive in the job market. "
+    },
+    {
+     "i": 71,
+     "prompt": 7,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to include at least three specific examples of things you did or saw during the trip. Also, include a personal reflection on how the trip affected you. Use a friendly and conversational tone. Keep"
+    },
+    {
+     "i": 72,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 73,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 74,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 75,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n### **Comparison of Cities and Villages from a Doctor's"
+    },
+    {
+     "i": 76,
+     "prompt": 4,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the mechanical movable type printing press by Johannes Gutenberg. This invention, which was a culmination of centuries of technological development, revolutionized the spread of information and had a profound impact on the development"
+    },
+    {
+     "i": 77,
+     "prompt": 5,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a 500-word article about photosynthesis, including the following elements: the role"
+    },
+    {
+     "i": 78,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your cognitive abilities, such as problem-solving and multitasking. 2) It can enhance your career opportunities, as many employers value bilingual employees. 3)"
+    },
+    {
+     "i": 79,
+     "prompt": 7,
+     "same_words": 19,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to include at least three specific examples of things you saw or did during the trip. Also, include a personal reflection on how the trip affected you. Use a friendly and conversational tone. Keep"
+    },
+    {
+     "i": 80,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 81,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 82,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 83,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n**Comparison of Cities and Villages from the Perspective of a"
+    },
+    {
+     "i": 84,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 85,
+     "prompt": 5,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they convert these into glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. This process is vital for life on Earth"
+    },
+    {
+     "i": 86,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can help you get a better job. 2) It can help you understand other cultures better. 3) It can help you travel more easily.\nQ: What"
+    },
+    {
+     "i": 87,
+     "prompt": 7,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery to make the experience come alive. Use a conversational tone and avoid overly complex sentences. Keep the letter around 500 words.\nHey [Friend's Name],\n\nI hope you're doing well! I"
+    },
+    {
+     "i": 88,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 89,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 90,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 91,
+     "prompt": 3,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Please write in English.\nCertainly! Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n---\n\n**Comparison of Cities and Villages from the Perspective of a"
+    },
+    {
+     "i": 92,
+     "prompt": 4,
+     "same_words": 11,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable-type printing press by Johannes Gutenberg. This invention marked a pivotal moment in human history, revolutionizing the way information was disseminated and stored. Before Gutenberg, the primary method of"
+    },
+    {
+     "i": 93,
+     "prompt": 5,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they convert these into glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. This is a vital process for life on"
+    },
+    {
+     "i": 94,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Three good reasons to learn a second language are: 1) It can improve your cognitive abilities, such as problem-solving and multitasking skills. 2) It can enhance your career opportunities by making you more competitive in the job market."
+    },
+    {
+     "i": 95,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a conversational tone. Make sure to mention the activities you did, the weather, and the people you were with. Also, include a personal reflection on the experience. \n\nOkay, so I need"
+    },
+    {
+     "i": 96,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 97,
+     "prompt": 1,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the underlying concepts, not just the answer. Use an example. Step by step, with an example. Also, explain how the teacher can help the student understand the underlying concepts, not"
+    },
+    {
+     "i": 98,
+     "prompt": 2,
+     "same_words": 3,
+     "identical": false,
+     "flags": [],
+     "text": " The story should be at least 1000 words.\nThe girl is named Lila. She is 12 years old, with long brown hair and green eyes. She lives in a small village near the forest. The forest"
+    },
+    {
+     "i": 99,
+     "prompt": 3,
+     "same_words": 30,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in society and how it relates to the setting (city or village). Adv"
+    },
+    {
+     "i": 100,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 101,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is called photosynthesis. Now, I want to create a simple simulation of photosynthesis using Python. I need to model the basic steps of"
+    },
+    {
+     "i": 102,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it's easier to learn a second language when you're in a country where the language is spoken. Third, it's easier to learn"
+    },
+    {
+     "i": 103,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a conversational tone. Make sure to mention the activities you did, the weather, and the people you were with. Also, include a personal reflection on the experience. \n\nOkay, let's tackle"
+    },
+    {
+     "i": 104,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 105,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 106,
+     "prompt": 2,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a happy ending. The story should be at least 1000 words.\nIn the heart of the forest, there was a girl named Lily who loved to explore. One day, while wandering through the woods,"
+    },
+    {
+     "i": 107,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Keep it concise. Use markdown. Here's a sample for you to follow:\n\n## Introduction\n\nIn the field of medicine,"
+    },
+    {
+     "i": 108,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 109,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is summarized by the equation: 6CO2 + 6H2O + light \u2192 C6H12O6 + "
+    },
+    {
+     "i": 110,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 111,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, so I need to write a letter to a friend"
+    },
+    {
+     "i": 112,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 113,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 114,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 115,
+     "prompt": 3,
+     "same_words": 23,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly introduce the topic and the purpose of the comparison. Advantages: List the advantages of cities and villages from"
+    },
+    {
+     "i": 116,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 117,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is called photosynthesis. Now, I want to create a simple simulation of this process using Python. How can I model the different components involved"
+    },
+    {
+     "i": 118,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you understand other cultures better. Third, it can improve your memory and cognitive abilities.\nQ: What are three good reasons to"
+    },
+    {
+     "i": 119,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, let me start by thinking about how to approach this"
+    },
+    {
+     "i": 120,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 121,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 122,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 123,
+     "prompt": 3,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in both settings. Advantages: List the advantages of each setting. Dis"
+    },
+    {
+     "i": 124,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 125,
+     "prompt": 5,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth because it provides the oxygen we breathe and forms the basis of the food chain. Now, write a paragraph that"
+    },
+    {
+     "i": 126,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 127,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, let's tackle this letter. The user wants a"
+    },
+    {
+     "i": 128,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 129,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 130,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 131,
+     "prompt": 3,
+     "same_words": 30,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in society and how it relates to the setting (city or village). Adv"
+    },
+    {
+     "i": 132,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 133,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is called photosynthesis. The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H"
+    },
+    {
+     "i": 134,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 135,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, so I need to write a letter to a friend"
+    },
+    {
+     "i": 136,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 137,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 138,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 139,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Keep the language simple and clear. Use the following words: access to medical facilities, population density, availability of specialists, cost"
+    },
+    {
+     "i": 140,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 141,
+     "prompt": 5,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth because it provides the oxygen we breathe and forms the basis of the food chain. Now, write a 5"
+    },
+    {
+     "i": 142,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 143,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\n**Letter:**\n\nDear [Friend's Name],\n\nI hope"
+    },
+    {
+     "i": 144,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 145,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 146,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 147,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Make sure to use the correct medical terminology. Also, ensure that the language is formal and academic. Use the following words:"
+    },
+    {
+     "i": 148,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 149,
+     "prompt": 5,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. The overall equation for photosynthesis is 6CO"
+    },
+    {
+     "i": 150,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 151,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, so I need to write a letter to a friend"
+    },
+    {
+     "i": 152,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 153,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 154,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 155,
+     "prompt": 3,
+     "same_words": 30,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in society and how their work environment affects their ability to provide care. Adv"
+    },
+    {
+     "i": 156,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 157,
+     "prompt": 5,
+     "same_words": 11,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight as an energy source, they produce glucose and oxygen. The chemical equation for this process is 6CO2 + 6H2O + light \u2192 C6H12O"
+    },
+    {
+     "i": 158,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 159,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, let me start by thinking about how to approach this"
+    },
+    {
+     "i": 160,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 161,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 162,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 163,
+     "prompt": 3,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in both settings. Advantages: List the advantages of each setting. Dis"
+    },
+    {
+     "i": 164,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 165,
+     "prompt": 5,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they convert these into glucose and oxygen. The glucose is used for energy, and oxygen is released as a byproduct. Now, write a paragraph that explains the process of photosynthesis"
+    },
+    {
+     "i": 166,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 167,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, so I need to write a letter to a friend"
+    },
+    {
+     "i": 168,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 169,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 170,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 171,
+     "prompt": 3,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in both settings. Advantages: List the advantages of each setting. Dis"
+    },
+    {
+     "i": 172,
+     "prompt": 4,
+     "same_words": 11,
+     "identical": false,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable-type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 173,
+     "prompt": 5,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. The overall equation is 6CO2 + "
+    },
+    {
+     "i": 174,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 175,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, so I need to write a letter to a friend"
+    },
+    {
+     "i": 176,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 177,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 178,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 179,
+     "prompt": 3,
+     "same_words": 30,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in society and the importance of healthcare access. Advantages: List 3"
+    },
+    {
+     "i": 180,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 181,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is divided into two main stages: the light-dependent reactions and the light-independent reactions (Calvin cycle). The light-dependent reactions occur in the"
+    },
+    {
+     "i": 182,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 183,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. The letter"
+    },
+    {
+     "i": 184,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 185,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 186,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 187,
+     "prompt": 3,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in both settings. Advantages: List the advantages of each setting. Dis"
+    },
+    {
+     "i": 188,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 189,
+     "prompt": 5,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they convert these into glucose and oxygen. The process occurs in the chloroplasts of plant cells, where chlorophyll captures light energy. This energy is then used to drive the"
+    },
+    {
+     "i": 190,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you to understand other cultures better. Third, it can help you get a better job.\nQ: What are three good reasons"
+    },
+    {
+     "i": 191,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Make sure to use a friendly and conversational tone. Also, include a personal anecdote about a near-miss with a moose. \n\nOkay, so I need to write a letter to a friend"
+    },
+    {
+     "i": 192,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 193,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how this process helps the student learn and retain the information. Additionally, explain how this process helps the student learn and retain the information. Also, explain how this process helps the student learn and retain the information. (Note:"
+    },
+    {
+     "i": 194,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 195,
+     "prompt": 3,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in both settings. Advantages: List the advantages of each setting. Dis"
+    },
+    {
+     "i": 196,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 197,
+     "prompt": 5,
+     "same_words": 21,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is called photosynthesis. Now, I want to create a simple simulation of this process in Python. How can I model the different components involved"
+    },
+    {
+     "i": 198,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you understand other cultures better. Third, it can improve your job opportunities.\nQ: What are three good reasons to learn a"
+    },
+    {
+     "i": 199,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited and activities you did. Also, include a personal anecdote or two. The letter should be at least 500"
+    },
+    {
+     "i": 200,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 201,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student apply the concept to other problems. Use an example. Also"
+    },
+    {
+     "i": 202,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 203,
+     "prompt": 3,
+     "same_words": 20,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Make sure to use the correct medical terminology. Also, ensure that the language is formal and academic. Use the following words:"
+    },
+    {
+     "i": 204,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 205,
+     "prompt": 5,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a 500-word article about photosynthesis, including the following elements: the role"
+    },
+    {
+     "i": 206,
+     "prompt": 6,
+     "same_words": 0,
+     "identical": false,
+     "flags": [
+      "early:0"
+     ],
+     "text": " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you understand other cultures better. Third, it can improve your job opportunities.\nQ: What are three good reasons to learn a"
+    },
+    {
+     "i": 207,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. \n\nOkay"
+    },
+    {
+     "i": 208,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 209,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student apply the concept to other problems. Use an example. Also"
+    },
+    {
+     "i": 210,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 211,
+     "prompt": 3,
+     "same_words": 23,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly introduce the topic. Advantages: List the advantages of cities and villages from the perspective of a doctor."
+    },
+    {
+     "i": 212,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 213,
+     "prompt": 5,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a paragraph that explains the process of photosynthesis in more detail, including the role of chlor"
+    },
+    {
+     "i": 214,
+     "prompt": 6,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you to understand other cultures better. 2. It can improve your memory and cognitive abilities. 3. It can open up new career opportunities.\nQ: What are three good reasons to learn a second language?\n"
+    },
+    {
+     "i": 215,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. \n\nOkay"
+    },
+    {
+     "i": 216,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 217,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 218,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 219,
+     "prompt": 3,
+     "same_words": 23,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly introduce the topic. Advantages: List the advantages of cities and villages from the perspective of a doctor."
+    },
+    {
+     "i": 220,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 221,
+     "prompt": 5,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a paragraph that explains the process of photosynthesis in more detail, including the role of chlor"
+    },
+    {
+     "i": 222,
+     "prompt": 6,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you to understand other cultures better. 2. It can improve your memory and cognitive abilities. 3. It can open up new career opportunities.\nQ: What are three good reasons to learn a second language?\n"
+    },
+    {
+     "i": 223,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. \n\nOkay"
+    },
+    {
+     "i": 224,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 225,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 226,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 227,
+     "prompt": 3,
+     "same_words": 23,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly introduce the topic. Advantages: List the advantages of cities and villages from the perspective of a doctor."
+    },
+    {
+     "i": 228,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 229,
+     "prompt": 5,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a paragraph that explains the process of photosynthesis in more detail, including the role of chlor"
+    },
+    {
+     "i": 230,
+     "prompt": 6,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you to understand other cultures better. 2. It can improve your memory and cognitive abilities. 3. It can open up new career opportunities.\nQ: What are three good reasons to learn a second language?\n"
+    },
+    {
+     "i": 231,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. \n\nOkay"
+    },
+    {
+     "i": 232,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 233,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 234,
+     "prompt": 2,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story"
+    },
+    {
+     "i": 235,
+     "prompt": 3,
+     "same_words": 23,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly introduce the topic. Advantages: List the advantages of cities and villages from the perspective of a doctor."
+    },
+    {
+     "i": 236,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 237,
+     "prompt": 5,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a paragraph that explains the process of photosynthesis in more detail, including the role of chlor"
+    },
+    {
+     "i": 238,
+     "prompt": 6,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you to understand other cultures better. 2. It can improve your memory and cognitive abilities. 3. It can open up new career opportunities.\nQ: What are three good reasons to learn a second language?\n"
+    },
+    {
+     "i": 239,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. \n\nOkay"
+    },
+    {
+     "i": 240,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 241,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 242,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 243,
+     "prompt": 3,
+     "same_words": 1,
+     "identical": false,
+     "flags": [
+      "early:1"
+     ],
+     "text": " Use bullet points. Here's a comparison of cities and villages from the point of view of a doctor, focusing on advantages, disadvantages, and a final recommendation:\n\n**Advantages of Practicing in a City:**\n- **Access to Advanced"
+    },
+    {
+     "i": 244,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 245,
+     "prompt": 5,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a paragraph that explains the process of photosynthesis in more detail, including the role of chlor"
+    },
+    {
+     "i": 246,
+     "prompt": 6,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you to understand other cultures better. 2. It can improve your memory and cognitive abilities. 3. It can open up new career opportunities.\nQ: What are three good reasons to learn a second language?\n"
+    },
+    {
+     "i": 247,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. The letter"
+    },
+    {
+     "i": 248,
+     "prompt": 0,
+     "same_words": 34,
+     "identical": true,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15"
+    },
+    {
+     "i": 249,
+     "prompt": 1,
+     "same_words": 26,
+     "identical": false,
+     "flags": [],
+     "text": " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer."
+    },
+    {
+     "i": 250,
+     "prompt": 2,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person. The story should be written in past tense. The story should be written in"
+    },
+    {
+     "i": 251,
+     "prompt": 3,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " Use the following structure: 1. Introduction 2. Advantages of cities 3. Disadvantages of cities 4. Advantages of villages 5. Disadvantages of villages 6. Final recommendation. Use the following"
+    },
+    {
+     "i": 252,
+     "prompt": 4,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books"
+    },
+    {
+     "i": 253,
+     "prompt": 5,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a 500-word article about photosynthesis, including the following elements: the role"
+    },
+    {
+     "i": 254,
+     "prompt": 6,
+     "same_words": 5,
+     "identical": false,
+     "flags": [],
+     "text": " 1. It helps you to understand other cultures better. 2. It can help you to get a better job. 3. It can help you to make friends with people from other countries.\nQ: What are three good reasons"
+    },
+    {
+     "i": 255,
+     "prompt": 7,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention specific places you visited, the activities you did, and the people you were with. Also, include a personal reflection on the experience. The letter"
+    }
+   ]
+  }
+ ],
+ "ok": true,
+ "references": [
+  " The essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 1500 words.\nThe essay should be at least 15",
+  " Also, explain how the teacher can help the student understand the concept behind the problem, not just the answer. Use an example. Step by step, with an example. Also, explain how the teacher can help the student understand the concept behind",
+  " The story should have a beginning, middle, and end. The story should be at least 500 words. The story should be written in third person limited point of view. The story should be written in past tense. The story",
+  " Use the following structure: Introduction, Advantages, Disadvantages, Recommendation. Use bullet points for each section. Introduction: Briefly explain the role of a doctor in both settings. Advantages: List the advantages of each setting. Dis",
+  " the mid-15th century with the invention of the movable type printing press by Johannes Gutenberg. This invention revolutionized the spread of knowledge and information, making books more accessible and affordable. The printing press allowed for the mass production of books",
+  " plants take in carbon dioxide and water, and using sunlight, they produce glucose and oxygen. The process is essential for life on Earth. Now, write a 500-word article about photosynthesis, including the following elements: the role",
+  " 1. It helps you understand other cultures better. 2. It can improve your memory and cognitive abilities. 3. It can open up more job opportunities.\nQ: What are three good reasons to learn a second language?\nA",
+  " Include sensory details and vivid imagery. Make sure to include at least three specific examples of things you did or saw during the trip. Also, include a personal reflection on how the trip affected you. Use a friendly and conversational tone. Keep"
+ ]
+}
