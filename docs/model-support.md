@@ -3109,7 +3109,7 @@ Implementation notes:
 - The causal 3-D convolutions are 2-D convolutions over the frame windows stacked along the channels (the importer folds the kernel's time
   taps into its input channels, time-tap-major). The VAE graphs run the clip in chunks along time inside one graph (the encoder the first
   frame, then four frames per latent frame; the decoder one latent frame at a time), each convolution keeping its last kt − stride input
-  frames for the next chunk, and convolve in pieces (output frames, then row bands with their halo) of at most 256 MB of stacked input, so
+  frames for the next chunk, and convolve in pieces (output frames, then row bands with their halo) of at most 1 GB of stacked input, so
   memory follows one chunk; every op of the VAE but the causal convolutions works per frame, so chunking changes nothing.
 - The pipeline encodes all batches, then restores them, then decodes them; compiled graphs stay until the device runs out of memory,
   which releases them (the f32 3B's DiT and the VAE's activations at 960p do not fit a 32 GB GPU together).

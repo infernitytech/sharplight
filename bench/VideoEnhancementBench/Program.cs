@@ -5,6 +5,7 @@
 // decoding = VAE decoder + colour correction), encode the output file; after the warm-up runs (kernel compilation, weight upload) the
 // median of the timed runs is reported. The frames of the last run can be written raw for a PSNR check against another implementation;
 // --noise takes the initial noise and the encoder sample of a tools/seedvr2-reference.py dump, so the run reproduces that one.
+// --profile FxHxW (padded frames x height x width) times every kernel launch of each graph instead (Vulkan and CUDA).
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -35,6 +36,13 @@ using var model = TaskModel.Load(services.GetRequiredService<ModelLoader>(), new
     AllowReducedPrecision = options.ReducedPrecision,
 });
 double loadSeconds = load.Elapsed.TotalSeconds;
+if (options.Profile is { } profile)
+{
+    int[] size = [.. profile.Split('x').Select(int.Parse)];
+    GraphProfiler.Run(model, size[0], size[1], size[2], 30);
+    return 0;
+}
+
 using var enhancer = services.GetRequiredService<TaskClientProvider>().Create<IVideoEnhancer>(model);
 var encoders = services.GetRequiredService<VideoEncoderCatalog>();
 var decoders = services.GetRequiredService<VideoDecoderCatalog>();

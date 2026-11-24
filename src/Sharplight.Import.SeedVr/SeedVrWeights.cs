@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Sharplight.Import.HuggingFace;
 using Sharplight.Models;
@@ -140,9 +141,36 @@ internal static partial class SeedVrWeights
         weights[canonical] = HfTransforms.ToF32(tensors.Values.First().ToWeightInfo(), canonical);
     }
 
-    /// <summary>Vectors (biases, norms, modulation rows, frequencies) in f32; matrices as stored (f32, f16, bf16 or the fp8 conversions' E4M3).</summary>
+    /// <summary>
+    /// Vectors (biases, norms, modulation rows, frequencies) in f32; f32 matrices in f16 (the official model multiplies them in bf16 under
+    /// autocast, so f16 loses nothing it keeps and halves the DiT's memory); other matrices as stored (f16, bf16, the fp8 conversions' E4M3).
+    /// </summary>
     private static void Add(Dictionary<string, WeightInfo> weights, string canonical, WeightInfo info)
-        => weights[canonical] = info.Shape.Rank <= 1 ? HfTransforms.ToF32(info, canonical) : info.As(canonical);
+        => weights[canonical] = info.Shape.Rank <= 1 ? HfTransforms.ToF32(info, canonical)
+            : info.Type == DataType.F32 ? ToF16(info, canonical)
+            : info.As(canonical);
+
+    /// <summary>An f32 tensor converted to f16 when it is read (round to nearest even).</summary>
+    private static WeightInfo ToF16(WeightInfo source, string name)
+        => WeightInfo.Derived(name, DataType.F16, source.Shape, () =>
+        {
+            byte[] bytes = source.ReadAll();
+            int count = bytes.Length / sizeof(float);
+            var halves = new byte[count * 2];
+            const int Block = 1 << 16;
+            Parallel.For(0, (count + Block - 1) / Block, block => ConvertBlock(bytes, halves, block * Block, Math.Min(count, (block + 1) * Block)));
+            return halves;
+        });
+
+    private static void ConvertBlock(byte[] floats, byte[] halves, int start, int end)
+    {
+        var source = MemoryMarshal.Cast<byte, float>(floats.AsSpan(start * sizeof(float), (end - start) * sizeof(float)));
+        var target = MemoryMarshal.Cast<byte, Half>(halves.AsSpan(start * 2, (end - start) * 2));
+        for (int i = 0; i < source.Length; i++)
+        {
+            target[i] = (Half)source[i];
+        }
+    }
 
     /// <summary>
     /// A 3-D convolution kernel [O, C, kt, kh, kw] as the 2-D kernel [O, kt·C, kh, kw] of the frame windows stacked along the channels

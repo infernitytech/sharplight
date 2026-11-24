@@ -12,8 +12,8 @@ namespace Sharplight.Architectures.VideoEnhancement;
 /// </summary>
 internal sealed class CausalConvolution
 {
-    /// <summary>The stacked input of one convolution piece stays below this many bytes.</summary>
-    private const long PieceBytes = 256L << 20;
+    /// <summary>The stacked input of one convolution piece stays below this many bytes (several frames per piece at 480p, a few row bands per frame at 1080p).</summary>
+    private const long PieceBytes = 1L << 30;
 
     private readonly GraphBuilder _b;
     private readonly Dictionary<string, Value> _caches = new(StringComparer.Ordinal);
