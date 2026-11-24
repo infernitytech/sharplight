@@ -117,7 +117,7 @@ Engine defaults that changed on 2026-11-23 (all can be set back):
 does when it runs short. `queue` (default) admits a request only with room for its prompt and up to 64 tokens of growth, so new requests wait
 while the pool is full; `preempt` admits on the prompt alone and preempts the newest running sequences (recomputed later) when the running ones
 need blocks, as vLLM does: at KV saturation a lower time to first token for some throughput (Llama-3.1-8B bf16, 256 streams over a pool of
-100,480 tokens: TTFT p50 1.9 against 3.9 s, -4 % tok/s; docs/kv-cache.md 2.5, benchmarks.md §108). Both admit the same requests while the pool
+100,480 tokens: TTFT p50 1.9 against 3.9 s, -4 % tok/s; docs/kv-cache.md 2.5, benchmarks.md §109). Both admit the same requests while the pool
 has room.
 
 Delegates that are not part of the JSON form: `Log` (load, unload and eviction messages; default the manager's `ILogger`),

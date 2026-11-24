@@ -105,7 +105,7 @@ Kernels:
   (`Kv8`, `load_kv8`, `unpack_kv8`, `kv8_to_half`): the scalar `main` kernel, split-K `decode`, the tensor-core `fa` (K/V tiles
   converted to f16 in shared memory) and the shared-row MLA kernel `fa_mqa`, which loads whole blocks with 32-bit loads.
   CPU: rows dequantised per key before the dot product / axpy.
-- FP8 (`f8e4m3_b32`, 2026-11-24, default off; benchmarks.md §108): the same helpers decode E4M3 codes (sign and exponent / mantissa
+- FP8 (`f8e4m3_b32`, 2026-11-24, default off; benchmarks.md §109): the same helpers decode E4M3 codes (sign and exponent / mantissa
   bits placed as half bits are the value times 2^-8, exact), so every generated kernel above reads it on Vulkan and CUDA; `cache_write_q`
   quantizes with one f32 scale per 32 values. On CUDA the hand-written kernels read it natively: `attn_decode_native.cu` (`ND_KVF8`, head
   sizes 64 / 128) loads a lane's 8 codes and their block scale and converts them to f16 right before the MMAs; `attn_prefill_native.cu`
@@ -186,7 +186,7 @@ Host side:
       until its context (prompt and generated tokens) is recomputed. This is vLLM's recompute preemption. Preemption order
       follows admission order, so the oldest sequence is never preempted while another can give blocks back (no starvation:
       every sequence becomes the oldest eventually). Without a paged cache, or while the pool has room, both policies admit
-      the same requests at the same steps (benchmarks.md §108).
+      the same requests at the same steps (benchmarks.md §109).
   - before each step the blocks the decoding sequences need are freed: first idle slots' cached contexts (LRU), then by
     preempting the newest running sequence. Prefill and replay chunks only evict idle contexts and otherwise wait.
   - preemption by recomputation: the victim's blocks are released, it keeps its slot, and its context (prompt + generated
