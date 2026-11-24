@@ -37,6 +37,13 @@ using var model = TaskModel.Load(services.GetRequiredService<ModelLoader>(), new
     Log = message => Console.Error.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {message.Split('\n')[0]}"),
 });
 double loadSeconds = load.Elapsed.TotalSeconds;
+if (options.Memory is { } memory)
+{
+    int[] size = [.. memory.Split('x').Select(int.Parse)];
+    GraphProfiler.Memory(model, size[0], size[1], size[2]);
+    return 0;
+}
+
 if (options.Profile is { } profile)
 {
     int[] size = [.. profile.Split('x').Select(int.Parse)];

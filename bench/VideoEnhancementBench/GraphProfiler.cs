@@ -64,6 +64,29 @@ internal static class GraphProfiler
         }
     }
 
+    /// <summary>Compiles each graph at one size and prints the device memory it holds (or the allocation failure), without running it.</summary>
+    public static void Memory(TaskModel model, int frames, int height, int width)
+    {
+        var dimensions = new Dictionary<string, long>
+        {
+            [VideoDiffusionGraphs.FramesDimension] = (frames - 1) / 4 + 1,
+            [VideoDiffusionGraphs.Height] = height,
+            [VideoDiffusionGraphs.Width] = width,
+        };
+        foreach (var (role, graph) in s_graphs)
+        {
+            try
+            {
+                using var compiled = model.CompileComponent(role, graph, null, dimensions);
+                Console.WriteLine($"{graph} {width}x{height}x{frames}: {compiled.ResidentMemoryBytes / (1024.0 * 1024 * 1024):F2} GiB");
+            }
+            catch (Exception error) when (error is DeviceOutOfMemoryException or InsufficientMemoryException)
+            {
+                Console.WriteLine($"{graph} {width}x{height}x{frames}: {error.Message.Split('.')[0]}");
+            }
+        }
+    }
+
     private static void SetProfile(ICompiledSegment segment, bool on)
     {
         switch (segment)
