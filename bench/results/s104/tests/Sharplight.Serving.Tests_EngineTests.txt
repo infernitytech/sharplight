@@ -1,0 +1,16 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0m[91m    Sharplight.Serving.Tests.EngineTests.TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore(tileAware: False) [FAIL]
+[0m[37m      System.ArgumentException : Destination array was not long enough. Check the destination index, length, and the array's lower bounds. (Parameter 'destinationArray')
+[0m[90m      Stack Trace:
+[0m[37m           at System.Array.CopyImpl(Array sourceArray, Int32 sourceIndex, Array destinationArray, Int32 destinationIndex, Int32 length, Boolean reliable)
+[0m[37m           at System.Collections.Generic.List`1..ctor(IEnumerable`1 collection)
+[0m[37m           at System.Linq.Enumerable.ToList[TSource](IEnumerable`1 source)
+[0m[37m        tests/Sharplight.Serving.Tests/EngineTests.cs(215,0): at Sharplight.Serving.Tests.EngineTests.TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore(Boolean tileAware)
+[0m[37m        --- End of stack trace from previous location ---
+[0m[37m  Finished:    Sharplight.Serving.Tests (ID = 'd1a9ebe36cb90e0d87ec0b12545240dc8d211ff7b929829e82da90183b4e8d6f')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 40, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 2.186s
+[0m[0m

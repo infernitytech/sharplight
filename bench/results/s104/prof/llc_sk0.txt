@@ -1,0 +1,69 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 128256, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 16+0: 33.3 ms; recorded True record 9.1 submit 0.0 wait 15.6 gpu 25.3
+| 16 | 0 (0) | 33.3 | 486 / 0 | 20.54 / 20.57, 20.46 |  |
+--- profile mixed 16+0 (greedy)
+GPU time 218.91 ms
+    96.592 ms  44.1%    320x  min    294.2 us  matmul2 [4096→14336]x2 f16 fused[Silu,Mul] skinny gemm_sk T=16,U=16,R=16|2,3
+    48.956 ms  22.4%    320x  min    150.8 us  matmul [14336→4096] f16 skinny gemm_sk T=16,U=16,R=16|2,3
+    29.245 ms  13.4%    640x  min     43.9 us  matmul [4096→4096] f16 skinny gemm_sk T=16,U=16,R=16|2,3
+    13.141 ms   6.0%     10x  min   1312.3 us  matmul [4096→128256] f16 skinny gemm_sk T=16,U=16,R=16|2,3
+     9.478 ms   4.3%    640x  min     13.1 us  matmul [4096→1024] f16 split-k gemm_cm2 T=16,U=16,R=16|2,3
+     9.220 ms   4.2%    320x  min     26.2 us  attention attn_decode_native T=16,U=16,R=16|2,3
+     2.947 ms   1.3%    640x  min      3.3 us  fused[Add]+RmsNorm main T=16,U=16,R=16|2,3
+     2.260 ms   1.0%    640x  min      2.0 us  matmul split-k reduce splitk_reduce T=16,U=16,R=16|2,3
+     2.071 ms   0.9%    320x  min      5.0 us  attention combine decode_combine T=16,U=16,R=16|2,3
+     1.900 ms   0.9%    320x  min      4.6 us  matmul [14336→4096] f16 x→ranged f16 to_f16_ranged T=16,U=16,R=16|2,3
+     1.450 ms   0.7%    320x  min      2.9 us  rope+qkv+cache_write rope_qkv T=16,U=16,R=16|2,3
+     1.247 ms   0.6%    320x  min      2.1 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=16,U=16,R=16|2,3
+     0.188 ms   0.1%     10x  min     18.1 us  sample sample T=16,U=16,R=16|2,3
+     0.119 ms   0.1%     20x  min      3.6 us  gather gather T=16,U=16,R=16|2,3
+     0.056 ms   0.0%     10x  min      4.2 us  RmsNorm main T=16,U=16,R=16|2,3
+     0.045 ms   0.0%     10x  min      4.2 us  matmul [4096→128256] f16 x→ranged f16 to_f16_ranged T=16,U=16,R=16|2,3
+
+[first] 16+250: 41.9 ms; recorded True record 5.3 submit 0.0 wait 35.6 gpu 40.9
+| 16 | 250 (1) | 41.9 | 358 / 0 | 40.32 / 40.84, 40.26 | 0.079 |
+--- profile mixed 16+250 (greedy)
+GPU time 408.81 ms
+   190.415 ms  46.6%    320x  min    579.2 us  matmul2 [4096→14336]x2 f16 fused[Silu,Mul] native gemm_f16_native T=266,U=17,R=17|2,3
+    95.943 ms  23.5%    320x  min    278.8 us  matmul [14336→4096] f16 native gemm_f16_native T=266,U=17,R=17|2,3
+    46.631 ms  11.4%    320x  min    128.7 us  matmul [4096→4096+1024+1024] f16 native gemm_f16_native T=266,U=17,R=17|2,3
+    26.167 ms   6.4%    320x  min     74.8 us  matmul [4096→4096] f16 native gemm_f16_native T=266,U=17,R=17|2,3
+    13.188 ms   3.2%     10x  min   1316.9 us  matmul [4096→128256] f16 gemm_cm2 T=266,U=17,R=17|2,3
+    10.553 ms   2.6%    320x  min     30.7 us  attention attn_decode_native T=266,U=17,R=17|2,3
+     7.770 ms   1.9%    640x  min     10.0 us  fused[Add]+RmsNorm main T=266,U=17,R=17|2,3
+     7.283 ms   1.8%    320x  min     21.4 us  matmul [14336→4096] f16 x→ranged f16 to_f16_ranged T=266,U=17,R=17|2,3
+     5.244 ms   1.3%    320x  min     13.9 us  attention attn_prefill_native T=266,U=17,R=17|2,3
+     3.046 ms   0.7%    320x  min      7.7 us  rope+qkv+cache_write rope_qkv T=266,U=17,R=17|2,3
+     1.956 ms   0.5%    320x  min      4.0 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=266,U=17,R=17|2,3
+     0.248 ms   0.1%     20x  min      4.1 us  gather gather T=266,U=17,R=17|2,3
+     0.191 ms   0.0%     10x  min     18.6 us  sample sample T=266,U=17,R=17|2,3
+     0.068 ms   0.0%     10x  min      5.8 us  matmul [4096→128256] f16 f16 range f16_range_unscale T=266,U=17,R=17|2,3
+     0.064 ms   0.0%     10x  min      5.0 us  RmsNorm main T=266,U=17,R=17|2,3
+     0.047 ms   0.0%     10x  min      3.4 us  matmul [4096→128256] f16 x→ranged f16 to_f16_ranged T=266,U=17,R=17|2,3
+
+[first] 16+304: 44.7 ms; recorded True record 3.4 submit 1.3 wait 39.9 gpu 44.6
+| 16 | 304 (1) | 44.7 | 358 / 0 | 42.67 / 42.80, 42.61 | 0.073 |
+--- profile mixed 16+304 (greedy)
+GPU time 429.23 ms
+   198.998 ms  46.4%    320x  min    604.4 us  matmul2 [4096→14336]x2 f16 fused[Silu,Mul] native gemm_f16_native T=320,U=17,R=17|2,3
+   100.439 ms  23.4%    320x  min    298.7 us  matmul [14336→4096] f16 native gemm_f16_native T=320,U=17,R=17|2,3
+    48.836 ms  11.4%    320x  min    131.2 us  matmul [4096→4096+1024+1024] f16 native gemm_f16_native T=320,U=17,R=17|2,3
+    27.088 ms   6.3%    320x  min     78.6 us  matmul [4096→4096] f16 native gemm_f16_native T=320,U=17,R=17|2,3
+    13.222 ms   3.1%     10x  min   1320.7 us  matmul [4096→128256] f16 gemm_cm2 T=320,U=17,R=17|2,3
+    11.254 ms   2.6%    320x  min     33.1 us  attention attn_decode_native T=320,U=17,R=17|2,3
+     9.086 ms   2.1%    320x  min     23.8 us  matmul [14336→4096] f16 x→ranged f16 to_f16_ranged T=320,U=17,R=17|2,3
+     8.097 ms   1.9%    640x  min     11.1 us  fused[Add]+RmsNorm main T=320,U=17,R=17|2,3
+     6.254 ms   1.5%    320x  min     16.9 us  attention attn_prefill_native T=320,U=17,R=17|2,3
+     3.362 ms   0.8%    320x  min      8.7 us  rope+qkv+cache_write rope_qkv T=320,U=17,R=17|2,3
+     1.962 ms   0.5%    320x  min      4.6 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=320,U=17,R=17|2,3
+     0.262 ms   0.1%     20x  min      3.5 us  gather gather T=320,U=17,R=17|2,3
+     0.191 ms   0.0%     10x  min     18.5 us  sample sample T=320,U=17,R=17|2,3
+     0.070 ms   0.0%     10x  min      6.3 us  RmsNorm main T=320,U=17,R=17|2,3
+     0.064 ms   0.0%     10x  min      4.9 us  matmul [4096→128256] f16 f16 range f16_range_unscale T=320,U=17,R=17|2,3
+     0.047 ms   0.0%     10x  min      3.7 us  matmul [4096→128256] f16 x→ranged f16 to_f16_ranged T=320,U=17,R=17|2,3
+

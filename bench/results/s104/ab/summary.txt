@@ -1,0 +1,45 @@
+gptoss_base_1  ready=1 after 49 s text clean first ttft 31/24 ms
+   c16 :    1446 tok/s  ttft p50    92 p99   259  itl mean  10.23 p95  12.6 p99   45.2 max   51.6  err 0
+   c64 :    3230 tok/s  ttft p50   238 p99   936  itl mean  17.23 p95  29.8 p99  115.4 max  122.2  err 0
+gptoss_base_5  ready=1 after 15 s text clean first ttft 30/25 ms
+   c16 :    1435 tok/s  ttft p50    91 p99   272  itl mean  10.29 p95  13.3 p99   45.7 max   52.9  err 0
+   c64 :    3230 tok/s  ttft p50   236 p99   936  itl mean  17.24 p95  28.6 p99  115.8 max  122.5  err 0
+gptoss_new_2   ready=1 after 39 s text clean first ttft 29/24 ms
+   c16 :    1439 tok/s  ttft p50    96 p99   282  itl mean  10.24 p95  12.8 p99   47.8 max   56.7  err 0
+   c64 :    3228 tok/s  ttft p50   239 p99   931  itl mean  17.23 p95  28.9 p99  115.7 max  125.1  err 0
+gptoss_new_4   ready=1 after 13 s text clean first ttft 30/25 ms
+   c16 :    1438 tok/s  ttft p50    97 p99   284  itl mean  10.25 p95  13.0 p99   47.9 max   53.8  err 0
+   c64 :    3228 tok/s  ttft p50   238 p99   944  itl mean  17.22 p95  31.6 p99  115.7 max  126.0  err 0
+gptoss_vllm_3  ready=1 after 102 s text FAIL  first ttft 37/37 ms
+   c16 :    1402 tok/s  ttft p50   199 p99   259  itl mean  10.04 p95  10.6 p99   27.5 max  118.9  err 0
+   c64 :    3140 tok/s  ttft p50   376 p99   988  itl mean  17.00 p95  16.5 p99  120.4 max  129.1  err 0
+llama_base_1   ready=1 after 61 s text clean first ttft 44/38 ms
+   c16 :     664 tok/s  ttft p50   164 p99   481  itl mean  22.57 p95  23.8 p99   90.9 max   97.7  err 0
+   c64 :    1719 tok/s  ttft p50   509 p99  1446  itl mean  32.48 p95  35.1 p99  233.4 max  244.9  err 0
+llama_base_5   ready=1 after 5 s  text clean first ttft 44/40 ms
+   c16 :     667 tok/s  ttft p50   170 p99   484  itl mean  22.45 p95  23.7 p99   75.5 max  103.8  err 0
+   c64 :    1715 tok/s  ttft p50   504 p99  1460  itl mean  32.55 p95  33.4 p99  235.4 max  243.0  err 0
+llama_new_2    ready=1 after 42 s text clean first ttft 44/38 ms
+   c16 :     671 tok/s  ttft p50   160 p99   459  itl mean  22.41 p95  23.8 p99   85.2 max   92.1  err 0
+   c64 :    1737 tok/s  ttft p50   489 p99  1405  itl mean  32.23 p95  35.1 p99  223.6 max  239.7  err 0
+llama_new_4    ready=1 after 41 s text clean first ttft 48/38 ms
+   c16 :     669 tok/s  ttft p50   159 p99   456  itl mean  22.48 p95  22.9 p99   85.5 max   91.0  err 0
+   c64 :    1738 tok/s  ttft p50   488 p99  1391  itl mean  32.26 p95  34.9 p99  223.7 max  233.2  err 0
+llama_vllm_3   ready=1 after 111 s text clean first ttft 47/41 ms
+   c16 :     676 tok/s  ttft p50   362 p99   465  itl mean  21.28 p95  21.9 p99   25.5 max  227.2  err 0
+   c64 :    1713 tok/s  ttft p50   697 p99  1858  itl mean  31.39 p95  30.1 p99  231.7 max  241.4  err 0
+qwen_base_1    ready=1 after 61 s text clean first ttft 26/22 ms
+   c16 :    1106 tok/s  ttft p50    95 p99   288  itl mean  13.56 p95  15.8 p99   48.2 max   57.0  err 0
+   c64 :    2738 tok/s  ttft p50   288 p99   803  itl mean  20.69 p95  26.8 p99  130.6 max  139.2  err 0
+qwen_base_5    ready=1 after 12 s text clean first ttft 27/22 ms
+   c16 :    1104 tok/s  ttft p50    97 p99   293  itl mean  13.57 p95  15.3 p99   47.9 max   61.3  err 0
+   c64 :    2737 tok/s  ttft p50   266 p99   820  itl mean  20.89 p95  24.3 p99  130.6 max  140.8  err 0
+qwen_new_2     ready=1 after 64 s text clean first ttft 26/21 ms
+   c16 :    1109 tok/s  ttft p50    96 p99   280  itl mean  13.50 p95  14.5 p99   49.2 max   54.9  err 0
+   c64 :    2742 tok/s  ttft p50   266 p99   813  itl mean  20.85 p95  27.4 p99  129.3 max  140.0  err 0
+qwen_new_4     ready=1 after 43 s text clean first ttft 27/22 ms
+   c16 :    1111 tok/s  ttft p50    91 p99   281  itl mean  13.53 p95  16.3 p99   47.5 max   53.7  err 0
+   c64 :    2739 tok/s  ttft p50   270 p99   824  itl mean  20.76 p95  25.1 p99  130.9 max  142.6  err 0
+qwen_vllm_3    ready=1 after 224 s text clean first ttft 47/57 ms
+   c16 :    1115 tok/s  ttft p50   173 p99   274  itl mean  12.96 p95  13.6 p99   21.0 max  108.5  err 0
+   c64 :    2692 tok/s  ttft p50   400 p99  1064  itl mean  20.21 p95  25.5 p99  133.0 max  136.3  err 0
