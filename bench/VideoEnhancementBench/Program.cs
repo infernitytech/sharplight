@@ -34,6 +34,7 @@ using var model = TaskModel.Load(services.GetRequiredService<ModelLoader>(), new
     ModelPath = options.Model,
     Devices = [new DeviceSlot { Device = device }],
     AllowReducedPrecision = options.ReducedPrecision,
+    Log = message => Console.Error.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {message.Split('\n')[0]}"),
 });
 double loadSeconds = load.Elapsed.TotalSeconds;
 if (options.Profile is { } profile)

@@ -276,6 +276,7 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
             catch (Exception error) when (attempt == 0 && _compiled.Count > 0 && error is DeviceOutOfMemoryException or InsufficientMemoryException)
             {
                 // An allocation failed, or placement found no room for the weights next to the graphs already compiled.
+                _model.Options.Log?.Invoke($"{graph}: {error.GetType().Name}; releasing {_compiled.Count} compiled graph(s) and retrying");
                 ReleaseAll();
             }
         }
