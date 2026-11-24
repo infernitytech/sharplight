@@ -851,9 +851,6 @@ internal static class DiagnosticSwitches
     /// <summary><c>SHARPLIGHT_NATIVE_FP4=0</c>: keep NVFP4 matmuls off the FP4 GEMM (<c>gemm_fp4_native.cu</c>) where the device has <c>block_scaled_fp4</c>.</summary>
     public static bool NativeFp4 { get; } = IsNotZero("SHARPLIGHT_NATIVE_FP4");
 
-    /// <summary><c>SHARPLIGHT_NATIVE_FP4_NARROW=0</c>: keep the FP4 GEMM's decode tiles at their weight rows for narrow products (no narrowing for SM fill).</summary>
-    public static bool NativeFp4Narrow { get; } = IsNotZero("SHARPLIGHT_NATIVE_FP4_NARROW");
-
     /// <summary><c>SHARPLIGHT_NATIVE_FP4_MOE=0</c>: keep NVFP4 expert products off the grouped FP4 GEMM (the dense ones keep it).</summary>
     public static bool NativeFp4Moe { get; } = IsNotZero("SHARPLIGHT_NATIVE_FP4_MOE");
 
