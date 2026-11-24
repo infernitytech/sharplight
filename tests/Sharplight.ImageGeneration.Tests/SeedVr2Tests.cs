@@ -83,8 +83,9 @@ public sealed class SeedVr2Tests
         var clip = FramesFirst(data.Tensor("padded"), data.Shape("padded"));
         var mean = GraphRunner.Run(model, ModelComponentRoles.Vae, SeedVrGraphs.VaeEncode, SeedVrGraphs.Mean, 0, dimensions, (VideoDiffusionGraphs.Frames, clip));
         var deviation = GraphRunner.Run(model, ModelComponentRoles.Vae, SeedVrGraphs.VaeEncode, SeedVrGraphs.Deviation, 0, dimensions, (VideoDiffusionGraphs.Frames, clip));
-        Check("encoder mean", mean, data.Tensor("latent_mean"), 1e-3);
-        Check("encoder deviation", deviation, data.Tensor("latent_std"), 1e-3);
+        // bf16 references ran the VAE in bf16 (the official setting); Sharplight's graphs run it in f32 or with f16 products.
+        Check("encoder mean", mean, data.Tensor("latent_mean"), data.Bf16 ? 3e-2 : 1e-3);
+        Check("encoder deviation", deviation, data.Tensor("latent_std"), data.Bf16 ? 5e-2 : 1e-3);
 
         var condition = data.Tensor("latent_mean");
         var std = data.Tensor("latent_std");

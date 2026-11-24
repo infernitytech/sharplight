@@ -3108,6 +3108,9 @@ Implementation notes:
   memory follows one chunk; every op of the VAE but the causal convolutions works per frame, so chunking changes nothing.
 - The pipeline encodes all batches, then restores them, then decodes them; with weights above a quarter of the device memory only one
   stage's graphs are held at a time.
+- The official 3B builds its RoPE table for a 1024 × 128 × 128 grid (8.4 GB in f32) and slices each window's corner out of it; next to
+  the f32 weights that does not fit a 32 GB GPU even at 480p. tools/seedvr2-reference.py builds only the corners (the same values,
+  checked bit for bit on the CPU), so the official code runs here; the graph's positions are constants per token.
 
 Verification (tools/seedvr2-reference.py instruments the official inference: same transforms, VAE, DiT, sampler and colour fix, every
 intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Tests, CUDA with `SHARPLIGHT_TEST_CUDA=1`):
