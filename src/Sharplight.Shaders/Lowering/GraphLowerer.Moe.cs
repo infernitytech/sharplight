@@ -276,7 +276,8 @@ public sealed partial class GraphLowerer
         // the group's launch reading them back.
         Func<Bindings, bool>? fused = null;
         var dualY = Produce(output);
-        if (DiagnosticSwitches.MoeDual != 0 && dualY.IsDense)
+        // NVFP4 experts on the grouped FP4 GEMM run the two products and the group as their own launches.
+        if (DiagnosticSwitches.MoeDual != 0 && dualY.IsDense && !UseNativeFp4Moe(a, w.Type, N, K, Ref(a.Inputs[0]).Shape[^1]))
         {
             string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N, "matmul.slang")!;
             fused = LowerMatMulId(a, (Ref(bNode.Inputs[1]), dualY, [.. gathers.Select(g => Ref(g.Inputs[0]))], source, [.. gathers, a, bNode, .. group], false,
@@ -680,9 +681,13 @@ public sealed partial class GraphLowerer
         bool nativeOn = false;
         Func<Bindings, bool> nativeRows = b => nativeMoe && items(b) > mv && items(b) >= nativeMinItems && !isWide(b) && (!skinnyMoe || items(b) > skinnyItems);
         Func<Bindings, bool> isNative = b => nativeOn && nativeRows(b);
+        // NVFP4 experts on the block-scaled FP4 MMA (CUDA 12.x): every batch above the matvec range on the grouped FP4 GEMM.
+        bool fp4Moe = dual is null && single is null && !skipGrouped && y.IsDense && UseNativeFp4Moe(n, w.Type, N, K, xs);
         int[] routeTiles = skinnyMoe ? [.. new[] { MoeSkinnyTile, wideTile }.Where(t => t > 0), .. coopTiles] : coopTiles;
+        routeTiles = fp4Moe ? [.. routeTiles, .. NativeFp4MoeTiles] : routeTiles;
         routeTiles = [.. routeTiles.Distinct()];
-        Func<Bindings, int> tile = b => !coop ? 64
+        Func<Bindings, int> tile = b => fp4Moe ? NativeFp4MoeTileRows(items(b), E)
+            : !coop ? 64
             : SmallFragments ? 32
             : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
             : skinnyMoe && items(b) <= skinnyItems ? MoeSkinnyTile
@@ -706,6 +711,12 @@ public sealed partial class GraphLowerer
                 [ids], [scratch]);
             _moeRouted = (n.Inputs[2], E, maxTiles, coop, mv, _launchCondition, nativeMoe, routeKey);
             _moeRouteSerial++;
+        }
+
+        if (fp4Moe)
+        {
+            EmitNativeFp4Moe(label, n, x, xs, rowsPerLead, perSlot, w, ids, y, maxTiles, mv, items, tile, tiles, scratch, scratchArg);
+            return null;
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };

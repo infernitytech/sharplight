@@ -138,4 +138,55 @@ public sealed partial class GraphLowerer
 
         return [.. variants];
     }
+
+    /// <summary>
+    /// True when the expert product <paramref name="node"/> (a MatMulId over [E, <paramref name="n"/>, <paramref name="k"/>] expert stacks
+    /// of <paramref name="type"/>, activation rows <paramref name="xStride"/> floats apart) runs on the grouped form of the FP4 GEMM for
+    /// every batch above the per-item matvecs: the conditions of <see cref="UseNativeFp4Gemm"/>.
+    /// </summary>
+    private bool UseNativeFp4Moe(Node node, DataType type, long n, long k, long xStride)
+        => UseNativeFp4Gemm(node, type, n, k, xStride, n) && DiagnosticSwitches.NativeFp4Moe;
+
+    /// <summary>The routing tile heights of the grouped FP4 GEMM.</summary>
+    private static readonly int[] NativeFp4MoeTiles = [16, 32, 64];
+
+    /// <summary>
+    /// Routing tile rows of the grouped FP4 GEMM for <paramref name="items"/> routed items over <paramref name="experts"/> experts: 16-row
+    /// tiles while experts see a few items on average (batched decode: each tile streams its expert's weights once), 32 and 64 above.
+    /// </summary>
+    private static int NativeFp4MoeTileRows(long items, long experts)
+    {
+        long perExpert = items / Math.Max(1, experts);
+        return perExpert <= 12 ? 16 : perExpert <= 48 ? 32 : 64;
+    }
+
+    /// <summary>
+    /// Emits the FP4 quantization of an expert product's activations (per token, or per (token, slot) item when x is per slot) and the
+    /// grouped FP4 GEMM over the routing tiles of <paramref name="scratch"/> (moe_route) for batches above <paramref name="matvecMaxItems"/>
+    /// items, storing the product per item into <paramref name="y"/>.
+    /// </summary>
+    private void EmitNativeFp4Moe(string label, Node node, TensorRef x, long xStride, long rowsPerLead, bool perSlot, TensorRef w, TensorRef ids, TensorRef y,
+        long maxTiles, long matvecMaxItems, Func<Bindings, long> items, Func<Bindings, int> tile, Func<Bindings, uint> tiles, TensorRef scratch, KernelArg scratchArg)
+    {
+        long n = w.Shape[1];
+        long k = w.Shape[2];
+        long slots = ids.Shape[1];
+        long rowsMax = x.Shape[0] * rowsPerLead;
+        long minRows = Math.Min(rowsMax, perSlot ? matvecMaxItems + 1 : matvecMaxItems / slots + 1);
+        var quantized = QuantizedActivations(label, [node], node.Inputs[0], x, xStride, rowsPerLead, k, minRows, rowsMax, ActivationCode.Fp4);
+        var variants = new List<KernelVariant>();
+        foreach (int bm in NativeFp4MoeTiles)
+        {
+            var shape = NativeFp4Tile(bm, dual: false);
+            var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("F4_BM", shape.Bm), ("F4_BN", shape.Bn), ("F4_WM", shape.Wm), ("F4_WN", shape.Wn),
+                ("F4_STAGES", shape.Stages), ("F4_MINB", shape.MinBlocks), ("F4_GS", w.Type == DataType.NVFP4_GS ? 1 : 0), ("DUAL", 0), ("F4_MOE", 1),
+                ("EXPERT_BYTES", w.Type.ByteSize(k) * n + "ull"), ("S", slots), ("MAXTILES", maxTiles), ("X_TOKEN", perSlot ? 0 : 1));
+            var kernel = _compiler.CompileCuda("gemm_fp4_native.cu", "", "gemm_fp4_native", shape.Wm * shape.Wn * 32, shape.Stages * (shape.Bm + shape.Bn) * 160,
+                _opt.Target, macros, _opt.Cache);
+            int columns = shape.Bn;
+            variants.Add(new KernelVariant(b => items(b) > matvecMaxItems && tile(b) == bm, kernel, b => new Grid(Grid.Div(n, columns), tiles(b))));
+        }
+
+        Emit($"{label} fp4", [node], [.. variants], [Pointer(quantized), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)], [quantized, w, scratch], [y]);
+    }
 }
