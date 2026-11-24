@@ -134,6 +134,7 @@ internal sealed class SeedVrTransformerGraphBuilder
         var textNormed = _b.RmsNorm(text, null, _hp.NormEps);
         var textIn = textPassthrough ? textNormed : Modulate(textNormed, Row(1, textBranch + "attn_scale"), Row(0, textBranch + "attn_shift"));
         var (videoAttended, textAttended) = Attention(videoIn, textIn, videoBranch, textBranch, layer % 2);
+
         video = _b.Add(video, _b.Mul(Linear(videoAttended, videoBranch + "out"), Row(2, videoBranch + "attn_gate")));
         var textOut = Linear(textAttended, textBranch + "out");
         text = _b.Add(text, textPassthrough ? textOut : _b.Mul(textOut, Row(2, textBranch + "attn_gate")));
@@ -155,10 +156,13 @@ internal sealed class SeedVrTransformerGraphBuilder
         int width = _hp.Heads * _hp.HeadDim;
         var videoQkv = Linear(video, videoBranch + "qkv");
         var textQkv = Linear(text, textBranch + "qkv");
+
         var rotation = _rotations[layout];
-        var q = Rows(rotation.RotateVideo(Normed(Part(videoQkv, 0), videoBranch + "q_norm")), rotation.RotateText(Normed(Part(textQkv, 0), textBranch + "q_norm")));
-        var k = Rows(rotation.RotateVideo(Normed(Part(videoQkv, 1), videoBranch + "k_norm")), rotation.RotateText(Normed(Part(textQkv, 1), textBranch + "k_norm")));
-        var v = Rows(Part(videoQkv, 2), Part(textQkv, 2));
+        // The official model runs its attention kernel in bf16 whatever the precision of the rest: queries, keys, values and the output
+        // are rounded to bf16 (products accumulated in f32).
+        var q = Bf16(Rows(rotation.RotateVideo(Normed(Part(videoQkv, 0), videoBranch + "q_norm")), rotation.RotateText(Normed(Part(textQkv, 0), textBranch + "q_norm"))));
+        var k = Bf16(Rows(rotation.RotateVideo(Normed(Part(videoQkv, 1), videoBranch + "k_norm")), rotation.RotateText(Normed(Part(textQkv, 1), textBranch + "k_norm"))));
+        var v = Bf16(Rows(Part(videoQkv, 2), Part(textQkv, 2)));
 
         var plan = _plans[layout];
         var outputs = new Value[plan.Groups.Count];
@@ -166,7 +170,7 @@ internal sealed class SeedVrTransformerGraphBuilder
         {
             var group = plan.Groups[g];
             var indices = Indices($"windows{layout}.{g}", group.Gather);
-            outputs[g] = _b.Reshape(Attend(GatherHeads(q, indices), GatherHeads(k, indices), GatherHeads(v, indices), group), group.Gather.Length, width);
+            outputs[g] = Bf16(_b.Reshape(Attend(GatherHeads(q, indices), GatherHeads(k, indices), GatherHeads(v, indices), group), group.Gather.Length, width));
         }
 
         var all = outputs.Length == 1 ? outputs[0] : _b.Concat(0, outputs);
@@ -193,6 +197,10 @@ internal sealed class SeedVrTransformerGraphBuilder
 
         return _b.Emit1("Attention", [q, k, v], Attributes.From([.. attributes]));
     }
+
+    /// <summary>The values rounded to bf16 (and widened back to f32).</summary>
+    private Value Bf16(Value x)
+        => _b.Emit1("Cast", [_b.Emit1("Cast", [x], Attributes.From(("type", DataType.BF16.Name)))], Attributes.From(("type", DataType.F32.Name)));
 
     private Value GatherHeads(Value rows, Value indices)
     {
@@ -240,9 +248,11 @@ internal sealed class SeedVrTransformerGraphBuilder
     {
         int half = _hp.TimeEmbedDim / 2;
         var frequencies = new float[half];
+        // In f32 as the reference computes them: at timestep 1000 an ulp of a frequency moves its angle noticeably.
+        float logBase = (float)-Math.Log(10000);
         for (int i = 0; i < half; i++)
         {
-            frequencies[i] = (float)Math.Exp(-Math.Log(10000) * i / half);
+            frequencies[i] = MathF.Exp(logBase * i / half);
         }
 
         var table = _b.Constant("time_frequencies", DataType.F32, new Shape(1, half), MemoryMarshal.AsBytes(frequencies.AsSpan()).ToArray());

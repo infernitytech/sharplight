@@ -1,0 +1,180 @@
+using System.Diagnostics;
+using System.Text.Json;
+using Sharplight.Architectures.SeedVr;
+using Sharplight.Models;
+using Sharplight.VideoEnhancement;
+using Sharplight.VideoGeneration;
+using Sharplight.Vision;
+
+namespace Sharplight.ImageGeneration.Tests;
+
+/// <summary>
+/// SeedVR2-3B (the official seedvr2_ema_3b.pth, ema_vae.pth and pos_emb.pt in <c>{video root}/seedvr2/SeedVR2-3B</c>) against the official
+/// inference path (tools/seedvr2-reference.py; references in <c>{video root}/seedvr2/references/{name}</c>): the VAE encoder's distribution,
+/// the DiT's prediction from the same noise and encoder sample, the decoded frames and the colour-corrected output, then the whole
+/// <see cref="IVideoEnhancer"/> run from the same noise. Skips when the files or the device are missing.
+/// </summary>
+[Collection(LargeModelCollection.Name)]
+public sealed class SeedVr2Tests
+{
+    private static string ModelPath => Path.Combine(Env.VideoRoot, "seedvr2", "SeedVR2-3B");
+
+    private static string Reference(string name) => Path.Combine(Env.VideoRoot, "seedvr2", "references", name);
+
+    private static bool Available(string reference) => Directory.Exists(ModelPath) && File.Exists(Path.Combine(Reference(reference), "index.json"));
+
+    /// <summary>Reference runs checked on the CPU: the tiny clip in f32 (5 frames of 104 × 56 → 208 × 112).</summary>
+    public static TheoryData<string> CpuCases => ["tiny-cpu-fp32"];
+
+    /// <summary>Reference runs checked on the GPU: the tiny clip, and 17 frames of 416 × 240 → 832 × 480 from the official bf16 run on CUDA.</summary>
+    public static TheoryData<string> GpuCases => ["tiny-cpu-fp32", "fox-480p-cuda-bf16"];
+
+    [Theory]
+    [MemberData(nameof(CpuCases))]
+    public void GraphsMatchReferenceOnCpu(string reference) => GraphsMatchReference(reference, "cpu");
+
+    [Theory]
+    [MemberData(nameof(GpuCases))]
+    public void GraphsMatchReferenceOnVulkan(string reference) => GraphsMatchReference(reference, "vulkan");
+
+    [Theory]
+    [MemberData(nameof(CpuCases))]
+    public Task EnhanceMatchesReferenceOnCpu(string reference) => EnhanceMatchesReference(reference, "cpu");
+
+    [Theory]
+    [MemberData(nameof(GpuCases))]
+    public Task EnhanceMatchesReferenceOnVulkan(string reference) => EnhanceMatchesReference(reference, "vulkan");
+
+    private static void GraphsMatchReference(string reference, string device)
+    {
+        var slot = Available(reference) ? Env.Device(device) : null;
+        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing");
+        using var model = Env.Load(ModelPath, slot!);
+        var data = new ReferenceRun(Reference(reference));
+        var dimensions = data.Dimensions;
+
+        var clip = FramesFirst(data.Tensor("padded"), data.Shape("padded"));
+        var mean = GraphRunner.Run(model, ModelComponentRoles.Vae, SeedVrGraphs.VaeEncode, SeedVrGraphs.Mean, 0, dimensions, (VideoDiffusionGraphs.Frames, clip));
+        var deviation = GraphRunner.Run(model, ModelComponentRoles.Vae, SeedVrGraphs.VaeEncode, SeedVrGraphs.Deviation, 0, dimensions, (VideoDiffusionGraphs.Frames, clip));
+        Check("encoder mean", mean, data.Tensor("latent_mean"), 1e-3);
+        Check("encoder deviation", deviation, data.Tensor("latent_std"), 1e-3);
+
+        var condition = data.Tensor("latent_mean");
+        var std = data.Tensor("latent_std");
+        var eps = data.Tensor("latent_eps");
+        for (int i = 0; i < condition.Length; i++)
+        {
+            condition[i] += std[i] * eps[i];
+        }
+
+        var prediction = GraphRunner.Run(model, ModelComponentRoles.Transformer, SeedVrGraphs.Restore, VideoDiffusionGraphs.Prediction, 0, dimensions,
+            (VideoDiffusionGraphs.Latent, data.Tensor("noise")), (SeedVrGraphs.Condition, condition), (VideoDiffusionGraphs.Timestep, new[] { 1000f }));
+        Check("DiT prediction", prediction, data.Tensor("prediction"), data.Bf16 ? 5e-2 : 2e-2);
+
+        var decoded = GraphRunner.Run(model, ModelComponentRoles.Vae, SeedVrGraphs.VaeDecode, VideoDiffusionGraphs.Frames, 0, dimensions,
+            (VideoDiffusionGraphs.Latent, data.Tensor("restored")));
+        Check("decoded frames", decoded, data.Tensor("decoded"), data.Bf16 ? 3e-2 : 1e-3);
+    }
+
+    private static async Task EnhanceMatchesReference(string reference, string device)
+    {
+        var slot = Available(reference) ? Env.Device(device) : null;
+        Assert.SkipWhen(slot is null, $"SeedVR2-3B, the reference '{reference}' or the {device} device missing");
+        using var model = Env.Load(ModelPath, slot!);
+        using var enhancer = Env.Clients.Create<IVideoEnhancer>(model);
+        var data = new ReferenceRun(Reference(reference));
+        var frames = data.InputFrames();
+        var outputShape = data.Shape("output");
+        int height = outputShape[1];
+        int width = outputShape[2];
+        var options = new VideoEnhancementOptions
+        {
+            Width = width,
+            Height = height,
+            InitialNoise = data.Tensor("noise"),
+            EncoderNoise = data.Tensor("latent_eps"),
+        };
+        var stopwatch = Stopwatch.StartNew();
+        var result = await enhancer.EnhanceAsync(new VideoEnhancementRequest { Frames = frames, FramesPerSecond = 24 }, options, TestContext.Current.CancellationToken);
+        double seconds = stopwatch.Elapsed.TotalSeconds;
+        Assert.Equal(frames.Count, result.Frames.Count);
+        var expected = File.ReadAllBytes(Path.Combine(Reference(reference), "output.u8"));
+        int frameBytes = 3 * width * height;
+        double worst = double.MaxValue;
+        var perFrame = new List<string>();
+        for (int f = 0; f < result.Frames.Count; f++)
+        {
+            double psnr = Env.Psnr(result.Frames[f].Rgb, expected.AsSpan(f * frameBytes, frameBytes).ToArray());
+            perFrame.Add($"{psnr:F1}");
+            worst = Math.Min(worst, psnr);
+        }
+
+        TestContext.Current.SendDiagnosticMessage($"SeedVR2-3B {reference} on {device}: {seconds:F1} s (incl. compilation), worst frame {worst:F1} dB (frames: {string.Join(" ", perFrame)})");
+        Assert.True(worst > (data.Bf16 ? 30 : 40), $"worst frame PSNR {worst:F1} dB");
+    }
+
+    private static void Check(string what, float[] actual, float[] expected, double tolerance)
+    {
+        var (maxAbs, rms) = Env.Compare(actual, expected);
+        TestContext.Current.SendDiagnosticMessage($"SeedVR2-3B {what}: max abs {maxAbs:E2}, relative RMS {rms:E2}");
+        Assert.True(rms < tolerance, $"{what}: max abs {maxAbs}, relative RMS {rms}");
+    }
+
+    /// <summary>[3, F, H, W] → [F, 3, H, W].</summary>
+    private static float[] FramesFirst(float[] channelsFirst, int[] shape)
+    {
+        int frames = shape[1];
+        int plane = shape[2] * shape[3];
+        var result = new float[channelsFirst.Length];
+        for (int c = 0; c < 3; c++)
+        {
+            for (int f = 0; f < frames; f++)
+            {
+                channelsFirst.AsSpan((c * frames + f) * plane, plane).CopyTo(result.AsSpan((f * 3 + c) * plane));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>One reference run of tools/seedvr2-reference.py.</summary>
+    private sealed class ReferenceRun(string folder)
+    {
+        private readonly JsonElement _index = ReadIndex(folder);
+
+        public bool Bf16 => _index.GetProperty("dit_dtype").GetString() == "bf16";
+
+        public Dictionary<string, long> Dimensions
+        {
+            get
+            {
+                var latent = Shape("noise");
+                var decoded = Shape("decoded");
+                return new Dictionary<string, long>
+                {
+                    [VideoDiffusionGraphs.FramesDimension] = latent[1],
+                    [VideoDiffusionGraphs.Height] = decoded[2],
+                    [VideoDiffusionGraphs.Width] = decoded[3],
+                };
+            }
+        }
+
+        public int[] Shape(string name) => [.. _index.GetProperty("tensors").GetProperty(name).EnumerateArray().Select(e => e.GetInt32())];
+
+        public float[] Tensor(string name) => Env.ReadFloats(Path.Combine(folder, name + ".f32"));
+
+        public List<ImageInput> InputFrames()
+        {
+            var shape = Shape("input_frames");
+            var bytes = File.ReadAllBytes(Path.Combine(folder, "input_frames.u8"));
+            int frameBytes = shape[1] * shape[2] * 3;
+            return [.. Enumerable.Range(0, shape[0]).Select(f => new ImageInput(shape[2], shape[1], bytes.AsSpan(f * frameBytes, frameBytes).ToArray()))];
+        }
+
+        private static JsonElement ReadIndex(string folder)
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "index.json")));
+            return document.RootElement.Clone();
+        }
+    }
+}

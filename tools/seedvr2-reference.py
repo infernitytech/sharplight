@@ -18,6 +18,7 @@ Dumped arrays (float32 unless noted; latents in [C, T, h, w]):
   restored       the restored latent (noise - prediction)
   decoded        the decoded frames [F, 3, H, W] in [-1, 1] (not clamped, before the colour fix)
   output         the final frames uint8 [F, H, W, 3] (colour fix, trimmed to the input length)
+The input frames themselves are written as input_frames.u8 [F, H, W, 3] so the test can feed the same pixels.
 """
 import argparse
 import json
@@ -50,7 +51,7 @@ def parse():
     p.add_argument("--no-memory-limit", action="store_true", help="skip the official conv / norm memory limits (VAE)")
     p.add_argument("--no-offload", action="store_true", help="keep DiT and VAE on the device together (no offload between stages)")
     p.add_argument("--no-color-fix", action="store_true")
-    p.add_argument("--out", help="write the .npz dump here")
+    p.add_argument("--out", help="write the dump here: a folder of raw little-endian arrays (<name>.f32, output.u8) with index.json")
     p.add_argument("--repeat", type=int, default=1, help="timed runs after the first (benchmarks)")
     p.add_argument("--timing-json", help="write per-run stage timings here")
     p.add_argument("--save-video", help="write the result as an mp4 (mediapy) here")
@@ -223,6 +224,7 @@ def main():
                 "restored": rearrange(restored, "t h w c -> c t h w").float().cpu().numpy(),
                 "decoded": rearrange(decoded, "c t h w -> t c h w").float().cpu().numpy(),
                 "output": out,
+                "input_frames": frames,
             }
         return stages, out
 
@@ -241,7 +243,16 @@ def main():
         print(json.dumps(stages), flush=True)
     peak = torch.cuda.max_memory_allocated() if device.type == "cuda" else 0
     if args.out:
-        np.savez(args.out, **dump)
+        os.makedirs(args.out, exist_ok=True)
+        shapes = {}
+        for name, value in dump.items():
+            suffix = ".u8" if value.dtype == np.uint8 else ".f32"
+            value.astype(np.uint8 if suffix == ".u8" else np.float32).tofile(os.path.join(args.out, name + suffix))
+            shapes[name] = list(value.shape)
+        with open(os.path.join(args.out, "index.json"), "w") as f:
+            json.dump({"tensors": shapes, "model": args.model, "res_h": args.res_h, "res_w": args.res_w, "seed": args.seed,
+                       "frames": int(frames.shape[0]), "input": os.path.basename(args.input), "dit_dtype": args.dit_dtype,
+                       "vae_dtype": args.vae_dtype, "attention": args.attention, "timestep": 1000.0}, f, indent=1)
     if args.save_video:
         import mediapy
         mediapy.write_video(args.save_video, dump["output"], fps=24)
