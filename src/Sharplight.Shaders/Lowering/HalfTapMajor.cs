@@ -13,16 +13,18 @@ internal static class HalfTapMajor
     public static byte[] Convert(byte[] source, DataType from, DataType to, long rows, long channels, long taps)
     {
         long k = channels * taps;
+        var values = from == DataType.F32 ? MemoryMarshal.Cast<byte, float>(source.AsSpan()).ToArray() : Widen(source, from == DataType.F16);
         var result = new byte[checked(rows * k * 2)];
         var dst = MemoryMarshal.Cast<byte, ushort>(result.AsSpan());
+        bool bf16 = to == DataType.BF16;
         for (long r = 0; r < rows; r++)
         {
             for (long c = 0; c < channels; c++)
             {
                 for (long t = 0; t < taps; t++)
                 {
-                    float v = Read(source, from, r * k + c * taps + t);
-                    dst[(int)(r * k + t * channels + c)] = to == DataType.BF16 ? BFloat16Bits(v) : BitConverter.HalfToUInt16Bits((Half)v);
+                    float v = values[r * k + c * taps + t];
+                    dst[(int)(r * k + t * channels + c)] = bf16 ? BFloat16Bits(v) : BitConverter.HalfToUInt16Bits((Half)v);
                 }
             }
         }
@@ -30,15 +32,17 @@ internal static class HalfTapMajor
         return result;
     }
 
-    private static float Read(byte[] source, DataType type, long index)
+    /// <summary>f16 (<paramref name="half"/>) or bf16 values as floats.</summary>
+    private static float[] Widen(byte[] source, bool half)
     {
-        if (type == DataType.F32)
+        var bits = MemoryMarshal.Cast<byte, ushort>(source.AsSpan());
+        var values = new float[bits.Length];
+        for (int i = 0; i < bits.Length; i++)
         {
-            return BitConverter.ToSingle(source, checked((int)(index * 4)));
+            values[i] = half ? (float)BitConverter.UInt16BitsToHalf(bits[i]) : BitConverter.Int32BitsToSingle(bits[i] << 16);
         }
 
-        ushort bits = BitConverter.ToUInt16(source, checked((int)(index * 2)));
-        return type == DataType.F16 ? (float)BitConverter.UInt16BitsToHalf(bits) : BitConverter.Int32BitsToSingle(bits << 16);
+        return values;
     }
 
     /// <summary>bf16 bits of a finite <paramref name="v"/>, rounded to nearest even.</summary>
