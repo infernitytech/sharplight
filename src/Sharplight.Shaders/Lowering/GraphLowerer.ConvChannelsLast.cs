@@ -172,13 +172,14 @@ public sealed partial class GraphLowerer
         var producers = new Dictionary<Value, Node>();
         foreach (var unit in units)
         {
-            if (unit.Node is { } single && unit.Fused is null && unit.Dual is null && unit.ConvHead is null)
+            if (unit.Node is { Outputs: [var value] } single && unit.Fused is null && unit.Dual is null && unit.ConvHead is null)
             {
-                singleNodeUnits[single.Output] = single;
+                singleNodeUnits[value] = single;
             }
-            else if (unit.Fused is [var only] && unit.FusedOutputs is [var output] && output == only.Output && unit.NormTail is null && unit.NormHead is null)
+            else if (unit.Fused is [{ Outputs: [var fusedValue] } only] && unit.FusedOutputs is [var output] && output == fusedValue && unit.NormTail is null
+                     && unit.NormHead is null)
             {
-                singleNodeUnits[only.Output] = only;
+                singleNodeUnits[fusedValue] = only;
             }
 
             foreach (var node in unit.Nodes)
@@ -315,7 +316,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool TryLowerChannelsLastPart(Node node)
     {
-        if (!_channelsLastParts.TryGetValue(node.Output, out var slot))
+        if (node.Outputs is not [var output] || !_channelsLastParts.TryGetValue(output, out var slot))
         {
             return false;
         }
@@ -325,7 +326,7 @@ public sealed partial class GraphLowerer
         {
             if (!_channelsLastParts.ContainsKey(input))
             {
-                StageChannelsLast(Ref(input), ChannelsLastTarget(slot with { Batch = batch }), slot.Channel, [node], $"{node.Op.Name.ToLowerInvariant()} {node.Output.Name} channels-last");
+                StageChannelsLast(Ref(input), ChannelsLastTarget(slot with { Batch = batch }), slot.Channel, [node], $"{node.Op.Name.ToLowerInvariant()} {output.Name} channels-last");
             }
 
             batch += input.Shape[0].Fixed;
