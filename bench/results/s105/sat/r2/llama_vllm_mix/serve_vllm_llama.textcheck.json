@@ -1,0 +1,2212 @@
+{
+ "url": "http://127.0.0.1:18080",
+ "max_tokens": 48,
+ "prompts": 8,
+ "waves": [
+  {
+   "requests": 16,
+   "identical": 9,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. From ancient civilizations to modern times, access to water has been a key factor in the distribution of power. In this essay, we will explore the role of water and power in modern history,"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include details about the snow, the scenery, and the activities you did.\nDear Sarah,\n\nI hope this letter finds you well. I just got back from an amazing trip to the mountains in winter and I couldn't wait to"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse population with a"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    }
+   ]
+  },
+  {
+   "requests": 256,
+   "identical": 138,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11\n## Step 1: Ask the student to share their work and thoughts\nThe teacher should start by asking the student to share their work and"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to a wide range of specialists\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11\n## Step 1: Ask the student to share their work and thoughts\nThe teacher should start by asking the student to share their work and"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to a wide range of specialists\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's press used"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include details about the snow, the scenery, and the activities you did.\nDear Sarah,\n\nI hope this letter finds you well. I just got back from an amazing trip to the mountains in winter and I couldn't wait to"
+    },
+    {
+     "i": 16,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 17,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 18,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 19,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 20,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 21,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 22,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 23,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include details about the snow, the scenery, and the activities you did.\nDear Sarah,\n\nI hope this letter finds you well. I just got back from an amazing trip to the mountains in winter and I couldn't wait to"
+    },
+    {
+     "i": 24,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 25,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 26,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 27,
+     "prompt": 3,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to a wide range of specialists\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 28,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 29,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 30,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 31,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include sensory details and a sense of wonder.\nDear Sarah,\n\nI hope this letter finds you well. I just returned from the most incredible trip to the mountains in winter, and I couldn't wait to share my experiences with you"
+    },
+    {
+     "i": 32,
+     "prompt": 0,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. From ancient civilizations to modern times, access to water has been a key factor in the distribution of power. In this essay, we will explore the history of water and power, examine concrete examples"
+    },
+    {
+     "i": 33,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 34,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 35,
+     "prompt": 3,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population with"
+    },
+    {
+     "i": 36,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 37,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 38,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 39,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include sensory details and a sense of wonder.\nDear Sarah,\n\nI hope this letter finds you well. I just returned from the most incredible trip to the mountains in winter, and I couldn't wait to share my experiences with you"
+    },
+    {
+     "i": 40,
+     "prompt": 0,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. From ancient civilizations to modern times, access to water has been a key factor in the distribution of power. In this essay, we will explore the role of water and power in modern history,"
+    },
+    {
+     "i": 41,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 42,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 43,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 44,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 45,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 46,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 47,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met and any notable events\n- Your overall impression of the trip\n\nDear"
+    },
+    {
+     "i": 48,
+     "prompt": 0,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. From ancient civilizations to modern times, access to water has been a key factor in the distribution of power. In this essay, we will explore the role of water and power in modern history,"
+    },
+    {
+     "i": 49,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 50,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 51,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 52,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's press used"
+    },
+    {
+     "i": 53,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 54,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 55,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- The overall experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 56,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 57,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 58,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 59,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 60,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 61,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 62,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 63,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met and any notable events\n- Your overall impression of the trip\n\nDear"
+    },
+    {
+     "i": 64,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 65,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 66,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 67,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 68,
+     "prompt": 4,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,"
+    },
+    {
+     "i": 69,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 70,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 71,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include details about the snow, the scenery, and the activities you did.\nDear Sarah,\n\nI hope this letter finds you well. I just got back from an amazing trip to the mountains in winter and I couldn't wait to"
+    },
+    {
+     "i": 72,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 73,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 74,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 75,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 76,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 77,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 78,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 79,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include details about the snow, the scenery, and the activities you did.\nDear Sarah,\n\nI hope this letter finds you well. I just got back from an amazing trip to the mountains in winter and I couldn't wait to"
+    },
+    {
+     "i": 80,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 81,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 82,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 83,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 84,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 85,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 86,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 87,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 88,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 89,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 90,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 91,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 92,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's press used"
+    },
+    {
+     "i": 93,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 94,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 95,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 96,
+     "prompt": 0,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. From ancient civilizations to modern times, access to water has been a key factor in the distribution of power. In this essay, we will explore the role of water and power in modern history,"
+    },
+    {
+     "i": 97,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 98,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 99,
+     "prompt": 3,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to a wide range of specialists\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 100,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 101,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 102,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 103,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 104,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 105,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 106,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 107,
+     "prompt": 3,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to a wide range of specialists\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 108,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 109,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 110,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 111,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 112,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 113,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 114,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 115,
+     "prompt": 3,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to a wide range of specialists\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 116,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 117,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 118,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 119,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 120,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 121,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 122,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 123,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 124,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 125,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 126,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 127,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 128,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 129,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 130,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 131,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 132,
+     "prompt": 4,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,"
+    },
+    {
+     "i": 133,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 134,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 135,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- The overall experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 136,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 137,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 138,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 139,
+     "prompt": 3,
+     "same_words": 13,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City**\nAdvantages:\n* Access to top-notch medical facilities and specialists\n* Opportunities for professional growth and networking\n* Diverse patient population with a wide range of medical conditions\n*"
+    },
+    {
+     "i": 140,
+     "prompt": 4,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,"
+    },
+    {
+     "i": 141,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 142,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 143,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- The overall experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 144,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 145,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 146,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 147,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 148,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 149,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 150,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 151,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 152,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 153,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 154,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 155,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 156,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 157,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 158,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 159,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include sensory details and a sense of wonder.\nDear Sarah,\n\nI hope this letter finds you well. I just returned from the most incredible trip to the mountains in winter, and I couldn't wait to share my experiences with you"
+    },
+    {
+     "i": 160,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes. The construction of canals"
+    },
+    {
+     "i": 161,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11\n## Step 1: Read the problem together\nThe teacher should start by reading the problem with the student, ensuring they understand what is being"
+    },
+    {
+     "i": 162,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 163,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 164,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 165,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 166,
+     "prompt": 6,
+     "same_words": 16,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds, broadening your understanding of the world and its diverse perspectives. You can"
+    },
+    {
+     "i": 167,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include sensory details and a sense of wonder.\nDear Sarah,\n\nI hope this letter finds you well. I just returned from the most incredible trip to the mountains in winter, and I couldn't wait to share my experiences with you"
+    },
+    {
+     "i": 168,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes. The construction of canals"
+    },
+    {
+     "i": 169,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11\n## Step 1: Read the problem together\nThe teacher should start by reading the problem with the student, ensuring they understand what is being"
+    },
+    {
+     "i": 170,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 171,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 172,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 173,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 174,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 175,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 176,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 177,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11.\n## Step 1: Ask the student to share their work and thoughts\nThe teacher should start by asking the student to share their work and"
+    },
+    {
+     "i": 178,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 179,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 180,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 181,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 182,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 183,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 184,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 185,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11.\n## Step 1: Ask the student to share their work and thoughts\nThe teacher should start by asking the student to share their work and"
+    },
+    {
+     "i": 186,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 187,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 188,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 189,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 190,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 191,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include sensory details and a sense of wonder.\nDear Sarah,\n\nI hope this letter finds you well. I just returned from the most incredible trip to the mountains in winter, and I couldn't wait to share my experiences with you"
+    },
+    {
+     "i": 192,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 193,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11.\n## Step 1: Ask the student to share their work and thoughts\nThe teacher should start by asking the student to share their work and"
+    },
+    {
+     "i": 194,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 195,
+     "prompt": 3,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse population with a"
+    },
+    {
+     "i": 196,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 197,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 198,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 199,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include sensory details and a sense of wonder.\nDear Sarah,\n\nI hope this letter finds you well. I just returned from the most incredible trip to the mountains in winter, and I couldn't wait to share my experiences with you"
+    },
+    {
+     "i": 200,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 201,
+     "prompt": 1,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " Here is a problem that a student might have: 2x + 5 = 11.\n## Step 1: Ask the student to share their work and thoughts\nThe teacher should start by asking the student to share their work and"
+    },
+    {
+     "i": 202,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 203,
+     "prompt": 3,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse population with a"
+    },
+    {
+     "i": 204,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 205,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 206,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 207,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 208,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 209,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 210,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 211,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 212,
+     "prompt": 4,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,"
+    },
+    {
+     "i": 213,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 214,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 215,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 216,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 217,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 218,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 219,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 220,
+     "prompt": 4,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,"
+    },
+    {
+     "i": 221,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 222,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 223,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 224,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 225,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 226,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 227,
+     "prompt": 3,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population with"
+    },
+    {
+     "i": 228,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 229,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 230,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 231,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 232,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 233,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 234,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 235,
+     "prompt": 3,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population with"
+    },
+    {
+     "i": 236,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 237,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 238,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 239,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 240,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 241,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 242,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 243,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 244,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 245,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 246,
+     "prompt": 6,
+     "same_words": 48,
+     "identical": true,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,"
+    },
+    {
+     "i": 247,
+     "prompt": 7,
+     "same_words": 31,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met\n- A memorable experience\n\nDear Sarah,\n\nI hope this letter finds"
+    },
+    {
+     "i": 248,
+     "prompt": 0,
+     "same_words": 42,
+     "identical": false,
+     "flags": [],
+     "text": " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes, and its control was a"
+    },
+    {
+     "i": 249,
+     "prompt": 1,
+     "same_words": 40,
+     "identical": true,
+     "flags": [],
+     "text": " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,"
+    },
+    {
+     "i": 250,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had"
+    },
+    {
+     "i": 251,
+     "prompt": 3,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population"
+    },
+    {
+     "i": 252,
+     "prompt": 4,
+     "same_words": 39,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nGutenberg's printing press"
+    },
+    {
+     "i": 253,
+     "prompt": 5,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by"
+    },
+    {
+     "i": 254,
+     "prompt": 6,
+     "same_words": 29,
+     "identical": false,
+     "flags": [],
+     "text": " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with a new culture and gain a deeper understanding of its customs, traditions, and history. It can"
+    },
+    {
+     "i": 255,
+     "prompt": 7,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should include sensory details and a sense of wonder.\nDear Sarah,\n\nI hope this letter finds you well. I just returned from the most incredible trip to the mountains in winter, and I couldn't wait to share my experiences with you"
+    }
+   ]
+  }
+ ],
+ "ok": true,
+ "references": [
+  " Water and power have been closely linked throughout history. The availability of water has often determined the location of settlements and the development of civilizations. In ancient times, water was used for irrigation, drinking, and other purposes. The construction of canals",
+  " Here is a problem to use as an example:\nSolve for x: 2x + 5 = 11\nStep 1: Review the problem with the student\nThe teacher should start by reviewing the problem with the student,",
+  " \nOnce upon a time, in a dense and vibrant forest, where the sunlight filtered through the leaves in dappled patterns, a young girl named Lily wandered, her feet bare and her hair tied back in a ponytail. She had",
+  " Here are a few examples:\n**City: New York City, USA**\nAdvantages:\n* High quality medical facilities and equipment\n* Access to specialized medical care and expertise\n* Opportunities for professional development and networking\n* Diverse patient population",
+  " the 15th century, when Johannes Gutenberg invented the movable-type printing press in Mainz, Germany. This innovation revolutionized the spread of knowledge and played a key role in the Renaissance and the Protestant Reformation.\nBefore the printing press,",
+  " Photosynthesis is the process by which plants, algae, and some bacteria convert light energy, usually from the sun, into chemical energy stored in glucose, a type of sugar. This process requires water and carbon dioxide and releases oxygen as a by",
+  " Here are three good reasons to learn a second language:\n1. **Cultural Enrichment**: Learning a second language allows you to connect with people from different cultures and backgrounds. It opens up a world of literature, music, art,",
+  " The letter should include the following details:\n- The time of year and weather conditions\n- The scenery and activities\n- The accommodations and food\n- The people you met and any notable events\n- Your overall impression of the trip\n\nDear"
+ ]
+}

@@ -1,0 +1,27 @@
+decoder: MultiSequenceDecoder, slots 264, vocab 151936, device sampling: True, KV paged 8192 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 128 | 0 (0) | 32.2 | 403 / 0 | 20.03 / 20.50, 19.93 |  |
+--- profile mixed 128+0 (greedy)
+GPU time 213.75 ms
+    69.047 ms  32.3%    360x  min    186.7 us  attention attn_decode_native T=128,U=128,R=128|2,3
+    55.479 ms  26.0%    360x  min    149.1 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_tma T=128,U=128,R=128|2,3
+    29.375 ms  13.7%    360x  min     75.5 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=128,U=128,R=128|2,3
+    17.059 ms   8.0%     10x  min   1686.0 us  matmul [4096→151936] f16 gemm_cm2 T=128,U=128,R=128|2,3
+    15.419 ms   7.2%    360x  min     39.8 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=128,U=128,R=128|2,3
+    11.055 ms   5.2%    360x  min     26.3 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=128,U=128,R=128|2,3
+     7.287 ms   3.4%    720x  min      7.7 us  fused[Add]+RmsNorm main T=128,U=128,R=128|2,3
+     2.896 ms   1.4%    360x  min      5.8 us  rope+qkv+cache_write rope_qkv T=128,U=128,R=128|2,3
+     2.713 ms   1.3%    360x  min      5.7 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=128,U=128,R=128|2,3
+     1.900 ms   0.9%    360x  min      3.4 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=128,U=128,R=128|2,3
+     1.024 ms   0.5%     10x  min    100.4 us  sample sample T=128,U=128,R=128|2,3
+     0.271 ms   0.1%     20x  min     10.1 us  gather gather T=128,U=128,R=128|2,3
+     0.091 ms   0.0%     10x  min      6.5 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=128,U=128,R=128|2,3
+     0.082 ms   0.0%     10x  min      6.2 us  RmsNorm main T=128,U=128,R=128|2,3
+     0.054 ms   0.0%     10x  min      4.5 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=128,U=128,R=128|2,3
+
+sampler: instant power (NVML field 186) median 200.0 W, p95 206.7 W, max 206.7 W, 12 distinct readings
+sampler: 571 busy samples of 4825 over 5.75 s: SM 2017 MHz, memory 13365 MHz, power 200.0 W (medians), max 58 C, reasons 0x4 95%

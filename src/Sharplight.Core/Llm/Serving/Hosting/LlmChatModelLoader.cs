@@ -54,6 +54,40 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
         private bool _consumed;
         public IReadOnlyList<MemoryRequirement> Requirements => reqs;
         public bool CanOffload => owner.Fallback is not null;
+
+        /// <summary>Bytes a shrunk default cache leaves unused for the placement's rounding.</summary>
+        private const long ShrinkMargin = 256L << 20;
+
+        /// <summary>
+        /// With a default-sized paged KV cache on one device: the footprint with the smallest cache <see cref="KvTokensFor"/> shrinks
+        /// to (one full context plus a block per slot).
+        /// </summary>
+        public long? ShrinkableTo
+        {
+            get
+            {
+                if (owner._chat.KvCacheTokens is not null || reqs.Count != 1 || DefaultKvCache() is not { } kv)
+                {
+                    return null;
+                }
+
+                return fp.Total - (kv.Tokens - kv.Least) * kv.PerToken + ShrinkMargin;
+            }
+        }
+
+        /// <summary>The default paged cache's tokens, the fewest it may shrink to and its bytes per token; null without one.</summary>
+        private (long Tokens, long Least, long PerToken)? DefaultKvCache()
+        {
+            int ctx = owner.Load.ContextLength;
+            long tokens = model.DefaultKvCacheTokens(owner._chat.Slots, ctx);
+            long perToken = model.KvBytesPerToken;
+            if (tokens <= 0 || perToken <= 0)
+            {
+                return null;
+            }
+
+            return (tokens, Math.Min(tokens, ctx + (long)owner._chat.Slots * MultiSequenceDecoder.DefaultKvBlockSize), perToken);
+        }
         public ModelFootprint Footprint => fp;
 
         public LoadedModel Load(long? primaryLimit)
@@ -123,16 +157,16 @@ public sealed class LlmChatModelLoader(ModelLoader loader, string name, string p
                 return chat.KvCacheTokens;
             }
 
-            int ctx = owner.Load.ContextLength;
-            long tokens = model.DefaultKvCacheTokens(chat.Slots, ctx);
-            long perToken = model.KvBytesPerToken;
-            if (tokens <= 0 || perToken <= 0)
+            if (DefaultKvCache() is not { } kv)
             {
                 return null;
             }
 
-            long fit = (limit - (fp.Total - tokens * perToken)) / perToken;
-            long shrunk = Math.Clamp(fit, Math.Min(tokens, ctx + (long)chat.Slots * MultiSequenceDecoder.DefaultKvBlockSize), tokens);
+            // One allocation granule of margin: placement rounds cache rows to whole blocks and groups to sub-allocation blocks, so a pool
+            // sized to the last byte did not fit (Qwen3-8B-FP8, 256 slots: 6 MiB short, benchmarks.md §105).
+            var (tokens, least, perToken) = kv;
+            long fit = (limit - ShrinkMargin - (fp.Total - tokens * perToken)) / perToken;
+            long shrunk = Math.Clamp(fit, least, tokens);
             if (shrunk < tokens)
             {
                 owner.Load.Log?.Invoke($"Paged KV cache shrunk to {shrunk} tokens ({shrunk * perToken / 1048576.0:F0} MiB) to fit {limit / 1048576.0:F0} MiB.");

@@ -1,0 +1,4 @@
+[first] 0+2048: 140.0 ms; recorded True record 7.0 submit 0.0 wait 123.4 gpu 131.1
+[stamp] 0+2048 1795513453782 1795513455900 steps 16 gpu_ms 131.866
+[first] 16+240: 28.1 ms; recorded True record 8.4 submit 0.1 wait 18.1 gpu 26.5
+[stamp] 16+240 1795513457559 1795513459561 steps 94 gpu_ms 21.170

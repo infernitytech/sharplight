@@ -1,0 +1,13 @@
+[first] 1+0: 23.2 ms; recorded True record 5.7 submit 0.0 wait 9.2 gpu 15.6
+[stamp] 1+0 1795506359775 1795506361776 steps 179 gpu_ms 11.134
+[first] 16+0: 18.5 ms; recorded True record 8.0 submit 0.0 wait 10.5 gpu 18.5
+[stamp] 16+0 1795506362120 1795506364130 steps 159 gpu_ms 12.598
+[first] 64+0: 21.5 ms; recorded True record 7.0 submit 1.0 wait 13.5 gpu 21.4
+[stamp] 64+0 1795506364533 1795506366538 steps 118 gpu_ms 16.919
+[first] 128+0: 27.1 ms; recorded True record 4.7 submit 0.0 wait 22.3 gpu 27.0
+[stamp] 128+0 1795506367089 1795506369093 steps 80 gpu_ms 24.968
+Unhandled exception. System.InvalidOperationException: Context of slot 263 full (0 + 2048 > 1024).
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.PackInputs(IReadOnlyList`1 inputs) in ~/sl-worktrees/perf-r45/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 875
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in ~/sl-worktrees/perf-r45/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 647
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in ~/sl-worktrees/perf-r45/bench/BatchBench/Program.cs:line 122
+   at Program.<Main>$(String[] args) in ~/sl-worktrees/perf-r45/bench/BatchBench/Program.cs:line 189

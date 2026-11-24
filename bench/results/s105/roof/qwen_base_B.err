@@ -1,0 +1,6 @@
+[first] 256+0: 47.5 ms; recorded True record 6.4 submit 0.0 wait 32.9 gpu 39.9
+[stamp] 256+0 1795507218264 1795507219796 steps 38 gpu_ms 37.080
+[first] 256+256x7: 144.6 ms; recorded True record 5.5 submit 0.0 wait 137.8 gpu 143.3
+[stamp] 256+256x7 1795507222558 1795507224258 steps 11 gpu_ms 145.292
+[first] 128+240x8: 137.2 ms; recorded True record 4.9 submit 0.9 wait 130.8 gpu 136.6
+[stamp] 128+240x8 1795507228026 1795507229534 steps 11 gpu_ms 136.521

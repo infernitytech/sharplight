@@ -16635,6 +16635,323 @@ SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests
 SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method Sharplight.Vulkan.Tests.MatMulTests.StreamKMatchesTileWalkBitwise
 ```
 
+## 105. LLM round 45: saturation at 16-256 streams and a per-step roofline against vLLM 0.33; decode-only steps past 64 rows no longer launch an empty flash-attention grid (Qwen3-8B-FP8 256-row decode -10 %, Llama-3.1-8B -7 %); a default-sized paged KV cache shrinks to fit instead of being refused (2026-11-24)
+
+Branch `perf/llm-r45` (`develop` at `18fe1a1d`, §104 merged; `develop` `2d2b1e54` with §106 merged before the push). GPU 0 of the RunPod machine
+(RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap), shared with the FP4 round: every measurement hold took the machine's bench lock (`flock`)
+(one server run, one BatchBench run or one vLLM profile per hold). The A/B baselines ran `develop` at `18fe1a1d` (`perf-r45-base`
+worktree); vLLM 0.33 (venv `vllm-r12`). Raw output in [`bench/results/s105/`](../bench/results/s105) (`sat/`, `roof/`, `vprof/`, `correct/`,
+`tests/`, `scripts/`).
+
+Owner's question (2026-11-24): where can we beat vLLM on throughput? Plan: saturation at 128 / 256 streams against vLLM with
+comparable memory, a per-step roofline (bandwidth / compute / power), then the lever with real headroom among KV capacity and
+scheduling, FP8 KV cache and speculative decoding.
+
+Kept (keyed on step shape, row and run counts, cache sizing; nothing on models):
+
+1. **The flash half of a mixed attention step runs no blocks when none of the step's runs can reach its minimum rows**
+   (`GraphLowerer.SkipWithoutLongRuns`, `SHARPLIGHT_ATTN_MIXED_SKIP=0` for A/B). Past the decode kernel's 64 rows a multi-sequence
+   step takes the mixed form (split-K decoding for short runs, `attn_prefill_native.cu` for runs of 16 rows or more); a decode-only
+   step launched the flash kernel anyway, whose grid (query heads x (tiles + runs)) only looked for a long run and exited: 40 µs per
+   layer at 128 rows, 132 µs at 256 on Qwen3-8B-FP8 (12.5 % of the step). The variant keeps claiming the launch (the later variants
+   would run the whole step) with an empty grid when rows - runs + 1 < 16, so the numbers of every step are unchanged.
+2. **A default-sized paged KV cache shrinks to fit** (`IPreparedModel.ShrinkableTo`, `ModelHost.Admit`): `sharplight serve` with many
+   slots and no `--kv-tokens` refused the model unless `--cpu-offload` was set, and with it the shrunk pool left room only by moving
+   the LM head to the CPU (ITL 117 ms at 16 streams). Two causes: the host shrank only when it could offload, and the activation
+   estimate counted a twenty-fifth of the KV pool as scratch (`PlacementPlanner.Estimate`: 3.7 GB for a 92 GB default pool at
+   256 x 2,560 tokens, where 0.55 GB were used). KV pools now stay out of that share, the host loads a model whose default cache can
+   shrink with the free memory as its limit, and the shrink leaves one 256 MiB allocation granule for the placement's rounding.
+3. **Tooling**: `bench/loadgen.py --length-mix` (log-normal prompt / output lengths, medians 200 / 150, means ~300 / ~205 tokens, the same
+   requests for every engine), `--gauges` (running / waiting / KV-use gauges of both engines sampled every 0.5 s), a steady-window
+   throughput (`steady_tok_s`: tokens while every closed-loop stream still has a request, i.e. until the first stream is done);
+   `s16_serve.sh LOADGEN_ARGS`; BatchBench `--hold-ms` (a sustained window per entry with unix stamps) and `unix_ms` in
+   `s73_clock_sampler.py`; `bench/s105_roofline.py` (bytes and FLOPs per kernel class from profile shapes, power and clocks per
+   window) and `bench/s105_vllm_classes.py`.
+4. **Test fix**: `EngineTests.TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore` copied the fake device's step list while the
+   engine appended to it; the fake's recordings are a locked `RecordedList<T>` now (40 / 40 three times).
+
+### 105.1 Memory settings
+
+| | vLLM 0.33 | Sharplight |
+|---|---|---|
+| memory | `--gpu-memory-utilization 0.9` | `--kv-tokens` = vLLM's KV tokens (default pool: 105.5) |
+| sequences | `--max-num-seqs 256` | `--slots 256` |
+| step budget | `--max-num-batched-tokens 2048` (its default here) | 2,048 rows (default), 48 prompt rows per sequence while decoding |
+| context | `--max-model-len 2560` | `--ctx 2560` |
+| prefix caching | off | on (random-word prompts share nothing) |
+| KV tokens | Qwen3-8B-FP8 127,632-136,272 (17.5 GiB), gpt-oss-20b 263,424 (12.1 GiB), Llama-3.1-8B 100,480 (12.3 GiB) | the same |
+
+### 105.2 Saturation: closed loop, fixed and mixed lengths
+
+`bench/s16_serve.sh` (one server per engine and load, sized for 256 sequences), closed loop at 16 / 64 / 128 / 256 streams; fixed:
+~250 prompt + 128 output tokens, 6 requests per stream; mix: `--length-mix`, 8 requests per stream. `develop` against vLLM, one round
+each (`sat/r2/`). Tok/s over the whole run / over the steady window; TTFT p50 / p99, ITL p50 / p90 / p99 (ms); running / waiting
+sequences (mean of the gauges); queue time per request (ms). No preemptions anywhere except vLLM at Llama 256 streams.
+
+**Qwen3-8B-FP8, fixed lengths**
+
+| streams | engine | tok/s (all / steady) | TTFT p50 / p99 ms | ITL p50 / p90 / p99 ms | running / waiting (mean) | KV use max | queue ms | preemptions |
+|---|---|---|---|---|---|---|---|---|
+| 16 | ours | 1042 / 1072 | 93 / 296 | 12.5 / 14.1 / 61.6 | 15 / 0.2 | 0.05 | 30 | 0 |
+| 16 | vLLM | 1095 / 1094 | 196 / 262 | 12.6 / 13.3 / 28.9 | 14 / 0.1 | 0.05 | 4 | 0 |
+| 64 | ours | 2422 / 2407 | 361 / 863 | 16.3 / 44.1 / 131.0 | 61 / 0.6 | 0.19 | 56 | 0 |
+| 64 | vLLM | 2702 / 2699 | 393 / 1072 | 16.1 / 17.6 / 132.0 | 56 / 1.2 | 0.18 | 70 | 0 |
+| 128 | ours | 3344 / 3338 | 283 / 2085 | 23.5 / 109.4 / 140.1 | 123 / 2.6 | 0.37 | 94 | 0 |
+| 128 | vLLM | 3378 / 3365 | 456 / 2161 | 21.6 / 82.2 / 148.5 | 115 / 4.1 | 0.36 | 147 | 0 |
+| 256 | ours | 3627 / 3609 | 326 / 4333 | 41.5 / 147.4 / 162.1 | 247 / 3.4 | 0.72 | 95 | 0 |
+| 256 | vLLM | 3553 / 3510 | 698 / 4732 | 35.6 / 165.5 / 177.0 | 232 / 12.8 | 0.70 | 450 | 0 |
+
+**Qwen3-8B-FP8, length mix**
+
+| streams | engine | tok/s (all / steady) | TTFT p50 / p99 ms | ITL p50 / p90 / p99 ms | running / waiting (mean) | KV use max | queue ms | preemptions |
+|---|---|---|---|---|---|---|---|---|
+| 64 | ours | 1547 / 2501 | 76 / 1108 | 18.3 / 39.7 / 92.0 | 37 / 0.1 | 0.25 | 18 | 0 |
+| 64 | vLLM | 1846 / 2497 | 90 / 1136 | 17.3 / 38.2 / 79.7 | 41 / 0.3 | 0.24 | 38 | 0 |
+| 128 | ours | 2697 / 3303 | 103 / 2138 | 27.2 / 53.5 / 120.6 | 90 / 0.4 | 0.49 | 26 | 0 |
+| 128 | vLLM | 2471 / 2915 | 156 / 2421 | 25.2 / 66.7 / 133.3 | 91 / 1.4 | 0.47 | 111 | 0 |
+| 256 | ours | 2755 / 3280 | 333 / 5125 | 52.9 / 118.0 / 196.3 | 175 / 3.5 | 0.90 | 225 | 0 |
+| 256 | vLLM | 2538 / 2692 | 324 / 4889 | 61.6 / 141.8 / 202.2 | 191 / 3.5 | 0.94 | 262 | 0 |
+
+**gpt-oss-20b, fixed lengths**
+
+| streams | engine | tok/s (all / steady) | TTFT p50 / p99 ms | ITL p50 / p90 / p99 ms | running / waiting (mean) | KV use max | queue ms | preemptions |
+|---|---|---|---|---|---|---|---|---|
+| 16 | ours | 1415 / 1423 | 94 / 282 | 9.3 / 10.8 / 47.2 | 15 / 0.2 | 0.02 | 31 | 0 |
+| 16 | vLLM | 1422 / 1422 | 184 / 272 | 9.3 / 10.2 / 17.3 | 14 / 0.0 | 0.02 | 3 | 0 |
+| 64 | ours | 3344 / 3343 | 238 / 695 | 12.8 / 16.7 / 115.6 | 59 / 1.9 | 0.09 | 69 | 0 |
+| 64 | vLLM | 3159 / 3153 | 363 / 990 | 13.3 / 14.8 / 120.4 | 58 / 1.1 | 0.06 | 41 | 0 |
+| 128 | ours | 4028 / 4017 | 247 / 1843 | 18.8 / 95.5 / 121.9 | 122 / 3.0 | 0.17 | 80 | 0 |
+| 128 | vLLM | 3871 / 3851 | 402 / 1908 | 19.3 / 42.6 / 129.1 | 115 / 4.2 | 0.12 | 139 | 0 |
+| 256 | ours | 4596 / 4522 | 745 / 3813 | 29.4 / 120.9 / 133.2 | 245 / 3.4 | 0.35 | 71 | 0 |
+| 256 | vLLM | 4426 / 4362 | 665 / 3974 | 30.3 / 125.5 / 132.5 | 227 / 16.2 | 0.23 | 459 | 0 |
+
+**gpt-oss-20b, length mix**
+
+| streams | engine | tok/s (all / steady) | TTFT p50 / p99 ms | ITL p50 / p90 / p99 ms | running / waiting (mean) | KV use max | queue ms | preemptions |
+|---|---|---|---|---|---|---|---|---|
+| 64 | ours | 2393 / 3090 | 58 / 992 | 14.2 / 28.2 / 67.9 | 43 / 0.2 | 0.12 | 16 | 0 |
+| 64 | vLLM | 2344 / 3029 | 81 / 1079 | 13.6 / 31.2 / 70.2 | 42 / 0.4 | 0.07 | 42 | 0 |
+| 128 | ours | 3291 / 3912 | 88 / 1976 | 22.1 / 48.8 / 101.1 | 92 / 0.3 | 0.24 | 22 | 0 |
+| 128 | vLLM | 3233 / 3791 | 130 / 2106 | 20.7 / 53.3 / 101.1 | 91 / 1.6 | 0.15 | 102 | 0 |
+| 256 | ours | 4117 / 4590 | 164 / 3928 | 36.3 / 83.1 / 127.8 | 189 / 0.9 | 0.47 | 36 | 0 |
+| 256 | vLLM | 3982 / 4409 | 210 / 4137 | 34.3 / 89.2 / 132.0 | 184 / 4.5 | 0.29 | 221 | 0 |
+
+**Llama-3.1-8B (bf16), fixed lengths**
+
+| streams | engine | tok/s (all / steady) | TTFT p50 / p99 ms | ITL p50 / p90 / p99 ms | running / waiting (mean) | KV use max | queue ms | preemptions |
+|---|---|---|---|---|---|---|---|---|
+| 16 | ours | 667 / 671 | 159 / 489 | 20.8 / 22.1 / 86.6 | 16 / 0.0 | 0.06 | 55 | 0 |
+| 16 | vLLM | 670 / 670 | 399 / 475 | 20.4 / 20.9 / 58.0 | 14 / 0.0 | 0.06 | 2 | 0 |
+| 64 | ours | 1813 / 1813 | 458 / 1396 | 24.4 / 28.8 / 224.3 | 61 / 1.8 | 0.24 | 122 | 0 |
+| 64 | vLLM | 1682 / 1677 | 701 / 1804 | 23.7 / 27.3 / 231.9 | 57 / 1.9 | 0.24 | 103 | 0 |
+| 128 | ours | 2122 / 2144 | 471 / 3482 | 33.7 / 207.0 / 235.3 | 122 / 2.9 | 0.46 | 173 | 0 |
+| 128 | vLLM | 2221 / 2210 | 962 / 3808 | 29.1 / 73.5 / 245.8 | 114 / 5.9 | 0.48 | 309 | 0 |
+| 256 | ours | 2454 / 2438 | 511 / 7465 | 51.7 / 240.3 / 253.9 | 249 / 3.7 | 0.91 | 179 | 0 |
+| 256 | vLLM | 2344 / 2317 | 830 / 7848 | 48.8 / 262.9 / 272.5 | 233 / 11.3 | 0.93 | 604 | 0 |
+
+**Llama-3.1-8B (bf16), length mix**
+
+| streams | engine | tok/s (all / steady) | TTFT p50 / p99 ms | ITL p50 / p90 / p99 ms | running / waiting (mean) | KV use max | queue ms | preemptions |
+|---|---|---|---|---|---|---|---|---|
+| 64 | ours | 1142 / 1670 | 104 / 1954 | 26.8 / 51.4 / 133.4 | 39 / 0.2 | 0.32 | 29 | 0 |
+| 64 | vLLM | 1212 / 1689 | 132 / 1945 | 24.7 / 52.4 / 147.0 | 40 / 0.6 | 0.32 | 85 | 0 |
+| 128 | ours | 1663 / 1927 | 159 / 4112 | 39.0 / 99.7 / 214.8 | 90 / 0.4 | 0.62 | 52 | 0 |
+| 128 | vLLM | 1725 / 2092 | 207 / 4115 | 31.7 / 104.0 / 222.2 | 89 / 1.7 | 0.63 | 200 | 0 |
+| 256 | ours | 2047 / 2310 | 3991 / 8959 | 58.8 / 146.2 / 241.6 | 163 / 30.8 | 0.90 | 3025 | 0 |
+| 256 | vLLM | 1857 / 2016 | 2092 / 8227 | 65.5 / 202.3 / 287.3 | 174 / 18.8 | 1.00 | 2078 | 566 |
+
+Where each saturates (steady tok/s, 128 → 256 streams): Qwen3-8B-FP8 ours 3,338 → 3,609 (fixed) and 3,303 → 3,280 (mix), vLLM 3,365 → 3,510
+and 2,915 → 2,692; gpt-oss-20b ours 4,017 → 4,522 and 3,912 → 4,590, vLLM 3,851 → 4,362 and 3,791 → 4,409; Llama-3.1-8B ours 2,144 → 2,438
+and 1,927 → 2,310, vLLM 2,210 → 2,317 and 2,092 → 2,016. With the length mix both engines stop gaining past ~128 streams on the dense
+FP8 model (KV reads grow with every stream, 105.3); MoE keeps gaining to 256 (its decode steps are expert-bound and amortize).
+
+* **16-64 streams** (§104's ground, there with 16- / 64-slot servers): with one 256-slot server and an equal-length closed loop the rows
+  move by ±10 % between rounds (a first round with 3 requests per stream, `sat/r1/`: Qwen3-8B-FP8 1,253 / 2,879 tok/s at 16 / 64 against
+  vLLM's 1,104 / 2,685); the mix rows are the steadier comparison.
+* **Throughput at saturation**: ours 0.97-1.05 x vLLM on the fixed load (steady window), **1.04-1.22 x on the length mix at 256 streams** (Qwen3-8B-FP8
+  1.22, gpt-oss-20b 1.04, Llama-3.1-8B 1.15). On the mix vLLM keeps more requests waiting (mean 1.4-4.5 against 0.3-0.9 at 128 streams,
+  queue time 100-260 ms against 20-50) and its throughput falls from 128 to 256 streams on Qwen3-8B-FP8 (2,915 → 2,692).
+* **KV capacity binds only for Llama-3.1-8B (bf16, 128 KB per token) on the mix at 256 streams**: ~256 x 505 tokens want 129K of
+  100K. vLLM admits and preempts (566 preemptions, KV use 1.00); ours admits by blocks with a growth reserve and queues instead (mean
+  31 waiting, queue 3.0 s, no preemption), so its TTFT p50 is worse (4.0 s against 2.1 s) and its throughput higher (2,310 against 2,016).
+* **TTFT**: ours lower at every point but that one (fixed 256: 326 / 745 / 511 ms against 698 / 665 / 830; mix 128: 103 / 88 / 159
+  against 156 / 130 / 207).
+* **ITL**: at 256 streams on the fixed load the decode steps decide it: Qwen3-8B-FP8 ITL p50 41.5 against 35.6 ms on `develop` (105.4:
+  the empty flash launch; 39.4 with this round's change, and 36.2 with the default pool).
+
+### 105.3 Roofline per step
+
+BatchBench (`--mixed` entries, `--text`, greedy, `--profile` per entry, `--hold-ms` 1,500-2,000 with NVML sampled every 10 ms;
+`roof/*_base_*`), `bench/s105_roofline.py`: bytes per step = weights once (experts: the expected distinct experts of T routed rows),
+KV rows read by decode attention (each entry's grown context), activations; FLOPs = 2 · rows · K · N per GEMM. Read peak 825 GB/s
+(measured copy), `mma.sync` peaks f16 235 / E4M3 474 TFLOPS (register-only, boost clock). Power: mean board power in the window, SM
+clock median, share of samples at the 200 W cap.
+
+| step (decode + prompt rows) | Qwen3-8B-FP8 | Llama-3.1-8B (bf16) | gpt-oss-20b (MXFP4 experts) |
+|---|---|---|---|
+| 1 | 10.98 ms, 91 % of read BW, 200 W, 2.46 GHz | 18.74 ms, 97 %, 195 W, 2.81 GHz | 5.15 ms (LM head 23 %, experts 18 %) |
+| 16 | 12.26 ms, 92 %, 200 W, 2.63 GHz | 20.42 ms, 94 %, 199 W | 9.55 ms, experts 59 %, 200 W, 2.48 GHz |
+| 64 | 15.93 ms, 97 %, 200 W | 24.02 ms, 94 %, 200 W | 13.20 ms, experts 63 % |
+| 128 (context ~450) | 23.58 ms, 89 %: GEMM 41 % at 82 % BW, attention 41 % at 95 % BW, empty flash 6 % | 33.01 ms, 82 %: GEMM 58 %, attention 24 % at 94 %, empty flash 4 % | 19.06 ms: experts 55 %, attention 13 % at 88 % |
+| 256 (context ~300) | 35.85 ms, 72 %: attention 39 % at 95 % BW, GEMM 37 % (52 % of the FP8 MMA peak), **empty flash 12.5 %**, LM head 6 % | 45.86 ms, 68 %: GEMM 55 % (58 % of MMA), attention 26 % at 94 %, **empty flash 9 %** | 27.62 ms: experts 57 % (32 % of MMA), attention 13 % at 91 %, empty flash 3.4 % |
+| 0 + 2,048 | 130.70 ms, 227 TFLOPS: GEMM 56 % of the FP8 MMA peak, 200 W, **1.99 GHz** | 223.11 ms, GEMM 62 % of the f16 peak, 2.17 GHz | 112.87 ms, experts 53 % of the f16 peak, 2.29 GHz |
+| 256 + 7 x 256 | 137.96 ms, GEMM 59 %, 2.13 GHz | 235.55 ms, GEMM 63 %, 2.22 GHz | 118.83 ms, experts 53 %, 2.30 GHz |
+
+* Decode steps are **bandwidth-bound** (82-97 % of the read peak up to 128 rows; at 256 rows the KV reads are the largest single item,
+  12 GB per Qwen3-8B-FP8 step at ~300 tokens of context, attention at 91-95 % of the peak); prompt and mixed 2,048-row steps are
+  **compute-bound at the power cap** (every 2,048-row window 100 % at 200 W, SM clock 2.0-2.3 GHz against 2.6-2.8 at light load), at
+  53-63 % of the boost-clock MMA peaks, i.e. ~70-80 % of what the capped clock allows. Even 16-row decode steps run at the cap.
+* The MoE byte estimate assumes uniform routing (an upper bound: text routing touches fewer experts, so it reads >100 % at 64-128 rows).
+
+**Against vLLM at matched context** (vLLM: `bench/s54_vllm_decode_profile.py`, 256-token word prompts, 32 decode steps, torch profiler,
+`vprof/`; ours: the branch, one short BatchBench run per row count, `roof/*_new_match_*`):
+
+| decode rows | Qwen3-8B-FP8 ours / vLLM (attention) | Llama-3.1-8B | gpt-oss-20b |
+|---:|---|---|---|
+| 1 | 10.99 / 9.99 (0.46 / 0.38) | 18.74 / 17.76 (0.42 / 0.32) | 5.16 / 4.31 (0.22 / 0.19) |
+| 16 | 12.22 / 10.75 (1.25 / 0.97) | 20.46 / 18.86 (1.13 / 0.88) | 9.44 / 8.81 (0.38 / 0.43) |
+| 64 | 15.49 / 13.89 (3.71 / 3.54) | 23.81 / 21.97 (3.31 / 3.13) | 13.75 / 14.26 (1.11 / 1.23) |
+| 128 | 19.93 / 18.59 (6.90 / 6.76) | 30.24 / 26.69 (6.15 / 5.87) | 18.49 / 19.20 (1.85 / 2.23) |
+| 256 | 31.82 / 30.09 (13.45 / 13.09) | 42.47 / 43.63 (12.04 / 11.61) | 27.04 / 28.56 (3.41 / 4.23) |
+
+Our GPU time includes the LM head and the device sampling of every row; vLLM's annotated range ends before its sampler (at 16 streams the
+serving ITL p50 is 12.5 against 12.6 ms, 105.2), so the 1-16-row differences of ~1 ms are mostly outside its range. With this round's change the
+steps are within 4-13 % of vLLM's range at 64-128 rows and within 6 % / ahead at 256 (Llama-3.1-8B 42.47 against 43.63, gpt-oss-20b
+27.04 against 28.56). At 256 rows and ~270 tokens Qwen3-8B-FP8's step is the same kernels' time on both sides: projections 14.92 ms (ours) against 14.92
+(vLLM's four DeepGEMM launches), attention 13.45 against 12.96 (FlashAttention-2 split-KV; both at the read peak); what we add is
+the LM head over 256 rows (2.4 ms; vLLM's falls outside its profiled range) and norms. Prompt steps of 2,048 rows: Qwen3-8B-FP8
+130.7 ms against 128.4 (GEMMs 106.7 against 96.2, attention 10.9 against 12.8), Llama-3.1-8B 223.1 against 225.7, gpt-oss-20b 112.9 against 118.8 (experts 78.0 against 83.1 ms).
+
+### 105.4 The empty flash launch: A/B
+
+Same build, `SHARPLIGHT_ATTN_MIXED_SKIP=1` / `0`, order on / off / off / on, decode-only steps (and one mixed step), GPU ms min of 10
+(`roof/*_new_skip*`; Llama with a 200-token prefill so that 256 slots fit its pool):
+
+| decode rows | 64 | 96 | 128 | 192 | 256 | 256 + 7 x 256 |
+|---|---:|---:|---:|---:|---:|---:|
+| Qwen3-8B-FP8 off → on | 15.39 → 15.39 | 19.42 → 18.55 (**-4.5 %**) | 22.96 → 21.57 (**-6.1 %**) | 32.23 → 29.97 (**-7.0 %**) | 40.06 → 36.04 (**-10.0 %**) | 149.34 → 149.00 |
+| Llama-3.1-8B | | | 30.37 → 29.06 (**-4.3 %**) | 46.58 → 44.41 (**-4.6 %**) | 45.86 → 42.51 (**-7.3 %**) | |
+| gpt-oss-20b | 13.41 → 13.44 | 15.89 → 15.70 (-1.2 %) | 18.88 → 18.80 (-0.4 %) | 24.66 → 24.32 (-1.3 %) | 28.24 → 27.42 (-2.9 %) | 119.96 → 119.75 |
+
+The runs of each configuration agree within 0.1-0.2 ms. gpt-oss-20b gains least (head size 64, half its layers windowed: a
+smaller flash grid). Steps up to 64 rows (the decode kernel) and steps with a prompt chunk are unchanged.
+
+**Serving** (develop against the branch, ABBA, `sat/ab/`; length mix, 8 requests per stream; tok/s whole run, steady, ITL p50):
+
+| model | streams | `develop` tok/s (2 runs) | branch tok/s | `develop` steady | branch steady | `develop` ITL p50 | branch ITL p50 |
+|---|---:|---|---|---|---|---|---|
+| Qwen3-8B-FP8 | 128 | 2716, 2715 | 2754, 2751 | 3350, 3350 | 3415, 3411 | 27.1, 27.0 | 25.9, 26.0 |
+| Qwen3-8B-FP8 | 256 | 3108, 3113 | 3168, 3167 | 3537, 3544 | 3626, 3626 | 49.7, 49.8 | 47.7, 47.6 |
+| Llama-3.1-8B | 128 | 1795, 1727 | 1604, 1800 | 2247, 2040 | 1753, 2248 | 37.6, 38.2 | 36.7, 36.7 |
+| Llama-3.1-8B | 256 | 2050, 1995 | 2021, 2014 | 2318, 2310 | 2320, 2261 | 58.7, 60.1 | 58.0, 57.0 |
+| gpt-oss-20b | 128 | 3346, 2984 | 2468, 3333 | 4005, 3027 | 2636, 3974 | 21.8, 21.6 | 21.7, 21.7 |
+| gpt-oss-20b | 256 | 3812, 3831 | 4132, 3952 | 3955, 4575 | 4608, 4627 | 36.8, 37.2 | 35.5, 35.7 |
+
+Qwen3-8B-FP8: +1.9 % / +2.4 % tok/s (steady and whole run, both pairs agree within 0.2 %), ITL p50 -4 %. Llama-3.1-8B and gpt-oss-20b:
+the length-mix closed loop scatters by 10-25 % between rounds of the same build (gpt-oss-20b 128 streams: 2,984-3,346 on `develop`,
+2,468-3,333 on the branch; no other GPU process in any round), more than the change; their ITL p50 is lower on the branch in every
+pair (Llama -1 to -5 %, gpt-oss-20b at 256 -3.5 %). Mixed steps, which the change does not touch, are most of the time of a mix run.
+
+**Fixed load at 128 / 256 streams** (branch, `sat/fixnew/`, against `develop` and vLLM of 105.2; tok/s / steady (ITL p50 ms)):
+
+| model | streams | `develop` | branch | vLLM 0.33 |
+|---|---:|---|---|---|
+| Qwen3-8B-FP8 | 128 | 3344 / 3338 (23.5) | 3442 / 3475 (22.0) | 3378 / 3365 (21.6) |
+| Qwen3-8B-FP8 | 256 | 3627 / 3609 (41.5) | 3632 / 3578 (39.4) | 3553 / 3510 (35.6) |
+| gpt-oss-20b | 128 | 4028 / 4017 (18.8) | 4063 / 4052 (18.5) | 3871 / 3851 (19.3) |
+| gpt-oss-20b | 256 | 4596 / 4522 (29.4) | 4647 / 4598 (28.7) | 4426 / 4362 (30.3) |
+| Llama-3.1-8B | 128 | 2122 / 2144 (33.7) | 2194 / 2200 (32.3) | 2221 / 2210 (29.1) |
+| Llama-3.1-8B | 256 | 2454 / 2438 (51.7) | 2523 / 2505 (48.1) | 2344 / 2317 (48.8) |
+
+The closed-loop fixed load is a poor saturation measure: equal lengths keep the streams in waves that drift into mixed steps (one
+round with 3 requests per stream measured Qwen3-8B-FP8 at 128 streams at 3,997 tok/s, with 6 at 3,344; `sat/r1/`), so its rows move
+by several per cent between rounds; the step A/B above is the measurement, the serving rows show the direction.
+
+### 105.5 KV capacity with the default pool
+
+`sharplight serve MODEL --slots 256 --ctx 2560 --provider cuda` without `--kv-tokens` (`sat/cap/`):
+
+| | `develop` | branch: pool shrunk to | vLLM 0.33 at 0.9 | branch, 256 streams fixed load |
+|---|---|---|---|---|
+| Qwen3-8B-FP8 | refused (needs 106,270 MiB); with `--cpu-offload`: 110,288 tokens and the LM head on the CPU | **143,264 tokens** (20.1 GB), 30.1 GB resident | 127,632-136,272 | 3,802 tok/s, ITL p50 36.2 ms |
+| Llama-3.1-8B | refused | **111,069** (13.9 GB) | 100,480 | 2,502 tok/s, ITL p50 47.1 |
+| gpt-oss-20b | refused | **613,478** (14.4 GB, window-sized caches for the sliding layers) | 263,424 | 4,608 tok/s, ITL p50 28.0 |
+
+Every group on the GPU in all three. Without the 256 MiB margin the Qwen pool (145,084 tokens) missed by 6 MiB (`sat/cap/qwen_nomargin`).
+
+### 105.6 Open loop
+
+Poisson arrivals of length-mix requests at ~85 % of each model's steady saturation, at most 256 in flight, 768 requests (`sat/open/`;
+branch against vLLM):
+
+| model, rate | engine | tok/s | TTFT p50 / p90 / p99 | ITL mean / p50 / p90 / p99 | running mean / max | KV use max |
+|---|---|---:|---|---|---|---:|
+| Qwen3-8B-FP8, 15/s | ours (branch) | 2621 | 81 / 145 / 229 | 29.8 / 24.1 / 47.1 / 114.0 | 77 / 126 | 0.46 |
+| Qwen3-8B-FP8, 15/s | vLLM | 2497 | 189 / 333 / 471 | 52.1 / 34.8 / 98.7 / 184.1 | 124 / 218 | 0.74 |
+| gpt-oss-20b, 19/s | ours (branch) | 3330 | 81 / 149 / 225 | 29.8 / 23.3 / 51.6 / 107.0 | 97 / 158 | 0.28 |
+| gpt-oss-20b, 19/s | vLLM | 3315 | 141 / 223 / 307 | 31.2 / 22.1 / 58.8 / 105.4 | 100 / 165 | 0.19 |
+| Llama-3.1-8B, 9.5/s | ours (branch) | 1672 | 115 / 219 / 369 | 43.1 / 33.1 / 70.9 / 185.8 | 72 / 116 | 0.55 |
+| Llama-3.1-8B, 9.5/s | vLLM | 1675 | 178 / 330 / 511 | 47.7 / 30.5 / 89.9 / 223.7 | 79 / 133 | 0.62 |
+
+
+At the same arrival rate ours keeps fewer sequences in flight because its steps are shorter: Qwen3-8B-FP8 at 15 requests per second
+runs 77 sequences on average against vLLM's 124 (ITL mean 29.8 against 52.1 ms, TTFT p50 81 against 189, 5 % more tok/s: vLLM is
+near its saturation at this rate, ours is not); gpt-oss-20b and Llama-3.1-8B serve the rate on both engines with TTFT p50 0.57-0.65x
+vLLM's and ITL mean 0.90-0.95x. vLLM's gpt-oss-20b open-loop text check flagged 2 of 256 batched texts (runs of 18 and 21 periods, as
+in §104); every Sharplight server was clean.
+
+### 105.7 Correctness and tests
+
+* Greedy text (CUDA, 120 tokens, the ~40-word and the 963-token prompt; `correct/`): byte-identical to `develop` for gpt-oss-20b
+  (e733f049 / 8cb648ed), Qwen3-8B-FP8 (3879d8a4 / b9666631) and Llama-3.1-8B (f50af9d0 / b9666631). One sequence never exceeds 64
+  rows, and the skip changes no number in any step (the skipped grid had no work).
+* PplBench not rerun: no prompt step can take the skip (a prompt chunk of 16 rows or more makes rows - runs + 1 ≥ 16).
+* Batched text check (16 and 256 concurrent requests) after every server run: clean on every `develop`, branch and vLLM server,
+  except one request in one Qwen3-8B-FP8 `develop` run and one branch run, the same fluent Markdown text (" The essay should be at least
+  1500 words.\n**The Role of Water and Power in Modern History** ...") flagged by the punctuation rule (asterisks at 0.28 of the tokens):
+  a false positive of the judge, identical on both builds. One branch run's check was lost to a disk-quota error on the shared volume
+  (also its round files; rerun).
+* Tests on GPU 0, one class per process (`tests/`): `Sharplight.Cuda.Tests` and `Sharplight.Serving.Tests` with
+  `SHARPLIGHT_TEST_PROVIDER=cuda` 496, 0 failed, 14 skipped (43 classes); `Sharplight.Vulkan.Tests` attention classes (`PagedAttentionTests`, `FullAttentionTests`,
+  `SparseAttentionTests`, `StatefulTests`, `CompressedKvTests`, `FusionTests`) on CUDA and on Vulkan 256 / 256, 0 failed. New:
+  `PagedAttentionTests.ManySequencesDecodeOneRowEach` (72 sequences: short prompts, decode-only steps past 64 rows, decode rows next
+  to a 40-row chunk; an always-skip mutant fails it and 7 older cases), `FootprintEstimateTests.ActivationsDoNotGrowWithTheKvPool`
+  (Core), `ModelHostTests.OverBudget_ShrinksDefaultCaches_InsteadOfRefusing` / `..._Refuses_WhenEvenShrunkCachesDoNotFit`.
+
+### 105.8 Levers ranked
+
+| lever | measured / estimated | status |
+|---|---|---|
+| empty flash launch in decode-only steps past 64 rows | 256-row decode -10 % (FP8) / -7 % (bf16) / -3 % (MoE); serving: Qwen3-8B-FP8 +2 % on the mix at 128-256 streams, ITL p50 -1 to -4 % on all three | **kept** |
+| default KV pool shrinks to fit | 5-12 % (Qwen3-8B-FP8) and 11 % (Llama-3.1-8B) more KV tokens than vLLM at 0.9, 2.3x on gpt-oss-20b (window caches); no refusals | **kept** |
+| empty flash blocks in mixed steps | ~19 µs per decode run per step: 3.4 ms of a 2,048-row step with 256 decode rows (2.5 %, Qwen3-8B-FP8 256 + 7 x 256 against 128 + 8 x 240) | proposal: a launch bound from the long-run count (a kernel argument instead of `gridDim.y`) |
+| FP8 (E4M3) KV cache | attention is 26-41 % of 128-256-row decode steps at the read peak: half the KV bytes ≈ -13 to -20 % per such step, 2x KV capacity (Llama's 256-stream mix: no queueing) | proposal, multi-round: cache write, `attn_decode_native.cu` / `attn_prefill_native.cu` FP8 paths, Vulkan, scales. Today's q8_0 has a native CUDA form only at head sizes 256 / 512; at 128 it is no faster (Qwen3-8B-FP8 256 rows 38.2 against 38.0 ms, `roof/*kvq8*`, `*kvf16*`) |
+| LM head over all decode rows | 2.1-2.4 ms of a 256-row step (f16, 56 % of MMA) | small; an FP8 copy of the head would halve its bytes |
+| bf16 decode at 129-192 rows | Llama-3.1-8B 192 rows 44.4 ms against 42.5 at 256 (a partial token tile) | the partial-tile path of §102 for decode-shaped batches |
+| prompt GEMMs at the power cap | 53-63 % of the boost MMA peak at 2.0-2.3 GHz | energy per MMA (§96-97); no new lever found |
+| speculative decoding (n-gram / MTP in `serve`) | helps only below saturation: 128-256-row steps are compute- or KV-bound | not measured: no EAGLE / MTP drafters for these three models on disk |
+| admission at KV saturation | ours queues (TTFT 4.0 s) where vLLM preempts (TTFT 2.1 s) at Llama 256 streams; ours 15 % more tok/s | owner's call: a smaller growth reserve trades TTFT for preemptions |
+
+### 105.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+# 105.2 (vLLM: s16_serve.sh vllm ... --gpu-memory-utilization 0.9 --max-num-batched-tokens 2048)
+SLOTS=256 CTX_PER_SLOT=2560 PER_OVERRIDE=8 LOADGEN_ARGS="--gauges --length-mix" \
+  bench/s16_serve.sh sharplight qwen ~/models/hf/Qwen3-8B-FP8 "64 128 256" --provider cuda --max-queue 4096 --kv-tokens 127632
+# 105.3
+python bench/s73_clock_sampler.py --gpu 0 --interval 0.01 --out q.csv -- BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda \
+  --slots 264 --ctx 2560 --kv-tokens 131072 --depth 256 --batch 2048 --modes greedy --reps 10 --text \
+  --mixed 1+0,16+0,64+0,128+0,0+2048,16+240 --profile 0,1,2,3,4,5 --hold-ms 2000 > q.txt 2> q.err
+python3 bench/s105_roofline.py --profile q.txt --samples q.csv --stamps q.err --layers 36 --kv-heads 8 --head-dim 128
+python bench/s54_vllm_decode_profile.py ~/models/hf/Qwen3-8B-FP8 --seqs 256 --depth 256 --steps 32 --words --ctx 1024
+python3 bench/s105_vllm_classes.py vllm_256.txt
+# 105.4
+SHARPLIGHT_ATTN_MIXED_SKIP=0 BatchBench ... --mixed 64+0,96+0,128+0,192+0,256+0,256+256x7
+# 105.5
+sharplight serve ~/models/hf/Qwen3-8B-FP8 --slots 256 --ctx 2560 --provider cuda
+```
+
 ## 106. FP4 native: NVFP4 products on the block-scaled E2M1 MMA (CUDA 12.x): dense decode steps -21 to -29 % against FP8 and -35 to -51 % against the dequantizing path, 2,048-row prompt steps -12 % / -62 %, a grouped FP4 expert GEMM (MoE decode -21 to -39 %); serving against vLLM 0.33 at 1 / 16 / 64 streams: dense 1.07 / 0.93-0.97 / 0.75-0.85, MoE 1.58 / 1.01 / 0.82 (2026-11-24)
 
 Branch `feat/fp4-native` (`develop` at `18fe1a1d`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap,

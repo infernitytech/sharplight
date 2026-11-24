@@ -1,0 +1,103 @@
+decoder: MultiSequenceDecoder, slots 264, vocab 151936, device sampling: True, KV paged 8192 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 26.5 | 474 / 0 | 12.26 / 12.29, 12.21 |  |
+--- profile mixed 16+0 (greedy)
+GPU time 138.69 ms
+    49.254 ms  35.5%    360x  min    133.2 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_native T=16,U=16,R=16|2,3
+    25.229 ms  18.2%    360x  min     68.5 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_decode T=16,U=16,R=16|2,3
+    15.520 ms  11.2%     10x  min   1548.6 us  matmul [4096→151936] f16 skinny gemm_sk T=16,U=16,R=16|2,3
+    13.486 ms   9.7%    360x  min     34.9 us  matmul [4096→4096+1024+1024] f8e4m3_b128g native gemm_fp8_native T=16,U=16,R=16|2,3
+    11.857 ms   8.5%    360x  min     31.0 us  attention attn_decode_native T=16,U=16,R=16|2,3
+     9.405 ms   6.8%    360x  min     24.5 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_decode T=16,U=16,R=16|2,3
+     3.460 ms   2.5%    720x  min      3.4 us  fused[Add]+RmsNorm main T=16,U=16,R=16|2,3
+     2.665 ms   1.9%    720x  min      2.0 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=16,U=16,R=16|2,3
+     2.412 ms   1.7%    360x  min      5.3 us  attention combine decode_combine T=16,U=16,R=16|2,3
+     2.111 ms   1.5%    360x  min      3.4 us  rope+qkv+cache_write rope_qkv T=16,U=16,R=16|2,3
+     1.535 ms   1.1%    360x  min      2.9 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=16,U=16,R=16|2,3
+     1.233 ms   0.9%    360x  min      2.0 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] x→fp8 quantize_fp8 T=16,U=16,R=16|2,3
+     0.276 ms   0.2%     10x  min     26.3 us  sample sample T=16,U=16,R=16|2,3
+     0.146 ms   0.1%     20x  min      4.3 us  gather gather T=16,U=16,R=16|2,3
+     0.055 ms   0.0%     10x  min      4.7 us  RmsNorm main T=16,U=16,R=16|2,3
+     0.049 ms   0.0%     10x  min      4.3 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=16,U=16,R=16|2,3
+
+| 64 | 0 (0) | 21.9 | 367 / 0 | 15.61 / 15.91, 15.56 |  |
+--- profile mixed 64+0 (greedy)
+GPU time 172.71 ms
+    50.594 ms  29.3%    360x  min    134.7 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+    41.427 ms  24.0%    360x  min    111.8 us  attention attn_decode_native T=64,U=64,R=64|2,3
+    26.544 ms  15.4%    360x  min     70.8 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+    16.454 ms   9.5%    360x  min     43.9 us  matmul [4096→4096+1024+1024] f8e4m3_b128g native gemm_fp8_native T=64,U=64,R=64|2,3
+    15.927 ms   9.2%     10x  min   1591.3 us  matmul [4096→151936] f16 gemm_cm2 T=64,U=64,R=64|2,3
+    10.123 ms   5.9%    360x  min     25.8 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+     4.672 ms   2.7%    720x  min      5.3 us  fused[Add]+RmsNorm main T=64,U=64,R=64|2,3
+     2.318 ms   1.3%    360x  min      5.1 us  rope+qkv+cache_write rope_qkv T=64,U=64,R=64|2,3
+     2.227 ms   1.3%    360x  min      4.2 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64|2,3
+     1.559 ms   0.9%    360x  min      3.1 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64|2,3
+     0.538 ms   0.3%     10x  min     53.2 us  sample sample T=64,U=64,R=64|2,3
+     0.160 ms   0.1%     20x  min      5.6 us  gather gather T=64,U=64,R=64|2,3
+     0.062 ms   0.0%     10x  min      4.8 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=64,U=64,R=64|2,3
+     0.061 ms   0.0%     10x  min      4.8 us  RmsNorm main T=64,U=64,R=64|2,3
+     0.049 ms   0.0%     10x  min      4.1 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=64,U=64,R=64|2,3
+
+| 128 | 0 (0) | 26.8 | 403 / 0 | 22.38 / 22.67, 22.29 |  |
+--- profile mixed 128+0 (greedy)
+GPU time 241.32 ms
+    81.817 ms  33.9%    360x  min    223.0 us  attention attn_decode_native T=128,U=128,R=128|2,3
+    55.315 ms  22.9%    360x  min    149.8 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_tma T=128,U=128,R=128|2,3
+    29.387 ms  12.2%    360x  min     74.7 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=128,U=128,R=128|2,3
+    17.153 ms   7.1%     10x  min   1711.0 us  matmul [4096→151936] f16 gemm_cm2 T=128,U=128,R=128|2,3
+    15.374 ms   6.4%    360x  min     39.7 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=128,U=128,R=128|2,3
+    15.368 ms   6.4%    360x  min     40.4 us  attention attn_prefill_native T=128,U=128,R=128|2,3
+    10.886 ms   4.5%    360x  min     27.0 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=128,U=128,R=128|2,3
+     7.152 ms   3.0%    720x  min      7.4 us  fused[Add]+RmsNorm main T=128,U=128,R=128|2,3
+     2.883 ms   1.2%    360x  min      6.0 us  rope+qkv+cache_write rope_qkv T=128,U=128,R=128|2,3
+     2.759 ms   1.1%    360x  min      5.9 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=128,U=128,R=128|2,3
+     1.766 ms   0.7%    360x  min      3.6 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=128,U=128,R=128|2,3
+     1.018 ms   0.4%     10x  min    100.7 us  sample sample T=128,U=128,R=128|2,3
+     0.250 ms   0.1%     20x  min      9.1 us  gather gather T=128,U=128,R=128|2,3
+     0.074 ms   0.0%     10x  min      5.9 us  RmsNorm main T=128,U=128,R=128|2,3
+     0.067 ms   0.0%     10x  min      5.3 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=128,U=128,R=128|2,3
+     0.054 ms   0.0%     10x  min      3.9 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=128,U=128,R=128|2,3
+
+| 256 | 0 (0) | 41.1 | 366 / 0 | 38.11 / 38.48, 38.00 |  |
+--- profile mixed 256+0 (greedy)
+GPU time 402.26 ms
+   159.784 ms  39.7%    360x  min    432.9 us  attention attn_decode_native T=256,U=256,R=256|2,3
+    81.058 ms  20.2%    360x  min    219.3 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=256,U=256,R=256|2,3
+    49.014 ms  12.2%    360x  min    133.0 us  attention attn_prefill_native T=256,U=256,R=256|2,3
+    35.091 ms   8.7%    360x  min     94.0 us  matmul [12288→4096] f8e4m3_b128g fp8 native stream-k gemm_fp8_tma T=256,U=256,R=256|2,3
+    24.153 ms   6.0%     10x  min   2399.3 us  matmul [4096→151936] f16 native gemm_f16_native T=256,U=256,R=256|2,3
+    18.752 ms   4.7%    360x  min     49.7 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native stream-k gemm_fp8_tma T=256,U=256,R=256|2,3
+    13.141 ms   3.3%    360x  min     34.6 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=256,U=256,R=256|2,3
+    11.118 ms   2.8%    720x  min     10.6 us  fused[Add]+RmsNorm main T=256,U=256,R=256|2,3
+     4.900 ms   1.2%    360x  min     11.4 us  rope+qkv+cache_write rope_qkv T=256,U=256,R=256|2,3
+     2.583 ms   0.6%    360x  min      5.2 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=256,U=256,R=256|2,3
+     2.067 ms   0.5%     10x  min    205.0 us  sample sample T=256,U=256,R=256|2,3
+     0.422 ms   0.1%     20x  min     15.1 us  gather gather T=256,U=256,R=256|2,3
+     0.108 ms   0.0%     10x  min      8.8 us  RmsNorm main T=256,U=256,R=256|2,3
+     0.070 ms   0.0%     10x  min      5.0 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+
+| 256 | 1792 (7) | 150.1 | 365 / 0 | 147.77 / 148.07, 147.65 | 0.061 |
+--- profile mixed 256+256x7 (greedy)
+GPU time 1489.23 ms
+   559.825 ms  37.6%    360x  min   1538.8 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 e4m3 out gemm_fp8_tma T=2048,U=263,R=263|2,3
+   269.731 ms  18.1%    360x  min    741.5 us  matmul [12288→4096] f8e4m3_b128g fp8 native stream-k gemm_fp8_tma T=2048,U=263,R=263|2,3
+   192.721 ms  12.9%    360x  min    518.6 us  attention attn_decode_native T=2048,U=263,R=263|2,3
+   140.996 ms   9.5%    360x  min    344.9 us  matmul [4096→4096+1024+1024] f8e4m3_b128g fp8 native gemm_fp8_tma T=2048,U=263,R=263|2,3
+    85.805 ms   5.8%    360x  min    234.8 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_tma T=2048,U=263,R=263|2,3
+    84.937 ms   5.7%    360x  min    232.1 us  attention attn_prefill_native T=2048,U=263,R=263|2,3
+    75.930 ms   5.1%    720x  min     94.9 us  fused[Add]+RmsNorm main T=2048,U=263,R=263|2,3
+    34.055 ms   2.3%    360x  min     92.0 us  rope+qkv+cache_write rope_qkv T=2048,U=263,R=263|2,3
+    33.162 ms   2.2%     10x  min   3308.1 us  matmul [4096→151936] f16 native gemm_f16_native T=2048,U=263,R=263|2,3
+     8.424 ms   0.6%    360x  min     21.2 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=2048,U=263,R=263|2,3
+     2.154 ms   0.1%     10x  min    212.7 us  sample sample T=2048,U=263,R=263|2,3
+     1.102 ms   0.1%     20x  min     22.2 us  gather gather T=2048,U=263,R=263|2,3
+     0.319 ms   0.0%     10x  min     30.7 us  RmsNorm main T=2048,U=263,R=263|2,3
+     0.070 ms   0.0%     10x  min      5.6 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=2048,U=263,R=263|2,3
+
+sampler: instant power (NVML field 186) median 200.0 W, p95 205.1 W, max 205.5 W, 29 distinct readings
+sampler: 1369 busy samples of 2641 over 26.82 s: SM 2092 MHz, memory 13365 MHz, power 200.0 W (medians), max 66 C, reasons 0x4 98%

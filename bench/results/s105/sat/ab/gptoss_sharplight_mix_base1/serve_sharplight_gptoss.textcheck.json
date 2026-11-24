@@ -1,0 +1,2212 @@
+{
+ "url": "http://127.0.0.1:18080",
+ "max_tokens": 48,
+ "prompts": 8,
+ "waves": [
+  {
+   "requests": 16,
+   "identical": 9,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    }
+   ]
+  },
+  {
+   "requests": 256,
+   "identical": 145,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the context of the ancient and modern world.\n\nWater and power have played a crucial role in shaping modern history. From the earliest civilizations to the present day, water and power have been"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 16,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 17,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 18,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 19,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 20,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 21,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 22,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 23,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    },
+    {
+     "i": 24,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 25,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 26,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 27,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 28,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 29,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 30,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 31,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 32,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 33,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 34,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 35,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 36,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 37,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 38,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 39,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 40,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 41,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 42,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 43,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 44,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 45,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 46,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 47,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 48,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 49,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 50,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 51,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 52,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 53,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 54,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 55,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 56,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 57,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 58,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 59,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 60,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 61,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 62,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 63,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 64,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 65,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 66,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 67,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 68,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 69,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 70,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 71,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 72,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 73,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 74,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 75,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 76,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 77,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 78,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 79,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 80,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 81,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 82,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 83,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 84,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 85,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 86,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 87,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    },
+    {
+     "i": 88,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 89,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 90,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 91,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 92,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 93,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 94,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 95,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    },
+    {
+     "i": 96,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 97,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 98,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 99,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 100,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 101,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 102,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 103,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 104,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 105,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 106,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 107,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 108,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 109,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 110,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 111,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 112,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 113,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 114,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 115,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 116,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 117,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 118,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 119,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 120,
+     "prompt": 0,
+     "same_words": 12,
+     "identical": false,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the role of the modern society.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power"
+    },
+    {
+     "i": 121,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 122,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 123,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 124,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 125,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 126,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 127,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 128,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 129,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 130,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 131,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 132,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 133,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 134,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 135,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 136,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 137,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 138,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 139,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 140,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 141,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 142,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 143,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 144,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 145,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 146,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 147,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 148,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 149,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 150,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 151,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 152,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 153,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 154,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 155,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 156,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 157,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 158,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 159,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 160,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 161,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 162,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 163,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 164,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 165,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 166,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 167,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 168,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 169,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 170,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 171,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 172,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 173,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 174,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 175,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 176,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 177,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 178,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 179,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 180,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 181,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 182,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 183,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 184,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 185,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 186,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 187,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 188,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 189,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 190,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 191,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 192,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 193,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 194,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 195,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 196,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 197,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 198,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 199,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 200,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 201,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 202,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 203,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 204,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 205,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 206,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 207,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    },
+    {
+     "i": 208,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 209,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 210,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 211,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 212,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 213,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 214,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 215,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 216,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 217,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 218,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 219,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 220,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 221,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 222,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 223,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 224,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 225,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 226,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 227,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 228,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 229,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 230,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 231,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 232,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 233,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 234,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 235,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 236,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 237,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 238,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 239,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    },
+    {
+     "i": 240,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 241,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 242,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 243,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 244,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 245,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 246,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 247,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    },
+    {
+     "i": 248,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 249,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 250,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 251,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 252,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 253,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 254,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 255,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the style... The letter should be in the style of a \""
+    }
+   ]
+  }
+ ],
+ "ok": true,
+ "references": [
+  " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential",
+  "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a",
+  "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a",
+  "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of",
+  " the 15th century, when Johannes Gutenberg, a German blacksmith, invented the movable type printing press. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was",
+  " \n\nPhotosynthesis is the process by which green plants, algae, and some bacteria convert light energy from the sun into chemical energy in the form of glucose (a type of sugar). This process occurs in the chloroplasts of plant cells,",
+  " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n",
+  " The letter should be in the style of a \"travel diary\" and should include the following elements: 1) The first letter of each word in the **bold** text (the **bold** text is **bold**?**?"
+ ]
+}

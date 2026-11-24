@@ -737,6 +737,7 @@ public static class PlacementPlanner
         var windowed = windowCacheRows > 0 && kvCacheRows > 0 ? MultiSequence.WindowedCaches(graph).Caches : [];
         long weights = 0;
         long states = 0;
+        long kvStates = 0;
         long maxOut = 0;
         long maxNode = 0;
         var seenW = new HashSet<WeightInfo>();
@@ -756,7 +757,9 @@ public static class PlacementPlanner
                     if ((slots > 1 || kvCacheRows > 0) && MultiSequence.IsKvState(st))
                     {
                         long rows = windowed.Contains(st) ? windowCacheRows : kvCacheRows > 0 ? kvCacheRows : options.ContextLength * slots;
-                        states += StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = rows, SymbolBounds = options.SymbolBounds });
+                        long kv = StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = rows, SymbolBounds = options.SymbolBounds });
+                        states += kv;
+                        kvStates += kv;
                     }
                     else
                     {
@@ -779,8 +782,11 @@ public static class PlacementPlanner
         }
         // Activations live in a liveness-packed arena plus staging copies of the inputs/outputs; a few times the largest node
         // output (matmul in/out, residual, norm) covers the arena. Device memory is sub-allocated from 256 MiB blocks (the last one
-        // is partly empty) and big models need a little extra scratch, hence the granule and a few percent of the resident size.
-        long act = 4 * maxOut + (256L << 20) + (weights + states) / 25;
+        // is partly empty) and big models need a little extra scratch, hence the granule and a few percent of the resident size. Shared
+        // KV caches are a few large buffers that need no scratch of their own, so they stay out of that share: counted in, a 92 GB
+        // default pool of 256 slots (Qwen3-8B-FP8, 2,560 tokens each) added 3.7 GB of activations where 0.55 GB were used, and the
+        // pool shrunk to fit then left 7 GB free (benchmarks.md §105).
+        long act = 4 * maxOut + (256L << 20) + (weights + states - kvStates) / 25;
         return new ModelFootprint(weights, states, act);
     }
 

@@ -1,0 +1,12 @@
+qwen cuda p40 base rc=0 3879d8a4
+qwen cuda p1000 base rc=0 b9666631
+qwen cuda p40 new rc=0 3879d8a4
+qwen cuda p1000 new rc=0 b9666631
+gptoss cuda p40 base rc=0 e733f049
+gptoss cuda p1000 base rc=0 8cb648ed
+gptoss cuda p40 new rc=0 e733f049
+gptoss cuda p1000 new rc=0 8cb648ed
+llama cuda p40 base rc=0 f50af9d0
+llama cuda p1000 base rc=0 b9666631
+llama cuda p40 new rc=0 f50af9d0
+llama cuda p1000 new rc=0 b9666631

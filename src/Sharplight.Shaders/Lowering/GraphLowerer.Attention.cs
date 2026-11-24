@@ -1078,12 +1078,24 @@ public sealed partial class GraphLowerer
         if (NativeFlashAttention(plan))
         {
             // The kernel of the flash variant (see LowerAttention), so a prompt's rows sum alike in mixed and prompt-only steps.
-            return (decodeVariant, NativeFlashVariant(plan, when, MixedFlashMinRunRows, DiagnosticSwitches.NativeAttentionHeadGroups ?? plan.Runs is not null));
+            return (decodeVariant, SkipWithoutLongRuns(NativeFlashVariant(plan, when, MixedFlashMinRunRows, DiagnosticSwitches.NativeAttentionHeadGroups ?? plan.Runs is not null), q, runs));
         }
 
-        return (decodeVariant,
-            new KernelVariant(when, Lib("attention.slang", causal ? "fe" : "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), causal ? FeBlockRows(plan) : 32), (uint)Rows(b, runs))));
+        return (decodeVariant, SkipWithoutLongRuns(
+            new KernelVariant(when, Lib("attention.slang", causal ? "fe" : "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), causal ? FeBlockRows(plan) : 32), (uint)Rows(b, runs))),
+            q, runs));
     }
+
+    /// <summary>
+    /// The flash half of a mixed step with no blocks when none of the step's runs can have <see cref="MixedFlashMinRunRows"/> rows (the
+    /// longest run has at most rows - runs + 1): decode-only steps beyond the decode kernel's rows, and speculative verification rows. The
+    /// variant still claims the launch (the later variants would run the whole step), but its blocks would only look for a run and exit:
+    /// RTX PRO 4500, Qwen3-8B-FP8, 128 decode rows: 40 µs per layer, 6 % of the step (benchmarks.md §105).
+    /// </summary>
+    private static KernelVariant SkipWithoutLongRuns(KernelVariant flash, TensorRef q, TensorRef runs)
+        => DiagnosticSwitches.AttentionMixedSkip
+            ? flash with { Grid = b => Rows(b, q) - Rows(b, runs) + 1 < MixedFlashMinRunRows ? new Grid(0, 0, 0) : flash.Grid(b) }
+            : flash;
 
     /// <summary>Merges the partials of the rows that split-K decoding ran in more than one key range.</summary>
     private void EmitDecodeCombine(AttentionPlan plan, TensorRef part, DecodeAttentionPlan decode)
