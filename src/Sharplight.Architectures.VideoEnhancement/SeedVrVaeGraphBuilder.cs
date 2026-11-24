@@ -25,6 +25,9 @@ internal sealed class SeedVrVaeGraphBuilder
 {
     private const string P = "vae.";
 
+    /// <summary>The score matrix of one block of the mid-block attention stays below this many bytes.</summary>
+    private const long AttentionScoreBytes = 512L << 20;
+
     private readonly GraphBuilder _b;
     private readonly SeedVrVaeHyperParameters _hp;
     private readonly CausalConvolution _conv;
@@ -166,7 +169,11 @@ internal sealed class SeedVrVaeGraphBuilder
         return ResidualBlock(x, p + ".resnets.1");
     }
 
-    /// <summary>GroupNorm, then single-head self-attention among the pixels of each frame, projected and added to the input.</summary>
+    /// <summary>
+    /// GroupNorm, then single-head self-attention among the pixels of each frame, projected and added to the input. The 512-wide head runs as
+    /// two batched products around a softmax, in blocks of query rows so the score matrix of a block stays below
+    /// <see cref="AttentionScoreBytes"/> (a flash-attention kernel for so wide a head is far slower than the products).
+    /// </summary>
     private Value FrameAttention(Value x, string p)
     {
         long frames = x.Shape[0].Fixed;
@@ -174,17 +181,25 @@ internal sealed class SeedVrVaeGraphBuilder
         long pixels = x.Shape[2].Fixed * x.Shape[3].Fixed;
         var normed = GroupNorm(x, p + ".group_norm");
         var tokens = _b.Reshape(_b.Contiguous(_b.Permute(_b.Reshape(normed, frames, channels, pixels), 0, 2, 1)), frames * pixels, channels);
-        var q = _b.Reshape(Linear(tokens, p + ".to_q"), frames * pixels, 1, channels);
-        var k = _b.Reshape(Linear(tokens, p + ".to_k"), frames * pixels, 1, channels);
-        var v = _b.Reshape(Linear(tokens, p + ".to_v"), frames * pixels, 1, channels);
-        var attributes = new List<(string, object)> { ("scale", 1f / MathF.Sqrt(channels)), ("causal", false) };
-        if (frames > 1)
+        var q = _b.Reshape(Linear(tokens, p + ".to_q"), frames, pixels, channels);
+        var k = _b.Reshape(Linear(tokens, p + ".to_k"), frames, pixels, channels);
+        var v = _b.Reshape(Linear(tokens, p + ".to_v"), frames, pixels, channels);
+        long blockRows = Math.Clamp(AttentionScoreBytes / (pixels * sizeof(float)), 1, pixels);
+        var blocks = new List<Value>();
+        Value? previous = null;
+        for (long row = 0; row < pixels; row += blockRows)
         {
-            attributes.Add(("sequence_rows", pixels));
-            attributes.Add(("sequence_keys", pixels));
+            long rows = Math.Min(blockRows, pixels - row);
+            var queries = _b.Slice(q, 1, row, rows);
+            // One block after the other: their score matrices would otherwise all be in flight at once.
+            queries = previous is null ? queries : _b.After(queries, previous);
+            var scores = _b.Emit1("BatchMatMul", [queries, k], Attributes.From(("trans_b", true), ("alpha", 1f / MathF.Sqrt(channels))));
+            var weights = _b.Emit1("Softmax", [scores]);
+            previous = _b.Emit1("BatchMatMul", [weights, v]);
+            blocks.Add(previous);
         }
 
-        var attended = _b.Emit1("Attention", [q, k, v], Attributes.From([.. attributes]));
+        var attended = blocks.Count == 1 ? blocks[0] : _b.Concat(1, [.. blocks]);
         var projected = Linear(_b.Reshape(attended, frames * pixels, channels), p + ".to_out.0");
         var back = _b.Contiguous(_b.Permute(_b.Reshape(projected, frames, pixels, channels), 0, 2, 1));
         return _b.Add(x, _b.Reshape(back, x.Shape[0].Fixed, channels, x.Shape[2].Fixed, x.Shape[3].Fixed));

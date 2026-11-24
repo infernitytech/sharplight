@@ -266,6 +266,7 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
                 {
                     compiled = _model.CompileComponent(role, graph, null, dimensions);
                     _compiled[key] = compiled;
+                    _model.Options.Log?.Invoke($"{key}: {compiled.ResidentMemoryBytes / (1024.0 * 1024 * 1024):F2} GiB on the device");
                 }
 
                 bind(compiled);
