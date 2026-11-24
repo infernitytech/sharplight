@@ -1,0 +1,8 @@
+T=16 best 8.2 us  325 GB/s  16.4 TFLOPS
+T=16 best 10.2 us  261 GB/s  13.1 TFLOPS
+T=16 best 10.2 us  260 GB/s  13.1 TFLOPS
+T=16 best 16.4 us  643 GB/s  32.8 TFLOPS
+T=16 best 18.4 us  572 GB/s  29.2 TFLOPS
+T=64 best 18.4 us  578 GB/s  116.5 TFLOPS
+T=64 best 22.5 us  473 GB/s  95.5 TFLOPS
+T=64 best 22.5 us  473 GB/s  95.3 TFLOPS

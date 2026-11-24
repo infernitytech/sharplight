@@ -41,7 +41,8 @@ public sealed partial class GraphLowerer
     /// </remarks>
     private long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
         ?? (UsesNativeKQuantDecode(type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, type))
-            : UsesNativeFp8Decode(type) ? Math.Min(NativeFp8DecodeMinRows - 1, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
+            : UsesNativeFp8Decode(type) ? Math.Min(NativeFp8DecodeMinRows - 1, SkinnyRowsFor(n, type))
+            : UsesNativeFp4(type) ? Math.Min(NativeFp4MinRows - 1, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
 
     /// <summary>
     /// True when the hand-written FP8 GEMM's decode form takes batches from <see cref="NativeFp8DecodeMinRows"/> rows of

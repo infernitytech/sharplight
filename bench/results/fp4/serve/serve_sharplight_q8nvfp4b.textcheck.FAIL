@@ -1,0 +1,1 @@
+TEXT CHECK FAILED (rc=1): batched greedy text differs from single-request text, see <tree>/bench/results/fp4/serve/serve_sharplight_q8nvfp4b.textcheck.json

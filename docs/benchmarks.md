@@ -16634,3 +16634,225 @@ PplBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --text wikitext2_test.txt --se
 SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.Fp8GemmTests
 SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method Sharplight.Vulkan.Tests.MatMulTests.StreamKMatchesTileWalkBitwise
 ```
+
+## 106. FP4 native: NVFP4 products on the block-scaled E2M1 MMA (CUDA 12.x): dense decode steps -21 to -29 % against FP8 and -35 to -51 % against the dequantizing path, 2,048-row prompt steps -12 % / -62 %, a grouped FP4 expert GEMM (MoE decode -21 to -39 %); serving against vLLM 0.33 at 1 / 16 / 64 streams: dense 1.07 / 0.93-0.97 / 0.75-0.85, MoE 1.58 / 1.01 / 0.82 (2026-11-24)
+
+Branch `feat/fp4-native` (`develop` at `18fe1a1d`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, 82 SMs, 200 W cap,
+driver 595.112 / CUDA 13.2), shared with the r45 perf round: every measurement held the bench lock (one hold per serving run, per
+BatchBench model and per PPL chain), tests held the verify lock. vLLM 0.33 (venv `vllm-r12`). Raw output in
+[`bench/results/fp4/`](../bench/results/fp4) (`steps/`, `serve/`, `ppl/`, `harness/`, `tests/`, `smoke/`, `scripts/`).
+
+Checkpoints (Hugging Face, kept outside the repository): `nvidia/Qwen3-8B-FP4` (NVIDIA ModelOpt NVFP4), `RedHatAI/Qwen3-8B-NVFP4`
+(llm-compressor / compressed-tensors `nvfp4-pack-quantized`) and `RedHatAI/Qwen3-30B-A3B-NVFP4` (MoE, compressed-tensors), each
+converted to a package (`sharplight-convert convert`): 252 / 252 / 336 `nvfp4_gs` matrices (their global scales are not powers of
+two, so each 64-value block carries the f32 second-level scale), embeddings, LM head and routers in bf16. Baselines on this GPU:
+`Qwen3-8B` (bf16) and `Qwen3-8B-FP8`; `Qwen3-30B-A3B-FP8` does not fit next to the other round's allocations (31.5 GiB).
+
+### 106.1 What loads and where it runs
+
+Import (all existed; checked again on the real checkpoints and stored in `.slm`):
+
+| checkpoint format | becomes | notes |
+|---|---|---|
+| ModelOpt NVFP4 (`weight` U8 + `weight_scale` F8_E4M3 per 16 + `weight_scale_2` f32) | `nvfp4` when the global scale folds exactly into the E4M3 scales, else `nvfp4_gs` | `input_scale` dropped (activations are quantized per row at run time) |
+| compressed-tensors `nvfp4-pack-quantized` (`weight_packed`, `weight_global_scale` divisor) | as above | dense and expert stacks (fused / per-expert tensors) |
+| compressed-tensors / Quark / DeepSeek MXFP4 (E8M0 per 32) | `mxfp4` | bit-exact |
+| GGUF NVFP4 (with or without the per-tensor `scale`) / MXFP4 | `nvfp4` / `nvfp4_gs` / `mxfp4` | |
+| MLX `nvfp4` / `mxfp4` modes | `nvfp4` / `mxfp4` | |
+| FP-Quant (Hadamard-rotated NVFP4 / MXFP4), bitsandbytes FP4 | their own types (`HfFpQuantWeights`, `fp4_b64`) | dequantizing paths |
+
+Execution:
+
+| provider | NVFP4 / NVFP4_GS dense | NVFP4 experts | MXFP4 |
+|---|---|---|---|
+| CUDA 12.x, CUDA 12.9+ driver (`block_scaled_fp4`, new) | 1-8 rows integer-dot matvec (q8 activations); from 9 rows **`gemm_fp4_native.cu`** (W4A4: FP4 activations per row) incl. the dual gate / up | per-item int-dot matvec; above, the **grouped FP4 GEMM** (dual gate / up launch) | dense: int-dot matvec + GEMMs on dequantized weights; experts: `gemm_moe_native.cu` (§96-97) |
+| CUDA before 12.x / older driver, `SHARPLIGHT_NATIVE_FP4=0` | int-dot matvec, skinny GEMM, `gemm_cm2` on dequantized f16 tiles | int-dot matvec, grouped `gemm_cm2` / skinny | as above |
+| Vulkan | int-dot matvec + dequantizing GEMMs (tests pass, 105.5) | same | same |
+| CPU | `Quant.Fp4` dequantization + integer dot (generation checked, 105.5) | same | same |
+| Metal | the same Slang kernels as Vulkan (not run here) | | |
+
+### 106.2 The kernels
+
+* **The MMA.** `mma.sync.aligned.m16n8k64.row.col.kind::mxf4nvf4.block_scale.scale_vec::4X.f32.e2m1.e2m1.f32.ue4m3` (family-specific
+  PTX, `compute_120f`; the driver JITs it and NVRTC compiles machine code, `SL_NVRTC_SASS`). Layout probed on the GPU
+  (`harness/mma_layout_probe.cu`): A and B fragments as the int4 m16n8k64 MMA (lane 4g + c holds 8 codes of rows g / g + 8, K
+  positions 8c..8c+7 and +32, low nibble first); the scale register of A is read from lanes 4g (row g) and 4g + 1 (row g + 8), of
+  B from lane 4n (column n), byte j scaling K positions 16j..16j+15 (`{byte-id, thread-id} = {0, 0}`). Results match an f64
+  reference exactly.
+* **K order.** The NVFP4 sub-block layout (byte i = value i | value i + 8) is used for both operands as stored: the activation
+  quantizer writes the same nibble order, so a 32-bit word of the weight block is the B register as loaded and the 16-value scale
+  groups line up with the MMA's.
+* **Activations** (`quantize_fp4.cu`, one block per row): row global scale gx = amax / 2688 (the largest group scale becomes 448),
+  per 16 values the better (squared error) of two E4M3 scales, the group maximum at 6 or at 4, E2M1 by `cvt.rn.satfinite.e2m1x2`.
+  Records of 160 bytes per 256 values (codes, scales, padding) so every record starts a 32-byte sector. The second candidate
+  took the activations' relative error from 9.3 % to 9.1 % (Gaussian rows) and Qwen3-8B's PPL from 9.091 to 9.032 (105.4).
+* **Weights** are read in their stored 36- / 40-byte blocks (no repack: every other kernel keeps reading them). A 256-value step
+  is 144 (NVFP4) or 160 bytes (NVFP4_GS) per row, copied with `cp.async.cg` 16-byte chunks; NVFP4 steps that start on the second
+  half of a sector land 16 bytes into their shared row, so both halves of every 32-byte sector share a granule (§97). B registers
+  and both scale words are 32-bit shared loads, A by `ldmatrix.x4` from 128-byte swizzled rows. f32 accumulation over all of K in
+  the MMA; the store multiplies by gx and the weight row's f32 second-level scale (one per row: `nvfp4_gs`'s invariant, now
+  documented on the type and used by the test weights).
+* **Tiles** (`NativeFp4Tile`): 16 x 32 (≤ 16 rows, 3 blocks per SM), 32 x 64, 64 x 64, 64 x 128 (≤ 256 rows, three stages),
+  128 x 128 (two stages). The dual form alternates 8-row groups of gate and up in the B tile and stores the generated epilogue.
+  `F4_MOE`: the routing tiles of `moe_route` (16 / 32 / 64 rows), the tile's expert offset, items' token rows (gate / up) or
+  item rows (down); the routing words are read after `griddepcontrol.wait`, so this form waits first.
+* **A dependency bug found on the way**: the first build put `quantize_fp4` in the GEMM's file. The CUDA translator gives every kernel
+  of a source that mentions `griddepcontrol.wait` no wait at its entry (it assumes the kernel waits itself), so the quantizer read
+  the norm's rows before they were written: garbage text at once ("THIRD!!!!"). It is now a file of its own (noted in docs/cuda.md).
+* **Isolated GEMM** (`harness/`, after an L2 flush by a 256 MB read, [4096 → 12288] NVFP4_GS): 16 rows 43 µs (733 GB/s of weights),
+  32 rows 51 µs, 64 rows 49-55 µs, 256 rows 100 µs, 1,024 rows 260 µs (396 TFLOPS), 2,048 rows 497 µs (415 TFLOPS). The products
+  equal an f64 reference of the dequantized operands to 5e-8 (relative L2); against unquantized activations 9.1 % (the W4A4 error).
+
+### 106.3 Steps (BatchBench, GPU ms, min of 20 / 10)
+
+Qwen3-8B, `--text`, decode steps at 1 / 16 / 32 / 64 sequences (64 slots, 256 tokens deep) and mixed / prompt steps (24 slots,
+2,048-row batches); `steps/`:
+
+| step | NVFP4, FP4 GEMM | NVFP4, `SHARPLIGHT_NATIVE_FP4=0` | Qwen3-8B-FP8 | FP4 / dequantizing | FP4 / FP8 |
+|---|---:|---:|---:|---:|---:|
+| decode 1 | 7.83 | 7.83 | 10.98 | 0 | **-29 %** |
+| decode 16 | 8.88 | 13.62 | 12.22 | **-35 %** | **-27 %** |
+| decode 32 | 10.16 | 20.15 | 13.37 | **-50 %** | **-24 %** |
+| decode 64 | 12.43 | 25.40 | 15.78 | **-51 %** | **-21 %** |
+| 16 + 240 prompt rows | 17.58 | 50.16 | 19.29 | -65 % | -9 % |
+| 16 + 1,008 | 55.92 | 157.71 | 65.80 | -65 % | -15 % |
+| 2,048 prompt rows | 115.13 | 304.27 | 131.43 | -62 % | -12 % |
+
+Single rows run the integer-dot matvec in both NVFP4 builds (identical); the LM head (bf16, 1.24 GB) is 1.5 ms of the 7.8.
+
+Qwen3-30B-A3B-NVFP4 (MoE, 128 experts, 8 per token; the FP8 checkpoint does not fit next to the other round):
+
+| step | FP4 GEMMs | `SHARPLIGHT_NATIVE_FP4=0` | change |
+|---|---:|---:|---:|
+| decode 1 | 4.07 | 4.08 | 0 |
+| decode 16 | 12.60 | 16.01 | **-21 %** |
+| decode 32 | 18.02 | 29.44 | **-39 %** |
+| decode 64 | 23.46 | 37.63 | **-38 %** |
+| 16 + 240 | 27.26 | 45.37 | -40 % |
+| 16 + 1,008 | 68.23 | 111.17 | -39 % |
+| 2,048 prompt rows | 125.16 | 201.39 | -38 % |
+
+From 16 sequences a large share of the 128 experts of a layer see an item, so the decode step reads that share of the expert
+weights once: the steps grow with the experts touched, not with the rows.
+
+### 106.4 Perplexity
+
+PplBench (wikitext-2, 4 x 3,072 tokens, 1,024-row prompt chunks, so every projection runs the prompt GEMMs) and vLLM 0.33 on the
+same token ids (`scripts/vllm_ppl_fp4.py`: `bench/s86_bs/vllm_ppl.py` with `linear_backend="cutlass"`, see 105.6); `ppl/`:
+
+| model, path | PPL | against bf16 |
+|---|---:|---:|
+| Qwen3-8B bf16 | 8.6553 | |
+| Qwen3-8B-FP8 (block-scaled mode) | 8.7358 | +0.9 % |
+| nvidia/Qwen3-8B-FP4, `SHARPLIGHT_NATIVE_FP4=0` (weights only: f16 / q8 activations) | 8.8678 | +2.5 % |
+| nvidia/Qwen3-8B-FP4, FP4 GEMM, one scale candidate | 9.0913 | +5.0 % |
+| nvidia/Qwen3-8B-FP4, FP4 GEMM (kept: two scale candidates) | **9.0315** | +4.3 % |
+| nvidia/Qwen3-8B-FP4 on vLLM (W4A4 CUTLASS, the checkpoint's static activation scales, FP8 KV cache) | 9.0370 | +4.4 % |
+| RedHatAI/Qwen3-8B-NVFP4, FP4 GEMM, one / two candidates | 9.1592 / **9.0877** | +5.0 % |
+| RedHatAI/Qwen3-8B-NVFP4 on vLLM | 8.9756 | +3.7 % |
+| Qwen3-30B-A3B-NVFP4, FP4 GEMMs / `SHARPLIGHT_NATIVE_FP4=0` | 7.8474 / 7.7261 | (+1.6 % from W4A4) |
+
+The FP4 activations cost 1.6-1.9 % PPL against the weight-only paths, as vLLM's W4A4 does (level with it on the ModelOpt
+checkpoint, 1.2 % behind on the compressed-tensors one, whose activation scales were calibrated). The weight-only path stays
+available (`SHARPLIGHT_NATIVE_FP4=0`, or `block_scaled_fp4` in `DisabledFeatures`) at the speeds of 105.3's middle column.
+
+### 106.5 Correctness and tests
+
+* `Fp4GemmTests` (Vulkan.Tests, new): FP4-exact activations (E2M1 values times powers of two per 16-value group) give the oracle's
+  products to f32 rounding on the FP4 GEMM at 9-300 rows, both block types, K with an odd number of 256-value steps; the dual
+  gate / up store; random activations within 15 % relative L2 (measured ~9 %); a routed expert MLP (gate / up dual, down per
+  slot) within 20 %. CUDA 26 / 26, Vulkan 26 / 26 (Vulkan runs the dequantizing paths; their NVFP4_GS products with f16 tiles need
+  the wider bounds the test documents).
+* `BatchedDecodeRowsTests` (Cuda.Tests): NVFP4 dense at 9 / 16 / 40 / 64 rows and NVFP4 experts at 12 / 40 rows, each batched row
+  equal (≤ 1e-6) to the same row alone in a 9-row batch (a single row runs the 8-bit integer-dot matvec instead), two batched runs
+  bit-identical; the PTX guard now compiles the FP4 kernels too (the test profile gained the driver-dependent `block_scaled_fp8` /
+  `block_scaled_fp4`): no non-coherent loads. 21 / 21.
+* `MatMulTests`, `SkinnyGemmTests`, `QuantFormatTests` (CUDA): their NVFP4 cases check the other paths' weight decode with random
+  activations at 8-bit bounds, so they run with `block_scaled_fp4` disabled; `MatMulIdGrouped(nvfp4_gs)` needed 0.1 instead of 0.05
+  absolute with the per-tensor second-level scale the random weights now have (the type's invariant). 433 / 433 with
+  `Fp4GemmTests` (`SkinnyGemmTests.NarrowAboveSkinnyRangeWithF32Staging` failed with "no process path" when the test binary ran
+  without `dotnet`, unrelated).
+* Generation: CUDA (FP4 on / off), CPU (`--provider cpu`, dense and MoE: "The capital of France is Paris. The capital of Germany
+  is Berlin ...") in `smoke/`.
+
+### 106.6 Serving against vLLM 0.33
+
+`bench/s16_serve.sh`, closed loop, 1 / 16 / 64 slots of 512 tokens, ~250-token random-word prompts, 128 output tokens, two rounds per
+point, one bench-lock hold per server (`serve/`, `scripts/summ.py`). vLLM with `--gpu-memory-utilization 0.6` (0.85 for the MoE)
+and `--linear-backend cutlass` (and `--moe-backend cutlass` for the MoE): its default FlashInfer FP4 GEMM and fused-MoE kernels are
+JIT-compiled and their `ninja` builds fail on this machine (`serve_vllm_q30nvfp4.server.log`), so vLLM ran its own compiled CUTLASS
+W4A4 kernels. vLLM serves the ModelOpt checkpoint with its FP8 KV cache (the checkpoint's `kv_cache_quant_algo`), the
+compressed-tensors ones with bf16; ours is f16 throughout. Tok/s per round, TTFT p50 (ms), ITL mean / p95 / p99 (ms):
+
+| model, streams | Sharplight | vLLM | **ratio** | Sharplight TTFT, ITL | vLLM TTFT, ITL |
+|---|---:|---:|---:|---|---|
+| Qwen3-8B ModelOpt NVFP4, 1 | 124 / 124 | 116 / 116 | **1.07** | 20 / 7.93, 8.0, 8.1 | 37-43 / 8.35, 8.7, 9.0 |
+| the same, 16 | 1485 / 1483 | 1599 / 1591 | 0.93 | 77-107 / 10.0, 12.5-12.8, 39-40 | 122-124 / 9.15, 9.4-9.6, 11.3 |
+| the same, 64 (vLLM: FP8 KV cache) | 3249 / 3246 | 4328 / 4336 | 0.75 | 232 / 17.1, 29-32, 114 | 250-265 / 12.6, 16.5-17.8, 68-69 |
+| Qwen3-8B RedHat NVFP4 (both 16-bit KV), 1 | 124 / 124 | 116 / 116 | **1.07** | 20 / 7.96, 8.0, 8.0 | 30-31 / 8.4, 8.6-8.7, 8.7-9.0 |
+| the same, 16 | 1493 / 1487 | 1537 / 1530 | 0.97 | 79-81 / 10.0, 11.3-12.2, 40 | 101-105 / 9.6, 9.7-10.0, 11.4-11.8 |
+| the same, 64 | 3229 / 3246 | 3795 / 3804 | 0.85 | 233-236 / 17.2, 32, 115 | 228-289 / 14.5-14.8, 16-19, 73 |
+| Qwen3-30B-A3B RedHat NVFP4 (MoE), 1 | 230 / 231 | 146 / 146 | **1.58** | 26-27 / 4.16, 4.2-4.3, 4.2-4.3 | 59-62 / 6.4, 6.5-6.6, 6.6-6.7 |
+| the same, 16 | 1321 / 1364 | 1345 / 1298 | **1.01** | 102-108 / 10.7-11.2, 13, 51-53 | 149-163 / 10.8-11.1, 11-12, 12-14 |
+| the same, 64 | 2522 / 2522 | 3131 / 3005 | 0.82 | 255-256 / 22.5, 33-35, 126 | 256-259 / 18.0-18.8, 19-21, 85 |
+| *Qwen3-8B-FP8 on Sharplight, 1 / 16 / 64* | *89 / 1113 / 2665* | | | | |
+
+Against our own FP8 serving of Qwen3-8B the NVFP4 checkpoint runs +39 % / +33 % / +22 % at 1 / 16 / 64 streams (the dequantizing
+path is 105.3's middle column). The text check passed on the MoE and RedHat servers; on the ModelOpt one it flagged one request of
+the 64-request wave (`symbols:0.38`: a Markdown title, "**Title: The Interplay of Water and Power ...**", against a plain
+reference), the same in both rounds; the text is fluent (`serve_sharplight_q8nvfp4b.textcheck.json`). The first ModelOpt server run
+(`q8nvfp4`, no `QUIET_GPU`) was disturbed by other GPU work (1-stream ITL p95 68-83 ms) and is superseded by `q8nvfp4b`.
+
+Where the 64-stream gap is, from the per-kernel profiles (`steps/prof_*`, serialized launches, 64 sequences ~300 tokens deep):
+attention reads the f16 KV cache (99 µs per layer, 26 % of the step; vLLM's ModelOpt server reads FP8), the LM head is bf16 on both
+(1.6 ms), the FP4 GEMMs stream their weights at 650-715 GB/s (105.7), and the prompt rows of mixed steps cost more per row than
+vLLM's (ITL p50 12.9 against 10.7 ms, mean 17.1 against 12.6). The MoE gap at 64 is the expert GEMMs with tiles of a few items over
+up to 128 experts (decode step 23.5 ms).
+
+### 106.7 Kernel limits measured, rejected
+
+* **Decode tiles.** After an L2 flush the FP4 GEMM streams 643-732 GB/s of weights at 16-64 rows ([4096 → 12288]; the read pattern
+  alone reaches 830): every tested tile (16 / 32 / 64 token rows x 32-128 weight rows, 2-8 warps, 3-6 stages) is within 5 % of the
+  kept ones (`harness/harness_tiles.txt`). The copies are per-thread 16-byte `cp.async`; tensor copies or a register-streaming
+  form (as `gemm_fp8_decode.cu`) are the next step.
+* **Narrower weight tiles for SM fill** (rejected, reverted): [4096 → 1024] at 16 rows 8.2 → 10.2 µs with 16 instead of 32 weight
+  rows, [4096 → 4096] 16.4 → 18.4 µs, at 64 rows 18.4 → 22.5 µs: each extra block re-reads the activation tile.
+* **The q / k / v group** (kept, `MULTI`): before it the k and v products (2.6 MB each) took 12.6 µs each at 64 rows (210 GB/s) next to
+  q's 19.7 µs; one launch over the concatenated rows takes 31 µs serialized (45 before), but the three launches already overlapped
+  in the step: decode steps 8.88-8.92 → 8.88 ms at 16 sequences, 12.42-12.48 → 12.42-12.43 at 64 (`steps/multi_*`, two rounds each).
+  Kept for the launch count.
+
+### 106.8 Gaps left
+
+1. **Decode GEMM bandwidth** 650-730 GB/s against ~830 (105.7): tensor copies or register streaming.
+2. **FP4 quantization fused into the norm** (as the FP8 path's E4M3-writing norms): 3 quantize launches per layer, 0.8 ms of a
+   64-sequence step.
+3. **KV cache**: vLLM serves the ModelOpt checkpoint with its FP8 KV cache (`kv_cache_quant_algo`), we with f16; at 64 streams
+   attention is the largest kernel of our step (26 %). Our KV types are f16 / f32 / q8_0 / q4_0.
+4. **MXFP4 dense weights** still run the integer-dot matvec and dequantizing GEMMs (the MMA has an E8M0 / 32-value mode,
+   `scale_vec::2X`, for a MX-quantized activation path); MXFP4 experts have `gemm_moe_native.cu`.
+5. **Static activation scales** of the checkpoints (`input_scale`, `input_global_scale`) are not used (per-row dynamic scales instead);
+   the RedHat checkpoint is 1.2 % PPL behind vLLM with them (105.4).
+6. **Load option**: W4A4 is on wherever `block_scaled_fp4` exists; there is no `TaskLoadOptions` / CLI switch of its own yet (the
+   feature can be disabled through `DisabledFeatures`, or `SHARPLIGHT_NATIVE_FP4=0`).
+7. **Blackwell data-center GPUs** (sm_100, `tcgen05`) and Metal are not covered by the native path (they run the dequantizing paths).
+
+### 106.9 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i>
+sharplight-convert convert <hf dir of nvidia/Qwen3-8B-FP4> q8fp4.slm
+# 106.3 (SHARPLIGHT_NATIVE_FP4=0 for the dequantizing path)
+BatchBench q8fp4.slm --provider cuda --slots 64 --ctx 512 --depth 256 --sizes 1,16,32,64 --modes greedy --reps 20 --text
+BatchBench q8fp4.slm --provider cuda --slots 24 --ctx 2560 --depth 256 --batch 2048 --modes greedy --reps 10 --text --mixed 16+240,16+1008,0+2048
+# 106.4
+PplBench q8fp4.slm --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --ids q3.ids
+<vLLM venv>/bin/python -I bench/results/fp4/scripts/vllm_ppl_fp4.py <hf dir> q3.ids --seq 3072
+# 106.6 (QUIET_GPU=1; vLLM: FlashInfer's JIT FP4 kernels fail to build here, so its CUTLASS kernels)
+QUIET_GPU=1 bench/s16_serve.sh sharplight q8 q8fp4.slm "1 16 64" --provider cuda
+QUIET_GPU=1 VLLM_VENV=<venv> bench/s16_serve.sh vllm q8 <hf dir> "1 16 64" --gpu-memory-utilization 0.6 --linear-backend cutlass
+# kernel harness (bench/results/fp4/harness): build.sh <name> K N BM BN WM WN STAGES GS DUAL [MINB]; ./<name> <rows> <reps>
+# tests
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -class Sharplight.Vulkan.Tests.Fp4GemmTests
+SHARPLIGHT_TEST_PROVIDER=cuda dotnet run --project tests/Sharplight.Cuda.Tests -c Release -- -class Sharplight.Cuda.Tests.BatchedDecodeRowsTests
+```

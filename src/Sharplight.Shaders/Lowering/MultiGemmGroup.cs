@@ -44,4 +44,10 @@ internal sealed class MultiGemmGroup
     /// it is not); the members' own launches skip them.
     /// </summary>
     public Func<Bindings, bool>? TallServes { get; set; }
+
+    /// <summary>The members' launches on the FP4 GEMM (NVFP4 weights, FP4 activation rows), captured while they are lowered.</summary>
+    public Dictionary<Node, MultiGemmTallPart> Fp4Parts { get; } = [];
+
+    /// <summary>The bindings the FP4 GEMM's multi-output form serves (null until it is emitted); the members' FP4 launches skip them.</summary>
+    public Func<Bindings, bool>? Fp4Serves { get; set; }
 }

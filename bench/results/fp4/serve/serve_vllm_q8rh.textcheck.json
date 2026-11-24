@@ -1,0 +1,676 @@
+{
+ "url": "http://127.0.0.1:18080",
+ "max_tokens": 48,
+ "prompts": 8,
+ "waves": [
+  {
+   "requests": 16,
+   "identical": 14,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    }
+   ]
+  },
+  {
+   "requests": 64,
+   "identical": 56,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 16,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 17,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 18,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 19,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 20,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 21,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 22,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 23,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 24,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 25,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 26,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 27,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 28,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 29,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 30,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 31,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 32,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 33,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 34,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 35,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 36,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 37,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 38,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 39,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 40,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 41,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 42,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 43,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 44,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 45,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 46,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 47,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 48,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 49,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 50,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 51,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 52,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 53,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 54,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 55,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    },
+    {
+     "i": 56,
+     "prompt": 0,
+     "same_words": 37,
+     "identical": false,
+     "flags": [],
+     "text": " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points. The introduction should set the stage"
+    },
+    {
+     "i": 57,
+     "prompt": 1,
+     "same_words": 42,
+     "identical": true,
+     "flags": [],
+     "text": " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it"
+    },
+    {
+     "i": 58,
+     "prompt": 2,
+     "same_words": 44,
+     "identical": true,
+     "flags": [],
+     "text": " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view."
+    },
+    {
+     "i": 59,
+     "prompt": 3,
+     "same_words": 26,
+     "identical": true,
+     "flags": [],
+     "text": " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751"
+    },
+    {
+     "i": 60,
+     "prompt": 4,
+     "same_words": 41,
+     "identical": true,
+     "flags": [],
+     "text": " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a"
+    },
+    {
+     "i": 61,
+     "prompt": 5,
+     "same_words": 32,
+     "identical": true,
+     "flags": [],
+     "text": " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6"
+    },
+    {
+     "i": 62,
+     "prompt": 6,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities"
+    },
+    {
+     "i": 63,
+     "prompt": 7,
+     "same_words": 43,
+     "identical": true,
+     "flags": [],
+     "text": " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+    }
+   ]
+  }
+ ],
+ "ok": true,
+ "references": [
+  " The essay should be at least 1500 words.\nOkay, I need to write an essay on the role of water and power in modern history. Let me start by breaking down the key points from the outline and the article.",
+  " Here's a scenario: A student is struggling with a math problem that involves solving a quadratic equation. The problem is: 2x\u00b2 + 5x - 3 = 0. The student is confused about how to factor it",
+  " The story should be at least 1000 words. The story should have a beginning, middle, and end. The story should have a clear message or moral. The story should be written in third person limited point of view.",
+  " Please write in English, but the content should be in Chinese. \u8bf7\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u4f46\u5185\u5bb9\u9700\u4e3a\u4e2d\u6587\u3002\n\u597d\u7684\uff0c\u6211\u5c06\u6309\u7167\u60a8\u7684\u8981\u6c42\uff0c\u7528\u4e2d\u6587\u56de\u7b54\uff0c\u5185\u5bb9\u4e3a\u4e2d\u6587\u3002\u4ee5\u4e0b\u662f\u533b\u751f\u89c6\u89d2\u4e0b\u57ce\u5e02\u4e0e\u4e61\u6751",
+  " the mid-14th century, when the first known printed book, the Diamond Sutra, was produced in China. This was followed by the invention of movable type in the early 15th century by Bi Sheng, a",
+  " plants take in carbon dioxide and water, and use sunlight to make glucose and oxygen.  The chemical equation for photosynthesis is 6CO2 + 6H2O + light \u2192 C6H12O6 + 6",
+  " Well, first of all, it's good for your brain. Studies have shown that bilingual people have more mental flexibility and are better at problem-solving. Second, it's good for your career. Knowing another language can open up more job opportunities",
+  " Include sensory details and vivid imagery. Use a friendly and conversational tone. Make sure to mention the activities you did, such as skiing, snowshoeing, and building a snowman. Also, include a personal reflection on the experience"
+ ]
+}

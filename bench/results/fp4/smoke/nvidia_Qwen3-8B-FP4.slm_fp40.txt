@@ -1,0 +1,19 @@
+Loaded nvidia_Qwen3-8B-FP4 (decoder): 399 tensors, 6.83 GB, vocab 151936 [294 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 137 / 137, 137 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 6.83 / 6.83 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 2241 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 6.92 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+--- rendered prompt ---
+<|im_start|>user
+Explain in three sentences why the sky is blue.<|im_end|>
+<|im_start|>assistant
+
+-----------------------
+<think>
+Okay, the user wants a three-sentence explanation of why the sky is blue. Let me start by recalling the main concept. The sky appears blue due to Rayleigh scattering. Sunlight, which is white, is made of different colors, each with different wavelengths. When sunlight enters Earth's atmosphere, the shorter wavelengths (like blue and violet) scatter more than the longer ones (like red and yellow). 
+
+Wait, but why do we see blue instead of violet
+prompt: 19 tok in 63 ms (299.7 tok/s) | generated: 96 tok, 123.90 tok/s

@@ -46,7 +46,11 @@ public sealed class MatMulTests
         var x = tg.InF("x", TG.T, K);
         var w = tg.RandW("w", DataType.Get(fmt), 1f, N, K);
         tg.B.Output("y", tg.B.MatMul(x, w));
-        Diff.Check("MatMul." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt, t), rtol: Rtol(fmt, t), what: $"T={t}");
+        // NVFP4 batches from 9 rows take the FP4 GEMM where the device has block_scaled_fp4, whose FP4 activations these bounds do not
+        // allow (Fp4GemmTests checks it); here the weight decode of the other paths.
+        IReadOnlySet<string>? disabled = fmt == "nvfp4" ? new HashSet<string> { DeviceFeatures.BlockScaledFp4 } : null;
+        Diff.Check("MatMul." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt, t), rtol: Rtol(fmt, t), what: $"T={t}",
+            disabledFeatures: disabled);
     }
 
     /// <summary>
