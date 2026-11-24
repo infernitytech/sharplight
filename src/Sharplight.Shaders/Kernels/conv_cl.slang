@@ -4,7 +4,7 @@
 //                  x is channels-last 16-bit (XS_C = 1, f16 or with XBF16 bf16): a staged item of 8 k is 8 channels of one
 //                  input pixel, one 16-byte load and one bounds check; w is dense [O][KTOT] of the same type, tap-major. A
 //                  workgroup of WARPS_M x WARPS_N subgroups computes (WARPS_M * FRAG_M * 16) o x (WARPS_N * FRAG_N * 16) pix,
-//                  one barrier per K step of TBK = 32: the shared tiles are double buffered with the next step's global loads
+//                  one barrier per K step of TBK (32 or 64): the shared tiles are double buffered with the next step's global loads
 //                  in registers during this step's products, or (CL_ASYNC, CUDA) a ring of CL_STAGES buffers filled by
 //                  asynchronous copies. y dense [N, O, HO, WO] f32 (+ bias, fused epilogue), stored along the pixels through
 //                  the A tiles; SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce (conv.slang).
@@ -95,10 +95,12 @@ void conv_cl_stage(uint3 dtid : SV_DispatchThreadID, uniform StageParams p)
 #ifdef KERNEL_CONV_CL
 #define KHW (KH * KW)
 #define KTOT (CG * KH * KW)
+#ifndef TBK
 #define TBK 32
+#endif
 // 8-value k groups per K step.
 #define KG (TBK / 8)
-// Row stride of the shared tiles in 16-bit values: 32 k plus 8 of padding (conflict-free fragment loads).
+// Row stride of the shared tiles in 16-bit values: TBK k plus 8 of padding (conflict-free fragment loads).
 #define SAS (TBK + 8)
 #define NT (WARPS_M * WARPS_N * 32)
 #define TBM (WARPS_M * FRAG_M * 16)

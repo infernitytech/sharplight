@@ -912,8 +912,9 @@ internal static class DiagnosticSwitches
     public static bool ConvChannelsLast { get; } = IsNotZero("SHARPLIGHT_CONV_CHANNELS_LAST");
 
     /// <summary>
-    /// Tuning override of conv_cl's tile: <c>SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN[,stages]</c> (subgroup rows and columns,
-    /// 16-pixel fragments per subgroup, asynchronous-copy stages or 0 for the register prefetch); unset, the lowering chooses.
+    /// Tuning override of conv_cl's tile: <c>SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN[,stages[,tileK]]</c> (subgroup rows and
+    /// columns, 16-pixel fragments per subgroup, asynchronous-copy stages or 0 for the register prefetch, K per step: 32 or 64);
+    /// unset, the lowering chooses.
     /// </summary>
     public static int[]? ConvChannelsLastTile { get; } = Read("SHARPLIGHT_CONV_CL_TILE")?.Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray();
 

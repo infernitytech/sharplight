@@ -20,7 +20,7 @@ public sealed partial class GraphLowerer
     /// The conv_cl configuration: the 16-bit type of the operands and the tile (subgroup rows and columns of 64 output channels x
     /// <see cref="FragN"/> 16-pixel fragments each).
     /// </summary>
-    private readonly record struct ConvChannelsLastForm(DataType Type, int WarpsM, int WarpsN, int FragN, int Stages)
+    private readonly record struct ConvChannelsLastForm(DataType Type, int WarpsM, int WarpsN, int FragN, int Stages, int TileK = (int)ConvMatrixTileK)
     {
         /// <summary>Shared operand buffers: the asynchronous copies' ring, else two.</summary>
         public int Buffers => Stages > 0 ? Stages : 2;
@@ -73,11 +73,11 @@ public sealed partial class GraphLowerer
     private readonly Dictionary<(Value Weight, DataType Type), TensorRef> _channelsLastWeights = [];
 
     /// <summary>Shared memory of conv_cl: the buffers of both operand tiles (the epilogue reuses the A tiles).</summary>
-    private static long ConvChannelsLastSharedBytes(ConvChannelsLastForm form) => form.Buffers * (form.TileRows + form.TileColumns) * (ConvMatrixTileK + 8) * 2;
+    private static long ConvChannelsLastSharedBytes(ConvChannelsLastForm form) => form.Buffers * (form.TileRows + form.TileColumns) * (form.TileK + 8) * 2;
 
     /// <summary>True when the A tiles hold the epilogue's row of f32 results of every subgroup (16 x FragN * 16 values each).</summary>
     private static bool ConvChannelsLastEpilogueFits(ConvChannelsLastForm form)
-        => form.Buffers * form.TileRows * (ConvMatrixTileK + 8) * 2 >= form.WarpsM * form.WarpsN * form.FragN * 1024L;
+        => form.Buffers * form.TileRows * (form.TileK + 8) * 2 >= form.WarpsM * form.WarpsN * form.FragN * 1024L;
 
     /// <summary>
     /// True when conv_cl streams its tiles with asynchronous copies (<c>CL_ASYNC</c>): a CUDA C++ target on a device of compute
@@ -130,7 +130,11 @@ public sealed partial class GraphLowerer
         var form = new ConvChannelsLastForm(type, warpsM, 2, wideTiles < TargetWorkgroups ? 2 : 4, 0);
         if (DiagnosticSwitches.ConvChannelsLastTile is [int tileWarpsM, int tileWarpsN, int tileFragN, ..] tile)
         {
-            form = form with { WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, Stages = tile.Length > 3 && ConvAsyncCopies ? tile[3] : 0 };
+            form = form with
+            {
+                WarpsM = tileWarpsM, WarpsN = tileWarpsN, FragN = tileFragN, Stages = tile.Length > 3 && ConvAsyncCopies ? tile[3] : 0,
+                TileK = tile.Length > 4 ? tile[4] : form.TileK,
+            };
         }
         else if (ConvAsyncCopies)
         {
@@ -582,11 +586,11 @@ public sealed partial class GraphLowerer
             ("KH", KH), ("KW", KW), ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("DH", dl[0]), ("DW", dl[1]),
             ("XS_N", x.Strides[0]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]), ("NOPAD", pd.All(p => p == 0)), ("XBF16", form.Type == DataType.BF16),
             ("WARPS_M", form.WarpsM), ("WARPS_N", form.WarpsN), ("FRAG_M", 4), ("FRAG_N", form.FragN), ("CL_ASYNC", form.Stages > 0),
-            ("CL_STAGES", form.Buffers), ("X_PARTS", Math.Max(1, parts.Count)), ("PART_C", x.Shape[1]),
+            ("CL_STAGES", form.Buffers), ("X_PARTS", Math.Max(1, parts.Count)), ("PART_C", x.Shape[1]), ("TBK", form.TileK),
         };
         string name = $"conv {n.Output.Name} [{channelsTotal}→{O} {KH}x{KW} s{st[0]} g{G}]{fusedLabel} {form.Type.Name} channels-last{(parts.Count > 0 ? $" {parts.Count} parts" : "")}";
         var extra = parts.Skip(1).ToArray();
         EmitConvMatrix(name, nodes, "conv_cl.slang", "conv_cl", macros, epilogue, x, w, [.. extra.Select(p => (KernelArg)Pointer(p))], extra, bias, y, G, OG, HW, K, bound,
-            form.TileRows, form.TileColumns, linearTiles: true);
+            form.TileRows, form.TileColumns, form.TileK, linearTiles: true);
     }
 }
