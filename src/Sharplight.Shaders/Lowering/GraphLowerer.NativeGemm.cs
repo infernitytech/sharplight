@@ -126,14 +126,44 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Token rows of the hand-written FP8 GEMM's tile for a batch (64 or 128): the one with the fewest estimated block waves times
-    /// block time on the GPU's SMs (one block per SM: both use the 99 KB of shared memory).
+    /// block time on the GPU's SMs (one block per SM: both use the 99 KB of shared memory). The 128-row tiles of a single matrix on
+    /// tensor copies count their stream-K walk where it is faster (<see cref="NativeFp8StreamK"/>).
     /// </summary>
-    private int NativeFp8TileRows(long rows, long n, bool dual)
+    private int NativeFp8TileRows(long rows, long n, long k, bool dual)
     {
         long sms = Math.Max(1, _opt.ComputeUnits);
         long columns = Grid.Div(n, dual ? NativeFp8Tile / 2 : NativeFp8Tile);
-        double Cost(int tileRows, double blockCost) => (Grid.Div(rows, tileRows) * columns + sms - 1) / sms * blockCost;
-        return Cost(64, 1.0) <= Cost(128, DiagnosticSwitches.NativeFp8TallCost ?? (NativeFp8TensorCopies ? NativeFp8TmaTallBlockCost : NativeFp8TallBlockCost)) ? 64 : 128;
+        double tallCost = DiagnosticSwitches.NativeFp8TallCost ?? (NativeFp8TensorCopies ? NativeFp8TmaTallBlockCost : NativeFp8TallBlockCost);
+        double wide = (Grid.Div(rows, 64) * columns + sms - 1) / sms;
+        long tallTiles = Grid.Div(rows, NativeFp8Tile) * columns;
+        double tall = NativeFp8TensorCopies && !dual
+            ? BestTileWalkSteps(tallTiles, Grid.Div(rows, NativeFp8Tile), k / NativeFp8Tile, s_fp8StreamKCost) / (k / NativeFp8Tile) : (tallTiles + sms - 1) / sms;
+        return wide <= tall * tallCost ? 64 : 128;
+    }
+
+    /// <summary>
+    /// True when a batch of <paramref name="rows"/> rows of a single (or multi-output) FP8 GEMM of [<paramref name="n"/>, <paramref name="k"/>]
+    /// weights on the 128-row tensor-copy tiles runs stream-K (gemm_fp8_tma.cu <c>F8N_SK</c>, <see cref="UseStreamK"/>).
+    /// </summary>
+    private bool NativeFp8StreamK(long rows, long n, long k)
+        => UseStreamK(Grid.Div(rows, NativeFp8Tile) * Grid.Div(n, NativeFp8Tile), Grid.Div(rows, NativeFp8Tile), k / NativeFp8Tile, s_fp8StreamKCost);
+
+    /// <summary>
+    /// True when some batch of <paramref name="minRows"/> to <paramref name="maxRows"/> rows runs the 128-row tiles of a single (or multi-output)
+    /// FP8 GEMM stream-K (<see cref="NativeFp8StreamK"/>; token tiles change every 128 rows, so a probe every 64 rows finds each), so
+    /// that launches never taking it compile no stream-K variants.
+    /// </summary>
+    private bool NativeFp8StreamKUsed(long n, long k, long minRows, long maxRows)
+    {
+        for (long r = minRows; r <= maxRows; r = r == maxRows ? maxRows + 1 : Math.Min(maxRows, r + 64))
+        {
+            if (NativeFp8TileRows(r, n, k, false) == NativeFp8Tile && NativeFp8StreamK(r, n, k))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -142,7 +172,7 @@ public sealed partial class GraphLowerer
     /// <paramref name="minRows"/> to <paramref name="maxRows"/> rows: one per token tile height (<see cref="NativeFp8TileRows"/>).
     /// </summary>
     private KernelVariant[] NativeFp8Variants(long n, long k, string? dualEpilogue, long xcap, long minRows, long maxRows, Func<Bindings, long> rows,
-        bool uniformScales = false)
+        bool uniformScales = false, bool? streamK = null)
     {
         bool dual = dualEpilogue is not null;
         int decodeColumns = NativeFp8DecodeColumns;
@@ -151,21 +181,27 @@ public sealed partial class GraphLowerer
         var used = new SortedSet<int>();
         for (long r = minRows; r <= maxRows; r += 64)
         {
-            used.Add(NativeFp8TileRows(r, n, dual));
+            used.Add(NativeFp8TileRows(r, n, k, dual));
         }
 
-        used.Add(NativeFp8TileRows(maxRows, n, dual));
+        used.Add(NativeFp8TileRows(maxRows, n, k, dual));
         var variants = used.SelectMany(tileRows =>
         {
-            bool Serves(Bindings b) => rows(b) >= minRows && !Decode(rows(b)) && NativeFp8TileRows(rows(b), n, dual) == tileRows;
+            bool Serves(Bindings b) => rows(b) >= minRows && !Decode(rows(b)) && NativeFp8TileRows(rows(b), n, k, dual) == tileRows;
             if (tileRows == NativeFp8Tile && NativeFp8TensorCopies)
             {
-                return NativeFp8TmaVariants(n, k, dualEpilogue, xcap, Serves, rows, uniformScales: uniformScales);
+                return streamK is true && !NativeFp8StreamKUsed(n, k, minRows, maxRows)
+                    ? [] : NativeFp8TmaVariants(n, k, dualEpilogue, xcap, Serves, rows, uniformScales: uniformScales, streamK: streamK);
+            }
+
+            if (streamK is true)
+            {
+                return [];
             }
 
             return [NativeFp8Variant(n, k, dualEpilogue, xcap, tileRows, NativeFp8Tile, Serves, rows)];
         }).ToList();
-        if (decodeForm)
+        if (decodeForm && streamK is not true)
         {
             variants.Add(NativeFp8Variant(n, k, dualEpilogue, xcap, 64, decodeColumns, b => rows(b) >= minRows && Decode(rows(b)) && rows(b) > NativeFp8ShortTileMaxRows, rows));
             bool streaming = UseFp8DecodeKernel(n, k, dual);
@@ -382,12 +418,21 @@ public sealed partial class GraphLowerer
     /// A non-zero <paramref name="qcap"/>: the dual form stores the outputs as E4M3 activation rows with power-of-two scales and a dense
     /// scale copy of that many rows (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>, see <see cref="Fp8StoreMinRows"/>) instead of f32 rows.
     /// </summary>
+    /// <paramref name="streamK"/>: null for launches without the stream-K walk (dual, QOUT); false for the tile-by-tile variants of a launch
+    /// whose stream-K variants (true: a separate launch, which takes the partial sums and flags) serve the batches
+    /// <see cref="NativeFp8StreamK"/> selects.
     private KernelVariant[] NativeFp8TmaVariants(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap = 0,
-        bool uniformScales = false, long[]? multiWidths = null)
+        bool uniformScales = false, long[]? multiWidths = null, bool? streamK = null)
     {
+        if (streamK is { } sk)
+        {
+            var inner = serves;
+            serves = b => inner(b) && NativeFp8StreamK(rows(b), n, k) == sk;
+        }
+
         if (DiagnosticSwitches.NativeFp8Partial is false)
         {
-            return [NativeFp8TmaVariant(n, k, dualEpilogue, xcap, serves, rows, qcap, uniformScales, multiWidths, partial: false)];
+            return [NativeFp8TmaVariant(n, k, dualEpilogue, xcap, serves, rows, qcap, uniformScales, multiWidths, partial: false, streamK is true)];
         }
 
         // A batch whose last token tile holds at most 96 rows runs the form whose consumer warps multiply only their fragments with rows
@@ -395,10 +440,13 @@ public sealed partial class GraphLowerer
         bool Tail(Bindings b) => rows(b) % NativeFp8Tile is > 0 and <= NativeFp8PartialMaxTailRows;
         return
         [
-            NativeFp8TmaVariant(n, k, dualEpilogue, xcap, b => serves(b) && Tail(b), rows, qcap, uniformScales, multiWidths, partial: true),
-            NativeFp8TmaVariant(n, k, dualEpilogue, xcap, serves, rows, qcap, uniformScales, multiWidths, partial: false),
+            NativeFp8TmaVariant(n, k, dualEpilogue, xcap, b => serves(b) && Tail(b), rows, qcap, uniformScales, multiWidths, partial: true, streamK is true),
+            NativeFp8TmaVariant(n, k, dualEpilogue, xcap, serves, rows, qcap, uniformScales, multiWidths, partial: false, streamK is true),
         ];
     }
+
+    /// <summary>Bytes of a block's partial sums in a stream-K launch of the FP8 tensor-copy GEMM (gemm_fp8_tma.cu <c>F8N_SK</c>): a 128 x 128 f32 tile.</summary>
+    private const long NativeFp8StreamKSlotBytes = NativeFp8Tile * NativeFp8Tile * 4L;
 
     /// <summary>
     /// Most rows in the last token tile of a batch for which the FP8 tensor-copy GEMM runs its partial form: the two warp rows of a tile
@@ -408,7 +456,7 @@ public sealed partial class GraphLowerer
 
     /// <summary>One form of <see cref="NativeFp8TmaVariants"/>: with <paramref name="partial"/>, the consumer loop's forms for warps with fewer rows (<c>F8N_PARTIAL</c>).</summary>
     private KernelVariant NativeFp8TmaVariant(long n, long k, string? dualEpilogue, long xcap, Func<Bindings, bool> serves, Func<Bindings, long> rows, long qcap,
-        bool uniformScales, long[]? multiWidths, bool partial)
+        bool uniformScales, long[]? multiWidths, bool partial, bool streamK)
     {
         bool dual = dualEpilogue is not null;
         long rowBytes = k + k / 32;
@@ -465,13 +513,20 @@ public sealed partial class GraphLowerer
             macros["F8N_PARTIAL"] = "1";
         }
 
+        if (streamK)
+        {
+            macros["F8N_SK"] = "1";
+        }
+
         var kernel = _compiler.CompileCuda("gemm_fp8_tma.cu", dualEpilogue ?? "", "gemm_fp8_tma", warpgroup ? NativeFp8TmaWarpgroupThreads : NativeFp8TmaThreads,
             NativeFp8TmaSharedBytes + (qcap > 0 ? 512 : 0),
             _opt.Target, macros, _opt.Cache, string.Join(';', maps));
         long sms = Math.Max(1, _opt.ComputeUnits);
         // QOUT walks pairs of 64-output tiles.
         long columns = Grid.Div(n, dual && qcap == 0 ? NativeFp8Tile / 2 : NativeFp8Tile);
-        return new KernelVariant(serves, kernel, b => new Grid((uint)Math.Min(sms, (long)Grid.Div(rows(b), NativeFp8Tile) * columns)));
+        // Stream-K: StreamKBlocks blocks share the K steps (NativeFp8StreamK only selects launches with enough of them).
+        return new KernelVariant(serves, kernel, b => new Grid((uint)(streamK ? StreamKBlocks(Grid.Div(rows(b), NativeFp8Tile))
+            : Math.Min(sms, (long)Grid.Div(rows(b), NativeFp8Tile) * columns))));
     }
 
     /// <summary>
@@ -508,18 +563,22 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// The tile configuration of the hand-written f16 GEMM with the least estimated time for a batch: its waves of tiles times a tile's
     /// outputs over the configuration's speed (a tile past the batch's last row costs like a full one), or
-    /// <c>SHARPLIGHT_NATIVE_F16_CONFIG</c> when that is allowed.
+    /// <c>SHARPLIGHT_NATIVE_F16_CONFIG</c> when that is allowed. With <paramref name="streamKSteps"/> (K / 64, for launches that have
+    /// stream-K variants) the fastest stream-K configuration (its <see cref="TileWalkSteps"/> instead of its waves) when it is estimated
+    /// faster than the fastest tile-by-tile one by <see cref="StreamKMinGain"/>; StreamK tells which.
     /// </summary>
-    private int NativeF16Config(long rows, long n, bool dual, Func<int, bool>? allowed = null)
+    private (int Config, bool StreamK) NativeF16Config(long rows, long n, bool dual, Func<int, bool>? allowed = null, long streamKSteps = 0)
     {
+        long Tiles(int c) => Grid.Div(rows, s_nativeF16TileRows[c]) * Grid.Div(n, dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c]);
+        double SharedSteps(int c) => TileWalkSteps(Tiles(c), Grid.Div(rows, s_nativeF16TileRows[c]), streamKSteps, true, s_f16StreamKCost);
         if (DiagnosticSwitches.NativeF16Config is { } forced && s_nativeF16Configs.Contains(forced) && (allowed is null || allowed(forced)))
         {
-            return forced;
+            return (forced, streamKSteps > 0 && UseStreamK(Tiles(forced), Grid.Div(rows, s_nativeF16TileRows[forced]), streamKSteps, s_f16StreamKCost));
         }
 
         int sms = Math.Max(1, _opt.ComputeUnits);
-        double best = double.MaxValue;
-        int config = -1;
+        double bestWhole = double.MaxValue, bestShared = double.MaxValue;
+        int whole = -1, shared = -1;
         foreach (int c in s_nativeF16Configs)
         {
             if (allowed is not null && !allowed(c))
@@ -527,17 +586,23 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
-            long tiles = Grid.Div(rows, s_nativeF16TileRows[c]) * ((n + columns - 1) / columns);
-            double cost = (double)((tiles + sms - 1) / sms) * s_nativeF16TileRows[c] * s_nativeF16TileColumns[c] / s_nativeF16Speed[c];
-            if (cost < best)
+            double area = (double)s_nativeF16TileRows[c] * s_nativeF16TileColumns[c] / s_nativeF16Speed[c];
+            double cost = (double)((Tiles(c) + sms - 1) / sms) * area;
+            if (cost < bestWhole)
             {
-                best = cost;
-                config = c;
+                bestWhole = cost;
+                whole = c;
+            }
+
+            double streamKCost = streamKSteps > 0 ? SharedSteps(c) / streamKSteps * area : double.PositiveInfinity;
+            if (streamKCost < bestShared)
+            {
+                bestShared = streamKCost;
+                shared = c;
             }
         }
 
-        return config;
+        return shared >= 0 && StreamKEnabled && bestShared < bestWhole * (1 - StreamKMinGain) ? (shared, true) : (whole, false);
     }
 
     /// <summary>
@@ -546,21 +611,39 @@ public sealed partial class GraphLowerer
     /// <paramref name="allowed"/> limits the configurations (the multi-output form's member boundaries on whole column tiles), and
     /// <paramref name="extra"/> adds macros (the multi-output form's).
     /// </summary>
+    /// <paramref name="streamK"/>: null for a launch without stream-K variants; false for the tile-by-tile variants of a launch whose
+    /// stream-K variants (true: a launch of their own, see <see cref="EmitNativeF16"/>) serve the batches <see cref="UseStreamK"/> selects.
     private KernelVariant[] NativeF16Variants(long n, long k, long maxRows, string? dualEpilogue, Func<Bindings, long> rows, long minRows,
-        bool bias = false, long? rangeScales = null, Func<int, bool>? allowed = null, IReadOnlyDictionary<string, string>? extra = null)
+        bool bias = false, long? rangeScales = null, Func<int, bool>? allowed = null, IReadOnlyDictionary<string, string>? extra = null,
+        bool? streamK = null)
     {
         bool dual = dualEpilogue is not null;
+        long streamKSteps = streamK is null ? 0 : k / 64;
+        // The configurations some batch selects (with the walk this launch takes): token tiles change every 64 rows.
         var used = new SortedSet<int>();
-        for (long r = minRows; r <= Math.Max(minRows, maxRows); r += 64)
+        void Probe(long r)
         {
-            used.Add(NativeF16Config(r, n, dual, allowed));
+            var (c, sk) = NativeF16Config(r, n, dual, allowed, streamKSteps);
+            if (c >= 0 && (streamK is null || sk == streamK))
+            {
+                used.Add(c);
+            }
         }
 
-        used.Add(NativeF16Config(Math.Max(minRows, maxRows), n, dual, allowed));
-        used.Remove(-1);
+        for (long r = minRows; r <= Math.Max(minRows, maxRows); r += 64)
+        {
+            Probe(r);
+        }
+
+        Probe(Math.Max(minRows, maxRows));
         return [.. used.Select(c =>
         {
             var macros = Macros(("K", k), ("N", n), ("Y_STRIDE", n), ("DUAL", dual ? 1 : 0), ("H_CFG", c));
+            if (streamK is true)
+            {
+                macros["H_SK"] = "1";
+            }
+
             if (DiagnosticSwitches.NativeF16Partial is false)
             {
                 macros["H_PARTIAL"] = "0";
@@ -584,9 +667,34 @@ public sealed partial class GraphLowerer
             var kernel = _compiler.CompileCuda("gemm_f16_native.cu", dualEpilogue?.Replace("F8N_EPI2", "H_EPI2", StringComparison.Ordinal) ?? "",
                 "gemm_f16_native", s_nativeF16Threads[c], s_nativeF16Shared[c], _opt.Target, macros, _opt.Cache);
             long columns = dual ? s_nativeF16TileColumns[c] / 2 : s_nativeF16TileColumns[c];
-            return new KernelVariant(b => rows(b) >= minRows && NativeF16Config(rows(b), n, dual, allowed) == c, kernel,
-                b => new Grid(Grid.Div(rows(b), s_nativeF16TileRows[c]), Grid.Div(n, columns)));
+            bool Serves(Bindings b)
+            {
+                if (rows(b) < minRows)
+                {
+                    return false;
+                }
+
+                var (config, sk) = NativeF16Config(rows(b), n, dual, allowed, streamKSteps);
+                return config == c && (streamK is null || sk == streamK);
+            }
+
+            // Stream-K: StreamKBlocks blocks (at most one per SM) walk their shares (a 1-D grid).
+            return new KernelVariant(Serves, kernel, b => streamK is true ? new Grid((uint)StreamKBlocks(Grid.Div(rows(b), s_nativeF16TileRows[c])))
+                : new Grid(Grid.Div(rows(b), s_nativeF16TileRows[c]), Grid.Div(n, columns)));
         })];
+    }
+
+    /// <summary>Bytes of a block's partial sums in a stream-K launch of the hand-written f16 GEMM (<c>H_SK</c>): its largest tile, 128 x 256 f32.</summary>
+    private const long NativeF16StreamKSlotBytes = 128 * 256 * 4L;
+
+    /// <summary>
+    /// Emits the launches of the hand-written f16 GEMM's prompt tiles: <paramref name="variants"/> (given the <c>streamK</c> argument of
+    /// <see cref="NativeF16Variants"/>) tile by tile with <paramref name="args"/>, and the stream-K ones with the partial sums and flags.
+    /// </summary>
+    private void EmitNativeF16(string label, IEnumerable<Node> nodes, Func<bool, KernelVariant[]> variants, KernelArg[] args, TensorRef[] reads, TensorRef[] writes)
+    {
+        Emit(label, nodes, variants(false), args, reads, writes);
+        EmitStreamK(label, nodes, variants(true), args, reads, writes, NativeF16StreamKSlotBytes);
     }
 
     /// <summary>Token rows of the decode form of <c>gemm_f16_native.cu</c> (H_CFG 2): the largest batch it serves.</summary>

@@ -72,6 +72,23 @@ public sealed class Fp8GemmTests
     }
 
     /// <summary>
+    /// Batches whose 128-row tiles do not fill whole waves of the SMs, which the CUDA provider's tensor-copy GEMM runs stream-K (the K
+    /// steps of the last waves' tiles shared evenly by every SM's block; a tile split between blocks sums their partial sums in the
+    /// block holding its first K step), against the CPU oracle with activations that E4M3 represents exactly: 128 rows (32 tiles, each
+    /// split across two or three blocks), 256 and 266 rows (with the partial form), 130 rows of 10,752 outputs (170 tiles: two full waves walked tile by tile, then
+    /// the rest shared).
+    /// </summary>
+    [Theory]
+    [InlineData(200, 2048, 8192)]
+    [InlineData(256, 4096, 8192)]
+    [InlineData(266, 4096, 8192)]
+    [InlineData(130, 10752, 1024)]
+    public void StreamKTiles(int t, int n, int k)
+    {
+        Run("f8e4m3_b128", t, n, k, Rnd.ExactFp8((long)t * k, 17), atol: 2e-3, rtol: 1e-3, maxTokens: Math.Max(t, 512));
+    }
+
+    /// <summary>
     /// Row counts below the compiled maximum, in the ranges where the fp8 GEMM with <c>SHARPLIGHT_FP8_SHORT_TILES=1</c> takes 64-row
     /// tiles above 64 rows (129-192, 257-320) and splits K: every (tile height, split) of the row counts a step may bind has its
     /// launch variant (the split variants were probed every 128 rows, so those buckets had none and stored nothing).

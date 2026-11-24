@@ -90,6 +90,28 @@ public sealed class MatMulTests
         Diff.Check("MatMul.exact8." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.ExactInt8((long)t * K, 5))), atol: 2e-3, rtol: 1e-3, what: $"T={t}");
     }
 
+    /// <summary>
+    /// Prompt batches whose tiles of the CUDA provider's hand-written f16 GEMM (bf16 weights stored as f16) do not fill whole waves of
+    /// the SMs run stream-K (the last waves' K steps shared evenly by every SM's block, the partial sums of a tile split between blocks
+    /// added by the block holding its first K step), against the CPU oracle with activations that f16 represents exactly: 128 rows
+    /// (64 x 256 tiles, each split across two or three blocks), 300 rows (64 x 256 tiles, a partial last token tile) and 258 rows
+    /// of 8,448 outputs (64 x 256 tiles, a full wave walked tile by tile first).
+    /// </summary>
+    [Theory]
+    [InlineData(128, 4096, 4096)]
+    [InlineData(300, 6144, 4096)]
+    [InlineData(258, 8448, 1024)]
+    public void StreamKTiles(int t, int n, int k)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, k);
+        var w = tg.RandW("w", DataType.BF16, 1f, n, k);
+        tg.B.Output("y", tg.B.MatMul(x, w));
+        Diff.Check("MatMul.streamk", tg.B.Build(), new Step(t, 0, (x, Rnd.ExactInt8((long)t * k, 11))), atol: 2e-3, rtol: 1e-3, maxTokens: t,
+            what: $"T={t} N={n} K={k}");
+    }
+
     [Theory]
     [InlineData("f32", 288, 100)]
     [InlineData("f16", 160, 33)]
