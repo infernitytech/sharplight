@@ -115,6 +115,7 @@ internal static class Rnd
 
         long blocks = elements / t.BlockSize;
         var rng = new Random(seed + 7);
+        float tensorScale = (1f / 64) * (1 + (float)new Random(seed + 11).NextDouble()) * scale;
         for (long i = 0; i < blocks; i++)
         {
             long o = i * t.BlockBytes;
@@ -178,8 +179,9 @@ internal static class Rnd
             }
             else if (t == DataType.NVFP4_GS)
             {
-                // A global scale around 1/64 times the sub-block scales of the NVFP4 case times 64: the same value range.
-                BitConverter.TryWriteBytes(bytes.AsSpan((int)o, 4), (1f / 64) * (1 + (float)rng.NextDouble()) * scale);
+                // A global scale around 1/64 times the sub-block scales of the NVFP4 case times 64: the same value range. One per tensor,
+                // as checkpoints have it (the type's invariant: the same g in every block of a row).
+                BitConverter.TryWriteBytes(bytes.AsSpan((int)o, 4), tensorScale);
                 for (int s = 0; s < 4; s++)
                 {
                     bytes[o + 4 + s] = (byte)(0x58 + rng.Next(16));

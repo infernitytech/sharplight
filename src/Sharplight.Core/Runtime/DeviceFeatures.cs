@@ -91,6 +91,15 @@ public static class DeviceFeatures
     public const string BlockScaledFp8 = "block_scaled_fp8";
 
     /// <summary>
+    /// The tensor cores multiply E2M1 (4-bit float) operands with an E4M3 scale per 16 values of each row and column applied in the MMA
+    /// itself (CUDA: <c>mma.sync ... kind::mxf4nvf4.block_scale</c>, compute capability 12.x with a CUDA 12.9 driver or later). Matrix
+    /// products of NVFP4 weights then run on the provider's FP4 GEMM from a few activation rows on, with the activations quantized to
+    /// FP4 per 16 values (a numerics change: activations lose precision as in the W4A4 mode of the checkpoints' producers). Disabling it
+    /// keeps the integer-dot matvecs and the GEMMs on dequantized weights.
+    /// </summary>
+    public const string BlockScaledFp4 = "block_scaled_fp4";
+
+    /// <summary>
     /// Warps of a workgroup can hand registers to each other at run time (CUDA: <c>setmaxnreg</c>, in the family-specific PTX of compute
     /// capability 12.x; the CUDA provider reports it only while NVRTC compiles that kernel's machine code, since the driver's
     /// compilation of the PTX drops <c>setmaxnreg</c>). The provider's prompt-sized FP8 GEMM then runs a copy warpgroup on few registers
@@ -188,7 +197,7 @@ public static class DeviceFeatures
     public const string WindowKv = "window_kv";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeGemmKQuant, NativeAttention, TensorCopies, BlockScaledFp8, RegisterReallocation, LaunchGraphs, DependentLaunches];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeGemmKQuant, NativeAttention, TensorCopies, BlockScaledFp8, BlockScaledFp4, RegisterReallocation, LaunchGraphs, DependentLaunches];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

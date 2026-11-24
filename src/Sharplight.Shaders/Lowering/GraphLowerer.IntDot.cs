@@ -220,7 +220,7 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, ActivationCode.ScaledF16 => 2 * k + 16, _ => k + k / 4 }];
+        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.Fp4 => Fp4ActivationRowBytes(k), ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, ActivationCode.ScaledF16 => 2 * k + 16, _ => k + k / 4 }];
         if (code == ActivationCode.Fp8)
         {
             // With the hand-written FP8 GEMM, room for the dense copy of the scales after the rows.
@@ -278,6 +278,7 @@ public sealed partial class GraphLowerer
         var kernel = code switch
         {
             ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", QuantizeFp8Macros(k, xStride, quantized)),
+            ActivationCode.Fp4 => QuantizeFp4Kernel(k, xStride),
             ActivationCode.F16 when ranged => Lib("data.slang", "to_f16_ranged", Macros(("K", k), ("X_STRIDE", xStride), ("Y_RS", _rangeScales[quantized] + "ull"))),
             ActivationCode.F16 => Lib("data.slang", "to_f16", Macros(("K", k), ("X_STRIDE", xStride))),
             ActivationCode.SplitF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride))),
@@ -285,10 +286,10 @@ public sealed partial class GraphLowerer
             _ => Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1))),
         };
         long valuesPerThread = code == ActivationCode.F16 ? 8 : 4;
-        Func<Bindings, Grid> grid = code is ActivationCode.SplitF16 or ActivationCode.ScaledF16 || ranged
+        Func<Bindings, Grid> grid = code is ActivationCode.SplitF16 or ActivationCode.ScaledF16 or ActivationCode.Fp4 || ranged
             ? b => new Grid((uint)rows(b))
             : b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256));
-        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.F16 => ranged ? "ranged f16" : "f16", ActivationCode.SplitF16 => "split f16", ActivationCode.ScaledF16 => "scaled f16", _ => "q8" };
+        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.Fp4 => "fp4", ActivationCode.F16 => ranged ? "ranged f16" : "f16", ActivationCode.SplitF16 => "split f16", ActivationCode.ScaledF16 => "scaled f16", _ => "q8" };
         Emit($"{label} x→{what}", nodes,
             [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows && !(written?.Invoke(rows(b)) ?? false), kernel, grid)],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
