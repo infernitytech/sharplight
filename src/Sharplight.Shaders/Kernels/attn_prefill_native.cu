@@ -27,6 +27,12 @@
 // the per-head sink logit to the softmax denominator; GQA heads read KV head h / (HQ / HKV). MULTI_SEQ: runs (slot, first row,
 // row count, first position), optionally PAGED; MIX_RUN skips runs shorter than MIX_RUN rows (mixed steps).
 //
+// FN_KVF8 (head sizes up to 256): f8e4m3_b32 caches (32-value blocks of an f32 scale and 32 E4M3 codes, 36 bytes). The stages hold the
+// tiles' raw rows (FN_RB / FN_VB bytes, cp.async in 16-byte pieces where rows are 16-byte multiples, else 8); after a tile's copy
+// completes the block converts it into one f16 tile (the layout of an f16 stage; d * e4m3 rounded once, as attention.slang's kv8_to_half),
+// and a second barrier publishes it before the products. The next iteration's first barrier keeps the conversion from overwriting a
+// tile a warp still reads.
+//
 // Macros: HQ, HKV, D, DV (multiples of 64 up to 256), VRS (value row stride), QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP,
 // HAS_SINKS, MULTI_SEQ, SLOT_CTX, PAGED, PAGE_BS, PAGE_MB, RT_N_PAST, MIX_RUN, FN_WARPS (4 or 8), FN_MR (16-row fragments per
 // warp, default 1; the lowering takes 2 at head size 64, where deep contexts gain 7-12 %, and 1 at 128, where 2 spills), FN_STAGES
@@ -87,7 +93,20 @@
 #define FN_VCH (DV / 8)
 #define FN_KT (FN_BC * D)           // halves of a K tile
 #define FN_VT (FN_BC * DV)
-#define FN_STAGE (FN_KT + FN_VT)    // halves of one stage
+#define FN_STAGE (FN_KT + FN_VT)    // halves of one stage (FN_KVF8: of the converted tile)
+#ifndef FN_KVF8
+#define FN_KVF8 0
+#endif
+#if FN_KVF8
+#define FN_RB (D / 32 * 36)         // bytes of a raw key row
+#define FN_VB (DV / 32 * 36)        // bytes of a raw value row (the first DV values of a cache row of VRS)
+#define FN_VRB (VRS / 32 * 36)      // bytes between value rows in the cache
+#define FN_CP ((FN_RB % 16 == 0 && FN_VB % 16 == 0 && FN_VRB % 16 == 0) ? 16 : 8)   // bytes per cp.async
+#define FN_RSTAGE (FN_BC * (FN_RB + FN_VB))   // bytes of one raw stage
+#define FN_TILE0 ((FN_STAGES * FN_RSTAGE + 127) / 128 * 128)   // byte offset of the converted tile
+#else
+#define FN_RSTAGE (FN_STAGE * 2)
+#endif
 #define FN_ND (D / FN_DS / 16)      // K steps of a warp's S = Q · Kᵀ
 #define FN_NO (DV / FN_DS / 8)      // output fragments of a warp's rows
 #define FN_XCH (FN_WARPS * FN_MR * FN_NB * 4 * 32)   // floats of the score exchange (FN_DS = 2)
@@ -97,7 +116,7 @@
 #define FN_NEG (-1.0e30f)
 
 #if (D % (64 * FN_DS)) != 0 || (DV % (64 * FN_DS)) != 0 || D > 512 || DV > 512 || (HQ % HKV) != 0 || (FN_BC != 16 && FN_BC != 32 && FN_BC != 64) \
-    || (FN_WARPS % FN_DS) != 0 || (FN_HG && (FN_DS != 1 || ((HQ / HKV) % FN_WARPS) != 0))
+    || (FN_WARPS % FN_DS) != 0 || (FN_HG && (FN_DS != 1 || ((HQ / HKV) % FN_WARPS) != 0)) || (FN_KVF8 && FN_DS != 1)
 #error "attn_prefill_native: unsupported head sizes"
 #endif
 
@@ -179,6 +198,77 @@ __device__ __forceinline__ fn_u64 fn_kv_row(const FnParams& p, fn_u64 base, fn_u
 #endif
 }
 
+#if FN_KVF8
+__device__ __forceinline__ void fn_copy8(fn_u32 dst, const void* src, fn_u32 srcBytes)
+{
+    asm volatile("cp.async.ca.shared.global [%0], [%1], 8, %2;\n" :: "r"(dst), "l"(src), "r"(srcBytes));
+}
+
+// Issues the copies of the raw key and value rows j0 .. j0 + FN_BC (rows >= jEnd zero-filled) into the raw stage at `sbase`.
+__device__ __forceinline__ void fn_load(const FnParams& p, fn_u32 sbase, fn_u64 kvBase, fn_u32 hk, fn_u32 j0, fn_u32 jEnd, fn_u32 tid)
+{
+    const unsigned char* kc = (const unsigned char*)p.kc;
+    const unsigned char* vc = (const unsigned char*)p.vc;
+#pragma unroll
+    for (fn_u32 i = tid; i < FN_BC * (FN_RB / FN_CP); i += FN_THREADS)
+    {
+        fn_u32 r = i / (FN_RB / FN_CP), c = i % (FN_RB / FN_CP), j = j0 + r;
+        bool in = j < jEnd;
+        fn_u64 row = fn_kv_row(p, kvBase, in ? j : j0);
+        const unsigned char* src = kc + (row + hk) * FN_RB + c * FN_CP;
+        if (FN_CP == 16)
+        {
+            fn_copy(sbase + r * FN_RB + c * 16, src, in ? 16 : 0);
+        }
+        else
+        {
+            fn_copy8(sbase + r * FN_RB + c * 8, src, in ? 8 : 0);
+        }
+    }
+#pragma unroll
+    for (fn_u32 i = tid; i < FN_BC * (FN_VB / FN_CP); i += FN_THREADS)
+    {
+        fn_u32 r = i / (FN_VB / FN_CP), c = i % (FN_VB / FN_CP), j = j0 + r;
+        bool in = j < jEnd;
+        fn_u64 row = fn_kv_row(p, kvBase, in ? j : j0);
+        const unsigned char* src = vc + (row + hk) * FN_VRB + c * FN_CP;
+        if (FN_CP == 16)
+        {
+            fn_copy(sbase + FN_BC * FN_RB + r * FN_VB + c * 16, src, in ? 16 : 0);
+        }
+        else
+        {
+            fn_copy8(sbase + FN_BC * FN_RB + r * FN_VB + c * 8, src, in ? 8 : 0);
+        }
+    }
+}
+
+// Two E4M3 codes (bits 0..15 of x) times d256 = 256 * the block scale, as f16x2 (the codes' bits placed as half bits are the values * 2^-8).
+__device__ __forceinline__ fn_u32 fn_f8x2(fn_u32 x, float d256)
+{
+    fn_u32 h = ((x & 0x7Fu) << 7) | ((x & 0x80u) << 8) | ((x & 0x7F00u) << 15) | ((x & 0x8000u) << 16);
+    float lo, hi;
+    asm("cvt.f32.f16 %0, %1;\n" : "=f"(lo) : "h"((unsigned short)(h & 0xFFFFu)));
+    asm("cvt.f32.f16 %0, %1;\n" : "=f"(hi) : "h"((unsigned short)(h >> 16)));
+    return fn_pack(lo * d256, hi * d256);
+}
+
+// Converts the raw rows of a stage (rows of `width` values, `rowBytes` apart) into the f16 tile at `tile` (16-byte chunks with the
+// stages' swizzle): one 8-value chunk per thread and pass.
+__device__ __forceinline__ void fn_convert(const unsigned char* raw, unsigned short* tile, fn_u32 width, fn_u32 rowBytes, fn_u32 tid)
+{
+    const fn_u32 chunks = width / 8;
+    for (fn_u32 i = tid; i < FN_BC * chunks; i += FN_THREADS)
+    {
+        fn_u32 r = i / chunks, c = i % chunks;
+        const unsigned char* blk = raw + r * rowBytes + (c / 4) * 36;
+        const float d256 = *(const float*)blk * 256.0f;
+        const fn_u32 q0 = *(const fn_u32*)(blk + 4 + (c % 4) * 8), q1 = *(const fn_u32*)(blk + 8 + (c % 4) * 8);
+        *(uint4*)(tile + r * width + ((c ^ (r & 7)) * 8)) = make_uint4(fn_f8x2(q0, d256), fn_f8x2(q0 >> 16, d256), fn_f8x2(q1, d256),
+                                                                       fn_f8x2(q1 >> 16, d256));
+    }
+}
+#else
 // Issues the copies of the key and value rows j0 .. j0 + FN_BC (rows >= jEnd zero-filled) into stage `st`.
 __device__ __forceinline__ void fn_load(const FnParams& p, fn_u32 sbase, fn_u64 kvBase, fn_u32 hk, fn_u32 j0, fn_u32 jEnd, fn_u32 tid)
 {
@@ -201,6 +291,7 @@ __device__ __forceinline__ void fn_load(const FnParams& p, fn_u32 sbase, fn_u64 
         fn_copy(sbase + (FN_KT + r * DV + ((c ^ (r & 7)) * 8)) * 2, src, in ? 16 : 0);
     }
 }
+#endif
 
 
 extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnParams p)
@@ -296,7 +387,7 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
     {
         if (jFirst + st * FN_BC < jEnd)
         {
-            fn_load(p, sbase + st * FN_STAGE * 2, kvBase, hk, jFirst + st * FN_BC, jEnd, tid);
+            fn_load(p, sbase + st * FN_RSTAGE, kvBase, hk, jFirst + st * FN_BC, jEnd, tid);
         }
         asm volatile("cp.async.commit_group;\n" ::);
     }
@@ -360,9 +451,19 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
         const fn_u32 ahead = j0 + (FN_STAGES - 1) * FN_BC;
         if (ahead < jEnd)
         {
-            fn_load(p, sbase + ((stage + FN_STAGES - 1) % FN_STAGES) * FN_STAGE * 2, kvBase, hk, ahead, jEnd, tid);
+            fn_load(p, sbase + ((stage + FN_STAGES - 1) % FN_STAGES) * FN_RSTAGE, kvBase, hk, ahead, jEnd, tid);
         }
         asm volatile("cp.async.commit_group;\n" ::);
+#if FN_KVF8
+        // Tile j0's raw rows into the f16 tile (every warp takes part, also those that skip the tile).
+        {
+            const unsigned char* raw = smem + stage * FN_RSTAGE;
+            unsigned short* tile = (unsigned short*)(smem + FN_TILE0);
+            fn_convert(raw, tile, D, FN_RB, tid);
+            fn_convert(raw + FN_BC * FN_RB, tile + FN_KT, DV, FN_VB, tid);
+        }
+        __syncthreads();
+#endif
 
         // Tiles none of the warp's rows sees: past the last row's end, or before the first row's window / chunk.
         if (!warpLive || j0 >= warpEndMax || j0 + FN_BC <= warpBegMin)
@@ -371,7 +472,11 @@ extern "C" __global__ void __launch_bounds__(FN_THREADS) attn_prefill_native(FnP
             continue;
         }
 
+#if FN_KVF8
+        const fn_u32 kbase = sbase + FN_TILE0;
+#else
         const fn_u32 kbase = sbase + stage * FN_STAGE * 2;
+#endif
         const fn_u32 vbase = kbase + FN_KT * 2;
         float s[FN_MR][FN_NB][4];
 #pragma unroll

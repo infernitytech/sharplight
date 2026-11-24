@@ -78,6 +78,7 @@ trailing commas allowed, sizes as bytes or `"2G"`):
     "blockScaledFp8": true,
     "stepFloor": "waves",
     "stepRowsPerSequence": 48,
+    "kvAdmission": "queue",
     "maxQueue": 64
   },
   "models": [
@@ -98,7 +99,7 @@ trailing commas allowed, sizes as bytes or `"2G"`):
 | `lazy` | models without their own `lazy` load on the first request instead of at startup |
 | `onDemand` | also serve the models of the registered `IHostedModelResolver` |
 | `disabledFeatures` | device features no model may use (fallback testing, broken drivers) |
-| `defaults` | per-model settings for models that do not set their own: device, context, batch rows, slots, paged KV cache (`kvCacheTokens`), KV type, CPU offload, reduced precision, block-scaled FP8 (`blockScaledFp8`, below), queue limit, prefill chunk, step tokens (`stepTokens`, `minStepTokens`, `stepFloor`, `stepRowsPerSequence`, below), n-gram and MTP speculation, projector, chat template |
+| `defaults` | per-model settings for models that do not set their own: device, context, batch rows, slots, paged KV cache (`kvCacheTokens`), KV type, CPU offload, reduced precision, block-scaled FP8 (`blockScaledFp8`, below), queue limit, prefill chunk, step tokens (`stepTokens`, `minStepTokens`, `stepFloor`, `stepRowsPerSequence`, below), KV admission when the paged cache runs short (`kvAdmission`: `queue` or `preempt`, below), n-gram and MTP speculation, projector, chat template |
 
 Per model: `name`, `path`, `kind` (`chat` default, `embedding`, `reranker`, `task` with `task` = the task kind), `device`,
 `contextLength`, `batchTokens`, `slots`, `kvCacheTokens`, `kvCacheType`, `projector`, `chatTemplate`, `auxiliary` (files by role),

@@ -167,6 +167,18 @@ Host side:
     in the free blocks plus those idle slots could give back, after what the running sequences still need (the rest of
     their prompts plus the same growth reserve). The reserve is up to 64 generated tokens, at most a quarter of a slot's
     share of the pool. While a preempted sequence is recomputing nothing new is admitted.
+  - admission policy when the pool runs short (`EngineOptions.KvAdmission`, hosting `kvAdmission`, `serve --kv-admission`,
+    `SHARPLIGHT_KV_ADMISSION=queue|preempt`):
+    - `queue` (default): the rule above. New requests wait while the pool is full; running sequences are preempted only when
+      they outgrow even the reserve (rare). Fewer recomputed tokens, a higher time to first token at KV saturation.
+    - `preempt`: the growth reserve is one token, so a request is admitted as soon as its prompt fits next to the rest of the
+      running prompts, and the running sequences take blocks as they grow; when a decoding sequence needs a block and none is
+      free (and no idle context can give one back), the most recently admitted sequences are preempted by recomputation (below)
+      until it fits. The preempted sequence keeps its slot and goes to the head of the waiting work: nothing new is admitted
+      until its context (prompt and generated tokens) is recomputed. This is vLLM's recompute preemption. Preemption order
+      follows admission order, so the oldest sequence is never preempted while another can give blocks back (no starvation:
+      every sequence becomes the oldest eventually). Without a paged cache, or while the pool has room, both policies admit
+      the same requests at the same steps (benchmarks.md §107).
   - before each step the blocks the decoding sequences need are freed: first idle slots' cached contexts (LRU), then by
     preempting the newest running sequence. Prefill and replay chunks only evict idle contexts and otherwise wait.
   - preemption by recomputation: the victim's blocks are released, it keeps its slot, and its context (prompt + generated

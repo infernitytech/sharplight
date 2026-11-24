@@ -24,6 +24,9 @@ public sealed class PagedAttentionTests
     [InlineData("f16", 256, 256, 24, 4)]   // head sizes 256 / 512: the wide form of the tensor-core decode kernel on CUDA
     [InlineData("f16", 512, 512, 32, 4)]
     [InlineData("q8_0", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 128, 128, 16, 4)]   // FP8 rows on CUDA's tensor-core decode kernel (ND_KVF8)
+    [InlineData("f8e4m3_b32", 128, 128, 32, 8)]
     [InlineData("f32", 64, 64, 4, 4)]
     [InlineData("f16", 576, 512, 16, 1)]   // latent attention (fa_mqa)
     [InlineData("q4_0", 288, 256, 40, 1)]
@@ -52,6 +55,8 @@ public sealed class PagedAttentionTests
     [InlineData("f16", 64, 64, 8, 2)]
     [InlineData("f16", 256, 256, 8, 2)]
     [InlineData("q8_0", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 128, 128, 32, 8)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 2)]
     public void ManySequencesDecodeOneRowEach(string cacheType, int D, int valueDims, int Hq, int Hkv)
     {
         const int slots = 72;
@@ -160,7 +165,7 @@ public sealed class PagedAttentionTests
             steps.Add(new Step(rows, 0, [.. inputs]) { Symbols = new Dictionary<string, long> { [WellKnown.RunSymbol] = step.Length } });
         }
 
-        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "q4_0" => (3e-2, 5e-2), _ => (2e-3, 5e-3) };
+        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "f8e4m3_b32" => (1e-2, 2e-2), "q4_0" => (3e-2, 5e-2), _ => (2e-3, 5e-3) };
         Diff.Check("CachedAttention.paged", g, steps, atol: atol, rtol: rtol, maxTokens: maxTokens, ctx: poolBlocks * BlockSize,
             what: $"{cacheType} D={D} v_dims={valueDims} Hq={Hq} Hkv={Hkv}");
     }

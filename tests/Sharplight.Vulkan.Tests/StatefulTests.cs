@@ -16,6 +16,9 @@ public sealed class StatefulTests
     [InlineData("q8_0", 128, 128, 4, 2)]
     [InlineData("q4_0", 128, 128, 4, 2)]
     [InlineData("q4_0", 64, 96, 6, 3)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 1)]
+    [InlineData("f8e4m3_b32", 128, 128, 4, 2)]
+    [InlineData("f8e4m3_b32", 64, 96, 6, 3)]
     [InlineData("f16", 12, 12, 4, 2)]   // head sizes that are not a multiple of 8: the per-head kernel with one key element per load
     [InlineData("f32", 20, 12, 6, 3)]
     public void CachedAttentionAcrossSteps(string cacheType, int D, int Dv, int Hq, int Hkv)
@@ -31,6 +34,9 @@ public sealed class StatefulTests
     [InlineData("f32", 128, 128, 4, 2)]
     [InlineData("q8_0", 128, 128, 8, 2)]
     [InlineData("q4_0", 256, 256, 4, 1)]
+    [InlineData("f8e4m3_b32", 128, 128, 8, 2)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 256, 256, 4, 1)]
     [InlineData("f16", 12, 12, 4, 2)]
     public void CachedAttentionLongPrefill(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [70, 33, 1, 5], 120);
@@ -51,8 +57,11 @@ public sealed class StatefulTests
     [InlineData(64, 16, 2)]
     [InlineData(64, 64, 8)]
     [InlineData(128, 16, 4)]
-    public void CachedAttentionGroupedDecode(int D, int Hq, int Hkv)
-        => CachedAttention("f16", D, D, Hq, Hkv, [2048, 1024, 4, 3, 2, 1], 4096);
+    [InlineData(64, 16, 2, "f8e4m3_b32")]
+    [InlineData(128, 16, 4, "f8e4m3_b32")]
+    [InlineData(128, 32, 8, "f8e4m3_b32")]
+    public void CachedAttentionGroupedDecode(int D, int Hq, int Hkv, string cacheType = "f16")
+        => CachedAttention(cacheType, D, D, Hq, Hkv, [2048, 1024, 4, 3, 2, 1], 4096);
 
     /// <summary>
     /// Decode rows of head sizes 256 and 512 with grouped heads (Qwen3.5 / 3.8, Gemma 4's window and global layers): on CUDA the wide
@@ -69,6 +78,7 @@ public sealed class StatefulTests
     [InlineData(256, 24, 4, 0, 0f, false, "q8_0")]
     [InlineData(512, 32, 4, 0, 0f, true, "q8_0")]
     [InlineData(512, 16, 2, 40, 30f, true, "q8_0")]
+    [InlineData(256, 24, 4, 0, 0f, false, "f8e4m3_b32")]
     public void CachedAttentionWideDecode(int D, int Hq, int Hkv, int window, float softcap, bool sinks, string cacheType = "f16")
     {
         Gpu.Require();
@@ -116,7 +126,7 @@ public sealed class StatefulTests
         }
         // f16 caches run on tensor cores with f16 queries and probabilities: allow for their rounding. q8_0 caches are quantized by both
         // backends, which may round a value to a neighbouring quant.
-        var (atol, rtol) = cacheType == "f16" ? (1e-3, 3e-3) : (3e-3, 1e-2);
+        var (atol, rtol) = cacheType switch { "f16" => (1e-3, 3e-3), "f8e4m3_b32" => (5e-3, 2e-2), _ => (3e-3, 1e-2) };
         Diff.Check("CachedAttention.wide", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx,
             what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv} window={window} softcap={softcap} sinks={sinks}");
     }
@@ -148,7 +158,8 @@ public sealed class StatefulTests
         }
         // f16 caches may run on tensor cores with f16 queries and probabilities: allow for their rounding. Quantized caches are
         // quantized by both backends, which may round a value to neighbouring quants (one quant step of a block).
-        var (atol, rtol) = cacheType switch { "f16" => (3e-4, 3e-3), "f32" => (3e-5, 2e-4), "q8_0" => (2e-3, 1e-2), _ => (2e-2, 5e-2) };
+        // E4M3 codes are 1/16 apart relative to the value: a code rounded the other way moves an output more than a q8_0 quant.
+        var (atol, rtol) = cacheType switch { "f16" => (3e-4, 3e-3), "f32" => (3e-5, 2e-4), "q8_0" => (2e-3, 1e-2), "f8e4m3_b32" => (5e-3, 2e-2), _ => (2e-2, 5e-2) };
         Diff.Check("CachedAttention", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx, what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv}");
     }
 
@@ -232,6 +243,7 @@ public sealed class StatefulTests
     [InlineData("f32", 576, 512, 16, 1)]
     [InlineData("q8_0", 576, 512, 16, 1)]
     [InlineData("q4_0", 288, 256, 40, 1)]
+    [InlineData("f8e4m3_b32", 576, 512, 16, 1)]
     public void CachedAttentionLatentShapes(string cacheType, int D, int valueDims, int Hq, int Hkv)
         => ValuePrefixAttention(cacheType, D, valueDims, Hq, Hkv, [70, 3, 1, 250, 1, 1, 40], 384, 8f);
 
@@ -258,7 +270,7 @@ public sealed class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)])));
             past += c;
         }
-        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "q4_0" => (3e-2, 5e-2), _ => (1e-3, 3e-3) };
+        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "f8e4m3_b32" => (1e-2, 2e-2), "q4_0" => (3e-2, 5e-2), _ => (1e-3, 3e-3) };
         Diff.Check("CachedAttention.vprefix", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx, what: $"{cacheType} D={D} v_dims={valueDims}");
     }
 

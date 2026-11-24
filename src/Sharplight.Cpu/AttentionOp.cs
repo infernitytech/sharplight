@@ -31,7 +31,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly int _dv;
     private readonly bool _kHalf;
     private readonly bool _vHalf;
-    private readonly WeightFormat? _kQuant;   // q8_0 / q4_0 caches: rows are dequantized before use
+    private readonly WeightFormat? _kQuant;   // q8_0 / q4_0 / f8e4m3_b32 caches: rows are dequantized before use
     private readonly WeightFormat? _vQuant;
     private readonly Action<int> _body;
     private readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, pos, ...) per query row
@@ -129,7 +129,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         InitTiled();
     }
 
-    /// <summary>The block format of a quantized KV cache (q8_0 / q4_0, rows of whole 32-value blocks), or null.</summary>
+    /// <summary>The block format of a quantized KV cache (q8_0 / q4_0 / f8e4m3_b32, rows of whole 32-value blocks), or null.</summary>
     private static WeightFormat? QuantizedFormat(DataType type) => Quant.FormatOf(type) is { } f && Quant.CanQuantize(f) ? f : null;
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

@@ -93,6 +93,31 @@ public unsafe class QuantTests
         }
     }
 
+    /// <summary>
+    /// The E4M3 encoder of FP8 KV caches: every finite code decodes and encodes back to itself, values between two codes round to the
+    /// nearest (ties to the even code), and magnitudes past 448 saturate.
+    /// </summary>
+    [Fact]
+    public void E4m3_EncodesEveryCodeBackAndRoundsToNearestEven()
+    {
+        for (int c = 0; c < 256; c++)
+        {
+            if ((c & 0x7F) == 0x7F || c == 0x80)
+            {
+                continue;   // NaN codes; -0 encodes as +0
+            }
+
+            Assert.Equal((byte)c, Quant.FloatToE4m3(Quant.E4m3ToFloat((byte)c)));
+        }
+
+        Assert.Equal(0x38, Quant.FloatToE4m3(1.0625f));    // halfway between 1 (0x38) and 1.125 (0x39): the even code
+        Assert.Equal(0x3A, Quant.FloatToE4m3(1.1875f));    // halfway between 1.125 and 1.25 (0x3A)
+        Assert.Equal(0x39, Quant.FloatToE4m3(1.1f));
+        Assert.Equal(0x7E, Quant.FloatToE4m3(1000f));
+        Assert.Equal(0xFE, Quant.FloatToE4m3(-1000f));
+        Assert.Equal(0x01, Quant.FloatToE4m3(0.0019f));    // 2^-9, the smallest subnormal
+    }
+
     [Fact]
     public void GatherOutOfRangeThrows()
     {

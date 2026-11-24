@@ -16,6 +16,11 @@
 // or as the range's partial [split][t][h][DV + 4] (acc, m, l) for decode_combine. Q · SCALE and P are rounded to f16 as in
 // attn_prefill_native.cu.
 //
+// ND_KVF8 (head sizes 64 and 128): f8e4m3_b32 caches (32-value blocks of an f32 scale and 32 E4M3 codes, 36 bytes; a row of D values is
+// D / 32 blocks). A lane's 8-value chunk lies in one block: it loads the chunk's 8 codes (two 32-bit words) and the block's scale, keeps
+// them packed while the tile's loads are in flight, and converts them to the f16 words the f16 cache would hold (d * e4m3 rounded once,
+// as attention.slang's kv8_to_half) right before the products that use them (keys before S, values before O).
+//
 // Macros: HQ, HKV, D (= DV, 64 or 128), VRS, QS0, QS1, SCALE, WINDOW, CHUNK, HAS_SOFTCAP, SOFTCAP, HAS_SINKS, MULTI_SEQ, SLOT_CTX, PAGED,
 // PAGE_BS, PAGE_MB, RT_N_PAST, MIX_RUN, HPW (heads per block, at most 8), DEC_BC, DEC_MIN_KEYS, DEC_MAX_SPLITS, DEC_TARGET_WG,
 // DEC_INVARIANT_ROWS, DEC_SPLIT_ROWS (the split rule of decode_split_keys), ND_PF (L2 prefetch distance in tiles, 0: off). Grid: x = HKV * (HQ / HKV / HPW), y = query rows, z = key ranges.
@@ -61,12 +66,22 @@
 #define ND_G (HQ / HKV)
 #define ND_GROUPS (HKV * (ND_G / HPW))
 #define ND_PS (D + 4)                 // floats per partial (DEC_PS)
-#define ND_LPR (D / 64)               // 128-byte lines per key / value row
+#ifndef ND_KVF8
+#define ND_KVF8 0
+#endif
+#if ND_KVF8
+#define ND_ROWB (D / 32 * 36)         // bytes of a key row
+#define ND_VROWB (VRS / 32 * 36)      // bytes between value rows
+#else
+#define ND_ROWB (D * 2)
+#define ND_VROWB (VRS * 2)
+#endif
+#define ND_LPR ((ND_ROWB + 127) / 128) // 128-byte lines per key / value row
 #define ND_SCALE ((float)(SCALE))
 #define ND_SOFTCAP ((float)(SOFTCAP))
 #define ND_NEG (-1.0e30f)
 
-#if (D != 64 && D != 128 && D != 256 && D != 512) || HPW > 8 || (ND_G % HPW) != 0 || (HQ % HKV) != 0
+#if (D != 64 && D != 128 && D != 256 && D != 512) || HPW > 8 || (ND_G % HPW) != 0 || (HQ % HKV) != 0 || (ND_KVF8 && D > 128)
 #error "attn_decode_native: unsupported shape"
 #endif
 
@@ -117,6 +132,42 @@ __device__ __forceinline__ nd_u32 nd_pack(float lo, float hi)
     asm("cvt.rn.f16x2.f32 %0, %1, %2;\n" : "=r"(r) : "f"(hi), "f"(lo));
     return r;
 }
+
+#if ND_KVF8
+// Two E4M3 codes (bits 0..15 of x) times d256 = 256 * the block scale, as f16x2: the codes' sign and 7 exponent / mantissa bits placed as
+// half bits are the values * 2^-8, exact (subnormals included), so the result is d * e4m3(q) rounded once to f16.
+__device__ __forceinline__ nd_u32 nd_f8x2(nd_u32 x, float d256)
+{
+    nd_u32 h = ((x & 0x7Fu) << 7) | ((x & 0x80u) << 8) | ((x & 0x7F00u) << 15) | ((x & 0x8000u) << 16);
+    float lo, hi;
+    asm("cvt.f32.f16 %0, %1;\n" : "=f"(lo) : "h"((unsigned short)(h & 0xFFFFu)));
+    asm("cvt.f32.f16 %0, %1;\n" : "=f"(hi) : "h"((unsigned short)(h >> 16)));
+    return nd_pack(lo * d256, hi * d256);
+}
+
+// A lane's raw 8-value chunk of an f8e4m3_b32 row: 8 codes and its block's scale (times 256, see nd_f8x2).
+struct NdF8
+{
+    uint2 q;
+    float d256;
+};
+
+// The chunk's 8 values as f16 (the words of the f16 cache's 16-byte chunk).
+__device__ __forceinline__ uint4 nd_f8_half8(const NdF8& c)
+{
+    return make_uint4(nd_f8x2(c.q.x, c.d256), nd_f8x2(c.q.x >> 16, c.d256), nd_f8x2(c.q.y, c.d256), nd_f8x2(c.q.y >> 16, c.d256));
+}
+
+// Chunk 4 q + c4 of a row (block q, codes [8 c4, 8 c4 + 8)); zero when !in.
+__device__ __forceinline__ NdF8 nd_f8_load(const unsigned char* row, nd_u32 q, nd_u32 c4, bool in)
+{
+    NdF8 r;
+    const unsigned char* blk = row + q * 36;
+    r.d256 = in ? *(const float*)blk * 256.0f : 0.0f;
+    r.q = in ? make_uint2(*(const nd_u32*)(blk + 4 + c4 * 8), *(const nd_u32*)(blk + 8 + c4 * 8)) : make_uint2(0, 0);
+    return r;
+}
+#endif
 
 __device__ __forceinline__ nd_u32 nd_word(const uint4& v, nd_u32 i)
 {
@@ -285,8 +336,8 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
         if (prefetch && c4 < 2 * ND_LPR)
         {
             const nd_u32 jn = j0 + ND_WARPS * ND_TK * ND_PF;
-            const unsigned short* cache = c4 < ND_LPR ? p.kc : p.vc;
-            const nd_u64 rowElems = c4 < ND_LPR ? (nd_u64)D : (nd_u64)VRS;
+            const unsigned char* cache = (const unsigned char*)(c4 < ND_LPR ? p.kc : p.vc);
+            const nd_u64 rowBytes = c4 < ND_LPR ? (nd_u64)ND_ROWB : (nd_u64)ND_VROWB;
             const nd_u32 line = c4 % ND_LPR;
 #pragma unroll
             for (int r = 0; r < ND_R; r++)
@@ -294,7 +345,7 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
                 nd_u32 j = jn + 8 * r + g;
                 if (j < jEnd)
                 {
-                    const unsigned short* a = cache + (nd_kv_row(p, kvBase, j) + hk) * rowElems + line * 64;
+                    const unsigned char* a = cache + (nd_kv_row(p, kvBase, j) + hk) * rowBytes + line * 128;
                     asm volatile("prefetch.global.L2 [%0];\n" :: "l"(a));
                 }
             }
@@ -302,6 +353,33 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
 #endif
         // Key and value rows j0 + 8r + g (rows past the range are zero and masked).
         uint4 kw[ND_R][ND_NCH], vw[ND_R][ND_NCH];
+#if ND_KVF8
+        NdF8 kf[ND_R][ND_NCH], vf[ND_R][ND_NCH];
+#pragma unroll
+        for (int r = 0; r < ND_R; r++)
+        {
+            nd_u32 j = j0 + 8 * r + g;
+            bool in = j < jEnd;
+            nd_u64 row = nd_kv_row(p, kvBase, in ? j : jBeg) + hk;
+            const unsigned char* kr = (const unsigned char*)p.kc + row * ND_ROWB;
+            const unsigned char* vr = (const unsigned char*)p.vc + row * ND_VROWB;
+#pragma unroll
+            for (int q = 0; q < ND_NCH; q++)
+            {
+                kf[r][q] = nd_f8_load(kr, q, c4, in);
+                vf[r][q] = nd_f8_load(vr, q, c4, in);
+            }
+        }
+#pragma unroll
+        for (int r = 0; r < ND_R; r++)
+        {
+#pragma unroll
+            for (int q = 0; q < ND_NCH; q++)
+            {
+                kw[r][q] = nd_f8_half8(kf[r][q]);
+            }
+        }
+#else
 #pragma unroll
         for (int r = 0; r < ND_R; r++)
         {
@@ -317,6 +395,7 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
                 vw[r][q] = in ? vr[q * 4 + c4] : make_uint4(0, 0, 0, 0);
             }
         }
+#endif
 
         // S = Q · Kᵀ: n fragment r holds keys j0 + 8r + 2c, + 1 of head g in s[r][0], s[r][1].
         float s[ND_R][4];
@@ -378,6 +457,17 @@ extern "C" __global__ void __launch_bounds__(ND_THREADS) attn_decode_native(NdPa
             o[f][1] *= corr;
         }
 
+#if ND_KVF8
+#pragma unroll
+        for (int r = 0; r < ND_R; r++)
+        {
+#pragma unroll
+            for (int q = 0; q < ND_NCH; q++)
+            {
+                vw[r][q] = nd_f8_half8(vf[r][q]);
+            }
+        }
+#endif
         // O += P · V over the tile's 16-key steps: P from the score accumulators, V transposed in registers.
 #pragma unroll
         for (int ks = 0; ks < ND_R / 2; ks++)
