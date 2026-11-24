@@ -148,10 +148,13 @@ struct ConvParams
     uint N;
 };
 
-// A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, NBUF buffers each.
+// A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, NBUF buffers each. The epilogue
+// reuses the A tiles for one row of f32 results per subgroup (16 x FRAG_N * 16 values).
+#if NBUF * TBM * SAS * 2 < WARPS_M * WARPS_N * FRAG_N * 1024
+#error "conv_cl: the A tiles cannot hold the epilogue's results"
+#endif
 groupshared uint4 sA[NBUF * TBM * SAS / 8];
 groupshared uint4 sB[NBUF * TBN * SAS / 8];
-groupshared float sC[WARPS_M * WARPS_N * 256];
 
 Acc mma(MatA a, MatB b, Acc c) { return coopMatMulAdd<float, false>(a, b, c); }
 
@@ -397,41 +400,45 @@ void conv_cl(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     }
 #endif
 
-    // ---- epilogue: each subgroup stages one accumulator at a time in its shared slice; guarded store (+ bias) ----
+    // ---- epilogue: per row of fragments, each subgroup stages its 16 x (FRAG_N * 16) results in the (now free) A tiles and
+    // stores them along the pixels, 32 consecutive outputs per store (+ bias, fused epilogue) ----
+    GroupMemoryBarrierWithGroupSync();
     uint64_t outBase = uint64_t(split) * uint64_t(p.N) * (O * HW);
     const uint lane = tid % 32;
+    const uint slice = sg * (FRAG_N * 256);
     [ForceUnroll]
     for (int i = 0; i < FRAG_M; i++)
     {
         [ForceUnroll]
         for (int j = 0; j < FRAG_N; j++)
         {
-            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(sC, sg * 256, 16u);
-            GroupMemoryBarrierWithGroupSync();
-            [ForceUnroll]
-            for (uint e = 0; e < 8; e++)
+            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(sA, (slice + j * 16) / 4, FRAG_N * 4);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        [ForceUnroll]
+        for (uint e = 0; e < FRAG_N * 8; e++)
+        {
+            uint w = lane + e * 32;
+            uint m = mBase + wm + i * 16 + w / (FRAG_N * 16);
+            uint col = colBase + wn + w % (FRAG_N * 16);
+            if (m < OG && col < NC)
             {
-                uint w = lane + e * 32;
-                uint m = mBase + wm + i * 16 + w / 16;
-                uint col = colBase + wn + j * 16 + w % 16;
-                if (m < OG && col < NC)
-                {
-                    uint n = col / HW;
-                    uint pix = col - n * HW;
-                    uint o = g * OG + m;
-                    float v = sC[sg * 256 + w];
-                    uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
+                uint n = col / HW;
+                uint pix = col - n * HW;
+                uint o = g * OG + m;
+                uint at = slice + w;
+                float v = asfloat(sA[at / 4][at % 4]);
+                uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
 #if SPLITK == 1
 #if HAS_BIAS
-                    v += p.bias[o];
+                v += p.bias[o];
 #endif
-                    CONV_EPI(v, idx);
+                CONV_EPI(v, idx);
 #endif
-                    p.y[idx] = v;
-                }
+                p.y[idx] = v;
             }
-            GroupMemoryBarrierWithGroupSync();
         }
+        GroupMemoryBarrierWithGroupSync();
     }
 }
 #endif

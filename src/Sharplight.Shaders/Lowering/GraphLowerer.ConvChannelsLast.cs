@@ -44,9 +44,12 @@ public sealed partial class GraphLowerer
     /// <summary>The channels-last 16-bit weights [O, KH·KW·CG] (tap-major) of each constant conv weight, by weight and type.</summary>
     private readonly Dictionary<(Value Weight, DataType Type), TensorRef> _channelsLastWeights = [];
 
-    /// <summary>Shared memory of conv_cl: the buffers of both operand tiles and the epilogue staging of every subgroup.</summary>
-    private static long ConvChannelsLastSharedBytes(ConvChannelsLastForm form)
-        => form.Buffers * (form.TileRows + form.TileColumns) * (ConvMatrixTileK + 8) * 2 + form.WarpsM * form.WarpsN * 256 * 4;
+    /// <summary>Shared memory of conv_cl: the buffers of both operand tiles (the epilogue reuses the A tiles).</summary>
+    private static long ConvChannelsLastSharedBytes(ConvChannelsLastForm form) => form.Buffers * (form.TileRows + form.TileColumns) * (ConvMatrixTileK + 8) * 2;
+
+    /// <summary>True when the A tiles hold the epilogue's row of f32 results of every subgroup (16 x FragN * 16 values each).</summary>
+    private static bool ConvChannelsLastEpilogueFits(ConvChannelsLastForm form)
+        => form.Buffers * form.TileRows * (ConvMatrixTileK + 8) * 2 >= form.WarpsM * form.WarpsN * form.FragN * 1024L;
 
     /// <summary>
     /// True when conv_cl streams its tiles with asynchronous copies (<c>CL_ASYNC</c>): a CUDA C++ target on a device of compute
@@ -111,7 +114,7 @@ public sealed partial class GraphLowerer
             }
         }
 
-        return ConvChannelsLastSharedBytes(form) <= _opt.MaxSharedMemory ? form : null;
+        return ConvChannelsLastSharedBytes(form) <= _opt.MaxSharedMemory && ConvChannelsLastEpilogueFits(form) ? form : null;
     }
 
     /// <summary>
