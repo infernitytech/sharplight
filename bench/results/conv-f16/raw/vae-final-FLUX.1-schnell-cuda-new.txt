@@ -1,0 +1,28 @@
+VAE FLUX.1-schnell decode 1024x1024: median 588.8 ms, min 588.3 ms (5 runs)
+GPU time 586.51 ms
+   408.499 ms  69.6%      1x  min 408498.6 us  attention main N=1,16384*N=16384|
+    33.654 ms   5.7%     34x  min     13.6 us  conv stage channels-last conv_cl_stage N=1,16384*N=16384|
+    28.234 ms   4.8%     12x  min    714.4 us  conv [512→512 3x3 s1 g1] f16 channels-last conv_cl N=1,16384*N=16384|
+    19.251 ms   3.3%      4x  min   2773.8 us  conv [256→256 3x3 s1 g1] f16 channels-last conv_cl N=1,16384*N=16384|
+    19.140 ms   3.3%     29x  min     38.5 us  fused[Silu] main N=1,16384*N=16384|
+    18.704 ms   3.2%     30x  min     31.4 us  groupnorm groupnorm_apply N=1,16384*N=16384|
+     8.866 ms   1.5%      3x  min   2929.4 us  conv [128→128 3x3 s1 g1] f16 channels-last conv_cl N=1,16384*N=16384|
+     8.655 ms   1.5%     30x  min     19.2 us  groupnorm stats groupnorm_stats N=1,16384*N=16384|
+     8.558 ms   1.5%      6x  min    754.2 us  conv [512→512 3x3 s1 g1] fused[Add] f16 channels-last conv_cl N=1,16384*N=16384|
+     6.429 ms   1.1%      2x  min   3205.9 us  conv [128→128 3x3 s1 g1] fused[Add] f16 channels-last conv_cl N=1,16384*N=16384|
+     5.888 ms   1.0%      2x  min   2942.6 us  conv [256→256 3x3 s1 g1] fused[Add] f16 channels-last conv_cl N=1,16384*N=16384|
+     5.627 ms   1.0%      1x  min   5627.5 us  conv [256→128 3x3 s1 g1] f16 channels-last conv_cl N=1,16384*N=16384|
+     5.444 ms   0.9%      1x  min   5444.3 us  conv [512→256 3x3 s1 g1] f16 channels-last conv_cl N=1,16384*N=16384|
+     3.048 ms   0.5%      3x  min    214.5 us  resize resize N=1,16384*N=16384|
+     2.135 ms   0.4%      1x  min   2135.2 us  conv [256→128 1x1 s1 g1] fused[Add] f16 channels-last conv_cl N=1,16384*N=16384|
+     1.727 ms   0.3%      1x  min   1727.2 us  conv [128→3 3x3 s1 g1] bf16 fused[Scale,Clip] narrow conv_narrow N=1,16384*N=16384|
+     1.181 ms   0.2%      1x  min   1181.3 us  conv [512→256 1x1 s1 g1] fused[Add] f16 channels-last conv_cl N=1,16384*N=16384|
+     0.688 ms   0.1%      3x  min     88.4 us  fused[Add] main N=1,16384*N=16384|
+     0.259 ms   0.0%      1x  min    258.6 us  matmul [512→512+512+512] f16 native fused[Add] gemm_f16_native N=1,16384*N=16384|
+     0.246 ms   0.0%      2x  min    122.6 us  contiguous main N=1,16384*N=16384|
+     0.109 ms   0.0%      1x  min    108.5 us  matmul [512→512] f16 native fused[Add] gemm_f16_native N=1,16384*N=16384|
+     0.090 ms   0.0%      2x  min     33.4 us  matmul [512→512] f16 x→ranged f16 to_f16_ranged N=1,16384*N=16384|
+     0.046 ms   0.0%      1x  min     46.0 us  conv [16→512 3x3 s1 g1] f16 channels-last conv_cl N=1,16384*N=16384|
+     0.031 ms   0.0%      1x  min     30.7 us  fused[Scale] main N=1,16384*N=16384|
+
+VAE reduced vs f32 products: PSNR 88.5 dB (range 2), max abs 6.85E-003

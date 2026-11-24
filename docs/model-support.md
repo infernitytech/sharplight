@@ -3146,6 +3146,6 @@ intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Te
   7.1e-2 relative RMS, whole enhancement 43.6 dB worst frame on CUDA and Vulkan (44.8 dB in the benchmark's parity run): the bf16
   weights of the reference account for it.
 - Speed and memory against the official PyTorch inference: [benchmarks.md](benchmarks.md) section 108. In short: the DiT is as fast as
-  PyTorch's (flash attention, bf16); the VAE is about 2 × slower (its convolutions run with f32 activations on the shared implicit-GEMM
-  kernel); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
+  PyTorch's (flash attention, bf16); the VAE is about as fast since section §CONV (channels-last f16 convolutions: 3B at 480p 8.4 s
+  against 15.1 s before, PyTorch 10.1 s, 48.9 dB); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
   GPU. 1080p output needs 38 GB of decoder activations and does not fit 32 GB yet (spatial tiling of the VAE is not implemented).
