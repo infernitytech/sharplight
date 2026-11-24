@@ -14,7 +14,30 @@ using Sharplight.Vulkan;
 /// </summary>
 internal static class VaeDecodeBench
 {
-    public static void Run(ModelLoader loader, IComputeDevice device, string modelPath, int size, bool strict, int runs, int top)
+    public static void Run(ModelLoader loader, IComputeDevice device, string modelPath, int size, bool strict, int runs, int top, bool check)
+    {
+        float[] image = Decode(loader, device, modelPath, size, strict, runs, top);
+        if (!check || strict)
+        {
+            return;
+        }
+
+        // The same latents decoded with f32 products: how far the reduced-precision decoder is from it (images in [-1, 1]).
+        float[] reference = Decode(loader, device, modelPath, size, strict: true, runs: 0, top: 0);
+        double squared = 0;
+        double largest = 0;
+        for (int i = 0; i < image.Length; i++)
+        {
+            double d = image[i] - reference[i];
+            squared += d * d;
+            largest = Math.Max(largest, Math.Abs(d));
+        }
+
+        double psnr = 10 * Math.Log10(4 / Math.Max(squared / image.Length, 1e-30));
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"VAE reduced vs f32 products: PSNR {psnr:F1} dB (range 2), max abs {largest:E2}"));
+    }
+
+    private static float[] Decode(ModelLoader loader, IComputeDevice device, string modelPath, int size, bool strict, int runs, int top)
     {
         using var model = TaskModel.Load(loader, new TaskLoadOptions
         {
@@ -41,22 +64,27 @@ internal static class VaeDecodeBench
 
         compiled.SetInput<float>(latent, values);
         compiled.Run(parameters);
+        var image = new float[compiled.OutputShape(DiffusionGraphs.Image, parameters).Aggregate(1L, (a, b) => a * b)];
+        compiled.GetOutput<float>(DiffusionGraphs.Image, image);
         var times = new List<double>();
         for (int i = 0; i < runs; i++)
         {
             var stopwatch = Stopwatch.StartNew();
             compiled.Run(parameters);
-            var image = new float[compiled.OutputShape(DiffusionGraphs.Image, parameters).Aggregate(1L, (a, b) => a * b)];
             compiled.GetOutput<float>(DiffusionGraphs.Image, image);
             times.Add(stopwatch.Elapsed.TotalMilliseconds);
         }
 
-        times.Sort();
-        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"VAE {Path.GetFileName(modelPath.TrimEnd('/'))} decode {size}x{size}: median {times[times.Count / 2]:F1} ms, min {times[0]:F1} ms ({runs} runs)"));
+        if (runs > 0)
+        {
+            times.Sort();
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"VAE {Path.GetFileName(modelPath.TrimEnd('/'))} decode {size}x{size}: median {times[times.Count / 2]:F1} ms, min {times[0]:F1} ms ({runs} runs)"));
+        }
+
         if (top <= 0)
         {
-            return;
+            return image;
         }
 
         foreach (var segment in compiled.Segments)
@@ -82,5 +110,7 @@ internal static class VaeDecodeBench
                 _ => "",
             });
         }
+
+        return image;
     }
 }
