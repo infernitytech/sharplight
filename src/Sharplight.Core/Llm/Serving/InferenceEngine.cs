@@ -114,6 +114,8 @@ public sealed class InferenceEngine : IDisposable
     // What steps and state copies cost, learnt from the steps run (prices the prefix cache's waits, recomputations and snapshots).
     private readonly StepCostModel _cost;
     private readonly TileStepCost? _tiles;
+    /// <summary>The admission policy at KV saturation (<see cref="EngineOptions.KvAdmission"/>, or the process override).</summary>
+    private readonly KvAdmissionPolicy _kvAdmission;
     /// <summary>Prompt rows the current step held back for a later one (<see cref="HoldRowsPastTile"/>; scheduler trace).</summary>
     private int _heldRows;
 
@@ -191,6 +193,7 @@ public sealed class InferenceEngine : IDisposable
         _minBudget = _opt.MinBatchTokens > 0 ? Math.Min(_opt.MinBatchTokens, _budget) : _budget;
         _prefillChunk = _opt.PrefillChunk > 0 ? _opt.PrefillChunk : _budget;
         _cost = _opt.StepCost ?? new StepCostModel();
+        _kvAdmission = DiagnosticSwitches.KvAdmission ?? _opt.KvAdmission;
         _tiles = (DiagnosticSwitches.TileAwarePrompts ?? _opt.TileAwarePrompts) && _opt.BatchTokensGranule > 1 ? new TileStepCost(_opt.BatchTokensGranule) : null;
         _mediaCache = new MediaEmbeddingCache(Math.Max(0, _opt.MediaCacheBytes));
         _specRequests = new SpeculationRequest[decoder.SlotCount];
@@ -681,9 +684,9 @@ public sealed class InferenceEngine : IDisposable
     }
 
     /// <summary>
-    /// Paged KV cache: whether the prompt's blocks and some room to grow (up to <see cref="KvGrowthReserve"/> tokens) fit next to
-    /// what the running sequences still need: the rest of their prompts plus the same growth reserve. Cache blocks of idle
-    /// slots count as free; preempted sequences are recomputed before anything new is admitted.
+    /// Paged KV cache: whether the prompt's blocks and some room to grow (up to <see cref="KvGrowthReserve"/> tokens; one token under
+    /// <see cref="KvAdmissionPolicy.Preempt"/>) fit next to what the running sequences still need: the rest of their prompts plus the
+    /// same growth reserve. Cache blocks of idle slots count as free; preempted sequences are recomputed before anything new is admitted.
     /// </summary>
     private bool HasKvRoomFor(EngineSequence seq)
     {
@@ -730,6 +733,12 @@ public sealed class InferenceEngine : IDisposable
 
         int Growth(EngineSequence s)
         {
+            if (_kvAdmission == KvAdmissionPolicy.Preempt)
+            {
+                // The next token only: sequences that outgrow the pool later are preempted (EnsureKvBlocksForDecode).
+                return 1;
+            }
+
             long share = (long)_decoder.KvBlocksTotal * _decoder.KvBlockSize / (4 * _slots.Length);
             return (int)Math.Clamp(s.MaxTokens - s.Generated, 1, Math.Max(1, Math.Min(KvGrowthReserve, share)));
         }

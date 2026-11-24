@@ -51,6 +51,13 @@ public sealed record EngineOptions
     /// </summary>
     public bool TileAwarePrompts { get; set; } = true;
     /// <summary>
+    /// Paged KV cache: what happens when the pool runs short of blocks. <see cref="KvAdmissionPolicy.Queue"/> (default) admits a request only
+    /// with room for its prompt and some growth, so new requests wait while the pool is full; <see cref="KvAdmissionPolicy.Preempt"/> admits on
+    /// the prompt alone and preempts the newest running sequences (recomputing them later) when the running ones need blocks. The
+    /// environment variable <c>SHARPLIGHT_KV_ADMISSION</c> (<c>queue</c>, <c>preempt</c>) overrides it for the process.
+    /// </summary>
+    public KvAdmissionPolicy KvAdmission { get; set; } = KvAdmissionPolicy.Queue;
+    /// <summary>
     /// Maximum prompt rows of one sequence per step (0, the default: the step's token budget, so a prompt takes whole passes of the
     /// decoder's rows). Smaller chunks interleave long prefills with other sequences' decoding at the cost of prefill speed.
     /// </summary>

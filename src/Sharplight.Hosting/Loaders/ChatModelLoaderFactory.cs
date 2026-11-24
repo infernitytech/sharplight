@@ -72,6 +72,7 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
                 MinBatchTokens = settings.MinStepTokens ?? new EngineOptions().MinBatchTokens,
                 StepFloor = settings.StepFloor ?? new EngineOptions().StepFloor,
                 BatchTokensPerSequence = settings.StepRowsPerSequence ?? new EngineOptions().BatchTokensPerSequence,
+                KvAdmission = settings.KvAdmission ?? new EngineOptions().KvAdmission,
                 SpeculationMaxBatch = settings.SpeculationMaxBatch,
             },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,
