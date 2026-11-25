@@ -1,0 +1,38 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0mGraph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [35 ms]
+Loaded Qwen3 0.6B Instruct (decoder): 310 tensors, 0.63 GB, vocab 151936 [463 ms]
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 2048 tokens in 317 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 30 groups, 0.81 GiB weights+state
+1 segment(s): [0@0: 676 nodes]
+Model 'm' loaded in 855 ms (estimated 1114 MiB, resident 835 MiB).
+Graph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [18 ms]
+Loaded Qwen3 0.6B Instruct (decoder): 310 tensors, 0.63 GB, vocab 151936 [324 ms]
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 2048 tokens in 154 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 30 groups, 0.81 GiB weights+state
+1 segment(s): [0@0: 676 nodes]
+Model 'm' loaded in 481 ms (estimated 1114 MiB, resident 835 MiB).
+Graph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [37 ms]
+Loaded Qwen3 0.6B Instruct (decoder): 310 tensors, 0.63 GB, vocab 151936 [512 ms]
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 2048 tokens in 144 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 30 groups, 0.81 GiB weights+state
+1 segment(s): [0@0: 676 nodes]
+Model 'm' loaded in 659 ms (estimated 1114 MiB, resident 835 MiB).
+[93m    Sharplight.Serving.Tests.OffloadTeardownRealTests.Model_TearsDownCleanly(providerName: "vulkan", teardown: UnloadThenDispose) [SKIP]
+[0m[37m      no vulkan device
+[0m[93m    Sharplight.Serving.Tests.OffloadTeardownRealTests.Model_TearsDownCleanly(providerName: "vulkan", teardown: DisposeDuringUnload) [SKIP]
+[0m[37m      no vulkan device
+[0m[93m    Sharplight.Serving.Tests.OffloadTeardownRealTests.Model_TearsDownCleanly(providerName: "vulkan", teardown: DisposeDuringDecode) [SKIP]
+[0m[37m      no vulkan device
+[0m[93m    Sharplight.Serving.Tests.OffloadTeardownRealTests.Model_TearsDownCleanly(providerName: "cuda", teardown: UnloadThenDispose) [SKIP]
+[0m[37m      no cuda device
+[0m[93m    Sharplight.Serving.Tests.OffloadTeardownRealTests.Model_TearsDownCleanly(providerName: "cuda", teardown: DisposeDuringUnload) [SKIP]
+[0m[37m      no cuda device
+[0m[93m    Sharplight.Serving.Tests.OffloadTeardownRealTests.Model_TearsDownCleanly(providerName: "cuda", teardown: DisposeDuringDecode) [SKIP]
+[0m[37m      no cuda device
+[0m[37m  Finished:    Sharplight.Serving.Tests (ID = 'd139025560f8fc7ba6bfb28bbce939754ba7504712a1d7066f841b34e6b84624')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 9, Errors: 0, Failed: 0, Skipped: 6, Not Run: 0, Time: 4.277s
+[0m[0m
