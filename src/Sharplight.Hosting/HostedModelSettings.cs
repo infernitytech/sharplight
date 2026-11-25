@@ -99,6 +99,9 @@ public sealed record HostedModelSettings
     /// <summary>Rows per sequence holding a slot that the adaptive step budget allows, or null (the engine's default).</summary>
     public int? StepRowsPerSequence { get; init; }
 
+    /// <summary>How a paged KV cache admits requests when it runs short, or null (the engine's default: queue).</summary>
+    public Llm.Serving.KvAdmissionPolicy? KvAdmission { get; init; }
+
     /// <summary>Prompt-lookup draft length (0 = off).</summary>
     public int NgramDraftTokens { get; init; }
 
@@ -158,6 +161,7 @@ public sealed record HostedModelSettings
             MinStepTokens = defaults.MinStepTokens,
             StepFloor = defaults.StepFloor,
             StepRowsPerSequence = defaults.StepRowsPerSequence,
+            KvAdmission = defaults.KvAdmission,
             NgramDraftTokens = defaults.NgramDraftTokens,
             MtpDraftTokens = defaults.MtpDraftTokens,
             SpeculationMaxBatch = defaults.SpeculationMaxBatch,

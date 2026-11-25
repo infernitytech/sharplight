@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Cpu;
 
 /// <summary>
-/// Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type: f32, f16, bf16, or q8_0 / q4_0 blocks). A compressed cache
+/// Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type: f32, f16, bf16, or q8_0 / q4_0 / f8e4m3_b32 blocks). A compressed cache
 /// (compression r &gt; 1) takes only the rows that close a window of r positions, at entry (position + 1) / r − 1.
 /// </summary>
 internal sealed unsafe class CacheWriteOp : CpuOp
@@ -20,7 +20,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
     private readonly long _slotCtx;
     private readonly KvPages? _pages;   // paged cache: rows through the block table
     private readonly long _rowsPerToken;
-    private readonly WeightFormat? _quantized;   // q8_0 / q4_0 cache: rows are quantized in 32-value blocks
+    private readonly WeightFormat? _quantized;   // q8_0 / q4_0 / f8e4m3_b32 cache: rows are quantized in 32-value blocks
     private readonly long _compression;          // positions per cache row (compressed cache: only window-closing rows are written)
     private long _past;
     private long _rows;

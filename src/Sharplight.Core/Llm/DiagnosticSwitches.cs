@@ -24,6 +24,8 @@ namespace Sharplight.Llm;
 /// <see cref="Serving.EngineOptions.TileAwarePrompts"/>.</item>
 /// <item><c>SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full</c>: the serving scheduler's step-floor policy, overriding
 /// <see cref="Serving.EngineOptions.StepFloor"/> (waves, always, full).</item>
+/// <item><c>SHARPLIGHT_KV_ADMISSION=queue|preempt</c>: how the serving scheduler admits requests when the paged KV cache runs short,
+/// overriding <see cref="Serving.EngineOptions.KvAdmission"/>.</item>
 /// <item><c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c>: the block-scaled FP8 mode on (where the device has it) or off for every load of the
 /// process, overriding <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/>.</item>
 /// </list>
@@ -69,6 +71,17 @@ internal static class DiagnosticSwitches
         "1" => Serving.StepFloorPolicy.Waves,
         "0" => Serving.StepFloorPolicy.Always,
         "full" => Serving.StepFloorPolicy.Full,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The KV admission policy forced for the process (<c>SHARPLIGHT_KV_ADMISSION=queue|preempt</c>), overriding
+    /// <see cref="Serving.EngineOptions.KvAdmission"/>. Null: the engine options decide.
+    /// </summary>
+    public static Serving.KvAdmissionPolicy? KvAdmission { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_KV_ADMISSION")?.ToLowerInvariant() switch
+    {
+        "queue" => Serving.KvAdmissionPolicy.Queue,
+        "preempt" => Serving.KvAdmissionPolicy.Preempt,
         _ => null,
     };
 

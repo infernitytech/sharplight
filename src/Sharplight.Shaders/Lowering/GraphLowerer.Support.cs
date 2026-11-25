@@ -237,7 +237,7 @@ public sealed partial class GraphLowerer
         return SupportsKvRows(node.Inputs[1]) is { IsSupported: false } keys ? keys : SupportsKvRows(node.Inputs[2]);
     }
 
-    /// <summary>KV-cache storage the kernels read and write: f32, f16, or q8_0 / q4_0 rows of whole 32-value blocks.</summary>
+    /// <summary>KV-cache storage the kernels read and write: f32, f16, or q8_0 / q4_0 / f8e4m3_b32 rows of whole 32-value blocks.</summary>
     private static OpSupport SupportsKvRows(Value cache)
     {
         if (cache.Type == DataType.F32 || cache.Type == DataType.F16)

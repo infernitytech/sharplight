@@ -459,6 +459,18 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool NativeWideDecodeQ8 { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE_Q8");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_DECODE_F8=0</c>: decode rows of head sizes 64 / 128 over f8e4m3_b32 caches keep the generated <c>decode</c> instead
+    /// of <c>attn_decode_native.cu</c> with raw FP8 chunks (CUDA).
+    /// </summary>
+    public static bool NativeDecodeFp8 { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE_F8");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_ATTN_F8=0</c>: prompt rows over f8e4m3_b32 caches keep the generated flash kernels instead of
+    /// <c>attn_prefill_native.cu</c> with raw FP8 stages (CUDA).
+    /// </summary>
+    public static bool NativeAttentionFp8 { get; } = IsNotZero("SHARPLIGHT_NATIVE_ATTN_F8");
+
     /// <summary><c>SHARPLIGHT_COOP_KQ_NT=1|2</c>: 64-row weight tiles per workgroup of the cooperative-matrix K-quant decode GEMM, or null for the default.</summary>
     public static int? CoopKQuantWeightTiles { get; } = Read("SHARPLIGHT_COOP_KQ_NT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 

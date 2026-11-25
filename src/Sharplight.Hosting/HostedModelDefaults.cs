@@ -78,6 +78,12 @@ public sealed class HostedModelDefaults
     /// </summary>
     public int? StepRowsPerSequence { get; set; }
 
+    /// <summary>
+    /// Paged KV cache: how requests are admitted when the pool runs short (<see cref="Llm.Serving.EngineOptions.KvAdmission"/>:
+    /// <c>queue</c> waits for room, <c>preempt</c> admits and preempts the newest running sequences); null = the engine's default (<c>queue</c>).
+    /// </summary>
+    public Llm.Serving.KvAdmissionPolicy? KvAdmission { get; set; }
+
     /// <summary>Draft length of prompt-lookup speculation; 0 disables it.</summary>
     public int NgramDraftTokens { get; set; }
 

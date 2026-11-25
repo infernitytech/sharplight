@@ -146,6 +146,21 @@ public sealed class ModelHostingJsonTests
         Assert.Equal(32, ModelHostingJson.Parse(ModelHostingJson.Serialize(options)).Defaults.StepRowsPerSequence);
     }
 
+    [Fact]
+    public void KvAdmissionRoundTripsAndReachesTheEngine()
+    {
+        var unset = HostedModelSettings.Resolve(new HostedModelOptions { Name = "m", Path = "/m.slm" }, new HostedModelDefaults(), false);
+        Assert.Null(unset.KvAdmission);
+        Assert.Equal(KvAdmissionPolicy.Queue, EngineOf(unset).KvAdmission);
+
+        var options = ModelHostingJson.Parse("""{ "defaults": { "kvAdmission": "preempt" }, "models": [ { "name": "a", "path": "/a.slm" } ] }""");
+        Assert.Equal(KvAdmissionPolicy.Preempt, options.Defaults.KvAdmission);
+        var a = HostedModelSettings.Resolve(options.Models[0], options.Defaults, false);
+        Assert.Equal(KvAdmissionPolicy.Preempt, a.KvAdmission);
+        Assert.Equal(KvAdmissionPolicy.Preempt, EngineOf(a).KvAdmission);
+        Assert.Equal(KvAdmissionPolicy.Preempt, ModelHostingJson.Parse(ModelHostingJson.Serialize(options)).Defaults.KvAdmission);
+    }
+
     private static EngineOptions EngineOf(HostedModelSettings settings)
     {
         var context = new HostedModelLoadContext(settings, new ModelHostingOptions(), null!, null!);

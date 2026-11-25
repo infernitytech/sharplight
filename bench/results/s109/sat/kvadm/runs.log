@@ -1,0 +1,16 @@
+17:15:29 start llama sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 100480 --kv-admission queue
+17:38:08 end llama sharplight mix rc=0
+17:38:08 start llama sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 100480 --kv-admission preempt
+17:56:50 end llama sharplight mix rc=0
+17:56:50 start llama sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 100480 --kv-admission preempt
+18:07:26 end llama sharplight mix rc=0
+18:07:26 start llama sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 100480 --kv-admission queue
+18:46:17 end llama sharplight mix rc=0
+18:46:24 start qwen sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 127632 --kv-admission queue
+18:55:19 end qwen sharplight mix rc=0
+18:55:19 start qwen sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 127632 --kv-admission preempt
+19:19:04 end qwen sharplight mix rc=0
+23:31:09 start qwen sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 127632 --kv-admission preempt
+23:32:01 end qwen sharplight mix rc=0
+23:32:01 start qwen sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 127632 --kv-admission queue
+23:34:15 end qwen sharplight mix rc=0

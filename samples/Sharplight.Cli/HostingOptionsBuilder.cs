@@ -89,6 +89,7 @@ internal static class HostingOptionsBuilder
         defaults.MinStepTokens = settings.MinStepTokens ?? defaults.MinStepTokens;
         defaults.StepFloor = settings.StepFloor ?? defaults.StepFloor;
         defaults.StepRowsPerSequence = settings.StepRowsPerSequence ?? defaults.StepRowsPerSequence;
+        defaults.KvAdmission = settings.KvAdmission ?? defaults.KvAdmission;
         defaults.KvCacheTokens = settings.KvCacheTokens ?? defaults.KvCacheTokens;
         defaults.PrefixCache &= !settings.NoPrefixCache;
         defaults.KvStateSnapshots = settings.KvStateSnapshots ?? defaults.KvStateSnapshots;

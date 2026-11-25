@@ -114,6 +114,13 @@ internal sealed class ServeOptionSet
     private readonly Option<int?> _stepRowsPerSequence = OptionFactory.OptionalInteger("--step-rows-per-sequence", "Prompt rows per sequence holding a slot "
         + "that a step may carry while some sequence decodes (default 48; larger: fewer, longer prompt steps, lower ITL p95, higher TTFT). "
         + "SHARPLIGHT_STEP_ROWS_PER_SEQUENCE overrides it.", minimum: 1, helpName: "rows");
+    private readonly Option<string?> _kvAdmission = new("--kv-admission")
+    {
+        Description = "When the paged KV cache runs short: queue (default: a request waits until its prompt and some room to grow fit) or "
+            + "preempt (admit on the prompt alone; the newest running sequences give their blocks back and are recomputed later, as vLLM does: "
+            + "lower time to first token at KV saturation, at the cost of recomputation). SHARPLIGHT_KV_ADMISSION=queue|preempt overrides it.",
+        HelpName = "policy",
+    };
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
     private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
@@ -163,6 +170,7 @@ internal sealed class ServeOptionSet
         _sampleRuntime = sampleRuntime;
         _api.AcceptOnlyFromAmong(ApiOpenAi, ApiAnthropic, ApiBoth);
         _stepFloor.AcceptOnlyFromAmong("waves", "always", "full");
+        _kvAdmission.AcceptOnlyFromAmong("queue", "preempt");
     }
 
     private readonly Option<string[]> _workers = OptionFactory.CommaSeparatedList(
@@ -189,6 +197,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_minStepTokens);
         command.Options.Add(_stepFloor);
         command.Options.Add(_stepRowsPerSequence);
+        command.Options.Add(_kvAdmission);
         command.Options.Add(_kvTokens);
         command.Options.Add(_allowCacheSalt);
         command.Options.Add(_noPrefixCache);
@@ -251,6 +260,7 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_minStepTokens),
             ParseStepFloor(parseResult.GetValue(_stepFloor)),
             parseResult.GetValue(_stepRowsPerSequence),
+            ParseKvAdmission(parseResult.GetValue(_kvAdmission)),
             parseResult.GetValue(_kvTokens),
             parseResult.GetValue(_draftTokens),
             parseResult.GetValue(_mtpTokens),
@@ -279,6 +289,16 @@ internal sealed class ServeOptionSet
             "waves" => StepFloorPolicy.Waves,
             "always" => StepFloorPolicy.Always,
             "full" => StepFloorPolicy.Full,
+            _ => null,
+        };
+    }
+
+    private static KvAdmissionPolicy? ParseKvAdmission(string? value)
+    {
+        return value switch
+        {
+            "queue" => KvAdmissionPolicy.Queue,
+            "preempt" => KvAdmissionPolicy.Preempt,
             _ => null,
         };
     }

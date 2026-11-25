@@ -17445,6 +17445,143 @@ full-resolution levels run frame by frame.
 * The VAE's convolution speed (108.2).
 * `torch.compile`: not offered by the official inference script, so not used.
 
+## 109. LLM round 46: a KV admission policy at KV saturation (queue, the default, or preempt with recomputation as vLLM does: Llama-3.1-8B bf16 at 256 streams TTFT p50 3.9 → 2.0 s for -4 % tok/s); the FP8 (E4M3) KV cache, default off (decode attention -38 % per layer, Qwen3-8B-FP8 256-row decode steps -12 %; throughput and accuracy partly pending) (2026-11-25)
+
+Branch `perf/llm-r46` (`develop` at `bce0d388`, §105 merged; `develop` `a4f8f173` merged before the hand-back). GPU 0 of the RunPod machine
+(RTX PRO 4500 Blackwell 32 GB, 200 W cap), shared with a llama.cpp re-measure and the SeedVR2 bring-up: every measurement took the bench
+lock (`flock`). vLLM rows are §105.2's (vLLM 0.33, the same machine and the same `loadgen.py --length-mix` requests, measured a day earlier).
+Raw output in [`bench/results/s109/`](../bench/results/s109) (`sat/kvadm/`, `bb/`, `ppl/`, `tests/`, `scripts/`).
+
+Kept (keyed on scheduler state, KV dtype and head size; nothing on models):
+
+1. **KV admission policy** (`EngineOptions.KvAdmission`, `KvAdmissionPolicy { Queue, Preempt }`; hosting `kvAdmission`; `serve --kv-admission
+   queue|preempt`; `SHARPLIGHT_KV_ADMISSION=queue|preempt`). `Queue` (default) is the admission of §105: a request waits until its prompt and
+   a growth reserve of up to 64 tokens per sequence fit next to the running sequences' needs. `Preempt` keeps one token of reserve: a
+   request is admitted as soon as its prompt fits next to the rest of the running prompts, and when a decoding sequence needs a block that
+   neither the free pool nor an idle context can give, the most recently admitted sequences give their blocks back and are recomputed
+   (prompt and generated tokens, prompt chunks without logits; the engine's existing recompute path). A preempted sequence keeps its slot
+   and blocks new admissions until it is recomputed (the head of the waiting work); preemption follows admission order, so the oldest
+   sequence is never preempted while another can give blocks back. With `Queue` the engine is unchanged (the policy only changes the growth
+   term of `HasKvRoomFor`). Tests: `KvAdmissionTests` (fake decoder whose next token hashes the whole context, so a recomputation that lost
+   or reordered a token changes the text): two prompts that outgrow the pool (queue: sequential, no preemption; preempt: admitted
+   together, preempted, the same text), twelve requests over six slots and a pool for about two (preempt: repeated preemptions, every
+   text equal to a run with a pool large enough for all; queue: the same texts), the default; `ModelHostingJsonTests.KvAdmissionRoundTripsAndReachesTheEngine`.
+2. **FP8 KV cache** (`--kv-type f8e4m3_b32`, `LlmLoadOptions.KvCacheType`, hosting `kvCacheType`; default stays f16). Format: the
+   block-scaled FP8 weight layout `f8e4m3_b32`, per 32 values of a row an f32 scale amax / 448 and 32 E4M3 codes (36 bytes, 0.5625x of
+   f16), dynamic per block, so no calibration. Paths: the generated attention kernels of attention.slang (Vulkan and CUDA: `main`,
+   split-K `decode`, `fa`, `fa_mqa`) read it through the quantized-KV helpers (codes decoded exactly through half bits); `cache_write_q`
+   quantizes (round to nearest even, `e4m3.slang`); the CPU reference (`Quant.FloatToE4m3`); on CUDA the hand-written kernels read it
+   natively: `attn_decode_native.cu` (`ND_KVF8`, head sizes 64 / 128: a lane's 8 codes and their block scale are loaded packed and
+   converted to f16 right before the MMAs) and `attn_prefill_native.cu` (`FN_KVF8`, head sizes up to 256: raw rows cp.async-copied into the
+   stages, converted once per tile into an f16 tile, one more barrier per tile). `SHARPLIGHT_NATIVE_DECODE_F8=0` / `SHARPLIGHT_NATIVE_ATTN_F8=0`
+   keep the generated kernels. PplBench gained `--kv-type`.
+
+### 109.1 KV admission: Queue against Preempt against vLLM
+
+Llama-3.1-8B-Instruct (bf16), `bench/s16_serve.sh`, length mix (`--length-mix`, 8 requests per stream), closed loop at 256 streams, 256 slots,
+2,560-token contexts, the KV tokens of vLLM at `--gpu-memory-utilization 0.9` (`--kv-tokens 100480`; ~256 x 505 tokens want 129K), order queue
+preempt preempt queue (`sat/kvadm/`). Tok/s whole run / steady window; TTFT p50 / p99, ITL p50 / p90 / p99 (ms); running / waiting (gauge means).
+
+| engine, policy | tok/s (all / steady) | TTFT p50 / p99 | ITL p50 / p90 / p99 | running / waiting | KV use max | preemptions | text check |
+|---|---|---|---|---|---|---|---|
+| ours, queue (run 1) | 2081 / 2370 | 3939 / 8688 | 56.3 / 146.1 / 238.7 | 162 / 30.6 | 0.90 | 0 | clean |
+| ours, queue (run 4) | 2088 / 2382 | 3986 / 8553 | 56.2 / 142.7 / 238.8 | 162 / 30.5 | 0.90 | 0 | clean |
+| ours, preempt (run 2) | 1993 / 2216 | 1927 / 7841 | 63.8 / 175.7 / 246.1 | 176 / 16.7 | 0.99 | 344 | clean |
+| ours, preempt (run 3) | 1995 / 2239 | 2025 / 7561 | 64.6 / 171.6 / 246.9 | 176 / 16.5 | 0.99 | 401 | clean |
+| vLLM 0.33 (§105.2) | 1857 / 2016 | 2092 / 8227 | 65.5 / 202.3 / 287.3 | 174 / 18.8 | 1.00 | 566 | clean |
+
+* Preempt does what vLLM does and lands where vLLM is on latency: TTFT p50 1.9-2.0 s (queue 3.9-4.0 s, vLLM 2.1 s), more sequences running
+  (176 against 162), half the waiting; it pays with 344-401 recomputations (vLLM 566) and longer steps (ITL p50 64 against 56 ms):
+  **-4 % throughput against queue (1,994 against 2,085 tok/s), still +7 % against vLLM (1,857)**. Queue stays the default: the highest
+  throughput and the lowest ITL; Preempt is the option for TTFT at KV saturation. The runs of each policy agree within 0.4 % tok/s.
+* The batched text check (16 and 256 concurrent greedy requests against single ones, §102) passed on all four servers; at 256 concurrent
+  requests the preempt server recomputes sequences while it answers them.
+* **Non-binding case** (Qwen3-8B-FP8, the same load, `--kv-tokens 127632`: KV use stays ≤ 0.96, no preemption under either policy): queue
+  3,073 / 3,659 tok/s, TTFT p50 217 ms. The one preempt run scheduled the same work (996,326 rows in 3,538 steps against 3,529, 0 preemptions)
+  but its steps took 187 s against 133 s in all, i.e. the GPU was slower during that run (another agent's load; it was not flagged by the
+  script's foreign-process check, which sees only CUDA processes), so its 2,131 tok/s are not the policy's. A rerun failed to load (other
+  processes held 21 GB of the GPU). **Pending**: the clean rerun. By construction the policies differ only when an admission would leave
+  less than the growth reserve, which never bound here (queue's waiting mean 3.4 is slots and steps, not blocks).
+
+### 109.2 FP8 KV cache: steps
+
+BatchBench (`--kv-type f16|f8e4m3_b32`, 264 slots, 2,560-token contexts, 256 tokens of context per decode row, greedy, 10 reps, `--profile`;
+order f16 f8 f8 f16, `bb/`). GPU ms min of each run:
+
+| step (decode + prompt rows) | Qwen3-8B-FP8 f16 KV | f8e4m3_b32 KV | | Llama-3.1-8B f16 KV | f8e4m3_b32 KV | |
+|---|---|---|---|---|---|---|
+| 1 | 10.99, 10.98 | 11.06, 11.06 | +0.7 % | 18.74, 18.74 | 18.84, 18.84 | +0.5 % |
+| 64 | 15.41, 15.44 | 14.58, 14.56 | **-5.6 %** | 23.60, 23.62 | 22.96, 22.97 | -2.7 % |
+| 128 | 20.38, 20.43 | 18.35, 18.52 | **-9.6 %** | 29.89, 30.17 | 29.12, 29.07 | -3.1 % |
+| 256 | 32.88, 33.01 | 28.90, 29.02 | **-12.1 %** | 40.80, 41.58 | 40.53, 40.61 | -1.4 % |
+| 0 + 2,048 | 131.39, 131.60 | 135.76, 135.72 | +3.2 % | 214.69, 221.28 | 226.90, 227.06 | +4 % |
+| 256 + 7 x 256 | 146.04, 145.88 | 142.82, 142.26 | -2.3 % | 236.63, 236.23 | 226.32, 234.12 | -2.6 % |
+
+* **Decode attention per layer at 256 rows: 387.6 → 238.4 µs (Qwen3-8B-FP8) and 387.3 → 240.1 µs (Llama-3.1-8B), -38 %** on 0.5625x the
+  bytes (rows of 144 bytes straddle a fifth 32-byte sector; the neighbouring head's row shares it through L2). The Qwen step keeps that
+  gain (-12 %, attention 42 → 30 % of the step).
+* Llama-3.1-8B keeps little of it: in both FP8 runs its f16 GEMMs are ~10 % slower than in both f16 runs (gate / up 400.8 → 439-451 µs,
+  LM head 1,866 → 2,119 µs), the same kernels on the same shapes. The steps run at the 200 W cap (§105.3) and the bf16 GEMMs are the
+  compute-bound part, so a shorter memory-bound phase plausibly leaves them less power; the clocks were not sampled in these runs (**pending**:
+  `s73_clock_sampler.py` windows).
+* Prompt steps are 3-4 % slower: `attn_prefill_native.cu` with FP8 stages is +23 % (299 → 367 µs per layer at 2,048 rows: the conversion
+  pass and its barrier), and a quantized cache loses the rope → QKV → cache-write fusion (`rope_qkv` → `rope_row` twice plus `cache_write_q`,
+  ~+8 ms per 2,048-row step). Next: quantize inside `rope_qkv`, convert in registers instead of a second shared tile.
+* Single-row steps +0.5-0.7 %: the unfused cache write (two more launches per layer).
+
+### 109.3 FP8 KV cache: accuracy
+
+PplBench, wikitext-2 (`ppl/`): `--chunk 1024` (4 x 3,072 tokens, the prompt kernel) and `--chunk 8` (2 x 3,072 tokens, steps of 8 rows: the
+split-K decode kernel).
+
+| model | path | f16 KV | f8e4m3_b32 KV | q8_0 KV |
+|---|---|---|---|---|
+| Llama-3.1-8B | prompt (chunk 1,024) | 6.6821 | 6.6905 (+0.13 %) | 6.6835 (+0.02 %) |
+| Llama-3.1-8B | decode (chunk 8) | 8.4176 | 8.4251 (+0.09 %) | |
+| Qwen3-8B-FP8 | prompt (chunk 1,024) | 8.7358 | pending | pending |
+| Qwen3-8B-FP8 | decode (chunk 8) | pending | 10.0213 | |
+
+The Qwen3-8B-FP8 runs marked pending failed to load (other processes held the GPU's memory). Kernel tests compare every FP8 path with the
+CPU reference on the dequantized cache (109.5).
+
+### 109.4 Pending (follow-up commits on this branch)
+
+* FP8 KV: Qwen3-8B-FP8 perplexities, the clock windows of the Llama steps, serving with the FP8 cache against vLLM's `--kv-cache-dtype fp8`
+  (throughput at 128 / 256 streams and long context, where 1.78x the KV tokens in the same memory matter: Llama-3.1-8B's 256-stream mix
+  would no longer be KV-bound), the fused rope / quantizing cache write and a cheaper prompt-kernel conversion, a native Vulkan check of the
+  step times.
+* KV admission: the clean Qwen3-8B-FP8 preempt rerun (non-binding case).
+
+### 109.5 Tests
+
+Merged `develop` (`a4f8f173`) and rebuilt; one class per process (`tests/`):
+
+* CPU-side, devices hidden (`tests/cpu/` holds the Serving files of this run and the Core / Hosting files of the GPU-hold run): `Sharplight.Core.Tests`, `Sharplight.Hosting.Tests`, `Sharplight.Serving.Tests`: 73 classes,
+  2,109 tests, 0 failed, 359 skipped (GPU and model tests). Inside the GPU hold (`tests/cuda/`, `SHARPLIGHT_TEST_PROVIDER=cuda`):
+  Core.Tests 1,663, 0 failed (331 skipped), Hosting.Tests 31, 0 failed, `Sharplight.Cuda.Tests` 92, 0 failed (1 skipped), `Sharplight.Serving.Tests`
+  415, 1 failed (13 skipped): `OpenAiApiTests.ClientDisconnect_CancelsGeneration`, a timing test of the HTTP layer that fails on `develop`'s
+  build too (interleaved runs, devices hidden: branch 4 of 10, `develop` 3 of 10).
+* `Sharplight.Vulkan.Tests` attention classes (`PagedAttentionTests`, `FullAttentionTests`, `SparseAttentionTests`, `StatefulTests`,
+  `CompressedKvTests`, `FusionTests`) on CUDA and on Vulkan (`tests/vk-cuda/`, `tests/vk-vulkan/`): 272 / 272, 0 failed each. New FP8 cases:
+  `StatefulTests.CachedAttentionAcrossSteps` / `LongPrefill` / `GroupedDecode` / `WideDecode` / `LatentShapes` (head sizes 64-576; the native
+  decode and prompt kernels on CUDA, the generated `decode` / `fa` / `fa_mqa` elsewhere), `PagedAttentionTests.PagedAttentionMatchesCpu` and
+  `ManySequencesDecodeOneRowEach` (paged multi-sequence steps, the serving form).
+* New elsewhere: `KvAdmissionTests` (4), `ModelHostingJsonTests.KvAdmissionRoundTripsAndReachesTheEngine`,
+  `QuantTests.E4m3_EncodesEveryCodeBackAndRoundsToNearestEven` (Cpu.Tests).
+
+### 109.6 Reproduce
+
+```bash
+# 109.1 (ORDER / MODELS select; vLLM: §105.9)
+SLOTS=256 CTX_PER_SLOT=2560 PER_OVERRIDE=8 LOADGEN_ARGS="--gauges --length-mix" \
+  bench/s16_serve.sh sharplight llama ~/models/hf/Llama-3.1-8B-Instruct 256 --provider cuda --max-queue 4096 --kv-tokens 100480 --kv-admission preempt
+# 109.2
+BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 264 --ctx 2560 --kv-tokens 131072 --kv-type f8e4m3_b32 --depth 256 --batch 2048 \
+  --modes greedy --reps 10 --text --mixed 1+0,64+0,128+0,256+0,0+2048,256+256x7 --profile 0,1,2,3,4,5
+# 109.3
+PplBench ~/models/hf/Llama-3.1-8B-Instruct --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --kv-type f8e4m3_b32
+```
+
 ## 110. Convolutions over channels-last f16 activations: the shared implicit-GEMM convolution 2-3 × faster (70-120 TFLOPS), SeedVR2 3B end to end 15.1 → 8.4 s, ahead of the official PyTorch inference at 480p; Vulkan on par with CUDA (2026-11-24)
 
 Branch `perf/conv-f16` (`develop` at `22be85fe`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, driver 595.112, shared

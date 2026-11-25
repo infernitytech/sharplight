@@ -80,8 +80,8 @@ public sealed partial class GraphLowerer
     private static (string, object)[] PageMacros(Node n, TensorRef? pages)
         => [("PAGED", pages is not null), ("PAGE_BS", pages is null ? 1 : n.Attributes.Get("block_size", 0L)), ("PAGE_MB", pages is null ? 1 : pages.Shape[1])];
 
-    /// <summary>Whether a KV-cache type is one of the quantized block formats (q8_0, q4_0) the attention kernels read.</summary>
-    internal static bool IsQuantizedKv(DataType type) => type == DataType.Q8_0 || type == DataType.Q4_0;
+    /// <summary>Whether a KV-cache type is one of the quantized block formats (q8_0, q4_0, f8e4m3_b32) the attention kernels read.</summary>
+    internal static bool IsQuantizedKv(DataType type) => type == DataType.Q8_0 || type == DataType.Q4_0 || type == DataType.F8E4M3_B32;
 
     /// <summary>The <c>KV_FMT</c> / <c>DST_FMT</c> kernel id (the <c>FMT_*</c> ids of common.slang) of a KV-cache type.</summary>
     private static int KvFormat(DataType type) => s_weightFormats.TryGetValue(type, out int id) && (type == DataType.F32 || type == DataType.F16 || IsQuantizedKv(type))

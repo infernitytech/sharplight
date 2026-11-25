@@ -137,12 +137,12 @@ public sealed class RuntimeOptionSet
     {
         var option = new Option<string>("--kv-type")
         {
-            Description = "KV cache element type: f16, f32, q8_0 (half the memory of f16) or q4_0 (a quarter, less accurate). "
-                + "Caches whose rows are not whole 32-value blocks stay f16.",
+            Description = "KV cache element type: f16, f32, q8_0 (half the memory of f16), f8e4m3_b32 (FP8 E4M3 with a scale per 32 values, "
+                + "0.56x of f16) or q4_0 (a quarter, less accurate). Caches whose rows are not whole 32-value blocks stay f16.",
             DefaultValueFactory = _ => DefaultKvCacheType,
             HelpName = "type",
         };
-        option.AcceptOnlyFromAmong("f16", "f32", "q8_0", "q4_0");
+        option.AcceptOnlyFromAmong("f16", "f32", "q8_0", "q4_0", "f8e4m3_b32");
         return option;
     }
 }

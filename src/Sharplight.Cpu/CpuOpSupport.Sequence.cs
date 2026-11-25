@@ -56,7 +56,7 @@ internal static partial class CpuOpSupport
 
         if (!(IsKvCacheType(ins[1].Type) || IsQuantizedKvCache(ins[1])) || !(IsKvCacheType(ins[2].Type) || IsQuantizedKvCache(ins[2])))
         {
-            return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32, f16, q8_0, q4_0)");
+            return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32, f16, q8_0, q4_0, f8e4m3_b32)");
         }
 
         bool compressed = node.Attributes.Has("compression");

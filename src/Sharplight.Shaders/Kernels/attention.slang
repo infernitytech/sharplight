@@ -129,14 +129,34 @@ float score_bias(uint h, uint j, uint qp)
     return b;
 }
 #endif
-#define KV_QUANT (KV_FMT == FMT_Q8_0 || KV_FMT == FMT_Q4_0)
-#define KV_BLOCK_BYTES (KV_FMT == FMT_Q8_0 ? 34 : 18)
+// KV_FP8: f8e4m3_b32 caches, blocks of { f32 d; u8 e4m3[32] } (36 bytes, 4-byte aligned), value = d * e4m3(q).
+#define KV_FP8 (KV_FMT == FMT_F8E4M3_B32)
+#define KV_QUANT (KV_FMT == FMT_Q8_0 || KV_FMT == FMT_Q4_0 || KV_FP8)
+#define KV_BLOCK_BYTES (KV_FP8 ? 36 : KV_FMT == FMT_Q8_0 ? 34 : 18)
+#define KV_SCALE_BYTES (KV_FP8 ? 4 : 2)
+// One byte per value (q8_0, f8e4m3_b32) rather than q4_0's nibbles.
+#define KV_BYTE_QUANTS (KV_FMT == FMT_Q8_0 || KV_FP8)
 
 // ---- KV cache element access (elements are addressed linearly in the cache; quantized caches in 32-value blocks) -------
-// Block of cache element `elem`, its f16 scale, and the 16-bit word holding the byte at offset `b` of its quants (blocks are
-// 2-byte aligned: 34 / 18 bytes).
+// Block of cache element `elem`, its scale (f16; f32 for f8e4m3_b32), and the 16-bit word holding the byte at offset `b` of its
+// quants (blocks are 2-byte aligned: 34 / 18 bytes; 4-byte aligned: 36).
 uint8_t* kv_block(uint8_t* base, uint64_t elem) { return byteAt(base, (elem >> 5) * KV_BLOCK_BYTES); }
-uint kv_word(uint8_t* blk, uint b) { return uint(*(uint16_t*)(blk + 2 + b)); }
+uint kv_word(uint8_t* blk, uint b) { return uint(*(uint16_t*)(blk + KV_SCALE_BYTES + b)); }
+float kv_scale(uint8_t* blk)
+{
+#if KV_FP8
+    return *(float*)blk;
+#else
+    return h2f(*(uint16_t*)blk);
+#endif
+}
+
+// An E4M3 code (low byte of `code`) as a float, exact: its sign and 7 exponent / mantissa bits placed as half bits are the
+// value * 2^-8 (the exponent biases differ by 8; subnormals included).
+float e4m3_value(uint code)
+{
+    return f16tof32(((code & 0x7Fu) << 7) | ((code & 0x80u) << 8)) * 256.0;
+}
 
 // 8 cache values starting at element `elem` (a multiple of 8) as raw data: kept packed in registers until used, so a kernel
 // can issue many loads before the first one is consumed.
@@ -166,9 +186,13 @@ Kv8 load_kv8(uint8_t* cache, uint64_t elem)
 #else
     uint8_t* blk = kv_block(cache, elem);
     uint within = uint(elem & 31);
-    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
-    r.d = h2f(*(uint16_t*)blk);
+    uint b = KV_BYTE_QUANTS ? within : within & 15;
+    r.d = kv_scale(blk);
+#if KV_FP8
+    r.q = uint2(*(uint*)(blk + 4 + b), *(uint*)(blk + 8 + b));
+#else
     r.q = uint2(kv_word(blk, b) | (kv_word(blk, b + 2) << 16), kv_word(blk, b + 4) | (kv_word(blk, b + 6) << 16));
+#endif
     r.shift = KV_FMT == FMT_Q4_0 && within >= 16 ? 4 : 0;
 #endif
     return r;
@@ -196,7 +220,9 @@ float kv_quant(Kv8 k, uint e)
 {
     uint w = e < 4 ? k.q.x : k.q.y;
     uint byte = (w >> ((e & 3) * 8)) & 0xFF;
-#if KV_FMT == FMT_Q8_0
+#if KV_FP8
+    return e4m3_value(byte);
+#elif KV_FMT == FMT_Q8_0
     return float(int(byte << 24) >> 24);
 #else
     return float((byte >> k.shift) & 0xF) - 8.0;
@@ -247,9 +273,11 @@ float load_kv(uint8_t* base, uint64_t elem)
 #else
     uint8_t* blk = kv_block(base, elem);
     uint within = uint(elem & 31);
-    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
+    uint b = KV_BYTE_QUANTS ? within : within & 15;
     uint byte = (kv_word(blk, b & ~1u) >> ((b & 1) * 8)) & 0xFF;
-#if KV_FMT == FMT_Q8_0
+#if KV_FP8
+    return kv_scale(blk) * e4m3_value(byte);
+#elif KV_FMT == FMT_Q8_0
     return h2f(*(uint16_t*)blk) * float(int(byte << 24) >> 24);
 #else
     return h2f(*(uint16_t*)blk) * (float((byte >> (within >= 16 ? 4 : 0)) & 0xF) - 8.0);
@@ -2379,7 +2407,11 @@ void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd
             uint64_t s = (elem >> 5) * KV_BLOCK_BYTES;
             uint* w = (uint*)byteAt(cache, s & ~uint64_t(3));
             [ForceUnroll] for (uint n = 0; n + 1 < FM_NW; n++) buf.w[k * FM_NW + n] = w[n];
-            if ((s & 2) != 0)
+            if (KV_FP8)
+            {
+                buf.w[k * FM_NW + FM_NW - 1] = w[FM_NW - 1];   // 4-byte aligned blocks of 9 whole words
+            }
+            else if ((s & 2) != 0)
             {
                 buf.w[k * FM_NW + FM_NW - 1] = w[FM_NW - 1];
                 buf.mis |= 1u << k;
@@ -2422,7 +2454,7 @@ void fm_store(FmTile buf, uint tid, bool values = false)
                 v[n] = mis ? (buf.w[k * FM_NW + n] >> 16) | hi : buf.w[k * FM_NW + n];
             }
 
-            float d = f16tof32(v[0] & 0xFFFF);
+            float d = KV_FP8 ? asfloat(v[0]) : f16tof32(v[0] & 0xFFFF);
             uint dst = i / FM_BPR * (FM_KS / 8) + i % FM_BPR * 4;
             [ForceUnroll]
             for (uint c = 0; c < 4; c++)
@@ -2432,7 +2464,10 @@ void fm_store(FmTile buf, uint tid, bool values = false)
                 for (uint e = 0; e < 8; e++)
                 {
                     uint el = c * 8 + e;
-#if KV_FMT == FMT_Q8_0
+#if KV_FP8
+                    uint b = 4 + el;
+                    x[e] = d * e4m3_value(v[b >> 2] >> ((b & 3) * 8));
+#elif KV_FMT == FMT_Q8_0
                     uint b = 2 + el;
                     x[e] = d * float(int(((v[b >> 2] >> ((b & 3) * 8)) & 0xFF) << 24) >> 24);
 #else

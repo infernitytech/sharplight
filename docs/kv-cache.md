@@ -89,8 +89,9 @@ Formats (per row of `head_dim` values, blocks of 32 along `head_dim`, the GGUF b
 | F16 | 64 | 1x | default |
 | Q8_0 | 34 (f16 scale + 32 × i8) | 0.53x | scale amax / 127, round to nearest |
 | Q4_0 | 18 (f16 scale + 32 × 4 bit) | 0.28x | scale = value of largest magnitude / -8 (llama.cpp's reference quantiser) |
+| F8E4M3_B32 | 36 (f32 scale + 32 × E4M3) | 0.56x | scale amax / 448, E4M3 codes rounded to nearest even (the block-scaled FP8 weight layout `f8e4m3_b32`) |
 
-Selecting it: `LlmLoadOptions.KvCacheType` (overrides `AdapterOptions.KvCacheType`), `--kv-type f16|f32|q8_0|q4_0` in the CLI
+Selecting it: `LlmLoadOptions.KvCacheType` (overrides `AdapterOptions.KvCacheType`), `--kv-type f16|f32|q8_0|q4_0|f8e4m3_b32` in the CLI
 and in `sharplight serve`. The adapters declare each KV state through `AdapterOptions.KvCacheTypeFor(row length)`: a cache whose
 rows per head are not whole 32-value blocks stays F16, and `LlmModel.Load` logs how many did. K and V share one type, and the
 MLA latent cache (one row holds keys and values) is quantised as a whole. `EstimateFootprint` and placement size states from
@@ -104,6 +105,13 @@ Kernels:
   (`Kv8`, `load_kv8`, `unpack_kv8`, `kv8_to_half`): the scalar `main` kernel, split-K `decode`, the tensor-core `fa` (K/V tiles
   converted to f16 in shared memory) and the shared-row MLA kernel `fa_mqa`, which loads whole blocks with 32-bit loads.
   CPU: rows dequantised per key before the dot product / axpy.
+- FP8 (`f8e4m3_b32`, 2026-11-24, default off; benchmarks.md §109): the same helpers decode E4M3 codes (sign and exponent / mantissa
+  bits placed as half bits are the value times 2^-8, exact), so every generated kernel above reads it on Vulkan and CUDA; `cache_write_q`
+  quantizes with one f32 scale per 32 values. On CUDA the hand-written kernels read it natively: `attn_decode_native.cu` (`ND_KVF8`, head
+  sizes 64 / 128) loads a lane's 8 codes and their block scale and converts them to f16 right before the MMAs; `attn_prefill_native.cu`
+  (`FN_KVF8`, head sizes up to 256) copies raw rows into its stages and converts each tile once into an f16 tile (one more barrier per
+  tile). Both round d · e4m3(q) once to f16, as the generated kernels do. `SHARPLIGHT_NATIVE_DECODE_F8=0` / `SHARPLIGHT_NATIVE_ATTN_F8=0`
+  keep the generated kernels. CPU: `Quant.FloatToE4m3` / the FP8 dequantiser.
 - Not done: int8 dot products for K (the f16 tile path is used), separate K and V types, the fallback when a backend
   lacks the quantised kernels (both backends have them; an unsupported shape falls back to F16 at definition time).
 
@@ -167,6 +175,18 @@ Host side:
     in the free blocks plus those idle slots could give back, after what the running sequences still need (the rest of
     their prompts plus the same growth reserve). The reserve is up to 64 generated tokens, at most a quarter of a slot's
     share of the pool. While a preempted sequence is recomputing nothing new is admitted.
+  - admission policy when the pool runs short (`EngineOptions.KvAdmission`, hosting `kvAdmission`, `serve --kv-admission`,
+    `SHARPLIGHT_KV_ADMISSION=queue|preempt`):
+    - `queue` (default): the rule above. New requests wait while the pool is full; running sequences are preempted only when
+      they outgrow even the reserve (rare). Fewer recomputed tokens, a higher time to first token at KV saturation.
+    - `preempt`: the growth reserve is one token, so a request is admitted as soon as its prompt fits next to the rest of the
+      running prompts, and the running sequences take blocks as they grow; when a decoding sequence needs a block and none is
+      free (and no idle context can give one back), the most recently admitted sequences are preempted by recomputation (below)
+      until it fits. The preempted sequence keeps its slot and goes to the head of the waiting work: nothing new is admitted
+      until its context (prompt and generated tokens) is recomputed. This is vLLM's recompute preemption. Preemption order
+      follows admission order, so the oldest sequence is never preempted while another can give blocks back (no starvation:
+      every sequence becomes the oldest eventually). Without a paged cache, or while the pool has room, both policies admit
+      the same requests at the same steps (benchmarks.md §109).
   - before each step the blocks the decoding sequences need are freed: first idle slots' cached contexts (LRU), then by
     preempting the newest running sequence. Prefill and replay chunks only evict idle contexts and otherwise wait.
   - preemption by recomputation: the victim's blocks are released, it keeps its slot, and its context (prompt + generated

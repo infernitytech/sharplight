@@ -1,5 +1,5 @@
 // PplBench <model> --text file.txt [--provider cuda|vulkan] [--seq 2048] [--chunk 2048] [--tokens 8192] [--dump out.f16 [--dump-seqs 1]]
-//          [--ids out.ids]
+//          [--ids out.ids] [--kv-type f16|q8_0|f8e4m3_b32|...]
 // PplBench --compare a.f16 b.f16
 // Perplexity of a model on a fixed text through the prompt path: the text's tokens (no special tokens) are cut into sequences of --seq
 // tokens (up to --tokens in all), each a fresh context, fed in steps of --chunk rows with logits for every row (SequenceInput.LogitsRows),
@@ -7,7 +7,8 @@
 // tokens 2..seq), the mean negative log-likelihood, and per sequence. --dump stores the f16 logits of every row of the first
 // --dump-seqs sequences; --compare reads two such dumps and prints the mean and max KL(a || b) of the softmaxes, the top-1 agreement
 // and the largest logit difference (docs/benchmarks.md section 86). --ids writes the token ids (one line, comma separated), so other
-// engines (vLLM's prompt_logprobs) can score the same tokens.
+// engines (vLLM's prompt_logprobs) can score the same tokens. --kv-type sets the KV cache element type (default: the model's, f16); with
+// --chunk of a few rows the steps read the cache through the decode kernels instead of the prompt kernels.
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight;
@@ -42,6 +43,7 @@ using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptio
 using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions
 {
     Devices = [new DeviceSlot { Device = device }], ContextLength = seq, MaxBatchTokens = chunk,
+    KvCacheType = Opt("--kv-type") is { } kvType ? Sharplight.Tensors.DataType.Get(kvType) : null,
 });
 // Two slots: a single slot gets the session decoder, which returns the last row's logits only.
 using var dec = model.CreateBatchDecoder(2, seq, maxLogitsRows: chunk, kvCacheTokens: 0);
