@@ -11,7 +11,7 @@ namespace Sharplight.Audio;
 /// requested duration plus some headroom; the prompt's rows and the seconds row condition a velocity network whose padding frames are masked; the base models
 /// (<c>rectified_flow</c>) take Euler steps with adaptive projected guidance (the guidance direction made orthogonal to the conditional prediction), the post-trained
 /// ones (<c>rf_denoiser</c>) ping-pong steps (denoise, then renoise to the next time); the SAME autoencoder decodes the frames in overlapping windows as the reference
-/// package does, with its own random dither unless <see cref="AudioGenerationRequest.DecoderNoise"/> is 0, and the audio is cut to the duration and clamped to [−1, 1].
+/// package does, with its own random dither unless <see cref="AudioGenerationOptions.DecoderNoise"/> is 0, and the audio is cut to the duration and clamped to [−1, 1].
 /// </summary>
 internal sealed class FlowAudioDiffusionClient : IAudioGenerator
 {

@@ -96,7 +96,7 @@ public class EmbeddingFamilyTests
         {
             ModelPath = path, Devices = [slot], MaxBatchTokens = 256, HalfPrecisionMatrices = null,
             Adapter = new AdapterOptions { EmbeddingPooling = pooling, EmbeddingNormalize = false },
-        });
+        }, TestContext.Current.CancellationToken);
         using var embedder = TestHost.Services.GetRequiredService<TaskClientProvider>().Create<ITextEmbedder>(taskModel);
         var result = await embedder.EmbedTokensAsync(inputs, cancellationToken: TestContext.Current.CancellationToken);
         for (int i = 0; i < inputs.Count; i++)
