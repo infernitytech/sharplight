@@ -1,0 +1,48 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 64 | 58.3 | 367 / 0 | 15.52 / 15.79, 15.46 |
+--- profile batch 64 (greedy)
+GPU time 338.92 ms
+   100.675 ms  29.7%    720x  min    134.3 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+    76.485 ms  22.6%    720x  min    101.5 us  attention attn_decode_native T=64,U=64,R=64|2,3
+    52.947 ms  15.6%    720x  min     69.5 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+    32.711 ms   9.7%    720x  min     42.3 us  matmul [4096→4096+1024+1024] f8e4m3_b128g native gemm_fp8_native T=64,U=64,R=64|2,3
+    31.904 ms   9.4%     20x  min   1591.6 us  matmul [4096→151936] f16 gemm_cm2 T=64,U=64,R=64|2,3
+    20.217 ms   6.0%    720x  min     24.9 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+     9.765 ms   2.9%   1440x  min      5.2 us  fused[Add]+RmsNorm main T=64,U=64,R=64|2,3
+     4.389 ms   1.3%    720x  min      4.2 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64|2,3
+     3.203 ms   0.9%    720x  min      3.1 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64|2,3
+     1.075 ms   0.3%     20x  min     52.0 us  sample sample T=64,U=64,R=64|2,3
+     0.326 ms   0.1%     40x  min      6.1 us  gather gather T=64,U=64,R=64|2,3
+     0.142 ms   0.0%     20x  min      5.5 us  rope rope_5 rope_qkv T=64,U=64,R=64|2,3
+     0.141 ms   0.0%     20x  min      4.7 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=64,U=64,R=64|2,3
+     0.139 ms   0.0%     20x  min      5.9 us  rope rope_413 rope_qkv T=64,U=64,R=64|2,3
+     0.139 ms   0.0%     20x  min      6.2 us  rope rope_605 rope_qkv T=64,U=64,R=64|2,3
+     0.139 ms   0.0%     20x  min      6.1 us  rope rope_149 rope_qkv T=64,U=64,R=64|2,3
+     0.139 ms   0.0%     20x  min      5.4 us  rope rope_125 rope_qkv T=64,U=64,R=64|2,3
+     0.137 ms   0.0%     20x  min      6.0 us  rope rope_77 rope_qkv T=64,U=64,R=64|2,3
+     0.137 ms   0.0%     20x  min      5.9 us  rope rope_317 rope_qkv T=64,U=64,R=64|2,3
+     0.137 ms   0.0%     20x  min      6.0 us  rope rope_389 rope_qkv T=64,U=64,R=64|2,3
+     0.137 ms   0.0%     20x  min      5.4 us  rope rope_101 rope_qkv T=64,U=64,R=64|2,3
+     0.137 ms   0.0%     20x  min      6.2 us  rope rope_485 rope_qkv T=64,U=64,R=64|2,3
+     0.137 ms   0.0%     20x  min      6.0 us  rope rope_293 rope_qkv T=64,U=64,R=64|2,3
+     0.137 ms   0.0%     20x  min      6.0 us  rope rope_437 rope_qkv T=64,U=64,R=64|2,3
+     0.136 ms   0.0%     20x  min      6.0 us  rope rope_821 rope_qkv T=64,U=64,R=64|2,3
+     0.136 ms   0.0%     20x  min      6.1 us  rope rope_53 rope_qkv T=64,U=64,R=64|2,3
+     0.136 ms   0.0%     20x  min      6.0 us  rope rope_461 rope_qkv T=64,U=64,R=64|2,3
+     0.136 ms   0.0%     20x  min      6.1 us  rope rope_29 rope_qkv T=64,U=64,R=64|2,3
+     0.135 ms   0.0%     20x  min      6.0 us  rope rope_173 rope_qkv T=64,U=64,R=64|2,3
+     0.135 ms   0.0%     20x  min      6.0 us  rope rope_581 rope_qkv T=64,U=64,R=64|2,3
+     0.134 ms   0.0%     20x  min      6.1 us  rope rope_365 rope_qkv T=64,U=64,R=64|2,3
+     0.134 ms   0.0%     20x  min      6.0 us  rope rope_653 rope_qkv T=64,U=64,R=64|2,3
+     0.134 ms   0.0%     20x  min      6.2 us  rope rope_341 rope_qkv T=64,U=64,R=64|2,3
+     0.134 ms   0.0%     20x  min      6.0 us  rope rope_629 rope_qkv T=64,U=64,R=64|2,3
+     0.133 ms   0.0%     20x  min      6.1 us  rope rope_677 rope_qkv T=64,U=64,R=64|2,3
+     0.133 ms   0.0%     20x  min      6.1 us  rope rope_725 rope_qkv T=64,U=64,R=64|2,3
+     0.133 ms   0.0%     20x  min      6.0 us  rope rope_749 rope_qkv T=64,U=64,R=64|2,3
+     0.132 ms   0.0%     20x  min      6.0 us  rope rope_533 rope_qkv T=64,U=64,R=64|2,3
+     0.132 ms   0.0%     20x  min      6.1 us  rope rope_221 rope_qkv T=64,U=64,R=64|2,3
+     0.132 ms   0.0%     20x  min      5.6 us  rope rope_773 rope_qkv T=64,U=64,R=64|2,3
+

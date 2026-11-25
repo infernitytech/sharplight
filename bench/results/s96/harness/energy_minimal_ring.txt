@@ -1,0 +1,14 @@
+[hold 12:23:08] bash -c . ./env.sh; R=$WORK/routes_uniform28.txt; for i in 1 2; do for v in gu_dmin1 gu_dmin2 gu_dmin1t0 gu_dbare; do printf "%-11s " $v; env ROUTES=$R LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=3 $WORK/bin/$v | grep energy | cut -c1-210; done; printf "%-11s " rk; SECONDS_RUN=3 SMEM_KB=34 $WORK/bin/rk_s4_a1; done
+gu_dmin1    energy: 8 passes 3.93 s: 0.3354 ms per routing, 128.8 W, 43.230 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1752 nJ per weight byte, SM 1665 MHz, memory 13365 MHz
+gu_dmin2    energy: 8 passes 3.93 s: 0.3348 ms per routing, 130.5 W, 43.745 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1773 nJ per weight byte, SM 1665 MHz, memory 13365 MHz
+gu_dmin1t0  energy: 8 passes 3.94 s: 0.3364 ms per routing, 129.3 W, 43.528 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1764 nJ per weight byte, SM 1655 MHz, memory 13365 MHz
+gu_dbare    energy: 8 passes 3.99 s: 0.3403 ms per routing, 133.8 W, 45.568 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1847 nJ per weight byte, SM 1674 MHz, memory 13365 MHz
+rk          PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 825.6 GB/s, 199.1 W, 0.2412 nJ per byte, SM 2610 MHz, memory 13365 MHz 
+gu_dmin1    energy: 8 passes 3.95 s: 0.3365 ms per routing, 130.2 W, 43.872 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1778 nJ per weight byte, SM 1657 MHz, memory 13365 MHz
+gu_dmin2    energy: 6 passes 3.01 s: 0.3428 ms per routing, 125.1 W, 42.913 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1739 nJ per weight byte, SM 1627 MHz, memory 13365 MHz
+gu_dmin1t0  energy: 8 passes 3.94 s: 0.3362 ms per routing, 128.1 W, 43.105 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1747 nJ per weight byte, SM 1657 MHz, memory 13365 MHz
+gu_dbare    energy: 8 passes 4.00 s: 0.3409 ms per routing, 134.3 W, 45.797 mJ per routing, 246.8 MB weights per routing (tile reads), 0.1856 nJ per weight byte, SM 1672 MHz, memory 13365 MHz
+rk          PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 825.6 GB/s, 198.7 W, 0.2406 nJ per byte, SM 2602 MHz, memory 13365 MHz 
+[release 12:24:16]
+
+[exited with code 0]

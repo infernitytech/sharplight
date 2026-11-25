@@ -47,11 +47,21 @@ public sealed class InferenceSession : IDisposable
     private readonly List<int> _pendingSource = [];
     private float[] _encoded = [];
     private int _encodedRows;
+    private readonly Value? _sequenceRows;     // one-slot paged form (window-sized caches, SessionKvLayout): per-row (slot, position, run rows, run)
+    private readonly Value? _sequenceRuns;
+    private readonly Value? _runEndRows;
+    private int[] _rowBuf = [];
+    private int[] _runEndRowBuf = [];
+    private readonly int[] _runBuf = new int[4];
 
     /// <summary>Number of logits per step (the model's vocabulary size).</summary>
     public int VocabSize { get; }
     /// <summary>Capacity of the context in rows (prompt plus generated tokens).</summary>
     public int ContextLength { get; }
+    /// <summary>
+    /// The most rows one forward pass takes: longer prompts run in several passes, and <see cref="LastHidden"/> then holds the last pass's rows only.
+    /// </summary>
+    public int MaxBatchTokens => _maxTokens;
     /// <summary>Number of rows already in the context (cache positions; image rows count individually).</summary>
     public int Position { get; private set; }
     /// <summary>
@@ -68,6 +78,12 @@ public sealed class InferenceSession : IDisposable
     /// <summary>The hidden states of the last forward pass's rows ([rows, width] row-major) when <see cref="CaptureHidden"/> is on, else empty.</summary>
     public ReadOnlySpan<float> LastHidden => _lastHidden.AsSpan(0, _lastHiddenLength);
 
+    /// <summary>Width of the media embedding rows the session's graph takes (0 without a multimodal graph).</summary>
+    internal int EmbeddingWidth => SupportsEmbeddings ? _hidden : 0;
+    /// <summary>Rope position axes per row (0 when the graph has no positions input).</summary>
+    internal int PositionAxes => _posAxes;
+    /// <summary>Leading position axes that carry a text row's position.</summary>
+    internal int TextPositionAxes => _textPositionAxes;
     /// <summary>Whether the session's graph accepts media embeddings (a <see cref="WellKnown.DecodeMultimodalGraph"/>).</summary>
     public bool SupportsEmbeddings => _embeddings is not null && _embeddingMask is not null;
     /// <summary>The compiled graph (placement plan, profiling and device state).</summary>
@@ -80,7 +96,17 @@ public sealed class InferenceSession : IDisposable
     /// <summary>Longest source sequence an encoder-decoder session can encode (0 for decoder-only models).</summary>
     public int MaxSourceTokens => _encoder is null ? 0 : (int)_encoder.Options.MaxTokens;
 
-    internal InferenceSession(CompiledModel compiled, CompiledModel? encoder = null, int decoderStartToken = 0, int textPositionAxes = WellKnown.DefaultTextPositionAxes)
+    /// <param name="compiled">The compiled decoder graph.</param>
+    /// <param name="encoder">The encoder of an encoder-decoder model.</param>
+    /// <param name="decoderStartToken">The decoder's first token of an encoder-decoder model.</param>
+    /// <param name="textPositionAxes">Leading position axes that carry a text row's position.</param>
+    /// <param name="kvLayout">
+    /// The window-sized cache layout when <paramref name="compiled"/> is the one-slot paged form of the decode graph (<see cref="SessionKvLayout"/>):
+    /// the session fills its sequence tables and fixed block tables; null for the plain graph.
+    /// </param>
+    /// <param name="contextLength">Rows of the context (default: the compiled context length).</param>
+    internal InferenceSession(CompiledModel compiled, CompiledModel? encoder = null, int decoderStartToken = 0, int textPositionAxes = WellKnown.DefaultTextPositionAxes,
+        SessionKvLayout? kvLayout = null, int? contextLength = null)
     {
         _encoder = encoder;
         _textPositionAxes = textPositionAxes;
@@ -102,7 +128,19 @@ public sealed class InferenceSession : IDisposable
         }
 
         _maxTokens = (int)compiled.Options.MaxTokens;
-        ContextLength = (int)compiled.Options.ContextLength;
+        ContextLength = contextLength ?? (int)compiled.Options.ContextLength;
+        if (kvLayout is not null)
+        {
+            _sequenceRows = _graph.Input(InputRole.SequenceRows);
+            _sequenceRuns = _graph.Input(InputRole.SequenceRuns);
+            _runEndRows = _graph.TryInput(InputRole.SequenceRunEndRows);
+            compiled.SetInput<int>(_graph.Input(InputRole.KvBlockTable), kvLayout.BlockTable());
+            if (_graph.TryInput(InputRole.KvWindowBlockTable) is { } windowTable)
+            {
+                compiled.SetInput<int>(windowTable, kvLayout.WindowBlockTable());
+            }
+        }
+
         VocabSize = (int)_graph.Outputs["logits"].Shape[-1].Fixed;
         _logits = new float[VocabSize];
         _encoderOutputInput = _graph.TryInput(InputRole.EncoderOutput);
@@ -333,6 +371,11 @@ public sealed class InferenceSession : IDisposable
 
         _run.Symbols[WellKnown.TokenSymbol] = T;
         _run.Symbols["R"] = 1;
+        if (_sequenceRows is not null)
+        {
+            SetSequenceTables(T);
+        }
+
         if (_encoderOutputInput is not null)
         {
             _compiled.SetInput<float>(_encoderOutputInput, _encoded.AsSpan(0, _encodedRows * (int)_encoderOutputInput.Shape[-1].Fixed));
@@ -370,6 +413,50 @@ public sealed class InferenceSession : IDisposable
             _compiled.GetOutput<float>("hidden", _lastHidden.AsSpan(0, length));
             _lastHiddenLength = length;
         }
+    }
+
+    /// <summary>
+    /// One-slot paged form: the pass's rows are one run of slot 0 at cache positions [<see cref="Position"/>, <see cref="Position"/> + T)
+    /// (<see cref="InputRole.SequenceRows"/>, <see cref="InputRole.SequenceRuns"/>; bidirectional attention sees up to the run's last row).
+    /// </summary>
+    private void SetSequenceTables(int T)
+    {
+        if (_rowBuf.Length < T * 4)
+        {
+            _rowBuf = new int[_maxTokens * 4];
+        }
+
+        for (int t = 0; t < T; t++)
+        {
+            _rowBuf[t * 4] = 0;
+            _rowBuf[t * 4 + 1] = Position + t;
+            _rowBuf[t * 4 + 2] = T;
+            _rowBuf[t * 4 + 3] = 0;
+        }
+
+        _compiled.SetInput<int>(_sequenceRows!, _rowBuf.AsSpan(0, T * 4));
+        _runBuf[0] = 0;
+        _runBuf[1] = 0;
+        _runBuf[2] = T;
+        _runBuf[3] = Position;
+        _compiled.SetInput<int>(_sequenceRuns!, _runBuf);
+        if (_runEndRows is not null)
+        {
+            if (_runEndRowBuf.Length < T * 4)
+            {
+                _runEndRowBuf = new int[_maxTokens * 4];
+            }
+
+            _rowBuf.AsSpan(0, T * 4).CopyTo(_runEndRowBuf);
+            for (int t = 0; t < T; t++)
+            {
+                _runEndRowBuf[t * 4 + 1] = Position + T - 1;
+            }
+
+            _compiled.SetInput<int>(_runEndRows, _runEndRowBuf.AsSpan(0, T * 4));
+        }
+
+        _run.Symbols[WellKnown.RunSymbol] = 1;
     }
 
     /// <summary>

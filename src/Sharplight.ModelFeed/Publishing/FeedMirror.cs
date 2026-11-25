@@ -28,6 +28,11 @@ public static class FeedMirror
             documents.Add(FeedLayout.InChannel(channel, FeedLayout.CatalogPage(page)));
         }
 
+        if (snapshot.Index.Resources.Models is { } models)
+        {
+            documents.Add(models);
+        }
+
         var copied = 0;
         var downloader = new PackageDownloader();
         foreach (var summary in snapshot.Packages)

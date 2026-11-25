@@ -1,0 +1,26 @@
+decoder: MultiSequenceDecoder, slots 264, vocab 128256, device sampling: True, KV paged 5632 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 256 | 0 (0) | 51.8 | 358 / 0 | 42.57 / 43.15, 42.47 |  |
+--- profile mixed 256+0 (greedy)
+GPU time 434.12 ms
+   142.146 ms  32.7%    320x  min    426.3 us  matmul2 [4096→14336]x2 f16 fused[Silu,Mul] native gemm_f16_native T=256,U=256,R=256|2,3
+   120.415 ms  27.7%    320x  min    368.3 us  attention attn_decode_native T=256,U=256,R=256|2,3
+    71.847 ms  16.6%    320x  min    211.2 us  matmul [14336→4096] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    34.375 ms   7.9%    320x  min     94.7 us  matmul [4096→4096+1024+1024] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    21.609 ms   5.0%    320x  min     63.9 us  matmul [4096→4096] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    21.011 ms   4.8%     10x  min   2049.3 us  matmul [4096→128256] f16 native gemm_f16_native T=256,U=256,R=256|2,3
+     7.851 ms   1.8%    640x  min     10.3 us  fused[Add]+RmsNorm main T=256,U=256,R=256|2,3
+     7.342 ms   1.7%    320x  min     21.5 us  matmul [14336→4096] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+     3.188 ms   0.7%    320x  min      7.8 us  rope+qkv+cache_write rope_qkv T=256,U=256,R=256|2,3
+     2.040 ms   0.5%    320x  min      4.9 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+     1.736 ms   0.4%     10x  min    171.4 us  sample sample T=256,U=256,R=256|2,3
+     0.415 ms   0.1%     20x  min     14.1 us  gather gather T=256,U=256,R=256|2,3
+     0.075 ms   0.0%     10x  min      5.8 us  RmsNorm main T=256,U=256,R=256|2,3
+     0.067 ms   0.0%     10x  min      4.9 us  matmul [4096→128256] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+
+sampler: instant power (NVML field 186) median 200.0 W, p95 200.2 W, max 207.0 W, 20 distinct readings
+sampler: 971 busy samples of 6172 over 9.81 s: SM 2040 MHz, memory 13365 MHz, power 200.0 W (medians), max 64 C, reasons 0x4 92%

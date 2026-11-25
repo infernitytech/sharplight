@@ -3,6 +3,8 @@ name: Studio published smoke
 # "Test the builds users get": downloads the newest unstable Studio package of each OS from the update feed (download.sharplight.dev/studio),
 # exactly as the in-app updater finds it, starts it headless with portable storage in a temporary folder and runs `sharplight-studio --smoke`
 # (services, devices, install of Whisper tiny from the live Sharplight model feed, load on the CPU, one transcription, JSON report).
+# Where the machine has an NVIDIA GPU the same run repeats with `--smoke-provider cuda` (linux-x64 and win-x64 carry the CUDA provider);
+# the GitHub-hosted runners have none, so that step prints a notice and is skipped here (run the script on a GPU machine, see docs/releasing.md).
 # The script is packaging/smoke/studio-published-smoke.sh; see docs/releasing.md.
 #
 #   after every successful Studio run on develop (the packages are on R2 by then)   -> the version must be built from that commit

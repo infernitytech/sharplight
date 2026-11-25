@@ -4,7 +4,7 @@ namespace Sharplight.Import.Onnx.Conformance;
 
 /// <summary>
 /// The reviewed list of node tests that are expected not to pass (conformance-skips.txt). Each line is
-/// <c>&lt;provider&gt; &lt;test name or glob&gt; &lt;reason&gt;</c> where provider is <c>cpu</c>, <c>vulkan</c> or <c>*</c>; <c>#</c> starts a comment.
+/// <c>&lt;provider&gt; &lt;test name or glob&gt; &lt;reason&gt;</c> where provider is <c>cpu</c>, a GPU provider (<c>vulkan</c>, <c>cuda</c>, <c>metal</c>) or <c>*</c>; <c>#</c> starts a comment.
 /// </summary>
 internal static class SkipList
 {

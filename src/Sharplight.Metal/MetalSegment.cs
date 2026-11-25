@@ -125,7 +125,7 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
             return 0;
         }
 
-        _alloc[b] = b.Kind == BufferKind.Weight ? AllocateWeight(b) : _dev.Allocate(b.Bytes);
+        _alloc[b] = b.Kind == BufferKind.Weight ? AllocateWeight(b) : _dev.Allocate(b.Bytes, $"{b.Kind.ToString().ToLowerInvariant()} buffer {b.Name}");
         sharedStates?.Add(b.State!, _alloc[b]);
         return _alloc[b].WrapsHostMemory ? 0 : b.Bytes;
     }
@@ -146,7 +146,7 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
             }
         }
 
-        return _dev.Allocate(b.Bytes);
+        return _dev.Allocate(b.Bytes, $"weight buffer {b.Name}");
     }
 
     /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>
@@ -235,7 +235,7 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
     /// <remarks>The producer's output buffer is copied into the input buffer by the CPU at the start of each execution (unified memory).</remarks>
     public bool TryForwardFrom(Value input, ICompiledSegment producer)
     {
-        if (!DiagnosticSwitches.DeviceForwarding || producer is not MetalSegment source || source._dev != _dev
+        if (producer is not MetalSegment source || source._dev != _dev
             || !_program.InputRefs.TryGetValue(input, out var r) || !source._program.OutputRefs.TryGetValue(input, out var o))
         {
             return false;
@@ -375,6 +375,23 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
 
     /// <inheritdoc />
     public void ResetState() => RunLaunches(_program.ResetLaunches);
+
+    /// <inheritdoc/>
+    public bool CanCopyStateRows => true;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The buffers are in shared storage and every execution waits for its command buffers, so the rows are copied on the CPU, after the
+    /// work already submitted and before later work.
+    /// </remarks>
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
+    {
+        foreach (var (b, source, destination, bytes) in StateRowCopies.Regions(_program, _borrowedStates, states, from, to, count, b => _alloc[b].Bytes))
+        {
+            byte* contents = _alloc[b].Contents;
+            Buffer.MemoryCopy(contents + source, contents + destination, bytes, bytes);
+        }
+    }
 
     private void RunLaunches(IReadOnlyList<KernelLaunch> launches)
     {

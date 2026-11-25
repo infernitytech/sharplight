@@ -29,6 +29,166 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   registers (§44.3). Next: attention at 8192 tokens (20 % of the FP8 pass), the down projection's E4M3 input.
   Round 8 (§46): fresh vLLM 0.33.0 baseline with the identical procedures (vLLM measures 1.5-6 % faster prefill than in §42):
   Qwen3-8B bf16 0.86-0.88x, Llama-3.1-8B 0.88-0.89x, Qwen3-8B-FP8 0.70-0.75x, decode 1.02x.
+  Round 9 (§47): prefill unchanged. FP8 GEMM 64-row tiles where they pad fewer rows (129-192, 257-320 rows) gain 12-13 % per mixed
+  step but not in serving, so they are opt-in (`SHARPLIGHT_FP8_SHORT_TILES=1`); the int8 / fp8 split-K variants are now probed every
+  64 rows (a tile-height change had left row counts without a GEMM launch). Host overhead per step is ~0.1 ms (0.5 %).
+  Next: FP8 prefill GEMM (§44.3), why per-step FP8 gains do not reach serving, decode-row attention in mixed steps.
+  Round 10 (§49): serving steps carry up to 2048 rows (the automatic rows per pass were capped at one slot's context: 512 in the
+  serving benchmark, against vLLM's 8192); a 64-stream round is ~75 % decode-only steps and prompt waves at the budget, which is
+  also why the 64-row FP8 tiles of round 9 never met their step sizes. Qwen3-8B-FP8 serving at 64 streams 0.74x → 0.79x of vLLM,
+  0.83x at 16. Next: FP8 prefill GEMM, Qwen3-8B-FP8 decode steps at 16-64 sequences, TTFT at 16 streams (now 1.4x vLLM's).
+  Round 11 (§50): load-adaptive step budget (at least 768 rows, 32 per sequence holding a slot, the oldest prompt always whole,
+  `--min-step-tokens`): Qwen3-8B-FP8 TTFT at 16 streams 216 → 153 ms (vLLM 158) at equal throughput (0.83x / 0.78x of vLLM at 16 /
+  64 streams; 0.84x / 0.79x with the full budget). Decode steps -2 % (norms write the fp8 / f16 GEMM rows from 17 rows, decode
+  attention one key row per batch). FP8 GEMMs run at 180-195 TFLOPS in prefill; the down projection's activation quantization cannot
+  move into the gate / up store (its 128-value scale groups span two 64-column dual tiles). Next: FP8 prefill per row, a Q / K / V
+  multi-output GEMM for decode batches (K / V latency bound at ~270-450 GB/s).
+  Round 13 (§57): the FP8 GEMMs run at the board's 200 W limit, so they are compared per SM cycle and sustained, not in bursts
+  (ours 65 % of the MMA peak per cycle, CUTLASS ~90 %); a warp-specialized persistent FP8 GEMM with tensor copies (CUDA, compute
+  capability 9.0+, 76 %) lifts Qwen3-8B-FP8 prefill 9-11 % to 0.99 / 0.88 / 0.86x of vLLM at 512 / 2048 / 8192 rows; Vulkan
+  unchanged. Decode at 64 sequences unchanged (CUDA 17.9, Vulkan 17.3, vLLM 15.6 ms per step; attention configurations, fused
+  combine and launch bounds measured at ±1 %). Next: the FP8 promotion (per-output scale products), the CUDA forms of
+  `gemm_fp8.slang` at decode sizes (0.7 ms per step behind their SPIR-V forms), a multi-output q / k / v GEMM, split-K reductions without a launch.
+  Round 14 (§58): a FlashAttention-2-style prefill attention kernel on CUDA (`attn_prefill_native.cu`, `native_attention`, compute
+  capability 8.0+: register softmax, `cp.async` K / V ring, windows, sinks, GQA, multi-sequence runs) replaces `fa` / `fe` for causal
+  attention over f16 caches. gpt-oss-20b attention at 2048 tokens 16.4 → 3.5 ms (FlashInfer 4.4); prefill 0.88 → 0.97x / 0.72 → 0.92x of vLLM
+  at 2048 / 8192 tokens; Qwen3-8B-FP8 1.00x / 0.95x. Serving gpt-oss 0.82x / 0.75x of vLLM at 16 / 64 streams (was 0.80x / 0.73x
+  in the same session). Programmatic dependent launches (`dependent_launches`, 9.0+) are worth ±1 % on decode steps: graph-replayed
+  launches leave almost no gaps. Vulkan unchanged. Long contexts against vLLM, 16K-128K (§58.8, `bench/s58_long.sh`, run every
+  round): prefill 0.92-0.93x (gpt-oss) and 0.93-1.00x (Qwen3-8B-FP8 with YaRN), attention flat at 117-131 TFLOPS; decode
+  0.92-1.04x. Four 128K gpt-oss streams do not fit, because the window layers keep full-length caches (vLLM sizes them to the
+  window). The ranked plan to ≥1.0x is §58.9: decode-step GEMMs (multi-output q / k / v, split-K in the GEMM, MXFP4 and FP8 skinny
+  GEMMs at the read limit), serving host time and mixed steps, the native f16 GEMM with bias epilogues and fused MoE glue for
+  gpt-oss prefill, the FP8 main loop, attention efficiency at 128K, window-sized KV caches.
+  Round 15 (§61): decode-step GEMMs. Launch bounds for the expert-grouped skinny GEMMs on CUDA (ptxas scheduled them for full occupancy)
+  take gpt-oss-20b's decode step at 16 / 64 sequences from 11.9 / 17.8 to 10.1 / 16.1 ms (vLLM ~16.2 at 64); a multi-output q / k / v
+  GEMM over the separate weight buffers (no `.slm` change; gemm_cm2 on CUDA, the fp8 GEMM on both providers) takes Qwen3-8B-FP8's from
+  17.4 to 16.9 ms (vLLM 15.6). The native f16 GEMM stores biases (gpt-oss prefill +2 % at 2048 / 8192 tokens: 0.98x / 0.94x of vLLM).
+  The split-K reduction in the GEMM's last workgroup was built and measured slower than the separate launch (opt-in). Serving gpt-oss
+  0.91x / 0.80x of vLLM at 16 / 64 streams (was 0.80x / 0.76x); the 64-stream gap is now the prompt rows of mixed steps (the grouped
+  MXFP4 GEMM at 16-48 rows per expert) and the FP8 decode GEMMs (gate / up at 1 workgroup per SM, 2.3 waves). Next: §61.8.
+  Round 16 (§63): a decode form of the hand-written FP8 GEMM (64-row weight tiles from 32 rows, outside the multi-output q / k / v
+  GEMM) takes Qwen3-8B-FP8's 64-sequence decode step from 17.2 to 16.4 ms (0.91x → 0.95x of vLLM) and its 64-stream serving from 0.89x
+  to 0.92x; 64-row routing tiles at two blocks per SM for the grouped MXFP4 GEMM up to 24 items per expert cut a 64 + 107-row gpt-oss
+  mixed step by 0.64 ms (its expert GEMMs at 82-87 % of the 785 GB/s read limit); a three-stage K / V ring in the prefill attention at
+  head size 128 (+0.5-1 % at 16K-128K). gpt-oss serving stays 0.91x / 0.81x: its prompt waves run full 128-row expert tiles, which reach
+  122 of the 236 TFLOPS MMA peak. Long prefill 0.92-0.94x (gpt-oss) / 0.94-1.01x (Qwen3). Vulkan unchanged. Next: §63.7.
+  Round 17 (§64): the decode-step comparison with vLLM was not like for like: vLLM's profile feeds back generated tokens, BatchBench
+  fed fixed random ids, which route MoE layers far more narrowly. On generated tokens (BatchBench `--feedback` / `--text`, new) the
+  gpt-oss-20b 64-sequence step was 0.81-0.82x of vLLM, not 1.00x. The hand-written grouped MXFP4 GEMM now takes batched decode steps
+  from 1 item per expert on new 32-row routing tiles (two blocks per SM, four stages), instead of the skinny GEMM up to 12: the step at
+  64 sequences 19.9 / 21.2 → 18.5 / 19.6 ms (0.88x), gpt-oss serving 0.91x / 0.81x → 0.92x / 0.86x at 16 / 64 streams. The full
+  128-row tiles turn out to be power-limited (200 W at 2.25 GHz), not latency-limited; their MoE per 2048-row pass is at Marlin's, so
+  the long-prefill gap (0.92-0.94x) is attention. Qwen3 and Vulkan unchanged. Next: §64.9 (the expert GEMMs' copy issue at decode
+  sizes: ~650 GB/s where a plain `cp.async` ring over the same layout reads 730-790).
+  Round 18 (§65): the expert GEMMs' decode tiles are at the read limit after all (788 GB/s gate / up): the harness's memset eviction
+  had left the L2 full of dirty lines. What keeps the gpt-oss decode step at 0.87-0.88x is experts that text routing gives 33-64 items:
+  their second 32-row tile reads the weights again at ~62 % of a fresh read; uniform 64-row decode tiles lose in the engine, so the next
+  step is a per-expert tile class. Two query fragments per warp in the prefill attention at head size 64 (each K / V fragment feeds
+  twice the MMAs): gpt-oss-20b long prefill 0.92-0.94x → 0.95 / 0.96 / 0.98 / 1.01x at 16K / 32K / 64K / 128K, byte-identical greedy
+  text. Twice the decode-attention splits at depth on CUDA for head sizes up to 64: decode at 128K 0.93x / 0.89x → 0.99x / 0.93x
+  (1 / 4 streams), ~0.5 % on short-context steps. Table-free four-stage short expert tiles (mixed steps -0.6-1.1 %). Qwen3 and Vulkan
+  unchanged. Next: §65.7.
+  Round 19 (§67): a routing histogram of text decode steps has ~1.1 split experts per layer at 64 sequences (none at 16-32), so a
+  per-expert tile class is worth at most 0.26 ms. Replayed back to back, the expert GEMMs equal Marlin's 0.473 ms per layer isolated but
+  run at the 200 W limit in a step (SM clock ~1.78 GHz): they are energy-bound. The MXFP4 decode now takes one shift and one logic
+  operation per code pair and skips the scale's second factor where it is 1 (bit-identical): gpt-oss-20b 64-sequence step 0.87 →
+  0.88x (`--text` / `--feedback`), serving at 64 streams 0.86 → 0.88x. A multi-output form of the FP8 decode GEMM for q / k / v at
+  48-64 rows: Qwen3-8B-FP8 step 0.94 → 0.95x, serving at 64 streams 0.91 → 0.92x. 32-key prefill-attention tiles at head size 128 lose (withdrawn). Vulkan unchanged. Next: §67.7.
+  Round 20 (§68): a decode form of the hand-written f16 GEMM (64-token tiles, no K split, bias store) with a multi-output q / k / v
+  form replaces gpt-oss's split-K projections and reductions at 33-64 rows (102 → 84 µs per layer); the down product reuses its
+  block's routing (one `moe_route` per block, found: the gate / up routing had no launch condition) and the router's top-k then softmax
+  is one launch: gpt-oss-20b 64-sequence step 0.88 / 0.89 → 0.90 / 0.91x (`--text` / `--feedback`), serving at 64 streams 0.88 → 0.89x.
+  32-row token tiles for the FP8 decode form (two blocks per SM) and the FP8 GEMM from 9 rows: Qwen3-8B-FP8 steps at 12-32 sequences
+  -5-7 %, serving at 16 streams 0.89 → 0.93x. Greedy text byte-identical; Vulkan 64-sequence step -1.5 % (routing, router). Next: §68.7.
+  Round 21 (§70): the decode attention's combine is launched only where a row can split (none for Qwen3-8B-FP8 at 64 rows, none for
+  gpt-oss's sliding-window layers), and the split count follows the key count (one 320-key range instead of 256 + 44 at 64 rows; one
+  range more where a launch has few workgroups): gpt-oss-20b 64-sequence step -1.3-1.6 % (`--feedback` / `--text`), Qwen3-8B-FP8 -0.6-0.9 %
+  at 48-64 rows and one row, Vulkan unchanged. Measured and not kept: the expert GEMM's activation copies are worth at most 0.5-2 %
+  (wider tiles lose), the router's logits in its top-k launch (72 launches fewer, step unchanged), 32-row FP8 token tiles at 64 rows,
+  decode-attention workgroup shapes and split targets for long contexts. Next: §70.6.
+  Round 22 (§72): a tensor-core split-K decode attention on CUDA (`attn_decode_native.cu`: a KV group's heads as MMA rows, K / V
+  chunks loaded straight into operands, `movmatrix` for V, no shared memory in the key loop): gpt-oss-20b decode attention at 64
+  sequences 1.32 → 1.03 ms per step (vLLM 1.20), 64-sequence step 0.97 → 0.99x of vLLM in the same hold, 4 x 128K decode 0.93 → 0.95x,
+  32K 1.12x; Qwen3-8B-FP8 -1.8 % at 48 rows. Measured and not kept: the expert GEMM's operand swap (40 % fewer MMAs, step unchanged)
+  and a contiguous weight layout (slower). The 4 x 128K gap is outside attention (at the read rate). Next: §72.6.
+  Round 23 (§73, measurements only): NVML clock / power sampling and a Marlin replay on recorded routings show both expert GEMMs at
+  the power limit, Marlin ~300 MHz higher; on the same routing ours is at par with Marlin on our text routing and 10 % behind on vLLM's
+  own (24.2 instead of 27.2 experts per layer: its split experts cost us a second full tile). vLLM's decode step depends on the steps
+  averaged (15.25 ms over all, 15.53 without the first five); long-context decode now fed back on both engines (32K 1.06 / 1.05x,
+  128K 1.00 / 0.93x). Measured and not kept: constant / integer-made E8M0 factors, 64-row tiles, prefetch-hint variants, zeroed
+  partial rows. Next: §73.6.
+  Round 24 (§75): `develop` produced garbage on CUDA for gpt-oss-20b since the perf/offload-r5 merge (its 64-sequence step looked 35 %
+  faster on garbage routing): bisected to the f32-only matmul epilogue rule of `572eeb80`, fixed (only int-dot weights take the separate
+  launch; the root cause was found in round 25). The expert GEMM runs one pipelined K loop per live fragment count instead of a switch
+  inside the loop: decode gate / up -1 %, down -2 %, prefill tiles -1-8 %; gpt-oss-20b 64-sequence step -1.6 / -1.1 % (`--text` /
+  `--feedback`). Measured and not kept: 64-row expert tiles in several forms (a 64-row tile costs 1.65x a 32-row one, so a per-expert
+  choice gains at most ~3 % of the expert GEMMs on vLLM's routing). Qwen3's norm + E4M3 launch is bound by its f32 rows, not by its
+  quantization (bank-conflict padding: -2 % of the launch). Next: §75.6.
+  Round 25 (§76): the root cause of round 24's bug: a q / k / v member's separate bias launch was emitted before the multi-output
+  GEMM that writes the members' products (emitted after the group's last member), so for 9-256 rows it read stale values; this also
+  broke Qwen2.5 and gpt-oss-20b Q4_K_M GGUF models on CUDA (int-dot weights) and FP8 checkpoints with biases on both providers. The
+  launches now follow that GEMM; `ProjectionBiases` reproduces it. Fused row norms of 4096+ values take 1024-thread blocks at decode
+  steps on CUDA: Qwen3-8B-FP8 64-sequence step 15.85 → 15.59-15.67 ms (1.00x of vLLM). Measured and not kept: a K-major expert weight
+  layout with bulk L2 prefetches (1-8 % slower: the per-row 256-byte hints already prefetch eight K steps). Next: §76.6.
+  Round 26 (§78): gpt-oss-20b's 4 x 128K decode point measured like for like at depth 130,048 on both engines, vLLM's step from its own
+  profile (the old 0.93x came from a decode time computed as the difference of two ~80 s prefills): at par before this round. The
+  decode attention prefetches each warp's next key / value tile into L2 (harness 4 x 130K: 1.44 → 1.31 ms per layer, 739 → 815 GB/s;
+  2-9 % at every shape), so the point is 1.00-1.03x now (0.98-1.01x before). A layer's q rope, k rope + cache write and v cache write run as one launch on
+  CUDA (Qwen3 three launches 0.54 → 0.25 ms per step in the profile, the step within noise: they already overlapped as graph branches;
+  the SPIR-V form gave wrong rows for small heads, Vulkan keeps three launches); int-dot q / k / v biases are added in the multi-output
+  GEMM's store. Measured and not kept: decode split counts, a bulk prefetch of the cache blocks, 8-warp blocks. Next: §78.7.
+  Round 27 (§80): serving against vLLM re-measured in one hold and taken apart: at 64 streams (0.93x) the GPU is busy 98 % of a round and
+  the host's gap between steps is 1 %, so the gap is device time: prompt rows ~12 % dearer per row (expert GEMMs at par with Marlin per
+  row; dense projections, the expert gathers, rope_qkv, the slot sum, norms and short-prompt attention are the rest) and decode steps ~4 %.
+  The prefill attention enumerates the runs' query tiles (no empty blocks for short prompts), `rope_qkv` runs 4 / 8 rows per workgroup
+  without q / k norms (2,048 tokens 161 → 72 µs), the skinny GEMM applies matmul epilogues in its store (72 fewer launches per 4-row
+  gpt-oss step): gpt-oss-20b prompt steps -2 %, serving 0.95x at 64 streams, 1.00x at 16; Qwen3-8B-FP8 0.94 / 0.95x. Measured and not kept:
+  the expert slot sum read in place by the residual norm (no gain), the full step budget at any load, a uniform-flow norm reduction for
+  `rope_qkv` on Vulkan (still wrong, also without the norm). Next: §80.8.
+  Round 28 (§82): gpt-oss prompt rows. The gate / up expert GEMM stores the down projection's expert-sorted f16 rows itself (values
+  ≥ 2^15 flagged and fixed up by `moe_range_fixup`; never flagged on gpt-oss, whose clamped SwiGLU stays below ~56), reads its token
+  rows from the router's f16 copy, prompt-sized q / k / v run as one launch, the router [2880 → 32] moves to gemm_cm2's K split, the
+  f16 GEMM unscales ranged rows in its store, and multi-sequence prefill attention takes a KV head's query heads per block: the
+  2,048-row prompt step 123.0 → 116.1 ms, the 64-row decode step -1.2 %, gpt-oss-20b serving 0.94 → 0.98x of vLLM at 64 streams (1.00x
+  at 16); Qwen3-8B-FP8 unchanged (0.94x). Greedy text byte-identical, sorted store bit-identical to the gather path; long-prompt logits
+  move with the router's summation order (now Vulkan's). Measured and not kept: the tensor-copy FP8 GEMM's multi-output q / k / v.
+  Next: §82.6.
+  Round 29 (§84): Qwen3-8B-FP8 decode at 16 rows. The dual gate / up pair on grouped E4M3 weights takes the FP8 GEMM's decode form
+  from 9 rows (the skinny GEMM keeps 1-8), a register-streaming FP8 decode GEMM (`gemm_fp8_decode.cu`: no shared-memory stages, weights
+  as the MMA's A operand, K split over a block's warps) serves single matmuls at 9-16 rows, and the FP8 decode kernels copy their first
+  weights before `griddepcontrol.wait`: the 16-sequence step 12.59 → 12.19 ms (at or below vLLM's like for like), serving at 16 streams
+  0.94 → 0.97-0.98x, at 64 unchanged (0.94x). vLLM's prompt GEMMs run at twice our rate (block-scaled MMA with E8M0 scales, 545 TFLOPS
+  against 256): the next lever. Measured and not kept: L2 prefetches before the wait, the dual pair on the new kernel. Next: §84.6.
+- **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
+  31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
+  the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models
+  the staged `fa` (Qwen3.8 27B pp32768 0.84 / 0.87x). The hand-written CUDA prefill attention now takes head sizes up to 512 (32 / 16-key
+  tiles, warp pairs splitting the head dimensions above 256), `fe` up to 512 on Vulkan (subgroup pairs), sliding windows in the causal
+  `fe`, the split-K decode attention fits 512-wide heads in Vulkan's 48 KiB (two key rows per batch there at 256+), and captured CUDA
+  step graphs run independent launches as parallel branches (Qwen3-8B 64-sequence step -6.7 %). Next: §74.6.
+- **Feed round 2 (§77)**: window-sized KV caches for single-sequence sessions (the one-slot paged form with a ring for sliding-window
+  layers): Gemma 4 31B Q4_K_M at 32K takes 21.1 instead of 44.8 GiB on the session path (prefill 1.04x / 1.21x of llama.cpp on CUDA /
+  Vulkan) and 128K fits a 32 GB card (28.2 GiB f16, 23.2 GiB q8_0). A hand-written K-quant decode GEMM on CUDA (`native_gemm_kquant`,
+  raw Q4_K / Q5_K / Q6_K blocks dequantized into MMA fragments in registers): Qwen3-8B batched decode 1.37 / 1.41 / 1.38x of llama.cpp
+  CUDA at 16 / 32 / 64 sequences (from 0.99x), Qwen3.8 27B 1.67 / 2.04x at 16 / 64, Gemma 4 31B 1.11x at 16 (from 0.84x). Next: §77.5.
+- **Feed round 3 (§79)**: 48-row token tiles for decode batches of 33-48 rows on the CUDA K-quant GEMM and on gemm_cm2 (Vulkan):
+  Qwen3-8B Q4_K_M at 48 sequences 1.40x of llama.cpp on CUDA (from 1.16x) and 1.81x on Vulkan (from 1.72x), Qwen3.8 27B 2.01x (from
+  1.76x); a dual gate / up form of the K-quant GEMM (one launch, the activation product in its store); the 64-row tiles measured as
+  MMA-issue bound. Gemma 4 31B at 128K on the session path: decode 19.97 tok/s (0.80x of llama.cpp). Next: §79.7.
+- **Feed round 5 (§83)**: a cooperative-matrix K-quant decode GEMM for Vulkan (`gemm_kq.slang`: raw Q4_K / Q5_K / Q6_K blocks staged and
+  dequantized into MMA-layout fragments, single / q / k / v / dual gate-up forms, 9-64 rows): batched decode on Vulkan against llama.cpp
+  Qwen3-8B 2.93 / 2.30 / 2.02 / 1.79x at 16-64 sequences (from 2.09-1.67x), Qwen3.8 27B 3.45-2.62x, Gemma 4 31B 2.65x at 16. 64-query
+  `fe` blocks at head size 512 (Gemma 4 31B 128K prefill on Vulkan 513 → 705 tok/s), q8_0 caches on the wide decode forms of both
+  providers (Qwen3.8 27B at 32K 1.39x / 1.15x of llama.cpp with q8_0 KV), a row norm + group + row norm in one launch. Next: §83.9.
+- **Serving round 1 (§60)**: a per-step serving profile (`SHARPLIGHT_STEP_PROFILE`), asynchronous CUDA / Vulkan executions with token
+  streaming overlapped with the next step, first runs of a shape launched while they are recorded, and window-sized KV caches for
+  sliding-window layers (`window_kv`: gpt-oss's window layers hold 0.07 instead of 12 GiB at 4 x 128K, so four 128K streams fit:
+  149 tok/s, 0.85x of vLLM). A 64-stream gpt-oss round is GPU-bound (busy 92 % → 97 %); serving stays 0.80x / 0.76x of vLLM at 16 / 64
+  streams because the device time is the gap: vLLM's ITL p50 at 64 streams is ~13 ms against our 18.7 ms decode step, and prompt rows
+  cost 58 µs each, mostly the grouped MXFP4 expert GEMM above 64 rows (native form at ~21 rows per expert). Next (kernels): the 64-row
+  decode step (expert and projection GEMMs) and an expert GEMM at the read limit for 64-200 rows; host side, only vLLM-style scheduling
+  ahead of the sampled tokens is left (≤ 3 % of a round).
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
@@ -126,6 +286,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
     from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
+  Sizing round 2 (studio.md "Load options"): the load panel shows the engine's own footprint for one slot (window-sized session caches,
+  KV type) with a GPU / CPU (expert) offload / does-not-fit verdict, the longest context that fits on the GPU and with offload, and what
+  the other KV cache type saves; the device memory figures are read again when a picker opens, after loads and unloads and every 5 s
+  while one is visible; the feed's variant ladders show a per-variant fit. Gemma 4 31B Q4_K_M: weights and state 20.7 GiB at 32K and
+  28.2 GiB at 128K (23.0 GiB with q8_0), the total adds an activation bound of ~3.1 GiB at the 512-row prompt batch. Next: feed
+  packages record the session footprint (the feed's figures are the plain graph's, larger for sliding-window models), a tighter
+  activation bound for single-sequence sessions.
 
 ## Performance ideas
 
@@ -146,9 +313,52 @@ GPU (Vulkan):
   serves up to 12 items per expert (direct path) and the per-item matvec hands over at a quarter of the experts: gpt-oss-20b
   decode steps at 4-32 sequences -8 to -22 %, serving at 4 / 16 streams 382 → 470 / 1075 → 1201 tok/s; against a fresh vLLM
   1.05x / 0.94x / 0.84x / 0.61x at 1 / 4 / 16 / 64 streams. The MoE grouped GEMM's sorted f16 rows are row-ranged (§46.6).
-  Next: the 64-stream mixed steps, where prompt rows put 20-30 items on each expert and the grouped MXFP4 gemm_cm2 runs at
-  50-80 TFLOPS bound by MMA / decode work, not weight traffic (§46.4); a dual gate / up expert GEMM with the activation
-  epilogue; Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
+  Round 9 (§47): MXFP4 weights decoded per MMA in the direct skinny GEMM (gpt-oss decode steps at 4-64 sequences -2 to -4 %),
+  bias / residual epilogues in the split-K reduction of the f16 tensor-core GEMM (96 fewer launches per gpt-oss step); serving
+  +2-3 % from 4 streams, gaps to vLLM unchanged (0.84x / 0.61x at 16 / 64 streams). Diagnostics show the grouped MXFP4 gemm_cm2
+  at 20-30 items per expert is bound by its weight fetch (~575 GB/s), not by MMAs or decode (§47.2); deeper register prefetch,
+  other tile layouts and register-direct 32-row expert tiles (`SHARPLIGHT_MOE_WIDE`, opt-in) were slower.
+  Round 10 (§49): 2048-row serving steps (§49.2); gpt-oss's fused gate / up matrix runs as a dual pair of halves in the grouped
+  gemm_cm2 / skinny GEMMs with the clamped SwiGLU and both bias rows in their store (the 2I-wide product is never stored), separate
+  gate / up pairs use the same dual form, and the expert-sum group (down bias, router weight) and lone bias Adds run in the grouped
+  GEMMs' store. gpt-oss decode step at 64 sequences 18.0 → 17.1 ms, 2048-row prompt step 193 → 170 ms (same build, switches off / on); serving 1191 → 1287 / 2001 →
+  2244 tok/s at 16 / 64 streams, 0.90x / 0.70x of vLLM (was 0.83x / 0.62x). Tile-major expert grids (opt-in) and two skinny tiles
+  per expert were no faster; cooperative vectors (f16 / int8 only) and cooperative matrix 2 offer no larger effective FP8 tile.
+  Next: the grouped MXFP4 gemm_cm2 at 256 rows per expert (~90 TFLOPS against ~120 dense), the bf16 projections / LM head at 64 rows.
+  Round 11 (§50): load-adaptive serving steps take TTFT at 16 streams from 193 to 133 ms (vLLM 182) for 3 % of 16-stream
+  throughput (1253 against 1292 tok/s with round 10's fixed budget, `--min-step-tokens 0`; 0.89x / 0.72x of vLLM at 16 / 64 streams,
+  0.91x / 0.73x with the full budget). 64-row expert tiles up to 320 rows per expert (2048-row prompt step 171 → 165 ms, grouped
+  MXFP4 ~104 TFLOPS against ~117 dense), norm-written GEMM copies from 17 rows and one-row decode attention batches (64-sequence
+  decode step 18.0 → 17.4 ms). The LM head already reads at ~800 GB/s; the attention projections at 64 rows read at 580-650 GB/s and
+  K / V at ~270 GB/s (latency bound; the skinny GEMM at 64 rows and more K splits were no faster). Next: prefill per row (vLLM runs
+  a whole 16-prompt wave in ~180 ms), a Q / K / V multi-output GEMM, the expert-grouped skinny GEMMs (57 % of the decode step).
+  Round 12 (§56, CUDA): a hand-written grouped MXFP4 expert GEMM (`gemm_moe_native.cu`, feature `native_gemm_moe`: raw codes in a
+  `cp.async` ring, decoded per MMA, empty fragments of partial tiles skipped, generated epilogues in CUDA C++) from 12 rows per
+  expert: gpt-oss-20b expert GEMMs at 2048 tokens 108 → 83 ms (Marlin in vLLM: 87 ms), prefill 0.81 → 1.07x / 0.74 → 0.87x /
+  0.63 → 0.71x of vLLM at 512 / 2048 / 8192 tokens, mixed serving steps of 171-2048 rows 15-26 % faster, CUDA serving 0.75 → 0.79x /
+  0.70 → 0.75x of vLLM at 16 / 64 streams (TTFT below vLLM's); outputs identical to gemm_cm2. `serve --provider` was ignored (CUDA serving rows of §53.6 / §54.5 ran on Vulkan), fixed. Next: prefill attention
+  (`fa` 16.4 ms at 2048 tokens against FlashInfer's 4.4, 30 % of an 8192-token prefill), q / k / v as one GEMM, the 64-sequence
+  decode step (19.8 against ~16.2 ms; it is the rest of the 64-stream gap). Vulkan's gemm_cm2 cannot take the same form (no `cp.async`, opaque cooperative-matrix
+  fragments; a subgroup-uniform skip of empty fragments made it 50 % slower).
+  Earlier next: an expert GEMM fetching at ~800 GB/s for 16-48 rows per expert (raw MXFP4 stages in shared memory, 3 workgroups per SM);
+  Qwen3.8-Flash-Next with CPU offload against llama.cpp (not measured, §43.5).
+- **MoE with CPU offload** (§59): routed experts placed apart from their layer (the first layers' experts on the CPU, everything dense on
+  the GPU, llama.cpp's `--n-cpu-moe`), shared activation arenas, fused AVX2 integer dots for the IQ grid formats, and prefill with the
+  CPU experts streamed to the GPU (page-locked mapped weights, copied while the layer before runs). Round 2 (§62): decode passes split each
+  CPU layer's experts between the CPU and the GPU (the GPU copies only the experts of its share of the slots), the streaming memory keeps a
+  layer resident for decode, integer dots for the IQ grid formats in the GPU expert matvec, router fusion, a 512 MiB reserve with
+  shortfall-driven retries, Vulkan on the driver's budget: Qwen3.5-122B IQ2_XXS at llama.cpp's decode on CUDA (1.0x, prefill 1.03x) and 1.5x on
+  Vulkan. Round 3 (§66): split decode for gpt-oss (sparse compilations keep the stored layout, gathered bias tables kept whole, slot
+  weights zeroed per share), the split share chosen by measured pass time (0 = the CPU alone), streamed layers in the stored layout (direct
+  copies), half of the memory for page-locked expert sources, a vectorized exp on the CPU (the runtime's ran scalar), an in-place slot sum,
+  a fused Q4_K integer dot, and Vulkan host-memory imports with a probed fallback. Round 4 (§69): llama.cpp-style Q4_K / Q6_K CPU dots (int16 scale weighting, ~2x) with row pairs for short rows, the expert MLP on the CPU in two passes (gated activation in the gate / up units, weighted slot sum in the down product), CUDA steps as one graph with their staged copies, batched split copies, vector tanh / softplus / mish and the unary kernels out of the JIT's inlining budget: Qwen3-Coder-Next CUDA decode from 0.77x to 0.9-1.0x of llama.cpp (Vulkan 1.45-1.6x). Round 5 (§71): small-op fusion on the generated path, for every model: the router top-k with its row in registers (15 → 5.6 µs for 512 experts), the delta rule reading repeated key heads in place (with the L2 norms absorbed behind the repeat), row norms writing the int-dot matvecs' q8_1 rows, elementwise groups in the int-dot matvec's store: Coder-Next 1349 → 1004 kernels and ~0.6 ms less GPU time per decode step, CUDA decode +5-9 % (0.91-0.97x of llama.cpp's undisturbed runs, not yet 1.0x robustly), the 122B 1.04-1.10x, Vulkan 1.5-1.7x / 1.45-1.5x. Next: the expert down-projections' q8 inputs written by the dual matvec, the store epilogue in the f32 split-K matvec (the 122B's Q8_0 gates), one layer fewer on the CPU (the streaming memory holds a whole layer while llama.cpp keeps 16 CPU layers against our 17 + 1 resident); a float erf; Vulkan imports where the driver allows them; AVX-512 / VNNI and NEON fused dots; Qwen3.8-Flash-Next (66 GB, larger than the cgroup memory) offloaded against llama.cpp.
+  Round 6 (§85): routed experts on disk for models larger than RAM + VRAM (opt-in `ExpertsOnDisk`, CLI `--experts-on-disk`, hosting,
+  Studio): the CPU's experts stay in the model file and are read on demand into a segmented-LRU slot cache through `IExpertReader`
+  (io_uring with a thread fallback detected at run time, `O_DIRECT`), layer prefetch and chunked prefill, outputs bit-identical to resident
+  experts; CUDA split decode copies from the page-locked cache slots. DeepSeek-V3.1 Q4_K_M (405 GB) on the 62 GB / 32 GB pod: 0.9-1.2 tok/s
+  decode, reads at the disk's 7.3 GB/s. Next: next-layer expert prediction to overlap the reads with the GPU part of the step, spare VRAM
+  as a second cache tier, prefill on the GPU from the cache slots (streamed chunks), Vulkan imports of the slots, io_uring on a host that
+  allows it, DirectStorage / GPUDirect Storage readers, a frequency-aware admission (the hit rate is 38-41 % with 8 % of the experts cached).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).
@@ -188,15 +398,33 @@ Devices without f16 matrix units keep strict. Open: the q4 decoders and the SIMT
 
 ## Multi-node inference
 
-- **Pipeline parallel across a cluster**: run one model too large for a single machine across several nodes. Placement
-  already splits a graph into per-device segments in pipeline order (`PlacementOptions.Devices`); a remote segment
-  worker on each node loads only its own layers from its local `.slm` copy, keeps the KV cache of those layers, and
-  exchanges only the boundary activations (`d_model` x 2 bytes per token, about 14 KB for DeepSeek-V3; well under 1 ms
-  per token over 10 GbE for 4 nodes). Exposed as a provider whose devices are remote segments, so other providers can
-  implement it. Single-stream decode gains capacity, not speed; throughput scales with nodes by keeping several
-  micro-batches in flight through the multi-sequence decoder.
+- **Pipeline parallel across a cluster**: done in round 1 ([multinode.md](multinode.md), benchmarks §88): `Sharplight.Distributed`'s
+  remote execution provider, whose devices are segment workers (`sharplight segment-worker`, `SegmentWorker`) that load only their own
+  layers from their local copy (fingerprint-checked), keep the KV cache of those layers and exchange only boundary activations, worker to
+  worker over persistent TCP streams (mutual TLS optional); `--workers` on the CLI and `serve`, `workers` per hosted model. Output equals
+  the single-machine run (tokens and logits); a lost or hung worker fails the request in under a second or at the heartbeat timeout.
+  Chunked prefill overlaps the stages; several decoders over one pipeline overlap their steps. Next: decode micro-batches inside one
+  serving engine, lower per-step protocol overhead (0.15-0.35 ms per worker on loopback), f16 boundary values, an RDMA transport.
 - Later: tensor and expert parallel across nodes for RDMA networks (InfiniBand / RoCE) and large MoE models; over TCP the
   per-layer all-reduces cost several milliseconds per token.
+
+## Android (later)
+
+Target: Sharplight as an on-device runtime on Android (arm64), first for ONNX models on the CPU, where the desktop CPU provider
+already runs at 0.62-1.53x onnxruntime's time (§98), then small LLMs. The competitor there is onnxruntime Mobile with XNNPACK and
+llama.cpp's ARM CPU and Adreno OpenCL backends. Not started.
+
+- **Runtime**: Core, importers and the CPU and Vulkan providers built for `android-arm64` (.NET for Android, NativeAOT for size and
+  startup); a small sample app.
+- **CPU first**: most CPU kernels use portable `Vector128` / `Vector256`, which map to NEON; the paths written with x86
+  intrinsics (AVX2 / AVX-512 / FMA) need arm64 counterparts. Then dot-product (`sdot`), int8 matrix (`i8mm`) and, on the
+  newest chips, SME2 kernels; big.LITTLE-aware threading (pin to performance cores); measure against onnxruntime + XNNPACK.
+- **Vulkan second**: a mobile capability profile checked against Android's Vulkan baseline profile (no cooperative matrix, so
+  the shader-math GEMMs; subgroup sizes 16-128; small storage-buffer ranges, so weights split across bindings; f16 / int8
+  arithmetic), plus a per-driver workaround list (Adreno, Mali, Xclipse, PowerVR).
+- **NPU later**: an execution provider for phone NPUs (Qualcomm QNN / Hexagon, MediaTek NeuroPilot, LiteRT on Google Tensor)
+  for fixed-shape graphs; an OpenCL path for Adreno only if Vulkan stays behind there.
+- Testing needs real devices (one Adreno, one Mali at least) or a device farm; the emulator's Vulkan is not representative.
 
 ## Other
 

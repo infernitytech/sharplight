@@ -9,7 +9,7 @@ public sealed partial class GraphLowerer
     private static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where", .. NumericElementwiseNames];
 
     private static readonly HashSet<string> s_supported =
-        [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
+        [.. s_elementwise, "Reshape", "Slice", "Permute", "After", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
          "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", "WindowPool", .. SpatialOpNames, .. GeneralOpNames, .. DetectionOpNames, .. ExtendedOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
@@ -59,6 +59,7 @@ public sealed partial class GraphLowerer
         [DataType.F8E4M3_B128] = 53,
         [ShaderTypes.F8E4M3_B32R] = 152,
         [ShaderTypes.F8E4M3_B128R] = 153,
+        [ShaderTypes.F8E4M3_B128G] = 154,
         [DataType.NVFP4_GS] = 60,
         [DataType.Q4Z_G32] = 61,
         [DataType.Q4Z_G128] = 62,
@@ -236,7 +237,7 @@ public sealed partial class GraphLowerer
         return SupportsKvRows(node.Inputs[1]) is { IsSupported: false } keys ? keys : SupportsKvRows(node.Inputs[2]);
     }
 
-    /// <summary>KV-cache storage the kernels read and write: f32, f16, or q8_0 / q4_0 rows of whole 32-value blocks.</summary>
+    /// <summary>KV-cache storage the kernels read and write: f32, f16, or q8_0 / q4_0 / f8e4m3_b32 rows of whole 32-value blocks.</summary>
     private static OpSupport SupportsKvRows(Value cache)
     {
         if (cache.Type == DataType.F32 || cache.Type == DataType.F16)

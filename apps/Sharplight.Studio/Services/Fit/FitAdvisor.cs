@@ -20,12 +20,21 @@ internal sealed class FitAdvisor
 
     private readonly IModelRuntime _runtime;
     private readonly ISettingsService _settings;
+    private readonly DeviceMemoryWatch? _memory;
 
-    public FitAdvisor(IModelRuntime runtime, ISettingsService settings)
+    /// <param name="runtime">The devices, resident models and footprint estimates.</param>
+    /// <param name="settings">The residency reserve and the default load settings.</param>
+    /// <param name="memory">The shared memory figures, refreshed by every read here; null reads the runtime directly.</param>
+    public FitAdvisor(IModelRuntime runtime, ISettingsService settings, DeviceMemoryWatch? memory = null)
     {
         _runtime = runtime;
         _settings = settings;
+        _memory = memory;
     }
+
+    /// <summary>The advisor of <paramref name="services"/>, reading memory through their shared <see cref="DeviceMemoryWatch"/>.</summary>
+    /// <param name="services">The services.</param>
+    public static FitAdvisor For(StudioServices services) => new(services.Runtime, services.Settings, services.Memory);
 
     /// <summary>Memory kept free on every device, in bytes.</summary>
     public long ReserveBytes => Math.Max(0, _settings.Current.Residency.ReserveMiB) * (1L << 20);
@@ -38,7 +47,7 @@ internal sealed class FitAdvisor
     /// <summary>The memory of every physical device now.</summary>
     /// <param name="cancellationToken">Cancels the query.</param>
     public Task<IReadOnlyList<DeviceMemory>> GetMemoryAsync(CancellationToken cancellationToken)
-        => _runtime.GetDeviceMemoryAsync(_settings.Current.DisabledFeatures, cancellationToken);
+        => _memory?.RefreshAsync(cancellationToken) ?? _runtime.GetDeviceMemoryAsync(_settings.Current.DisabledFeatures, cancellationToken);
 
     /// <summary>The query for loading a model of <paramref name="footprint"/> with <paramref name="settings"/>.</summary>
     /// <param name="footprint">The estimated footprint.</param>
@@ -62,6 +71,7 @@ internal sealed class FitAdvisor
             ReserveBytes = ReserveBytes,
             Residents = [.. _runtime.LoadedModels.Select(model => Usage(model, gpus))],
             CpuOffload = settings.CpuOffload && device?.IsGpu == true && system is not null,
+            ExpertsOnDisk = settings.ExpertsOnDisk && settings.CpuOffload,
         };
     }
 
@@ -103,8 +113,13 @@ internal sealed class FitAdvisor
     /// <param name="entry">The library model being loaded, or null.</param>
     /// <param name="library">The library, for smaller quantizations of the same model.</param>
     /// <param name="cancellationToken">Cancels the estimates.</param>
+    /// <param name="contexts">
+    /// The longest contexts that fit (<see cref="SizeContextAsync"/>), when the caller shows them (<see cref="SizingAsync"/>): then no shorter
+    /// context is suggested here. Null suggests the first of a few halvings of the context that fits.
+    /// </param>
+    /// <param name="expertBytes">The routed experts' bytes, 0 for a dense model: a mixture-of-experts model that does not fit memory is offered experts on disk.</param>
     public async Task<IReadOnlyList<FitSuggestion>> SuggestAsync(ModelLoadRequest request, FitReport report, IReadOnlyList<DeviceMemory> memory,
-        LibraryEntry? entry, IReadOnlyList<LibraryEntry> library, CancellationToken cancellationToken)
+        LibraryEntry? entry, IReadOnlyList<LibraryEntry> library, CancellationToken cancellationToken, ContextFit? contexts = null, long expertBytes = 0)
     {
         if (report.FitsOnDevice)
         {
@@ -120,13 +135,23 @@ internal sealed class FitAdvisor
                 settings with { CpuOffload = true }));
         }
 
-        var contexts = new List<LoadSettings>();
-        for (int context = settings.ContextLength / 2, i = 0; context >= MinSuggestedContext && i < ContextSteps; context /= 2, i++)
+        if (report.Verdict == FitVerdict.DoesNotFit && expertBytes > 0 && !settings.ExpertsOnDisk && ResolveDevice(settings.DeviceId)?.IsGpu == true)
         {
-            contexts.Add(settings with { ContextLength = context });
+            var disk = settings with { CpuOffload = true, ExpertsOnDisk = true };
+            var diskReport = Plan(report.Footprint, disk, memory);
+            if (diskReport.ExpertsFromDisk)
+            {
+                suggestions.Add(new FitSuggestion($"Read experts from disk · about {ByteFormat.Format(DiskBytes(diskReport))} stay on disk, slow", diskReport.Verdict, disk));
+            }
         }
 
-        await AddBestAsync(suggestions, request, report, memory, contexts,
+        var shorter = new List<LoadSettings>();
+        for (int context = settings.ContextLength / 2, i = 0; contexts is null && context >= MinSuggestedContext && i < ContextSteps; context /= 2, i++)
+        {
+            shorter.Add(settings with { ContextLength = context });
+        }
+
+        await AddBestAsync(suggestions, request, report, memory, shorter,
             (candidate, fp) => $"Context of {candidate.ContextLength.ToString("N0", CultureInfo.InvariantCulture)} tokens · needs about {ByteFormat.Format(fp.Total)}",
             cancellationToken).ConfigureAwait(false);
 
@@ -134,7 +159,7 @@ internal sealed class FitAdvisor
         {
             "f32" => ["f16", "q8_0", "q4_0"],
             "f16" => ["q8_0", "q4_0"],
-            "q8_0" => ["q4_0"],
+            "q8_0" or "f8e4m3_b32" => ["q4_0"],
             _ => [],
         };
         await AddBestAsync(suggestions, request, report, memory, [.. smallerKv.Select(type => settings with { KvCacheType = type })],
@@ -165,6 +190,164 @@ internal sealed class FitAdvisor
 
         return suggestions;
     }
+
+    /// <summary>
+    /// The longest contexts that fit <paramref name="request"/>'s model with its other settings: on the chosen device, and (on a GPU with
+    /// system memory to spare) with CPU offload. Every candidate is sized by the engine (<see cref="IModelRuntime.EstimateFootprintAsync"/>);
+    /// a binary search over <see cref="ContextSizer.Candidates"/> needs a few estimates only.
+    /// </summary>
+    /// <param name="request">The load as configured.</param>
+    /// <param name="memory">The devices' memory.</param>
+    /// <param name="maxContext">The longest context to try (<see cref="ContextSizer.Limit"/>).</param>
+    /// <param name="expertBytes">The routed experts' bytes (<see cref="IModelRuntime.EstimateExpertBytesAsync"/>), 0 for a dense model.</param>
+    /// <param name="cancellationToken">Cancels the estimates.</param>
+    public async Task<ContextFit> SizeContextAsync(ModelLoadRequest request, IReadOnlyList<DeviceMemory> memory, int maxContext, long expertBytes,
+        CancellationToken cancellationToken)
+    {
+        var settings = request.Settings;
+        var footprints = new Dictionary<int, ModelFootprint>();
+        async Task<ModelFootprint> EstimateAsync(int context)
+        {
+            if (!footprints.TryGetValue(context, out var fp))
+            {
+                fp = await _runtime.EstimateFootprintAsync(request with { Settings = settings with { ContextLength = context } }, cancellationToken).ConfigureAwait(false);
+                footprints[context] = fp;
+            }
+
+            return fp;
+        }
+
+        var candidates = ContextSizer.Candidates(maxContext, settings.ContextLength);
+        var onDevice = settings with { CpuOffload = false };
+        int? longest = await ContextSizer.LongestAsync(candidates,
+            async context => Plan(await EstimateAsync(context).ConfigureAwait(false), onDevice with { ContextLength = context }, memory).FitsOnDevice).ConfigureAwait(false);
+        ModelFootprint? longestFootprint = longest is { } l ? footprints[l] : null;
+
+        var device = ResolveDevice(settings.DeviceId);
+        bool canOffload = device?.IsGpu == true && memory.Any(entry => !entry.IsGpu);
+        var longer = candidates.Where(context => context > (longest ?? 0)).ToList();
+        if (!canOffload || longer.Count == 0)
+        {
+            return new ContextFit(maxContext, longest, longestFootprint);
+        }
+
+        // Contexts that fit memory: experts on disk would make every context "load".
+        var offload = settings with { CpuOffload = true, ExpertsOnDisk = false };
+        int? withOffload = await ContextSizer.LongestAsync(longer,
+            async context => Plan(await EstimateAsync(context).ConfigureAwait(false), offload with { ContextLength = context }, memory).LoadsAsConfigured).ConfigureAwait(false);
+        if (withOffload is not { } w)
+        {
+            return new ContextFit(maxContext, longest, longestFootprint);
+        }
+
+        var report = Plan(footprints[w], offload with { ContextLength = w }, memory);
+        return new ContextFit(maxContext, longest, longestFootprint, w, footprints[w], IsExpertOffload(report, expertBytes));
+    }
+
+    /// <summary>
+    /// Rows that show how far the configured load could go: the longest context on the device and with CPU offload (when they differ from
+    /// the configured one), and the other KV cache type (F16 against Q8_0) when the model fits as configured and that type changes its size.
+    /// </summary>
+    /// <param name="request">The load as configured.</param>
+    /// <param name="report">Its plan.</param>
+    /// <param name="contexts">The longest contexts (<see cref="SizeContextAsync"/>).</param>
+    /// <param name="memory">The devices' memory the plan used.</param>
+    /// <param name="cancellationToken">Cancels the estimates.</param>
+    public async Task<IReadOnlyList<FitSuggestion>> SizingAsync(ModelLoadRequest request, FitReport report, ContextFit contexts,
+        IReadOnlyList<DeviceMemory> memory, CancellationToken cancellationToken)
+    {
+        var settings = request.Settings;
+        var rows = new List<FitSuggestion>();
+        string target = report.Devices.Count switch
+        {
+            1 when report.Devices[0].Device.IsGpu => $"on {report.Devices[0].Device.Name}",
+            1 => "in system memory",
+            var count and > 1 => $"on {count} GPUs",
+            _ => "on the device",
+        };
+        if (contexts.OnDevice is { } longest && contexts.OnDeviceFootprint is { } longestFp && longest != settings.ContextLength)
+        {
+            rows.Add(new FitSuggestion($"Up to {Tokens(longest)} tokens {target} · needs about {ByteFormat.Format(longestFp.Total)}",
+                Plan(longestFp, settings with { ContextLength = longest, CpuOffload = false }, memory).Verdict,
+                settings with { ContextLength = longest, CpuOffload = false }));
+        }
+
+        if (contexts.WithOffload is { } offload && contexts.WithOffloadFootprint is { } offloadFp && offload != settings.ContextLength)
+        {
+            string kind = contexts.ExpertOffload ? "CPU expert offload" : "CPU offload";
+            rows.Add(new FitSuggestion($"Up to {Tokens(offload)} tokens with {kind} · needs about {ByteFormat.Format(offloadFp.Total)}",
+                FitVerdict.NeedsOffload, settings with { ContextLength = offload, CpuOffload = true }));
+        }
+
+        if (report.FitsOnDevice && KvAlternative(settings.KvCacheType) is { } other)
+        {
+            var candidate = settings with { KvCacheType = other };
+            try
+            {
+                var fp = await _runtime.EstimateFootprintAsync(request with { Settings = candidate }, cancellationToken).ConfigureAwait(false);
+                long delta = report.Footprint.Total - fp.Total;
+                // Caches whose rows are not whole 32-value blocks stay F16: then the type changes nothing worth showing.
+                if (Math.Abs(delta) >= 16L << 20)
+                {
+                    string change = delta > 0 ? $"{ByteFormat.Format(delta)} less" : $"{ByteFormat.Format(-delta)} more";
+                    rows.Add(new FitSuggestion($"{KvName(other)} KV cache · needs about {ByteFormat.Format(fp.Total)} ({change})",
+                        Plan(fp, candidate, memory).Verdict, candidate));
+                }
+            }
+            catch (Exception error) when (error is not (OperationCanceledException or OutOfMemoryException))
+            {
+                // No row without an estimate.
+            }
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// The offload of <paramref name="report"/> moves only routed experts: what goes to the CPU is no more than the experts' weights (the engine
+    /// offloads experts first and keeps attention and the shared layers on the GPU).
+    /// </summary>
+    /// <param name="report">A plan with <see cref="FitVerdict.NeedsOffload"/>.</param>
+    /// <param name="expertBytes">The routed experts' bytes, 0 for a dense model.</param>
+    public static bool IsExpertOffload(FitReport report, long expertBytes)
+        => expertBytes > 0 && report.Verdict == FitVerdict.NeedsOffload && report.SystemMemory is { } system && system.NeededBytes <= expertBytes;
+
+    /// <summary>
+    /// The read speed assumed for experts on disk (a fast NVMe drive, about 3 GB/s): the engine measures the drive only once the model is
+    /// loaded (<c>ExpertStore.MeasuredReadBytesPerSecond</c>).
+    /// </summary>
+    public const double AssumedDiskBytesPerSecond = 3e9;
+
+    /// <summary>The bytes of routed experts a plan leaves on disk: what goes to the CPU beyond the system memory available.</summary>
+    /// <param name="report">A plan with <see cref="FitReport.ExpertsFromDisk"/>.</param>
+    public static long DiskBytes(FitReport report)
+        => report.ExpertsFromDisk && report.SystemMemory is { } system ? Math.Max(0, system.NeededBytes - system.AvailableBytes) : 0;
+
+    /// <summary>
+    /// A rough decode speed with experts on disk, in tokens per second: the drive's read speed over the bytes a token reads from disk (the
+    /// experts-per-token share of the experts left there, every read a cache miss), so a lower bound; null when nothing is on disk or the share is unknown.
+    /// </summary>
+    /// <param name="report">The plan.</param>
+    /// <param name="activeShare">Experts per token / experts (<see cref="IModelRuntime.EstimateExpertActiveShareAsync"/>).</param>
+    /// <param name="bytesPerSecond">The drive's read speed.</param>
+    public static double? DiskTokensPerSecond(FitReport report, double activeShare, double bytesPerSecond = AssumedDiskBytesPerSecond)
+    {
+        long disk = DiskBytes(report);
+        double perToken = disk * activeShare;
+        return disk <= 0 || activeShare <= 0 || perToken <= 0 ? null : bytesPerSecond / perToken;
+    }
+
+    /// <summary>The KV cache type to compare with: Q8_0 for the default F16 cache, F16 for any other.</summary>
+    private static string? KvAlternative(string type) => type switch
+    {
+        "f16" => "q8_0",
+        "q8_0" or "q4_0" or "f8e4m3_b32" or "f32" => "f16",
+        _ => null,
+    };
+
+    private static string KvName(string type) => type == "f16" ? "F16" : type.ToUpperInvariant();
+
+    private static string Tokens(int context) => context.ToString("N0", CultureInfo.InvariantCulture);
 
     /// <summary>A smaller quantization of the same repository in the library: the largest that fits, else the smallest.</summary>
     private void AddSmallerVariant(List<FitSuggestion> suggestions, FitReport report, LoadSettings settings, IReadOnlyList<DeviceMemory> memory,

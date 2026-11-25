@@ -47,12 +47,13 @@ public class PackageTests
         {
             AudioModels.Services.GetRequiredService<ModelConverter>().Convert(AudioModels.Model("musicgen-small"), path);
             Assert.Equal(ModelKinds.MusicGeneration, ModelPackageReader.Open(path).Definition.Description.Kind);
-            var request = new MusicGenerationRequest { Prompt = "80s pop track with bassy drums and synth", Duration = TimeSpan.FromSeconds(0.5), Greedy = true };
+            var request = new MusicGenerationRequest { Prompt = "80s pop track with bassy drums and synth", Duration = TimeSpan.FromSeconds(0.5) };
+            var options = new MusicGenerationOptions { Greedy = true };
             using var original = AudioModels.Load(AudioModels.Open(gpu: false), AudioModels.Model("musicgen-small"));
             using var packaged = AudioModels.Load(AudioModels.Open(gpu: false), path);
             using var a = AudioModels.Client<IMusicGenerator>(original);
             using var b = AudioModels.Client<IMusicGenerator>(packaged);
-            Assert.Equal((await a.GenerateCodesAsync(request)).Values, (await b.GenerateCodesAsync(request)).Values);
+            Assert.Equal((await a.GenerateCodesAsync(request, options)).Values, (await b.GenerateCodesAsync(request, options)).Values);
         }
         finally
         {

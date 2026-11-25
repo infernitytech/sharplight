@@ -12,8 +12,9 @@ namespace Sharplight.Extensions.AI;
 /// <see cref="IChatClient"/> over the batched serving engine (<see cref="ModelService"/>, e.g. a chat model of a <c>ModelHost</c>): calls
 /// are continuously batched with every other request of the model, queued fairly per <see cref="ServingChatClientOptions.Tenant"/> and
 /// isolated in the prefix cache per <see cref="ServingChatClientOptions.CachePartition"/>. The model's chat template, reasoning and
-/// tool-call parsing apply. Text, reasoning, tool calls and tool results are mapped; images are not. Thread-safe; the caller keeps
-/// ownership of the service (and of any lease that keeps it loaded).
+/// tool-call parsing apply. Text, reasoning, tool calls and tool results are mapped, and images (<see cref="DataContent"/> with an image
+/// media type) where the service takes image input (<see cref="ModelService.SupportsImages"/>; they are batched like text). Thread-safe; the
+/// caller keeps ownership of the service (and of any lease that keeps it loaded).
 /// </summary>
 /// <example>
 /// <code>
@@ -30,6 +31,9 @@ public sealed class ServingChatClient : IChatClient
 
     /// <summary><see cref="ChatOptions.AdditionalProperties"/> key overriding the prefix-cache partition of one call (a string).</summary>
     public const string CachePartitionProperty = "sharplight.cache_partition";
+
+    /// <summary><see cref="ChatOptions.AdditionalProperties"/> key overriding the prefix-cache salt of one call (a string, see <see cref="GenerationRequest.CacheSalt"/>).</summary>
+    public const string CacheSaltProperty = "sharplight.cache_salt";
 
     /// <summary><see cref="ChatOptions.AdditionalProperties"/> key overriding the priority of one call (an int).</summary>
     public const string PriorityProperty = "sharplight.priority";
@@ -168,7 +172,7 @@ public sealed class ServingChatClient : IChatClient
             Temperature = options?.Temperature ?? _options.DefaultSampling.Temperature,
             TopP = options?.TopP ?? _options.DefaultSampling.TopP,
             TopK = options?.TopK ?? _options.DefaultSampling.TopK,
-            Seed = options?.Seed is { } seed ? (int)seed : _options.DefaultSampling.Seed,
+            Seed = options?.Seed ?? _options.DefaultSampling.Seed,
             FrequencyPenalty = options?.FrequencyPenalty ?? _options.DefaultSampling.FrequencyPenalty,
             PresencePenalty = options?.PresencePenalty ?? _options.DefaultSampling.PresencePenalty,
         };
@@ -198,6 +202,7 @@ public sealed class ServingChatClient : IChatClient
             },
             Tenant = Property<string>(options, TenantProperty) ?? _options.Tenant,
             CachePartition = Property<string>(options, CachePartitionProperty) ?? _options.CachePartition,
+            CacheSalt = Property<string>(options, CacheSaltProperty) ?? _options.CacheSalt,
             Priority = options?.AdditionalProperties?.TryGetValue(PriorityProperty, out var priority) == true && priority is int value ? value : _options.Priority,
             Timeout = _options.Timeout,
         };
@@ -225,7 +230,24 @@ public sealed class ServingChatClient : IChatClient
             return new ChatTurn("assistant", text, Reasoning: reasoning.Length > 0 ? reasoning : null, ToolCalls: calls.Count > 0 ? calls : null);
         }
 
-        return new ChatTurn(message.Role == ChatRole.System ? "system" : "user", text);
+        var images = message.Contents.OfType<DataContent>().Where(content => content.HasTopLevelMediaType("image")).ToList();
+        string role = message.Role == ChatRole.System ? "system" : "user";
+        if (images.Count == 0)
+        {
+            return new ChatTurn(role, text);
+        }
+
+        // Images first, then the text, in the order the message lists them.
+        var parts = message.Contents
+            .Select(content => content switch
+            {
+                DataContent data when data.HasTopLevelMediaType("image") => ChatPart.FromImage(new ImageData(data.Data.ToArray(), data.MediaType, null)),
+                TextContent t => ChatPart.FromText(t.Text),
+                _ => null,
+            })
+            .OfType<ChatPart>()
+            .ToList();
+        return new ChatTurn(role, Parts: parts);
     }
 
     private static string ResultText(object? result) => result switch

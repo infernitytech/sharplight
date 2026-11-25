@@ -94,6 +94,12 @@ internal static class ModelInspector
     /// </summary>
     private static string InferKind(string path)
     {
+        // A video enhancement model given as its checkpoint folder or transformer file (the files of the importer's layout beside it).
+        if (new Sharplight.Import.SeedVr.SeedVrImporter().CanOpen(path))
+        {
+            return ModelKinds.VideoEnhancement;
+        }
+
         if (ImageModelProbe.KindOf(path) is { } imageKind)
         {
             return imageKind;
@@ -134,6 +140,11 @@ internal static class ModelInspector
             return ModelKinds.VoiceActivity;
         }
 
+        if (IsAceStepFolder(path) || IsStableAudio3Folder(path))
+        {
+            return ModelKinds.AudioGeneration;
+        }
+
         string config = System.IO.Path.Combine(path, "config.json");
         if (Directory.Exists(path) && File.Exists(config))
         {
@@ -141,6 +152,47 @@ internal static class ModelInspector
         }
 
         return ModelKindCatalog.Other;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is an ACE-Step checkpoint folder: it has no <c>config.json</c> of its own (and so no <c>model_type</c>) but a diffusion transformer folder
+    /// <c>acestep-v15-*</c> with its <c>config.json</c>, a <c>vae</c> folder and a <c>Qwen3-Embedding*</c> text encoder folder.
+    /// </summary>
+    internal static bool IsAceStepFolder(string path)
+    {
+        try
+        {
+            return Directory.Exists(path) && Directory.Exists(System.IO.Path.Combine(path, "vae"))
+                && Directory.EnumerateDirectories(path, "acestep-v15-*").Any(dir => File.Exists(System.IO.Path.Combine(dir, "config.json")))
+                && Directory.EnumerateDirectories(path, "Qwen3-Embedding*").Any();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is a Stable Audio 3 checkpoint folder: it has no <c>config.json</c> of its own but a <c>model_config.json</c> of the stable-audio-3
+    /// layout (a conditioned diffusion model with a <c>t5gemma</c> prompt conditioner) and <c>model.safetensors</c>.
+    /// </summary>
+    internal static bool IsStableAudio3Folder(string path)
+    {
+        try
+        {
+            string config = System.IO.Path.Combine(path, "model_config.json");
+            if (!Directory.Exists(path) || !File.Exists(config) || !File.Exists(System.IO.Path.Combine(path, "model.safetensors")))
+            {
+                return false;
+            }
+
+            string text = File.ReadAllText(config);
+            return text.Contains("\"diffusion_cond", StringComparison.Ordinal) && text.Contains("\"t5gemma\"", StringComparison.Ordinal);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Whether <paramref name="path"/> is a Silero VAD ONNX file or a folder holding one.</summary>
@@ -170,6 +222,7 @@ internal static class ModelInspector
         ["mimi"] = ModelKinds.AudioCodec,
         ["dac"] = ModelKinds.AudioCodec,
         ["qwen3_tts_tokenizer_12hz"] = ModelKinds.AudioCodec,
+        ["higgs_audio_v2_tokenizer"] = ModelKinds.AudioCodec,
         ["musicgen"] = ModelKinds.MusicGeneration,
         ["clap"] = ModelKinds.AudioEmbedding,
     };
@@ -177,7 +230,7 @@ internal static class ModelInspector
     /// <summary>The Hugging Face <c>model_type</c> values of the speech-recognition checkpoints Sharplight imports.</summary>
     private static readonly HashSet<string> s_speechRecognitionModelTypes = new(StringComparer.Ordinal)
     {
-        "whisper", "moonshine", "parakeet_ctc", "parakeet_tdt", "parakeet_rnnt", "canary", "voxtral",
+        "whisper", "moonshine", "parakeet_ctc", "parakeet_tdt", "parakeet_rnnt", "canary", "cohere_asr", "voxtral",
     };
 
     /// <summary>The <c>general.architecture</c> values of llama.cpp's bidirectional encoders (embedding models and cross-encoder rerankers).</summary>
@@ -262,12 +315,24 @@ internal static class ModelInspector
             return audioKind;
         }
 
+        if (modelType == "vibevoice")
+        {
+            // The synthesis and the recognition model share the model_type; the recognizer's architecture is VibeVoiceForASRTraining (or the transformers' VibeVoiceAsr...).
+            var names = root.TryGetProperty("architectures", out var declared) && declared.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? declared.EnumerateArray().Select(entry => entry.GetString() ?? "")
+                : [];
+            return names.Any(name => name.Contains("ASR", StringComparison.OrdinalIgnoreCase)) || folder.Contains("asr", StringComparison.OrdinalIgnoreCase)
+                ? ModelKinds.SpeechRecognition
+                : ModelKinds.SpeechSynthesis;
+        }
+
         if (folder.Contains("demucs", StringComparison.OrdinalIgnoreCase))
         {
             return ModelKinds.AudioSeparation;
         }
 
-        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts")
+        if (root.TryGetProperty("istftnet", out _) && root.TryGetProperty("plbert", out _) || modelType is "qwen3_tts" or "omnivoice" or "csm" or "dia" || IsDiaOriginalConfig(root)
+            || root.TryGetProperty("architecture", out var voxcpm) && voxcpm.ValueKind == System.Text.Json.JsonValueKind.String && voxcpm.GetString() == "voxcpm2")
         {
             return ModelKinds.SpeechSynthesis;
         }
@@ -299,6 +364,11 @@ internal static class ModelInspector
     }
 
     /// <summary>The Hugging Face <c>model_type</c> values of the bidirectional encoders Sharplight imports as embedding models and cross-encoder rerankers.</summary>
+    // The original checkpoint of Dia (the dia package's layout): a data section with the delay pattern and a model section with the decoder, and no model_type.
+    private static bool IsDiaOriginalConfig(System.Text.Json.JsonElement root)
+        => root.TryGetProperty("data", out var data) && data.ValueKind == System.Text.Json.JsonValueKind.Object && data.TryGetProperty("delay_pattern", out _)
+           && root.TryGetProperty("model", out var model) && model.ValueKind == System.Text.Json.JsonValueKind.Object && model.TryGetProperty("decoder", out _);
+
     private static readonly HashSet<string> s_encoderModelTypes = new(StringComparer.Ordinal)
     {
         "bert", "xlm-roberta", "roberta", "modernbert", "nomic_bert", "distilbert", "electra", "eurobert", "jina_bert",

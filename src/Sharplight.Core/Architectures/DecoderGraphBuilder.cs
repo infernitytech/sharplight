@@ -170,15 +170,7 @@ internal sealed partial class DecoderGraphBuilder
         {
             try
             {
-                graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.NEmbd, _hp.PositionAxes, _hp.Eps, layers: 1, (b, x, j, positions) =>
-                {
-                    string p = $"mtp.layers.{j}.";
-                    var slot = new LayerSlot(_hp.NLayer + j, _hp.LogicalLayers + j);
-                    var packedKv = new Dictionary<int, (Value K, Value V)>();
-                    return _hp.ParallelResidual
-                        ? ParallelLayer(b, x, p, slot, positions, FrequencyFactors(b), null, packedKv, null)
-                        : SequentialLayer(b, x, p, slot, positions, FrequencyFactors(b), null, packedKv, null);
-                }, chainNormalized: true);
+                graphs[WellKnown.DraftGraph] = BuildDraft(mediaWidth: 0);
             }
             catch (KeyNotFoundException)
             {
@@ -213,6 +205,23 @@ internal sealed partial class DecoderGraphBuilder
 
         return graphs;
     }
+
+    /// <summary>The NextN draft head's graph (<see cref="WellKnown.DraftGraph"/>, or with media rows of width <paramref name="mediaWidth"/> the <see cref="WellKnown.DraftMultimodalGraph"/>).</summary>
+    private ComputeGraph BuildDraft(int mediaWidth) => MtpDraftHead.Build(_draft!, _hp.NEmbd, _hp.PositionAxes, _hp.Eps, layers: 1, (b, x, j, positions) =>
+    {
+        string p = $"mtp.layers.{j}.";
+        var slot = new LayerSlot(_hp.NLayer + j, _hp.LogicalLayers + j);
+        var packedKv = new Dictionary<int, (Value K, Value V)>();
+        return _hp.ParallelResidual
+            ? ParallelLayer(b, x, p, slot, positions, FrequencyFactors(b), null, packedKv, null)
+            : SequentialLayer(b, x, p, slot, positions, FrequencyFactors(b), null, packedKv, null);
+    }, chainNormalized: true, mediaWidth);
+
+    /// <summary>
+    /// The <see cref="WellKnown.DraftMultimodalGraph"/> of a model with a NextN head (null without one, valid after <see cref="BuildGraphs"/>):
+    /// the head with the media rows of the <see cref="BuildMultimodal"/> graph with <paramref name="deepstackLayers"/> DeepStack blocks.
+    /// </summary>
+    public ComputeGraph? BuildDraftMultimodal(int deepstackLayers) => _draft is null ? null : BuildDraft((int)((long)_hp.NEmbd * (1 + deepstackLayers)));
 
     /// <summary>
     /// The <see cref="WellKnown.DecodeMultimodalGraph"/>: token ids plus an embeddings input [T, H·(1 + <paramref name="deepstackLayers"/>)] and
@@ -309,8 +318,21 @@ internal sealed partial class DecoderGraphBuilder
     private ComputeGraph BuildDenoise()
     {
         var b = new GraphBuilder(WellKnown.DenoiseGraph, _src.Weight);
-        var inp = PackedSequences.Declare(b, tokenTypes: false);
-        var x = PackedLayers(b, inp);
+        Value x;
+        if (_src.Arch("embedding_input", false))
+        {
+            // Embedding rows in place of token ids (the host or a model-specific front end embeds them, OmniVoice's text and audio rows).
+            var T = Dim.Sym(WellKnown.TokenSymbol);
+            var embeddings = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, _hp.NEmbd));
+            var positions = b.Input(PackedSequences.PositionsInput, InputRole.Positions, DataType.I32, new Shape(T, 1));
+            var spans = b.Input(PackedSequences.RowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(T, 2));
+            x = Layers(b, embeddings, positions, FrequencyFactors(b), null, spans);
+        }
+        else
+        {
+            x = PackedLayers(b, PackedSequences.Declare(b, tokenTypes: false));
+        }
+
         using (b.Group("output"))
         {
             var hidden = OutputNorm(b, x);

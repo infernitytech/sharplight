@@ -20,9 +20,10 @@
 // silu(a) * b); a workgroup covers F8_BN / 2 outputs.
 //
 // Specialization macros: KERNEL_GEMM_FP8 / KERNEL_QUANTIZE_FP8, WBLOCK (32 or 128), K, N, Y_STRIDE, ROW_BYTES, F8_WM, F8_WN,
-// F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE (quantize_fp8). Requires K % 128 == 0
-// and 32-lane subgroups.
+// F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GROUPED, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE and DENSE_XCAP
+// (quantize_fp8). Requires K % 128 == 0 and 32-lane subgroups.
 #include "common.slang"
+#include "splitk.slang"
 using namespace linalg;
 
 // Quantized activation row: K codes, then K / 128 f32 scales.
@@ -52,6 +53,10 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
     uint8_t* row = p.q + uint64_t(t) * F8ROW;
     *(uint*)(row + k4 * 4) = e4m3_pack4(v, d);
     if ((k4 & 31) == 0) *(float*)(row + K + (k4 / 32) * 4) = d;
+#ifdef DENSE_XCAP
+    // The dense copy of the scales after DENSE_XCAP rows: [K / 128][DENSE_XCAP] f32 (gemm_fp8_native.cu).
+    if ((k4 & 31) == 0) *(float*)(p.q + uint64_t(DENSE_XCAP) * F8ROW + (uint64_t(k4 / 32) * DENSE_XCAP + t) * 4) = d;
+#endif
 }
 #endif
 
@@ -82,8 +87,13 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 #ifndef F8_SPLIT
 #define F8_SPLIT 0
 #endif
-#if DUAL && (SPLITK != 1 || F8_FN % 2 != 0)
-#error "the dual fp8 GEMM needs SPLITK = 1 and an even F8_FN"
+// F8_GROUPED (with F8_SPLIT): the split rows in groups of 128 rows, [128 rows of K codes][K / 128 blocks of the 128 rows' f32
+// scales] (WeightRepack.Fp8B128Grouped).
+#ifndef F8_GROUPED
+#define F8_GROUPED 0
+#endif
+#if DUAL && ((SPLITK != 1 && !SPLITK_FUSED) || F8_FN % 2 != 0)
+#error "the dual fp8 GEMM needs SPLITK = 1 (or the fused split-K reduction) and an even F8_FN"
 #endif
 
 #define F8_THREADS (F8_WM * F8_WN * 32)
@@ -112,6 +122,29 @@ struct Params
     uint8_t* w2;
 #endif
     float* y;
+#if SPLITK_FUSED || MULTI > 1
+    float* yout;      // SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+#endif
+#if SPLITK_FUSED
+    uint* arrivals;   // per output tile: the split workgroups arrived so far (zero between launches)
+#endif
+#if MULTI > 1
+    uint8_t* mw1;     // MULTI (splitk.slang): the second and third weight matrices, their outputs and (MULTI_BIAS) the bias rows
+#if MULTI > 2
+    uint8_t* mw2;
+#endif
+    float* yout1;
+#if MULTI > 2
+    float* yout2;
+#endif
+#if MULTI_BIAS
+    float* mb0;
+    float* mb1;
+#if MULTI > 2
+    float* mb2;
+#endif
+#endif
+#endif
     uint T;
 };
 
@@ -120,15 +153,39 @@ struct Params
 #define F8_BN_OUT (F8_BN / 2)
 #define F8_WPTR(r) ((((r) / 16) & 1) != 0 ? p.w2 : p.w)
 #define F8_WROW(n0, r) ((n0) + ((r) / 32) * 16 + (r) % 16)
+#elif MULTI > 1
+#define F8_BN_OUT F8_BN
+#define F8_WPTR(r) wbaseM
+#define F8_WROW(n0, r) ((n0) + (r))
 #else
 #define F8_BN_OUT F8_BN
 #define F8_WPTR(r) p.w
 #define F8_WROW(n0, r) ((n0) + (r))
 #endif
+#if SPLITK_FUSED
+#if SPLITK < 2 || (DUAL && MULTI > 1)
+#error "the fused split-K reduction of gemm_fp8 needs SPLITK > 1 (and DUAL without MULTI)"
+#endif
+// DUAL: the partial slices hold both products of each output, [SPLITK][T][2N] (w's at column n, w2's at N + n).
+#define SPLITK_STORE2(p, g, u, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = epi2(g, u); }
+#if MULTI > 1
+#define SPLITK_STORE(p, s, t, n) MULTI_STORE(p, s, t, n)
+#else
+#define SPLITK_STORE(p, s, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = (s); }
+#endif
+#define SPLITK_ROW_SCALE(p, t) 1.0
+#endif
 
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA8 = CuA8f;
+typealias MatB8 = CuB8f;
+typealias AccF = CuAccF;
+#else
 typealias MatA8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 16, 32, CoopMatMatrixUse.MatrixA>;
 typealias MatB8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 32, 16, CoopMatMatrixUse.MatrixB>;
 typealias AccF = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint sA[F8_BM * F8_RS];
 groupshared uint sB[F8_BN * F8_RS];
@@ -168,6 +225,21 @@ void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint w
                 uint base = bs + wn + j * 16 + c0;
                 ws[j][0] = sBS[base]; ws[j][1] = sBS[base + 1]; ws[j][2] = sBS[base + 8]; ws[j][3] = sBS[base + 9];
             }
+#if SL_TARGET_CUDA
+            // CUDA: the B fragments of the weight block are loaded once for all row fragments. The shared-memory fragment loads are
+            // volatile there (ldmatrix in inline PTX), so the compiler cannot merge the reloads of the form below as the Vulkan
+            // driver does (33 % slower fp8 GEMMs).
+            MatB8 bw[F8_MMAS][F8_FN];
+            [ForceUnroll]
+            for (uint m = 0; m < F8_MMAS; m++)
+            {
+                [ForceUnroll]
+                for (int j = 0; j < F8_FN; j++)
+                {
+                    bw[m][j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + (wb * WBLOCK + m * 32) / 4, F8_RS);
+                }
+            }
+#endif
             [ForceUnroll]
             for (int i = 0; i < F8_FM; i++)
             {
@@ -181,8 +253,12 @@ void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint w
                     [ForceUnroll]
                     for (int j = 0; j < F8_FN; j++)
                     {
+#if SL_TARGET_CUDA
+                        c[j] = coopMatMulAdd<float, false>(a, bw[m][j], c[j]);
+#else
                         MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
                         c[j] = coopMatMulAdd<float, false>(a, b, c[j]);
+#endif
                     }
                 }
                 [ForceUnroll]
@@ -237,10 +313,13 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     uint wm = (sg / F8_WN) * (F8_FM * 16);
     uint wn = (sg % F8_WN) * (F8_FN * 16);
     uint r0 = uint(index[0]) >> 4, c0 = uint(index[0]) & 15;
+#if MULTI > 1
+    uint8_t* wbaseM = MULTI_WBASE(p, n0);
+#endif
 #if SPLITK > 1
     const uint KS = ((K / F8_BK + SPLITK - 1) / SPLITK) * F8_BK;
     uint kBeg = gid.z * KS, kEnd = min(uint(K), kBeg + KS);
-    float* yb = p.y + uint64_t(gid.z) * p.T * N;
+    float* yb = p.y + uint64_t(gid.z) * p.T * N * (DUAL ? 2 : 1);
 #else
     uint kBeg = 0, kEnd = K;
     float* yb = p.y;
@@ -259,14 +338,23 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     float wsc[F8_BS_ITEMS];
 
 #if F8_SPLIT
+#if F8_GROUPED
+    // Codes of row n at its group + (n % 128) K; scale of block b at F8_WSCALES(n) + 512 b (its group + 128 K + 4 (n % 128)).
+    #define F8_WCODES(base, n) ((uint8_t*)(uint64_t(base) + ROW_BYTES * ((n) & ~127u) + uint64_t(K) * ((n) & 127u)))
+    #define F8_WSCALES(base, n) ((uint8_t*)(uint64_t(base) + ROW_BYTES * ((n) & ~127u) + uint64_t(K) * 128 + ((n) & 127u) * 4))
+    #define F8_SCALE_AT(b) (uint64_t(b) * 512)
+#else
     // Codes: 16 per item at row + k; scale of block b at row + K + 4 b.
+    #define F8_WCODES(base, n) rowStart(base, ROW_BYTES, n)
+    #define F8_WSCALES(base, n) rowStart(base, ROW_BYTES, n)
     #define F8_SCALE_AT(b) (uint64_t(K) + uint64_t(b) * 4)
+#endif
     #define F8_FETCH_W(k0)                                                                              \
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
-        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));               \
-        if (idx < F8_BN * F8_BK / 16) wq[it] = *(uint4*)(row + (k0) + q * 16);                          \
+        uint8_t* row = F8_WCODES(F8_WPTR(r), min(F8_WROW(n0, r), uint(N) - 1));                         \
+        if (idx < F8_BN * F8_BK / 16) wq[it] = LOAD_U4_ALIGNED(row + (k0) + q * 16, ALIGN_OF(ROW_BYTES)); \
     }
     #define F8_STAGE_W()                                                                                \
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
@@ -279,6 +367,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
         }                                                                                               \
     }
 #else
+    #define F8_WSCALES(base, n) rowStart(base, ROW_BYTES, n)
     #define F8_SCALE_AT(b) (uint64_t(b) * (WBLOCK + 4))
     #define F8_FETCH_W(k0)                                                                              \
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
@@ -301,14 +390,14 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
         uint t = min(t0 + r, p.T - 1);                                                                  \
-        if (idx < F8_BM * F8_BK / 16) xa[it] = *(uint4*)byteAt(p.x, uint64_t(t) * F8ROW + (k0) + q * 16); \
+        if (idx < F8_BM * F8_BK / 16) xa[it] = LOAD_U4_ALIGNED(byteAt(p.x, uint64_t(t) * F8ROW + (k0) + q * 16), ALIGN_OF(F8ROW)); \
     }                                                                                                   \
     if (tid < F8_BM) xs = *(float*)byteAt(p.x, uint64_t(min(t0 + tid, p.T - 1)) * F8ROW + K + (k0) / 32); \
     F8_FETCH_W(k0)                                                                                      \
     [ForceUnroll] for (uint it = 0; it < F8_BS_ITEMS; it++)                                             \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx % F8_BN, bl = idx / F8_BN;                            \
-        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));                              \
+        uint8_t* row = F8_WSCALES(F8_WPTR(r), min(F8_WROW(n0, r), uint(N) - 1));                                    \
         if (idx < F8_BN * F8_WBLOCKS) wsc[it] = *(float*)(row + F8_SCALE_AT((k0) / WBLOCK + bl));       \
     }
     #define STAGE()                                                                                     \
@@ -358,6 +447,10 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     #undef F8_FETCH_W
     #undef F8_STAGE_W
     #undef F8_SCALE_AT
+    #undef F8_WSCALES
+#if F8_SPLIT
+    #undef F8_WCODES
+#endif
 
     [ForceUnroll]
     for (int i = 0; i < F8_FM; i++)
@@ -371,7 +464,15 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             {
                 uint t = t0 + wm + i * 16 + (uint(index[e]) >> 4);
                 uint n = n0 + wn / 2 + (j / 2) * 16 + (uint(index[e]) & 15);
+#if SPLITK_FUSED
+                if (t < p.T && n < N)
+                {
+                    yb[uint64_t(t) * 2 * N + n] = acc[i][j][e];
+                    yb[uint64_t(t) * 2 * N + N + n] = acc[i][j + 1][e];
+                }
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = epi2(acc[i][j][e], acc[i][j + 1][e]);
+#endif
             }
         }
 #else
@@ -383,11 +484,22 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             {
                 uint t = t0 + wm + i * 16 + (uint(index[e]) >> 4);
                 uint n = n0 + wn + j * 16 + (uint(index[e]) & 15);
+#if SPLITK_FUSED
+                if (t < p.T && n < N) yb[uint64_t(t) * N + n] = acc[i][j][e];
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = acc[i][j][e];
+#endif
             }
         }
 #endif
     }
+#if SPLITK_FUSED && DUAL
+    // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces both products and applies epi2.
+    SPLITK_FINISH_DUAL(p, tid, F8_THREADS, F8_BM, F8_BN_OUT, gid.x * ((N + F8_BN_OUT - 1) / F8_BN_OUT) + gid.y, t0, n0)
+#elif SPLITK_FUSED
+    // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces it.
+    SPLITK_FINISH(p, tid, F8_THREADS, F8_BM, F8_BN, gid.x * ((N + F8_BN - 1) / F8_BN) + gid.y, t0, n0)
+#endif
 }
 
 [shader("compute")]

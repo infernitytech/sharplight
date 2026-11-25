@@ -1,0 +1,19 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 201088, device sampling: True, KV paged 10240 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 46.7 | 522 / 0 | 9.19 / 10.55, 9.13 |  |
+| 15 | 10 (1) | 33.7 | 475 / 0 | 11.04 / 11.64, 10.98 |  |
+| 16 | 16 (1) | 34.1 | 475 / 0 | 11.57 / 12.20, 11.50 | 0.148 |
+| 16 | 32 (1) | 31.4 | 427 / 0 | 11.88 / 12.69, 11.81 | 0.084 |
+| 16 | 64 (1) | 40.8 | 486 / 0 | 14.44 / 14.89, 14.37 | 0.082 |
+| 16 | 112 (1) | 37.4 | 486 / 0 | 16.13 / 17.30, 16.07 | 0.062 |
+| 16 | 240 (1) | 31.8 | 462 / 0 | 23.04 / 23.67, 22.97 | 0.058 |
+| 16 | 496 (1) | 48.8 | 558 / 0 | 36.85 / 37.04, 36.79 | 0.056 |
+| 64 | 0 (0) | 16.4 | 427 / 0 | 13.65 / 14.08, 13.60 |  |
+Unhandled exception. System.ArgumentException: More inputs than slots.
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in $TREE/src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 643
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|9(String mode, List`1 inputs) in $TREE/bench/BatchBench/Program.cs:line 120
+   at Program.<Main>$(String[] args) in $TREE/bench/BatchBench/Program.cs:line 186

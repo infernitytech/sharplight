@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
 
@@ -13,6 +14,7 @@ public unsafe class IntDotTests
     [
         WeightFormat.Q8_0, WeightFormat.Q4_0, WeightFormat.Q4_1, WeightFormat.Q5_0, WeightFormat.Q5_1, WeightFormat.Q4_K,
         WeightFormat.Q5_K, WeightFormat.Q6_K, WeightFormat.IQ4_NL, WeightFormat.IQ4_XS, WeightFormat.MXFP4,
+        WeightFormat.IQ2_XXS, WeightFormat.IQ2_XS, WeightFormat.IQ2_S, WeightFormat.IQ3_XXS, WeightFormat.IQ3_S,
     ];
 
     /// <summary>The ggml-quantized fixture records of every format with an integer-dot decoder.</summary>
@@ -71,6 +73,85 @@ public unsafe class IntDotTests
                 float expected = record.Expected[r * k + i];
                 float actual = a[i / IntDot.GroupSize] * u[i] + b[i / IntDot.GroupSize];
                 Assert.True(Math.Abs(expected - actual) <= 1e-6 * Math.Abs(expected) + 1e-7, $"{label} row {r} [{i}]: {expected} vs {actual}");
+            }
+        }
+    }
+
+    /// <summary>The fused dots of the grid formats equal the scalar dot of the decoded rows (same exact integer sums, other float order).</summary>
+    [Theory, MemberData(nameof(DecoderRecords))]
+    public void FusedDotMatchesDecodedDot(int index, string label)
+    {
+        var record = GgmlDequantTests.Load()[index];
+        var format = Quant.FormatOf(record.Type)!.Value;
+        if (!IntDot.HasFusedDot(format))
+        {
+            return;
+        }
+
+        int k = record.Cols;
+        long rowBytes = record.Type.ByteSize(k);
+        var x = Kit.Rand(k, 9, 3f);
+        var u = new byte[k];
+        var a = new float[k / IntDot.GroupSize];
+        var b = new float[k / IntDot.GroupSize];
+        using var row = new Row(k);
+        fixed (float* px = x)
+        {
+            IntDot.Quantize(px, k, row.Q8);
+        }
+
+        for (int r = 0; r < record.Rows; r++)
+        {
+            fixed (byte* src = record.Blocks, pu = u)
+            fixed (float* pa = a, pb = b)
+            {
+                IntDot.Decode(format, src + r * rowBytes, k, pu, pa, pb);
+                float expected = IntDot.Dot(CpuIsaLevel.Scalar, pu, pa, pb, IntDot.HasSmallCodes(format), row.Q8, k);
+                float actual = IntDot.FusedDot(format, src + r * rowBytes, row.Q8, k);
+                double magnitude = 0;
+                for (int i = 0; i < k; i++)
+                {
+                    magnitude += Math.Abs((a[i / IntDot.GroupSize] * u[i] + b[i / IntDot.GroupSize]) * row.Q8.Q[i] * row.Q8.LaneScales[i / 4]);
+                }
+
+                Assert.True(Math.Abs(expected - actual) <= 1e-5 * magnitude + 1e-6, $"{label} row {r}: {actual} vs {expected} (magnitude {magnitude})");
+            }
+        }
+    }
+
+    /// <summary>The two-row fused dots give each row's one-row result bit for bit.</summary>
+    [Theory]
+    [InlineData("q4_k", 512), InlineData("q4_k", 2048), InlineData("q6_k", 512), InlineData("q6_k", 1024)]
+    public void TwoRowFusedDotMatchesOneRow(string type, int k)
+    {
+        var dt = DataType.Get(type);
+        var format = Quant.FormatOf(dt)!.Value;
+        if (!IntDot.HasFusedDot2(format))
+        {
+            return;
+        }
+
+        long rowBytes = dt.ByteSize(k);
+        const int Rows = 6;
+        var weights = new byte[Rows * rowBytes];
+        new Random(4).NextBytes(weights);
+        for (long b = 0; b < weights.Length / dt.BlockBytes; b++)
+        {
+            int at = (int)(b * dt.BlockBytes) + (format == WeightFormat.Q6_K ? 208 : 0);
+            BitConverter.TryWriteBytes(weights.AsSpan(at, 2), (Half)(0.01f + 0.001f * (b % 9)));
+        }
+
+        var x = Kit.Rand(k, 5, 2f);
+        using var row = new Row(k);
+        fixed (float* px = x)
+        fixed (byte* w = weights)
+        {
+            IntDot.Quantize(px, k, row.Q8);
+            for (int r = 0; r + 1 < Rows; r += 2)
+            {
+                IntDot.FusedDot2(format, w + r * rowBytes, w + (r + 1) * rowBytes, row.Q8, k, out float first, out float second);
+                Assert.Equal(IntDot.FusedDot(format, w + r * rowBytes, row.Q8, k), first);
+                Assert.Equal(IntDot.FusedDot(format, w + (r + 1) * rowBytes, row.Q8, k), second);
             }
         }
     }

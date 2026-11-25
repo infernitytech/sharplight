@@ -11,8 +11,12 @@
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
     <InternalsVisibleTo Include="Sharplight.Import.Diffusers" />
     <InternalsVisibleTo Include="Sharplight.Import.Chatterbox" />
+    <InternalsVisibleTo Include="Sharplight.Import.VoxCpm" />
     <InternalsVisibleTo Include="Sharplight.Import.F5Tts" />
     <InternalsVisibleTo Include="Sharplight.Import.Xtts" />
     <InternalsVisibleTo Include="Sharplight.Import.CosyVoice" />
+    <InternalsVisibleTo Include="Sharplight.Import.AceStep" />
+    <InternalsVisibleTo Include="Sharplight.Import.StableAudio" />
+    <InternalsVisibleTo Include="Sharplight.Import.SeedVr" />
   </ItemGroup>
 </Project>

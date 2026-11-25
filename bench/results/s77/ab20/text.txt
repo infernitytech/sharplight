@@ -1,0 +1,12 @@
+== Qwen3-8B-Q4_K_M.gguf none
+09c106f20467c32451f123edb15d53d9  -
+== Qwen3-8B-Q4_K_M.gguf native_gemm_kquant
+6421d00762b19b036bbfa3a192e613c3  -
+== Qwen3.8-27B-Q4_K_M.gguf none
+0d8f17eaeed9163331b915bef0895b52  -
+== Qwen3.8-27B-Q4_K_M.gguf native_gemm_kquant
+0d8f17eaeed9163331b915bef0895b52  -
+== gemma-4-31B-it-Q4_K_M.gguf none
+5f9edf720256aa88da01a2de33cfda32  -
+== gemma-4-31B-it-Q4_K_M.gguf native_gemm_kquant
+5f9edf720256aa88da01a2de33cfda32  -

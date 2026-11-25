@@ -1,0 +1,18 @@
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 64 | 0 (0) | 24.6 | 583 / 0 | 16.46 / 17.24, 16.38 |  |
+| 64 | 107 (1) | 25.8 | 582 / 0 | 24.32 / 25.12, 24.22 | 0.073 |
+--- profile mixed 64+107x1 (greedy)
+    98.909 ms  39.3%    240x  min    291.1 us  matmul-id [32x2880→5760] mxfp4rx2 fused native gemm_moe_native T=171,U=65,R=65
+    51.984 ms  20.6%    240x  min    160.1 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=171,U=65,R=65
+    15.856 ms   6.3%    240x  min     59.9 us  matmul [2880→4096+512+512] f16 split-k gemm_cm2 T=171,U=65,R=65
+    15.765 ms   6.3%     10x  min   1571.2 us  matmul [2880→201088] f16 gemm_cm2 T=171,U=65,R=65
+    14.973 ms   5.9%    240x  min     59.7 us  matmul [4096→2880] f16 split-k gemm_cm2 T=171,U=65,R=65
+     5.985 ms   2.4%    240x  min     21.0 us  attention attn_prefill_native T=171,U=65,R=65
+     4.556 ms   1.8%    480x  min      6.2 us  moe-gather x→ranged f16 moe_gather_x16 T=171,U=65,R=65
+     2.705 ms   1.1%    240x  min     10.1 us  matmul [2880→32] f16 split-k gemm_cm2 T=171,U=65,R=65
+     2.544 ms   1.0%    480x  min      2.7 us  moe-route [32 experts] moe_route T=171,U=65,R=65
+| 64 | 192 (1) | 28.5 | 582 / 0 | 28.90 / 29.15, 28.81 | 0.065 |
+| 64 | 448 (1) | 44.4 | 678 / 0 | 43.94 / 44.25, 43.84 | 0.061 |

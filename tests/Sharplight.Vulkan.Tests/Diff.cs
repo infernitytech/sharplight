@@ -52,16 +52,26 @@ internal static class Diff
 
     /// <summary>
     /// A test that turns the f16 matrix units off (to reach the SIMT or exact paths) turns off their 8x8 form too
-    /// (<see cref="DeviceFeatures.MatrixF16Small"/>, Metal), which would otherwise take the same matmuls with f16 operands.
+    /// (<see cref="DeviceFeatures.MatrixF16Small"/>, Metal), which would otherwise take the same matmuls with f16 operands; and the
+    /// block-scaled FP8 mode is off (see below).
     /// </summary>
     private static IReadOnlySet<string> WithSmallMatrices(IReadOnlySet<string>? disabledFeatures)
     {
-        if (disabledFeatures is null || !disabledFeatures.Contains(DeviceFeatures.MatrixF16))
+        var features = new HashSet<string>(disabledFeatures ?? new HashSet<string>());
+        if (features.Contains(DeviceFeatures.MatrixF16))
         {
-            return disabledFeatures ?? new HashSet<string>();
+            features.Add(DeviceFeatures.MatrixF16Small);
         }
 
-        return new HashSet<string>(disabledFeatures) { DeviceFeatures.MatrixF16Small };
+        // The CPU references model the checkpoints' f32 FP8 scales: the block-scaled FP8 mode (the default where the device has it)
+        // requantizes the weights to power-of-two scales, so these comparisons keep it off unless a test process asks for it
+        // (Fp8BlockScaledTests runs its GPU checks with SHARPLIGHT_FP8_BLOCK_SCALED=1 against a reference of that rounding).
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_FP8_BLOCK_SCALED") != "1")
+        {
+            features.Add(DeviceFeatures.BlockScaledFp8);
+        }
+
+        return features;
     }
 
         private static RunParameters Params(Step s)
@@ -86,20 +96,22 @@ internal static class Diff
                 case float[] f: m.SetInput(v, MemoryMarshal.AsBytes(f.AsSpan())); break;
                 case int[] i: m.SetInput(v, MemoryMarshal.AsBytes(i.AsSpan())); break;
                 case long[] l: m.SetInput(v, MemoryMarshal.AsBytes(l.AsSpan())); break;
-                default: throw new ArgumentException("input data must be float[] or int[]");
+                case Half[] h: m.SetInput(v, MemoryMarshal.AsBytes(h.AsSpan())); break;
+                default: throw new ArgumentException("input data must be float[], Half[], int[] or long[]");
             }
         }
     }
 
     /// <summary>
     /// Runs all steps on the Vulkan device only (state persists across steps); per step, every f32 output concatenated.
-    /// <paramref name="rowInvariantRows"/> sets <see cref="CompileOptions.RowInvariantRows"/>.
+    /// <paramref name="rowInvariantRows"/> sets <see cref="CompileOptions.RowInvariantRows"/>, <paramref name="allowReducedPrecision"/>
+    /// <see cref="CompileOptions.AllowReducedPrecision"/>.
     /// </summary>
     public static List<float[]> RunVulkan(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64, IReadOnlySet<string>? disabledFeatures = null,
-        long rowInvariantRows = 0)
+        long rowInvariantRows = 0, bool allowReducedPrecision = false)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Device!, g, maxTokens, ctx, disabledFeatures, rowInvariantRows: rowInvariantRows);
+        using var vk = Compile(Gpu.Device!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision, rowInvariantRows: rowInvariantRows);
         var results = new List<float[]>();
         foreach (var s in steps)
         {
@@ -111,6 +123,33 @@ internal static class Diff
             {
                 var x = new float[v.Shape.Elements(p.Symbols)];
                 vk.GetOutput<float>(name, x);
+                outputs.AddRange(x);
+            }
+
+            results.Add([.. outputs]);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Runs all steps on the CPU oracle only (exact: no int8-quantized activations; state persists across steps); per step, every f32
+    /// output concatenated.
+    /// </summary>
+    public static List<float[]> RunCpu(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64)
+    {
+        using var cpu = Compile(Gpu.Cpu, g, maxTokens, ctx, s_exactOracle);
+        var results = new List<float[]>();
+        foreach (var s in steps)
+        {
+            var p = Params(s);
+            Feed(cpu, s);
+            cpu.Run(p);
+            var outputs = new List<float>();
+            foreach (var (name, v) in g.Outputs.Where(o => o.Value.Type == DataType.F32))
+            {
+                var x = new float[v.Shape.Elements(p.Symbols)];
+                cpu.GetOutput<float>(name, x);
                 outputs.AddRange(x);
             }
 

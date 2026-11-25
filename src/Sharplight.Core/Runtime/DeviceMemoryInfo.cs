@@ -11,6 +11,12 @@ public readonly record struct DeviceMemoryInfo(long Total, long Budget, long Usa
 {
     /// <summary>Bytes this process can still allocate.</summary>
     public long Available => Math.Max(0, Budget - Usage);
+    /// <summary>
+    /// Bytes this process could hold on the device now: what Sharplight holds plus what it can still allocate (other processes' use
+    /// and configured caps taken off). The figure for "does this model fit", unlike <see cref="Total"/>, which counts memory other
+    /// applications occupy.
+    /// </summary>
+    public long Capacity => Math.Min(Total > 0 ? Total : long.MaxValue, UsedByUs + Available);
     /// <inheritdoc/>
     public override string ToString() => $"total {Total / 1048576} MiB, budget {Budget / 1048576} MiB, used {Usage / 1048576} MiB (ours {UsedByUs / 1048576} MiB), available {Available / 1048576} MiB{(IsExact ? "" : " (estimate)")}";
 }

@@ -7,6 +7,7 @@ namespace Sharplight.ModelFeed.Client;
 public sealed class FeedSnapshot
 {
     private readonly Dictionary<string, FeedPackageSummary> _byId;
+    private readonly Lazy<FeedModelListing> _models;
 
     internal FeedSnapshot(string location, string? channel, FeedServiceIndex index, string indexDigest, FeedKeySet? keySet, bool verified, IReadOnlyList<FeedPackageSummary> packages, IReadOnlyList<string> warnings)
     {
@@ -19,6 +20,7 @@ public sealed class FeedSnapshot
         Packages = packages;
         Warnings = warnings;
         _byId = packages.ToDictionary(package => package.Id, StringComparer.Ordinal);
+        _models = new Lazy<FeedModelListing>(() => FeedModelListing.From(packages));
     }
 
     /// <summary>The feed location.</summary>
@@ -41,6 +43,9 @@ public sealed class FeedSnapshot
 
     /// <summary>All package summaries, ordered by id.</summary>
     public IReadOnlyList<FeedPackageSummary> Packages { get; }
+
+    /// <summary>The packages grouped into models with their variants (<see cref="FeedModelListing.From"/> over <see cref="Packages"/>).</summary>
+    public FeedModelListing Models => _models.Value;
 
     /// <summary>Accepted problems (expired index in offline mode, unsigned feed).</summary>
     public IReadOnlyList<string> Warnings { get; }

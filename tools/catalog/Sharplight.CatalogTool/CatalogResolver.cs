@@ -13,6 +13,7 @@ namespace Sharplight.CatalogTool;
 internal sealed class CatalogResolver(HubClient hub, Action<string> log)
 {
     private const string DefaultRevision = "main";
+    private const int MaxBaseModelDepth = 3;
     private readonly Dictionary<(string Repository, string Revision), HubRepository> _repositories = [];
     private readonly List<string> _failures = [];
 
@@ -65,10 +66,43 @@ internal sealed class CatalogResolver(HubClient hub, Action<string> log)
         updated = updated with
         {
             Variants = [.. variants.Select(variant => variant.MemoryBytes > 0 && mode == ResolveMode.Missing ? variant : variant with { MemoryBytes = MemoryEstimate.For(updated, variant) })],
-            License = entry.License ?? repositories.Select(repository => repository.License).FirstOrDefault(license => license is not null),
+            License = entry.License ?? await LicenseOfAsync(repositories, cancellationToken).ConfigureAwait(false),
             Gated = entry.Gated || repositories.Any(repository => repository.Gated),
         };
         return updated;
+    }
+
+    /// <summary>
+    /// The licence of the first repository that declares one. A repackaging (a repository the Hub lists as quantized from another model) carries
+    /// its repackager's tag, which often differs from the original's (or is missing), so the licence of the original model is preferred.
+    /// A manually set <see cref="CatalogEntry.License"/> is never replaced: this is only called for entries without one.
+    /// </summary>
+    private async Task<string?> LicenseOfAsync(IReadOnlyList<HubRepository> repositories, CancellationToken cancellationToken)
+    {
+        foreach (var repository in repositories)
+        {
+            var current = repository;
+            for (int depth = 0; depth < MaxBaseModelDepth && current.BaseModel is { Length: > 0 } baseModel; depth++)
+            {
+                try
+                {
+                    current = await GetRepositoryAsync(baseModel, DefaultRevision, cancellationToken).ConfigureAwait(false);
+                }
+                catch (HubException error)
+                {
+                    log($"{repository.Id}: base model {baseModel} not readable ({error.Message}); using the repackaging's own licence");
+                    current = repository;
+                    break;
+                }
+            }
+
+            if ((current.License ?? repository.License) is { } license)
+            {
+                return license;
+            }
+        }
+
+        return null;
     }
 
     private async Task<(T Set, HubRepository? Repository)> ResolveSetAsync<T>(string entryId, T set, ResolveMode mode, CancellationToken cancellationToken)

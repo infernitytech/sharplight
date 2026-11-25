@@ -31,6 +31,7 @@ internal static class ModelKindCatalog
         new(ModelKinds.ImageGeneration, "Image generation", "IconImage", [ModelTask.ImageGeneration], Runnable: true),
         new(Lora, "LoRA", "IconImage", [], Runnable: false),
         new(ModelKinds.VideoGeneration, "Video generation", "IconVideo", [ModelTask.VideoGeneration], Runnable: true),
+        new(ModelKinds.VideoEnhancement, "Video enhancement", "IconUpscale", [], Runnable: true),
         new(ModelKinds.ImageClassification, "Image classification", "IconTag", [ModelTask.ImageClassification], Runnable: true),
         new(ModelKinds.ImageEmbedding, "Image embedding", "IconEmbed", [], Runnable: true),
         new(ModelKinds.ObjectDetection, "Object detection", "IconScan", [ModelTask.ObjectDetection], Runnable: true),

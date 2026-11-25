@@ -1,0 +1,88 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Vulkan.Tests
+[0m[37m  Discovered:  Sharplight.Vulkan.Tests
+[0m[37m  Starting:    Sharplight.Vulkan.Tests
+[0m[91m    Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(fmt: "nvfp4", t: 9) [FAIL]
+[0m[37m      MatMul.nvfp4 T=9 step 0 output y[0]: vulkan 12.3430805 vs cpu 15.8261957 (|d|=3.48E+000, tol=3.16E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/MatMulTests.cs(49,0): at Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(String fmt, Int32 t)
+[0m[37m           at InvokeStub_MatMulTests.WeightFormat(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(fmt: "nvfp4", t: 16) [FAIL]
+[0m[37m      MatMul.nvfp4 T=16 step 0 output y[0]: vulkan 12.3430805 vs cpu 15.8261957 (|d|=3.48E+000, tol=3.16E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/MatMulTests.cs(49,0): at Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(String fmt, Int32 t)
+[0m[37m           at InvokeStub_MatMulTests.WeightFormat(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(fmt: "nvfp4", t: 17) [FAIL]
+[0m[37m      MatMul.nvfp4 T=17 step 0 output y[0]: vulkan 12.3430805 vs cpu 15.8261957 (|d|=3.48E+000, tol=3.16E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/MatMulTests.cs(49,0): at Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(String fmt, Int32 t)
+[0m[37m           at InvokeStub_MatMulTests.WeightFormat(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(fmt: "nvfp4", t: 20) [FAIL]
+[0m[37m      MatMul.nvfp4 T=20 step 0 output y[0]: vulkan 12.3430805 vs cpu 15.8261957 (|d|=3.48E+000, tol=3.16E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/MatMulTests.cs(49,0): at Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(String fmt, Int32 t)
+[0m[37m           at InvokeStub_MatMulTests.WeightFormat(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(fmt: "nvfp4", t: 33) [FAIL]
+[0m[37m      MatMul.nvfp4 T=33 step 0 output y[0]: vulkan 12.3430805 vs cpu 15.8261957 (|d|=3.48E+000, tol=3.16E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/MatMulTests.cs(49,0): at Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(String fmt, Int32 t)
+[0m[37m           at InvokeStub_MatMulTests.WeightFormat(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(fmt: "nvfp4", t: 40) [FAIL]
+[0m[37m      MatMul.nvfp4 T=40 step 0 output y[0]: vulkan 12.3430805 vs cpu 15.8261957 (|d|=3.48E+000, tol=3.16E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/MatMulTests.cs(49,0): at Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(String fmt, Int32 t)
+[0m[37m           at InvokeStub_MatMulTests.WeightFormat(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(fmt: "nvfp4", t: 64) [FAIL]
+[0m[37m      MatMul.nvfp4 T=64 step 0 output y[0]: vulkan 12.3430805 vs cpu 15.8261957 (|d|=3.48E+000, tol=3.16E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/MatMulTests.cs(49,0): at Sharplight.Vulkan.Tests.MatMulTests.WeightFormat(String fmt, Int32 t)
+[0m[37m           at InvokeStub_MatMulTests.WeightFormat(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.QuantFormatTests.MatMulIdGrouped(type: "nvfp4_gs") [FAIL]
+[0m[37m      MatMulId.nvfp4_gs  step 0 output y[884]: vulkan 0.684994519 vs cpu 0.616979599 (|d|=6.80E-002, tol=5.62E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/QuantFormatTests.cs(98,0): at Sharplight.Vulkan.Tests.QuantFormatTests.MatMulId(String type, Int32 tokens)
+[0m[37m        tests/Sharplight.Vulkan.Tests/QuantFormatTests.cs(80,0): at Sharplight.Vulkan.Tests.QuantFormatTests.MatMulIdGrouped(String type)
+[0m[37m           at InvokeStub_QuantFormatTests.MatMulIdGrouped(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.SkinnyGemmTests.Dual(fmt: "nvfp4", t: 16) [FAIL]
+[0m[37m      Skinny.dual.nvfp4 T=16 step 0 output y[0]: vulkan -2331.76855 vs cpu -2185.00049 (|d|=1.47E+002, tol=4.67E+001)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/SkinnyGemmTests.cs(59,0): at Sharplight.Vulkan.Tests.SkinnyGemmTests.Dual(String fmt, Int32 t)
+[0m[37m           at InvokeStub_SkinnyGemmTests.Dual(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.SkinnyGemmTests.NarrowAboveSkinnyRangeWithF32Staging [FAIL]
+[0m[37m      System.InvalidOperationException : no process path
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/SkinnyGemmTests.cs(92,0): at Sharplight.Vulkan.Tests.SkinnyGemmTests.NarrowAboveSkinnyRangeWithF32Staging()
+[0m[37m           at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[0m[91m    Sharplight.Vulkan.Tests.SkinnyGemmTests.Single(fmt: "nvfp4", t: 16) [FAIL]
+[0m[37m      Skinny.nvfp4 T=16 step 0 output y[1]: vulkan 49.0496826 vs cpu 53.5305405 (|d|=4.48E+000, tol=3.54E+000)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/SkinnyGemmTests.cs(38,0): at Sharplight.Vulkan.Tests.SkinnyGemmTests.Single(String fmt, Int32 t)
+[0m[37m           at InvokeStub_SkinnyGemmTests.Single(Object, Span`1)
+[0m[37m           at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[37m  Finished:    Sharplight.Vulkan.Tests (ID = '74c871a5f1496b591030e809677aa36a31df3773c6fadd740ea9d04c34897092')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Vulkan.Tests  Total: 407, Errors: 0, Failed: 11, Skipped: 0, Not Run: 0, Time: 397.232s
+[0m[0m

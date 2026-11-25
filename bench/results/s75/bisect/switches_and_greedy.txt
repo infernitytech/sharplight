@@ -1,0 +1,9 @@
+lock 17:34:36
+gpt-oss-20b default: Write a detailed essay about the role of water and power in modern history. Explain the history, give concrete examples and discuss open questions. I, given that the pathwise values, the next of the overall         atposyn, s, s; sanu liune s         of the overall city i i i i n i of i, overlapping
+gpt-oss-20b notopk: Write a detailed essay about the role of water and power in modern history. Explain the history, give concrete examples and discuss open questions. I, given that the pathwise values, the next of the overall         atposyn, s, s; sanu liune s         of the overall city i i i i n i of i, overlapping
+gpt-oss-20b noall: Write a detailed essay about the role of water and power in modern history. Explain the history, give concrete examples and discuss open questions. For a.1 tin: 1: 1, one 1: 12? The subject is a home task, home task. But the home task, even with a home task: 1? For a 1.:  1: 1,1,1,1: 1 for the backg
+bb X=1: | 64 | 53.8 | 571 / 0 | 9.05 / 9.06, 8.94 |
+bb SHARPLIGHT_NO_TOPK_REGISTER_ROW=1: | 64 | 14.5 | 571 / 0 | 8.99 / 9.03, 8.93 |
+bb SHARPLIGHT_NO_NORM_Q8_COPY=1: | 64 | 14.6 | 571 / 0 | 9.04 / 9.06, 8.95 |
+bb SHARPLIGHT_NO_INT_DOT_EPILOGUE=1: | 64 | 15.7 | 571 / 0 | 9.00 / 9.02, 8.92 |
+unlock 17:38:03

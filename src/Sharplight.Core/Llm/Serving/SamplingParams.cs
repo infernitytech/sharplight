@@ -21,8 +21,8 @@ public sealed record SamplingParams
     public float FrequencyPenalty { get; init; }
     /// <summary>Token id to value added to that token's logit before sampling (OpenAI <c>logit_bias</c>).</summary>
     public IReadOnlyDictionary<int, float>? LogitBias { get; init; }
-    /// <summary>Seed for reproducible sampling; null seeds from entropy.</summary>
-    public int? Seed { get; init; }
+    /// <summary>Seed for reproducible sampling; null seeds from entropy. Seeds within the <see cref="int"/> range reproduce the runs of earlier releases.</summary>
+    public long? Seed { get; init; }
     /// <summary>Force arg-max sampling regardless of the temperature.</summary>
     public bool Greedy { get; init; }
 

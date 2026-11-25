@@ -1,26 +1,48 @@
 using Sharplight.Llm.Embeddings;
+using Sharplight.Models;
+using Sharplight.Tasks;
 
 namespace Sharplight.Serving.Tests;
 
 /// <summary>Deterministic embedder: one token per character, vector = normalized character histogram over <see cref="Dimensions"/> buckets.</summary>
 internal sealed class FakeEmbedder : ITextEmbedder
 {
-    public string Name => "fake-embed";
+    public TaskClientMetadata Metadata { get; } = new(ModelKinds.TextEmbedding, "fake-embed", "fake");
     public int Dimensions => 8;
     public int MaxSequenceLength => 16;
     public IReadOnlyDictionary<string, string> Prompts { get; } = new Dictionary<string, string> { ["query"] = "q: " };
-    public List<EmbedOptions> Calls { get; } = [];
+    public List<TextEmbeddingOptions> Calls { get; } = [];
 
-    public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
+    public int[] Tokenize(string text, TextEmbeddingOptions? options = null)
     {
-        options ??= new EmbedOptions();
-        string prefix = options.Prompt is { } p ? Prompts[p] : "";
-        return EmbedTokens([.. texts.Select(t => (IReadOnlyList<int>)[.. (prefix + t).Select(c => (int)c)])], options);
+        string prefix = options?.Prompt is { } p ? Prompts[p] : "";
+        return [.. (prefix + text).Select(c => (int)c)];
     }
 
-    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, EmbedOptions? options = null)
+    public Task<EmbeddingResult> EmbedAsync(IReadOnlyList<string> texts, TextEmbeddingOptions? options = null, CancellationToken cancellationToken = default)
+        => EmbedTokensAsync([.. texts.Select(t => (IReadOnlyList<int>)Tokenize(t, options))], options, cancellationToken);
+
+    public Task<EmbeddingResult> EmbedTokensAsync(IReadOnlyList<IReadOnlyList<int>> tokens, TextEmbeddingOptions? options = null, CancellationToken cancellationToken = default)
     {
-        options ??= new EmbedOptions();
+        try
+        {
+            return Task.FromResult(EmbedTokens(tokens, options));
+        }
+        catch (Exception error)
+        {
+            return Task.FromException<EmbeddingResult>(error);
+        }
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose()
+    {
+    }
+
+    private EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, TextEmbeddingOptions? options)
+    {
+        options ??= new TextEmbeddingOptions();
         Calls.Add(options);
         var vectors = new List<float[]>();
         foreach (var t in tokens)

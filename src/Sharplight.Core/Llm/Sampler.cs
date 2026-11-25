@@ -18,8 +18,8 @@ public sealed class Sampler
     public Sampler(SamplingOptions options)
     {
         _o = options;
-        _rng = options.Seed is int s ? new Random(s) : new Random();
-        _deviceSeed = unchecked((uint)(options.Seed ?? Random.Shared.Next()));
+        _rng = Tasks.Seeds.CreateRandom(options.Seed);
+        _deviceSeed = unchecked((uint)(options.Seed is { } seed ? Tasks.Seeds.ToInt32(seed) : Random.Shared.Next()));
     }
 
     /// <summary>Records a prompt or sampled token for the repetition penalty.</summary>

@@ -1,0 +1,28 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 151936, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 15+10: 25.6 ms; recorded True record 6.8 submit 0.0 wait 9.7 gpu 17.1
+| 15 | 10 (1) | 25.6 | 402 / 0 | 12.33 / 12.34, 12.25 |  |
+[first] 14+10: 14.7 ms; recorded True record 4.0 submit 0.0 wait 10.7 gpu 14.6
+| 14 | 10 (1) | 14.7 | 403 / 0 | 12.30 / 12.30, 12.23 |  |
+[first] 13+11: 13.9 ms; recorded True record 3.2 submit 1.0 wait 9.7 gpu 13.8
+| 13 | 11 (1) | 13.9 | 403 / 0 | 12.27 / 12.28, 12.20 |  |
+[first] 12+12: 18.5 ms; recorded True record 8.1 submit 0.0 wait 10.3 gpu 18.4
+| 12 | 12 (1) | 18.5 | 403 / 0 | 12.22 / 12.26, 12.13 |  |
+[first] 16+16: 16.1 ms; recorded True record 5.9 submit 0.0 wait 10.1 gpu 16.0
+| 16 | 16 (1) | 16.1 | 402 / 0 | 12.53 / 12.54, 12.46 |  |
+[first] 15+17: 14.0 ms; recorded True record 3.1 submit 0.0 wait 10.8 gpu 13.9
+| 15 | 17 (1) | 14.0 | 402 / 0 | 12.53 / 12.53, 12.46 |  |
+[first] 16+240: 23.2 ms; recorded True record 4.0 submit 0.0 wait 19.1 gpu 23.1
+| 16 | 240 (1) | 23.2 | 366 / 0 | 20.90 / 21.28, 20.82 |  |
+[first] 15+241: 24.4 ms; recorded True record 4.5 submit 0.0 wait 19.8 gpu 24.3
+| 15 | 241 (1) | 24.4 | 366 / 0 | 20.81 / 21.28, 20.74 |  |
+[first] 16+250: 29.0 ms; recorded True record 3.1 submit 0.0 wait 25.8 gpu 28.9
+| 16 | 250 (1) | 29.0 | 366 / 0 | 27.24 / 27.67, 27.15 |  |
+[first] 8+0: 15.9 ms; recorded True record 4.6 submit 0.0 wait 11.2 gpu 15.8
+| 8 | 0 (0) | 15.9 | 474 / 0 | 12.68 / 12.69, 12.63 |  |
+[first] 24+0: 14.8 ms; recorded True record 3.2 submit 0.0 wait 11.5 gpu 14.7
+| 24 | 0 (0) | 14.8 | 403 / 0 | 13.02 / 13.04, 12.96 |  |

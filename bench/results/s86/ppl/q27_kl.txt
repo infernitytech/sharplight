@@ -1,0 +1,1 @@
+3072 rows: KL mean 6.765E-003 max 8.871E-001, top-1 agreement 2955/3072 (96.19 %), max |logit diff| 14.9219

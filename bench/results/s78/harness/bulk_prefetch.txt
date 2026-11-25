@@ -1,0 +1,22 @@
+[lock acquired 00:49:44]
+bk1c r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3276 ms (802 GB/s), median 1.3344 ms max error against the f32 reference: 5.99e-07 
+pg0 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4078 ms (757 GB/s), median 1.4140 ms 
+pg1 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3272 ms (803 GB/s), median 1.3311 ms 
+bk1 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3271 ms (803 GB/s), median 1.3356 ms 
+bk2 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4940 ms (713 GB/s), median 1.5064 ms 
+ps0 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3709 ms (777 GB/s), median 1.3798 ms 
+ps1 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3089 ms (814 GB/s), median 1.3124 ms 
+bks1 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3119 ms (812 GB/s), median 1.3231 ms 
+n64 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3084 ms (814 GB/s), median 1.3109 ms 
+bkc1 r1 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3354 ms (798 GB/s), median 1.3458 ms 
+bk1c r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3282 ms (802 GB/s), median 1.3364 ms max error against the f32 reference: 5.99e-07 
+pg0 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4154 ms (753 GB/s), median 1.4172 ms 
+pg1 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3259 ms (804 GB/s), median 1.3291 ms 
+bk1 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3280 ms (802 GB/s), median 1.3363 ms 
+bk2 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.4973 ms (712 GB/s), median 1.5033 ms 
+ps0 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3697 ms (778 GB/s), median 1.3769 ms 
+ps1 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3069 ms (815 GB/s), median 1.3117 ms 
+bks1 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3104 ms (813 GB/s), median 1.3259 ms 
+n64 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3079 ms (815 GB/s), median 1.3104 ms 
+bkc1 r2 T=4 L=130048 splits<=32 grid 8x4x32: min 1.3321 ms (800 GB/s), median 1.3452 ms 
+[lock released 00:51:29 rc=0]

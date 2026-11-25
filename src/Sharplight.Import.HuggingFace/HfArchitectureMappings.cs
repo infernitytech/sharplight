@@ -43,6 +43,7 @@ internal static class HfArchitectureMappings
         Register(new MbConvHfMapping());
         Register(new DetrHfMapping());
         Register(new RtDetrHfMapping());
+        Register(new PpDocLayoutHfMapping());
         Register(new YolosHfMapping());
         Register(new DepthAnythingHfMapping());
         Register(new SegformerHfMapping());
@@ -54,8 +55,13 @@ internal static class HfArchitectureMappings
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());
+        Register(new HiggsAudioTokenizerHfMapping());
+        Register(new OmniVoiceHfMapping());
         Register(new Qwen3TtsHfMapping());
         Register(new CsmHfMapping());
+        Register(new DiaHfMapping());
+        Register(new VibeVoiceHfMapping());
+        Register(new VibeVoiceAsrHfMapping());
         Register(new Sam2HfMapping());
         Register(new TrOcrHfMapping());
         Register(new Florence2HfMapping());
@@ -66,6 +72,7 @@ internal static class HfArchitectureMappings
         Register(new ParakeetHfMapping());
         Register(new Wav2Vec2HfMapping());
         Register(new CanaryHfMapping());
+        Register(new CohereAsrHfMapping());
         Register(new Qwen3AsrHfMapping());
         Register(new VoxtralHfMapping());
         Register(new VoxtralRealtimeHfMapping());

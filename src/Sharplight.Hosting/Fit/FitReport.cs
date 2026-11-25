@@ -29,6 +29,12 @@ public sealed record FitReport
     /// <summary>CPU offload is turned on in the settings the report is for.</summary>
     public bool CpuOffload { get; init; }
 
+    /// <summary>
+    /// The offloaded part does not fit the system memory, but the settings let routed experts stay on disk: the model loads with
+    /// <see cref="FitVerdict.NeedsOffload"/> and decodes at the disk's speed (about 1 token/s for models of several hundred GB on a fast NVMe drive).
+    /// </summary>
+    public bool ExpertsFromDisk { get; init; }
+
     /// <summary>It fits on the device without offloading, possibly after the runtime unloads idle models by itself.</summary>
     public bool FitsOnDevice => Verdict == FitVerdict.Fits || (Verdict == FitVerdict.FitsAfterUnloading && UnloadIsAutomatic);
 

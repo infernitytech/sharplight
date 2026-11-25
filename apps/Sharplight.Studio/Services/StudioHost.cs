@@ -6,8 +6,10 @@ using Sharplight.Storage;
 using Sharplight.Studio.Services.Audio;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Feed;
+using Sharplight.Studio.Services.Fit;
 using Sharplight.Studio.Services.Hub;
 using Sharplight.Studio.Services.Library;
+using Sharplight.Studio.Services.Maintenance;
 using Sharplight.Studio.Services.Monitoring;
 using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Services.Platform;
@@ -26,10 +28,11 @@ internal sealed class StudioHost : IDisposable
     private readonly EngineModelRuntime _runtime;
     private readonly HubService _hub;
     private readonly StatsRecorder _recorder;
+    private readonly ModelUsageRecorder _usageRecorder;
     private readonly KestrelApiServer _server;
     private readonly ServiceProvider _container;
 
-    private StudioHost(StudioServices services, EngineModelRuntime runtime, HubService hub, StatsRecorder recorder, KestrelApiServer server,
+    private StudioHost(StudioServices services, EngineModelRuntime runtime, HubService hub, StatsRecorder recorder, ModelUsageRecorder usageRecorder, KestrelApiServer server,
         ServiceProvider container)
     {
         Services = services;
@@ -37,6 +40,7 @@ internal sealed class StudioHost : IDisposable
         _runtime = runtime;
         _hub = hub;
         _recorder = recorder;
+        _usageRecorder = usageRecorder;
         _server = server;
     }
 
@@ -55,7 +59,7 @@ internal sealed class StudioHost : IDisposable
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory, layout);
         var storage = new StorageLocationService(environment, layout, settings);
         var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddSingleton<IStorageLocationService>(storage)
-            .AddSingleton(Program.Logs).AddSingleton(typeof(ILogger<>), typeof(Logger<>)).AddSingleton(paths).AddSharplightStorage(layout).AddStudioUpdates().AddStudioFeed().AddSharplight().BuildServiceProvider();
+            .AddSingleton(Program.Logs).AddSingleton(typeof(ILogger<>), typeof(Logger<>)).AddSingleton(paths).AddSharplightStorage(layout).AddStudioUpdates().AddStudioFeed().AddSharplight().AddStudioProviders().BuildServiceProvider();
         var engine = EngineServices.From(container);
         var audioDecoder = container.GetRequiredService<IAudioDecoder>();
         var audioEncoder = container.GetRequiredService<IAudioEncoder>();
@@ -63,17 +67,21 @@ internal sealed class StudioHost : IDisposable
         var precompiler = new PrecompileService(settings, engine);
         var runtime = new EngineModelRuntime(engine, () => settings.Current.Residency, name => ResolveOnDemand(settings, name, precompiler.IsBusy),
             () => settings.Current.UseCompilationCache,
-            Program.Logs.CreateLogger<EngineModelRuntime>());
+            Program.Logs.CreateLogger<EngineModelRuntime>(), () => settings.Current.DeviceProviders);
         var hub = new HubService(settings, engine, paths.HighlightsFile, paths.CatalogFile);
         var database = new StudioDatabase(paths.DatabaseFile);
         var stats = new SqliteStatsStore(database);
         var server = new KestrelApiServer(runtime.Host);
-        var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings, engine.Converter), new SqliteConversationStore(database), stats, server,
+        var library = new ModelLibrary(settings, engine.Converter);
+        var usage = new JsonModelUsageStore(paths.ModelUsageFile);
+        var services = new StudioServices(settings, runtime, hub, library, new SqliteConversationStore(database), stats, server,
             new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
             container.GetRequiredService<IUpdateService>(), precompiler, new FilePageStorage(paths.PagesDirectory, paths.GenerationsDirectory),
             new EngineAudioPlayer(audioDecoder, audioDevices, settings), new EngineAudioRecorder(audioDevices, audioEncoder, settings),
-            audioDecoder, audioDevices, storage, container.GetRequiredService<IFeedService>());
-        return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server, container);
+            audioDecoder, audioDevices, storage, container.GetRequiredService<IFeedService>(), usage,
+            new ModelMaintenanceService(settings, storage, runtime, library, usage, precompiler), new LicenseGate(settings),
+            new DeviceMemoryWatch(runtime, settings));
+        return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), new ModelUsageRecorder(runtime, usage), server, container);
     }
 
     /// <summary>
@@ -122,6 +130,7 @@ internal sealed class StudioHost : IDisposable
         }
 
         _recorder.Dispose();
+        _usageRecorder.Dispose();
         _runtime.Dispose();
         _hub.Dispose();
         _container.Dispose();

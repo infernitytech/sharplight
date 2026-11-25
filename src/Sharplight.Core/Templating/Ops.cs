@@ -11,8 +11,6 @@ internal static class Ops
     public static long ToLong(object? o) => o switch { bool b => b ? 1 : 0, long l => l, Undefined { Strict: true } u => throw u.Fail(), _ => throw new TemplateRuntimeException($"expected an integer, got '{TypeName(o)}'") };
     public static double ToDouble(object? o) => o switch { bool b => b ? 1.0 : 0.0, long l => l, double d => d, Undefined { Strict: true } u => throw u.Fail(), _ => throw new TemplateRuntimeException($"expected a number, got '{TypeName(o)}'") };
 
-    public static Undefined Undef(string? name, bool strict) => new(name, strict);
-
     public static string TypeName(object? o) => o switch
     {
         null => "NoneType",

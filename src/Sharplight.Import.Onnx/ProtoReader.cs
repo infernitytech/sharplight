@@ -81,7 +81,6 @@ internal ref struct ProtoReader
 
     public long ReadInt64() => (long)ReadVarint();
     public int ReadInt32() => (int)(long)ReadVarint();
-    public bool ReadBool() => ReadVarint() != 0;
 
     public uint ReadFixed32()
     {

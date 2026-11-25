@@ -62,14 +62,26 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     public ModelDescription Description => ModelDescription.Resolve(Definition);
 
+    /// <summary>
+    /// The routed experts left on disk (<see cref="TaskLoadOptions.ExpertsOnDisk"/>), shared by every session and decoder of the model, or null
+    /// when the option is off. <see cref="Runtime.Experts.ExpertStore.Statistics"/> has the cache's hit rate and the bytes read.
+    /// </summary>
+    public Runtime.Experts.ExpertStore? DiskExperts => _diskExperts.Value;
+
+    private readonly Lazy<Runtime.Experts.ExpertStore?> _diskExperts;
+    private readonly bool _ownsDiskExperts;
     private readonly SharedWeights _sharedWeights;
     private readonly LlmLoadOptions _options;
     private readonly CompilationArtifacts _artifacts;
     private readonly bool _ownsDefinition;
 
     private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options, bool ownsDefinition, SharedWeights? sharedWeights,
-        ArchitectureCatalog architectures)
+        ArchitectureCatalog architectures, TaskModel? taskModel = null)
     {
+        _ownsDiskExperts = taskModel is null;
+        _diskExperts = taskModel is null
+            ? new Lazy<Runtime.Experts.ExpertStore?>(() => Runtime.Experts.ExpertStore.ForLoad(options))
+            : new Lazy<Runtime.Experts.ExpertStore?>(() => taskModel.DiskExperts);
         Definition = def;
         Architectures = architectures;
         Source = source;
@@ -98,13 +110,16 @@ public sealed class LlmModel : IDisposable
             MaxBatchTokens = load.MaxBatchTokens,
             Adapter = load.Adapter,
             DisabledFeatures = new HashSet<string>(load.DisabledFeatures, StringComparer.Ordinal),
+            BlockScaledFp8 = load.BlockScaledFp8,
             AllowReducedPrecision = load.AllowReducedPrecision,
             Log = load.Log,
             Progress = load.Progress,
             Artifacts = model.Artifacts,
+            ExpertsOnDisk = load.ExpertsOnDisk,
+            ExpertCacheBytes = load.ExpertCacheBytes,
         };
         var tokenizer = model.CreateTokenizer();
-        return new LlmModel(model.Definition, model.Source, tokenizer, options, ownsDefinition: false, model.SharedWeights, model.Architectures);
+        return new LlmModel(model.Definition, model.Source, tokenizer, options, ownsDefinition: false, model.SharedWeights, model.Architectures, model);
     }
 
     /// <summary>
@@ -180,10 +195,33 @@ public sealed class LlmModel : IDisposable
     /// <param name="memoryLimit">Caps the bytes of the primary device used by this session (null: the devices as configured).</param>
     public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
     {
+        var definition = Definition.Graph(graph);
+        var layout = SessionLayout(definition, _options.ContextLength, BatchTokens);
+        if (layout is not null && !SupportsPagedNodes(layout.Transform(definition).Graph, out string? why))
+        {
+            _options.Log?.Invoke($"Window-sized KV caches unavailable for the session ({why}); every cache keeps a row per position.");
+            layout = null;
+        }
+
+        return CreateSession(layout, graph, memoryLimit);
+    }
+
+    /// <summary>
+    /// <see cref="CreateSession(string, long?)"/> with the given cache layout: <paramref name="layout"/> null compiles the plain graph, otherwise
+    /// its one-slot paged form (<see cref="SessionKvLayout"/>).
+    /// </summary>
+    internal InferenceSession CreateSession(SessionKvLayout? layout, string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
+    {
         var sw = Stopwatch.StartNew();
-        var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: BatchTokens);
-        var compiled = CompiledModel.Compile(WithSamplingHead(Definition.Graph(graph)), placement);
-        _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
+        var definition = Definition.Graph(graph);
+        // A session reads the logits of a pass's last row only (InferenceSession binds R = 1), so the logits buffer holds one row, not a
+        // batch's (485 MiB for a 248K vocabulary at 512 rows).
+
+        var placement = PlacementFor(memoryLimit, layout is null ? _options.ContextLength : (int)layout.CacheRows, rowBound: 1, runBound: layout is null ? 0 : 1);
+
+        var compiled = CompiledModel.Compile(WithSamplingHead(layout is null ? definition : layout.Transform(definition).Graph), placement);
+        string window = layout is not { WindowRows: > 0 } ? "" : $", window-sized caches of {layout.WindowRows} rows for the {layout.Window}-key window layers";
+        _options.Log?.Invoke($"Compiled '{graph}'{window} in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
         CompiledModel? encoder = null;
         if (compiled.Graph.TryInput(InputRole.EncoderOutput) is not null)
         {
@@ -195,8 +233,18 @@ public sealed class LlmModel : IDisposable
         }
 
         ReportReady(graph);
-        return new InferenceSession(compiled, encoder, Definition.Property(WellKnown.DecoderStartToken, 0), TextPositionAxes);
+        return new InferenceSession(compiled, encoder, Definition.Property(WellKnown.DecoderStartToken, 0), TextPositionAxes, layout, _options.ContextLength);
     }
+
+    /// <summary>
+    /// The window-sized cache layout of a session over <paramref name="graph"/> (<see cref="SessionKvLayout"/>), or null when the graph has no
+    /// window-sized caches, is an encoder-decoder graph, or <see cref="DeviceFeatures.WindowKv"/> or <see cref="DeviceFeatures.PagedKv"/> is
+    /// disabled: the session then keeps a row per position in every cache.
+    /// </summary>
+    private SessionKvLayout? SessionLayout(ComputeGraph graph, int contextLength, int rows)
+        => IsWindowKvDisabled || IsPagedKvDisabled || graph.TryInput(InputRole.EncoderOutput) is not null
+            ? null
+            : SessionKvLayout.For(graph, contextLength, rows, Serving.MultiSequenceDecoder.DefaultKvBlockSize);
 
     /// <summary>
     /// True for masked-diffusion language models (Dream, LLaDA; the model has a <see cref="WellKnown.DenoiseGraph"/>): they generate with a
@@ -214,7 +262,7 @@ public sealed class LlmModel : IDisposable
         int maskToken = DiffusionMaskToken();
         int context = DiffusionContext(null);
         var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, [.. _options.Devices], _options.Fallback, context, 1,
-            _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), CacheFor, _options.Log);
+            _options.CompileDisabledFeatures(), CacheFor, _options.Log);
         ReportReady(WellKnown.DenoiseGraph);
         return new DiffusionGenerator(runner, Tokenizer, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
     }
@@ -227,7 +275,7 @@ public sealed class LlmModel : IDisposable
     {
         int maskToken = DiffusionMaskToken();
         var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, [.. _options.Devices], _options.Fallback, context,
-            Math.Max(1, slots), _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal), CacheFor, _options.Log);
+            Math.Max(1, slots), _options.CompileDisabledFeatures(), CacheFor, _options.Log);
         ReportReady(WellKnown.DenoiseGraph);
         return new Serving.DiffusionBatchDecoder(runner, Math.Max(1, slots), context, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
     }
@@ -277,7 +325,13 @@ public sealed class LlmModel : IDisposable
     /// <param name="kvCacheTokens">
     /// Paged KV cache: one pool of this many tokens (in blocks of <see cref="Serving.MultiSequenceDecoder.DefaultKvBlockSize"/>)
     /// shared by all slots, each slot growing up to <paramref name="contextLength"/> as its sequence needs, so many short
-    /// sequences fit in the memory of a few long ones. Null: every slot owns <paramref name="contextLength"/> cache rows.
+    /// sequences fit in the memory of a few long ones, with prefix caching by block content. Null: the default,
+    /// <see cref="DefaultKvCacheTokens"/> (paged with every slot's full context where the devices run the paged kernels). 0: every
+    /// slot owns <paramref name="contextLength"/> cache rows (contiguous cache, prefix reuse only within a slot).
+    /// </param>
+    /// <param name="stateSnapshots">
+    /// Paged cache of a model with recurrent state (gated delta nets, Mamba, RWKV, conv): snapshots of that state kept for prefix
+    /// caching, each the size of one slot's recurrent state (null: <see cref="DefaultStateSnapshots"/>; 0: no prefix caching for such models).
     /// </param>
     /// <param name="draftTokens">
     /// Speculative decoding: the most draft tokens per sequence and step the decoder must verify and roll back (0: none). Models
@@ -287,15 +341,21 @@ public sealed class LlmModel : IDisposable
     /// <c>draftTokens + 1</c> rows compute every row as a single-row step would (<see cref="CompileOptions.RowInvariantRows"/>),
     /// so verified greedy output is token-identical to decoding without speculation.
     /// </param>
+    /// <param name="mediaInput">
+    /// Compile the <see cref="WellKnown.DecodeMultimodalGraph"/> (<see cref="SupportsMediaInput"/>): inputs may carry image or audio embedding
+    /// rows (<see cref="Serving.SequenceInput.Embeddings"/>) and explicit M-RoPE positions, so image and audio requests are batched with text
+    /// ones. Each step then uploads an embedding row per token row (zeros for text). Ignored when the model has no such graph.
+    /// </param>
     public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null,
-        long? kvCacheTokens = null, int draftTokens = 0)
+        long? kvCacheTokens = null, int draftTokens = 0, int? stateSnapshots = null, bool mediaInput = false)
     {
         if (IsDiffusion)
         {
             return CreateDiffusionDecoder(slots, DiffusionContext(contextLength));
         }
 
-        var graph = Definition.Graph(WellKnown.DecodeGraph);
+        string graphName = mediaInput && SupportsMediaInput ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph;
+        var graph = Definition.Graph(graphName);
         string? why = null;
         if (IsEncoderDecoder)
         {
@@ -309,18 +369,127 @@ public sealed class LlmModel : IDisposable
                 _options.Log?.Invoke($"Multi-sequence decoding unavailable ({why}); serving one sequence at a time.");
             }
 
-            return new Serving.SessionBatchDecoder(CreateSession(memoryLimit: memoryLimit));
+            return new Serving.SessionBatchDecoder(CreateSession(graphName, memoryLimit: memoryLimit));
         }
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
-        long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
+        long tokens = kvCacheTokens ?? DefaultKvCacheTokens(slots, ctx);
+        long paged = tokens > 0 && SupportsPagedKv(graph, slots, ctx) ? PagedRows(tokens) : 0;
+        int snapshots = paged > 0 ? stateSnapshots ?? DefaultStateSnapshots(slots, paged) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged,
-            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0);
-        string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
-        _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
-        ReportReady(WellKnown.DecodeGraph);
+            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0,
+            stateSnapshots: snapshots, windowKv: !IsWindowKvDisabled);
+        string window = dec.KvWindow > 0 ? $", window-sized caches for the {dec.KvWindow}-key window layers" : "";
+        string kv = paged > 0 ? $", paged KV cache of {paged} tokens{window}{(dec.KvStateSnapshots > 0 ? $" with {dec.KvStateSnapshots} recurrent-state snapshots" : "")}" : ", contiguous KV cache";
+        _options.Log?.Invoke($"Compiled '{graphName}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        ReportReady(graphName);
         return dec;
+    }
+
+    /// <summary>
+    /// The paged KV cache size <see cref="CreateBatchDecoder"/> uses when none is given: <paramref name="slots"/> full contexts (the
+    /// memory a contiguous cache reserves), or 0 (contiguous) for a single slot without speculation, which is served by a
+    /// single-sequence session, or when <see cref="DeviceFeatures.PagedKv"/> is disabled for the load or the process.
+    /// </summary>
+    /// <param name="slots">Sequences decoded together.</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
+    public long DefaultKvCacheTokens(int slots, int? contextLength = null)
+    {
+        if (slots <= 1 || IsPagedKvDisabled)
+        {
+            return 0;
+        }
+
+        return (long)slots * (contextLength ?? _options.ContextLength);
+    }
+
+    /// <summary>
+    /// Recurrent-state snapshots a paged decoder keeps for prefix caching by default (each costs one slot's recurrent state,
+    /// <see cref="RecurrentStateBytesPerSlot"/>): as many as fit in half the KV pool's memory or 512 MiB, whichever is more,
+    /// at least 2 and at most two per slot (a shared prefix and a conversation's last prompt per sequence); 0 for attention-only models.
+    /// </summary>
+    /// <param name="slots">Sequences decoded together.</param>
+    /// <param name="kvCacheTokens">Tokens of the paged KV cache.</param>
+    public int DefaultStateSnapshots(int slots, long kvCacheTokens)
+    {
+        long state = RecurrentStateBytesPerSlot;
+        if (state <= 0)
+        {
+            return 0;
+        }
+
+        long budget = Math.Max(KvBytesPerToken * kvCacheTokens / 2, 512L << 20);
+        return (int)Math.Clamp(budget / state, 2, Math.Max(2, 2L * slots));
+    }
+
+    /// <summary>Bytes of recurrent state (everything but KV caches) one sequence of the decode graph holds; 0 for attention-only models.</summary>
+    public long RecurrentStateBytesPerSlot => Definition.Graph(WellKnown.DecodeGraph).States.Select(v => v.State!)
+        .Where(s => !Graph.MultiSequence.IsKvState(s) && s.Shape.IsStatic).Sum(s => s.Type.ByteSize(s.Shape.Elements()));
+
+    /// <summary>
+    /// Device bytes one token of a paged KV cache takes over all layers (from the graph's cache states; 0 without KV caches). Window-sized
+    /// caches (<see cref="DeviceFeatures.WindowKv"/>) hold a fixed number of rows and do not count.
+    /// </summary>
+    public long KvBytesPerToken
+    {
+        get
+        {
+            var graph = Definition.Graph(WellKnown.DecodeGraph);
+            var options = new CompileOptions { MaxTokens = 1, ContextLength = 1, SymbolBounds = new Dictionary<string, long> { ["R"] = 1 } };
+            long rows = 64 * Serving.MultiSequenceDecoder.DefaultKvBlockSize;
+            // Window-sized caches (when on) take a fixed number of rows, so they add nothing per token.
+            long window = IsWindowKvDisabled ? 0 : rows;
+            long large = PlacementPlanner.Estimate(graph, options, 2, 2 * rows, window).StateBytes;
+            long small = PlacementPlanner.Estimate(graph, options, 2, rows, window).StateBytes;
+            return Math.Max(0, (large - small) / rows);
+        }
+    }
+
+    private bool IsPagedKvDisabled => _options.DisabledFeatures.Contains(DeviceFeatures.PagedKv, StringComparer.OrdinalIgnoreCase)
+        || DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.PagedKv);
+
+    /// <summary>Whether window-sized caches (<see cref="DeviceFeatures.WindowKv"/>) are disabled for the load or the process.</summary>
+    private bool IsWindowKvDisabled => _options.DisabledFeatures.Contains(DeviceFeatures.WindowKv, StringComparer.OrdinalIgnoreCase)
+        || DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.WindowKv);
+
+    /// <summary>
+    /// Whether the paged forms of the decode graph's cache ops run on the configured devices (<see cref="DeviceFeatures.PagedKv"/>): every
+    /// device that would execute them supports them (or the CPU fallback does when no accelerator is configured).
+    /// </summary>
+    private bool SupportsPagedKv(ComputeGraph graph, int slots, int contextLength)
+    {
+        if (IsPagedKvDisabled)
+        {
+            return false;
+        }
+
+        int bs = Serving.MultiSequenceDecoder.DefaultKvBlockSize;
+        var paged = Graph.MultiSequence.Transform(graph, slots, bs, (contextLength + bs - 1) / bs).Graph;
+        if (!SupportsPagedNodes(paged, out string? why))
+        {
+            _options.Log?.Invoke($"Paged KV cache unavailable ({why}); using the contiguous cache.");
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether every device that would execute them runs the paged cache ops of <paramref name="paged"/> (a paged multi-sequence graph).</summary>
+    private bool SupportsPagedNodes(ComputeGraph paged, out string? why)
+    {
+        var devices = _options.Devices.Select(d => d.Device).ToList();
+        foreach (var n in paged.Nodes)
+        {
+            if (n.Inputs.Any(v => v.Input?.Role is InputRole.KvBlockTable or InputRole.KvWindowBlockTable) && devices.Any(d => !d.Supports(n).IsSupported))
+            {
+                why = $"{n.Op.Name} has no paged form on {string.Join(", ", devices.Where(d => !d.Supports(n).IsSupported).Select(d => d.Info.Name))}";
+                return false;
+            }
+        }
+
+        why = null;
+        return true;
     }
 
     /// <summary>
@@ -347,10 +516,15 @@ public sealed class LlmModel : IDisposable
     /// <param name="slots">Slots of the target decoder.</param>
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
     /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
-    /// <param name="kvCacheTokens">The target decoder's paged KV cache size, or null for a contiguous cache.</param>
+    /// <param name="kvCacheTokens">The target decoder's paged KV cache size (null: <see cref="DefaultKvCacheTokens"/>; 0: contiguous).</param>
+    /// <param name="mediaInput">
+    /// The target decoder takes media rows (<see cref="CreateBatchDecoder"/> with media input): the head is compiled from
+    /// <see cref="WellKnown.DraftMultimodalGraph"/> where the model has it, so rows before an image or audio row see that row's embedding.
+    /// </param>
     /// <exception cref="NotSupportedException">The model has no draft head.</exception>
-    public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
+    public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null, bool mediaInput = false)
     {
+        kvCacheTokens ??= DefaultKvCacheTokens(slots, contextLength);
         if (!HasDraftHead)
         {
             throw new NotSupportedException($"{Definition.Name} has no multi-token-prediction head.");
@@ -359,7 +533,8 @@ public sealed class LlmModel : IDisposable
         ArgumentOutOfRangeException.ThrowIfLessThan(draftTokens, 1);
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
-        var graph = Definition.Graph(WellKnown.DraftGraph);
+        string graphName = mediaInput && Definition.Graphs.ContainsKey(WellKnown.DraftMultimodalGraph) ? WellKnown.DraftMultimodalGraph : WellKnown.DraftGraph;
+        var graph = Definition.Graph(graphName);
         if (Definition.Property(WellKnown.DraftBlockSize, 0) is > 0 and var blockSize)
         {
             return CreateBlockDraftSpeculator(graph, slots, draftTokens, blockSize, ctx, kvCacheTokens, sw);
@@ -370,8 +545,8 @@ public sealed class LlmModel : IDisposable
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
         // With a device sampling head the draft tokens (greedy) are chosen on the device: only token ids come back.
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, BatchTokens, placement, UsesDeviceSampling, paged, textPositionAxes: TextPositionAxes);
-        _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
-        ReportReady(WellKnown.DraftGraph);   // placement, compile and upload progress come through the compile options
+        _options.Log?.Invoke($"Compiled '{graphName}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        ReportReady(graphName);   // placement, compile and upload progress come through the compile options
         var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
         bool anchored = Definition.Properties.TryGetValue(WellKnown.DraftAnchored, out var a) && a is true;
         return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap, anchored);
@@ -394,7 +569,14 @@ public sealed class LlmModel : IDisposable
             Definition.Property(WellKnown.DraftConvTaps, 0), Definition.Property(WellKnown.DraftLatticeCandidates, 0), tokenMap);
     }
 
-    private const long DefaultReserve = 1L << 30;
+    /// <summary>
+    /// Device memory a placement keeps free when <see cref="TaskLoadOptions.ReservePerDevice"/> is not set: 1 GiB, or 512 MiB with a fallback
+    /// device (CPU offload), where every 640 MiB is another layer of routed experts on the GPU and a compilation that runs out of memory is
+    /// placed again with the shortfall kept free (<see cref="CompiledModel.Compile"/>). Measured on Qwen3.5-122B-A10B (CUDA, 512 rows per
+    /// pass): the activation arena, library workspaces and driver allocations the plan does not count leave ~60-570 MiB of the reserve unused
+    /// (benchmarks.md §62).
+    /// </summary>
+    private long DefaultReserve => DiagnosticSwitches.DeviceReserve ?? (_options.Fallback is null ? 1L << 30 : 512L << 20);
 
     /// <summary>Largest rows per forward pass chosen automatically (<see cref="TaskLoadOptions.MaxBatchTokens"/> 0).</summary>
     public const int AutomaticMaxBatchTokens = 2048;
@@ -410,7 +592,8 @@ public sealed class LlmModel : IDisposable
     /// <summary>
     /// Rows per forward pass of this model's sessions and batch decoders (prompts are prefilled in chunks of this many tokens):
     /// <see cref="TaskLoadOptions.MaxBatchTokens"/>, or when that is 0 (the default of <see cref="LlmLoadOptions"/>) the largest of
-    /// <see cref="AutomaticMaxBatchTokens"/>, 1024 and <see cref="AutomaticMinBatchTokens"/> (at most the context length) whose
+    /// <see cref="AutomaticMaxBatchTokens"/>, 1024 and <see cref="AutomaticMinBatchTokens"/> (at most the context length times
+    /// <see cref="LlmLoadOptions.Sequences"/>) whose
     /// estimated footprint (<see cref="PlacementPlanner.Estimate"/>: weights, one sequence's state, activations) fits the devices'
     /// available memory. Fixed by the first compilation of the model, so every session and decoder agrees.
     /// </summary>
@@ -436,7 +619,9 @@ public sealed class LlmModel : IDisposable
         long reserve = _options.ReservePerDevice ?? DefaultReserve;
         long capacity = devices.Sum(slot => Math.Max(0, (slot.MemoryLimit ?? slot.Device.AvailableMemory) - reserve));
         int context = _options.ContextLength > 0 ? _options.ContextLength : AutomaticMaxBatchTokens;
-        int rows = Math.Max(AutomaticMinBatchTokens, Math.Min(AutomaticMaxBatchTokens, context));
+        // Rows of one step may come from every sequence decoded together (serving slots), each up to its context.
+        long stepRows = (long)context * Math.Max(1, _options.Sequences);
+        int rows = (int)Math.Max(AutomaticMinBatchTokens, Math.Min(AutomaticMaxBatchTokens, stepRows));
         while (rows > AutomaticMinBatchTokens && SessionFootprint(rows, context).Total > capacity)
         {
             rows /= 2;
@@ -447,12 +632,17 @@ public sealed class LlmModel : IDisposable
     }
 
     /// <summary>Estimated footprint of a single-sequence session compiled for <paramref name="rows"/> rows per pass.</summary>
-    private ModelFootprint SessionFootprint(int rows, int contextLength) => PlacementPlanner.Estimate(Definition.Graph(WellKnown.DecodeGraph), new CompileOptions
+    private ModelFootprint SessionFootprint(int rows, int contextLength)
     {
-        MaxTokens = rows,
-        ContextLength = contextLength,
-        SymbolBounds = new Dictionary<string, long> { ["R"] = rows },
-    });
+        var graph = Definition.Graph(WellKnown.DecodeGraph);
+        var layout = SessionLayout(graph, contextLength, rows);
+        return PlacementPlanner.Estimate(graph, new CompileOptions
+        {
+            MaxTokens = rows,
+            ContextLength = contextLength,
+            SymbolBounds = new Dictionary<string, long> { ["R"] = rows },
+        }, 1, layout?.CacheRows ?? 0, layout?.WindowRows ?? 0);
+    }
 
     /// <summary>
     /// Whether decoders get a device sampling head: enabled by the options and the environment, and the logits are computed on an
@@ -469,7 +659,8 @@ public sealed class LlmModel : IDisposable
     /// <param name="contextLength">KV-cache rows per sequence.</param>
     /// <param name="rowBound">Upper bound of the <c>R</c> symbol (rows whose logits are read per step).</param>
     /// <param name="maxTokens">Rows per forward pass (default <see cref="TaskLoadOptions.MaxBatchTokens"/>).</param>
-    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound, long? maxTokens = null) => new()
+    /// <param name="runBound">Upper bound of the runs symbol (<see cref="WellKnown.RunSymbol"/>) of a multi-sequence graph; 0 leaves it unbounded.</param>
+    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound, long? maxTokens = null, long runBound = 0) => new()
     {
         Devices = DevicesWithLimit(memoryLimit),
         Fallback = _options.Fallback,
@@ -478,13 +669,16 @@ public sealed class LlmModel : IDisposable
         {
             MaxTokens = maxTokens ?? BatchTokens,
             ContextLength = contextLength,
-            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength) },
-            DisabledFeatures = _options.DisabledFeatures.ToHashSet(StringComparer.Ordinal),
+            SymbolBounds = runBound > 0
+                ? new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength), [WellKnown.RunSymbol] = runBound }
+                : new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength) },
+            DisabledFeatures = _options.CompileDisabledFeatures(),
             AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,
             Progress = _options.Progress,
             CancellationToken = _options.CancellationToken,
             SharedWeights = _sharedWeights,
+            DiskExperts = DiskExperts,
         },
     };
 
@@ -517,7 +711,8 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     /// <param name="slots">Concurrent sequences.</param>
     /// <param name="contextLength">Context per sequence (default <see cref="TaskLoadOptions.ContextLength"/>).</param>
-    /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>), or null.</param>
+    /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>; null: the default, 0: contiguous).</param>
+    /// <param name="stateSnapshots">Recurrent-state snapshots of a paged cache (see <see cref="CreateBatchDecoder"/>; null: the default).</param>
     /// <param name="draftTokens">
     /// Speculative decoding (as <see cref="CreateBatchDecoder"/>'s <c>draftTokens</c>): adds the rollback record states of the
     /// recurrent ops (<see cref="Graph.RecurrentRollback.RecordStateBytes"/>) and sizes the logits rows for verification.
@@ -525,9 +720,22 @@ public sealed class LlmModel : IDisposable
     /// <param name="draftHead">Also count the MTP draft head (<see cref="CreateMtpSpeculator"/>): its own weights (the ones it shares
     /// with the decoder are counted once), its KV cache and activations.</param>
     /// <param name="maxLogitsRows">Logits rows per step (default <paramref name="slots"/> · (<paramref name="draftTokens"/> + 1)).</param>
+    /// <param name="mediaInput">
+    /// Served with image input (<see cref="CreateBatchDecoder"/>'s <c>mediaInput</c>): the multimodal decode graph's activations plus the vision
+    /// encoder (<see cref="EstimateVisionFootprint"/>).
+    /// </param>
     public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null, long? kvCacheTokens = null, int draftTokens = 0, bool draftHead = false,
-        int? maxLogitsRows = null)
+        int? maxLogitsRows = null, int? stateSnapshots = null, bool mediaInput = false)
     {
+        if (mediaInput && SupportsMediaInput && !IsDiffusion)
+        {
+            var text = EstimateFootprint(slots, contextLength, kvCacheTokens, draftTokens, draftHead, maxLogitsRows, stateSnapshots);
+            var vision = EstimateVisionFootprint();
+            // The embedding rows of a step: [batch tokens, width] f32 (the multimodal graph's one extra activation of note).
+            long width = Definition.Graph(WellKnown.DecodeMultimodalGraph).Inputs.FirstOrDefault(v => v.Input?.Role == InputRole.Embeddings)?.Shape[-1].Fixed ?? 0;
+            return new ModelFootprint(text.WeightBytes + vision.WeightBytes, text.StateBytes, text.ActivationBytes + vision.ActivationBytes + BatchTokens * width * sizeof(float));
+        }
+
         if (IsDiffusion)
         {
             // One denoising pass over up to the context's rows; no per-sequence state.
@@ -542,14 +750,30 @@ public sealed class LlmModel : IDisposable
         int ctx = contextLength ?? _options.ContextLength;
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         bool multi = (slots > 1 || draftTokens > 0) && Graph.MultiSequence.IsSupported(graph, out _);
+        kvCacheTokens ??= DefaultKvCacheTokens(slots, ctx);
         long paged = multi && kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
         long rows = maxLogitsRows ?? (long)slots * (Math.Max(0, draftTokens) + 1);
+        long windowRows = paged > 0 && !IsWindowKvDisabled
+            ? Serving.MultiSequenceDecoder.WindowCacheRows(graph, slots, BatchTokens, paged / Serving.MultiSequenceDecoder.DefaultKvBlockSize)
+            : 0;
+        if (!multi && SessionLayout(graph, ctx, BatchTokens) is { } session)
+        {
+            // A single-sequence session with window-sized caches (CreateSession): its one-slot paged form.
+            paged = session.CacheRows;
+            windowRows = session.WindowRows;
+        }
+
         var fp = PlacementPlanner.Estimate(graph, new CompileOptions
         {
             MaxTokens = BatchTokens,
             ContextLength = ctx,
             SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? Math.Min(rows, BatchTokens) : BatchTokens },
-        }, multi ? slots : 1, paged);
+        }, multi ? slots : 1, paged, windowRows);
+        if (multi && paged > 0)
+        {
+            fp = fp with { StateBytes = fp.StateBytes + RecurrentStateBytesPerSlot * (stateSnapshots ?? DefaultStateSnapshots(slots, paged)) };
+        }
+
         if (!multi || draftTokens <= 0)
         {
             return fp;
@@ -588,6 +812,47 @@ public sealed class LlmModel : IDisposable
         return (tokens + b - 1) / b * b;
     }
 
+    /// <summary>
+    /// True when the model's decoder takes media embedding rows (a <see cref="WellKnown.DecodeMultimodalGraph"/> next to its decode graph, with a
+    /// vision or audio tower producing them): <see cref="CreateBatchDecoder"/> can then serve image and audio requests batched with text ones.
+    /// </summary>
+    public bool SupportsMediaInput => Definition.Graphs.ContainsKey(WellKnown.DecodeMultimodalGraph) && Definition.Graphs.ContainsKey(WellKnown.DecodeGraph);
+
+    /// <summary>
+    /// Device memory of the vision encoder (<see cref="CreateVisionEncoder"/>) for images of up to the load option's image tokens: its weights and
+    /// activations; zero when the model has no vision tower.
+    /// </summary>
+    public ModelFootprint EstimateVisionFootprint()
+    {
+        if (!SupportsImages || VisionParameters.Of(Definition) is not { } p)
+        {
+            return default;
+        }
+
+        int maxTokens = _options.ImageTokens?.MaxTokens ?? 1024;
+        var options = p.Sam is not null
+            ? new CompileOptions { MaxTokens = 1, ContextLength = 1 }
+            : new CompileOptions
+            {
+                MaxTokens = maxTokens * p.MergeUnit,
+                ContextLength = 1,
+                SymbolBounds = new Dictionary<string, long>
+                {
+                    [VisionParameters.PatchSymbol] = maxTokens * p.MergeUnit,
+                    [VisionParameters.MergedSymbol] = maxTokens,
+                    [VisionParameters.OutputSymbol] = 2L * maxTokens + 2,
+                },
+            };
+        var fp = PlacementPlanner.Estimate(Definition.Graph(WellKnown.VisionEncodeGraph), options, 1, 0);
+        if (p.Sam is not null && Definition.Graphs.TryGetValue(SamParameters.TileGraph, out var tile))
+        {
+            var tileFp = PlacementPlanner.Estimate(tile, options, 1, 0);
+            fp = new ModelFootprint(fp.WeightBytes + tileFp.WeightBytes, fp.StateBytes, Math.Max(fp.ActivationBytes, tileFp.ActivationBytes));
+        }
+
+        return fp;
+    }
+
     /// <summary>True when the model has a vision tower (loaded from a file containing one, or together with a "mmproj" auxiliary file).</summary>
     public bool SupportsImages => Definition.Graphs.ContainsKey(WellKnown.VisionEncodeGraph);
 
@@ -600,7 +865,7 @@ public sealed class LlmModel : IDisposable
         var sw = Stopwatch.StartNew();
         Architectures.TryFindMultimodal(Definition.Architecture, out var multimodal);
         var enc = VisionEncoder.Create(Definition, [.. _options.Devices], _options.Fallback, _options.ImageTokens,
-            new HashSet<string>(_options.DisabledFeatures, StringComparer.Ordinal), CacheFor, multimodal);
+            _options.CompileDisabledFeatures(), CacheFor, multimodal);
         _options.Log?.Invoke($"Compiled '{WellKnown.VisionEncodeGraph}' (up to {enc.MaxPatches / enc.Parameters.MergeUnit} image tokens) in {sw.ElapsedMilliseconds} ms\n{enc.Compiled.Plan.Describe()}");
         return enc;
     }
@@ -626,6 +891,11 @@ public sealed class LlmModel : IDisposable
     /// <summary>Releases the weight memory (mapped files, host buffers). Sessions and decoders created from the model must be disposed first.</summary>
     public void Dispose()
     {
+        if (_ownsDiskExperts && _diskExperts.IsValueCreated)
+        {
+            _diskExperts.Value?.Dispose();
+        }
+
         if (!_ownsDefinition)
         {
             return;

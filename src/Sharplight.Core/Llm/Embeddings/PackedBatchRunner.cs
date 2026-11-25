@@ -53,6 +53,10 @@ internal sealed class PackedBatchRunner : IDisposable
         return new PackedBatchRunner(compiled, output, maxBatchTokens, maxBatchSequences);
     }
 
+    /// <summary>A runner over an already compiled packed-sequence graph (compiled for <paramref name="maxBatchTokens"/> rows and <paramref name="maxBatchSequences"/> sequences); it owns <paramref name="compiled"/>.</summary>
+    public static PackedBatchRunner Create(CompiledModel compiled, string output, int maxBatchTokens, int maxBatchSequences)
+        => new(compiled, output, maxBatchTokens, maxBatchSequences);
+
     private PackedBatchRunner(CompiledModel compiled, string output, int maxTokens, int maxSequences)
     {
         _compiled = compiled;

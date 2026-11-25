@@ -1,0 +1,81 @@
+diff --git a/src/Sharplight.Shaders/Kernels/rope.slang b/src/Sharplight.Shaders/Kernels/rope.slang
+index 282315fc..9bd47398 100644
+--- a/src/Sharplight.Shaders/Kernels/rope.slang
++++ b/src/Sharplight.Shaders/Kernels/rope.slang
+@@ -245,31 +245,19 @@ void qkv_cache_store(uint8_t* cache, uint64_t di, float v)
+ #endif
+ }
+ 
+-// The reciprocal RMS of row xr (all 64 threads take part).
+-float qkv_rms_scale(float* xr, uint lt, float eps)
++// The sum of squares of row xr's values that thread lt reads (i = lt, lt + 64, ...).
++float qkv_sum_squares(float* xr, uint lt)
+ {
+     float ss = 0;
+     for (uint i = lt; i < D; i += 64) { float v = xr[i]; ss += v * v; }
+-    qkvRed[lt] = ss;
+-    GroupMemoryBarrierWithGroupSync();
+-    [ForceUnroll]
+-    for (uint s = 32; s > 0; s >>= 1) { if (lt < s) qkvRed[lt] += qkvRed[lt + s]; GroupMemoryBarrierWithGroupSync(); }
+-    float scale = rsqrt(qkvRed[0] / float(D) + eps);
+-    // The workgroup's next row reuses qkvRed (QKV_RPW > 1).
+-    GroupMemoryBarrierWithGroupSync();
+-    return scale;
++    return ss;
+ }
+ 
+-// Query head hh (Q) or key head hh of row t: the norm (with weight w), the rotation, the store to yq or to the key cache. The row and
+-// weight pointers are arguments (not selected inside: the SPIR-V target does not take a select of two buffer pointers).
+-void qkv_rope_head(QkvParams p, float* xr, float* w, bool norm, float eps, bool Q, uint t, uint hh, uint lt)
++// Query head hh (Q) or key head hh of row t: the norm (scale, then the weight w), the rotation, the store to yq or to the key cache. The
++// row and weight pointers are arguments (not selected inside: the SPIR-V target does not take a select of two buffer pointers).
++void qkv_rope_head(QkvParams p, float* xr, float* w, bool norm, float scale, bool Q, uint t, uint hh, uint lt)
+ {
+     const uint PAIRS = D / 2;
+-    float scale = 1.0;
+-    if (norm)
+-    {
+-        scale = qkv_rms_scale(xr, lt, eps);
+-    }
+ 
+     for (uint i = lt; i < PAIRS; i += 64)
+     {
+@@ -319,13 +307,36 @@ void rope_qkv_row(QkvParams p, uint row, uint lt)
+ {
+     const uint HEADS = HQ + 2 * HK;
+     uint t = row / HEADS, h = row % HEADS;
++    float scale = 1.0;
++#if NORM_Q || NORM_K
++    // The reciprocal RMS of a normed row: each branch only sums its row's squares; the reduction and its barriers stay in the
++    // kernel's uniform control flow (every row of the workgroup reaches them), which the SPIR-V target needs.
++    float ss = 0;
++    if (h < HQ)
++    {
++        if (NORM_Q != 0) { ss = qkv_sum_squares(p.xq + uint64_t(t) * QS0 + uint64_t(h) * QS1, lt); }
++    }
++    else if (h < HQ + HK)
++    {
++        if (NORM_K != 0) { ss = qkv_sum_squares(p.xk + uint64_t(t) * KS0 + uint64_t(h - HQ) * KS1, lt); }
++    }
++
++    qkvRed[lt] = ss;
++    GroupMemoryBarrierWithGroupSync();
++    [ForceUnroll]
++    for (uint s = 32; s > 0; s >>= 1) { if (lt < s) qkvRed[lt] += qkvRed[lt + s]; GroupMemoryBarrierWithGroupSync(); }
++    float total = qkvRed[0];
++    // The workgroup's next row reuses qkvRed (QKV_RPW > 1).
++    GroupMemoryBarrierWithGroupSync();
++    scale = rsqrt(total / float(D) + (h < HQ ? EPS_Q : EPS_K));
++#endif
+     if (h < HQ)
+     {
+-        qkv_rope_head(p, p.xq + uint64_t(t) * QS0 + uint64_t(h) * QS1, p.wq, NORM_Q != 0, EPS_Q, true, t, h, lt);
++        qkv_rope_head(p, p.xq + uint64_t(t) * QS0 + uint64_t(h) * QS1, p.wq, NORM_Q != 0, NORM_Q != 0 ? scale : 1.0, true, t, h, lt);
+     }
+     else if (h < HQ + HK)
+     {
+-        qkv_rope_head(p, p.xk + uint64_t(t) * KS0 + uint64_t(h - HQ) * KS1, p.wk, NORM_K != 0, EPS_K, false, t, h - HQ, lt);
++        qkv_rope_head(p, p.xk + uint64_t(t) * KS0 + uint64_t(h - HQ) * KS1, p.wk, NORM_K != 0, NORM_K != 0 ? scale : 1.0, false, t, h - HQ, lt);
+     }
+     else
+     {

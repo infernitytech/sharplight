@@ -1,0 +1,4 @@
+| gemma4 31B Q4_K - Medium       |  17.05 GiB |    30.70 B | Vulkan     |  99 |   1 |           tg128 |         37.56 ± 0.31 |
+ggml_vulkan: vk::Device::allocateMemory: ErrorOutOfDeviceMemory
+terminate called after throwing an instance of 'vk::SystemError'
+  what():  vk::Device::allocateMemory: ErrorOutOfDeviceMemory

@@ -8,6 +8,11 @@
     <!-- Provider-neutral execution helpers (barrier placement, weight copies) shared by the GPU providers. -->
     <InternalsVisibleTo Include="Sharplight.Vulkan" />
     <InternalsVisibleTo Include="Sharplight.Metal" />
+    <InternalsVisibleTo Include="Sharplight.Cuda" />
+    <!-- The E8M0 requantization reference of the block-scaled FP8 tests (Fp8BlockScaledTests). -->
+    <InternalsVisibleTo Include="Sharplight.Vulkan.Tests" />
     <EmbeddedResource Include="Kernels/**/*.slang" LogicalName="Sharplight.Kernels.%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- Kernels written in CUDA C++ for the CUDA provider (SlangCompiler.CompileCuda). -->
+    <EmbeddedResource Include="Kernels/**/*.cu" LogicalName="Sharplight.Kernels.%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

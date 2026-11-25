@@ -16,6 +16,9 @@ public sealed class StatefulTests
     [InlineData("q8_0", 128, 128, 4, 2)]
     [InlineData("q4_0", 128, 128, 4, 2)]
     [InlineData("q4_0", 64, 96, 6, 3)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 1)]
+    [InlineData("f8e4m3_b32", 128, 128, 4, 2)]
+    [InlineData("f8e4m3_b32", 64, 96, 6, 3)]
     [InlineData("f16", 12, 12, 4, 2)]   // head sizes that are not a multiple of 8: the per-head kernel with one key element per load
     [InlineData("f32", 20, 12, 6, 3)]
     public void CachedAttentionAcrossSteps(string cacheType, int D, int Dv, int Hq, int Hkv)
@@ -25,13 +28,109 @@ public sealed class StatefulTests
     [Theory]
     [InlineData("f16", 128, 128, 8, 2)]
     [InlineData("f16", 256, 256, 4, 1)]
+    [InlineData("f16", 256, 256, 8, 2)]
+    [InlineData("f16", 512, 512, 8, 2)]   // head dimensions split between subgroup / warp pairs (Gemma 4's global layers)
     [InlineData("f16", 64, 128, 6, 3)]
     [InlineData("f32", 128, 128, 4, 2)]
     [InlineData("q8_0", 128, 128, 8, 2)]
     [InlineData("q4_0", 256, 256, 4, 1)]
+    [InlineData("f8e4m3_b32", 128, 128, 8, 2)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 256, 256, 4, 1)]
     [InlineData("f16", 12, 12, 4, 2)]
     public void CachedAttentionLongPrefill(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [70, 33, 1, 5], 120);
+
+    /// <summary>
+    /// Decode steps of a few rows over ~3000 keys with many KV heads: each row's keys split into a few ranges (decode_split_keys:
+    /// from the key count, at most the workgroup target's count), merged by the combine.
+    /// </summary>
+    [Fact]
+    public void CachedAttentionFewLongRows()
+        => CachedAttention("f16", 16, 16, 128, 128, [2048, 1024, 4, 3, 2], 4096);
+
+    /// <summary>
+    /// Decode steps of grouped-query heads whose merged width (heads per block times the head size) takes the separate combine: on CUDA
+    /// the tensor-core decode kernel (attn_decode_native.cu), with a row's ~3000 keys in several ranges and in one.
+    /// </summary>
+    [Theory]
+    [InlineData(64, 16, 2)]
+    [InlineData(64, 64, 8)]
+    [InlineData(128, 16, 4)]
+    [InlineData(64, 16, 2, "f8e4m3_b32")]
+    [InlineData(128, 16, 4, "f8e4m3_b32")]
+    [InlineData(128, 32, 8, "f8e4m3_b32")]
+    public void CachedAttentionGroupedDecode(int D, int Hq, int Hkv, string cacheType = "f16")
+        => CachedAttention(cacheType, D, D, Hq, Hkv, [2048, 1024, 4, 3, 2, 1], 4096);
+
+    /// <summary>
+    /// Decode rows of head sizes 256 and 512 with grouped heads (Qwen3.5 / 3.8, Gemma 4's window and global layers): on CUDA the wide
+    /// form of the tensor-core decode kernel (attn_decode_native.cu, tiles shared by the block's warps), with sliding windows, soft
+    /// caps and sinks, rows whose keys split into several ranges, rows of a single range and batches of a few rows.
+    /// </summary>
+    [Theory]
+    [InlineData(256, 24, 4, 0, 0f, false)]
+    [InlineData(256, 32, 16, 100, 0f, false)]
+    [InlineData(256, 8, 1, 0, 50f, false)]
+    [InlineData(512, 32, 4, 0, 0f, true)]
+    [InlineData(512, 16, 2, 40, 30f, true)]
+    [InlineData(512, 8, 4, 0, 0f, false)]
+    [InlineData(256, 24, 4, 0, 0f, false, "q8_0")]
+    [InlineData(512, 32, 4, 0, 0f, true, "q8_0")]
+    [InlineData(512, 16, 2, 40, 30f, true, "q8_0")]
+    [InlineData(256, 24, 4, 0, 0f, false, "f8e4m3_b32")]
+    public void CachedAttentionWideDecode(int D, int Hq, int Hkv, int window, float softcap, bool sinks, string cacheType = "f16")
+    {
+        Gpu.Require();
+        int ctx = 1280;
+        float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [700, 1, 1, 5, 1, 300, 1, 2, 1, 3];
+        int total = chunks.Sum();
+        var tg = new TG();
+        var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, D);
+        var kc = tg.State("kc", DataType.Get(cacheType), StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", DataType.Get(cacheType), StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        if (softcap > 0)
+        {
+            attrs.Add(("softcap", softcap));
+        }
+
+        tg.B.RuntimeScalar("n_past");
+        Value[] inputs = [qi, kc, vc];
+        if (sinks)
+        {
+            attrs.Add(("sinks", true));
+            inputs = [qi, kc, vc, tg.RandW("sinks", DataType.F32, 4f, Hq)];
+        }
+
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", inputs, Attributes.From([.. attrs])));
+        var q = Rnd.F(total * Hq * D, 1).Select(x => x * 3).ToArray();
+        var k = Rnd.F(total * Hkv * D, 2);
+        var v = Rnd.F(total * Hkv * D, 3);
+        var steps = new List<Step>();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
+            past += c;
+        }
+        // f16 caches run on tensor cores with f16 queries and probabilities: allow for their rounding. q8_0 caches are quantized by both
+        // backends, which may round a value to a neighbouring quant.
+        // f8e4m3_b32: queries scaled by 3 sharpen the softmax, so one E4M3 code (1/16 apart) rounded the other way moves an output by ~1e-2.
+        var (atol, rtol) = cacheType switch { "f16" => (1e-3, 3e-3), "f8e4m3_b32" => (1e-2, 3e-2), _ => (3e-3, 1e-2) };
+        Diff.Check("CachedAttention.wide", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx,
+            what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv} window={window} softcap={softcap} sinks={sinks}");
+    }
 
     private static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)
     {
@@ -60,7 +159,8 @@ public sealed class StatefulTests
         }
         // f16 caches may run on tensor cores with f16 queries and probabilities: allow for their rounding. Quantized caches are
         // quantized by both backends, which may round a value to neighbouring quants (one quant step of a block).
-        var (atol, rtol) = cacheType switch { "f16" => (3e-4, 3e-3), "f32" => (3e-5, 2e-4), "q8_0" => (2e-3, 1e-2), _ => (2e-2, 5e-2) };
+        // E4M3 codes are 1/16 apart relative to the value: a code rounded the other way moves an output more than a q8_0 quant.
+        var (atol, rtol) = cacheType switch { "f16" => (3e-4, 3e-3), "f32" => (3e-5, 2e-4), "q8_0" => (2e-3, 1e-2), "f8e4m3_b32" => (5e-3, 2e-2), _ => (2e-2, 5e-2) };
         Diff.Check("CachedAttention", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx, what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv}");
     }
 
@@ -144,6 +244,7 @@ public sealed class StatefulTests
     [InlineData("f32", 576, 512, 16, 1)]
     [InlineData("q8_0", 576, 512, 16, 1)]
     [InlineData("q4_0", 288, 256, 40, 1)]
+    [InlineData("f8e4m3_b32", 576, 512, 16, 1)]
     public void CachedAttentionLatentShapes(string cacheType, int D, int valueDims, int Hq, int Hkv)
         => ValuePrefixAttention(cacheType, D, valueDims, Hq, Hkv, [70, 3, 1, 250, 1, 1, 40], 384, 8f);
 
@@ -170,20 +271,21 @@ public sealed class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)])));
             past += c;
         }
-        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "q4_0" => (3e-2, 5e-2), _ => (1e-3, 3e-3) };
+        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "f8e4m3_b32" => (1e-2, 2e-2), "q4_0" => (3e-2, 5e-2), _ => (1e-3, 3e-3) };
         Diff.Check("CachedAttention.vprefix", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx, what: $"{cacheType} D={D} v_dims={valueDims}");
     }
 
     // Attention sinks: decode (split-K + combine), short chunks, and long prefill chunks (flash kernel), full and windowed.
     [Theory]
-    [InlineData("f16", 0)]
-    [InlineData("f16", 17)]
-    [InlineData("f32", 0)]
-    [InlineData("f32", 40)]
-    public void CachedAttentionSinks(string cacheType, int window)
+    [InlineData("f16", 0, 8)]
+    [InlineData("f16", 17, 8)]
+    [InlineData("f32", 0, 8)]
+    [InlineData("f32", 40, 8)]
+    [InlineData("f16", 0, 16)]   // 8 heads per KV head: the tensor-core decode kernel on CUDA
+    [InlineData("f16", 40, 16)]
+    public void CachedAttentionSinks(string cacheType, int window, int Hq)
     {
         Gpu.Require();
-        int Hq = 8;
         int Hkv = 2;
         int D = 64;
         int ctx = 256;
@@ -219,7 +321,7 @@ public sealed class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
             past += c;
         }
-        Diff.Check("CachedAttention.sinks", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 160, ctx: ctx, what: $"{cacheType} window={window}");
+        Diff.Check("CachedAttention.sinks", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 160, ctx: ctx, what: $"{cacheType} window={window} Hq={Hq}");
     }
 
     [Fact]

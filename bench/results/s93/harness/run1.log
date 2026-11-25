@@ -1,0 +1,30 @@
+[hold 05:59:00] ./det/run1.sh
+0 %, 2 MiB, 33.69 W
+== nvrtc
+rep 84: 0 / 32 outputs differ (first y0[-1] row 0 col -1)
+rep 88: 32 / 0 outputs differ (first y0[2666752] row 260 col 4352)
+rep 93: 32 / 0 outputs differ (first y0[3972096] row 387 col 9216)
+T=512 grid 82 pdl 0 noise 0: 7 of 99 repeats differ
+== nvrtc
+rep 43: 32 / 0 outputs differ (first y0[2629632] row 256 col 8192)
+rep 45: 96 / 0 outputs differ (first y0[2635648] row 257 col 3968)
+rep 85: 0 / 32 outputs differ (first y0[-1] row 0 col -1)
+T=512 grid 82 pdl 0 noise 1: 5 of 99 repeats differ
+== nvrtc
+rep 4: 128 / 0 outputs differ (first y0[1335680] row 130 col 4480)
+rep 64: 256 / 0 outputs differ (first y0[3935616] row 384 col 3456)
+rep 94: 32 / 0 outputs differ (first y0[15744] row 1 col 5504)
+T=512 grid 82 pdl 1 noise 0: 3 of 99 repeats differ
+== nvrtc
+rep 58: 64 / 0 outputs differ (first y0[48000] row 4 col 7040)
+rep 90: 64 / 0 outputs differ (first y0[2635776] row 257 col 4096)
+T=512 grid 82 pdl 1 noise 1: 2 of 99 repeats differ
+== nvcc
+T=512 grid 82 pdl 0 noise 0: 0 of 99 repeats differ
+== nvcc
+T=512 grid 82 pdl 0 noise 1: 0 of 99 repeats differ
+== nvcc
+T=512 grid 82 pdl 1 noise 0: 0 of 99 repeats differ
+== nvcc
+T=512 grid 82 pdl 1 noise 1: 0 of 99 repeats differ
+[release 05:59:11]

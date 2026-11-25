@@ -1,0 +1,32 @@
+[hold 01:15:25] ./serve_ab.sh /ab base new vllm new base qwen gptoss llama
+0 %, 2 MiB, 79.00 W
+ready=1 after 29 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.422981295036152, "agg_tok_s": 1103.5997093887468, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 73.93434381134634, "ttft_p50_ms": 96.25810099532828, "ttft_p95_ms": 254.6638124855235, "itl_mean_ms": 13.525513968875382, "itl_p50_ms": 12.493831978645176, "itl_p95_m
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 8.998732100939378, "agg_tok_s": 2731.0514108353677, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 48.179823797335395, "ttft_p50_ms": 267.9945370182395, "ttft_p95_ms": 721.8349950155243, "itl_mean_ms": 20.755576114317492, "itl_p50_ms": 16.254913003649563, "itl_p
+textcheck wave 16: 3/16 identical to single-request, 1 part within 3 words, 0 garbage -> ok
+textcheck wave 64: 18/64 identical to single-request, 12 part within 3 words, 0 garbage -> ok
+textcheck: clean
+ready=1 after 29 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.422980164992623, "agg_tok_s": 1103.599877396162, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 73.94884981163825, "ttft_p50_ms": 97.35492896288633, "ttft_p95_ms": 252.18677181983367, "itl_mean_ms": 13.52286076858788, "itl_p50_ms": 12.48270703945309, "itl_p95_ms"
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 9.002582732005976, "agg_tok_s": 2729.8832714558034, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 48.09549941112575, "ttft_p50_ms": 271.0867414716631, "ttft_p95_ms": 704.8625434050336, "itl_mean_ms": 20.791966238917436, "itl_p50_ms": 16.244337952230126, "itl_p9
+textcheck wave 16: 3/16 identical to single-request, 1 part within 3 words, 0 garbage -> ok
+textcheck wave 64: 16/64 identical to single-request, 12 part within 3 words, 0 garbage -> ok
+textcheck: clean
+ready=1 after 210 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.345436554052867, "agg_tok_s": 1115.250256362236, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 77.40215230597691, "ttft_p50_ms": 179.04843698488548, "ttft_p95_ms": 283.98877604631707, "itl_mean_ms": 12.919537379876981, "itl_p50_ms": 12.40335701731965, "itl_p95_m
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 9.131518745911308, "agg_tok_s": 2691.337627818379, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 49.26492282708697, "ttft_p50_ms": 397.9331835289486, "ttft_p95_ms": 929.7630880028009, "itl_mean_ms": 20.298418075470472, "itl_p50_ms": 15.994907007552683, "itl_p95
+textcheck wave 16: 4/16 identical to single-request, 2 part within 3 words, 0 garbage -> ok
+textcheck wave 64: 19/64 identical to single-request, 8 part within 3 words, 0 garbage -> ok
+textcheck: clean
+ready=1 after 42 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 8.525599653017707, "agg_tok_s": 960.8708282590273, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 64.19643631717567, "ttft_p50_ms": 107.05432354006916, "ttft_p95_ms": 304.05138359055854, "itl_mean_ms": 15.57718866292351, "itl_p50_ms": 12.552172469440848, "itl_p95_m
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 11.302828463027254, "agg_tok_s": 2174.3230095361255, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 37.47958968597937, "ttft_p50_ms": 279.574666521512, "ttft_p95_ms": 769.4043438299543, "itl_mean_ms": 26.681188571658435, "itl_p50_ms": 16.427124035544693, "itl_p9
+textcheck wave 16: 6/16 identical to single-request, 4 part within 3 words, 0 garbage -> ok
+textcheck wave 64: 15/64 identical to single-request, 14 part within 3 words, 0 garbage -> ok
+textcheck: clean
+ready=1 after 41 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.431147349067032, "agg_tok_s": 1102.3869686864023, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 73.7202969602656, "ttft_p50_ms": 95.36667895736173, "ttft_p95_ms": 250.10498163755983, "itl_mean_ms": 13.564785292970111, "itl_p50_ms": 12.50917196739465, "itl_p95_ms
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 9.01026153494604, "agg_tok_s": 2727.5567867461664, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 47.891853309333804, "ttft_p50_ms": 267.73386099375784, "ttft_p95_ms": 733.1326621700996, "itl_mean_ms": 20.880377995417994, "itl_p50_ms": 16.280203533824533, "itl_p
+textcheck wave 16: 7/16 identical to single-request, 1 part within 3 words, 0 garbage -> ok
+textcheck wave 64: 13/64 identical to single-request, 12 part within 3 words, 0 garbage -> ok
+textcheck: clean

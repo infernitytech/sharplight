@@ -18,6 +18,13 @@ The survey below was taken before the following work; the tables and "missing op
 
 Open: `gliner-small` still fails at import (`Expand` to a symbolic extent at a position other than the outermost; the runtime word count appears as an inner dimension), `grounding-dino-tiny` and `bertsquad-12-int8` (runtime-B `MatMulInteger`) are unchanged, and `ssd-12-int8` differs from onnxruntime 1.32 references (1.31 references matched; CPU and Vulkan agree to 1e-7, the int8 requantization of onnxruntime changed between versions).
 
+**Providers.** ONNX models also run on the CUDA provider (`Sharplight.Cuda`, NVIDIA GPUs) through the same importer and lowering:
+the conformance suite, `Sharplight.Import.Onnx.Tests` and the ONNX classes of the vision and audio suites pass on CUDA exactly as on
+Vulkan (same tests, same tolerances, same CPU-fallback placement), and the 22 survey models with references on the test machine match
+onnxruntime on CUDA with the same error as on Vulkan (2026-11-19). The test suites run on CUDA with `SHARPLIGHT_TEST_PROVIDER=cuda`, `SurveyRunner` with the provider
+`cuda`; results and CUDA / Vulkan latencies are in [cuda.md, ONNX on CUDA](cuda.md#onnx-on-cuda). The survey tables below were measured
+on Vulkan only.
+
 Reference generators: `tools/gen-onnx-contrib-tests.py` (com.microsoft ops), `tools/gen-onnx-detection-tests.py` (NMS, RoiAlign, Loop, Range, STFT), `tools/gen-onnx-ml-tests.py` (ai.onnx.ml, long DFT / STFT); run them in a venv with `onnx` and `onnxruntime`, outputs go to `~/models/onnx/sharplight-*-tests`, which the Conformance project runs.
 
 ## Method
@@ -418,7 +425,10 @@ dotnet build Sharplight.slnx -c Release
 SHARPLIGHT_CONFORMANCE_REPORT=report.jsonl SHARPLIGHT_CONFORMANCE_PROVIDERS=cpu,vulkan \
   dotnet tests/Sharplight.Import.Onnx.Conformance/bin/Release/net11.0/Sharplight.Import.Onnx.Conformance.dll \
   -method Sharplight.Import.Onnx.Conformance.NodeConformanceTests.Report      # SHARPLIGHT_CONFORMANCE_FILTER=<regex> for a subset
-~/venvs/ort/bin/python -I tools/onnx-coverage.py --report report.jsonl > matrix.md
+SHARPLIGHT_TEST_PROVIDER=cuda SHARPLIGHT_CONFORMANCE_REPORT=cuda.jsonl SHARPLIGHT_CONFORMANCE_PROVIDERS=cuda \
+  dotnet tests/Sharplight.Import.Onnx.Conformance/bin/Release/net11.0/Sharplight.Import.Onnx.Conformance.dll \
+  -method Sharplight.Import.Onnx.Conformance.NodeConformanceTests.Report      # the CUDA columns (one GPU provider per process)
+~/venvs/ort/bin/python -I tools/onnx-coverage.py --report report.jsonl --report cuda.jsonl > matrix.md
 ```
 
 ### Before and after the contrib-op work
@@ -463,344 +473,350 @@ A 0 in `OnnxImportOptions.InputShapes` now means an empty axis; only a negative 
 
 These ops run on Vulkan only through the CPU fallback: the string ops (StringConcat, StringNormalizer, RegexFullMatch, string Cast / Equal, CategoryMapper and string LabelEncoder maps) and Cast to FLOAT8E8M0. CumSum and CumProd (since benchmarks section 26, int32 / int64 inputs since section 27), GridSample (4-D, and 5-D linear / nearest since section 27), Det and Inverse (section 27, one thread per matrix in f32) have Vulkan kernels, and so, since ONNX round 5, do LinearAttention (all four update rules), DeformConv, Unique (flattened or along an axis, up to 65536 elements; the kernels compare every pair of elements or slices), TfIdfVectorizer, the tree ensembles, SVM one-vs-one voting and probability coupling, numeric LabelEncoder and DFTs longer than the importer's basis matmul.
 
+The matrix below was regenerated on 2026-11-19 from conformance reports of cpu, vulkan and cuda (`SHARPLIGHT_TEST_PROVIDER=cuda`
+selects the GPU, see [cuda.md](cuda.md#onnx-on-cuda)): the cuda and vulkan columns agree test by test, including which ops fall back to
+the CPU.
+
 Operator schemas of onnx 1.23.2 (ai.onnx opset 28) and onnxruntime's com.microsoft contrib schemas.
 
-| domain | operators | importer | cpu: all tests pass | vulkan: all tests pass | vulkan: without CPU fallback |
-|---|---|---|---|---|---|
-| ai.onnx | 203 | 201 | 161 / 192 with tests | 161 / 192 with tests | 158 |
-| ai.onnx.ml | 19 | 16 | 16 / 16 with tests | 16 / 16 with tests | 12 |
-| ai.onnx.preview | 1 | 1 | 1 / 1 with tests | 1 / 1 with tests | 1 |
-| ai.onnx.preview.training | 4 | 3 | 3 / 3 with tests | 3 / 3 with tests | 3 |
-| com.microsoft | 136 | 53 | 45 / 47 with tests | 45 / 47 with tests | 45 |
-| com.microsoft (common set) | 61 | 52 | 44 / 46 with tests | 44 / 46 with tests | 44 |
+| domain | operators | importer | cpu: all tests pass | cuda: all tests pass | vulkan: all tests pass | cuda: without CPU fallback | vulkan: without CPU fallback |
+|---|---|---|---|---|---|---|---|
+| ai.onnx | 203 | 202 | 185 / 192 with tests | 185 / 192 with tests | 185 / 192 with tests | 179 | 179 |
+| ai.onnx.ml | 19 | 16 | 16 / 16 with tests | 16 / 16 with tests | 16 / 16 with tests | 12 | 12 |
+| ai.onnx.preview | 1 | 1 | 1 / 1 with tests | 1 / 1 with tests | 1 / 1 with tests | 1 | 1 |
+| ai.onnx.preview.training | 4 | 3 | 3 / 3 with tests | 3 / 3 with tests | 3 / 3 with tests | 3 | 3 |
+| com.microsoft | 136 | 55 | 47 / 47 with tests | 47 / 47 with tests | 47 / 47 with tests | 46 | 46 |
+| com.microsoft (common set) | 61 | 54 | 46 / 46 with tests | 46 / 46 with tests | 46 / 46 with tests | 45 | 45 |
 
-Node tests:
+ONNX backend node tests:
 
 | provider | tests | pass | pass without CPU fallback | wrong | import fail | compile fail | run fail | harness unsupported |
 |---|---|---|---|---|---|---|---|---|
-| cpu | 1884 | 1829 (97.1%) | 1829 (97.1%) | 8 | 47 | 0 | 0 | 0 |
-| vulkan | 1884 | 1829 (97.1%) | 1809 (96.0%) | 8 | 47 | 0 | 0 | 0 |
+| cpu | 1884 | 1863 (98.9%) | 1863 (98.9%) | 6 | 15 | 0 | 0 | 0 |
+| cuda | 1884 | 1863 (98.9%) | 1836 (97.5%) | 6 | 15 | 0 | 0 | 0 |
+| vulkan | 1884 | 1863 (98.9%) | 1836 (97.5%) | 6 | 15 | 0 | 0 | 0 |
 
 Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 
 | provider | tests | pass | pass without CPU fallback | wrong | import fail | compile fail | run fail | harness unsupported |
 |---|---|---|---|---|---|---|---|---|
-| cpu | 172 | 170 (98.8%) | 170 (98.8%) | 0 | 2 | 0 | 0 | 0 |
-| vulkan | 172 | 170 (98.8%) | 158 (91.9%) | 0 | 2 | 0 | 0 | 0 |
+| cpu | 214 | 214 (100.0%) | 214 (100.0%) | 0 | 0 | 0 | 0 | 0 |
+| cuda | 214 | 214 (100.0%) | 201 (93.9%) | 0 | 0 | 0 | 0 | 0 |
+| vulkan | 214 | 214 (100.0%) | 201 (93.9%) | 0 | 0 | 0 | 0 | 0 |
 
 
 #### ai.onnx
 
-| operator | versions | importer | cpu tests | vulkan tests | notes |
-|---|---|---|---|---|---|
-| Abs | 1, 6, 13 | yes | 11/12 | 11/12 |  |
-| Acos | 7, 22 | yes | 2/2 | 2/2 |  |
-| Acosh | 9, 22 | yes | 2/2 | 2/2 |  |
-| Add | 1, 6, 7, 13, 14 | yes | 197/197 | 197/197 |  |
-| AffineGrid | 20 | yes | 4/4 | 4/4 |  |
-| And | 1, 7 | yes | 101/101 | 101/101 |  |
-| ArgMax | 1, 11, 12, 13 | yes | 16/16 | 16/16 |  |
-| ArgMin | 1, 11, 12, 13 | yes | 16/16 | 16/16 |  |
-| Asin | 7, 22 | yes | 2/2 | 2/2 |  |
-| Asinh | 9, 22 | yes | 2/2 | 2/2 |  |
-| Atan | 7, 22 | yes | 2/2 | 2/2 |  |
-| Atanh | 9, 22 | yes | 2/2 | 2/2 |  |
-| Attention | 23, 24, 25 | yes | 93/93 | 93/93 |  |
-| AveragePool | 1, 7, 10, 11, 19, 22 | yes | 20/20 | 20/20 |  |
-| BatchNormalization | 1, 6, 7, 9, 14, 15 | yes | 4/4 | 4/4 |  |
-| Bernoulli | 15, 22 | yes | 0/3 | 0/3 |  |
-| BitCast | 26 | yes | 8/10 | 8/10 |  |
-| BitShift | 11, 28 | yes | 28/28 | 28/28 |  |
-| BitwiseAnd | 18 | yes | 4/4 | 4/4 |  |
-| BitwiseNot | 18 | yes | 3/3 | 3/3 |  |
-| BitwiseOr | 18 | yes | 4/4 | 4/4 |  |
-| BitwiseXor | 18 | yes | 4/4 | 4/4 |  |
-| BlackmanWindow | 17 | yes | 2/2 | 2/2 |  |
-| Cast | 1, 6, 9, 13, 19, 21, 23, 24, 25, 28 | yes | 343/348 | 343/348 (5 via CPU) |  |
-| CastLike | 15, 19, 21, 23, 24, 25 | yes | 225/227 | 225/227 |  |
-| CausalConvWithState | 27 | yes | 12/13 | 12/13 |  |
-| Ceil | 1, 6, 13 | yes | 6/6 | 6/6 |  |
-| Celu | 12, 28 | yes | 3/3 | 3/3 |  |
-| CenterCropPad | 18 | yes | 6/6 | 6/6 |  |
-| Clip | 1, 6, 11, 12, 13 | yes | 15/15 | 15/15 |  |
-| Col2Im | 18 | yes | 5/5 | 5/5 |  |
-| Compress | 9, 11, 28 | yes | 5/5 | 5/5 |  |
-| Concat | 1, 4, 11, 13 | yes | 207/207 | 207/207 |  |
-| ConcatFromSequence | 11 | yes | - | - |  |
-| Constant | 1, 9, 11, 12, 13, 19, 21, 23, 24, 25 | yes | 344/344 | 344/344 |  |
-| ConstantOfShape | 9, 20, 21, 23, 24, 25 | yes | 106/106 | 106/106 |  |
-| Conv | 1, 11, 22 | yes | 19/19 | 19/19 |  |
-| ConvInteger | 10 | yes | 2/2 | 2/2 |  |
-| ConvTranspose | 1, 11, 22 | yes | 11/11 | 11/11 |  |
-| Cos | 7, 22 | yes | 8/8 | 8/8 |  |
-| Cosh | 9, 22 | yes | 2/2 | 2/2 |  |
-| CumProd | 26 | yes | 9/9 | 9/9 |  |
-| CumSum | 11, 14 | yes | 9/9 | 9/9 |  |
-| DFT | 17, 20 | yes | 12/12 | 12/12 |  |
-| DeformConv | 19, 22 | yes | 4/4 | 4/4 |  |
-| DepthToSpace | 1, 11, 13, 28 | yes | 2/2 | 2/2 |  |
-| DequantizeLinear | 10, 13, 19, 21, 23, 24, 25, 28 | yes | 14/14 | 14/14 |  |
-| Det | 11, 22 | yes | 2/2 | 2/2 |  |
-| Div | 1, 6, 7, 13, 14 | yes | 250/250 | 250/250 |  |
-| Dropout | 1, 6, 7, 10, 12, 13, 22 | yes | 8/12 | 8/12 |  |
-| DynamicQuantizeLinear | 11 | yes | 3/3 | 3/3 |  |
-| Einsum | 12, 28 | yes | 9/9 | 9/9 |  |
-| Elu | 1, 6, 22 | yes | 6/6 | 6/6 |  |
-| Equal | 1, 7, 11, 13, 19 | yes | 131/131 | 131/131 (3 via CPU) |  |
-| Erf | 9, 13 | yes | 3/3 | 3/3 |  |
-| Exp | 1, 6, 13 | yes | 46/47 | 46/47 |  |
-| Expand | 8, 13 | yes | 106/106 | 106/106 |  |
-| EyeLike | 9, 22 | yes | 3/3 | 3/3 |  |
-| Flatten | 1, 9, 11, 13, 21, 23, 24, 25 | yes | 47/47 | 47/47 |  |
-| Floor | 1, 6, 13 | yes | 2/2 | 2/2 |  |
-| GRU | 1, 3, 7, 14, 22 | yes | 6/6 | 6/6 |  |
-| Gather | 1, 11, 13 | yes | 63/63 | 63/63 |  |
-| GatherElements | 11, 13 | yes | 21/21 | 21/21 |  |
-| GatherND | 11, 12, 13 | yes | 3/3 | 3/3 |  |
-| Gelu | 20 | yes | 4/4 | 4/4 |  |
-| Gemm | 1, 6, 7, 9, 11, 13 | yes | 11/11 | 11/11 |  |
-| GlobalAveragePool | 1, 22 | yes | 2/2 | 2/2 |  |
-| GlobalLpPool | 1, 2, 22 | yes | - | - |  |
-| GlobalMaxPool | 1, 22 | yes | 2/2 | 2/2 |  |
-| Greater | 1, 7, 9, 13 | yes | 16/19 | 16/19 |  |
-| GreaterOrEqual | 12, 16 | yes | 9/9 | 9/9 |  |
-| GridSample | 16, 20, 22 | yes | 18/18 | 18/18 |  |
-| GroupNormalization | 18, 21 | yes | 2/2 | 2/2 |  |
-| HammingWindow | 17 | yes | 2/2 | 2/2 |  |
-| HannWindow | 17 | yes | 2/2 | 2/2 |  |
-| HardSigmoid | 1, 6, 22 | yes | 4/4 | 4/4 |  |
-| HardSwish | 14, 22 | yes | 1/1 | 1/1 |  |
-| Hardmax | 1, 11, 13 | yes | 7/7 | 7/7 |  |
-| Identity | 1, 13, 14, 16, 19, 21, 23, 24, 25 | yes | 153/153 | 153/153 |  |
-| If | 1, 11, 13, 16, 19, 21, 23, 24, 25 | yes | 7/7 | 7/7 |  |
-| ImageDecoder | 20 | no | 0/9 | 0/9 |  |
-| InstanceNormalization | 1, 6, 22 | yes | 2/2 | 2/2 |  |
-| IsInf | 10, 20 | yes | 4/4 | 4/4 |  |
-| IsNaN | 9, 13, 20 | yes | 2/2 | 2/2 |  |
-| LRN | 1, 13 | yes | 2/2 | 2/2 |  |
-| LSTM | 1, 7, 14, 22 | yes | 6/6 | 6/6 |  |
-| LayerNormalization | 17 | yes | 20/20 | 20/20 |  |
-| LeakyRelu | 1, 6, 16 | yes | 3/3 | 3/3 |  |
-| Less | 1, 7, 9, 13 | yes | 76/76 | 76/76 |  |
-| LessOrEqual | 12, 16 | yes | 18/18 | 18/18 |  |
-| LinearAttention | 27 | yes | 14/14 | 14/14 |  |
-| Log | 1, 6, 13 | yes | 30/32 | 30/32 |  |
-| LogSoftmax | 1, 11, 13 | yes | 41/41 | 41/41 |  |
-| Loop | 1, 11, 13, 16, 19, 21, 23, 24, 25 | yes | 13/13 | 13/13 |  |
-| LpNormalization | 1, 22 | yes | 6/6 | 6/6 |  |
-| LpPool | 1, 2, 11, 18, 22 | yes | 8/8 | 8/8 |  |
-| MatMul | 1, 9, 13 | yes | 115/115 | 115/115 |  |
-| MatMulInteger | 10 | yes | 1/1 | 1/1 |  |
-| Max | 1, 6, 8, 12, 13 | yes | 27/27 | 27/27 |  |
-| MaxPool | 1, 8, 10, 11, 12, 22 | yes | 19/19 | 19/19 |  |
-| MaxRoiPool | 1, 22 | yes | - | - |  |
-| MaxUnpool | 9, 11, 22 | yes | 2/2 | 2/2 |  |
-| Mean | 1, 6, 8, 13 | yes | 3/3 | 3/3 |  |
-| MeanVarianceNormalization | 9, 13 | yes | 1/1 | 1/1 |  |
-| MelWeightMatrix | 17 | yes | 1/1 | 1/1 |  |
-| Min | 1, 6, 8, 12, 13 | yes | 20/20 | 20/20 |  |
-| Mish | 18, 22 | yes | 1/1 | 1/1 |  |
-| Mod | 10, 13, 28 | yes | 112/112 | 112/112 |  |
-| Mul | 1, 6, 7, 13, 14 | yes | 255/257 | 255/257 |  |
-| Multinomial | 7, 22 | yes | - | - |  |
-| Neg | 1, 6, 13 | yes | 43/43 | 43/43 |  |
-| NegativeLogLikelihoodLoss | 12, 13, 22 | yes | 52/52 | 52/52 |  |
-| NonMaxSuppression | 10, 11 | yes | 10/10 | 10/10 |  |
-| NonZero | 9, 13 | yes | 0/1 | 0/1 |  |
-| Not | 1 | yes | 96/96 | 96/96 |  |
-| OneHot | 9, 11, 28 | yes | 6/6 | 6/6 |  |
-| Optional | 15, 28 | yes | - | - |  |
-| OptionalGetElement | 15, 18, 28 | yes | 4/4 | 4/4 |  |
-| OptionalHasElement | 15, 18, 28 | yes | 7/7 | 7/7 |  |
-| Or | 1, 7 | yes | 24/24 | 24/24 |  |
-| PRelu | 1, 6, 7, 9, 16 | yes | 2/2 | 2/2 |  |
-| Pad | 1, 2, 11, 13, 18, 19, 21, 23, 24, 25 | yes | 25/25 | 25/25 |  |
-| Pow | 1, 7, 12, 13, 15 | yes | 16/16 | 16/16 |  |
-| QLinearConv | 10 | yes | 1/1 | 1/1 |  |
-| QLinearMatMul | 10, 21 | yes | 8/8 | 8/8 |  |
-| QuantizeLinear | 10, 13, 19, 21, 23, 24, 25, 28 | yes | 16/16 | 16/16 |  |
-| RMSNormalization | 23 | yes | 19/19 | 19/19 |  |
-| RNN | 1, 7, 14, 22 | yes | 6/6 | 6/6 |  |
-| RandomNormal | 1, 22 | yes | - | - |  |
-| RandomNormalLike | 1, 22 | yes | - | - |  |
-| RandomUniform | 1, 22 | yes | - | - |  |
-| RandomUniformLike | 1, 22 | yes | 0/3 | 0/3 |  |
-| Range | 11, 27 | yes | 70/70 | 70/70 |  |
-| Reciprocal | 1, 6, 13 | yes | 53/53 | 53/53 |  |
-| ReduceL1 | 1, 11, 13, 18 | yes | 8/9 | 8/9 |  |
-| ReduceL2 | 1, 11, 13, 18 | yes | 8/9 | 8/9 |  |
-| ReduceLogSum | 1, 11, 13, 18, 28 | yes | 4/5 | 4/5 |  |
-| ReduceLogSumExp | 1, 11, 13, 18, 28 | yes | 8/9 | 8/9 |  |
-| ReduceMax | 1, 11, 12, 13, 18, 20 | yes | 133/135 | 133/135 |  |
-| ReduceMean | 1, 11, 13, 18 | yes | 71/71 | 71/71 |  |
-| ReduceMin | 1, 11, 12, 13, 18, 20 | yes | 12/13 | 12/13 |  |
-| ReduceProd | 1, 11, 13, 18 | yes | 8/9 | 8/9 |  |
-| ReduceSum | 1, 11, 13 | yes | 85/92 | 85/92 |  |
-| ReduceSumSquare | 1, 11, 13, 18 | yes | 8/9 | 8/9 |  |
-| RegexFullMatch | 20 | yes | 3/4 | 3/4 (3 via CPU) |  |
-| Relu | 1, 6, 13, 14 | yes | 5/5 | 5/5 |  |
-| Reshape | 1, 5, 13, 14, 19, 21, 23, 24, 25 | yes | 219/220 | 219/220 |  |
-| Resize | 10, 11, 13, 18, 19 | yes | 39/39 | 39/39 |  |
-| ReverseSequence | 10, 28 | yes | 3/3 | 3/3 |  |
-| RoiAlign | 10, 16, 22 | yes | 3/3 | 3/3 |  |
-| RotaryEmbedding | 23 | yes | 8/8 | 8/8 |  |
-| Round | 11, 22 | yes | 4/4 | 4/4 |  |
-| STFT | 17 | yes | 3/3 | 3/3 |  |
-| Scan | 8, 9, 11, 16, 19, 21, 23, 24, 25 | yes | 18/18 | 18/18 |  |
-| Scatter | 9, 11 | yes | 2/2 | 2/2 |  |
-| ScatterElements | 11, 13, 16, 18 | yes | 7/7 | 7/7 |  |
-| ScatterND | 11, 13, 16, 18 | yes | 7/7 | 7/7 |  |
-| Selu | 1, 6, 22 | yes | 3/3 | 3/3 |  |
-| SequenceAt | 11 | yes | - | - |  |
-| SequenceConstruct | 11 | yes | - | - |  |
-| SequenceEmpty | 11 | yes | 6/6 | 6/6 |  |
-| SequenceErase | 11 | yes | - | - |  |
-| SequenceInsert | 11 | yes | 2/2 | 2/2 |  |
-| SequenceLength | 11 | yes | 6/6 | 6/6 |  |
-| SequenceMap | 17 | yes | 6/6 | 6/6 |  |
-| Shape | 1, 13, 15, 19, 21, 23, 24, 25 | yes | 255/255 | 255/255 |  |
-| Shrink | 9 | yes | 2/2 | 2/2 |  |
-| Sigmoid | 1, 6, 13 | yes | 7/7 | 7/7 |  |
-| Sign | 9, 13 | yes | 1/1 | 1/1 |  |
-| Sin | 7, 22 | yes | 2/2 | 2/2 |  |
-| Sinh | 9, 22 | yes | 2/2 | 2/2 |  |
-| Size | 1, 13, 19, 21, 23, 24, 25 | yes | 63/63 | 63/63 |  |
-| Slice | 1, 10, 11, 13 | yes | 101/101 | 101/101 |  |
-| Softmax | 1, 11, 13 | yes | 111/111 | 111/111 |  |
-| SoftmaxCrossEntropyLoss | 12, 13 | yes | 34/34 | 34/34 |  |
-| Softplus | 1, 22 | yes | 3/3 | 3/3 |  |
-| Softsign | 1, 22 | yes | 2/2 | 2/2 |  |
-| SpaceToDepth | 1, 13, 28 | yes | 4/4 | 4/4 |  |
-| Split | 1, 2, 11, 13, 18 | yes | 22/24 | 22/24 |  |
-| SplitToSequence | 11, 24 | yes | 3/3 | 3/3 |  |
-| Sqrt | 1, 6, 13 | yes | 192/193 | 192/193 |  |
-| Squeeze | 1, 11, 13, 21, 23, 24, 25 | yes | 68/68 | 68/68 |  |
-| StringConcat | 20 | yes | 6/6 | 6/6 (6 via CPU) |  |
-| StringNormalizer | 10 | yes | 5/6 | 5/6 (5 via CPU) |  |
-| StringSplit | 20 | no | 0/6 | 0/6 |  |
-| Sub | 1, 6, 7, 13, 14 | yes | 157/157 | 157/157 |  |
-| Sum | 1, 6, 8, 13 | yes | 7/7 | 7/7 |  |
-| SwiGLU | 28 | yes | 3/3 | 3/3 |  |
-| Swish | 24 | yes | 4/4 | 4/4 |  |
-| Tan | 7, 22 | yes | 2/2 | 2/2 |  |
-| Tanh | 1, 6, 13 | yes | 17/17 | 17/17 |  |
-| TensorScatter | 24 | yes | 3/3 | 3/3 |  |
-| TfIdfVectorizer | 9 | yes | 8/8 | 8/8 (1 via CPU) |  |
-| ThresholdedRelu | 10, 22 | yes | 3/3 | 3/3 |  |
-| Tile | 1, 6, 13 | yes | 2/2 | 2/2 |  |
-| TopK | 1, 10, 11, 24 | yes | 7/7 | 7/7 |  |
-| Transpose | 1, 13, 21, 23, 24, 25 | yes | 176/176 | 176/176 |  |
-| Trilu | 14 | yes | 16/18 | 16/18 |  |
-| Unique | 11, 28 | yes | 4/7 | 4/7 |  |
-| Unsqueeze | 1, 11, 13, 21, 23, 24, 25 | yes | 141/141 | 141/141 |  |
-| Upsample | 1, 7, 9, 10 | yes | 1/1 | 1/1 |  |
-| Where | 9, 16 | yes | 129/129 | 129/129 |  |
-| Xor | 1, 7 | yes | 8/8 | 8/8 |  |
+| operator | versions | importer | cpu tests | cuda tests | vulkan tests | notes |
+|---|---|---|---|---|---|---|
+| Abs | 1, 6, 13 | yes | 12/12 | 12/12 | 12/12 |  |
+| Acos | 7, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Acosh | 9, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Add | 1, 6, 7, 13, 14 | yes | 197/197 | 197/197 | 197/197 |  |
+| AffineGrid | 20 | yes | 4/4 | 4/4 | 4/4 |  |
+| And | 1, 7 | yes | 101/101 | 101/101 | 101/101 |  |
+| ArgMax | 1, 11, 12, 13 | yes | 16/16 | 16/16 | 16/16 |  |
+| ArgMin | 1, 11, 12, 13 | yes | 16/16 | 16/16 | 16/16 |  |
+| Asin | 7, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Asinh | 9, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Atan | 7, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Atanh | 9, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Attention | 23, 24, 25 | yes | 93/93 | 93/93 | 93/93 |  |
+| AveragePool | 1, 7, 10, 11, 19, 22 | yes | 20/20 | 20/20 | 20/20 |  |
+| BatchNormalization | 1, 6, 7, 9, 14, 15 | yes | 4/4 | 4/4 | 4/4 |  |
+| Bernoulli | 15, 22 | yes | 0/3 | 0/3 | 0/3 |  |
+| BitCast | 26 | yes | 8/10 | 8/10 | 8/10 |  |
+| BitShift | 11, 28 | yes | 28/28 | 28/28 | 28/28 |  |
+| BitwiseAnd | 18 | yes | 4/4 | 4/4 | 4/4 |  |
+| BitwiseNot | 18 | yes | 3/3 | 3/3 | 3/3 |  |
+| BitwiseOr | 18 | yes | 4/4 | 4/4 | 4/4 |  |
+| BitwiseXor | 18 | yes | 4/4 | 4/4 | 4/4 |  |
+| BlackmanWindow | 17 | yes | 2/2 | 2/2 | 2/2 |  |
+| Cast | 1, 6, 9, 13, 19, 21, 23, 24, 25, 28 | yes | 345/348 | 345/348 (5 via CPU) | 345/348 (5 via CPU) |  |
+| CastLike | 15, 19, 21, 23, 24, 25 | yes | 227/227 | 227/227 | 227/227 |  |
+| CausalConvWithState | 27 | yes | 13/13 | 13/13 | 13/13 |  |
+| Ceil | 1, 6, 13 | yes | 6/6 | 6/6 | 6/6 |  |
+| Celu | 12, 28 | yes | 3/3 | 3/3 | 3/3 |  |
+| CenterCropPad | 18 | yes | 6/6 | 6/6 | 6/6 |  |
+| Clip | 1, 6, 11, 12, 13 | yes | 15/15 | 15/15 | 15/15 |  |
+| Col2Im | 18 | yes | 5/5 | 5/5 | 5/5 |  |
+| Compress | 9, 11, 28 | yes | 5/5 | 5/5 | 5/5 |  |
+| Concat | 1, 4, 11, 13 | yes | 207/207 | 207/207 | 207/207 |  |
+| ConcatFromSequence | 11 | yes | - | - | - |  |
+| Constant | 1, 9, 11, 12, 13, 19, 21, 23, 24, 25 | yes | 344/344 | 344/344 | 344/344 |  |
+| ConstantOfShape | 9, 20, 21, 23, 24, 25 | yes | 106/106 | 106/106 | 106/106 |  |
+| Conv | 1, 11, 22 | yes | 19/19 | 19/19 | 19/19 |  |
+| ConvInteger | 10 | yes | 2/2 | 2/2 | 2/2 |  |
+| ConvTranspose | 1, 11, 22 | yes | 11/11 | 11/11 | 11/11 |  |
+| Cos | 7, 22 | yes | 8/8 | 8/8 | 8/8 |  |
+| Cosh | 9, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| CumProd | 26 | yes | 9/9 | 9/9 | 9/9 |  |
+| CumSum | 11, 14 | yes | 9/9 | 9/9 | 9/9 |  |
+| DFT | 17, 20 | yes | 12/12 | 12/12 | 12/12 |  |
+| DeformConv | 19, 22 | yes | 4/4 | 4/4 | 4/4 |  |
+| DepthToSpace | 1, 11, 13, 28 | yes | 2/2 | 2/2 | 2/2 |  |
+| DequantizeLinear | 10, 13, 19, 21, 23, 24, 25, 28 | yes | 14/14 | 14/14 | 14/14 |  |
+| Det | 11, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Div | 1, 6, 7, 13, 14 | yes | 250/250 | 250/250 | 250/250 |  |
+| Dropout | 1, 6, 7, 10, 12, 13, 22 | yes | 8/12 | 8/12 | 8/12 |  |
+| DynamicQuantizeLinear | 11 | yes | 3/3 | 3/3 | 3/3 |  |
+| Einsum | 12, 28 | yes | 9/9 | 9/9 | 9/9 |  |
+| Elu | 1, 6, 22 | yes | 6/6 | 6/6 | 6/6 |  |
+| Equal | 1, 7, 11, 13, 19 | yes | 131/131 | 131/131 (3 via CPU) | 131/131 (3 via CPU) |  |
+| Erf | 9, 13 | yes | 3/3 | 3/3 | 3/3 |  |
+| Exp | 1, 6, 13 | yes | 47/47 | 47/47 | 47/47 |  |
+| Expand | 8, 13 | yes | 106/106 | 106/106 | 106/106 |  |
+| EyeLike | 9, 22 | yes | 3/3 | 3/3 | 3/3 |  |
+| Flatten | 1, 9, 11, 13, 21, 23, 24, 25 | yes | 47/47 | 47/47 | 47/47 |  |
+| Floor | 1, 6, 13 | yes | 2/2 | 2/2 | 2/2 |  |
+| GRU | 1, 3, 7, 14, 22 | yes | 6/6 | 6/6 | 6/6 |  |
+| Gather | 1, 11, 13 | yes | 64/64 | 64/64 | 64/64 |  |
+| GatherElements | 11, 13 | yes | 21/21 | 21/21 | 21/21 |  |
+| GatherND | 11, 12, 13 | yes | 3/3 | 3/3 | 3/3 |  |
+| Gelu | 20 | yes | 4/4 | 4/4 | 4/4 |  |
+| Gemm | 1, 6, 7, 9, 11, 13 | yes | 11/11 | 11/11 | 11/11 |  |
+| GlobalAveragePool | 1, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| GlobalLpPool | 1, 2, 22 | yes | - | - | - |  |
+| GlobalMaxPool | 1, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Greater | 1, 7, 9, 13 | yes | 16/19 | 16/19 | 16/19 |  |
+| GreaterOrEqual | 12, 16 | yes | 9/9 | 9/9 | 9/9 |  |
+| GridSample | 16, 20, 22 | yes | 18/18 | 18/18 | 18/18 |  |
+| GroupNormalization | 18, 21 | yes | 2/2 | 2/2 | 2/2 |  |
+| HammingWindow | 17 | yes | 2/2 | 2/2 | 2/2 |  |
+| HannWindow | 17 | yes | 2/2 | 2/2 | 2/2 |  |
+| HardSigmoid | 1, 6, 22 | yes | 4/4 | 4/4 | 4/4 |  |
+| HardSwish | 14, 22 | yes | 1/1 | 1/1 | 1/1 |  |
+| Hardmax | 1, 11, 13 | yes | 7/7 | 7/7 | 7/7 |  |
+| Identity | 1, 13, 14, 16, 19, 21, 23, 24, 25 | yes | 153/153 | 153/153 | 153/153 |  |
+| If | 1, 11, 13, 16, 19, 21, 23, 24, 25 | yes | 7/7 | 7/7 | 7/7 |  |
+| ImageDecoder | 20 | no | 0/9 | 0/9 | 0/9 |  |
+| InstanceNormalization | 1, 6, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| IsInf | 10, 20 | yes | 4/4 | 4/4 | 4/4 |  |
+| IsNaN | 9, 13, 20 | yes | 2/2 | 2/2 | 2/2 |  |
+| LRN | 1, 13 | yes | 2/2 | 2/2 | 2/2 |  |
+| LSTM | 1, 7, 14, 22 | yes | 6/6 | 6/6 | 6/6 |  |
+| LayerNormalization | 17 | yes | 20/20 | 20/20 | 20/20 |  |
+| LeakyRelu | 1, 6, 16 | yes | 3/3 | 3/3 | 3/3 |  |
+| Less | 1, 7, 9, 13 | yes | 76/76 | 76/76 | 76/76 |  |
+| LessOrEqual | 12, 16 | yes | 18/18 | 18/18 | 18/18 |  |
+| LinearAttention | 27 | yes | 14/14 | 14/14 | 14/14 |  |
+| Log | 1, 6, 13 | yes | 32/32 | 32/32 | 32/32 |  |
+| LogSoftmax | 1, 11, 13 | yes | 41/41 | 41/41 | 41/41 |  |
+| Loop | 1, 11, 13, 16, 19, 21, 23, 24, 25 | yes | 17/17 | 17/17 | 17/17 |  |
+| LpNormalization | 1, 22 | yes | 6/6 | 6/6 | 6/6 |  |
+| LpPool | 1, 2, 11, 18, 22 | yes | 8/8 | 8/8 | 8/8 |  |
+| MatMul | 1, 9, 13 | yes | 115/115 | 115/115 | 115/115 |  |
+| MatMulInteger | 10 | yes | 1/1 | 1/1 | 1/1 |  |
+| Max | 1, 6, 8, 12, 13 | yes | 27/27 | 27/27 | 27/27 |  |
+| MaxPool | 1, 8, 10, 11, 12, 22 | yes | 19/19 | 19/19 | 19/19 |  |
+| MaxRoiPool | 1, 22 | yes | - | - | - |  |
+| MaxUnpool | 9, 11, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Mean | 1, 6, 8, 13 | yes | 3/3 | 3/3 | 3/3 |  |
+| MeanVarianceNormalization | 9, 13 | yes | 1/1 | 1/1 | 1/1 |  |
+| MelWeightMatrix | 17 | yes | 1/1 | 1/1 | 1/1 |  |
+| Min | 1, 6, 8, 12, 13 | yes | 20/20 | 20/20 | 20/20 |  |
+| Mish | 18, 22 | yes | 1/1 | 1/1 | 1/1 |  |
+| Mod | 10, 13, 28 | yes | 112/112 | 112/112 | 112/112 |  |
+| Mul | 1, 6, 7, 13, 14 | yes | 257/257 | 257/257 | 257/257 |  |
+| Multinomial | 7, 22 | yes | - | - | - |  |
+| Neg | 1, 6, 13 | yes | 43/43 | 43/43 | 43/43 |  |
+| NegativeLogLikelihoodLoss | 12, 13, 22 | yes | 52/52 | 52/52 | 52/52 |  |
+| NonMaxSuppression | 10, 11 | yes | 18/18 | 18/18 | 18/18 |  |
+| NonZero | 9, 13 | yes | 1/1 | 1/1 | 1/1 |  |
+| Not | 1 | yes | 96/96 | 96/96 | 96/96 |  |
+| OneHot | 9, 11, 28 | yes | 6/6 | 6/6 | 6/6 |  |
+| Optional | 15, 28 | yes | - | - | - |  |
+| OptionalGetElement | 15, 18, 28 | yes | 4/4 | 4/4 | 4/4 |  |
+| OptionalHasElement | 15, 18, 28 | yes | 7/7 | 7/7 | 7/7 |  |
+| Or | 1, 7 | yes | 24/24 | 24/24 | 24/24 |  |
+| PRelu | 1, 6, 7, 9, 16 | yes | 2/2 | 2/2 | 2/2 |  |
+| Pad | 1, 2, 11, 13, 18, 19, 21, 23, 24, 25 | yes | 25/25 | 25/25 | 25/25 |  |
+| Pow | 1, 7, 12, 13, 15 | yes | 16/16 | 16/16 | 16/16 |  |
+| QLinearConv | 10 | yes | 1/1 | 1/1 | 1/1 |  |
+| QLinearMatMul | 10, 21 | yes | 8/8 | 8/8 | 8/8 |  |
+| QuantizeLinear | 10, 13, 19, 21, 23, 24, 25, 28 | yes | 16/16 | 16/16 | 16/16 |  |
+| RMSNormalization | 23 | yes | 19/19 | 19/19 | 19/19 |  |
+| RNN | 1, 7, 14, 22 | yes | 6/6 | 6/6 | 6/6 |  |
+| RandomNormal | 1, 22 | yes | - | - | - |  |
+| RandomNormalLike | 1, 22 | yes | - | - | - |  |
+| RandomUniform | 1, 22 | yes | - | - | - |  |
+| RandomUniformLike | 1, 22 | yes | 0/3 | 0/3 | 0/3 |  |
+| Range | 11, 27 | yes | 76/76 | 76/76 | 76/76 |  |
+| Reciprocal | 1, 6, 13 | yes | 53/53 | 53/53 | 53/53 |  |
+| ReduceL1 | 1, 11, 13, 18 | yes | 9/9 | 9/9 | 9/9 |  |
+| ReduceL2 | 1, 11, 13, 18 | yes | 9/9 | 9/9 | 9/9 |  |
+| ReduceLogSum | 1, 11, 13, 18, 28 | yes | 5/5 | 5/5 | 5/5 |  |
+| ReduceLogSumExp | 1, 11, 13, 18, 28 | yes | 9/9 | 9/9 | 9/9 |  |
+| ReduceMax | 1, 11, 12, 13, 18, 20 | yes | 135/135 | 135/135 | 135/135 |  |
+| ReduceMean | 1, 11, 13, 18 | yes | 71/71 | 71/71 | 71/71 |  |
+| ReduceMin | 1, 11, 12, 13, 18, 20 | yes | 13/13 | 13/13 | 13/13 |  |
+| ReduceProd | 1, 11, 13, 18 | yes | 9/9 | 9/9 | 9/9 |  |
+| ReduceSum | 1, 11, 13 | yes | 93/93 | 93/93 | 93/93 |  |
+| ReduceSumSquare | 1, 11, 13, 18 | yes | 9/9 | 9/9 | 9/9 |  |
+| RegexFullMatch | 20 | yes | 4/4 | 4/4 (3 via CPU) | 4/4 (3 via CPU) |  |
+| Relu | 1, 6, 13, 14 | yes | 5/5 | 5/5 | 5/5 |  |
+| Reshape | 1, 5, 13, 14, 19, 21, 23, 24, 25 | yes | 220/220 | 220/220 | 220/220 |  |
+| Resize | 10, 11, 13, 18, 19 | yes | 39/39 | 39/39 | 39/39 |  |
+| ReverseSequence | 10, 28 | yes | 3/3 | 3/3 | 3/3 |  |
+| RoiAlign | 10, 16, 22 | yes | 15/15 | 15/15 | 15/15 |  |
+| RotaryEmbedding | 23 | yes | 8/8 | 8/8 | 8/8 |  |
+| Round | 11, 22 | yes | 4/4 | 4/4 | 4/4 |  |
+| STFT | 17 | yes | 15/15 | 15/15 | 15/15 |  |
+| Scan | 8, 9, 11, 16, 19, 21, 23, 24, 25 | yes | 18/18 | 18/18 | 18/18 |  |
+| Scatter | 9, 11 | yes | 2/2 | 2/2 | 2/2 |  |
+| ScatterElements | 11, 13, 16, 18 | yes | 7/7 | 7/7 | 7/7 |  |
+| ScatterND | 11, 13, 16, 18 | yes | 7/7 | 7/7 | 7/7 |  |
+| Selu | 1, 6, 22 | yes | 3/3 | 3/3 | 3/3 |  |
+| SequenceAt | 11 | yes | - | - | - |  |
+| SequenceConstruct | 11 | yes | - | - | - |  |
+| SequenceEmpty | 11 | yes | 6/6 | 6/6 | 6/6 |  |
+| SequenceErase | 11 | yes | - | - | - |  |
+| SequenceInsert | 11 | yes | 2/2 | 2/2 | 2/2 |  |
+| SequenceLength | 11 | yes | 6/6 | 6/6 | 6/6 |  |
+| SequenceMap | 17 | yes | 6/6 | 6/6 | 6/6 |  |
+| Shape | 1, 13, 15, 19, 21, 23, 24, 25 | yes | 255/255 | 255/255 | 255/255 |  |
+| Shrink | 9 | yes | 2/2 | 2/2 | 2/2 |  |
+| Sigmoid | 1, 6, 13 | yes | 7/7 | 7/7 | 7/7 |  |
+| Sign | 9, 13 | yes | 1/1 | 1/1 | 1/1 |  |
+| Sin | 7, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Sinh | 9, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Size | 1, 13, 19, 21, 23, 24, 25 | yes | 63/63 | 63/63 | 63/63 |  |
+| Slice | 1, 10, 11, 13 | yes | 101/101 | 101/101 | 101/101 |  |
+| Softmax | 1, 11, 13 | yes | 111/111 | 111/111 | 111/111 |  |
+| SoftmaxCrossEntropyLoss | 12, 13 | yes | 34/34 | 34/34 | 34/34 |  |
+| Softplus | 1, 22 | yes | 3/3 | 3/3 | 3/3 |  |
+| Softsign | 1, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| SpaceToDepth | 1, 13, 28 | yes | 4/4 | 4/4 | 4/4 |  |
+| Split | 1, 2, 11, 13, 18 | yes | 24/24 | 24/24 | 24/24 |  |
+| SplitToSequence | 11, 24 | yes | 3/3 | 3/3 | 3/3 |  |
+| Sqrt | 1, 6, 13 | yes | 193/193 | 193/193 | 193/193 |  |
+| Squeeze | 1, 11, 13, 21, 23, 24, 25 | yes | 68/68 | 68/68 | 68/68 |  |
+| StringConcat | 20 | yes | 6/6 | 6/6 (6 via CPU) | 6/6 (6 via CPU) |  |
+| StringNormalizer | 10 | yes | 6/6 | 6/6 (6 via CPU) | 6/6 (6 via CPU) |  |
+| StringSplit | 20 | yes | 6/6 | 6/6 (6 via CPU) | 6/6 (6 via CPU) |  |
+| Sub | 1, 6, 7, 13, 14 | yes | 157/157 | 157/157 | 157/157 |  |
+| Sum | 1, 6, 8, 13 | yes | 7/7 | 7/7 | 7/7 |  |
+| SwiGLU | 28 | yes | 3/3 | 3/3 | 3/3 |  |
+| Swish | 24 | yes | 4/4 | 4/4 | 4/4 |  |
+| Tan | 7, 22 | yes | 2/2 | 2/2 | 2/2 |  |
+| Tanh | 1, 6, 13 | yes | 17/17 | 17/17 | 17/17 |  |
+| TensorScatter | 24 | yes | 3/3 | 3/3 | 3/3 |  |
+| TfIdfVectorizer | 9 | yes | 8/8 | 8/8 (1 via CPU) | 8/8 (1 via CPU) |  |
+| ThresholdedRelu | 10, 22 | yes | 3/3 | 3/3 | 3/3 |  |
+| Tile | 1, 6, 13 | yes | 2/2 | 2/2 | 2/2 |  |
+| TopK | 1, 10, 11, 24 | yes | 7/7 | 7/7 | 7/7 |  |
+| Transpose | 1, 13, 21, 23, 24, 25 | yes | 176/176 | 176/176 | 176/176 |  |
+| Trilu | 14 | yes | 18/18 | 18/18 | 18/18 |  |
+| Unique | 11, 28 | yes | 7/7 | 7/7 | 7/7 |  |
+| Unsqueeze | 1, 11, 13, 21, 23, 24, 25 | yes | 141/141 | 141/141 | 141/141 |  |
+| Upsample | 1, 7, 9, 10 | yes | 1/1 | 1/1 | 1/1 |  |
+| Where | 9, 16 | yes | 129/129 | 129/129 | 129/129 |  |
+| Xor | 1, 7 | yes | 8/8 | 8/8 | 8/8 |  |
 
 #### ai.onnx.ml
 
-| operator | versions | importer | cpu tests | vulkan tests | notes |
-|---|---|---|---|---|---|
-| ArrayFeatureExtractor | 1 | yes | 2/2 | 2/2 |  |
-| Binarizer | 1 | yes | 2/2 | 2/2 |  |
-| CastMap | 1 | no | - | - |  |
-| CategoryMapper | 1 | yes | 2/2 | 2/2 (2 via CPU) |  |
-| DictVectorizer | 1 | no | - | - |  |
-| FeatureVectorizer | 1 | yes | 1/1 | 1/1 |  |
-| Imputer | 1 | yes | 2/2 | 2/2 |  |
-| LabelEncoder | 1, 2, 4 | yes | 11/11 | 11/11 (7 via CPU) |  |
-| LinearClassifier | 1 | yes | 7/7 | 7/7 (1 via CPU) |  |
-| LinearRegressor | 1 | yes | 1/1 | 1/1 |  |
-| Normalizer | 1 | yes | 3/3 | 3/3 |  |
-| OneHotEncoder | 1 | yes | 1/1 | 1/1 |  |
-| SVMClassifier | 1 | yes | 7/7 | 7/7 |  |
-| SVMRegressor | 1 | yes | 5/5 | 5/5 |  |
-| Scaler | 1 | yes | 2/2 | 2/2 |  |
-| TreeEnsemble | 5 | yes | 6/6 | 6/6 |  |
-| TreeEnsembleClassifier | 1, 3, 5 | yes | 10/10 | 10/10 (1 via CPU) |  |
-| TreeEnsembleRegressor | 1, 3, 5 | yes | 4/4 | 4/4 |  |
-| ZipMap | 1 | no | - | - |  |
+| operator | versions | importer | cpu tests | cuda tests | vulkan tests | notes |
+|---|---|---|---|---|---|---|
+| ArrayFeatureExtractor | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| Binarizer | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| CastMap | 1 | no | - | - | - |  |
+| CategoryMapper | 1 | yes | 2/2 | 2/2 (2 via CPU) | 2/2 (2 via CPU) |  |
+| DictVectorizer | 1 | no | - | - | - |  |
+| FeatureVectorizer | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| Imputer | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| LabelEncoder | 1, 2, 4 | yes | 11/11 | 11/11 (7 via CPU) | 11/11 (7 via CPU) |  |
+| LinearClassifier | 1 | yes | 7/7 | 7/7 (1 via CPU) | 7/7 (1 via CPU) |  |
+| LinearRegressor | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| Normalizer | 1 | yes | 3/3 | 3/3 | 3/3 |  |
+| OneHotEncoder | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| SVMClassifier | 1 | yes | 7/7 | 7/7 | 7/7 |  |
+| SVMRegressor | 1 | yes | 5/5 | 5/5 | 5/5 |  |
+| Scaler | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| TreeEnsemble | 5 | yes | 6/6 | 6/6 | 6/6 |  |
+| TreeEnsembleClassifier | 1, 3, 5 | yes | 10/10 | 10/10 (1 via CPU) | 10/10 (1 via CPU) |  |
+| TreeEnsembleRegressor | 1, 3, 5 | yes | 4/4 | 4/4 | 4/4 |  |
+| ZipMap | 1 | no | - | - | - |  |
 
 #### ai.onnx.preview
 
-| operator | versions | importer | cpu tests | vulkan tests | notes |
-|---|---|---|---|---|---|
-| FlexAttention | 1 | yes | 11/11 | 11/11 |  |
+| operator | versions | importer | cpu tests | cuda tests | vulkan tests | notes |
+|---|---|---|---|---|---|---|
+| FlexAttention | 1 | yes | 11/11 | 11/11 | 11/11 |  |
 
 #### ai.onnx.preview.training
 
-| operator | versions | importer | cpu tests | vulkan tests | notes |
-|---|---|---|---|---|---|
-| Adagrad | 1 | yes | 2/2 | 2/2 |  |
-| Adam | 1 | yes | 2/2 | 2/2 |  |
-| Gradient | 1 | no | - | - |  |
-| Momentum | 1 | yes | 3/3 | 3/3 |  |
+| operator | versions | importer | cpu tests | cuda tests | vulkan tests | notes |
+|---|---|---|---|---|---|---|
+| Adagrad | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| Adam | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| Gradient | 1 | no | - | - | - |  |
+| Momentum | 1 | yes | 3/3 | 3/3 | 3/3 |  |
 
 #### com.microsoft
 
 The common set (`COMMON_CONTRIB` in tools/onnx-coverage.py) and every other contrib operator the importer accepts.
 
-| operator | versions | importer | cpu tests | vulkan tests | notes |
-|---|---|---|---|---|---|
-| Attention | 1 | yes | 9/9 | 9/9 |  |
-| BiasAdd | 1 | yes | 1/1 | 1/1 |  |
-| BiasGelu | 1 | yes | 1/1 | 1/1 |  |
-| BiasSplitGelu | 1 | yes | 1/1 | 1/1 |  |
-| CDist | 1 | yes | 2/2 | 2/2 |  |
-| ComplexMul | 1 | yes | 1/1 | 1/1 |  |
-| ComplexMulConj | 1 | yes | 1/1 | 1/1 |  |
-| CropAndResize | 1 | yes | 1/1 | 1/1 |  |
-| DecoderMaskedMultiHeadAttention | 1 | no | - | - |  |
-| DequantizeLinear | 1 | yes | 2/2 | 2/2 |  |
-| DynamicQuantizeMatMul | 1 | yes | 1/1 | 1/1 |  |
-| EmbedLayerNormalization | 1 | yes | 2/2 | 2/2 |  |
-| ExpandDims | 1 | yes | 1/1 | 1/1 |  |
-| FastGelu | 1 | yes | 2/2 | 2/2 |  |
-| FusedConv | 1 | yes | 3/3 | 3/3 |  |
-| FusedGemm | 1 | yes | 2/2 | 2/2 |  |
-| FusedMatMul | 1 | yes | 3/3 | 3/3 |  |
-| GatedRMSNorm | 1 | yes | 1/1 | 1/1 |  |
-| GatherBlockQuantized | 1 | yes | 3/3 | 3/3 |  |
-| GatherND | 1 | yes | 1/1 | 1/1 |  |
-| Gelu | 1 | yes | 1/1 | 1/1 |  |
-| GemmFastGelu | 1 | yes | 1/1 | 1/1 |  |
-| GroupNorm | 1 | yes | 3/3 | 3/3 |  |
-| GroupQueryAttention | 1 | yes | 13/13 | 13/13 |  |
-| Inverse | 1 | yes | 1/1 | 1/1 |  |
-| MatMulInteger16 | 1 | yes | 1/1 | 1/1 |  |
-| MatMulIntegerToFloat | 1 | yes | 1/1 | 1/1 |  |
-| MatMulNBits | 1 | yes | 6/6 | 6/6 |  |
-| MoE | 1 | yes | 3/3 | 3/3 |  |
-| MultiHeadAttention | 1 | yes | 9/9 | 9/9 |  |
-| MurmurHash3 | 1 | no | 0/1 | 0/1 |  |
-| NGramRepeatBlock | 1 | yes | 1/1 | 1/1 |  |
-| NhwcMaxPool | 1 | yes | 1/1 | 1/1 |  |
-| Pad | 1 | yes | 1/1 | 1/1 |  |
-| PagedAttention | 1 | no | - | - |  |
-| QAttention | 1 | no | - | - |  |
-| QGemm | 1 | yes | 1/1 | 1/1 |  |
-| QLinearAdd | 1 | yes | - | - |  |
-| QLinearAveragePool | 1 | yes | - | - |  |
-| QLinearConcat | 1 | yes | - | - |  |
-| QLinearConv | 1 | no | - | - |  |
-| QLinearGlobalAveragePool | 1 | yes | - | - |  |
-| QLinearLeakyRelu | 1 | yes | - | - |  |
-| QLinearMul | 1 | yes | - | - |  |
-| QLinearSigmoid | 1 | yes | - | - |  |
-| QLinearSoftmax | 1 | yes | - | - |  |
-| QLinearWhere | 1 | yes | 1/1 | 1/1 |  |
-| QMoE | 1 | no | - | - |  |
-| QuantizeLinear | 1 | yes | 1/1 | 1/1 |  |
-| QuickGelu | 1 | yes | 2/2 | 2/2 |  |
-| Range | 1 | yes | 1/1 | 1/1 |  |
-| RotaryEmbedding | 1 | yes | 5/5 | 5/5 |  |
-| ScaledSiLU | 1 | yes | 1/1 | 1/1 |  |
-| SkipGroupNorm | 1 | yes | 1/1 | 1/1 |  |
-| SkipLayerNormalization | 1 | yes | 3/3 | 3/3 |  |
-| SkipSimplifiedLayerNormalization | 1 | yes | 2/2 | 2/2 |  |
-| SparseAttention | 1 | no | - | - |  |
-| TransposeMatMul | 1 | yes | 1/1 | 1/1 |  |
-| Trilu | 1 | yes | 1/1 | 1/1 |  |
-| UnfoldTensor | 1 | yes | 1/1 | 1/1 |  |
-| Unique | 1 | no | - | - |  |
-| WordConvEmbedding | 1 | no | 0/1 | 0/1 |  |
+| operator | versions | importer | cpu tests | cuda tests | vulkan tests | notes |
+|---|---|---|---|---|---|---|
+| Attention | 1 | yes | 9/9 | 9/9 | 9/9 |  |
+| BiasAdd | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| BiasGelu | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| BiasSplitGelu | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| CDist | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| ComplexMul | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| ComplexMulConj | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| CropAndResize | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| DecoderMaskedMultiHeadAttention | 1 | no | - | - | - |  |
+| DequantizeLinear | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| DynamicQuantizeMatMul | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| EmbedLayerNormalization | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| ExpandDims | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| FastGelu | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| FusedConv | 1 | yes | 3/3 | 3/3 | 3/3 |  |
+| FusedGemm | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| FusedMatMul | 1 | yes | 3/3 | 3/3 | 3/3 |  |
+| GatedRMSNorm | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| GatherBlockQuantized | 1 | yes | 3/3 | 3/3 | 3/3 |  |
+| GatherND | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| Gelu | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| GemmFastGelu | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| GroupNorm | 1 | yes | 3/3 | 3/3 | 3/3 |  |
+| GroupQueryAttention | 1 | yes | 13/13 | 13/13 | 13/13 |  |
+| Inverse | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| MatMulInteger16 | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| MatMulIntegerToFloat | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| MatMulNBits | 1 | yes | 6/6 | 6/6 | 6/6 |  |
+| MoE | 1 | yes | 3/3 | 3/3 | 3/3 |  |
+| MultiHeadAttention | 1 | yes | 9/9 | 9/9 | 9/9 |  |
+| MurmurHash3 | 1 | yes | 1/1 | 1/1 (1 via CPU) | 1/1 (1 via CPU) |  |
+| NGramRepeatBlock | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| NhwcMaxPool | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| Pad | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| PagedAttention | 1 | no | - | - | - |  |
+| QAttention | 1 | no | - | - | - |  |
+| QGemm | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| QLinearAdd | 1 | yes | - | - | - |  |
+| QLinearAveragePool | 1 | yes | - | - | - |  |
+| QLinearConcat | 1 | yes | - | - | - |  |
+| QLinearConv | 1 | no | - | - | - |  |
+| QLinearGlobalAveragePool | 1 | yes | - | - | - |  |
+| QLinearLeakyRelu | 1 | yes | - | - | - |  |
+| QLinearMul | 1 | yes | - | - | - |  |
+| QLinearSigmoid | 1 | yes | - | - | - |  |
+| QLinearSoftmax | 1 | yes | - | - | - |  |
+| QLinearWhere | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| QMoE | 1 | no | - | - | - |  |
+| QuantizeLinear | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| QuickGelu | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| Range | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| RotaryEmbedding | 1 | yes | 5/5 | 5/5 | 5/5 |  |
+| ScaledSiLU | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| SkipGroupNorm | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| SkipLayerNormalization | 1 | yes | 3/3 | 3/3 | 3/3 |  |
+| SkipSimplifiedLayerNormalization | 1 | yes | 2/2 | 2/2 | 2/2 |  |
+| SparseAttention | 1 | no | - | - | - |  |
+| TransposeMatMul | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| Trilu | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| UnfoldTensor | 1 | yes | 1/1 | 1/1 | 1/1 |  |
+| Unique | 1 | no | - | - | - |  |
+| WordConvEmbedding | 1 | yes | 1/1 | 1/1 | 1/1 |  |

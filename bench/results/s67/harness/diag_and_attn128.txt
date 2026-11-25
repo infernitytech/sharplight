@@ -1,0 +1,20 @@
+gu_new back to back over 24 layer copies: 0.3478 ms per routing isolated 0.3219 ms per routing 
+gu_nomma back to back over 24 layer copies: 0.3265 ms per routing isolated 0.3149 ms per routing 
+gu_nodec back to back over 24 layer copies: 0.3417 ms per routing isolated 0.3182 ms per routing 
+gu_none back to back over 24 layer copies: 0.3184 ms per routing isolated 0.3120 ms per routing 
+gu_new back to back over 24 layer copies: 0.3522 ms per routing isolated 0.3228 ms per routing 
+attn v0 0: HQ 32 HKV 8 D 128 T 2048 nPast 0 window 0 warps 8 mr 1 stages 3: max err 0 mean 0 | 0.268 ms 128.1 TFLOPS
+attn v1 0: HQ 32 HKV 8 D 128 T 2048 nPast 0 window 0 warps 4 mr 2 stages 3: max err 0 mean 0 | 0.279 ms 123.4 TFLOPS
+attn v2 0: HQ 32 HKV 8 D 128 T 2048 nPast 0 window 0 warps 8 mr 2 stages 3: max err 0 mean 0 | 0.291 ms 118.2 TFLOPS
+attn v3 0: HQ 32 HKV 8 D 128 T 2048 nPast 0 window 0 warps 4 mr 2 stages 4: max err 0 mean 0 | 0.342 ms 100.5 TFLOPS
+attn v4 0: HQ 32 HKV 8 D 128 T 2048 nPast 0 window 0 warps 8 mr 1 stages 4: max err 0 mean 0 | 0.283 ms 121.6 TFLOPS
+attn v0 30720: HQ 32 HKV 8 D 128 T 2048 nPast 30720 window 0 warps 8 mr 1 stages 3: max err 0 mean 0 | 7.672 ms 138.8 TFLOPS
+attn v1 30720: HQ 32 HKV 8 D 128 T 2048 nPast 30720 window 0 warps 4 mr 2 stages 3: max err 0 mean 0 | 7.926 ms 134.4 TFLOPS
+attn v2 30720: HQ 32 HKV 8 D 128 T 2048 nPast 30720 window 0 warps 8 mr 2 stages 3: max err 0 mean 0 | 8.718 ms 122.2 TFLOPS
+attn v3 30720: HQ 32 HKV 8 D 128 T 2048 nPast 30720 window 0 warps 4 mr 2 stages 4: max err 0 mean 0 | 9.813 ms 108.5 TFLOPS
+attn v4 30720: HQ 32 HKV 8 D 128 T 2048 nPast 30720 window 0 warps 8 mr 1 stages 4: max err 0 mean 0 | 8.340 ms 127.7 TFLOPS
+attn v0 126976: HQ 32 HKV 8 D 128 T 2048 nPast 126976 window 0 warps 8 mr 1 stages 3: max err 0 mean 0 | 30.815 ms 139.4 TFLOPS
+attn v1 126976: HQ 32 HKV 8 D 128 T 2048 nPast 126976 window 0 warps 4 mr 2 stages 3: max err 0 mean 0 | 31.857 ms 134.8 TFLOPS
+attn v2 126976: HQ 32 HKV 8 D 128 T 2048 nPast 126976 window 0 warps 8 mr 2 stages 3: max err 0 mean 0 | 35.064 ms 122.5 TFLOPS
+attn v3 126976: HQ 32 HKV 8 D 128 T 2048 nPast 126976 window 0 warps 4 mr 2 stages 4: max err 0 mean 0 | 39.374 ms 109.1 TFLOPS
+attn v4 126976: HQ 32 HKV 8 D 128 T 2048 nPast 126976 window 0 warps 8 mr 1 stages 4: max err 0 mean 0 | 33.465 ms 128.3 TFLOPS

@@ -14,4 +14,10 @@ public sealed record FeedPublishOptions
 
     /// <summary>Package summaries per catalog page.</summary>
     public int PageSize { get; init; } = 200;
+
+    /// <summary>
+    /// Move package files from the staging folders into the feed folder instead of copying them (instant on the same volume), so a large
+    /// package exists once on disk. The staging folder keeps its manifest; a failed publish leaves the file where it was.
+    /// </summary>
+    public bool MovePackageFiles { get; init; }
 }

@@ -3,7 +3,7 @@ using Xunit;
 namespace Sharplight.Import.Onnx.Tests;
 
 /// <summary>
-/// Det, Inverse, volumetric GridSample and int64 CumSum compute on Vulkan what they compute on the CPU, over a symbolic batch.
+/// Det, Inverse, volumetric GridSample and int64 CumSum compute on the GPU under test what they compute on the CPU, over a symbolic batch.
 /// </summary>
 public sealed class DeviceLinalgOpsTests
 {
@@ -26,7 +26,7 @@ public sealed class DeviceLinalgOpsTests
     [Fact]
     public void DetAndInverse_MatchCpu()
     {
-        // Diagonally dominant matrices: well conditioned, so f32 (Vulkan) and f64 (CPU) elimination agree closely.
+        // Diagonally dominant matrices: well conditioned, so f32 (GPU) and f64 (CPU) elimination agree closely.
         var x = Rnd(Batch * 4 * 25, 1);
         for (int m = 0; m < Batch * 4; m++)
         {
@@ -51,13 +51,13 @@ public sealed class DeviceLinalgOpsTests
 
     private static void Compare(TestModel model, List<float[]> inputs, double tolerance)
     {
-        var vulkan = Providers.Get("vulkan");
+        var gpu = Providers.Get("gpu");
         string path = Path.Combine(Path.GetTempPath(), $"sl-device-linalg-{Guid.NewGuid():N}.onnx");
         File.WriteAllBytes(path, model.ToBytes());
         try
         {
             var expected = OnnxExec.Run(path, new OnnxImportOptions(), Providers.Cpu, Batch, inputs).Outputs;
-            var actual = OnnxExec.Run(path, new OnnxImportOptions(), vulkan, Batch, inputs).Outputs;
+            var actual = OnnxExec.Run(path, new OnnxImportOptions(), gpu, Batch, inputs).Outputs;
             Assert.Equal(expected.Length, actual.Length);
             for (int o = 0; o < expected.Length; o++)
             {
@@ -65,7 +65,7 @@ public sealed class DeviceLinalgOpsTests
                 for (int i = 0; i < expected[o].Length; i++)
                 {
                     Assert.True(Math.Abs(actual[o][i] - expected[o][i]) <= tolerance * (1 + Math.Abs(expected[o][i])),
-                        $"output {o} [{i}] vulkan {actual[o][i]} vs cpu {expected[o][i]}");
+                        $"output {o} [{i}] gpu {actual[o][i]} vs cpu {expected[o][i]}");
                 }
             }
         }

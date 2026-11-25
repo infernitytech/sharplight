@@ -1,0 +1,258 @@
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Elementwise.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Elementwise.cs
+index 6a4cfc14..7620a29a 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Elementwise.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Elementwise.cs
+@@ -69,6 +69,25 @@ public sealed partial class GraphLowerer
+                 return names[v] = local;
+             }
+ 
++            if (!_slotSumsMaterialized && _foldedSlotSums.TryGetValue(v, out var summed))
++            {
++                // Expert sum read in place: the S slot rows of the [T, S, N] expert outputs, added in order (as rowreduce_narrow).
++                var src = Ref(summed);
++                string sumExpr = "";
++                for (long slot = 0; slot < src.Shape[1]; slot++)
++                {
++                    long[] sliceShape = [.. shape];
++                    long[] sliceStrides = shape.Length == 2 ? [src.Strides[0], src.Strides[2]] : [src.Strides[0], src.Strides[2], 0];
++                    int index = inputs.Count;
++                    inputs.Add(new TensorRef(src.Buffer, src.ByteOffset + slot * src.Strides[1] * src.Type.BlockBytes, src.Type, sliceShape, sliceStrides, src.Symbol));
++                    sumExpr = slot == 0 ? $"a{index}" : $"({sumExpr} + a{index})";
++                }
++
++                var sumLocal = "s" + statements.Count;
++                statements.Add($"float {sumLocal} = {sumExpr};");
++                return names[v] = sumLocal;
++            }
++
+             var name = names[v] = "a" + Input(v);
+             if (IsIntLocal(v.Type))
+             {
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Fusion.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Fusion.cs
+index dee288cb..cc4ddf83 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Fusion.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Fusion.cs
+@@ -72,6 +72,11 @@ public sealed partial class GraphLowerer
+             FoldMatMulEpilogues(units, consumers);
+         }
+ 
++        if (!DiagnosticSwitches.NoExpertSum && DiagnosticSwitches.SlotSumFold)
++        {
++            FoldSlotSums(units, consumers);
++        }
++
+         FindFusedOutputs(units, consumers);
+         FindMultiGemmGroups(units);
+         return units;
+@@ -995,6 +1000,69 @@ public sealed partial class GraphLowerer
+         units.RemoveAll(removed.Contains);
+     }
+ 
++    /// <summary>
++    /// Moves the slot sum of an expert sum (<see cref="LoweringUnit.ExpertSum"/>: the ReduceSum over the S slots of the [T, S, N]
++    /// expert outputs) into the one plain fused group that reads it (e.g. the residual Add, with the next RmsNorm): the group adds
++    /// the S rows in place, in the narrow ReduceSum's order, which saves the reduce launch and its output. Batches the int-dot
++    /// slot-sum matvec serves (it writes the sum itself) run the group on the written sum (<see cref="LowerSlotSumGroup"/>). Not when
++    /// the group would read more than <see cref="MaxFusedInputs"/> tensors.
++    /// </summary>
++    private void FoldSlotSums(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
++    {
++        var unitOfNode = new Dictionary<Node, LoweringUnit>();
++        foreach (var unit in units.Where(u => u.Fused is not null))
++        {
++            foreach (var node in unit.Fused!)
++            {
++                unitOfNode[node] = unit;
++            }
++        }
++
++        var viewUnits = units.Where(u => u.IsView).ToDictionary(u => u.Node!);
++        var removedViews = new HashSet<LoweringUnit>();
++        foreach (var unit in units)
++        {
++            if (unit.ExpertSum is not { } sum || sum.Permute.Inputs[0].Shape.Rank != 3
++                || sum.Permute.Inputs[0].Shape[1] is not { IsSymbolic: false } slots)
++            {
++                continue;
++            }
++
++            // The group may read the sum through one view (the Reshape of [T, N, 1] to [T, N]).
++            var read = sum.Reduce.Output;
++            Node? view = null;
++            if (consumers.TryGetValue(read, out var direct) && direct is [{ Op.Category: OpCategory.View } only] && !_segmentOutputs.Contains(read)
++                && viewUnits.TryGetValue(only, out var viewUnit) && viewUnit.Node == only)
++            {
++                view = only;
++                read = only.Output;
++            }
++
++            var shape = read.Shape;
++            if (_segmentOutputs.Contains(read) || !consumers.TryGetValue(read, out var readers) || readers.Count == 0
++                || !unitOfNode.TryGetValue(readers[0], out var group) || readers.Any(r => !unitOfNode.TryGetValue(r, out var g) || g != group)
++                || group == unit || group.Dual is not null || group.ExpertSum is not null || group.ConvHead is not null || group.MatMulHead is not null
++                || group.Halves is not null || group.Absorbed is not null || group.NormHead?.Inputs[0] == read
++                || !group.Fused![0].Output.Shape.Equals(shape) || shape.Rank is not (2 or 3)
++                || (shape.Rank == 3 && shape[2] is not { IsSymbolic: false, Fixed: 1 })
++                || ExternalInputCount(group.Fused!) + (group.SlotSums?.Count ?? 0) * 4 + slots.Fixed - 1 > MaxFusedInputs)
++            {
++                continue;
++            }
++
++            (group.SlotSums ??= []).AddRange([sum.Permute, sum.Reduce]);
++            if (view is not null)
++            {
++                group.SlotSums.Add(view);
++                removedViews.Add(viewUnits[view]);
++            }
++
++            _foldedSlotSums[read] = sum.Permute.Inputs[0];
++        }
++
++        units.RemoveAll(removedViews.Contains);
++    }
++
+     /// <summary>True for a GatherAxis on axis 0 of a static [rows, N] float table with integer indices.</summary>
+     private static bool IsFoldableRowGather(Node gather)
+     {
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs
+index a8fce579..ae306538 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs
+@@ -384,8 +384,7 @@ public sealed partial class GraphLowerer
+         var summed = permute.Inputs[0];
+         var outer = _launchCondition;
+         // One subgroup per slot: the workgroup holds S subgroups.
+-        if (UseIntDotExpertMatvec(product, w.Type, K) && product.Inputs[2].Shape[1] is { IsSymbolic: false } slotDim
+-            && slotDim.Fixed * _opt.SubgroupSize <= 1024)
++        if (ExpertSumOnMatvec(product))
+         {
+             var x = PrepareMatMulInput(Ref(product.Inputs[0]), "matmul-id", out long xs, out long rowsPerLead);
+             var ids = Ref(product.Inputs[2]);
+@@ -411,6 +410,7 @@ public sealed partial class GraphLowerer
+                 [.. gathers.Select(g => Ref(g.Inputs[0])), .. scalars],
+                 macros => _compiler.Compile("mmvq_moe_sum.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache), slotSum: true);
+             _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
++            _slotSumMatvec[summed] = b => Rows(b, tids) * S <= mv;
+         }
+ 
+         // Batches on the grouped GEMMs apply the group (bias rows, router weights) in their store; the slot sum follows as usual.
+@@ -447,11 +447,55 @@ public sealed partial class GraphLowerer
+ 
+         LowerElementwise(group, [summed]);
+         _launchCondition = beforeGroup;
+-        LowerNodeOp(permute);
+-        LowerNodeOp(reduce);
++        if (!_foldedSlotSums.ContainsValue(summed))
++        {
++            // (A folded sum is added by the group that reads it, see FoldSlotSums.)
++            LowerNodeOp(permute);
++            LowerNodeOp(reduce);
++        }
++
+         _launchCondition = outer;
+     }
+ 
++    /// <summary>
++    /// Lowers fused group <paramref name="unit"/>, which reads expert sums in place (<paramref name="slotSums"/>, see FoldSlotSums):
++    /// batches where the int-dot slot-sum matvec wrote a sum run the group on the written sum (and the views after it), the others
++    /// add the slots in the group.
++    /// </summary>
++    private void LowerSlotSumGroup(LoweringUnit unit, List<Node> slotSums)
++    {
++        var outer = _launchCondition;
++        var matvec = slotSums.Where(n => n.Op.Name == "Permute" && _slotSumMatvec.ContainsKey(n.Inputs[0])).Select(n => _slotSumMatvec[n.Inputs[0]]).ToList();
++        if (matvec.Count > 0)
++        {
++            Func<Bindings, bool> written = b => matvec.Any(f => f(b));
++            _launchCondition = b => (outer?.Invoke(b) ?? true) && written(b);
++            foreach (var view in slotSums.Where(n => n.Op.Category == OpCategory.View && n.Op.Name != "Permute"))
++            {
++                LowerNodeOp(view);
++            }
++
++            _slotSumsMaterialized = true;
++            LowerElementwise(unit.Fused!, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
++            _slotSumsMaterialized = false;
++            _launchCondition = b => (outer?.Invoke(b) ?? true) && !written(b);
++        }
++
++        LowerElementwise(unit.Fused!, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
++        _launchCondition = outer;
++    }
++
++    /// <summary>
++    /// True when batches of the expert sum over <paramref name="product"/> may run the int-dot slot-sum matvec (one subgroup per
++    /// slot), which writes the sum itself.
++    /// </summary>
++    private bool ExpertSumOnMatvec(Node product)
++    {
++        var w = product.Inputs[1];
++        return w.Shape.Rank == 3 && !w.Shape[2].IsSymbolic && UseIntDotExpertMatvec(product, w.Type, w.Shape[2].Fixed)
++               && product.Inputs[2].Shape[1] is { IsSymbolic: false } slotDim && slotDim.Fixed * _opt.SubgroupSize <= 1024;
++    }
++
+     /// <summary>
+     /// Source of the <c>MOE_EPI1</c> epilogue of the slot-sum expert matvec: the group over the product, the gathered rows and the
+     /// per-slot scalars (element (t, s) at t * stride0 + s * stride1). With <paramref name="cuda"/>, the CUDA C++ form for
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.cs
+index d1078b0a..a3357d6b 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.cs
+@@ -46,6 +46,13 @@ public sealed partial class GraphLowerer
+     /// <summary>Outputs of row gathers read in place by their fused consumer group (see <c>FoldRowGathers</c>).</summary>
+     private readonly Dictionary<Value, Node> _foldedGathers = [];
+ 
++    // Expert sums (ReduceSum outputs of LoweringUnit.ExpertSum, or a view of one) read in place by their consuming group: the value
++    // the group reads → the summed [T, S, N] expert outputs (see FoldSlotSums); the summed outputs → the batches the int-dot slot-sum
++    // matvec served (it writes the sum itself, which the group then reads); true while a group is lowered for those batches.
++    private readonly Dictionary<Value, Value> _foldedSlotSums = [];
++    private readonly Dictionary<Value, Func<Bindings, bool>> _slotSumMatvec = [];
++    private bool _slotSumsMaterialized;
++
+     /// <summary>Rope output → rope node computed inside its CacheWrite.</summary>
+     private readonly Dictionary<Value, Node> _absorbedRope = [];
+ 
+@@ -223,7 +230,15 @@ public sealed partial class GraphLowerer
+                 _launchCondition = b => (outer?.Invoke(b) ?? true) && !served(b);
+             }
+ 
+-            LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
++            if (unit.SlotSums is { } slotSums)
++            {
++                LowerSlotSumGroup(unit, slotSums);
++            }
++            else
++            {
++                LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
++            }
++
+             _launchCondition = outer;
+         }
+         else if (unit.Halves is { } halves && unit.Node!.Op.Name == "MatMulId")
+diff --git a/src/Sharplight.Shaders/Lowering/LoweringUnit.cs b/src/Sharplight.Shaders/Lowering/LoweringUnit.cs
+index 3916da26..509979a1 100644
+--- a/src/Sharplight.Shaders/Lowering/LoweringUnit.cs
++++ b/src/Sharplight.Shaders/Lowering/LoweringUnit.cs
+@@ -60,6 +60,13 @@ internal sealed class LoweringUnit
+     /// </summary>
+     public (Node Product, Node Permute, Node Reduce)? ExpertSum;
+ 
++    /// <summary>
++    /// The Permute, ReduceSum and (optionally) the view after it of MoE blocks' expert sums (<see cref="ExpertSum"/> on another unit)
++    /// whose summed rows this fused group reads: it adds the slots of the [T, S, N] expert outputs in place instead of reading the
++    /// materialized sum.
++    /// </summary>
++    public List<Node>? SlotSums;
++
+     /// <summary>Nodes computed inside this unit's kernel (e.g. L2Norm of delta-rule q/k).</summary>
+     public List<Node>? Absorbed;
+ 
+@@ -87,7 +94,7 @@ internal sealed class LoweringUnit
+                 return [.. Gathers ?? [], sum.Product, .. Fused, sum.Permute, sum.Reduce];
+             }
+ 
+-            return [.. Gathers ?? [], .. dual, .. head, .. Fused, .. tail];
++            return [.. Gathers ?? [], .. SlotSums ?? [], .. dual, .. head, .. Fused, .. tail];
+         }
+     }
+ }

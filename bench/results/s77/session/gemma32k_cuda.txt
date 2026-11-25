@@ -1,0 +1,4 @@
+Rows per forward pass: 1024 (automatic, 30826 MiB available).
+Compiled 'decode', window-sized caches of 2064 rows for the 1024-key window layers in 9482 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 62 groups, 21.14 GiB weights+state
+prefill 32768 tok: best 24112 ms = 1359.0 tok/s | decode: best 30.14, median 29.70, mean 29.58 tok/s | GPU ms/step: best 33.01, median 33.53, wall best 33.18 | prefill median of 5: 24275.3 ms = 1349.9 tok/s

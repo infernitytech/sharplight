@@ -63,6 +63,7 @@ public interface IModelHostManager
     /// <param name="footprint">The estimated footprint (e.g. <c>LlmModel.EstimateFootprint</c>).</param>
     /// <param name="device">The device specification (<see cref="DeviceSpecifications"/>); null = the default.</param>
     /// <param name="cpuOffload">Layers that do not fit may run on the CPU.</param>
+    /// <param name="expertsOnDisk">Routed experts that do not fit host memory may stay on disk (with <paramref name="cpuOffload"/>).</param>
     /// <returns>The verdict and the figures behind it.</returns>
-    public FitReport PlanFit(ModelFootprint footprint, string? device = null, bool cpuOffload = false);
+    public FitReport PlanFit(ModelFootprint footprint, string? device = null, bool cpuOffload = false, bool expertsOnDisk = false);
 }

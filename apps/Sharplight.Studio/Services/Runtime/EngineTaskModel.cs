@@ -1,4 +1,5 @@
 using Sharplight.Hosting.Loaders;
+using Sharplight.Llm.Embeddings;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Studio.Models;
@@ -124,7 +125,7 @@ internal sealed class EngineTaskModel : IEngineModel
         var lease = await _host.AcquireAsync(Id, ModelKind.Embedding, cancellationToken).ConfigureAwait(false);
         try
         {
-            return new EmbedderLease((lease.As<LoadedModel>() as IEmbeddingModel)?.Embedder ?? throw new InvalidOperationException($"{Id} is not an embedding model."), lease);
+            return new EmbedderLease((lease.As<LoadedModel>() as ITaskClientModel)?.FindClient<ITextEmbedder>() ?? throw new InvalidOperationException($"{Id} is not an embedding model."), lease);
         }
         catch
         {
@@ -144,7 +145,7 @@ internal sealed class EngineTaskModel : IEngineModel
         var lease = await _host.AcquireAsync(Id, ModelKind.Reranker, cancellationToken).ConfigureAwait(false);
         try
         {
-            return new RerankerLease((lease.As<LoadedModel>() as IRerankerModel)?.Reranker ?? throw new InvalidOperationException($"{Id} is not a reranking model."), lease);
+            return new RerankerLease((lease.As<LoadedModel>() as ITaskClientModel)?.FindClient<ITextReranker>() ?? throw new InvalidOperationException($"{Id} is not a reranking model."), lease);
         }
         catch
         {

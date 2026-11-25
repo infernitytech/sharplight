@@ -1,0 +1,25 @@
+[hold 06:05:07] bash -c cd det; echo fix-wg1; CUBIN=$PWD/k_fix.cubin REPS=2000 ./det_m2 | tail -1; echo old-wg0; CUBIN=$PWD/k_wg0.cubin REPS=1000 ./det_m2_wg0 | tail -1; echo fix-wg0; CUBIN=$PWD/k_fix_wg0.cubin REPS=1000 ./det_m2_wg0 | tail -1; for r in 1 2; do for v in my_nvrtc k_fix; do echo $v; CUBIN=$PWD/$v.cubin REPS=2 TIME=1 ./det_m2 | grep sust; done; for v in k_wg0 k_fix_wg0; do echo $v; CUBIN=$PWD/$v.cubin REPS=2 TIME=1 ./det_m2_wg0 | grep sust; done; done
+0 %, 2 MiB, 9.93 W
+fix-wg1
+T=512 grid 82 pdl 0 noise 0: 0 of 1999 repeats differ
+old-wg0
+T=512 grid 82 pdl 0 noise 0: 0 of 999 repeats differ
+fix-wg0
+T=512 grid 82 pdl 0 noise 0: 0 of 999 repeats differ
+my_nvrtc
+sustained 0.3643 ms per launch
+k_fix
+sustained 0.3653 ms per launch
+k_wg0
+sustained 0.3755 ms per launch
+k_fix_wg0
+sustained 0.3775 ms per launch
+my_nvrtc
+sustained 0.3647 ms per launch
+k_fix
+sustained 0.3651 ms per launch
+k_wg0
+sustained 0.3763 ms per launch
+k_fix_wg0
+sustained 0.3779 ms per launch
+[release 06:05:48]

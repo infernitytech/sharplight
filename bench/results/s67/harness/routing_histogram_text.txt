@@ -1,0 +1,10 @@
+tile 32 items 64 (16 seq): launches 216, experts touched 17.9, experts >32: 0.00, >64: 0.00, extra tiles 0.00 (64-row routing 0.00), items in 33-64 experts 0.0
+   per-expert items histogram (1-16,17-32,...): [17.85, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+tile 32 items 128 (32 seq): launches 216, experts touched 23.8, experts >32: 0.00, >64: 0.00, extra tiles 0.00 (64-row routing 0.00), items in 33-64 experts 0.0
+   per-expert items histogram (1-16,17-32,...): [22.6, 1.23, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+tile 32 items 192 (48 seq): launches 216, experts touched 27.0, experts >32: 0.48, >64: 0.00, extra tiles 0.48 (64-row routing 0.00), items in 33-64 experts 18.4
+   per-expert items histogram (1-16,17-32,...): [24.03, 2.5, 0.48, 0.0, 0.0, 0.0, 0.0, 0.0]
+tile 32 items 256 (64 seq): launches 216, experts touched 27.2, experts >32: 1.11, >64: 0.00, extra tiles 1.11 (64-row routing 0.00), items in 33-64 experts 48.7
+   per-expert items histogram (1-16,17-32,...): [22.74, 3.38, 0.8, 0.31, 0.0, 0.0, 0.0, 0.0]
+tile 128 items 1024 (256 seq): launches 1536, experts touched 20.2, experts >128: 3.21, >64: 4.52, extra tiles 3.21 (64-row routing 10.21), items in 33-64 experts 72.8
+   per-expert items histogram (1-16,17-32,...): [11.69, 2.37, 1.07, 0.55, 0.41, 0.34, 0.31, 3.47]

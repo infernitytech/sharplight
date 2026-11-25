@@ -11,10 +11,10 @@ public static partial class CatalogValidator
     /// <summary>The task kinds an entry may have.</summary>
     public static IReadOnlyList<string> Kinds { get; } =
     [
-        ModelKinds.TextGeneration, ModelKinds.SpeechRecognition, ModelKinds.SpeechSynthesis, ModelKinds.ImageGeneration, ModelKinds.VideoGeneration,
+        ModelKinds.TextGeneration, ModelKinds.SpeechRecognition, ModelKinds.SpeechSynthesis, ModelKinds.ImageGeneration, ModelKinds.VideoGeneration, ModelKinds.VideoEnhancement,
         ModelKinds.ImageClassification, ModelKinds.ImageEmbedding, ModelKinds.ObjectDetection, ModelKinds.ImageSegmentation,
         ModelKinds.SemanticSegmentation, ModelKinds.DepthEstimation, ModelKinds.Ocr, ModelKinds.ImageUpscaling, ModelKinds.AudioCodec,
-        ModelKinds.VoiceActivity, ModelKinds.AudioSeparation, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, EmbeddingsKind, RerankerKind,
+        ModelKinds.VoiceActivity, ModelKinds.AudioSeparation, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioGeneration, EmbeddingsKind, RerankerKind,
     ];
 
     /// <summary>The companion roles.</summary>
@@ -29,6 +29,9 @@ public static partial class CatalogValidator
 
     /// <summary>The kind of reranking models, cross-encoders and decoder rerankers (not a <see cref="ModelKinds"/> value).</summary>
     public const string RerankerKind = "reranker";
+
+    /// <summary>The longest <see cref="CatalogEntry.LicenseNotice"/>: it is shown as a callout, not a licence text.</summary>
+    public const int MaxLicenseNoticeLength = 600;
 
     /// <summary>Every problem found; empty when the catalog is consistent.</summary>
     /// <param name="catalog">The catalog to check.</param>
@@ -85,6 +88,16 @@ public static partial class CatalogValidator
         if (string.IsNullOrWhiteSpace(entry.Name))
         {
             Problem("the name is empty");
+        }
+
+        if (entry.LicenseNotice is { } licenseNotice && (string.IsNullOrWhiteSpace(licenseNotice) || licenseNotice.Length > MaxLicenseNoticeLength))
+        {
+            Problem($"licenseNotice must be one to {MaxLicenseNoticeLength} characters");
+        }
+
+        if (CatalogLicenses.NeedsNotice(entry.License) && string.IsNullOrWhiteSpace(entry.LicenseNotice))
+        {
+            Problem($"the license '{entry.License}' is not permissive: add a licenseNotice");
         }
 
         if (!Kinds.Contains(entry.Kind))
@@ -149,6 +162,20 @@ public static partial class CatalogValidator
             }
 
             ValidateFiles($"variant {variant.Id}", variant, Problem);
+            if (variant.Level is { } level && (level is not (CatalogLevel.Verified or CatalogLevel.Partial) || level < entry.Level))
+            {
+                Problem($"variant {variant.Id}: level {level} must be verified or partial and not above the entry's level {entry.Level}");
+            }
+
+            if (variant.Level == CatalogLevel.Partial && entry.Level != CatalogLevel.Partial && string.IsNullOrWhiteSpace(variant.Verification))
+            {
+                Problem($"variant {variant.Id}: a partial variant of a verified entry needs a verification note (what was and was not checked)");
+            }
+
+            if (variant.Quality is { } quality && !CatalogQualityTiers.All.Contains(quality, StringComparer.Ordinal))
+            {
+                Problem($"variant {variant.Id}: unknown quality '{quality}' ({string.Join(", ", CatalogQualityTiers.All)})");
+            }
         }
 
         if (companionIds.Count != entry.Companions.Count)

@@ -1,0 +1,4 @@
+qwen kvq8 rc=0
+qwen kvf16 rc=0
+llama kvq8 rc=250
+llama kvf16 rc=250

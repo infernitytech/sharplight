@@ -10,6 +10,12 @@ public static class ModelKinds
     /// <summary>Autoregressive or masked-diffusion text generation (<c>Sharplight.Llm.ITextGenerator</c>, <c>LlmModel</c>).</summary>
     public const string TextGeneration = "text-generation";
 
+    /// <summary>Texts in, embedding vectors out (<c>Sharplight.Llm.Embeddings.ITextEmbedder</c>).</summary>
+    public const string TextEmbedding = "text-embedding";
+
+    /// <summary>A query and documents in, relevance scores out (<c>Sharplight.Llm.Embeddings.ITextReranker</c>).</summary>
+    public const string TextReranking = "text-reranking";
+
     /// <summary>Audio in, text with timestamps out (<c>Sharplight.Speech.ISpeechRecognizer</c>).</summary>
     public const string SpeechRecognition = "speech-recognition";
 
@@ -46,6 +52,12 @@ public static class ModelKinds
     /// <summary>Image in, larger image out.</summary>
     public const string ImageUpscaling = "image-upscaling";
 
+    /// <summary>
+    /// Video frames (or one image) in, restored and usually enlarged frames out: super-resolution and restoration of whole clips
+    /// (<c>Sharplight.VideoEnhancement.IVideoEnhancer</c>).
+    /// </summary>
+    public const string VideoEnhancement = "video-enhancement";
+
     /// <summary>Audio in, discrete codes out and codes back to audio (<c>Sharplight.Audio.IAudioCodec</c>).</summary>
     public const string AudioCodec = "audio-codec";
 
@@ -60,4 +72,7 @@ public static class ModelKinds
 
     /// <summary>Text in, music audio out (<c>Sharplight.Audio.IMusicGenerator</c>).</summary>
     public const string MusicGeneration = "music-generation";
+
+    /// <summary>Text (and lyrics) in, music or sound out with a latent diffusion model (<c>Sharplight.Audio.IAudioGenerator</c>).</summary>
+    public const string AudioGeneration = "audio-generation";
 }

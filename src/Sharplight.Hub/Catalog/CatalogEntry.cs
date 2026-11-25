@@ -39,11 +39,20 @@ public sealed record CatalogEntry
     /// <summary>File sets variants install besides their own (<see cref="CatalogVariant.Companions"/>).</summary>
     public IReadOnlyList<CatalogCompanion> Companions { get; init; } = [];
 
+    /// <summary>The precision the variants' quality is relative to (<c>BF16</c>, or the release format such as <c>MXFP4</c>), or <see langword="null"/>.</summary>
+    public string? ReferencePrecision { get; init; }
+
     /// <summary>How and when it was checked.</summary>
     public CatalogVerification Verification { get; init; } = new();
 
     /// <summary>Limitations and remarks, or <see langword="null"/>.</summary>
     public string? Notes { get; init; }
+
+    /// <summary>
+    /// What a user must know about the licence before using the model (non-commercial use, a custom agreement, a revenue limit, gated terms), in one or two sentences;
+    /// Studio shows it once per model. <see langword="null"/> for permissive licences. Unknown to older readers, which ignore it.
+    /// </summary>
+    public string? LicenseNotice { get; init; }
 
     /// <summary>Its rows in the generated tables of docs/compatible-models.md.</summary>
     public IReadOnlyList<CatalogDocRow> Doc { get; init; } = [];
@@ -53,6 +62,15 @@ public sealed record CatalogEntry
 
     /// <summary>The recommended variant, else the first; <see langword="null"/> without variants.</summary>
     public CatalogVariant? DefaultVariant => Variants.FirstOrDefault(variant => variant.Recommended) ?? Variants.FirstOrDefault();
+
+    /// <summary>The verification level of <paramref name="variant"/>: its own <see cref="CatalogVariant.Level"/>, else the entry's.</summary>
+    /// <param name="variant">A variant of this entry.</param>
+    /// <returns>The level.</returns>
+    public CatalogLevel LevelOf(CatalogVariant variant)
+    {
+        ArgumentNullException.ThrowIfNull(variant);
+        return variant.Level ?? Level;
+    }
 
     /// <summary>The companions <paramref name="variant"/> installs, in the variant's order.</summary>
     /// <param name="variant">A variant of this entry.</param>

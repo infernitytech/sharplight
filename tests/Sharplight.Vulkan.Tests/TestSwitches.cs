@@ -20,8 +20,9 @@ internal static class TestSwitches
 
     /// <summary>True when benchmarks were requested.</summary>
     /// <summary>
-    /// The GPU provider under test (<c>SHARPLIGHT_TEST_PROVIDER</c>): <c>vulkan</c> (default) or <c>metal</c>. The suite's kernel tests are
-    /// provider-neutral (graphs against the CPU oracle), so the Metal provider runs them unchanged; tests of Vulkan internals skip.
+    /// The GPU provider under test (<c>SHARPLIGHT_TEST_PROVIDER</c>): <c>vulkan</c> (default), <c>metal</c> or <c>cuda</c>. The suite's kernel
+    /// tests are provider-neutral (graphs against the CPU oracle), so the Metal and CUDA providers run them unchanged; tests of Vulkan
+    /// internals skip. The CUDA device is the first one the driver lists (<c>CUDA_VISIBLE_DEVICES</c> selects it).
     /// </summary>
     public static string Provider { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_PROVIDER") ?? "vulkan";
 

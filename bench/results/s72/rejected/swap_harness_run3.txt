@@ -1,0 +1,12 @@
+  check T=32: max err 0.0566 of max 1.94e+04
+  check T=64: max err 0.0352 of max 1.72e+04
+== gu0 copies: 0.3582
+== gu2 copies: 0.3521
+== dn0 copies: 0.1769
+== dn2 copies: 0.1816
+== dn128_2 copies: 0.1801
+== gu0 copies: 0.3600
+== gu2 copies: 0.3508
+== dn0 copies: 0.1776
+== dn2 copies: 0.1814
+== dn128_2 copies: 0.1801

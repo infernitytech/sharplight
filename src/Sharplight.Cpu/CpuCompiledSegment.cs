@@ -32,13 +32,14 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     private readonly List<IDisposable> _leases = [];
     private readonly CpuDevice _device;
     private readonly List<(Buf State, long Bytes)> _stateBufs = [];
+    private readonly Dictionary<string, (Buf State, long Bytes, long Rows)> _statesByName = [];
     private readonly Dictionary<string, long> _symbolBounds = new(StringComparer.Ordinal);
     private byte* _arena;
     private long _arenaBytes;
     private long _ownedBytes;
     private long _weightBytes;
     private RunParameters? _last;
-    private bool _disposed;
+    private int _disposed;
 
     internal CpuCompiledSegment(GraphSegment segment, CompileOptions options, CpuDevice device)
     {
@@ -111,7 +112,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     /// <inheritdoc />
     public void Execute(RunParameters parameters)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
         foreach (var (symbol, bound) in _symbolBounds)
         {
             if (SymbolicExpression.TryEvaluate(symbol, parameters.Symbols, out var v) && v > bound)
@@ -265,15 +266,38 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     }
 
     /// <inheritdoc />
+    public bool CanCopyStateRows => true;
+
+    /// <inheritdoc />
+    public void CopyStateRows(IReadOnlyCollection<string> states, int from, int to, int count)
+    {
+        foreach (var name in states)
+        {
+            if (!_statesByName.TryGetValue(name, out var st))
+            {
+                continue;
+            }
+
+            long row = st.Bytes / st.Rows;
+            if (from < 0 || to < 0 || (long)from + count > st.Rows || (long)to + count > st.Rows)
+            {
+                throw new ArgumentOutOfRangeException(nameof(to), $"State '{name}' has {st.Rows} rows.");
+            }
+
+            System.Runtime.InteropServices.NativeMemory.Copy(st.State.Ptr + from * row, st.State.Ptr + to * row, (nuint)(row * count));
+        }
+    }
+
+    /// <inheritdoc />
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void Dispose()
     {
-        if (_disposed)
+        // Claimed atomically: a second (concurrent) call must not free the arena and the owned buffers again.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
         foreach (var (op, _) in _steps)
         {
             op.Dispose();

@@ -1,0 +1,208 @@
+--- a/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu	2026-11-21 16:29:35.994872896 +0000
++++ k_h.cu	2026-11-21 16:22:13.555807728 +0000
+@@ -65,7 +65,23 @@
+ #define NM_A_BYTES (NM_BM * 128)
+ #define NM_C_BYTES (2 * NM_BN * 16)
+ #define NM_S_BYTES (2 * NM_MATS * (NM_BOUT / 16) * 16)
+-#define NM_STAGE_BYTES (NM_A_BYTES + NM_C_BYTES + NM_S_BYTES)
++#define NM_W_BYTES (NM_C_BYTES + NM_S_BYTES)
++#define NM_STAGE_BYTES (NM_A_BYTES + NM_W_BYTES)
++// NM_ASPLIT 1: the activations (read from L2) run one stage behind the weights in a ring of NM_STAGES - 1 slots after the weight
++// ring (four weight stages only), so a 64-row tile's stages fit twice into an SM with the factor table.
++#ifndef NM_ASPLIT
++#define NM_ASPLIT 0
++#endif
++#if NM_ASPLIT
++#define NM_ASTAGES (NM_STAGES - 1)
++#define NM_SMEM_BYTES (NM_STAGES * NM_W_BYTES + NM_ASTAGES * NM_A_BYTES)
++#if NM_STAGES != 4
++#error "gemm_moe_native: NM_ASPLIT needs four stages"
++#endif
++#else
++#define NM_ASTAGES NM_STAGES
++#define NM_SMEM_BYTES (NM_STAGES * NM_STAGE_BYTES)
++#endif
+ #define NM_XRS ((unsigned long long)K * 2)
+ #define NM_CODE_BYTES ((unsigned long long)K / 2)
+ 
+@@ -200,6 +216,9 @@
+ // The MMAs of the first F row fragments of a warp (rows r0 ..) for 32-value block b of a stage at sa, with the block's decoded B
+ // fragments of the warp's columns; dec(j) (the decode of unit j of the next block) is issued between them, so its shared-memory
+ // latency and arithmetic fill the tensor pipe's gaps instead of stalling both warps of a scheduler at once.
++// The MMAs of the first F row fragments of a warp (rows r0 ..) for 32-value block b of a stage at sa, with the block's decoded B
++// fragments of the warp's columns; dec(j) (the decode of unit j of the next block) is issued between them, so its shared-memory
++// latency and arithmetic fill the tensor pipe's gaps instead of stalling both warps of a scheduler at once.
+ template <int F, typename Dec>
+ static __device__ __forceinline__ void nm_mmas(float (&acc)[NM_FM][NM_FN][4], nm_u32 sa, nm_u32 r0, nm_u32 b, nm_u32 lane,
+                                                const nm_u32 (&bf)[NM_FN][4], Dec dec)
+@@ -235,7 +254,7 @@
+     }
+ }
+ 
+-// A live row fragment count as a type (the main loop's template argument).
++// A compile-time live fragment count.
+ template <int F>
+ struct NmFrags
+ {
+@@ -317,8 +336,24 @@
+         sSrc = mat + (nm_u64)gi * 16 * ROW_BYTES + 16 * NM_CODE_BYTES + b * 16;
+     }
+ 
+-    auto load = [&](nm_u32 s, nm_u32 kb) {
+-        nm_u32 base = (nm_u32)__cvta_generic_to_shared(smem + s * NM_STAGE_BYTES);
++    const nm_u32 smem0 = (nm_u32)__cvta_generic_to_shared(smem);
++    // Shared addresses of the weight (codes, then scales) and activation parts of stage kb.
++    auto wStage = [&](nm_u32 kb) -> nm_u32 {
++#if NM_ASPLIT
++        return smem0 + (kb % NM_STAGES) * NM_W_BYTES;
++#else
++        return smem0 + (kb % NM_STAGES) * NM_STAGE_BYTES + NM_A_BYTES;
++#endif
++    };
++    auto aStage = [&](nm_u32 kb) -> nm_u32 {
++#if NM_ASPLIT
++        return smem0 + NM_STAGES * NM_W_BYTES + (kb % NM_ASTAGES) * NM_A_BYTES;
++#else
++        return smem0 + (kb % NM_STAGES) * NM_STAGE_BYTES;
++#endif
++    };
++    auto loadA = [&](nm_u32 kb) {
++        const nm_u32 base = aStage(kb);
+ #pragma unroll
+         for (nm_u32 i = 0; i < NM_A_PER; i++)
+         {
+@@ -327,18 +362,21 @@
+                 nm_cp16(base + aDst[i], aSrc[i] + kb * 128);
+             }
+         }
++    };
++    auto loadW = [&](nm_u32 kb) {
++        const nm_u32 base = wStage(kb);
+ #pragma unroll
+         for (nm_u32 i = 0; i < NM_C_PER; i++)
+         {
+             if ((NM_BN * 2) % NM_THREADS == 0 || tid + i * NM_THREADS < NM_BN * 2)
+             {
+                 nm_u32 idx = tid + i * NM_THREADS;
+-                nm_cp16w(base + NM_A_BYTES + ((idx & 1) * NM_BN + (idx >> 1)) * 16, cSrc[i] + kb * 32);
++                nm_cp16w(base + ((idx & 1) * NM_BN + (idx >> 1)) * 16, cSrc[i] + kb * 32);
+             }
+         }
+         if (sLive)
+         {
+-            nm_cp16w(base + NM_A_BYTES + NM_C_BYTES + tid * 16, sSrc + kb * 32);
++            nm_cp16w(base + NM_C_BYTES + tid * 16, sSrc + kb * 32);
+         }
+     };
+ 
+@@ -357,12 +395,17 @@
+         }
+     }
+ 
++    // Prologue: stages 0 .. NM_STAGES - 2 (with NM_ASPLIT the activations of the last of them follow in the first step).
+ #pragma unroll
+     for (int s = 0; s < NM_STAGES - 1; s++)
+     {
+         if (s < (int)nk)
+         {
+-            load(s, s);
++            if (s < NM_ASTAGES - 1 || !NM_ASPLIT)
++            {
++                loadA(s);
++            }
++            loadW(s);
+         }
+         asm volatile("cp.async.commit_group;\n" ::);
+     }
+@@ -374,12 +417,11 @@
+     const bool upper = (c4 & 2) != 0;
+     // 16-row fragments of the warp that hold tile rows (a partial tile's MMAs past its rows are skipped).
+     const int liveFrags = (int)min((nm_u32)NM_FM, (tileRows > wm * NM_TM ? tileRows - wm * NM_TM + 15 : 0) / 16);
+-    const nm_u32 smem0 = (nm_u32)__cvta_generic_to_shared(smem);
+ 
+     // Unit j of the B fragments of 32-value block b of stage s (two 16-value chunks of 8 weight rows), decoded once for all the
+     // warp's row fragments.
+     auto decodeUnit = [&](nm_u32 s, nm_u32 b, int j, nm_u32 (&bf)[NM_FN][4]) {
+-        const nm_u32 sc = smem0 + s * NM_STAGE_BYTES + NM_A_BYTES, ss = sc + NM_C_BYTES;
++        const nm_u32 sc = wStage(s), ss = sc + NM_C_BYTES;
+         nm_u32 row = wn * NM_TN + j * 8 + g;
+         uint4 raw = nm_lds128(sc + (b * NM_BN + row) * 16);
+         nm_u32 u = nm_prmt(upper ? raw.y : raw.x, upper ? raw.w : raw.z, sel);
+@@ -420,13 +462,15 @@
+             decodeUnit(s, b, j, bf);
+         }
+     };
+-    // The MMAs of 32-value block b of stage s with its decoded B fragments for the warp's F live row fragments (F = 0: the decode
++    // The MMAs of 32-value block b of stage s with its decoded B fragments, for the warp's live row fragments only: a partial tile's
++    // fragments past its rows are skipped by a warp-uniform branch (predicated-off MMAs still take the tensor pipe's time).
++    // The MMAs of 32-value block b of stage kb with its decoded B fragments, for the warp's F live row fragments (F = 0: the decode
+     // only).
+-    auto mmas = [&](auto f, nm_u32 s, nm_u32 b, const nm_u32 (&bf)[NM_FN][4], auto dec) {
++    auto mmas = [&](auto f, nm_u32 kb, nm_u32 b, const nm_u32 (&bf)[NM_FN][4], auto dec) {
+         constexpr int F = decltype(f)::value;
+         if constexpr (F > 0)
+         {
+-            nm_mmas<F>(acc, smem0 + s * NM_STAGE_BYTES, wm * NM_TM, b, lane, bf, dec);
++            nm_mmas<F>(acc, aStage(kb), wm * NM_TM, b, lane, bf, dec);
+         }
+         else
+         {
+@@ -440,9 +484,8 @@
+ 
+     // Software pipeline: the copies wait for two stages ahead (stage kb + 1 is complete at step kb), so the decode of the next
+     // block (block 1 of this stage, then block 0 of the next one) is issued before the MMAs of the current block and its shared
+-    // memory latency hides under them. One loop per live fragment count of the warp: a partial tile's fragments past its rows are
+-    // skipped (predicated-off MMAs still take the tensor pipe's time), and each count runs a tight loop of its own, which a switch
+-    // inside the loop did not (RTX PRO 4500, gpt-oss-20b decode routings, 32-row tiles: gate / up -1-2 %, down -2 %).
++    // memory latency hides under them. One loop per live fragment count (a partial tile's fragments past its rows are skipped,
++    // as predicated-off MMAs still take the tensor pipe's time), each a tight loop of its own.
+     auto mainLoop = [&](auto f) {
+         asm volatile("cp.async.wait_group %0;\n" :: "n"(NM_STAGES - 3));
+         __syncthreads();
+@@ -450,21 +493,27 @@
+         decode(0, 0, bf0);
+         for (nm_u32 kb = 0; kb < nk; kb++)
+         {
+-            const nm_u32 cur = kb % NM_STAGES;
+-            mmas(f, cur, 0, bf0, [&](int j) { decodeUnit(cur, 1, j, bf1); });
+-            // Stage kb + 1 complete (own copies, then every thread's) before its decode; the slot of stage kb - 1 is free for
+-            // the copies of stage kb + NM_STAGES - 1.
++            mmas(f, kb, 0, bf0, [&](int j) { decodeUnit(kb, 1, j, bf1); });
+             asm volatile("cp.async.wait_group %0;\n" :: "n"(NM_STAGES - 3));
+             __syncthreads();
+             nm_u32 next = kb + NM_STAGES - 1;
++#if NM_ASPLIT
++            if (next - 1 < nk)
++            {
++                loadA(next - 1);
++            }
++            asm volatile("cp.async.commit_group;\n" ::);
++#endif
+             if (next < nk)
+             {
+-                load(next % NM_STAGES, next);
++#if !NM_ASPLIT
++                loadA(next);
++#endif
++                loadW(next);
+             }
+             asm volatile("cp.async.commit_group;\n" ::);
+-            const nm_u32 nextStage = (kb + 1) % NM_STAGES;
+             const bool more = kb + 1 < nk;
+-            mmas(f, cur, 1, bf1, [&](int j) { if (more) { decodeUnit(nextStage, 0, j, bf0); } });
++            mmas(f, kb, 1, bf1, [&](int j) { if (more) { decodeUnit(kb + 1, 0, j, bf0); } });
+         }
+     };
+     switch (liveFrags)
+@@ -475,7 +524,11 @@
+     NM_CASE(2)
+ #endif
+ #if NM_FM > 2
++#if !NM_NO3
+     NM_CASE(3)
++#else
++    case 3:
++#endif
+     NM_CASE(4)
+ #endif
+ #if NM_FM > 4

@@ -1,0 +1,12 @@
+14:23:35 start qwen sharplight poisson concs=256 rates=256:15 args=--provider cuda --max-queue 4096 --kv-tokens 127632
+14:41:21 end qwen sharplight poisson rc=0
+14:41:21 start qwen vllm poisson concs=256 rates=256:15 args=--gpu-memory-utilization 0.9 --max-num-batched-tokens 2048
+15:19:03 end qwen vllm poisson rc=0
+15:19:03 start gptoss sharplight poisson concs=256 rates=256:19 args=--provider cuda --max-queue 4096 --kv-tokens 263424
+15:36:05 end gptoss sharplight poisson rc=0
+15:36:06 start gptoss vllm poisson concs=256 rates=256:19 args=--gpu-memory-utilization 0.9 --max-num-batched-tokens 2048
+15:55:29 end gptoss vllm poisson rc=0
+15:55:29 start llama sharplight poisson concs=256 rates=256:9.5 args=--provider cuda --max-queue 4096 --kv-tokens 100480
+16:10:15 end llama sharplight poisson rc=0
+16:10:15 start llama vllm poisson concs=256 rates=256:9.5 args=--gpu-memory-utilization 0.9 --max-num-batched-tokens 2048
+16:22:56 end llama vllm poisson rc=0

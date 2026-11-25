@@ -1,0 +1,11 @@
+[hold 19:59:29] ./hold4.sh
+0 %, 2 MiB, 40.33 W
+ready=1 after 27 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 5.885585470008664, "agg_tok_s": 1391.875123000795, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 94.86030995769119, "ttft_p50_ms": 82.18105349806137, "ttft_p95_ms": 312.4870842206292, "itl_mean_ms": 10.541816703382182, "itl_p50_ms": 9.189080505166203, "itl_p95_ms"
+ready=1 after 93 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 6.000584113004152, "agg_tok_s": 1365.2004281127777, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 97.1755047705319, "ttft_p50_ms": 179.2364660068415, "ttft_p95_ms": 254.45546181581446, "itl_mean_ms": 10.290659177550742, "itl_p50_ms": 9.35634650522843, "itl_p95_ms"
+ready=1 after 48 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.489806426980067, "agg_tok_s": 1093.7532337939288, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 72.65709164854633, "ttft_p50_ms": 78.33104149904102, "ttft_p95_ms": 275.33078699489124, "itl_mean_ms": 13.763281426638377, "itl_p50_ms": 12.589775520609692, "itl_p95_
+ready=1 after 193 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 7.39586791198235, "agg_tok_s": 1107.6455255140243, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 76.68238537266762, "ttft_p50_ms": 162.30378299951553, "ttft_p95_ms": 262.0068823482143, "itl_mean_ms": 13.040804549051444, "itl_p50_ms": 12.412895011948422, "itl_p95_m
+[release 20:06:36]

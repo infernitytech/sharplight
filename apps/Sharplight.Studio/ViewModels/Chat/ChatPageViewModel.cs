@@ -28,12 +28,14 @@ internal sealed partial class ChatPageViewModel : PageViewModel
         _navigator = navigator;
         Media = new ChatMediaViewModel(services);
         Picker = new ModelPickerViewModel(services, ModelKinds.TextGeneration);
+        License = new LicenseNoticeViewModel(services);
         Picker.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(ModelPickerViewModel.SelectedModel))
             {
                 OnPropertyChanged(nameof(SelectedModel));
                 OnPropertyChanged(nameof(SelectedBadges));
+                _ = License.RefreshAsync(Picker.SelectedModel?.Model);
                 OnSelectedModelChanged(Picker.SelectedModel);
             }
             else if (args.PropertyName == nameof(ModelPickerViewModel.HasModels))
@@ -42,7 +44,13 @@ internal sealed partial class ChatPageViewModel : PageViewModel
                 OnPropertyChanged(nameof(ShowGetModel));
             }
         };
+
+        // A model chosen while the picker was built raises no change: look its licence up now.
+        _ = License.RefreshAsync(Picker.SelectedModel?.Model);
     }
+
+    /// <summary>The licence callout of the chosen chat model (a catalog entry with a non-permissive licence: Llama, Gemma, Qwen research...), shown until dismissed.</summary>
+    public LicenseNoticeViewModel License { get; }
 
     /// <summary>Dictation, reading aloud and pictures, with the models they use.</summary>
     public ChatMediaViewModel Media { get; }

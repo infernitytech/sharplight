@@ -1,0 +1,28 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 128256, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 15+10: 35.1 ms; recorded True record 10.3 submit 0.0 wait 15.8 gpu 26.8
+| 15 | 10 (1) | 35.1 | 582 / 0 | 21.19 / 21.19, 21.11 |  |
+[first] 14+10: 23.5 ms; recorded True record 4.0 submit 0.0 wait 19.4 gpu 23.5
+| 14 | 10 (1) | 23.5 | 583 / 0 | 21.12 / 21.14, 21.05 |  |
+[first] 13+11: 24.4 ms; recorded True record 5.3 submit 1.1 wait 17.9 gpu 24.3
+| 13 | 11 (1) | 24.4 | 583 / 0 | 21.10 / 21.11, 21.05 |  |
+[first] 12+12: 22.5 ms; recorded True record 2.9 submit 0.0 wait 19.6 gpu 22.4
+| 12 | 12 (1) | 22.5 | 583 / 0 | 21.04 / 21.10, 20.98 |  |
+[first] 16+16: 24.5 ms; recorded True record 4.6 submit 0.0 wait 19.8 gpu 24.4
+| 16 | 16 (1) | 24.5 | 582 / 0 | 21.59 / 21.61, 21.52 |  |
+[first] 15+17: 23.4 ms; recorded True record 3.3 submit 0.0 wait 20.0 gpu 23.3
+| 15 | 17 (1) | 23.4 | 582 / 0 | 21.56 / 21.58, 21.49 |  |
+[first] 16+240: 35.7 ms; recorded True record 2.9 submit 0.0 wait 32.7 gpu 35.5
+| 16 | 240 (1) | 35.7 | 358 / 0 | 34.11 / 34.14, 34.03 |  |
+[first] 15+241: 35.9 ms; recorded True record 2.9 submit 0.0 wait 32.8 gpu 35.7
+| 15 | 241 (1) | 35.9 | 358 / 0 | 33.99 / 34.15, 33.94 |  |
+[first] 16+250: 42.1 ms; recorded True record 2.5 submit 0.0 wait 39.5 gpu 42.0
+| 16 | 250 (1) | 42.1 | 358 / 0 | 40.79 / 40.89, 40.74 |  |
+[first] 8+0: 22.7 ms; recorded True record 4.2 submit 0.0 wait 18.4 gpu 22.7
+| 8 | 0 (0) | 22.7 | 422 / 0 | 19.92 / 19.93, 19.88 |  |
+[first] 24+0: 23.6 ms; recorded True record 3.4 submit 0.0 wait 20.1 gpu 23.5
+| 24 | 0 (0) | 23.6 | 583 / 0 | 21.72 / 21.75, 21.68 |  |

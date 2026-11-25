@@ -69,6 +69,21 @@ public sealed class ServingChatClientTests
     }
 
     [Fact]
+    public async Task TheCacheSaltNarrowsSharingWithinAPartition()
+    {
+        var (engine, service, _) = Create();
+        using var _ = engine;
+        using var a = new ServingChatClient(service, new ServingChatClientOptions { CachePartition = "p", CacheSalt = "user-1" });
+        using var b = new ServingChatClient(service, new ServingChatClientOptions { CachePartition = "p", CacheSalt = "user-2" });
+        const string Prompt = "a fairly long question that repeats";
+        await a.GetResponseAsync(Prompt, cancellationToken: Ct);
+        var other = await b.GetResponseAsync(Prompt, cancellationToken: Ct);
+        var perCall = await b.GetResponseAsync(Prompt, new ChatOptions { AdditionalProperties = new() { [ServingChatClient.CacheSaltProperty] = "user-1" } }, Ct);
+        Assert.Equal(0, other.Usage!.CachedInputTokenCount);
+        Assert.True(perCall.Usage!.CachedInputTokenCount > 0);
+    }
+
+    [Fact]
     public void MapsMessagesToolsAndOptions()
     {
         var (engine, service, _) = Create();

@@ -76,6 +76,23 @@ public class NarrowIq1Tests
             var part = new byte[61];
             weight.Source.Read(37, part);
             Assert.Equal(expected.AsSpan(37, 61).ToArray(), part);
+
+            // Experts on disk read the stored range themselves and decode it with the source's encoding: the same bytes.
+            Assert.False(weight.Source.TryGetFileRange(out _, out _));
+            Assert.True(weight.Source.TryGetEncodedFileRange(out string storedPath, out long storedOffset, out var encoding));
+            Assert.Equal(path, storedPath);
+            Assert.Equal(46, encoding!.StoredBlockBytes);
+            Assert.Equal(GgmlNarrowIq1.WideBlockBytes, encoding.BlockBytes);
+            var stored = new byte[narrow.Length];
+            using (var handle = File.OpenHandle(storedPath))
+            {
+                RandomAccess.Read(handle, stored, storedOffset);
+            }
+
+            Assert.Equal(narrow, stored);
+            var decoded = new byte[expected.Length];
+            encoding.Decode(stored, decoded);
+            Assert.Equal(expected, decoded);
         }
         finally
         {

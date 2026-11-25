@@ -9,6 +9,7 @@ namespace Sharplight.Runtime;
 /// Diagnostic environment switches of Sharplight.Core:
 /// <list type="bullet">
 /// <item><c>SHARPLIGHT_DISABLE_FEATURES</c>: comma-separated feature names (or "all") disabled for every device, see <see cref="DisabledByEnvironment"/>.</item>
+/// <item><c>SHARPLIGHT_LIMIT_DEVICE_MEMORY</c>, <c>SHARPLIGHT_LIMIT_HOST_VISIBLE_DEVICE_MEMORY</c>, <c>SHARPLIGHT_LIMIT_MAX_ALLOCATION</c>, <c>SHARPLIGHT_LIMIT_PINNED_HOST_MEMORY</c>: process-wide memory caps, see <see cref="DeviceMemoryLimits"/>.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c>: process-wide override of <see cref="DeviceInfo.SubmissionBudgetMs"/>; read by the providers.</item>
 /// </list>
 /// </remarks>
@@ -56,9 +57,114 @@ public static class DeviceFeatures
     public const string SubgroupOps = "subgroup_ops";
     /// <summary>The kernel can pin the subgroup size.</summary>
     public const string SubgroupSizeControl = "subgroup_size_control";
+    /// <summary>
+    /// Large matrix products of 16-bit float weights (f16, and bf16 stored as f16) run on the vendor's GEMM library where it is faster
+    /// than the generated kernels, with the generated tensor-core GEMMs' f16 activations and precision (CUDA: cuBLASLt from the optional
+    /// <c>Sharplight.Cuda.Blas</c> package). Reported only when the library is installed; disabling it keeps every product on the
+    /// generated kernels.
+    /// </summary>
+    public const string LibraryGemm = "library_gemm";
+
+    /// <summary>
+    /// Large matrix products of block-scaled 8-bit float weights (E4M3 in 128-value scale groups) run on a hand-written GEMM of the
+    /// provider instead of the generated tensor-core GEMM (CUDA, compute capability 8.9 and later: a CUDA C++ kernel with
+    /// asynchronous copies into a multi-stage ring of dynamic shared memory). Disabling it keeps the generated kernel.
+    /// </summary>
+    public const string NativeGemmFp8 = "native_gemm_fp8";
+
+    /// <summary>
+    /// The device copies tiles of a tensor from device memory into a workgroup's shared memory with one asynchronous instruction
+    /// described by a tensor map (CUDA: <c>cp.async.bulk.tensor</c>, compute capability 9.0 and later), completing on shared-memory
+    /// barriers. The provider's hand-written GEMMs use it for warp-specialized main loops (a copy warp and computing warps);
+    /// disabling it keeps their per-thread asynchronous copies.
+    /// </summary>
+    public const string TensorCopies = "tensor_copies";
+
+    /// <summary>
+    /// The tensor cores multiply E4M3 operands with a power-of-two (UE8M0) scale per 32 values of each row and column applied in the
+    /// MMA itself (CUDA: <c>mma.sync ... kind::mxf8f6f4.block_scale</c>, compute capability 12.x). The provider's prompt-sized FP8 GEMM
+    /// then accumulates a whole tile in the tensor cores instead of promoting every 128-value block in registers; it needs power-of-two
+    /// activation and weight scales, so block-scaled E4M3 weights are requantized at load and activations get power-of-two scales (a
+    /// numerics change, on by default where the model has such weights; <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/> and
+    /// <c>SHARPLIGHT_FP8_BLOCK_SCALED</c> choose it). Disabling it keeps the f32 scales and the promoting GEMM.
+    /// </summary>
+    public const string BlockScaledFp8 = "block_scaled_fp8";
+
+    /// <summary>
+    /// The tensor cores multiply E2M1 (4-bit float) operands with an E4M3 scale per 16 values of each row and column applied in the MMA
+    /// itself (CUDA: <c>mma.sync ... kind::mxf4nvf4.block_scale</c>, compute capability 12.x with a CUDA 12.9 driver or later). Matrix
+    /// products of NVFP4 weights then run on the provider's FP4 GEMM from a few activation rows on, with the activations quantized to
+    /// FP4 per 16 values (a numerics change: activations lose precision as in the W4A4 mode of the checkpoints' producers). Disabling it
+    /// keeps the integer-dot matvecs and the GEMMs on dequantized weights.
+    /// </summary>
+    public const string BlockScaledFp4 = "block_scaled_fp4";
+
+    /// <summary>
+    /// Warps of a workgroup can hand registers to each other at run time (CUDA: <c>setmaxnreg</c>, in the family-specific PTX of compute
+    /// capability 12.x; the CUDA provider reports it only while NVRTC compiles that kernel's machine code, since the driver's
+    /// compilation of the PTX drops <c>setmaxnreg</c>). The provider's prompt-sized FP8 GEMM then runs a copy warpgroup on few registers
+    /// and its computing warps on 232 instead of the 168 its block size allows. Disabling it keeps the 9-warp form.
+    /// </summary>
+    public const string RegisterReallocation = "register_reallocation";
+
+    /// <summary>
+    /// Large matrix products of 16-bit float weights (f16, and bf16 stored as f16) run on a hand-written f16 tensor-core GEMM of the
+    /// provider, with the operands and precision of <see cref="LibraryGemm"/> but without the vendor library (CUDA, compute capability
+    /// 8.0 and later); preferred over the library where both exist. Disabling it leaves those products to the library or the
+    /// generated GEMMs.
+    /// </summary>
+    public const string NativeGemmF16 = "native_gemm_f16";
+
+    /// <summary>
+    /// The expert-grouped products of a mixture-of-experts layer with MXFP4 expert weights run, for batches with many rows per expert,
+    /// on a hand-written grouped GEMM of the provider (asynchronous copies of the raw 4-bit codes into a multi-stage ring of dynamic
+    /// shared memory, decoded per tensor-core MMA; CUDA, compute capability 8.0 and later). Disabling it keeps the generated grouped
+    /// GEMMs.
+    /// </summary>
+    public const string NativeGemmMoe = "native_gemm_moe";
+
+    /// <summary>
+    /// Matrix products of K-quant weights (Q4_K, Q5_K, Q6_K) at decode batch sizes (17-64 activation rows) run on a hand-written GEMM of
+    /// the provider that copies the raw blocks into shared memory and dequantizes each tensor-core MMA's weight fragments in registers
+    /// (CUDA, compute capability 8.0 and later). Disabling it keeps the generated GEMMs on dequantized tiles.
+    /// </summary>
+    public const string NativeGemmKQuant = "native_gemm_kquant";
+
+    /// <summary>
+    /// Causal attention of many queries against an f16 KV cache (prefill, prompt chunks of a serving step) runs on a hand-written
+    /// flash-attention kernel of the provider (query fragments, scores, softmax statistics and outputs in registers, key / value
+    /// tiles copied asynchronously into a two-stage ring of shared memory; CUDA, compute capability 8.0 and later), including
+    /// sliding windows, chunked attention, soft caps, attention sinks and grouped-query heads. Disabling it keeps the generated
+    /// flash-attention kernels.
+    /// </summary>
+    public const string NativeAttention = "native_attention";
+
+    /// <summary>
+    /// A step whose launches repeat (the same kernels, grids and arguments, e.g. every decode step of a sequence) is recorded once
+    /// into a device-side launch graph and replayed with one submission (CUDA graphs), instead of one host call per launch. Like
+    /// <see cref="KernelBinaries"/> it does not change generated code, so it is not part of <see cref="DeviceInfo.Features"/>;
+    /// disabling it launches every kernel from the host.
+    /// </summary>
+    public const string LaunchGraphs = "launch_graphs";
+
+    /// <summary>
+    /// A kernel may be launched before the previous one in its stream has finished: it waits for that kernel's completion and memory
+    /// itself at its start, so the launch and the setup of its blocks overlap the previous kernel's last blocks (CUDA: programmatic
+    /// dependent launch, compute capability 9.0 and later). Like <see cref="LaunchGraphs"/> it is not part of
+    /// <see cref="DeviceInfo.Features"/>; disabling it launches every kernel after the previous one has finished.
+    /// </summary>
+    public const string DependentLaunches = "dependent_launches";
 
     /// <summary>The device reports a live memory budget / usage that accounts for other processes (Vulkan: VK_EXT_memory_budget); without it memory figures are estimates from our own allocations.</summary>
     public const string MemoryBudget = "memory_budget";
+
+    /// <summary>
+    /// The device copies directly from host memory it imports, such as the mapped pages of a weight file (Vulkan:
+    /// VK_EXT_external_memory_host; CUDA page-locks the pages instead): streamed and selected expert weights then need no staging copy on
+    /// the host. Without it they go through staging memory, and expert passes are not split onto the device. Like <see cref="MemoryBudget"/>
+    /// it does not change generated code.
+    /// </summary>
+    public const string HostMemoryImport = "host_memory_import";
 
     /// <summary>
     /// The driver exports and imports the compiled form of individual kernels as validated, content-keyed binaries (Vulkan:
@@ -75,8 +181,23 @@ public static class DeviceFeatures
     /// </summary>
     public const string ChannelsLast = "channels_last";
 
+    /// <summary>
+    /// Paged KV cache for multi-sequence serving (block tables read by the cache-write and attention kernels) with prefix caching by
+    /// block content. Detected per device from the support of the paged kernel forms; disabling it keeps the contiguous per-slot
+    /// cache. Like <see cref="MemoryBudget"/> it is not part of <see cref="DeviceInfo.Features"/> (it does not change generated code).
+    /// </summary>
+    public const string PagedKv = "paged_kv";
+
+    /// <summary>
+    /// Window-sized KV caches with the paged cache: caches that only sliding-window attention reads keep the blocks a slot's window still
+    /// reaches, in a pool of their own (<see cref="Graph.MultiSequence.WindowedCaches"/>); a single-sequence session runs the one-slot paged
+    /// form with a ring of window rows for them (<c>InferenceSession</c>). Disabling it gives them a row per position of the pool (the
+    /// context) like every other cache. Not part of <see cref="DeviceInfo.Features"/> (it does not change generated code).
+    /// </summary>
+    public const string WindowKv = "window_kv";
+
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, KernelBinaries, ChannelsLast, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, HostMemoryImport, KernelBinaries, ChannelsLast, PagedKv, WindowKv, MatrixF16, MatrixF16Small, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl, LibraryGemm, NativeGemmFp8, NativeGemmF16, NativeGemmMoe, NativeGemmKQuant, NativeAttention, TensorCopies, BlockScaledFp8, BlockScaledFp4, RegisterReallocation, LaunchGraphs, DependentLaunches];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

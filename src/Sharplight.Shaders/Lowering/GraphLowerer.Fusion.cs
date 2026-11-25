@@ -36,6 +36,11 @@ public sealed partial class GraphLowerer
         }
 
         AbsorbIntoConsumers(units, consumers);
+        if (!DiagnosticSwitches.NoRouterFusion)
+        {
+            FuseRouterTopK(units, consumers);
+        }
+
         if (!DiagnosticSwitches.NoGatherFold)
         {
             FoldRowGathers(units, consumers);
@@ -44,6 +49,16 @@ public sealed partial class GraphLowerer
         if (!DiagnosticSwitches.NoExpertSum)
         {
             FoldExpertSums(units, consumers);
+        }
+
+        if (!DiagnosticSwitches.NoBiasFold && !DiagnosticSwitches.NoGatherFold)
+        {
+            FoldExpertBiases(units, consumers);
+        }
+
+        if (!DiagnosticSwitches.NoDualMatMul)
+        {
+            FindExpertHalves(units, consumers);
         }
 
         FoldScatterChains(units, consumers);
@@ -58,6 +73,7 @@ public sealed partial class GraphLowerer
         }
 
         FindFusedOutputs(units, consumers);
+        FindMultiGemmGroups(units);
         return units;
     }
 
@@ -108,7 +124,8 @@ public sealed partial class GraphLowerer
         {
             if (n.Op.Category == OpCategory.View)
             {
-                if (openValues is not null && openValues.Contains(n.Inputs[0]))
+                // Any input: a view that also waits for another value (After) must follow the group producing it.
+                if (openValues is not null && n.Inputs.Any(openValues.Contains))
                 {
                     Close();
                 }
@@ -256,7 +273,7 @@ public sealed partial class GraphLowerer
                 next++;
             }
 
-            if (next >= units.Count || units[next].Fused is not { } group || units[next].NormTail is not null)
+            if (next >= units.Count || units[next].Fused is not { } group || (units[next].NormTail is not null && !DiagnosticSwitches.NormHeadAndTail))
             {
                 continue;
             }
@@ -408,6 +425,133 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
+    /// A single-node Add group that adds the per-expert bias rows of the routed experts (a folded row gather by the same routing)
+    /// to an expert product (MatMulId), the Add being the product's only reader, joins the product's unit
+    /// (<see cref="LoweringUnit.BiasAdd"/> with the gather in <see cref="LoweringUnit.Gathers"/>): e.g. gpt-oss's gate / up biases.
+    /// </summary>
+    private void FoldExpertBiases(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not null)
+            {
+                unitOf[unit.Node] = unit;
+            }
+        }
+
+        var removed = new HashSet<LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Fused is not [{ Op.Name: "Add" } add] || unit.Gathers is not [{ } gather] || unit.NormHead is not null
+                || unit.NormTail is not null || unit.Dual is not null || unit.ExpertSum is not null)
+            {
+                continue;
+            }
+
+            int slot = add.Inputs[0].Producer is { Op.Name: "MatMulId" } && add.Inputs[1] == gather.Output ? 0
+                : add.Inputs[1].Producer is { Op.Name: "MatMulId" } && add.Inputs[0] == gather.Output ? 1 : -1;
+            if (slot < 0)
+            {
+                continue;
+            }
+
+            var product = add.Inputs[slot];
+            var matmul = product.Producer!;
+            if (!unitOf.TryGetValue(matmul, out var matmulUnit) || matmulUnit.BiasAdd is not null || matmulUnit.Absorbed is not null
+                || _segmentOutputs.Contains(product) || !consumers.TryGetValue(product, out var readers) || readers.Count != 1
+                || !IsExpertEpilogueGather(gather, matmul) || add.Output.Type != DataType.F32 || !add.Output.Shape.Equals(product.Shape))
+            {
+                continue;
+            }
+
+            matmulUnit.BiasAdd = add;
+            matmulUnit.Gathers = [gather];
+            removed.Add(unit);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>
+    /// Marks expert products whose output (after an optional folded bias Add) is only read as its two halves along the last axis
+    /// by one elementwise group (<see cref="LoweringUnit.Halves"/>): gpt-oss's fused gate / up projection. The units stay in place;
+    /// the product's lowering emits the dual grouped GEMM that stores the group.
+    /// </summary>
+    private void FindExpertHalves(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not null)
+            {
+                unitOf[unit.Node] = unit;
+            }
+        }
+
+        foreach (var unit in units)
+        {
+            if (unit.Fused is not { } group || unit.NormHead is not null || unit.NormTail is not null || unit.Dual is not null
+                || unit.ExpertSum is not null || unit.Gathers is not null || unit.ConvHead is not null || unit.MatMulHead is not null)
+            {
+                continue;
+            }
+
+            var inGroup = group.ToHashSet();
+            var external = group.SelectMany(n => n.Inputs).Where(v => v.Producer is null || !inGroup.Contains(v.Producer)).Distinct().ToList();
+            if (external.Count != 2 || external.Any(v => v.Producer is not { Op.Name: "Slice" } || _segmentOutputs.Contains(v)
+                || !consumers.TryGetValue(v, out var r) || r.Any(c => !inGroup.Contains(c))))
+            {
+                continue;
+            }
+
+            var low = external[0].Producer!;
+            var high = external[1].Producer!;
+            var whole = low.Inputs[0];
+            if (high.Inputs[0] != whole || whole.Shape.Rank != 3 || whole.Shape[2].IsSymbolic || whole.Type != DataType.F32)
+            {
+                continue;
+            }
+
+            long width = whole.Shape[2].Fixed;
+            (long Axis, long Start, long Length) Of(Node s) => (NormAxis(s.Attributes.Get("axis", 0L), 3), s.Attributes.Get("start", 0L), s.Attributes.Get("length", 0L));
+            var (la, ls, ll) = Of(low);
+            var (ha, hs, hl) = Of(high);
+            if (ls != 0)
+            {
+                (low, high, la, ls, ll, ha, hs, hl) = (high, low, ha, hs, hl, la, ls, ll);
+            }
+
+            if (la != 2 || ha != 2 || ls != 0 || ll != width / 2 || hs != width / 2 || hl != width / 2 || width % 32 != 0)
+            {
+                continue;
+            }
+
+            // The whole output: the product itself, or the output of its folded bias Add; read by the two slices only.
+            if (_segmentOutputs.Contains(whole) || !consumers.TryGetValue(whole, out var readers) || readers.Count != 2
+                || !readers.Contains(low) || !readers.Contains(high))
+            {
+                continue;
+            }
+
+            Node? product = whole.Producer switch
+            {
+                { Op.Name: "MatMulId" } p => p,
+                { Op.Name: "Add" } add => add.Inputs.Select(v => v.Producer).FirstOrDefault(p => p is { Op.Name: "MatMulId" } m && unitOf.TryGetValue(m, out var u) && u.BiasAdd == add),
+                _ => null,
+            };
+            if (product is null || !unitOf.TryGetValue(product, out var productUnit) || productUnit.Absorbed is not null || productUnit.Halves is not null
+                || (whole.Producer != product && productUnit.BiasAdd != whole.Producer) || (whole.Producer == product && productUnit.BiasAdd is not null)
+                || group.Select(n => n.Output).Count(v => EscapesGroup(v, consumers, inGroup)) != 1)
+            {
+                continue;
+            }
+
+            productUnit.Halves = (unit, low, high);
+        }
+    }
+
+    /// <summary>
     /// A plain elementwise group whose inputs are one Conv output (read nowhere else) and at most one other value of the
     /// same shape (a residual) becomes the conv's store epilogue: e.g. Relu, or Add(conv, shortcut) + Relu in ResNets.
     /// The conv then runs at the group's place, so no unit in between may write state.
@@ -469,7 +613,8 @@ public sealed partial class GraphLowerer
     /// A plain elementwise group whose inputs are one weight MatMul's output (read nowhere else) and at most
     /// <see cref="MaxMatMulEpilogueArgs"/> other f32 values, each a scalar, a row vector over the matmul's output columns (a bias,
     /// a per-channel scale) or a tensor of the output's shape (a residual), becomes the matmul's store epilogue
-    /// (<see cref="LoweringUnit.MatMulHead"/>). The matmul then runs at the group's place, so no unit in between may write state.
+    /// (<see cref="LoweringUnit.MatMulHead"/>): f32 weights in the split-f16 GEMM, weights of the int-dot matvec in its decode store
+    /// (e.g. the sigmoid of a linear-attention beta projection). The matmul then runs at the group's place, so no unit in between may write state.
     /// </summary>
     private void FoldMatMulEpilogues(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
     {
@@ -503,7 +648,9 @@ public sealed partial class GraphLowerer
 
             var w = matmul.Inputs[1];
             var shape = matmul.Output.Shape;
-            if (w.Kind is not (ValueKind.Weight or ValueKind.Constant) || w.Type != DataType.F32 || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic
+            bool intDotWeights = w.Type != DataType.F32 && w.Shape.Rank == 2 && w.Shape[1] is { IsSymbolic: false } k && !DiagnosticSwitches.NoIntDotEpilogue
+                                 && UseIntDotMatvec(matmul, w.Type, k.Fixed);
+            if (w.Kind is not (ValueKind.Weight or ValueKind.Constant) || (w.Type != DataType.F32 && !intDotWeights) || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic
                 || group.Any(n => !n.Output.Shape.Equals(shape) || n.Output.Type != DataType.F32 || n.Inputs.Any(i => i.Type != DataType.F32))
                 || external.Any(v => v != matmul.Output && MatMulEpilogueArgKind(v, shape, w.Shape[0]) < 0))
             {
@@ -601,9 +748,22 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
+            // q and k heads repeated in place for grouped value heads: the kernel reads key head h / repeats instead.
+            var repeatedQ = RepeatedHeads(deltaRule.Inputs[0], SingleUse);
+            var repeatedK = RepeatedHeads(deltaRule.Inputs[1], SingleUse);
+            bool grouped = !DiagnosticSwitches.NoGroupedKeyHeads && repeatedQ is { } rq && repeatedK is { } rk && rq.Repeats == rk.Repeats;
             for (int slot = 0; slot < 2; slot++)
             {
-                var v = deltaRule.Inputs[slot];
+                var input = deltaRule.Inputs[slot];
+                var v = input;
+                if (grouped && (slot == 0 ? repeatedQ : repeatedK) is { } repeated)
+                {
+                    (unit.Absorbed ??= []).AddRange(repeated.Nodes);
+                    absorbed.UnionWith(repeated.Nodes);
+                    _groupedKeyHeads[input] = (repeated.Source, repeated.Repeats);
+                    v = repeated.Source;
+                }
+
                 if (v.Producer is not { Op.Name: "L2Norm" } l2 || !SingleUse(v) || l2.Inputs.Length != 1)
                 {
                     continue;
@@ -611,7 +771,7 @@ public sealed partial class GraphLowerer
 
                 (unit.Absorbed ??= []).Add(l2);
                 absorbed.Add(l2);
-                _absorbedNorms[v] = l2;
+                _absorbedNorms[input] = l2;
             }
         }
 
@@ -644,7 +804,104 @@ public sealed partial class GraphLowerer
             }
         }
 
+        GroupLayerRopes(units, absorbed);
         units.RemoveAll(u => u.Node is not null && absorbed.Contains(u.Node));
+    }
+
+    /// <summary>
+    /// The query rope, the key cache write (with its rope) and the value cache write of each cached attention: one unit of the key
+    /// cache write, which lowers all three as one launch where their shapes allow (<see cref="LowerRopeQkv"/>). The three only read the
+    /// q / k / v projections and write disjoint outputs, so the merged unit runs where the last of them would.
+    /// </summary>
+    private void GroupLayerRopes(List<LoweringUnit> units, HashSet<Node> absorbed)
+    {
+        // Targets that compile CUDA C++ only: on the SPIR-V target the fused kernel gave wrong rows past the first for heads of 64 or fewer
+        // values (FusionTests.NormRopeIntoCache, benchmarks.md section 78.3; cause not found), so Vulkan keeps the separate launches.
+        if (DiagnosticSwitches.NoRopeQkv || !_compiler.CompilesCuda(_opt.Target))
+        {
+            return;
+        }
+
+        var unitOf = units.Where(u => u.Node is not null && u.Fused is null && !absorbed.Contains(u.Node)).ToDictionary(u => u.Node!);
+        var writesOf = units.Where(u => u.Node is { Op.Name: "CacheWrite" } && !absorbed.Contains(u.Node!) && u.Node!.Inputs[0].State is not null)
+            .GroupBy(u => u.Node!.Inputs[0].State!).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.Single());
+        // A cache that several attentions read (shared / cross-layer KV, e.g. Gemma 3n / 4's later layers reading an earlier layer's
+        // cache) is written in its own layer: merging its writes with a reader's query rope from a later layer would delay the writes
+        // past that layer's own attention (they would then follow the later query projection), so only caches with one reader fuse.
+        var readers = units.Where(u => u.Node is { Op.Name: "CachedAttention" }).SelectMany(u => u.Node!.Inputs.Skip(1).Take(2))
+            .Where(v => v.State is not null).GroupBy(v => v.State!).ToDictionary(g => g.Key, g => g.Count());
+        foreach (var unit in units)
+        {
+            if (unit.Node is not { Op.Name: "CachedAttention" } attention || attention.Inputs.Length < 3)
+            {
+                continue;
+            }
+
+            if (attention.Inputs[1].State is { } sharedKey && attention.Inputs[2].State is { } sharedValue
+                && (readers.GetValueOrDefault(sharedKey) != 1 || readers.GetValueOrDefault(sharedValue) != 1))
+            {
+                if (DiagnosticSwitches.RopeQkvDebug)
+                {
+                    Console.Error.WriteLine($"rope q+k+v of {attention.Output.Name}: its caches have other readers");
+                }
+
+                continue;
+            }
+
+            if (attention.Inputs[0].Producer is not { Op.Name: "Rope" } queryRope || !unitOf.TryGetValue(queryRope, out var queryUnit)
+                || attention.Inputs[1].State is not { } keyState || attention.Inputs[2].State is not { } valueState
+                || !writesOf.TryGetValue(keyState, out var keyUnit) || !writesOf.TryGetValue(valueState, out var valueUnit) || keyUnit == valueUnit)
+            {
+                if (DiagnosticSwitches.RopeQkvDebug)
+                {
+                    Console.Error.WriteLine($"rope q+k+v of {attention.Output.Name}: no query rope unit ({attention.Inputs[0].Producer?.Op.Name}) or cache writes");
+                }
+
+                continue;
+            }
+
+            var keyWrite = keyUnit.Node!;
+            var valueWrite = valueUnit.Node!;
+            if (!_absorbedRope.TryGetValue(keyWrite.Inputs[1], out var keyRope) || _absorbedRope.ContainsKey(valueWrite.Inputs[1])
+                || IsQuantizedKv(valueWrite.Inputs[0].Type) || valueWrite.Attributes.Get("compression", 1L) != 1
+                || keyRope.Inputs.Length != queryRope.Inputs.Length || !keyRope.Inputs.Skip(1).SequenceEqual(queryRope.Inputs.Skip(1))
+                || keyWrite.Inputs.Length != valueWrite.Inputs.Length || !keyWrite.Inputs.Skip(2).SequenceEqual(valueWrite.Inputs.Skip(2)))
+            {
+                if (DiagnosticSwitches.RopeQkvDebug)
+                {
+                    Console.Error.WriteLine($"rope q+k+v of {attention.Output.Name}: the ropes or the cache writes differ");
+                }
+
+                continue;
+            }
+
+            keyUnit.Absorbed = [.. keyUnit.Absorbed ?? [], .. queryUnit.Absorbed ?? [], queryRope, valueWrite];
+            absorbed.Add(queryRope);
+            absorbed.Add(valueWrite);
+            _ropeQkv[keyWrite] = (queryRope, valueWrite);
+        }
+    }
+
+    /// <summary>
+    /// The heads of <paramref name="v"/> [T, H * R, D] when it repeats each head of a [T, H, D] source R times in place
+    /// (Reshape to [T, H, 1, D], Tile by [1, 1, R, 1], Reshape back: head h reads source head h / R), every step read only by the
+    /// next: the source, R and the three nodes; else null.
+    /// </summary>
+    private static (Value Source, long Repeats, Node[] Nodes)? RepeatedHeads(Value v, Func<Value, bool> singleUse)
+    {
+        if (v.Producer is not { Op.Name: "Reshape" } outer || !singleUse(v) || v.Shape.Rank != 3
+            || outer.Inputs[0] is not { Producer: { Op.Name: "Tile" } tile } tiled || !singleUse(tiled)
+            || tile.Attributes.Get<long[]>("repeats") is not [1, 1, var repeats, 1] || repeats < 2
+            || tile.Inputs[0] is not { Producer: { Op.Name: "Reshape" } inner } split || !singleUse(split) || split.Shape.Rank != 4
+            || split.Shape[2] is not { IsSymbolic: false, Fixed: 1 }
+            || inner.Inputs[0] is not { Shape.Rank: 3 } source
+            || source.Shape[1].IsSymbolic || source.Shape[2].IsSymbolic || v.Shape[1].IsSymbolic || v.Shape[2].IsSymbolic
+            || v.Shape[1].Fixed != source.Shape[1].Fixed * repeats || v.Shape[2].Fixed != source.Shape[2].Fixed)
+        {
+            return null;
+        }
+
+        return (source, repeats, [inner, tile, outer]);
     }
 
     /// <summary>
@@ -849,6 +1106,7 @@ public sealed partial class GraphLowerer
                 foreach (var o in n.Outputs)
                 {
                     _root[o] = _concatSlices.TryGetValue(o, out var slice) ? slice.Concat
+                        : _channelsLastParts.TryGetValue(o, out var part) ? part.Concat
                         : n.Op.Category == OpCategory.View ? RootOf(n.Inputs[0]) : o;
                 }
             }

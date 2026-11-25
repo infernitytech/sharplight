@@ -210,6 +210,209 @@ void topk_subgroup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifor
 }
 #endif
 
+#ifdef KERNEL_TOPK_SOFTMAX
+// Mixture-of-experts routing in one launch: the softmax of a row of LEN router logits (as rows.slang's softmax: same lanes, same
+// sums, so the same probabilities), the top K of the probabilities (as topk_subgroup) and, with NORM, the selected probabilities
+// divided by NORM_SCALE * their sum + NORM_BIAS (ReduceSum, Scale and Div of the router). One subgroup per row; INNER = 1.
+// SELECTED_SOFTMAX (not with NORM): the other order (gpt-oss): the top K of the logits, then the softmax of the K selected logits (as
+// rows.slang's softmax of the [rows, K] values: the same lanes hold the same values, so the same sums).
+// ROW_SLOTS = LEN / SG (LEN a multiple of SG, at most 32 slots) keeps the row in registers and selects by subgroup argmax rounds, else
+// per-lane sorted lists (dynamically indexed, so in local memory: ~15 us for 512 logits on Blackwell). The same result either way.
+// Writes vals [rows, K] (normalized with NORM) and idx [rows, K].
+#ifndef ROW_SLOTS
+#define ROW_SLOTS 0
+#endif
+#ifndef NORM
+#define NORM 0
+#endif
+#ifndef SELECTED_SOFTMAX
+#define SELECTED_SOFTMAX 0
+#endif
+[shader("compute")]
+[numthreads(SG, 1, 1)]
+void topk_softmax(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform TopKParams p)
+{
+    uint row = topk_row(gid);
+    if (row >= p.rows)
+    {
+        return;
+    }
+
+    uint lane = ltid.x;
+    float* xr = p.x + uint64_t(row) * LEN;
+    float picked[K];
+    uint pickedIds[K];
+#if ROW_SLOTS
+    // The row in registers (ROW_SLOTS = LEN / SG values per lane, element lane + s * SG in slot s, statically indexed), the same
+    // softmax sums in the same order as the loops below; then K rounds of a subgroup argmax over the lanes' best untaken slots
+    // (key descending, index ascending: the order of the per-lane lists below, so the same selection).
+    float xv[ROW_SLOTS];
+    [ForceUnroll]
+    for (uint s = 0; s < ROW_SLOTS; s++)
+    {
+        xv[s] = xr[lane + s * SG];
+    }
+#if !SELECTED_SOFTMAX
+    float m = -3.4028235e38;
+    [ForceUnroll]
+    for (uint s = 0; s < ROW_SLOTS; s++)
+    {
+        m = max(m, xv[s]);
+    }
+    m = WaveActiveMax(m);
+    float sum = 0;
+    [ForceUnroll]
+    for (uint s = 0; s < ROW_SLOTS; s++)
+    {
+        sum += exp(xv[s] - m);
+    }
+    sum = WaveActiveSum(sum);
+    float inv = 1.0 / sum;
+    [ForceUnroll]
+    for (uint s = 0; s < ROW_SLOTS; s++)
+    {
+        xv[s] = exp(xv[s] - m) * inv;
+    }
+#endif
+    uint kv[ROW_SLOTS];
+    [ForceUnroll]
+    for (uint s = 0; s < ROW_SLOTS; s++)
+    {
+        kv[s] = topk_key(xv[s]);
+    }
+    uint taken = 0u;
+    [ForceUnroll]
+    for (uint r = 0; r < K; r++)
+    {
+        bool has = false;
+        uint bestKey = 0u;
+        uint bestSlot = 0u;
+        float bestValue = 0.0;
+        [ForceUnroll]
+        for (uint s = 0; s < ROW_SLOTS; s++)
+        {
+            bool better = (taken & (1u << s)) == 0u && (!has || kv[s] > bestKey);
+            bestKey = better ? kv[s] : bestKey;
+            bestSlot = better ? s : bestSlot;
+            bestValue = better ? xv[s] : bestValue;
+            has = has || better;
+        }
+        uint bestId = has ? lane + bestSlot * SG : 0xFFFFFFFFu;
+        uint best = WaveActiveMax(has ? bestKey : 0u);
+        uint winner = WaveActiveMin(has && bestKey == best ? bestId : 0xFFFFFFFFu);
+        bool mine = bestId == winner;
+        picked[r] = WaveActiveSum(mine ? bestValue : 0.0);
+        pickedIds[r] = winner;
+        if (mine)
+        {
+            taken |= 1u << bestSlot;
+        }
+    }
+#else
+#if !SELECTED_SOFTMAX
+    float m = -3.4028235e38;
+    for (uint j = lane; j < LEN; j += SG) m = max(m, xr[j]);
+    m = WaveActiveMax(m);
+    float sum = 0;
+    for (uint j = lane; j < LEN; j += SG) sum += exp(xr[j] - m);
+    sum = WaveActiveSum(sum);
+    float inv = 1.0 / sum;
+#endif
+
+    uint keys[K];
+    uint ids[K];
+    float probs[K];
+    for (uint s = 0; s < K; s++)
+    {
+        keys[s] = 0u;
+        ids[s] = 0xFFFFFFFFu;
+        probs[s] = 0.0;
+    }
+    uint count = 0u;
+    for (uint j = lane; j < LEN; j += SG)
+    {
+#if SELECTED_SOFTMAX
+        float v = xr[j];
+#else
+        float v = exp(xr[j] - m) * inv;
+#endif
+        uint k = topk_key(v);
+        if (count == K && k <= keys[K - 1])
+        {
+            continue;
+        }
+        uint pos = count < K ? count : K - 1;
+        count = min(count + 1u, uint(K));
+        while (pos > 0 && keys[pos - 1] < k)
+        {
+            keys[pos] = keys[pos - 1];
+            ids[pos] = ids[pos - 1];
+            probs[pos] = probs[pos - 1];
+            pos--;
+        }
+        keys[pos] = k;
+        ids[pos] = j;
+        probs[pos] = v;
+    }
+
+    // K rounds: the best list head across the subgroup wins and is popped from its lane; every lane keeps the selected values.
+    for (uint r = 0; r < K; r++)
+    {
+        uint best = WaveActiveMax(keys[0]);
+        uint winner = WaveActiveMin(keys[0] == best ? ids[0] : 0xFFFFFFFFu);
+        bool mine = ids[0] == winner;
+        picked[r] = WaveActiveSum(mine ? probs[0] : 0.0);
+        pickedIds[r] = winner;
+        if (mine)
+        {
+            for (uint s = 0; s + 1 < K; s++)
+            {
+                keys[s] = keys[s + 1];
+                ids[s] = ids[s + 1];
+                probs[s] = probs[s + 1];
+            }
+            keys[K - 1] = 0u;
+            ids[K - 1] = 0xFFFFFFFFu;
+            probs[K - 1] = 0.0;
+        }
+    }
+
+#endif
+
+    float denominator = 1.0;
+#if NORM
+    float total = 0.0;
+    for (uint r = 0; r < K; r++) total += picked[r];
+    denominator = total * NORM_SCALE + NORM_BIAS;
+#endif
+#if SELECTED_SOFTMAX
+    // rows.slang's softmax over the K values, lane r holding the r-th (the other lanes contribute its initial values).
+    float selected = picked[0];
+    for (uint r = 1; r < K; r++) selected = lane == r ? picked[r] : selected;
+    float selectedMax = WaveActiveMax(lane < K ? selected : -3.4028235e38);
+    float selectedSum = WaveActiveSum(lane < K ? exp(selected - selectedMax) : 0.0);
+    float selectedInv = 1.0 / selectedSum;
+#endif
+    if (lane < K)
+    {
+        uint64_t o = uint64_t(row) * K + lane;
+        float v = picked[0];
+        for (uint r = 1; r < K; r++) v = lane == r ? picked[r] : v;
+        uint id = pickedIds[0];
+        for (uint r = 1; r < K; r++) id = lane == r ? pickedIds[r] : id;
+#if SELECTED_SOFTMAX
+        v = exp(v - selectedMax) * selectedInv;
+#endif
+#if NORM
+        p.vals[o] = v / denominator;
+#else
+        p.vals[o] = v;
+#endif
+        p.idx[o] = int(id);
+    }
+}
+#endif
+
 #ifdef KERNEL_TOPK_SERIAL
 [shader("compute")]
 [numthreads(64, 1, 1)]

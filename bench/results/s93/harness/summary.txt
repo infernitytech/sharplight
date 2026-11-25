@@ -1,0 +1,17 @@
+# multi_det.cu: gemm_fp8_tma.cu MULTI=2 (K 5120, members 10240 / 6144, XCAP 512, T 512, F8N_WG=1, F8N_WUNI=1 unless noted), 82 blocks,
+# every launch's outputs compared bit for bit with the first launch (run2+: with the nvcc 13.2 build as the reference). RTX PRO 4500, GPU 0.
+cubin                                                   repeats differing
+engine NVRTC 13.0 cubin (cache of the 27B run)          7/99, 5/99 (noise kernel), 3/99 (PDL), 2/99 (PDL + noise)    run1.log
+nvcc 13.2 (cicc 13.2 PTX, ptxas 13.2)                   0/99 x4                                                       run1.log
+NVRTC 13.0 PTX assembled by ptxas 13.2                  2/149   (the PTX, not ptxas, decides)                          run3.log
+nvcc 13.2 with the griddepcontrol prologue              0/149                                                          (console)
+NVRTC 13.0 (tools/nvrtc.py, same PTX as the engine)     21/299
+  all scales 1.0 (XS1 WS1)                              10/199  (not the scale ring)
+  x codes repeated per 128 values (XREP)                14/199  (not a stale K block of the same token tile)
+  F8N_WUNI=0 (per-row weight scales)                    0/299   (the shorter promotion's timing exposes it)
+  + fence.proxy.async.shared::cta before the release    0/299, 0/1999 (final source)
+  + asm dependency on every accumulator before release  13/299  (not an ldmatrix still in flight)
+9-warp form (F8N_WG=0), NVRTC                           0/999 without the fence, 0/999 with it
+Wrong outputs per bad launch: 32-256, always whole rows of one warp's 32 columns (one 16-byte row chunk of A codes), errors ~5-30 %.
+Sustained ms per launch (1,000 back to back, T 512): copy warpgroup 0.3643 / 0.3647 -> fenced 0.3653 / 0.3651 (+0.2 %);
+9-warp 0.3755 / 0.3763 -> fenced 0.3775 / 0.3779 (+0.5 %).

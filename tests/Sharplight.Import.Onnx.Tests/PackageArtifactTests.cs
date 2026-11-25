@@ -18,7 +18,7 @@ public class PackageArtifactTests(ITestOutputHelper output)
     {
         var c = RefCase.Zoo(Model);
         Assert.SkipWhen(c is null, $"zoo reference or model missing for '{Model}'");
-        var device = Providers.VulkanOrSkip();
+        var device = Providers.GpuOrSkip();
         var directory = Directory.CreateTempSubdirectory("sharplight-onnx-package-");
         try
         {

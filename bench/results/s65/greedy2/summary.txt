@@ -1,0 +1,7 @@
+gpt-oss-20b p40: identical (796 bytes)
+gpt-oss-20b p1000: identical (6603 bytes)
+gpt-oss-20b p3000: differs
+gpt-oss-20b p8000: differs
+Qwen3-8B-FP8 p1000: identical (6672 bytes)
+Qwen3-8B-FP8 p3000: identical (18536 bytes)
+Qwen3-8B-FP8 p8000: identical (42264 bytes)

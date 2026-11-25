@@ -189,6 +189,81 @@ void moe_gather_x16(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifo
 #endif
 #endif
 
+#ifdef KERNEL_MOE_RANGE_FIXUP
+// The rows of the hand-written grouped GEMM's sorted f16 store (gemm_moe_native.cu NM_Y16 with NM_Y16_RS) brought to the form of
+// the ranged moe_gather_x16: each sorted row o < T * S whose scale word (byte Y_RS + 4 o of xs) the store set to 1 holds values of
+// 2^15 or more as f16 infinities with their f32 values at spill[o, :]; such a row is stored scaled by f16_range_scale of its
+// largest magnitude with its scale word, every other row's word becomes 0 (it may hold the previous layer's). The f16 values of
+// a scaled row are the stored f16 values times the (power-of-two) scale, rounded to f16: the gather rounds the scaled f32 values
+// once, which differs only where the scaled values fall below f16's normal range. 256 rows per workgroup (grid: x = ceil(T S / 256)).
+struct FixupParams
+{
+    uint16_t* xs;
+    float* spill;
+    uint T;
+};
+
+groupshared uint gFixRows[256];
+groupshared uint gFixCount;
+groupshared float gFixMax[8];
+
+float fixup_value(uint16_t* row, float* spill, uint c)
+{
+    uint h = uint(row[c]);
+    return (h & 0x7FFFu) == 0x7C00u ? spill[c] : f16tof32(h);
+}
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void moe_range_fixup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform FixupParams p)
+{
+    uint tid = ltid.x, o = gid.x * 256 + tid;
+    if (tid == 0) gFixCount = 0;
+    GroupMemoryBarrierWithGroupSync();
+    if (o < p.T * S)
+    {
+        uint* word = (uint*)(uint64_t(p.xs) + Y_RS + uint64_t(o) * 4);
+        uint v = *word;
+        if (v == 1u)
+        {
+            uint slot;
+            InterlockedAdd(gFixCount, 1u, slot);
+            gFixRows[slot] = o;
+        }
+        else if (v != 0u)
+        {
+            *word = 0u;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    uint count = gFixCount;
+    for (uint f = 0; f < count; f++)
+    {
+        uint r = gFixRows[f];
+        uint16_t* row = p.xs + uint64_t(r) * K;
+        float* spill = p.spill + uint64_t(r) * K;
+        float m = 0;
+        for (uint c = tid; c < K; c += 256)
+        {
+            m = max(m, abs(fixup_value(row, spill, c)));
+        }
+        m = WaveActiveMax(m);
+        if (tid % 32 == 0) gFixMax[tid / 32] = m;
+        GroupMemoryBarrierWithGroupSync();
+        m = max(max(max(gFixMax[0], gFixMax[1]), max(gFixMax[2], gFixMax[3])), max(max(gFixMax[4], gFixMax[5]), max(gFixMax[6], gFixMax[7])));
+        float s = f16_range_scale(m);
+        // Every thread has read its values of the row (the maximum's barrier) before any is rewritten.
+        for (uint c = tid; c < K; c += 256)
+        {
+            float x = fixup_value(row, spill, c);
+            row[c] = uint16_t(f32tof16(x * s));
+        }
+        if (tid == 0) *(uint*)(uint64_t(p.xs) + Y_RS + uint64_t(r) * 4) = s == 1.0 ? 0u : asuint(1.0 / s);
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+#endif
+
 struct GemmParams
 {
 #if HAS_GRID
@@ -294,9 +369,16 @@ using namespace linalg;
 #define GAS (GBK + 8)
 #define GA_PER_T (GBM * GBK / 8 / GTHREADS)
 #define GB_PER_T (GBN * GBK / 8 / GTHREADS)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA2 = CuA16;
+typealias MatB2 = CuB16;
+typealias Acc2 = CuAccF;
+#else
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 // MOE_FRAG8 (DeviceFeatures.MatrixF16Small, Metal simdgroup_matrix): each 16x16 accumulator is 2 x 2 fragments of 8x8 over K steps
 // of 8, and the tiles are staged as half arrays (Slang's Metal target cannot load fragments from packed uint4 arrays).
 #ifndef MOE_FRAG8

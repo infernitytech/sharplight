@@ -24,11 +24,17 @@ public static partial class FeedLayout
     /// <summary>The catalog index.</summary>
     public const string CatalogIndex = "catalog/index.json";
 
+    /// <summary>The model listing: every model group with its variants (<see cref="Index.FeedModelListing"/>).</summary>
+    public const string ModelListing = "catalog/models.json";
+
     /// <summary>The package index template.</summary>
     public const string PackageIndexTemplate = "packages/{id}/index.json";
 
     /// <summary>Name of a version's manifest.</summary>
     public const string ManifestFileName = "manifest.json";
+
+    /// <summary>Name of the staging-folder file that makes a manifest-only version reuse an earlier version's package file (see <see cref="PayloadReuse"/>).</summary>
+    public const string PayloadReuseFileName = "reuse.json";
 
     /// <summary>Name of a version's manifest signature.</summary>
     public const string ManifestSignatureFileName = "manifest.sig";

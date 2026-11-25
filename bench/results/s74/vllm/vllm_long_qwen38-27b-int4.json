@@ -1,0 +1,1 @@
+{"name": "qwen38-27b-int4", "load_s": 126.44367027282715, "max_len": 131584, "kv": "auto", "results": {"pp32768": {"tok_s_median": 2186.388566095765, "ttft_s_median": 14.98727193698869}, "tg128@d32768x1": {"tok_s_per_stream": 44.03279919141811, "tok_s_aggregate": 44.03279919141811}, "tg128@d131072x1": {"tok_s_per_stream": 38.10995822941996, "tok_s_aggregate": 38.10995822941996}}}

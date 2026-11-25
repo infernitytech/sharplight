@@ -1,0 +1,24 @@
+qkv64 blocks=80: isolated 47.1 us (626 GB/s), sustained 39.4 us (748 GB/s), max rel err 6.70e-05
+q_s6 blocks=80: isolated 47.1 us (626 GB/s), sustained 39.0 us (756 GB/s), max rel err 6.70e-05
+q_pf blocks=80: isolated 47.1 us (626 GB/s), sustained 39.5 us (748 GB/s), max rel err 6.70e-05
+q_pf256 blocks=80: isolated 47.1 us (626 GB/s), sustained 39.5 us (747 GB/s), max rel err 6.70e-05
+q_s6pf blocks=80: isolated 47.1 us (626 GB/s), sustained 39.0 us (756 GB/s), max rel err 6.70e-05
+q32_s6pf blocks=160: isolated 51.2 us (576 GB/s), sustained 40.2 us (733 GB/s), max rel err 6.70e-05
+o32 blocks=90: isolated 38.9 us (606 GB/s), sustained 32.1 us (736 GB/s), max rel err 9.59e-05
+o32_s6 blocks=90: isolated 49.2 us (480 GB/s), sustained 40.3 us (585 GB/s), max rel err 9.59e-05
+o32_pf blocks=90: isolated 38.9 us (606 GB/s), sustained 32.0 us (737 GB/s), max rel err 9.59e-05
+o64_s6pf blocks=45: isolated 36.9 us (640 GB/s), sustained 32.7 us (722 GB/s), max rel err 9.59e-05
+o32_s6pf blocks=90: isolated 49.2 us (480 GB/s), sustained 40.3 us (585 GB/s), max rel err 9.59e-05
+qkv64 blocks=80: isolated 47.1 us (626 GB/s), sustained 39.5 us (747 GB/s), max rel err 6.70e-05
+q_s6 blocks=80: isolated 46.7 us (632 GB/s), sustained 39.0 us (756 GB/s), max rel err 6.70e-05
+q_pf blocks=80: isolated 46.7 us (631 GB/s), sustained 39.5 us (748 GB/s), max rel err 6.70e-05
+q_pf256 blocks=80: isolated 47.1 us (626 GB/s), sustained 39.5 us (747 GB/s), max rel err 6.70e-05
+q_s6pf blocks=80: isolated 45.1 us (655 GB/s), sustained 39.0 us (755 GB/s), max rel err 6.70e-05
+q32_s6pf blocks=160: isolated 53.2 us (554 GB/s), sustained 40.3 us (732 GB/s), max rel err 6.70e-05
+o32 blocks=90: isolated 38.9 us (606 GB/s), sustained 32.0 us (736 GB/s), max rel err 9.59e-05
+o32_s6 blocks=90: isolated 47.1 us (501 GB/s), sustained 40.3 us (586 GB/s), max rel err 9.59e-05
+o32_pf blocks=90: isolated 38.9 us (606 GB/s), sustained 32.1 us (736 GB/s), max rel err 9.59e-05
+o64_s6pf blocks=45: isolated 36.9 us (640 GB/s), sustained 32.6 us (723 GB/s), max rel err 9.59e-05
+o32_s6pf blocks=90: isolated 49.2 us (480 GB/s), sustained 40.3 us (585 GB/s), max rel err 9.59e-05
+
+[exited with code 0]

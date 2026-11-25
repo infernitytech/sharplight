@@ -1,0 +1,8 @@
+Loaded RedHatAI_Qwen3-30B-A3B-NVFP4 (decoder): 579 tensors, 19.96 GB, vocab 151936 [375 ms]
+Compiling 1684 / 1684 (AMD EPYC 7443 24-Core Processor)
+Compiled 'decode' in 393 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 50 groups, 18.96 GiB weights+state
+1 segment(s): [0@0: 1684 nodes]
+Ready (decode)
+The capital of France is Paris. The capital of the United Kingdom is London. The capital of the United
+prompt: 5 tok in 14588 ms (0.3 tok/s) | generated: 16 tok, 0.92 tok/s

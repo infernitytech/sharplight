@@ -10,6 +10,9 @@ internal sealed partial class ResidentModelsViewModel : ObservableObject
 {
     private readonly StudioServices _services;
     private readonly INavigator _navigator;
+    private readonly object _refreshLock = new();
+    private bool _refreshing;
+    private bool _refreshAgain;
 
     public ResidentModelsViewModel(StudioServices services, INavigator navigator)
     {
@@ -53,6 +56,36 @@ internal sealed partial class ResidentModelsViewModel : ObservableObject
 
     /// <summary>Re-reads models and devices.</summary>
     public void Refresh()
+    {
+        // Serialized: the runtime raises ModelsChanged from engine threads (after a load, unload or lease), and a dispatcher that runs inline
+        // off the UI thread would otherwise edit the collection while another refresh enumerates it. A refresh requested from inside a
+        // refresh (a collection or property handler reaching the runtime) runs after the current one.
+        lock (_refreshLock)
+        {
+            if (_refreshing)
+            {
+                _refreshAgain = true;
+                return;
+            }
+
+            _refreshing = true;
+            try
+            {
+                do
+                {
+                    _refreshAgain = false;
+                    RefreshCore();
+                }
+                while (_refreshAgain);
+            }
+            finally
+            {
+                _refreshing = false;
+            }
+        }
+    }
+
+    private void RefreshCore()
     {
         var current = _services.Runtime.LoadedModels;
         if (Models.Select(item => item.Model).SequenceEqual(current))

@@ -1,0 +1,23 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 64 | 44.3 | 367 / 0 | 15.49 / 15.66, 15.42 |
+--- profile batch 64 (greedy)
+GPU time 334.66 ms
+   100.565 ms  30.0%    720x  min    134.0 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+    74.000 ms  22.1%    720x  min     98.6 us  attention attn_decode_native T=64,U=64,R=64|2,3
+    52.901 ms  15.8%    720x  min     69.5 us  matmul [12288→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+    32.641 ms   9.8%    720x  min     42.3 us  matmul [4096→4096+1024+1024] f8e4m3_b128g native gemm_fp8_native T=64,U=64,R=64|2,3
+    31.879 ms   9.5%     20x  min   1591.7 us  matmul [4096→151936] f16 gemm_cm2 T=64,U=64,R=64|2,3
+    20.170 ms   6.0%    720x  min     24.9 us  matmul [4096→4096] f8e4m3_b128g fp8 gemm_fp8_native T=64,U=64,R=64|2,3
+     9.225 ms   2.8%   1440x  min      4.8 us  fused[Add]+RmsNorm main T=64,U=64,R=64|2,3
+     4.537 ms   1.4%    720x  min      4.5 us  rope+qkv+cache_write rope_qkv T=64,U=64,R=64|2,3
+     3.999 ms   1.2%    720x  min      3.8 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64|2,3
+     3.033 ms   0.9%    720x  min      2.8 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64|2,3
+     1.070 ms   0.3%     20x  min     50.7 us  sample sample T=64,U=64,R=64|2,3
+     0.293 ms   0.1%     40x  min      5.6 us  gather gather T=64,U=64,R=64|2,3
+     0.130 ms   0.0%     20x  min      4.5 us  RmsNorm main T=64,U=64,R=64|2,3
+     0.129 ms   0.0%     20x  min      5.1 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=64,U=64,R=64|2,3
+     0.091 ms   0.0%     20x  min      3.9 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=64,U=64,R=64|2,3
+

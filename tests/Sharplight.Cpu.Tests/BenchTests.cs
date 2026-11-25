@@ -98,6 +98,128 @@ public class BenchTests
         double gflops = 2.0 * tokens * N * K / sec / 1e9;
         Report($"MatMul {type,-5} {N}x{K} T={tokens,-4} {sec * 1e3,8:F3} ms  weights {data.Length / 1e6:F1} MB  {gbps,7:F1} GB/s  {gflops,8:F1} GFLOP/s  (p10 of {iters} runs, threads {CpuParallel.Threads}, {CpuIsa.Name(CpuIsa.Level)}{(intDot ? "" : ", no int-dot")})");
     }
+    /// <summary>
+    /// One decode token through a routed-expert layer on the CPU (gate and up products, SiLU, the down product, the weighted slot sum) with new random experts every run, so
+    /// the selected experts come from memory: Qwen3-Coder-Next's shape (512 experts of 512 x 2048, top 10, Q4_K gate / up, Q6_K down) by default.
+    /// </summary>
+    [Theory]
+    [InlineData(512, 512, 2048, 10, "q4_k", "q6_k")]
+    [InlineData(512, 512, 2048, 10, "q4_k", "q4_k")]
+    public void ExpertLayerThroughput(int experts, int n, int k, int slots, string upType, string downType)
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
+        if (int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_THREADS"), out var thr))
+        {
+            CpuParallel.Threads = thr;
+        }
+
+        var up = DataType.Get(upType);
+        var down = DataType.Get(downType);
+        var tg = new TestGraph();
+        var x = tg.InF("x", TestGraph.T, k);
+        var ids = tg.In("ids", DataType.I32, TestGraph.T, slots);
+        var gate = tg.B.Emit1("MatMulId", [x, tg.W("gate", up, new Shape(experts, n, k), RandomBlocks(up, (long)experts * n, k, 1)), ids]);
+        var upProduct = tg.B.Emit1("MatMulId", [x, tg.W("up", up, new Shape(experts, n, k), RandomBlocks(up, (long)experts * n, k, 2)), ids]);
+        var hidden = tg.B.Mul(tg.B.Silu(gate), upProduct);
+        var slotWeights = tg.InF("w", TestGraph.T, slots, 1);
+        var downProduct = tg.B.Emit1("MatMulId", [hidden, tg.W("down", down, new Shape(experts, k, n), RandomBlocks(down, (long)experts * k, n, 3)), ids]);
+        tg.B.Output("y", tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(downProduct, slotWeights), 0, 2, 1)]));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 1, intDot: true);
+        Kit.Set(m, x, Kit.Rand(k, 4));
+        Kit.Set(m, slotWeights, Kit.Rand(slots, 6));
+        var p = Kit.P(1);
+        var rng = new Random(5);
+        const int Iters = 400;
+        var times = new double[Iters];
+        for (int i = -20; i < Iters; i++)
+        {
+            Kit.Set(m, ids, [.. Enumerable.Range(0, experts).OrderBy(_ => rng.Next()).Take(slots)]);
+            long t0 = Stopwatch.GetTimestamp();
+            m.Run(p);
+            if (i >= 0)
+            {
+                times[i] = Stopwatch.GetElapsedTime(t0).TotalSeconds;
+            }
+        }
+
+        Array.Sort(times);
+        double bytes = slots * (2.0 * up.ByteSize((long)n * k) + down.ByteSize((long)k * n));
+        Report($"ExpertLayer E={experts} {n}x{k} top {slots} {upType}/{downType}: p10 {times[Iters / 10] * 1e3:F3} ms, median {times[Iters / 2] * 1e3:F3} ms, "
+            + $"{bytes / 1e6:F1} MB = {bytes / times[Iters / 10] / 1e9:F1} GB/s at p10 (threads {CpuParallel.Threads}, {CpuIsa.Name(CpuIsa.Level)})");
+    }
+
+    /// <summary>Single-thread time of the fused integer dots per 32 values, on 2 MB of weight rows (cache-resident) and one activation row.</summary>
+    [Theory]
+    [InlineData("q4_k", 2048), InlineData("q4_k", 512), InlineData("q6_k", 2048), InlineData("q6_k", 512)]
+    public unsafe void FusedDotThroughput(string type, int k)
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
+        var dt = DataType.Get(type);
+        var format = Quant.FormatOf(dt)!.Value;
+        long rowBytes = dt.ByteSize(k);
+        int rows = (int)((2 << 20) / rowBytes);
+        var weights = RandomBlocks(dt, rows, k, 1);
+        var x = Kit.Rand(k, 2);
+        var activation = new byte[IntDot.RowBytes(k) + 64];
+        float sink = 0;
+        double best = double.MaxValue;
+        double bestPairs = double.MaxValue;
+        fixed (byte* w = weights, a = activation)
+        fixed (float* px = x)
+        {
+            var row = IntDot.RowAt((byte*)(((nint)a + 63) & ~(nint)63), k);
+            IntDot.Quantize(px, k, row);
+            for (int round = 0; round < 50; round++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                for (int r = 0; r < rows; r++)
+                {
+                    sink += IntDot.FusedDot(format, w + r * rowBytes, row, k);
+                }
+
+                best = Math.Min(best, Stopwatch.GetElapsedTime(t0).TotalSeconds);
+            }
+
+            for (int round = 0; IntDot.HasFusedDot2(format) && round < 50; round++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                for (int r = 0; r + 1 < rows; r += 2)
+                {
+                    IntDot.FusedDot2(format, w + r * rowBytes, w + (r + 1) * rowBytes, row, k, out float first, out float second);
+                    sink += first + second;
+                }
+
+                bestPairs = Math.Min(bestPairs, Stopwatch.GetElapsedTime(t0).TotalSeconds);
+            }
+        }
+
+        Report($"FusedDot {type} k={k}: {best * 1e9 / ((double)rows * k / 32):F3} ns per 32 values, {bestPairs * 1e9 / ((double)rows * k / 32):F3} in row pairs ({rows} rows, sum {sink:G3})");
+    }
+
+    /// <summary>Single-thread time of unary kernels over 8192 values (L1-resident).</summary>
+    [Theory]
+    [InlineData("Silu"), InlineData("Tanh"), InlineData("Softplus"), InlineData("Mish"), InlineData("Erf"), InlineData("Gelu")]
+    public unsafe void UnaryKernelThroughput(string op)
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
+        const int Count = 8192;
+        var kind = Enum.Parse<UnaryKind>(op);
+        var x = Kit.Rand(Count, 3, 6f);
+        var y = new float[Count];
+        double best = double.MaxValue;
+        fixed (float* px = x, py = y)
+        {
+            for (int round = 0; round < 200; round++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                ScalarMath.Unary(kind, px, py, Count, 1, 0);
+                best = Math.Min(best, Stopwatch.GetElapsedTime(t0).TotalSeconds);
+            }
+        }
+
+        Report($"Unary {op}: {best * 1e6:F1} us per {Count} values");
+    }
+
     /// <summary>Cached attention (Qwen3-0.6B shape: 16 query heads, 8 KV heads, head size 128, f16 cache) after <paramref name="past"/> tokens.</summary>
     [Theory]
     [InlineData(1, 512), InlineData(1, 4096), InlineData(512, 0)]

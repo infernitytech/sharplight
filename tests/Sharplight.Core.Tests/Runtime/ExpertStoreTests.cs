@@ -1,0 +1,273 @@
+using Sharplight.Models;
+using Sharplight.Runtime.Experts;
+using Sharplight.Tests;
+using Xunit;
+
+namespace Sharplight.Core.Tests.Runtime;
+
+/// <summary>
+/// The cache of routed experts left on disk (<see cref="ExpertStore"/>): an acquired expert's bytes are the stored ones, repeated experts
+/// hit, the least recently used expert no pass holds is evicted, held experts never are, prefetches count as hits, and the decision to
+/// leave experts on disk follows the host budget and the cache asked for.
+/// </summary>
+public sealed unsafe class ExpertStoreTests
+{
+    private const int Experts = 200;
+    private const int ExpertFloats = 3000;   // 12000 bytes: experts straddle page boundaries
+
+    private static (FileWeights File, WeightInfo Gate, WeightInfo Down, float[] GateData, float[] DownData) Weights()
+    {
+        var file = new FileWeights();
+        var gateData = Enumerable.Range(0, Experts * ExpertFloats).Select(i => (float)i).ToArray();
+        var downData = Enumerable.Range(0, Experts * ExpertFloats).Select(i => -(float)i).ToArray();
+        var gate = file.AddF32("blk.0.ffn_gate_exps.weight", gateData, Experts, 30, 100);
+        var down = file.AddF32("blk.0.ffn_down_exps.weight", downData, Experts, 100, 30);
+        return (file, gate, down, gateData, downData);
+    }
+
+    /// <summary>A store whose cache holds 64 slots of the test's experts (the smallest pool).</summary>
+    private static ExpertStore Store() => new(cacheBytes: 1, ExpertReaders.CreateThreads(4));
+
+    private static void AssertExpert(byte* pointer, float[] data, int expert)
+        => Assert.True(new ReadOnlySpan<float>(pointer, ExpertFloats).SequenceEqual(data.AsSpan(expert * ExpertFloats, ExpertFloats)), $"expert {expert}");
+
+    [Fact]
+    public void EstimateDecode_ReadsTheUncachedShareOfASteps()
+    {
+        // DeepSeek-V3.1 Q4_K_M as in benchmarks section 85: 353 GiB of experts on disk, 11.9 GB per step, 4.4 GB/s probed, a 28 GiB cache.
+        long experts = 353L << 30;
+        var estimate = ExpertStore.EstimateDecode(11_900_000_000, experts, 28L << 30, 4.4e9);
+
+        Assert.Equal(4.4e9 / 11.9e9, estimate.ColdTokensPerSecond, 6);
+        Assert.Equal(28.0 / 353, estimate.CachedShare, 6);
+        Assert.Equal(estimate.ColdTokensPerSecond / (1 - (28.0 / 353)), estimate.WarmTokensPerSecond, 6);
+        Assert.True(double.IsPositiveInfinity(ExpertStore.EstimateDecode(100, 1000, 2000, 1e9).WarmTokensPerSecond));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExpertStore.EstimateDecode(100, 1000, 0, 0));
+    }
+
+    [Fact]
+    public void AcquiredExpertsHoldTheirStoredBytes_AndRepeatsHit()
+    {
+        var (file, gate, down, gateData, downData) = Weights();
+        using var _ = file;
+        using var store = Store();
+        Assert.True(store.TryRegister(gate, "blk.0#experts", 2));
+        Assert.True(store.TryRegister(down, "blk.0#experts", 2));
+        var gateTensor = store.Find(gate)!;
+        var downTensor = store.Find(down)!;
+        var pointers = new nint[Experts];
+        var pointers2 = new nint[Experts];
+        int[] experts = [3, 17, 199, 0];
+        fixed (nint* p = pointers)
+        fixed (nint* q = pointers2)
+        {
+            store.Acquire(gateTensor, null, experts, (byte**)p, (byte**)q, prefetchLayer: true);
+            foreach (int e in experts)
+            {
+                AssertExpert((byte*)pointers[e], gateData, e);
+            }
+
+            store.Release(gateTensor, null, experts);
+            var first = store.Statistics;
+            Assert.Equal(4, first.Misses);
+            Assert.Equal(0, first.Hits);
+            Assert.Equal(4, first.Prefetched);   // the layer's down projection, read ahead
+
+            store.Acquire(downTensor, null, experts, (byte**)p, (byte**)q, prefetchLayer: false);
+            foreach (int e in experts)
+            {
+                AssertExpert((byte*)pointers[e], downData, e);
+            }
+
+            store.Release(downTensor, null, experts);
+            store.Acquire(gateTensor, null, [17, 5], (byte**)p, (byte**)q, prefetchLayer: false);
+            AssertExpert((byte*)pointers[17], gateData, 17);
+            AssertExpert((byte*)pointers[5], gateData, 5);
+            store.Release(gateTensor, null, [17, 5]);
+        }
+
+        var stats = store.Statistics;
+        Assert.Equal(5, stats.Misses);
+        Assert.Equal(4, stats.ReadAhead);   // the down projection's experts, read while the gate's computed
+        Assert.Equal(1, stats.Hits);
+        Assert.True(stats.BytesRead >= 9 * ExpertFloats * sizeof(float));
+    }
+
+    [Fact]
+    public void TheLeastRecentlyUsedExpertIsEvicted_HeldOnesAreNot()
+    {
+        var (file, gate, _, gateData, _) = Weights();
+        using var __ = file;
+        using var store = Store();
+        store.TryRegister(gate, "blk.0#experts", 2);
+        var tensor = store.Find(gate)!;
+        var pointers = new nint[Experts];
+        fixed (nint* p = pointers)
+        {
+            int slots = store.Statistics.CacheSlots;
+            Assert.Equal(0, slots);   // laid out on first use
+            int chunk = store.ChunkExperts(tensor);
+            slots = store.Statistics.CacheSlots;
+            Assert.Equal(64, slots);
+            Assert.Equal(16, chunk);
+
+            // Expert 0 stays held while every other slot cycles through other experts.
+            store.Acquire(tensor, null, [0], (byte**)p, null, false);
+            var held = pointers[0];
+            for (int e = 1; e < Experts; e++)
+            {
+                store.Acquire(tensor, null, [e], (byte**)p, null, false);
+                store.Release(tensor, null, [e]);
+            }
+
+            AssertExpert((byte*)held, gateData, 0);
+            store.Release(tensor, null, [0]);
+            store.ResetStatistics();
+
+            // The most recent 63 experts are cached, the older ones were evicted.
+            store.Acquire(tensor, null, [Experts - 1, Experts - 63], (byte**)p, null, false);
+            store.Release(tensor, null, [Experts - 1, Experts - 63]);
+            Assert.Equal(2, store.Statistics.Hits);
+            store.Acquire(tensor, null, [1], (byte**)p, null, false);
+            store.Release(tensor, null, [1]);
+            Assert.Equal(1, store.Statistics.Misses);
+            AssertExpert((byte*)pointers[1], gateData, 1);
+        }
+    }
+
+    /// <summary>Experts used twice are protected: a pass over many new experts (a prefill) evicts the ones used once first.</summary>
+    [Fact]
+    public void ExpertsUsedTwiceSurviveAScanOfNewOnes()
+    {
+        var (file, gate, _, _, _) = Weights();
+        using var __ = file;
+        using var store = Store();
+        store.TryRegister(gate, "blk.0#experts", 2);
+        var tensor = store.Find(gate)!;
+        var pointers = new nint[Experts];
+        fixed (nint* p = pointers)
+        {
+            int[] favourites = [7, 8, 9, 10];
+            for (int pass = 0; pass < 2; pass++)
+            {
+                store.Acquire(tensor, null, favourites, (byte**)p, null, false);
+                store.Release(tensor, null, favourites);
+            }
+
+            for (int e = 20; e < Experts; e += 8)
+            {
+                var scan = Enumerable.Range(e, Math.Min(8, Experts - e)).ToArray();
+                store.Acquire(tensor, null, scan, (byte**)p, null, false);
+                store.Release(tensor, null, scan);
+            }
+
+            store.ResetStatistics();
+            store.Acquire(tensor, null, favourites, (byte**)p, null, false);
+            store.Release(tensor, null, favourites);
+            Assert.Equal(4, store.Statistics.Hits);
+        }
+    }
+
+    [Fact]
+    public void MoreExpertsThanFreeSlotsAtOnceFail_AndLeaveTheCacheUsable()
+    {
+        var (file, gate, _, gateData, _) = Weights();
+        using var __ = file;
+        using var store = Store();
+        store.TryRegister(gate, "blk.0#experts", 2);
+        var tensor = store.Find(gate)!;
+        var pointers = new nint[Experts];
+        fixed (nint* p = pointers)
+        {
+            var many = Enumerable.Range(0, 65).ToArray();
+            nint table = (nint)p;
+            Assert.Throws<InvalidOperationException>(() => store.Acquire(tensor, null, many, (byte**)table, null, false));
+            var fits = Enumerable.Range(100, 64).ToArray();
+            store.Acquire(tensor, null, fits, (byte**)p, null, false);
+            foreach (int e in fits)
+            {
+                AssertExpert((byte*)pointers[e], gateData, e);
+            }
+
+            store.Release(tensor, null, fits);
+        }
+    }
+
+    /// <summary>
+    /// A device that copies from the slots locks every pool once, also when <see cref="ExpertStore.PinFor"/> lays a stale layout out, and the
+    /// store releases each lock before it frees a pool it lays out again (weights registered after the first layout: a placement retried
+    /// after an out-of-memory failure, another graph of the model). DeepSeek-V4-Flash on CUDA with experts on disk once locked the first
+    /// pools twice and released them once when they were laid out again, so the freed pools stayed registered and the next pools at their
+    /// addresses counted as locked with the freed pages: the GPU copied stale experts (wrong text) or failed the copy.
+    /// </summary>
+    [Fact]
+    public void PoolsAreLockedOncePerDevice_AndReleasedBeforeTheyAreLaidOutAgain()
+    {
+        var (file, gate, down, _, downData) = Weights();
+        using var __ = file;
+        var locks = new Dictionary<(string Device, nint Arena), int>();
+        Func<nint, long, bool> Pin(string device) => (arena, _) =>
+        {
+            locks[(device, arena)] = locks.GetValueOrDefault((device, arena)) + 1;
+            return true;
+        };
+        Action<nint> Unpin(string device) => arena =>
+        {
+            Assert.True(locks.GetValueOrDefault((device, arena)) > 0, "a pool released that was not locked");
+            locks[(device, arena)]--;
+        };
+
+        void AssertLockedOnce()
+        {
+            Assert.All(locks.Values, holds => Assert.InRange(holds, 0, 1));
+            Assert.Equal(1, locks.Where(l => l.Key.Device == "gpu0").Sum(l => l.Value));
+            Assert.Equal(1, locks.Where(l => l.Key.Device == "gpu1").Sum(l => l.Value));
+        }
+
+        using (var store = Store())
+        {
+            Assert.True(store.TryRegister(gate, "blk.0#experts", 2));
+            store.PinFor("gpu0", Pin("gpu0"), Unpin("gpu0"));
+            store.PinFor("gpu1", Pin("gpu1"), Unpin("gpu1"));
+            store.PinFor("gpu0", Pin("gpu0"), Unpin("gpu0"));   // again: nothing changes
+            // One pool (one slot size), locked once by each device.
+            AssertLockedOnce();
+            Assert.True(store.IsPinnedFor("gpu0", store.Find(gate)!));
+
+            // A weight registered after the layout: the pools are laid out again at the next use (the old pool released before it is freed;
+            // the new one may get its address).
+            Assert.True(store.TryRegister(down, "blk.1#experts", 2));
+            var tensor = store.Find(down)!;
+            store.ChunkExperts(tensor);
+            AssertLockedOnce();
+            Assert.True(store.IsPinnedFor("gpu0", tensor) && store.IsPinnedFor("gpu1", tensor));
+
+            var pointers = new nint[Experts];
+            fixed (nint* p = pointers)
+            {
+                store.Acquire(tensor, null, [42], (byte**)p, null, false);
+                AssertExpert((byte*)pointers[42], downData, 42);
+                store.Release(tensor, null, [42]);
+            }
+        }
+
+        // Disposing the store releases the rest.
+        Assert.All(locks.Values, holds => Assert.Equal(0, holds));
+    }
+
+    [Theory]
+    [InlineData(null, 30L << 30, 10L << 30, 64L << 30, false)]   // fits with the reserve
+    [InlineData(null, 60L << 30, 10L << 30, 64L << 30, true)]    // does not fit: the cache takes what is left
+    [InlineData(8L << 30, 30L << 30, 10L << 30, 64L << 30, true)] // a cache smaller than the experts
+    [InlineData(40L << 30, 30L << 30, 10L << 30, 64L << 30, false)]
+    public void TheExpertsGoToDiskWhenTheyDoNotFitTheHostOrTheCacheAskedFor(long? cache, long experts, long other, long host, bool disk)
+    {
+        using var store = new ExpertStore(cache, ExpertReaders.CreateThreads(1));
+        Assert.Equal(disk, store.Decide(experts, other, host));
+        Assert.Equal(disk, store.IsActive);
+        if (disk)
+        {
+            Assert.Equal(cache ?? host - other - ExpertStore.HostReserve, store.CacheBytes);
+        }
+    }
+}

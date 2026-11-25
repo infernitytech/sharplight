@@ -2,6 +2,7 @@ using Sharplight.Imaging;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
+using Sharplight.Tensors;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Vision;
@@ -106,7 +107,7 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
             var (pooled, _) = Run(image);
             if (options?.Normalize ?? true)
             {
-                Normalize(pooled);
+                VectorMath.L2Normalize(pooled);
             }
 
             return pooled;
@@ -122,7 +123,7 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
             var embedding = RunText(text);
             if (options?.Normalize ?? true)
             {
-                Normalize(embedding);
+                VectorMath.L2Normalize(embedding);
             }
 
             return embedding;
@@ -139,13 +140,13 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
         return BackgroundCompute.RunAsync(_gate, () =>
         {
             var (pooled, _) = Run(image);
-            Normalize(pooled);
+            VectorMath.L2Normalize(pooled);
             var logits = new float[candidates.Count];
             for (int i = 0; i < candidates.Count; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var text = RunText(candidates[i]);
-                Normalize(text);
+                VectorMath.L2Normalize(text);
                 double dot = 0;
                 for (int d = 0; d < text.Length; d++)
                 {
@@ -247,48 +248,10 @@ internal sealed class ImageEncoderClient : IImageClassifier, IImageEmbedder
         return (pooled, logits);
     }
 
-    /// <summary>Scales <paramref name="vector"/> to unit length.</summary>
-    internal static void Normalize(Span<float> vector)
-    {
-        double sum = 0;
-        foreach (float v in vector)
-        {
-            sum += (double)v * v;
-        }
-
-        float scale = sum > 0 ? (float)(1.0 / Math.Sqrt(sum)) : 0f;
-        for (int i = 0; i < vector.Length; i++)
-        {
-            vector[i] *= scale;
-        }
-    }
-
     /// <summary>Scores logits (softmax or sigmoid) and returns the best <paramref name="topK"/> classes.</summary>
     internal static ImageClassification Rank(float[] logits, IReadOnlyList<string> labels, bool sigmoid, int topK)
     {
-        var scores = new float[logits.Length];
-        if (sigmoid)
-        {
-            for (int i = 0; i < logits.Length; i++)
-            {
-                scores[i] = 1f / (1f + MathF.Exp(-logits[i]));
-            }
-        }
-        else
-        {
-            float max = logits.Length > 0 ? logits.Max() : 0f;
-            double sum = 0;
-            for (int i = 0; i < logits.Length; i++)
-            {
-                scores[i] = MathF.Exp(logits[i] - max);
-                sum += scores[i];
-            }
-
-            for (int i = 0; i < logits.Length; i++)
-            {
-                scores[i] = (float)(scores[i] / sum);
-            }
-        }
+        var scores = sigmoid ? Array.ConvertAll(logits, l => 1f / (1f + MathF.Exp(-l))) : VectorMath.Softmax(logits);
 
         int count = topK <= 0 ? logits.Length : Math.Min(topK, logits.Length);
         var best = Enumerable.Range(0, logits.Length).OrderByDescending(i => scores[i]).ThenBy(i => i).Take(count)

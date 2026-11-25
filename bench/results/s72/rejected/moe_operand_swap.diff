@@ -1,0 +1,316 @@
+diff --git a/src/Sharplight.Shaders/DiagnosticSwitches.cs b/src/Sharplight.Shaders/DiagnosticSwitches.cs
+index 9da7deec..92dff43d 100644
+--- a/src/Sharplight.Shaders/DiagnosticSwitches.cs
++++ b/src/Sharplight.Shaders/DiagnosticSwitches.cs
+@@ -606,6 +606,12 @@ internal static class DiagnosticSwitches
+     /// <summary><c>SHARPLIGHT_NATIVE_MOE_TABLE=1</c>: the short dual tiles of the grouped MXFP4 GEMM keep the E8M0 factor table (three stages), or null for the default.</summary>
+     public static int? NativeMoeTable { get; } = Read("SHARPLIGHT_NATIVE_MOE_TABLE") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+ 
++    /// <summary>
++    /// <c>SHARPLIGHT_NATIVE_MOE_SWAP=0</c>: the dual decode tiles of the grouped MXFP4 GEMM keep the tokens as the MMAs' A operand
++    /// (<c>NM_SWAP=0</c>); <c>=1</c> swaps the operands of every decode and short tile; null for the default.
++    /// </summary>
++    public static int? NativeMoeSwap { get; } = Read("SHARPLIGHT_NATIVE_MOE_SWAP") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
++
+     /// <summary>
+     /// <c>SHARPLIGHT_NATIVE_F16_DECODE_BN=n</c>: weight rows per tile of the hand-written f16 GEMM's decode form (32 or 64), or null for
+     /// the default (chosen per matrix); 0 turns the decode form off (decode batches of f16 projections keep gemm_cm2 with split-K).
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu b/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu
+index f0e5c889..43f98d0b 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_moe_native.cu
+@@ -9,7 +9,8 @@
+ // bits per weight) into a ring of NM_STAGES stages of dynamic shared memory; each warp decodes the codes it multiplies right before
+ // its MMAs (mma.sync.m16n8k16, f32 accumulation). The decode is the arithmetic of gemm_cm2's (matmul.slang: the doubled E2M1 code
+ // in half bits times the two half factors of the block scale) and the MMAs run in the same K order on the same 16-value chunks, so
+-// the products are those of the generated grouped GEMM on this device.
++// the products are those of the generated grouped GEMM on this device (with NM_SWAP the two 16-value halves of each 32-value block
++// accumulate separately and are added at the store, which rounds differently in f32).
+ //
+ // DUAL: two expert matrices of one shape (w, w2: gate and up, or the two halves of a fused gate / up matrix, w2 = the upper half's
+ // first row) share the activations; the B tile's 8-row groups alternate between them and the store applies NM_EPI2(m0, m1, e, n)
+@@ -19,7 +20,7 @@
+ // their inverse scale before the epilogue.
+ //
+ // Specialization macros: K, N (outputs), EXPERT_BYTES (bytes per expert of w), ROW_BYTES (17 K / 32), S, MAXTILES, NM_BM (32, 64 or
+-// 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, NM_TABLE, DUAL, X_RS,
++// 128 token rows), NM_BN (weight rows per tile; outputs NM_BN / 2 with DUAL), NM_WM / NM_WN (warps), NM_STAGES, NM_MINB, NM_TABLE, NM_SWAP, DUAL, X_RS,
+ // NM_EPI2 / NM_EPI1 and NM_EPI_FIELDS (the tables they read). Requires K % 64 == 0, N % 16 == 0. Grid: x = column tiles, y = routing
+ // tiles (blocks past the tile count return).
+ #ifndef DUAL
+@@ -54,6 +55,14 @@
+ #define NM_TN (NM_BN / NM_WN)
+ #define NM_FM (NM_TM / 16)
+ #define NM_FN (NM_TN / 8)
++// NM_SWAP 1: the decoded weights are the 16-row A operand of the MMAs (two 8-row units per fragment, the second one zero where a
++// warp holds an odd count) and the token rows the 8-column B operand, so a tile's MMAs follow its rows in steps of 8 instead of 16:
++// half the MMAs and ldmatrix bytes for tiles of up to 8 items (most expert tiles of a batched decode step). One warp row only.
++#ifndef NM_SWAP
++#define NM_SWAP 0
++#endif
++#define NM_TF (NM_BM / 8)
++#define NM_QF ((NM_FN + 1) / 2)
+ #if DUAL
+ #define NM_BOUT (NM_BN / 2)
+ #define NM_MATS 2
+@@ -75,6 +84,9 @@ typedef unsigned long long nm_u64;
+ #if (NM_BOUT % 16) != 0 || (DUAL && (NM_FN % 2) != 0) || (NM_FM * 16 * NM_WM) != NM_BM || (NM_TN % 8) != 0
+ #error "gemm_moe_native: unsupported tile"
+ #endif
++#if NM_SWAP && (NM_WM != 1 || NM_BM > 64)
++#error "gemm_moe_native: NM_SWAP needs one warp row of at most 64 token rows"
++#endif
+ 
+ struct NmParams
+ {
+@@ -235,6 +247,45 @@ static __device__ __forceinline__ void nm_mmas(float (&acc)[NM_FM][NM_FN][4], nm
+     }
+ }
+ 
++#if NM_SWAP
++// The swapped form of nm_mmas: the first F 8-row token fragments of block b against the warp's weight fragments, the A operand
++// of weight fragment q being units 2q (rows g) and 2q + 1 (rows g + 8) of the decoded B-layout fragments. dec(j) follows the MMAs of
++// the j-th (token fragment, 16-value half) step, the remaining units after the last.
++template <int F, typename Dec>
++static __device__ __forceinline__ void nm_mmas_swap(float (&acc)[2][NM_TF][NM_QF][4], nm_u32 sa, nm_u32 b, nm_u32 lane,
++                                                    const nm_u32 (&bf)[NM_FN][4], Dec dec)
++{
++#pragma unroll
++    for (int i = 0; i < F; i++)
++    {
++        // Token rows i * 8 .. + 7, the block's four 8-value chunks: the B fragments of both halves.
++        nm_u32 t[4];
++        nm_ldsm4(sa + nm_swz(i * 8 + (lane & 7), b * 4 + (lane >> 3)), t[0], t[1], t[2], t[3]);
++#pragma unroll
++        for (int h = 0; h < 2; h++)
++        {
++#pragma unroll
++            for (int q = 0; q < NM_QF; q++)
++            {
++                const bool pair = 2 * q + 1 < NM_FN;
++                nm_u32 a[4] = { bf[2 * q][h * 2], pair ? bf[(2 * q + 1) % NM_FN][h * 2] : 0u, bf[2 * q][h * 2 + 1],
++                                pair ? bf[(2 * q + 1) % NM_FN][h * 2 + 1] : 0u };
++                nm_mma(acc[h][i][q], a, t[h * 2], t[h * 2 + 1]);
++            }
++            if (i * 2 + h < NM_FN)
++            {
++                dec(i * 2 + h);
++            }
++        }
++    }
++#pragma unroll
++    for (int j = 2 * F; j < NM_FN; j++)
++    {
++        dec(j);
++    }
++}
++#endif
++
+ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_native(NmParams p)
+ {
+     extern __shared__ __align__(128) unsigned char smem[];
+@@ -243,7 +294,11 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+     __shared__ nm_u32 sScale[256];
+ #endif
+     const nm_u32 tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
++#if NM_SWAP
++    const nm_u32 wn = warp;
++#else
+     const nm_u32 wm = warp / NM_WN, wn = warp % NM_WN;
++#endif
+     const nm_u32 tile = blockIdx.y;
+     if (tile >= p.scratch[0])
+     {
+@@ -335,6 +390,28 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+         }
+     };
+ 
++#if NM_SWAP
++    // One accumulator set per 16-value half: a short tile's warp has one (token, weight) fragment pair, and a single chain of
++    // dependent MMAs would leave it waiting on the MMA latency.
++    float acc[2][NM_TF][NM_QF][4];
++#pragma unroll
++    for (int h = 0; h < 2; h++)
++    {
++#pragma unroll
++        for (int i = 0; i < NM_TF; i++)
++        {
++#pragma unroll
++            for (int j = 0; j < NM_QF; j++)
++            {
++#pragma unroll
++                for (int e = 0; e < 4; e++)
++                {
++                    acc[h][i][j][e] = 0.0f;
++                }
++            }
++        }
++    }
++#else
+     float acc[NM_FM][NM_FN][4];
+ #pragma unroll
+     for (int i = 0; i < NM_FM; i++)
+@@ -349,6 +426,7 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+             }
+         }
+     }
++#endif
+ 
+ #pragma unroll
+     for (int s = 0; s < NM_STAGES - 1; s++)
+@@ -366,7 +444,11 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+     const nm_u32 sel = (c4 & 1) ? 0x7632u : 0x5410u;
+     const bool upper = (c4 & 2) != 0;
+     // 16-row fragments of the warp that hold tile rows (a partial tile's MMAs past its rows are skipped).
++#if NM_SWAP
++    const int liveFrags = (int)min((nm_u32)NM_TF, (tileRows + 7) / 8);
++#else
+     const int liveFrags = (int)min((nm_u32)NM_FM, (tileRows > wm * NM_TM ? tileRows - wm * NM_TM + 15 : 0) / 16);
++#endif
+     const nm_u32 smem0 = (nm_u32)__cvta_generic_to_shared(smem);
+ 
+     // Unit j of the B fragments of 32-value block b of stage s (two 16-value chunks of 8 weight rows), decoded once for all the
+@@ -419,22 +501,29 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+         const nm_u32 sa = smem0 + s * NM_STAGE_BYTES;
+         switch (liveFrags)
+         {
++#if NM_SWAP
++#define NM_CASE(F) case F: nm_mmas_swap<F>(acc, sa, b, lane, bf, dec); break;
++#define NM_FRAGS NM_TF
++#else
+ #define NM_CASE(F) case F: nm_mmas<F>(acc, sa, wm * NM_TM, b, lane, bf, dec); break;
++#define NM_FRAGS NM_FM
++#endif
+         NM_CASE(1)
+-#if NM_FM > 1
++#if NM_FRAGS > 1
+         NM_CASE(2)
+ #endif
+-#if NM_FM > 2
++#if NM_FRAGS > 2
+         NM_CASE(3)
+         NM_CASE(4)
+ #endif
+-#if NM_FM > 4
++#if NM_FRAGS > 4
+         NM_CASE(5)
+         NM_CASE(6)
+         NM_CASE(7)
+         NM_CASE(8)
+ #endif
+ #undef NM_CASE
++#undef NM_FRAGS
+         default:
+ #pragma unroll
+             for (int j = 0; j < NM_FN; j++)
+@@ -472,6 +561,65 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+     }
+     asm volatile("cp.async.wait_group 0;\n" ::);
+ 
++#if NM_SWAP
++    // C fragment of (token fragment i, weight fragment q): elements e and 2 + e are token i * 8 + 2c + e at weight rows g and g + 8
++    // (units 2q and 2q + 1: with DUAL the gate and up rows of one output).
++#pragma unroll
++    for (int i = 0; i < NM_TF; i++)
++    {
++#pragma unroll
++        for (int e = 0; e < 2; e++)
++        {
++            nm_u32 t = i * 8 + c4 * 2 + e;
++            if (t >= tileRows)
++            {
++                continue;
++            }
++
++            nm_u32 item = p.scratch[1 + 3 * MAXTILES + rowOff + t];
++            float* yr = p.y + (nm_u64)item * N;
++#ifdef X_RS
++            nm_u32 word = *(const nm_u32*)(p.x + X_RS + (nm_u64)(rowOff + t) * 4);
++            float inv = word == 0u ? 1.0f : __uint_as_float(word);
++#else
++            float inv = 1.0f;
++#endif
++#pragma unroll
++            for (int q = 0; q < NM_QF; q++)
++            {
++                const float c0 = acc[0][i][q][e] + acc[1][i][q][e], c2 = acc[0][i][q][2 + e] + acc[1][i][q][2 + e];
++#if DUAL
++                nm_u32 n = n0 + (wn * NM_TN) / 2 + q * 8 + g;
++                if (n < N)
++                {
++                    yr[n] = NM_EPI2(c0 * inv, c2 * inv, expert, n);
++                }
++#else
++                nm_u32 n = n0 + wn * NM_TN + q * 16 + g;
++#ifdef NM_EPI1
++                if (n < N)
++                {
++                    yr[n] = NM_EPI1(c0 * inv, expert, n, item / S, item % S);
++                }
++                if (2 * q + 1 < NM_FN && n + 8 < N)
++                {
++                    yr[n + 8] = NM_EPI1(c2 * inv, expert, n + 8, item / S, item % S);
++                }
++#else
++                if (n < N)
++                {
++                    yr[n] = c0 * inv;
++                }
++                if (2 * q + 1 < NM_FN && n + 8 < N)
++                {
++                    yr[n + 8] = c2 * inv;
++                }
++#endif
++#endif
++            }
++        }
++    }
++#else
+ #pragma unroll
+     for (int i = 0; i < NM_FM; i++)
+     {
+@@ -526,4 +674,5 @@ extern "C" __global__ void __launch_bounds__(NM_THREADS, NM_MINB) gemm_moe_nativ
+             }
+         }
+     }
++#endif
+ }
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs
+index a8fce579..62915e27 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Moe.cs
+@@ -803,6 +803,7 @@ public sealed partial class GraphLowerer
+                             ["NM_MINB"] = minBlocks.ToString(CultureInfo.InvariantCulture),
+                             ["NM_TABLE"] = table ? "1" : "0",
+                             ["DUAL"] = isDual ? "1" : "0",
++                            ["NM_SWAP"] = NativeMoeSwap(isDual, nativeTile) ? "1" : "0",
+                         };
+                         if (groupedMacros.TryGetValue("X_RS", out var xrs))
+                         {
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
+index 0a39cd3b..bbf9f73c 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
+@@ -539,6 +539,22 @@ public sealed partial class GraphLowerer
+         return (columns, NativeMoeStagesFor(columns, dual, tileRows), 1, true);
+     }
+ 
++    /// <summary>
++    /// True when the tiles of <paramref name="tileRows"/> rows of <c>gemm_moe_native.cu</c> run with the operands swapped (<c>NM_SWAP</c>:
++    /// the decoded weights as the MMAs' 16-row A operand, the tokens as the 8-column B operand), the dual decode tiles by default
++    /// (<c>SHARPLIGHT_NATIVE_MOE_SWAP</c>). Their MMAs follow the tile's items in steps of 8 (63 % of a 64-sequence step's tiles on text
++    /// routing hold up to 8). RTX PRO 4500, gpt-oss-20b gate / up, 216 text routings of 64-sequence steps replayed over 24 weight copies
++    /// (bench/s56_moe, ms per layer): 0.358-0.360 → 0.351-0.352. Not the single products (down: 0.177-0.178 → 0.181-0.182, its
++    /// 24-row warp tiles leave half of one A fragment empty; 0.180 on 128-row tiles).
++    /// </summary>
++    private static bool NativeMoeSwap(bool dual, int tileRows)
++        => DiagnosticSwitches.NativeMoeSwap switch
++        {
++            0 => false,
++            1 => tileRows <= NativeMoeShortTileRows,
++            _ => dual && tileRows == NativeMoeDecodeTileRows,
++        };
++
+     /// <summary>
+     /// Weight rows per tile of <c>gemm_moe_native.cu</c> for <paramref name="n"/> outputs: the width (256, 192 or 128 rows; dual pairs
+     /// 256 or 128, their 8 warps each holding whole gate / up fragment pairs) with the most useful columns per estimated time.

@@ -39,8 +39,8 @@ internal sealed class MetalProfileDevice : IComputeDevice
         };
         EnabledFeatures = DeviceFeatures.Effective(Info.Features, options.DisabledFeatures);
         _code = new MetalCodeGenerator(profile.MaxSharedMemory, EnabledFeatures,
-            MetalCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options),
-            MetalCodeGenerator.EffectiveConcurrentWorkgroups(profile.ConcurrentWorkgroups, options), 0);
+            options.ResolveSubmissionBudgetMs(profile.SubmissionBudgetMs),
+            options.ResolveConcurrentWorkgroups(profile.ConcurrentWorkgroups), 0);
         ArtifactStore = ArtifactStore.For(options);
         ArtifactTargets = [_code.CreateCodeTarget(Info.Provider)];
     }

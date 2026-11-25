@@ -14,7 +14,21 @@ internal sealed class FakeRuntime : IModelRuntime
 
     private readonly List<ILoadedModel> _models = [];
 
-    public IReadOnlyList<ComputeDeviceOption> Devices { get; set; } = [Gpu, Cpu];
+    private IReadOnlyList<ComputeDeviceOption> _devices = [Gpu, Cpu];
+
+    public IReadOnlyList<ComputeDeviceOption> Devices
+    {
+        get => DevicesSource?.Invoke() ?? _devices;
+        set => _devices = value;
+    }
+
+    /// <summary>Computes the devices on every read (a selector that follows the settings), when set.</summary>
+    public Func<IReadOnlyList<ComputeDeviceOption>>? DevicesSource { get; set; }
+
+    /// <summary>Computes the physical GPUs on every read, when set; none otherwise.</summary>
+    public Func<IReadOnlyList<PhysicalGpu>>? GpuSource { get; set; }
+
+    public IReadOnlyList<PhysicalGpu> Gpus => GpuSource?.Invoke() ?? [];
 
     /// <summary>The footprint estimates return (unless <see cref="Estimator"/> is set).</summary>
     public ModelFootprint Footprint { get; set; } = new(4L << 30, 1L << 30, 512L << 20);
@@ -28,7 +42,16 @@ internal sealed class FakeRuntime : IModelRuntime
     /// <summary>The devices' memory; by default the GPU minus what the models hold, and 24 GB of 32 GB system memory free.</summary>
     public Func<IReadOnlyList<DeviceMemory>>? Memory { get; set; }
 
-    public IReadOnlyList<ILoadedModel> LoadedModels => _models;
+    public IReadOnlyList<ILoadedModel> LoadedModels
+    {
+        get
+        {
+            lock (_models)
+            {
+                return [.. _models];
+            }
+        }
+    }
 
     public List<ModelLoadRequest> Requests { get; } = [];
 
@@ -41,7 +64,11 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public FakeModel Add(FakeModel model)
     {
-        _models.Add(model);
+        lock (_models)
+        {
+            _models.Add(model);
+        }
+
         ModelsChanged?.Invoke(this, EventArgs.Empty);
         return model;
     }
@@ -58,13 +85,17 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public Task UnloadAsync(string id)
     {
-        _models.RemoveAll(model => model.Id == id);
+        lock (_models)
+        {
+            _models.RemoveAll(model => model.Id == id);
+        }
+
         ModelsChanged?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;
     }
 
     public IReadOnlyList<DeviceUsage> GetDeviceUsage() =>
-        [new DeviceUsage(Gpu.Id, Gpu.Name, _models.Sum(model => model.ResidentBytes), Gpu.TotalMemory, true)];
+        [new DeviceUsage(Gpu.Id, Gpu.Name, LoadedModels.Sum(model => model.ResidentBytes), Gpu.TotalMemory, true)];
 
     public Task<ModelFootprint> EstimateFootprintAsync(ModelLoadRequest request, CancellationToken cancellationToken)
     {
@@ -76,10 +107,25 @@ internal sealed class FakeRuntime : IModelRuntime
         return Task.FromResult(Estimator?.Invoke(request) ?? Footprint);
     }
 
+    /// <summary>The routed experts' bytes <see cref="EstimateExpertBytesAsync"/> reports (0: a dense model).</summary>
+    public long ExpertBytes { get; set; }
+
+    public Task<long> EstimateExpertBytesAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(ExpertBytes);
+
+    /// <summary>The experts-per-token share <see cref="EstimateExpertActiveShareAsync"/> reports.</summary>
+    public double ExpertActiveShare { get; set; }
+
+    public Task<double> EstimateExpertActiveShareAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(ExpertActiveShare);
+
+    /// <summary>The weight formats <see cref="DescribeWeightFormatsAsync"/> reports.</summary>
+    public ModelWeightFormats WeightFormats { get; set; } = ModelWeightFormats.None;
+
+    public Task<ModelWeightFormats> DescribeWeightFormatsAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(WeightFormats);
+
     public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken) =>
         Task.FromResult(Memory?.Invoke() ??
         [
-            new DeviceMemory(Gpu.Id, Gpu.Name, true, Gpu.TotalMemory, Gpu.TotalMemory - _models.Sum(model => model.ResidentBytes), true),
+            new DeviceMemory(Gpu.Id, Gpu.Name, true, Gpu.TotalMemory, Gpu.TotalMemory - LoadedModels.Sum(model => model.ResidentBytes), true),
             new DeviceMemory(Cpu.Id, Cpu.Name, false, Cpu.TotalMemory, 24L << 30, true),
         ]);
 

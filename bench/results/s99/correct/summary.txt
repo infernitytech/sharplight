@@ -1,0 +1,18 @@
+# hold 18:47:04 apps: 
+gpt-oss-20b cuda p40 base rc=0 e733f049
+gpt-oss-20b cuda p1000 base rc=0 8cb648ed
+gpt-oss-20b cuda p40 new rc=0 e733f049
+gpt-oss-20b cuda p1000 new rc=0 8cb648ed
+Qwen3-8B-FP8 cuda p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 base rc=0 b9666631
+Qwen3-8B-FP8 cuda p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 new rc=0 b9666631
+Qwen3-8B-FP8 cuda p40 new_off rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 new_off rc=0 b9666631
+ppl gpt-oss-20b base 1 rc=0 55ff87d4 PPL 1806.6235
+ppl gpt-oss-20b new 1 rc=0 55ff87d4 PPL 1806.6235
+ppl gpt-oss-20b new 2 rc=0 55ff87d4 PPL 1806.6235
+ppl Qwen3-8B-FP8 base 1 rc=0 4ab780cf PPL 8.7358
+ppl Qwen3-8B-FP8 new 1 rc=0 4ab780cf PPL 8.7358
+ppl Qwen3-8B-FP8 new 2 rc=0 4ab780cf PPL 8.7358
+# release 18:54:35

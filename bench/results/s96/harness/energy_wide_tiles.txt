@@ -1,0 +1,27 @@
+[hold 10:04:47] ./en.sh x base b256s3 b256s4 b256s3cp2
+0 %, 2 MiB, 31.95 W
+10:04:48 r1 vllm   gu  base           energy: 10 passes 4.99 s: 0.3408 ms per routing, 190.0 W, 64.806 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2775 nJ per weight byte, SM 1756 MHz 
+10:04:57 r1 vllm   gu  b256s3         energy: 8 passes 4.08 s: 0.3484 ms per routing, 188.2 W, 65.619 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2810 nJ per weight byte, SM 1848 MHz 
+10:05:04 r1 vllm   gu  b256s4         energy: 8 passes 4.15 s: 0.3539 ms per routing, 197.1 W, 69.795 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2988 nJ per weight byte, SM 1980 MHz 
+10:05:12 r1 vllm   gu  b256s3cp2      energy: 8 passes 4.07 s: 0.3472 ms per routing, 198.5 W, 68.973 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2953 nJ per weight byte, SM 1944 MHz 
+10:05:20 r1 vllm   dn  base           energy: 16 passes 4.14 s: 0.1767 ms per routing, 188.7 W, 33.349 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2856 nJ per weight byte, SM 1805 MHz 
+10:05:27 r1 vllm   dn  b256s3         energy: 14 passes 4.01 s: 0.1953 ms per routing, 199.6 W, 39.008 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3340 nJ per weight byte, SM 2076 MHz 
+10:05:34 r1 ours   gu  base           energy: 52 passes 4.16 s: 0.3700 ms per routing, 186.2 W, 68.953 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2761 nJ per weight byte, SM 1712 MHz 
+10:05:40 r1 ours   gu  b256s3         energy: 50 passes 4.10 s: 0.3795 ms per routing, 189.7 W, 72.056 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2885 nJ per weight byte, SM 1828 MHz 
+10:05:47 r1 ours   gu  b256s4         energy: 50 passes 4.11 s: 0.3801 ms per routing, 198.6 W, 75.540 mJ per routing, 249.7 MB weights per routing (tile reads), 0.3025 nJ per weight byte, SM 1949 MHz 
+10:05:53 r1 ours   gu  b256s3cp2      energy: 50 passes 4.07 s: 0.3768 ms per routing, 196.7 W, 74.142 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2969 nJ per weight byte, SM 1913 MHz 
+10:06:00 r1 ours   dn  base           energy: 98 passes 4.05 s: 0.1910 ms per routing, 186.9 W, 35.734 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2862 nJ per weight byte, SM 1765 MHz 
+10:06:06 r1 ours   dn  b256s3         energy: 88 passes 4.01 s: 0.2108 ms per routing, 198.8 W, 41.930 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3358 nJ per weight byte, SM 2056 MHz 
+10:06:12 r2 vllm   gu  base           energy: 8 passes 4.01 s: 0.3420 ms per routing, 193.4 W, 66.173 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2833 nJ per weight byte, SM 1741 MHz 
+10:06:20 r2 vllm   gu  b256s3         energy: 8 passes 4.11 s: 0.3509 ms per routing, 193.5 W, 67.940 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2909 nJ per weight byte, SM 1839 MHz 
+10:06:28 r2 vllm   gu  b256s4         energy: 8 passes 4.20 s: 0.3581 ms per routing, 200.1 W, 71.695 mJ per routing, 233.6 MB weights per routing (tile reads), 0.3070 nJ per weight byte, SM 1944 MHz 
+10:06:36 r2 vllm   gu  b256s3cp2      energy: 8 passes 4.08 s: 0.3486 ms per routing, 195.3 W, 68.130 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2917 nJ per weight byte, SM 1936 MHz 
+10:06:44 r2 vllm   dn  base           energy: 16 passes 4.15 s: 0.1770 ms per routing, 186.8 W, 33.076 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2832 nJ per weight byte, SM 1793 MHz 
+10:06:51 r2 vllm   dn  b256s3         energy: 14 passes 4.04 s: 0.1968 ms per routing, 197.7 W, 38.932 mJ per routing, 116.8 MB weights per routing (tile reads), 0.3334 nJ per weight byte, SM 2048 MHz 
+10:06:58 r2 ours   gu  base           energy: 52 passes 4.16 s: 0.3704 ms per routing, 191.9 W, 71.168 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2850 nJ per weight byte, SM 1707 MHz 
+10:07:04 r2 ours   gu  b256s3         energy: 50 passes 4.11 s: 0.3805 ms per routing, 190.0 W, 72.335 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2896 nJ per weight byte, SM 1823 MHz 
+10:07:11 r2 ours   gu  b256s4         energy: 50 passes 4.12 s: 0.3816 ms per routing, 198.0 W, 75.637 mJ per routing, 249.7 MB weights per routing (tile reads), 0.3029 nJ per weight byte, SM 1938 MHz 
+10:07:17 r2 ours   gu  b256s3cp2      energy: 50 passes 4.10 s: 0.3793 ms per routing, 194.6 W, 73.832 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2956 nJ per weight byte, SM 1892 MHz 
+10:07:24 r2 ours   dn  base           energy: 98 passes 4.06 s: 0.1916 ms per routing, 182.9 W, 35.055 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2807 nJ per weight byte, SM 1758 MHz 
+10:07:30 r2 ours   dn  b256s3         energy: 88 passes 4.02 s: 0.2113 ms per routing, 198.7 W, 42.007 mJ per routing, 124.9 MB weights per routing (tile reads), 0.3364 nJ per weight byte, SM 2049 MHz 
+[release 10:07:36]

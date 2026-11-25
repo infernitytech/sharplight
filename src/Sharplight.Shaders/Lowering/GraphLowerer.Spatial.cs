@@ -307,6 +307,12 @@ public sealed partial class GraphLowerer
         string fusedLabel = fused is null ? "" : $" fused[{string.Join(",", fused.Group.Select(g => g.Op.Name))}]";
         var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
         var resReads = epilogue?.Residual is { } resRead ? new[] { resRead } : [];
+        if (ChooseConvChannelsLast(n) is { } channelsLast)
+        {
+            LowerConvChannelsLast(n, nodes, fused, epilogue, channelsLast, fusedLabel);
+            return;
+        }
+
         var x = AsF32(Ref(n.Inputs[0]), "conv-x");
         var w = Ref(n.Inputs[1]);
         if (!w.IsDense)

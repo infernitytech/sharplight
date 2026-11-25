@@ -12,10 +12,13 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
     /// <inheritdoc/>
     public ModelService Service { get; }
     private readonly long _resident;
+    private readonly ImagePrompts? _images;
+    private int _disposed;
 
-    internal ChatModelInstance(LlmModel? model, InferenceEngine engine, ModelService service, long resident, bool ownsEngine = true)
+    internal ChatModelInstance(LlmModel? model, InferenceEngine engine, ModelService service, long resident, bool ownsEngine = true, ImagePrompts? images = null)
     {
         _model = model;
+        _images = images;
         Engine = engine;
         Service = service;
         _resident = resident;
@@ -44,15 +47,19 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
     /// <summary>The loaded model, or null for an instance created with <see cref="Wrap"/>.</summary>
     public LlmModel? Model => _model;
 
-    /// <summary>Disposes the engine (and with it the decoder) and the model when this instance owns them.</summary>
+    /// <inheritdoc/>
+    public override Runtime.Experts.ExpertStore? DiskExperts => _model?.DiskExperts is { IsActive: true } store ? store : null;
+
+    /// <summary>Disposes the engine (and with it the decoder) and the model when this instance owns them; only the first call does.</summary>
     public override void Dispose()
     {
-        if (!_ownsEngine)
+        if (!_ownsEngine || Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
         Engine.Dispose();   // stops the scheduler thread and disposes the decoder (device memory)
+        _images?.Dispose();
         _model?.Dispose();
     }
 }

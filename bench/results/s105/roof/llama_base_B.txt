@@ -1,0 +1,46 @@
+decoder: MultiSequenceDecoder, slots 264, vocab 128256, device sampling: True, KV paged 5632 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 256 | 0 (0) | 55.3 | 358 / 0 | 45.98 / 46.50, 45.86 |  |
+--- profile mixed 256+0 (greedy)
+GPU time 474.77 ms
+   138.042 ms  29.1%    320x  min    422.5 us  matmul2 [4096→14336]x2 f16 fused[Silu,Mul] native gemm_f16_native T=256,U=256,R=256|2,3
+   124.324 ms  26.2%    320x  min    381.6 us  attention attn_decode_native T=256,U=256,R=256|2,3
+    70.629 ms  14.9%    320x  min    214.0 us  matmul [14336→4096] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    43.441 ms   9.1%    320x  min    133.1 us  attention attn_prefill_native T=256,U=256,R=256|2,3
+    33.807 ms   7.1%    320x  min     94.4 us  matmul [4096→4096+1024+1024] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    20.691 ms   4.4%     10x  min   2014.1 us  matmul [4096→128256] f16 native gemm_f16_native T=256,U=256,R=256|2,3
+    20.654 ms   4.4%    320x  min     62.7 us  matmul [4096→4096] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+     8.061 ms   1.7%    640x  min     10.2 us  fused[Add]+RmsNorm main T=256,U=256,R=256|2,3
+     7.326 ms   1.5%    320x  min     20.5 us  matmul [14336→4096] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+     3.407 ms   0.7%    320x  min      8.6 us  rope+qkv+cache_write rope_qkv T=256,U=256,R=256|2,3
+     2.101 ms   0.4%    320x  min      5.0 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+     1.726 ms   0.4%     10x  min    170.4 us  sample sample T=256,U=256,R=256|2,3
+     0.420 ms   0.1%     20x  min     14.0 us  gather gather T=256,U=256,R=256|2,3
+     0.080 ms   0.0%     10x  min      6.0 us  RmsNorm main T=256,U=256,R=256|2,3
+     0.063 ms   0.0%     10x  min      4.1 us  matmul [4096→128256] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+
+| 256 | 1792 (7) | 235.3 | 357 / 0 | 235.67 / 236.13, 235.55 | 0.106 |
+--- profile mixed 256+256x7 (greedy)
+GPU time 2369.95 ms
+  1029.315 ms  43.4%    320x  min   3184.9 us  matmul2 [4096→14336]x2 f16 fused[Silu,Mul] native gemm_f16_native T=2048,U=263,R=263|2,3
+   527.885 ms  22.3%    320x  min   1625.2 us  matmul [14336→4096] f16 native stream-k gemm_f16_native T=2048,U=263,R=263|2,3
+   230.670 ms   9.7%    320x  min    686.1 us  matmul [4096→4096+1024+1024] f16 native gemm_f16_native T=2048,U=263,R=263|2,3
+   152.913 ms   6.5%    320x  min    464.9 us  attention attn_decode_native T=2048,U=263,R=263|2,3
+   144.660 ms   6.1%    320x  min    448.4 us  matmul [4096→4096] f16 native stream-k gemm_f16_native T=2048,U=263,R=263|2,3
+    74.803 ms   3.2%    320x  min    230.7 us  attention attn_prefill_native T=2048,U=263,R=263|2,3
+    73.547 ms   3.1%    640x  min     84.3 us  fused[Add]+RmsNorm main T=2048,U=263,R=263|2,3
+    70.308 ms   3.0%    320x  min    215.3 us  matmul [14336→4096] f16 x→ranged f16 to_f16_ranged T=2048,U=263,R=263|2,3
+    28.804 ms   1.2%    320x  min     86.3 us  rope+qkv+cache_write rope_qkv T=2048,U=263,R=263|2,3
+    27.880 ms   1.2%     10x  min   2782.8 us  matmul [4096→128256] f16 native gemm_f16_native T=2048,U=263,R=263|2,3
+     5.947 ms   0.3%    320x  min     15.5 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=2048,U=263,R=263|2,3
+     1.833 ms   0.1%     10x  min    182.2 us  sample sample T=2048,U=263,R=263|2,3
+     1.112 ms   0.0%     20x  min     21.9 us  gather gather T=2048,U=263,R=263|2,3
+     0.189 ms   0.0%     10x  min     18.0 us  RmsNorm main T=2048,U=263,R=263|2,3
+     0.084 ms   0.0%     10x  min      7.7 us  matmul [4096→128256] f16 x→ranged f16 to_f16_ranged T=2048,U=263,R=263|2,3
+
+sampler: instant power (NVML field 186) median 200.0 W, p95 200.7 W, max 200.9 W, 31 distinct readings
+sampler: 1624 busy samples of 6708 over 16.40 s: SM 2212 MHz, memory 13365 MHz, power 200.0 W (medians), max 65 C, reasons 0x4 97%

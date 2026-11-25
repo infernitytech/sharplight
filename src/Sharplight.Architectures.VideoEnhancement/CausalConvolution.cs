@@ -1,0 +1,113 @@
+using Sharplight.Graph;
+using Sharplight.Tensors;
+
+namespace Sharplight.Architectures.VideoEnhancement;
+
+/// <summary>
+/// Causal 3-D convolutions over frames-first activations [F, C, H, W] that are processed chunk by chunk along time within one graph. A
+/// kernel of kt time taps (stored folded as [O, kt·C, kh, kw], time-tap-major) sees the kt input frames ending at each output frame: the
+/// first chunk is preceded by kt − 1 copies of its first frame, later chunks by the last kt − stride frames the convolution saw before
+/// (its cache, kept per convolution between chunks). Spatial borders are zero-padded. Large inputs are convolved in pieces (groups of
+/// output frames, then bands of output rows with their halo), chained one after the other (<see cref="GraphBuilder.After"/>), so the stacked
+/// frame windows of one piece stay within a byte budget.
+/// </summary>
+internal sealed class CausalConvolution
+{
+    /// <summary>The stacked input of one convolution piece stays below this many bytes (several frames per piece at 480p, a few row bands per frame at 1080p).</summary>
+    private const long PieceBytes = 1L << 30;
+
+    private readonly GraphBuilder _b;
+    private readonly Dictionary<string, Value> _caches = new(StringComparer.Ordinal);
+    private readonly DataType _cacheType;
+
+    /// <summary>Creates the helper for one graph.</summary>
+    /// <param name="b">The graph.</param>
+    /// <param name="cacheType">The type the caches are kept in between chunks (F16 halves them where the products are rounded to F16 anyway).</param>
+    public CausalConvolution(GraphBuilder b, DataType cacheType)
+    {
+        _b = b;
+        _cacheType = cacheType;
+    }
+
+    /// <summary>Convolves one chunk of frames.</summary>
+    /// <param name="x">The chunk [n, C, H, W].</param>
+    /// <param name="prefix">The convolution's weights <c>{prefix}.weight</c> [O, kt·C, kh, kw] and optional <c>{prefix}.bias</c>; also its cache key.</param>
+    /// <param name="temporalStride">Stride along time.</param>
+    /// <param name="spatialStride">Stride along rows and columns.</param>
+    /// <param name="pads">Zero padding (top, left, bottom, right), or <see langword="null"/> for "same" padding of odd kernels.</param>
+    /// <returns>The output frames [(n + kt − 1 − ...) / stride, O, H', W'].</returns>
+    public Value Apply(Value x, string prefix, int temporalStride = 1, int spatialStride = 1, long[]? pads = null)
+    {
+        var weight = _b.Weight(prefix + ".weight");
+        var bias = _b.TryWeight(prefix + ".bias");
+        long channels = x.Shape[1].Fixed;
+        int taps = (int)(weight.Shape[1].Fixed / channels);
+        long kernel = weight.Shape[2].Fixed;
+        var padding = pads ?? [kernel / 2, kernel / 2, kernel / 2, kernel / 2];
+        // The frames the kernel slides over: the previous chunk's last frames (or copies of the first frame), then the chunk. They are not
+        // copied into one tensor; each piece takes its windows from the parts.
+        var padded = new PaddedFrames(_b, x, taps > 1 ? taps - 1 : 0, taps > 1 ? _caches.GetValueOrDefault(prefix) : null);
+        if (taps > 1 && taps - temporalStride is int keep and > 0)
+        {
+            // The caches of every convolution live from one chunk to the next (several GB at 1080p in F32).
+            var tail = padded.Range(padded.Count - keep, keep)
+                .Select(part => _cacheType == part.Type ? _b.Contiguous(part) : _b.Emit1("Cast", [part], Attributes.From(("type", _cacheType.Name))))
+                .ToArray();
+            _caches[prefix] = tail.Length == 1 ? tail[0] : _b.Concat(0, tail);
+        }
+
+        long outputs = (padded.Count - taps) / temporalStride + 1;
+        long height = x.Shape[2].Fixed;
+        long width = x.Shape[3].Fixed;
+        long outputRows = (height + padding[0] + padding[2] - kernel) / spatialStride + 1;
+        long frameBytes = taps * channels * (height + padding[0] + padding[2]) * (width + padding[1] + padding[3]) * sizeof(float);
+        long group = temporalStride == 1 ? Math.Clamp(PieceBytes / Math.Max(1, frameBytes), 1, outputs) : 1;
+        long bands = Math.Clamp((frameBytes + PieceBytes - 1) / PieceBytes, 1, outputRows);
+        long bandRows = (outputRows + bands - 1) / bands;
+        var pieces = new List<Value>();
+        Value? previous = null;
+        for (long start = 0; start < outputs; start += group)
+        {
+            long count = Math.Min(group, outputs - start);
+            var rowsOut = new List<Value>();
+            for (long row = 0; row < outputRows; row += bandRows)
+            {
+                long rows = Math.Min(bandRows, outputRows - row);
+                previous = Piece(padded, weight, bias, taps, temporalStride, start, count, row, rows, kernel, spatialStride, padding, height, previous);
+                rowsOut.Add(previous);
+            }
+
+            pieces.Add(rowsOut.Count == 1 ? rowsOut[0] : _b.Concat(2, [.. rowsOut]));
+        }
+
+        return pieces.Count == 1 ? pieces[0] : _b.Concat(0, [.. pieces]);
+    }
+
+    /// <summary>
+    /// Output frames [start, start + count) and rows [row, row + rows) of one convolution. The piece's windows are taken only after the previous
+    /// piece's output exists, so the pieces run one after the other and the stacked windows of only one piece are in memory at a time.
+    /// </summary>
+    private Value Piece(PaddedFrames padded, Value weight, Value? bias, int taps, int temporalStride, long start, long count, long row, long rows, long kernel,
+        int spatialStride, long[] padding, long height, Value? previous)
+    {
+        long first = row * spatialStride - padding[0];
+        long last = (row + rows - 1) * spatialStride - padding[0] + kernel;
+        long top = Math.Max(0, -first);
+        long bottom = Math.Max(0, last - height);
+        long inputStart = Math.Max(0, first);
+        long inputRows = Math.Min(height, last) - inputStart;
+        var windows = new Value[taps];
+        for (int j = 0; j < taps; j++)
+        {
+            var parts = padded.Range(start * temporalStride + j, temporalStride == 1 ? count : 1)
+                .Select(part => inputStart == 0 && inputRows == height ? part : _b.Slice(part, 2, inputStart, inputRows))
+                .Select(part => previous is null ? part : _b.After(part, previous))
+                .ToArray();
+            windows[j] = parts.Length == 1 ? parts[0] : _b.Concat(0, parts);
+        }
+
+        var input = taps == 1 ? windows[0] : _b.Concat(1, windows);
+        var attributes = Attributes.From(("strides", new long[] { spatialStride, spatialStride }), ("pads", new[] { top, padding[1], bottom, padding[3] }));
+        return _b.Emit1("Conv", bias is null ? [input, weight] : [input, weight, bias], attributes);
+    }
+}

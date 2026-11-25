@@ -1,0 +1,21 @@
+== 33x480x832
+vae_encode 832x480x33: 5.09 GiB
+restore 832x480x33: 8.17 GiB
+vae_decode 832x480x33: 8.32 GiB
+color_correct 832x480x33: 0.75 GiB
+== 65x480x832
+== 33x720x1280
+vae_encode 1280x720x33: 10.16 GiB
+restore 1280x720x33: 10.30 GiB
+vae_decode 1280x720x33: 19.18 GiB
+color_correct 1280x720x33: 1.72 GiB
+== 33x960x1664
+vae_encode 1664x960x33: 14.89 GiB
+restore 1664x960x33: 13.12 GiB
+vae_decode 1664x960x33: 30.46 GiB
+color_correct 1664x960x33: 2.98 GiB
+== 33x1088x1920
+vae_encode 1920x1088x33: 19.32 GiB
+restore 1920x1088x33: 15.13 GiB
+vae_decode 1920x1088x33: NVIDIA RTX PRO 4500 Blackwell: out of memory allocating 38827
+color_correct 1920x1088x33: 3.89 GiB

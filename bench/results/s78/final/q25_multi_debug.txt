@@ -1,0 +1,33 @@
+multi-output GEMM of matmul_2, matmul_6 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_27, matmul_31 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_52, matmul_56 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_77, matmul_81, matmul_83 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_102, matmul_106, matmul_108 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_127, matmul_131 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_152, matmul_156, matmul_158 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_177, matmul_181, matmul_183 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_202, matmul_206, matmul_208 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_227, matmul_231 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_252, matmul_256, matmul_258 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_277, matmul_281 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_302, matmul_306, matmul_308 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_327, matmul_331, matmul_333 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_352, matmul_356 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_377, matmul_381, matmul_383 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_402, matmul_406, matmul_408 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_427, matmul_431 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_452, matmul_456, matmul_458 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_477, matmul_481, matmul_483 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_502, matmul_506 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_527, matmul_531, matmul_533 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_552, matmul_556, matmul_558 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_577, matmul_581 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_602, matmul_606 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_627, matmul_631 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_652, matmul_656 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+multi-output GEMM of matmul_677, matmul_681 (gemm_cm2, bias True): splits (32, 4) (64, 4) (128, 2) (128, 4)
+decoder: MultiSequenceDecoder, slots 16, vocab 152064, device sampling: True, KV paged 640 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 16 | 50.0 | 440 / 0 | 11.47 / 11.47, 11.40 |

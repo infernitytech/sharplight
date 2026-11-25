@@ -1,0 +1,111 @@
+{
+ "runs": [
+  {
+   "read": 0.17896571499295533,
+   "preprocess": 0.04030487302225083,
+   "vae_encode": 2.181421496090479,
+   "dit": 2.6255368179408833,
+   "vae_decode": 4.210234216996469,
+   "color_fix": 2.5248629529960454,
+   "enhance": 11.582370536052622,
+   "write": 0.3525346430251375,
+   "total": 12.113874625996687
+  },
+  {
+   "read": 0.1790839059976861,
+   "preprocess": 0.007230411982163787,
+   "vae_encode": 1.7637699029874057,
+   "dit": 1.317101182998158,
+   "vae_decode": 4.218416781979613,
+   "color_fix": 2.2394845030503348,
+   "enhance": 9.546012312057428,
+   "write": 0.35571714397519827,
+   "total": 10.08081781200599
+  },
+  {
+   "read": 0.18120474193710834,
+   "preprocess": 0.007336932001635432,
+   "vae_encode": 1.7651274069212377,
+   "dit": 1.3181608059676364,
+   "vae_decode": 4.2220461630495265,
+   "color_fix": 2.253034944063984,
+   "enhance": 9.565712432027794,
+   "write": 0.3526953049004078,
+   "total": 10.099616308929399
+  },
+  {
+   "read": 0.1824732560198754,
+   "preprocess": 0.007360971998423338,
+   "vae_encode": 1.767340364982374,
+   "dit": 1.3206721630413085,
+   "vae_decode": 4.22416877001524,
+   "color_fix": 2.1433644789503887,
+   "enhance": 9.462915488984436,
+   "write": 0.33742811798583716,
+   "total": 9.982820342993364
+  },
+  {
+   "read": 0.18139760300982744,
+   "preprocess": 0.0076044530142098665,
+   "vae_encode": 1.7699923120671883,
+   "dit": 1.3207354440819472,
+   "vae_decode": 4.227633410017006,
+   "color_fix": 2.230773175950162,
+   "enhance": 9.556747375056148,
+   "write": 0.35269245400559157,
+   "total": 10.09084108308889
+  },
+  {
+   "read": 0.18177393393125385,
+   "preprocess": 0.007355741923674941,
+   "vae_encode": 1.7696033510146663,
+   "dit": 1.3205399829894304,
+   "vae_decode": 4.231861651991494,
+   "color_fix": 2.2090034399880096,
+   "enhance": 9.538370988913812,
+   "write": 0.3291071429848671,
+   "total": 10.049254785990342
+  }
+ ],
+ "peak_bytes": 28255447040,
+ "frames": 33,
+ "input": [
+  33,
+  240,
+  416,
+  3
+ ],
+ "output": [
+  33,
+  480,
+  832,
+  3
+ ],
+ "args": {
+  "repo": "<work>/src-seedvr",
+  "shims": "<work>/shims",
+  "color_fix_file": "<work>/color_fix.py",
+  "model": "3b",
+  "dit": "<models>/video/seedvr2/SeedVR2-3B/seedvr2_ema_3b.pth",
+  "vae": "<models>/video/seedvr2/SeedVR2-3B/ema_vae.pth",
+  "pos_emb": "<models>/video/seedvr2/SeedVR2-3B/pos_emb.pt",
+  "neg_emb": "<models>/video/seedvr2/SeedVR2-3B/neg_emb.pt",
+  "input": "<work>/inputs/fox-240p-33.mp4",
+  "frames": 0,
+  "res_h": 480,
+  "res_w": 832,
+  "seed": 42,
+  "device": "cuda",
+  "dit_dtype": "bf16",
+  "dit_weights": "fp32",
+  "vae_dtype": "bf16",
+  "attention": "flash",
+  "no_memory_limit": false,
+  "no_offload": true,
+  "no_color_fix": false,
+  "out": "<work>/bench-3/3b-fox-240p-33-pytorch-dump",
+  "repeat": 5,
+  "timing_json": "<work>/bench-3/3b-fox-240p-33-pytorch.json",
+  "save_video": "<work>/bench-3/3b-fox-240p-33-pytorch.mp4"
+ }
+}

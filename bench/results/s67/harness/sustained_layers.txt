@@ -1,0 +1,8 @@
+back to back over 1 layer copies: 0.3365 ms per routing
+routes 72 (72 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3093 ms per routing
+back to back over 24 layer copies: 0.3357 ms per routing
+routes 72 (72 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3093 ms per routing
+back to back over 1 layer copies: 0.1673 ms per routing
+routes 72 (72 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.1642 ms per routing
+back to back over 24 layer copies: 0.1686 ms per routing
+routes 72 (72 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=192 stages=4: 0.1640 ms per routing

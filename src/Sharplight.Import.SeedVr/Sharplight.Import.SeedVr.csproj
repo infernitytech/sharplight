@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>SeedVR2 importer for Sharplight: reads the official SeedVR2 checkpoints (the DiT .pth, ema_vae.pth and the precomputed text embeddings pos_emb.pt / neg_emb.pt) and their fp16 safetensors conversions into video-enhancement models.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.ImageGeneration.Tests" />
+  </ItemGroup>
+</Project>

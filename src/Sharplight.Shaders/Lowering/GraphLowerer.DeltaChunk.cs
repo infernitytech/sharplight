@@ -32,7 +32,7 @@ public sealed partial class GraphLowerer
             return null;
         }
 
-        int parts = DiagnosticSwitches.DeltaChunkParts is 1 or 2 ? DiagnosticSwitches.DeltaChunkParts : _opt.Compile.AllowReducedPrecision ? 1 : 2;
+        int parts = DiagnosticSwitches.DeltaChunkParts is 1 or 2 ? DiagnosticSwitches.DeltaChunkParts : HalfActivations ? 1 : 2;
         int[] candidates = DiagnosticSwitches.DeltaChunkColumns > 0 ? [DiagnosticSwitches.DeltaChunkColumns] : [32, 16];
         foreach (int columns in candidates)
         {
@@ -68,7 +68,7 @@ public sealed partial class GraphLowerer
     /// token-by-token kernel in the same step.
     /// </summary>
     private void EmitChunkedDeltaRule(Node[] nodes, DeltaChunkPlan plan, Dictionary<string, string> common, int chunkMin,
-        TensorRef q, TensorRef k, TensorRef v, TensorRef g, TensorRef beta, TensorRef st, TensorRef o, TensorRef? runs)
+        TensorRef q, TensorRef k, TensorRef v, TensorRef g, TensorRef beta, TensorRef st, TensorRef o, TensorRef? runs, TensorRef? snapshots = null)
     {
         long hk = q.Shape[1];
         long dk = q.Shape[2];
@@ -94,8 +94,10 @@ public sealed partial class GraphLowerer
         Func<Bindings, bool> when = runs is null ? b => Rows(b, q) >= chunkMin : b => Rows(b, q) - Rows(b, runs) + 1 >= chunkMin;
         uint Runs(Bindings b) => runs is null ? 1u : (uint)Rows(b, runs);
         KernelArg[] args = [Pointer(q), Pointer(k), Pointer(v), Pointer(g), Pointer(beta), Pointer(st), Pointer(o),
-            Pointer(qkPlanes), Pointer(tpPlanes), Pointer(cumDecay), .. SeqArgs(runs), TokenArg(q)];
-        TensorRef[] runTable = runs is null ? [] : [runs];
+            Pointer(qkPlanes), Pointer(tpPlanes), Pointer(cumDecay), .. SeqArgs(runs, snapshots), TokenArg(q)];
+        TensorRef[] runTable = SequenceTables(runs, null, null, snapshots);
+        // A run keeping a snapshot inside starts with a shorter chunk (chunked.slang), so it may span one chunk more.
+        long extraRows = snapshots is null ? 0 : DeltaChunkRows - 1;
         string name = nodes[^1].Output.Name;
 
         var qkKernel = Lib("chunked.slang", "delta_chunk_qk", macros);
@@ -103,7 +105,7 @@ public sealed partial class GraphLowerer
             args, [q, k], [qkPlanes]);
 
         var prepKernel = Lib("chunked.slang", "delta_chunk_prep", macros);
-        Emit($"delta_chunk {name}", nodes, [new KernelVariant(when, prepKernel, b => new Grid((uint)hv, Grid.Div(Rows(b, q), DeltaChunkRows), Runs(b)))],
+        Emit($"delta_chunk {name}", nodes, [new KernelVariant(when, prepKernel, b => new Grid((uint)hv, Grid.Div(Rows(b, q) + extraRows, DeltaChunkRows), Runs(b)))],
             args, [qkPlanes, g, beta, .. runTable], [tpPlanes, cumDecay]);
 
         var stateKernel = Lib("chunked.slang", "delta_chunk_state", macros);

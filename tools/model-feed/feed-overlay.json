@@ -2,6 +2,33 @@
   // Feed-only data by package id (docs/model-feed.md "Building a feed"): dependencies between packages, summaries, minimum server
   // versions, languages and listing state. Everything else comes from catalog/verified-models.json.
   "schemaVersion": 1,
+  // Defaults for every variant package of a model, by catalog entry id; a package entry below overrides them field by field.
+  "models": {
+    "qwen3-coder-next": {
+      "summary": "Coding agent model from Qwen (80B mixture of experts, 3B active) with tool calls and long context.",
+      "languages": ["en", "zh"]
+    },
+    "qwen3.8-flash-next": {
+      "summary": "Qwen's large sparse mixture-of-experts flagship with thinking and non-thinking modes and tool calls.",
+      "languages": ["en", "zh", "de", "fr", "es", "it", "pt", "ja", "ko", "ru"]
+    },
+    "qwen3.5-122b-a10b": {
+      "summary": "Qwen3.5 mixture of experts (122B, 10B active) with hybrid linear attention, reasoning, tool calls and image input.",
+      "languages": ["en", "zh", "de", "fr", "es", "it", "pt", "ja", "ko", "ru"]
+    },
+    "qwen3.8-27b": {
+      "summary": "Dense 27B Qwen model with hybrid linear attention, thinking and non-thinking modes and tool calls.",
+      "languages": ["en", "zh", "de", "fr", "es", "it", "pt", "ja", "ko", "ru"]
+    },
+    "gemma-4-31b-it": {
+      "summary": "Google's dense 31B Gemma 4 instruction model with image input (vision projector included).",
+      "languages": ["en", "de", "fr", "es", "it", "pt", "ja", "ko", "zh"]
+    },
+    "gpt-oss-120b": {
+      "summary": "OpenAI's open-weight 117B mixture of experts (5.1B active) with configurable reasoning effort and tool calls.",
+      "languages": ["en"]
+    }
+  },
   "packages": {
     "qwen3-0.6b.q8-0-gguf": {
       "summary": "Small multilingual chat model with thinking and non-thinking modes and tool calls.",

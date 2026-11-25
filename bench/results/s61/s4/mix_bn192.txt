@@ -1,0 +1,39 @@
+Unhandled exception. Sharplight.Shaders.KernelCompilationException: NVRTC rejected gemm_moe_native_gemm_moe_native.cu (6):
+gemm_moe_native_gemm_moe_native.cu(99): catastrophic error: #error directive: "gemm_moe_native: unsupported tile"
+  #error "gemm_moe_native: unsupported tile"
+   ^
+
+1 catastrophic error detected in the compilation of "gemm_moe_native_gemm_moe_native.cu".
+Compilation terminated.
+
+   at Sharplight.Cuda.NvrtcTranslator.Compile(String source, String fileName, IReadOnlyList`1 options, Boolean cubin) in src/Sharplight.Cuda/NvrtcTranslator.cs:line 208
+   at Sharplight.Cuda.NvrtcTranslator.Translate(String name, String entryPoint, Byte[] code) in src/Sharplight.Cuda/NvrtcTranslator.cs:line 104
+   at Sharplight.Shaders.SlangCompiler.<>c__DisplayClass21_0.<CompileCuda>b__2(IGlobalSession _) in src/Sharplight.Shaders/SlangCompiler.cs:line 168
+   at Sharplight.Shaders.SlangWorkerPool.Work() in src/Sharplight.Shaders/SlangWorkerPool.cs:line 51
+--- End of stack trace from previous location ---
+   at Sharplight.Shaders.CompiledKernel.get_Code() in src/Sharplight.Shaders/CompiledKernel.cs:line 62
+   at Sharplight.Cuda.CudaDevice.LoadKernel(CompiledKernel kernel, ICompilationCache cache) in src/Sharplight.Cuda/CudaDevice.cs:line 262
+   at Sharplight.Cuda.CudaDevice.<>c__DisplayClass62_0.<Kernel>b__1() in src/Sharplight.Cuda/CudaDevice.cs:line 242
+   at System.Lazy`1.ViaFactory(LazyThreadSafetyMode mode)
+   at System.Lazy`1.ExecutionAndPublication(LazyHelper executionAndPublication, Boolean useDefaultConstructor)
+   at System.Lazy`1.CreateValue()
+   at Sharplight.Cuda.CudaDevice.Kernel(CompiledKernel kernel, ICompilationCache cache) in src/Sharplight.Cuda/CudaDevice.cs:line 242
+   at Sharplight.Cuda.CudaDevice.<>c__DisplayClass60_0.<LoadKernels>b__0(CompiledKernel kernel) in src/Sharplight.Cuda/CudaDevice.cs:line 216
+   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)
+--- End of stack trace from previous location ---
+   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)
+   at System.Threading.Tasks.TaskReplicator.Replica.Execute()
+--- End of stack trace from previous location ---
+   at Sharplight.Cuda.CudaDevice.LoadKernels(IEnumerable`1 kernels, ICompilationCache cache, LoadProgressCounter progress, CancellationToken ct) in src/Sharplight.Cuda/CudaDevice.cs:line 222
+   at Sharplight.Cuda.CudaDevice.<>c__DisplayClass59_0.<Compile>b__1() in src/Sharplight.Cuda/CudaDevice.cs:line 176
+   at System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(Thread threadPoolThread, ExecutionContext executionContext, ContextCallback callback, Object state)
+--- End of stack trace from previous location ---
+   at System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(Thread threadPoolThread, ExecutionContext executionContext, ContextCallback callback, Object state)
+   at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+--- End of stack trace from previous location ---
+   at Sharplight.Cuda.CudaDevice.Compile(GraphSegment segment, CompileOptions options) in src/Sharplight.Cuda/CudaDevice.cs:line 191
+   at Sharplight.Runtime.CompiledModel.Compile(ComputeGraph graph, PlacementOptions placement) in src/Sharplight.Core/Runtime/CompiledModel.cs:line 117
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Create(ComputeGraph graph, Int32 slots, Int32 contextLength, Int32 maxBatchTokens, PlacementOptions placement, Boolean deviceSampling, Int64 kvCacheTokens, Int32 rollbackRows, String hiddenOutput, Int32 textPositionAxes, Int32 invariantRows, Int32 stateSnapshots) in src/Sharplight.Core/Llm/Serving/MultiSequenceDecoder.cs:line 259
+   at Sharplight.Llm.LlmModel.CreateBatchDecoder(Int32 slots, Nullable`1 contextLength, Nullable`1 memoryLimit, Nullable`1 maxLogitsRows, Nullable`1 kvCacheTokens, Int32 draftTokens, Nullable`1 stateSnapshots, Boolean mediaInput) in src/Sharplight.Core/Llm/LlmModel.cs:line 332
+   at Program.<Main>$(String[] args) in bench/BatchBench/Program.cs:line 50
+timeout: the monitored command dumped core

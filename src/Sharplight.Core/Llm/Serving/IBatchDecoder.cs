@@ -45,6 +45,15 @@ public interface IBatchDecoder : IDisposable
     /// rows the decoder was compiled with (0: speculative decoding is not possible).
     /// </summary>
     public int MaxSpeculativeRows => CanTruncate ? int.MaxValue : 0;
+    /// <summary>
+    /// Width of the embedding rows <see cref="SequenceInput.Embeddings"/> carries (the language model's hidden size, times 1 + the DeepStack
+    /// layers where the model has them); 0 when the decoder takes token rows only (compiled without the multimodal graph).
+    /// </summary>
+    public int EmbeddingWidth => 0;
+    /// <summary>Rope position axes per row (<see cref="SequenceInput.Positions"/>): 1 for plain rope, 3 or 4 for M-RoPE / XD-RoPE models.</summary>
+    public int PositionAxes => 1;
+    /// <summary>Leading position axes that carry a text row's position (the others are 0 for text rows): 3 for M-RoPE, all axes otherwise.</summary>
+    public int TextPositionAxes => PositionAxes;
     /// <summary>Width H of the hidden states <see cref="HiddenStates"/> returns (0: the decoder does not expose them).</summary>
     public int HiddenSize => 0;
     /// <summary>
@@ -74,7 +83,14 @@ public interface IBatchDecoder : IDisposable
     /// The slices point into decoder-owned memory that the next call overwrites; callers may modify them in place.
     /// </summary>
     public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs);
-    /// <summary>Accelerator (GPU) memory held by this decoder's compiled model: weights, state, activations (0 when unknown or all on the CPU).</summary>
+    /// <summary>
+    /// Prepares the decode steps of 1 to <see cref="SlotCount"/> sequences (one row each, sampled the way <paramref name="deviceSampling"/>
+    /// says) ahead of time, so that the first step of each batch size does not pay for its preparation (a provider that records command
+    /// buffers per step shape records them now). Returns the number of shapes prepared; the default prepares nothing.
+    /// </summary>
+    /// <param name="deviceSampling">Whether the steps sample on the device (their logits are not downloaded).</param>
+    public int PrepareDecodeSteps(bool deviceSampling) => 0;
+    /// <summary>Memory held by this decoder's compiled model on whatever device it runs (GPU or CPU): weights, state, activations (0 when unknown).</summary>
     public long DeviceMemoryBytes => 0;
 
     // ---- paged KV cache (all members are trivial for a decoder whose slots own fixed cache ranges) ----------------------
@@ -83,7 +99,9 @@ public interface IBatchDecoder : IDisposable
     public int KvBlockSize => 0;
     /// <summary>Blocks of the paged cache (0 when not paged).</summary>
     public int KvBlocksTotal => 0;
-    /// <summary>Blocks not held by any slot (<see cref="int.MaxValue"/> when not paged: slots never run out of cache).</summary>
+    /// <summary>
+    /// Blocks not held by any slot, cached ones included (<see cref="int.MaxValue"/> when not paged: slots never run out of cache).
+    /// </summary>
     public int KvBlocksFree => int.MaxValue;
     /// <summary>Blocks a slot must newly take to append <paramref name="tokens"/> tokens (0 when not paged).</summary>
     public int KvBlocksNeeded(int slot, int tokens) => 0;
@@ -95,4 +113,70 @@ public interface IBatchDecoder : IDisposable
     /// and 0 when the cache is not paged. The slot's <see cref="Length"/> becomes that count.
     /// </summary>
     public int ShareKvPrefix(int slot, int source, int tokens) => 0;
+
+    // ---- prefix caching by content (paged caches) ----------------------------------------------------------------------
+
+    /// <summary>
+    /// Whether full KV blocks can be published under a content hash and attached to other slots (<see cref="AttachKvBlocks"/>):
+    /// paged caches of attention-only models, and of models with recurrent state when the device can snapshot that state
+    /// (<see cref="KvStateSnapshots"/>).
+    /// </summary>
+    public bool CachesKvBlocks => false;
+    /// <summary>
+    /// How many of <paramref name="hashes"/> (content hashes of a slot's next blocks, each chained from the one before) are cached
+    /// and can be attached; <paramref name="inUse"/> of them are held by other slots, so attaching them takes no free block.
+    /// </summary>
+    public int FindKvBlocks(ReadOnlySpan<UInt128> hashes, out int inUse)
+    {
+        inUse = 0;
+        return 0;
+    }
+    /// <summary>
+    /// Appends the cached blocks <see cref="FindKvBlocks"/> reports to a slot that holds whole blocks (for a model with recurrent state
+    /// also restoring the state snapshot taken at the last of them) and returns the tokens added; the slot's
+    /// <see cref="Length"/> grows by that many.
+    /// </summary>
+    public int AttachKvBlocks(int slot, ReadOnlySpan<UInt128> hashes) => 0;
+    /// <summary>
+    /// Publishes the slot's full blocks <paramref name="firstBlock"/>, <paramref name="firstBlock"/> + 1, ... under the content hashes
+    /// <paramref name="hashes"/>: they stay cached after the slot releases them, until their memory is needed (least recently
+    /// released first, a sequence's last blocks before its first).
+    /// </summary>
+    public void PublishKvBlocks(int slot, int firstBlock, ReadOnlySpan<UInt128> hashes)
+    {
+    }
+    /// <summary>
+    /// Recurrent state snapshots the decoder keeps for prefix caching (0: none, or the model has no recurrent state). A snapshot is
+    /// the state after a published block; attaching that block restores it.
+    /// </summary>
+    public int KvStateSnapshots => 0;
+    /// <summary>
+    /// Snapshots the slot's recurrent state, which must be the state after its context so far, a whole number of blocks whose last
+    /// block is published as <paramref name="hash"/>. Returns false when snapshots are not supported, or for a
+    /// <paramref name="speculative"/> snapshot (one no later prompt is known to want, e.g. at a prefill chunk end) when every snapshot row
+    /// holds a wanted one: speculative snapshots replace only free rows and each other, so they never push out a snapshot a prompt asked for.
+    /// </summary>
+    public bool SaveKvStateSnapshot(int slot, UInt128 hash, bool speculative = false) => false;
+    /// <summary>
+    /// Whether a step can keep the recurrent state at a block boundary inside an input (<see cref="SequenceInput.StateSnapshotRows"/>,
+    /// then <see cref="SaveKvStateSnapshotAt"/>), so that a snapshot there does not cost the prompt a pass of its own.
+    /// </summary>
+    public bool SnapshotsInsideSteps => false;
+    /// <summary>
+    /// Keeps the state the last step stored for the slot's input (<see cref="SequenceInput.StateSnapshotRows"/>), the state after the slot's
+    /// first <paramref name="length"/> tokens, as the snapshot of its block published as <paramref name="hash"/> (the block ending at
+    /// <paramref name="length"/>). Returns false when the step stored no such state (no snapshot row was free, or another length).
+    /// </summary>
+    public bool SaveKvStateSnapshotAt(int slot, int length, UInt128 hash) => false;
+    /// <summary>
+    /// Makes the empty <paramref name="slot"/> continue <paramref name="source"/>'s context without computing it (several samples of one
+    /// prompt): the slots share the source's KV blocks, a partly filled last block is copied when one of them first writes into it
+    /// (copy-on-write), and recurrent state is copied. Returns false, changing nothing, when the decoder cannot (not paged, the device
+    /// cannot copy, the slot is not empty).
+    /// </summary>
+    public bool ForkKv(int slot, int source) => false;
+    /// <summary>Free blocks that still hold published content (counted in <see cref="KvBlocksFree"/>).</summary>
+    public int KvBlocksCached => 0;
+    /// <summary>Cached blocks whose content was dropped to reuse their memory.</summary>
+    public long KvBlocksEvicted => 0;
 }

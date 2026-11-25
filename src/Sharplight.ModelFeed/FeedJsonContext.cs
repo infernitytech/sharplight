@@ -19,11 +19,13 @@ namespace Sharplight.ModelFeed;
 [JsonSerializable(typeof(FeedCatalogIndex))]
 [JsonSerializable(typeof(FeedCatalogPage))]
 [JsonSerializable(typeof(FeedPackageIndex))]
+[JsonSerializable(typeof(FeedModelListing))]
 [JsonSerializable(typeof(FeedKeySet))]
 [JsonSerializable(typeof(FeedKeyFile))]
 [JsonSerializable(typeof(FeedState))]
 [JsonSerializable(typeof(Dictionary<string, FeedState>))]
 [JsonSerializable(typeof(JwsHeader))]
+[JsonSerializable(typeof(PayloadReuse))]
 public sealed partial class FeedJsonContext : JsonSerializerContext
 {
 }

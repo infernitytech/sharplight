@@ -1,0 +1,21 @@
+[hold 01:39:43] ./tests.sh
+0 %, 2 MiB, 9.66 W
+# hold 01:39:43 apps: 
+Sharplight.Import.Onnx.Tests AttentionPatternTests rc=0 Total: 14, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests ControlFlowTests rc=0 Total: 12, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests DeviceExtendedOpsTests rc=0 Total: 6, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests DeviceLinalgOpsTests rc=0 Total: 4, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests EmptyTensorAndLayoutTests rc=0 Total: 4, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests OnnxParserTests rc=0 Total: 7, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests PackageArtifactTests rc=0 Total: 1, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests ProjectionFusionTests rc=0 Total: 6, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests ProtoReaderTests rc=0 Total: 14, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests RandomOpTests rc=0 Total: 6, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests ReferenceTests rc=0 Total: 32, Errors: 0, Failed: 0, Skipped: 18
+Sharplight.Import.Onnx.Tests StringTensorTests rc=0 Total: 3, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests SurveyModelTests rc=0 Total: 27, Errors: 0, Failed: 0, Skipped: 10
+Sharplight.Import.Onnx.Tests TextOpTests rc=0 Total: 2, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests TranslationTests rc=0 Total: 35, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Import.Onnx.Tests ZooTests rc=0 Total: 8, Errors: 0, Failed: 0, Skipped: 0
+# release 01:41:43
+[release 01:41:43]

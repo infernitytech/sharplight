@@ -43,6 +43,12 @@ internal sealed record AppSettings
     /// <summary>Let reasoning models think before answering by default.</summary>
     public bool EnableThinking { get; init; } = true;
 
+    /// <summary>
+    /// The provider chosen per physical GPU (Settings &gt; Engine &gt; Compute devices), by GPU identity (<c>ComputeDeviceOption.GpuKey</c>).
+    /// A GPU without an entry is <see cref="ProviderChoice.Automatic"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, ProviderChoice> DeviceProviders { get; init; } = new Dictionary<string, ProviderChoice>();
+
     /// <summary>Device features never to use (provider-neutral names such as <c>matrix_f16</c>).</summary>
     public IReadOnlyList<string> DisabledFeatures { get; init; } = [];
 
@@ -121,6 +127,21 @@ internal sealed record AppSettings
     /// <summary>Address of the Sharplight model feed that replaces the official one; null or empty uses <c>https://download.sharplight.dev/models</c>.</summary>
     public string? FeedUrl { get; init; }
 
+    /// <summary>The catalog entries whose licence notice the user dismissed (shown once per model).</summary>
+    public IReadOnlyList<string> DismissedLicenseNotices { get; init; } = [];
+
+    /// <summary>The licences the user accepted before a download (asked once per model and version of its terms).</summary>
+    public IReadOnlyList<AcceptedLicense> AcceptedLicenses { get; init; } = [];
+
     /// <summary>The model feed channel, <c>stable</c> or <c>unstable</c>; null is <c>stable</c>.</summary>
     public string? FeedChannel { get; init; }
+
+    /// <summary>Check the model feed for newer versions of installed packages now and then, and show their number on the Models item of the navigation.</summary>
+    public bool CheckModelUpdates { get; init; }
+
+    /// <summary>Hours between two checks of <see cref="CheckModelUpdates"/>.</summary>
+    public int ModelUpdateIntervalHours { get; init; } = 24;
+
+    /// <summary>When the model feed was last checked for newer versions; null when it never was.</summary>
+    public DateTimeOffset? LastModelUpdateCheck { get; init; }
 }

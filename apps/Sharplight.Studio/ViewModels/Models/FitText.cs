@@ -8,13 +8,24 @@ namespace Sharplight.Studio.ViewModels.Models;
 /// <summary>Wording of fit estimates, shared by the load panel and the download badges.</summary>
 internal static class FitText
 {
-    /// <summary>The verdict as a heading.</summary>
+    /// <summary>
+    /// The verdict as a heading: <c>Fits on the GPU</c> (or <c>in system memory</c>, <c>on 2 GPUs</c>), <c>Fits after unloading other models</c>,
+    /// <c>Fits with CPU offload</c> (<c>CPU expert offload</c> for a mixture-of-experts model whose offload moves experts only; <c>Needs</c>
+    /// while offload is off) or <c>Does not fit</c>.
+    /// </summary>
     /// <param name="report">The plan.</param>
-    public static string Title(FitReport report) => report.Verdict switch
+    /// <param name="expertOffload">The offload moves routed experts only (<see cref="FitAdvisor.IsExpertOffload"/>).</param>
+    public static string Title(FitReport report, bool expertOffload = false) => report.Verdict switch
     {
-        FitVerdict.Fits => "Fits",
+        FitVerdict.Fits => report.Devices.Count switch
+        {
+            1 when !report.Devices[0].Device.IsGpu => "Fits in system memory",
+            var count and > 1 => $"Fits on {count} GPUs",
+            _ => "Fits on the GPU",
+        },
         FitVerdict.FitsAfterUnloading => "Fits after unloading other models",
-        FitVerdict.NeedsOffload => "Needs CPU offload",
+        FitVerdict.NeedsOffload when report.ExpertsFromDisk => "Runs with experts from disk (slow)",
+        FitVerdict.NeedsOffload => $"{(report.CpuOffload ? "Fits with" : "Needs")} {(expertOffload ? "CPU expert offload" : "CPU offload")}",
         _ => "Does not fit",
     };
 
@@ -34,7 +45,9 @@ internal static class FitText
     /// <summary>What the verdict means, in one or two sentences.</summary>
     /// <param name="report">The plan.</param>
     /// <param name="target">Where it loads, e.g. a device name or <c>2 GPUs</c>.</param>
-    public static string Message(FitReport report, string target)
+    /// <param name="expertOffload">The offload moves routed experts only (<see cref="FitAdvisor.IsExpertOffload"/>).</param>
+    /// <param name="diskTokensPerSecond">The decode speed estimate with experts on disk (<see cref="FitAdvisor.DiskTokensPerSecond"/>), or null.</param>
+    public static string Message(FitReport report, string target, bool expertOffload = false, double? diskTokensPerSecond = null)
     {
         string total = ByteFormat.Format(report.Footprint.Total);
         long available = report.Devices.Sum(device => device.AvailableBytes);
@@ -48,10 +61,21 @@ internal static class FitText
                     ? $"Needs about {total}. Fits once {names} {(report.Unload.Count == 1 ? "is" : "are")} unloaded; idle models unload automatically when it loads."
                     : $"Needs about {total}. Unload {names} first: {(report.Unload.Count == 1 ? "it is" : "they are")} pinned or in use.";
             case FitVerdict.NeedsOffload:
-                var offload = $"Needs about {total}; {target} has {ByteFormat.Format(available)} available. About {FitAdvisor.Percent(report.CpuShare)} of the model would run on the CPU, which is slower.";
+                var offload = expertOffload
+                    ? $"Needs about {total}; {target} has {ByteFormat.Format(available)} available. The experts of some layers (about {FitAdvisor.Percent(report.CpuShare)} of the model) "
+                      + "would run on the CPU, attention and the shared layers stay on the GPU; slower than all on the GPU."
+                    : $"Needs about {total}; {target} has {ByteFormat.Format(available)} available. About {FitAdvisor.Percent(report.CpuShare)} of the model would run on the CPU, which is slower.";
                 if (report.Unload.Count > 0)
                 {
                     offload += $" Idle models unload first: {names}.";
+                }
+
+                if (report.ExpertsFromDisk)
+                {
+                    string speed = diskTokensPerSecond is { } rate
+                        ? $"expect roughly {Rate(rate)} tokens/s (estimated for a {FitAdvisor.AssumedDiskBytesPerSecond / 1e9:0} GB/s drive, every read a miss; cached experts make it faster)"
+                        : "expect about 1 token/s or less";
+                    offload += $" The part left over is more than the system memory: about {ByteFormat.Format(FitAdvisor.DiskBytes(report))} of routed experts stay on disk and are read on demand, so {speed}.";
                 }
 
                 return report.CpuOffload ? offload : offload + " Turn on CPU offload, or the load fails.";
@@ -67,6 +91,11 @@ internal static class FitText
                     : $"Needs about {total}; system memory has {ByteFormat.Format(available)} available, even with every other model unloaded.";
         }
     }
+
+    /// <summary><c>0.4</c>, <c>2.5</c>, <c>12</c>: two significant digits below 10.</summary>
+    private static string Rate(double rate) => rate < 10
+        ? rate.ToString(rate < 1 ? "0.##" : "0.#", System.Globalization.CultureInfo.InvariantCulture)
+        : rate.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Where a plan loads the model: the device's name, or <c>2 GPUs</c>.</summary>
     /// <param name="report">The plan.</param>

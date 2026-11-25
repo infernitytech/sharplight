@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Hosting.Loaders;
+using Sharplight.Llm.Embeddings;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Serving.Hosting;
@@ -48,14 +49,14 @@ public sealed class RealModelHostingTests
 
         using (var lease = await manager.Host.AcquireAsync("embed", ModelKind.Embedding, TestContext.Current.CancellationToken))
         {
-            var embedder = ((IEmbeddingModel)lease.As<LoadedModel>()).Embedder;
-            Assert.Equal(384, embedder.Embed(["hello"]).Vectors[0].Length);
+            var embedder = ((ITaskClientModel)lease.As<LoadedModel>()).FindClient<ITextEmbedder>()!;
+            Assert.Equal(384, (await embedder.EmbedAsync(["hello"], cancellationToken: TestContext.Current.CancellationToken)).Vectors[0].Length);
         }
 
         using (var lease = await manager.Host.AcquireAsync("rerank", ModelKind.Reranker, TestContext.Current.CancellationToken))
         {
-            var reranker = ((IRerankerModel)lease.As<LoadedModel>()).Reranker;
-            var scores = reranker.Score("capital of France", ["Paris is the capital of France.", "Bananas are yellow."]);
+            var reranker = ((ITaskClientModel)lease.As<LoadedModel>()).FindClient<ITextReranker>()!;
+            var scores = await reranker.RerankAsync("capital of France", ["Paris is the capital of France.", "Bananas are yellow."], cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(scores.Scores[0] > scores.Scores[1]);
         }
 

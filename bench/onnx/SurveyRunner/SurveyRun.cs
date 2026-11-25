@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Sharplight.Cpu;
+using Sharplight.Cuda;
 using Sharplight.Graph;
 using Sharplight.Import.Onnx;
 using Sharplight.Models;
@@ -41,7 +42,12 @@ internal sealed class SurveyRun
         _result["batch"] = _batch;
         _result["modelMB"] = new FileInfo(_manifest.ModelPath).Length >> 20;
 
-        IExecutionProvider provider = _options.ProviderName == "cpu" ? new CpuExecutionProvider() : new VulkanProvider();
+        IExecutionProvider provider = _options.ProviderName switch
+        {
+            "cpu" => new CpuExecutionProvider(),
+            CudaProvider.ProviderName => new CudaProvider(),
+            _ => new VulkanProvider(),
+        };
         var availability = provider.CheckAvailability();
         if (!availability.IsAvailable)
         {
@@ -65,7 +71,7 @@ internal sealed class SurveyRun
         DumpOutputs(outputs);
         Compare(outputs);
         Time(graph, compiled, run);
-        if (_options.Profile && _options.ProviderName == "vulkan")
+        if (_options.Profile && _options.ProviderName != "cpu")
         {
             Profile(compiled, run);
         }
@@ -285,11 +291,18 @@ internal sealed class SurveyRun
             segment.ResetProfile();
         }
 
+        foreach (var segment in compiled.Segments.OfType<CudaSegment>())
+        {
+            segment.Profile = true;
+            segment.ResetProfile();
+        }
+
         for (int i = 0; i < 3; i++)
         {
             compiled.Run(run);
         }
 
-        _result["profile"] = string.Join("\n", compiled.Segments.OfType<VulkanSegment>().Select(segment => segment.ProfileReport(12)));
+        _result["profile"] = string.Join("\n", compiled.Segments.OfType<VulkanSegment>().Select(segment => segment.ProfileReport(12))
+            .Concat(compiled.Segments.OfType<CudaSegment>().Select(segment => segment.ProfileReport(12))));
     }
 }

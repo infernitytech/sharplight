@@ -36,6 +36,27 @@ internal static class Jx
             throw ApiException.BadRequest($"'{name}' must be an integer.", param ?? name);
         }
 
+        /// <summary>A 64-bit integer property (e.g. a seed); fractional numbers are truncated. <paramref name="param"/> names the field in the error (default: the property name).</summary>
+        public long? Long(string name, string? param = null)
+        {
+            if (o.Get(name) is not { } v)
+            {
+                return null;
+            }
+
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var i))
+            {
+                return i;
+            }
+
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d) && d >= long.MinValue && d <= long.MaxValue)
+            {
+                return (long)d;
+            }
+
+            throw ApiException.BadRequest($"'{name}' must be an integer.", param ?? name);
+        }
+
         /// <summary>A numeric property as float; null when absent.</summary>
         public float? Float(string name)
         {

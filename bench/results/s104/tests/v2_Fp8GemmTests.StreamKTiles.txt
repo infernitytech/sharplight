@@ -1,0 +1,8 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Vulkan.Tests
+[0m[37m  Discovered:  Sharplight.Vulkan.Tests
+[0m[37m  Starting:    Sharplight.Vulkan.Tests
+[0m[37m  Finished:    Sharplight.Vulkan.Tests (ID = '1562ec5a60bd0d97aeb54105e09faf74e3c3f5da4789295e2d584d3ef3bab892')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Vulkan.Tests  Total: 4, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 12.015s
+[0m[0m

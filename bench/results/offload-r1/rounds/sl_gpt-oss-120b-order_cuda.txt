@@ -1,0 +1,4 @@
+== 2026-11-25T03:43:19Z sharplight gpt-oss-120b-order cuda C
+prefill 512 tok: best 925 ms = 553.7 tok/s | decode: best 55.71, median 53.60, mean 50.84 tok/s | GPU ms/step: best 3.98, median 3.99, wall best 17.95 | prefill median of 5: 941.5 ms = 543.8 tok/s | per run: prefill 543.7 ± 8.6 tok/s of 5, decode 51.11 ± 3.89 tok/s of 5 (44.16, 52.70, 52.56, 53.18, 52.94)
+== 2026-11-25T03:44:12Z sharplight gpt-oss-120b-order cuda D
+prefill 512 tok: best 925 ms = 553.4 tok/s | decode: best 54.52, median 52.26, mean 49.60 tok/s | GPU ms/step: best 3.99, median 4.01, wall best 18.34 | prefill median of 5: 940.1 ms = 544.6 tok/s | per run: prefill 544.7 ± 9.5 tok/s of 5, decode 49.86 ± 3.89 tok/s of 5 (43.20, 52.08, 49.56, 52.17, 52.29)

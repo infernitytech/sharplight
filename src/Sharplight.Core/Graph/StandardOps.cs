@@ -92,6 +92,15 @@ public static partial class StandardOps
         return [new TensorType(i[0].Type, new Shape(perm.Select(p => i[0].Shape[p])))];
     });
 
+    /// <summary>
+    /// Control dependency: y is x itself (a view, nothing is copied), available only once <c>after</c> has been computed. Inputs: x (any),
+    /// after (any; only its completion matters, its values are not read). Output: x's type and shape. Backends that order independent work
+    /// by dependency level rather than graph order (the shared GPU lowering) otherwise start every independent chunk of a chunked or tiled
+    /// computation at once; chaining each chunk's first input after the previous chunk's result keeps them sequential, so the activation
+    /// memory of one chunk is reused by the next.
+    /// </summary>
+    public static readonly OpSchema After = new("After", OpCategory.View, 2, 2, Same);
+
     /// <summary>Materializes a (possibly strided) view into a dense row-major tensor. Input: x. Output: same type and shape.</summary>
     public static readonly OpSchema Contiguous = new("Contiguous", OpCategory.Data, 1, 1, Same);
 
@@ -324,9 +333,10 @@ public static partial class StandardOps
     /// K-1 inputs. Optional 4th input: bias [C] (added before the activation), flagged by attribute <c>bias</c> (bool) or by a non-i32 type.
     /// Attribute: activation ("none" | "silu").
     /// Multi-sequence form: trailing i32 input = sequence runs [U, 4], state [S, K-1, C]; each run continues its slot's state.
-    /// Rollback form (<see cref="RecurrentRollback"/>): then the commits table and the record state.
+    /// Snapshot form (<see cref="RecurrentSnapshots"/>): then the snapshots table. Rollback form (<see cref="RecurrentRollback"/>): then the
+    /// commits table and the record state.
     /// </summary>
-    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 7, (i, a) => [new(DataType.F32, i[0].Shape)]);
+    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 8, (i, a) => [new(DataType.F32, i[0].Shape)]);
 
     /// <summary>
     /// Gated delta rule recurrence (Gated DeltaNet, Kimi delta attention) and gated linear attention.
@@ -336,9 +346,10 @@ public static partial class StandardOps
     /// rule "delta" (default): S = D·S; S += k ⊗ (v − Sᵀk)·beta; rule "additive": S = D·S + k ⊗ v·beta (no delta correction);
     /// then o = Sᵀq·scale. Attributes: scale, rule. Output [T, Hv, Dv].
     /// Multi-sequence form: seventh input = sequence runs [U, 4], state [S, Hv, Dv, Dk]; each run continues its slot's state.
-    /// Rollback form (<see cref="RecurrentRollback"/>): then the commits table and the record state.
+    /// Snapshot form (<see cref="RecurrentSnapshots"/>): then the snapshots table. Rollback form (<see cref="RecurrentRollback"/>): then the
+    /// commits table and the record state.
     /// </summary>
-    public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 9, (i, a) => [new(DataType.F32, i[2].Shape)]);
+    public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 10, (i, a) => [new(DataType.F32, i[2].Shape)]);
 
     /// <summary>
     /// Softmax-gated pooling of windows of positions with carried state (the compressor of compressed KV caches). Inputs: values [T, C] f32,

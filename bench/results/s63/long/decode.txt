@@ -1,0 +1,4 @@
+gpt-oss-20b depth 32768: | 1 | 11.8 | 485 / 0 | 6.43 / 6.44, 6.38 | | 4 | 12.6 | 630 / 0 | 11.93 / 11.96, 11.87 | 
+Qwen3-8B-FP8-yarn depth 32768: | 1 | 22.7 | 473 / 0 | 17.22 / 17.31, 17.16 | | 4 | 36.4 | 546 / 0 | 36.11 / 36.16, 36.06 | 
+gpt-oss-20b depth 131072: | 1 | 15.3 | 485 / 0 | 10.04 / 10.06, 9.99 | | 4 | 26.2 | 630 / 0 | 25.59 / 25.68, 25.54 | 
+Qwen3-8B-FP8-yarn depth 131072: Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 81.27 GiB, group 'layers.13' (2.19 GiB) has no room and no fallback device is configured. 

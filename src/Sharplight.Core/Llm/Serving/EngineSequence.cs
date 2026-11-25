@@ -11,7 +11,7 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 internal sealed class EngineSequence
 {
-    public EngineSequence(long id, GenerationRequest request, ChannelWriter<GenerationChunk> writer, int maxTokens, long submitTicks)
+    public EngineSequence(long id, GenerationRequest request, ChannelWriter<GenerationChunk> writer, int maxTokens, long submitTicks, PromptLayout? layout = null)
     {
         Id = id;
         Request = request;
@@ -19,7 +19,14 @@ internal sealed class EngineSequence
         Prompt = request.PromptTokens;
         MaxTokens = maxTokens;
         SubmitTicks = submitTicks;
+        Layout = layout;
+        Content = layout?.Content ?? request.PromptContent;
     }
+
+    /// <summary>Image or audio rows, M-RoPE positions or media weights of the request (null for a plain token prompt).</summary>
+    public PromptLayout? Layout { get; }
+    /// <summary>The prefix-cache keys of the prompt's non-text content (<see cref="GenerationRequest.PromptContent"/> plus the media's).</summary>
+    public IReadOnlyList<PromptContentKey> Content { get; }
 
     public long Id { get; }
     public GenerationRequest Request { get; }
@@ -66,6 +73,8 @@ internal sealed class EngineSequence
     public RequestSampler Sampler { get; set; } = null!;
     public StreamingDecoder Decoder { get; set; } = null!;
     public StopStringFilter Filter { get; set; } = null!;
+    /// <summary>Tokens committed but not yet decoded and streamed (deferred to overlap the next step, see InferenceEngine.FlushEmits).</summary>
+    public List<int> PendingEmits { get; } = [];
     public HashSet<int> StopIds { get; set; } = null!;
     public IConstraintMatcher? Matcher { get; set; }
     /// <summary>Scratch for the constraint's allowed tokens (allocated on first use).</summary>
@@ -74,6 +83,29 @@ internal sealed class EngineSequence
     public float[]? RawLogits { get; set; }
 
     public bool Prefilling => PromptPos < Prompt.Length;
+    /// <summary>
+    /// Recurrent state with prefix caching: the prompt position of the last state snapshot a later prompt sharing this one could restore
+    /// (what a new snapshot saves is the recomputation from there).
+    /// </summary>
+    public int SnapshotPos { get; set; }
+    /// <summary>
+    /// Recurrent state with in-step snapshots (<see cref="IBatchDecoder.SnapshotsInsideSteps"/>): the block boundary inside the current prompt
+    /// chunk (a prompt position) whose state the step keeps for a snapshot, 0 for none.
+    /// </summary>
+    public int InsideSnapshot { get; set; }
+    /// <summary>
+    /// Another sampling of the same prompt (n &gt; 1): the running sequence whose prompt this one waits for instead of computing it; at
+    /// the leader's first token this one forks its context (shared blocks, copy-on-write) and samples from the same logits. Null otherwise.
+    /// </summary>
+    public EngineSequence? Leader { get; set; }
+    /// <summary>The sequences waiting to fork from this one (null when none).</summary>
+    public List<EngineSequence>? Followers { get; set; }
+    /// <summary>A follower's copy of the leader's last prompt logits row, sampled at the fork.</summary>
+    public float[]? ForkLogits { get; set; }
+    /// <summary>Whether this prompt continues an earlier one (it restored the snapshot another prompt left at its end).</summary>
+    public bool Continues { get; set; }
+    /// <summary>Scheduler trace: why the last prompt chunk ended where it did (empty: the budget or the prompt's end).</summary>
+    public string TraceClip { get; set; } = "";
 
     /// <summary>
     /// Preempted (paged KV cache): the context tokens to compute again before the sequence continues, or null. Fed like a prompt
@@ -81,6 +113,10 @@ internal sealed class EngineSequence
     /// </summary>
     public int[]? Replay { get; set; }
     public int ReplayPos { get; set; }
+    /// <summary>Paged cache with prefix caching: content hashes of the prompt's full blocks before its last token (computed at admission).</summary>
+    public List<UInt128>? PromptHashes { get; set; }
+    /// <summary>Content hashes of the blocks of <see cref="Replay"/>, attached again where they are still cached.</summary>
+    public List<UInt128>? ReplayHashes { get; set; }
     /// <summary>Masked diffusion: the sequence being denoised (created at its first step), or null.</summary>
     public DiffusionSequence? Diffusion { get; set; }
     /// <summary>Logical admission time (the newest running sequence is preempted first).</summary>

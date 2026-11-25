@@ -68,18 +68,19 @@ public sealed partial class GraphLowerer
         TensorRef? cb = hasBias ? Ref(n.Inputs[3]) : null;
         var runs = RecurrentRuns(n, hasBias ? 4 : 3);
         var (commits, records, rollback) = RollbackBindings(n);
+        var (snaps, snapshot) = SnapshotBindings(n);
         int tok = Math.Max(1, DiagnosticSwitches.Conv1dTokens);
         bool parallelForm = DiagnosticSwitches.Conv1dParallel;
         // Rollback form: the walk replays every run's committed rows and serves the short runs (recording tentative ones); runs
         // long enough for the token-parallel kernels, and longer than any tentative run, are then computed by those.
         int parallelMin = records is null ? Conv1dParallelMinRows : Math.Max(Conv1dParallelMinRows, (int)records.Shape[2] + 1);
         var macros = Macros([("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
-            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null), ("TOK", tok), .. rollback,
+            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null), ("TOK", tok), .. rollback, .. snapshot,
             ("PAR_MIN", records is not null && parallelForm ? parallelMin : 0)]);
         var k = Lib("recurrent.slang", "conv1d", macros);
-        KernelArg[] args = [Pointer(x), Pointer(w), Pointer(st), Pointer(y), Pointer(cb ?? y), .. SeqArgs(runs, commits, records), TokenArg(x),
+        KernelArg[] args = [Pointer(x), Pointer(w), Pointer(st), Pointer(y), Pointer(cb ?? y), .. SeqArgs(runs, commits, records, snaps), TokenArg(x),
             .. runs is null ? [] : (KernelArg[])[TokenArg(runs)]];
-        TensorRef[] reads = [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. SequenceTables(runs, commits, records)];
+        TensorRef[] reads = [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. SequenceTables(runs, commits, records, snaps)];
         TensorRef[] recordWrites = records is null ? [] : [records];
         uint Runs(Bindings b) => runs is null ? 1u : (uint)Rows(b, runs);
         // conv1d_tokens: one block per TOK rows of the batch (multi-sequence blocks look up the run of each row).
@@ -121,16 +122,21 @@ public sealed partial class GraphLowerer
     private void LowerDeltaRule(Node n)
     {
         // q/k may come straight from an absorbed L2Norm: read its input and normalize in the kernel.
+        // q/k may repeat the heads of a source in place: read the source's key head h / repeats.
         Node? normQ = _absorbedNorms.GetValueOrDefault(n.Inputs[0]);
         Node? normK = _absorbedNorms.GetValueOrDefault(n.Inputs[1]);
-        var q = Ref(normQ?.Inputs[0] ?? n.Inputs[0]);
-        var k = Ref(normK?.Inputs[0] ?? n.Inputs[1]);
+        var groupedQ = _groupedKeyHeads.GetValueOrDefault(n.Inputs[0]);
+        var groupedK = _groupedKeyHeads.GetValueOrDefault(n.Inputs[1]);
+        bool groupedHeads = groupedQ.Source is not null && groupedK.Source is not null;
+        var q = Ref(normQ?.Inputs[0] ?? groupedQ.Source ?? n.Inputs[0]);
+        var k = Ref(normK?.Inputs[0] ?? groupedK.Source ?? n.Inputs[1]);
         var v = Ref(n.Inputs[2]);
         var g = Ref(n.Inputs[3]);
         var beta = Ref(n.Inputs[4]);
         var st = Ref(n.Inputs[5]);
         var runs = RecurrentRuns(n, 6);
         var (commits, records, rollback) = RollbackBindings(n);
+        var (snaps, snapshot) = SnapshotBindings(n);
         q = EnsureUnitInnerStride(q, 2, "delta-q");
         k = EnsureUnitInnerStride(k, 2, "delta-k");
         v = EnsureUnitInnerStride(v, 2, "delta-v");
@@ -143,6 +149,11 @@ public sealed partial class GraphLowerer
         long HV = v.Shape[1];
         long DV = v.Shape[2];
         Node[] nodes = [.. new[] { normQ, normK }.OfType<Node>(), n];
+        if (groupedHeads && HV != HK * groupedQ.Repeats)
+        {
+            throw new InvalidOperationException($"GatedDeltaRule: {HV} value heads for {HK} key heads repeated {groupedQ.Repeats} times.");
+        }
+
         // Per-channel decay ([T, HV, DK]), time-invariant gates ([HV]) and the additive rule run token by token only.
         // (From the node's values: dense copies may be flattened.)
         int gRank = n.Inputs[3].Shape.Rank;
@@ -164,16 +175,16 @@ public sealed partial class GraphLowerer
             chunkMin = Math.Max(chunkMin, (int)records.Shape[2] + 1);
         }
 
-        var common = Macros(("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
+        var common = Macros([("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("KS0", k.Strides[0]), ("KS1", k.Strides[1]), ("VS0", v.Strides[0]), ("VS1", v.Strides[1]),
             ("SCALE", n.Attributes.Get<float>("scale")),
             ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
             ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
-            ("MULTI_SEQ", runs is not null), ("CHANNEL_DECAY", channelDecay), ("ADDITIVE", additive),
-            ("G_TS", gRank == 1 ? 0 : HV), ("B_TS", betaRank == 1 ? 0 : HV), ("STATE_FMT", RecurrentStateFormat(st.Type)));
+            ("GROUPED_HEADS", groupedHeads), ("MULTI_SEQ", runs is not null), ("CHANNEL_DECAY", channelDecay), ("ADDITIVE", additive),
+            ("G_TS", gRank == 1 ? 0 : HV), ("B_TS", betaRank == 1 ? 0 : HV), ("STATE_FMT", RecurrentStateFormat(st.Type)), .. snapshot]);
         if (chunked is { } plan && records is null)
         {
-            EmitChunkedDeltaRule(nodes, plan, common, chunkMin, q, k, v, g, beta, st, o, runs);
+            EmitChunkedDeltaRule(nodes, plan, common, chunkMin, q, k, v, g, beta, st, o, runs, snaps);
         }
 
         int lanesPerRow = Math.Min(DiagnosticSwitches.DeltaLanesPerRow, _opt.SubgroupSize);
@@ -199,11 +210,11 @@ public sealed partial class GraphLowerer
             [new KernelVariant(when, kern, b => new Grid((uint)HV, (uint)(DV / dvb), runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(q), Pointer(k), Pointer(v),
              Pointer(g), Pointer(beta), Pointer(st),
-             Pointer(o), .. SeqArgs(runs, commits, records), TokenArg(q)],
-            [q, k, v, g, beta, st, .. SequenceTables(runs, commits, records)], [o, st, .. records is null ? [] : (TensorRef[])[records]]);
+             Pointer(o), .. SeqArgs(runs, commits, records, snaps), TokenArg(q)],
+            [q, k, v, g, beta, st, .. SequenceTables(runs, commits, records, snaps)], [o, st, .. records is null ? [] : (TensorRef[])[records]]);
         if (chunked is { } rollbackPlan && records is not null)
         {
-            EmitChunkedDeltaRule(nodes, rollbackPlan, common, chunkMin, q, k, v, g, beta, st, o, runs);
+            EmitChunkedDeltaRule(nodes, rollbackPlan, common, chunkMin, q, k, v, g, beta, st, o, runs, snaps);
         }
     }
 }

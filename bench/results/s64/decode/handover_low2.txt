@@ -1,0 +1,13 @@
+# Same, sizes 4,8,12,16,20 (GPU ms), three routings, hand-over at 3 and 1 item per expert.
+min=3 text  8.56   10.92   12.18   15.20   15.22  
+min=3 feedback  6.69   11.10   12.23   13.58   14.61  
+min=3 random  7.75   9.03   9.78   10.21   10.65  
+min=1 text  8.57   10.72   11.82   14.77   14.84  
+min=1 feedback  6.69   10.82   11.98   13.24   14.26  
+min=1 random  7.76   8.83   9.57   10.01   10.23  
+min=3 text  8.58   10.91   12.20   15.23   15.27  
+min=3 feedback  6.70   11.14   12.23   13.59   14.61  
+min=3 random  7.77   9.02   9.81   10.22   10.64  
+min=1 text  8.57   10.74   11.85   14.71   14.82  
+min=1 feedback  6.69   10.78   11.99   13.25   14.26  
+min=1 random  7.75   8.80   9.53   10.00   10.20  

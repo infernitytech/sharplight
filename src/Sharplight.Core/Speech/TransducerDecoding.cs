@@ -1,3 +1,5 @@
+using Sharplight.Llm;
+
 namespace Sharplight.Speech;
 
 /// <summary>
@@ -28,11 +30,11 @@ internal static class TransducerDecoding
             cancellationToken.ThrowIfCancellationRequested();
             var logits = network.Joint(rows.Slice(row * width, width));
             var tokenLogits = logits.AsSpan(0, vocabulary);
-            int token = ArgMax(tokenLogits);
+            int token = Sampler.ArgMax(tokenLogits);
             int advance;
             if (durations > 0)
             {
-                advance = settings.Durations[ArgMax(logits.AsSpan(vocabulary, durations))];
+                advance = settings.Durations[Sampler.ArgMax(logits.AsSpan(vocabulary, durations))];
                 if (token == settings.Blank && advance == 0)
                 {
                     advance = 1;
@@ -63,17 +65,4 @@ internal static class TransducerDecoding
         return tokens;
     }
 
-    private static int ArgMax(ReadOnlySpan<float> values)
-    {
-        int best = 0;
-        for (int i = 1; i < values.Length; i++)
-        {
-            if (values[i] > values[best])
-            {
-                best = i;
-            }
-        }
-
-        return best;
-    }
 }

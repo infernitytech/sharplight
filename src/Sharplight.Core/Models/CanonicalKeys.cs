@@ -112,6 +112,11 @@ public static class CanonicalKeys
     public const string EmbeddingPrompts = "embedding.prompts";
     /// <summary>Default prompt name (string) applied when the caller selects none.</summary>
     public const string EmbeddingDefaultPrompt = "embedding.default_prompt";
+    /// <summary>
+    /// The recognition tasks of a vision-language model that reads text from an image (string[] of "name=prompt" entries, the first is the default, e.g.
+    /// "text=Text Recognition:", "table=Table Recognition:"): the user-turn text the model is prompted with next to the image (<c>ITextRecognizer</c>).
+    /// </summary>
+    public const string RecognitionTasks = "recognition.tasks";
     /// <summary>Activation applied to classifier logits to get a score: "sigmoid", "softmax", "none" (string).</summary>
     public const string ClassifierActivation = "classifier.activation";
     /// <summary>Label names of a classifier head (string[]).</summary>

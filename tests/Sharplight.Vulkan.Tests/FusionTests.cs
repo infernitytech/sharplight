@@ -28,6 +28,29 @@ public sealed class FusionTests
         Diff.Check("Fusion.add+norm", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * d, 1)), (r, Rnd.F((long)t * d, 2))), atol: 2e-5, rtol: 1e-4, what: $"T={t} D={d}");
     }
 
+    /// <summary>
+    /// A post-norm, the residual add and the next pre-norm (Gemma's per-layer pattern) in one launch: the head norm reduced in a first
+    /// pass, the group and the tail norm as before; rows short enough to stay in registers and rows the passes reload.
+    /// </summary>
+    [Theory]
+    [InlineData(1, 64, true)]
+    [InlineData(5, 100, false)]
+    [InlineData(3, 5376, true)]
+    [InlineData(2, 40000, true)]
+    public void NormThenResidualAddThenNorm(int t, int d, bool headWeight)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, d);
+        var r = tg.InF("r", TG.T, d);
+        var post = headWeight ? tg.B.RmsNorm(x, tg.RandW("wh", DataType.F32, 1f, d), 1e-6f) : tg.B.RmsNorm(x, null, 1e-5f);
+        var h = tg.B.Add(r, post);
+        tg.B.Output("h", h);
+        tg.B.Output("n", tg.B.RmsNorm(h, tg.RandW("w", DataType.F32, 1f, d), 1e-6f));
+        Diff.Check("Fusion.norm+add+norm", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * d, 1)), (r, Rnd.F((long)t * d, 2))), atol: 3e-5, rtol: 2e-4,
+            what: $"T={t} D={d} weight={headWeight}");
+    }
+
     [Theory]
     [InlineData(1, 4, 128)]
     [InlineData(6, 3, 32)]
@@ -82,10 +105,77 @@ public sealed class FusionTests
     }
 
     /// <summary>
-    /// Matmul + bias row (q / k / v / o projections with biases): single rows add the bias in the split-K matvec's store, other
-    /// row counts run the matmul and the Add; a bias added to a matmul output that is also read elsewhere is not folded.
+    /// Elementwise groups after matmuls of int-dot weights run in the matvec's store at decode sizes: a sigmoid gate, a gate with
+    /// two row vectors (softplus(x + bias) * a, the linear-attention decay), a residual add of a tensor; other row counts run the
+    /// matmul and the group's own launch.
     /// </summary>
     [Theory]
+    [InlineData("q4_k", 1)]
+    [InlineData("q4_k", 3)]
+    [InlineData("q4_k", 8)]
+    [InlineData("q4_k", 9)]
+    [InlineData("q6_k", 2)]
+    [InlineData("q8_0", 12)]
+    [InlineData("q8_0", 40)]
+    public void IntDotMatvecEpilogue(string fmt, int t)
+    {
+        Gpu.Require();
+        int K = 1024;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var r = tg.InF("r", TG.T, 256);
+        tg.B.Output("beta", tg.B.Sigmoid(tg.B.MatMul(x, tg.RandW("wb", DataType.Get(fmt), 0.1f, 32, K))));
+        var alpha = tg.B.MatMul(x, tg.RandW("wa", DataType.Get(fmt), 0.1f, 32, K));
+        tg.B.Output("g", tg.B.Mul(tg.B.Softplus(tg.B.Add(alpha, tg.RandW("dt", DataType.F32, 1f, 32))), tg.RandW("a", DataType.F32, 1f, 32)));
+        tg.B.Output("res", tg.B.Add(tg.B.MatMul(x, tg.RandW("wr", DataType.Get(fmt), 0.1f, 256, K)), r));
+        Diff.Check("Fusion.intdot-epi." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 11)), (r, Rnd.F((long)t * 256, 12))),
+            atol: 6e-1, rtol: 1e-2, maxTokens: 64, what: $"T={t}");
+    }
+
+    /// <summary>
+    /// Row norms read by integer-dot matvecs: at decode sizes the norm writes their q8_1 rows (a residual Add + RmsNorm read by two
+    /// projections; a per-head RmsNorm gated by SiLU, read as [T, heads * D] by a third), larger steps of the q8_0 range quantize into
+    /// the same rows, larger ones take the other kernels.
+    /// </summary>
+    [Theory]
+    [InlineData("q4_k", 1)]
+    [InlineData("q4_k", 5)]
+    [InlineData("q4_k", 8)]
+    [InlineData("q4_k", 9)]
+    [InlineData("q8_0", 2)]
+    [InlineData("q8_0", 12)]
+    [InlineData("q8_0", 16)]
+    public void NormQuantizedForIntDot(string fmt, int t)
+    {
+        Gpu.Require();
+        int K = 1024, heads = 8, d = 128;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var r = tg.InF("r", TG.T, K);
+        var h = tg.B.RmsNorm(tg.B.Add(x, r), tg.RandW("wn", DataType.F32, 1f, K), 1e-6f);
+        tg.B.Output("a", tg.B.MatMul(h, tg.RandW("wa", DataType.Get(fmt), 0.1f, 256, K)));
+        tg.B.Output("b", tg.B.MatMul(h, tg.RandW("wb", DataType.Get(fmt), 0.1f, 64, K)));
+        var o = tg.InF("o", TG.T, heads, d);
+        var z = tg.InF("z", TG.T, heads * d);
+        var gated = tg.B.Mul(tg.B.RmsNorm(o, tg.RandW("wo", DataType.F32, 1f, d), 1e-6f), tg.B.Silu(tg.B.Reshape(z, 0, heads, d)));
+        tg.B.Output("c", tg.B.MatMul(tg.B.Reshape(gated, 0, heads * d), tg.RandW("wc", DataType.Get(fmt), 0.1f, 128, heads * d)));
+        Diff.Check("Fusion.normq8." + fmt, tg.B.Build(),
+            new Step(t, 0, (x, Rnd.F((long)t * K, 7)), (r, Rnd.F((long)t * K, 8)), (o, Rnd.F((long)t * K, 9)), (z, Rnd.F((long)t * K, 10))),
+            atol: 6e-1, rtol: 1e-2, maxTokens: 32, what: $"T={t}");
+    }
+
+    /// <summary>
+    /// Matmul + bias row (q / k / v / o projections with biases): single rows add the bias in the split-K matvec's store, row counts
+    /// whose f16 tensor-core GEMM splits K add it in the split-K reduction, from 1024 rows the hand-written f16 GEMM (CUDA) adds it in its
+    /// store, other row counts run the matmul and the Add; a bias
+    /// added to a matmul output that is also read elsewhere is not folded.
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 20)]
+    [InlineData("bf16", 171)]
+    [InlineData("f16", 300)]
+    [InlineData("bf16", 1100)]
+    [InlineData("mxfp4", 100)]
     [InlineData("f32", 1)]
     [InlineData("f16", 1)]
     [InlineData("q8_0", 1)]
@@ -112,6 +202,41 @@ public sealed class FusionTests
             maxTokens: Math.Max(32, t), what: $"T={t}");
     }
 
+    /// <summary>
+    /// Sibling projections reading the same rows (q / k / v, with or without biases): at the batches where each one splits K, one
+    /// multi-output GEMM over the concatenated weight rows reduces into every output in its last workgroups (the last width, 136,
+    /// is not a multiple of the column tile); other batches run each projection on its own (skinny GEMM, split-K or plain GEMM).
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 16, true)]
+    [InlineData("bf16", 40, true)]
+    [InlineData("bf16", 64, true)]
+    [InlineData("bf16", 200, true)]
+    [InlineData("bf16", 300, true)]
+    [InlineData("bf16", 448, true)]
+    [InlineData("f16", 100, false)]
+    [InlineData("f16", 300, false)]
+    [InlineData("q8_0", 64, false)]
+    [InlineData("f8e4m3_b128", 40, false)]
+    [InlineData("f8e4m3_b128", 64, true)]
+    public void SiblingProjections(string fmt, int t, bool bias)
+    {
+        Gpu.Require();
+        int K = 1536;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var xn = tg.B.Mul(x, x);
+        foreach (var (name, n) in new[] { ("q", 1024L), ("k", 256L), ("v", 136L) })
+        {
+            var y = tg.B.MatMul(xn, tg.RandW("w" + name, DataType.Get(fmt), 0.1f, n, K));
+            tg.B.Output(name, bias ? tg.B.Add(y, tg.RandW("b" + name, DataType.F32, 0.5f, n)) : y);
+        }
+
+        double atol = fmt == "f8e4m3_b128" ? 1.5 : 1e-1, rtol = fmt == "f8e4m3_b128" ? 5e-2 : 1e-2;
+        Diff.Check("Fusion.siblings." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 6))), atol: atol, rtol: rtol,
+            maxTokens: Math.Max(64, t), what: $"T={t} bias={bias}");
+    }
+
     [Theory]
     [InlineData(2, 4, 32, 16)]
     [InlineData(1, 2, 128, 128)]
@@ -135,11 +260,50 @@ public sealed class FusionTests
         Diff.Check("Fusion.l2+delta", tg.B.Build(), steps, atol: 2e-4, rtol: 2e-3, maxTokens: 8, what: $"Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv}");
     }
 
+    /// <summary>
+    /// Grouped value heads (Qwen3-Next): q and k heads repeated in place (Reshape, Tile, Reshape) before the delta rule, which reads key
+    /// head h / repeats instead (with and without the L2 norms absorbed too), over decode rows and a prefill chunk of the chunked form.
+    /// </summary>
     [Theory]
-    [InlineData("f16", 16, 16)]
-    [InlineData("f32", 32, 32)]
-    [InlineData("f16", 256, 64)]
-    public void NormRopeIntoCache(string cacheType, int D, int rot)
+    [InlineData(2, 4, 32, 16, true)]
+    [InlineData(2, 6, 64, 32, false)]
+    [InlineData(4, 8, 128, 128, true)]
+    public void RepeatedKeyHeadsInDeltaRule(int Hk, int Hv, int Dk, int Dv, bool norm)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var T = TG.T;
+        int repeats = Hv / Hk;
+        var qkv = tg.InF("qkv", T, 2 * Hk * Dk + Hv * Dv);
+        Value Heads(int offset)
+        {
+            var heads = tg.B.Reshape(tg.B.Slice(qkv, 1, offset, Hk * Dk), 0, Hk, Dk);
+            heads = norm ? tg.B.L2Norm(heads, 1e-6f) : tg.B.Scale(heads, 0.05f);
+            var tiled = tg.B.Emit1("Tile", [tg.B.Reshape(heads, 0, Hk, 1, Dk)], Attributes.From(("repeats", new long[] { 1, 1, repeats, 1 })));
+            return tg.B.Reshape(tiled, 0, (long)Hv, Dk);
+        }
+
+        var q = Heads(0);
+        var k = Heads(Hk * Dk);
+        var v = tg.B.Reshape(tg.B.Slice(qkv, 1, 2 * Hk * Dk, Hv * Dv), 0, Hv, Dv);
+        var gi = tg.InF("g", T, Hv);
+        var bi = tg.InF("b", T, Hv);
+        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [q, k, v, gi, bi, st], Attributes.From(("scale", 1f / MathF.Sqrt(Dk))), writes: [st])[0]);
+        int C = 2 * Hk * Dk + Hv * Dv;
+        int[] chunks = [3, 1, 80, 1];
+        var steps = chunks.Select((c, i) => new Step(c, 0, (qkv, Rnd.F(c * C, 1 + i)),
+            (gi, Rnd.F(c * Hv, 31 + i).Select(x => -Math.Abs(x)).ToArray()), (bi, Rnd.F(c * Hv, 41 + i).Select(Math.Abs).ToArray()))).ToList();
+        Diff.Check("Fusion.repeat+delta", tg.B.Build(), steps, atol: 2e-4, rtol: 2e-3, maxTokens: 128, what: $"Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv} norm={norm}");
+    }
+
+    [Theory]
+    [InlineData("f16", 16, 16, true)]
+    [InlineData("f32", 32, 32, true)]
+    [InlineData("f16", 256, 64, true)]
+    [InlineData("f16", 128, 128, false)]
+    [InlineData("f32", 64, 32, false)]
+    public void NormRopeIntoCache(string cacheType, int D, int rot, bool norm)
     {
         Gpu.Require();
         int Hq = 4;
@@ -153,8 +317,9 @@ public sealed class FusionTests
         var vi = tg.InF("v", T, Hkv, D);
         var pos = tg.In("pos", DataType.I32, T, 4);
         var rope = Attributes.From(("dims", rot), ("base", 10000f), ("style", "neox"), ("interleaved", true)).With("sections", new[] { rot / 8, rot / 8, rot / 4, 0 });
-        q = tg.B.Emit1("Rope", [tg.B.RmsNorm(q, tg.RandW("qn", DataType.F32, 1f, D), 1e-6f), pos], rope);
-        var k = tg.B.Emit1("Rope", [tg.B.RmsNorm(tg.B.Reshape(ki, 0, Hkv, D), tg.RandW("kn", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        var kh = tg.B.Reshape(ki, 0, Hkv, D);
+        q = tg.B.Emit1("Rope", [norm ? tg.B.RmsNorm(q, tg.RandW("qn", DataType.F32, 1f, D), 1e-6f) : q, pos], rope);
+        var k = tg.B.Emit1("Rope", [norm ? tg.B.RmsNorm(kh, tg.RandW("kn", DataType.F32, 1f, D), 1e-6f) : kh, pos], rope);
         var ct = DataType.Get(cacheType);
         var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
         var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
@@ -169,6 +334,48 @@ public sealed class FusionTests
             steps.Add(new Step(c, past, (qf, Rnd.F(c * Hq * 2 * D, 10 + i)), (ki, Rnd.F(c * Hkv * D, 20 + i)), (vi, Rnd.F(c * Hkv * D, 30 + i)), (pos, p)));
             past += c;
         }
-        Diff.Check("Fusion.norm+rope+cache", tg.B.Build(), steps, atol: 3e-4, rtol: 2e-3, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D}");
+        Diff.Check("Fusion.norm+rope+cache", tg.B.Build(), steps, atol: 3e-4, rtol: 2e-3, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D} norm={norm}");
+    }
+
+    /// <summary>
+    /// A second attention reading the first layer's caches with its own query rope (shared KV layers, Gemma 3n / 4): the cache writes
+    /// must still run before the first attention. Regression: rope_qkv merged them with the second layer's query rope.
+    /// </summary>
+    [Theory]
+    [InlineData("f16", 64)]
+    [InlineData("f32", 128)]
+    public void SharedCacheReadByLaterLayer(string cacheType, int D)
+    {
+        Gpu.Require();
+        int Hq = 4;
+        int Hkv = 2;
+        int ctx = 32;
+        var tg = new TG();
+        var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, D);
+        var pos = tg.In("pos", DataType.I32, T, 1);
+        var rope = Attributes.From(("dims", D), ("base", 10000f), ("style", "neox"));
+        var q = tg.B.Emit1("Rope", [tg.B.RmsNorm(qi, tg.RandW("qn", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        var k = tg.B.Emit1("Rope", [tg.B.RmsNorm(ki, tg.RandW("kn", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        var ct = DataType.Get(cacheType);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, k); tg.B.CacheWrite(vc, vi);
+        var first = tg.B.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D));
+        var q2 = tg.B.Emit1("Rope", [tg.B.RmsNorm(first, tg.RandW("qn2", DataType.F32, 1f, D), 1e-6f), pos], rope);
+        tg.B.Output("o1", first);
+        tg.B.Output("o2", tg.B.CachedAttention(q2, kc, vc, 1f / MathF.Sqrt(D)));
+        int[] chunks = [5, 1, 3, 1];
+        int past = 0;
+        var steps = new List<Step>();
+        foreach (var (c, i) in chunks.Select((c, i) => (c, i)))
+        {
+            var p = Enumerable.Range(0, c).Select(j => past + j).ToArray();
+            steps.Add(new Step(c, past, (qi, Rnd.F(c * Hq * D, 10 + i)), (ki, Rnd.F(c * Hkv * D, 20 + i)), (vi, Rnd.F(c * Hkv * D, 30 + i)), (pos, p)));
+            past += c;
+        }
+        Diff.Check("Fusion.shared-cache", tg.B.Build(), steps, atol: 3e-4, rtol: 2e-3, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D}");
     }
 }

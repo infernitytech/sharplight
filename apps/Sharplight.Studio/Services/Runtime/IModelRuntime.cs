@@ -13,6 +13,12 @@ internal interface IModelRuntime : IDisposable
     /// </summary>
     public IReadOnlyList<ComputeDeviceOption> Devices { get; }
 
+    /// <summary>
+    /// The physical GPUs with the providers that can drive each and the one in use (Vulkan unless the user or per-device data chose another);
+    /// empty for a runtime without GPUs.
+    /// </summary>
+    public IReadOnlyList<PhysicalGpu> Gpus => [];
+
     /// <summary>The registered models (loaded, loading or sleeping), in registration order.</summary>
     public IReadOnlyList<ILoadedModel> LoadedModels { get; }
 
@@ -50,6 +56,24 @@ internal interface IModelRuntime : IDisposable
     /// <param name="request">The model and settings; the context length, KV cache type, slots, batch and drafts count.</param>
     /// <param name="cancellationToken">Cancels reading the model.</param>
     public Task<ModelFootprint> EstimateFootprintAsync(ModelLoadRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Bytes of the routed experts' weights of the model (0 for a dense model): with CPU offload the engine moves experts to the CPU first,
+    /// so a shortfall up to this size is expert offload, with attention and the shared layers kept on the GPU.
+    /// </summary>
+    /// <param name="request">The model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public Task<long> EstimateExpertBytesAsync(ModelLoadRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The share of a layer's routed experts one token reads (experts per token / experts), 0 for a dense model.</summary>
+    /// <param name="request">The model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public Task<double> EstimateExpertActiveShareAsync(ModelLoadRequest request, CancellationToken cancellationToken);
+
+    /// <summary>The weight formats of the model that load options depend on (FP8, NVFP4), read from its definition without loading it.</summary>
+    /// <param name="request">The model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public Task<ModelWeightFormats> DescribeWeightFormatsAsync(ModelLoadRequest request, CancellationToken cancellationToken);
 
     /// <summary>Free and total memory of every physical device (GPUs first, then the CPU's system memory), opening devices as needed.</summary>
     /// <param name="disabledFeatures">Device features not to use, for devices opened by this call.</param>

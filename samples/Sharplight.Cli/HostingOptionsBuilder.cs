@@ -35,7 +35,12 @@ internal static class HostingOptionsBuilder
         var models = new List<HostedModelOptions>();
         foreach (var positional in settings.PositionalModels)
         {
-            models.Add(new HostedModelOptions { Name = settings.PositionalModelName ?? DefaultName(positional), Path = positional });
+            models.Add(new HostedModelOptions
+            {
+                Name = settings.PositionalModelName ?? DefaultName(positional),
+                Path = positional,
+                Workers = settings.Workers is { Count: > 0 } workers ? [.. workers] : null,
+            });
         }
 
         models.AddRange(settings.ModelArguments.Select(ModelSpecParser.Parse));
@@ -60,8 +65,10 @@ internal static class HostingOptionsBuilder
     private static void ApplyDefaults(HostedModelDefaults defaults, ServeSettings settings, bool fromFile)
     {
         var runtime = settings.Runtime;
-        var device = runtime.UseCpu ? DeviceSpecifications.Cpu : runtime.DeviceIndex.ToString(CultureInfo.InvariantCulture);
-        bool explicitDevice = runtime.UseCpu || runtime.DeviceIndex != 0;
+        // --provider names the device by its id (e.g. cuda:0); without it the index is a GPU of the default provider.
+        string index = runtime.DeviceIndex.ToString(CultureInfo.InvariantCulture);
+        var device = runtime.UseCpu ? DeviceSpecifications.Cpu : runtime.ProviderName is { } provider ? $"{provider}:{index}" : index;
+        bool explicitDevice = runtime.UseCpu || runtime.DeviceIndex != 0 || runtime.ProviderName is not null;
         if (!fromFile || explicitDevice)
         {
             defaults.Device = device;
@@ -79,7 +86,13 @@ internal static class HostingOptionsBuilder
         defaults.CpuOffload |= runtime.CpuOffload;
         defaults.ReducedPrecision |= runtime.ReducedPrecision;
         defaults.StepTokens = settings.StepTokens ?? defaults.StepTokens;
+        defaults.MinStepTokens = settings.MinStepTokens ?? defaults.MinStepTokens;
+        defaults.StepFloor = settings.StepFloor ?? defaults.StepFloor;
+        defaults.StepRowsPerSequence = settings.StepRowsPerSequence ?? defaults.StepRowsPerSequence;
+        defaults.KvAdmission = settings.KvAdmission ?? defaults.KvAdmission;
         defaults.KvCacheTokens = settings.KvCacheTokens ?? defaults.KvCacheTokens;
+        defaults.PrefixCache &= !settings.NoPrefixCache;
+        defaults.KvStateSnapshots = settings.KvStateSnapshots ?? defaults.KvStateSnapshots;
         defaults.Projector = settings.MmprojPath ?? defaults.Projector;
         defaults.ChatTemplate = settings.ChatTemplatePath ?? defaults.ChatTemplate;
     }

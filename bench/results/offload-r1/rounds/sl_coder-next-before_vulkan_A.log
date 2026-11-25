@@ -1,0 +1,130 @@
+Graph optimization (sharplight-ir/1): decode 2704 -> 2704 nodes, decode_embeddings 2703 -> 2703 nodes [86 ms]
+Loaded Qwen3-Coder-Next (qwen3_5): 879 tensors, 48.52 GB, vocab 151936 [524 ms]
+Rows per forward pass: 512 (automatic, 31569 MiB available).
+Compiling 327 / 327, 327 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 30.30 / 30.30 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 327 / 327, 327 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.36 / 29.36 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 363 / 363, 363 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 443 / 443, 443 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.57 / 29.57 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 452 / 452, 443 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 623 / 623, 614 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.60 / 29.60 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 632 / 632, 614 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 803 / 803, 785 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.63 / 29.63 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 812 / 812, 785 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 980 / 980, 953 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.66 / 29.66 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 989 / 989, 953 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 1160 / 1160, 1124 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.69 / 29.69 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 1169 / 1169, 1124 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 1340 / 1340, 1295 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.72 / 29.72 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 1349 / 1349, 1295 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 1520 / 1520, 1466 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.75 / 29.75 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 1529 / 1529, 1466 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 1697 / 1697, 1634 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.78 / 29.78 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 1706 / 1706, 1634 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 1877 / 1877, 1805 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.81 / 29.81 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 1886 / 1886, 1805 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 2057 / 2057, 1976 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.85 / 29.85 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 2066 / 2066, 1976 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 2237 / 2237, 2147 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.88 / 29.88 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 2246 / 2246, 2147 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 2414 / 2414, 2315 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.90 / 29.90 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 2423 / 2423, 2315 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 2594 / 2594, 2486 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.94 / 29.94 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 2603 / 2603, 2486 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 2774 / 2774, 2657 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 29.97 / 29.97 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 2783 / 2783, 2657 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 2954 / 2954, 2828 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 30.00 / 30.00 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 2963 / 2963, 2828 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 3131 / 3131, 2996 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 30.03 / 30.03 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 3140 / 3140, 2996 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 3311 / 3311, 3167 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 30.06 / 30.06 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 3320 / 3320, 3167 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 3491 / 3491, 3338 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 30.09 / 30.09 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 3500 / 3500, 3338 cached (AMD EPYC 7443 24-Core Processor)
+Compiling 3671 / 3671, 3509 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 30.13 / 30.13 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 3680 / 3680, 3509 cached (AMD EPYC 7443 24-Core Processor)
+Compiled 'decode' in 13706 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 79 groups, 28.04 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 19 groups, 17.32 GiB weights+state
+39 segment(s): [0@0: 41 nodes] → [1@1: 9 nodes] → [2@0: 50 nodes] → [3@1: 9 nodes] → [4@0: 50 nodes] → [5@1: 9 nodes] → [6@0: 39 nodes] → [7@1: 9 nodes] → [8@0: 50 nodes] → [9@1: 9 nodes] → [10@0: 50 nodes] → [11@1: 9 nodes] → [12@0: 50 nodes] → [13@1: 9 nodes] → [14@0: 39 nodes] → [15@1: 9 nodes] → [16@0: 50 nodes] → [17@1: 9 nodes] → [18@0: 50 nodes] → [19@1: 9 nodes] → [20@0: 50 nodes] → [21@1: 9 nodes] → [22@0: 39 nodes] → [23@1: 9 nodes] → [24@0: 50 nodes] → [25@1: 9 nodes] → [26@0: 50 nodes] → [27@1: 9 nodes] → [28@0: 50 nodes] → [29@1: 9 nodes] → [30@0: 39 nodes] → [31@1: 9 nodes] → [32@0: 50 nodes] → [33@1: 9 nodes] → [34@0: 50 nodes] → [35@1: 9 nodes] → [36@0: 50 nodes] → [37@1: 9 nodes] → [38@0: 1637 nodes]
+Ready (decode)
+segment 0: 14 dispatches, 10 barriers per step
+segment 2: 19 dispatches, 13 barriers per step
+segment 4: 19 dispatches, 13 barriers per step
+segment 6: 22 dispatches, 15 barriers per step
+segment 8: 19 dispatches, 13 barriers per step
+segment 10: 19 dispatches, 13 barriers per step
+segment 12: 19 dispatches, 13 barriers per step
+segment 14: 22 dispatches, 15 barriers per step
+segment 16: 19 dispatches, 13 barriers per step
+segment 18: 19 dispatches, 13 barriers per step
+segment 20: 19 dispatches, 13 barriers per step
+segment 22: 22 dispatches, 15 barriers per step
+segment 24: 19 dispatches, 13 barriers per step
+segment 26: 19 dispatches, 13 barriers per step
+segment 28: 19 dispatches, 13 barriers per step
+segment 30: 22 dispatches, 15 barriers per step
+segment 32: 19 dispatches, 13 barriers per step
+segment 34: 19 dispatches, 13 barriers per step
+segment 36: 19 dispatches, 13 barriers per step
+segment 38: 615 dispatches, 372 barriers per step
+prefill 512 tok: best 926 ms = 552.9 tok/s | decode: best 97.47, median 92.00, mean 88.48 tok/s | GPU ms/step: best 4.73, median 4.75, wall best 10.26 | prefill median of 5: 979.4 ms = 522.8 tok/s | per run: prefill 531.3 ± 20.5 tok/s of 5, decode 89.01 ± 7.30 tok/s of 5 (76.17, 90.99, 93.37, 93.77, 90.76)
+exit 0

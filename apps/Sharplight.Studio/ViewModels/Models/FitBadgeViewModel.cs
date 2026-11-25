@@ -38,6 +38,7 @@ internal sealed class FitBadgeViewModel
         FitVerdict.Fits when IsSplit => $"Fits on {Report.Devices.Count} GPUs",
         FitVerdict.Fits => "Fits",
         FitVerdict.FitsAfterUnloading => "Fits after unloading",
+        FitVerdict.NeedsOffload when Report.ExpertsFromDisk => "From disk (slow)",
         FitVerdict.NeedsOffload => $"CPU offload ~{FitAdvisor.Percent(Report.CpuShare)}",
         _ => "Too large",
     };

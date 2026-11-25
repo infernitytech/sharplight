@@ -17,13 +17,18 @@ internal sealed partial class LibraryViewModel : ObservableObject
     private static readonly FileFilter s_modelFiles = new("Models", ["*.slm", "*.gguf", "*.onnx", "*.bin"]);
     private static readonly FileFilter s_packageFiles = new("Sharplight packages", ["*.slm"]);
 
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly StudioServices _services;
     private readonly INavigator _navigator;
 
-    public LibraryViewModel(StudioServices services, INavigator navigator)
+    public LibraryViewModel(StudioServices services, INavigator navigator, TimeProvider? time = null)
     {
         _services = services;
         _navigator = navigator;
+        Time = time ?? TimeProvider.System;
+        Operation = new FileOperationViewModel(services.Dispatcher);
+        SortChoices = [new("Name", LibrarySort.Name), new("Largest first", LibrarySort.Size), new("Recently used", LibrarySort.LastUsed), new("Not used for longest", LibrarySort.LeastRecentlyUsed)];
+        SelectedSort = SortChoices[0];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(MarkLoaded);
         services.Settings.Changed += (_, _) => services.Dispatcher.Post(() => OnPropertyChanged(nameof(StoreRoot)));
     }
@@ -98,6 +103,9 @@ internal sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     public async Task RefreshAsync()
     {
+        // Refreshes run one at a time: callers off the UI thread (the welcome flow, feed installs) could otherwise clear the entries
+        // while another refresh enumerates them.
+        await _refreshGate.WaitAsync();
         IsRefreshing = true;
         try
         {
@@ -106,11 +114,14 @@ internal sealed partial class LibraryViewModel : ObservableObject
             Entries.Clear();
             foreach (var entry in entries)
             {
-                Entries.Add(new LibraryEntryViewModel(entry) { IsLoaded = loadedPaths.Contains(entry.Path), Library = this });
+                var item = new LibraryEntryViewModel(entry) { IsLoaded = loadedPaths.Contains(entry.Path), Library = this, LastUsed = _services.Usage.LastUsed(entry.Path) };
+                item.PropertyChanged += OnEntryChanged;
+                Entries.Add(item);
             }
 
             RebuildKindFilters();
             ApplyFeedUpdates();
+            RefreshUnused();
 
             Status = Entries.Count == 1 ? "1 model" : $"{Entries.Count} models";
         }
@@ -124,6 +135,7 @@ internal sealed partial class LibraryViewModel : ObservableObject
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(StoreRoot));
             OnPropertyChanged(nameof(StoreSource));
+            _refreshGate.Release();
         }
     }
 
@@ -134,6 +146,8 @@ internal sealed partial class LibraryViewModel : ObservableObject
         {
             entry.FeedUpdateVersion = entry.Entry.Manifest is { } manifest ? Feed?.NewerVersionOf(manifest) : null;
         }
+
+        NotifyUpdatesChanged();
     }
 
     /// <summary>Installs the newer feed version of <paramref name="entry"/>; the old package stays until the new one verified.</summary>
@@ -194,7 +208,7 @@ internal sealed partial class LibraryViewModel : ObservableObject
     private void ApplyKindFilter()
     {
         string? kind = SelectedKindFilter?.Kind;
-        var shown = Entries.Where(entry => kind is null || string.Equals(entry.KindInfo.Id, kind, StringComparison.OrdinalIgnoreCase)).ToList();
+        var shown = Sort(Entries.Where(entry => kind is null || string.Equals(entry.KindInfo.Id, kind, StringComparison.OrdinalIgnoreCase))).ToList();
         if (!shown.SequenceEqual(VisibleEntries))
         {
             VisibleEntries.Clear();
@@ -276,42 +290,6 @@ internal sealed partial class LibraryViewModel : ObservableObject
         {
             _services.Platform.Open(folder);
         }
-    }
-
-    [RelayCommand]
-    private async Task DeleteAsync(LibraryEntryViewModel entry)
-    {
-        if (!entry.ConfirmDelete)
-        {
-            foreach (var other in Entries)
-            {
-                other.ConfirmDelete = false;
-            }
-
-            entry.ConfirmDelete = true;
-            return;
-        }
-
-        if (entry.IsLoaded || entry.IsPrecompiling)
-        {
-            Status = entry.IsLoaded ? $"Unload {entry.Id} before deleting it." : $"{entry.Id} is being precompiled; cancel that first.";
-            entry.ConfirmDelete = false;
-            return;
-        }
-
-        try
-        {
-            await _services.Library.RemoveAsync(entry.Entry);
-            Entries.Remove(entry);
-            RebuildKindFilters();
-            Status = entry.IsLocalFile ? $"Removed {entry.Name} from the list (the file was kept)." : $"Deleted {entry.Name}.";
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or Sharplight.Hub.HubException)
-        {
-            Status = error.Message;
-        }
-
-        OnPropertyChanged(nameof(IsEmpty));
     }
 
     /// <summary>
@@ -436,9 +414,19 @@ internal sealed partial class LibraryViewModel : ObservableObject
     {
         LoadPanel = null;
         Status = $"Loaded {model.Id} on {model.Device.Name}.";
+        _ = ShowLicenseNoticeAsync(model);
         if (!_navigator.OpenKind(model.Kind, model))
         {
             _navigator.OpenChat(model);
+        }
+    }
+
+    /// <summary>Adds the licence notice of a model that came from the catalog with a restrictive licence to the status (the model's page shows it too).</summary>
+    private async Task ShowLicenseNoticeAsync(ILoadedModel model)
+    {
+        if (await LicenseNotices.FindAsync(_services, model.Path).ConfigureAwait(true) is { } notice && !LicenseNotices.IsHandled(_services, notice))
+        {
+            Status = $"Loaded {model.Id} on {model.Device.Name}. {notice.Text}";
         }
     }
 
@@ -447,7 +435,17 @@ internal sealed partial class LibraryViewModel : ObservableObject
         var paths = _services.Runtime.LoadedModels.Select(model => model.Path).ToHashSet();
         foreach (var entry in Entries)
         {
-            entry.IsLoaded = paths.Contains(entry.Entry.Path);
+            bool loaded = paths.Contains(entry.Entry.Path);
+            if (loaded && !entry.IsLoaded)
+            {
+                var now = Time.GetUtcNow();
+                _services.Usage.Record(entry.Entry.Path, now);
+                entry.LastUsed = now;
+            }
+
+            entry.IsLoaded = loaded;
         }
+
+        RefreshUnused();
     }
 }

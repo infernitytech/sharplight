@@ -40,33 +40,44 @@ public sealed class ChatModelLoaderFactory : IHostedModelLoaderFactory
         {
             Devices = [.. placement.Devices],
             Fallback = placement.Fallback,
+            ExpertsOnDisk = settings.ExpertsOnDisk,
+            ExpertCacheBytes = settings.ExpertCacheBytes,
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
+            Sequences = Math.Max(1, settings.Slots),
             KvCacheType = settings.KvCacheType is { } type ? DataType.Get(type) : null,
             AllowReducedPrecision = settings.ReducedPrecision,
+            BlockScaledFp8 = settings.BlockScaledFp8,
             Auxiliary = auxiliary,
         };
         context.Options.ConfigureLoad?.Invoke(settings, load);
         return load;
     }
 
-    private static ChatModelOptions CreateChatOptions(HostedModelLoadContext context)
+    /// <summary>The chat model's options for a hosted model: its engine settings, speculators and service defaults.</summary>
+    internal static ChatModelOptions CreateChatOptions(HostedModelLoadContext context)
     {
         var settings = context.Settings;
         var chat = new ChatModelOptions
         {
             Slots = settings.Slots,
             KvCacheTokens = settings.KvCacheTokens,
+            KvStateSnapshots = settings.KvStateSnapshots,
             Engine = new EngineOptions
             {
                 MaxQueue = settings.MaxQueue,
                 PrefillChunk = settings.PrefillChunk,
+                PrefixCache = settings.PrefixCache,
                 MaxBatchTokens = settings.StepTokens ?? 0,
+                MinBatchTokens = settings.MinStepTokens ?? new EngineOptions().MinBatchTokens,
+                StepFloor = settings.StepFloor ?? new EngineOptions().StepFloor,
+                BatchTokensPerSequence = settings.StepRowsPerSequence ?? new EngineOptions().BatchTokensPerSequence,
+                KvAdmission = settings.KvAdmission ?? new EngineOptions().KvAdmission,
                 SpeculationMaxBatch = settings.SpeculationMaxBatch,
             },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,
             MtpDraftTokens = settings.MtpDraftTokens,
-            Service = new ModelServiceOptions { ChatTemplate = settings.ChatTemplate is { } path ? ReadTemplate(path) : null },
+            Service = new ModelServiceOptions { ChatTemplate = settings.ChatTemplate is { } path ? ReadTemplate(path) : null, ImageDecoder = ChatImageDecoder.Decode },
         };
         context.Options.ConfigureChat?.Invoke(settings, chat);
         return chat;

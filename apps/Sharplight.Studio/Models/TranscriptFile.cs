@@ -21,8 +21,55 @@ internal sealed class TranscriptFile
     /// <summary>The segments in order.</summary>
     public List<TranscriptSegmentRecord> Segments { get; set; } = [];
 
-    /// <summary>The plain text: the segments' text joined by single spaces (the engine's text when there are no segments).</summary>
-    public string ToText() => Segments.Count == 0 ? Text.Trim() : string.Join(' ', Segments.Select(segment => segment.Text.Trim()).Where(text => text.Length > 0));
+    /// <summary>The distinct speaker labels in order of first appearance (empty when no segment has a speaker).</summary>
+    public IReadOnlyList<string> Speakers => [.. Segments.Select(segment => segment.SpeakerLabel).Where(label => label.Length > 0).Distinct()];
+
+    /// <summary>
+    /// The plain text: the segments' text joined by single spaces (the engine's text when there are no segments). With speakers, one line per turn
+    /// (consecutive segments of the same speaker are joined) that starts with the speaker's label.
+    /// </summary>
+    public string ToText()
+    {
+        if (Segments.Count == 0)
+        {
+            return Text.Trim();
+        }
+
+        if (Speakers.Count == 0)
+        {
+            return string.Join(' ', Segments.Select(segment => segment.Text.Trim()).Where(text => text.Length > 0));
+        }
+
+        var lines = new List<string>();
+        string current = "";
+        var turn = new StringBuilder();
+        foreach (var segment in Segments)
+        {
+            string text = segment.Text.Trim();
+            if (text.Length == 0)
+            {
+                continue;
+            }
+
+            if (turn.Length > 0 && segment.SpeakerLabel != current)
+            {
+                lines.Add(Line(current, turn.ToString()));
+                turn.Clear();
+            }
+
+            current = segment.SpeakerLabel;
+            turn.Append(turn.Length > 0 ? " " : "").Append(text);
+        }
+
+        if (turn.Length > 0)
+        {
+            lines.Add(Line(current, turn.ToString()));
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    private static string Line(string speaker, string text) => speaker.Length == 0 ? text : $"{speaker}: {text}";
 
     /// <summary>The transcript as SubRip subtitles.</summary>
     public string ToSrt()
@@ -33,7 +80,7 @@ internal sealed class TranscriptFile
             var segment = Segments[i];
             builder.Append((i + 1).ToString(CultureInfo.InvariantCulture)).Append('\n')
                 .Append(Clock(segment.Start, ',')).Append(" --> ").Append(Clock(segment.End, ',')).Append('\n')
-                .Append(segment.Text.Trim()).Append("\n\n");
+                .Append(Line(segment.SpeakerLabel, segment.Text.Trim())).Append("\n\n");
         }
 
         return builder.ToString();
@@ -46,7 +93,7 @@ internal sealed class TranscriptFile
         foreach (var segment in Segments)
         {
             builder.Append(Clock(segment.Start, '.')).Append(" --> ").Append(Clock(segment.End, '.')).Append('\n')
-                .Append(segment.Text.Trim()).Append("\n\n");
+                .Append(segment.SpeakerLabel.Length == 0 ? "" : $"<v {segment.SpeakerLabel}>").Append(segment.Text.Trim()).Append("\n\n");
         }
 
         return builder.ToString();

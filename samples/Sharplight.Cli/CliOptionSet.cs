@@ -76,7 +76,7 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
 
     private readonly Option<int?> _bench = OptionFactory.OptionalInteger(
         "--bench",
-        "Benchmark instead of generating: prefill N synthetic tokens, then 64 decode steps. Profile with SHARPLIGHT_VK_PROFILE=1.",
+        "Benchmark instead of generating: prefill N synthetic tokens, then 64 decode steps. Profile with SHARPLIGHT_VK_PROFILE=1 (Vulkan), SHARPLIGHT_MTL_PROFILE=1 (Metal) or SHARPLIGHT_CUDA_PROFILE=1 (CUDA).",
         helpName: "tokens");
 
     private readonly Option<string?> _logits = new("--logits")
@@ -112,6 +112,17 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
     private readonly Option<int> _speculateNgram = OptionFactory.Integer("--speculate-ngram",
         "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
 
+    private readonly Option<string[]> _workers = OptionFactory.CommaSeparatedList(
+        "--workers",
+        "Segment workers (sharplight segment-worker) on other machines that run the later pipeline stages, in order: host:port,host:port. "
+            + "The model is split over the local device and the workers by their free memory (or --split, one share per stage).",
+        "host:port,...");
+
+    private readonly Option<bool> _remoteOnly = new("--remote-only")
+    {
+        Description = "With --workers: place no layers on this machine; every stage runs on the workers.",
+    };
+
     /// <summary>Creates the root command; <paramref name="action"/> receives the validated settings.</summary>
     public RootCommand BuildCommand(Func<CliSettings, CancellationToken, Task<int>> action)
     {
@@ -127,6 +138,9 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         new ServeOptionSet(_store, sampleRuntime).Configure(serve, (settings, cancellationToken) => ServeApplication.RunAsync(sampleRuntime, settings, cancellationToken));
         command.Subcommands.Add(serve);
         command.Subcommands.Add(new RunCommand(_store, sampleRuntime).Build());
+        command.Subcommands.Add(new SegmentWorkerCommand(_store, sampleRuntime).Build());
+        command.Options.Add(_workers);
+        command.Options.Add(_remoteOnly);
         command.Options.Add(_split);
         command.Options.Add(_gpus);
         command.Options.Add(_gpuMemory);
@@ -160,6 +174,11 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
         if (HasAny(result, _bench) && HasAny(result, _logits))
         {
             result.AddError("--bench and --logits are mutually exclusive.");
+        }
+
+        if (HasAny(result, _remoteOnly) && result.GetValue(_remoteOnly) && (result.GetValue(_workers) ?? []).Length == 0)
+        {
+            result.AddError("--remote-only needs --workers.");
         }
 
         if (HasAny(result, _bench, _logits, _save, _mmproj, _draft, _images) && result.GetValue(_model) is null)
@@ -206,7 +225,9 @@ internal sealed class CliOptionSet(SampleRuntime sampleRuntime)
             parseResult.GetValue(_logits),
             generation,
             _store.ReadRoot(parseResult),
-            pull);
+            pull,
+            parseResult.GetValue(_workers) ?? [],
+            parseResult.GetValue(_remoteOnly));
     }
 
     private ImageTokenLimits? ReadImageTokenLimits(ParseResult parseResult)

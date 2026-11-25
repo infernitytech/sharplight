@@ -1,0 +1,9 @@
+GPU ms (min) per step, BatchBench --slots 64 --ctx 640 --depth 256 --reps 20; before = develop 640931ba build, after = perf/llm-r20 (decode form + router top-k/softmax + routing reuse), alternated in one lock hold
+gptoss_text_after_1.txt:  1 : 5.37   16 : 12.71   32 : 16.46   48 : 18.26   64 : 19.05  
+gptoss_text_after_2.txt:  1 : 5.38   16 : 12.74   32 : 16.41   48 : 18.24   64 : 19.05  
+gptoss_text_before_1.txt:  1 : 5.37   16 : 12.75   32 : 16.49   48 : 18.47   64 : 19.51  
+gptoss_text_before_2.txt:  1 : 5.39   16 : 12.76   32 : 16.46   48 : 18.43   64 : 19.55  
+gptoss_feedback_after_1.txt:  1 : 5.37   16 : 11.18   32 : 14.50   48 : 16.82   64 : 17.90  
+gptoss_feedback_after_2.txt:  1 : 5.37   16 : 11.20   32 : 14.55   48 : 16.83   64 : 17.88  
+gptoss_feedback_before_1.txt:  1 : 5.38   16 : 11.22   32 : 14.61   48 : 17.03   64 : 18.37  
+gptoss_feedback_before_2.txt:  1 : 5.39   16 : 11.24   32 : 14.58   48 : 17.14   64 : 18.40  

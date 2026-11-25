@@ -25,8 +25,9 @@ internal sealed unsafe partial class CpuCompiledSegment
         TRef? bias = hasBias ? Dense(RefF32(ins[3])) : null;
         TRef? runs = ins.Length > (hasBias ? 4 : 3) ? Dense(Ref(ins[^1])) : null;
         var (rollback, commits, records) = LowerRollback(n);
-        var conv = new CausalConv1dOp(x, weight, state, y, a.Get("activation", "none") == "silu", weightIsStatic, bias, runs, rollback);
-        AddStep(conv, Touched(x, weight, state, y, bias, runs, commits, records));
+        var (snapshots, snapshotTable) = LowerSnapshots(n);
+        var conv = new CausalConv1dOp(x, weight, state, y, a.Get("activation", "none") == "silu", weightIsStatic, bias, runs, rollback, snapshots);
+        AddStep(conv, Touched(x, weight, state, y, bias, runs, commits, records, snapshotTable));
         _refs[n.Output] = y;
     }
 
@@ -62,8 +63,9 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 8 ? Dense(Ref(ins[8])) : null;
         var (rollback, commits, records) = LowerRollback(n);
-        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f), runs, rollback),
-            Touched(x, dt, dtBias, a, b, c, d, state, runs, y, commits, records));
+        var (snapshots, snapshotTable) = LowerSnapshots(n);
+        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f), runs, rollback, snapshots),
+            Touched(x, dt, dtBias, a, b, c, d, state, runs, y, commits, records, snapshotTable));
         _refs[n.Output] = y;
     }
 
@@ -79,8 +81,9 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
         var (rollback, commits, records) = LowerRollback(n);
-        AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, state, y, n.Attributes.Get("scale", 1f), IsAdditiveDeltaRule(n), runs, rollback),
-            Touched(q, k, v, g, beta, state, runs, y, commits, records));
+        var (snapshots, snapshotTable) = LowerSnapshots(n);
+        AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, state, y, n.Attributes.Get("scale", 1f), IsAdditiveDeltaRule(n), runs, rollback, snapshots),
+            Touched(q, k, v, g, beta, state, runs, y, commits, records, snapshotTable));
         _refs[n.Output] = y;
     }
 
@@ -105,7 +108,8 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 7 ? Dense(Ref(ins[7])) : null;
         var (rollback, commits, records) = LowerRollback(n);
-        AddStep(new Wkv7Op(r, w, k, v, a, b, state, y, runs, rollback), Touched(r, w, k, v, a, b, state, runs, y, commits, records));
+        var (snapshots, snapshotTable) = LowerSnapshots(n);
+        AddStep(new Wkv7Op(r, w, k, v, a, b, state, y, runs, rollback, snapshots), Touched(r, w, k, v, a, b, state, runs, y, commits, records, snapshotTable));
         _refs[n.Output] = y;
     }
 
@@ -121,12 +125,26 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
         var (rollback, commits, records) = LowerRollback(n);
-        AddStep(new Wkv6Op(r, k, v, w, u, state, y, runs, rollback), Touched(r, k, v, w, u, state, runs, y, commits, records));
+        var (snapshots, snapshotTable) = LowerSnapshots(n);
+        AddStep(new Wkv6Op(r, k, v, w, u, state, y, runs, rollback, snapshots), Touched(r, k, v, w, u, state, runs, y, commits, records, snapshotTable));
         _refs[n.Output] = y;
     }
 
     /// <summary>The inputs of a recurrent op without the trailing rollback inputs (see <see cref="RecurrentRollback"/>).</summary>
     private static Value[] BaseInputs(Node n) => [.. n.Inputs.Take(RecurrentRollback.BaseInputCount(n))];
+
+    /// <summary>The snapshots table of a recurrent op in snapshot form (see <see cref="RecurrentSnapshots"/>), or nulls.</summary>
+    private (StateSnapshotTable? Table, TRef? Ref) LowerSnapshots(Node n)
+    {
+        int index = RecurrentSnapshots.TableIndex(n);
+        if (index < 0)
+        {
+            return (null, null);
+        }
+
+        var table = Dense(Ref(n.Inputs[index]));
+        return (new StateSnapshotTable(table), table);
+    }
 
     /// <summary>The rollback tables of a recurrent op in rollback form (commits table and record state), or nulls.</summary>
     private (RollbackTables? Tables, TRef? Commits, TRef? Records) LowerRollback(Node n)

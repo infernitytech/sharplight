@@ -62,8 +62,30 @@ public sealed class HostedModelOptions
     /// <summary>Run layers that do not fit on the GPU on the CPU.</summary>
     public bool? CpuOffload { get; set; }
 
+    /// <summary>
+    /// With CPU offload: leave routed experts that fit neither the GPU nor host memory on disk and read them on demand (MoE models larger
+    /// than RAM + VRAM, decode at the disk's speed); null = <see cref="HostedModelDefaults.ExpertsOnDisk"/>.
+    /// </summary>
+    public bool? ExpertsOnDisk { get; set; }
+
+    /// <summary>
+    /// The block-scaled FP8 mode for this model (see <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/>); null =
+    /// <see cref="HostedModelDefaults.BlockScaledFp8"/>.
+    /// </summary>
+    public bool? BlockScaledFp8 { get; set; }
+
+    /// <summary>With <see cref="ExpertsOnDisk"/>: GiB of host memory for the cache of experts read from disk; null = sized from the free host memory.</summary>
+    public double? ExpertCacheGiB { get; set; }
+
     /// <summary>Unload after this many idle seconds (zero or less: never); null = the host's timeout.</summary>
     public double? IdleTimeoutSeconds { get; set; }
+
+    /// <summary>
+    /// Segment workers on other machines (<c>host:port</c>, in pipeline order) that run the later layers of a model too large for this one
+    /// (multi-node pipeline parallel, docs/multinode.md): the model is split over <see cref="Device"/> and the workers by free memory. Every
+    /// worker serves its own copy of the same model. Null or empty: the model runs on this machine only.
+    /// </summary>
+    public IList<string>? Workers { get; set; }
 
     /// <summary>Free text shown in listings (default: the path).</summary>
     public string? Description { get; set; }

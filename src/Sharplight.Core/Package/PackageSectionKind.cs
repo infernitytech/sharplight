@@ -17,4 +17,6 @@ internal enum PackageSectionKind : uint
     Description = 6,
     /// <summary>ATCH: one attachment (<see cref="Models.ModelDefinition.Attachments"/>), named by the section name, 64 KiB aligned.</summary>
     Attachment = 7,
+    /// <summary>WLAY: per weight, layout facts kernels may rely on (<see cref="Models.WeightInfo.ScaleRowBlock"/>); absent when none apply.</summary>
+    WeightLayout = 8,
 }

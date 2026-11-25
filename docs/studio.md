@@ -42,7 +42,10 @@ lists) and reasoning is collapsible. You can regenerate an answer, edit a questi
 stop a generation, and set the system prompt, sampling, presets and thinking per conversation. Every conversation keeps its own
 model. Switching it mid-conversation applies to the next answer. Conversations keep generating in the background, so two chats on
 different models run at the same time. Images and documents can be attached by drag and drop, paste or the file picker:
-- Images need a model with the **Vision** badge; the others refuse them with an explanation.
+- Images need a model with the **Vision** badge; the others refuse them with an explanation. Image conversations run on the model's
+  batching engine like text ones: they are batched with every other request of the model (chat and API), their images are encoded once
+  and reused by content (a follow-up question about the same picture takes its KV blocks from the prefix cache), and the vision
+  encoder is loaded with the model and counted in its memory.
 - Documents (PDF, DOCX, HTML, text and code) are extracted to text and trimmed to the context window.
 
 *Voice and pictures.* Resident models of other kinds extend the chat; the *Voice and pictures* card of the chat settings picks which
@@ -99,8 +102,12 @@ the engine gains a kind, its card opens a page of its own, built from the shared
 - **Sharplight feed.** The third Discover source, next to *Verified models* and *Hub search*, lists the packages of Sharplight's model
   feed ([model-feed.md](model-feed.md)): preconverted `.slm` files with signed manifests that install without conversion. Each row shows
   the name and variant, the task, the version, the size, a *Verified* badge (the package is listed in the signed index; the install
-  verifies it again), a fit badge for this machine (the package's memory figure against the GPUs and system memory, like the verified
-  list) and *Installed* / *Update available*. The list is filtered by text, task and *Fits this machine*. A package whose requirements
+  verifies it again), a fit badge for this machine and *Installed* / *Update available*. The fit badge plans the package with the
+  default load settings and one slot from the feed's memory figures (weights, KV bytes per token scaled to the default KV cache type and
+  the default context, overhead) like the load panel: on the default device with the resident models and the reserve counted, or split
+  over the GPUs, else with CPU offload (*Fits*, *Fits after unloading*, *CPU offload ~40 %*, *Too large*; its tooltip has the figures). The
+  details of a package that is one variant of a model (the feed's model groups, built from the verified catalog's variant ladders) list
+  *Variants of this model*, smallest first, with size, quality tier, *Recommended* and each variant's fit; a click shows that variant. The list is filtered by text, task and *Fits this machine*. A package whose requirements
   this Studio or engine does not meet, or that the publisher withdrew, is listed but cannot be installed and says why; a deprecated one
   carries the publisher's note.
   - *Download and install* resolves the package and its required dependencies (semantic versions, e.g. a voice-activity model), reads
@@ -124,6 +131,34 @@ the engine gains a kind, its card opens a page of its own, built from the shared
     always checked against the Sharplight root key embedded in Studio, `tools/model-feed/keys/sharplight-feed.pub.pem`).
   - All network and file work (listing, hashing, downloading, moving) runs off the UI thread; the services are `IFeedService` (`FeedService` over
     `Sharplight.ModelFeed`, registered with `AddStudioFeed()`) and the view models `FeedCatalogViewModel` and `FeedInstallViewModel`.
+
+- **Managing many models.** The Library and the *Storage* tab keep a large collection under control. All file work (measuring, deleting, copying,
+  exporting, importing) runs off the UI thread with a progress bar and a Cancel button, never follows links, stays inside the storage
+  location in effect (portable, system or custom), and leaves no half-written file when cancelled. The service is `IModelMaintenance`
+  (`ModelMaintenanceService`); the view models are `StorageViewModel` and the partial files of `LibraryViewModel`.
+  - **Disk usage.** *Storage* shows one card per location (model store, Studio data, caches, logs) with the volume's total and free space
+    (a warning below 10 % free) and what Studio uses there: models, precompiled artifacts stored in packages, downloads in progress, the kernel
+    cache (compiled kernels, CUDA PTX and cubin, SPIR-V device stages), shader sources, media and other caches, logs, outputs and run histories.
+    It also lists the biggest models. Each library card has *Size details*: weights, attachments, the precompiled artifacts per provider and
+    device, unused space and the definition. The library sorts by name, size, last used, or not used for longest.
+  - **Cleanup.** Delete a model, remove only its precompiled artifacts (the package is compacted, the model stays and rebuilds them when
+    precompiled), clear the kernel, shader or media cache, and remove failed or partial downloads. *Select* in the library ticks models for bulk
+    delete or bulk artifact removal. Every action first asks with a message that states the space it frees ("Delete 3 models? This frees
+    12.4 GB."). A resident model is never deleted or rewritten: the library says to unload it first (the service checks the runtime, not only the
+    card, and a model being precompiled counts the same); in a bulk action resident models are skipped and named. A file added from outside the
+    store is only removed from the list. Partial downloads are not removed while a download or feed install is running.
+  - **Updates.** *Update all (n · size)* updates every feed package that has a newer version, one after the other, with an overall progress bar
+    weighted by download size and Cancel; each update is the same verified atomic swap as a single update, a failed one leaves that model as it was
+    and the others continue. *Settings > Models* has an optional daily check of the feed (`CheckModelUpdates`, every
+    `ModelUpdateIntervalHours`, last check `LastModelUpdateCheck`); the number of models with a newer version is a badge on the Models item of the
+    navigation (added to the running downloads) and on the Library tab.
+  - **Last used.** Every load is recorded in `model-usage.json` next to `studio.db` (by model path, also loads by API clients); the card shows
+    *Used 3 days ago* or *Never loaded*. Models not loaded for 90 days (counted from the day they were added when never loaded) are suggested in the
+    library and on *Storage*; *Review* ticks them.
+  - **Export and import.** *Export .slm* (context menu of a card) copies the package to a standalone file, with or without its precompiled
+    artifacts (the lean file is stripped and compacted). *Import .slm…*, *Import folder…* and dropping files or folders on the library read each
+    package with the package reader first (a folder is searched two levels deep); valid ones are listed with their size and, after confirming,
+    copied into the model store (`imported/<name>`) and registered, broken or non-package files are reported with the reason and never added.
 
 ![Discover](images/studio/studio-discover.png)
 
@@ -270,12 +305,38 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   - the **Reduced precision** opt-in.
 
   Below the options, a memory estimate follows every change: the engine's footprint (weights, KV cache, activations) computed
-  from the model's graph for these settings, against each device's free and total memory and the residency reserve. It says
-  whether the model fits, fits after unloading other models (naming them, and whether they unload by themselves), needs CPU
-  offload (with the share that would run on the CPU, against system memory), or does not fit at all. Suggestions (shorter
-  context, smaller KV cache, one slot, turning on offload, splitting over all GPUs, a smaller quantization in the library) apply
-  with a click. With several GPUs the device list also offers *All GPUs (split)*, which splits the layers in proportion to their
+  from the model's graph for these settings (`LlmModel.EstimateFootprint`, as the load sizes itself: with one slot the single-sequence
+  session with its window-sized caches, with the chosen KV cache type), against each device's free and total memory and the residency
+  reserve. The heading says whether the model *Fits on the GPU* (or *in system memory*, *on 2 GPUs*), fits after unloading other models
+  (naming them, and whether they unload by themselves), *Fits with CPU offload* (with the share that would run on the CPU, against
+  system memory; *Needs CPU offload* while offload is off), or *Does not fit*. For a mixture-of-experts model whose offload moves only
+  routed experts (what goes to the CPU is no more than the experts' weights, which the engine offloads first) it says *CPU expert
+  offload*: attention and the shared layers stay on the GPU. With *Read experts from disk* on (offered as a suggestion for a mixture-of-experts model that fits
+  neither GPU nor system memory), a model whose offloaded part is larger than system memory is *Runs with experts from disk (slow)*: the
+  panel says how many GB of experts stay on disk and gives a rough decode speed, the drive's read speed (3 GB/s assumed, the engine
+  measures it only once loaded) over the bytes a token reads from disk (experts per token / experts of the part on disk, every read a
+  cache miss, so a lower bound). The longest context *with CPU offload* is sized without experts on disk.
+
+  Under *Context and KV cache* the panel shows how far the load could go, each row applied with a click: the longest context that fits on
+  the device (*Up to 131,072 tokens on &lt;GPU&gt;*), the longest that fits with CPU offload when that is longer, and, when the model fits,
+  what the other KV cache type changes (*Q8_0 KV cache · needs about 19.4 GB (1.7 GB less)*; the row is left out for models whose cache
+  rows stay F16). When the configured context is already the longest, a line says so (*32,768 tokens is the longest context that fits on
+  the GPU.*, or *The model's full context fits*). The contexts tried are the powers of two from 2,048 up to the context the model was
+  trained for (128K when unknown) plus the configured one; a binary search needs a few estimates of the already-read model. Suggestions
+  when it does not fit (turning on offload, smaller KV cache, one slot, splitting over all GPUs, a smaller quantization in the library)
+  apply with a click. With several GPUs the device list also offers *All GPUs (split)*, which splits the layers in proportion to their
   free memory.
+
+  Models load with one parallel slot by default (a single-sequence session; raise *Parallel slots* for concurrent API clients, each slot
+  holding its own cache). Example, Gemma 4 31B Q4_K_M with one slot: weights and state 20.7 GiB at 32K and 28.2 GiB at 128K (23.0 GiB
+  with a q8_0 cache); the estimate adds the activation bound of the 512-row prompt batch (about 3.1 GiB), so the panel shows 23.8 GiB at
+  32K and 31.6 GiB at 128K (26.2 GiB with q8_0): on a 32 GB card 128K fits with a q8_0 cache or with CPU offload.
+
+  **Memory figures.** Every fit estimate (load panel, Discover's verified list, Hub search and feed) reads the devices' live figures
+  through one shared watch (`DeviceMemoryWatch`): free memory with other applications' use taken off, the memory Studio could hold once
+  its own models are unloaded, system memory within the container's cgroup limit, unified memory of integrated GPUs, as the providers
+  report them. The figures are read again when the load panel or Discover opens, after models load or unload (at most once a second), and
+  every 5 seconds while one of them is visible; a change of more than 64 MiB re-plans the open panel and re-rates the Discover badges.
 
   ![Load options with the memory estimate](images/studio/studio-load-fit-offload.png)
 
@@ -326,7 +387,7 @@ Anthropic endpoints switched on or off separately.
   |---|---|
   | Text generation | `/v1/chat/completions`, `/v1/completions` (OpenAI), `/v1/messages`, `/v1/messages/count_tokens` (Anthropic) |
   | Speech to text | `POST /v1/audio/transcriptions`, `POST /v1/audio/translations` (multipart WAV upload, `json`, `text`, `srt`, `vtt` or `verbose_json`) |
-  | Text to speech | `POST /v1/audio/speech` (`{"model", "input", "voice", "speed", "response_format"}`; `wav`, or `pcm` streamed while it is generated) |
+  | Text to speech | `POST /v1/audio/speech` (`{"model", "input", "voice", "speed", "instructions", "response_format"}`; `instructions` describes the voice or the style for models that take one (VoxCPM2, OmniVoice, CosyVoice 3); `wav`, or `pcm` streamed while it is generated) |
   | Image generation | `POST /v1/images/generations` (`prompt`, `n`, `size`, `steps`, `guidance_scale`, `seed`, `sampler`; base64 PNG) |
   | Embeddings | `POST /v1/embeddings` |
   | Reranking | `POST /v1/rerank` (also `/v2/rerank`, `/rerank`) for a reranking model on the host; Studio cannot load one yet |
@@ -385,6 +446,8 @@ compilation-cache options), *Engine* (load defaults, residency, device features)
   - on-demand loading.
 - New-chat defaults.
 - *Use the system title bar* (see [Window](#window)).
+- **Compute devices** (on a machine with a GPU): one row per physical GPU with its memory, the provider in use and, on an NVIDIA GPU that Vulkan
+  and CUDA both drive, a picker: *Automatic*, *Vulkan* or *CUDA*. See [CUDA and the provider per GPU](#cuda-and-the-provider-per-gpu).
 - The engine's device features, each of which can be switched off to fall back to a portable path.
 - **Reduced precision** (off by default) opts in to faster f16 kernel paths where the default keeps near-f32 accuracy. Outputs may
   differ slightly.
@@ -473,7 +536,54 @@ voices), the speed and the sampling (temperature, top-k, top-p, repetition penal
 one, so the sound differs slightly from a whole-text pass). OuteTTS is a language model plus the WavTokenizer decoder: when you load
 an OuteTTS GGUF, the load panel asks for the vocoder file (a `.slm` package made with the vocoder needs none).
 
+What the page offers follows what the chosen model's client says it can do (`SpeechModelTraits`: its canonical architecture and the
+`ISpeechLanguageList` it implements):
+
+- *VibeVoice-1.5B* and *Sesame CSM-1B* speak a script of lines `Speaker N: ...`. An *Add a turn* button writes the next label; every speaker of the
+  script gets a row in the *Speakers* card with a voice choice: the model's own voice, one of its built-in voices (CSM: 0 and 1), a saved voice, or
+  (VibeVoice) a *Reference recording* (a WAV file and, optionally, its words), from which the voice is made for the run. VibeVoice speaks the whole
+  script in one request with `SpeechSynthesisOptions.SpeakerVoices`; CSM has no script input, so the page speaks the turns one after the other
+  (the speaker's built-in voice, a 0.3 s pause between turns). The single *Voice* choice is hidden for these models.
+- *Diffusion steps* and *Guidance* appear for models with a diffusion head (VibeVoice; defaults 10 and 1.3) and go to `DiffusionSteps` and `GuidanceScale`.
+- *OmniVoice* shows a *Language* picker with its 600+ languages (the names of `ISpeechLanguageList`) and a *Voice design* box (for example
+  "female, young adult, british accent", sent as `Instructions`; a reference recording or a saved voice replaces it). Its licence notice is
+  shown above the page (see *Licence notices*).
+- *Dia* is written as a dialogue with the tags `[S1]` and `[S2]` at the start of each turn and non-verbal sounds in parentheses (`(laughs)`); the hint under the text box says so
+  (`SpeechModelTraits.SpeakerTags`). It has no separate voice per speaker: one *Reference recording* with its words (written with the same tags) gives the voices of both speakers.
+
 ![Speak](images/studio/studio-speak.png)
+
+**Transcribe and speakers.** A model that tells speakers apart (VibeVoice-ASR) returns segments with `TranscriptionSegment.Speaker`. The page then
+shows a coloured speaker badge on every segment (one colour per speaker, in the order they first speak), a line "2 speakers: Speaker 0, Speaker 1"
+under the transcript, and the exports carry the speakers: `.txt` has one line per turn (consecutive segments of the same speaker joined) that starts with
+"Speaker 1: ", `.srt` prefixes each cue with the label, `.vtt` uses voice spans (`<v Speaker 1>text`). A bare number becomes "Speaker N"; other labels are
+shown as they are. `transcript.json` of a run stores the speaker, so *Show again* restores them. Models without speakers export as before.
+
+**Audio** (`audio-codec`, `voice-activity`, `audio-embedding`, `music-generation`, `audio-generation`, `audio-separation`). The mode follows the kind of the
+chosen model. In the music mode, a diffusion model (ACE-Step 1.5 turbo, kind `audio-generation`, `IAudioGenerator`) shows a *Lyrics* box (section tags
+such as `[verse]` and `[chorus]`; empty is an instrumental) next to the prompt, and the parameters *Duration* (limited by the model's `MaxDuration`),
+*Seed*, *Steps* and *Shift* (0 uses the model's own values: 8 steps for turbo), and *Lyrics language*. *Guidance* is shown only for models that are not
+distilled (an id with `turbo` hides it), and the token-sampling controls (*Greedy*, *Temperature*, *Top-k*) belong to MusicGen only and are hidden. The
+lyrics are kept in the run's history. The library recognizes the ACE-Step checkpoint folder, which has no `config.json` of its own: a folder with an
+`acestep-v15-*` transformer folder (with its `config.json`), a `vae` folder and a `Qwen3-Embedding*` text-encoder folder is an audio-generation model
+(`ModelInspector.IsAceStepFolder`); a `config.json` with `model_type` `vibevoice` is speech synthesis, or speech recognition when its architecture names
+ASR, and `csm`, `omnivoice` and `dia` (also the original Dia checkpoint's `config.json`, which has no `model_type` but a `data` section with the delay pattern) are speech synthesis.
+
+**Licence notices.** A verified-catalog entry whose licence is `other` or a non-commercial one (`cc-by-nc-*`, `*-non-commercial-*`: OmniVoice, XTTS,
+Depth Anything 3 large, FLUX dev) shows its notes prominently: in Discover's *Verified* detail as a warning callout "Read the licence before you use this
+model", on every inference page while that model is chosen (found through the model's catalog key or repository, `LicenseNotices.ForModelAsync`), and
+in the library's status line when it loads. An entry with such a licence and no notes shows a general line.
+
+**Accepting licence terms before a download.** Every download path asks first when the model's licence is restrictive: the verified catalog (Discover
+*Verified*, from the entry's `licenseNotice` or a licence that is not permissive), Hub downloads (a non-permissive Hub licence tag, or a gated repository),
+model-feed installs (a licence that is not permissive, a gated or non-commercial one), and with them the first-run starter models and *Update all* (they
+install through the feed). The one list of permissive licences is `CatalogLicenses.IsPermissive` (Apache-2.0, MIT, ISC, Unlicense, CC0, CC-BY-4.0, CC-BY-SA-4.0,
+CDLA-Permissive-2.0, BSL-1.0, Zlib and every `bsd-*`); a model with no recorded licence is not asked about. The dialog (`LicenseDialogViewModel`, in the
+main window) shows the model, the licence name, the notice text, *Read the full licence* (the licence link of the feed package, else the model's Hub page)
+and *Accept* / *Cancel*; Cancel downloads nothing (a feed install is shown as cancelled and *Retry* asks again). `ILicenseGate` queues the requests and
+shows one at a time, and the acceptance is stored per model in the settings (`AcceptedLicenses`: key, licence, a fingerprint of the licence and notice,
+date; keys are the catalog entry id, `feed:<package>` or `hub:<repository>`), so it is asked once; a changed licence or notice asks again. A model whose
+terms were accepted does not show the dismissible notice after the download (`LicenseNotices.IsHandled`).
 
 **Image** (image generation, `IImageGenerator`). Type a prompt and optionally a negative prompt; the parameters are the size, steps,
 guidance, sampler (`Samplers`: Euler, Euler Karras, Euler ancestral, DDIM, PNDM, DPM++ 2M, DPM++ 2M Karras), the seed (empty is random,
@@ -659,6 +769,25 @@ The macOS and Windows packages are not signed yet (Windows SmartScreen and macOS
 `packaging/pack-studio.sh` and `.github/workflows/studio.yml`. On macOS the Vulkan provider needs MoltenVK, which is not part of
 the package yet, so the app runs on the CPU provider.
 
+**CUDA.** The Linux packages (x64 and ARM64) and the Windows x64 packages include the CUDA execution provider (`Sharplight.Cuda`) and NVIDIA's runtime
+compiler (NVRTC, redistributed under the CUDA Toolkit EULA, `Sharplight.Cuda.Runtime`) with the floating-point headers it compiles against, NVIDIA's
+`LICENSE-NVIDIA-CUDA.txt` and `THIRD-PARTY-NOTICES-Cuda.md`; the NVIDIA driver supplies the rest. macOS and Windows on ARM have no NVIDIA driver and
+get none of it. `packaging/pack-studio.sh` publishes with the runtime identifier (`StudioCuda` in the project file decides, `-p:StudioCuda=false` leaves it
+out), copies the license and the notice and runs `packaging/check-cuda.sh`, which fails when a CUDA runtime lacks a file or another runtime carries one.
+
+Measured on a linux-x64 publish of this branch (the publish without the native audio and FFmpeg libraries, so the absolute sizes are lower than a release's;
+the difference is what CUDA adds), packed with vpk 1.2.161:
+
+| | without CUDA | with CUDA | CUDA adds |
+|---|---:|---:|---:|
+| AppImage | 118.9 MB | 164.5 MB | 45.6 MB |
+| Velopack full package (`.nupkg`, also the Windows Setup.exe's payload) | 117.6 MB | 162.9 MB | 45.3 MB |
+| `tar.gz` | 115.9 MB | 161.1 MB | 45.2 MB |
+| installed folder (MiB) | 267 | 376 | 109 |
+
+The package cost is accepted (owner decision of 2026-11-19). The Windows x64 files are about 96 MB installed (NVRTC 91 MB); the ARM64 Linux ones about 105 MB
+([cuda.md](cuda.md#package-sizes)).
+
 **Channels.** Every build belongs to one of ten update channels, `<rid>-stable` (built from `release/*` branches) and `<rid>-unstable`
 (built from `develop`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
 `osx-arm64-unstable`. An installed app checks the channel it was installed from until you pick another one: *Settings > Updates > Update
@@ -690,17 +819,45 @@ own `releases.<channel>.json` feed.
 `sharplight-studio --smoke [--smoke-report FILE]` starts the real services without a window (settings, storage, the log file, the update
 and feed services, the engine with every provider and format), then runs `Services/Smoke/SmokeRunner`:
 
-1. lists the devices (a CPU device must exist);
+1. lists the devices (a CPU device must exist; with `--smoke-provider`, also a device of that provider);
 2. lists the Sharplight model feed (verified, not from the cache) and finds `whisper-tiny`;
 3. installs it with its Silero VAD companion into the model store of the storage in effect;
 4. writes a short synthetic WAV and decodes it with the native audio library;
-5. loads the package on the CPU;
+5. loads the package on the CPU, or on a device of the provider `--smoke-provider <name>` names (`cuda`, `vulkan`; the report's `Provider`);
 6. transcribes the WAV once (the text is not checked, the whole path must run), then unloads.
 
 The first failing step ends the run. The JSON report (`Version`, `Os`, `Storage`, `Devices`, `Package`, `Steps`, `Passed`, `Error`)
 goes to the file, to standard output and, by default, to `smoke-report.json` in the log folder; the steps are in `studio.log`. Exit code 0
 means passed, 1 failed; a run is limited to ten minutes. CI runs it against the published packages of every OS
-([releasing.md](releasing.md#published-build-smoke-test)); `SmokeRunnerTests` runs the runner over fakes.
+([releasing.md](releasing.md#published-build-smoke-test)); `SmokeRunnerTests` runs the runner over fakes. The published-build smoke script repeats the run with
+`--smoke-provider cuda` where `nvidia-smi` finds a GPU (the Linux x64 and Windows x64 builds); the GitHub-hosted runners have none, so the step prints a
+notice and is skipped there (`SMOKE_CUDA=1` makes a missing GPU a failure, `0` skips the step).
+
+## CUDA and the provider per GPU
+
+An NVIDIA GPU is listed twice, once by the Vulkan provider and once by the CUDA provider (where the package has it and the driver is usable). The two
+entries share one identity (the device UUID: Vulkan writes it as hex, CUDA as a dashed GUID, both are compared without dashes and case), so Studio treats
+them as one physical GPU with two providers:
+
+- The device lists (load options, Settings > Engine > Load defaults) show both, told apart by the provider: *NVIDIA RTX ... (Vulkan)* and
+  *NVIDIA RTX ... (CUDA)*. A GPU with a single provider is listed as before.
+- **Vulkan is the default.** Providers register in the order Vulkan, CPU, CUDA, and the device list puts the entry of the chosen provider first, so the first
+  entry, the default device and every load that names no provider run on Vulkan.
+- **Settings > Engine > Compute devices** has a picker per GPU: *Automatic* (Vulkan until per-device data says CUDA is faster: `IProviderPerformanceHints`
+  is the hook, `NoProviderHints` the current implementation), *Vulkan* or *CUDA*. The choice is saved by GPU identity (`DeviceProviders` in the settings), moves
+  the default device to that GPU's entry of the chosen provider, and applies at once to loads that do not pick a device entry themselves. The load options
+  of a model can still pick either entry. A model split over all GPUs uses one entry per GPU, all of the first GPU's provider.
+- **Fallback.** CUDA is skipped, and Vulkan used, with a note on the GPU's row (and a warning line in `studio.log`), when: the NVIDIA driver supports an
+  older CUDA than 13.0 (the PTX of the shipped NVRTC needs driver R580 or newer: "update the NVIDIA driver"); the CUDA provider is unavailable on this
+  machine (no `libcuda.so.1` / `nvcuda.dll`, a failed `cuInit`, no GPU of compute capability 7.5 or later), noted on NVIDIA GPUs only; opening the CUDA
+  device fails; or a load on CUDA fails (kernel compilation or loading: the model is loaded again on Vulkan and the load panel says so). A failed CUDA is
+  not tried again for that GPU until Studio restarts.
+- **Memory.** The fit estimates and the device memory list ask the provider in use; the entry of the other provider shows the same memory and opens no
+  second context.
+- **Precompile.** The library's *Precompile* (and the option after a download) runs the providers' two-stage contract for the CUDA devices as for the
+  others: PTX for the GPU's compute capability (needs NVRTC, no GPU), then a cubin from the driver's JIT for the device. The package inspector's
+  *Artifacts* tab lists the stages as `provider=cuda`: `kind=ptx` (code tier, target `ptx_<compute capability>`) and `kind=cubin` (binary tier, matched on GPU
+  name and CUDA driver version). A package precompiled for CUDA loads on a machine without NVRTC.
 
 ## Where things are kept
 
@@ -712,7 +869,7 @@ platform is in [storage.md](storage.md)). `<config>`, `<data>` and `<cache>` are
 | What | Where |
 |---|---|
 | Settings (`settings.json`), including the download queue, and the optional `starter-models.json` | `<config>/studio` |
-| Conversations and statistics (`studio.db`), Discover's highlights (`discover-highlights.json`) and verified catalog (`verified-models.json`) | `<data>/studio` |
+| Conversations and statistics (`studio.db`), last-used times of models (`model-usage.json`), Discover's highlights (`discover-highlights.json`) and verified catalog (`verified-models.json`) | `<data>/studio` |
 | Inference pages: parameter presets, run history and output files (`pages/<page>/`) | `<data>/studio/pages` |
 | Models | The model store: `<data>/models` by default, else the folder chosen on the *Models* card; converted local models go to `converted/` in it by default |
 | Compiled kernels, extracted shader sources | `<cache>/artifacts`, `<cache>/shaders`, shared by every tool |
@@ -762,7 +919,7 @@ versions kept them.
   speech, image and retrieval endpoints look the model up in the host per request (task models are `ModelKind.Task` instances
   holding their clients, text embedders `ModelKind.Embedding`) and lease it for the request, so loads, unloads, idle unloading and
   the served switch apply without remapping. Chat and API requests to the same model share one engine and are batched together.
-  Stopping the server leaves the models loaded. Text embedding models are loaded by the runtime with `RetrievalModelLoader`
+  Stopping the server leaves the models loaded. Text embedding models are loaded by the runtime with `TaskModelLoader` (kind `text-embedding`)
   (`Sharplight.Hosting`), the same loaders `sharplight serve` uses.
 
 ## Tests
@@ -771,6 +928,12 @@ versions kept them.
 - the pure helpers;
 - the SQLite stores and settings;
 - the downloads queue (pause, resume, cancel, restore after restart);
+- sizing (`SizingTests`, mocked device figures): the candidate contexts and the binary search, a sliding-window model on a 32 GB card
+  (32K, the longest context on the GPU and with offload, the Q8_0 saving), CPU expert offload against layer offload, sizing on the CPU,
+  the memory watch (a read on open, periodic reads while watched, only changes beyond 64 MiB reported, a read after a load) and the
+  panel re-planning when the figures move; the feed's variant ladder with per-variant fits that follow the memory (`FeedCatalogTests`);
+  `SizingRealModelTests` sizes Gemma 4 31B Q4_K_M and OLMoE from the files (no device), and with `SHARPLIGHT_STUDIO_GPU_SIZING=1`
+  loads Gemma on the GPU and checks that the load holds no more than the estimate;
 - fit estimates: the planner (unloading, offload, system memory, split GPUs), the load panel's estimate and suggestions, and the
   download badges;
 - the title bar choice (own or system), and Discover's highlights (sections, filtering, the cache and its lifetime) and the
@@ -814,6 +977,12 @@ versions kept them.
   install of chat and speech with the voice detector, load, new chat with the example, skip, offline with and without a saved listing, a failed install
   that resumes, no GPU, the start page choice, the chat page's *Get a model*), and one test against the live feed that runs the flow with Qwen3-0.6B
   (skipped without network). The welcome page and the chat page without a model are in `PageScreenshotTests` too;
+- model management (`ModelMaintenanceTests`, `ModelUsageTests`, `LibraryCleanupViewModelTests`, `StorageViewModelTests`, `ModelUpdateTests`): on real files in temporary
+  stores, the usage overview and size breakdown, deletion safety (resident and precompiling models refused, files outside the store kept, nothing outside the
+  store removed), partial-download cleanup, cache clearing, artifact removal, the `.slm` export (with and without artifacts) and import round trip, import
+  validation of broken files and folders, cancellation without leftovers, last-used tracking, the confirmations and their freed-space text, bulk actions,
+  the unused-model suggestion, update all with a failing package, and the periodic check with its badge; `PageScreenshotTests` renders the Storage tab and
+  the library with selection, size details and a confirmation;
 - the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
   listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 
@@ -827,6 +996,10 @@ all-MiniLM-L6-v2 and reranking with ms-marco-MiniLM-L6-v2, and the embedded serv
 embeddings and rerank over HTTP. `StudioSpeechPagesRealTests`, `StudioVisionAudioRealTests`, `StudioImageVideoPagesRealTests` and `StudioModelsPageRealTests` do the same for the other inference pages
 (all skipped when a model is missing, driven through the view models on the real runtime and the fake audio device, with `jfk.wav` and the COCO picture of two cats and
 two remote controls as inputs):
+- Audio models of 2026-11-19 (`AudioModelsPageTests`, over fakes: ACE-Step, VibeVoice, CSM, OmniVoice and VibeVoice-ASR are too big for the suite): the diffusion music mode
+  and its visible parameters, the ACE-Step / VibeVoice / CSM / OmniVoice folder kinds on small fixture folders, the script speakers and per-speaker voices,
+  the CSM turn-by-turn path, the OmniVoice language and design controls, speakers in the Transcribe view and exports, and the licence notices.
+  `PageScreenshotTests.AudioModelPage_*` renders these states in both themes and at two sizes.
 - Transcribe: whisper-tiny.en, Qwen3-ASR-0.6B and Parakeet; segment timestamps are ordered and inside the recording, and the saved `.srt` / `.vtt` files and the
   gallery copy carry the same cues as the page.
 - Speak: Kokoro and Qwen3-TTS CustomVoice; the voice list, playing while generating through the fake speaker, and the WAV export.
@@ -838,6 +1011,15 @@ two remote controls as inputs):
 - Models: installs the five feed packages (chat, embedding, reranker, speech, voice activity) from the live feed, checks the library kind of each (a chat
   package is never a reranker; a cross-encoder declared `embeddings` by an older package is refined to a reranker because it has a classify graph and no decode
   graph), the kind filter, load and unload through the load panel, and the residency list; a theory checks the inspector's kind for 20 real model folders.
+The CUDA provider in Studio: `ProviderSelectionTests` (the selector and the Engine settings view model over fake Vulkan / CUDA / CPU providers: one physical GPU
+from two UUID spellings, Automatic is Vulkan, the performance-hint hook, an explicit choice beating it, a driver older than CUDA 13, an unavailable CUDA on NVIDIA and
+on other vendors, failover and "not tried again", the picker saving by GPU and the default device following), `CudaRealModelTests` (Qwen3-0.6B loaded and chatting
+on the CUDA device of a headless runtime, Vulkan first in the list; and a fake CUDA provider whose device fails to open, which hands the load to the provider behind
+it, notes it and is not tried again; skipped without the model or a CUDA device), `PackagingTests` (the project references the CUDA provider for linux-x64,
+linux-arm64 and win-x64 only, `StudioCuda` evaluates to true / false for the five runtimes, `packaging/check-cuda.sh` accepts the right file set for the three runtimes,
+names each missing file and rejects any CUDA file for osx-arm64 and win-arm64; `SHARPLIGHT_STUDIO_PUBLISH` and `SHARPLIGHT_STUDIO_PUBLISH_RID` point it at a real publish
+directory), `PageScreenshotTests.EngineSettings_WithCudaDevices_*` (the Compute devices card with CUDA chosen, with a driver too old, and with CUDA unavailable, both
+themes, two sizes).
 `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
 calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
 `SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
@@ -845,13 +1027,15 @@ packages in both themes.
 
 ## Limitations
 
-- **Images.** Image conversations run on a separate single-sequence session with the vision encoder, one request at a time. They
-  are not batched with the model's text engine, and this memory is not counted in the residency budget.
 - **Conversion progress.** Conversion during a download reports its log, not a percentage. Precompilation reports kernel counts
   per graph.
 - **Fit estimates.** The load panel's estimate is the engine's own, but free memory can change before the load (other
-  applications), and the vision tower of an image conversation is not counted. Download badges are approximate: they know the
-  file sizes and, where readable, the attention dimensions, not the exact graph.
+  applications; the figures are read again every 5 seconds while the panel is open). Its activation figure is the engine's upper bound
+  for the prompt batch (about 3 GiB for Gemma 4 31B at 512 rows). Download badges are approximate: they know the file sizes and, where
+  readable, the attention dimensions, not the exact graph. The feed's memory figures are those of the plain graph (a row per position in
+  every cache), so the feed overstates sliding-window models that the session path sizes with window rings (Gemma 4, gpt-oss).
+- **KV cache types.** F16, Q8_0, Q4_0 and F32 are offered on every device; quantized caches have kernels on the CPU, Vulkan and CUDA
+  (docs/kv-cache.md), and a cache whose rows are not whole 32-value blocks stays F16 (the panel then shows no saving).
 - **Compatibility checks.** They are likely verdicts, not guarantees: a GGUF header that maps can still fail on something only its
   tensor data shows. Quantizations other than the recommended one share the architecture's verdict until they are selected and
   their tensor tables are read. A tensor table beyond 64 MiB from the start of a file is not read (the verdict is *Unknown*). ONNX

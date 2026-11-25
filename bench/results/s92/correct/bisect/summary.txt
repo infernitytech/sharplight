@@ -1,0 +1,23 @@
+# Qwen3.8-27B-FP8 PplBench (2,048 tokens, 512-row steps) logits dumps: develop-equivalent "off" = SHARPLIGHT_CUDA_NVRTC_SASS=0. Forms: SASS switch value (empty = default marker). base/new/off lines: 963-token greedy text md5 (copy warpgroup on, before the 9-warp default).
+form 1 [0]: same-as-off PPL 5.8506
+form 2 []: DIFFERS PPL 5.8591
+form 3 [if:#define QOUT 1]: same-as-off PPL 5.8506
+form 4 [if:#define MULTI 2]: DIFFERS PPL 5.8493
+form 5 [if:#define MULTI 3]: same-as-off PPL 5.8506
+form 6 [if:#define N 17408\n#define SG]: same-as-off PPL 5.8506
+form 11 [0, concurrent 0]: vs off: same vs f11: same PPL 5.8506
+form 12 [if:#define MULTI 2, concurrent 0]: vs off: DIFFERS vs f11: DIFFERS PPL 5.8565
+run a: vs f4 DIFFERS PPL 5.8687
+run b: vs f4 DIFFERS PPL 5.8487
+run c (default SASS): vs f2 DIFFERS PPL 5.8511
+run d (MULTI 2 SASS, concurrent 0): vs f12 DIFFERS vs off DIFFERS PPL 5.8429
+run e (MULTI 2 SASS, concurrent 0): vs f12 DIFFERS vs off DIFFERS PPL 5.8490
+base 1 8bf70d24
+new 1 00c8edf4
+off 1 8bf70d24
+base 2 8bf70d24
+new 2 00c8edf4
+off 2 8bf70d24
+WG=0 form 21 [sass=0]: vs w21 same vs off(WG on) same PPL 5.8506
+WG=0 form 22 [sass=default]: vs w21 same vs off(WG on) same PPL 5.8506
+WG=0 form 23 [sass=default]: vs w21 same vs off(WG on) same PPL 5.8506

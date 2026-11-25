@@ -50,7 +50,7 @@ internal static partial class CpuOpSupport
             "ScatterElements" or "ScatterND" => CheckScatter(node),
             "Trilu" => CheckTrilu(node),
             "OneHot" => CheckOneHot(node),
-            "Reshape" or "Slice" or "Permute" => OpSupport.Yes,
+            "Reshape" or "Slice" or "Permute" or "After" => OpSupport.Yes,
             "Contiguous" or "Transfer" => node.Inputs[0].Type.IsQuantized ? OpSupport.No($"{op} of quantized data") : OpSupport.Yes,
             "Concat" => CheckConcat(node),
             "Cast" => CheckCast(node),
@@ -108,7 +108,7 @@ internal static partial class CpuOpSupport
     private static bool IsKvCacheType(DataType t) => t == DataType.F32 || t == DataType.F16;
 
     /// <summary>Quantized KV-cache storage: q8_0 / q4_0 rows of whole 32-value blocks.</summary>
-    private static bool IsQuantizedKvCache(Value cache) => (cache.Type == DataType.Q8_0 || cache.Type == DataType.Q4_0)
+    private static bool IsQuantizedKvCache(Value cache) => (cache.Type == DataType.Q8_0 || cache.Type == DataType.Q4_0 || cache.Type == DataType.F8E4M3_B32)
         && cache.Shape[-1] is { IsSymbolic: false } rowDims && rowDims.Fixed % 32 == 0;
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]

@@ -1,0 +1,24 @@
+llama ids 671,6102,294,8760,344
+== ours text 18:01:47
+36 routed-expert group(s) on disk
+Ready (decode)
+The capital of France isExperts on disk: 108 weights in 36 layers (59.0 GiB) read with threads x8; 3.1 GB/s measured; a decode step reads up to 1.48 GB: about 2.07 tok/s from a cold cache, ~2.63 tok/s once the 12.6 GiB cache holds its share (reads only; compute adds to it).
+ Paris. It is the largest city in France and is located in the north-central
+prompt: 5 tok in 5017 ms (1.0 tok/s) | generated: 16 tok, 1.98 tok/s
+experts on disk (threads x8): hit rate 60.4 % (7239 hits, 1587 read ahead, 3168 misses, 1583 prefetched, 0 evictions), read 10.89 GB, waited 1.09 s, cache 12.6 GiB in 5753 slots
+== ours logits 18:02:25
+ids: 671,6102,294,8760,344
+  11111 24.8993  Paris
+  34837 22.6342  PAR
+  2619 22.6175  **
+== llama logits 18:02:43
+n_vocab 129280 best 11111 24.4332
+~llama_context:        CPU compute buffer size is 307.0927 MiB, matches expectation of 307.0927 MiB
+n_vocab 129280 best 11111 24.7070
+== llama text 18:03:47
+The capital of France is Paris. It is the largest city in France, and is one of the largest
+0.34.687.718 I common_perf_print: prompt eval time =    3565.60 ms /     5 tokens (  713.12 ms per token,     1.40 tokens per second)
+0.34.687.721 I common_perf_print:        eval time =    5069.24 ms /    15 runs   (  337.95 ms per token,     2.96 tokens per second)
+v4_sl_cpu.f32                maxabs 1.5261 rms 0.2344 top20 maxabs logprob 0.8914 KL 1.18e-02 corr 0.998545 argmax 11111 (ref 11111)
+v4_ll_cpu.f32                maxabs 2.5971 rms 0.3018 top20 maxabs logprob 0.8660 KL 2.73e-02 corr 0.997598 argmax 11111 (ref 11111)
+== done 18:04:24

@@ -16,8 +16,9 @@ internal sealed unsafe class Wkv7Op : HeadRecurrenceOp
 
     public override string Name => "Wkv7";
 
-    public Wkv7Op(TRef r, TRef w, TRef k, TRef v, TRef a, TRef b, TRef state, TRef y, TRef? runs, RollbackTables? rollback = null)
-        : base(r, state, runs, rollback)
+    public Wkv7Op(TRef r, TRef w, TRef k, TRef v, TRef a, TRef b, TRef state, TRef y, TRef? runs, RollbackTables? rollback = null,
+        StateSnapshotTable? snapshots = null)
+        : base(r, state, runs, rollback, snapshots)
     {
         _r = r;
         _w = w;

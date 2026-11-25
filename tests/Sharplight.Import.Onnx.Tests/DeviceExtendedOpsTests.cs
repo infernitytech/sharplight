@@ -3,7 +3,7 @@ using Xunit;
 namespace Sharplight.Import.Onnx.Tests;
 
 /// <summary>
-/// LinearAttention, DeformConv, Unique and long DFTs compute on Vulkan, without the CPU fallback, what they compute on the CPU, over a
+/// LinearAttention, DeformConv, Unique and long DFTs compute on the GPU under test, without the CPU fallback, what they compute on the CPU, over a
 /// symbolic batch.
 /// </summary>
 public sealed class DeviceExtendedOpsTests
@@ -69,13 +69,13 @@ public sealed class DeviceExtendedOpsTests
 
     private static void Compare(TestModel model, List<float[]> inputs, double tolerance)
     {
-        var vulkan = Providers.Get("vulkan");
+        var gpu = Providers.Get("gpu");
         string path = Path.Combine(Path.GetTempPath(), $"sl-device-extended-{Guid.NewGuid():N}.onnx");
         File.WriteAllBytes(path, model.ToBytes());
         try
         {
             var expected = OnnxExec.Run(path, new OnnxImportOptions(), Providers.Cpu, Batch, inputs).Outputs;
-            var actual = OnnxExec.Run(path, new OnnxImportOptions(), vulkan, Batch, inputs, fallback: false).Outputs;
+            var actual = OnnxExec.Run(path, new OnnxImportOptions(), gpu, Batch, inputs, fallback: false).Outputs;
             Assert.Equal(expected.Length, actual.Length);
             for (int o = 0; o < expected.Length; o++)
             {
@@ -84,7 +84,7 @@ public sealed class DeviceExtendedOpsTests
                 for (int i = 0; i < expected[o].Length; i++)
                 {
                     bool same = float.IsNaN(expected[o][i]) ? float.IsNaN(actual[o][i]) : Math.Abs(actual[o][i] - expected[o][i]) <= tolerance * scale;
-                    Assert.True(same, $"output {o} [{i}] vulkan {actual[o][i]} vs cpu {expected[o][i]}");
+                    Assert.True(same, $"output {o} [{i}] gpu {actual[o][i]} vs cpu {expected[o][i]}");
                 }
             }
         }

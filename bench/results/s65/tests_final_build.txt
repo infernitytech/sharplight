@@ -1,0 +1,16 @@
+    0 Error(s)
+    0 Error(s)
+    0 Error(s)
+    0 Error(s)
+p3000 before:   41854 14.8778  Overview;  16 14.0820 1;  16781 13.9756  Context;  10746 13.1069  Sign;  39236 12.1268  Background;
+p3000 after:    41854 14.8778  Overview;  16 14.0820 1;  16781 13.9756  Context;  10746 13.1069  Sign;  39236 12.1268  Background;
+p8000 before:   2678 12.6214 ";;;  1131 12.2866 …;  485 12.2666 ..;
+p8000 after:    2678 12.6214 ";;;  1131 12.2866 …;  485 12.2666 ..;
+Cuda.Tests:    Sharplight.Cuda.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 23.791s
+cuda FullAttention:    Sharplight.Vulkan.Tests  Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.401s
+cuda PagedAttention:    Sharplight.Vulkan.Tests  Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.146s
+cuda PackedSequence:    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.946s
+cuda Stateful:    Sharplight.Vulkan.Tests  Total: 61, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.521s
+cuda SparseAttention:    Sharplight.Vulkan.Tests  Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.010s
+cuda RowInvariance:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.580s
+chain6 exit 0

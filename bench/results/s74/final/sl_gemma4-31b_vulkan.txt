@@ -1,0 +1,9 @@
+[N=512] prefill 512 tok: best 350 ms = 1464.9 tok/s | decode: best 38.33, median 37.75, mean 37.76 tok/s | GPU ms/step: best 25.80, median 26.26, wall best 26.09 | prefill median of 5: 356.1 ms = 1437.6 tok/s
+[N=2048] prefill 2048 tok: best 1267 ms = 1616.2 tok/s | decode: best 37.32, median 37.06, mean 37.06 tok/s | GPU ms/step: best 26.52, median 26.74, wall best 26.80 | prefill median of 5: 1280.2 ms = 1599.8 tok/s
+[N=8192] prefill 8192 tok: best 5850 ms = 1400.4 tok/s | decode: best 35.56, median 35.26, mean 35.27 tok/s | GPU ms/step: best 27.91, median 28.16, wall best 28.12 | prefill median of 5: 5868.6 ms = 1395.9 tok/s
+[N=32768] Unhandled exception: System.InsufficientMemoryException: Model does not fit: needs 44.77 GiB, group 'layers.40' (0.75 GiB) has no room and no fallback device is configured.
+[decode depth 32768] | 1 | 86.7 | 1076 / 845 | 34.77 / 34.92, 34.55 |
+[decode depth 131072] Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 30.42 GiB, group 'layers.59' (1.32 GiB) has no room and no fallback device is configured.
+[batched depth 256]
+| 1 | 111.2 | 1076 / 845 | 25.93 / 26.26, 25.84 |
+| 16 | 77.9 | 1087 / 856 | 51.77 / 52.51, 51.65 |

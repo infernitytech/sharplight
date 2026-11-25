@@ -1,11 +1,13 @@
 using System.CommandLine;
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Samples;
 
 /// <summary>
 /// The device and sizing options shared by the LLM samples: <c>--cpu</c>, <c>--device</c>, <c>--ctx</c>, <c>--batch</c>,
-/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--reduced-precision</c>, <c>--provider</c>.
+/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--experts-on-disk</c>, <c>--expert-cache</c>, <c>--reduced-precision</c>,
+/// <c>--fp8-block-scaled</c>, <c>--provider</c>.
 /// </summary>
 public sealed class RuntimeOptionSet
 {
@@ -24,7 +26,7 @@ public sealed class RuntimeOptionSet
     /// <summary><c>--provider</c>.</summary>
     public Option<string> Provider { get; } = new("--provider")
     {
-        Description = "GPU provider to run on (metal, vulkan); default: the first available one (Metal on Apple silicon, else Vulkan).",
+        Description = "GPU provider to run on (metal, vulkan, cuda); default: the first available one (Metal on Apple silicon, else Vulkan).",
         HelpName = "name",
     };
 
@@ -52,12 +54,27 @@ public sealed class RuntimeOptionSet
         Description = "Run layers that do not fit in device memory, and ops the device cannot execute, on the CPU.",
     };
 
+    /// <summary><c>--experts-on-disk</c>.</summary>
+    public Option<bool> ExpertsOnDisk { get; } = new("--experts-on-disk")
+    {
+        Description = "With --cpu-offload: routed experts of mixture-of-experts models that fit neither the GPU nor host memory stay in the model file "
+            + "and are read from disk on demand into a cache (models larger than RAM + VRAM; decode at the disk's speed).",
+    };
+
+    /// <summary><c>--expert-cache</c>.</summary>
+    public Option<long?> ExpertCache { get; } = OptionFactory.Size("--expert-cache",
+        "With --experts-on-disk: host memory for the cache of experts read from disk, e.g. 24G (default: sized from the free host memory). "
+        + "A cache smaller than the experts on the CPU leaves them on disk even when they would fit.");
+
     /// <summary><c>--reduced-precision</c>.</summary>
     public Option<bool> ReducedPrecision { get; } = new("--reduced-precision")
     {
         Description = "Opt-in: faster kernels at reduced (f16) precision where the default keeps near-f32 accuracy "
             + "(e.g. one f16 product in the chunked delta rule of Qwen3.5-style models, and their delta-rule state in bf16).",
     };
+
+    /// <summary><c>--fp8-block-scaled</c>.</summary>
+    public Option<string> BlockScaledFp8 { get; } = CreateBlockScaledFp8();
 
     /// <summary>Adds all options to <paramref name="command"/>.</summary>
     public void AddTo(Command command)
@@ -70,7 +87,10 @@ public sealed class RuntimeOptionSet
         command.Options.Add(KvType);
         command.Options.Add(DisableFeatures);
         command.Options.Add(CpuOffload);
+        command.Options.Add(ExpertsOnDisk);
+        command.Options.Add(ExpertCache);
         command.Options.Add(ReducedPrecision);
+        command.Options.Add(BlockScaledFp8);
     }
 
     /// <summary>Reads the parsed values.</summary>
@@ -82,22 +102,47 @@ public sealed class RuntimeOptionSet
             parseResult.GetValue(Context),
             parseResult.GetValue(Batch),
             DataType.Get(parseResult.GetValue(KvType)!),
-            parseResult.GetValue(DisableFeatures) ?? [],
+            DisabledFeatures(parseResult),
             parseResult.GetValue(CpuOffload),
             parseResult.GetValue(ReducedPrecision),
-            parseResult.GetValue(Provider));
+            parseResult.GetValue(Provider),
+            parseResult.GetValue(ExpertsOnDisk),
+            parseResult.GetValue(ExpertCache));
+    }
+
+    private IReadOnlyList<string> DisabledFeatures(ParseResult parseResult)
+    {
+        var features = parseResult.GetValue(DisableFeatures) ?? [];
+        return parseResult.GetValue(BlockScaledFp8) == "off" && !features.Contains(DeviceFeatures.BlockScaledFp8, StringComparer.OrdinalIgnoreCase)
+            ? [.. features, DeviceFeatures.BlockScaledFp8]
+            : features;
+    }
+
+    private static Option<string> CreateBlockScaledFp8()
+    {
+        var option = new Option<string>("--fp8-block-scaled")
+        {
+            Description = "Block-scaled FP8 (default on): models with block-scaled E4M3 weights run their prompt-sized products on the "
+                + "block-scaled MMA with power-of-two scales where the device has it (CUDA, compute capability 12.x; about 2 % more serving "
+                + "throughput, perplexity +0.3 to +0.8 %, the form vLLM uses by default). off keeps the checkpoints' f32 scales "
+                + "(the same as --disable-features block_scaled_fp8).",
+            DefaultValueFactory = _ => "on",
+            HelpName = "on|off",
+        };
+        option.AcceptOnlyFromAmong("on", "off");
+        return option;
     }
 
     private static Option<string> CreateKvType()
     {
         var option = new Option<string>("--kv-type")
         {
-            Description = "KV cache element type: f16, f32, q8_0 (half the memory of f16) or q4_0 (a quarter, less accurate). "
-                + "Caches whose rows are not whole 32-value blocks stay f16.",
+            Description = "KV cache element type: f16, f32, q8_0 (half the memory of f16), f8e4m3_b32 (FP8 E4M3 with a scale per 32 values, "
+                + "0.56x of f16) or q4_0 (a quarter, less accurate). Caches whose rows are not whole 32-value blocks stay f16.",
             DefaultValueFactory = _ => DefaultKvCacheType,
             HelpName = "type",
         };
-        option.AcceptOnlyFromAmong("f16", "f32", "q8_0", "q4_0");
+        option.AcceptOnlyFromAmong("f16", "f32", "q8_0", "q4_0", "f8e4m3_b32");
         return option;
     }
 }

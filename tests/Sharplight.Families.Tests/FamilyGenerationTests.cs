@@ -1,4 +1,5 @@
 using Sharplight.Cpu;
+using Sharplight.Cuda;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -10,10 +11,13 @@ namespace Sharplight.Families.Tests;
 /// Greedy generation of the newer model families against golden outputs captured from the reference implementations:
 /// Hugging Face transformers (fp32 compute on the checkpoint's bf16 weights) for HF checkpoints, llama.cpp b11177 for GGUF files.
 /// Every case skips when its model files are absent (under ~/models, see the case list); each runs on the CPU provider and on the
-/// first Vulkan device when one is present (the discrete GPU unless SHARPLIGHT_TEST_VK_DEVICE selects another).
+/// first Vulkan device when one is present (the discrete GPU unless SHARPLIGHT_TEST_VK_DEVICE selects another), and with
+/// SHARPLIGHT_TEST_CUDA=1 on the first CUDA device.
 /// </summary>
 public class FamilyGenerationTests
 {
+    private const string CpuProvider = "cpu";
+
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>
@@ -172,6 +176,32 @@ public class FamilyGenerationTests
             " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
         new("Qwen3-Coder-Next Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", Large: true, Tokens: 16),
+        // Qwen3.8 27B (qwen35 dense hybrid) Q4_K_M: the model feed's 4-bit variant, against llama.cpp b11177 CUDA and Vulkan (identical); its CPU
+        // build takes the other side of a near-tie after 33 tokens ("getting dirtier and dirt").
+        new("Qwen3.8-27B Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf", P1, "text", [],
+            " a young boy named Tom. Tom was a curious and adventurous kid who loved to explore the world around him.\n\nOne day, Tom noticed that the sea near his village was getting a bit strange.", Large: true),
+        // Qwen3.5-122B-A10B (qwen35moe, 48 layers, 256 experts top-8), Unsloth's UD-IQ2_XXS mix (36.6 GB): on a 32 GB GPU the routed experts
+        // that do not fit run on the CPU (the first layers'), the rest on the GPU. llama.cpp b11177 gives these texts on CUDA (-ngl 38) and on the
+        // CPU alike.
+        new("Qwen3.5-122B-A10B UD-IQ2_XXS GGUF (llama.cpp)", "gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf", "The capital of France is", "text", [],
+            " Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is",
+            NeedsCpuFallback: true, Large: true, Tokens: 32),
+        new("Qwen3.5-122B-A10B UD-IQ2_XXS GGUF, chat turn (llama.cpp)", "gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf",
+            "<|im_start|>user\nList the first ten prime numbers, separated by commas.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n", "text", [],
+            "2, 3, 5, 7, 11, 13, 17, 19, 23,", NeedsCpuFallback: true, Large: true, Tokens: 32),
+        // The story: llama.cpp's CPU text; its CUDA run (-ngl 38) leaves it at a near-tie (" ocean" instead of " mysteries of the ocean").
+        new("Qwen3.5-122B-A10B UD-IQ2_XXS GGUF, story (llama.cpp CPU)", "gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf", P1, "text", [],
+            " a curious young boy named Tom. Tom loved to explore the world around him, especially the mysteries of the ocean.\n\nOne day, Tom decided to go on",
+            NeedsCpuFallback: true, Large: true, Tokens: 32),
+        // Qwen3.5-122B-A10B's official FP8 / GPTQ-Int4 and NVIDIA's NVFP4 checkpoints cut to layers 0-3 (three gated-delta layers and one
+        // attention layer) and experts 0-31 (router rows sliced to match), text-only (tools/qwen35moe-truncate.py); the reference is transformers
+        // in fp32 on the dequantized weights (tools/qwen35moe-truncated-reference.py, which also writes reference_logits.json).
+        new("Qwen3.5-122B-A10B FP8 truncated (transformers)", "hf/Qwen3.5-122B-A10B-trunc-FP8", "The capital of France is", "ids",
+            [346, 111324, 4979, 1388, 785, 2405, 2405, 122390, 4979, 90035, 90035, 90035, 90035, 21693, 21693, 3035], ""),
+        new("Qwen3.5-122B-A10B GPTQ-Int4 truncated (transformers)", "hf/Qwen3.5-122B-A10B-trunc-GPTQ-Int4", "The capital of France is", "ids",
+            [346, 111324, 4979, 1388, 785, 470, 470, 92969, 2022, 1815, 287, 57870, 17881, 793, 858, 7023], ""),
+        new("Qwen3.5-122B-A10B NVFP4 truncated (transformers)", "hf/Qwen3.5-122B-A10B-trunc-NVFP4", "The capital of France is", "ids",
+            [346, 111324, 4979, 1388, 785, 2405, 2405, 122390, 4979, 90035, 90035, 90035, 90035, 21693, 21693, 3035], ""),
         // Qwen3.8-Flash-Next (qwen4exp, 111 GB): the layers that do not fit on the GPU run on the CPU; the 28.8 GB n-gram table
         // exercises weight rows beyond 4 GiB.
         new("Qwen3.8-Flash-Next UD-Q4_K_XL GGUF (llama.cpp)",
@@ -211,20 +241,21 @@ public class FamilyGenerationTests
         .. InklingFamilyCases.All,
     ];
 
-    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback, bool f32Kv)
+    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, string provider, bool cpuFallback, bool f32Kv)
     {
         DeviceSlot slot, fallback = null!;
-        if (vulkan)
+        bool gpu = provider != CpuProvider;
+        if (gpu)
         {
-            var p = new VulkanProvider();
+            IExecutionProvider p = provider == CudaProvider.ProviderName ? new CudaProvider() : new VulkanProvider();
             if (!p.CheckAvailability().IsAvailable)
             {
-                throw new SkipException("Vulkan is not available");
+                throw new SkipException($"{p.Name} is not available");
             }
 
             var devs = p.GetDevices();
-            var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
-                : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault() ?? throw new SkipException("no Vulkan device");
+            var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count && p is VulkanProvider ? devs[i]
+                : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault() ?? throw new SkipException($"no {p.Name} device");
             slot = new DeviceSlot { Device = p.OpenDevice(dev) };
         }
         else
@@ -232,7 +263,7 @@ public class FamilyGenerationTests
             var p = new CpuExecutionProvider();
             slot = new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) };
         }
-        if (vulkan && cpuFallback)
+        if (gpu && cpuFallback)
         {
             var c = new CpuExecutionProvider();
             fallback = new DeviceSlot { Device = c.OpenDevice(c.GetDevices()[0]) };
@@ -242,10 +273,10 @@ public class FamilyGenerationTests
         // It is off here so these cases check the model wiring; its precision is covered by the Vulkan kernel tests.
         var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
-            Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
+            Devices = [slot], Fallback = gpu && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
             DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot }, KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,
         });
-        return (model, vulkan && cpuFallback ? [slot, fallback] : [slot]);
+        return (model, gpu && cpuFallback ? [slot, fallback] : [slot]);
     }
 
     private sealed class SkipException(string reason) : Exception(reason);
@@ -273,9 +304,9 @@ public class FamilyGenerationTests
     }
 
     /// <summary>Largest absolute logit difference allowed, relative to the reference's largest absolute logit (fp32 CPU; f16 GPU paths).</summary>
-    private static double LogitTolerance(bool vulkan) => vulkan ? 2e-2 : 2e-3;
+    private static double LogitTolerance(bool gpu) => gpu ? 2e-2 : 2e-3;
 
-    private static void CheckLogits(LlmModel model, ReferenceLogits reference, bool vulkan)
+    private static void CheckLogits(LlmModel model, ReferenceLogits reference, bool gpu)
     {
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(reference.PromptIds);
@@ -293,17 +324,17 @@ public class FamilyGenerationTests
             worst = Math.Max(worst, Math.Abs(logits[i] - reference.Logits[i]));
         }
 
-        Assert.True(worst <= LogitTolerance(vulkan) * scale, $"prompt logits differ from transformers by {worst:G4} (largest reference logit {scale:G4})");
+        Assert.True(worst <= LogitTolerance(gpu) * scale, $"prompt logits differ from transformers by {worst:G4} (largest reference logit {scale:G4})");
     }
 
-    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback, ReferenceLogits? reference = null, bool f32Kv = false)
+    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, string provider, bool cpuFallback, ReferenceLogits? reference = null, bool f32Kv = false)
     {
-        var (model, slots) = Load(path, vulkan, cpuFallback, f32Kv);
+        var (model, slots) = Load(path, provider, cpuFallback, f32Kv);
         try
         {
             if (reference is not null)
             {
-                CheckLogits(model, reference, vulkan);
+                CheckLogits(model, reference, provider != CpuProvider);
             }
 
             using var session = model.CreateSession(WellKnown.DecodeGraph);
@@ -321,8 +352,15 @@ public class FamilyGenerationTests
         }
     }
 
-    private void Run(string name, bool vulkan)
+    private void Run(string name, string provider)
     {
+        bool gpu = provider != CpuProvider;
+        if (provider == CudaProvider.ProviderName && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_CUDA") != "1")
+        {
+            Assert.Skip("the CUDA provider runs with SHARPLIGHT_TEST_CUDA=1 (CUDA_VISIBLE_DEVICES selects the GPU)");
+            return;
+        }
+
         var c = Cases.Single(x => x.Name == name);
         string path = System.IO.Path.Combine(Home, "models", c.Path);
         if (!File.Exists(path) && !Directory.Exists(path))
@@ -330,12 +368,12 @@ public class FamilyGenerationTests
             Assert.Skip($"{c.Name}: {path} not present");
             return;
         }
-        if (vulkan && c.Large && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_LARGE") is null)
+        if (gpu && c.Large && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_LARGE") is null)
         {
             Assert.Skip("large model: set SHARPLIGHT_TEST_LARGE=1 to run it");
             return;
         }
-        if (!vulkan && c.Large)
+        if (!gpu && c.Large)
         {
             Assert.Skip("large model is only run on the GPU");
             return;
@@ -344,7 +382,7 @@ public class FamilyGenerationTests
         var reference = Directory.Exists(path) && c.Kind == "ids" ? ReferenceLogits.TryLoad(path) : null;
         try
         {
-            result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference, c.F32KvCache);
+            result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, provider, c.NeedsCpuFallback, reference, c.F32KvCache);
         }
         catch (SkipException s)
         {
@@ -362,8 +400,12 @@ public class FamilyGenerationTests
     }
 
     [Theory, MemberData(nameof(CaseNames))]
-    public void Generation_matches_reference_on_cpu(string name) => Run(name, vulkan: false);
+    public void Generation_matches_reference_on_cpu(string name) => Run(name, CpuProvider);
 
     [Theory, MemberData(nameof(CaseNames))]
-    public void Generation_matches_reference_on_vulkan(string name) => Run(name, vulkan: true);
+    public void Generation_matches_reference_on_vulkan(string name) => Run(name, "vulkan");
+
+    /// <summary>The GPU cases on the CUDA provider (opt-in with <c>SHARPLIGHT_TEST_CUDA=1</c>).</summary>
+    [Theory, MemberData(nameof(CaseNames))]
+    public void Generation_matches_reference_on_cuda(string name) => Run(name, CudaProvider.ProviderName);
 }

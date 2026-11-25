@@ -1,0 +1,25 @@
+[hold 00:55:32] ./job4.sh
+0 %, 2 MiB, 6.88 W
+gpt-oss-20b cuda p40 base rc=0 e733f049
+gpt-oss-20b cuda p1000 base rc=0 8cb648ed
+gpt-oss-20b cuda p40 new rc=0 e733f049
+gpt-oss-20b cuda p1000 new rc=0 8cb648ed
+Qwen3-8B-FP8 cuda p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 base rc=0 b9666631
+Qwen3-8B-FP8 cuda p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 new rc=0 b9666631
+Qwen3-8B-FP8 cuda p40 new_off rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 new_off rc=0 b9666631
+Llama-3.1-8B cuda p40 base rc=0 f50af9d0
+Llama-3.1-8B cuda p1000 base rc=0 b9666631
+Llama-3.1-8B cuda p40 new rc=0 f50af9d0
+Llama-3.1-8B cuda p1000 new rc=0 b9666631
+ppl llama base 1 rc=0 bca5cc44 PPL 6.6821
+ppl llama new 1 rc=0 bca5cc44 PPL 6.6821
+ppl llama base 1 rc=0 b32ebb32 PPL 6.6821
+ppl llama new 1 rc=0 b32ebb32 PPL 6.6821
+ppl qwen3-8b base 1 rc=0 a1615b19 PPL 8.6554
+ppl qwen3-8b new 1 rc=0 a1615b19 PPL 8.6554
+ppl gptoss base 1 rc=0 a5bfdfb1 PPL 1812.3384
+ppl gptoss new 1 rc=0 a5bfdfb1 PPL 1812.3384
+[release 01:04:40]

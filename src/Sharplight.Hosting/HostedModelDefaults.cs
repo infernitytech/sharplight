@@ -30,8 +30,20 @@ public sealed class HostedModelDefaults
     /// <summary>Run layers that do not fit on the GPU, and unsupported ops, on the CPU.</summary>
     public bool CpuOffload { get; set; }
 
+    /// <summary>
+    /// Opt-in, with <see cref="CpuOffload"/>: routed experts that fit neither the GPU nor host memory stay on disk and are read on demand
+    /// (see <c>TaskLoadOptions.ExpertsOnDisk</c>).
+    /// </summary>
+    public bool ExpertsOnDisk { get; set; }
+
     /// <summary>Allow faster kernels with reduced (f16) precision where the default keeps near-f32 accuracy.</summary>
     public bool ReducedPrecision { get; set; }
+
+    /// <summary>
+    /// The block-scaled FP8 mode for models with block-scaled E4M3 weights on devices that have it (default on; see
+    /// <see cref="Tasks.TaskLoadOptions.BlockScaledFp8"/>); false keeps the checkpoints' f32 scales.
+    /// </summary>
+    public bool BlockScaledFp8 { get; set; } = true;
 
     /// <summary>Waiting requests per chat model before new ones are refused (HTTP 429).</summary>
     public int MaxQueue { get; set; } = 64;
@@ -39,8 +51,38 @@ public sealed class HostedModelDefaults
     /// <summary>Prompt rows per step and sequence, interleaved with decoding; 0 = the step's rows.</summary>
     public int PrefillChunk { get; set; }
 
+    /// <summary>Reuse cached KV of earlier prompts with the same prefix (prefix caching; <see cref="Llm.Serving.EngineOptions.PrefixCache"/>).</summary>
+    public bool PrefixCache { get; set; } = true;
+
+    /// <summary>Recurrent-state snapshots for prefix caching of models with recurrent state (null: the default; 0: none).</summary>
+    public int? KvStateSnapshots { get; set; }
+
     /// <summary>Token budget of one engine step; null = the model's batch size.</summary>
     public int? StepTokens { get; set; }
+
+    /// <summary>
+    /// Smallest token budget of the load-adaptive engine step (<see cref="Llm.Serving.EngineOptions.MinBatchTokens"/>); null = the
+    /// engine's default, 0 = every step uses the whole budget.
+    /// </summary>
+    public int? MinStepTokens { get; set; }
+
+    /// <summary>
+    /// When the floor of the adaptive step budget (<see cref="MinStepTokens"/>) applies (<see cref="Llm.Serving.EngineOptions.StepFloor"/>:
+    /// <c>waves</c>, <c>always</c>, <c>full</c>); null = the engine's default (<c>waves</c>).
+    /// </summary>
+    public Llm.Serving.StepFloorPolicy? StepFloor { get; set; }
+
+    /// <summary>
+    /// Rows per sequence holding a slot that the adaptive step budget allows
+    /// (<see cref="Llm.Serving.EngineOptions.BatchTokensPerSequence"/>); null = the engine's default (48).
+    /// </summary>
+    public int? StepRowsPerSequence { get; set; }
+
+    /// <summary>
+    /// Paged KV cache: how requests are admitted when the pool runs short (<see cref="Llm.Serving.EngineOptions.KvAdmission"/>:
+    /// <c>queue</c> waits for room, <c>preempt</c> admits and preempts the newest running sequences); null = the engine's default (<c>queue</c>).
+    /// </summary>
+    public Llm.Serving.KvAdmissionPolicy? KvAdmission { get; set; }
 
     /// <summary>Draft length of prompt-lookup speculation; 0 disables it.</summary>
     public int NgramDraftTokens { get; set; }

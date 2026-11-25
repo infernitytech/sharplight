@@ -17,7 +17,9 @@
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <ProjectReference Include="../../src/Sharplight.Metal/Sharplight.Metal.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Distributed/Sharplight.Distributed.csproj" />
     <ProjectReference Include="../../src/Sharplight.Hosting/Sharplight.Hosting.csproj" />
     <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

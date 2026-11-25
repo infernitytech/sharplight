@@ -1,6 +1,6 @@
 // Survey harness: imports an ONNX model described by a reference manifest (same format as the ZooTests fixtures),
-// runs it on cpu|vulkan, compares with the onnxruntime reference outputs and times it.
-//   SurveyRunner <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--device D] [--batch B] [--bound name=value]
+// runs it on cpu|vulkan|cuda, compares with the onnxruntime reference outputs and times it.
+//   SurveyRunner <manifest.json> <cpu|vulkan|cuda> [--runs N] [--budget-s S] [--device D] [--batch B] [--bound name=value]
 //                [--profile] [--reduced-precision] [--dump DIR]
 // Prints exactly one line starting with "RESULT " followed by a JSON object.
 using System.Text.Json;

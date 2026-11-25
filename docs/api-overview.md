@@ -13,14 +13,15 @@ call `services.AddSharplight()`.
 
 | Assembly | Role | Main entry points |
 |---|---|---|
-| `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `EmbeddingModel`, `Reranker`, `WavFile`, `PngCodec` |
+| `Sharplight.Core` | Graph IR, model definition and description, runtime and provider abstractions; the task layer on top of compiled models: text generation (the former `Sharplight.Llm`: sessions, sampling, continuous batching, chat, structured output, speculative decoding, embeddings, reranking), speech recognition and synthesis, image generation; tokenizers and Jinja chat templates; audio (WAV, resampling) and image (PNG, planar tensors) I/O | `LlmModel`, `ITextGenerator`, `TaskModel`, `TaskClientProvider`, `ISpeechRecognizer`, `ISpeechSynthesizer`, `IImageGenerator`, `ModelDescription`, `InferenceEngine`, `ModelService`, `ITextEmbedder`, `ITextReranker`, `WavFile`, `PngCodec` |
 | `Sharplight.Import.Gguf`, `.HuggingFace`, `.Onnx`, `.WhisperCpp`, `.Diffusers`, `.PyTorch`, `.Kokoro`, `.Snac`, `.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts`, `.SileroVad`, `.Ultralytics` | Format importers into the canonical model source | `GgufImporter`, `HuggingFaceImporter`, `OnnxImporter`, `WhisperCppImporter`, `DiffusersImporter`, `services.AddXxxImporter()` |
 | `Sharplight.Video` | Video encoding and decoding through Sharplight's own LGPL FFmpeg build (shared libraries shipped with the package, bound with FFmpeg.AutoGen): MP4, WebM, MOV, Matroska, GIF, APNG; H.264, AV1, VP9, VP8, ProRes, FFV1 and the machine's hardware encoders; the core adds managed animated PNG and GIF as the fallback | `VideoEncoderCatalog`, `VideoDecoderCatalog`, `IVideoEncoder`, `IVideoDecoder`, `VideoClip`, `services.AddSharplightVideo()` |
-| `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal` (+ `Sharplight.Shaders`) | Execution providers (Metal: Apple GPUs on macOS, the same Slang kernels compiled to MSL) | `CpuExecutionProvider`, `VulkanProvider`, `MetalProvider` |
+| `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal`, `Sharplight.Cuda` (+ `Sharplight.Shaders`) | Execution providers (Metal: Apple GPUs on macOS, the same Slang kernels compiled to MSL; CUDA: NVIDIA GPUs through the driver API, the Slang kernels compiled to PTX with NVRTC from `Sharplight.Cuda.Runtime`, bf16 GEMMs optionally on cuBLASLt from `Sharplight.Cuda.Blas.<rid>`, see [cuda.md](cuda.md)) | `CpuExecutionProvider`, `VulkanProvider`, `MetalProvider`, `CudaProvider` |
 | `Sharplight.Vulkan.MoltenVK` | MoltenVK for the Vulkan provider on macOS (native library only; inactive elsewhere) | none (referenced by `Sharplight.Vulkan`) |
 | `Sharplight.Audio` | Native audio: decoders (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), encoders (WAV, Ogg Opus), playback and capture devices | `IAudioDecoder`, `IAudioEncoder`, `IAudioDeviceProvider`, `services.AddSharplightAudio()` |
 | `Sharplight` | One registration entry point that wires up everything above | `services.AddSharplight()`, `SharplightDefaults.CreateServiceProvider()` |
 | `Sharplight.Hosting` | Model hosting for servers and apps: a `ModelHost` from options or JSON (chat, embedding, reranker and task models on shared devices), placement, fit planning, status for health checks and cluster coordinators ([hosting.md](hosting.md)) | `IModelHostManager`, `ModelHostingOptions`, `HostedModelOptions`, `ModelHostingJson`, `HostStatus`, `FitPlanner`, `services.AddSharplightHosting()` |
+| `Sharplight.Distributed` | Multi-node pipeline parallel inference ([multinode.md](multinode.md)): the remote execution provider whose devices are segment workers on other machines, the worker, the TCP transport (mutual TLS optional) | `RemoteExecutionProvider`, `RemoteComputeDevice`, `RemoteSegmentOptions`, `SegmentWorker`, `TcpSegmentTransport`, `services.AddRemoteSegments()` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplightServer`, `UseSharplightServer`, `MapSharplightServer`, `AddSharplightEmbeddings`, `AddSharplightReranker`, `AddSharplightSpeechRecognizer` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `SharplightSpeechToTextClient`, `SharplightTextToSpeechClient`, `SharplightImageGenerator` |
@@ -37,25 +38,27 @@ they need no extra `using`):
 | | `AddModelImporter<T>()`, `AddModelAdapter<T>()`, `AddCompositeModelAdapter<T>()`, `AddMultimodalArchitecture<T>()`, `AddAuxiliaryArchitecture(arch, role)` | one format / architecture (for importer and architecture packages) |
 | | `AddTaskClientFactory<TFactory>()`, `AddTaskClientFactory<TClient>(kind, create, canCreate)` | one task implementation (for architecture packages) |
 | | `AddExecutionProvider<T>()` | one execution provider (for provider packages) |
-| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageSegmenter`, `AddTextRecognizer`, `AddImageUpscaler`, `AddImageGenerator`, `AddVideoGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
+| | `AddTaskClient<TClient>(o => ...)`, `AddTextGenerator`, `AddSpeechRecognizer`, `AddSpeechSynthesizer`, `AddImageClassifier`, `AddImageEmbedder`, `AddObjectDetector`, `AddDepthEstimator`, `AddImageSegmenter`, `AddSemanticSegmenter`, `AddTextRecognizer`, `AddImageUpscaler`, `AddImageGenerator`, `AddVideoGenerator`, `AddVideoEnhancer`, `AddAudioCodec`, `AddVoiceActivityDetector`, `AddAudioEmbedder`, `AddAudioSeparator`, `AddAudioGenerator`, `AddMusicGenerator` (each also with `(o, services) => ...`) | a task client for one configured model |
 | `Sharplight.Core` (`Sharplight.Architectures`) | `AddBuiltinArchitectures()` | the built-in adapters (incl. image encoders, image-text, DETR/RT-DETR, depth, latent diffusion), Qwen-VL prompt assembly, OuteTTS (composite adapter + speech-synthesis factory, WavTokenizer as its vocoder), the drafter architectures |
 | `Sharplight.Import.Gguf` / `.HuggingFace` / `.Onnx` | `AddGgufImporter()`, `AddHuggingFaceImporter(o => ...)`, `AddOnnxImporter()` | the format (ONNX also its graph adapter) |
 | `Sharplight.Import.WhisperCpp` | `AddWhisperCppImporter()` | whisper.cpp `ggml` model files |
 | `Sharplight.Import.Kokoro` | `AddKokoroImporter()` | Kokoro-82M checkpoint folders (`config.json`, `.pth` with weight normalization, `voices/*.pt`, `lexicon/*.json`) |
 | `Sharplight.Import.Snac` | `AddSnacImporter()` | SNAC audio codec checkpoint folders (the decoding half; auxiliary `vocoder` of Orpheus) |
 | `Sharplight.Import.Diffusers` | `AddDiffusersImporter()` | diffusers folders and single-file Stable Diffusion checkpoints (ranks above the generic importers: `IModelImporter.Priority`) |
-| `Sharplight.Import.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.Xtts` | `AddChatterboxImporter()`, `AddCosyVoiceImporter()`, `AddF5TtsImporter()`, `AddXttsImporter()` | the text-to-speech checkpoint layouts (F5-TTS also its Vocos vocoder) |
+| `Sharplight.Import.StableAudio` | `AddStableAudioImporter()` | Stable Audio 3 checkpoint folders (`model_config.json`, `model.safetensors`, the T5Gemma folder) |
+| `Sharplight.Import.Chatterbox`, `.CosyVoice`, `.F5Tts`, `.VoxCpm`, `.Xtts` | `AddChatterboxImporter()`, `AddCosyVoiceImporter()`, `AddF5TtsImporter()`, `AddVoxCpmImporter()`, `AddXttsImporter()` | the text-to-speech checkpoint layouts (F5-TTS also its Vocos vocoder, VoxCPM its AudioVAE `audiovae.pth`) |
 | `Sharplight.Import.SileroVad` | `AddSileroVadImporter()` | Silero VAD checkpoints (voice activity detection) |
 | `Sharplight.Import.Ultralytics` | `AddUltralyticsImporter()` | Ultralytics YOLO checkpoints and their graph adapter (AGPL-3.0 weights: see the model's license) |
 | `Sharplight.Import.PyTorch` | `AddPyTorchImporter(o => ...)` | the restricted-unpickler settings (`TorchCheckpointOptions`) for pickle checkpoints (`pytorch_model*.bin` shards of the Hugging Face importer) |
 | `Sharplight.Core` (`Sharplight.Package`) | `AddPackageImporter()` | the `.slm` importer and the `ModelConverter` |
-| `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)`, `AddMetalProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order; `AddSharplightProviders()` registers Metal, Vulkan, CPU, so Apple silicon prefers Metal over MoltenVK) |
+| `Sharplight.Cpu`, `Sharplight.Vulkan`, `Sharplight.Metal`, `Sharplight.Cuda` | `AddCpuProvider()`, `AddVulkanProvider(o => ...)`, `AddMetalProvider(o => ...)`, `AddCudaProvider(o => ...)` | the provider (register GPUs first: discovery keeps the order; `AddSharplightProviders()` registers Metal, Vulkan, CPU, so Apple silicon prefers Metal over MoltenVK; the CUDA provider is opt-in and registered after Vulkan, which stays the default on NVIDIA GPUs) |
 | `Sharplight.Audio` | `AddSharplightAudio(o => ...)` | native audio (own C library over miniaudio, libopus, libogg, opusfile, libvorbis): `IAudioDecoder` (WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus), `IAudioEncoder` (WAV, Ogg Opus), `IAudioDeviceProvider` (playback and capture streams); replaces the WAV-only `AddWavAudio()` services of the core, which stay the fallback when the native library cannot be loaded |
 | `Sharplight.Core` | `AddVideoEncoders()` (also called by `AddSharplightTasks()`) | the `VideoEncoderCatalog` with the managed animated PNG and GIF encoders, and the (empty) `VideoDecoderCatalog` ([Video encoding](#video-encoding)) |
 | `Sharplight.Video` | `AddSharplightVideo(o => ...)` | one `FfmpegVideoEncoder` per format (MP4, WebM, MOV, Matroska, GIF, APNG; preferred over the managed encoders) and the `FfmpegVideoDecoder` (`SharplightVideoOptions.EnableHardwareEncoders`), plus everything of `AddVideoEncoders()` |
 | `Sharplight.Core` | `AddSharplightStorage()`, `AddSharplightStorage(layout)` | the `StorageLayout` (portable, system or custom location of configuration, data, models, caches and logs; [storage.md](storage.md)) |
 | `Sharplight` | `AddSharplight()` | all of the above: `AddSharplightStorage()`, `AddSharplightModelFormats()`, `AddSharplightProviders()`, `AddSharplightTasks()`, `AddSharplightAudio()`, `AddSharplightVideo()` |
 | `Sharplight.Extensions.AI` | `AddSharplightChatClient(o => ...)`, `AddSharplightEmbeddingGenerator(o => ...)`, `AddSharplightSpeechToTextClient()`, ... | Microsoft.Extensions.AI adapters |
+| `Sharplight.Distributed` | `AddRemoteSegments(o => ...)` | the `RemoteDevicePool` (segment workers as devices, reconnected after a failure) and `RemoteSegmentOptions` (transport and TLS, heartbeats, timeouts, weight verification); the remote provider stays out of the execution provider catalog |
 | `Sharplight.Hosting` | `AddSharplightHosting(o => ...)`, `AddSharplightHosting("hosting.json")` | the `IModelHostManager` and its `ModelHost`, the `DeviceInventory`, the placement policy, the chat / embedding / reranker / task loader factories and the startup loader ([hosting.md](hosting.md)) |
 | `Sharplight.AspNetCore` | `AddSharplightServer(host, o => ...)`, `AddSharplightServer(o => ...)` (the container's `ModelHost`), `AddSharplightEmbeddings`, `AddSharplightReranker` | the HTTP server (then `app.UseSharplightServer()`, `app.MapSharplightServer()`) |
 
@@ -99,12 +102,12 @@ linux-arm64 and osx-arm64, and loaded by full path (`BundledFfmpeg`; `SHARPLIGHT
 versions). A system FFmpeg is never used.
 
 All registrations are idempotent. Options are Microsoft.Extensions.Options with settable properties (`TaskLoadOptions`,
-`LlmLoadOptions`, `EmbeddingLoadOptions`, `VulkanProviderOptions`, `HuggingFaceImportOptions`, `TorchCheckpointOptions`, `SharplightServerOptions`, ...), so they
+`LlmLoadOptions`, `SpanScorerLoadOptions`, `VulkanProviderOptions`, `HuggingFaceImportOptions`, `TorchCheckpointOptions`, `SharplightServerOptions`, ...), so they
 also bind from configuration. What the container hands out:
 
 - `ModelLoader` opens and builds models: `Importers` (`ModelImporterCatalog`: `Open`, `OpenSet`, `TryFind`) and `Architectures`
   (`ArchitectureCatalog`: `Build`, `TryFindAdapter`, `TryFindMultimodal`). Every load takes it: `TaskModel.Load(loader, options)`,
-  `LlmModel.Load(loader, path, options)`, `EmbeddingModel.Load(loader, ...)`, `Reranker.Load(loader, ...)`, `SpanScorer.Load(loader, ...)`,
+  `LlmModel.Load(loader, path, options)`, `SpanScorer.Load(loader, ...)`,
   `new LlmChatModelLoader(loader, ...)`.
 - `ExecutionProviderCatalog` lists the providers (`Discover()` → `DiscoveredProvider(Provider, Availability)`, `TryFind(name)`,
   `TryFindForProfile(profile, out provider)` for offline precompilation); the container owns the providers.
@@ -147,7 +150,7 @@ leak when instances are created repeatedly), so only the options of the provider
 | `ProviderRegistry.Discover()` (tuples), `ProviderRegistry.ForProfile(p)`, `devicePool.Open("vulkan", 0)` | `providers.Discover()` (`DiscoveredProvider`), `providers.TryFindForProfile(p, out var provider)`, `devicePool.Open(providers, "vulkan", 0)` |
 | `DiffusersImporter.Register()`, `WhisperCppImporter.Register()` | `services.AddDiffusersImporter()`, `.AddWhisperCppImporter()` |
 | `MultimodalRegistry.Find(arch)` | `model.Architectures.TryFindMultimodal(arch, out var m)`, or `visionEncoder.Multimodal` |
-| `LlmModel.Load(path, o)`, `EmbeddingModel.Load(path, o)`, `Reranker.Load`, `SpanScorer.Load`, `TaskModel.Load(o)` | the same with the `ModelLoader` first |
+| `LlmModel.Load(path, o)`, `SpanScorer.Load`, `TaskModel.Load(o)` | the same with the `ModelLoader` first |
 | `ModelConverter.Convert(...)` (static), `new ModelPuller(hub, downloader, store)`, `PackagePrecompiler.Precompile(path, profile, o)` | `converter.Convert(...)` (service), `new ModelPuller(hub, downloader, store, converter)`, `PackagePrecompiler.Precompile(path, providers, profile, o)` |
 | `Auxiliary = [("mmproj", path)]` | `Auxiliary = { [AuxiliaryRoles.Mmproj] = path }` (a dictionary, so it binds from configuration) |
 | `services.AddSharplight(host, ...)`, `app.UseSharplight()`, `app.MapSharplight()` (AspNetCore) | `services.AddSharplightServer(host, ...)`, `app.UseSharplightServer()`, `app.MapSharplightServer()` |
@@ -166,19 +169,36 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `speech-synthesis` | `ISpeechSynthesizer` | `SynthesizeAsync(text)` | `SynthesizeStreamingAsync` → `AudioBuffer` | `SpeechSynthesisOptions` | `SpeechSynthesisResult` |
 | `image-generation` | `IImageGenerator` | `GenerateAsync(ImageGenerationRequest)` | `GenerateStreamingAsync` → `ImageGenerationUpdate` | `ImageGenerationOptions` | `ImageGenerationResult` |
 | `video-generation` | `IVideoGenerator` | `GenerateAsync(VideoGenerationRequest)` | `GenerateStreamingAsync` → `VideoGenerationUpdate` | `VideoGenerationOptions` | `VideoGenerationResult` |
+| `video-enhancement` | `IVideoEnhancer` | `EnhanceAsync(VideoEnhancementRequest)`, `EnhanceImageAsync(ImageInput)` | `EnhanceStreamingAsync` → `VideoEnhancementUpdate` (finished frames batch by batch) | `VideoEnhancementOptions` (size or scale, frames per batch, colour correction, seed) | `VideoEnhancementResult` |
 | `image-classification` | `IImageClassifier` | `ClassifyAsync(ImageInput)` | - (one image, one result) | `ImageClassificationOptions` | `ImageClassification` |
 | `image-embedding` | `IImageEmbedder` | `EmbedImageAsync(ImageInput)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `ImageEmbeddingOptions` | `float[]`, `ImageClassification` |
 | `depth-estimation` | `IDepthEstimator` | `EstimateAsync(ImageInput)` | - | `DepthEstimationOptions` | `DepthMap` (per-pixel values, `ToGrayscale()`) |
-| `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels, `Mask` for instance segmentation models) |
+| `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels, `Mask` for instance segmentation models, `ReadingOrder` for document layout models: the objects then come back in reading order; `ObjectDetectionOptions.IncludeMasks`) |
 | `image-segmentation` | `IImageSegmenter` | `EncodeImageAsync(ImageInput)` once per image, then `SegmentAsync(SegmentationImage, SegmentationPrompt)` per prompt (or `SegmentAsync(ImageInput, SegmentationPrompt)`) | - | `SegmentationOptions` (all candidate masks or the best one) | `ImageSegmentation` (`SegmentMask`: per-pixel mask at the image size, predicted IoU, area; object score) |
-| `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens) | `TextRecognition` (text, `TextRegion`s with optional boxes) |
-| `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | `UpscaleOptions.Progress` reports finished tiles | `UpscaleOptions` (tile size, tile padding, progress) | `ImageInput` at `Scale` times the size |
+| `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens, `Task`, `Input`) | `TextRecognition` (text, `TextRegion`s with optional boxes); also implemented by decoder-only vision-language recognizers (GLM-OCR: tasks `text`, `formula`, `table`). `DocumentReader(IObjectDetector layout, ITextRecognizer recognizer).ReadAsync(page)` runs layout, then OCR per region in reading order, and returns a `DocumentPage` of `DocumentRegion`s |
+| `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | - (`IProgress<double>` reports finished tiles) | `ImageUpscalingOptions` (tile size, tile padding) | `ImageInput` at `Scale` times the size |
 | `audio-codec` | `IAudioCodec` | `EncodeAsync(AudioBuffer)` → codes, `DecodeAsync(CodecCodes)` → `AudioBuffer` | - | `AudioCodecOptions` (number of codebooks) | `CodecCodes` (codebook-major i32 codes) |
-| `voice-activity` | `IVoiceActivityDetector` | `DetectAsync(AudioBuffer)` → segments, `ProbabilitiesAsync` | - | `VoiceActivityOptions` (thresholds, minimum speech and silence, padding, maximum segment) | `SpeechSegment` (start and end sample, `Start`, `End`) |
+| `voice-activity` | `IVoiceActivityDetector` | `DetectAsync(AudioBuffer)` → segments, `ComputeProbabilitiesAsync` | - | `VoiceActivityOptions` (thresholds, minimum speech and silence, padding, maximum segment) | `SpeechSegment` (start and end sample, `Start`, `End`) |
+| `image-segmentation-semantic` | `ISemanticSegmenter` | `SegmentAsync(ImageInput)` | - | `SemanticSegmentationOptions` (resize to the input, logits) | `SemanticSegmentation` (label map, `ClassNames`, `Mask(classId)`, `Alpha` for matting models) |
+| `audio-embedding` | `IAudioEmbedder` | `EmbedAudioAsync(AudioBuffer)`, `EmbedTextAsync`, `ClassifyZeroShotAsync` | - | `AudioEmbeddingOptions`, `AudioClassificationOptions` | `float[]`, `AudioClassification` |
+| `audio-separation` | `IAudioSeparator` | `SeparateAsync(AudioBuffer)` | - (`IProgress<double>` reports the fraction done) | `AudioSeparationOptions` (chunk overlap) | `SeparatedStem`s (one per `Stems` entry) |
+| `audio-generation` | `IAudioGenerator` | `GenerateAsync(AudioGenerationRequest)`, `GenerateLatentsAsync` | `GenerateStreamingAsync` → `AudioGenerationUpdate` (denoising steps) | `AudioGenerationOptions` (steps, guidance, shift, seed, noise); `Defaults` → `AudioGenerationDefaults` | `AudioGenerationResult` (audio, seed), `AudioLatents` |
+| `music-generation` | `IMusicGenerator` | `GenerateAsync(MusicGenerationRequest)`, `GenerateCodesAsync` | `GenerateStreamingAsync` → `AudioGenerationUpdate` (code frames, audio pieces) | `MusicGenerationOptions` (guidance, sampling, seed); `Defaults` → `MusicGenerationDefaults` | `AudioGenerationResult`, `CodecCodes` |
+| `text-embedding` | `ITextEmbedder` | `EmbedAsync(texts)`, `EmbedTokensAsync` | - | `TextEmbeddingOptions` (prompt, dimensions, truncation) | `EmbeddingResult` |
+| `text-reranking` | `ITextReranker` | `RerankAsync(query, documents)` | - | `RerankOptions` (instruction, truncation) | `RerankResult` |
+
+Conventions shared by all task clients: each is registered with `services.Add<Client>(o => ...)` (or `AddTaskClient<TClient>`), every
+method is `...Async` and takes a `CancellationToken` last; per-request options are immutable records (derive variants with `with`) whose
+unset values take the model's defaults, which generators and enhancers report as a typed `Defaults` property
+(`ImageGenerationDefaults`, `VideoGenerationDefaults`, `VideoEnhancementDefaults`); generation that produces intermediate output streams
+it through a `...StreamingAsync` method, and long single-result operations take an optional `IProgress<T>` before the cancellation token.
 
 `SpeechSynthesisOptions` carries the voice: a built-in `Voice`, or a recording in `ReferenceAudio` (voice cloning) with its words in
 `ReferenceText` for models that align them (F5-TTS, CosyVoice 3 zero-shot), and `Instructions`, a natural-language instruction on how to speak
 for models that take one (CosyVoice 3: dialect, emotion, speed).
+Multi-speaker models (VibeVoice) read a script of `Speaker N: text` lines and take one voice per speaker in `SpeakerVoices` (speaker label to `VoiceProfile`; `ReferenceAudio` and
+`VoiceProfile` serve the first speaker); `DiffusionSteps` and `GuidanceScale` set the denoising steps per frame and the classifier-free guidance of models whose acoustic features come from a
+diffusion head.
 
 **Streaming synthesis.** `SynthesizeStreamingAsync` yields audio chunks while the model is still generating, so playback can start early. CosyVoice 3 runs
 the flow with the chunk-causal attention of the reference's `stream=True` (a `cosyvoice_flow_estimator_chunked` graph next to the full-attention one; packages imported before
@@ -187,7 +207,7 @@ first chunk is about 0.85 s of audio). XTTS emits after 12 codes and then every 
 one-shot audio). Chatterbox emits chunks of speech tokens (the first after 15, then 25), each decoded by the flow and the vocoder with context tokens around it and cross-faded
 with the previous chunk. The other models stream per sentence or word. Studio's Speak page plays the chunks back to back on one output stream and reports the time to the first audio.
 
-**Saved voices.** A cloning model (`IVoiceCloner`, taken with `GetService(typeof(IVoiceCloner))`: Chatterbox, XTTS v2, CosyVoice 3, F5-TTS) turns a recording into a `VoiceProfile`
+**Saved voices.** A cloning model (`IVoiceCloner`, taken with `GetService(typeof(IVoiceCloner))`: Chatterbox, XTTS v2, CosyVoice 3, F5-TTS, VibeVoice) turns a recording into a `VoiceProfile`
 once (`CreateVoiceAsync(name, recording, referenceText)`): the conditioning tensors the model derived (speaker embeddings, prompt tokens and mel, style latents; F5-TTS keeps the
 recording itself with its words). `VoiceLibrary` stores them in the layout's `voices` data folder (`new VoiceLibrary(StorageLayout)`): one folder per voice with `voice.json` (name,
 architecture family, reference text, where each tensor lies) and `tensors.bin`. A request passes `SpeechSynthesisOptions.VoiceProfile` instead of the recording and gets the same
@@ -276,7 +296,7 @@ encoder, detects the language when `SpeechRecognitionOptions.Language` is null, 
 beam search of `BeamSize` beams scored like transformers' `num_beams`) with Whisper's timestamp rules. Long recordings advance to the last complete timestamp segment of each window; `ConditionOnPreviousText`
 prompts each window with the text so far, `Prompt` conditions the first. `Timestamps = TimestampGranularity.None` decodes without
 timestamp tokens (one segment per window, as transformers does by default). Each `TranscriptionSegment` carries its token ids, mean log
-probability and no-speech probability. Not yet: temperature fallback, word timestamps.
+probability and no-speech probability. Not yet: temperature fallback, word timestamps. `TranscriptionSegment.Speaker` names the speaker of models that diarize (VibeVoice-ASR: one pass over a long recording, segments with speaker numbers and start and end times, yielded as each is complete).
 
 The same recognizer serves the other prompted encoder-decoders: Moonshine (raw-waveform encoder over variable-length windows, start token
 only, no timestamps) and Canary (FastConformer encoder, a prompt template with source and target language; `Translate` targets English,
@@ -320,7 +340,7 @@ prompt stage: `EncodeImageAsync` returns a `SegmentationImage` (embedding and sk
 A prompt is points (positive or negative) and/or a `BoundingBox` in image pixels; the graph takes them as `point_coords` and `point_kinds` (`SegmentPromptKinds`) with a symbolic point count, so there is no limit
 on the number of points. The decoder's low-resolution logits are resampled to the image on the host. OCR (TrOCR: the `encoder_decoder` adapter with an image encoder, `encoder.input` "image") reuses the speech recognizers' decoding machinery
 (KV-cached decoder, cross-attention keys and values cached once per source) with the model's tokenizer; `ITextRecognizer` is the task client. Upscalers (Real-ESRGAN: `RrdbNetAdapter`, graph `upscale` of generic Conv, Resize and LeakyRelu ops)
-are rebuilt for every input size through the model's dimensions (`height`, `width`); `IImageUpscaler` runs an image that fits one tile whole and cuts a larger one into overlapping tiles (`UpscaleOptions.TileSize`, `TilePadding`)
+are rebuilt for every input size through the model's dimensions (`height`, `width`); `IImageUpscaler` runs an image that fits one tile whole and cuts a larger one into overlapping tiles (`ImageUpscalingOptions.TileSize`, `TilePadding`)
 whose outputs are blended with linear weights, so seams are invisible. The official `RealESRGAN_x4plus.pth` loads through the restricted unpickler of `Sharplight.Import.PyTorch` (`SuperResolutionImporter`).
 All three inference paths run on the thread pool, never on the caller's thread.
 
@@ -345,7 +365,7 @@ AudioBuffer again = await codec.DecodeAsync(codes);
 ```
 
 `voice-activity` models (Silero VAD v5, imported from its 16 kHz ONNX export by `Sharplight.Import.SileroVad`) have one component whose stateful graph `vad_step` runs once
-per 512-sample frame (the frame with the 64 samples before it, and the recurrent state in and out). `IVoiceActivityDetector.ProbabilitiesAsync` returns the frame
+per 512-sample frame (the frame with the 64 samples before it, and the recurrent state in and out). `IVoiceActivityDetector.ComputeProbabilitiesAsync` returns the frame
 probabilities, `DetectAsync` the segments (`SpeechSegmentation.FromProbabilities` is the reference implementation's hysteresis, minimum durations, padding and splitting
 of overlong segments, usable with any detector). Long-form speech recognition can use a detector as pre-segmentation:
 `new SpeechRecognitionOptions { UseVoiceActivityDetection = true, VoiceActivityDetector = detector }` (or resolved from the container, see "Registration" below) transcribes only the speech, in windows of at most 30 s that start
@@ -364,13 +384,53 @@ Console.WriteLine($"{tags.Top!.Label}: {tags.Top.Score:P0}");
 
 `music-generation` models (MusicGen; architecture `musicgen`) have a `text-encoder` (graph `text_encode`), a tokenizer, a `decoder` with the cached one-step graphs `decode` and
 `decode_unconditional` (the two branches of classifier-free guidance; one code per codebook in, the logits of every codebook out) and a `vocoder` component with the codec's `audio_decode`
-graph (`MusicGenerationGraphs`). `IMusicGenerator.GenerateAsync` returns the audio, `GenerateCodesAsync` the codec codes (the delay pattern removed), and `GenerateStreamingAsync` pieces
-of audio while the codes are being generated (windowed codec decoding with context, so the pieces differ slightly from the one-shot audio at the borders).
-`MusicGenerationRequest { Greedy = true }` is deterministic; otherwise top-k / top-p sampling with an optional seed.
+graph (`MusicGenerationGraphs`). `IMusicGenerator.GenerateAsync` returns the audio and its seed, `GenerateCodesAsync` the codec codes (the delay pattern removed), and `GenerateStreamingAsync`
+updates with the generated code frames and pieces of audio while the codes are being generated (`AudioGenerationUpdate.Audio`: windowed codec decoding with context, so the pieces differ slightly
+from the one-shot audio at the borders), the last one with the result. `MusicGenerationOptions { Greedy = true }` is deterministic; otherwise top-k / top-p sampling with an optional seed.
 
 ```csharp
 using var generator = clients.Create<IMusicGenerator>(model);
-AudioBuffer music = await generator.GenerateAsync(new MusicGenerationRequest { Prompt = "calm piano with soft strings", Duration = TimeSpan.FromSeconds(10), Seed = 1 });
+AudioGenerationResult music = await generator.GenerateAsync(new MusicGenerationRequest { Prompt = "calm piano with soft strings", Duration = TimeSpan.FromSeconds(10) },
+    new MusicGenerationOptions { Seed = 1 });
+```
+
+`audio-generation` models (ACE-Step 1.5 turbo; architecture `acestep`, imported by `Sharplight.Import.AceStep` from the release's folders) are latent-diffusion audio models: a tokenizer, a `text-encoder`
+component (graphs `text_encode` and `lyric_embed`), an `encoder` component (`condition_encode`: lyrics, timbre reference and caption packed into the rows the denoiser attends to), a `denoiser`
+(`denoise`: one evaluation of the diffusion transformer, the flow velocity) and a `vae` component (`audio_decode`: the Oobleck decoder, run in overlapping windows for long audio), see
+`AudioGenerationGraphs`. `IAudioGenerator.GenerateAsync` returns 48 kHz stereo audio, `GenerateLatentsAsync` the denoised latents (25 Hz, 64 channels), `GenerateStreamingAsync` an update per
+denoising step and the result last; `AudioGenerationRequest` has the prompt, optional lyrics and language and the duration, `AudioGenerationOptions` the steps, shift, seed (or the initial noise
+itself) and guidance (ignored by the distilled model).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);
+AudioGenerationResult song = await generator.GenerateAsync(new AudioGenerationRequest { Prompt = "calm acoustic guitar with soft piano", Lyrics = "[Instrumental]", Duration = TimeSpan.FromSeconds(30) },
+    new AudioGenerationOptions { Seed = 1 });
+```
+
+Stable Audio Open 1.0 (architecture `stable_audio`, imported by `Sharplight.Import.Diffusers` from the diffusers `StableAudioPipeline` folders) is an `audio-generation` model with another graph contract,
+`TimedAudioDiffusionGraphs`: a `text-encoder` (`text_encode`, T5), an `encoder` (`timing_encode`: the start and total seconds as two conditioning rows), a `denoiser` (`denoise`: one v-prediction of the
+transformer on preconditioned latents) and the same `vae` graph (`audio_decode`). Its client samples with DPM-Solver++(2M) SDE and classifier-free guidance and returns 44.1 kHz stereo audio of up
+to 47.5 s; the request's `NegativePrompt` steers the unconditional side. `IAudioGenerator.Defaults` tells what a model takes: `SupportsLyrics`, `SupportsNegativePrompt`, `SupportsShift`, the default `Steps` and
+`GuidanceScale` (null for a model without guidance).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);   // stable-audio-open-1.0
+AudioGenerationResult rain = await generator.GenerateAsync(
+    new AudioGenerationRequest { Prompt = "heavy rain on a tin roof, distant thunder", NegativePrompt = "music", Duration = TimeSpan.FromSeconds(20) },
+    new AudioGenerationOptions { Steps = 100, GuidanceScale = 7, Seed = 1 });
+```
+
+Stable Audio 3 (architecture `stable_audio_3`, imported by `Sharplight.Import.StableAudio` from the stable-audio-3 checkpoint folders: `model_config.json`, `model.safetensors`, `t5gemma-b-b-ul2/`)
+uses the rectified-flow form of `TimedAudioDiffusionGraphs` (the denoiser's `objective` is `rectified_flow` or `rf_denoiser`): a T5Gemma `text_encode`, a `timing_encode` of the total seconds, a
+`denoise` velocity network whose latent length follows the duration, and a SAME autoencoder `audio_decode` over fixed windows. The base models sample with Euler steps and adaptive projected
+guidance (50 steps, guidance 7 by default), the post-trained ones with ping-pong steps and no guidance (`Defaults.GuidanceScale` null, no negative prompt). The SAME decoder adds a little random
+dither as the reference package does; `AudioGenerationOptions.DecoderNoise` scales it (0 decodes deterministically).
+
+```csharp
+using var generator = clients.Create<IAudioGenerator>(model);   // stable-audio-3-small-music-base
+AudioGenerationResult loop = await generator.GenerateAsync(
+    new AudioGenerationRequest { Prompt = "lofi house loop, 120 BPM", Duration = TimeSpan.FromSeconds(30) },
+    new AudioGenerationOptions { Steps = 50, GuidanceScale = 7, Seed = 1 });
 ```
 
 `audio-separation` models (Demucs `htdemucs`; architecture `demucs`) have one component whose graph `separate` runs one fixed-length segment (the host computes the spectrogram and the
@@ -528,7 +588,7 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 - Options (`VideoGenerationOptions`): width and height (multiples of the VAE's downscale times the patch size: 16 for Wan 2.1, 32
   for Wan 2.2 TI2V), frames (1 + 4k; other counts are rounded down), frames per second of the result, steps, guidance scale, seed,
   sampler (`unipc`, the Wan default, or `euler`: both follow the diffusers schedulers step by step with the model's flow shift),
-  explicit initial latents [C, T, h, w] (`InitialNoise`) and preview frames. `VideoGenerationDefaults` (via `GetService`) reports the
+  explicit initial latents [C, T, h, w] (`InitialNoise`) and preview frames. `IVideoGenerator.Defaults` (`VideoGenerationDefaults`) reports the
   model's defaults (Wan 2.1: 832×480, 81 frames at 16 fps; Wan 2.2 TI2V: 1280×704, 121 frames at 24 fps; 50 steps, guidance 5)
   and whether it takes a start image.
 - Text conditioning: the prompt is tokenized to 512 tokens, encoded with the padding masked out and the padding rows zeroed (the Wan
@@ -546,6 +606,49 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   the same family as `Auxiliary[AuxiliaryRoles.TextEncoder]` and `Auxiliary[AuxiliaryRoles.Vae]` (`WanCompanionAdapter` merges its umT5
   encoder, tokenizer and VAE).
 - `sharplight-generate-video` (samples/Sharplight.GenerateVideo) is a command-line front end.
+
+### Video enhancement
+
+Video restoration and super-resolution models are of kind `video-enhancement` with the client `IVideoEnhancer`: the frames of a clip
+(or one image) in, restored and usually enlarged frames out, one per input frame. The kind and its types are model-agnostic and live in
+Core (`Sharplight.VideoEnhancement`); implementations come from architecture packages. SeedVR2 (3B and 7B, one-step restoration DiT with a
+causal video VAE) is the first: `Sharplight.Import.SeedVr` reads its checkpoints, `Sharplight.Architectures.VideoEnhancement` builds the graphs and
+registers the client (`services.AddSeedVrImporter().AddVideoEnhancementArchitectures()`; `AddSharplight()` includes both).
+
+```csharp
+var services = new ServiceCollection()
+    .AddSharplight()
+    .AddVideoEnhancer(o => { o.ModelPath = "SeedVR2-3B"; o.Devices = [slot]; });   // seedvr2_ema_3b.pth, ema_vae.pth, pos_emb.pt
+await using var provider = services.BuildServiceProvider();
+var enhancer = provider.GetRequiredService<IVideoEnhancer>();
+
+var clip = await provider.GetRequiredService<VideoDecoderCatalog>().ReadClipAsync("input-480p.mp4");
+var options = new VideoEnhancementOptions { Height = 1080, FramesPerBatch = 33, Seed = 7 };
+await foreach (var update in enhancer.EnhanceStreamingAsync(VideoEnhancementRequest.FromClip(clip), options))
+{
+    Console.Write($"\r{update.Phase} batch {update.Batch + 1}/{update.TotalBatches}");   // update.Frames: a finished batch
+    if (update.Result is { } result)
+    {
+        await provider.GetRequiredService<VideoEncoderCatalog>().SaveAsync(result.ToClip(), "output-1080p.mp4");
+    }
+}
+
+ImageInput still = await enhancer.EnhanceImageAsync(PngCodec.Read("photo.png"), new VideoEnhancementOptions { Scale = 2 });
+```
+
+- Options (`VideoEnhancementOptions`): `Width` / `Height` (one of them keeps the input's aspect ratio) or `Scale` (default: the model's, 2);
+  the result has exactly that size (the network runs on the next multiple of its size step, 16 for SeedVR2, with edge padding that is
+  cropped off). `FramesPerBatch`: frames restored together (default 0, the whole clip; a batch is padded to 1 + 4k frames with copies of
+  its last frame, as the official script does); smaller batches bound memory for long clips. `ColorCorrection`: `Wavelet` (default: the
+  output's high frequencies over the input's low frequencies), `AdaIn` (per-frame channel mean and deviation) or `None`. `Seed`, and for
+  reproducing another implementation's run exactly the explicit `InitialNoise` and `EncoderNoise` (the encoder's latent sample).
+- `IVideoEnhancer.Defaults` (`VideoEnhancementDefaults`) reports the default scale, the size and frame multiples, the default colour correction and
+  frames per batch.
+- Stages: all batches are encoded first, then restored, then decoded. Compiled graphs stay for later requests; when the device runs out of
+  memory they are released and the graph compiled again from the cached kernels, so only one network's weights and activations need to
+  fit at a time.
+- `sharplight-enhance-video` (samples/Sharplight.EnhanceVideo) enhances a video file or a PNG:
+  `sharplight-enhance-video -m SeedVR2-3B -i input.mp4 -H 1080 -b 33 -o output.mp4`.
 
 ## 1. Load a model (text generation)
 
@@ -715,6 +818,20 @@ counted, filled by the first holder and freed with the last. Providers opt in th
 Vulkan do); placement does not count weights already resident. `LlmModel` passes its registry (`LlmModel.SharedWeights`) to
 every decoder and draft head it compiles.
 
+### Several machines
+
+A model larger than one machine runs pipeline parallel over segment workers on other nodes ([multinode.md](multinode.md)): their devices
+(`RemoteComputeDevice`) go into `LlmLoadOptions.Devices` after the local ones, and everything above (sessions, decoders, the engine) is
+unchanged.
+
+```csharp
+using var remote = new RemoteExecutionProvider(new RemoteSegmentOptions { Workers = ["10.0.0.2:7070", "10.0.0.3:7070"] });
+using var model = LlmModel.Load(loader, path, new LlmLoadOptions
+{
+    Devices = [new DeviceSlot { Device = gpu }, .. remote.OpenAll().Select(w => new DeviceSlot { Device = w })],
+});
+```
+
 ### Several models
 
 `ModelHost` registers models by name, loads them on first use within the device memory budget, evicts the least recently used
@@ -770,28 +887,35 @@ returns the hosting status. Multi-tenant hosts map the APIs into route groups wi
 
 ## 5. Embeddings and reranking
 
-`EmbeddingModel` runs encoder embedders (BERT family, bge, e5, MiniLM, nomic) and decoder embedders (Qwen3-Embedding).
-Inputs are tokenized, truncated, packed and run in batches; pooling and normalization follow the model's metadata.
+Text embeddings and reranking are task clients like every other kind (kinds `text-embedding` and `text-reranking`).
+`ITextEmbedder` runs encoder embedders (BERT family, bge, e5, MiniLM, nomic) and decoder embedders (Qwen3-Embedding):
+inputs are tokenized, truncated, packed and run in batches; pooling and normalization follow the model's metadata (override them
+with `TaskLoadOptions.Adapter.EmbeddingPooling` / `EmbeddingNormalize`). `AddTextEmbedder` / `AddTextReranker` start the load
+options from `TextEmbeddingLoadDefaults` (8192 tokens per batch, which also bounds the longest input, and F32 matrices stored as
+F16 on GPUs, `TaskLoadOptions.HalfPrecisionMatrices`).
 
 ```csharp
-using var embedder = EmbeddingModel.Load(loader, "bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [slot] });
+services.AddTextEmbedder(o => { o.ModelPath = "bge-small-en-v1.5"; o.Devices = [slot]; });
+services.AddTextReranker(o => { o.ModelPath = "bge-reranker-v2-m3"; o.Devices = [slot]; });
+var embedder = provider.GetRequiredService<ITextEmbedder>();
 
-EmbeddingResult result = embedder.Embed(["first text", "second text"]);
+EmbeddingResult result = await embedder.EmbedAsync(["first text", "second text"]);
 float[] vector = result.Vectors[0];                       // embedder.Dimensions long, L2-normalized when the model says so
-float[] query = embedder.Embed("what is a vector?", new EmbedOptions { Prompt = "query" });   // a prompt the model defines
-float[] small = embedder.Embed("text", new EmbedOptions { Dimensions = 256 });                // Matryoshka cut
+var query = await embedder.EmbedAsync(["what is a vector?"], new TextEmbeddingOptions { Prompt = "query" });   // a prompt the model defines
+var small = await embedder.EmbedAsync(["text"], new TextEmbeddingOptions { Dimensions = 256 });                // Matryoshka cut
 ```
 
-`Reranker` scores documents against a query with a cross-encoder or a yes/no decoder reranker:
+`ITextReranker` scores documents against a query with a cross-encoder or a yes/no decoder reranker:
 
 ```csharp
-using var reranker = Reranker.Load(loader, "bge-reranker-v2-m3", new RerankerLoadOptions { Devices = [slot] });
-RerankResult scores = reranker.Score("what is a vector?", ["a quantity with direction", "a kind of animal"]);
+var reranker = provider.GetRequiredService<ITextReranker>();
+RerankResult scores = await reranker.RerankAsync("what is a vector?", ["a quantity with direction", "a kind of animal"]);
 // scores.Scores in [0, 1] per document, in input order
 ```
 
-Both implement small interfaces (`ITextEmbedder`, `ITextReranker`) that the server and the Microsoft.Extensions.AI adapter
-depend on, so a test double or a remote implementation can stand in.
+Language models describe themselves as `text-generation`; the embedding and reranking factories serve them too when they carry an
+`embed` / `classify` graph, so `TaskClientProvider.Create<ITextEmbedder>(model)` works on any such `TaskModel`. The server and the
+Microsoft.Extensions.AI adapter depend only on the interfaces, so a test double or a remote implementation can stand in.
 
 ## 6. Microsoft.Extensions.AI
 
@@ -874,16 +998,20 @@ foreach (var set in store?.ArtifactSets ?? [])
 ## Conventions
 
 - Types that own device memory or threads (`LlmModel`, `TaskModel`, every task client, `InferenceSession`, `InferenceEngine`,
-  `ModelHost`, `EmbeddingModel`, `Reranker`, `VisionEncoder`) are `IDisposable`; dispose them in reverse order of creation (a
+  `ModelHost`, `VisionEncoder`) are `IDisposable`; dispose them in reverse order of creation (a
   service container does that for the clients and models it created).
-- `InferenceEngine`, `ModelHost`, `ModelService`, `EmbeddingModel` and `Reranker` are thread-safe. Sessions, generators and
+- `InferenceEngine`, `ModelHost`, and `ModelService` are thread-safe (task clients serialize their requests). Sessions, generators and
   samplers are not: one thread at a time.
 - Request options are immutable records with defaults that work. Load and host options are classes with settable properties for
-  Microsoft.Extensions.Options: `TaskLoadOptions` and its kind-specific subclasses `LlmLoadOptions`, `EmbeddingLoadOptions`,
-  `RerankerLoadOptions`, `SpanScorerLoadOptions`, plus `AdapterOptions`, the provider and importer options and `SharplightServerOptions`.
+  Microsoft.Extensions.Options: `TaskLoadOptions` and its kind-specific subclasses `LlmLoadOptions`,
+  `SpanScorerLoadOptions`, plus `AdapterOptions`, the provider and importer options and `SharplightServerOptions`.
   Only `Devices` is required (checked when the model is compiled or loaded).
 - Failures that a caller can act on are typed exceptions: `EngineException` and its subclasses for admission, `ModelHostException`
-  and its subclasses for hosting.
+  and its subclasses for hosting, `DeviceOutOfMemoryException` (an `OutOfMemoryException`) when a device has no memory left after
+  every fallback.
+- No provider assumes a memory topology or size: memory types, staging sizes and blocks adapt to the device, and
+  `DeviceOptions.MemoryLimits` (or `SHARPLIGHT_LIMIT_*`) simulates smaller hardware; see [hardware.md](hardware.md) for each
+  provider's requirements and fallbacks.
 - The CPU provider's kernels do not depend on the application's JIT settings. By default .NET first compiles a method with loops as
   unoptimized tier-0 code and switches to optimized code only after on-stack replacement and tiering catch up, so the first runs of a
   model (and short benchmarks) would measure unoptimized kernels. Every method with a loop in `Sharplight.Cpu` is marked

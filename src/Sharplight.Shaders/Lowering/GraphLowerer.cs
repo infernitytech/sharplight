@@ -34,11 +34,23 @@ public sealed partial class GraphLowerer
     /// <summary>Norm output → norm node computed inside its consumer's kernel (delta rule, rope).</summary>
     private readonly Dictionary<Value, Node> _absorbedNorms = [];
 
+    /// <summary>
+    /// q / k inputs of a delta rule that repeat each head of a source in place → the source and the repeats: the kernel reads key head
+    /// h / repeats of the source (<c>GROUPED_HEADS</c>), so neither the repeat nor (with an absorbed L2 norm) the norm is materialized.
+    /// </summary>
+    private readonly Dictionary<Value, (Value Source, long Repeats)> _groupedKeyHeads = [];
+
+    /// <summary>Batches served by the dual grouped GEMM of an expert product's halves, per group unit (see <c>LowerExpertHalves</c>).</summary>
+    private readonly Dictionary<LoweringUnit, Func<Bindings, bool>> _halvesServed = [];
+
     /// <summary>Outputs of row gathers read in place by their fused consumer group (see <c>FoldRowGathers</c>).</summary>
     private readonly Dictionary<Value, Node> _foldedGathers = [];
 
     /// <summary>Rope output → rope node computed inside its CacheWrite.</summary>
     private readonly Dictionary<Value, Node> _absorbedRope = [];
+
+    /// <summary>Key cache writes that also lower their layer's query rope and value cache write (see <see cref="GroupLayerRopes"/>).</summary>
+    private readonly Dictionary<Node, (Node QueryRope, Node ValueWrite)> _ropeQkv = [];
 
     /// <summary>View → materialized root value.</summary>
     private readonly Dictionary<Value, Value> _root = [];
@@ -75,8 +87,10 @@ public sealed partial class GraphLowerer
     private KernelProgram Run()
     {
         var units = Schedule(FormUnits());
+        PlanChannelsLastConcats(units);
         PlanConcatSlices(units);
         ComputeLiveness(units);
+        ExtendChannelsLastSources();
         LowerUnits(units);
         CopyNonMaterializedOutputs();
         foreach (var check in _deferredCopyChecks)
@@ -141,6 +155,10 @@ public sealed partial class GraphLowerer
             var unit = units[index];
             FreeDeadValues(deferred, unit.Level);
             LowerUnit(unit);
+            if (unit.Node is { } lowered)
+            {
+                NoteMatMulLowered(lowered);
+            }
 
             foreach (var (root, lastUse) in _lastUse)
             {
@@ -170,6 +188,11 @@ public sealed partial class GraphLowerer
 
     private void LowerUnit(LoweringUnit unit)
     {
+        if ((unit.Node ?? (unit.Fused is [var only] ? only : null)) is { } single && TryLowerChannelsLastPart(single))
+        {
+            return;
+        }
+
         if (unit.Dual is { } dual)
         {
             if (dual.A.Op.Name == "MatMulId")
@@ -200,11 +223,32 @@ public sealed partial class GraphLowerer
         }
         else if (unit.Fused is not null)
         {
+            // The group of an expert product's halves runs only for the batches its dual grouped GEMM does not serve.
+            var outer = _launchCondition;
+            if (_halvesServed.Remove(unit, out var served))
+            {
+                _launchCondition = b => (outer?.Invoke(b) ?? true) && !served(b);
+            }
+
             LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
+            _launchCondition = outer;
+        }
+        else if (unit.Halves is { } halves && unit.Node!.Op.Name == "MatMulId")
+        {
+            LowerExpertHalves(unit.Node, unit.BiasAdd, unit.Gathers?.FirstOrDefault(), halves);
+            FreeTemps();
         }
         else if (unit.BiasAdd is { } biasAdd)
         {
-            LowerMatMulBias(unit.Node!, biasAdd);
+            if (unit.Node!.Op.Name == "MatMulId")
+            {
+                LowerExpertBias(unit.Node, biasAdd, unit.Gathers![0]);
+            }
+            else
+            {
+                LowerMatMulBias(unit.Node, biasAdd);
+            }
+
             FreeTemps();
         }
         else
@@ -301,6 +345,37 @@ public sealed partial class GraphLowerer
         return w.Type == DataType.F8E4M3_B32 && k % 128 == 0 ? WeightRepack.Fp8B32Split : null;
     }
 
+    /// <summary>Sets the device-friendly layout of weight buffer <paramref name="wb"/> of <paramref name="v"/> where one applies (aligned quants for wide loads, same byte size).</summary>
+    private void ChooseRepack(Value v, BufferDecl wb)
+    {
+        var w = v.Weight!;
+        if (!DiagnosticSwitches.NoWeightRepack && w.Type == DataType.Q8_0 && w.Shape.Rank >= 1 && !w.Shape[-1].IsSymbolic && w.Shape[-1].Fixed % 128 == 0)
+        {
+            wb.Repack = WeightRepack.Q8_0Split;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (UseMxfp4Repack(w))
+        {
+            wb.Repack = WeightRepack.Mxfp4Split;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (NativeFp8GroupedWeight(v))
+        {
+            wb.Repack = Fp8BlockScaled || DiagnosticSwitches.Fp8Ue8m0WeightsOnly ? WeightRepack.Fp8B128GroupedUe8m0 : WeightRepack.Fp8B128Grouped;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (Fp8SplitRepack(w) is { } fp8Split)
+        {
+            wb.Repack = fp8Split;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+        else if (LibraryHalfWeight(v))
+        {
+            wb.Repack = WeightRepack.Bf16ToF16;
+            wb.RepackRowElements = w.Shape[-1].Fixed;
+        }
+    }
+
     /// <summary>Returns the tensor reference of a value, materializing leaves (weights, states, inputs) on demand.</summary>
 
     private TensorRef Ref(Value v)
@@ -317,23 +392,14 @@ public sealed partial class GraphLowerer
                 if (!_weightBuffers.TryGetValue(w, out var wb))
                 {
                     _weightBuffers[w] = wb = NewBuffer(BufferKind.Weight, w.Name, w.ByteSize, w: w);
-                    // Device-friendly layout: aligned int8 quants for wide loads (same byte size).
-                    if (!DiagnosticSwitches.NoWeightRepack && w.Type == DataType.Q8_0 && w.Shape.Rank >= 1 && !w.Shape[-1].IsSymbolic && w.Shape[-1].Fixed % 128 == 0)
+                    // Streamed and sparse expert compilations keep the stored layout: they copy their weights from the mapped file at every
+                    // execution, which page-locked or imported pages allow without the host (repacking would take it, and staging).
+                    if (!_opt.Compile.StreamWeights)
                     {
-                        wb.Repack = WeightRepack.Q8_0Split;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
-                    }
-                    else if (UseMxfp4Repack(w))
-                    {
-                        wb.Repack = WeightRepack.Mxfp4Split;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
-                    }
-                    else if (Fp8SplitRepack(w) is { } fp8Split)
-                    {
-                        wb.Repack = fp8Split;
-                        wb.RepackRowElements = w.Shape[-1].Fixed;
+                        ChooseRepack(v, wb);
                     }
                 }
+
                 r = Dense(wb, v);
                 if (wb.Repack == WeightRepack.Q8_0Split)
                 {
@@ -350,6 +416,14 @@ public sealed partial class GraphLowerer
                 else if (wb.Repack == WeightRepack.Fp8B128Split)
                 {
                     r = r with { Type = ShaderTypes.F8E4M3_B128R };
+                }
+                else if (wb.Repack is WeightRepack.Fp8B128Grouped or WeightRepack.Fp8B128GroupedUe8m0)
+                {
+                    r = r with { Type = ShaderTypes.F8E4M3_B128G };
+                }
+                else if (wb.Repack == WeightRepack.Bf16ToF16)
+                {
+                    r = r with { Type = DataType.F16 };
                 }
 
                 break;
@@ -442,6 +516,12 @@ public sealed partial class GraphLowerer
     private Dictionary<string, string> Macros(params (string, object)[] items)
     {
         var d = new Dictionary<string, string>(StringComparer.Ordinal) { ["SG"] = _opt.SubgroupSize.ToString(CultureInfo.InvariantCulture) };
+        if (Fp8BlockScaled)
+        {
+            // Power-of-two scales of every E4M3 activation row (e4m3.slang), which the block-scaled FP8 GEMM needs.
+            d["E4M3_UE8M0"] = "1";
+        }
+
         foreach (var (k, v) in items)
         {
             d[k] = v switch

@@ -11,4 +11,10 @@ public sealed record FeedCatalogSummary
 
     /// <summary>Digest of the catalog index (<c>sha256:&lt;hex&gt;</c>).</summary>
     public string Digest { get; init; } = "";
+
+    /// <summary>Number of model groups in the model listing (<see cref="FeedResources.Models"/>).</summary>
+    public int Models { get; init; }
+
+    /// <summary>Digest of the model listing (<c>sha256:&lt;hex&gt;</c>), or <see langword="null"/> for a feed published without one.</summary>
+    public string? ModelsDigest { get; init; }
 }

@@ -16,7 +16,7 @@ public sealed partial class GraphLowerer
     /// matmuls take gemm_cm2 too (not the int8 GEMM, not MXFP4R's 32-value raw units).
     /// </summary>
     private Func<long, bool>? EmitDualGemm2(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
-        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, Value? output = null)
+        TensorRef weightB, TensorRef y, long n, long k, string epilogueSource, Value? output = null, long servesBelow = long.MaxValue)
     {
         long rowsMax = x.Shape[0] * rowsPerLead;
         var layout = Gemm2Layout(Gemm2TileRows, splitHalf: false);
@@ -36,7 +36,8 @@ public sealed partial class GraphLowerer
         }
 
         long wave = GemmWaveTiles;
-        bool Serves(long rows) => DualGemm2Serves(rows, n, k, wave);
+        // servesBelow: larger batches run elsewhere (the library GEMMs), so neither the products nor the f16 copy of y are written.
+        bool Serves(long rows) => rows < servesBelow && DualGemm2Serves(rows, n, k, wave);
         var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, DualGemm2MinRows + 1, rowsMax, ActivationCode.F16);
         var macros = Gemm2Macros(Macros(("WFMT", WeightFormat(weightA.Type)!.Value), ("K", k), ("N", n), ("X_STRIDE", k), ("Y_STRIDE", n),
             ("ROW_BYTES", weightA.Type.ByteSize(k) + "ull"), ("X_F16", 1), ("DUAL", 1), ("KERNEL_GEMM_CM2", 1)), Gemm2TileRows);

@@ -24,7 +24,7 @@ public class StringTensorTests
     [Fact]
     public void StringNodes_StayOnTheCpuWithAGpuDevice()
     {
-        var device = Providers.VulkanOrSkip();
+        var device = Providers.GpuOrSkip();
         var (concat, equal, ids) = Run(device, ["blue", "red", "red"]);
         Assert.Equal(["blue!", "red!", "red!"], concat);
         Assert.Equal([0f, 1f, 1f], equal);

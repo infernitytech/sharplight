@@ -9,14 +9,23 @@ internal sealed record StarterPreferences
     /// <summary>The connection speed the download time estimate assumes, in megabits per second.</summary>
     public double AssumedDownloadMbps { get; init; } = 100;
 
-    /// <summary>The share of a GPU's memory a model may need.</summary>
-    public double GpuMemoryFraction { get; init; } = 0.8;
+    /// <summary>The share of a GPU's free memory a model with its context may need (the rest is left to the driver and the desktop).</summary>
+    public double GpuMemoryFraction { get; init; } = 0.9;
 
     /// <summary>The share of system memory a model may need when it runs on the CPU.</summary>
     public double CpuMemoryFraction { get; init; } = 0.4;
 
     /// <summary>The most memory a CPU model may need, in MiB.</summary>
     public long CpuMaxMiB { get; init; } = 3072;
+
+    /// <summary>The context length a chat model must have room for next to its weights, in tokens.</summary>
+    public int ContextTokens { get; init; } = 4096;
+
+    /// <summary>KV cache headroom added to a chat model's memory when the feed gives no context figure, as a share of its weights.</summary>
+    public double KvHeadroomFraction { get; init; } = 0.12;
+
+    /// <summary>The least KV cache headroom added to a chat model's memory, in MiB.</summary>
+    public long KvHeadroomMinMiB { get; init; } = 256;
 
     /// <summary>Chat models whose download is larger are not recommended, in MiB.</summary>
     public long MaxDownloadMiB { get; init; } = 20480;

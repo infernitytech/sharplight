@@ -1,0 +1,15 @@
+[hold 13:09:48] ./bis1.sh
+99 %, 2 MiB, 74.36 W
+gu_base      energy: 8 passes 3.99 s: 0.3408 ms per routing, 189.4 W, 64.612 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2766 nJ per weight byte, SM 1741 MHz, memory 13365 MHz
+gu_dmin1     energy: 8 passes 3.89 s: 0.3317 ms per routing, 134.6 W, 44.665 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1912 nJ per weight byte, SM 1706 MHz, memory 13365 MHz
+gu_RD        energy: 10 passes 3.65 s: 0.2491 ms per routing, 169.1 W, 42.158 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1805 nJ per weight byte, SM 2476 MHz, memory 13365 MHz
+rk           PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 830.0 GB/s, 198.7 W, 0.2394 nJ per byte, SM 2587 MHz, memory 13365 MHz 
+rg_base      GEMM 28 tiles x 9 rows: PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 676.9 GB/s, 180.6 W, 0.2669 nJ per byte, SM 1702 MHz, memory 13365 MHz 
+rg_dmin1     GEMM 28 tiles x 9 rows: PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 642.0 GB/s, 140.6 W, 0.2191 nJ per byte, SM 1680 MHz, memory 13365 MHz 
+gu_base      energy: 8 passes 3.99 s: 0.3404 ms per routing, 192.8 W, 65.666 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2812 nJ per weight byte, SM 1754 MHz, memory 13365 MHz
+gu_dmin1     energy: 8 passes 3.88 s: 0.3311 ms per routing, 133.4 W, 44.201 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1892 nJ per weight byte, SM 1713 MHz, memory 13365 MHz
+gu_RD        energy: 10 passes 3.65 s: 0.2492 ms per routing, 173.0 W, 43.134 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1847 nJ per weight byte, SM 2486 MHz, memory 13365 MHz
+rk           PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 766.5 GB/s, 194.0 W, 0.2531 nJ per byte, SM 2707 MHz, memory 13365 MHz 
+rg_base      GEMM 28 tiles x 9 rows: PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 398.3 GB/s, 165.6 W, 0.4157 nJ per byte, SM 2287 MHz, memory 13365 MHz 
+rg_dmin1     GEMM 28 tiles x 9 rows: PAT=0 C=32 S=4 HINT=256 ROWS=128 MMA=1 WORK=0: 554.7 GB/s, 157.5 W, 0.2839 nJ per byte, SM 2122 MHz, memory 13365 MHz 
+[release 13:11:01]

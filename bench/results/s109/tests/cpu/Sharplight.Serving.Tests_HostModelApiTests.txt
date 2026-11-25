@@ -1,0 +1,8 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0m[37m  Finished:    Sharplight.Serving.Tests (ID = 'd139025560f8fc7ba6bfb28bbce939754ba7504712a1d7066f841b34e6b84624')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 7, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.572s
+[0m[0m

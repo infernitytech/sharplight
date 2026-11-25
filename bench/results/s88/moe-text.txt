@@ -1,0 +1,16 @@
+== single process
+The three laws of thermodynamics are fundamental principles that govern the behavior of energy and matter. They are:
+
+1. **First Law (Law of Conservation of Energy):** Energy cannot be created or
+prompt: 7 tok in 1478 ms (4.7 tok/s) | generated: 32 tok, 9.72 tok/s
+== coordinator + 2 workers
+The three laws of thermodynamics are fundamental principles that govern the behavior of energy and matter. They are:
+
+1. **First Law (Law of Conservation of Energy):** Energy cannot be created or
+slot 0 AMD EPYC 7443 24-Core Processor: 17 groups, 5.96 GiB weights+state
+slot 1 127.0.0.1:7071 (AMD EPYC 7443 24-Core Processor): 17 groups, 5.99 GiB weights+state
+slot 2 127.0.0.1:7072 (AMD EPYC 7443 24-Core Processor): 16 groups, 5.70 GiB weights+state
+3 segment(s): [0@0: 561 nodes] → [1@1: 595 nodes] → [2@2: 529 nodes]
+prompt: 7 tok in 755 ms (9.3 tok/s) | generated: 32 tok, 12.62 tok/s
+worker 127.0.0.1:7071: 32 executions, round trip 32.458 ms, worker 31.870 ms, overhead 0.333 ms per execution, 0.4 MB sent, 0.0 MB received
+worker 127.0.0.1:7072: 32 executions, round trip 66.566 ms, worker 33.993 ms, overhead 0.342 ms per execution, 0.1 MB sent, 0.3 MB received

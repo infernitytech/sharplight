@@ -82,8 +82,10 @@ public sealed partial class GraphLowerer
         // sixth of the products of the strict form.
         long reducedColumns = (columns * Math.Max(1, batchBound) + 127) / 128 * ((OG + 127) / 128) * groups < TargetWorkgroups ? 64 : 128;
         bool splitHalf = splitWeights && f16 && !SmallFragments && weightFormat == 0 && _opt.Compile.SplitHalfMatMul && DiagnosticSwitches.ConvSplitHalf;
-        ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision
-            ? f16 ? new ConvMatrixForm(1, reducedColumns) : bf16 ? new ConvMatrixForm(2, reducedColumns) : null
+        // Reduced precision with bf16 activations (ActivationPrecision.BFloat16) takes the two-part bf16 form, else the strict ones.
+        bool halfProducts = f16 && HalfActivations;
+        ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision && (halfProducts || bf16)
+            ? halfProducts ? new ConvMatrixForm(1, reducedColumns) : new ConvMatrixForm(2, reducedColumns)
             : splitHalf ? new ConvMatrixForm(4, reducedColumns) : bf16 ? new ConvMatrixForm(3, 64) : null;
         return form is { } f && columns * Math.Max(1, batchBound) >= ConvMatrixMinColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
     }
@@ -114,8 +116,7 @@ public sealed partial class GraphLowerer
         (string, object)[] common, string name)
     {
         long G = n.Attributes.Get("groups", 1L);
-        long O = w.Shape[0];
-        long OG = O / G;
+        long OG = w.Shape[0] / G;
         long HW = y.Shape[2] * y.Shape[3];
         long K = w.Shape[1] * w.Shape[2] * w.Shape[3];
         int format = WeightFormat(w.Type) ?? -1;
@@ -127,7 +128,7 @@ public sealed partial class GraphLowerer
         // once per item and step.
         long taps = w.Shape[2] * w.Shape[3];
         bool tapMajor = !DiagnosticSwitches.ConvNoTapMajor;
-        var splitWeights = !_opt.Compile.AllowReducedPrecision && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
+        var splitWeights = !HalfActivations && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
             ? SplitWeights(n.Inputs[1], w, tapMajor ? taps : 1) : null;
         if (ChooseConvMatrixForm(K, OG, HW, format, bound, G, splitWeights is not null) is not { } form)
         {
@@ -140,14 +141,7 @@ public sealed partial class GraphLowerer
 
         int warpsM = ConvMatrixWarpsM(OG, form);
         long tileRows = warpsM * ConvMatrixWarpRows;
-        Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, form.TileColumns, form.TileK);
-        long workspace = SplitKWorkspaceElements(x.Symbol, bound, v => choose(v).Split, O * HW);
-
-        bool useWorkspace = workspace > 0;
-        TensorRef? ws = useWorkspace ? Temp(DataType.F32, [workspace], null) : null;
-        var biasPointer = bias ?? x;
         var macros = common.Where(c => c.Item1 != "HAS_BIAS").ToList();
-        macros.Add(("HAS_BIAS", bias is not null && !useWorkspace));
         macros.Add(("PARTS", form.Parts));
         macros.Add(("CONV_FRAG8", SmallFragments));
         // Fast matrix precision: the split form with the hi parts only (the weights were split that way, see SplitWeights).
@@ -158,21 +152,47 @@ public sealed partial class GraphLowerer
         macros.Add(("WARPS_M", warpsM));
         macros.Add(("A_VEC", K % 8 == 0));
         macros.Add(("TAP_MAJOR", form.Parts == 4 && tapMajor));
+        string label = $"{name} {form.Parts switch { 4 => hiOnly ? "scaled-f16" : "split-f16", 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
+        EmitConvMatrix(label, nodes, "conv_cm.slang", "conv_cm", macros, epilogue, x, weightArgs, scaleArgs, scaleReads, bias, y, G, OG, HW, K, bound,
+            tileRows, form.TileColumns, form.TileK);
+        return true;
+    }
+
+    /// <summary>
+    /// Emits an implicit-GEMM convolution kernel (<paramref name="entry"/> of <paramref name="file"/>: conv_cm, conv_cl) over tiles of
+    /// <paramref name="tileRows"/> output channels x <paramref name="tileColumns"/> pixels, split along K where the grid would not
+    /// fill the device (<see cref="ChooseConvMatrixSplit"/>; partials through a workspace and conv_splitk_reduce, which then adds the
+    /// bias and applies the epilogue). The kernel takes (x, w, bias, y, <paramref name="extraArgs"/>, [residual], N). With
+    /// <paramref name="linearTiles"/> the grid's x runs over the pixel tiles times the channel tiles (the kernel splits it, channel tile
+    /// fastest), else x over the pixel tiles and y over the channel tiles.
+    /// </summary>
+    private void EmitConvMatrix(string label, Node[] nodes, string file, string entry, List<(string, object)> macros, ConvEpilogueCode? epilogue,
+        TensorRef x, TensorRef w, KernelArg[] extraArgs, TensorRef[] extraReads, TensorRef? bias, TensorRef y, long G, long OG, long HW, long K, long bound,
+        long tileRows, long tileColumns, long tileK = ConvMatrixTileK, bool linearTiles = false)
+    {
+        long O = G * OG;
+        Func<long, (int Split, long Kps)> choose = batch => ChooseConvMatrixSplit(batch, OG, G, HW, K, tileRows, tileColumns, tileK);
+        long workspace = SplitKWorkspaceElements(x.Symbol, bound, v => choose(v).Split, O * HW);
+        bool useWorkspace = workspace > 0;
+        TensorRef? ws = useWorkspace ? Temp(DataType.F32, [workspace], null) : null;
+        var biasPointer = bias ?? x;
+        var kernelMacros = macros.Append(("HAS_BIAS", bias is not null && !useWorkspace)).ToList();
         var variants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
-            var kernel = ConvKernel("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
-            return (kernel, batch => new Grid(Grid.Div(batch * HW, form.TileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
+            var kernel = ConvKernel(file, entry, Macros([.. kernelMacros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
+            return (kernel, batch => linearTiles
+                ? new Grid(Grid.Div(batch * HW, tileColumns) * Grid.Div(OG, tileRows), 1, (uint)(G * cfg.Split))
+                : new Grid(Grid.Div(batch * HW, tileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
         });
-        string label = $"{name} {form.Parts switch { 4 => hiOnly ? "scaled-f16" : "split-f16", 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
         var dst = ws ?? y;
         var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
         var resReads = epilogue?.Residual is { } resRead ? new[] { resRead } : [];
         Emit(useWorkspace ? label + " gemm" : label, nodes, variants,
-            [Pointer(x), Pointer(weightArgs), Pointer(biasPointer), Pointer(dst), .. scaleArgs, .. useWorkspace ? [] : resArgs, TokenArg(x)],
-            [.. bias is null || useWorkspace ? [x, weightArgs] : new[] { x, weightArgs, bias }, .. scaleReads, .. useWorkspace ? [] : resReads], [dst]);
+            [Pointer(x), Pointer(w), Pointer(biasPointer), Pointer(dst), .. extraArgs, .. useWorkspace ? [] : resArgs, TokenArg(x)],
+            [.. bias is null || useWorkspace ? [x, w] : new[] { x, w, bias }, .. extraReads, .. useWorkspace ? [] : resReads], [dst]);
         if (!useWorkspace)
         {
-            return true;
+            return;
         }
 
         var reduceVariants = ChooseVariants(x.Symbol, bound, choose, cfg =>
@@ -183,6 +203,5 @@ public sealed partial class GraphLowerer
         Emit(label + " reduce", nodes, reduceVariants,
             [Pointer(dst), Pointer(biasPointer), Pointer(y), .. resArgs, CountArg(x, O * HW)],
             [.. bias is null ? [dst] : new[] { dst, bias }, .. resReads], [y]);
-        return true;
     }
 }

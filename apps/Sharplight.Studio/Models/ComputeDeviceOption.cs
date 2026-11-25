@@ -7,13 +7,17 @@ namespace Sharplight.Studio.Models;
 /// <param name="IsGpu">A GPU (else the CPU).</param>
 /// <param name="TotalMemory">Device memory in bytes (system memory for the CPU).</param>
 /// <param name="Features">Detected device features (provider-neutral names).</param>
-internal sealed record ComputeDeviceOption(string Id, string Name, string Provider, bool IsGpu, long TotalMemory, IReadOnlyList<string> Features)
+/// <param name="GpuKey">Identity of the physical GPU (the same for the entries several providers list for it), or null (the CPU, the split choice).</param>
+/// <param name="Variant">The provider's title (<c>Vulkan</c>, <c>CUDA</c>) when the GPU is listed by more than one provider, else null.</param>
+/// <param name="IsUnified">The GPU shares system memory (integrated or software GPUs): its memory and the system memory are one pool.</param>
+internal sealed record ComputeDeviceOption(string Id, string Name, string Provider, bool IsGpu, long TotalMemory, IReadOnlyList<string> Features,
+    string? GpuKey = null, string? Variant = null, bool IsUnified = false)
 {
     /// <summary>The id of the choice that splits a model's layers over every GPU.</summary>
     public const string AllGpusId = "gpu:all";
 
     /// <summary>Name and memory for pickers.</summary>
-    public string Display => $"{Name} · {ByteFormat.Format(TotalMemory)}";
+    public string Display => Variant is null ? $"{Name} · {ByteFormat.Format(TotalMemory)}" : $"{Name} ({Variant}) · {ByteFormat.Format(TotalMemory)}";
 
     /// <summary>The choice that splits a model over every GPU (<see cref="AllGpusId"/>).</summary>
     public bool IsSplit => Id == AllGpusId;

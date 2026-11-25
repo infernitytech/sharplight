@@ -133,10 +133,10 @@ public sealed class DiffusersImporter : IModelImporter
                 or "StableDiffusionXLImg2ImgPipeline" or "StableDiffusionXLInpaintPipeline" or "FluxPipeline" or "WanPipeline" or "WanImageToVideoPipeline" or "LTXPipeline" or "HunyuanVideoPipeline"
                 or "StableDiffusion3Pipeline" or "StableDiffusion3Img2ImgPipeline" or "StableDiffusion3InpaintPipeline" or "ChromaPipeline"
                 or "ChromaImg2ImgPipeline" or "ZImagePipeline" or "ZImageImg2ImgPipeline" or "QwenImagePipeline" or "QwenImageImg2ImgPipeline" or "QwenImage21Pipeline" or "Flux2KleinPipeline" or "Flux2Pipeline" or "FluxKontextPipeline"
-                or "Krea2Pipeline"
+                or "Krea2Pipeline" or "StableAudioPipeline"
                 or "QwenImageInpaintPipeline" or "QwenImageEditPipeline" or "QwenImageEditPlusPipeline" or "StableDiffusionInstructPix2PixPipeline"
                 => components.Contains("unet") || components.Contains("transformer") ? new PipelineSupport(true) : new PipelineSupport(false, $"Not supported yet: {pipelineClass} has no UNet or transformer."),
-            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Qwen-Image, Qwen-Image 2.1, FLUX.2 Klein, Krea 2, Wan 2.1 / 2.2, LTX-Video and HunyuanVideo pipelines."),
+            _ => new PipelineSupport(false, $"Not supported yet: {Describe(pipelineClass)}. Sharplight loads the Stable Diffusion 1.x / 2.x / XL / 3, FLUX.1, Chroma, Z-Image, Qwen-Image, Qwen-Image 2.1, FLUX.2 Klein, Krea 2, Wan 2.1 / 2.2, LTX-Video, HunyuanVideo and Stable Audio Open pipelines."),
         };
     }
 

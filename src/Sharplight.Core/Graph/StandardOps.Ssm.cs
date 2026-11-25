@@ -17,8 +17,11 @@ public static partial class StandardOps
     /// continues its slot's state and a run starting at position 0 starts from zero state. The gated group RMS norm that follows in Mamba-2 blocks
     /// (<c>rmsnorm_groups(y·silu(z))·w</c>) is not part of the op: express it with Silu/Mul, a Reshape to [T, G, H·P/G] and an unweighted RmsNorm.
     /// </summary>
-    /// <remarks>Rollback form (<see cref="RecurrentRollback"/>): after the runs table, the commits table and the record state.</remarks>
-    public static readonly OpSchema SelectiveScan = new("SelectiveScan", OpCategory.Composite, 8, 11, (i, a) =>
+    /// <remarks>
+    /// Snapshot form (<see cref="RecurrentSnapshots"/>): after the runs table, the snapshots table. Rollback form (<see cref="RecurrentRollback"/>):
+    /// then the commits table and the record state.
+    /// </remarks>
+    public static readonly OpSchema SelectiveScan = new("SelectiveScan", OpCategory.Composite, 8, 12, (i, a) =>
     {
         var x = i[0].Shape;
         if (x.Rank != 3)

@@ -402,7 +402,7 @@ internal static unsafe partial class Simd
             var acc = Vector512<float>.Zero;
             for (; i + 16 <= n; i += 16)
             {
-                var e = Vector512.Exp(Vector512.Load(x + i) - sv);
+                var e = VectorExp.Exp(Vector512.Load(x + i) - sv);
                 e.Store(x + i);
                 acc += e;
             }
@@ -415,7 +415,7 @@ internal static unsafe partial class Simd
             var acc = Vector256<float>.Zero;
             for (; i + 8 <= n; i += 8)
             {
-                var e = Vector256.Exp(Vector256.Load(x + i) - sv);
+                var e = VectorExp.Exp(Vector256.Load(x + i) - sv);
                 e.Store(x + i);
                 acc += e;
             }

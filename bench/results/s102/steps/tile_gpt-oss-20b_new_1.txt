@@ -1,0 +1,11 @@
+decoder: MultiSequenceDecoder, slots 24, vocab 201088, device sampling: True, KV paged 3840 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 43.0 | 522 / 0 | 9.41 / 10.37, 9.36 |  |
+| 16 | 240 (1) | 47.2 | 438 / 0 | 22.30 / 23.22, 22.23 | 0.054 |
+| 16 | 250 (1) | 28.3 | 438 / 0 | 24.45 / 24.69, 24.34 | 0.060 |
+| 16 | 368 (1) | 32.2 | 438 / 0 | 28.94 / 29.16, 28.88 | 0.053 |
+| 16 | 496 (1) | 48.8 | 534 / 0 | 36.16 / 36.33, 36.10 | 0.054 |

@@ -1,0 +1,13 @@
+[hold 11:27:04] ./lay.sh gu_dbare gu_dfull
+0 %, 2 MiB, 138.53 W
+gu_dbare   L=1   energy: 10 passes 4.53 s: 0.3094 ms per routing, 138.6 W, 42.922 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1838 nJ per weight byte, SM 1723 MHz, memory 13365 MHz
+gu_dbare   L=2   energy: 10 passes 4.52 s: 0.3089 ms per routing, 136.5 W, 42.201 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1807 nJ per weight byte, SM 1729 MHz, memory 13365 MHz
+gu_dbare   L=4   energy: 10 passes 4.53 s: 0.3090 ms per routing, 136.0 W, 42.055 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1801 nJ per weight byte, SM 1729 MHz, memory 13365 MHz
+gu_dbare   L=8   energy: 10 passes 4.52 s: 0.3082 ms per routing, 137.5 W, 42.392 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1815 nJ per weight byte, SM 1730 MHz, memory 13365 MHz
+gu_dbare   L=24  energy: 10 passes 4.53 s: 0.3090 ms per routing, 137.2 W, 42.400 mJ per routing, 233.6 MB weights per routing (tile reads), 0.1815 nJ per weight byte, SM 1727 MHz, memory 13365 MHz
+gu_dfull   L=1   energy: 10 passes 4.98 s: 0.3398 ms per routing, 193.6 W, 65.846 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2819 nJ per weight byte, SM 1745 MHz
+gu_dfull   L=2   energy: 10 passes 4.99 s: 0.3404 ms per routing, 192.4 W, 65.516 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2805 nJ per weight byte, SM 1747 MHz
+gu_dfull   L=4   energy: 10 passes 5.00 s: 0.3411 ms per routing, 189.1 W, 64.534 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2763 nJ per weight byte, SM 1742 MHz
+gu_dfull   L=8   energy: 8 passes 4.01 s: 0.3417 ms per routing, 196.7 W, 67.274 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2880 nJ per weight byte, SM 1740 MHz
+gu_dfull   L=24  energy: 8 passes 4.01 s: 0.3418 ms per routing, 192.7 W, 65.918 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2822 nJ per weight byte, SM 1740 MHz
+[release 11:28:24]

@@ -1,8 +1,13 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Fit;
+using Sharplight.ModelFeed;
 using Sharplight.ModelFeed.Index;
 using Sharplight.ModelFeed.Resolution;
 using Sharplight.ModelFeed.Versioning;
+using Sharplight.Runtime;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Fit;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -64,13 +69,33 @@ internal sealed partial class FeedPackageViewModel : ObservableObject
     /// <summary>The model's publisher, or empty.</summary>
     public string Publisher => Summary.Publisher?.Name ?? "";
 
-    /// <summary>Architecture, quantization and parameter count, e.g. <c>qwen3 · Q8_0 · 596M parameters</c>.</summary>
+    /// <summary>
+    /// Architecture, quantization, bits per weight, parameter count and the quality against the reference precision, e.g.
+    /// <c>qwen3 · Q8_0 · 8.5 bits per weight · 596M parameters · near-lossless vs BF16: Practically identical to BF16.</c>
+    /// </summary>
     public string Details => string.Join(" · ", new[]
     {
         Summary.Model?.Architecture,
         Summary.Model?.Quantization,
+        Summary.Group?.BitsPerWeight is { } bits ? $"{bits:0.#} bits per weight" : null,
         Summary.Model?.Parameters is { } parameters ? $"{ByteFormat.Count(parameters)} parameters" : null,
+        Summary.Group?.Quality is { } quality ? $"{quality}{(Summary.Group.Reference is { } reference ? $" vs {reference}" : "")}{(Summary.Group.QualityNote is { } note ? $": {note}" : "")}" : null,
     }.Where(part => !string.IsNullOrEmpty(part)));
+
+    /// <summary>The model this package is a variant of (the feed's group id, else the package id): variants of one model are listed together.</summary>
+    public string ModelId => Summary.Group?.Id ?? Summary.Id;
+
+    /// <summary>Sort key of the variant within its model: bits per weight, else the download size.</summary>
+    public double VariantOrder => Summary.Group?.BitsPerWeight ?? Summary.Size / 1e12;
+
+    /// <summary>The feed marks this variant as the one to offer first for its model.</summary>
+    public bool IsRecommended => Summary.Group?.Recommended == true;
+
+    /// <summary>Only the architecture or another variant of the model was compared with the reference, not this variant's files.</summary>
+    public bool IsPartial => string.Equals(Summary.Verification?.Level, "partial", StringComparison.Ordinal);
+
+    /// <summary>What the partial verification covers, or empty.</summary>
+    public string PartialText => IsPartial ? Summary.Verification?.Summary ?? "Partially verified." : "";
 
     /// <summary>The packages this one installs with (required dependencies), one per line.</summary>
     public IReadOnlyList<string> Dependencies => [.. Summary.Dependencies.Where(dependency => dependency.IsRequired).Select(dependency => dependency.Id)];
@@ -130,6 +155,10 @@ internal sealed partial class FeedPackageViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsGood), nameof(IsWarning), nameof(IsBad))]
     public partial CatalogFit Fit { get; set; } = CatalogFit.Unknown;
 
+    /// <summary>What the fit badge assumes and means (its tooltip), or empty.</summary>
+    [ObservableProperty]
+    public partial string FitToolTip { get; set; } = "";
+
     public bool HasFit => FitText.Length > 0;
 
     public bool IsGood => Fit == CatalogFit.Gpu;
@@ -138,30 +167,90 @@ internal sealed partial class FeedPackageViewModel : ObservableObject
 
     public bool IsBad => Fit == CatalogFit.TooLarge;
 
-    /// <summary>The device memory the package needs (the feed's figure for one slot, else the file size), 0 when unknown.</summary>
-    public long MemoryBytes
+    /// <summary>The feed's memory figures for the GPU (else the first device kind listed), or null.</summary>
+    private MemoryRequirement? Requirement
     {
         get
         {
             var memory = Summary.Requirements?.Memory ?? [];
-            var gpu = memory.FirstOrDefault(entry => string.Equals(entry.Device, "gpu", StringComparison.OrdinalIgnoreCase)) ?? memory.FirstOrDefault();
-            return gpu is not null ? gpu.TotalFor(1) : Summary.Size;
+            return memory.FirstOrDefault(entry => string.Equals(entry.Device, "gpu", StringComparison.OrdinalIgnoreCase)) ?? memory.FirstOrDefault();
         }
     }
 
-    /// <summary>Rates the package against the machine's memory (all GPUs together, system memory).</summary>
-    public void EstimateFit(long gpuBytes, long systemBytes)
+    /// <summary>The device memory the package needs (the feed's figure for one slot, else the file size), 0 when unknown.</summary>
+    public long MemoryBytes => Requirement is { } gpu ? gpu.TotalFor(1) : Summary.Size;
+
+    /// <summary>The longest context the feed knows for the model (its maximum context figure), or null.</summary>
+    public int? MaxContext => Requirement?.PerSlotContextMax?.Tokens is > 0 and var tokens ? tokens : Summary.Model?.ContextLength;
+
+    /// <summary>
+    /// The footprint of one slot at <paramref name="context"/> tokens with a <paramref name="kvCacheType"/> cache, from the feed's figures
+    /// (weights, the per-token KV bytes of a 16-bit cache and the fixed state, the activation and runtime overhead); null without figures.
+    /// </summary>
+    /// <param name="context">Context tokens.</param>
+    /// <param name="kvCacheType">The KV cache type of the load settings.</param>
+    public ModelFootprint? FootprintFor(int context, string kvCacheType)
     {
-        long need = MemoryBytes;
-        if (need <= 0 || (gpuBytes <= 0 && systemBytes <= 0))
+        if (Requirement is not { } requirement)
         {
-            Fit = CatalogFit.Unknown;
-            FitText = "";
-            return;
+            return Summary.Size > 0 ? new ModelFootprint(Summary.Size, 0, 0) : null;
         }
 
-        (Fit, FitText) = need <= gpuBytes ? (CatalogFit.Gpu, "Fits your GPU")
-            : need <= systemBytes ? (CatalogFit.Cpu, gpuBytes > 0 ? "CPU only" : "Runs on the CPU")
-            : (CatalogFit.TooLarge, "Too large");
+        int tokens = MaxContext is { } max ? Math.Min(context, max) : context;
+        long state = requirement.ContextBytes(tokens);
+        long kv = requirement.KvBytesPerToken is { } perToken ? perToken * tokens : 0;
+        // The feed's per-token figure is for a 16-bit cache; another type scales that part (recurrent state stays).
+        double scale = DownloadEstimate.KvBytesPerElement(kvCacheType) / 2;
+        long scaled = (long)(state - kv + (kv * scale));
+        return new ModelFootprint(requirement.Weights, Math.Max(0, scaled), requirement.Overhead);
     }
+
+    /// <summary>Shows the plan of the package for the default load settings as its fit badge.</summary>
+    /// <param name="badge">The plan as a badge.</param>
+    public void ShowFit(FitBadgeViewModel badge)
+    {
+        Fit = badge.Report.Verdict switch
+        {
+            FitVerdict.Fits or FitVerdict.FitsAfterUnloading => CatalogFit.Gpu,
+            FitVerdict.NeedsOffload => CatalogFit.Cpu,
+            _ => CatalogFit.TooLarge,
+        };
+        // A CPU-only machine fits the model in system memory.
+        bool cpu = badge.Report.Devices.Count == 1 && !badge.Report.Devices[0].Device.IsGpu;
+        FitText = badge.Report.Verdict == FitVerdict.Fits && cpu ? "Runs on the CPU" : badge.Text;
+        FitToolTip = badge.ToolTip;
+    }
+
+    /// <summary>Clears the fit badge (no figures for the package or the machine).</summary>
+    public void ClearFit()
+    {
+        Fit = CatalogFit.Unknown;
+        FitText = "";
+        FitToolTip = "";
+    }
+
+    /// <summary>The other packages of the same model (the feed's variant ladder), this one included, smallest first; empty for a single package.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasVariants))]
+    public partial IReadOnlyList<FeedPackageViewModel> Variants { get; set; } = [];
+
+    /// <summary>The model has several variants in the feed.</summary>
+    public bool HasVariants => Variants.Count > 1;
+
+    /// <summary>The quality tier against the reference precision, e.g. <c>near-lossless</c>, or empty.</summary>
+    public string Quality => Summary.Group?.Quality ?? "";
+
+    /// <summary>The variant row's label: the variant (else the name).</summary>
+    public string VariantLabel => Variant.Length > 0 ? Variant : Name;
+
+    /// <summary>Chooses this variant (set by the catalog).</summary>
+    internal Action<FeedPackageViewModel>? Choose { get; set; }
+
+    /// <summary>This variant is the selected package (the details show it).</summary>
+    [ObservableProperty]
+    public partial bool IsCurrent { get; set; }
+
+    /// <summary>Shows this variant in the details.</summary>
+    [RelayCommand]
+    private void ChooseVariant() => Choose?.Invoke(this);
 }

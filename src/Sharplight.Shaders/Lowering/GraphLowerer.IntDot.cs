@@ -49,10 +49,28 @@ public sealed partial class GraphLowerer
     /// True when the integer-dot matvec (<c>mmvq.slang</c>, <see cref="DeviceFeatures.IntDot"/>) handles weights of
     /// <paramref name="type"/> with reduction length <paramref name="k"/>: q8-quantized activations, int8 dot products.
     /// </summary>
+    /// <remarks>
+    /// The matvec reads the quantized activation rows (k + k / 4 bytes) with 16-byte loads; where the target needs aligned vector loads
+    /// (<see cref="LoweringOptions.AlignedVectorAccess"/>) the rows must be a multiple of 16 bytes, i.e. k a multiple of 64.
+    /// </remarks>
     private bool UseIntDotMatvec(Node n, DataType type, long k)
         => QuantizedActivationsAllowed(n) && _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps)
+           && (!_opt.AlignedVectorAccess || k % 64 == 0)
            && (k % 256 == 0 && (type == ShaderTypes.Q8_0R || type == DataType.Q4_K || type == DataType.Q5_K || type == DataType.Q6_K)
                || k % 32 == 0 && DiagnosticSwitches.IntDotBlockFormats && s_intDotBlockFormats.Contains(type));
+
+    /// <summary>
+    /// True when the integer-dot expert matvec (<c>moe_mmvq</c>) handles the expert products of weights of <paramref name="type"/>: the
+    /// formats of <see cref="UseIntDotMatvec"/>, and the grid formats of ggml's low-bit quantizations (IQ2_XXS / IQ2_XS / IQ2_S / IQ3_XXS /
+    /// IQ3_S, 256-value super-blocks), whose decode matvec otherwise runs in f32 at about half the memory bandwidth and computes gate and up
+    /// in separate launches. Dense matmuls of those formats keep the f32 kernels.
+    /// </summary>
+    private bool UseIntDotExpertMatvec(Node n, DataType type, long k)
+        => UseIntDotMatvec(n, type, k)
+           || k % 256 == 0 && DiagnosticSwitches.IntDotGridFormats && s_intDotGridFormats.Contains(type)
+              && QuantizedActivationsAllowed(n) && _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps);
+
+    private static readonly HashSet<DataType> s_intDotGridFormats = [DataType.IQ2_XXS, DataType.IQ2_XS, DataType.IQ2_S, DataType.IQ3_XXS, DataType.IQ3_S];
 
     /// <summary>
     /// False for matmuls marked <see cref="StandardOps.F32ActivationsAttribute"/> (unless the compile allows reduced
@@ -77,11 +95,13 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Emits the activation quantization and the integer-dot matvec launches of a matmul (or of a dual matmul when
     /// <paramref name="weights"/> holds two matrices), both conditioned on the row count being in the int-dot range.
-    /// <paramref name="compile"/> builds the matvec entry from its macros (library or generated dual source).
+    /// <paramref name="compile"/> builds the matvec entry from its macros (library or generated dual or store-epilogue source);
+    /// <paramref name="epilogueArgs"/> are the tensors a store epilogue reads (<c>e0</c> .. <c>e2</c>).
     /// </summary>
     private void EmitIntDotMatvec(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights, TensorRef y,
-        long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile)
+        long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef[]? epilogueArgs = null)
     {
+        epilogueArgs ??= [];
         var w = weights[0];
         long minRows = IntDotFirstRow(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
@@ -112,8 +132,8 @@ public sealed partial class GraphLowerer
         }
 
         Emit($"{label} int-dot", nodes, variants,
-            [Pointer(quantized), .. weights.Select(Pointer), Pointer(y), TokenArg(x, rowsPerLead)],
-            [quantized, .. weights], [y]);
+            [Pointer(quantized), .. weights.Select(Pointer), Pointer(y), .. epilogueArgs.Select(Pointer), TokenArg(x, rowsPerLead)],
+            [quantized, .. weights, .. epilogueArgs], [y]);
     }
 
     /// <summary>
@@ -172,6 +192,22 @@ public sealed partial class GraphLowerer
             return normCopy.Copy;
         }
 
+        if (code == ActivationCode.Q8_1 && shareable && NormQ8Copy(root, x, xStride, k, rowsPerLead) is { } q8Copy)
+        {
+            // The norm writes the rows for steps up to q8Copy.MaxRows; larger steps of this reader's range quantize into the same rows.
+            if (_quantizedActivations.TryAdd(cacheKey, q8Copy.Copy) && maxRows > q8Copy.MaxRows)
+            {
+                long from = Math.Max(minRows, q8Copy.MaxRows + 1);
+                var extensionKey = (root, x.ByteOffset, xStride, k, from, maxRows, code, (object?)_launchCondition);
+                if (_quantizedActivations.TryAdd(extensionKey, q8Copy.Copy))
+                {
+                    EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, from, maxRows, code, q8Copy.Copy);
+                }
+            }
+
+            return q8Copy.Copy;
+        }
+
         if (code == ActivationCode.Fp8 && shareable && NormFp8Copy(root, x, xStride, k) is { } fp8Copy)
         {
             // The norm writes the rows from fp8Copy.MinRows rows on; smaller steps quantize into the same rows.
@@ -184,7 +220,13 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, ActivationCode.ScaledF16 => 2 * k + 16, _ => k + k / 4 }];
+        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.Fp4 => Fp4ActivationRowBytes(k), ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, ActivationCode.ScaledF16 => 2 * k + 16, _ => k + k / 4 }];
+        if (code == ActivationCode.Fp8)
+        {
+            // With the hand-written FP8 GEMM, room for the dense copy of the scales after the rows.
+            shape[0] = Fp8ActivationRows(rowsMax, shape[1]);
+        }
+
         if (code == ActivationCode.F16 && DiagnosticSwitches.F16RangeGuard)
         {
             // A row-ranged copy (x is no norm output, so its rows may exceed f16's range): the scale words follow the rows.
@@ -210,6 +252,11 @@ public sealed partial class GraphLowerer
             quantized = Temp(DataType.U8, shape, x.Symbol);
         }
 
+        if (code == ActivationCode.Fp8)
+        {
+            NoteDenseScales(quantized, rowsMax);
+        }
+
         if (code == ActivationCode.F16 && DiagnosticSwitches.F16RangeGuard)
         {
             _rangeScales[quantized] = rowsMax * k * 2;
@@ -230,7 +277,8 @@ public sealed partial class GraphLowerer
         bool ranged = code == ActivationCode.F16 && _rangeScales.ContainsKey(quantized);
         var kernel = code switch
         {
-            ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1))),
+            ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", QuantizeFp8Macros(k, xStride, quantized)),
+            ActivationCode.Fp4 => QuantizeFp4Kernel(k, xStride),
             ActivationCode.F16 when ranged => Lib("data.slang", "to_f16_ranged", Macros(("K", k), ("X_STRIDE", xStride), ("Y_RS", _rangeScales[quantized] + "ull"))),
             ActivationCode.F16 => Lib("data.slang", "to_f16", Macros(("K", k), ("X_STRIDE", xStride))),
             ActivationCode.SplitF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride))),
@@ -238,14 +286,26 @@ public sealed partial class GraphLowerer
             _ => Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1))),
         };
         long valuesPerThread = code == ActivationCode.F16 ? 8 : 4;
-        Func<Bindings, Grid> grid = code is ActivationCode.SplitF16 or ActivationCode.ScaledF16 || ranged
+        Func<Bindings, Grid> grid = code is ActivationCode.SplitF16 or ActivationCode.ScaledF16 or ActivationCode.Fp4 || ranged
             ? b => new Grid((uint)rows(b))
             : b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256));
-        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.F16 => ranged ? "ranged f16" : "f16", ActivationCode.SplitF16 => "split f16", ActivationCode.ScaledF16 => "scaled f16", _ => "q8" };
+        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.Fp4 => "fp4", ActivationCode.F16 => ranged ? "ranged f16" : "f16", ActivationCode.SplitF16 => "split f16", ActivationCode.ScaledF16 => "scaled f16", _ => "q8" };
         Emit($"{label} x→{what}", nodes,
             [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows && !(written?.Invoke(rows(b)) ?? false), kernel, grid)],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
             [x], [quantized]);
+    }
+
+    /// <summary>Macros of <c>quantize_fp8</c> writing <paramref name="quantized"/> (with its dense scale copy when it has one).</summary>
+    private Dictionary<string, string> QuantizeFp8Macros(long k, long xStride, TensorRef quantized)
+    {
+        var macros = Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1));
+        if (DenseScaleCapacityOf(quantized) is > 0 and var cap)
+        {
+            macros["DENSE_XCAP"] = cap.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return macros;
     }
 
     /// <summary>
@@ -311,6 +371,11 @@ public sealed partial class GraphLowerer
         }
 
         _halfCopies.Remove(root);
+        foreach (var source in _channelsLastCopies.Keys.Where(source => RootOf(source) == root).ToList())
+        {
+            _channelsLastCopies.Remove(source);
+        }
+
         foreach (var key in _quantizedActivations.Keys.Where(key => key.Root == root).ToList())
         {
             _quantizedActivations.Remove(key);

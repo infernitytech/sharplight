@@ -1,19 +1,11 @@
 {
   "entries": [
-    "qwen3-0.6b:q8-0-gguf",
-    "all-minilm-l6-v2:f32-safetensors",
-    "ms-marco-minilm-l6-v2:f32-safetensors",
-    "whisper-tiny:q5-1-whispercpp",
-    "silero-vad-v5:onnx"
+    "qwen3.5-122b-a10b:q6-k-gguf",
+    "qwen3.5-122b-a10b:fp8-safetensors",
+    "qwen3.8-flash-next:fp8-safetensors"
   ],
-  "channel": "stable",
-  "promote": [
-    "qwen3-0.6b.q8-0-gguf",
-    "all-minilm-l6-v2.f32-safetensors",
-    "ms-marco-minilm-l6-v2.f32-safetensors",
-    "whisper-tiny.q5-1-whispercpp",
-    "silero-vad-v5.onnx"
-  ],
+  "channel": "unstable",
+  "promote": [],
   "validityDays": 30,
-  "reason": "First publication of the model feed: a chat model, an embedder, a reranker, speech recognition and its voice activity detector, in unstable and promoted to stable."
+  "reason": "Publish the three largest mixture-of-experts variants with routed-expert figures (they needed more free disk on the runner than run 45054150496 had)."
 }

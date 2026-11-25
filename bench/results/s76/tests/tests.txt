@@ -1,0 +1,33 @@
+[lock acquired 22:35:27]
+== Cuda.Tests    Sharplight.Cuda.Tests  Total: 43, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 20.160s
+cuda MatMulEpilogueTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.510s
+cuda FusionTests:    Sharplight.Vulkan.Tests  Total: 97, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 22.656s
+cuda NormHalfCopyTests:    Sharplight.Vulkan.Tests  Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.562s
+cuda NormTests:    Sharplight.Vulkan.Tests  Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.027s
+cuda Fp8GemmTests:    Sharplight.Vulkan.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 13.686s
+cuda QuantFormatTests:    Sharplight.Vulkan.Tests  Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 14.100s
+cuda RowInvarianceTests:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.960s
+cuda MatMulTests:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.775s
+cuda SkinnyGemmTests:    Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.376s
+cuda MoeTests:    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 20.570s
+cuda MmqTests:    Sharplight.Vulkan.Tests  Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 125.134s
+cuda DualGemmTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 52.056s
+cuda SplitHalfGemmTests:    Sharplight.Vulkan.Tests  Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 58.357s
+cuda F16RangeTests:    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 38.996s
+cuda StreamedExpertsTests:    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 1.328s
+vulkan MatMulEpilogueTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 21.695s
+vulkan FusionTests:    Sharplight.Vulkan.Tests  Total: 97, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 34.707s
+vulkan NormHalfCopyTests:    Sharplight.Vulkan.Tests  Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.374s
+vulkan NormTests:    Sharplight.Vulkan.Tests  Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.653s
+vulkan Fp8GemmTests:    Sharplight.Vulkan.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 27.465s
+vulkan QuantFormatTests:    Sharplight.Vulkan.Tests  Total: 197, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 58.753s
+vulkan RowInvarianceTests:    Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 29.242s
+vulkan MatMulTests:    Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 28.226s
+vulkan SkinnyGemmTests:    Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 19.522s
+vulkan MoeTests:    Sharplight.Vulkan.Tests  Total: 119, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 36.357s
+vulkan MmqTests:    Sharplight.Vulkan.Tests  Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 74.655s
+vulkan DualGemmTests:    Sharplight.Vulkan.Tests  Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 35.601s
+vulkan SplitHalfGemmTests:    Sharplight.Vulkan.Tests  Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 48.850s
+vulkan F16RangeTests:    Sharplight.Vulkan.Tests  Total: 22, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 27.861s
+vulkan StreamedExpertsTests:    Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.929s
+[lock released 22:50:33 rc=0]

@@ -1,0 +1,6 @@
+# hold 03:14:00 apps: 
+Sharplight.Vulkan.Tests Fp8GemmTests rc=0 Total: 47, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests HazardOrderTests rc=0 Total: 4, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests Fp8BlockScaledTests rc=0 Total: 10, Errors: 0, Failed: 0, Skipped: 0
+Sharplight.Vulkan.Tests DualGemmTests rc=0 Total: 13, Errors: 0, Failed: 0, Skipped: 0
+# release 03:16:35

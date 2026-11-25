@@ -1,0 +1,66 @@
+Graph optimization (sharplight-ir/1): decode 1084 -> 1084 nodes, decode_embeddings 1083 -> 1083 nodes [37 ms]
+Loaded gpt-oss-20b (decoder): 412 tensors, 13.78 GB, vocab 201088 [3171 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Compiling 130 / 130, 130 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 13.78 / 13.78 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 27798 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 26 groups, 14.34 GiB weights+state
+1 segment(s): [0@0: 1085 nodes]
+Ready (decode)
+segment 0: 485 launches per step (cuda, one stream)
+--- prefill T=32768 profile, segment 0
+GPU time 2866.84 ms
+   905.440 ms  31.6%    384x  min   2208.9 us  matmul-id [32x2880→5760] mxfp4rx2 fused native gemm_moe_native T=2048,R=1
+   806.869 ms  28.1%    384x  min     51.1 us  attention attn_prefill_native T=2048,R=1
+   481.197 ms  16.8%    384x  min   1159.4 us  matmul-id [32x2880→2880] mxfp4r native +epilogue gemm_moe_native T=2048,R=1
+   161.978 ms   5.7%    384x  min    396.5 us  matmul [2880→4096] f16 gemm_cm2 T=2048,R=1
+   147.959 ms   5.2%    384x  min    358.2 us  matmul [4096→2880] f16 native gemm_f16_native T=2048,R=1
+    75.745 ms   2.6%    768x  min     43.4 us  moe-gather x→ranged f16 moe_gather_x16 T=2048,R=1
+    52.124 ms   1.8%    768x  min     56.8 us  matmul [2880→512] f16 split-k gemm_cm2 T=2048,R=1
+    43.421 ms   1.5%    384x  min    109.7 us  ReduceSum rowreduce_narrow T=2048,R=1
+    34.258 ms   1.2%    384x  min     66.7 us  fused[Add,Add]+RmsNorm main T=2048,R=1
+    32.736 ms   1.1%    384x  min     79.2 us  rope main T=2048,R=1
+    26.153 ms   0.9%    384x  min     50.8 us  fused[Add]+RmsNorm main T=2048,R=1
+    23.304 ms   0.8%     16x  min   1454.6 us  matmul [2880→201088] f16 matvec_sk T=2048,R=1
+    17.808 ms   0.6%    384x  min     42.9 us  fused[Add] main T=2048,R=1
+    10.227 ms   0.4%    384x  min     18.3 us  matmul [4096→2880] f16 x→ranged f16 to_f16_ranged T=2048,R=1
+     8.263 ms   0.3%   1152x  min      2.9 us  matmul split-k reduce fused[Add] splitk_reduce T=2048,R=1
+     7.885 ms   0.3%    384x  min     18.4 us  rope+cache_write rope_row T=2048,R=1
+     7.122 ms   0.2%    384x  min     16.7 us  matmul [2880→32] f16 split-k gemm_cm2 T=2048,R=1
+     6.299 ms   0.2%    384x  min     13.8 us  matmul [2880→32] f16 x→f16 to_f16 T=2048,R=1
+     5.936 ms   0.2%    768x  min      5.6 us  moe-route [32 experts] moe_route T=2048,R=1
+     4.687 ms   0.2%    384x  min     10.0 us  cache_write cache_write T=2048,R=1
+     2.420 ms   0.1%    384x  min      4.3 us  matmul [4096→2880] f16 f16 range f16_range_unscale T=2048,R=1
+     1.929 ms   0.1%    384x  min      3.4 us  topk topk_subgroup T=2048,R=1
+     1.754 ms   0.1%    384x  min      3.0 us  softmax softmax T=2048,R=1
+     1.037 ms   0.0%     32x  min      2.3 us  gather gather T=2048,R=1
+     0.223 ms   0.0%     16x  min     12.9 us  RmsNorm main T=2048,R=1
+     0.062 ms   0.0%     16x  min      2.6 us  sample sample T=2048,R=1
+
+--- decode x64 profile, segment 0
+GPU time 487.69 ms
+    89.890 ms  18.4%     64x  min   1402.9 us  matmul [2880→201088] f16 matvec_sk T=1,R=1
+    77.613 ms  15.9%   1536x  min      7.2 us  attention decode T=1,R=1
+    72.340 ms  14.8%   1536x  min     44.8 us  matmul-id [32x2880→5760] mxfp4r int-dot moe_mmvq T=1,R=1
+    51.092 ms  10.5%   1536x  min     31.2 us  matmul [2880→4096] f16 +bias matvec_sk T=1,R=1
+    50.554 ms  10.4%   1536x  min     31.0 us  matmul [4096→2880] f16 matvec_sk T=1,R=1
+    41.981 ms   8.6%   1536x  min     25.3 us  matmul-id-sum [32x2880→2880] mxfp4r fused[Add,Mul]+slot-sum int-dot moe_mmvq T=1,R=1
+    25.245 ms   5.2%   3072x  min      6.0 us  matmul [2880→512] f16 +bias matvec_sk T=1,R=1
+     7.561 ms   1.6%   1536x  min      2.0 us  attention combine decode_combine T=1,R=1
+     6.759 ms   1.4%   1536x  min      2.9 us  fused[Add] main T=1,R=1
+     6.728 ms   1.4%   1536x  min      2.8 us  fused[Add]+RmsNorm main T=1,R=1
+     6.727 ms   1.4%   1536x  min      3.0 us  fused[Add,Add]+RmsNorm main T=1,R=1
+     6.443 ms   1.3%   1536x  min      2.2 us  rope main T=1,R=1
+     6.427 ms   1.3%   1536x  min      2.0 us  matmul-id [32x2880→5760] mxfp4r x→q8 quantize_q8_1 T=1,R=1
+     6.362 ms   1.3%   1536x  min      2.8 us  matmul [2880→32] f16 +bias matvec_sk T=1,R=1
+     5.940 ms   1.2%   1536x  min      2.0 us  matmul-id-sum [32x2880→2880] mxfp4r fused[Add,Mul]+slot-sum x→q8 quantize_q8_1 T=1,R=1
+     5.726 ms   1.2%   1536x  min      2.1 us  softmax softmax T=1,R=1
+     5.403 ms   1.1%   1536x  min      2.1 us  rope+cache_write rope_row T=1,R=1
+     4.935 ms   1.0%   1536x  min      2.0 us  topk topk_subgroup T=1,R=1
+     4.516 ms   0.9%   1536x  min      1.7 us  fused[Clip,Clip,Scale,Sigmoid,Mul,Scale,Mul] main T=1,R=1
+     4.295 ms   0.9%   1536x  min      1.6 us  cache_write cache_write T=1,R=1
+     0.588 ms   0.1%    128x  min      2.7 us  gather gather T=1,R=1
+     0.304 ms   0.1%     64x  min      3.5 us  RmsNorm main T=1,R=1
+     0.265 ms   0.1%     64x  min      2.2 us  sample sample T=1,R=1
+
+prefill 32768 tok: best 2928 ms = 11193.2 tok/s | decode: best 101.85, median 97.39, mean 97.08 tok/s | GPU ms/step: best 7.42, median 7.65, wall best 9.82 | prefill median of 5: 2942.6 ms = 11135.6 tok/s

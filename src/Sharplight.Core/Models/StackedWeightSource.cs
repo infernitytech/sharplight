@@ -12,6 +12,14 @@ internal sealed class StackedWeightSource(IWeightSource[] parts) : IWeightSource
         }
     }
 
+    public void Release()
+    {
+        foreach (var part in parts)
+        {
+            part.Release();
+        }
+    }
+
     public void Read(long offset, Span<byte> destination)
     {
         while (destination.Length > 0)

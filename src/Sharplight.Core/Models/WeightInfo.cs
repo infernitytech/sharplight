@@ -20,6 +20,13 @@ public sealed class WeightInfo
     /// groups are contiguous only in the permuted order. Kept by renames and row slices; stacked or concatenated parts must agree.
     /// </summary>
     public int[]? InputOrder { get; init; }
+    /// <summary>
+    /// For a block-scaled matrix weight (one scale per row and block of columns, e.g. <see cref="DataType.F8E4M3_B128"/>): how many
+    /// consecutive rows of each matrix (the second-to-last axis, counted from its row 0) are known to share every block's scale, as
+    /// checkpoints with 128 x 128 scale blocks have them; 0 when unknown. Kernels may then read one scale per row group. Kept by the
+    /// views below only where the groups stay aligned; stored in packages.
+    /// </summary>
+    public int ScaleRowBlock { get; init; }
     /// <summary>Size of the tensor in bytes, from <see cref="Type"/> and <see cref="Shape"/>.</summary>
     public long ByteSize => Type.ByteSize(Shape.Elements());
     /// <inheritdoc/>
@@ -33,7 +40,7 @@ public sealed class WeightInfo
     /// <param name="name">Weight name.</param>
     /// <param name="type">Storage type.</param>
     /// <param name="shape">Logical shape.</param>
-    /// <param name="produce">Computes the bytes on first read; the result is cached for the lifetime of the weight.</param>
+    /// <param name="produce">Computes the bytes on first read; the result is cached until <see cref="IWeightSource.Release"/> (a package writer releases it after writing the weight).</param>
     public static WeightInfo Derived(string name, DataType type, Shape shape, Func<byte[]> produce)
         => new() { Name = name, Type = type, Shape = shape, Source = new DerivedWeightSource(type.ByteSize(shape.Elements()), produce) };
 
@@ -54,7 +61,26 @@ public sealed class WeightInfo
             throw new ArgumentException($"{Name}: a weight with an input order cannot change its last dimension ({Shape} as {s}).");
         }
 
-        return new() { Name = name, Type = Type, Shape = s, Source = Source, InputOrder = InputOrder };
+        return new() { Name = name, Type = Type, Shape = s, Source = Source, InputOrder = InputOrder, ScaleRowBlock = ViewScaleRowBlock(s) };
+    }
+
+    /// <summary><see cref="ScaleRowBlock"/> of a view of this tensor as <paramref name="shape"/> (the same elements, row-major).</summary>
+    private int ViewScaleRowBlock(Shape shape)
+    {
+        int block = ScaleRowBlock;
+        if (block <= 0 || shape.Rank < 2 || Shape.Rank < 2 || !shape[-1].Equals(Shape[-1]) || shape[-2].IsSymbolic || Shape[-2].IsSymbolic)
+        {
+            return 0;
+        }
+
+        return Shape[-2].Fixed % block == 0 && shape[-2].Fixed % block == 0 ? block : 0;
+    }
+
+    /// <summary>The <see cref="ScaleRowBlock"/> shared by all <paramref name="parts"/> (0 when they differ or <paramref name="aligned"/> fails for one).</summary>
+    private static int CommonScaleRowBlock(IReadOnlyList<WeightInfo> parts, Func<WeightInfo, bool> aligned)
+    {
+        int block = parts[0].ScaleRowBlock;
+        return block > 0 && parts.All(w => w.ScaleRowBlock == block && aligned(w)) ? block : 0;
     }
 
     /// <summary>
@@ -85,6 +111,8 @@ public sealed class WeightInfo
         {
             Name = name, Type = Type, Shape = new Shape(dims), Source = new SliceWeightSource(Source, firstRow * rowBytes, rows * rowBytes),
             InputOrder = InputOrder,
+            // Slices of a stack keep whole matrices; slices of a matrix keep the groups where they start on one.
+            ScaleRowBlock = Shape.Rank > 2 || (ScaleRowBlock > 0 && firstRow % ScaleRowBlock == 0) ? ScaleRowBlock : 0,
         };
     }
 
@@ -116,6 +144,7 @@ public sealed class WeightInfo
         {
             Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]),
             InputOrder = CommonInputOrder(name, parts),
+            ScaleRowBlock = first.Shape.Rank >= 2 ? CommonScaleRowBlock(parts, _ => true) : 0,
         };
     }
 
@@ -151,6 +180,8 @@ public sealed class WeightInfo
         {
             Name = name, Type = first.Type, Shape = new Shape(dims), Source = new ConcatenatedWeightSource([.. parts.Select(w => w.Source)]),
             InputOrder = CommonInputOrder(name, parts),
+            // Matrices joined by rows keep the groups where every part holds whole groups; stacks joined by matrices keep them.
+            ScaleRowBlock = CommonScaleRowBlock(parts, w => w.Shape.Rank > 2 || w.Shape[0].Fixed % w.ScaleRowBlock == 0),
         };
     }
 

@@ -37,6 +37,8 @@ internal sealed unsafe class MetalDevice : IComputeDevice
     /// <summary>Wrapped file mappings by start address (see <see cref="TryWrapMapping"/>).</summary>
     private readonly Dictionary<nint, MappingEntry> _mappings = [];
     private readonly long _budget;
+    /// <summary>The caps of <see cref="DeviceOptions.MemoryLimits"/> and the environment (Metal memory is unified: no BAR window, no pinned staging).</summary>
+    private readonly DeviceMemoryLimits _limits;
     private long _used;
     private bool _disposed;
 
@@ -48,11 +50,12 @@ internal sealed unsafe class MetalDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
         ArtifactStore = ArtifactStore.For(options);
         Code = new MetalCodeGenerator(properties.MaxSharedMemory, EnabledFeatures,
-            MetalCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options),
-            MetalCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options), 0);
+            options.ResolveSubmissionBudgetMs(info.SubmissionBudgetMs),
+            options.ResolveConcurrentWorkgroups(info.ConcurrentWorkgroups), 0);
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
         ArtifactTargets = _kernelBinaries ? [Code.CreateCodeTarget(info.Provider), CreateArchiveTarget()] : [Code.CreateCodeTarget(info.Provider)];
-        _budget = options.MemoryBudget ?? info.TotalMemory;
+        _limits = DeviceMemoryLimits.For(options);
+        _budget = options.MemoryBudget ?? DeviceMemoryLimits.Apply(info.TotalMemory, _limits.DeviceMemory);
         Queue = ObjCRuntime.Send(properties.Handle, Selectors.NewCommandQueue);
         if (Queue == 0)
         {
@@ -96,7 +99,7 @@ internal sealed unsafe class MetalDevice : IComputeDevice
     {
         long ours = Interlocked.Read(ref _used);
         long allocated = (long)ObjCRuntime.SendUInt64(Properties.Handle, Selectors.CurrentAllocatedSize);
-        return new DeviceMemoryInfo(Info.TotalMemory, _budget, Math.Max(ours, allocated), ours, false);
+        return new DeviceMemoryInfo(DeviceMemoryLimits.Apply(Info.TotalMemory, _limits.DeviceMemory), _budget, Math.Max(ours, allocated), ours, false);
     }
 
     public OpSupport Supports(Node node) => GraphLowerer.Supports(node);
@@ -445,14 +448,32 @@ internal sealed unsafe class MetalDevice : IComputeDevice
         [BinaryArchiveKey]);
 
     /// <summary>Allocates a zero-filled shared buffer of at least 16 bytes.</summary>
-    /// <exception cref="OutOfMemoryException">Metal could not allocate the buffer.</exception>
-    internal MetalBuffer Allocate(long bytes)
+    /// <param name="bytes">The size.</param>
+    /// <param name="purpose">What the buffer holds, for the error message.</param>
+    /// <exception cref="DeviceOutOfMemoryException">
+    /// Metal could not allocate the buffer, it exceeds the device's largest buffer (or <see cref="DeviceMemoryLimits.MaxAllocation"/>), or
+    /// it would exceed <see cref="DeviceMemoryLimits.DeviceMemory"/>.
+    /// </exception>
+    internal MetalBuffer Allocate(long bytes, string? purpose = null)
     {
         long size = Math.Max(16, bytes);
+        long largest = DeviceMemoryLimits.Apply(Properties.MaxBufferBytes > 0 ? Properties.MaxBufferBytes : long.MaxValue, _limits.MaxAllocation);
+        string details = $"Device: {Info.TotalMemory / 1048576} MiB, Sharplight {Interlocked.Read(ref _used) / 1048576} MiB, largest buffer {largest / 1048576} MiB."
+            + (_limits.IsEmpty ? "" : $" Limits: {_limits}.");
+        if (size > largest)
+        {
+            throw new DeviceOutOfMemoryException(Info.Name, purpose ?? "a buffer", size, "The buffer exceeds the device's largest buffer. " + details);
+        }
+
+        if (_limits.DeviceMemory is { } cap && Interlocked.Read(ref _used) + size > cap)
+        {
+            throw new DeviceOutOfMemoryException(Info.Name, purpose ?? "a buffer", size, "The device memory limit is reached. " + details);
+        }
+
         nint handle = ObjCRuntime.Send(Properties.Handle, Selectors.NewBufferWithLength, (nuint)size, MetalConstants.SharedUntracked);
         if (handle == 0)
         {
-            throw new OutOfMemoryException($"Metal device {Info.Name}: cannot allocate a buffer of {size} bytes.");
+            throw new DeviceOutOfMemoryException(Info.Name, purpose ?? "a buffer", size, details);
         }
 
         Interlocked.Add(ref _used, size);

@@ -1,0 +1,40 @@
+[hold 13:56:51] ./t64.sh
+85 %, 2 MiB, 114.26 W
+  check T=32: max err 0.119 of max 1.94e+04
+  check T=64: max err 0.0605 of max 1.72e+04
+T=   64 items=   256 tiles=  32 K=2880 N=2880 dual=1 BM=64 BN=128: 0.401 ms 21.2 TFLOPS
+-- vllm64_words.txt
+gu 32-row all                energy: 8 passes 3.56 s: 0.3038 ms per routing, 201.3 W, 61.198 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2620 nJ per weight byte, SM 1859 MHz, memory 13365
+gu 64-row all                energy: 8 passes 3.63 s: 0.3093 ms per routing, 198.0 W, 61.278 mJ per routing, 213.5 MB weights per routing (tile reads), 0.2870 nJ per weight byte, SM 1822 MHz, memory 13365
+gu 32-row experts<=32        energy: 8 passes 3.07 s: 0.2621 ms per routing, 201.0 W, 52.708 mJ per routing, 193.5 MB weights per routing (tile reads), 0.2724 nJ per weight byte, SM 1933 MHz, memory 13365
+gu 64-row experts>32         energy: 38 passes 3.05 s: 0.0548 ms per routing, 197.8 W, 10.854 mJ per routing, 20.0 MB weights per routing (tile reads), 0.5420 nJ per weight byte, SM 2350 MHz, memory 13365
+dn 32-row all                energy: 14 passes 3.35 s: 0.1635 ms per routing, 201.8 W, 33.006 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2826 nJ per weight byte, SM 2038 MHz, memory 1336
+dn 64-row all                energy: 12 passes 3.29 s: 0.1869 ms per routing, 191.5 W, 35.816 mJ per routing, 106.8 MB weights per routing (tile reads), 0.3355 nJ per weight byte, SM 2198 MHz, memory 1336
+dn 32-row experts<=32        energy: 14 passes 3.04 s: 0.1480 ms per routing, 201.7 W, 29.866 mJ per routing, 96.8 MB weights per routing (tile reads), 0.3087 nJ per weight byte, SM 2179 MHz, memory 13365
+dn 64-row experts>32         energy: 50 passes 3.06 s: 0.0417 ms per routing, 188.1 W, 7.857 mJ per routing, 10.0 MB weights per routing (tile reads), 0.7846 nJ per weight byte, SM 2759 MHz, memory 13365 
+-- routes64_text.txt
+gu 32-row all                energy: 42 passes 3.12 s: 0.3437 ms per routing, 195.4 W, 67.188 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2690 nJ per weight byte, SM 1980 MHz, memory 1336
+gu 64-row all                energy: 42 passes 3.08 s: 0.3397 ms per routing, 200.0 W, 67.972 mJ per routing, 240.0 MB weights per routing (tile reads), 0.2832 nJ per weight byte, SM 1824 MHz, memory 1336
+gu 32-row experts<=32        energy: 46 passes 3.07 s: 0.3085 ms per routing, 195.1 W, 60.257 mJ per routing, 230.2 MB weights per routing (tile reads), 0.2617 nJ per weight byte, SM 1937 MHz, memory 1336
+gu 64-row experts>32         energy: 458 passes 3.01 s: 0.0304 ms per routing, 198.7 W, 6.044 mJ per routing, 9.8 MB weights per routing (tile reads), 0.6198 nJ per weight byte, SM 2436 MHz, memory 13365 
+dn 32-row all                energy: 80 passes 3.02 s: 0.1746 ms per routing, 198.0 W, 34.605 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2771 nJ per weight byte, SM 2003 MHz, memory 1336
+dn 64-row all                energy: 72 passes 3.07 s: 0.1974 ms per routing, 201.8 W, 39.847 mJ per routing, 120.0 MB weights per routing (tile reads), 0.3321 nJ per weight byte, SM 2125 MHz, memory 1336
+dn 32-row experts<=32        energy: 84 passes 3.04 s: 0.1676 ms per routing, 203.6 W, 34.136 mJ per routing, 115.1 MB weights per routing (tile reads), 0.2965 nJ per weight byte, SM 2063 MHz, memory 1336
+dn 64-row experts>32         energy: 482 passes 3.01 s: 0.0289 ms per routing, 160.1 W, 4.624 mJ per routing, 4.9 MB weights per routing (tile reads), 0.9484 nJ per weight byte, SM 2782 MHz, memory 13365 
+-- vllm64_words.txt
+gu 32-row all                energy: 8 passes 3.58 s: 0.3054 ms per routing, 200.9 W, 61.395 mJ per routing, 233.6 MB weights per routing (tile reads), 0.2629 nJ per weight byte, SM 1826 MHz, memory 13365
+gu 64-row all                energy: 8 passes 3.66 s: 0.3121 ms per routing, 196.0 W, 61.203 mJ per routing, 213.5 MB weights per routing (tile reads), 0.2866 nJ per weight byte, SM 1809 MHz, memory 13365
+gu 32-row experts<=32        energy: 8 passes 3.08 s: 0.2630 ms per routing, 200.6 W, 52.801 mJ per routing, 193.5 MB weights per routing (tile reads), 0.2729 nJ per weight byte, SM 1908 MHz, memory 13365
+gu 64-row experts>32         energy: 40 passes 3.06 s: 0.0522 ms per routing, 202.1 W, 10.549 mJ per routing, 20.0 MB weights per routing (tile reads), 0.5267 nJ per weight byte, SM 2235 MHz, memory 13365
+dn 32-row all                energy: 14 passes 3.36 s: 0.1640 ms per routing, 200.5 W, 32.896 mJ per routing, 116.8 MB weights per routing (tile reads), 0.2817 nJ per weight byte, SM 1993 MHz, memory 1336
+dn 64-row all                energy: 12 passes 3.20 s: 0.1822 ms per routing, 199.0 W, 36.267 mJ per routing, 106.8 MB weights per routing (tile reads), 0.3397 nJ per weight byte, SM 2137 MHz, memory 1336
+dn 32-row experts<=32        energy: 16 passes 3.40 s: 0.1452 ms per routing, 198.8 W, 28.883 mJ per routing, 96.8 MB weights per routing (tile reads), 0.2985 nJ per weight byte, SM 2088 MHz, memory 13365
+dn 64-row experts>32         energy: 52 passes 3.03 s: 0.0398 ms per routing, 203.7 W, 8.107 mJ per routing, 10.0 MB weights per routing (tile reads), 0.8096 nJ per weight byte, SM 2726 MHz, memory 13365 
+-- routes64_text.txt
+gu 32-row all                energy: 42 passes 3.00 s: 0.3308 ms per routing, 199.5 W, 66.056 mJ per routing, 249.7 MB weights per routing (tile reads), 0.2645 nJ per weight byte, SM 1843 MHz, memory 1336
+gu 64-row all                energy: 42 passes 3.11 s: 0.3420 ms per routing, 199.6 W, 68.306 mJ per routing, 240.0 MB weights per routing (tile reads), 0.2846 nJ per weight byte, SM 1796 MHz, memory 1336
+gu 32-row experts<=32        energy: 46 passes 3.08 s: 0.3093 ms per routing, 201.3 W, 62.322 mJ per routing, 230.2 MB weights per routing (tile reads), 0.2707 nJ per weight byte, SM 1876 MHz, memory 1336
+gu 64-row experts>32         energy: 456 passes 3.01 s: 0.0305 ms per routing, 199.0 W, 6.083 mJ per routing, 9.8 MB weights per routing (tile reads), 0.6238 nJ per weight byte, SM 2421 MHz, memory 13365 
+dn 32-row all                energy: 80 passes 3.03 s: 0.1751 ms per routing, 197.5 W, 34.607 mJ per routing, 124.9 MB weights per routing (tile reads), 0.2771 nJ per weight byte, SM 1986 MHz, memory 1336
+dn 64-row all                energy: 70 passes 3.00 s: 0.1984 ms per routing, 199.6 W, 39.640 mJ per routing, 120.0 MB weights per routing (tile reads), 0.3304 nJ per weight byte, SM 2114 MHz, memory 1336
+dn 32-row experts<=32        

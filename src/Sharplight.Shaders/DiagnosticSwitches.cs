@@ -11,9 +11,18 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_COMPILE_THREADS=n</c>: number of kernels compiled with Slang at the same time (default: half the processor
 /// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
+/// <item><c>SHARPLIGHT_NO_TOPK_REGISTER_ROW=1</c>: the router top-k keeps per-lane sorted lists instead of the row in registers.</item>
+/// <item><c>SHARPLIGHT_NO_GROUPED_KEY_HEADS=1</c>: materialize the in-place head repeats (Tile) of a delta rule's q / k instead of
+/// reading key head h / repeats in the kernel.</item>
+/// <item><c>SHARPLIGHT_NO_NORM_Q8_COPY=1</c>: int-dot matvecs quantize a row norm's output with their own launch instead of reading
+/// q8_1 rows the norm wrote (decode steps).</item>
+/// <item><c>SHARPLIGHT_NO_INT_DOT_EPILOGUE=1</c>: run the elementwise group consuming a matmul of int-dot weights (activation, gates)
+/// as its own launch instead of in the int-dot matvec's store.</item>
 /// <item><c>SHARPLIGHT_GEMM_SG=0</c>: devices with only 8x8 subgroup matrices (Metal) run prefill matmuls on the SIMT GEMM instead of
 /// <c>gemm_sg</c>.</item>
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
+/// <item><c>SHARPLIGHT_NORM_WIDE=0</c>: fused row norms of 4096 values and more keep 256-thread workgroups at decode-size steps on
+/// CUDA instead of 1024; <c>SHARPLIGHT_NORM_THREADS=n</c>: threads per workgroup of every fused row norm (experiments).</item>
 /// <item><c>SHARPLIGHT_NO_CONV_EPILOGUE=1</c>: run the elementwise group consuming a convolution (activation, residual add) as its
 /// own launch instead of in the convolution's store.</item>
 /// <item><c>SHARPLIGHT_NO_MATMUL_EPILOGUE=1</c>: run the elementwise group consuming a weight matmul (bias, activation, residual
@@ -48,12 +57,16 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MMQ_CFG</c>, <c>SHARPLIGHT_MMQ_CFG64=wm,wn,fm,fn</c>: force the layout of the 128- and 64-token int8 GEMM
 /// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.
 /// <c>SHARPLIGHT_MMQ_BK=32|64|128</c>: preferred K step of the int8 GEMM (default 128, 64 for Q6_K).</item>
+/// <item><c>SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS=n</c>: rows from which matmuls run on the vendor GEMM library (DeviceFeatures.LibraryGemm;
+/// default 256).</item>
 /// <item><c>SHARPLIGHT_FP8_GEMM=0</c>: run prefill matmuls with block-scaled E4M3 weights on the f16 tensor-core GEMM instead of the
 /// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.
 /// <c>SHARPLIGHT_FP8_GEMM_MIN_ROWS=n</c>: activation rows from which the fp8 GEMM serves a matmul (default 17).
 /// <c>SHARPLIGHT_FP8_DUAL=0</c>: run gate/up style matmul pairs as two fp8 GEMMs plus the elementwise launch instead of one
 /// dual fp8 GEMM with the elementwise group as its epilogue. <c>SHARPLIGHT_FP8_DUAL_MAX_ROWS=n</c>: largest batch it serves
 /// (default: every batch for which the separate GEMMs would not split K, and 17-64 rows).</item>
+/// <item><c>SHARPLIGHT_NATIVE_GEMM_MIN_ROWS=n</c>: activation rows from which the hand-written provider GEMMs serve a matmul
+/// (DeviceFeatures.NativeGemmFp8; default 256).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM_WIDE=0</c>: keep large SIMT (f32) matmuls on the 64 x 64 gemm tile instead of the 128 x 128 gemm_wide;
 /// <c>=force</c> also uses gemm_wide on devices whose workgroup memory it would fill.</item>
@@ -110,6 +123,15 @@ namespace Sharplight.Shaders;
 /// column tile) instead of reading the expert-sorted f16 rows written once per routing by <c>moe_gather_x16</c>.</item>
 /// <item><c>SHARPLIGHT_MOE_SKINNY=n</c>: average items per expert up to which the expert-grouped skinny GEMM serves the grouped
 /// expert products (0: gemm_cm2 at every size).</item>
+/// <item><c>SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n</c>: wide expert tiles of the direct skinny GEMM (experiment, off by default).</item>
+/// <item><c>SHARPLIGHT_MOE_BIAS_EPILOGUE=0</c>: add the routed experts' bias rows to a grouped expert product in a separate
+/// launch instead of in the grouped GEMM's store.</item>
+/// <item><c>SHARPLIGHT_MOE_DUAL=n</c>: gate / up expert pairs on one dual launch storing the elementwise group (bit 0 grouped
+/// gemm_cm2, bit 1 expert-grouped skinny GEMM; default 3, 0: two launches and the group's).</item>
+/// <item><c>SHARPLIGHT_SPLITK_EPILOGUE=0</c>: run a matmul's bias / residual group as its own launch instead of in the split-K
+/// reduction of the f16 tensor-core GEMM.</item>
+/// <item><c>SHARPLIGHT_FP8_SHORT_TILES=1</c>: the fp8 GEMM takes 64-row tiles at 129-192 and 257-320 rows (opt-in).</item>
+/// <item><c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS=n</c>: the int8 / fp8 GEMMs take 64-row tiles exactly up to n rows.</item>
 /// <item><c>SHARPLIGHT_CONV_NO_MATRIX=1</c>: run convolutions on the SIMT conv_gemm instead of the cooperative-matrix conv_cm.</item>
 /// </list>
 /// </summary>
@@ -129,6 +151,45 @@ internal static class DiagnosticSwitches
     /// slots in one decode launch).
     /// </summary>
     public static bool NoExpertSum { get; } = IsSet("SHARPLIGHT_NO_EXPERT_SUM");
+
+    /// <summary>Keeps the router's softmax, top-k and weight normalization in separate launches (<c>SHARPLIGHT_NO_ROUTER_FUSION=1</c>).</summary>
+    public static bool NoRouterFusion { get; } = IsSet("SHARPLIGHT_NO_ROUTER_FUSION");
+
+    /// <summary>The router top-k keeps per-lane sorted lists instead of its row in registers (<c>SHARPLIGHT_NO_TOPK_REGISTER_ROW=1</c>).</summary>
+    public static bool NoTopKRegisterRow { get; } = IsSet("SHARPLIGHT_NO_TOPK_REGISTER_ROW");
+
+    /// <summary>
+    /// Leaves the biases of int-dot q / k / v projections to their own launch after the multi-output GEMM instead of its store
+    /// (<c>SHARPLIGHT_NO_INT_DOT_MULTI_BIAS=1</c>).
+    /// </summary>
+    public static bool NoIntDotMultiBias { get; } = IsSet("SHARPLIGHT_NO_INT_DOT_MULTI_BIAS");
+
+    /// <summary>
+    /// Tiles ahead each warp of the native decode attention prefetches its key and value rows into L2 (<c>SHARPLIGHT_ATTN_DECODE_PF=n</c>,
+    /// 0 turns it off; unset: the kernel's default of one tile).
+    /// </summary>
+    public static int? AttentionDecodePrefetch { get; } = int.TryParse(Read("SHARPLIGHT_ATTN_DECODE_PF"), out int n) ? n : null;
+
+    /// <summary>Lowers a layer's query rope, key rope + cache write and value cache write as separate launches (<c>SHARPLIGHT_NO_ROPE_QKV=1</c>).</summary>
+    public static bool NoRopeQkv { get; } = IsSet("SHARPLIGHT_NO_ROPE_QKV");
+
+    /// <summary>
+    /// Rows per warp of <c>rope_qkv</c>'s warp form (<c>SHARPLIGHT_ROPE_QKV_WARP=n</c>; 0 keeps the 64-thread workgroups per row; unset:
+    /// the lowering's default).
+    /// </summary>
+    public static int? RopeQkvWarpRows { get; } = Read("SHARPLIGHT_ROPE_QKV_WARP") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>Names the attention layers whose ropes and cache writes stay separate launches, and why (<c>SHARPLIGHT_ROPE_QKV_DEBUG=1</c>).</summary>
+    public static bool RopeQkvDebug { get; } = Read("SHARPLIGHT_ROPE_QKV_DEBUG") == "1";
+
+    /// <summary>Materializes the in-place head repeats of a delta rule's q / k (<c>SHARPLIGHT_NO_GROUPED_KEY_HEADS=1</c>).</summary>
+    public static bool NoGroupedKeyHeads { get; } = IsSet("SHARPLIGHT_NO_GROUPED_KEY_HEADS");
+
+    /// <summary>Row norms do not write the q8_1 rows of the int-dot matvecs reading them (<c>SHARPLIGHT_NO_NORM_Q8_COPY=1</c>).</summary>
+    public static bool NoNormQ8Copy { get; } = IsSet("SHARPLIGHT_NO_NORM_Q8_COPY");
+
+    /// <summary>Elementwise groups after a matmul of int-dot weights run as their own launch (<c>SHARPLIGHT_NO_INT_DOT_EPILOGUE=1</c>).</summary>
+    public static bool NoIntDotEpilogue { get; } = IsSet("SHARPLIGHT_NO_INT_DOT_EPILOGUE");
 
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");
@@ -160,6 +221,9 @@ internal static class DiagnosticSwitches
     /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
     public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");
 
+    /// <summary>False keeps the grid formats (IQ2 / IQ3) of routed experts off the integer-dot expert matvec (<c>SHARPLIGHT_MMVQ_GRID=0</c>).</summary>
+    public static bool IntDotGridFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_GRID");
+
     /// <summary>Disables merging elementwise groups along data flow.</summary>
     public static bool NoGroupMerge { get; } = IsSet("SHARPLIGHT_NO_GROUP_MERGE");
 
@@ -177,6 +241,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Repack block-scaled FP8 weights into the aligned split layout (<c>SHARPLIGHT_REPACK_FP8=0</c> disables).</summary>
     public static bool Fp8Repack { get; } = IsNotZero("SHARPLIGHT_REPACK_FP8");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_GROUPED</c>: 1 stores block-scaled E4M3 matrices in the 128-row groups (<c>WeightRepack.Fp8B128Grouped</c>) on
+    /// every target, 0 on none; unset: where the hand-written FP8 GEMM reads them (CUDA).
+    /// </summary>
+    public static bool? Fp8Grouped { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_FP8_GROUPED") is { } v ? v != "0" : null;
 
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
@@ -196,6 +266,9 @@ internal static class DiagnosticSwitches
     /// <summary>Activation rows from which the int8 GEMM serves a matmul.</summary>
     public static long? MmqMinRows { get; } = Read("SHARPLIGHT_MMQ_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>Activation rows from which the vendor GEMM library serves a matmul, or null for the default.</summary>
+    public static long? LibraryGemmMinRows { get; } = Read("SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS") is { } lv ? long.Parse(lv, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Activation rows from which the fp8 GEMM serves a matmul, or null for the default.</summary>
     public static long? Fp8GemmMinRows { get; } = Read("SHARPLIGHT_FP8_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
@@ -210,6 +283,58 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when the int8 GEMM always scales its accumulators per element.</summary>
     public static bool MmqGenericLayout { get; } = IsSet("SHARPLIGHT_MMQ_GENERIC");
+
+    /// <summary>Activation rows from which the hand-written provider GEMMs serve a matmul, or null for the default.</summary>
+    public static long? NativeGemmMinRows { get; } = Read("SHARPLIGHT_NATIVE_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// Average routed rows per expert from which the hand-written grouped MXFP4 expert GEMM serves an expert product
+    /// (<c>SHARPLIGHT_NATIVE_MOE_MIN_ROWS</c>), or null for the default.
+    /// </summary>
+    public static long? NativeMoeMinRows { get; } = Read("SHARPLIGHT_NATIVE_MOE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_TMA=0</c> keeps the 128-row tiles of the hand-written FP8 GEMM on its per-thread-copy form
+    /// (<c>gemm_fp8_native.cu</c>) where the device has <c>tensor_copies</c> (default: the warp-specialized <c>gemm_fp8_tma.cu</c>).
+    /// </summary>
+    public static bool NativeFp8Tma { get; } = IsNotZero("SHARPLIGHT_FP8_TMA");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_WG=0</c> runs <c>gemm_fp8_tma.cu</c> in its 9-warp form (one copy warp, 168 registers per computing thread)
+    /// instead of the copy warpgroup that hands its registers to the computing warps (<c>F8N_WG</c>, the default where the device has
+    /// <c>register_reallocation</c>). Off by default in benchmarks.md section 92, when the copy warpgroup's multi-output launch changed
+    /// from run to run with NVRTC's machine code; the cause was the missing proxy fence between the computing warps' reads of a stage
+    /// and the next tensor copy into it (section 93).
+    /// </summary>
+    public static bool Fp8CopyWarpgroup { get; } = IsNotZero("SHARPLIGHT_FP8_WG");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_UNIFORM_SCALES=0</c>: <c>gemm_fp8_tma.cu</c> promotes every K block with per-row weight scales even for weights
+    /// whose 128-row groups share each block's scale (default: one weight scale per group, <c>F8N_WUNI</c>; the same results).
+    /// </summary>
+    public static bool Fp8UniformScales { get; } = IsNotZero("SHARPLIGHT_FP8_UNIFORM_SCALES");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_ATTN</c>: which causal prefill attentions run on the hand-written flash-attention kernel
+    /// (<c>attn_prefill_native.cu</c>) where the device has <c>native_attention</c>: <c>0</c> none, <c>1</c> (default) all it serves,
+    /// <c>2</c> only those the generated <c>fe</c> kernel does not serve (windows, chunks, soft caps, sinks).
+    /// </summary>
+    public static int NativeAttention { get; } = Read("SHARPLIGHT_NATIVE_ATTN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : 1;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_DECODE=0</c>: split-K decode attention stays on the generated <c>decode</c> kernel instead of <c>attn_decode_native.cu</c>.</summary>
+    public static bool NativeDecodeAttention { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE");
+
+    /// <summary>
+    /// True (default) when decode rows of head sizes 256 and 512 run the wide form of the hand-written decode attention
+    /// (<c>SHARPLIGHT_NATIVE_DECODE_WIDE=0</c> keeps the generated <c>decode</c> for them).
+    /// </summary>
+    public static bool NativeWideDecodeAttention { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE_WIDE");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_TALL_COST</c>: time of a 128-row block of the hand-written FP8 GEMM relative to a 64-row one in its tile
+    /// choice, or null for the default.
+    /// </summary>
+    public static double? NativeFp8TallCost { get; } = Read("SHARPLIGHT_FP8_TALL_COST") is { } v ? double.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>False keeps E4M3-weight prefill matmuls off the fp8 tensor-core GEMM.</summary>
     public static bool Fp8Gemm { get; } = IsNotZero("SHARPLIGHT_FP8_GEMM");
@@ -255,6 +380,12 @@ internal static class DiagnosticSwitches
     /// <summary>False keeps small-batch matmuls off the skinny tensor-core GEMM.</summary>
     public static bool SkinnyGemm { get; } = IsNotZero("SHARPLIGHT_SKINNY_GEMM");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_L2_PREFETCH=n</c>: K blocks of its weight rows each block of the hand-written FP8 GEMM's decode form asks L2 for
+    /// before it waits for the previous launch (0: none), or null for the default.
+    /// </summary>
+    public static int? Fp8L2Prefetch { get; } = Read("SHARPLIGHT_FP8_L2_PREFETCH") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Forced largest row count of the skinny GEMM, or null for the default.</summary>
     public static long? SkinnyGemmMaxRows { get; } = Read("SHARPLIGHT_SKINNY_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
@@ -291,6 +422,12 @@ internal static class DiagnosticSwitches
     /// <summary>True when tensor-core GEMMs read an f16 copy of the activations.</summary>
     public static bool GemmHalfActivations { get; } = IsNotZero("SHARPLIGHT_GEMM_X16");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_GEMM2_TILE48=0</c>: batches of 33-48 rows on gemm_cm2 take 64-token tiles instead of 48-token tiles (one 4-warp
+    /// subgroup row of three 16-row fragments).
+    /// </summary>
+    public static bool Gemm2Tile48 { get; } = IsNotZero("SHARPLIGHT_GEMM2_TILE48");
+
     /// <summary>False runs f16 / bf16 matmul pairs (gate / up) at prefill as two gemm_cm2 launches and an elementwise launch.</summary>
     public static bool DualGemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2_DUAL");
 
@@ -316,11 +453,56 @@ internal static class DiagnosticSwitches
     public static IReadOnlyDictionary<string, string> AttentionExtraMacros { get; } = (Read("SHARPLIGHT_FE_MACROS") ?? "")
         .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
 
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_DECODE_Q8=0</c>: decode rows of head sizes 256 / 512 over q8_0 caches keep the generated <c>decode</c> instead of
+    /// the wide form of <c>attn_decode_native.cu</c> with raw q8_0 tiles (CUDA).
+    /// </summary>
+    public static bool NativeWideDecodeQ8 { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE_Q8");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_DECODE_F8=0</c>: decode rows of head sizes 64 / 128 over f8e4m3_b32 caches keep the generated <c>decode</c> instead
+    /// of <c>attn_decode_native.cu</c> with raw FP8 chunks (CUDA).
+    /// </summary>
+    public static bool NativeDecodeFp8 { get; } = IsNotZero("SHARPLIGHT_NATIVE_DECODE_F8");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_ATTN_F8=0</c>: prompt rows over f8e4m3_b32 caches keep the generated flash kernels instead of
+    /// <c>attn_prefill_native.cu</c> with raw FP8 stages (CUDA).
+    /// </summary>
+    public static bool NativeAttentionFp8 { get; } = IsNotZero("SHARPLIGHT_NATIVE_ATTN_F8");
+
+    /// <summary><c>SHARPLIGHT_COOP_KQ_NT=1|2</c>: 64-row weight tiles per workgroup of the cooperative-matrix K-quant decode GEMM, or null for the default.</summary>
+    public static int? CoopKQuantWeightTiles { get; } = Read("SHARPLIGHT_COOP_KQ_NT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NORM_HEAD_TAIL=0</c>: a row norm in front of an elementwise group that already ends in a row norm stays its own launch
+    /// (instead of one launch for norm, group and norm, e.g. Gemma's post-attention norm, residual add and pre-feed-forward norm).
+    /// </summary>
+    public static bool NormHeadAndTail { get; } = IsNotZero("SHARPLIGHT_NORM_HEAD_TAIL");
+
+    /// <summary>Extra macros for the cooperative-matrix K-quant decode GEMM (<c>SHARPLIGHT_COOP_KQ_MACROS=NAME=value,...</c>), for kernel experiments.</summary>
+    public static IReadOnlyDictionary<string, string> CoopKQuantExtraMacros { get; } = (Read("SHARPLIGHT_COOP_KQ_MACROS") ?? "")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(kv => kv.Split('=')).ToDictionary(kv => kv[0], kv => kv.Length > 1 ? kv[1] : "1");
+
+    /// <summary>
+    /// Queries per <c>fe</c> workgroup for head sizes above 256 (split head dimensions, <c>SHARPLIGHT_ATTN_FE_WIDE_ROWS</c>: 32 or 64). 64 shares
+    /// each 16-key tile between twice the queries (Q staged in two passes); see <c>FeBlockRows</c>.
+    /// </summary>
+    public static int AttentionSplitHeadRows { get; } = int.Parse(Read("SHARPLIGHT_ATTN_FE_WIDE_ROWS") ?? "64", CultureInfo.InvariantCulture);
+
     /// <summary>Queries per <c>fe</c> workgroup with the register softmax (<c>SHARPLIGHT_ATTN_FE_ROWS</c>: 64 or 128).</summary>
     public static int AttentionRegisterSoftmaxRows { get; } = int.Parse(Read("SHARPLIGHT_ATTN_FE_ROWS") ?? "128", CultureInfo.InvariantCulture);
 
     /// <summary>False keeps the staged softmax of the <c>fe</c> attention kernel on devices with the MMA fragment layout.</summary>
     public static bool AttentionRegisterSoftmax { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_REG");
+
+    /// <summary>
+    /// False keeps head sizes above 128 off the register-softmax <c>fe</c> (<c>SHARPLIGHT_ATTN_FE_WIDE=0</c>): they then take <c>fa</c>.
+    /// </summary>
+    public static bool AttentionWideRegisterSoftmax { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_WIDE");
+
+    /// <summary>False keeps causal sliding-window attention on <c>fa</c> instead of the causal <c>fe</c> (<c>SHARPLIGHT_ATTN_FE_WINDOW=0</c>).</summary>
+    public static bool AttentionCausalFlashWindow { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_WINDOW");
 
     /// <summary>True when tensor-core flash attention may be used.</summary>
     public static bool AttentionFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FA");
@@ -359,6 +541,12 @@ internal static class DiagnosticSwitches
     public static bool GemmSplitHalf { get; } = IsNotZero("SHARPLIGHT_GEMM_SPLIT_F16");
 
     /// <summary>
+    /// <c>SHARPLIGHT_GEMM_SPLIT_FILL=1</c>: grids of a wave or more of tensor-core GEMM tiles split their K in two by the earlier rule
+    /// (two halves fill the last wave 15 points better) instead of by the time in whole waves.
+    /// </summary>
+    public static bool GemmSplitFillRule { get; } = Read("SHARPLIGHT_GEMM_SPLIT_FILL") == "1";
+
+    /// <summary>
     /// True (default) when strict-precision convs with constant f32 weights may run in the split-f16 form of conv_cm
     /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_CONV_SPLIT_F16=0</c> keeps them on the three-part bf16 form.
     /// </summary>
@@ -379,8 +567,14 @@ internal static class DiagnosticSwitches
     /// <summary>False merges the partials of split-K decoding in a separate combine launch instead of the last workgroup of each row (<c>SHARPLIGHT_ATTN_DECODE_FUSED=0</c>).</summary>
     public static bool AttentionDecodeFusedCombine { get; } = IsNotZero("SHARPLIGHT_ATTN_DECODE_FUSED");
 
+    /// <summary><c>SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH</c>: largest merged width (heads per workgroup x DV) of the fused decode combine, or null for the default.</summary>
+    public static long? AttentionDecodeFusedWidth { get; } = Read("SHARPLIGHT_ATTN_DECODE_FUSED_WIDTH") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Split-K decode tuning: target workgroups, minimum keys per split, maximum splits, [rows per lane group and batch].</summary>
     public static int[] AttentionDecodeConfig { get; } = (Read("SHARPLIGHT_ATTN_DECODE_CFG") ?? "1024,128,64").Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>True when <c>SHARPLIGHT_ATTN_DECODE_CFG</c> is set (its target workgroups then apply on every target).</summary>
+    public static bool AttentionDecodeConfigSet { get; } = Read("SHARPLIGHT_ATTN_DECODE_CFG") is not null;
 
     /// <summary>
     /// True (default) when multi-sequence steps that mix decode rows with prompt chunks split attention between split-K decoding
@@ -388,11 +582,35 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool AttentionMixed { get; } = IsNotZero("SHARPLIGHT_ATTN_MIXED");
 
+    /// <summary>
+    /// True (default) when the flash half of a mixed attention step runs no blocks in steps none of whose runs can reach its minimum run
+    /// rows (decode-only steps beyond the decode kernel's rows); <c>SHARPLIGHT_ATTN_MIXED_SKIP=0</c> launches it anyway (A/B runs).
+    /// </summary>
+    public static bool AttentionMixedSkip { get; } = IsNotZero("SHARPLIGHT_ATTN_MIXED_SKIP");
+
+    /// <summary>
+    /// Mean rows per run below which a multi-sequence step takes the mixed attention form (<c>SHARPLIGHT_ATTN_MIXED_RUN_ROWS=n</c>; unset:
+    /// the lowering's default).
+    /// </summary>
+    public static long? AttentionMixedRunRows { get; } = Read("SHARPLIGHT_ATTN_MIXED_RUN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>True when multi-sequence batches may use flash attention.</summary>
     public static bool AttentionSequenceFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_SEQ_FA");
 
     /// <summary>True when shared-key-row attention (absorbed MLA) may use the tensor-core <c>fa_mqa</c> kernel.</summary>
     public static bool AttentionMqaFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_MQA");
+
+    /// <summary>
+    /// True (default) when decode rows of head sizes 256 and 512 with separate key and value caches may run the tensor-core
+    /// <c>fa_mqa</c> form (<c>FM_SEPV</c>) on targets without the hand-written CUDA kernel (<c>SHARPLIGHT_ATTN_DECODE_TC=0</c>: <c>decode</c>).
+    /// </summary>
+    public static bool AttentionDecodeTensorCores { get; } = IsNotZero("SHARPLIGHT_ATTN_DECODE_TC");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_ATTN_DECODE_TC_CFG=waves,minKeys,maxSplits,keys</c>: the split rule and tile of the tensor-core decode form (workgroups
+    /// per compute unit the split count aims for, minimum keys per range, maximum ranges, keys per tile), or null for the defaults.
+    /// </summary>
+    public static int[]? AttentionDecodeTensorCoreConfig { get; } = Read("SHARPLIGHT_ATTN_DECODE_TC_CFG")?.Split(',').Select(int.Parse).ToArray();
 
     /// <summary>Preferred lanes per state row of the gated delta rule.</summary>
     public static int DeltaLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_DELTA_LPR") ?? "8", CultureInfo.CurrentCulture);
@@ -458,10 +676,41 @@ internal static class DiagnosticSwitches
     public static bool MoeSortedHalfActivations { get; } = IsNotZero("SHARPLIGHT_MOE_X16");
 
     /// <summary>
+    /// False (<c>SHARPLIGHT_MOE_SORTED_STORE=0</c>) keeps the f32 store of the gate / up expert GEMM on the hand-written grouped GEMM
+    /// and the down projection's gather, instead of the gate / up GEMM storing the down projection's expert-sorted f16 rows.
+    /// </summary>
+    public static bool MoeSortedStore { get; } = IsNotZero("SHARPLIGHT_MOE_SORTED_STORE");
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MOE_TOKEN_ROWS=0</c>) gathers the expert-sorted f16 rows of the gate / up GEMM's activations for the
+    /// hand-written grouped GEMM instead of letting it read its items' token rows from the f16 copy another GEMM (the router) reads.
+    /// </summary>
+    public static bool MoeTokenRows { get; } = IsNotZero("SHARPLIGHT_MOE_TOKEN_ROWS");
+
+    /// <summary>
     /// True when the expert-grouped gemm_cm2 with 64- or 128-row tiles leaves the tiles of at most half that many rows (an
     /// expert's last, partly filled tile) to a second launch with half-height tiles, which multiplies less padding.
     /// </summary>
     public static bool MoeSplitTiles { get; } = IsNotZero("SHARPLIGHT_MOE_SPLIT_TILES");
+
+    /// <summary>
+    /// True when a grouped expert product whose only reader adds the routed experts' bias rows adds them in the grouped GEMM's
+    /// store (<c>SHARPLIGHT_MOE_BIAS_EPILOGUE=0</c>: a separate launch).
+    /// </summary>
+    public static bool MoeBiasEpilogue { get; } = IsNotZero("SHARPLIGHT_MOE_BIAS_EPILOGUE");
+
+    /// <summary>
+    /// Grouped expert GEMMs whose gate / up pairs (products feeding one elementwise group) run as one dual launch that stores the
+    /// group: bit 0 the grouped gemm_cm2, bit 1 the expert-grouped skinny GEMM (<c>SHARPLIGHT_MOE_DUAL=n</c>, default 3; 0: two
+    /// grouped GEMMs and the group's launch).
+    /// </summary>
+    public static int MoeDual { get; } = int.Parse(Read("SHARPLIGHT_MOE_DUAL") ?? "3", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Grouped expert GEMMs launched with the expert tiles along the grid's x (bit 0: the expert-grouped skinny GEMM, bit 1:
+    /// gemm_cm2), so the tiles of one expert read each weight chunk at about the same time (<c>SHARPLIGHT_MOE_TILE_MAJOR=n</c>).
+    /// </summary>
+    public static int MoeTileMajor { get; } = int.Parse(Read("SHARPLIGHT_MOE_TILE_MAJOR") ?? "0", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Average (token, slot) items per expert up to which the expert-grouped skinny GEMM (16-row expert tiles) serves the grouped
@@ -469,11 +718,216 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static int? MoeSkinnyItemsPerExpert { get; } = Read("SHARPLIGHT_MOE_SKINNY") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
+    /// <summary>
+    /// Configuration of the wide expert tiles of the direct skinny GEMM (<c>SHARPLIGHT_MOE_WIDE=fm,fn,sg,ks,n</c>: token fragments,
+    /// weight fragments per subgroup, subgroups, subgroups splitting K, items per expert up to which it serves; <c>0</c> disables
+    /// them), or null for the default.
+    /// </summary>
+    public static int[]? MoeWideConfig { get; } = Read("SHARPLIGHT_MOE_WIDE")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_SPLITK_EPILOGUE=0</c>) keeps the elementwise group after an f16 tensor-core matmul (bias, residual) as
+    /// its own launch instead of applying it in the split-K reduction.
+    /// </summary>
+    public static bool SplitKReduceEpilogue { get; } = IsNotZero("SHARPLIGHT_SPLITK_EPILOGUE");
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_SKINNY_EPILOGUE=0</c>) keeps the elementwise group after a skinny GEMM (2-16 rows: a projection's bias,
+    /// a residual add) as its own launch instead of applying it in the skinny GEMM's store.
+    /// </summary>
+    public static bool SkinnyEpilogue { get; } = IsNotZero("SHARPLIGHT_SKINNY_EPILOGUE");
+
+    /// <summary>
+    /// True (<c>SHARPLIGHT_SPLITK_FUSED=1</c>) runs the split-K reduction of gemm_cm2 and the fp8 GEMM in the last workgroup of each
+    /// output tile (splitk.slang) instead of its own launch (<c>splitk_reduce</c>). Off by default: on the RTX PRO 4500 the last
+    /// workgroup's serial read of the tile's slices cost more than the launch it saves (benchmarks.md section 61).
+    /// </summary>
+    public static bool SplitKFused { get; } = Read("SHARPLIGHT_SPLITK_FUSED") == "1";
+
+    /// <summary>
+    /// True (<c>SHARPLIGHT_MULTI_FUSED=1</c>) reduces the multi-output GEMM in its last workgroups instead of a <c>splitk_reduce</c>
+    /// launch over its partials.
+    /// </summary>
+    public static bool MultiGemmFused { get; } = Read("SHARPLIGHT_MULTI_FUSED") == "1";
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MULTI_GEMM_TALL=0</c>) keeps the members of a q / k / v group on their own launches of the hand-written f16
+    /// GEMM's prompt-sized tiles instead of one multi-output launch over their concatenated weight rows.
+    /// </summary>
+    public static bool MultiGemmTall { get; } = Read("SHARPLIGHT_MULTI_GEMM_TALL") != "0";
+
+    /// <summary><c>SHARPLIGHT_MULTI_GEMM_MAX_ROWS=n</c>: the largest batch the split-K multi-output GEMM serves, or null for the default.</summary>
+    public static long? MultiGemmMaxRows { get; } = Read("SHARPLIGHT_MULTI_GEMM_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_MULTI_DEBUG=1</c>: report on stderr why a multi-output group got no GEMM.</summary>
+    public static bool MultiGemmDebug { get; } = Read("SHARPLIGHT_MULTI_DEBUG") == "1";
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MULTI_GEMM=0</c>) lowers sibling projections sharing their activations (q / k / v) as separate GEMMs
+    /// instead of one multi-output GEMM (splitk.slang, MULTI) at the row counts that split K.
+    /// </summary>
+    public static bool MultiGemm { get; } = IsNotZero("SHARPLIGHT_MULTI_GEMM");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_SPLIT_FILL=1</c>: grids of one token tile row choose their K split by wave fill (see GraphLowerer.WaveFillSplit)
+    /// instead of aiming for 4/3 waves.
+    /// </summary>
+    public static bool SplitWaveFill { get; } = Read("SHARPLIGHT_SPLIT_FILL") == "1";
+
+    /// <summary><c>SHARPLIGHT_FP8_DUAL_SPLIT=1</c>: the dual fp8 GEMM splits K at decode sizes (see GraphLowerer.DualFp8Split).</summary>
+    public static bool Fp8DualSplit { get; } = Read("SHARPLIGHT_FP8_DUAL_SPLIT") == "1";
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_BN=n</c>: weight rows per tile of the grouped MXFP4 GEMM (experiment), or null for the chosen width.</summary>
+    public static int? NativeMoeColumns { get; } = Read("SHARPLIGHT_NATIVE_MOE_BN") is { } c ? int.Parse(c, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_SHORT=n</c>: the grouped MXFP4 GEMM routes 64-row tiles up to n items per expert (0: never), or null for the default.</summary>
+    public static long? NativeMoeShortItems { get; } = Read("SHARPLIGHT_NATIVE_MOE_SHORT") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_BLOCKS=1</c>: the short tiles of the grouped MXFP4 GEMM keep one block per SM, or null for the default.</summary>
+    public static int? NativeMoeBlocks { get; } = Read("SHARPLIGHT_NATIVE_MOE_BLOCKS") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_MOE_TABLE=1</c>: the short dual tiles of the grouped MXFP4 GEMM keep the E8M0 factor table (three stages), or null for the default.</summary>
+    public static int? NativeMoeTable { get; } = Read("SHARPLIGHT_NATIVE_MOE_TABLE") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_F16_DECODE_BN=n</c>: weight rows per tile of the hand-written f16 GEMM's decode form (32 or 64), or null for
+    /// the default (chosen per matrix); 0 turns the decode form off (decode batches of f16 projections keep gemm_cm2 with split-K).
+    /// </summary>
+    public static int? NativeF16DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_F16_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_F16_CONFIG=n</c>: the prompt tile configuration of the hand-written f16 GEMM (0, 1 or 3, see gemm_f16_native.cu) for every batch it may serve, or null for the estimate per batch (comparisons).</summary>
+    public static int? NativeF16Config { get; } = Read("SHARPLIGHT_NATIVE_F16_CONFIG") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP8_PARTIAL=0</c>: the FP8 tensor-copy GEMM runs its full main loop on a token tile past the batch's last row too (comparisons), or null for the default (the partial form for batches a few rows past a tile).</summary>
+    public static bool? NativeFp8Partial { get; } = Read("SHARPLIGHT_NATIVE_FP8_PARTIAL") is { } v ? v != "0" : null;
+
+    /// <summary><c>SHARPLIGHT_STREAM_K=0</c>: the hand-written GEMMs walk their tiles whole in every batch (comparisons), or null for the default (stream-K where the tiles do not fill whole waves, see <c>GraphLowerer.StreamK</c>).</summary>
+    public static bool? StreamK { get; } = Read("SHARPLIGHT_STREAM_K") is { } v ? v != "0" : null;
+
+    /// <summary><c>SHARPLIGHT_STREAM_K_COST=x</c>: the cost in K steps of a block's stream-K fixup that the estimate assumes (tuning), or null for the default.</summary>
+    public static double? StreamKCost { get; } = Read("SHARPLIGHT_STREAM_K_COST") is { } v ? double.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_F16_PARTIAL=0</c>: the hand-written f16 GEMM's prompt tiles run the full main loop on a token tile past the batch's last row too (comparisons), or null for the default (the partial loop).</summary>
+    public static bool? NativeF16Partial { get; } = Read("SHARPLIGHT_NATIVE_F16_PARTIAL") is { } v ? v != "0" : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_F16_SPEED3=x</c>: the relative speed the estimate assumes for the 64 x 256 tiles of the hand-written f16 GEMM, or null for the default.</summary>
+    public static double? NativeF16Speed3 { get; } = Read("SHARPLIGHT_NATIVE_F16_SPEED3") is { } v ? double.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS=n</c>: fewest rows the hand-written f16 GEMM's decode form serves, or null for the default.</summary>
+    public static long? NativeF16DecodeMinRows { get; } = Read("SHARPLIGHT_NATIVE_F16_DECODE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_MIN_ROWS=n</c>: fewest rows the hand-written K-quant decode GEMM serves, or null for the default (the first batch past the matvec).</summary>
+    public static long? NativeKQuantMinRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_BM=32|64</c>: token rows per tile of the hand-written K-quant decode GEMM, or null for the default.</summary>
+    public static int? NativeKQuantTileRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_BM") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_WM=1|2</c>: warps along the token rows of the hand-written K-quant decode GEMM's tile, or null for the default (chosen per tile).</summary>
+    public static int? NativeKQuantWarpRows { get; } = Read("SHARPLIGHT_NATIVE_KQ_WM") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_NATIVE_KQ_DUAL=0</c>: K-quant gate / up pairs at decode batches run two hand-written K-quant GEMM launches and the
+    /// elementwise launch instead of the GEMM's dual form.
+    /// </summary>
+    public static bool NativeKQuantDual { get; } = IsNotZero("SHARPLIGHT_NATIVE_KQ_DUAL");
+
+    /// <summary>
+    /// <c>SHARPLIGHT_COOP_KQ=0</c>: targets without CUDA C++ (Vulkan) keep K-quant decode batches of 9-64 rows on the generated gemm_cm2
+    /// instead of the cooperative-matrix K-quant decode GEMM (<c>gemm_kq.slang</c>).
+    /// </summary>
+    public static bool CoopKQuant { get; } = IsNotZero("SHARPLIGHT_COOP_KQ");
+
+    /// <summary><c>SHARPLIGHT_NATIVE_KQ_SPLIT=n</c>: K split of the hand-written K-quant decode GEMM, or null for the default (chosen per matrix and batch).</summary>
+    public static int? NativeKQuantSplit { get; } = Read("SHARPLIGHT_NATIVE_KQ_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_DECODE_KERNEL=1</c> / <c>=0</c>: batches of at most 16 rows of the hand-written FP8 GEMM's decode form run on
+    /// the register-streaming <c>gemm_fp8_decode.cu</c> / on <c>gemm_fp8_native.cu</c>; null for the default.
+    /// </summary>
+    public static bool? Fp8DecodeKernel { get; } = Read("SHARPLIGHT_FP8_DECODE_KERNEL") is { } v ? v != "0" : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_BLOCK_SCALED=1|0</c>: where the device has <c>block_scaled_fp8</c>, run the 128-row tiles of the FP8 GEMM on the
+    /// block-scaled MMA (<c>gemm_fp8_tma.cu</c> with <c>F8N_BLOCK_SCALED</c>) with power-of-two activation scales and E4M3 weights requantized to power-of-two scales at
+    /// load (1, the default since 2026-11-23 where a segment has such weights), or keep the f32 scales (0). Null: the default (on where it
+    /// applies; a load turns it off with <c>TaskLoadOptions.BlockScaledFp8</c>, which disables the feature).
+    /// </summary>
+    public static bool? Fp8BlockScaled { get; } = Read("SHARPLIGHT_FP8_BLOCK_SCALED") is { } v ? v != "0" : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_UE8M0_WEIGHTS=1</c> (diagnostic): requantize grouped E4M3 weights to power-of-two scales as the block-scaled mode
+    /// does, but keep the f32-scale kernels and activation scales (separates the weights' share of that mode's numerics change).
+    /// </summary>
+    public static bool Fp8Ue8m0WeightsOnly { get; } = Read("SHARPLIGHT_FP8_UE8M0_WEIGHTS") == "1";
+
+    /// <summary>
+    /// <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n</c>: in the block-scaled FP8 mode, the dual gate / up FP8 GEMM on 128-row tiles stores its
+    /// readers' E4M3 rows from n rows on (0: never; default 256).
+    /// </summary>
+    public static long? Fp8StoreMinRows { get; } = Read("SHARPLIGHT_FP8_QSTORE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP4=0</c>: keep NVFP4 matmuls off the FP4 GEMM (<c>gemm_fp4_native.cu</c>) where the device has <c>block_scaled_fp4</c>.</summary>
+    public static bool NativeFp4 { get; } = IsNotZero("SHARPLIGHT_NATIVE_FP4");
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP4_MOE=0</c>: keep NVFP4 expert products off the grouped FP4 GEMM (the dense ones keep it).</summary>
+    public static bool NativeFp4Moe { get; } = IsNotZero("SHARPLIGHT_NATIVE_FP4_MOE");
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP4_MIN_ROWS=n</c>: activation rows from which the FP4 GEMM serves NVFP4 matmuls, or null for the default.</summary>
+    public static long? NativeFp4MinRows { get; } = Read("SHARPLIGHT_NATIVE_FP4_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_NATIVE_FP8_DECODE_BN=n</c>: weight rows per tile of the hand-written FP8 GEMM at decode batches (at most 64 rows), or null for the default (128: no decode form).</summary>
+    public static int? NativeFp8DecodeColumns { get; } = Read("SHARPLIGHT_NATIVE_FP8_DECODE_BN") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_ATTN_STAGES=n</c>: stages of the key / value ring of the hand-written prefill attention, or null for the default.</summary>
+    public static int? NativeAttentionStages { get; } = Read("SHARPLIGHT_ATTN_STAGES") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary><c>SHARPLIGHT_ATTN_MR=n</c>: 16-row query fragments per warp (1 or 2) of the hand-written prefill attention, or null for the default.</summary>
+    public static int? NativeAttentionFragments { get; } = Read("SHARPLIGHT_ATTN_MR") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// <c>SHARPLIGHT_ATTN_HG=1</c> runs the query heads of a KV head in one block of the hand-written prefill attention (<c>FN_HG</c>)
+    /// wherever it can, <c>=0</c> nowhere; unset, the lowering's rule.
+    /// </summary>
+    public static bool? NativeAttentionHeadGroups { get; } = Read("SHARPLIGHT_ATTN_HG") switch { "1" => true, "0" => false, _ => null };
+
+    /// <summary><c>SHARPLIGHT_NORM_THREADS=n</c>: threads per workgroup of the fused row norms (experiments), or null for the default.</summary>
+    public static int? RowNormThreads { get; } = Read("SHARPLIGHT_NORM_THREADS") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>False (<c>SHARPLIGHT_NORM_WIDE=0</c>): fused row norms of decode-size steps keep 256-thread workgroups instead of 1024.</summary>
+    public static bool RowNormWide { get; } = IsNotZero("SHARPLIGHT_NORM_WIDE");
+
+    /// <summary><c>SHARPLIGHT_MULTI_SPLIT=n</c>: the K split of every multi-output GEMM (experiments), or null for the chosen one.</summary>
+    public static int? MultiGemmSplit { get; } = Read("SHARPLIGHT_MULTI_SPLIT") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>
+    /// False (<c>SHARPLIGHT_NATIVE_GEMM_BIAS=0</c>) keeps matmuls with a bias row on the generated GEMMs at prefill sizes instead of the
+    /// hand-written f16 GEMM with the bias in its store.
+    /// </summary>
+    public static bool NativeGemmBias { get; } = IsNotZero("SHARPLIGHT_NATIVE_GEMM_BIAS");
+
+    /// <summary>Opt-in (<c>SHARPLIGHT_FP8_SHORT_TILES=1</c>): the fp8 GEMM takes 64-row tiles above 64 rows where they pad fewer rows.</summary>
+    public static bool Fp8ShortTiles { get; } = IsSet("SHARPLIGHT_FP8_SHORT_TILES");
+
+    /// <summary>Rows up to which the int8 / fp8 GEMMs take 64-row tiles (<c>SHARPLIGHT_MMQ_SHORT_MAX_ROWS</c>), or null for the default.</summary>
+    public static long? MmqShortTileMaxRows { get; } = Read("SHARPLIGHT_MMQ_SHORT_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");
 
     /// <summary>Disables the cooperative-matrix convolution (conv_cm).</summary>
     public static bool ConvNoMatrix { get; } = IsSet("SHARPLIGHT_CONV_NO_MATRIX");
+
+    /// <summary>
+    /// Whether reduced-precision convolutions may run over channels-last 16-bit activations (conv_cl, the default where it applies);
+    /// <c>SHARPLIGHT_CONV_CHANNELS_LAST=0</c> keeps them on conv_cm with f32 activations.
+    /// </summary>
+    public static bool ConvChannelsLast { get; } = IsNotZero("SHARPLIGHT_CONV_CHANNELS_LAST");
+
+    /// <summary>
+    /// Tuning override of conv_cl's tile: <c>SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN[,tileK]</c> (subgroup rows and columns,
+    /// 16-pixel fragments per subgroup, K per step: 32 double-buffered or 64 single-buffered); unset, the lowering chooses.
+    /// </summary>
+    public static int[]? ConvChannelsLastTile { get; } = Read("SHARPLIGHT_CONV_CL_TILE")?.Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray();
 
     /// <summary>Keeps conv_cm's channel-major reduction order for the split-f16 forms (no tap-major weights).</summary>
     public static bool ConvNoTapMajor { get; } = IsSet("SHARPLIGHT_CONV_NO_TAP_MAJOR");

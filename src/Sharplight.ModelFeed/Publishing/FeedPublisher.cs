@@ -57,6 +57,7 @@ public sealed class FeedPublisher
             var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(folder, FeedLayout.ManifestFileName), cancellationToken).ConfigureAwait(false);
             var manifest = FeedJson.ReadManifest(manifestBytes);
             var label = $"{manifest.Id}@{manifest.Version}";
+            RequireValidGroup(manifest, label);
             var packageIndex = ReadPackageIndex(feedFolder, options.Channel, manifest.Id) ?? new FeedPackageIndex { Id = manifest.Id };
             var version = SemanticVersion.Parse(manifest.Version);
             var digest = FeedDigest.Of(manifestBytes);
@@ -82,6 +83,16 @@ public sealed class FeedPublisher
             }
 
             var file = manifest.PrimaryFile ?? throw new FeedFormatException($"{label}: the manifest lists no package file.");
+            var reusePath = Path.Combine(folder, FeedLayout.PayloadReuseFileName);
+            if (File.Exists(reusePath))
+            {
+                await PublishReusingPayloadAsync(feedFolder, manifest, manifestBytes, file, FeedJson.Read(await File.ReadAllBytesAsync(reusePath, cancellationToken).ConfigureAwait(false), FeedJsonContext.Default.PayloadReuse, $"{label}: {FeedLayout.PayloadReuseFileName}"), key, cancellationToken).ConfigureAwait(false);
+                packageIndex = AddVersion(packageIndex, Entry(manifest, digest, now));
+                WriteAtomic(feedFolder, FeedLayout.InChannel(options.Channel, FeedLayout.PackageIndex(manifest.Id)), FeedJson.Write(packageIndex, FeedJsonContext.Default.FeedPackageIndex));
+                added.Add(label);
+                continue;
+            }
+
             var source = Path.Combine(folder, file.Name);
             var actual = await PackageFileHasher.DescribeAsync(source, file.Name, file.ChunkSize ?? PackageFileHasher.DefaultChunkSize, cancellationToken).ConfigureAwait(false);
             if (actual.Size != file.Size || actual.Sha256 != file.Sha256.ToLowerInvariant() || (file.Chunks.Count > 0 && !actual.Chunks.SequenceEqual(file.Chunks, StringComparer.OrdinalIgnoreCase)))
@@ -91,8 +102,16 @@ public sealed class FeedPublisher
 
             var target = Path.Combine(feedFolder, FeedLayout.VersionFile(manifest.Id, manifest.Version, file.Name));
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(source, target + ".tmp", overwrite: true);
-            File.Move(target + ".tmp", target, overwrite: true);
+            if (options.MovePackageFiles)
+            {
+                File.Move(source, target, overwrite: true);
+            }
+            else
+            {
+                File.Copy(source, target + ".tmp", overwrite: true);
+                File.Move(target + ".tmp", target, overwrite: true);
+            }
+
             WriteAtomic(feedFolder, FeedLayout.Manifest(manifest.Id, manifest.Version), manifestBytes);
             WriteAtomic(feedFolder, FeedLayout.ManifestSignature(manifest.Id, manifest.Version), key.SignDocument(manifestBytes, "package-manifest"));
             packageIndex = AddVersion(packageIndex, Entry(manifest, digest, now));
@@ -247,10 +266,12 @@ public sealed class FeedPublisher
                 LatestVersion = latest.Version,
                 Versions = [.. packageIndex.Versions.Select(entry => entry.Version)],
                 Display = manifest.Display,
+                Group = manifest.EffectiveGroup,
                 Publisher = manifest.Publisher,
                 License = manifest.License,
                 Model = manifest.Model,
                 Requirements = manifest.Requirements,
+                Verification = manifest.Verification is { } verification ? verification with { PackageCheck = null } : null,
                 Dependencies = manifest.Dependencies,
                 Size = latest.Size,
                 State = latest.State,
@@ -269,6 +290,10 @@ public sealed class FeedPublisher
         }
 
         RemoveStalePages(feedFolder, channel, pages.Count);
+        var models = FeedModelListing.From(summaries);
+        var modelsPath = FeedLayout.InChannel(channel, FeedLayout.ModelListing);
+        var modelsBytes = FeedJson.Write(models, FeedJsonContext.Default.FeedModelListing);
+        WriteAtomic(feedFolder, modelsPath, modelsBytes);
         var catalogBytes = FeedJson.Write(new FeedCatalogIndex { Pages = pages }, FeedJsonContext.Default.FeedCatalogIndex);
         WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.CatalogIndex), catalogBytes);
 
@@ -288,13 +313,78 @@ public sealed class FeedPublisher
             {
                 Catalog = FeedLayout.InChannel(channel, FeedLayout.CatalogIndex),
                 Packages = FeedLayout.InChannel(channel, FeedLayout.PackageIndexTemplate),
+                Models = modelsPath,
             },
-            Catalog = new FeedCatalogSummary { Pages = pages.Count, Packages = summaries.Count, Digest = FeedDigest.Of(catalogBytes) },
+            Catalog = new FeedCatalogSummary
+            {
+                Pages = pages.Count,
+                Packages = summaries.Count,
+                Digest = FeedDigest.Of(catalogBytes),
+                Models = models.Models.Count,
+                ModelsDigest = FeedDigest.Of(modelsBytes),
+            },
         };
         var indexBytesOut = FeedJson.Write(index, FeedJsonContext.Default.FeedServiceIndex);
         WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndex), indexBytesOut);
         WriteAtomic(feedFolder, FeedLayout.InChannel(channel, FeedLayout.ServiceIndexSignature), key.SignDocument(indexBytesOut, "feed-index"));
         return (index.Sequence, summaries.Count);
+    }
+
+    /// <summary>
+    /// Publishes a manifest-only version whose package file is the payload of an earlier version (same SHA-256, size and chunks): the
+    /// manifest and its signature are stored, the file is copied only when the earlier version's file is present in this folder; on
+    /// object storage the uploader copies it server-side (the staging folder's <c>reuse.json</c> names the source).
+    /// </summary>
+    private static async Task PublishReusingPayloadAsync(string feedFolder, PackageManifest manifest, byte[] manifestBytes, PackageFile file, PayloadReuse reuse, FeedSigningKey key, CancellationToken cancellationToken)
+    {
+        var label = $"{manifest.Id}@{manifest.Version}";
+        var earlierPath = Path.Combine(feedFolder, FeedLayout.Manifest(manifest.Id, reuse.Version));
+        if (!File.Exists(earlierPath))
+        {
+            throw new FeedFormatException($"{label} reuses the package file of {reuse.Version}, which the feed does not have.");
+        }
+
+        var earlier = FeedJson.ReadManifest(await File.ReadAllBytesAsync(earlierPath, cancellationToken).ConfigureAwait(false)).PrimaryFile;
+        if (earlier is null || earlier.Name != reuse.File || earlier.Size != file.Size || !string.Equals(earlier.Sha256, file.Sha256, StringComparison.OrdinalIgnoreCase)
+            || !earlier.Chunks.SequenceEqual(file.Chunks, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new FeedFormatException($"{label}: the package file does not match {reuse.File} of {reuse.Version} (size or hashes).");
+        }
+
+        var earlierFile = Path.Combine(feedFolder, FeedLayout.VersionFile(manifest.Id, reuse.Version, reuse.File));
+        if (File.Exists(earlierFile))
+        {
+            var target = Path.Combine(feedFolder, FeedLayout.VersionFile(manifest.Id, manifest.Version, file.Name));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(earlierFile, target + ".tmp", overwrite: true);
+            File.Move(target + ".tmp", target, overwrite: true);
+        }
+
+        WriteAtomic(feedFolder, FeedLayout.Manifest(manifest.Id, manifest.Version), manifestBytes);
+        WriteAtomic(feedFolder, FeedLayout.ManifestSignature(manifest.Id, manifest.Version), key.SignDocument(manifestBytes, "package-manifest"));
+    }
+
+    private static void RequireValidGroup(PackageManifest manifest, string label)
+    {
+        if (manifest.Group is not { } group)
+        {
+            return;
+        }
+
+        if (!FeedLayout.IsValidId(group.Id) || string.IsNullOrWhiteSpace(group.Variant) || manifest.Id != $"{group.Id}.{group.Variant}")
+        {
+            throw new FeedFormatException($"{label}: the group ('{group.Id}', variant '{group.Variant}') must name the package id as <group>.<variant>.");
+        }
+
+        if (group.Quality is { } quality && !PackageQualityTiers.All.Contains(quality, StringComparer.Ordinal))
+        {
+            throw new FeedFormatException($"{label}: unknown quality tier '{quality}' ({string.Join(", ", PackageQualityTiers.All)}).");
+        }
+
+        if (group.BitsPerWeight is { } bits && (bits <= 0 || bits > 64))
+        {
+            throw new FeedFormatException($"{label}: bits per weight {bits} is out of range.");
+        }
     }
 
     private static FeedPackageVersion Latest(IReadOnlyList<FeedPackageVersion> versions)

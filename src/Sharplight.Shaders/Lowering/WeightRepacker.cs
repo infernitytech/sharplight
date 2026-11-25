@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Sharplight.Shaders.Lowering;
 
 /// <summary>Host-side weight layout transforms, applied row by row during upload (backend-neutral).</summary>
@@ -6,7 +8,13 @@ public static class WeightRepacker
     /// <summary>Rows repacked together by <see cref="WeightRepack.Mxfp4Split"/>.</summary>
     public const int Mxfp4GroupRows = 16;
 
-    /// <summary>Bytes of one repacked unit (a row, or a row group for <see cref="WeightRepack.Mxfp4Split"/>) of rows with <paramref name="k"/> logical elements.</summary>
+    /// <summary>Rows repacked together by <see cref="WeightRepack.Fp8B128Grouped"/>.</summary>
+    public const int Fp8GroupRows = 128;
+
+    /// <summary>
+    /// Bytes of one repacked unit (a row, or a row group for <see cref="WeightRepack.Mxfp4Split"/> and
+    /// <see cref="WeightRepack.Fp8B128Grouped"/>) of rows with <paramref name="k"/> logical elements.
+    /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Unknown layout.</exception>
     public static long RowBytes(WeightRepack r, long k) => r switch
     {
@@ -14,6 +22,8 @@ public static class WeightRepacker
         WeightRepack.Mxfp4Split => Mxfp4GroupRows * (k / 32 * 17),
         WeightRepack.Fp8B32Split => k / 32 * 36,
         WeightRepack.Fp8B128Split => k / 128 * 132,
+        WeightRepack.Fp8B128Grouped or WeightRepack.Fp8B128GroupedUe8m0 => Fp8GroupRows * (k / 128 * 132),
+        WeightRepack.Bf16ToF16 => 2 * k,
         _ => throw new ArgumentOutOfRangeException(nameof(r)),
     };
 
@@ -39,6 +49,27 @@ public static class WeightRepacker
                 SplitMxfp4Group(src.Slice((int)(group * rowBytes), (int)rowBytes), dst.Slice((int)(group * rowBytes), (int)rowBytes), blocks);
             }
 
+            return;
+        }
+
+        if (r is WeightRepack.Fp8B128Grouped or WeightRepack.Fp8B128GroupedUe8m0)
+        {
+            for (int group = 0; group < src.Length / rowBytes; group++)
+            {
+                var unit = dst.Slice((int)(group * rowBytes), (int)rowBytes);
+                GroupFp8Rows(src.Slice((int)(group * rowBytes), (int)rowBytes), unit, (int)(k / 128));
+                if (r == WeightRepack.Fp8B128GroupedUe8m0)
+                {
+                    Fp8PowerOfTwoScales.Requantize(unit, (int)(k / 128), Fp8GroupRows);
+                }
+            }
+
+            return;
+        }
+
+        if (r == WeightRepack.Bf16ToF16)
+        {
+            ConvertBf16ToF16(MemoryMarshal.Cast<byte, ushort>(src), MemoryMarshal.Cast<byte, Half>(dst));
             return;
         }
 
@@ -69,6 +100,15 @@ public static class WeightRepacker
         }
     }
 
+    // bf16 → f32 (exact) → f16, rounded to nearest even like the kernels' f32tof16; overflow gives infinities, as there.
+    private static void ConvertBf16ToF16(ReadOnlySpan<ushort> src, Span<Half> dst)
+    {
+        for (int i = 0; i < src.Length; i++)
+        {
+            dst[i] = (Half)BitConverter.Int32BitsToSingle(src[i] << 16);
+        }
+    }
+
     // One row of { f32 d; u8 q[block] } blocks → all codes, then all scales.
     private static void SplitFp8Row(ReadOnlySpan<byte> src, Span<byte> dst, int blocks, int block)
     {
@@ -79,6 +119,23 @@ public static class WeightRepacker
             var blk = src.Slice(b * (block + 4), block + 4);
             blk[..4].CopyTo(scales.Slice(b * 4, 4));
             blk[4..].CopyTo(codes.Slice(b * block, block));
+        }
+    }
+
+    // One 128-row group of rows of { f32 d; u8 q[128] } blocks → the codes of every row (128 bytes per block), then the scales
+    // block by block (the 128 rows' scales of a block are adjacent).
+    private static void GroupFp8Rows(ReadOnlySpan<byte> src, Span<byte> dst, int blocks)
+    {
+        var codes = dst[..(Fp8GroupRows * blocks * 128)];
+        var scales = dst[(Fp8GroupRows * blocks * 128)..];
+        for (int row = 0; row < Fp8GroupRows; row++)
+        {
+            for (int b = 0; b < blocks; b++)
+            {
+                var blk = src.Slice((row * blocks + b) * 132, 132);
+                blk[..4].CopyTo(scales.Slice((b * Fp8GroupRows + row) * 4, 4));
+                blk[4..].CopyTo(codes.Slice((row * blocks + b) * 128, 128));
+            }
         }
     }
 

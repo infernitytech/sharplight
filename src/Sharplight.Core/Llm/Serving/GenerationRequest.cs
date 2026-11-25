@@ -35,6 +35,45 @@ public sealed record GenerationRequest
     /// </summary>
     public string? CachePartition { get; init; }
     /// <summary>
+    /// Additional prefix-cache key (vLLM's <c>cache_salt</c>): mixed into the hash of every cached KV block together with
+    /// <see cref="CachePartition"/>, so only requests with the same partition and salt share cached prefixes. Null = no salt.
+    /// Unlike the partition, which a host derives from authentication, a salt may come from the client (it can only narrow sharing
+    /// further within the partition).
+    /// </summary>
+    public string? CacheSalt { get; init; }
+    /// <summary>
+    /// Non-text content in the prompt (image or audio placeholders): its hashes are part of the prefix-cache key of the blocks it
+    /// overlaps, so prompts with the same placeholder tokens but different content never share them.
+    /// </summary>
+    public IReadOnlyList<PromptContentKey> PromptContent { get; init; } = [];
+    /// <summary>
+    /// Image or audio content whose embedding rows fill prompt positions in place of their placeholder tokens (non-overlapping). The engine
+    /// encodes each content once, right before the prompt chunk that needs it (cached by hash, so a repeated image is not encoded again), and
+    /// its hash is part of the prefix-cache key like <see cref="PromptContent"/>. Needs a decoder created with media input
+    /// (<see cref="IBatchDecoder.EmbeddingWidth"/> &gt; 0). Build image prompts with <see cref="ImagePrompts"/>.
+    /// </summary>
+    public IReadOnlyList<PromptMedia> PromptMedia { get; init; } = [];
+    /// <summary>
+    /// Rope position ids of the prompt rows, [prompt length, <see cref="IBatchDecoder.PositionAxes"/>] row-major, for models whose image
+    /// spans advance the position by less than their rows (M-RoPE); null: each row's position is its index.
+    /// </summary>
+    public int[]? PromptPositions { get; init; }
+    /// <summary>
+    /// Rope position of the first generated token (the row after the prompt) when <see cref="PromptPositions"/> is given; null: the prompt
+    /// length. Every later row continues from it.
+    /// </summary>
+    public int? NextPosition { get; init; }
+    /// <summary>
+    /// Per prompt row, whether it goes through the language model's media weight set (CogVLM's visual experts); null: the
+    /// <see cref="PromptMedia"/> rows do and no other row.
+    /// </summary>
+    public bool[]? PromptMediaWeights { get; init; }
+    /// <summary>
+    /// Compute the whole prompt instead of reusing cached KV (the request still leaves its blocks for later ones). Set it for requests
+    /// that need every prompt position computed, e.g. prompt log-probabilities.
+    /// </summary>
+    public bool BypassPrefixCache { get; init; }
+    /// <summary>
     /// Restricts the output to a grammar / regular expression / JSON schema (structured outputs). The engine masks the logits
     /// with the tokens the constraint allows before sampling; end-of-generation tokens are allowed only when the output is complete.
     /// </summary>

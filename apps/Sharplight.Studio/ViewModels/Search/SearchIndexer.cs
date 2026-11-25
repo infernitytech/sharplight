@@ -161,7 +161,7 @@ internal sealed class SearchIndexer(IDocumentParser parser)
             {
                 var batch = pieces.Skip(start).Take(BatchSize).ToList();
                 string[] texts = [.. batch.Select(piece => piece.Heading.Length > 0 && !piece.Text.StartsWith(piece.Heading, StringComparison.Ordinal) ? piece.Heading + "\n" + piece.Text : piece.Text)];
-                var vectors = await Task.Run(() => embedder.Embed(texts, new EmbedOptions { Prompt = documentPrompt }), cancellationToken).ConfigureAwait(false);
+                var vectors = await embedder.EmbedAsync(texts, new TextEmbeddingOptions { Prompt = documentPrompt }, cancellationToken).ConfigureAwait(false);
                 for (int j = 0; j < batch.Count; j++)
                 {
                     chunks.Add(new IndexedChunk(path, batch[j].Start, batch[j].Text, SearchIndex.Normalize(vectors.Vectors[j]), batch[j].Page, batch[j].Line, batch[j].Heading));

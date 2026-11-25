@@ -36,6 +36,71 @@ internal sealed class FootprintEstimator(ModelLoader loader) : IDisposable
         }
     }
 
+    /// <summary>
+    /// Bytes of the routed experts' weights in the decode graph (the per-expert weight tables of a mixture-of-experts model), 0 for a dense
+    /// model. With CPU offload the engine moves the experts of the first layers to the CPU before anything else, so a shortfall up to this
+    /// size is covered by expert offload while attention and the shared layers stay on the GPU.
+    /// </summary>
+    /// <param name="request">Model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public long ExpertBytes(ModelLoadRequest request, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            var model = Get(request, cancellationToken);
+            if (!model.Definition.Graphs.TryGetValue(WellKnown.DecodeGraph, out var graph))
+            {
+                return 0;
+            }
+
+            // A routed expert product: MatMulId over a [experts, rows, columns] weight table (as the placement planner groups them).
+            return graph.Nodes
+                .Where(node => node.Op.Name == "MatMulId" && node.Inputs.Length == 3 && node.Inputs[1].Weight is { Shape.Rank: 3 })
+                .Select(node => node.Inputs[1].Weight!)
+                .Distinct()
+                .Sum(weight => weight.ByteSize);
+        }
+    }
+
+    /// <summary>
+    /// The share of a layer's routed experts one token reads (experts per token / experts, e.g. 8 / 128), 0 for a dense model: with experts
+    /// on disk the bytes a decoded token reads from disk are about this share of the experts left there (fewer with cache hits).
+    /// </summary>
+    /// <param name="request">Model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public double ExpertActiveShare(ModelLoadRequest request, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            var model = Get(request, cancellationToken);
+            if (!model.Definition.Graphs.TryGetValue(WellKnown.DecodeGraph, out var graph))
+            {
+                return 0;
+            }
+
+            var shares = graph.Nodes
+                .Where(node => node.Op.Name == "MatMulId" && node.Inputs.Length == 3 && node.Inputs[1].Weight is { Shape.Rank: 3 } w && !w.Shape[0].IsSymbolic
+                    && node.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic && w.Shape[0].Fixed > 0)
+                .Select(node => Math.Min(1.0, (double)node.Inputs[2].Shape[1].Fixed / node.Inputs[1].Weight!.Shape[0].Fixed))
+                .ToList();
+            return shares.Count == 0 ? 0 : shares.Max();
+        }
+    }
+
+    /// <summary>The weight formats of the model that load options depend on: block-scaled FP8 and NVFP4 matrices.</summary>
+    /// <param name="request">Model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public ModelWeightFormats WeightFormats(ModelLoadRequest request, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            var weights = Get(request, cancellationToken).Definition.Weights.Values;
+            bool fp8 = weights.Any(weight => weight.Type == DataType.F8E4M3_B128 || weight.Type == DataType.F8E4M3_B32);
+            bool nvfp4 = weights.Any(weight => weight.Type == DataType.NVFP4 || weight.Type == DataType.NVFP4_GS);
+            return new ModelWeightFormats(fp8, nvfp4);
+        }
+    }
+
     /// <summary>Closes the models read.</summary>
     public void Dispose()
     {

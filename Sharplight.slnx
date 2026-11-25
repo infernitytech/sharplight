@@ -7,6 +7,9 @@
     <Project Path="src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Metal/Sharplight.Metal.csproj" />
+    <Project Path="src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
+    <Project Path="src/Sharplight.Cuda.Blas/Sharplight.Cuda.Blas.csproj" />
+    <Project Path="src/Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <Project Path="src/Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" />
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
@@ -14,17 +17,23 @@
     <Project Path="src/Sharplight.Import.Diffusers/Sharplight.Import.Diffusers.csproj" />
     <Project Path="src/Sharplight.Import.WhisperCpp/Sharplight.Import.WhisperCpp.csproj" />
     <Project Path="src/Sharplight.Import.Kokoro/Sharplight.Import.Kokoro.csproj" />
+    <Project Path="src/Sharplight.Import.AceStep/Sharplight.Import.AceStep.csproj" />
+    <Project Path="src/Sharplight.Import.StableAudio/Sharplight.Import.StableAudio.csproj" />
     <Project Path="src/Sharplight.Import.Chatterbox/Sharplight.Import.Chatterbox.csproj" />
+    <Project Path="src/Sharplight.Import.VoxCpm/Sharplight.Import.VoxCpm.csproj" />
     <Project Path="src/Sharplight.Import.F5Tts/Sharplight.Import.F5Tts.csproj" />
     <Project Path="src/Sharplight.Import.Xtts/Sharplight.Import.Xtts.csproj" />
     <Project Path="src/Sharplight.Import.CosyVoice/Sharplight.Import.CosyVoice.csproj" />
     <Project Path="src/Sharplight.Import.Snac/Sharplight.Import.Snac.csproj" />
     <Project Path="src/Sharplight.Import.SileroVad/Sharplight.Import.SileroVad.csproj" />
     <Project Path="src/Sharplight.Import.Ultralytics/Sharplight.Import.Ultralytics.csproj" />
+    <Project Path="src/Sharplight.Import.SeedVr/Sharplight.Import.SeedVr.csproj" />
+    <Project Path="src/Sharplight.Architectures.VideoEnhancement/Sharplight.Architectures.VideoEnhancement.csproj" />
     <Project Path="src/Sharplight.Audio/Sharplight.Audio.csproj" />
     <Project Path="src/Sharplight.Video/Sharplight.Video.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <Project Path="src/Sharplight.ModelFeed/Sharplight.ModelFeed.csproj" />
+    <Project Path="src/Sharplight.Distributed/Sharplight.Distributed.csproj" />
     <Project Path="src/Sharplight.Hosting/Sharplight.Hosting.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <Project Path="src/Sharplight.DesignTokens/Sharplight.DesignTokens.csproj" />
@@ -45,6 +54,7 @@
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
     <Project Path="samples/Sharplight.GenerateImage/Sharplight.GenerateImage.csproj" />
     <Project Path="samples/Sharplight.GenerateVideo/Sharplight.GenerateVideo.csproj" />
+    <Project Path="samples/Sharplight.EnhanceVideo/Sharplight.EnhanceVideo.csproj" />
     <Project Path="samples/Sharplight.Transcribe/Sharplight.Transcribe.csproj" />
     <Project Path="samples/Sharplight.Vision/Sharplight.Vision.csproj" />
   </Folder>
@@ -71,11 +81,13 @@
     <Project Path="tests/Sharplight.Import.PyTorch.Tests/Sharplight.Import.PyTorch.Tests.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
+    <Project Path="tests/Sharplight.Distributed.Tests/Sharplight.Distributed.Tests.csproj" />
     <Project Path="tests/Sharplight.Hosting.Tests/Sharplight.Hosting.Tests.csproj" />
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
     <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
     <Project Path="tests/Sharplight.AudioModels.Tests/Sharplight.AudioModels.Tests.csproj" />
     <Project Path="tests/Sharplight.Metal.Tests/Sharplight.Metal.Tests.csproj" />
+    <Project Path="tests/Sharplight.Cuda.Tests/Sharplight.Cuda.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
     <Project Path="tests/Sharplight.ImageGeneration.Tests/Sharplight.ImageGeneration.Tests.csproj" />

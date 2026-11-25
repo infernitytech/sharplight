@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Fit;
 using Sharplight.Hosting.Loaders;
+using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Compatibility;
@@ -23,7 +25,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     private static readonly HashSet<string> s_estimated = new(StringComparer.Ordinal)
     {
         nameof(SelectedDevice), nameof(ContextLength), nameof(BatchTokens), nameof(KvCache), nameof(Slots), nameof(CpuOffload),
-        nameof(MtpDraftTokens), nameof(AllowReducedPrecision),
+        nameof(ExpertsOnDisk), nameof(MtpDraftTokens), nameof(AllowReducedPrecision),
     };
 
     private readonly StudioServices _services;
@@ -33,9 +35,16 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     private readonly Action<LibraryEntry>? _openVariant;
     private readonly FitAdvisor _advisor;
     private readonly EventHandler _modelsChanged;
+    private readonly EventHandler<IReadOnlyList<DeviceMemory>> _memoryChanged;
+    private readonly IDisposable _watch;
+    private readonly Lock _scheduleLock = new();
     private CancellationTokenSource? _loading;
     private CancellationTokenSource? _estimating;
     private bool _ready;
+    private bool _detached;
+    private IReadOnlyList<DeviceMemory>? _pendingMemory;
+    private IReadOnlyList<DeviceMemory>? _plannedMemory;
+    private ModelWeightFormats? _weightFormats;
 
     /// <param name="entry">The model to load.</param>
     /// <param name="services">The services.</param>
@@ -52,12 +61,31 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         _closed = closed;
         _library = library ?? (() => []);
         _openVariant = openVariant;
-        _advisor = new FitAdvisor(services.Runtime, services.Settings);
+        _advisor = FitAdvisor.For(services);
         _modelsChanged = (_, _) => services.Dispatcher.Post(() =>
         {
             if (!IsLoading)
             {
                 ScheduleEstimate();
+            }
+        });
+        // New figures from the periodic read while the panel is open (other applications, a model loading elsewhere): plan again with them.
+        _memoryChanged = (_, memory) => services.Dispatcher.Post(() =>
+        {
+            // Figures the current plan already used (the panel's own read, shared with the watch) change nothing.
+            if (IsLoading || _detached || DeviceMemoryWatch.Same(Volatile.Read(ref _plannedMemory), memory))
+            {
+                return;
+            }
+
+            if (Estimate.IsCompleted)
+            {
+                ScheduleEstimate(memory);
+            }
+            else
+            {
+                // The estimate in progress reads the same figures (one shared read) or older ones: it plans again when it is done.
+                _pendingMemory = memory;
             }
         });
         var defaults = services.Settings.Current.DefaultLoad;
@@ -80,12 +108,22 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         KvCache = KvCacheChoice.All.FirstOrDefault(choice => choice.Value == defaults.KvCacheType) ?? KvCacheChoice.All[0];
         Slots = defaults.Slots;
         CpuOffload = defaults.CpuOffload;
+        ExpertsOnDisk = defaults.ExpertsOnDisk;
         NgramDraftTokens = defaults.NgramDraftTokens;
         AllowReducedPrecision = defaults.AllowReducedPrecision;
         MtpDraftTokens = defaults.MtpDraftTokens;
+        BlockScaledFp8 = defaults.BlockScaledFp8;
+        Fp4Activations = defaults.Fp4Activations;
+        StepFloor = StepFloorChoice.All.FirstOrDefault(choice => choice.Value == defaults.StepFloor) ?? StepFloorChoice.All[0];
+        StepRowsPerSequence = defaults.StepRowsPerSequence ?? 0;
+        KvAdmission = KvAdmissionChoice.All.FirstOrDefault(choice => choice.Value == defaults.KvAdmission) ?? KvAdmissionChoice.All[0];
         _ready = true;
         services.Runtime.ModelsChanged += _modelsChanged;
+        services.Memory.Changed += _memoryChanged;
+        // Opening the panel reads the figures now and keeps them fresh while it is open.
+        _watch = services.Memory.Watch();
         ScheduleEstimate();
+        WeightProbe = IsLanguageModel ? ProbeWeightFormatsAsync() : Task.CompletedTask;
     }
 
     /// <summary>How long the choices must stay unchanged before they are estimated.</summary>
@@ -137,7 +175,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
 
     /// <summary>Device to load on.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanOffload))]
+    [NotifyPropertyChangedFor(nameof(CanOffload), nameof(CanUseBlockScaledFp8), nameof(BlockScaledFp8Hint), nameof(CanUseFp4Activations), nameof(Fp4ActivationsHint))]
     public partial ComputeDeviceOption? SelectedDevice { get; set; }
 
     /// <summary>The id the model will be known by.</summary>
@@ -158,11 +196,16 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
 
     /// <summary>Concurrent sequences.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanTuneSteps), nameof(StepTuningHint), nameof(KvAdmissionHint))]
     public partial double Slots { get; set; }
 
     /// <summary>Offload what does not fit to the CPU.</summary>
     [ObservableProperty]
     public partial bool CpuOffload { get; set; }
+
+    /// <summary>With CPU offload: leave routed experts that do not fit system memory on disk.</summary>
+    [ObservableProperty]
+    public partial bool ExpertsOnDisk { get; set; }
 
     /// <summary>Prompt-lookup draft tokens (0 = off).</summary>
     [ObservableProperty]
@@ -179,6 +222,118 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// <summary>Opt-in to faster, less precise kernels.</summary>
     [ObservableProperty]
     public partial bool AllowReducedPrecision { get; set; }
+
+    /// <summary>Block-scaled FP8 tensor-core products for block-scaled FP8 weights (applies when <see cref="CanUseBlockScaledFp8"/>).</summary>
+    [ObservableProperty]
+    public partial bool BlockScaledFp8 { get; set; }
+
+    /// <summary>FP4 activations for NVFP4 weights, the W4A4 GEMM (applies when <see cref="CanUseFp4Activations"/>).</summary>
+    [ObservableProperty]
+    public partial bool Fp4Activations { get; set; }
+
+    /// <summary>When the floor of the adaptive step budget applies (applies when <see cref="CanTuneSteps"/>).</summary>
+    [ObservableProperty]
+    public partial StepFloorChoice StepFloor { get; set; }
+
+    /// <summary>Rows per slot of the adaptive step budget; 0 keeps the engine's default (applies when <see cref="CanTuneSteps"/>).</summary>
+    [ObservableProperty]
+    public partial double StepRowsPerSequence { get; set; }
+
+    /// <summary>The step floor choices.</summary>
+    public IReadOnlyList<StepFloorChoice> StepFloorChoices => StepFloorChoice.All;
+
+    /// <summary>What happens to new requests when the KV cache is full (applies when <see cref="CanTuneSteps"/>).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(KvAdmissionHint))]
+    public partial KvAdmissionChoice KvAdmission { get; set; }
+
+    /// <summary>The choices for a full KV cache.</summary>
+    public IReadOnlyList<KvAdmissionChoice> KvAdmissionChoices => KvAdmissionChoice.All;
+
+    /// <summary>The weight formats of the model, once read (null before, and for models that are not language models).</summary>
+    public ModelWeightFormats? WeightFormats
+    {
+        get => _weightFormats;
+        private set
+        {
+            if (SetProperty(ref _weightFormats, value))
+            {
+                OnPropertyChanged(nameof(CanUseBlockScaledFp8));
+                OnPropertyChanged(nameof(BlockScaledFp8Hint));
+                OnPropertyChanged(nameof(CanUseFp4Activations));
+                OnPropertyChanged(nameof(Fp4ActivationsHint));
+            }
+        }
+    }
+
+    /// <summary>Reading the model's weight formats (for tests).</summary>
+    internal Task WeightProbe { get; }
+
+    /// <summary>The device has the block-scaled FP8 MMA (not turned off in the settings) and the model has block-scaled FP8 weights.</summary>
+    public bool CanUseBlockScaledFp8 => DeviceHas(DeviceFeatures.BlockScaledFp8) && WeightFormats?.BlockScaledFp8 == true;
+
+    /// <summary>The device has the block-scaled FP4 MMA (not turned off in the settings) and the model has NVFP4 weights.</summary>
+    public bool CanUseFp4Activations => DeviceHas(DeviceFeatures.BlockScaledFp4) && WeightFormats?.Nvfp4 == true;
+
+    /// <summary>What the FP8 toggle does, or why it does not apply.</summary>
+    public string BlockScaledFp8Hint => Applicability(DeviceFeatures.BlockScaledFp8, WeightFormats?.BlockScaledFp8, "block-scaled FP8 weights",
+        "Block-scaled FP8 weights are requantized to power-of-two scales and prompts run on the block-scaled FP8 tensor cores: a few percent faster, "
+        + "perplexity within about +0.3 to +0.8 %. Off keeps the checkpoint's own scales.");
+
+    /// <summary>What the FP4 toggle does, or why it does not apply.</summary>
+    public string Fp4ActivationsHint => Applicability(DeviceFeatures.BlockScaledFp4, WeightFormats?.Nvfp4, "NVFP4 weights",
+        "Prompts multiply NVFP4 weights with activations quantized to FP4 (W4A4) on the FP4 tensor cores: faster prefill, slightly less precise. "
+        + "Off keeps 16-bit activations.");
+
+    /// <summary>The step budget settings apply: several slots share the engine's steps.</summary>
+    public bool CanTuneSteps => Slots > 1;
+
+    /// <summary>What the step settings do, or why they do not apply.</summary>
+    public string StepTuningHint => CanTuneSteps
+        ? "How many prompt rows a step carries while few slots are busy: larger steps prefill a wave of prompts faster, smaller ones stream the first tokens sooner."
+        : "Applies with two or more parallel slots (serving several requests at once).";
+
+    /// <summary>What the choice for a full KV cache does, or why it does not apply.</summary>
+    public string KvAdmissionHint => CanTuneSteps
+        ? "Queue keeps throughput highest; Preempt starts new requests sooner (lower time to first token) at slightly lower throughput."
+        : "Applies with two or more parallel slots (serving several requests at once).";
+
+    private bool DeviceHas(string feature) => SelectedDevice is { } device && device.Features.Contains(feature)
+        && !_services.Settings.Current.DisabledFeatures.Contains(feature, StringComparer.OrdinalIgnoreCase);
+
+    private string Applicability(string feature, bool? modelHas, string weights, string description)
+    {
+        if (SelectedDevice is not { } device || !device.Features.Contains(feature))
+        {
+            return $"Not available on this device: it needs a GPU whose tensor cores apply block scales (CUDA, compute capability 12.x). {description}";
+        }
+
+        if (_services.Settings.Current.DisabledFeatures.Contains(feature, StringComparer.OrdinalIgnoreCase))
+        {
+            return $"Turned off for every model in Settings (device features). {description}";
+        }
+
+        return modelHas switch
+        {
+            null => $"Reading the model's weight formats… {description}",
+            false => $"Does not apply: this model has no {weights}. {description}",
+            true => description,
+        };
+    }
+
+    private async Task ProbeWeightFormatsAsync()
+    {
+        try
+        {
+            var formats = await _services.Runtime.DescribeWeightFormatsAsync(ToRequest(), CancellationToken.None).ConfigureAwait(false);
+            _services.Dispatcher.Post(() => WeightFormats = formats);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            // The estimate reports an unreadable model; the toggles stay off.
+            _services.Dispatcher.Post(() => WeightFormats = ModelWeightFormats.None);
+        }
+    }
 
     /// <summary>Loading.</summary>
     [ObservableProperty]
@@ -225,9 +380,15 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             KvCacheType = KvCache.Value,
             Slots = Math.Max(1, (int)Slots),
             CpuOffload = CpuOffload && CanOffload,
+            ExpertsOnDisk = ExpertsOnDisk && CpuOffload && CanOffload,
             NgramDraftTokens = Math.Max(0, (int)NgramDraftTokens),
             AllowReducedPrecision = AllowReducedPrecision,
             MtpDraftTokens = Math.Max(0, (int)MtpDraftTokens),
+            BlockScaledFp8 = BlockScaledFp8 || !CanUseBlockScaledFp8,
+            Fp4Activations = Fp4Activations || !CanUseFp4Activations,
+            StepFloor = CanTuneSteps ? StepFloor.Value : null,
+            StepRowsPerSequence = CanTuneSteps && StepRowsPerSequence >= 1 ? (int)StepRowsPerSequence : null,
+            KvAdmission = CanTuneSteps ? KvAdmission.Value : null,
         };
         var auxiliary = new List<(string Role, string Path)>();
         if (NeedsVocoder && VocoderPath.Trim().Length > 0)
@@ -355,20 +516,31 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// <summary>Stops following the runtime and cancels an estimate in progress.</summary>
     private void Detach()
     {
+        _detached = true;
         _services.Runtime.ModelsChanged -= _modelsChanged;
+        _services.Memory.Changed -= _memoryChanged;
+        _watch.Dispose();
         _estimating?.Cancel();
     }
 
-    /// <summary>Estimates the current choices once they stay unchanged for <see cref="EstimateDelay"/>.</summary>
-    private void ScheduleEstimate()
+    /// <summary>
+    /// Estimates the current choices once they stay unchanged for <see cref="EstimateDelay"/>, against <paramref name="memory"/> when given
+    /// (new figures of the shared watch), else against figures read for it.
+    /// </summary>
+    private void ScheduleEstimate(IReadOnlyList<DeviceMemory>? memory = null)
     {
-        _estimating?.Cancel();
-        var cancellation = new CancellationTokenSource();
-        _estimating = cancellation;
-        Estimate = EstimateAsync(cancellation);
+        lock (_scheduleLock)
+        {
+            // The new estimate is published before the old one is cancelled: whoever waits for Estimate never sees a cancelled one as the latest.
+            var previous = _estimating;
+            var cancellation = new CancellationTokenSource();
+            _estimating = cancellation;
+            Estimate = EstimateAsync(cancellation, memory);
+            previous?.Cancel();
+        }
     }
 
-    private async Task EstimateAsync(CancellationTokenSource cancellation)
+    private async Task EstimateAsync(CancellationTokenSource cancellation, IReadOnlyList<DeviceMemory>? known)
     {
         var token = cancellation.Token;
         if (!IsLanguageModel)
@@ -382,17 +554,34 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             await Task.Delay(EstimateDelay, token);
             IsEstimating = true;
             var request = ToRequest();
-            var memory = await _advisor.GetMemoryAsync(token);
+            var memory = known ?? await _advisor.GetMemoryAsync(token);
+            Volatile.Write(ref _plannedMemory, memory);
             var footprint = await _services.Runtime.EstimateFootprintAsync(request, token);
+            long experts = await _services.Runtime.EstimateExpertBytesAsync(request, token);
             var report = _advisor.Plan(footprint, request.Settings, memory);
+            bool expertOffload = FitAdvisor.IsExpertOffload(report, experts);
+            double? diskSpeed = report.ExpertsFromDisk
+                ? FitAdvisor.DiskTokensPerSecond(report, await _services.Runtime.EstimateExpertActiveShareAsync(request, token))
+                : null;
             token.ThrowIfCancellationRequested();
             FitError = "";
-            Fit = new FitEstimateViewModel(report, []);
-            var suggestions = await _advisor.SuggestAsync(request, report, memory, Entry.Entry, _library(), token);
-            token.ThrowIfCancellationRequested();
-            if (suggestions.Count > 0)
+            // The verdict first; the longest contexts and the suggestions follow (a few more estimates of the same model).
+            Fit = new FitEstimateViewModel(report, [], expertOffload: expertOffload, diskTokensPerSecond: diskSpeed)
             {
-                Fit = new FitEstimateViewModel(report, [.. suggestions.Select(suggestion => new FitSuggestionViewModel(suggestion, Apply))]);
+                ConfiguredContext = request.Settings.ContextLength,
+            };
+            var contexts = await _advisor.SizeContextAsync(request, memory, ContextSizer.Limit(Entry.Entry.TrainedContextLength), experts, token);
+            var sizing = await _advisor.SizingAsync(request, report, contexts, memory, token);
+            var suggestions = await _advisor.SuggestAsync(request, report, memory, Entry.Entry, _library(), token, contexts, experts);
+            token.ThrowIfCancellationRequested();
+            Fit = new FitEstimateViewModel(report, [.. suggestions.Select(suggestion => new FitSuggestionViewModel(suggestion, Apply))],
+                [.. sizing.Select(row => new FitSuggestionViewModel(row, Apply))], contexts, expertOffload, diskSpeed)
+            {
+                ConfiguredContext = request.Settings.ContextLength,
+            };
+            if (Interlocked.Exchange(ref _pendingMemory, null) is { } newer && !DeviceMemoryWatch.Same(memory, newer))
+            {
+                ScheduleEstimate(newer);
             }
         }
         catch (OperationCanceledException)
@@ -435,6 +624,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         KvCache = KvCacheChoice.All.FirstOrDefault(choice => choice.Value == settings.KvCacheType) ?? KvCache;
         Slots = settings.Slots;
         CpuOffload = settings.CpuOffload && CanOffload;
+        ExpertsOnDisk = settings.ExpertsOnDisk && CpuOffload;
     }
 
     private string UniqueId(string id)

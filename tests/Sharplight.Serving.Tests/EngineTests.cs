@@ -87,6 +87,146 @@ public class EngineTests
     }
 
     [Fact]
+    public async Task AdaptiveStepBudget_SpreadsCompetingPrompts_ButNotALonePrompt()
+    {
+        var d = new FakeBatchDecoder(8, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(3) };
+        d.Script("x", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 40, BatchTokensPerSequence = 10, BatchTokensGranule = 1 });
+
+        // A lone prompt may take a whole step of the full budget.
+        int loneLength = T.Prompt(new string('a', 300)).Length;
+        await e.Submit(Req(new string('a', 300), max: 2)).CompleteAsync();
+        Assert.Contains(d.Steps, s => s.Sum(x => x.Rows) == loneLength);
+
+        // Four prompts at a light load: a step holds the oldest prompt's rest plus a row per sequence at most, never all prompts.
+        int start = d.Steps.Count;
+        int length = T.Prompt(new string('b', 50)).Length;
+        var hs = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('b' + i), 50), max: 2))).ToList();
+        await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+        Assert.All(d.Steps.Skip(start), s => Assert.True(s.Sum(x => x.Rows) <= 4 + length, $"step of {s.Sum(x => x.Rows)} rows"));
+    }
+
+    [Fact]
+    public async Task AdaptiveStepBudget_RoundsUpToWholeGranules()
+    {
+        var d = new FakeBatchDecoder(8, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(3) };
+        d.Script("x", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 40, BatchTokensPerSequence = 10, BatchTokensGranule = 64 });
+
+        // Four competing prompts: the budget of a few rows per sequence becomes one granule of 64 rows, never more than two.
+        int start = d.Steps.Count;
+        var hs = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('b' + i), 100), max: 2))).ToList();
+        await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+        var rows = d.Steps.Skip(start).Select(s => s.Sum(x => x.Rows)).ToList();
+        Assert.All(rows, r => Assert.True(r <= 128, $"step of {r} rows"));
+        Assert.Contains(rows, r => r > 40 + 4);
+    }
+
+    [Fact]
+    public void StepFloor_DefaultsToWaves()
+    {
+        Assert.Equal(StepFloorPolicy.Waves, new EngineOptions().StepFloor);
+        Assert.Equal(StepFloorPolicy.Waves, default(StepFloorPolicy));
+    }
+
+    [Fact]
+    public void StepRowsPerSequence_DefaultsTo48()
+    {
+        Assert.Equal(48, new EngineOptions().BatchTokensPerSequence);
+    }
+
+    /// <summary>
+    /// Four prompts arriving while another sequence decodes: the waves policy (default) leaves the floor out (a step holds the oldest
+    /// prompt's rest plus a row per sequence), the old policy applies it, the full policy gives the step the whole budget.
+    /// </summary>
+    [Theory]
+    [InlineData(StepFloorPolicy.Waves)]
+    [InlineData(StepFloorPolicy.Always)]
+    [InlineData(StepFloorPolicy.Full)]
+    public async Task StepFloor_PolicyWhileSomeSequenceDecodes(StepFloorPolicy policy)
+    {
+        var d = new FakeBatchDecoder(8, maxBatchTokens: 400) { StepDelay = TimeSpan.FromMilliseconds(3) };
+        d.Script("x", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 200, BatchTokensPerSequence = 10, BatchTokensGranule = 1, StepFloor = policy });
+        using var cts = new CancellationTokenSource();
+        var running = e.Submit(Req("a", max: 100000), cts.Token);
+        await using (var chunks = running.ReadAllAsync().GetAsyncEnumerator())
+        {
+            Assert.True(await chunks.MoveNextAsync());
+            int length = T.Prompt(new string('b', 100)).Length;
+            var hs = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('b' + i), 100), max: 2))).ToList();
+            await Task.WhenAll(hs.Select(h => h.CompleteAsync()));
+            cts.Cancel();
+
+            // Steps with prompt rows while slot 0 decodes.
+            int largest = d.Steps.ToList().Where(s => s.Any(x => x.Slot == 0 && x.Rows == 1) && s.Any(x => x.Rows > 1)).Max(s => s.Sum(x => x.Rows));
+            switch (policy)
+            {
+                case StepFloorPolicy.Waves:
+                    Assert.True(largest <= 5 + length, $"step of {largest} rows");
+                    break;
+                case StepFloorPolicy.Always:
+                    Assert.Equal(200, largest);
+                    break;
+                default:
+                    Assert.Equal(400, largest);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A decoder whose prompt steps cost whole 32-row tiles (10 ms each) and whose decode steps with a few prompt rows cost 2 ms: once the
+    /// engine has priced both, a prompt that would end 3 rows past a tile leaves them to the next step, and with the tile-aware schedule
+    /// off it does not.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore(bool tileAware)
+    {
+        var d = new FakeBatchDecoder(4, maxBatchTokens: 400)
+        {
+            StepDelayForRows = rows => TimeSpan.FromMilliseconds(rows <= 1 ? 1 : rows <= 9 ? 2 : 10 * ((rows + 31) / 32)),
+        };
+        d.Script("a", loop: true);
+        using var e = Engine(d, new EngineOptions { MinBatchTokens = 0, BatchTokensGranule = 32, TileAwarePrompts = tileAware });
+        using var cts = new CancellationTokenSource();
+        var running = e.Submit(Req("r", max: 100000), cts.Token);
+        await T.WaitUntil(() => d.Steps.Count > 20);
+
+        // Prompt steps of one to four tiles (none ends 1-8 rows past a tile), and decode steps carrying a few held rows.
+        int[] sizes = [40, 70, 100, 50, 80, 110, 45, 75, 105, 55, 85, 115, 42, 72, 102, 52];
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            await e.Submit(Req(new string((char)('c' + i), sizes[i]), max: 2)).CompleteAsync();
+        }
+
+        // One decode row and a prompt of 66 rows: 67 rows, 3 past the second tile.
+        string prompt = "x";
+        while (T.Prompt(prompt).Length < 66)
+        {
+            prompt += "x";
+        }
+
+        int start = d.Steps.Count;
+        var r = await e.Submit(Req(prompt, max: 2)).CompleteAsync();
+        Assert.Equal("aa", r.Text);
+        var all = d.Steps.ToList().Select(s => s.Sum(x => x.Rows)).ToList();
+        var rows = all.Skip(start).ToList();
+        if (tileAware)
+        {
+            Assert.True(rows.Contains(64) && !rows.Contains(67), string.Join(",", all));
+        }
+        else
+        {
+            Assert.Contains(67, rows);
+        }
+
+        cts.Cancel();
+    }
+
+    [Fact]
     public async Task Cancel_RunningRequest_FreesSlot()
     {
         var d = new FakeBatchDecoder(1) { StepDelay = TimeSpan.FromMilliseconds(2) };

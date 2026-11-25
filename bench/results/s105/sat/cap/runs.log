@@ -1,0 +1,9 @@
+08:47:32 start qwen sharplight fixed concs=256 rates= args=--provider cuda --max-queue 4096
+09:00:07 end qwen sharplight fixed rc=0
+09:00:07 start llama sharplight fixed concs=256 rates= args=--provider cuda --max-queue 4096
+09:22:56 start qwen sharplight fixed concs=256 rates= args=--provider cuda --max-queue 4096
+10:08:38 end qwen sharplight fixed rc=0
+10:08:38 start llama sharplight fixed concs=256 rates= args=--provider cuda --max-queue 4096
+10:45:27 end llama sharplight fixed rc=0
+10:45:27 start gptoss sharplight fixed concs=256 rates= args=--provider cuda --max-queue 4096
+11:08:04 end gptoss sharplight fixed rc=0

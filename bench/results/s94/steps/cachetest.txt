@@ -1,0 +1,48 @@
+[hold 09:03:22] <out>/cachetest.sh
+0 %, 2 MiB, 32.42 W
+== Qwen3-8B-FP8 warm round 1
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 47.4 | 474 / 0 | 12.24 / 12.26, 12.20 |  |
+| 0 | 750 (3) | 62.7 | 366 / 0 | 51.35 / 51.97, 51.28 |  |
+| 15 | 250 (1) | 45.0 | 366 / 0 | 27.78 / 28.38, 27.74 |  |
+| 48 | 1000 (4) | 79.3 | 366 / 0 | 75.17 / 75.38, 75.09 |  |
+== Qwen3-8B-FP8 fresh round 1
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 47.1 | 474 / 0 | 12.24 / 12.26, 12.18 |  |
+| 0 | 750 (3) | 66.3 | 366 / 0 | 51.33 / 51.89, 51.27 |  |
+| 15 | 250 (1) | 35.1 | 366 / 0 | 27.74 / 28.37, 27.69 |  |
+| 48 | 1000 (4) | 80.1 | 366 / 0 | 75.22 / 75.37, 75.15 |  |
+== Qwen3-8B-FP8 warm round 1
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 48.8 | 474 / 0 | 12.25 / 12.27, 12.20 |  |
+| 0 | 750 (3) | 62.8 | 366 / 0 | 51.52 / 52.03, 51.43 |  |
+| 15 | 250 (1) | 44.2 | 366 / 0 | 28.04 / 28.43, 27.98 |  |
+| 48 | 1000 (4) | 79.5 | 366 / 0 | 75.22 / 75.50, 75.13 |  |
+== Qwen3-8B-FP8 fresh2 round 1
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 41.5 | 474 / 0 | 12.24 / 12.25, 12.18 |  |
+| 0 | 750 (3) | 62.3 | 366 / 0 | 51.57 / 52.08, 51.48 |  |
+| 15 | 250 (1) | 43.7 | 366 / 0 | 28.03 / 28.46, 27.98 |  |
+| 48 | 1000 (4) | 79.6 | 366 / 0 | 75.28 / 75.57, 75.22 |  |
+== Qwen3-8B-FP8 warm round 1
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 16 | 0 (0) | 41.4 | 474 / 0 | 12.26 / 12.28, 12.21 |  |
+| 0 | 750 (3) | 62.7 | 366 / 0 | 51.61 / 52.18, 51.54 |  |
+| 15 | 250 (1) | 44.8 | 366 / 0 | 27.77 / 28.50, 27.71 |  |
+| 48 | 1000 (4) | 79.7 | 366 / 0 | 75.31 / 75.62, 75.24 |  |
+[release 09:04:28]

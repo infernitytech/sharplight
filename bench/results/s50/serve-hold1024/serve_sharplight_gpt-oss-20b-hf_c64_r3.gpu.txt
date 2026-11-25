@@ -1,0 +1,8 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 0 %, 5327 MiB, 21.31 W, 405 MHz, 810 MHz, 33, P5
+gpu util,memused,power,smclk,memclk,temp,pstate: 1 %, 17422 MiB, 52.00 W, 2482 MHz, 14001 MHz, 41, P0
+gpu util,memused,power,smclk,memclk,temp,pstate: 94 %, 15784 MiB, 199.43 W, 2362 MHz, 14001 MHz, 66, P0
+3059707, ~/sl-srv-place/tests/Sharplight.Server.Inference.Tests/bin/Debug/net11.0/Sharplight.Server.Infere
+3059707, ~/sl-srv-place/tests/Sharplight.Server.Inference.Tests/bin/Debug/net11.0/Sharplight.Server.Infere
+3062052, ~/sl-worktrees/cuda-r2-base/samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 17344 MiB
+3057808, ./bench/../samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 15744 MiB
+3059707, ~/sl-srv-place/tests/Sharplight.Server.Inference.Tests/bin/Debug/net11.0/Sharplight.Server.Infere

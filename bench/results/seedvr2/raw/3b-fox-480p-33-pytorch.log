@@ -1,0 +1,245 @@
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+2026-11-24 17:57:02,884 [MainThread][common.decorators][INFO] Entering configure_dit_model
+Loading pretrained ckpt from <models>/video/seedvr2/SeedVR2-3B/seedvr2_ema_3b.pth
+Loading info: <All keys matched successfully>
+DiT trainable parameters: 3,391,475,776
+2026-11-24 17:57:24,980 [MainThread][common.decorators][INFO] Completed configure_dit_model in 21.914 seconds.
+2026-11-24 17:57:30,024 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 17:57:33,825 [MainThread][common.decorators][INFO] Completed configure_vae_model in 3.800 seconds.
+[rank0]:[W1124 17:57:36.740325867 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2044723200 bytes (free: 1264189440, total: 33687470080).
+[rank0]:[W1124 17:57:36.247248700 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2048917504 bytes (free: 888799232, total: 33687470080).
+[rank0]:[W1124 17:57:37.153489723 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1635778560 bytes (free: 1077542912, total: 33687470080).
+[rank0]:[W1124 17:57:37.408605340 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1635778560 bytes (free: 786038784, total: 33687470080).
+[rank0]:[W1124 17:57:38.645480700 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 1635778560 bytes (free: 1612316672, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 252, in main
+[rank0]:     stages, dump = run_once(dump=True)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 163, in run_once
+[rank0]:     posterior = runner.vae.encode(sample).posterior
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1304, in encode
+[rank0]:     p = super().encode(x).latent_dist
+[rank0]:         ^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1168, in encode
+[rank0]:     h = self.slicing_encode(x)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1223, in slicing_encode
+[rank0]:     self._encode(x_slices[x_idx], memory_state=MemoryState.ACTIVE)
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1192, in _encode
+[rank0]:     h = self.encoder(_x, memory_state=memory_state)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 825, in forward
+[rank0]:     sample = down_block(sample, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 433, in forward
+[rank0]:     hidden_states = resnet(hidden_states, temb=None, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 341, in forward
+[rank0]:     output_tensor = (input_tensor + hidden_states) / self.output_scale_factor
+[rank0]:                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.52 GiB. GPU 0 has a total capacity of 31.37 GiB of which 1.50 GiB is free. Including non-PyTorch memory, this process has 29.86 GiB memory in use. Of the allocated memory 26.06 GiB is allocated by PyTorch, and 3.49 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+peak_mib 31368
+pytorch run with offload '--no-offload', DiT weights fp32 failed
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+2026-11-24 17:57:43,495 [MainThread][common.decorators][INFO] Entering configure_dit_model
+Loading pretrained ckpt from <models>/video/seedvr2/SeedVR2-3B/seedvr2_ema_3b.pth
+Loading info: <All keys matched successfully>
+DiT trainable parameters: 3,391,475,776
+2026-11-24 17:58:05,361 [MainThread][common.decorators][INFO] Completed configure_dit_model in 21.760 seconds.
+2026-11-24 17:58:07,403 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 17:58:10,144 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.741 seconds.
+[rank0]:[W1124 17:58:19.825730167 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2044723200 bytes (free: 1264189440, total: 33687470080).
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s][rank0]:[W1124 17:58:32.638968990 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 864026624 bytes (free: 295305216, total: 33687470080).
+[rank0]:[W1124 17:58:32.814013319 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 864026624 bytes (free: 492437504, total: 33687470080).
+[rank0]:[W1124 17:58:32.983560562 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 864026624 bytes (free: 205127680, total: 33687470080).
+[rank0]:[W1124 17:58:32.146904165 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 566231040 bytes (free: 486146048, total: 33687470080).
+[rank0]:[W1124 17:58:32.147075866 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 566231040 bytes (free: 486146048, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 252, in main
+[rank0]:     stages, dump = run_once(dump=True)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 192, in run_once
+[rank0]:     restored = runner.sampler.sample(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/common/diffusion/samplers/euler.py", line 54, in sample
+[rank0]:     pred = f(SamplerModelArgs(x, t, i))
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 194, in <lambda>
+[rank0]:     f=lambda a: runner.dit(vid=torch.cat([a.x_t, conds], dim=-1), txt=text, vid_shape=shapes, txt_shape=text_shape,
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 182, in capture
+[rank0]:     out = dit_forward(*a, **k)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nadit.py", line 220, in forward
+[rank0]:     vid, txt, vid_shape, txt_shape = gradient_checkpointing(
+[rank0]:                                      ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nadit.py", line 32, in gradient_checkpointing
+[rank0]:     return module(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nablocks/mmsr_block.py", line 109, in forward
+[rank0]:     vid_attn, txt_attn = self.attn(vid_attn, txt_attn, vid_shape, txt_shape, cache)
+[rank0]:                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/nablocks/attention/mmattn.py", line 234, in forward
+[rank0]:     vid_q, vid_k, txt_q, txt_k = self.rope(
+[rank0]:                                  ^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/dit_v2/rope.py", line 114, in forward
+[rank0]:     vid_k = apply_rotary_emb(vid_freqs, vid_k.float()).to(vid_k.dtype)
+[rank0]:             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/amp/autocast_mode.py", line 44, in decorate_autocast
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py", line 47, in apply_rotary_emb
+[rank0]:     t = (t * freqs.cos() * scale) + (rotate_half(t) * freqs.sin() * scale)
+[rank0]:                                      ^^^^^^^^^^^^^^
+[rank0]:   File "<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py", line 32, in rotate_half
+[rank0]:     x = torch.stack((-x2, x1), dim = -1)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 540.00 MiB. GPU 0 has a total capacity of 31.37 GiB of which 463.62 MiB is free. Including non-PyTorch memory, this process has 30.91 GiB memory in use. Of the allocated memory 28.85 GiB is allocated by PyTorch, and 1.74 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+EulerSampler:   0%|          | 0/1 [00:03<?, ?it/s]
+peak_mib 31922
+pytorch run with offload 'official', DiT weights fp32 failed
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<All keys matched successfully>
+2026-11-24 17:58:40,499 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-24 17:58:43,243 [MainThread][common.decorators][INFO] Completed configure_vae_model in 2.744 seconds.
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:06<00:00,  6.04s/it]EulerSampler: 100%|██████████| 1/1 [00:06<00:00,  6.04s/it]
+[rank0]:[W1124 17:59:07.487748770 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2761949184 bytes (free: 1526333440, total: 33687470080).
+[rank0]:[W1124 17:59:08.369506088 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 5112856576 bytes (free: 4906942464, total: 33687470080).
+[rank0]:[W1124 17:59:09.783022303 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 4089446400 bytes (free: 435814400, total: 33687470080).
+[rank0]:[W1124 17:59:09.114603295 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 4089446400 bytes (free: 1341784064, total: 33687470080).
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 359, in <module>
+[rank0]:     main()
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 252, in main
+[rank0]:     stages, dump = run_once(dump=True)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<repo>/tools/seedvr2-reference.py", line 206, in run_once
+[rank0]:     decoded = runner.vae_decode([restored])[0]  # c t h w
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/projects/video_diffusion_sr/infer.py", line 211, in vae_decode
+[rank0]:     sample = self.vae.decode(latent).sample
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1311, in decode
+[rank0]:     x = super().decode(z).sample.squeeze(2)
+[rank0]:         ^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1180, in decode
+[rank0]:     decoded = self.slicing_decode(z)
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1234, in slicing_decode
+[rank0]:     self._decode(
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1207, in _decode
+[rank0]:     output = self.decoder(_z, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 1013, in forward
+[rank0]:     sample = up_block(sample, latent_embeds, memory_state=memory_state)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 539, in forward
+[rank0]:     hidden_states = upsampler(hidden_states, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/attn_video_vae.py", line 153, in forward
+[rank0]:     hidden_states = self.conv(hidden_states, memory_state=memory_state)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1783, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<venv>/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1794, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 179, in forward
+[rank0]:     return self.slicing_forward(input, memory_state)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 272, in slicing_forward
+[rank0]:     input[i] = self.memory_limit_conv(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "<work>/src-seedvr/models/video_vae_v3/modules/causal_inflation_lib.py", line 163, in memory_limit_conv
+[rank0]:     return torch.cat(x, split_dim)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.81 GiB. GPU 0 has a total capacity of 31.37 GiB of which 1.25 GiB is free. Including non-PyTorch memory, this process has 30.12 GiB memory in use. Of the allocated memory 26.64 GiB is allocated by PyTorch, and 3.16 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+peak_mib 31702
+pytorch run with offload 'official', DiT weights bf16 failed

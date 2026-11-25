@@ -1,0 +1,107 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:views="using:Sharplight.Studio.Views"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.StorageView"
+             x:DataType="mvm:StorageViewModel">
+  <DockPanel Margin="0,0,0,16">
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+      <Button DockPanel.Dock="Right" Classes="small" Command="{Binding RefreshCommand}" ToolTip.Tip="Measure again">
+        <Path Classes="icon" Data="{StaticResource IconRefresh}" Width="13" Height="13" />
+      </Button>
+      <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center" />
+    </DockPanel>
+    <views:ConfirmationView DockPanel.Dock="Top" DataContext="{Binding Confirmation}" IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    <views:FileOperationView DockPanel.Dock="Top" DataContext="{Binding Operation}" />
+    <ScrollViewer>
+      <StackPanel Spacing="12">
+        <ItemsControl ItemsSource="{Binding Locations}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="mvm:StorageLocationViewModel">
+              <Border Classes="card" Margin="0,0,0,10" Padding="16,14">
+                <StackPanel Spacing="8">
+                  <DockPanel>
+                    <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding VolumeText}" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14.5" />
+                      <TextBlock Classes="caption" Text="{Binding UsedText}" VerticalAlignment="Center" />
+                    </StackPanel>
+                  </DockPanel>
+                  <TextBlock Classes="caption" Text="{Binding Path}" TextTrimming="CharacterEllipsis" />
+                  <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding VolumeFullFraction}" ToolTip.Tip="How full the volume is" />
+                  <TextBlock Classes="caption danger" Text="Less than 10 % of the volume is free." IsVisible="{Binding IsLow}" />
+                  <ItemsControl ItemsSource="{Binding Slices}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="mvm:StorageSliceViewModel">
+                        <Grid ColumnDefinitions="300,80,*" Margin="0,2">
+                          <TextBlock Classes="caption" Text="{Binding Title}" TextTrimming="CharacterEllipsis" Margin="0,0,10,0" />
+                          <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Size}" />
+                          <ProgressBar Grid.Column="2" Classes="thin" Minimum="0" Maximum="1" Value="{Binding Fraction}" VerticalAlignment="Center" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Border Classes="card" Padding="16,14">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Cleanup" FontWeight="SemiBold" FontSize="14.5" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Everything here rebuilds when needed. Each action tells you how much space it frees before it deletes anything." />
+            <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+              <TextBlock Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap">
+                <Run Text="Precompiled kernels (PTX, cubin, SPIR-V device stages):" />
+                <Run Text="{Binding KernelCacheText}" />
+              </TextBlock>
+              <Button x:Name="ClearKernels" Grid.Column="1" Classes="small" Content="Clear" Command="{Binding ClearKernelCacheCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap">
+                <Run Text="Shader sources:" />
+                <Run Text="{Binding ShaderCacheText}" />
+              </TextBlock>
+              <Button x:Name="ClearShaders" Grid.Column="1" Classes="small" Content="Clear" Command="{Binding ClearShaderCacheCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap">
+                <Run Text="Media and other caches:" />
+                <Run Text="{Binding MediaCacheText}" />
+              </TextBlock>
+              <Button x:Name="ClearMedia" Grid.Column="1" Classes="small" Content="Clear" Command="{Binding ClearMediaCacheCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding PartialText}" />
+              <Button x:Name="RemovePartials" Grid.Column="1" Classes="small" Content="Remove" IsEnabled="{Binding HasPartialDownloads}" Command="{Binding RemovePartialDownloadsCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasUnusedSuggestion}">
+              <TextBlock Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding UnusedSuggestion}" />
+              <Button x:Name="ReviewUnused" Grid.Column="1" Classes="small" Content="Review" Command="{Binding ReviewUnusedCommand}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card" Padding="16,14" IsVisible="{Binding LargestModels.Count, Converter={x:Static conv:PositiveConverter.Instance}}">
+          <StackPanel Spacing="6">
+            <TextBlock Text="Biggest models" FontWeight="SemiBold" FontSize="14.5" />
+            <ItemsControl ItemsSource="{Binding LargestModels}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mvm:LargestModelViewModel">
+                  <Grid ColumnDefinitions="260,80,*,130" Margin="0,2">
+                    <TextBlock Classes="caption" Text="{Binding Name}" TextTrimming="CharacterEllipsis" Margin="0,0,10,0" />
+                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Size}" />
+                    <ProgressBar Grid.Column="2" Classes="thin" Minimum="0" Maximum="1" Value="{Binding Fraction}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBlock Grid.Column="3" Classes="caption" Text="{Binding LastUsedText}" TextTrimming="CharacterEllipsis" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

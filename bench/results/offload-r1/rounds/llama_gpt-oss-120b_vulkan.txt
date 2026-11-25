@@ -1,0 +1,3 @@
+== 2026-11-25T03:40:00Z llama gpt-oss-120b vulkan A ncmoe 22
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | Vulkan     |  99 |         22 |      10 |   1 |       none |           pp512 |        548.53 ± 7.01 |
+| gpt-oss 120B MXFP4 MoE         |  59.02 GiB |   116.83 B | Vulkan     |  99 |         22 |      10 |   1 |       none |     tg64 @ d512 |         38.90 ± 1.23 |

@@ -1,0 +1,2 @@
+== 2026-11-25T04:10:30Z sharplight gpt-oss-120b-before vulkan A
+prefill 512 tok: best 1592 ms = 321.6 tok/s | decode: best 50.74, median 48.87, mean 47.47 tok/s | GPU ms/step: best 4.60, median 4.63, wall best 19.71 | prefill median of 5: 1626.1 ms = 314.9 tok/s | per run: prefill 289.8 ± 61.5 tok/s of 5, decode 47.53 ± 1.82 tok/s of 5 (44.57, 47.28, 47.83, 49.28, 48.69)

@@ -1,0 +1,64 @@
+{
+  "model": "seedvr2_ema_3b",
+  "provider": "vulkan",
+  "device": "NVIDIA RTX PRO 4500 Blackwell",
+  "load_seconds": 0.6367651,
+  "frames": 33,
+  "output": "1280x720",
+  "runs": [
+    {
+      "read": 0.0960895,
+      "encoding": 10.5991997,
+      "restoring": 3.845637100000001,
+      "decoding": 26.3582222,
+      "enhance": 40.8037722,
+      "write": 0.9529167,
+      "total": 41.8527907
+    },
+    {
+      "read": 0.0940349,
+      "encoding": 10.563049999999999,
+      "restoring": 3.581114300000001,
+      "decoding": 26.684246700000003,
+      "enhance": 40.8288189,
+      "write": 0.9616693,
+      "total": 41.8845296
+    },
+    {
+      "read": 0.0904277,
+      "encoding": 10.6913181,
+      "restoring": 3.9659719000000013,
+      "decoding": 26.3967649,
+      "enhance": 41.0544839,
+      "write": 0.9704248,
+      "total": 42.1153429
+    },
+    {
+      "read": 0.0911265,
+      "encoding": 10.712654899999999,
+      "restoring": 3.6083557000000006,
+      "decoding": 26.6551087,
+      "enhance": 40.9765852,
+      "write": 0.9683076,
+      "total": 42.0360542
+    },
+    {
+      "read": 0.0898975,
+      "encoding": 10.5240046,
+      "restoring": 3.830389200000001,
+      "decoding": 26.2935275,
+      "enhance": 40.6483196,
+      "write": 0.9441449,
+      "total": 41.6823677
+    }
+  ],
+  "median": {
+    "read": 0.0911265,
+    "encoding": 10.5991997,
+    "restoring": 3.830389200000001,
+    "decoding": 26.3967649,
+    "enhance": 40.8288189,
+    "write": 0.9616693,
+    "total": 41.8845296
+  }
+}

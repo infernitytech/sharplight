@@ -22,7 +22,9 @@ internal static class CliModelLoader
             deviceOptions.DisabledFeatures.Add(feature);
         }
 
-        var slots = settings.GpuCount > 1
+        var slots = settings.Workers.Count > 0
+            ? RemoteStages.Place(settings.RemoteOnly ? [] : [provider.OpenDevice(deviceInfo, deviceOptions)], settings.Workers, settings.SplitWeights, settings.GpuMemoryLimitBytes)
+            : settings.GpuCount > 1
             ? OpenGpus(provider, runtime.DeviceIndex, settings, deviceOptions)
             : settings.SplitWeights
                 .Select(weight => new DeviceSlot
@@ -41,6 +43,8 @@ internal static class CliModelLoader
             ImageTokens = settings.ImageTokens,
             Devices = slots,
             Fallback = fallback,
+            ExpertsOnDisk = runtime.ExpertsOnDisk,
+            ExpertCacheBytes = runtime.ExpertCacheBytes,
             ContextLength = runtime.ContextLength,
             MaxBatchTokens = runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,

@@ -1,0 +1,24 @@
+== MatMul vulkan
+[0m[37m   Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 25.982s
+[0m[0m
+== MatMul cuda
+[0m[37m   Sharplight.Vulkan.Tests  Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 2.677s
+[0m[0m
+== SkinnyGemm vulkan
+[0m[37m   Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 17.041s
+[0m[0m
+== SkinnyGemm cuda
+[0m[37m   Sharplight.Vulkan.Tests  Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.832s
+[0m[0m
+== RowInvariance vulkan
+[0m[37m   Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 24.641s
+[0m[0m
+== RowInvariance cuda
+[0m[37m   Sharplight.Vulkan.Tests  Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 14.911s
+[0m[0m
+== Mmq vulkan
+[0m[37m   Sharplight.Vulkan.Tests  Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 26.052s
+[0m[0m
+== Mmq cuda
+[0m[37m   Sharplight.Vulkan.Tests  Total: 48, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.950s
+[0m[0m

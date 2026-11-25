@@ -1,0 +1,11 @@
+--- rendered prompt ---
+<|im_start|>user
+Explain in a few short paragraphs why the sky appears blue during the day and red or orange at sunset, and mention the physicist who first described the scattering.<|im_end|>
+<|im_start|>assistant
+
+-----------------------
+<think>
+Okay, the user is asking why the sky is blue during the day and red/orange at sunset, and wants to know the physicist who first described the scattering. Let me start by recalling the basic physics here.
+
+So, Rayleigh scattering is the key concept. I remember that shorter wavelengths (like blue and
+prompt: 40 tok in 75 ms (533.7 tok/s) | generated: 64 tok, 135.28 tok/s

@@ -1,0 +1,14 @@
+lock 18:15:39
+base Qwen3-8B-Q4_K_M cuda d439f857 db63a251
+base Qwen3-8B-Q4_K_M vulkan fc5dfcb4 599da9d2
+base Qwen3.8-27B-Q4_K_M cuda 9f85c9db 176d4940
+base Qwen3.8-27B-Q4_K_M vulkan cee3d3aa 176d4940
+base gemma-4-31B-it-Q4_K_M cuda 749acdb3 3fdbff0c
+base gemma-4-31B-it-Q4_K_M vulkan 749acdb3 3fdbff0c
+new Qwen3-8B-Q4_K_M cuda d439f857 db63a251
+new Qwen3-8B-Q4_K_M vulkan fc5dfcb4 599da9d2
+new Qwen3.8-27B-Q4_K_M cuda cee3d3aa 176d4940
+new Qwen3.8-27B-Q4_K_M vulkan 9f85c9db b3cbd187
+new gemma-4-31B-it-Q4_K_M cuda 138703aa b8885b22
+new gemma-4-31B-it-Q4_K_M vulkan 138703aa 3fdbff0c
+end 18:18:23

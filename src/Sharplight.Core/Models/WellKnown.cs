@@ -126,6 +126,12 @@ public static class WellKnown
     /// positions ahead) and <see cref="HiddenOutput"/> [T, H] (fed back for the next draft). Attention-only state (its own KV cache).
     /// </summary>
     public const string DraftGraph = "mtp_draft";
+    /// <summary>
+    /// The <see cref="DraftGraph"/> of a model with a vision or audio tower, with the media inputs of <see cref="DecodeMultimodalGraph"/>
+    /// (<see cref="InputRole.Embeddings"/> and <see cref="InputRole.EmbeddingMask"/>): a row whose next row is an image or audio row combines
+    /// that row's embedding, not its placeholder token's, with the target's hidden state.
+    /// </summary>
+    public const string DraftMultimodalGraph = "mtp_draft_multimodal";
     /// <summary>Number of draft (MTP / NextN) layers a model ships (int; 0 or absent: no <see cref="DraftGraph"/>).</summary>
     public const string DraftLayers = "draft_layers";
     /// <summary>

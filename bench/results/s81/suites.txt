@@ -1,0 +1,26 @@
+Vulkan.Tests vulkan FullAttention: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 22.855s 0 FAIL lines
+Vulkan.Tests vulkan PagedAttention: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.932s 0 FAIL lines
+Vulkan.Tests vulkan SparseAttention: Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.130s 0 FAIL lines
+Vulkan.Tests vulkan CompressedKv: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.175s 0 FAIL lines
+Vulkan.Tests vulkan Stateful: Total: 75, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 55.050s 0 FAIL lines
+Vulkan.Tests vulkan Fusion: Total: 101, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 89.265s 0 FAIL lines
+Vulkan.Tests vulkan Rope: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.248s 0 FAIL lines
+Vulkan.Tests vulkan MatMul: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 66.687s 0 FAIL lines
+Vulkan.Tests vulkan SkinnyGemm: Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 31.419s 0 FAIL lines
+Vulkan.Tests vulkan MatMulEpilogue: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 43.093s 0 FAIL lines
+Vulkan.Tests vulkan DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 38.871s 0 FAIL lines
+Vulkan.Tests cuda FullAttention: Total: 30, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 88.507s 0 FAIL lines
+Vulkan.Tests cuda PagedAttention: Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.533s 0 FAIL lines
+Vulkan.Tests cuda SparseAttention: Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.362s 0 FAIL lines
+Vulkan.Tests cuda CompressedKv: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.385s 0 FAIL lines
+Vulkan.Tests cuda Stateful: Total: 75, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 47.196s 0 FAIL lines
+Vulkan.Tests cuda Fusion: Total: 101, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 128.431s 0 FAIL lines
+Vulkan.Tests cuda Rope: Total: 12, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.075s 0 FAIL lines
+Vulkan.Tests cuda MatMul: Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 91.244s 0 FAIL lines
+Vulkan.Tests cuda SkinnyGemm: Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 38.953s 0 FAIL lines
+Vulkan.Tests cuda MatMulEpilogue: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 77.221s 0 FAIL lines
+Vulkan.Tests cuda DualGemm: Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 52.503s 0 FAIL lines
+Cuda.Tests: Total: 61, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 55.480s 0 FAIL lines
+SessionWindowKv: Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 47.461s 0 FAIL lines
+FamilyGeneration gemma-4: Total: 12, Errors: 0, Failed: 0, Skipped: 9, Not Run: 0, Time: 100.705s 0 FAIL lines
+FamilyGeneration qwen3: Total: 63, Errors: 0, Failed: 3, Skipped: 30, Not Run: 0, Time: 228.944s 3 FAIL lines

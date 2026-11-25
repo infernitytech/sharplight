@@ -1,0 +1,8 @@
+stages: AMD EPYC 7443 24-Core Processor | AMD EPYC 7443 24-Core Processor | AMD EPYC 7443 24-Core Processor
+sampling: on the host (logits return)
+greedy: 12095,13,576,6722 " Paris. The capital"
+decode G=1 B=8: median 324.58 ms/step, min 322.17 ms, 24.6 tok/s
+decode G=2 B=8: median 181.90 ms/step, min 177.39 ms, 44.0 tok/s
+decode G=4 B=8: median 105.52 ms/step, min 104.26 ms, 75.8 tok/s
+prefill 256 tok in chunks of 256: median 4034.3 ms, 63.5 tok/s
+prefill 256 tok in chunks of 64: median 5431.6 ms, 47.1 tok/s

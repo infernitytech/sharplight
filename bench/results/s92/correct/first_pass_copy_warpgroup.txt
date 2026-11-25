@@ -1,0 +1,31 @@
+[hold 01:44:20] ./correct.sh
+0 %, 2 MiB, 5.92 W
+Qwen3-8B-FP8 p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 p1000 base rc=0 b9666631
+Qwen3.8-27B-FP8 p40 base rc=0 142a498d
+Qwen3.8-27B-FP8 p1000 base rc=0 8bf70d24
+Qwen3-30B-A3B-FP8 p40 base rc=1 d41d8cd9
+Qwen3-30B-A3B-FP8 p1000 base rc=1 d41d8cd9
+Qwen3-8B-FP8 p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 p1000 new rc=0 b9666631
+Qwen3.8-27B-FP8 p40 new rc=0 142a498d
+Qwen3.8-27B-FP8 p1000 new rc=0 00c8edf4
+Qwen3-30B-A3B-FP8 p40 new rc=1 d41d8cd9
+Qwen3-30B-A3B-FP8 p1000 new rc=1 d41d8cd9
+logits q8: bit-identical
+ppl q8: logits-identical
+$OUT/correct/ppl_q8_new.txt:sequence 3: 3071 tokens, mean NLL 1.88893, PPL 6.6123
+$OUT/correct/ppl_q8_new.txt:4 sequences of 3072 tokens (12288 tokens of text), steps of 1024 rows: 12284 predictions, mean NLL 2.15979, PPL 8.6693
+ppl q27: LOGITS-DIFFER
+$OUT/correct/ppl_q27_new.txt:sequence 1: 3071 tokens, mean NLL 2.09834, PPL 8.1526
+$OUT/correct/ppl_q27_new.txt:2 sequences of 3072 tokens (6144 tokens of text), steps of 512 rows: 6142 predictions, mean NLL 1.89647, PPL 6.6623
+same Qwen3-30B-A3B-FP8_p1000
+same Qwen3-30B-A3B-FP8_p40
+same Qwen3-8B-FP8_p1000
+same Qwen3-8B-FP8_p40
+DIFF Qwen3.8-27B-FP8_p1000
+same Qwen3.8-27B-FP8_p40
+DIFF logits_q8
+DIFF ppl_q27
+same ppl_q8
+[release 02:06:04]

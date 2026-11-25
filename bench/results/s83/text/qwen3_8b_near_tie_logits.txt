@@ -1,0 +1,14 @@
+== 10:34:52 lock taken: bash $WORK/r9.sh
+== vulkan X=1
+  39020 34.2880  sunlight
+  23327 34.1486  shorter
+== cuda X=1
+  39020 34.2872  sunlight
+  23327 34.1737  shorter
+== vulkan SHARPLIGHT_COOP_KQ=0
+  39020 34.2880  sunlight
+  23327 34.1486  shorter
+== cuda SHARPLIGHT_COOP_KQ=0
+  39020 34.2872  sunlight
+  23327 34.1737  shorter
+== 10:35:10 done rc=0

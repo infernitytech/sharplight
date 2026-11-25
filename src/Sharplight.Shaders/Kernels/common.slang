@@ -12,6 +12,36 @@
 #define SG 32
 #endif
 
+// CUDA C++ (SL_TARGET_CUDA): wave operations run over the lanes active when they execute (__activemask(), the semantics of
+// subgroup operations on SPIR-V and MSL). Without this Slang's CUDA backend tracks the active mask through every branch and
+// loop iteration of a kernel that has a wave operation (a __ballot_sync per branch), which made the decode attention 3.5x slower
+// than its SPIR-V form. The kernels call wave operations in subgroup-uniform control flow or in branches whose lanes are
+// meant to participate, as they must for SPIR-V.
+#if SL_TARGET_CUDA
+#define WaveReadLaneAt(v, l) WaveMaskReadLaneAt(WaveGetConvergedMask(), v, l)
+#define WaveActiveSum(v) WaveMaskSum(WaveGetConvergedMask(), v)
+#define WaveActiveMax(v) WaveMaskMax(WaveGetConvergedMask(), v)
+#define WaveActiveMin(v) WaveMaskMin(WaveGetConvergedMask(), v)
+#define WaveActiveProduct(v) WaveMaskProduct(WaveGetConvergedMask(), v)
+#define WaveActiveAllTrue(c) WaveMaskAllTrue(WaveGetConvergedMask(), c)
+#define WaveActiveAnyTrue(c) WaveMaskAnyTrue(WaveGetConvergedMask(), c)
+#define WaveIsFirstLane() WaveMaskIsFirstLane(WaveGetConvergedMask())
+#define WavePrefixSum(v) WaveMaskPrefixSum(WaveGetConvergedMask(), v)
+
+// exp as the hardware approximation (__expf: ex2.approx after a scale), the precision SPIR-V's Exp has on NVIDIA's Vulkan driver
+// (GLSL.std.450 allows 3 + 2|x| ULP); Slang's CUDA output otherwise calls the correctly rounded expf (the prefill attention fe:
+// 5 % faster with __expf).
+float cu_fast_exp(float x)
+{
+    __target_switch { case cuda: __intrinsic_asm "__expf($0)"; }
+}
+float2 cu_fast_exp(float2 x) { return float2(cu_fast_exp(x.x), cu_fast_exp(x.y)); }
+float3 cu_fast_exp(float3 x) { return float3(cu_fast_exp(x.x), cu_fast_exp(x.y), cu_fast_exp(x.z)); }
+float4 cu_fast_exp(float4 x) { return float4(cu_fast_exp(x.x), cu_fast_exp(x.y), cu_fast_exp(x.z), cu_fast_exp(x.w)); }
+half cu_fast_exp(half x) { return half(cu_fast_exp(float(x))); }
+#define exp(x) cu_fast_exp(x)
+#endif
+
 // Runtime scalar slot of the KV offset (n_past) in the `rt` buffer (uint array).
 #ifndef RT_N_PAST
 #define RT_N_PAST 0
@@ -143,6 +173,8 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 // The same in the aligned split layout [K codes][K / B f32 scales] (WeightRepack.Fp8B32Split / Fp8B128Split).
 #define FMT_F8E4M3_B32R 152
 #define FMT_F8E4M3_B128R 153
+// f8e4m3_b128r rows in groups of 128 rows: [128 rows of K codes][K / 128 blocks of 128 f32 scales] (WeightRepack.Fp8B128Grouped).
+#define FMT_F8E4M3_B128G 154
 // Group-scaled formats of quantized Hugging Face checkpoints, decoded in quant_group.slang.
 #define FMT_NVFP4_GS 60
 #define FMT_Q4Z_G32 61
@@ -537,6 +569,57 @@ uint mxfp4r_scale(uint8_t* table, uint64_t rowBytes, uint row, uint block)
 
 // Start of row `row`. The address is computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index on a byte
 // pointer to 32 bits, which breaks rows that start 4 GiB or more into a table.
+// Alignment in bytes (1-16) that a byte offset guarantees, and vector loads at addresses of a known alignment (a compile-time
+// constant). CUDA faults on a vector load whose address is not a multiple of its size, SPIR-V and MSL only assume the element
+// alignment: on CUDA the loads are split into the widest aligned parts, elsewhere they are the plain vector loads.
+#define ALIGN_OF(x) (((x) & 15) == 0 ? 16u : ((x) & 7) == 0 ? 8u : ((x) & 3) == 0 ? 4u : ((x) & 1) == 0 ? 2u : 1u)
+#if SL_TARGET_CUDA
+uint4 load_u4_aligned(uint8_t* p, uint align)
+{
+    if (align >= 16)
+    {
+        return *(uint4*)p;
+    }
+    if (align >= 8)
+    {
+        uint2 a = *(uint2*)p, b = *(uint2*)(p + 8);
+        return uint4(a.x, a.y, b.x, b.y);
+    }
+    if (align >= 4)
+    {
+        return uint4(*(uint*)p, *(uint*)(p + 4), *(uint*)(p + 8), *(uint*)(p + 12));
+    }
+    uint w[4];
+    [ForceUnroll]
+    for (uint i = 0; i < 4; i++)
+    {
+        w[i] = uint(*(uint16_t*)(p + 4 * i)) | (uint(*(uint16_t*)(p + 4 * i + 2)) << 16);
+    }
+    return uint4(w[0], w[1], w[2], w[3]);
+}
+uint2 load_u2_aligned(uint8_t* p, uint align)
+{
+    if (align >= 8)
+    {
+        return *(uint2*)p;
+    }
+    if (align >= 4)
+    {
+        return uint2(*(uint*)p, *(uint*)(p + 4));
+    }
+    return uint2(uint(*(uint16_t*)p) | (uint(*(uint16_t*)(p + 2)) << 16), uint(*(uint16_t*)(p + 4)) | (uint(*(uint16_t*)(p + 6)) << 16));
+}
+#define LOAD_U4_ALIGNED(p, align) load_u4_aligned((uint8_t*)(p), align)
+#define LOAD_U2_ALIGNED(p, align) load_u2_aligned((uint8_t*)(p), align)
+#else
+#define LOAD_U4_ALIGNED(p, align) (*(uint4*)(p))
+#define LOAD_U2_ALIGNED(p, align) (*(uint2*)(p))
+#endif
+// Alignment of the code rows of repacked Q8_0 weights ([K / 32 f16 scales][K int8] per row).
+#ifdef ROW_BYTES
+#define Q8R_ALIGN min(ALIGN_OF(ROW_BYTES), ALIGN_OF((ROW_BYTES) / 17))
+#endif
+
 uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
 {
     return (uint8_t*)(uint64_t(base) + rowBytes * row);
@@ -731,6 +814,9 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_fp8(base, rowBytes, row, g, 32, false, v);
 #elif WFMT == FMT_F8E4M3_B128 || WFMT == FMT_F8E4M3_B128R
     load8_fp8(base, rowBytes, row, g, 128, false, v);
+#elif WFMT == FMT_F8E4M3_B128G
+    // Rows of a 128-row group share the group's scale area: addressed from the table and its row.
+    load8_fp8(table, rowBytes, tableRow, g, 128, false, v);
 #else
 #error "unsupported WFMT"
 #endif

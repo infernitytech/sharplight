@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Fit;
 using Sharplight.Hub;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Fit;
+using Sharplight.Studio.Services.Library;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -29,9 +31,18 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
         _services = services;
         _downloads = downloads;
         _storedModels = storedModels;
-        _advisor = new FitAdvisor(services.Runtime, services.Settings);
+        _advisor = FitAdvisor.For(services);
         Kinds.Add(s_allKinds);
         SelectedKind = s_allKinds;
+        // Memory moved (models loaded or unloaded, other applications): rate the variants again.
+        services.Memory.Changed += (_, memory) => services.Dispatcher.Post(() =>
+        {
+            if (_all.Count > 0)
+            {
+                RateFit(memory);
+                ApplyFilter();
+            }
+        });
     }
 
     /// <summary>Raised on the UI thread when the catalog has been loaded.</summary>
@@ -144,9 +155,14 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
     private bool CanInstall() => SelectedEntry is not null && SelectedVariant is not null;
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
-    private void Install()
+    private async Task InstallAsync()
     {
         var plan = SelectedVariant!.Plan;
+        if (!await _services.Licenses.RequestAsync(LicenseNotices.TermsFor(plan.Entry, plan.Variant)))
+        {
+            return;
+        }
+
         _downloads.Enqueue(plan.Reference, plan.TotalBytes, plan.Entry.Kind, plan.Key, $"{plan.Entry.Name} · {plan.Variant.Label}");
     }
 
@@ -198,17 +214,22 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
     {
         try
         {
-            var memory = await _advisor.GetMemoryAsync(CancellationToken.None);
-            long gpu = memory.Where(device => device.IsGpu).Sum(device => device.TotalBytes);
-            long system = memory.Where(device => !device.IsGpu).Select(device => device.TotalBytes).DefaultIfEmpty(0).Max();
-            foreach (var variant in _all.SelectMany(entry => entry.Variants))
-            {
-                variant.EstimateFit(gpu, system);
-            }
+            RateFit(await _advisor.GetMemoryAsync(CancellationToken.None));
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             // Without device figures the variants show no fit badge.
+        }
+    }
+
+    private void RateFit(IReadOnlyList<DeviceMemory> memory)
+    {
+        // What the devices can hold for Sharplight (memory other applications occupy is not counted), not their total memory.
+        long gpu = memory.Where(device => device.IsGpu).Sum(device => device.UsableBytes);
+        long system = memory.Where(device => !device.IsGpu).Select(device => device.UsableBytes).DefaultIfEmpty(0).Max();
+        foreach (var variant in _all.SelectMany(entry => entry.Variants))
+        {
+            variant.EstimateFit(gpu, system);
         }
     }
 

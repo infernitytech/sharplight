@@ -19,7 +19,10 @@ namespace Sharplight.AspNetCore;
 /// </summary>
 /// <example>
 /// <code>
-/// using var embedder = EmbeddingModel.Load(loader, "bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [slot] });
+/// var load = new TaskLoadOptions { ModelPath = "bge-small-en-v1.5.slm", Devices = [slot] };
+/// TextEmbeddingLoadDefaults.Apply(load);   // then override what differs
+/// using var model = TaskModel.Load(loader, load);
+/// using var embedder = provider.Create&lt;ITextEmbedder&gt;(model);   // the TaskClientProvider
 /// builder.Services.AddSharplightEmbeddings(embedder, name: "bge-small");
 /// var app = builder.Build();
 /// app.UseSharplightServer();
@@ -156,7 +159,7 @@ public static class RetrievalApi
         var b = doc.RootElement;
         string? requested = b.Str("model");
         var (model, lease, name) = await PickAsync(http, models.Embedders, requested, models.DefaultEmbedder, "embedding", ModelKind.Embedding,
-            loaded => (loaded as IEmbeddingModel)?.Embedder);
+            loaded => (loaded as ITaskClientModel)?.FindClient<ITextEmbedder>());
         using var held = lease;
 
         string format = b.Str("encoding_format") ?? "float";
@@ -172,10 +175,12 @@ public static class RetrievalApi
         }
 
         string? prompt = ResolvePrompt(b, model);
-        var options = new EmbedOptions { Prompt = prompt, Dimensions = dims, Truncate = b.Bool("truncate") ?? models.TruncateByDefault };
+        var options = new TextEmbeddingOptions { Prompt = prompt, Dimensions = dims, Truncate = b.Bool("truncate") ?? models.TruncateByDefault };
 
         var (texts, tokens) = ParseInput(b, models.MaxInputs);
-        var result = await Task.Run(() => texts is not null ? model.Embed(texts, options) : model.EmbedTokens(tokens!, options), http.RequestAborted);
+        var result = texts is not null
+            ? await model.EmbedAsync(texts, options, http.RequestAborted)
+            : await model.EmbedTokensAsync(tokens!, options, http.RequestAborted);
         SharplightRequestFeature.Of(http)?.AddInput(result.TotalTokens);
 
         var data = EmbeddingData(result.Vectors, format == "base64");
@@ -323,7 +328,7 @@ public static class RetrievalApi
         var b = doc.RootElement;
         string? requested = b.Str("model");
         var (model, lease, name) = await PickAsync(http, models.Rerankers, requested, models.DefaultReranker, "rerank", ModelKind.Reranker,
-            loaded => (loaded as IRerankerModel)?.Reranker);
+            loaded => (loaded as ITaskClientModel)?.FindClient<ITextReranker>());
         using var held = lease;
         string query = b.Str("query") ?? throw ApiException.BadRequest("'query' is required and must be a string.", "query");
         if (b.Get("documents") is not { ValueKind: JsonValueKind.Array } docsEl)
@@ -345,7 +350,7 @@ public static class RetrievalApi
         bool returnDocuments = b.Bool("return_documents") ?? false;
         var options = new RerankOptions { Instruction = b.Str("instruction"), Truncate = b.Bool("truncate") ?? true };
 
-        var result = docs.Count == 0 ? new RerankResult([], [], []) : await Task.Run(() => model.Score(query, docs, options), http.RequestAborted);
+        var result = docs.Count == 0 ? new RerankResult([], [], []) : await model.RerankAsync(query, docs, options, http.RequestAborted);
         SharplightRequestFeature.Of(http)?.AddInput(result.TotalTokens);
         var results = RankedResults(result.Scores, docs, topN, returnDocuments);
         await HttpJson.WriteAsync(http, new JsonObject

@@ -59,7 +59,7 @@ internal sealed class SpanScoringRunner : IDisposable
                 {
                     [WellKnown.SequenceSymbol] = 1, [WellKnown.QuestionSymbol] = o.MaxQuestions, [WellKnown.OptionSymbol] = o.MaxOptions,
                 },
-                DisabledFeatures = o.DisabledFeatures.ToHashSet(StringComparer.Ordinal),
+                DisabledFeatures = o.CompileDisabledFeatures(),
                 CacheFor = cacheFor,
             },
         });

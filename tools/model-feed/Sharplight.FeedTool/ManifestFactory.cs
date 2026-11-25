@@ -10,6 +10,9 @@ internal static class ManifestFactory
     /// <summary>The packager name in manifests.</summary>
     public const string PackagerName = "Sharplight";
 
+    /// <summary>Runtime allowance in the overhead (command buffers, staging, tokenizer, host buffers).</summary>
+    private const long RuntimeBytes = 384L << 20;
+
     private static readonly Dictionary<string, string> TaskOfKind = new(StringComparer.Ordinal)
     {
         ["speech-recognition"] = PackageTasks.Transcription,
@@ -54,18 +57,13 @@ internal static class ManifestFactory
         var variant = plan.Variant;
         var (tasks, capabilities, modalities) = Describe(entry);
         var engine = SemanticVersion.TryParse(engineVersion, out var parsedEngine) ? parsedEngine : SemanticVersion.Create(0, 0, 0);
-        var memory = variant.MemoryBytes is > 0
-            ? new List<MemoryRequirement>
-            {
-                new() { Device = "gpu", Weights = inspection.WeightBytes, Overhead = Math.Max(0, variant.MemoryBytes - inspection.WeightBytes) },
-                new() { Device = "cpu", Weights = inspection.WeightBytes, Overhead = Math.Max(0, variant.MemoryBytes - inspection.WeightBytes) },
-            }
-            : [];
+        var memory = Memory(variant, inspection);
         return new PackageManifest
         {
             Id = PackageId(entry, variant),
             Version = version,
             Display = new PackageDisplay { Name = entry.Name, Variant = variant.Label, Family = entry.Family.Length == 0 ? null : entry.Family, Summary = overlay?.Summary, Tags = entry.Tags },
+            Group = Group(plan, inspection, file),
             Publisher = entry.Publisher is { } publisher ? new PackagePublisher { Name = publisher.Name, CountryOfOrigin = publisher.CountryOfOrigin, Url = publisher.Url } : null,
             Packager = new PackagePackager { Name = PackagerName, Feed = feed },
             License = LicenseCatalog.Describe(entry.License, entry.Gated),
@@ -87,6 +85,7 @@ internal static class ManifestFactory
                 Server = overlay?.Server,
                 Engine = $">={engine.Major}.{engine.Minor}.0",
                 PackageFormat = inspection.FormatVersion,
+                Kernels = WeightKernels.For(inspection.WeightTypes),
                 Memory = memory,
                 Disk = file.Size,
             },
@@ -101,9 +100,9 @@ internal static class ManifestFactory
             },
             Verification = new PackageVerification
             {
-                Level = entry.Level.ToString().ToLowerInvariant(),
+                Level = LevelName(entry.LevelOf(variant)),
                 Reference = entry.Verification.Reference,
-                Summary = entry.Verification.Summary,
+                Summary = variant.Verification is { Length: > 0 } note ? $"{note} Model: {entry.Verification.Summary}" : entry.Verification.Summary,
                 Providers = entry.Verification.Providers,
                 Date = entry.Verification.Date,
                 PackageCheck = new PackageCheck { Loaded = true },
@@ -113,6 +112,78 @@ internal static class ManifestFactory
             Notes = entry.Notes,
         };
     }
+
+    /// <summary>The variant's place in its model group (the catalog entry).</summary>
+    /// <param name="plan">The catalog variant.</param>
+    /// <param name="inspection">The built package.</param>
+    /// <param name="file">The package file.</param>
+    /// <returns>The group.</returns>
+    public static PackageGroup Group(CatalogInstallPlan plan, PackageInspection inspection, PackageFile file)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(inspection);
+        ArgumentNullException.ThrowIfNull(file);
+        var variant = plan.Variant;
+        double? bits = inspection.Parameters > 0 && inspection.WeightBytes > 0 ? Math.Round(inspection.WeightBytes * 8.0 / inspection.Parameters, 2) : null;
+        return new PackageGroup
+        {
+            Id = plan.Entry.Id,
+            Name = plan.Entry.Name,
+            Variant = variant.Id,
+            Label = variant.Label,
+            Format = variant.Format,
+            Quantization = variant.Quantization,
+            BitsPerWeight = bits,
+            Recommended = variant.Recommended,
+            Quality = variant.Quality,
+            QualityNote = variant.QualityNote,
+            Reference = plan.Entry.ReferencePrecision,
+            Size = file.Size,
+            SourceSize = variant.TotalBytes + plan.Companions.Sum(companion => companion.TotalBytes),
+        };
+    }
+
+    /// <summary>
+    /// Memory per device kind: the package's weights, the overhead (activations of a prefill batch plus the runtime, at least what the
+    /// catalog's estimate leaves beyond the weights) and, for decoders, the per-slot state at the default and the maximum context with the
+    /// KV bytes per token. The same figures are given for <c>gpu</c> and <c>cpu</c>: the engine keeps one copy of the weights on the device
+    /// that runs them.
+    /// </summary>
+    /// <param name="variant">The catalog variant.</param>
+    /// <param name="inspection">The built package.</param>
+    /// <returns>The requirements; empty when neither the package nor the catalog give a figure.</returns>
+    public static IReadOnlyList<MemoryRequirement> Memory(CatalogVariant variant, PackageInspection inspection)
+    {
+        ArgumentNullException.ThrowIfNull(variant);
+        ArgumentNullException.ThrowIfNull(inspection);
+        var context = inspection.Context;
+        if (variant.MemoryBytes <= 0 && context is null)
+        {
+            return [];
+        }
+
+        long catalogOverhead = Math.Max(0, variant.MemoryBytes - inspection.WeightBytes);
+        long overhead = context is null ? catalogOverhead : Math.Max(context.ActivationBytes + RuntimeBytes, catalogOverhead - context.DefaultBytes);
+        MemoryRequirement For(string device) => new()
+        {
+            Device = device,
+            Weights = inspection.WeightBytes,
+            Overhead = overhead,
+            PerSlotContext = context is null ? null : new SlotContextMemory { Tokens = context.DefaultTokens, Bytes = context.DefaultBytes },
+            PerSlotContextMax = context is null ? null : new SlotContextMemory { Tokens = context.MaxTokens, Bytes = context.MaxBytes },
+            KvBytesPerToken = context?.KvBytesPerToken,
+            StateBytesPerSlot = context?.StateBytesPerSlot,
+            ExpertWeights = inspection.Experts?.Bytes,
+            ExpertBytesPerToken = inspection.Experts?.BytesPerToken,
+        };
+        return [For("gpu"), For("cpu")];
+    }
+
+    private static string LevelName(CatalogLevel level) => level switch
+    {
+        CatalogLevel.VerifiedTiny => "verified-tiny",
+        _ => level.ToString().ToLowerInvariant(),
+    };
 
     /// <summary>Tasks, capabilities and modalities of a catalog entry.</summary>
     /// <param name="entry">Catalog entry.</param>

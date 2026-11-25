@@ -1,0 +1,3 @@
+Throwaway CudaCodeTests probe on develop 54384036 (not committed): [T x 2880] -> 32 f16 matmul + bias (gpt-oss router shape), x = sin(0.37 i) * (1 + row % 5), max |error| against the CPU provider
+PROBE rows 2048 scale 14.4 native maxerr 0.004741 (at 55667: 11.574479 vs 11.569738) generated maxerr 0.004784
+PROBE rows 1100 scale 14.28 native maxerr 0.004595 (at 8795: -10.041518 vs -10.046113) generated maxerr 0.004563

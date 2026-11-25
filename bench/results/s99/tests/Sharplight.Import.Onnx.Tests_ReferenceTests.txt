@@ -1,0 +1,44 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Import.Onnx.Tests
+[0m[37m  Discovered:  Sharplight.Import.Onnx.Tests
+[0m[37m  Starting:    Sharplight.Import.Onnx.Tests
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Cpu(name: "minilm-l6") [SKIP]
+[0m[37m      minilm-l6.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Cpu(name: "squeezenet1.1-7") [SKIP]
+[0m[37m      squeezenet1.1-7.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Cpu(name: "mnist-12") [SKIP]
+[0m[37m      mnist-12.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Cpu(name: "fcn-resnet50-12") [SKIP]
+[0m[37m      fcn-resnet50-12.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Cpu(name: "distilbert-base-uncased") [SKIP]
+[0m[37m      distilbert-base-uncased.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Cpu(name: "t5-small-encoder") [SKIP]
+[0m[37m      t5-small-encoder.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Cpu(name: "depth-anything-small") [SKIP]
+[0m[37m      depth-anything-small.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Gpu(name: "minilm-l6") [SKIP]
+[0m[37m      minilm-l6.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Gpu(name: "squeezenet1.1-7") [SKIP]
+[0m[37m      squeezenet1.1-7.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Gpu(name: "mnist-12") [SKIP]
+[0m[37m      mnist-12.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Gpu(name: "fcn-resnet50-12") [SKIP]
+[0m[37m      fcn-resnet50-12.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Gpu(name: "distilbert-base-uncased") [SKIP]
+[0m[37m      distilbert-base-uncased.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Gpu(name: "t5-small-encoder") [SKIP]
+[0m[37m      t5-small-encoder.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.ExtraModel_Gpu(name: "depth-anything-small") [SKIP]
+[0m[37m      depth-anything-small.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.Synthetic_Cpu(name: "(no reference data)") [SKIP]
+[0m[37m      reference data missing; run .work/onnx_ref/make_synthetic.py
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.Synthetic_Gpu(name: "(no reference data)") [SKIP]
+[0m[37m      reference data missing; run .work/onnx_ref/make_synthetic.py
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.DeiTTiny_Cpu [SKIP]
+[0m[37m      deit-tiny.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[93m    Sharplight.Import.Onnx.Tests.ReferenceTests.DeiTTiny_Gpu [SKIP]
+[0m[37m      deit-tiny.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)
+[0m[37m  Finished:    Sharplight.Import.Onnx.Tests (ID = '3b465e6c1abdc73d5472491376b90170e2a102bd6e8b3b46f62f1c27d9bdefc3')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Import.Onnx.Tests  Total: 32, Errors: 0, Failed: 0, Skipped: 18, Not Run: 0, Time: 123.235s
+[0m[0m

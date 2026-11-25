@@ -1,0 +1,11 @@
+  qout T=2048: 3 / 25165824 codes differ from the host quantization of the reference, 0 scales, 0 dense copies; worst |dequantized - ref| 0.0357 of the group range
+  check T=2048: max err 0 of max 0
+  sustained: 1.643 ms 251 TFLOPS, 199.4 W, 0.794 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.456 ms 283 TFLOPS 71 GB/s of weights
+  sustained: 6.536 ms 252 TFLOPS, 208.8 W, 0.827 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 6.455 ms 255 TFLOPS 16 GB/s of weights
+  check T=2048: max err 0.00977 of max 4.06e+04
+  sustained: 1.579 ms 261 TFLOPS, 206.3 W, 0.790 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.370 ms 301 TFLOPS 76 GB/s of weights
+  sustained: 6.312 ms 261 TFLOPS, 195.3 W, 0.748 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 6.214 ms 265 TFLOPS 17 GB/s of weights

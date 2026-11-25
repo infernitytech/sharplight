@@ -1,0 +1,29 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Vulkan.Tests
+[0m[37m  Discovered:  Sharplight.Vulkan.Tests
+[0m[37m  Starting:    Sharplight.Vulkan.Tests
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f16", D: 16, rot: 16, norm: True) [FAIL]
+[0m[37m      Fusion.norm+rope+cache f16 D=16 norm=True step 0 output o[64]: vulkan -0.24017334 vs cpu -0.242782012 (|d|=2.61E-003, tol=7.86E-004)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(209,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/FusionTests.cs(312,0): at Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(String cacheType, Int32 D, Int32 rot, Boolean norm)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 32, rot: 32, norm: True) [FAIL]
+[0m[37m      Fusion.norm+rope+cache f32 D=32 norm=True step 0 output o[128]: vulkan -0.527216733 vs cpu -0.490788341 (|d|=3.64E-002, tol=1.28E-003)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(209,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/FusionTests.cs(312,0): at Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(String cacheType, Int32 D, Int32 rot, Boolean norm)
+[0m[37m           at InvokeStub_FusionTests.NormRopeIntoCache(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(cacheType: "f32", D: 64, rot: 32, norm: False) [FAIL]
+[0m[37m      Fusion.norm+rope+cache f32 D=64 norm=False step 0 output o[256]: vulkan -0.0459481776 vs cpu -0.0463970304 (|d|=4.49E-004, tol=3.93E-004)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(209,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/FusionTests.cs(312,0): at Sharplight.Vulkan.Tests.FusionTests.NormRopeIntoCache(String cacheType, Int32 D, Int32 rot, Boolean norm)
+[0m[37m           at InvokeStub_FusionTests.NormRopeIntoCache(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[37m  Finished:    Sharplight.Vulkan.Tests (ID = '3886267226f7b4f18462cc6a58094e60669a2475a51a107b395096dd83e93c54')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Vulkan.Tests  Total: 5, Errors: 0, Failed: 3, Skipped: 0, Not Run: 0, Time: 5.602s
+[0m[0m

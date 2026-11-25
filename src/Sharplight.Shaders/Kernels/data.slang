@@ -39,8 +39,8 @@ void gather(uint3 dtid : SV_DispatchThreadID, uniform GatherParams p)
 #if defined(KERNEL_CACHE_WRITE) || defined(KERNEL_CACHE_WRITE_Q)
 // ---------------------------------------------------------------------------------------------
 // Cache write: x [T, R1, INNER] with strides (S0, S1) → state rows [n_past + t] (dense rows of
-// R1*INNER elements) converting to f16 when DST_F16; `cache_write_q` quantizes to the GGUF block format DST_FMT
-// (FMT_Q8_0 / FMT_Q4_0, INNER a multiple of 32). KV_COMP > 1 (`cache_write` only): a compressed cache, see seq_row_c.
+// R1*INNER elements) converting to f16 when DST_F16; `cache_write_q` quantizes to the block format DST_FMT
+// (FMT_Q8_0 / FMT_Q4_0 / FMT_F8E4M3_B32, INNER a multiple of 32). KV_COMP > 1 (`cache_write` only): a compressed cache, see seq_row_c.
 // Macros: R1, INNER, S0, S1, DST_F16 / DST_FMT, KV_COMP / COMP_SLOT_CTX
 struct CacheParams
 {
@@ -94,10 +94,10 @@ void cache_write(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
 
 #ifdef KERNEL_CACHE_WRITE_Q
 // One thread per 32-value block: scale from the block's absolute maximum (q8_0: amax / 127; q4_0: the value of largest
-// magnitude / -8, as llama.cpp's reference quantizers), then the f16 scale and the quants as 16-bit words (blocks of 34 / 18
-// bytes are 2-byte aligned).
+// magnitude / -8, as llama.cpp's reference quantizers; f8e4m3_b32: amax / 448), then the f16 scale and the quants as 16-bit
+// words (blocks of 34 / 18 bytes are 2-byte aligned; f8e4m3_b32: an f32 scale and 32-bit words).
 #define CQ_BPR (R1 * INNER / 32)                         // blocks per token row
-#define CQ_BYTES (DST_FMT == FMT_Q8_0 ? 34 : 18)
+#define CQ_BYTES (DST_FMT == FMT_F8E4M3_B32 ? 36 : DST_FMT == FMT_Q8_0 ? 34 : 18)
 [shader("compute")]
 [numthreads(128, 1, 1)]
 void cache_write_q(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
@@ -125,7 +125,16 @@ void cache_write_q(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
     uint64_t row = p.rt[RT_N_PAST] + t;
 #endif
     uint8_t* dst = byteAt(p.dst, (row * CQ_BPR + blk) * CQ_BYTES);
-#if DST_FMT == FMT_Q8_0
+#if DST_FMT == FMT_F8E4M3_B32
+    // f32 scale amax / 448 and E4M3 codes rounded to nearest even, as 32-bit words (blocks of 36 bytes are 4-byte aligned).
+    float d = amax / 448.0;
+    *(float*)dst = d;
+    [ForceUnroll]
+    for (uint i = 0; i < 8; i++)
+    {
+        *(uint*)(dst + 4 + 4 * i) = e4m3_pack4(float4(v[4 * i], v[4 * i + 1], v[4 * i + 2], v[4 * i + 3]), d);
+    }
+#elif DST_FMT == FMT_Q8_0
     float d = amax / 127.0;
     float inv = d != 0 ? 1.0 / d : 0.0;
     *(uint16_t*)dst = f2h(d);

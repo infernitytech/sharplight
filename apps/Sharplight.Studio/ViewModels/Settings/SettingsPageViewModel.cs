@@ -91,6 +91,12 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     /// <summary>The devices found.</summary>
     public IReadOnlyList<ComputeDeviceOption> Devices => _services.Runtime.Devices;
 
+    /// <summary>The physical GPUs with the provider picker (Automatic, Vulkan, CUDA) and the provider in use.</summary>
+    public ObservableCollection<GpuProviderViewModel> GpuProviders { get; } = [];
+
+    /// <summary>The machine has a GPU, so the compute devices card is shown.</summary>
+    public bool HasGpus => GpuProviders.Count > 0;
+
     /// <summary>Theme.</summary>
     [ObservableProperty]
     public partial ThemeChoice Theme { get; set; }
@@ -138,6 +144,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     public partial string FeedUrl { get; set; } = "";
 
     /// <summary>The address the official feed is at.</summary>
+    /// <summary>Check the feed for newer versions of installed models every day and badge the Models page.</summary>
+    [ObservableProperty]
+    public partial bool CheckModelUpdates { get; set; }
+
     public string DefaultFeedUrl => Services.Feed.FeedOptions.DefaultUrl;
 
     /// <summary>System prompt of new chats.</summary>
@@ -311,6 +321,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 
     partial void OnFeedUrlChanged(string value) => Save();
 
+    partial void OnCheckModelUpdatesChanged(bool value) => Save();
+
     partial void OnDefaultSystemPromptChanged(string value) => Save();
 
     partial void OnEnableThinkingChanged(bool value) => Save();
@@ -448,6 +460,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         HuggingFaceToken = settings.HuggingFaceToken ?? "";
         FeedChannel = FeedChannelChoice.For(settings.FeedChannel);
         FeedUrl = settings.FeedUrl ?? "";
+        CheckModelUpdates = settings.CheckModelUpdates;
         DefaultSystemPrompt = settings.DefaultSystemPrompt;
         EnableThinking = settings.EnableThinking;
         var sampling = settings.DefaultSampling;
@@ -487,8 +500,55 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             Features.Add(new FeatureToggleViewModel(feature, s_featureDescriptions.GetValueOrDefault(feature, feature), !disabled.Contains(feature), Save));
         }
 
+        GpuProviders.Clear();
+        foreach (var gpu in _services.Runtime.Gpus)
+        {
+            GpuProviders.Add(new GpuProviderViewModel(gpu, OnProviderChosen));
+        }
+
+        OnPropertyChanged(nameof(HasGpus));
         RefreshStore();
         _initializing = false;
+    }
+
+    /// <summary>
+    /// A GPU's provider was picked: it is saved by the GPU's identity, and the default device follows when it is an entry of that GPU
+    /// (so the choice takes effect for every load that names no provider itself).
+    /// </summary>
+    private void OnProviderChosen(GpuProviderViewModel row, ProviderChoice choice)
+    {
+        _services.Settings.Update(current =>
+        {
+            var choices = new Dictionary<string, ProviderChoice>(current.DeviceProviders);
+            if (choice == ProviderChoice.Automatic)
+            {
+                choices.Remove(row.Key);
+            }
+            else
+            {
+                choices[row.Key] = choice;
+            }
+
+            return current with { DeviceProviders = choices };
+        });
+        var gpu = _services.Runtime.Gpus.FirstOrDefault(candidate => candidate.Key == row.Key);
+        if (gpu is null)
+        {
+            return;
+        }
+
+        row.Refresh(gpu);
+        // The device list changes order: the picker must not save the selection it loses and regains while it reloads.
+        var previous = DefaultDevice;
+        bool following = previous?.GpuKey == row.Key;
+        _initializing = true;
+        OnPropertyChanged(nameof(Devices));
+        DefaultDevice = following ? Devices.FirstOrDefault(device => device.Id == gpu.Effective.Id) ?? previous : previous;
+        _initializing = false;
+        if (following)
+        {
+            Save();
+        }
     }
 
     private void RefreshStore()
@@ -518,6 +578,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             HuggingFaceToken = string.IsNullOrWhiteSpace(HuggingFaceToken) ? null : HuggingFaceToken.Trim(),
             FeedChannel = FeedChannel.Value == Services.Feed.FeedOptions.Stable ? null : FeedChannel.Value,
             FeedUrl = string.IsNullOrWhiteSpace(FeedUrl) ? null : FeedUrl.Trim(),
+            CheckModelUpdates = CheckModelUpdates,
             DefaultSystemPrompt = DefaultSystemPrompt,
             EnableThinking = EnableThinking,
             DefaultSampling = current.DefaultSampling with

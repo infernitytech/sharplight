@@ -1,0 +1,88 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Vulkan.Tests
+[0m[37m  Discovered:  Sharplight.Vulkan.Tests
+[0m[37m  Starting:    Sharplight.Vulkan.Tests
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 9) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=9 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 16) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=16 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 17) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=17 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 33) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=33 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 64) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=64 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 65) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=65 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 200) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=200 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(fmt: "nvfp4_gs", t: 300) [FAIL]
+[0m[37m      Fp4Gemm.exact.nvfp4_gs T=300 step 0 output y[2]: vulkan 24.4325714 vs cpu 24.3193226 (|d|=1.13E-001, tol=9.93E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(37,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.ExactActivations(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.ExactActivations(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.DualGateUp(fmt: "nvfp4_gs", t: 40) [FAIL]
+[0m[37m      Fp4Gemm.dual.nvfp4_gs T=40 step 0 output y[19]: vulkan 17.6514359 vs cpu 17.5374966 (|d|=1.14E-001, tol=7.21E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(56,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.DualGateUp(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.DualGateUp(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[91m    Sharplight.Vulkan.Tests.Fp4GemmTests.DualGateUp(fmt: "nvfp4_gs", t: 130) [FAIL]
+[0m[37m      Fp4Gemm.dual.nvfp4_gs T=130 step 0 output y[19]: vulkan 17.6514359 vs cpu 17.5374966 (|d|=1.14E-001, tol=7.21E-002)
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(246,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, IReadOnlyList`1 steps, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, Boolean cpuFallback, Action`1 inspect, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Diff.cs(266,0): at Sharplight.Vulkan.Tests.Diff.Check(String op, ComputeGraph g, Step step, Double atol, Double rtol, Int64 maxTokens, Int64 ctx, String what, IReadOnlySet`1 disabledFeatures, Boolean allowReducedPrecision, MatrixPrecision precision)
+[0m[37m        tests/Sharplight.Vulkan.Tests/Fp4GemmTests.cs(56,0): at Sharplight.Vulkan.Tests.Fp4GemmTests.DualGateUp(String fmt, Int32 t)
+[0m[37m           at InvokeStub_Fp4GemmTests.DualGateUp(Object, Span`1)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeWithFewArgs(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[0m[37m  Finished:    Sharplight.Vulkan.Tests (ID = '74c871a5f1496b591030e809677aa36a31df3773c6fadd740ea9d04c34897092')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Vulkan.Tests  Total: 26, Errors: 0, Failed: 10, Skipped: 0, Not Run: 0, Time: 4.494s
+[0m[0m

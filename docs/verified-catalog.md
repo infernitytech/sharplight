@@ -43,20 +43,36 @@ JSON, schema version 1. The JSON schema is `catalog/verified-models.schema.json`
           "primary": "flux1-schnell-Q8_0.gguf",      // what the converter opens ("" = the repository root folder)
           "files": [{ "path": "...", "size": 12693000000, "sha256": "<LFS oid>" }],   // or "gitOid" for files in git
           "memoryBytes": 21000000000,                // rough device memory incl. companions (fit estimate only)
-          "companions": ["clip-l", "t5xxl", "vae"]
+          "companions": ["clip-l", "t5xxl", "vae"],
+          "quality": "near-lossless",                // optional: tier relative to referencePrecision (see "Variant ladders")
+          "qualityNote": "Practically identical to BF16.",
+          "level": "partial",                        // optional: lower than the entry's level for this variant only
+          "verification": "Not compared with the reference on this file; ..."   // required with a partial level on a verified entry
         }
       ],
       "companions": [
         { "id": "t5xxl", "role": "text-encoder-2", "label": "T5-XXL encoder (Q8_0)", "repository": "city96/t5-v1_1-xxl-encoder-gguf",
           "revision": "...", "include": ["t5-v1_1-xxl-encoder-Q8_0.gguf"], "primary": "...", "files": [ ... ] }
       ],
+      "referencePrecision": "BF16",   // optional: what the variants' quality is relative to (BF16, or the release format: MXFP4)
       "verification": { "reference": "diffusers", "summary": "...", "providers": ["CPU", "Vulkan"], "date": "2026-11-15", "tests": [] },
       "notes": "...",
+      "licenseNotice": "...",         // optional: what the user must know about a non-permissive licence (see below)
       "doc": [{ "section": "4", "cells": { "repositories": "..." } }]   // rows in compatible-models.md; cells override derived text
     }
   ]
 }
 ```
+
+### Licence notices
+
+`licenseNotice` is an optional one-to-two-sentence note (at most 600 characters) on the licence: non-commercial use, a custom agreement, a
+revenue or user limit, use restrictions, gated terms. `notes` stays for technical limitations and is never shown as a licence notice.
+Every entry whose `license` is recorded and not a known permissive id (`apache-2.0`, `mit`, `bsd-*`, `cc-by-4.0`, `cdla-permissive-2.0`...,
+see `CatalogLicenses`) must have one; `validate` reports the others. Read the model's licence on its Hub page when you write it. Studio
+shows the notice once per model (a dismissible callout remembered in the settings, on the page of the model's kind and in Chat) and on the
+Discover page of the entry; for a non-permissive licence without a notice (a catalog from another source) it shows a generic line.
+Readers that do not know the field ignore it (the schema does not forbid extra members), so the schema version stays 1.
 
 Formats: `gguf`, `safetensors`, `pytorch` (`.bin` / `.pth`), `diffusers`, `single-file`, `whisper-cpp`, `onnx`, `slm`. Companion roles
 are the auxiliary roles of `Sharplight.Vision.AuxiliaryRoles` (`mmproj`, `vocoder`, `text-encoder`, `text-encoder-2`, `text-encoder-3`,
@@ -66,6 +82,20 @@ installed package is complete and the Image, Video and Speak pages load it witho
 Entries without variants are documented only (rows of compatible-models.md for models whose exact files are not known, families, tiny
 checkpoints); Studio lists the installable ones (`verified` or `partial` with at least one variant; partial entries carry a badge and
 their limitation).
+
+### Variant ladders
+
+An entry may offer several variants of the same model, from small low-bit files to the reference precision; the model feed publishes
+each as its own package in one model group (docs/model-feed.md "Model groups and variants"). Per variant:
+
+- `quality`: `reference`, `near-lossless` (8-bit, FP8), `high` (5-6 bit), `good` (4 bit), `reduced` (3 bit) or `low` (1-2 bit), relative
+  to the entry's `referencePrecision`; `qualityNote` says it in one sentence.
+- `level` / `verification`: the entry's `level` and `verification` describe what was compared with the reference. A variant whose own
+  files were not compared (only the architecture or another variant of the model was) is marked `"level": "partial"` with a
+  `verification` note saying what was and was not checked; it stays installable, Studio and the feed show it as partial. A variant
+  level is never above the entry's.
+- Only formats the engine imports (docs/model-support.md "Weight formats") are offered; `recommended` marks the variant offered first
+  (one per entry), normally the 4-bit one when it is verified.
 
 ### Revisions
 
@@ -96,7 +126,9 @@ conversion was not run through the installer (the Wan 2.1 umT5 files were not av
 - installable entries have a verification summary, providers and date;
 - every variant and companion has a repository id, a 40-hex lower-case revision, a non-empty file list (unique relative paths, sizes,
   a sha256 or git oid each) and a primary path that is a listed file or a directory of one;
-- formats and roles known, companion ids unique, every companion used by a variant and every variant's companions defined.
+- formats and roles known, companion ids unique, every companion used by a variant and every variant's companions defined;
+- a variant `level` is verified or partial and not above the entry's; a partial variant of a verified entry has a `verification` note;
+  `quality` is a known tier.
 
 ## Tool
 

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Multi-node inference for Sharplight: a model too large for one machine runs pipeline parallel across several nodes. The remote execution provider's devices are segment workers on other machines (each loads only its own layers from its local model copy and keeps their KV cache); placement splits the graph over local and remote devices exactly as over local GPUs, and only boundary activations travel, over persistent TCP streams between neighbours (TLS optional). Register with services.AddRemoteSegments(); host a worker with SegmentWorker.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Distributed.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+  </ItemGroup>
+</Project>

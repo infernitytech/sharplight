@@ -1,0 +1,9 @@
+--- rendered prompt ---
+<bos><|turn>user
+Explain in a few short paragraphs why the sky appears blue during the day and red or orange at sunset, and mention the physicist who first described the scattering.<turn|>
+<|turn>model
+<|channel>thought
+<channel|>
+-----------------------
+The sky appears blue during the day due to a phenomenon called **Rayleigh scattering**, named after the British physicist **Lord Rayleigh**. As sunlight enters Earth's atmosphere, it collides with gas molecules and small particles. Because sunlight is composed of a spectrum of all colors, and blue light travels in shorter, smaller waves
+prompt: 44 tok in 126 ms (350.1 tok/s) | generated: 64 tok, 37.48 tok/s

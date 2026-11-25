@@ -11,11 +11,20 @@ namespace Sharplight.Runtime;
 /// With a fallback device, the gathers of a lookup table (a weight that only <c>Gather</c> reads: token embeddings, n-gram tables)
 /// form a placement group of their own (<see cref="TableGroupSuffix"/>), and a table that does not fit the current device goes to the
 /// fallback without taking the following layers with it.
+/// With a fallback device, the routed experts of a mixture-of-experts layer (the expert-indexed products whose weight bank holds more
+/// experts than a token selects, with the activations between them) also form a group of their own (<see cref="ExpertGroupSuffix"/>).
+/// When the model does not fit the devices, the routed experts of the first layers go to the fallback, as few layers as needed, and
+/// everything else (attention, shared experts, dense layers, the output head) stays on the devices: a token reads its few selected
+/// experts but every row of the dense weights, so the fallback reads the fewest bytes per token
+/// (<see cref="PlacementOptions.SplitExperts"/>).
 /// </summary>
 public static class PlacementPlanner
 {
     /// <summary>Suffix of the placement group that holds the gathers of a lookup table, appended to the group of the gathers.</summary>
     public const string TableGroupSuffix = "#table";
+
+    /// <summary>Suffix of the placement group that holds a layer's routed experts, appended to the layer's group.</summary>
+    public const string ExpertGroupSuffix = "#experts";
 
     /// <summary>
     /// Distributes a graph over devices and cuts it into segments.
@@ -40,9 +49,30 @@ public static class PlacementPlanner
             throw new ArgumentException("No devices given.");
         }
 
-        var groupOf = GroupKeys(graph, fallbackSlot >= 0);
+        bool splitExperts = fallbackSlot >= 0 && options.SplitExperts && Environment.GetEnvironmentVariable("SHARPLIGHT_SPLIT_EXPERTS") is not ("0" or "false");
+        var groupOf = GroupKeys(graph, fallbackSlot >= 0, splitExperts);
         var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile, groupOf);
-        var groupDevice = AssignGroups(groupOrder, groupBytes, options, slots.Count, fallbackSlot, out long[] used);
+        var transfers = splitExperts ? MeasureExpertTransfers(graph, options.Compile, groupOf) : [];
+        bool stream = splitExperts && options.StreamExpertsMinRows > 0 && slots[fallbackSlot].Device.Info.Kind == DeviceKind.Cpu
+            && options.Devices.Any(d => d.Device.StreamsWeights);
+        var sparseBytes = stream && CompiledModel.SparseExpertRows > 0 && options.Devices.Any(d => d.Device.StreamsSelectedExperts)
+            ? SparseExpertBytes(graph, groupOf, CompiledModel.SparseExpertRows) : [];
+        var groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out long[] used);
+        var diskGroups = DiskExpertGroups(groupDevice, groupBytes, options, fallbackSlot, splitExperts, used);
+        bool diskSparse = false;
+        if (diskGroups.Count > 0 && (stream || sparseBytes.Count > 0))
+        {
+            // Experts read from disk run on the CPU for large passes (no streamed prefill of the mapped file), and small passes split with
+            // the GPU only where it copies the selected experts from the expert cache's slots: place again without the GPU memory the
+            // streaming keeps free (and the sparse banks where they are not used), so more expert layers stay on the devices.
+            stream = false;
+            diskSparse = sparseBytes.Count > 0 && options.Devices.All(d => d.Device.CopiesFromExpertCache);
+            sparseBytes = diskSparse ? sparseBytes : [];
+            groupDevice = AssignGroups(groupOrder, groupBytes, transfers, stream, sparseBytes, options, slots.Count, fallbackSlot, out used, twins: diskSparse);
+            diskGroups = [.. groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
+        }
+
+        RegisterDiskExperts(graph, options.Compile.DiskExperts, diskGroups, groupOf);
         var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot, groupOf);
         var segments = BuildSegments(graph, nodeSlot, slots, options.GroupDataDependentCounts);
         return new PlacementPlan
@@ -51,20 +81,79 @@ public static class PlacementPlanner
             Segments = segments,
             GroupDevice = groupDevice,
             BytesPerSlot = Enumerable.Range(0, slots.Count).ToDictionary(i => i, i => used[i]),
+            StreamedSegments = stream || diskSparse ? StreamedSegments(segments, slots, fallbackSlot, groupOf) : new Dictionary<int, int>(),
+            StreamsPrefill = stream,
+            DiskExpertGroups = diskGroups,
         };
+    }
+
+    /// <summary>Registers the expert weights of the expert products in <paramref name="diskGroups"/> with the store (their CPU segments then read them from disk).</summary>
+    private static void RegisterDiskExperts(ComputeGraph graph, Experts.ExpertStore? store, HashSet<string> diskGroups, Func<Node, string> groupOf)
+    {
+        if (store is null || diskGroups.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var n in graph.Nodes)
+        {
+            if (n.Op.Name == "MatMulId" && n.Inputs[1].Weight is { } w && diskGroups.Contains(groupOf(n)))
+            {
+                int slotsPerRow = n.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic ? (int)ids[1].Fixed : 1;
+                store.TryRegister(w, groupOf(n), slotsPerRow);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The routed-expert groups on a CPU fallback that stay on disk (<see cref="CompileOptions.DiskExperts"/>): all of them when the store
+    /// decides that they do not fit host memory beside the CPU's other weights and state (or the cache asked for is smaller), else none.
+    /// </summary>
+    private static HashSet<string> DiskExpertGroups(Dictionary<string, int> groupDevice, Dictionary<string, long> groupBytes, PlacementOptions options, int fallbackSlot,
+        bool splitExperts, long[] used)
+    {
+        if (options.Compile.DiskExperts is not { } store || !splitExperts || options.Fallback is not { } fallback || fallback.Device.Info.Kind != DeviceKind.Cpu)
+        {
+            return [];
+        }
+
+        var groups = groupDevice.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key).ToHashSet();
+        long expertBytes = groups.Sum(g => groupBytes[g]);
+        long otherBytes = Math.Max(0, used[fallbackSlot] - expertBytes);
+        long available = fallback.MemoryLimit ?? fallback.Device.AvailableMemory;
+        return store.Decide(expertBytes, otherBytes, available) ? groups : [];
     }
 
     /// <summary>
     /// The placement group of every node: its own group, or with a fallback device, for the gathers of a lookup table (a weight that only
-    /// <c>Gather</c> reads, as its table input) that group plus <see cref="TableGroupSuffix"/>.
+    /// <c>Gather</c> reads, as its table input) that group plus <see cref="TableGroupSuffix"/>, and with <paramref name="splitExperts"/>, for
+    /// the routed experts of a layer (<see cref="ExpertNodes"/>) that group plus <see cref="ExpertGroupSuffix"/>.
     /// </summary>
-    private static Func<Node, string> GroupKeys(ComputeGraph graph, bool hasFallback)
+    private static Func<Node, string> GroupKeys(ComputeGraph graph, bool hasFallback, bool splitExperts)
     {
         if (!hasFallback)
         {
             return static n => n.Group;
         }
 
+        var tableKeys = TableGroupKeys(graph);
+        if (!splitExperts)
+        {
+            return tableKeys;
+        }
+
+        var experts = ExpertNodes(graph);
+        if (experts.Count == 0)
+        {
+            return tableKeys;
+        }
+
+        return n => experts.Contains(n) ? n.Group + ExpertGroupSuffix : tableKeys(n);
+    }
+
+    /// <summary>The gathers of lookup tables in groups of their own (<see cref="TableGroupSuffix"/>), every other node in its group.</summary>
+    private static Func<Node, string> TableGroupKeys(ComputeGraph graph)
+    {
         var gatherOnly = new Dictionary<WeightInfo, bool>();
         foreach (var n in graph.Nodes)
         {
@@ -119,6 +208,142 @@ public static class PlacementPlanner
 
     private static bool IsTableGather(Node n) => n.Op.Name == "Gather";
 
+    /// <summary>
+    /// The routed-expert nodes of every mixture-of-experts layer: the expert-indexed products (<c>MatMulId</c>) whose weight bank holds more
+    /// experts than a row selects, and, in the same group, the nodes between them: weightless nodes that read a value they produce, the
+    /// expert inputs or weights (activations, slices), and nodes whose outputs only they read (per-expert bias gathers). The router, the
+    /// weighting of the slots and the shared experts stay in the layer's group.
+    /// </summary>
+    private static HashSet<Node> ExpertNodes(ComputeGraph graph)
+    {
+        var region = new HashSet<Node>(graph.Nodes.Where(IsRoutedExpertProduct));
+        if (region.Count == 0)
+        {
+            return region;
+        }
+
+        var groups = region.Select(n => n.Group).ToHashSet();
+        var boundary = new HashSet<Value>(region.SelectMany(n => n.Inputs).Where(v => v.Weight is null && (v.Producer is null || !region.Contains(v.Producer))));
+        var consumers = new Dictionary<Value, List<Node>>();
+        foreach (var n in graph.Nodes)
+        {
+            foreach (var v in n.Inputs)
+            {
+                if (!consumers.TryGetValue(v, out var list))
+                {
+                    consumers[v] = list = [];
+                }
+
+                list.Add(n);
+            }
+        }
+
+        var graphOutputs = graph.Outputs.Values.ToHashSet();
+        bool InRegionOrBoundary(Value v) => v.Weight is not null || boundary.Contains(v) || (v.Producer is { } p && region.Contains(p));
+        // A value of the layer that only `reader` reads, produced from weights and the region's inputs alone (collected into `side`).
+        bool IsSideInput(Value v, Node reader, List<Node> side)
+        {
+            if (v.Producer is not { } p || region.Contains(p) || !groups.Contains(p.Group) || p.Outputs.Length != 1 || p.Writes.Length > 0
+                || p.Op.Category == OpCategory.ControlFlow || graphOutputs.Contains(v) || !consumers.TryGetValue(v, out var users) || users.Any(u => u != reader)
+                || !p.Inputs.All(i => i.State is null && (i.Weight is not null || boundary.Contains(i))))
+            {
+                return false;
+            }
+
+            side.Add(p);
+            return true;
+        }
+
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var n in graph.Nodes)
+            {
+                if (region.Contains(n) || !groups.Contains(n.Group) || n.Outputs.Length == 0 || n.Writes.Length > 0
+                    || n.Op.Category == OpCategory.ControlFlow || n.Inputs.Any(v => v.State is not null) || n.Outputs.Any(graphOutputs.Contains))
+                {
+                    continue;
+                }
+
+                // Forward: a weightless node fed by the region (an activation, a bias add), with the side nodes that only it reads and that
+                // read only weights and the region's inputs (the per-expert bias gather before the add). Backward: a node only the region reads.
+                var side = new List<Node>();
+                bool fedByRegion = n.Inputs.All(v => v.Weight is null) && n.Inputs.Any(v => v.Producer is { } p && region.Contains(p))
+                    && n.Inputs.All(v => InRegionOrBoundary(v) || IsSideInput(v, n, side));
+                bool onlyFeedsRegion = n.Inputs.All(InRegionOrBoundary) && n.Outputs.All(o => consumers.TryGetValue(o, out var users) && users.All(region.Contains));
+                if (fedByRegion || onlyFeedsRegion)
+                {
+                    region.Add(n);
+                    if (fedByRegion)
+                    {
+                        region.UnionWith(side);
+                    }
+
+                    changed = true;
+                }
+            }
+        }
+
+        ExtendToSlotReductions(region, groups, consumers, graphOutputs);
+        return region;
+    }
+
+    /// <summary>
+    /// Adds the weightless chains that reduce the region's per-slot outputs (the weighting of the k slots and their sum), so the fallback
+    /// returns one row per token instead of k: a chain is followed for a few nodes of the same group and taken only when it ends in a node with
+    /// fewer elements per row than the region value it started from.
+    /// </summary>
+    private static void ExtendToSlotReductions(HashSet<Node> region, HashSet<string> groups, Dictionary<Value, List<Node>> consumers, HashSet<Value> graphOutputs)
+    {
+        const int MaxChain = 4;
+        var exits = region.SelectMany(n => n.Outputs).Where(o => consumers.TryGetValue(o, out var users) && users.Any(u => !region.Contains(u))).ToList();
+        foreach (var start in exits)
+        {
+            long startElements = RowElements(start.Shape);
+            var chain = new List<Node>();
+            var value = start;
+            while (chain.Count < MaxChain && consumers.TryGetValue(value, out var users) && users.Count == 1)
+            {
+                var n = users[0];
+                if (region.Contains(n) || !groups.Contains(n.Group) || n.Outputs.Length != 1 || n.Writes.Length > 0 || n.Op.Category == OpCategory.ControlFlow
+                    || n.Inputs.Any(v => v.Weight is not null || v.State is not null) || graphOutputs.Contains(n.Output))
+                {
+                    break;
+                }
+
+                chain.Add(n);
+                if (RowElements(n.Output.Shape) < startElements)
+                {
+                    region.UnionWith(chain);
+                    break;
+                }
+
+                value = n.Output;
+            }
+        }
+    }
+
+    /// <summary>Elements per row: the product of the fixed dimensions after the first.</summary>
+    private static long RowElements(Shape shape)
+    {
+        long elements = 1;
+        for (int i = 1; i < shape.Rank; i++)
+        {
+            elements *= shape[i].IsSymbolic ? 1 : shape[i].Fixed;
+        }
+
+        return elements;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="n"/> is an expert-indexed product over a weight bank with more experts than a row selects, so that a row reads
+    /// only part of the weight (routed experts, as opposed to a bank every row runs through, such as shared experts with constant ids).
+    /// </summary>
+    private static bool IsRoutedExpertProduct(Node n)
+        => n.Op.Name == "MatMulId" && n.Inputs.Length == 3 && n.Inputs[1].Weight is { } w && w.Shape.Rank == 3 && !w.Shape[0].IsSymbolic
+           && n.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic && w.Shape[0].Fixed > ids[1].Fixed;
+
     /// <summary>Bytes of weights and state per placement group (each weight and state counted once, in its first group), groups in graph order.</summary>
     private static (List<string> Order, Dictionary<string, long> Bytes) MeasureGroups(ComputeGraph graph, CompileOptions compile, Func<Node, string> groupOf)
     {
@@ -159,7 +384,155 @@ public static class PlacementPlanner
     /// (<see cref="TableGroupSuffix"/>) that does not fit the current device goes to the fallback slot and the fill continues where it was;
     /// tables larger than every device do not count toward the shares. <paramref name="used"/> receives the bytes placed on each slot.
     /// </summary>
-    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
+    /// <summary>
+    /// The fallback segments that hold only routed experts (and views of their values), each with the slot of the device before it when that device streams weights and
+    /// runs every node of the segment (<see cref="PlacementPlan.StreamedSegments"/>).
+    /// </summary>
+    private static Dictionary<int, int> StreamedSegments(List<GraphSegment> segments, List<DeviceSlot> slots, int fallbackSlot, Func<Node, string> groupOf)
+    {
+        var streamed = new Dictionary<int, int>();
+        for (int i = 1; i < segments.Count; i++)
+        {
+            var segment = segments[i];
+            int device = segments[i - 1].DeviceSlot;
+            if (segment.DeviceSlot != fallbackSlot || device == fallbackSlot || !slots[device].Device.StreamsWeights
+                || !segment.Nodes.All(n => (IsExpertGroup(groupOf(n)) || n.Op.Category == OpCategory.View) && slots[device].Device.Supports(n).IsSupported))
+            {
+                continue;
+            }
+
+            streamed[i] = device;
+        }
+
+        return streamed;
+    }
+
+    /// <summary>
+    /// Per routed-expert group: the bytes of its expert banks' share that a sparse GPU compilation holds (<see cref="CompileOptions.SparseExpertSlots"/>:
+    /// the experts <paramref name="rows"/> rows can select, when that is a small part of the bank, see <see cref="CompiledModel.SparseMinExpertsPerSlot"/>),
+    /// which the devices keep free for the largest moved group.
+    /// </summary>
+    private static Dictionary<string, long> SparseExpertBytes(ComputeGraph graph, Func<Node, string> groupOf, int rows)
+    {
+        var bytes = new Dictionary<string, long>();
+        foreach (var n in graph.Nodes)
+        {
+            if (n.Op.Name == "MatMulId" && n.Inputs[1].Weight is { } w && IsExpertGroup(groupOf(n)) && n.Inputs[2].Shape is { Rank: 2 } ids && !ids[1].IsSymbolic
+                && w.Shape[0] is { IsSymbolic: false } experts && experts.Fixed > 0)
+            {
+                long slots = rows * ids[1].Fixed;
+                if (slots <= experts.Fixed / CompiledModel.SparseMinExpertsPerSlot)
+                {
+                    bytes[groupOf(n)] = bytes.GetValueOrDefault(groupOf(n)) + w.ByteSize / experts.Fixed * slots;
+                }
+            }
+        }
+
+        return bytes;
+    }
+
+    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, Dictionary<string, long> transfers, bool stream,
+        Dictionary<string, long> sparseBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used, bool twins = false)
+    {
+        var expertGroups = groupOrder.Where(IsExpertGroup).ToList();
+        var pinned = new HashSet<string>();
+        // Routed experts go to the fallback layer by layer, from the first layer on, until every other group fits the devices. Each moved
+        // group adds device buffers for the values it exchanges with its layer, the devices then also hold the graph outputs, and with
+        // streaming (prefill on the GPU) the largest moved group's weights, and with sparse compilations (decode split between the CPU and the
+        // GPU) the experts a small pass selects; a fill is repeated with the room the groups it moved need.
+        // A moved group splits its layer into one more device segment (its own streams, launch recordings and graphs, library workspace:
+        // PlacementOptions.SegmentReserve each) and, with streaming, adds a streamed compilation with copies of the exchanged values; the
+        // streamed compilations share those buffers (they run one at a time), so they count once.
+        int perGroup = stream || twins ? 2 : 1;
+        long segmentReserve = options.SegmentReserve;
+        long Overhead(IReadOnlyCollection<string> moved) => moved.Count == 0 ? 0
+            : transfers.GetValueOrDefault(OutputsKey) + moved.Sum(g => transfers.GetValueOrDefault(g)) + moved.Count * segmentReserve * perGroup
+              + (stream ? moved.Max(g => transfers.GetValueOrDefault(g)) + Math.Clamp(options.StreamBuffers, 1, 2) * moved.Max(g => groupBytes[g]) : 0)
+              + moved.Select(g => sparseBytes.GetValueOrDefault(g)).DefaultIfEmpty(0).Max();
+        List<string> Moved(Dictionary<string, int> placed) => [.. placed.Where(kv => kv.Value == fallbackSlot && IsExpertGroup(kv.Key)).Select(kv => kv.Key)];
+        Dictionary<string, int> groupDevice;
+        while (true)
+        {
+            groupDevice = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, Overhead(pinned), out used);
+            for (int repeat = 0; repeat < 3; repeat++)
+            {
+                var moved = Moved(groupDevice);
+                var refill = FillGroups(groupOrder, groupBytes, options, slotCount, fallbackSlot, pinned, Overhead(moved), out var refillUsed);
+                bool stable = Moved(refill).ToHashSet().SetEquals(moved);
+                groupDevice = refill;
+                used = refillUsed;
+                if (stable)
+                {
+                    break;
+                }
+            }
+
+            if (!SpillsBesidesExperts(groupDevice, fallbackSlot) || pinned.Count == expertGroups.Count)
+            {
+                break;
+            }
+
+            pinned.Add(expertGroups[pinned.Count]);
+        }
+
+        return groupDevice;
+    }
+
+    /// <summary>Key of <see cref="MeasureExpertTransfers"/>'s entry for the graph outputs.</summary>
+    private const string OutputsKey = "";
+
+    /// <summary>
+    /// Bytes at the compile bounds of the values each routed-expert group exchanges with the rest of the graph (they need device buffers on
+    /// the other side when the group runs on the fallback), and under <see cref="OutputsKey"/> the bytes of the graph outputs.
+    /// </summary>
+    private static Dictionary<string, long> MeasureExpertTransfers(ComputeGraph graph, CompileOptions compile, Func<Node, string> groupOf)
+    {
+        var transfers = new Dictionary<string, long> { [OutputsKey] = graph.Outputs.Values.Distinct().Sum(v => ValueBytes(v, compile)) };
+        var groupOfValue = new Dictionary<Value, string>();
+        foreach (var n in graph.Nodes)
+        {
+            foreach (var o in n.Outputs)
+            {
+                groupOfValue[o] = groupOf(n);
+            }
+        }
+
+        var counted = new HashSet<(string, Value)>();
+        foreach (var n in graph.Nodes)
+        {
+            string group = groupOf(n);
+            foreach (var v in n.Inputs)
+            {
+                if (v.Weight is not null || v.State is not null || !groupOfValue.TryGetValue(v, out string? producer) || producer == group)
+                {
+                    continue;
+                }
+
+                // A value crossing into or out of an expert group.
+                foreach (string g in new[] { group, producer }.Where(IsExpertGroup))
+                {
+                    if (counted.Add((g, v)))
+                    {
+                        transfers[g] = transfers.GetValueOrDefault(g) + ValueBytes(v, compile);
+                    }
+                }
+            }
+        }
+
+        return transfers;
+    }
+
+    /// <summary>Whether a group other than routed experts or lookup tables went to the fallback slot.</summary>
+    private static bool SpillsBesidesExperts(Dictionary<string, int> groupDevice, int fallbackSlot)
+        => fallbackSlot >= 0 && groupDevice.Any(kv => kv.Value == fallbackSlot && !IsExpertGroup(kv.Key) && !IsTableGroup(kv.Key));
+
+    private static bool IsExpertGroup(string group) => group.EndsWith(ExpertGroupSuffix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// One greedy fill (see <see cref="AssignGroups"/>) with the <paramref name="pinned"/> groups on the fallback slot; they do not count toward
+    /// the shares. <paramref name="overhead"/> bytes are kept free on every device.
+    /// </summary>
+    private static Dictionary<string, int> FillGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, PlacementOptions options, int slotCount, int fallbackSlot, HashSet<string> pinned, long overhead, out long[] used)
     {
         int nPipe = options.Devices.Count;
         var capacity = new long[nPipe];
@@ -167,13 +540,13 @@ public static class PlacementPlanner
         for (int i = 0; i < nPipe; i++)
         {
             var d = options.Devices[i];
-            capacity[i] = Math.Max(0, (d.MemoryLimit ?? d.Device.AvailableMemory) - options.ReservePerDevice);
+            capacity[i] = Math.Max(0, (d.MemoryLimit ?? d.Device.AvailableMemory) - options.ReservePerDevice - overhead);
             share[i] = d.Weight ?? capacity[i];
         }
 
         long largest = nPipe > 0 ? capacity.Max() : 0;
         bool Offloaded(string g) => fallbackSlot >= 0 && IsTableGroup(g) && groupBytes[g] > largest;
-        long total = groupBytes.Where(kv => !Offloaded(kv.Key)).Sum(kv => kv.Value);
+        long total = groupBytes.Where(kv => !Offloaded(kv.Key) && !pinned.Contains(kv.Key)).Sum(kv => kv.Value);
 
         double shareSum = share.Sum();
         var target = new long[nPipe];
@@ -188,7 +561,7 @@ public static class PlacementPlanner
         foreach (var g in groupOrder)
         {
             long b = groupBytes[g];
-            if (fallbackSlot >= 0 && IsTableGroup(g) && (cur >= nPipe || used[cur] + b > capacity[cur]))
+            if (pinned.Contains(g) || (fallbackSlot >= 0 && IsTableGroup(g) && (cur >= nPipe || used[cur] + b > capacity[cur])))
             {
                 groupDevice[g] = fallbackSlot;
                 used[fallbackSlot] += b;
@@ -354,12 +727,17 @@ public static class PlacementPlanner
     /// state (KV caches / recurrent state) and a rough bound for activations and scratch. <paramref name="slots"/> &gt; 1 sizes
     /// the state of a multi-sequence compilation of the single-sequence <paramref name="graph"/> (KV rows for slots · context,
     /// recurrent state per slot). Use it to decide whether a model fits before compiling it.
-    /// <paramref name="kvCacheRows"/> &gt; 0 sizes the KV caches of a paged multi-sequence compilation instead (rows shared by all slots).
+    /// <paramref name="kvCacheRows"/> &gt; 0 sizes the KV caches of a paged multi-sequence compilation instead (rows shared by all slots; with
+    /// one slot, a session's one-slot paged form);
+    /// <paramref name="windowCacheRows"/> &gt; 0 sizes the caches only sliding-window attention reads (<see cref="MultiSequence.WindowedCaches"/>)
+    /// at that many rows.
     /// </summary>
-    public static ModelFootprint Estimate(ComputeGraph graph, CompileOptions options, int slots = 1, long kvCacheRows = 0)
+    public static ModelFootprint Estimate(ComputeGraph graph, CompileOptions options, int slots = 1, long kvCacheRows = 0, long windowCacheRows = 0)
     {
+        var windowed = windowCacheRows > 0 && kvCacheRows > 0 ? MultiSequence.WindowedCaches(graph).Caches : [];
         long weights = 0;
         long states = 0;
+        long kvStates = 0;
         long maxOut = 0;
         long maxNode = 0;
         var seenW = new HashSet<WeightInfo>();
@@ -376,10 +754,12 @@ public static class PlacementPlanner
 
                 if (v.State is { } st && seenS.Add(st))
                 {
-                    if (slots > 1 && MultiSequence.IsKvState(st))
+                    if ((slots > 1 || kvCacheRows > 0) && MultiSequence.IsKvState(st))
                     {
-                        long rows = kvCacheRows > 0 ? kvCacheRows : options.ContextLength * slots;
-                        states += StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = rows, SymbolBounds = options.SymbolBounds });
+                        long rows = windowed.Contains(st) ? windowCacheRows : kvCacheRows > 0 ? kvCacheRows : options.ContextLength * slots;
+                        long kv = StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = rows, SymbolBounds = options.SymbolBounds });
+                        states += kv;
+                        kvStates += kv;
                     }
                     else
                     {
@@ -402,8 +782,11 @@ public static class PlacementPlanner
         }
         // Activations live in a liveness-packed arena plus staging copies of the inputs/outputs; a few times the largest node
         // output (matmul in/out, residual, norm) covers the arena. Device memory is sub-allocated from 256 MiB blocks (the last one
-        // is partly empty) and big models need a little extra scratch, hence the granule and a few percent of the resident size.
-        long act = 4 * maxOut + (256L << 20) + (weights + states) / 25;
+        // is partly empty) and big models need a little extra scratch, hence the granule and a few percent of the resident size. Shared
+        // KV caches are a few large buffers that need no scratch of their own, so they stay out of that share: counted in, a 92 GB
+        // default pool of 256 slots (Qwen3-8B-FP8, 2,560 tokens each) added 3.7 GB of activations where 0.55 GB were used, and the
+        // pool shrunk to fit then left 7 GB free (benchmarks.md §105).
+        long act = 4 * maxOut + (256L << 20) + (weights + states - kvStates) / 25;
         return new ModelFootprint(weights, states, act);
     }
 

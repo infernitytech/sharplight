@@ -1,5 +1,4 @@
 using System.Text;
-using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Studio.Models;
@@ -12,12 +11,12 @@ internal static class ChatRequestMapper
     /// <summary>Requests from the app are charged to this tenant, which tells them apart from API requests in the statistics.</summary>
     public const string StudioTenant = "sharplight-studio";
 
-    /// <summary>The engine request for a text-only conversation.</summary>
+    /// <summary>The engine request for a conversation (a message's images come before its text).</summary>
     public static ChatRequest ToChatRequest(ChatInput input, bool reasoningTemplate)
     {
         return new ChatRequest
         {
-            Messages = [.. input.Messages.Select(message => new ChatTurn(RoleName(message.Role), message.Text, Reasoning: message.Reasoning))],
+            Messages = [.. input.Messages.Select(ToTurn)],
             Sampling = ToSamplingParams(input.Sampling),
             MaxTokens = Math.Max(0, input.Sampling.MaxTokens),
             EnableThinking = reasoningTemplate ? input.EnableThinking : null,
@@ -40,18 +39,24 @@ internal static class ChatRequestMapper
         };
     }
 
-    /// <summary>The session sampler's options (vision path).</summary>
-    public static SamplingOptions ToSamplingOptions(SamplingSettings sampling)
+    /// <summary>A message as a chat turn: text only, or image parts followed by the text.</summary>
+    private static ChatTurn ToTurn(ChatInputMessage message)
     {
-        return new SamplingOptions
+        if (message.Images.Count == 0)
         {
-            Temperature = (float)sampling.Temperature,
-            TopP = (float)sampling.TopP,
-            TopK = sampling.TopK,
-            MinP = (float)sampling.MinP,
-            RepetitionPenalty = (float)sampling.RepetitionPenalty,
-            Seed = sampling.Seed,
-        };
+            return new ChatTurn(RoleName(message.Role), message.Text, Reasoning: message.Reasoning);
+        }
+
+        var parts = message.Images.Select(image => ChatPart.FromImage(new ImageData(image.Data, image.MediaType, null))).Append(ChatPart.FromText(message.Text)).ToList();
+        return new ChatTurn(RoleName(message.Role), Parts: parts, Reasoning: message.Reasoning);
+    }
+
+    /// <summary>Decodes an image part of a chat request (PNG, JPEG and the other formats the app accepts) to RGB pixels.</summary>
+    public static Vision.ImageInput DecodeImage(ImageData image)
+    {
+        var bytes = image.Bytes ?? throw new ArgumentException("The image has no inline data.", nameof(image));
+        var decoded = StbImageSharp.ImageResult.FromMemory(bytes, StbImageSharp.ColorComponents.RedGreenBlue);
+        return new Vision.ImageInput(decoded.Width, decoded.Height, decoded.Data);
     }
 
     /// <summary>Statistics from the engine's usage and timings.</summary>

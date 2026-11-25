@@ -1,0 +1,16 @@
+== 2026-11-24T13:02:45Z sharplight gemma4-31b vulkan A
+decoder: MultiSequenceDecoder, slots 16, vocab 262144, device sampling: True, KV paged 512 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 64 steps after 64 warm-up steps (slots refilled to the depth before the warm-up and the timed steps); first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 52.4 | 956 / 725 | 24.70 / 25.34, 24.60; mean 26.48 ± 9.30 | 25.41 / 25.54, 25.15; mean 25.54 ± 0.03 |
+| 16 | 46.8 | 907 / 676 | 38.50 / 40.61, 38.39; mean 41.54 ± 7.46 | 41.43 / 42.27, 39.52; mean 42.22 ± 0.42 |
+exit 0
+== 2026-11-24T15:56:33Z sharplight gemma4-31b vulkan B
+decoder: MultiSequenceDecoder, slots 16, vocab 262144, device sampling: True, KV paged 512 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 64 steps after 64 warm-up steps (slots refilled to the depth before the warm-up and the timed steps); first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 39.3 | 956 / 725 | 25.26 / 25.44, 25.13; mean 25.43 ± 0.06 | 25.34 / 25.45, 25.14; mean 25.45 ± 0.05 |
+| 16 | 50.7 | 907 / 676 | 39.77 / 40.68, 39.62; mean 40.61 ± 0.35 | 41.32 / 41.85, 39.72; mean 41.88 ± 0.36 |
+exit 0

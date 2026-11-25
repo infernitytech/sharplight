@@ -38,6 +38,7 @@ if [ -n "${STUDIO_UPDATE_URL:-}" ]; then
     props+=("-p:StudioUpdateUrl=$STUDIO_UPDATE_URL")
 fi
 
+# The CUDA provider is part of the publish for the runtimes that have an NVIDIA driver (see below); -p:StudioCuda=false would leave it out.
 # Trimming and native AOT stay off: Avalonia compiled bindings, System.CommandLine and the engine's reflection are not trim-safe yet.
 # SharplightRequireFfmpeg makes the build fail when the FFmpeg libraries of the target are missing (src/Sharplight.Video).
 dotnet publish "$repo/apps/Sharplight.Studio/Sharplight.Studio.csproj" -c Release -r "$rid" --self-contained \
@@ -51,6 +52,22 @@ fi
 
 # Sharplight.Video's FFmpeg libraries (built by native.yml into native/ffmpeg/out/<rid>/) ride along the same way, with their license texts.
 "$repo/packaging/check-ffmpeg.sh" "$publish" "$rid"
+
+# The CUDA execution provider and NVRTC (Sharplight.Cuda, Sharplight.Cuda.Runtime) ship for linux-x64, linux-arm64 and win-x64 only: the publish
+# above took them in (Sharplight.Studio.csproj, StudioCuda) and downloaded the pinned NVIDIA redistributables; NVIDIA's license and the notice go
+# with them. check-cuda.sh also fails when another runtime (osx-arm64, win-arm64) carries any of it.
+case "$rid" in
+    linux-x64|linux-arm64|win-x64)
+        cp "$repo/src/Sharplight.Cuda.Runtime/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Cuda.md"
+        license=("$repo"/src/Sharplight.Cuda.Runtime/obj/cuda-redist/*/"$rid"/LICENSE-NVIDIA-CUDA.txt)
+        if [ ! -f "${license[0]}" ]; then
+            echo "the NVIDIA CUDA redistributables for $rid were not fetched (expected src/Sharplight.Cuda.Runtime/obj/cuda-redist/<version>/$rid/LICENSE-NVIDIA-CUDA.txt): the publish must build Sharplight.Cuda.Runtime with CudaTargetRid=$rid (StudioCuda=true in Studio.csproj, no -p:StudioCuda=false)" >&2
+            exit 1
+        fi
+        cp "${license[0]}" "$publish/LICENSE-NVIDIA-CUDA.txt"
+        ;;
+esac
+"$repo/packaging/check-cuda.sh" "$publish" "$rid"
 
 cp "$repo/src/Sharplight.Audio/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Audio.md"
 cp "$repo/src/Sharplight.Video/THIRD-PARTY-NOTICES.md" "$publish/THIRD-PARTY-NOTICES-Video.md"

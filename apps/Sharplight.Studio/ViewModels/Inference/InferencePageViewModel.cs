@@ -43,6 +43,12 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         PageId = pageId;
         Parameters = parameters;
         Picker = new Inference.ModelPickerViewModel(services, kinds);
+        License = new LicenseNoticeViewModel(services);
+        License.PropertyChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(LicenseNotice));
+            OnPropertyChanged(nameof(HasLicenseNotice));
+        };
         Queue = new RunQueueViewModel(services.Dispatcher);
         Archive = new PageArchive(services.Pages, pageId);
         History = new RunHistoryViewModel(Archive, Restore);
@@ -118,6 +124,18 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     /// <summary>There is a notice.</summary>
     public bool HasNotice => Notice.Length > 0;
 
+    /// <summary>
+    /// The licence callout of the chosen model (a catalog entry with a non-permissive licence: OmniVoice, XTTS, Depth Anything 3 large, FLUX): shown above the work area
+    /// until the user dismisses it, once per model.
+    /// </summary>
+    public LicenseNoticeViewModel License { get; }
+
+    /// <summary>The licence notice of the chosen model, empty when there is none or it was dismissed.</summary>
+    public string LicenseNotice => License.Text;
+
+    /// <summary>There is a licence notice to show.</summary>
+    public bool HasLicenseNotice => License.IsVisible;
+
     /// <summary>Which side tab is shown: 0 parameters, 1 history, 2 outputs.</summary>
     [ObservableProperty]
     public partial int SideTab { get; set; }
@@ -141,6 +159,7 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         OnPropertyChanged(nameof(SelectedModel));
         OnPropertyChanged(nameof(HasModel));
         OnModelChanged(SelectedModel);
+        _ = License.RefreshAsync(SelectedModel);
     }
 
     /// <summary>Chooses <paramref name="model"/> in the picker.</summary>

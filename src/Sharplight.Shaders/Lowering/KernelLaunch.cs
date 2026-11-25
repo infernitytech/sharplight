@@ -26,5 +26,17 @@ public sealed class KernelLaunch
     public IReadOnlyList<Node> Nodes { get; init; } = [];
 
     /// <summary>The first variant whose condition holds, or null: the launch is skipped for these bindings.</summary>
-    public KernelVariant? Select(Bindings b) => Variants.FirstOrDefault(v => v.When(b));
+    public KernelVariant? Select(Bindings b)
+    {
+        // Indexed: every new step shape selects the variants of all launches (thousands in a large model's program).
+        for (int i = 0; i < Variants.Count; i++)
+        {
+            if (Variants[i].When(b))
+            {
+                return Variants[i];
+            }
+        }
+
+        return null;
+    }
 }

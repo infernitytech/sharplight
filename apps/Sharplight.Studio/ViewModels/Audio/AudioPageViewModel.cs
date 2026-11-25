@@ -34,11 +34,13 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     private CancellationTokenSource? _playback;
     private string? _resultPath;
     private string? _playingPath;
+    private AudioGeneratorTraits? _generatorTraits;
+    private ILoadedModel? _traitsReadFrom;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
     public AudioPageViewModel(StudioServices services, INavigator navigator)
-        : base(services, navigator, [ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioSeparation], "audio", CreateParameters(services))
+        : base(services, navigator, [ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioGeneration, ModelKinds.AudioSeparation], "audio", CreateParameters(services))
     {
         ApplyMode();
     }
@@ -82,6 +84,23 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     /// <summary>The prompt of the music generator.</summary>
     [ObservableProperty]
     public partial string Prompt { get; set; } = "";
+
+    /// <summary>The lyrics of a song with section tags (<c>[verse]</c>, <c>[chorus]</c>), for diffusion music models (ACE-Step); empty for an instrumental.</summary>
+    [ObservableProperty]
+    public partial string Lyrics { get; set; } = "";
+
+    /// <summary>What the audio should not sound like, for diffusion models with a negative prompt (Stable Audio Open); empty for none.</summary>
+    [ObservableProperty]
+    public partial string NegativePrompt { get; set; } = "";
+
+    /// <summary>
+    /// The page shows the lyrics: the chosen model is a diffusion music generator (kind <c>audio-generation</c>) that sings (ACE-Step; assumed until the model is resident and
+    /// says what it can do).
+    /// </summary>
+    public bool IsLyricMusic => Mode == AudioMode.Music && SelectedModel?.Kind == ModelKinds.AudioGeneration && (_generatorTraits?.Lyrics ?? true);
+
+    /// <summary>The page shows the negative prompt: the chosen model is a diffusion generator that takes one (Stable Audio Open).</summary>
+    public bool IsNegativePromptMusic => Mode == AudioMode.Music && SelectedModel?.Kind == ModelKinds.AudioGeneration && _generatorTraits?.NegativePrompt == true;
 
     /// <summary>The candidate texts of zero-shot tagging, one per line.</summary>
     [ObservableProperty]
@@ -128,7 +147,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         AudioMode.Codec => "The codec encodes the audio to discrete codes and decodes them again; play the reconstruction and compare.",
         AudioMode.VoiceActivity => "The detector marks the stretches of speech on a timeline.",
         AudioMode.Tagging => "Score the audio against candidate texts (zero-shot tagging): the best match is what the model hears.",
-        AudioMode.Music => "Describe the music; the model generates it. Play it and save it as a WAV file.",
+        AudioMode.Music => "Describe the music or sound; the model generates it. Play it and save it as a WAV file.",
         AudioMode.Separation => "Split the mixture into its stems; play and save each one.",
         _ => "Load an audio codec or a voice activity model to start.",
     };
@@ -191,11 +210,67 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
     protected override void OnModelChanged(ILoadedModel? model)
     {
         var before = Mode;
+        _generatorTraits = null;
+        _traitsReadFrom = null;
         ApplyMode();
         if (Mode != before)
         {
             ClearResult();
         }
+
+        if (model is { State: ResidentState.Ready or ResidentState.Busy })
+        {
+            _traitsReadFrom = model;
+            _ = RefreshTraitsAsync(model);
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Reads what a diffusion audio generator offers once the chosen model became resident (once per choice: reading leases the model).</remarks>
+    protected override void OnModelStateChanged(ILoadedModel model)
+    {
+        if (model.State is ResidentState.Ready or ResidentState.Busy && !ReferenceEquals(_traitsReadFrom, model))
+        {
+            _traitsReadFrom = model;
+            _ = RefreshTraitsAsync(model);
+        }
+    }
+
+    /// <summary>Reads the traits of a resident diffusion audio generator (asking a sleeping model would load it) and shows the options it has.</summary>
+    /// <param name="model">The chosen model.</param>
+    /// <returns>A task that completes when the options are shown.</returns>
+    internal async Task RefreshTraitsAsync(ILoadedModel model)
+    {
+        if (model.Kind != ModelKinds.AudioGeneration)
+        {
+            return;
+        }
+
+        AudioGeneratorTraits? traits = null;
+        try
+        {
+            using var lease = await model.AcquireClientAsync<IAudioGenerator>(CancellationToken.None);
+            traits = AudioGeneratorTraits.For(lease.Client);
+        }
+        catch (Exception error) when (error is NotSupportedException or InvalidOperationException)
+        {
+            traits = null;
+        }
+
+        if (!ReferenceEquals(SelectedModel, model))
+        {
+            return;
+        }
+
+        bool changed = traits != _generatorTraits;
+        _generatorTraits = traits;
+        if (changed && traits?.DefaultGuidance is { } guidance)
+        {
+            // A guided diffusion model starts from its own guidance scale (Stable Audio: 7) instead of the token sampler's.
+            Panel.Parameters.OfType<NumberParameterViewModel>().First(candidate => candidate.Key == "guidance").Value = guidance;
+        }
+
+        ApplyMode();
     }
 
     /// <inheritdoc/>
@@ -219,6 +294,8 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         else if (File.Exists(Archive.PathOf(record, MusicName)))
         {
             Prompt = record.Input.TryGetValue("prompt", out var prompt) ? prompt : Prompt;
+            Lyrics = record.Input.TryGetValue("lyrics", out var lyricText) ? lyricText : "";
+            NegativePrompt = record.Input.TryGetValue("negative", out var negativeText) ? negativeText : "";
             ShowReconstruction(Archive.PathOf(record, MusicName), string.Join(" · ", record.Metadata.Select(pair => $"{pair.Key}: {pair.Value}")));
         }
         else if (File.Exists(Archive.PathOf(record, TagsName)))
@@ -249,17 +326,33 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             ModelKinds.AudioCodec => AudioMode.Codec,
             ModelKinds.VoiceActivity => AudioMode.VoiceActivity,
             ModelKinds.AudioEmbedding => AudioMode.Tagging,
-            ModelKinds.MusicGeneration => AudioMode.Music,
+            ModelKinds.MusicGeneration or ModelKinds.AudioGeneration => AudioMode.Music,
             ModelKinds.AudioSeparation => AudioMode.Separation,
             _ => AudioMode.None,
         };
         Panel.SetVisible("codebooks", Mode == AudioMode.Codec);
         Panel.SetVisible("topk", Mode == AudioMode.Tagging);
         Panel.SetVisible("overlap", Mode == AudioMode.Separation);
-        foreach (string key in (string[])["duration", "guidance", "greedy", "seed", "temperature", "musictopk"])
+        bool diffusionMusic = Mode == AudioMode.Music && kind == ModelKinds.AudioGeneration;
+        bool tokenMusic = Mode == AudioMode.Music && !diffusionMusic;
+        foreach (string key in (string[])["duration", "seed"])
         {
             Panel.SetVisible(key, Mode == AudioMode.Music);
         }
+
+        // Token-sampling music (MusicGen) has guidance, greedy, temperature and top-k; a diffusion model (ACE-Step) has steps, shift, a lyrics language and, unless it is
+        // distilled (turbo), guidance. Sampling does not exist there.
+        foreach (string key in (string[])["greedy", "temperature", "musictopk"])
+        {
+            Panel.SetVisible(key, tokenMusic);
+        }
+
+        // Until the model is resident and says what it can do (its traits), a diffusion model is taken to be ACE-Step: guided unless it is the distilled turbo model.
+        bool distilled = diffusionMusic && SelectedModel!.Id.Contains("turbo", StringComparison.OrdinalIgnoreCase);
+        Panel.SetVisible("guidance", tokenMusic || diffusionMusic && (_generatorTraits?.Guidance ?? !distilled));
+        Panel.SetVisible("musicsteps", diffusionMusic);
+        Panel.SetVisible("shift", diffusionMusic && (_generatorTraits?.Shift ?? true));
+        Panel.SetVisible("musiclanguage", diffusionMusic && (_generatorTraits?.Lyrics ?? true));
 
         foreach (string key in (string[])["threshold", "minspeech", "minsilence", "pad"])
         {
@@ -271,6 +364,8 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         OnPropertyChanged(nameof(IsVoiceActivity));
         OnPropertyChanged(nameof(IsTagging));
         OnPropertyChanged(nameof(IsMusic));
+        OnPropertyChanged(nameof(IsLyricMusic));
+        OnPropertyChanged(nameof(IsNegativePromptMusic));
         OnPropertyChanged(nameof(IsSeparation));
         OnPropertyChanged(nameof(NeedsAudio));
         OnPropertyChanged(nameof(RunText));
@@ -341,18 +436,20 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         var mode = Mode;
         var values = Panel.Snapshot();
         string prompt = Prompt.Trim();
+        string lyrics = Lyrics.Trim();
+        string negative = NegativePrompt.Trim();
         var candidates = TagCandidates();
         string name = mode == AudioMode.Music ? (prompt.Length > 60 ? prompt[..60] + "..." : prompt) : Path.GetFileName(AudioPath);
         Panel.Persist();
         Notice = "";
         ClearResult();
-        Queue.Enqueue(name, model.Id, context => RunAsync(model, mode, audio, settings, values, name, prompt, candidates, context));
+        Queue.Enqueue(name, model.Id, context => RunAsync(model, mode, audio, settings, values, name, prompt, lyrics, negative, candidates, context));
         OnPropertyChanged(nameof(IsRunning));
         RunCommand.NotifyCanExecuteChanged();
     }
 
     private async Task RunAsync(ILoadedModel model, AudioMode mode, AudioBuffer? audio, AudioSettings settings, Dictionary<string, string> values, string name, string prompt,
-        List<string> candidates, RunContext context)
+        string lyrics, string negative, List<string> candidates, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         RunOutcome outcome = RunOutcome.Completed;
@@ -368,9 +465,30 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             context.Report(null, "Loading the model");
             if (mode == AudioMode.Music)
             {
-                using var lease = await model.AcquireClientAsync<IMusicGenerator>(context.CancellationToken).ConfigureAwait(false);
-                context.Report(null, "Generating");
-                var music = await lease.Client.GenerateAsync(settings.Music with { Prompt = prompt }, context.CancellationToken).ConfigureAwait(false);
+                AudioBuffer music;
+                if (model.Kind == ModelKinds.AudioGeneration)
+                {
+                    // Diffusion audio models: prompt, lyrics and their language (ACE-Step), a negative prompt (Stable Audio), duration, steps, shift and seed; guidance only where
+                    // the page offers it.
+                    using var lease = await model.AcquireClientAsync<IAudioGenerator>(context.CancellationToken).ConfigureAwait(false);
+                    var request = settings.Generation with
+                    {
+                        Prompt = prompt,
+                        Lyrics = lyrics.Length == 0 ? null : lyrics,
+                        NegativePrompt = negative.Length == 0 ? null : negative,
+                        Duration = settings.Generation.Duration > lease.Client.MaxDuration ? lease.Client.MaxDuration : settings.Generation.Duration,
+                    };
+                    context.Report(null, "Generating");
+                    music = await GenerateAsync(lease.Client.GenerateStreamingAsync(request, settings.GenerationOptions, context.CancellationToken), context).ConfigureAwait(false);
+                }
+                else
+                {
+                    using var lease = await model.AcquireClientAsync<IMusicGenerator>(context.CancellationToken).ConfigureAwait(false);
+                    context.Report(null, "Generating");
+                    var request = settings.Music with { Prompt = prompt, Duration = TimeSpan.FromSeconds(Math.Min(30, settings.Music.Duration.TotalSeconds)) };
+                    music = await GenerateAsync(lease.Client.GenerateStreamingAsync(request, settings.MusicOptions, context.CancellationToken), context).ConfigureAwait(false);
+                }
+
                 using var stored = new MemoryStream();
                 WavFile.Write(stored, music);
                 files = new Dictionary<string, byte[]> { [MusicName] = stored.ToArray() };
@@ -466,7 +584,7 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             Outcome = outcome,
             Seconds = elapsed,
             Error = error,
-            Input = mode == AudioMode.Music ? new Dictionary<string, string> { ["prompt"] = prompt } : new Dictionary<string, string> { ["file"] = name },
+            Input = mode == AudioMode.Music ? new Dictionary<string, string> { ["prompt"] = prompt, ["lyrics"] = lyrics, ["negative"] = negative } : new Dictionary<string, string> { ["file"] = name },
             Options = values,
             Metadata = metadata,
             Preview = string.Join(" · ", metadata.Select(pair => $"{pair.Key}: {pair.Value}")),
@@ -694,6 +812,13 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
         StopPlayback();
     }
 
+    private static readonly ParameterChoice[] s_lyricLanguages =
+    [
+        new("", "Unknown"), new("en", "English"), new("zh", "Chinese"), new("ja", "Japanese"), new("ko", "Korean"), new("es", "Spanish"), new("fr", "French"),
+        new("de", "German"), new("pt", "Portuguese"), new("ru", "Russian"), new("it", "Italian"), new("ar", "Arabic"), new("hi", "Hindi"), new("tr", "Turkish"),
+        new("vi", "Vietnamese"), new("th", "Thai"), new("id", "Indonesian"), new("nl", "Dutch"), new("pl", "Polish"), new("uk", "Ukrainian"),
+    ];
+
     private static ParameterPanelViewModel<AudioSettings> CreateParameters(StudioServices services)
     {
         ParameterViewModel[] parameters =
@@ -701,7 +826,10 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             new NumberParameterViewModel("codebooks", "Codebooks", "How many residual quantizer stages to keep: more is a higher bit rate and a closer reconstruction.", 1, 32, 1, 8),
             new NumberParameterViewModel("topk", "Top results", "How many of the candidates are listed (0 for all).", 0, 50, 1, 5),
             new NumberParameterViewModel("overlap", "Overlap", "The share of a segment that the next one repeats; the overlaps are cross-faded.", 0, 0.9, 0.05, 0.25),
-            new NumberParameterViewModel("duration", "Duration (s)", "How long the music is (MusicGen: up to 30 s).", 1, 30, 1, 10),
+            new NumberParameterViewModel("duration", "Duration (s)", "How long the music or sound is (MusicGen: up to 30 s; ACE-Step and Stable Audio: up to the model's limit, 47 s for Stable Audio Open).", 1, 240, 1, 10),
+            new NumberParameterViewModel("musicsteps", "Steps", "Denoising steps of a diffusion audio model; 0 uses the model's own (8 for the distilled ACE-Step turbo, 100 for Stable Audio Open). More steps cost more time.", 0, 100, 1, 0),
+            new NumberParameterViewModel("shift", "Shift", "Shifts the timestep schedule of a diffusion music model: larger values spend more steps at high noise; 0 uses the model's own.", 0, 10, 0.5, 0),
+            new ChoiceParameterViewModel("musiclanguage", "Lyrics language", "The language the lyrics are sung in.", s_lyricLanguages),
             new NumberParameterViewModel("guidance", "Guidance", "Classifier-free guidance: how strongly the prompt steers the music (1 turns it off).", 1, 10, 0.5, 3),
             new BoolParameterViewModel("greedy", "Greedy", "Always take the most likely code: deterministic, but less varied music."),
             new NumberParameterViewModel("seed", "Seed", "Makes sampling reproducible; -1 picks a new one every time.", -1, 2147483647, 1, -1),
@@ -733,11 +861,44 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             {
                 Prompt = "",
                 Duration = TimeSpan.FromSeconds(panel.GetNumber("duration")),
+            },
+            new MusicGenerationOptions
+            {
                 GuidanceScale = (float)panel.GetNumber("guidance"),
                 Greedy = panel.GetBool("greedy"),
                 Seed = panel.GetInt("seed") < 0 ? null : panel.GetInt("seed"),
                 Temperature = (float)panel.GetNumber("temperature"),
                 TopK = panel.GetInt("musictopk"),
+            },
+            new AudioGenerationRequest
+            {
+                Prompt = "",
+                Duration = TimeSpan.FromSeconds(panel.GetNumber("duration")),
+                Language = panel.GetChoice("musiclanguage") is { Length: > 0 } musicLanguage ? musicLanguage : null,
+            },
+            new AudioGenerationOptions
+            {
+                Seed = panel.GetInt("seed") < 0 ? null : panel.GetInt("seed"),
+                Steps = panel.GetInt("musicsteps") is > 0 and var musicSteps ? musicSteps : null,
+                Shift = panel.GetNumber("shift") > 0 ? (float)panel.GetNumber("shift") : null,
+                GuidanceScale = panel.Parameters.First(candidate => candidate.Key == "guidance").IsVisibleNow ? (float)panel.GetNumber("guidance") : null,
             }), presets);
+    }
+
+    /// <summary>Runs a generation, reporting its steps, and returns its audio.</summary>
+    private static async Task<AudioBuffer> GenerateAsync(IAsyncEnumerable<AudioGenerationUpdate> updates, RunContext context)
+    {
+        AudioGenerationResult? result = null;
+        await foreach (var update in updates.ConfigureAwait(false))
+        {
+            if (update.TotalSteps > 0)
+            {
+                context.Report((double)update.Step / update.TotalSteps, "Generating");
+            }
+
+            result = update.Result ?? result;
+        }
+
+        return (result ?? throw new InvalidOperationException("The generation ended without a result.")).Audio;
     }
 }

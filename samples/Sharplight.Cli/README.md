@@ -29,7 +29,10 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M -p "The capital of 
 dotnet run -c Release --project samples/Sharplight.Cli -- $M --chat -p "Say hi" -n 64 --temp 0.7
 
 # Benchmark: warm prefill of 512 synthetic tokens, then 64 decode steps
-# (set SHARPLIGHT_VK_PROFILE=1 for per-kernel profiles, SHARPLIGHT_DUMP_SCHEDULE=1 for the dispatch schedule)
+# (set SHARPLIGHT_VK_PROFILE=1 for per-kernel profiles, SHARPLIGHT_DUMP_SCHEDULE=1 for the dispatch schedule;
+#  SHARPLIGHT_BENCH_PREFILL_REPEATS=N times 1 + N prefills (default 4), SHARPLIGHT_BENCH_DECODE_RUNS=R times R decode runs of
+#  64 steps after the prompt (default 1); the summary's "per run" part is llama-bench's mean ± sd of the per-run tok/s;
+#  SHARPLIGHT_BENCH_PROMPT=vocab draws the prompt from the whole vocabulary, as llama-bench does, instead of ids 1000-49999)
 dotnet run -c Release --project samples/Sharplight.Cli -- $M --bench 512
 
 # Describe an image with a vision model
@@ -45,11 +48,32 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M --save qwen3-0.6b.s
 | `--ctx`, `--batch` | Context length (4096) and rows per forward pass (512). |
 | `--split a,b`, `--gpu-mem GiB` | Open the device once per weight and cap each slot's memory (multi-device pipeline testing). |
 | `--cpu-offload` | Run layers that do not fit, and unsupported ops, on the CPU. |
+| `--experts-on-disk` | With `--cpu-offload`: routed experts that fit neither the GPU nor host memory stay in the model file and are read on demand (MoE models larger than RAM + VRAM; see docs/hardware.md). With `--cpu`, `--gpu-mem` caps the CPU's own share and the rest of the experts go to disk. |
+| `--expert-cache <size>` | With `--experts-on-disk`: host memory for the cache of experts read from disk (default: from the free host memory). |
 | `--disable-features a,b` | Never use these device features (e.g. `matrix_f16`); for fallback testing. |
+| `--fp8-block-scaled on\|off` | Block-scaled FP8 (default `on`): models with block-scaled E4M3 weights run their prompt-sized products on the block-scaled MMA with power-of-two scales where the device has it (CUDA, compute capability 12.x; about 2 % more serving throughput, perplexity +0.3 to +0.8 %, vLLM's default form). `off` keeps the checkpoints' f32 scales ([docs/cuda.md](../../docs/cuda.md)). |
 | `-p`, `-n`, `--temp`, `--chat`, `--think` | Prompt, token limit, temperature (0 = greedy), chat template, thinking mode. |
 | `--image`, `--mmproj`, `--image-min-tokens`, `--image-max-tokens` | Image input. |
 | `--bench N`, `--logits FILE`, `--save FILE` | Benchmark, logits dump (raw float32), package export. |
 | `--models-dir DIR`, `--no-pull`, `--revision`, `--keep-source`, `--no-precompile` | Model store and how missing models are pulled. |
+| `--workers host:port,...`, `--remote-only` | Run the later pipeline stages on segment workers on other machines (see below); `--remote-only` places no layers here. |
+
+### Several machines
+
+A model too large for one machine runs pipeline parallel over segment workers ([docs/multinode.md](../../docs/multinode.md)). Every
+worker serves its own copy of the same model and loads only the layers placed on it:
+
+```bash
+# On each worker node (GPU 0 by default; --cpu, --provider cuda, --cpu-offload, --experts-on-disk as usual)
+sharplight segment-worker ~/models/qwen3-8b-q4_k_m.gguf --listen 0.0.0.0:7070
+
+# On the coordinator: the first stage here, then the workers in order
+sharplight ~/models/qwen3-8b-q4_k_m.gguf --workers 10.0.0.2:7070,10.0.0.3:7070 -p "The capital of France is"
+sharplight serve ~/models/qwen3-8b-q4_k_m.gguf --workers 10.0.0.2:7070,10.0.0.3:7070
+```
+
+`segment-worker` options: `--listen host:port` (port 0 picks a free one and prints it), `--advertise host:port` (the address neighbouring
+workers use), `--gpus N`, `--memory SIZE` (memory offered per device; coordinators weight their split by it).
 
 Exit codes: `0` success, `1` invalid command line, `2` runtime error (message on stderr), `130` cancelled with Ctrl+C.
 
@@ -90,7 +114,8 @@ Python: `openai.OpenAI(base_url="http://localhost:8080/v1", api_key="x")` or `an
 | `--model NAME=PATH[,key=value...]` | Another model; keys: `ctx`, `slots`, `batch`, `device` (`auto`, `cpu`, an index, a device id such as `vulkan:1`, several joined with `+` to split), `mmproj`, `template`, `lazy`, `pin`, `idle` (seconds), `offload`, `kind` (`chat`, `embedding`, `reranker`), `task` (a task kind). Repeatable. |
 | `--config FILE` | Hosting JSON ([docs/hosting.md](../../docs/hosting.md)). Command-line options win over file values. |
 | `--listen URL` (`--urls`), `--api openai\|anthropic\|both`, `--api-key K`, `--cors ORIGIN` | HTTP surface; keys also protect `/admin`. |
-| `--cpu`, `--device N`, `--ctx`, `--batch`, `--cpu-offload`, `--disable-features` | Defaults for models without their own setting. |
+| `--cpu`, `--device N`, `--ctx`, `--batch`, `--cpu-offload`, `--disable-features`, `--fp8-block-scaled` | Defaults for models without their own setting. |
+| `--step-tokens N`, `--min-step-tokens N`, `--step-floor waves\|always\|full`, `--step-rows-per-sequence N` | Token budget of an engine step (default: the model's batch size); the floor of the load-adaptive budget while few sequences run (768; 0: always the whole budget); when the floor applies: `waves` (default) only while no sequence decodes, so the first prompts of a wave decode through shorter steps (lower TTFT and ITL tail at light load), `always` every step (the earlier default), `full` the whole budget while some sequence decodes; prompt rows per sequence holding a slot while some sequence decodes (48; larger: fewer, longer prompt steps, lower ITL p95, higher TTFT). |
 | `--slots N`, `--max-queue N`, `--prefill-chunk N` | Concurrent sequences per model (4), waiting requests before HTTP 429 (64), prompt rows per step (512). |
 | `--kv-tokens N`, `--kv-type T` | Paged KV cache: one pool of N tokens (K/M suffixes) shared by all slots, each growing to `--ctx` as needed, so many short chats fit in the memory of a few long ones; requests are admitted by free cache blocks, the newest running sequences are preempted and recomputed when the pool runs out, and common prompt prefixes are shared between requests. Default: each slot reserves `--ctx` tokens. KV element type f16 (default), f32, q8_0 or q4_0. See [docs/kv-cache.md](../../docs/kv-cache.md). |
 | `--vram-reserve SIZE`, `--vram-budget SIZE`, `--max-loaded N` | Memory kept free (1G), total cap, resident model limit with LRU eviction. |

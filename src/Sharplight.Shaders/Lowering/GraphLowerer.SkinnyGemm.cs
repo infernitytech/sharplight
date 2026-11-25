@@ -30,8 +30,31 @@ public sealed partial class GraphLowerer
     /// otherwise take the f32 split-K matvec, use it up to 8 rows from 256 outputs: that matvec re-reads the weights per row (RTX
     /// PRO 4500, bf16 [2880→512] at 2 / 4 / 8 rows: 12 / 16 / 24 µs against 8 µs on the skinny GEMM).
     /// </summary>
-    private static long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
-        ?? (n >= 4096 ? SkinnyMaxRows : n >= 1024 || (n >= 256 && (type == DataType.F16 || type == DataType.BF16)) ? 8 : 0);
+    /// <remarks>
+    /// K-quant weights that the hand-written K-quant decode GEMM serves (<see cref="UsesNativeKQuantDecode"/>) leave the batches past the
+    /// matvec to it, the dual gate / up form included (two K-quant GEMM launches and the activation product): decode steps at 16
+    /// sequences (CUDA, GPU ms) Qwen3-8B 9.87 → 8.35, Qwen3.8 27B 35.75 → 30.05, Gemma 4 31B 43.64 → 38.12 (benchmarks.md §77).
+    /// Block-scaled E4M3 weights in the hand-written FP8 GEMM's row groups (<see cref="UsesNativeFp8Decode"/>) likewise leave batches from
+    /// <see cref="NativeFp8DecodeMinRows"/> rows to its decode form, which then also takes the dual gate / up pair with the epilogue in
+    /// its store: Qwen3-8B-FP8 gate / up at 16 rows 139 → 131 µs per layer, decode step at 16 sequences 12.57 → 12.28 ms (RTX PRO 4500,
+    /// benchmarks.md §84).
+    /// </remarks>
+    private long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
+        ?? (UsesNativeKQuantDecode(type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, type))
+            : UsesNativeFp8Decode(type) ? Math.Min(NativeFp8DecodeMinRows - 1, SkinnyRowsFor(n, type))
+            : UsesNativeFp4(type) ? Math.Min(NativeFp4MinRows - 1, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
+
+    /// <summary>
+    /// True when the hand-written FP8 GEMM's decode form takes batches from <see cref="NativeFp8DecodeMinRows"/> rows of
+    /// <paramref name="type"/> weights (the grouped E4M3 layout of <see cref="WeightRepack.Fp8B128Grouped"/>, the feature, its decode form
+    /// on), so the skinny GEMM leaves those batches to it.
+    /// </summary>
+    private bool UsesNativeFp8Decode(DataType type)
+        => type == ShaderTypes.F8E4M3_B128G && NativeGemmFp8 && NativeFp8DecodeColumns != NativeFp8Tile && DiagnosticSwitches.NativeGemmMinRows is null;
+
+    /// <summary>The skinny GEMM's largest row count for <paramref name="n"/> outputs by width and type alone (see <see cref="SkinnyMaxRowsFor"/>).</summary>
+    private static long SkinnyRowsFor(long n, DataType type)
+        => n >= 4096 ? SkinnyMaxRows : n >= 1024 || (n >= 256 && (type == DataType.F16 || type == DataType.BF16)) ? 8 : 0;
 
     /// <summary>
     /// Subgroups a skinny GEMM launch aims for in total: below this, workgroups get 8 subgroups instead of 4, which keeps
@@ -72,7 +95,7 @@ public sealed partial class GraphLowerer
     /// True when <paramref name="rows"/> activation rows are in the skinny GEMM's range for <paramref name="n"/> output rows,
     /// starting at <paramref name="minRows"/>.
     /// </summary>
-    private static bool InSkinnyRange(long rows, long n, DataType type, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n, type);
+    private bool InSkinnyRange(long rows, long n, DataType type, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n, type);
 
     /// <summary>
     /// Smallest row count for which the skinny GEMM reads an f16 copy of x (shared with the matmul's siblings) rather than
@@ -90,27 +113,38 @@ public sealed partial class GraphLowerer
     /// (an f16 copy of x covering its rows) or, when that is null, the shared f16 copy of <paramref name="source"/>'s rows.
     /// </summary>
     private void EmitSkinnyGemm(long minRows, string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights,
-        TensorRef y, long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null)
+        TensorRef y, long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null,
+        MatMulEpilogueCode? epilogue = null)
     {
+        if (epilogue is not null)
+        {
+            // The matmul's epilogue in the store: the launches write the group's output.
+            label += epilogue.Label;
+            nodes = [.. nodes, .. epilogue.Group];
+            y = epilogue.Output;
+            compile = macros => MatMulEpilogueKernel(epilogue, "gemm_sk", macros);
+        }
+
         long rowsMax = x.Shape[0] * rowsPerLead;
         long maxRows = Math.Min(SkinnyMaxRowsFor(n, weights[0].Type), rowsMax);
         long halfMin = Math.Max(minRows, SkinnyHalfMinRows);
         if (minRows < halfMin && minRows <= maxRows)
         {
-            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, x, xStride, false, minRows, Math.Min(maxRows, halfMin - 1), weights, y, n, k, baseMacros, compile);
+            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, x, xStride, false, minRows, Math.Min(maxRows, halfMin - 1), weights, y, n, k, baseMacros, compile,
+                epilogue);
         }
 
         if (halfMin <= maxRows)
         {
             var activations = half ?? QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, halfMin, maxRows, ActivationCode.F16);
-            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, activations, k, true, halfMin, maxRows, weights, y, n, k, baseMacros, compile);
+            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, activations, k, true, halfMin, maxRows, weights, y, n, k, baseMacros, compile, epilogue);
         }
     }
 
     /// <summary>One skinny GEMM launch for <paramref name="minRows"/> to <paramref name="maxRows"/> rows, with a variant per token-fragment count.</summary>
     private void EmitSkinnyLaunch(string label, Node[] nodes, TensorRef x, long rowsPerLead, TensorRef activations, long activationStride, bool half,
         long minRows, long maxRows, TensorRef[] weights, TensorRef y, long n, long k, Dictionary<string, string> baseMacros,
-        Func<Dictionary<string, string>, CompiledKernel> compile)
+        Func<Dictionary<string, string>, CompiledKernel> compile, MatMulEpilogueCode? epilogue = null)
     {
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         var variants = new List<KernelVariant>();
@@ -135,6 +169,11 @@ public sealed partial class GraphLowerer
                 ["SK_BK"] = bk.ToString(CultureInfo.InvariantCulture),
                 ["SK_DIRECT"] = direct ? "1" : "0",
             };
+            foreach (var (name, value) in DiagnosticSwitches.GemmExtraMacros)
+            {
+                macros[name] = value;
+            }
+
             if (half)
             {
                 WithRangeScales(macros, activations);
@@ -148,8 +187,8 @@ public sealed partial class GraphLowerer
         }
 
         Emit($"{label} skinny{(half ? "" : " f32")}", nodes, variants,
-            [Pointer(activations), .. weights.Select(Pointer), Pointer(y), TokenArg(x, rowsPerLead)],
-            [activations, .. weights], [y]);
+            [Pointer(activations), .. weights.Select(Pointer), Pointer(y), .. MatMulEpilogueArgs(epilogue), TokenArg(x, rowsPerLead)],
+            [activations, .. weights, .. epilogue?.Args ?? []], [y]);
     }
 
     /// <summary>
@@ -170,7 +209,7 @@ public sealed partial class GraphLowerer
     /// and the K-quants' decode is not tuned for it; they keep the staged path and its rounding.
     /// </summary>
     private static readonly HashSet<DataType> s_directSkinnyFormats =
-        [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B32R, DataType.Q8_0, ShaderTypes.Q8_0R, ShaderTypes.MXFP4R];
+        [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B128G, ShaderTypes.F8E4M3_B32R, DataType.Q8_0, ShaderTypes.Q8_0R, ShaderTypes.MXFP4R];
 
     /// <summary>
     /// Skinny GEMM configuration for <paramref name="fm"/> token fragments: weight fragments per workgroup, subgroups splitting

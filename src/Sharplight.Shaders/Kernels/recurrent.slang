@@ -9,6 +9,11 @@
 #ifndef ROLLBACK
 #define ROLLBACK 0
 #endif
+// SNAPSHOT (multi-sequence snapshot form, see RecurrentSnapshots): one more binding after the runs table and the rollback bindings,
+// snapshots [U, 2] i32 (k, row): a run with k > 0 also stores the state after its first k rows (after a replay) into state row `row`.
+#ifndef SNAPSHOT
+#define SNAPSHOT 0
+#endif
 // PAR_MIN (rollback form with the token-parallel conv1d): runs of at least this many rows are computed by conv1d_tokens /
 // conv1d_state; conv1d only replays their committed rows first. 0: conv1d serves every run.
 #ifndef PAR_MIN
@@ -33,6 +38,9 @@ struct ConvParams
 #if ROLLBACK
     int* commits;
     float* records;   // record row: x [C]
+#endif
+#if SNAPSHOT
+    int* snaps;
 #endif
     uint T;
 #if MULTI_SEQ
@@ -87,6 +95,10 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 #else
     bool tentative = false;
 #endif
+#if SNAPSHOT
+    int snapK = tentative ? 0 : p.snaps[dtid.z * 2];
+    float* snapSt = p.state + uint64_t(p.snaps[dtid.z * 2 + 1]) * (KS - 1) * C;
+#endif
 
     for (uint t = tBeg; t < tEnd; t++)
     {
@@ -104,6 +116,12 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 #endif
         p.y[uint64_t(t) * C + c] = s;
         [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
+#if SNAPSHOT
+        if (snapK > 0 && t + 1 == tBeg + uint(snapK))
+        {
+            [ForceUnroll] for (int j = 0; j < KS - 1; j++) snapSt[uint64_t(j) * C + c] = win[j];
+        }
+#endif
     }
     if (!tentative)
     {
@@ -239,6 +257,16 @@ void conv1d_state(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
     bool fresh = false;
 #endif
     float win[KS - 1];
+#if SNAPSHOT
+    int snapK = p.snaps[dtid.z * 2];
+    if (snapK > 0)
+    {
+        // The window after the run's first k rows (read before this thread overwrites its channel of the state).
+        float* snapSt = p.state + uint64_t(p.snaps[dtid.z * 2 + 1]) * (KS - 1) * C;
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, tBeg, fresh, snapK - (KS - 1) + j, c);
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) snapSt[uint64_t(j) * C + c] = win[j];
+    }
+#endif
     [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, tBeg, fresh, int(n) - (KS - 1) + j, c);
     [ForceUnroll] for (int j = 0; j < KS - 1; j++) state[uint64_t(j) * C + c] = win[j];
 }
@@ -297,6 +325,9 @@ struct DeltaParams
     int* commits;
     float* records;   // record row: per value head h at h * RH: k [DK] (as read, before an absorbed L2 norm), v [DV], g [GW], beta
 #endif
+#if SNAPSHOT
+    int* snaps;
+#endif
     uint T;
 };
 
@@ -347,7 +378,7 @@ float row_sum(float v)
 void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform DeltaParams p)
 {
     uint h = gid.x;
-    uint hk = h % HK;
+    uint hk = KEY_HEAD(h);
     uint jl = ltid.x / LPR;                 // state row within this workgroup
     uint j = gid.y * DVB + jl;              // state row (value dim)
     uint part = ltid.x % LPR;               // this lane owns DK elements part + e * LPR (interleaved: conflict-free shared reads)
@@ -388,6 +419,12 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
     const bool tentative = false;
 #endif
     uint rEnd = replay + (tEnd - tBeg);
+#if SNAPSHOT
+    // In-step snapshot: the state after the run's first k rows (record row index replay + k) into state row snaps[z].y.
+    int snapK = tentative ? 0 : p.snaps[gid.z * 2];
+    uint snapEnd = snapK > 0 ? replay + uint(snapK) : 0u;
+    STATE_T* snapSt = p.state + ((uint64_t(p.snaps[gid.z * 2 + 1]) * HV + h) * DV + j) * DK + part;
+#endif
 
     for (uint r0 = 0; r0 < rEnd; r0 += TB)
     {
@@ -537,6 +574,12 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
             [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = state_round(M[e]);
 #endif
             if (part == 0 && r0 + tt >= replay) p.o[(uint64_t(tBeg + r0 + tt - replay) * HV + h) * DV + j] = od * SCALE;
+#if SNAPSHOT
+            if (r0 + tt + 1 == snapEnd)
+            {
+                [ForceUnroll] for (int e = 0; e < EPL; e++) snapSt[e * LPR] = state_store(M[e]);
+            }
+#endif
         }
     }
     if (!tentative)

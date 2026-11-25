@@ -18,6 +18,12 @@ internal sealed class DecodeAttentionPlan
     /// <summary>Upper bound of the split count (<c>DEC_MAX_SPLITS</c>).</summary>
     public required long MaxSplitCount { get; init; }
 
+    /// <summary>
+    /// Entry point of attention.slang that runs the decode rows: <c>decode</c> (or its hand-written CUDA form), or <c>fa_mqa</c> with
+    /// separate key and value tiles (<c>FM_SEPV</c>, the tensor-core form for head sizes 256 and 512 where the CUDA kernel does not serve).
+    /// </summary>
+    public string Kernel { get; init; } = "decode";
+
     /// <summary>Bindings for which the decode kernel (and its combine) run.</summary>
     public required Func<Bindings, bool> When { get; init; }
 
@@ -28,8 +34,22 @@ internal sealed class DecodeAttentionPlan
     public long InvariantRows { get; init; }
 
     /// <summary>
-    /// Key ranges per row for a launch of <paramref name="rows"/> query rows; mirrors <c>decode_max_splits</c> (one range
-    /// beyond <see cref="MaxRows"/>, <c>DEC_SPLIT_ROWS</c>; the single-row count up to <see cref="InvariantRows"/>).
+    /// True when no row ever has more keys than one range takes (a sliding window of at most <c>DEC_MIN_KEYS</c> keys): every row
+    /// then runs one key range whatever the split count, so the launch needs no further ranges and no combine.
     /// </summary>
-    public long MaxSplits(long rows) => rows > MaxRows ? 1 : Math.Clamp(TargetWorkgroups / Math.Max(1, (rows <= InvariantRows ? 1 : rows) * Groups), 1, MaxSplitCount);
+    public bool SingleRange { get; init; }
+
+    /// <summary>
+    /// Key ranges per row for a launch of <paramref name="rows"/> query rows; mirrors <c>decode_max_splits</c> (one range
+    /// beyond <see cref="MaxRows"/>, <c>DEC_SPLIT_ROWS</c>; the single-row count up to <see cref="InvariantRows"/>), and one for a
+    /// <see cref="SingleRange"/> plan.
+    /// </summary>
+    public long MaxSplits(long rows) => rows > MaxRows || SingleRange ? 1
+        : Math.Clamp(TargetWorkgroups / Math.Max(1, (rows <= InvariantRows ? 1 : rows) * Groups), 1, MaxSplitCount);
+
+    /// <summary>
+    /// True when a launch of <paramref name="rows"/> query rows may split a row's keys and so needs the combine (one range per row
+    /// writes the output directly).
+    /// </summary>
+    public bool Combines(long rows) => MaxSplits(rows) > 1;
 }

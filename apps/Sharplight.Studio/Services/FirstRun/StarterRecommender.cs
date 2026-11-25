@@ -31,7 +31,8 @@ internal sealed class StarterRecommender
         var usable = packages.Where(package => IsUsable(package, environment)).ToList();
         string prompt = _preferences.ExamplePrompts.FirstOrDefault() ?? "";
         long cpuBudget = CpuBudget(machine);
-        long gpuBudget = machine.HasGpu ? (long)(machine.GpuMemoryBytes * _preferences.GpuMemoryFraction) : 0;
+        long gpuBudget = machine.HasGpu ? (long)(machine.GpuAvailableBytes * _preferences.GpuMemoryFraction) : 0;
+
         long budget = Math.Max(gpuBudget, cpuBudget);
         bool cpuOnly = gpuBudget < cpuBudget;
         if (usable.Count == 0)
@@ -58,14 +59,15 @@ internal sealed class StarterRecommender
                 break;
             }
 
-            long limit = isChat ? budget : Math.Max(remainingGpu, cpuBudget);
+            // A GPU that shares system memory draws on one pool with the CPU: the CPU allowance does not come on top of what the chat model left.
+            long limit = isChat ? budget : machine.GpuIsUnified ? remainingGpu : Math.Max(remainingGpu, cpuBudget);
             var pick = Choose(role, usable, byId, limit, diskLeft, counted);
             if (pick is null)
             {
                 continue;
             }
 
-            long memory = MemoryOf(pick.Value.Package);
+            long memory = NeedOf(role, pick.Value.Package);
             bool onGpu = machine.HasGpu && memory <= (isChat ? gpuBudget : remainingGpu);
             if (onGpu)
             {
@@ -97,6 +99,7 @@ internal sealed class StarterRecommender
         {
             Outcome = StarterOutcome.Recommended,
             Items = items,
+            Reason = Reason(machine, items[0], cpuBudget),
             CpuOnly = cpuOnly,
             MemoryBudgetBytes = budget,
             ExamplePrompt = prompt,
@@ -120,10 +123,57 @@ internal sealed class StarterRecommender
         return gpu is not null ? gpu.TotalFor(1) : package.Size;
     }
 
+    /// <summary>
+    /// The memory a package of <paramref name="role"/> needs to run: the feed's figure plus, for a chat model whose figure has no context part,
+    /// room for the KV cache at the preferred context length (a share of the weights, at least a minimum).
+    /// </summary>
+    /// <param name="role">The role the package is chosen for.</param>
+    /// <param name="package">The package.</param>
+    public long NeedOf(StarterRolePreference role, FeedPackageSummary package)
+    {
+        long memory = MemoryOf(package);
+        if (role.Role != StarterRole.Chat)
+        {
+            return memory;
+        }
+
+        var requirement = package.Requirements?.Memory.FirstOrDefault(entry => string.Equals(entry.Device, "gpu", StringComparison.OrdinalIgnoreCase))
+            ?? package.Requirements?.Memory.FirstOrDefault();
+        if (requirement?.PerSlotContext is not null)
+        {
+            return memory;
+        }
+
+        return memory + Math.Max(_preferences.KvHeadroomMinMiB * Mebibyte, (long)(memory * _preferences.KvHeadroomFraction));
+    }
+
     private long CpuBudget(MachineProfile machine)
     {
         long cap = _preferences.CpuMaxMiB * Mebibyte;
-        return machine.SystemMemoryBytes <= 0 ? cap / 2 : Math.Min(cap, (long)(machine.SystemMemoryBytes * _preferences.CpuMemoryFraction));
+        long available = machine.SystemAvailableBytes;
+        return available <= 0 ? cap / 2 : Math.Min(cap, (long)(available * _preferences.CpuMemoryFraction));
+    }
+
+    private string Reason(MachineProfile machine, StarterItem chat, long cpuBudget)
+    {
+        string context = $"with room for a {_preferences.ContextTokens}-token context";
+        string need = ByteFormat.Format(chat.MemoryBytes);
+        if (chat.OnGpu)
+        {
+            long total = machine.GpuMemoryBytes;
+            long available = machine.GpuAvailableBytes;
+            string shared = machine.GpuIsUnified ? ", shared with the system" : "";
+            string of = machine.GpuFreeBytes is null && machine.GpuUsableBytes <= 0
+                ? $"Fits in the {ByteFormat.Format(total)} of GPU memory{shared}"
+                : $"Fits in {ByteFormat.Format(available)} free of {ByteFormat.Format(total)} GPU memory{shared}";
+            return $"{of} (needs about {need}), {context}.";
+        }
+
+        string pool = $"{ByteFormat.Format(Math.Min(machine.SystemAvailableBytes > 0 ? machine.SystemAvailableBytes : cpuBudget, cpuBudget))} of memory allowed for CPU models";
+        string why = machine.HasGpu
+            ? $"The GPU has only {ByteFormat.Format(machine.GpuAvailableBytes)} free, so this model runs on the CPU"
+            : "No GPU found, so this model runs on the CPU";
+        return $"{why}: it needs about {need} {context} and fits in {pool} ({ByteFormat.Format(machine.SystemMemoryBytes)} system memory).";
     }
 
     private static bool IsUsable(FeedPackageSummary package, CompatibilityEnvironment environment)
@@ -136,12 +186,12 @@ internal sealed class StarterRecommender
             .Where(package => string.Equals(package.Model?.Kind, role.Kind, StringComparison.OrdinalIgnoreCase)
                 && (role.Task is null || package.Model?.Tasks.Contains(role.Task, StringComparer.OrdinalIgnoreCase) == true))
             .OrderBy(package => Rank(role, package))
-            .ThenByDescending(MemoryOf)
+            .ThenByDescending(package => NeedOf(role, package))
             .ThenBy(package => package.Id, StringComparer.Ordinal);
         long maxDownload = (role.MaxDownloadMiB > 0 ? role.MaxDownloadMiB : role.Role == StarterRole.Chat ? _preferences.MaxDownloadMiB : 0) * Mebibyte;
         foreach (var package in candidates)
         {
-            if (MemoryOf(package) > memoryLimit || !TryCollect(package, byId, counted, out long download, out var newIds))
+            if (NeedOf(role, package) > memoryLimit || !TryCollect(package, byId, counted, out long download, out var newIds))
             {
                 continue;
             }

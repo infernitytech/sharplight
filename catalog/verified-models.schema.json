@@ -69,6 +69,7 @@
               "speech-synthesis",
               "image-generation",
               "video-generation",
+              "video-enhancement",
               "image-classification",
               "image-embedding",
               "object-detection",
@@ -82,6 +83,7 @@
               "audio-separation",
               "audio-embedding",
               "music-generation",
+              "audio-generation",
               "embeddings",
               "reranker"
             ]
@@ -186,6 +188,33 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "level": {
+                  "enum": [
+                    "verified",
+                    "partial",
+                    "loads",
+                    "verified-tiny",
+                    null
+                  ]
+                },
+                "verification": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quality": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "qualityNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "notes": {
                   "type": [
@@ -342,6 +371,12 @@
               ]
             }
           },
+          "referencePrecision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "verification": {
             "type": "object",
             "properties": {
@@ -373,6 +408,12 @@
             }
           },
           "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "licenseNotice": {
             "type": [
               "string",
               "null"
@@ -441,6 +482,33 @@
               },
               "companions": {
                 "$ref": "#/properties/entries/items/properties/variants/items/properties/companions"
+              },
+              "level": {
+                "enum": [
+                  "verified",
+                  "partial",
+                  "loads",
+                  "verified-tiny",
+                  null
+                ]
+              },
+              "verification": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "quality": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "qualityNote": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "notes": {
                 "type": [

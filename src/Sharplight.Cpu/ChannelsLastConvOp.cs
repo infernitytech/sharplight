@@ -24,7 +24,6 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
     /// <summary>K values per chunk: a chunk of a weight panel (values x NB floats) stays in L1 while the task's tiles run over it.</summary>
     private const int ChunkValues = 256;
 
-    /// <summary><c>SHARPLIGHT_CPU_CL_CHUNKS=0</c> runs all of K per tile (no K chunks), for comparisons.</summary>
     /// <summary>Planning estimate: f32 multiply-add rate of one thread (flop/s).</summary>
     private const double ThreadFlops = 1.3e11;
 
@@ -125,7 +124,7 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
         _rowRuns = UsesRowRuns(_c, dw);
         _segs = _rowRuns ? kh : kh * kw;
         _len = _rowRuns ? kw * _c : _c;
-        _chunks = DiagnosticSwitches.NoChannelsLastChunks ? [(0, _segs, 0, _len)] : Chunks(_segs, _len);
+        _chunks = Chunks(_segs, _len);
         if (_rowRuns)
         {
             // Padded extent: every row and column any output reads.

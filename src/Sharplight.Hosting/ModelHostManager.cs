@@ -124,7 +124,7 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
     }
 
     /// <inheritdoc/>
-    public FitReport PlanFit(ModelFootprint footprint, string? device = null, bool cpuOffload = false)
+    public FitReport PlanFit(ModelFootprint footprint, string? device = null, bool cpuOffload = false, bool expertsOnDisk = false)
     {
         var memory = CurrentMemory();
         var targets = new List<DeviceMemory>();
@@ -149,6 +149,7 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
             ReserveBytes = _options.Reserve,
             Residents = residents,
             CpuOffload = cpuOffload,
+            ExpertsOnDisk = expertsOnDisk,
         });
     }
 
@@ -217,6 +218,7 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
     private HostedModelStatus ToStatus(ModelInfo model, LoadedModel? instance)
     {
         var metrics = (instance as IChatModel)?.Engine.GetMetrics();
+        var disk = instance?.DiskExperts;
         return new HostedModelStatus
         {
             Name = model.Name,
@@ -239,6 +241,10 @@ public sealed class ModelHostManager : IModelHostManager, IDisposable
             LoadedAt = model.LoadedAt,
             LastUsed = model.LastUsed,
             Error = model.Error,
+            ExpertsFromDisk = disk is not null,
+            DiskExpertBytes = disk?.DiskBackedBytes ?? 0,
+            ExpertCache = disk?.Statistics,
+            ExpertReadBytesPerSecond = disk?.MeasuredReadBytesPerSecond,
         };
     }
 

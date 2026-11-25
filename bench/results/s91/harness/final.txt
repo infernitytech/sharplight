@@ -1,0 +1,167 @@
+# random E4M3 codes, 2,048 rows (first: 2,048 rows, second: 1,920)
+== gu_base: gate/up dual 4096 -> 2x12288, default (copy warpgroup, uniform scales)
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.603 ms 257 TFLOPS, 197.1 W, 0.766 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.403 ms 294 TFLOPS 74 GB/s of weights
+  sustained: 1.520 ms 254 TFLOPS, 204.4 W, 0.804 pJ/flop
+== gu_nomma: gate/up, copies only (no MMA)
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 0.855 ms 482 TFLOPS, 199.0 W, 0.413 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 0.799 ms 516 TFLOPS 130 GB/s of weights
+  sustained: 0.798 ms 485 TFLOPS, 208.4 W, 0.430 pJ/flop
+== gu_nocopy: gate/up, MMAs only (no code copies)
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 1.126 ms 366 TFLOPS, 200.8 W, 0.548 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.061 ms 389 TFLOPS 98 GB/s of weights
+  sustained: 1.067 ms 362 TFLOPS, 209.2 W, 0.577 pJ/flop
+== gu_nob: gate/up, activation copies only (no weight copies)
+  check T=2048: max err 3.35e+05 of max 3.35e+05
+  sustained: 1.286 ms 321 TFLOPS, 195.1 W, 0.609 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.182 ms 349 TFLOPS 88 GB/s of weights
+  sustained: 1.217 ms 318 TFLOPS, 194.4 W, 0.612 pJ/flop
+== gu_t: gate/up, 256-row token tiles, 2 stages of 48 KB
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.905 ms 216 TFLOPS, 204.1 W, 0.943 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.725 ms 239 TFLOPS 60 GB/s of weights
+  sustained: 1.908 ms 203 TFLOPS, 207.9 W, 1.026 pJ/flop
+== gu_s2: gate/up, 128-row tiles, 2 stages
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 2.181 ms 189 TFLOPS, 193.8 W, 1.025 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.999 ms 206 TFLOPS 52 GB/s of weights
+  sustained: 2.065 ms 187 TFLOPS, 209.7 W, 1.121 pJ/flop
+== gu_w2: gate/up, 4 computing warps of 64 x 64
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.774 ms 232 TFLOPS, 200.4 W, 0.863 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.581 ms 261 TFLOPS 66 GB/s of weights
+  sustained: 1.682 ms 230 TFLOPS, 195.3 W, 0.850 pJ/flop
+== gu_fw: gate/up, 2-CTA clusters, half the weight tile copied and forwarded to the peer (DSMEM bulk copy)
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 2.554 ms 161 TFLOPS, 195.6 W, 1.212 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 2.360 ms 175 TFLOPS 44 GB/s of weights
+  sustained: 2.545 ms 152 TFLOPS, 196.0 W, 1.290 pJ/flop
+== dn_base: down 12288 -> 4096, default
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.822 ms 251 TFLOPS, 199.6 W, 0.796 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.731 ms 282 TFLOPS 71 GB/s of weights
+  sustained: 0.738 ms 262 TFLOPS, 190.7 W, 0.728 pJ/flop
+== dn_nomma: down, copies only
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.474 ms 435 TFLOPS, 193.3 W, 0.445 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.463 ms 445 TFLOPS 112 GB/s of weights
+  sustained: 0.427 ms 453 TFLOPS, 199.9 W, 0.441 pJ/flop
+== dn_nocopy: down, MMAs only
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.596 ms 346 TFLOPS, 194.0 W, 0.561 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.584 ms 353 TFLOPS 89 GB/s of weights
+  sustained: 0.521 ms 371 TFLOPS, 195.2 W, 0.527 pJ/flop
+== dn_nob: down, activation copies only
+  check T=2048: max err 1.87e+03 of max 1.87e+03
+  sustained: 0.661 ms 312 TFLOPS, 198.7 W, 0.637 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.621 ms 332 TFLOPS 84 GB/s of weights
+  sustained: 0.582 ms 332 TFLOPS, 192.7 W, 0.581 pJ/flop
+== dn_t: down, 256-row token tiles, 2 stages
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 1.077 ms 191 TFLOPS, 203.5 W, 1.063 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 1.032 ms 200 TFLOPS 50 GB/s of weights
+  sustained: 1.075 ms 180 TFLOPS, 200.6 W, 1.116 pJ/flop
+== dn_fw: down, 2-CTA DSMEM forwarding
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 1.341 ms 154 TFLOPS, 200.0 W, 1.301 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 1.268 ms 163 TFLOPS 41 GB/s of weights
+  sustained: 1.336 ms 145 TFLOPS, 198.4 W, 1.372 pJ/flop
+# vLLM's operands (per-token / per-block quantized random bf16), 2,048 rows; CUTLASS f32-scale blockwise sm120: see cutlass.txt
+== gu_r: gate/up dual, default
+  check T=2048: max err 0.00586 of max 3.28e+04
+  sustained: 1.592 ms 259 TFLOPS, 198.1 W, 0.765 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.403 ms 294 TFLOPS 74 GB/s of weights
+  check T=2048: max err 0.00586 of max 3.28e+04
+== g_s: gate+up as one 4096 -> 24576 GEMM (CUTLASS's shape), default (f32 out)
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.662 ms 248 TFLOPS, 196.6 W, 0.793 pJ/flop
+T= 2048 K= 4096 N=24576 dual=0 split=1: 1.462 ms 282 TFLOPS 71 GB/s of weights
+  check T=2048: max err 9.16e-05 of max 368
+== g_hs: the same, stores into a 2 MB L2-resident window (no DRAM writes)
+  check T=2048: max err 531 of max 368
+  sustained: 1.626 ms 254 TFLOPS, 200.1 W, 0.789 pJ/flop
+T= 2048 K= 4096 N=24576 dual=0 split=1: 1.438 ms 287 TFLOPS 72 GB/s of weights
+  check T=2048: max err 459 of max 368
+== g_v4: the same, 16-byte stores
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.641 ms 251 TFLOPS, 197.6 W, 0.787 pJ/flop
+T= 2048 K= 4096 N=24576 dual=0 split=1: 1.440 ms 286 TFLOPS 72 GB/s of weights
+  check T=2048: max err 9.16e-05 of max 368
+== g_p: the same, promotion pipelined behind the next block's wait
+  check T=2048: max err 9.16e-05 of max 368
+  sustained: 1.622 ms 254 TFLOPS, 197.2 W, 0.776 pJ/flop
+T= 2048 K= 4096 N=24576 dual=0 split=1: 1.419 ms 291 TFLOPS 73 GB/s of weights
+  check T=2048: max err 9.16e-05 of max 368
+== g_ns: the same, outputs dead (stores and most promotions removed; diagnostic)
+  check T=2048: max err 368 of max 368
+  sustained: 1.428 ms 289 TFLOPS, 200.0 W, 0.692 pJ/flop
+T= 2048 K= 4096 N=24576 dual=0 split=1: 1.270 ms 325 TFLOPS 82 GB/s of weights
+  check T=2048: max err 368 of max 368
+== dn_e0: down, default
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.814 ms 253 TFLOPS, 200.2 W, 0.791 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.725 ms 284 TFLOPS 72 GB/s of weights
+  check T=2048: max err 0.000153 of max 590
+== dn_e1: down, all A fragments in registers, stage released before the MMAs
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.813 ms 254 TFLOPS, 200.7 W, 0.791 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.725 ms 284 TFLOPS 72 GB/s of weights
+  check T=2048: max err 0.000153 of max 590
+== d_hs: down, L2-resident stores
+  check T=2048: max err 782 of max 590
+  sustained: 0.803 ms 257 TFLOPS, 191.8 W, 0.747 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.725 ms 284 TFLOPS 72 GB/s of weights
+  check T=2048: max err 745 of max 590
+== d_v4: down, 16-byte stores
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.809 ms 255 TFLOPS, 200.2 W, 0.785 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.717 ms 288 TFLOPS 72 GB/s of weights
+  check T=2048: max err 0.000153 of max 590
+== d_p: down, pipelined promotion
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.837 ms 246 TFLOPS, 202.0 W, 0.820 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.748 ms 276 TFLOPS 69 GB/s of weights
+  check T=2048: max err 0.000153 of max 590
+== d_w4: down, 4 x 2 warps (32 x 64 warp tiles)
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.811 ms 254 TFLOPS, 190.0 W, 0.748 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.723 ms 285 TFLOPS 72 GB/s of weights
+  check T=2048: max err 0.000153 of max 590
+== d_o2w4: down, 4 x 2 warps, per-kk fragments, serpentine order
+  check T=2048: max err 0.000153 of max 590
+  sustained: 0.811 ms 254 TFLOPS, 201.3 W, 0.791 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.723 ms 285 TFLOPS 72 GB/s of weights
+  check T=2048: max err 0.000153 of max 590
+== d_ns: down, outputs dead (diagnostic)
+  check T=2048: max err 590 of max 590
+  sustained: 0.756 ms 273 TFLOPS, 191.7 W, 0.703 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.682 ms 302 TFLOPS 76 GB/s of weights
+  check T=2048: max err 590 of max 590
+== q_b: gate/up dual with the E4M3 store (the model's path), default
+  qout T=2048: 23478089 / 25165824 codes differ from the host quantization of the reference, 196608 scales, 0 dense copies; worst |dequantized - ref| 0.0357 of the group range
+  check T=2048: max err 0 of max 0
+  sustained: 1.651 ms 250 TFLOPS, 199.9 W, 0.800 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.464 ms 282 TFLOPS 71 GB/s of weights
+== q_w4: the same, 4 x 2 warps
+  qout T=2048: 23478089 / 25165824 codes differ from the host quantization of the reference, 196608 scales, 0 dense copies; worst |dequantized - ref| 0.0357 of the group range
+  check T=2048: max err 0 of max 0
+  sustained: 1.697 ms 243 TFLOPS, 200.3 W, 0.824 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.511 ms 273 TFLOPS 69 GB/s of weights
+== q_o2w4: the same, 4 x 2 warps, per-kk fragments, serpentine order
+  qout T=2048: 23478089 / 25165824 codes differ from the host quantization of the reference, 196608 scales, 0 dense copies; worst |dequantized - ref| 0.0357 of the group range
+  check T=2048: max err 0 of max 0
+  sustained: 1.632 ms 253 TFLOPS, 199.5 W, 0.790 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.448 ms 285 TFLOPS 72 GB/s of weights
+== q_p: the same, pipelined promotion
+  qout T=2048: 23478089 / 25165824 codes differ from the host quantization of the reference, 196608 scales, 0 dense copies; worst |dequantized - ref| 0.0357 of the group range
+  check T=2048: max err 0 of max 0
+  sustained: 1.683 ms 245 TFLOPS, 199.7 W, 0.815 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.497 ms 275 TFLOPS 69 GB/s of weights
+# 2-CTA clusters with TMA multicast of the weight half-tiles (256 rows, down shape), launch times
+launch 1: 3832.870 ms, stuck waits 2035135
+  check T=256: max err 0.000366 of max 1.78e+03
+launch 2: 3677.020 ms, stuck waits 3985656
+launch 3: 3728.082 ms, stuck waits 5935747

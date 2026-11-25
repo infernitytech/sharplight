@@ -1,0 +1,54 @@
+[lock acquired 00:58:33]
+greedy 00:58:33
+gpt-oss-20b cuda p40 base rc=0 e733f049
+gpt-oss-20b cuda p1000 base rc=0 8cb648ed
+gpt-oss-20b vulkan p40 base rc=0 35319991
+gpt-oss-20b vulkan p1000 base rc=0 dfb8e9fc
+Qwen3-8B-FP8 cuda p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 base rc=0 b9666631
+Qwen3-8B-FP8 vulkan p40 base rc=0 3879d8a4
+Qwen3-8B-FP8 vulkan p1000 base rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 cuda p40 base rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 cuda p1000 base rc=0 b9666631
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p40 base rc=0 14fba4f3
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p1000 base rc=0 b9666631
+gpt-oss-20b cuda p40 new rc=0 e733f049
+gpt-oss-20b cuda p1000 new rc=0 8cb648ed
+gpt-oss-20b vulkan p40 new rc=0 35319991
+gpt-oss-20b vulkan p1000 new rc=0 dfb8e9fc
+Qwen3-8B-FP8 cuda p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 cuda p1000 new rc=0 b9666631
+Qwen3-8B-FP8 vulkan p40 new rc=0 3879d8a4
+Qwen3-8B-FP8 vulkan p1000 new rc=0 b9666631
+qwen2.5-1.5b-instruct-q8_0 cuda p40 new rc=0 ae1a4f55
+qwen2.5-1.5b-instruct-q8_0 cuda p1000 new rc=0 b9666631
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p40 new rc=0 14fba4f3
+qwen2.5-7b-instruct-q4_k_m-00001-of-00002 cuda p1000 new rc=0 b9666631
+steps1 01:04:36
+gptoss_text new r1:  1 : 5.22 / 5.23, 5.18    16 : 12.23 / 13.68, 12.19    64 : 17.52 / 18.37, 17.46   
+gptoss_feedback new r1:  1 : 5.20 / 5.21, 5.16    16 : 10.80 / 12.24, 10.74    64 : 16.12 / 16.86, 16.06   
+qwen_text new r1:  1 : 10.98 / 11.05, 10.94    16 : 12.67 / 12.87, 12.62    64 : 15.66 / 15.83, 15.61   
+q25 new r1:  1 : 6.34 / 6.41, 6.31    16 : 11.47 / 11.94, 11.42    64 : 19.60 / 19.81, 19.55   
+gptoss_text base r1:  1 : 5.21 / 5.22, 5.18    16 : 12.24 / 13.69, 12.19    64 : 17.56 / 18.32, 17.49   
+gptoss_feedback base r1:  1 : 5.20 / 5.20, 5.16    16 : 10.82 / 12.24, 10.77    64 : 16.24 / 16.82, 16.18   
+qwen_text base r1:  1 : 11.02 / 11.08, 10.96    16 : 12.67 / 12.84, 12.61    64 : 15.69 / 15.86, 15.63   
+q25 base r1:  1 : 6.38 / 6.44, 6.33    16 : 11.48 / 11.98, 11.43    64 : 19.67 / 19.85, 19.62   
+vllm 01:08:09
+<path> decode steps of 64 sequences (first 5 left out): GPU time per step 15.51 ms (annotated range), kernel sum 15.38 ms
+<path> decode steps of 64 sequences (first 5 left out): GPU time per step 14.08 ms (annotated range), kernel sum 17.32 ms
+steps2 01:12:04
+gptoss_text base r1:  1 : 5.19 / 5.20, 5.15    16 : 12.24 / 13.70, 12.19    64 : 17.48 / 18.30, 17.43   
+gptoss_feedback base r1:  1 : 5.18 / 5.19, 5.15    16 : 10.81 / 12.20, 10.75    64 : 16.14 / 16.77, 16.09   
+qwen_text base r1:  1 : 11.01 / 11.08, 10.96    16 : 12.66 / 12.84, 12.61    64 : 15.68 / 15.86, 15.63   
+q25 base r1:  1 : 6.38 / 6.45, 6.34    16 : 11.50 / 11.96, 11.43    64 : 19.53 / 19.84, 19.44   
+gptoss_text new r1:  1 : 5.21 / 5.22, 5.17    16 : 12.26 / 13.69, 12.20    64 : 17.64 / 18.43, 17.57   
+gptoss_feedback new r1:  1 : 5.20 / 5.20, 5.16    16 : 10.81 / 12.22, 10.76    64 : 16.28 / 16.87, 16.23   
+qwen_text new r1:  1 : 11.00 / 11.06, 10.94    16 : 12.68 / 12.87, 12.63    64 : 15.67 / 15.86, 15.61   
+q25 new r1:  1 : 6.34 / 6.41, 6.31    16 : 11.50 / 11.99, 11.46    64 : 19.70 / 19.87, 19.65   
+vulkan 01:14:12
+gptoss_text base r1:  1 : 5.34 / 5.35, 5.27    64 : 20.58 / 21.57, 20.43   
+qwen_text base r1:  1 : 11.12 / 11.21, 11.01    64 : 17.18 / 17.69, 17.07   
+gptoss_text new r1:  1 : 5.35 / 5.37, 5.29    64 : 20.56 / 21.47, 20.44   
+qwen_text new r1:  1 : 11.09 / 11.21, 11.01    64 : 17.34 / 17.68, 17.21   
+done 01:15:11
+[lock released 01:15:11 rc=0]

@@ -79,9 +79,21 @@ typealias Elem = BFloat16;
 #else
 typealias Elem = half;
 #endif
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+#if PARTS > 1 && PARTS != 4
+typealias MatA = CuA16bf;
+typealias MatB = CuB16bf;
+#else
+typealias MatA = CuA16;
+typealias MatB = CuB16;
+#endif
+typealias Acc = CuAccF;
+#else
 typealias MatA = CoopMat<Elem, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB = CoopMat<Elem, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 struct ConvParams
 {
@@ -722,31 +734,46 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             c.Store<CoopMatMatrixLayout.RowMajor>(sC, sg * 256, 16u);
 #endif
             GroupMemoryBarrierWithGroupSync();
+            // All loads before the first store: the compiler cannot tell that y does not alias the other tensors, so a load after
+            // a store would wait for it.
+            float vs[8];
+            uint64_t at[8];
+            bool inside[8];
             [ForceUnroll]
             for (uint e = 0; e < 8; e++)
             {
                 uint w = lane + e * 32;
                 uint m = mBase + wm + i * 16 + w / 16;
                 uint col = colBase + wn + j * 16 + w % 16;
-                if (m < OG && col < NC)
-                {
-                    uint n = col / HW;
-                    uint pix = col - n * HW;
-                    uint o = g * OG + m;
-                    float v = sC[sg * 256 + w];
+                inside[e] = m < OG && col < NC;
+                uint n = col / HW;
+                uint pix = col - n * HW;
+                uint o = inside[e] ? g * OG + m : 0;
+                float v = sC[sg * 256 + w];
 #if PARTS == 4 && HI_ONLY
-                    v = v * sInvB[(wn + j * 16) / 16] / p.ws[o];
+                v = v * sInvB[(wn + j * 16) / 16] / p.ws[o];
 #elif PARTS == 4
-                    v /= p.ws[o];
+                v /= p.ws[o];
 #endif
-                    uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
+                at[e] = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
 #if SPLITK == 1
 #if HAS_BIAS
-                    v += p.bias[o];
+                v += p.bias[o];
 #endif
-                    CONV_EPI(v, idx);
+#if EPI && EPI_RES
+                v = conv_epi(v, inside[e] ? p.res[at[e]] : 0.0);
+#elif EPI
+                v = conv_epi(v, 0.0);
 #endif
-                    p.y[idx] = v;
+#endif
+                vs[e] = v;
+            }
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+                if (inside[e])
+                {
+                    p.y[at[e]] = vs[e];
                 }
             }
             GroupMemoryBarrierWithGroupSync();

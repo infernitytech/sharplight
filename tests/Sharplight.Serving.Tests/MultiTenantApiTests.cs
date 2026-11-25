@@ -39,7 +39,7 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
         _host.Register(new ModelRegistration
         {
             Name = "embed-x",
-            Loader = new FakeInstanceLoader(ModelKind.Embedding, () => new EmbeddingModelInstance(new FakeEmbedder(), 0)),
+            Loader = new FakeInstanceLoader(ModelKind.Embedding, () => new TaskClientInstance([new FakeEmbedder()], 0, ModelKind.Embedding)),
         });
 
         var builder = WebApplication.CreateBuilder();
@@ -239,6 +239,15 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
         Assert.Equal(0, Cached(first));
         Assert.Equal(0, Cached(otherScope));            // ... but no cache hit from the other scope
         Assert.True(Cached(sameScope) > 0);
+    }
+
+    [Fact]
+    public async Task AClientCacheSaltIsRefusedUnlessTheServerAllowsIt()
+    {
+        // A client could otherwise believe its prefixes are isolated by a salt the server ignores.
+        var (status, body, _) = await Send(HttpMethod.Post, "/t1/v1/chat/completions", Chat("chat", "hi", extra: ",\"cache_salt\":\"x\""), "key-1");
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("cache_salt", body.GetProperty("error").GetProperty("param").GetString());
     }
 
     [Fact]

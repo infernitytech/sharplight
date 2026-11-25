@@ -21,6 +21,25 @@
   <ItemGroup Condition="'$(StudioUpdateUrl)' != ''">
     <AssemblyMetadata Include="StudioUpdateUrl" Value="$(StudioUpdateUrl)" />
   </ItemGroup>
+  <PropertyGroup>
+    <!-- The CUDA execution provider (Sharplight.Cuda with the NVRTC redistributables of Sharplight.Cuda.Runtime, ~115 MB installed, ~34 MB
+         in the AppImage) ships for linux-x64, linux-arm64 and win-x64 only: NVIDIA has no driver for macOS or Windows on ARM. A build or
+         publish for another runtime identifier (or without one, on macOS / Windows ARM) leaves it out; -p:StudioCuda=false leaves it out
+         everywhere. See docs/studio.md, "Installing and updating", and docs/cuda.md. -->
+    <StudioCuda Condition="'$(StudioCuda)' == '' And ('$(RuntimeIdentifier)' == 'linux-x64' Or '$(RuntimeIdentifier)' == 'linux-arm64' Or '$(RuntimeIdentifier)' == 'win-x64')">true</StudioCuda>
+    <StudioCuda Condition="'$(StudioCuda)' == '' And '$(RuntimeIdentifier)' == '' And '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'X64' And !$([MSBuild]::IsOSPlatform('OSX'))">true</StudioCuda>
+    <StudioCuda Condition="'$(StudioCuda)' == '' And '$(RuntimeIdentifier)' == '' And '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'Arm64' And $([MSBuild]::IsOSPlatform('Linux'))">true</StudioCuda>
+    <StudioCuda Condition="'$(StudioCuda)' == ''">false</StudioCuda>
+    <DefineConstants Condition="'$(StudioCuda)' == 'true'">$(DefineConstants);STUDIO_CUDA</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(StudioCuda)' == 'true'">
+    <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
+    <!-- NVRTC and the floating-point headers: native files next to the executable (and in the package), no assembly. -->
+    <!-- The SDK does not pass -r <rid> on to the referenced project (it is RID-agnostic), so the target runtime goes as CudaTargetRid:
+         without it the redistributables of a build machine without an NVIDIA driver (CI) are never fetched. -->
+    <ProjectReference Include="../../src/Sharplight.Cuda.Runtime/Sharplight.Cuda.Runtime.csproj" ReferenceOutputAssembly="false"
+                      AdditionalProperties="CudaTargetRid=$(RuntimeIdentifier)" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <!-- The OpenAI / Anthropic endpoints run in-process on Kestrel. -->

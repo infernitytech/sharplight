@@ -48,8 +48,12 @@ internal sealed partial class WelcomePageViewModel : PageViewModel
 
     /// <summary>The GPU line, e.g. <c>NVIDIA RTX 4090 · 24 GB</c> or <c>No GPU found: models run on the CPU</c>.</summary>
     public string GpuText => Machine.HasGpu
-        ? $"{Machine.GpuName} · {ByteFormat.Format(Machine.GpuMemoryBytes)}{(Machine.GpuCount > 1 ? $" (1 of {Machine.GpuCount} GPUs)" : "")}"
+        ? $"{Machine.GpuName} · {GpuMemoryText}{(Machine.GpuIsUnified ? " (shared with the system)" : "")}{(Machine.GpuCount > 1 ? $" (1 of {Machine.GpuCount} GPUs)" : "")}"
         : "No GPU found: models run on the CPU";
+
+    private string GpuMemoryText => Machine.GpuFreeBytes is not null && Machine.GpuAvailableBytes < Machine.GpuMemoryBytes
+        ? $"{ByteFormat.Format(Machine.GpuAvailableBytes)} free of {ByteFormat.Format(Machine.GpuMemoryBytes)}"
+        : ByteFormat.Format(Machine.GpuMemoryBytes);
 
     /// <summary>The system memory line.</summary>
     public string MemoryText => Machine.SystemMemoryBytes > 0 ? ByteFormat.Format(Machine.SystemMemoryBytes) : "Unknown";
@@ -76,6 +80,14 @@ internal sealed partial class WelcomePageViewModel : PageViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasMessage), nameof(ShowEmpty))]
     public partial string Message { get; set; } = "";
+
+    /// <summary>Why the chat model was chosen for this machine (what is free of what), empty without a recommendation.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasReason))]
+    public partial string Reason { get; set; } = "";
+
+    /// <summary>A reason is shown.</summary>
+    public bool HasReason => Reason.Length > 0;
 
     /// <summary>A note is shown.</summary>
     public bool HasMessage => Message.Length > 0;
@@ -245,7 +257,7 @@ internal sealed partial class WelcomePageViewModel : PageViewModel
             id = $"{entry.Id}-{suffix}";
         }
 
-        var load = _services.Settings.Current.DefaultLoad with { DeviceId = Machine.GpuDeviceId ?? _services.Settings.Current.DefaultLoad.DeviceId, Slots = 1 };
+        var load = _services.Settings.Current.DefaultLoad with { DeviceId = LoadDeviceId(chat), Slots = 1 };
         var request = new ModelLoadRequest(id, entry.Path, load, _services.Settings.Current.DisabledFeatures, Capabilities: entry.Capabilities, Kind: entry.Kind);
         try
         {
@@ -268,14 +280,27 @@ internal sealed partial class WelcomePageViewModel : PageViewModel
         }
     }
 
+    // The chat model runs where it was sized for: a GPU too small for it leaves it on the CPU.
+    private string? LoadDeviceId(StarterItemViewModel chat)
+    {
+        string? fallback = _services.Settings.Current.DefaultLoad.DeviceId;
+        if (chat.Item.OnGpu)
+        {
+            return Machine.GpuDeviceId ?? fallback;
+        }
+
+        return _services.Runtime.Devices.FirstOrDefault(device => !device.IsGpu)?.Id ?? fallback;
+    }
+
     private async Task LoadAsync()
     {
         IsLoading = true;
         Message = "";
+        Reason = "";
         Items.Clear();
         try
         {
-            Machine = _profiler.Describe(_services.Settings.StoreRoot);
+            Machine = await _profiler.DescribeAsync(_services.Settings.StoreRoot, _services.Settings.Current.DisabledFeatures, CancellationToken.None);
             OnPropertyChanged(nameof(GpuText));
             OnPropertyChanged(nameof(MemoryText));
             OnPropertyChanged(nameof(DiskText));
@@ -287,6 +312,7 @@ internal sealed partial class WelcomePageViewModel : PageViewModel
             if (feed.Failure is { } failure)
             {
                 Recommendation = null;
+                Reason = "";
                 Message = FailureText(failure);
                 return;
             }
@@ -308,6 +334,7 @@ internal sealed partial class WelcomePageViewModel : PageViewModel
                 Items.Add(row);
             }
 
+            Reason = recommendation.Reason;
             Message = recommendation.Outcome == StarterOutcome.Recommended
                 ? feed.IsOffline ? "The feed could not be reached. These models come from the last saved list; downloading needs the network." : ""
                 : recommendation.Message;

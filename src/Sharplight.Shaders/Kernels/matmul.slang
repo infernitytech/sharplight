@@ -1,11 +1,14 @@
 // y[t, n] = sum_k x[t, k] * W[n, k]      (x: f32 rows with stride X_STRIDE, W: WFMT rows of K values)
 // Specialization macros: WFMT, K, N, X_STRIDE, Y_STRIDE, ROW_BYTES, SG
 #include "common.slang"
+#include "splitk.slang"
 
 // DUAL: two weight matrices of identical shape/format share x; the outputs are combined per element by
 // `float epi2(float a, float b)` (defined by the including generated source, e.g. silu(a) * b): the matvecs and gemm_cm2 (X_F16, no K
-// split, 16-value weight fetches). gemm_cm2's B tile alternates 16-row fragments of w and w2 (fragment 2i: rows of w, 2i + 1: the
-// same rows of w2), so a workgroup covers GBN / 2 outputs and each subgroup holds both products of its outputs.
+// split). gemm_cm2's B tile alternates 16-row fragments of w and w2 (fragment 2i: rows of w, 2i + 1: the
+// same rows of w2), so a workgroup covers GBN / 2 outputs and each subgroup holds both products of its outputs. With MOE (and
+// X_SORTED), w and w2 are the expert matrices of a gate / up pair and the store applies MOE_EPI(m0, m1, e, n) instead, which may read
+// per-expert rows of the tables declared by MOE_EPI_FIELDS (e.g. the experts' biases).
 #ifndef DUAL
 #define DUAL 0
 #endif
@@ -15,6 +18,29 @@
 // reads activation row PER_SLOT ? i : i / S.
 #ifndef MOE
 #define MOE 0
+#endif
+// MOE_BIAS (with MOE, single matrix; gemm_cm2 and gemm_sk): y gets product + moe_bias[expert, n], the routed experts' bias rows.
+#ifndef MOE_BIAS
+#define MOE_BIAS 0
+#endif
+#if MOE_BIAS
+#define MOE_BIAS_OF(e, n) p.moe_bias[uint64_t(e) * N + (n)]
+#else
+#define MOE_BIAS_OF(e, n) 0.0
+#endif
+// MOE_EPI1(m, e, n, t, s) (with MOE, single matrix; defined by the including generated source): an elementwise group applied to
+// the product m of expert e, output column n, token t and slot s in the store (it may read per-expert rows and per-slot scalars of
+// the tables declared by MOE_EPI_FIELDS), e.g. the down projection's bias and router weight before the slot sum.
+#ifdef MOE_EPI1
+#define MOE_STORE1(v, e, n, item) MOE_EPI1(v, e, n, (item) / S, (item) % S)
+#elif MOE_BIAS
+#define MOE_STORE1(v, e, n, item) ((v) + MOE_BIAS_OF(e, n))
+#else
+#define MOE_STORE1(v, e, n, item) (v)
+#endif
+// MOE_TILE_MAJOR (with MOE): the grid's x runs over the expert tiles and y over the column tiles (default: the other way round).
+#ifndef MOE_TILE_MAJOR
+#define MOE_TILE_MAJOR 0
 #endif
 // MM_EPI (gemm_cm2 with GEMM_SPLIT and SPLITK 1, splitk_reduce): the including generated source defines
 // `float mm_epi(float m0, float a0, float a1, float a2)`, an elementwise group applied to each result m0 in the store, which
@@ -60,6 +86,12 @@ struct Params
     uint* scratch;
 #endif
     float* y;
+#if MOE && MOE_BIAS
+    float* moe_bias;   // [E, N]: the bias row of each tile's expert is added in the store
+#endif
+#if MOE && defined(MOE_EPI_FIELDS)
+    MOE_EPI_FIELDS   // tables the expert epilogue reads (e.g. the experts' biases, the router weights)
+#endif
 #if DUAL_Y16
     uint8_t* y16;   // the f16 copy of y (dense rows of N halves)
 #endif
@@ -81,36 +113,33 @@ struct Params
 #if MM_EPI && MM_EPI_ARGS > 2
     float* e2;
 #endif
+#if SPLITK_FUSED || MULTI > 1
+    float* yout;      // gemm_cm2 with SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+#endif
+#if SPLITK_FUSED
+    uint* arrivals;   // per output tile: the split workgroups arrived so far (zero between launches)
+#endif
+#if MULTI > 1
+    uint8_t* mw1;     // MULTI (splitk.slang): the second and third weight matrices, their outputs and (MULTI_BIAS) the bias rows
+#if MULTI > 2
+    uint8_t* mw2;
+#endif
+    float* yout1;
+#if MULTI > 2
+    float* yout2;
+#endif
+#if MULTI_BIAS
+    float* mb0;
+    float* mb1;
+#if MULTI > 2
+    float* mb2;
+#endif
+#endif
+#endif
     uint T;
 };
 
-#if MM_EPI
-// Element of epilogue tensor e for output (t, n): kind 0 one scalar, 1 a row vector over the output columns, 2 a dense
-// tensor of the output's shape.
-float mm_epi_arg(float* e, uint kind, uint64_t t, uint n)
-{
-    return kind == 0 ? e[0] : kind == 1 ? e[n] : e[t * N + n];
-}
-
-// The product v of output (t, n) through the generated epilogue mm_epi (the fused elementwise group).
-float mm_store_value(float v, Params p, uint64_t t, uint n)
-{
-    float a0 = 0, a1 = 0, a2 = 0;
-#if MM_EPI_ARGS > 0
-    a0 = mm_epi_arg(p.e0, MM_EPI_K0, t, n);
-#endif
-#if MM_EPI_ARGS > 1
-    a1 = mm_epi_arg(p.e1, MM_EPI_K1, t, n);
-#endif
-#if MM_EPI_ARGS > 2
-    a2 = mm_epi_arg(p.e2, MM_EPI_K2, t, n);
-#endif
-    return mm_epi(v, a0, a1, a2);
-}
-#define MM_STORE(v, t, n) mm_store_value(v, p, t, n)
-#else
-#define MM_STORE(v, t, n) (v)
-#endif
+#include "mm_epi.slang"
 
 // MV_FMA_CHAIN (row-invariant compiles): the products of one 8-weight group in a fixed order of fused multiply-adds, so
 // that every compiled variant (any MV_COLS) rounds a row's sum the same way. Otherwise the plain sum, which the driver
@@ -217,7 +246,7 @@ void matvec(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         if (c < p.T)
         {
             float s = WaveActiveSum(acc[c]);
-#if DUAL
+#if DUAL && !MOE   // (expert-grouped dual kernels store MOE_EPI instead)
             s = epi2(s, WaveActiveSum(acc2[c]));
 #endif
             if (lane == 0) p.y[uint64_t(c) * Y_STRIDE + row] = s;
@@ -315,7 +344,7 @@ void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Pa
         {
             float s = 0;
             [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s += skPart[r][c][i];
-#if DUAL
+#if DUAL && !MOE
             float s2 = 0;
             [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s2 += skPart2[r][c][i];
             s = epi2(s, s2);
@@ -579,9 +608,16 @@ using namespace linalg;
 #define CBN 128
 #define CBK 32
 #define SAS (CBK + 8)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA = CuA16;
+typealias MatB = CuB16;
+typealias Acc = CuAccF;
+#else
 typealias MatA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared half cA[CBM * SAS];
 groupshared half cB[CBN * SAS];
@@ -848,10 +884,13 @@ using namespace linalg;
 #define SPLIT_LO 0
 #define SPLIT_HALVES 1
 #endif
+// GNBUF (macro): double-buffer the GBK = 64 tiles too where the shared memory allows it (CUDA's opt-in shared memory).
+#ifndef GNBUF
 #if GBK == 32 && !SPLIT_LO
 #define GNBUF 2
 #else
 #define GNBUF 1
+#endif
 #endif
 #define GQ (GBK / 8)
 #define GAS (GBK + 8)
@@ -870,9 +909,18 @@ using namespace linalg;
 #else
 #define GBN_OUT GBN
 #endif
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias MatA2 = CuA16;
+typealias MatB2 = CuB16;
+typealias Acc2 = CuAccF;
+typealias AccH2 = CuAccH;
+#else
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+typealias AccH2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 #ifdef KERNEL_GEMM_CM2
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
@@ -909,7 +957,7 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g16 >> 1) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
-    uint4 q = *(uint4*)(r + ROW_BYTES / 17 + uint64_t(g16) * 16);
+    uint4 q = LOAD_U4_ALIGNED(r + ROW_BYTES / 17 + uint64_t(g16) * 16, Q8R_ALIGN);
     lo = uint4(q8x4_h2(q.x, d, false), q8x4_h2(q.x, d, true), q8x4_h2(q.y, d, false), q8x4_h2(q.y, d, true));
     hi = uint4(q8x4_h2(q.z, d, false), q8x4_h2(q.z, d, true), q8x4_h2(q.w, d, false), q8x4_h2(q.w, d, true));
 #elif WFMT == FMT_Q4_K || WFMT == FMT_Q5_K
@@ -1051,7 +1099,7 @@ uint4 load8h(uint8_t* w, uint row, uint g)
     uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g >> 2) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
-    uint2 q = *(uint2*)(r + ROW_BYTES / 17 + uint64_t(g) * 8);
+    uint2 q = LOAD_U2_ALIGNED(r + ROW_BYTES / 17 + uint64_t(g) * 8, Q8R_ALIGN);
     half2 off = half2(1152.0h, 1152.0h);
     uint4 o;
     uint u = q.x ^ 0x80808080u;
@@ -1126,6 +1174,22 @@ groupshared uint gItem[GBM];
 groupshared float gRowInverse[GBM];
 #endif
 
+#if SPLITK_FUSED
+#if MOE || DUAL || GEMM_SPLIT || !defined(SPLITK) || SPLITK < 2 || (MULTI > 1 && MM_EPI)
+#error "the fused split-K reduction of gemm_cm2 needs SPLITK > 1, no MOE / DUAL / GEMM_SPLIT, and MULTI without MM_EPI"
+#endif
+#if MULTI > 1
+#define SPLITK_STORE(p, s, t, n) MULTI_STORE(p, s, t, n)
+#else
+#define SPLITK_STORE(p, s, t, n) { p.yout[uint64_t(t) * Y_STRIDE + (n)] = MM_STORE(s, t, n); }
+#endif
+#ifdef X_RS
+#define SPLITK_ROW_SCALE(p, t) f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(t) * 4))
+#else
+#define SPLITK_ROW_SCALE(p, t) 1.0
+#endif
+#endif
+
 [shader("compute")]
 [numthreads(GTHREADS, 1, 1)]
 void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
@@ -1134,11 +1198,14 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
     // GEMM_GROUP: grouped tile order (common.slang) for launches without K splits.
-#if DUAL && (MOE || GEMM_SPLIT || MM_EPI || defined(GW_RAW) || !X_F16 || FRAG_N % 2 != 0 || (defined(SPLITK) && SPLITK != 1))
-#error "the dual gemm_cm2 needs f16 activations, 16-value weight fetches, an even FRAG_N and no K split"
+#if DUAL && (GEMM_SPLIT || MM_EPI || !X_F16 || FRAG_N % 2 != 0 || (defined(SPLITK) && SPLITK != 1) || (MOE && (!X_SORTED || DUAL_Y16)))
+#error "the dual gemm_cm2 needs f16 activations, an even FRAG_N and no K split (with MOE: expert-sorted rows, no f16 copy)"
 #endif
 #if !MOE && defined(GEMM_GROUP) && (!defined(SPLITK) || SPLITK == 1)
     gid.xy = grouped_tile(gid.xy, (N + GBN_OUT - 1) / GBN_OUT, (p.T + GBM - 1) / GBM, GEMM_GROUP);
+#endif
+#if MOE && MOE_TILE_MAJOR
+    gid.xy = gid.yx;   // expert tiles along gid.x (see gemm_sk)
 #endif
     uint n0 = gid.x * GBN_OUT;
 #if MOE
@@ -1154,6 +1221,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     if (tileRows > MOE_MAX_ROWS) return;
 #endif
     uint8_t* wbase = rowStart(p.w, EXPERT_BYTES, expert);
+#if DUAL
+    uint8_t* wbase2 = rowStart(p.w2, EXPERT_BYTES, expert);
+#endif
     for (uint r = tid; r < GBM; r += GTHREADS) gItem[r] = r < tileRows ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0xFFFFFFFFu;
 #if MOE_RANGED
     for (uint r = tid; r < GBM; r += GTHREADS) gRowInverse[r] = r < tileRows ? f16_range_inverse(*(uint*)(uint64_t(p.x) + X_RS + uint64_t(rowOff + r) * 4)) : 1.0;
@@ -1168,7 +1238,14 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #define ROWS_LIVE tileRows
 #else
     uint t0 = gid.y * GBM;
+#if MULTI > 1
+    uint8_t* wbase = MULTI_WBASE(p, n0);
+#else
     uint8_t* wbase = p.w;
+#endif
+#if DUAL
+    uint8_t* wbase2 = p.w2;
+#endif
     #define ROW_OF(t) (t)
     #define ROWS_LIVE p.T
 #endif
@@ -1255,10 +1332,23 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)
     {
         uint idx = tid + it * GTHREADS;
+#if DUAL
+        // Tile row r: row n0 + (r / 32) * 16 + r % 16 of w (fragments 2i) or of w2 (fragments 2i + 1).
+        uint r = idx / (GBK / GW_UNIT);
+        wr[it] = wrow(((r >> 4) & 1) != 0 ? wbase2 : wbase, min(n0 + (r >> 5) * 16 + (r & 15), uint(N) - 1));
+#else
         wr[it] = wrow(wbase, min(n0 + idx / (GBK / GW_UNIT), uint(N) - 1));
+#endif
     }
     // Rows past N stage the decode of zero codes, which the stores never read back.
+#if DUAL
+    #define WLOAD(set, it, row, g)                                                                      \
+        { uint tr = (row) - n0;                                                                         \
+          [ForceUnroll] for (uint u = 0; u < GW_RAW; u++) ws[set][it][u] = 0;                             \
+          if (N % GBN_OUT == 0 || n0 + (tr >> 5) * 16 + (tr & 15) < N) wload(wr[it], g, ws[set][it]); }
+#else
     #define WLOAD(set, it, row, g) { [ForceUnroll] for (uint u = 0; u < GW_RAW; u++) ws[set][it][u] = 0; if (N % GBN == 0 || (row) < N) wload(wr[it], g, ws[set][it]); }
+#endif
     #define WSTAGE(set, it, ob, row) { uint4 d[GW_UNIT / 8]; wdecode(ws[set][it], d); [ForceUnroll] for (uint u = 0; u < GW_UNIT / 8; u++) gB[(ob) + u] = d[u]; }
 #elif GEMM_SPLIT && !SPLIT_LO
     #define WLOAD(set, it, row, g)                                                                      \
@@ -1285,7 +1375,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     // 16k apart, so one base address serves all items (dual bf16 [4096 → 12288] x2 at 2048 rows 130 → 143 TFLOPS with the above).
     uint dualTr0 = tid / (GBK / 16);
     uint dualRow0 = n0 + (dualTr0 >> 5) * 16 + (dualTr0 & 15);
-    uint64_t dualBase = uint64_t(rowStart(((dualTr0 >> 4) & 1) != 0 ? p.w2 : wbase, ROW_BYTES, min(dualRow0, uint(N) - 1)));
+    uint64_t dualBase = uint64_t(rowStart(((dualTr0 >> 4) & 1) != 0 ? wbase2 : wbase, ROW_BYTES, min(dualRow0, uint(N) - 1)));
     #define WLOAD(set, it, row, g)                                                                      \
         { uint wrow = dualRow0 + it * (GTHREADS / (GBK / 16)) / 2;                                      \
           ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
@@ -1297,7 +1387,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         { uint tr = (row) - n0, wrow = n0 + (tr >> 5) * 16 + (tr & 15);                                 \
           ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
           if (N % GBN_OUT == 0 || wrow < N)                                                             \
-          { uint4* hp = (uint4*)(rowStart(((tr >> 4) & 1) != 0 ? p.w2 : wbase, ROW_BYTES, wrow) + uint64_t(g) * 32); \
+          { uint4* hp = (uint4*)(rowStart(((tr >> 4) & 1) != 0 ? wbase2 : wbase, ROW_BYTES, wrow) + uint64_t(g) * 32); \
             ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; } }
 #else
     #define WLOAD(set, it, row, g)                                                                      \
@@ -1316,7 +1406,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #define WLOAD(set, it, row, g)                                                                      \
         { uint tr = (row) - n0, wrow = n0 + (tr >> 5) * 16 + (tr & 15);                                 \
           ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
-          if (N % GBN_OUT == 0 || wrow < N) load16h(((tr >> 4) & 1) != 0 ? p.w2 : wbase, wrow, g, ws[set][it][0], ws[set][it][1]); }
+          if (N % GBN_OUT == 0 || wrow < N) load16h(((tr >> 4) & 1) != 0 ? wbase2 : wbase, wrow, g, ws[set][it][0], ws[set][it][1]); }
     #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #else
     #define WLOAD(set, it, row, g) { ws[set][it][0] = 0; ws[set][it][1] = 0; if (N % GBN == 0 || (row) < N) load16h(wbase, row, g, ws[set][it][0], ws[set][it][1]); }
@@ -1339,12 +1429,12 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
         uint t = t0 + r;                                                                                \
-        GEMM_LOAD_X(t, X_K(k0, q), xs[set][it], XS_LO(set, it))                                        \
+        if (GEMM_EXP != 4 || (k0) == kBeg) GEMM_LOAD_X(t, X_K(k0, q), xs[set][it], XS_LO(set, it))      \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / (GBK / GW_UNIT), q = idx % (GBK / GW_UNIT);           \
-        WLOAD(set, it, n0 + r, (k0) / GW_UNIT + q)                                                      \
+        if (GEMM_EXP != 3 || (k0) == kBeg) WLOAD(set, it, n0 + r, (k0) / GW_UNIT + q)                  \
     }
     #define STAGE(set, buf)                                                                             \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
@@ -1412,6 +1502,10 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     }
 #endif
 
+    // GEMM_EXP (diagnostic, wrong results): 1 no loads after the first step, 2 no MMAs, 3 no weight loads, 4 no activation loads.
+#ifndef GEMM_EXP
+#define GEMM_EXP 0
+#endif
 #if GPF == 2 && GNBUF == 2
     // Double-buffered tiles with two register sets: entering step s, buffer s % 2 holds step s, register set (s + 1) % 2 the
     // loads of step s + 1 and set s % 2 those of step s + 2. Step s multiplies its buffer, stages step s + 1 into the other one
@@ -1468,6 +1562,37 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             GroupMemoryBarrierWithGroupSync();
         }
     }
+#elif GPF > 2 && GNBUF == 1
+    // GPF register sets for a single-buffered tile: set j holds the loads of the steps j mod GPF, so the loads of step t + GPF
+    // are issued right after step t + 1 was staged from the same set and have GPF - 1 steps of MMAs to arrive (more bytes in
+    // flight for tiles with few weight units per thread). The loop is unrolled by GPF to keep the register sets static.
+    uint steps = (kEnd - kBeg) / GBK;
+    if (steps > 0)
+    {
+        FETCH(0, kBeg)
+        STAGE(0, 0u)
+    }
+    [ForceUnroll] for (uint q = 1; q <= GPF; q++) { if (steps > q) { FETCH(q % GPF, kBeg + q * GBK) } }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint s = 0; s < steps; s += GPF)
+    {
+        [ForceUnroll]
+        for (uint u = 0; u < GPF; u++)
+        {
+            uint t = s + u;
+            if (t < steps)
+            {
+                COMPUTE(0u)
+                GroupMemoryBarrierWithGroupSync();
+                if (t + 1 < steps)
+                {
+                    STAGE((u + 1) % GPF, 0u)
+                    GroupMemoryBarrierWithGroupSync();
+                    if (t + 1 + GPF < steps) { FETCH((u + 1) % GPF, kBeg + (t + 1 + GPF) * GBK) }
+                }
+            }
+        }
+    }
 #else
     // A split-K slice may be empty (K steps not divisible by SPLITK): never prefetch at or past K.
     if (kBeg < kEnd)
@@ -1478,9 +1603,6 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     GroupMemoryBarrierWithGroupSync();
 
     uint cur = 0;
-#ifndef GEMM_EXP
-#define GEMM_EXP 0
-#endif
     for (uint k0 = kBeg; k0 < kEnd; k0 += GBK)
     {
         bool more = k0 + GBK < kEnd && GEMM_EXP != 1;
@@ -1541,7 +1663,44 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #undef SPLIT_ROW_BYTES
     return;
 #endif
-#if DUAL
+#if DUAL && MOE
+    // Expert-grouped: fragments j and j + 1 hold the products of w and w2 for the same 16 outputs, columns n0 + (wn + j * 16) / 2,
+    // of the tile's rows (items gItem). Both pass through the subgroup's shared slice, so each lane knows the row and column of
+    // its values; ranged rows are unscaled before the epilogue MOE_EPI(m0, m1, e, n) (defined by the including source).
+    [ForceUnroll]
+    for (int i = 0; i < FRAG_M; i++)
+    {
+        [ForceUnroll]
+        for (int j = 0; j < FRAG_N; j += 2)
+        {
+            uint tRow = wm + i * 16, nCol = n0 + (wn + j * 16) / 2;
+            float m0[8];
+            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
+            GroupMemoryBarrierWithWaveSync();
+            [ForceUnroll] for (uint e = 0; e < 8; e++) m0[e] = gC[sg * 256 + lane + e * 32];
+            GroupMemoryBarrierWithWaveSync();
+            acc[i][j + 1].Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
+            GroupMemoryBarrierWithWaveSync();
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+                uint w = lane + e * 32, t = tRow + w / 16, n = nCol + w % 16;
+                float m1 = gC[sg * 256 + w];
+                if (t < tileRows && n < N)
+                {
+#if MOE_RANGED
+                    float inv = gRowInverse[t];
+                    yb[uint64_t(gItem[t]) * N + n] = MOE_EPI(m0[e] * inv, m1 * inv, expert, n);
+#else
+                    yb[uint64_t(gItem[t]) * N + n] = MOE_EPI(m0[e], m1, expert, n);
+#endif
+                }
+            }
+            GroupMemoryBarrierWithWaveSync();
+        }
+    }
+    return;
+#elif DUAL
     // Fragments j and j + 1 hold the products of w and w2 for the same 16 outputs, columns n0 + (wn + j * 16) / 2.
 #if DUAL_Y16_RANGE
     // The largest magnitude of the subgroup's outputs: from 2^15 on, it raises the flags of all the subgroup's rows (a bound
@@ -1567,7 +1726,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
             if (tRow + 16 <= p.T && nCol + 16 <= N)
             {
-                CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator> h = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>(r);
+                AccH2 h = AccH2(r);
                 h.Store<CoopMatMatrixLayout.RowMajor>((half*)p.y16 + uint64_t(tRow) * N + nCol, 0u, N);
             }
             else
@@ -1613,10 +1772,19 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #endif
     return;
 #endif
+#if SPLITK_FUSED
+    // The partial slices are dense rows of N (the reduction reads them so); the last workgroup of the tile reduces it.
+    #define GEMM_PART_STRIDE N
+    #define GEMM_FINISH SPLITK_FINISH(p, tid, GTHREADS, GBM, GBN, gid.y * ((N + GBN - 1) / GBN) + gid.x, t0, n0)
+#else
+    #define GEMM_PART_STRIDE Y_STRIDE
+    #define GEMM_FINISH
+#endif
     if (!MOE && t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
     {
         [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++)
-            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(t0 + wm + i * 16) * Y_STRIDE + n0 + wn + j * 16, 0u, Y_STRIDE);
+            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(t0 + wm + i * 16) * GEMM_PART_STRIDE + n0 + wn + j * 16, 0u, GEMM_PART_STRIDE);
+        GEMM_FINISH
         return;
     }
     // Partial tile: each subgroup stages its accumulators through its own shared slice.
@@ -1636,17 +1804,20 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 uint n = n0 + wn + j * 16 + w % 16;
 #if MOE
 #if MOE_RANGED
-                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w] * gRowInverse[t];
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = MOE_STORE1(gC[sg * 256 + w] * gRowInverse[t], expert, n, gItem[t]);
 #else
-                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w];
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = MOE_STORE1(gC[sg * 256 + w], expert, n, gItem[t]);
 #endif
 #else
-                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];
+                if (t < p.T && n < N) yb[uint64_t(t) * GEMM_PART_STRIDE + n] = gC[sg * 256 + w];
 #endif
             }
             GroupMemoryBarrierWithGroupSync();
         }
     }
+    GEMM_FINISH
+    #undef GEMM_FINISH
+    #undef GEMM_PART_STRIDE
 }
 #endif   // KERNEL_GEMM_CM2 entry
 #include "matmul_skinny.slang"
@@ -1667,7 +1838,12 @@ void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     // The GEMM read a row-ranged f16 copy of its activations (common.slang, f16_range_scale), bound as w here.
     s *= f16_range_inverse(*(uint*)(uint64_t(p.w) + X_RS + (i / N) * 4));
 #endif
+#if MULTI > 1
+    // The partials of a multi-output GEMM (splitk.slang): each column goes to its matrix's output, with its bias.
+    MULTI_STORE(p, s, i / N, uint(i % N))
+#else
     p.y[(i / N) * Y_STRIDE + i % N] = MM_STORE(s, i / N, uint(i % N));
+#endif
 }
 #endif
 

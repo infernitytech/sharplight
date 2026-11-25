@@ -1,4 +1,4 @@
-// Imports an ONNX model described by a reference manifest, runs it on cpu|vulkan, compares the outputs with the
+// Imports an ONNX model described by a reference manifest, runs it on cpu|vulkan|cuda, compares the outputs with the
 // onnxruntime reference and times it. Prints exactly one line starting with "RESULT " followed by a JSON object.
 using System.Text.Json;
 using OnnxBench;

@@ -1,0 +1,11 @@
+textcheck wave 16: 8/16 identical to single-request, 6 early partings, 0 garbage -> FAIL
+  #4 ['early:7']: ' the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, '
+  #5 ['early:6']: ' \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into'
+  #6 ['early:4']: ' 1) It can improve your communication skills and help you connect with people from different culture'
+  #12 ['early:7']: ' the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, '
+textcheck wave 32: 18/32 identical to single-request, 9 early partings, 0 garbage -> FAIL
+  #4 ['early:7']: ' the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, '
+  #5 ['early:6']: ' \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into'
+  #12 ['early:7']: ' the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, '
+  #13 ['early:6']: ' \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into'
+textcheck: GARBAGE

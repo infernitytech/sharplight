@@ -64,8 +64,8 @@ public static class SharplightServerServiceCollectionExtensions
         {
             ArgumentNullException.ThrowIfNull(embedder);
             var models = services.RetrievalModels();
-            models.Embedders[name ?? embedder.Name] = embedder;
-            models.DefaultEmbedder ??= name ?? embedder.Name;
+            models.Embedders[name ?? embedder.Metadata.ModelName] = embedder;
+            models.DefaultEmbedder ??= name ?? embedder.Metadata.ModelName;
             configure?.Invoke(models);
             return services;
         }
@@ -79,8 +79,8 @@ public static class SharplightServerServiceCollectionExtensions
         {
             ArgumentNullException.ThrowIfNull(reranker);
             var models = services.RetrievalModels();
-            models.Rerankers[name ?? reranker.Name] = reranker;
-            models.DefaultReranker ??= name ?? reranker.Name;
+            models.Rerankers[name ?? reranker.Metadata.ModelName] = reranker;
+            models.DefaultReranker ??= name ?? reranker.Metadata.ModelName;
             configure?.Invoke(models);
             return services;
         }

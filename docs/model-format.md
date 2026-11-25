@@ -56,6 +56,7 @@ current version). Sections:
 | KSET (4) | v1 target | v1 kernel set; read as an artifact set of tier `mixed` |
 | DESC (6) | `model.json` | the model description (kind and components) as UTF-8 JSON; optional, see below |
 | ATCH (7) | attachment name | one attachment (tokenizer file, scheduler config, filter bank, voices, ...), 64 KiB aligned; optional |
+| WLAY (8) | | weight layout facts kernels may rely on: `i32 count`, then per weight its name and `i32` scale row block (`WeightInfo.ScaleRowBlock`: rows of each matrix sharing every block scale, e.g. 128 for checkpoints with 128 x 128 FP8 scale blocks); optional, skipped by readers that predate it |
 
 The DEFN section name selects its layout, so a file whose header `AddArtifacts` raised to version 3 keeps reading its older
 definition correctly:
@@ -172,7 +173,7 @@ driver sees the bytes; a pipeline cache blob's header must name the device and d
 consulted for every tier when their `target` equals the device's v1 `CompilationTarget`. Unknown providers, tiers and kinds are
 skipped. The CPU device declares no targets and gets no cache.
 
-Loading (`CompilationArtifacts`, used by `LlmModel`, `EmbeddingModel`, `Reranker`, `TaskModel`, and by ONNX hosts such as
+Loading (`CompilationArtifacts`, used by `LlmModel`, `TaskModel` (and its text embedder and reranker), and by ONNX hosts such as
 `sharplight-onnxrun` that compile a package's graph with `CompileOptions.CacheFor = new CompilationArtifacts(source.CompilationCaches).For`;
 the load options' `Artifacts` lets several loads share one recording): per device one cache that routes each key to the tier claiming it (the Vulkan
 code tier claims `kernel/`, the binary tiers `vulkan/pipeline_binary/` and `vulkan/pipeline_cache`), consults all matching stored
@@ -299,7 +300,7 @@ kind, shown raw); `ArtifactEntryInfo.Offset` is an entry's absolute file offset;
   - `precompile <slm> (--all-devices | --device <provider:index> | --profile <file|name>) [--tier code|binary|all] [--disable-features] [--ctx]
     [--batch] [--slots] [--kv-tokens] [--bound SYMBOL=VALUE] [--use-kernel-cache]`: graphs are compiled the way their loaders
     compile them, into one shared recording: `LlmModel` (decode, decode_multimodal, vision_encode, and the serving batch decoder
-    for `--slots` sequences, default 4 like `sharplight serve`; `--slots 1` skips it), `EmbeddingModel` (embed) and `Reranker`
+    for `--slots` sequences, default 4 like `sharplight serve`; `--slots 1` skips it), the text embedder (embed) and reranker
     (classify) with their default batch limits; the graphs of every component of a described model with the component's bounds; other graphs (ONNX) as a `CompiledModel` with the CPU as fallback and the given
     bounds (the ONNX batch symbol defaults to 1). Not compiled: `decode_embeddings` (no loader compiles it; multimodal prompts use
     `decode_multimodal`) and the speculative-decoding variant of the batch decoder (its logits-row bound depends on the

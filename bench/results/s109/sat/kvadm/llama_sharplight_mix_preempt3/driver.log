@@ -1,0 +1,5 @@
+ready=1 after 53 s
+{"concurrency": 256, "requests": 2048, "errors": 0, "wall_s": 205.99108128098305, "agg_tok_s": 1994.8630661318646, "out_tokens": 410924, "avg_out_tokens": 200.646484375, "avg_prompt_tokens": 287.8408203125, "shared_prefix_words": 0, "per_stream_tok_s": 11.316770818903365, "ttft_p50_ms": 2024.852282484062, "ttft_p95_ms": 6501.15994833759, "itl_mean_ms": 88.36442974789371, "itl_p50_ms": 64.633589005
+textcheck wave 16: 16/16 identical to single-request, 0 part within 3 words, 0 garbage -> ok
+textcheck wave 256: 256/256 identical to single-request, 0 part within 3 words, 0 garbage -> ok
+textcheck: clean

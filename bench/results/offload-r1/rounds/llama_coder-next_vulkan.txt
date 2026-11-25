@@ -1,0 +1,3 @@
+== 2026-11-25T03:38:41Z llama coder-next vulkan A ncmoe 16
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |           pp512 |        380.47 ± 3.77 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | Vulkan     |  99 |         16 |      10 |   1 |     tg64 @ d512 |         57.94 ± 1.58 |

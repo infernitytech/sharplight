@@ -110,7 +110,7 @@ public sealed class ModelKindTests
     [Fact]
     public void TheAudioKinds_HaveTaskClients_SoTheyDoNotLoadAsLanguageModels()
     {
-        foreach (string kind in new[] { ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioSeparation })
+        foreach (string kind in new[] { ModelKinds.AudioCodec, ModelKinds.VoiceActivity, ModelKinds.AudioEmbedding, ModelKinds.MusicGeneration, ModelKinds.AudioGeneration, ModelKinds.AudioSeparation })
         {
             Assert.True(Sharplight.Hosting.Loaders.TaskKindClients.Handles(kind), kind);
         }
@@ -213,7 +213,7 @@ public sealed class ModelKindTests
 
         var sd = library.Entries.Single(entry => entry.Id == "sd");
         await library.DeleteCommand.ExecuteAsync(sd);
-        await library.DeleteCommand.ExecuteAsync(sd);
+        await library.Confirmation!.ConfirmCommand.ExecuteAsync(null);
 
         Assert.Single(library.Entries);
         Assert.True(library.SelectedKindFilter!.IsAll);

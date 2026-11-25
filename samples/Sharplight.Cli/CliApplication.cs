@@ -35,7 +35,7 @@ internal static class CliApplication
 
         if (settings.BenchmarkTokens is { } benchmarkTokens)
         {
-            var summary = new BenchmarkRunner(loaded.Session, benchmarkTokens, Console.Error).Run(cancellationToken);
+            var summary = new BenchmarkRunner(loaded.Session, benchmarkTokens, Console.Error, loaded.Model.DiskExperts).Run(cancellationToken);
             Console.WriteLine(summary);
         }
         else if (settings.LogitsPath is { } logitsPath)
@@ -45,6 +45,12 @@ internal static class CliApplication
         else
         {
             new TextGenerator(loaded, settings.Generation).Run(images, Console.Out, Console.Error, cancellationToken);
+        }
+
+        RemoteStages.PrintStatistics(loaded.Devices, Console.Error);
+        if (settings.BenchmarkTokens is null && loaded.Model.DiskExperts is { IsActive: true } disk)
+        {
+            Console.Error.WriteLine($"experts on disk ({disk.ReaderName}): {disk.Statistics}");
         }
 
         return ExitCodes.Success;

@@ -1,0 +1,22 @@
+cuda Fp8Gemm:Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.899s 
+cuda SkinnyGemm:Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.473s 
+cuda DualGemm:Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 11.680s 
+cuda MatMul:Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 3.489s 
+cuda MatMulEpilogue:Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 20.537s 
+cuda Moe:Total: 129, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 24.708s 
+cuda Fusion:Total: 101, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 13.654s 
+cuda NormHalfCopy:Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 57.430s 
+cuda Norm:Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.979s 
+cuda RowInvariance:Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 19.059s 
+vulkan Fp8Gemm:Total: 41, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 31.526s 
+vulkan SkinnyGemm:Total: 42, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 20.520s 
+vulkan DualGemm:Total: 13, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 18.609s 
+vulkan MatMul:Total: 164, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 32.747s 
+vulkan MatMulEpilogue:Total: 16, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 21.717s 
+vulkan Moe:Total: 129, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 40.875s 
+vulkan Fusion:Total: 101, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 36.714s 
+vulkan NormHalfCopy:Total: 23, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 36.930s 
+vulkan Norm:Total: 10, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 11.204s 
+vulkan RowInvariance:Total: 77, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 47.073s 
+Sharplight.Cuda.Tests:    Sharplight.Cuda.Tests  Total: 63, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 36.501s 
+Sharplight.Serving.Tests:    Sharplight.Serving.Tests  Total: 396, Errors: 0, Failed: 0, Skipped: 13, Not Run: 0, Time: 81.572s 

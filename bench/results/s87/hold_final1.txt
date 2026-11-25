@@ -1,0 +1,24 @@
+== lock 18:06:41
+30 routed-expert group(s) on disk
+Ready (decode)
+The capital of France is Paris, where else the hidden-googoorxmaent is is thexco,ing the the? (and
+prompt: 5 tok in 8694 ms (0.6 tok/s) | generated: 24 tok, 6.85 tok/s
+experts on disk (threads x8): hit rate 63.1 % (9057 hits, 1250 read ahead, 4048 misses, 1250 prefetched, 0 evictions), read 12.13 GB, waited 1.46 s, cache 16.4 GiB in 7624 slots
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 59 groups, 28.04 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 30 groups, 48.95 GiB weights+state
+experts on disk, warm-up and prefills: hit rate 66.3 % (5991 hits, 983 read ahead, 2062 misses, 983 prefetched, 0 evictions), read 7.00 GB, waited 0.60 s, cache 16.4 GiB in 7624 slots
+experts on disk, decode: hit rate 95.1 % (35577 hits, 448 read ahead, 1367 misses, 448 prefetched, 0 evictions), read 4.19 GB, waited 0.66 s, cache 16.4 GiB in 7624 slots
+prefill 8 tok: best 599 ms = 13.4 tok/s | decode: best 14.92, median 12.41, mean 11.40 tok/s | GPU ms/step: best 21.33, median 21.67, wall best 67.03 | prefill median of 2: 753.3 ms = 10.6 tok/s
+== llama v4 18:09:11
+The capital of France is Paris. It is the largest city in France, with a population of over 2 million people. Paris is known for
+0.28.065.418 I common_perf_print: prompt eval time =    1508.91 ms /     5 tokens (  301.78 ms per token,     3.31 tokens per second)
+0.28.065.420 I common_perf_print:        eval time =    3495.79 ms /    23 runs   (  151.99 ms per token,     6.58 tokens per second)
+== glm L6 18:09:41
+ids: 785,6722,315,9621,374,12089,13,31008,504,12089,311,86967,374,220,101478,16,13128,11,1393,2118,10966,882
+  21158 7.5811  stamp
+ids: 785,6722,315,9621,374,12089,13,31008,504,12089,311,86967,374,220,101478,16,13128,11,1393,2118,10966,882
+  21158 7.5810  stamp
+n_vocab 154880 best 21158 7.5584
+== vulkan logprob tests 18:10:29
+[0m[37m   Sharplight.Families.Tests  Total: 6, Errors: 0, Failed: 0, Skipped: 3, Not Run: 0, Time: 58.238s
+== unlock 18:11:29

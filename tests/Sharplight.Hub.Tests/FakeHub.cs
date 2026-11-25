@@ -88,6 +88,16 @@ internal sealed class FakeHub : HttpMessageHandler
                     info["gguf"] = new JsonObject { ["architecture"] = architecture };
                 }
 
+                if (repository.License is { } license)
+                {
+                    info["cardData"] = new JsonObject { ["license"] = license };
+                }
+
+                if (repository.BaseModel is { } baseModel)
+                {
+                    info["tags"] = new JsonArray($"base_model:{baseModel}", $"base_model:quantized:{baseModel}");
+                }
+
                 return Json(info.ToJsonString());
             }
 

@@ -88,4 +88,16 @@ public enum InputRole
     /// encoder's <see cref="WellKnown.EncodeGraph"/>.
     /// </summary>
     AudioFeatures,
+    /// <summary>
+    /// Multi-sequence graphs with spare recurrent-state rows: per-run table [U, 2] i32 of (rows k, state row); a run with k &gt; 0 also
+    /// stores its slot's recurrent state as it is after its first k rows into that (spare) row of every recurrent state (see
+    /// <see cref="Graph.RecurrentSnapshots"/>).
+    /// </summary>
+    SequenceSnapshots,
+    /// <summary>
+    /// Paged multi-sequence graphs with window-sized caches (<see cref="Graph.MultiSequence"/> with window rows): the block table [S, B] i32 of
+    /// the caches only sliding-window attention reads; entry (s, j) is the block of the window pool holding positions [j · block size,
+    /// (j + 1) · block size) of slot s while the slot's window still reaches them (other entries name any block of the pool).
+    /// </summary>
+    KvWindowBlockTable,
 }

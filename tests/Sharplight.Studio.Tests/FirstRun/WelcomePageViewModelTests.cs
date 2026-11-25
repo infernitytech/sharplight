@@ -67,7 +67,8 @@ public sealed class WelcomePageViewModelTests
 
         var welcome = flow.Welcome;
         Assert.Equal("Test GPU · 16.0 GB", welcome.GpuText);
-        Assert.Equal("32.0 GB", welcome.MemoryText);
+        // The fake machine has 32 GB; system memory never exceeds the process limit (a hosted CI runner has about 16 GB).
+        Assert.Equal(ByteFormat.Format(Math.Min(32L << 30, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes)), welcome.MemoryText);
         Assert.Contains("200 GB free", welcome.DiskText, StringComparison.Ordinal);
         Assert.Equal([WelcomeFeed.Chat, WelcomeFeed.Speech, WelcomeFeed.Embedding], welcome.Items.Select(item => item.Package.Id));
         Assert.Equal([true, true, false], welcome.Items.Select(item => item.IsSelected));
@@ -228,6 +229,39 @@ public sealed class WelcomePageViewModelTests
 
         Assert.True(flow.Welcome.IsCpuOnly);
         Assert.Contains("Runs on the CPU", flow.Welcome.Items[0].FitText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ABusyGpu_IsSizedByItsFreeMemory_AndShowsWhy()
+    {
+        using var flow = new Flow();
+        await WelcomeFeed.PublishAsync(flow.Rig, chatMemory: 5L << 30);
+        flow.Rig.Services.Runtime.Memory = () =>
+        [
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Gpu.Id, FakeRuntime.Gpu.Name, true, 16L << 30, 3L << 30, true, 16L << 30),
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Cpu.Id, FakeRuntime.Cpu.Name, false, 32L << 30, 24L << 30, true),
+        ];
+        await flow.OpenAsync();
+
+        Assert.Equal("Test GPU · 3.0 GB free of 16.0 GB", flow.Welcome.GpuText);
+        Assert.False(flow.Welcome.HasItems);
+        Assert.Contains("memory", flow.Welcome.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheReason_NamesFreeAndTotalGpuMemory()
+    {
+        using var flow = new Flow();
+        await WelcomeFeed.PublishAsync(flow.Rig, chatMemory: 5L << 30);
+        flow.Rig.Services.Runtime.Memory = () =>
+        [
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Gpu.Id, FakeRuntime.Gpu.Name, true, 16L << 30, 14L << 30, true, 16L << 30),
+            new Sharplight.Hosting.Fit.DeviceMemory(FakeRuntime.Cpu.Id, FakeRuntime.Cpu.Name, false, 32L << 30, 24L << 30, true),
+        ];
+        await flow.OpenAsync();
+
+        Assert.True(flow.Welcome.HasReason);
+        Assert.Contains("14.0 GB free of 16.0 GB", flow.Welcome.Reason, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -53,6 +53,7 @@ internal static class DownloadEstimate
     {
         "f32" => 4,
         "q8_0" => 34.0 / 32,
+        "f8e4m3_b32" => 36.0 / 32,
         "q4_0" => 18.0 / 32,
         _ => 2,
     };

@@ -49,4 +49,19 @@ public static class SpeechKeys
     public const string PromptTemplateIds = "speech.prompt_template_ids";
     /// <summary>The language (ISO 639-1) a multilingual model is prompted with when the request names none and the model cannot detect it (string).</summary>
     public const string DefaultLanguage = "speech.default_language";
+    /// <summary>
+    /// Longest chunk of a recording, in seconds (float), for models whose reference splits long recordings on the waveform (Cohere Transcribe:
+    /// 35): a longer recording is cut into chunks of at most this length, each with its own features (and feature normalization) and decoded
+    /// on its own. Absent: the features of the whole recording are cut into encoder windows.
+    /// </summary>
+    public const string ChunkSeconds = "speech.chunk_seconds";
+    /// <summary>
+    /// How far before a chunk's end the cut is searched, in seconds (float, with <see cref="ChunkSeconds"/>): the chunk ends at the start of the
+    /// quietest <see cref="ChunkEnergyWindow"/> (lowest RMS) in this stretch. Absent or 0: chunks end at <see cref="ChunkSeconds"/>.
+    /// </summary>
+    public const string ChunkSearchSeconds = "speech.chunk_search_seconds";
+    /// <summary>The samples of the RMS windows the chunk cut is searched with (int, with <see cref="ChunkSearchSeconds"/>; default 1600, 0.1 s at 16 kHz).</summary>
+    public const string ChunkEnergyWindow = "speech.chunk_energy_window";
+    /// <summary>Languages (ISO 639-1, string[]) whose chunk texts join without a space (Cohere Transcribe: "ja", "zh"); other languages join with one.</summary>
+    public const string UnspacedLanguages = "speech.unspaced_languages";
 }

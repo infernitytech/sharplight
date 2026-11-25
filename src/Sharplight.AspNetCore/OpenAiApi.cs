@@ -50,7 +50,7 @@ internal static class OpenAiApi
         RepetitionPenalty = b.Float("repeat_penalty") ?? b.Float("repetition_penalty") ?? d.RepetitionPenalty,
         PresencePenalty = b.Float("presence_penalty") ?? d.PresencePenalty,
         FrequencyPenalty = b.Float("frequency_penalty") ?? d.FrequencyPenalty,
-        Seed = b.Int("seed") ?? d.Seed,
+        Seed = b.Long("seed") ?? d.Seed,
         LogitBias = ParseLogitBias(b) ?? d.LogitBias,
     };
 
@@ -317,7 +317,7 @@ internal static class OpenAiApi
             StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
             Priority = b.Int("priority") ?? 0, Timeout = ctx.RequestTimeout(http),
             EnableThinking = thinking, ResponseFormat = ParseOutputFormat(b), Tenant = SharplightServerContext.TenantOf(http, b.Str("user")),
-            CachePartition = SharplightServerContext.CachePartition(http),
+            CachePartition = SharplightServerContext.CachePartition(http), CacheSalt = ctx.CacheSalt(http, b.Str("cache_salt")),
             Logprobs = b.Bool("logprobs") ?? false, TopLogprobs = Math.Clamp(top, 0, 20),
             TemplateContext = kwargs,
         };
@@ -595,6 +595,7 @@ internal static class OpenAiApi
             Priority = b.Int("priority") ?? 0, Timeout = ctx.RequestTimeout(http),
             Logprobs = lpCount is > 0, TopLogprobs = Math.Clamp(lpCount ?? 0, 0, 20), ResponseFormat = ParseOutputFormat(b),
             Tenant = SharplightServerContext.TenantOf(http, b.Str("user")), CachePartition = SharplightServerContext.CachePartition(http),
+            CacheSalt = ctx.CacheSalt(http, b.Str("cache_salt")),
         };
         bool stream = b.Bool("stream") ?? false;
         bool echo = (b.Bool("echo") ?? false) && prompt is not null;

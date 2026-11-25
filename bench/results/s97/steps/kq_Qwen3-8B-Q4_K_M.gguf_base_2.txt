@@ -1,0 +1,9 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 27.7 | 474 / 0 | 6.85 / 6.92, 6.80 |
+| 16 | 29.7 | 420 / 0 | 8.12 / 8.40, 8.08 |
+| 64 | 22.6 | 384 / 0 | 15.87 / 16.63, 15.82 |
+sampler: instant power (NVML field 186) median 199.9 W, p95 208.7 W, max 208.7 W, 7 distinct readings
+sampler: 663 busy samples of 4901 over 3.37 s: SM 2107 MHz, memory 13365 MHz, power 200.0 W (medians), max 58 C, reasons 0x4 89%

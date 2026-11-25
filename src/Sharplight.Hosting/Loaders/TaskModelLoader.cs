@@ -6,7 +6,7 @@ using Sharplight.Tasks;
 namespace Sharplight.Hosting.Loaders;
 
 /// <summary>
-/// Loads a task-layer model (speech recognition, speech synthesis, image generation, ...) onto devices shared with the other models of
+/// Loads a task-layer model (speech recognition, speech synthesis, image generation, text embedding, ...) onto devices shared with the other models of
 /// the host. The footprint is estimated from the files before anything is read (the weights plus room for activations and state), so the
 /// host can evict other models first; <see cref="IPreparedModel.Load"/> reads the model and creates the client of its kind
 /// (<see cref="TaskKindClients"/>).
@@ -20,7 +20,7 @@ public sealed class TaskModelLoader(string taskKind, TaskLoadOptions options, IR
     CancellationToken cancellation = default) : IHostedModelLoader
 {
     /// <inheritdoc/>
-    public ModelKind Kind => ModelKind.Task;
+    public ModelKind Kind => TaskKindClients.HostedKind(taskKind);
 
     /// <inheritdoc/>
     public IPreparedModel Prepare(CancellationToken ct)
@@ -37,7 +37,7 @@ public sealed class TaskModelLoader(string taskKind, TaskLoadOptions options, IR
             var provider = services.GetService<TaskClientProvider>()
                 ?? throw new InvalidOperationException("The services have no task client provider (services.AddSharplight()).");
             var client = TaskKindClients.Create(provider, model, taskKind);
-            return new TaskModelInstance(model, [client], bytes);
+            return new TaskModelInstance(model, [client], bytes, Kind);
         }
         catch
         {

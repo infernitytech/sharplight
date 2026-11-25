@@ -1,0 +1,3 @@
+[N=512] prefill 512 tok: best 344 ms = 1488.2 tok/s | decode: best 37.86, median 37.50, mean 37.36 tok/s | GPU ms/step: best 26.24, median 26.51, wall best 26.42 | prefill median of 5: 345.8 ms = 1480.6 tok/s
+[batched depth 256]
+Unhandled exception. System.InsufficientMemoryException: Model does not fit: needs 30.80 GiB, group 'layers.58' (0.53 GiB) has no room and no fallback device is configured.

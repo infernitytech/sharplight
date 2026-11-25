@@ -1,0 +1,2 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 99 %, 15629 MiB, 199.99 W, 2047 MHz, 13365 MHz, 65, P1
+3453791, <path>, 15610 MiB

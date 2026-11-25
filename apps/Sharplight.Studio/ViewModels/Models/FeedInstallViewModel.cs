@@ -13,11 +13,13 @@ internal sealed partial class FeedInstallViewModel : ObservableObject
     private readonly IFeedService _feed;
     private readonly IUiDispatcher _dispatcher;
     private readonly Action<FeedInstallViewModel, FeedInstallResult> _completed;
+    private readonly Func<CancellationToken, Task<bool>> _acceptLicense;
     private CancellationTokenSource? _cancellation;
 
     public FeedInstallViewModel(string id, string name, string version, bool isUpdate, IFeedService feed, IUiDispatcher dispatcher,
-        Action<FeedInstallViewModel, FeedInstallResult> completed)
+        Action<FeedInstallViewModel, FeedInstallResult> completed, Func<CancellationToken, Task<bool>>? acceptLicense = null)
     {
+        _acceptLicense = acceptLicense ?? (_ => Task.FromResult(true));
         Id = id;
         Name = name;
         Version = version;
@@ -111,6 +113,15 @@ internal sealed partial class FeedInstallViewModel : ObservableObject
         Status = "Reading the feed…";
         try
         {
+            Status = "Waiting for the licence terms to be accepted…";
+            if (!await _acceptLicense(cancellationToken))
+            {
+                IsCancelled = true;
+                Status = "Not installed: the licence terms were not accepted.";
+                return;
+            }
+
+            Status = "Reading the feed…";
             var result = await Task.Run(() => _feed.InstallAsync(Id, progress, cancellationToken), CancellationToken.None);
             progress.Flush();
             Progress = 1;

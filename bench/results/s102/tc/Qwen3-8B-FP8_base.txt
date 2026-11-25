@@ -1,0 +1,11 @@
+textcheck wave 16: 3/16 identical to single-request, 8 early partings, 0 garbage -> FAIL
+  #1 ['early:4']: ' Also, explain how this process helps the student learn and retain the information. Additionally, ex'
+  #2 ['early:5']: ' The story should have a happy ending. The story should be at least 1000 words.\nIn the heart of the '
+  #6 ['early:0']: " Well, first of all, it's a way to connect with people from other countries. Second, it can help you"
+  #7 ['early:6']: ' Include sensory details and vivid imagery to make the experience come alive. Also, include a person'
+textcheck wave 32: 12/32 identical to single-request, 12 early partings, 0 garbage -> FAIL
+  #1 ['early:4']: ' Also, explain how this process helps the student learn and retain the information. Additionally, ex'
+  #2 ['early:3']: ' The story should be at least 1000 words.\nThe girl is named Lila. She is 12 years old, with long bro'
+  #6 ['early:0']: " Well, first of all, it's easier to learn a second language when you're young. Second, it helps you "
+  #9 ['early:4']: ' Also, explain how this process helps the student learn and retain the information. Additionally, ex'
+textcheck: GARBAGE

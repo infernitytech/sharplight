@@ -1,0 +1,4 @@
+<out>/tests/serving.txt:    Sharplight.Serving.Tests.ModelHostTests.ConcurrentRequests_ToTwoModels_RunInParallel_AndStayIsolated [FAIL]
+<out>/tests/serving.txt:   Sharplight.Serving.Tests  Total: 397, Errors: 0, Failed: 1, Skipped: 13, Not Run: 0, Time: 130.724s
+<out>/tests/cuda.txt:   Sharplight.Cuda.Tests  Total: 71, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 302.606s
+rerun alone (twice): ConcurrentRequests_ToTwoModels_RunInParallel_AndStayIsolated Total: 1, Failed: 0

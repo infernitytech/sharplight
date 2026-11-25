@@ -1,0 +1,19 @@
+# Largest |activation| entering a matrix product, convolution or attention in the VAE decoder (ActivationRangeProbe, strict products
+# unless noted, CUDA), by probe image size; ConvBench --vae <model> --size 64 --runs 0 --activations auto --probe-size N.
+# Latents: unit Gaussian (the generator's probe input) unless noted.
+model             probe   max |x|    location     input
+sdxl-diffusers    128     1.951E+04  conv_109     gaussian (reduced-precision probe)
+sdxl-diffusers    256     2.017E+04  conv_109     gaussian
+sdxl-diffusers    512     2.912E+04  conv_109     gaussian (reduced-precision probe)
+sdxl-diffusers    1024    4.307E+04  conv_109     gaussian
+sdxl-diffusers    256     4.89E+04   conv_109     uniform [-1, 1]
+sdxl-diffusers    1024    1.373E+05  conv_109     uniform [-1, 1]
+FLUX.1-schnell    128     1112       reshape_20   gaussian (reduced-precision probe)
+FLUX.1-schnell    256     1038       reshape_20   gaussian
+FLUX.1-schnell    512     1106       reshape_20   gaussian (reduced-precision probe)
+FLUX.1-schnell    1024    1097       reshape_20   gaussian (reduced-precision probe)
+sd15-diffusers    128     272.1      conv_109     gaussian (reduced-precision probe)
+sd15-diffusers    256     358.5      conv_109     gaussian
+sd15-diffusers    512     322        conv_109     gaussian (reduced-precision probe)
+sd15-diffusers    1024    595.1      conv_109     gaussian (reduced-precision probe)
+# f16 activations (--activations half) decode against f32 products, CUDA: SDXL 256x256 81.9 dB, 1024x1024 11.2 dB.

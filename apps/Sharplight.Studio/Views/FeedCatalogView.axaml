@@ -96,6 +96,12 @@
                     <Border Classes="badge ok" IsVisible="{Binding IsVerified}" ToolTip.Tip="Listed in the signed feed index; the manifest and package file are verified before install">
                       <TextBlock Text="Verified" />
                     </Border>
+                    <Border Classes="badge ok" IsVisible="{Binding IsRecommended}" ToolTip.Tip="The variant of this model offered first">
+                      <TextBlock Text="Recommended" />
+                    </Border>
+                    <Border Classes="badge warn" IsVisible="{Binding IsPartial}" ToolTip.Tip="{Binding PartialText}">
+                      <TextBlock Text="Partial" />
+                    </Border>
                     <Border Classes="badge accent">
                       <TextBlock Text="{Binding Version}" />
                     </Border>
@@ -153,10 +159,40 @@
                 <Border Classes="badge" IsVisible="{Binding Publisher, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                   <TextBlock Text="{Binding Publisher}" />
                 </Border>
-                <Border Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" IsVisible="{Binding HasFit}">
+                <Border Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" IsVisible="{Binding HasFit}"
+                        ToolTip.Tip="{Binding FitToolTip}">
                   <TextBlock Text="{Binding FitText}" />
                 </Border>
               </WrapPanel>
+              <StackPanel x:Name="FeedVariants" Spacing="3" IsVisible="{Binding HasVariants}" Margin="0,4,0,0">
+                <TextBlock Classes="section" Text="VARIANTS OF THIS MODEL" />
+                <TextBlock Classes="caption" TextWrapping="Wrap" FontSize="11"
+                           Text="Fit on this machine with the default load settings and one chat at a time, from the feed's memory figures." />
+                <ItemsControl ItemsSource="{Binding Variants}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="mvm:FeedPackageViewModel">
+                      <Button Classes="ghost small" Classes.selected="{Binding IsCurrent}" Command="{Binding ChooseVariantCommand}" HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Stretch" Padding="6,4" ToolTip.Tip="{Binding FitToolTip}">
+                        <DockPanel>
+                          <Border DockPanel.Dock="Right" Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}"
+                                  IsVisible="{Binding HasFit}" Margin="6,0,0,0">
+                            <TextBlock Text="{Binding FitText}" />
+                          </Border>
+                          <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding Size}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding VariantLabel}" FontSize="12" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="caption" Text="{Binding Quality}" VerticalAlignment="Center" FontSize="11"
+                                       IsVisible="{Binding Quality, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <Border Classes="badge ok" IsVisible="{Binding IsRecommended}">
+                              <TextBlock Text="Recommended" />
+                            </Border>
+                          </StackPanel>
+                        </DockPanel>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
               <Border Classes="callout bad" IsVisible="{Binding IsBlocked}">
                 <TextBlock TextWrapping="Wrap" Text="{Binding BlockedText}" />
               </Border>

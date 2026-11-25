@@ -9,6 +9,21 @@ public sealed class PlacementOptions
     public DeviceSlot? Fallback { get; init; }
     /// <summary>Bytes reserved on every device for activations, scratch and driver overhead.</summary>
     public long ReservePerDevice { get; init; } = 1L << 30;
+    /// <summary>
+    /// Bytes reserved on a device for every extra device segment that moving groups to the <see cref="Fallback"/> creates (routed experts with
+    /// <see cref="SplitExperts"/>, their streamed or sparse compilations, whole layers): a compiled segment's streams, launch recordings and
+    /// graphs, and library workspace (its input and output buffers are counted apart). Null (the default): the largest
+    /// <see cref="IComputeDevice.SegmentOverheadBytes"/> of the devices, or <see cref="DefaultReservePerSegment"/> when none estimates it;
+    /// <c>SHARPLIGHT_SEGMENT_RESERVE_MIB</c> overrides it.
+    /// </summary>
+    public long? ReservePerSegment { get; init; } = long.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_SEGMENT_RESERVE_MIB"), out long mib) && mib >= 0 ? mib << 20 : null;
+
+    /// <summary>The reserve per device segment when <see cref="ReservePerSegment"/> is not set and no device estimates its overhead: 8 MiB.</summary>
+    public const long DefaultReservePerSegment = 8L << 20;
+
+    /// <summary>The bytes kept free per extra device segment: <see cref="ReservePerSegment"/>, or the devices' estimate.</summary>
+    internal long SegmentReserve => ReservePerSegment
+        ?? (Devices.Select(d => d.Device.SegmentOverheadBytes).DefaultIfEmpty(0).Max() is > 0 and var estimate ? estimate : DefaultReservePerSegment);
     /// <summary>Bounds and feature switches used to compile every segment.</summary>
     public required CompileOptions Compile { get; init; }
     /// <summary>
@@ -17,4 +32,42 @@ public sealed class PlacementOptions
     /// ending a segment each. Default true; <c>SHARPLIGHT_COUNT_LEVELS=0</c> also turns it off.
     /// </summary>
     public bool GroupDataDependentCounts { get; init; } = true;
+    /// <summary>
+    /// With a <see cref="Fallback"/> device, whether the routed experts of mixture-of-experts layers are placed apart from the rest of their
+    /// layer: when the model does not fit, the routed experts of the first layers go to the fallback (as llama.cpp's <c>--n-cpu-moe</c>), and
+    /// attention, shared experts, dense layers and the output head stay on the devices. Default true; <c>SHARPLIGHT_SPLIT_EXPERTS=0</c> also
+    /// turns it off (whole layers go to the fallback).
+    /// </summary>
+    public bool SplitExperts { get; init; } = true;
+    /// <summary>
+    /// With <see cref="SplitExperts"/> and a CPU fallback: from this many rows per forward pass (prefill) the routed experts that the
+    /// placement put on the CPU run on the GPU before them instead, their weights copied in for each pass
+    /// (<see cref="CompileOptions.StreamWeights"/>; the GPU keeps room for one layer's experts). 0 turns streaming off. Default 32.
+    /// </summary>
+    public int StreamExpertsMinRows { get; init; } = 32;
+    /// <summary>
+    /// Memories for streamed experts the GPU keeps, 1 or 2 (default 1): with two, alternate layers use
+    /// alternate memories and the copy of a layer starts while the layer streamed before it still runs, which hides more of the copies
+    /// behind prefill work for one more layer's worth of GPU memory (one more expert layer on the CPU in decode).
+    /// </summary>
+    public int StreamBuffers { get; init; } = 1;
+
+    /// <summary>A copy with the compile options <paramref name="compile"/> and every other setting kept.</summary>
+    internal PlacementOptions WithCompile(CompileOptions compile) => With(compile, ReservePerDevice);
+
+    /// <summary>A copy that reserves <paramref name="reservePerDevice"/> bytes on every device, every other setting kept.</summary>
+    internal PlacementOptions WithReserve(long reservePerDevice) => With(Compile, reservePerDevice);
+
+    private PlacementOptions With(CompileOptions compile, long reservePerDevice) => new()
+    {
+        Devices = Devices,
+        Fallback = Fallback,
+        ReservePerDevice = reservePerDevice,
+        ReservePerSegment = ReservePerSegment,
+        Compile = compile,
+        GroupDataDependentCounts = GroupDataDependentCounts,
+        SplitExperts = SplitExperts,
+        StreamExpertsMinRows = StreamExpertsMinRows,
+        StreamBuffers = StreamBuffers,
+    };
 }

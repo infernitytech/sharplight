@@ -1,0 +1,26 @@
+== v2_tma
+  check T=2048: max err 0.0781 of max 3.58e+05
+  sustained: 1.721 ms 240 TFLOPS, 198.6 W, 0.829 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.514 ms 272 TFLOPS 69 GB/s of weights
+  sustained: 6.874 ms 240 TFLOPS, 209.4 W, 0.873 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 6.776 ms 243 TFLOPS 15 GB/s of weights
+== v2_tmaq
+  qout T=2048: 205 / 25165824 codes differ from the host quantization of the reference, 105533 scales, 0 dense copies; worst |dequantized - ref| 0.0357 of the group range
+  check T=2048: max err 0 of max 0
+  sustained: 1.840 ms 224 TFLOPS, 198.5 W, 0.886 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.628 ms 253 TFLOPS 64 GB/s of weights
+  sustained: 7.357 ms 224 TFLOPS, 196.2 W, 0.875 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 7.289 ms 226 TFLOPS 14 GB/s of weights
+== v2_bs
+  check T=2048: max err 0.00977 of max 4.06e+04
+  sustained: 1.584 ms 260 TFLOPS, 196.2 W, 0.754 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.374 ms 300 TFLOPS 76 GB/s of weights
+  sustained: 6.353 ms 260 TFLOPS, 207.2 W, 0.798 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 6.239 ms 264 TFLOPS 17 GB/s of weights
+== v2_bsq
+  qout T=2048: 10 / 25165824 codes differ from the host quantization of the reference, 0 scales, 0 dense copies; worst |dequantized - ref| 0.0357 of the group range
+  check T=2048: max err 0 of max 0
+  sustained: 1.667 ms 247 TFLOPS, 198.2 W, 0.801 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.470 ms 280 TFLOPS 71 GB/s of weights
+  sustained: 6.580 ms 251 TFLOPS, 196.9 W, 0.786 pJ/flop
+T= 8192 K= 4096 N=12288 dual=1 split=1: 6.497 ms 254 TFLOPS 16 GB/s of weights

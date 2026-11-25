@@ -143,6 +143,11 @@ public static class ModelPackage
             long dataEnd = fs.Position;
             long dataOffset = weights.Count == 0 ? dataEnd : dataStart;
             sections.Add(new PackageSection(PackageSectionKind.WeightData, "", dataOffset, dataEnd - dataOffset));
+            if (WeightLayoutCodec.Applies(weights))
+            {
+                sections.Add(PackageWriter.WriteSection(fs, PackageSectionKind.WeightLayout, "", w => WeightLayoutCodec.Write(w, weights)));
+            }
+
             sections.AddRange(WriteAttachments(fs, definition.Attachments));
 
             sections.AddRange(WriteArtifactSets(fs, artifacts));
@@ -400,6 +405,9 @@ public static class ModelPackage
         }
 
         CopySource(w.Source, size, fs, buf);
+
+        // A derived weight (dequantized, repacked, fused) is not needed again: drop it so a conversion holds one at a time.
+        w.Source.Release();
     }
 
     private static unsafe void CopySource(IWeightSource source, long size, FileStream fs, byte[] buf)

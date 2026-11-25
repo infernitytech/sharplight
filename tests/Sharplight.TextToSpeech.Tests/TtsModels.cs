@@ -3,6 +3,7 @@ using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Speech;
 using Sharplight.Tasks;
+using Sharplight.Tests;
 using Sharplight.Vision;
 
 namespace Sharplight.TextToSpeech.Tests;
@@ -52,6 +53,30 @@ internal static class TtsModels
     /// <summary>Reference ids, frames and logits of transformers' CSM (raw arrays, see <c>CsmTests</c>).</summary>
     public static string CsmReference => Path.Combine(s_root, "csm-ref");
 
+    /// <summary>VibeVoice-1.5B (Microsoft's checkpoint directory with the Qwen2.5 <c>tokenizer.json</c> next to it).</summary>
+    public static string VibeVoice => Path.Combine(s_root, "..", "vibevoice", "VibeVoice-1.5B");
+
+    /// <summary>Reference tensors of transformers' VibeVoice (raw arrays, see <c>VibeVoiceTests</c>).</summary>
+    public static string VibeVoiceReference => Path.Combine(s_root, "..", "vibevoice", "ref");
+
+    /// <summary>OmniVoice (the checkpoint directory, with its audio tokenizer in <c>audio_tokenizer/</c>).</summary>
+    public static string OmniVoice => Path.Combine(s_root, "omnivoice");
+
+    /// <summary>Reference tokens, logits and audio of the official omnivoice package (raw arrays, see <c>OmniVoiceTests</c>).</summary>
+    public static string OmniVoiceReference => Path.Combine(s_root, "omnivoice-ref");
+
+    /// <summary>Dia-1.6B (the original checkpoint directory, with the 44.1 kHz DAC codec in <c>dac/</c>).</summary>
+    public static string Dia => Path.Combine(s_root, "Dia-1.6B");
+
+    /// <summary>Reference sequences, logits and audio of transformers' Dia (raw arrays, see <c>DiaTests</c>); <c>dia-a</c> without and <c>dia-b</c> with an audio prompt.</summary>
+    public static string DiaReference => Path.Combine(s_root, "dia-ref");
+
+    /// <summary>VoxCPM2 (OpenBMB's checkpoint directory: <c>model.safetensors</c>, <c>audiovae.pth</c>, <c>tokenizer.json</c>).</summary>
+    public static string VoxCpm2 => Path.Combine(s_root, "VoxCPM2");
+
+    /// <summary>Reference prompts, states, patches and audio of the official voxcpm package (raw arrays, see <c>VoxCpm2Tests</c>).</summary>
+    public static string VoxCpm2Reference => Path.Combine(s_root, "voxcpm2-ref");
+
     /// <summary>A fixture file next to the test assembly.</summary>
     public static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -68,7 +93,7 @@ internal static class TtsModels
     private static readonly Lazy<DeviceSlot?> s_gpu = new(() => OpenFirst(gpu: true));
 
     /// <summary>
-    /// The CPU device or the first GPU device, opened once and shared by every test of the assembly (skipping the test when there is
+    /// The CPU device or the GPU under test, opened once and shared by every test of the assembly (skipping the test when there is
     /// none). Models do not own their devices: a device per test would stay alive until the process exits, and the GPU driver refuses
     /// new devices after a few dozen live ones (<c>ErrorInitializationFailed</c>).
     /// </summary>
@@ -81,9 +106,16 @@ internal static class TtsModels
 
     private static DeviceSlot? OpenFirst(bool gpu)
     {
+        if (gpu)
+        {
+            // The GPU under test (SHARPLIGHT_TEST_PROVIDER=vulkan|cuda|metal, default Vulkan; tests/Shared/TestGpu.cs).
+            var (device, _) = TestGpu.Open();
+            return device is null ? null : new DeviceSlot { Device = device };
+        }
+
         foreach (var (provider, availability) in Services.GetRequiredService<ExecutionProviderCatalog>().Discover())
         {
-            if (availability.IsAvailable && (provider.Name == "cpu") != gpu)
+            if (availability.IsAvailable && provider.Name == "cpu")
             {
                 return new DeviceSlot { Device = provider.OpenDevice(provider.GetDevices()[0]) };
             }

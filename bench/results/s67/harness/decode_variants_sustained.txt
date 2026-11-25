@@ -1,0 +1,43 @@
+v0 back to back over 24 layer copies: 0.3654 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3257 ms per routing 
+v1 back to back over 24 layer copies: 0.3689 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3255 ms per routing 
+v2 back to back over 24 layer copies: 0.3566 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3238 ms per routing 
+v3 back to back over 24 layer copies: 0.3559 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3234 ms per routing 
+v0 back to back over 24 layer copies: 0.3716 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3271 ms per routing 
+v1 back to back over 24 layer copies: 0.3675 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3265 ms per routing 
+v2 back to back over 24 layer copies: 0.3616 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3244 ms per routing 
+v3 back to back over 24 layer copies: 0.3605 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3238 ms per routing 
+v0 back to back over 24 layer copies: 0.3718 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3278 ms per routing 
+v1 back to back over 24 layer copies: 0.3675 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3272 ms per routing 
+v2 back to back over 24 layer copies: 0.3629 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3250 ms per routing 
+v3 back to back over 24 layer copies: 0.3575 ms per routing routes 216 (216 launched), ROUTE_M=32 rows 1-32 clamp=0 BM=32 BN=128 stages=4: 0.3245 ms per routing 
+  check T=32: max err 0.119 of max 1.94e+04
+T=   32 items=   128 tiles=  32 K=2880 N=2880 dual=1 BM=32 BN=128: 0.358 ms 11.8 TFLOPS
+  check T=64: max err 0.0605 of max 1.72e+04
+  check T=128: max err 0.0801 of max 1.84e+04
+  check T=171: max err 0.0801 of max 2.37e+04
+  check T=256: max err 0.117 of max 2.27e+04
+T=  256 items=  1024 tiles=  44 K=2880 N=2880 dual=1 BM=32 BN=128: 0.496 ms 68.5 TFLOPS
+  check T=512: max err 0.0986 of max 1.95e+04
+  check T=1024: max err 0.113 of max 2.04e+04
+  check T=2048: max err 0.104 of max 2.22e+04
+  check T=32: max err 0.000641 of max 199
+  check T=256: max err 0.000839 of max 222
+  check T=2048: max err 0.00087 of max 240
+gu_v0 back to back over 24 layer copies: 0.3700 ms per routing isolated 0.3272 ms per routing 
+gu_v3 back to back over 24 layer copies: 0.3625 ms per routing isolated 0.3237 ms per routing 
+gu_v4 back to back over 24 layer copies: 0.3551 ms per routing isolated 0.3234 ms per routing 
+gu_v5 back to back over 24 layer copies: 0.3586 ms per routing isolated 0.3229 ms per routing 
+dn_v0 back to back over 24 layer copies: 0.1811 ms per routing isolated 0.1722 ms per routing 
+dn_v4 back to back over 24 layer copies: 0.1770 ms per routing isolated 0.1702 ms per routing 
+gu_v0 back to back over 24 layer copies: 0.3701 ms per routing isolated 0.3283 ms per routing 
+gu_v3 back to back over 24 layer copies: 0.3564 ms per routing isolated 0.3241 ms per routing 
+gu_v4 back to back over 24 layer copies: 0.3568 ms per routing isolated 0.3240 ms per routing 
+gu_v5 back to back over 24 layer copies: 0.3539 ms per routing isolated 0.3228 ms per routing 
+dn_v0 back to back over 24 layer copies: 0.1814 ms per routing isolated 0.1724 ms per routing 
+dn_v4 back to back over 24 layer copies: 0.1771 ms per routing isolated 0.1703 ms per routing 
+gu_v0 back to back over 24 layer copies: 0.3670 ms per routing isolated 0.3284 ms per routing 
+gu_v3 back to back over 24 layer copies: 0.3572 ms per routing isolated 0.3244 ms per routing 
+gu_v4 back to back over 24 layer copies: 0.3610 ms per routing isolated 0.3242 ms per routing 
+gu_v5 back to back over 24 layer copies: 0.3533 ms per routing isolated 0.3235 ms per routing 
+dn_v0 back to back over 24 layer copies: 0.1814 ms per routing isolated 0.1726 ms per routing 
+dn_v4 back to back over 24 layer copies: 0.1773 ms per routing isolated 0.1704 ms per routing 

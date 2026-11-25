@@ -1,0 +1,6 @@
+prefill T=32768 profile, segment 0: total 4575.5 ms
+    2429.91 ms   53.1%  attention
+    1839.89 ms   40.2%  dense GEMM / matvec
+     207.66 ms    4.5%  norms / elementwise / rope / cache
+      97.91 ms    2.1%  GEMM glue (to_f16 / quantize / split-K reduce)
+       0.10 ms    0.0%  sampling

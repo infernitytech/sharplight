@@ -27,12 +27,12 @@ public sealed class ExtraConformanceTests
 
     [Theory]
     [MemberData(nameof(Tests))]
-    public void Vulkan(string test)
+    public void Gpu(string test)
     {
-        var (device, reason) = Devices.Vulkan;
+        var (device, reason) = Devices.Gpu;
         if (device is null)
         {
-            Assert.Skip("Vulkan unavailable: " + reason);
+            Assert.Skip($"{Devices.GpuProvider} unavailable: {reason}");
         }
 
         Check(test, device, Devices.Cpu);

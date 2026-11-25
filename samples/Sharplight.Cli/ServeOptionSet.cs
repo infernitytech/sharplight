@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using Sharplight.Samples;
+using Sharplight.Llm.Serving;
 using Sharplight.Samples.Hub;
 
 namespace Sharplight.Cli;
@@ -78,7 +79,7 @@ internal sealed class ServeOptionSet
         DefaultValueFactory = _ => [],
     };
 
-    private readonly Option<int> _slots = OptionFactory.Integer("--slots", "Concurrent sequences batched per forward pass, each with up to --ctx tokens of context (reserved per slot unless --kv-tokens sets a shared pool).", DefaultSlots, helpName: "count");
+    private readonly Option<int> _slots = OptionFactory.Integer("--slots", "Concurrent sequences batched per forward pass, each with up to --ctx tokens of context (from a paged pool shared by the slots, see --kv-tokens).", DefaultSlots, helpName: "count");
 
     private readonly Option<int> _maxQueue = OptionFactory.Integer("--max-queue", "Waiting requests per model before answering 429.", DefaultMaxQueue, helpName: "count");
 
@@ -86,7 +87,40 @@ internal sealed class ServeOptionSet
 
     private readonly Option<long?> _kvTokens = OptionFactory.Size("--kv-tokens",
         "Paged KV cache: one pool of this many tokens (K/M suffixes) shared by all --slots, each growing up to --ctx as needed; "
-        + "admission and preemption follow free cache blocks. Default: every slot reserves --ctx tokens.", helpName: "tokens");
+        + "admission and preemption follow free cache blocks, and prompts share cached blocks by content (prefix caching). "
+        + "Default: --slots x --ctx tokens where the device runs the paged kernels; 0: every slot reserves --ctx tokens (contiguous cache).", helpName: "tokens");
+
+    private readonly Option<bool> _allowCacheSalt = new("--allow-cache-salt")
+    {
+        Description = "Accept the cache_salt request field (vLLM's prefix-cache salt) from clients; it can only narrow prefix-cache sharing.",
+    };
+
+    private readonly Option<int?> _kvSnapshots = OptionFactory.OptionalInteger("--kv-snapshots",
+        "Recurrent-state snapshots kept for prefix caching of models with recurrent state (gated delta nets, Mamba, RWKV); each costs one sequence's state. "
+        + "Default: what fits in half the KV pool's memory or 512 MiB, at most two per slot; 0: no prefix caching for such models.", minimum: 0, helpName: "count");
+
+    private readonly Option<bool> _noPrefixCache = new("--no-prefix-cache")
+    {
+        Description = "Compute every prompt in full instead of reusing the cached KV of earlier prompts with the same prefix.",
+    };
+    private readonly Option<int?> _minStepTokens = OptionFactory.OptionalInteger("--min-step-tokens", "Smallest token budget of a step while few sequences run (default 768: a wave of prompts is prefilled in smaller steps and streams sooner; 0: every step uses the whole budget).", minimum: 0, helpName: "tokens");
+    private readonly Option<string?> _stepFloor = new("--step-floor")
+    {
+        Description = "When the --min-step-tokens floor applies: waves (default: only while no sequence decodes, so the prompts of a wave that "
+            + "were admitted first decode through shorter steps), always (every step; the earlier default) or full (while some sequence decodes, "
+            + "every step may use the whole budget). SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full overrides it.",
+        HelpName = "policy",
+    };
+    private readonly Option<int?> _stepRowsPerSequence = OptionFactory.OptionalInteger("--step-rows-per-sequence", "Prompt rows per sequence holding a slot "
+        + "that a step may carry while some sequence decodes (default 48; larger: fewer, longer prompt steps, lower ITL p95, higher TTFT). "
+        + "SHARPLIGHT_STEP_ROWS_PER_SEQUENCE overrides it.", minimum: 1, helpName: "rows");
+    private readonly Option<string?> _kvAdmission = new("--kv-admission")
+    {
+        Description = "When the paged KV cache runs short: queue (default: a request waits until its prompt and some room to grow fit) or "
+            + "preempt (admit on the prompt alone; the newest running sequences give their blocks back and are recomputed later, as vLLM does: "
+            + "lower time to first token at KV saturation, at the cost of recomputation). SHARPLIGHT_KV_ADMISSION=queue|preempt overrides it.",
+        HelpName = "policy",
+    };
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
     private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
@@ -135,7 +169,14 @@ internal sealed class ServeOptionSet
         _store = store;
         _sampleRuntime = sampleRuntime;
         _api.AcceptOnlyFromAmong(ApiOpenAi, ApiAnthropic, ApiBoth);
+        _stepFloor.AcceptOnlyFromAmong("waves", "always", "full");
+        _kvAdmission.AcceptOnlyFromAmong("queue", "preempt");
     }
+
+    private readonly Option<string[]> _workers = OptionFactory.CommaSeparatedList(
+        "--workers",
+        "Segment workers (sharplight segment-worker) that run the later pipeline stages of the positional models on other machines, in order.",
+        "host:port,...");
 
     /// <summary>Adds the serve arguments and options to <paramref name="command"/>; <paramref name="action"/> receives the validated settings.</summary>
     public void Configure(Command command, Func<ServeSettings, CancellationToken, Task<int>> action)
@@ -153,7 +194,14 @@ internal sealed class ServeOptionSet
         command.Options.Add(_maxQueue);
         command.Options.Add(_prefillChunk);
         command.Options.Add(_stepTokens);
+        command.Options.Add(_minStepTokens);
+        command.Options.Add(_stepFloor);
+        command.Options.Add(_stepRowsPerSequence);
+        command.Options.Add(_kvAdmission);
         command.Options.Add(_kvTokens);
+        command.Options.Add(_allowCacheSalt);
+        command.Options.Add(_noPrefixCache);
+        command.Options.Add(_kvSnapshots);
         command.Options.Add(_draftTokens);
         command.Options.Add(_mtpTokens);
         command.Options.Add(_specMaxBatch);
@@ -166,6 +214,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_lazy);
         command.Options.Add(_idleTimeout);
         command.Options.Add(_onDemand);
+        command.Options.Add(_workers);
         _pull.AddTo(command);
         command.Validators.Add(ValidateModelSource);
         command.SetAction(HubGuard.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
@@ -208,6 +257,10 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_maxQueue),
             parseResult.GetValue(_prefillChunk),
             parseResult.GetValue(_stepTokens),
+            parseResult.GetValue(_minStepTokens),
+            ParseStepFloor(parseResult.GetValue(_stepFloor)),
+            parseResult.GetValue(_stepRowsPerSequence),
+            ParseKvAdmission(parseResult.GetValue(_kvAdmission)),
             parseResult.GetValue(_kvTokens),
             parseResult.GetValue(_draftTokens),
             parseResult.GetValue(_mtpTokens),
@@ -222,7 +275,32 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_idleTimeout),
             parseResult.GetValue(_onDemand),
             _store.ReadRoot(parseResult),
-            pull);
+            pull,
+            parseResult.GetValue(_allowCacheSalt),
+            parseResult.GetValue(_noPrefixCache),
+            parseResult.GetValue(_kvSnapshots),
+            parseResult.GetValue(_workers) ?? []);
+    }
+
+    private static StepFloorPolicy? ParseStepFloor(string? value)
+    {
+        return value switch
+        {
+            "waves" => StepFloorPolicy.Waves,
+            "always" => StepFloorPolicy.Always,
+            "full" => StepFloorPolicy.Full,
+            _ => null,
+        };
+    }
+
+    private static KvAdmissionPolicy? ParseKvAdmission(string? value)
+    {
+        return value switch
+        {
+            "queue" => KvAdmissionPolicy.Queue,
+            "preempt" => KvAdmissionPolicy.Preempt,
+            _ => null,
+        };
     }
 
     private static ApiSurface ParseApi(string value)

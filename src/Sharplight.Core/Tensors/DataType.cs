@@ -150,6 +150,7 @@ public sealed class DataType : IEquatable<DataType>
     /// NVFP4 with its second-level (per-tensor, "global") scale carried in every block: { f32 g; u8 d[4]; u8 qs[32] } (40 bytes,
     /// 4-byte aligned), the <see cref="NVFP4"/> block after an f32. Value = g * the NVFP4 value: E2M1 code times its 16-value
     /// sub-block's E4M3 scale times g. The layout of checkpoints whose global scale cannot be folded into the E4M3 scales exactly.
+    /// g is the same in every block of a matrix row (a per-tensor or per-matrix scale), which kernels may rely on.
     /// </summary>
     public static readonly DataType NVFP4_GS = Register("nvfp4_gs", DataTypeKind.Quantized, 64, 40);
 

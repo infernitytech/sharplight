@@ -13,18 +13,62 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class PagedAttentionTests
 {
     private const int BlockSize = 16;
-    private const int Slots = 3;
-    private const int SlotContext = 256;
-    private const int PoolBlocks = 40;   // < Slots * SlotContext / BlockSize: the slots share the pool
+    private const int ThreeSlots = 3;
+    private const int ThreeSlotContext = 256;
+    private const int ThreeSlotPoolBlocks = 40;   // < slots * context / BlockSize: the slots share the pool
 
     [Theory]
     [InlineData("f16", 64, 64, 8, 2)]
+    [InlineData("f16", 64, 64, 16, 2)]   // 8 heads per KV head: the tensor-core decode kernel on CUDA
+    [InlineData("f16", 128, 128, 16, 4)]
+    [InlineData("f16", 256, 256, 24, 4)]   // head sizes 256 / 512: the wide form of the tensor-core decode kernel on CUDA
+    [InlineData("f16", 512, 512, 32, 4)]
     [InlineData("q8_0", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 128, 128, 16, 4)]   // FP8 rows on CUDA's tensor-core decode kernel (ND_KVF8)
+    [InlineData("f8e4m3_b32", 128, 128, 32, 8)]
     [InlineData("f32", 64, 64, 4, 4)]
     [InlineData("f16", 576, 512, 16, 1)]   // latent attention (fa_mqa)
     [InlineData("q4_0", 288, 256, 40, 1)]
     [InlineData("f16", 12, 12, 4, 2)]   // head size not a multiple of 8
     public void PagedAttentionMatchesCpu(string cacheType, int D, int valueDims, int Hq, int Hkv)
+    {
+        var script = new List<(int Slot, int Tokens)[]>
+        {
+            new[] { (0, 70), (1, 5) },
+            new[] { (0, 1), (1, 1), (2, 40) },
+            new[] { (0, 1), (1, 1), (2, 1) },
+            new[] { (0, 2), (1, 130), (2, 1) },
+            new[] { (0, 33), (2, 1) },   // slot 0: new sequence
+            new[] { (0, 1), (1, 1), (2, 1) },
+        };
+        Check(cacheType, D, valueDims, Hq, Hkv, ThreeSlots, ThreeSlotContext, ThreeSlotPoolBlocks, script, resetStep: 4, maxTokens: 192);
+    }
+
+    /// <summary>
+    /// More sequences than the decode kernel's rows (64 on CUDA): short prompts of all of them (the mixed form, every run short), a
+    /// decode row each (no run long enough for flash attention: its launch runs no blocks), decode rows next to one prompt chunk of 40
+    /// rows (both halves of the mixed form), then decode rows again.
+    /// </summary>
+    [Theory]
+    [InlineData("f16", 128, 128, 16, 4)]
+    [InlineData("f16", 64, 64, 8, 2)]
+    [InlineData("f16", 256, 256, 8, 2)]
+    [InlineData("q8_0", 64, 64, 8, 2)]
+    [InlineData("f8e4m3_b32", 128, 128, 32, 8)]
+    [InlineData("f8e4m3_b32", 64, 64, 8, 2)]
+    public void ManySequencesDecodeOneRowEach(string cacheType, int D, int valueDims, int Hq, int Hkv)
+    {
+        const int slots = 72;
+        var prompts = Enumerable.Range(0, slots).Select(s => (s, 3 + s % 5)).ToArray();
+        var decode = Enumerable.Range(0, slots).Select(s => (s, 1)).ToArray();
+        var mixed = Enumerable.Range(0, slots).Select(s => (s, s == slots - 1 ? 40 : 1)).ToArray();
+        var script = new List<(int Slot, int Tokens)[]> { prompts, decode, mixed, decode };
+        Check(cacheType, D, valueDims, Hq, Hkv, slots, 64, slots * 4, script, resetStep: -1, maxTokens: 512);
+    }
+
+    private static void Check(string cacheType, int D, int valueDims, int Hq, int Hkv, int slots, int slotContext, int poolBlocks,
+        List<(int Slot, int Tokens)[]> script, int resetStep, int maxTokens)
     {
         Gpu.Require();
         bool latent = valueDims != D;
@@ -50,28 +94,18 @@ public sealed class PagedAttentionTests
         }
 
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc], Attributes.From([.. attrs])));
-        var g = MultiSequence.Transform(tg.B.Build(), Slots, BlockSize, SlotContext / BlockSize).Graph;
+        var g = MultiSequence.Transform(tg.B.Build(), slots, BlockSize, slotContext / BlockSize).Graph;
         Value In(string name) => g.Inputs.Single(v => v.Name == name);
 
-        // Blocks are handed out from a shuffled free list; slot 0 starts over at step 4 (its blocks return to the list).
-        var free = new Stack<int>(Enumerable.Range(0, PoolBlocks).OrderBy(b => (b * 17) % PoolBlocks));
-        var owned = Enumerable.Range(0, Slots).Select(_ => new List<int>()).ToArray();
-        var length = new int[Slots];
-        var script = new List<(int Slot, int Tokens)[]>
-        {
-            new[] { (0, 70), (1, 5) },
-            new[] { (0, 1), (1, 1), (2, 40) },
-            new[] { (0, 1), (1, 1), (2, 1) },
-            new[] { (0, 2), (1, 130), (2, 1) },
-            new[] { (0, 33), (2, 1) },   // slot 0: new sequence
-            new[] { (0, 1), (1, 1), (2, 1) },
-        };
-        const int ResetStep = 4;
+        // Blocks are handed out from a shuffled free list; slot 0 starts over at resetStep (its blocks return to the list).
+        var free = new Stack<int>(Enumerable.Range(0, poolBlocks).OrderBy(b => (b * 17) % poolBlocks));
+        var owned = Enumerable.Range(0, slots).Select(_ => new List<int>()).ToArray();
+        var length = new int[slots];
         var steps = new List<Step>();
         int seed = 10;
         foreach (var (step, si) in script.Select((x, i) => (x, i)))
         {
-            if (si == ResetStep)
+            if (si == resetStep)
             {
                 owned[0].ForEach(free.Push);
                 owned[0].Clear();
@@ -105,13 +139,13 @@ public sealed class PagedAttentionTests
                 length[slot] += n;
             }
 
-            var table = new int[Slots * (SlotContext / BlockSize)];
+            var table = new int[slots * (slotContext / BlockSize)];
             Array.Fill(table, -1);
-            for (int s = 0; s < Slots; s++)
+            for (int s = 0; s < slots; s++)
             {
                 for (int j = 0; j < owned[s].Count; j++)
                 {
-                    table[s * (SlotContext / BlockSize) + j] = owned[s][j];
+                    table[s * (slotContext / BlockSize) + j] = owned[s][j];
                 }
             }
 
@@ -131,8 +165,8 @@ public sealed class PagedAttentionTests
             steps.Add(new Step(rows, 0, [.. inputs]) { Symbols = new Dictionary<string, long> { [WellKnown.RunSymbol] = step.Length } });
         }
 
-        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "q4_0" => (3e-2, 5e-2), _ => (2e-3, 5e-3) };
-        Diff.Check("CachedAttention.paged", g, steps, atol: atol, rtol: rtol, maxTokens: 192, ctx: PoolBlocks * BlockSize,
+        var (atol, rtol) = cacheType switch { "q8_0" => (5e-3, 1e-2), "f8e4m3_b32" => (1e-2, 2e-2), "q4_0" => (3e-2, 5e-2), _ => (2e-3, 5e-3) };
+        Diff.Check("CachedAttention.paged", g, steps, atol: atol, rtol: rtol, maxTokens: maxTokens, ctx: poolBlocks * BlockSize,
             what: $"{cacheType} D={D} v_dims={valueDims} Hq={Hq} Hkv={Hkv}");
     }
 }

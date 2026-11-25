@@ -10,6 +10,8 @@ internal sealed class FakeImageGenerator : IImageGenerator
 {
     public TaskClientMetadata Metadata { get; } = new("image-generation", "fake-sd", "latent_diffusion");
 
+    public ImageGenerationDefaults Defaults { get; } = new(64, 64, 20, 7.5f, "euler");
+
     public List<(ImageGenerationRequest Request, ImageGenerationOptions Options)> Calls { get; } = [];
 
     public Task<ImageGenerationResult> GenerateAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null,

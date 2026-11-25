@@ -12,6 +12,8 @@ namespace Sharplight.Samples;
 /// <param name="CpuOffload">Let layers that do not fit on the device and unsupported ops run on the CPU.</param>
 /// <param name="ReducedPrecision">Opt-in: allow faster kernels with reduced (f16) precision where the default keeps near-f32 accuracy.</param>
 /// <param name="ProviderName">The GPU provider to use (e.g. <c>metal</c>, <c>vulkan</c>), or <see langword="null"/> for the first available one.</param>
+/// <param name="ExpertsOnDisk">With <paramref name="CpuOffload"/>: leave routed experts that do not fit host memory on disk.</param>
+/// <param name="ExpertCacheBytes">With <paramref name="ExpertsOnDisk"/>: bytes of the expert cache, or null to size it from the free host memory.</param>
 public sealed record RuntimeSettings(
     bool UseCpu,
     int DeviceIndex,
@@ -21,4 +23,6 @@ public sealed record RuntimeSettings(
     IReadOnlyList<string> DisabledFeatures,
     bool CpuOffload,
     bool ReducedPrecision = false,
-    string? ProviderName = null);
+    string? ProviderName = null,
+    bool ExpertsOnDisk = false,
+    long? ExpertCacheBytes = null);

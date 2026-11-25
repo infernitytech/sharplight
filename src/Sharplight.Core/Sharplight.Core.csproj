@@ -6,6 +6,7 @@
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
     <InternalsVisibleTo Include="Sharplight.AudioModels.Tests" />
     <InternalsVisibleTo Include="Sharplight.Cpu" />
+    <InternalsVisibleTo Include="Sharplight.Cuda" />
     <InternalsVisibleTo Include="Sharplight.Shaders" />
     <InternalsVisibleTo Include="Sharplight.Import.Gguf" />
     <InternalsVisibleTo Include="Sharplight.Serving.Tests" />
@@ -18,5 +19,8 @@
     <InternalsVisibleTo Include="Sharplight.TextToSpeech.Tests" />
     <InternalsVisibleTo Include="Sharplight.Speech.Tests" />
     <InternalsVisibleTo Include="BatchBench" />
+    <InternalsVisibleTo Include="Sharplight.Distributed" />
+    <InternalsVisibleTo Include="Sharplight.Architectures.VideoEnhancement" />
+    <InternalsVisibleTo Include="Sharplight.Distributed.Tests" />
   </ItemGroup>
 </Project>

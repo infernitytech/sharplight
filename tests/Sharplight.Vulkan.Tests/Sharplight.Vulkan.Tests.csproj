@@ -12,6 +12,13 @@
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Metal/Sharplight.Metal.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Shared/FileWeights.cs" Link="Shared/FileWeights.cs" />
+    <Compile Include="../Shared/EncodedFileRangeSource.cs" Link="Shared/EncodedFileRangeSource.cs" />
+    <Compile Include="../Shared/ReversedBlockEncoding.cs" Link="Shared/ReversedBlockEncoding.cs" />
+    <Compile Include="../Shared/FileRangeSource.cs" Link="Shared/FileRangeSource.cs" />
   </ItemGroup>
 </Project>

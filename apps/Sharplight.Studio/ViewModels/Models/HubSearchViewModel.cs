@@ -2,12 +2,14 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hosting.Fit;
 using Sharplight.Hub;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
 using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Fit;
 using Sharplight.Studio.Services.Hub;
+using Sharplight.Studio.Services.Library;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -40,7 +42,16 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         _services = services;
         _downloads = downloads;
         _storedNames = storedNames;
-        _advisor = new FitAdvisor(services.Runtime, services.Settings);
+        _advisor = FitAdvisor.For(services);
+        // Memory moved (models loaded or unloaded): the "fits this machine" filter follows.
+        services.Memory.Changed += (_, memory) => services.Dispatcher.Post(() =>
+        {
+            if (_capacity is not null)
+            {
+                SetCapacity(memory);
+                ApplyResultFilter();
+            }
+        });
         Filters = new DiscoverFiltersViewModel(services.Settings);
         _searched = Filters.Current;
         ShowOnlySupported = services.Settings.Current.ShowOnlySupported;
@@ -323,15 +334,17 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     {
         try
         {
-            var memory = await _advisor.GetMemoryAsync(CancellationToken.None);
-            _capacity = DiscoverFilter.Capacity(memory.Where(entry => entry.IsGpu).Sum(entry => entry.TotalBytes),
-                memory.Where(entry => !entry.IsGpu).Select(entry => entry.TotalBytes).DefaultIfEmpty(0).Max());
+            SetCapacity(await _advisor.GetMemoryAsync(CancellationToken.None));
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             _capacity = null;
         }
     }
+
+    private void SetCapacity(IReadOnlyList<DeviceMemory> memory)
+        => _capacity = DiscoverFilter.Capacity(memory.Where(entry => entry.IsGpu).Sum(entry => entry.UsableBytes),
+            memory.Where(entry => !entry.IsGpu).Select(entry => entry.UsableBytes).DefaultIfEmpty(0).Max());
 
     /// <summary>
     /// Fetches the highlighted models once (the catalog caches them for a few hours, so opening Discover again does not ask the Hub).
@@ -554,11 +567,18 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private bool CanDownload() => SelectedResult is not null && SelectedVariant is not null;
 
     [RelayCommand(CanExecute = nameof(CanDownload))]
-    private void Download()
+    private async Task DownloadAsync()
     {
-        var tag = SelectedVariant!.Info.Tag;
-        var reference = new ModelReference(SelectedResult!.Id, tag.Length == 0 ? null : tag);
-        _downloads.Enqueue(reference, SelectedVariant.Info.Bytes, SelectedResult.HasKind ? SelectedResult.Kind.Id : null);
+        var result = SelectedResult!;
+        var variant = SelectedVariant!;
+        if (!await _services.Licenses.RequestAsync(LicenseNotices.TermsFor(result.Id, result.License, result.Summary.Gated)))
+        {
+            return;
+        }
+
+        var tag = variant.Info.Tag;
+        var reference = new ModelReference(result.Id, tag.Length == 0 ? null : tag);
+        _downloads.Enqueue(reference, variant.Info.Bytes, result.HasKind ? result.Kind.Id : null);
     }
 
     [RelayCommand]

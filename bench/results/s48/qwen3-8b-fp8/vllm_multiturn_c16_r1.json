@@ -1,0 +1,17 @@
+{
+ "workload": "multiturn",
+ "concurrency": 16,
+ "requests": 96,
+ "errors": 0,
+ "first_error": null,
+ "wall_s": 16.23579500899359,
+ "output_tok_s": 756.8462149955228,
+ "prompt_tokens_mean": 641.6458333333334,
+ "cached_tokens": 41328,
+ "prompt_tokens": 61598,
+ "hit_rate": 0.6709308743790383,
+ "ttft_p50_ms": 241.75708799884887,
+ "ttft_p99_ms": 584.1975652510882,
+ "ttft_mean_ms": 252.18170333315962,
+ "latency_p50_s": 2.3259318505006377
+}

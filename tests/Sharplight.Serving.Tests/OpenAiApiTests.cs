@@ -350,12 +350,14 @@ public class OpenAiApiTests
         using var stream = await resp.Content.ReadAsStreamAsync();
         var buf = new byte[256];
         Assert.True(await stream.ReadAsync(buf, cts.Token) > 0);
-        Assert.Equal(1, h.Engine.GetMetrics().ActiveSequences);
+        // The first chunk (the role) can be written before the engine counts the sequence as active.
+        Assert.True(await T.WaitUntil(() => h.Engine.GetMetrics().ActiveSequences == 1, 5000));
         cts.Cancel();
         stream.Dispose();
         resp.Dispose();
         Assert.True(await T.WaitUntil(() => h.Engine.GetMetrics().ActiveSequences == 0, 5000));
-        Assert.Equal(1, h.Engine.GetMetrics().RequestsFinished[Sharplight.Llm.Serving.FinishReason.Cancelled]);
+        // The slot is released just before the finish is counted.
+        Assert.True(await T.WaitUntil(() => h.Engine.GetMetrics().RequestsFinished[Sharplight.Llm.Serving.FinishReason.Cancelled] == 1, 5000));
     }
 
     [Fact]

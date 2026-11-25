@@ -116,6 +116,27 @@ public class ModelHostTests
     }
 
     [Fact]
+    public async Task OverBudget_ShrinksDefaultCaches_InsteadOfRefusing()
+    {
+        var pool = new FakePool("gpu", 10 * GiB) { External = 5 * GiB };
+        var l = new FakeLoader(pool, 8 * GiB) { ShrinkableTo = 4 * GiB };
+        using var host = Host(reserve: 0);
+        host.Register(Reg("m", l));
+        using var lease = await host.AcquireAsync("m");
+        Assert.Equal(5 * GiB, l.LastLimit);          // loaded into what is free, no offload needed
+        Assert.Equal(5 * GiB, lease.Model.ResidentBytes);
+    }
+
+    [Fact]
+    public async Task OverBudget_Refuses_WhenEvenShrunkCachesDoNotFit()
+    {
+        var pool = new FakePool("gpu", 10 * GiB) { External = 7 * GiB };
+        using var host = Host(reserve: 0);
+        host.Register(Reg("m", new FakeLoader(pool, 8 * GiB) { ShrinkableTo = 4 * GiB }));
+        await Assert.ThrowsAsync<ModelDoesNotFitException>(() => host.AcquireAsync("m"));
+    }
+
+    [Fact]
     public async Task Eviction_UnloadsLeastRecentlyUsedIdleModel()
     {
         var pool = new FakePool("gpu", 10 * GiB);
@@ -253,6 +274,56 @@ public class ModelHostTests
         Assert.True(await host.UnloadAsync("a", TimeSpan.FromMilliseconds(20), force: true));
         Assert.Equal(0, pool.Ours);
         again.Dispose();
+    }
+
+    /// <summary>
+    /// The process stops (the host is disposed) while a model is still unloading, as a server stopped seconds after deactivating a large
+    /// offloaded model: the host must wait for that unload instead of disposing the same model again on another thread (which freed the
+    /// offloaded CPU layers' native memory twice: <c>free(): invalid pointer</c>).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dispose_WhileAModelIsUnloading_WaitsForIt_AndDisposesItOnce(bool idleSweep)
+    {
+        var pool = new FakePool("gpu", 10 * GiB);
+        var l = new FakeLoader(pool, 2 * GiB);
+        var host = Host(time: new ManualTime());
+        host.Register(Reg("a", l, idle: idleSweep ? TimeSpan.Zero : null));
+        (await host.AcquireAsync("a")).Dispose();
+        var model = l.Instances[0];
+        using var release = new ManualResetEventSlim();
+        model.DisposeGate = release;
+        var unload = idleSweep ? Task.Run(() => host.SweepIdle() == 1) : host.UnloadAsync("a");
+        Assert.True(model.DisposeStarted.Wait(TimeSpan.FromSeconds(10)));
+
+        var dispose = Task.Run(host.Dispose);
+        Assert.False(dispose.Wait(TimeSpan.FromMilliseconds(300)), "The host returned while the model was still freeing its memory.");
+        release.Set();
+        Assert.True(await unload.WaitAsync(TimeSpan.FromSeconds(10)));
+        await dispose.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, model.DisposeCalls);
+        Assert.Equal(0, pool.Ours);
+        Assert.Equal(ModelState.Unloaded, host.Get("a")!.State);
+    }
+
+    /// <summary>An unload that is still waiting for running requests when the host is disposed returns false; the host unloads the model once.</summary>
+    [Fact]
+    public async Task Dispose_WhileAnUnloadDrains_UnloadsOnce()
+    {
+        var pool = new FakePool("gpu", 10 * GiB);
+        var l = new FakeLoader(pool, 2 * GiB);
+        var host = Host();
+        host.Register(Reg("a", l));
+        var lease = await host.AcquireAsync("a");
+        var unload = host.UnloadAsync("a", TimeSpan.FromSeconds(10));
+        await Task.Delay(30);
+        Assert.False(unload.IsCompleted);
+        host.Dispose();
+        lease.Dispose();
+        Assert.False(await unload.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, l.Instances[0].DisposeCalls);
+        Assert.Equal(0, pool.Ours);
     }
 
     [Fact]

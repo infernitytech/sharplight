@@ -27,7 +27,11 @@ internal sealed class FeedCommands
     private readonly Option<string?> _comment = new("--comment") { Description = "Comment stored in the key file." };
     private readonly Option<string[]> _entries = new("--entry") { Description = "Catalog entry ids (with --variant: one entry).", Required = true, AllowMultipleArgumentsPerToken = true };
     private readonly Option<string?> _variant = new("--variant") { Description = "Catalog variant id (default: the recommended variant)." };
-    private readonly Option<string?> _store = new("--store") { Description = "Model store for downloads and conversion (default: <out>/.store)." };
+    private readonly Option<string?> _store = new("--store") { Description = "Model store for downloads and conversion (default: <work-dir>/store, else <out>/.store)." };
+    private readonly Option<string?> _buildOut = new("--out") { Description = "Staging root (default: <work-dir>/staging)." };
+    private readonly Option<string?> _workDir = new("--work-dir") { Description = "Working directory on a volume with room for the sources plus one package: the store (downloads, conversion) and, by default, the staging root." };
+    private readonly Option<bool> _keepStore = new("--keep-store") { Description = "Keep the store's copy of each model (by default the package is moved into staging and the model's store folder removed after each entry)." };
+    private readonly Option<bool> _move = new("--move") { Description = "Move package files from the staging folders into the feed folder instead of copying them (one copy on disk)." };
     private readonly Option<string?> _feedUrl = new("--feed-url") { Description = "Public feed URL written into manifests." };
     private readonly Option<string> _name = new("--name") { Description = "Feed name.", DefaultValueFactory = _ => "Sharplight verified models" };
     private readonly Option<int> _validityDays = new("--validity-days") { Description = "Days until the index expires (republish before).", DefaultValueFactory = _ => 30 };
@@ -54,8 +58,8 @@ internal sealed class FeedCommands
         root.Subcommands.Add(Command("keygen", "Generates an ECDSA P-384 signing key: <out>.key.json (private) and <out>.pub.json.", KeyGen, _out, _comment));
         root.Subcommands.Add(Command("keyset", "Writes the feed's key set (feed public keys) signed by the root key.", KeySet, _feedFolder, _rootKey, _feedKeys, _revoke, _keySetVersion, _keySetDays));
         root.Subcommands.Add(Command("plan", "Lists catalog variants without a package for their pinned revision in the feed.", Plan, _buildFeed));
-        root.Subcommands.Add(Command("build", "Builds packages from catalog variants into staging folders (download, convert with companions, hash, manifest).", BuildAsync, _entries, _variant, _out, _store, _buildFeed, _feedUrl));
-        root.Subcommands.Add(Command("publish", "Adds staged packages to the feed folder (stored once for all channels), lists them in --channel, signs manifests and the channel's new index (sequence + 1).", PublishAsync, _folders, _feedFolder, _key, _channel, _name, _validityDays));
+        root.Subcommands.Add(Command("build", "Builds packages from catalog variants into staging folders (download, convert with companions, hash, manifest).", BuildAsync, _entries, _variant, _buildOut, _workDir, _store, _keepStore, _buildFeed, _feedUrl));
+        root.Subcommands.Add(Command("publish", "Adds staged packages to the feed folder (stored once for all channels), lists them in --channel, signs manifests and the channel's new index (sequence + 1).", PublishAsync, _folders, _feedFolder, _key, _channel, _name, _validityDays, _move));
         root.Subcommands.Add(Command("promote", "Lists published versions in another channel (default: unstable to stable) without copying files, and re-signs that channel's index.", PromoteAsync, _promoted, _feedFolder, _key, _to, _from, _name, _validityDays));
         root.Subcommands.Add(Command("reindex", "Re-signs a channel's index with the next sequence (refreshes the expiry).", ReindexAsync, _feedFolder, _key, _channel, _name, _validityDays));
         root.Subcommands.Add(StateCommand("yank", "Withdraws a version (not installable; installed copies are flagged).", true, false, false));
@@ -189,8 +193,12 @@ internal sealed class FeedCommands
     {
         var catalog = LoadCatalog(result);
         var overlay = LoadOverlay(result);
-        var output = Path.GetFullPath(result.GetValue(_out)!);
-        var builder = new PackageBuilder(result.GetValue(_store) ?? Path.Combine(output, ".store"), Console.Error.WriteLine);
+        var workDir = result.GetValue(_workDir) is { } work ? Path.GetFullPath(work) : null;
+        var output = result.GetValue(_buildOut) is { } staging ? Path.GetFullPath(staging)
+            : workDir is not null ? Path.Combine(workDir, "staging")
+            : throw new ArgumentException("build needs --out or --work-dir.");
+        var store = result.GetValue(_store) ?? (workDir is not null ? Path.Combine(workDir, "store") : Path.Combine(output, ".store"));
+        var builder = new PackageBuilder(store, Console.Error.WriteLine, result.GetValue(_keepStore));
         var entries = result.GetValue(_entries) ?? [];
         var variantId = result.GetValue(_variant);
         if (variantId is not null && entries.Length != 1)
@@ -209,10 +217,7 @@ internal sealed class FeedCommands
             var variant = variantId is null ? entry.DefaultVariant! : entry.Variants.FirstOrDefault(candidate => candidate.Id == variantId)
                 ?? throw new ArgumentException($"{entryId} has no variant '{variantId}' ({string.Join(", ", entry.Variants.Select(candidate => candidate.Id))}).");
             var folder = await builder.BuildAsync(CatalogInstallPlan.For(entry, variant), output, result.GetValue(_buildFeed), overlay, result.GetValue(_feedUrl), cancellationToken).ConfigureAwait(false);
-            if (folder is not null)
-            {
-                Console.WriteLine(folder);
-            }
+            Console.WriteLine(folder);
         }
 
         return 0;
@@ -306,6 +311,7 @@ internal sealed class FeedCommands
     private FeedPublishOptions PublishOptions(ParseResult result, string? channel) => new()
     {
         Channel = channel,
+        MovePackageFiles = result.GetValue(_move),
         Name = result.GetValue(_name)!,
         Validity = TimeSpan.FromDays(result.GetValue(_validityDays)),
     };

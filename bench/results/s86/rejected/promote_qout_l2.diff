@@ -1,0 +1,193 @@
+diff --git a/bench/s86_bs/bench_fp8.cu b/bench/s86_bs/bench_fp8.cu
+index 1a4de988..e2b2666d 100644
+--- a/bench/s86_bs/bench_fp8.cu
++++ b/bench/s86_bs/bench_fp8.cu
+@@ -222,6 +222,11 @@ int main()
+         p.w2 = dw2;
+ #endif
+         p.y = y; p.T = M;
++#if QOUT && !F8N_BLOCK_SCALED
++        static float* yf = nullptr;
++        if (!yf) cudaMalloc(&yf, (size_t)T_MAX * N * 4);
++        p.yf = yf;
++#endif
+ #ifdef TMA
+         {
+             auto enc = [](void* m, const void* base, int rank, cuuint64_t* dims, cuuint64_t* strides, cuuint32_t* box) {
+@@ -278,13 +283,17 @@ int main()
+                     {
+                         float amax = 0;
+                         for (int i = 0; i < 128; i++) amax = fmaxf(amax, fabsf(b[(size_t)t * N + gq * 128 + i]));
++#if F8N_BLOCK_SCALED
+                         float d = amax > 0 ? exp2f(ceilf(log2f(amax / 448.0f))) : 1.0f;
++#else
++                        float d = amax / 448.0f;
++#endif
+                         float ds, dd; memcpy(&ds, &q[(size_t)t * qrs + N + gq * 4], 4); memcpy(&dd, &q[(size_t)QCAP * qrs + ((size_t)gq * QCAP + t) * 4], 4);
+                         scaleDiff += ds != d; denseDiff += dd != ds;
+                         for (int i = 0; i < 128; i++)
+                         {
+                             float r = b[(size_t)t * N + gq * 128 + i];
+-                            __nv_fp8_e4m3 c(r / d);
++                            __nv_fp8_e4m3 c(r * (1.0f / d));
+                             unsigned char got = q[(size_t)t * qrs + gq * 128 + i];
+                             codeDiff += c.__x != got;
+                             worst = fmax(worst, fabs(dec(got) * ds - r) / (448.0 * d));
+diff --git a/src/Sharplight.Shaders/DiagnosticSwitches.cs b/src/Sharplight.Shaders/DiagnosticSwitches.cs
+index 5137960b..fa807824 100644
+--- a/src/Sharplight.Shaders/DiagnosticSwitches.cs
++++ b/src/Sharplight.Shaders/DiagnosticSwitches.cs
+@@ -794,8 +794,8 @@ internal static class DiagnosticSwitches
+     public static bool Fp8Ue8m0WeightsOnly { get; } = Read("SHARPLIGHT_FP8_UE8M0_WEIGHTS") == "1";
+ 
+     /// <summary>
+-    /// <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n</c>: in the block-scaled FP8 mode, the dual gate / up FP8 GEMM on 128-row tiles stores its
+-    /// readers' E4M3 rows from n rows on (0: never; default 256).
++    /// <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=n</c>: the dual gate / up FP8 GEMM on 128-row tiles with tensor copies stores its readers' E4M3
++    /// rows from n rows on (0: never; default 256).
+     /// </summary>
+     public static long? Fp8StoreMinRows { get; } = Read("SHARPLIGHT_FP8_QSTORE_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+ 
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu b/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
+index d3fb9409..2def9f2f 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8_tma.cu
+@@ -33,8 +33,9 @@
+ // quantize_fp8 would compute from the f32 outputs, bit for bit (amax / 448, or with F8N_BLOCK_SCALED its power-of-two rounding as
+ // E4M3_UE8M0 gives it). A 128-value scale group spans two 64-output tiles, so a block walks pairs of tiles (n0, n0 + 64) of one token
+ // tile back to back: the first tile's outputs stay in registers, each row's absolute maximum is combined in shared memory (two
+-// barriers of the computing warps per pair), and the second tile stores both. The lowering uses it with F8N_BLOCK_SCALED only: with
+-// the promotion's accumulators the 32 held outputs exceed the 168 registers of a 288-thread block and spill.
++// barriers of the computing warps per pair), and the second tile stores both. With the promotion (no F8N_BLOCK_SCALED) the 32 held
++// outputs next to its accumulators would exceed the 168 registers of a 288-thread block and spill, so the first tile parks them in
++// its rows of the f32 outputs (yf, after y in the parameters; each thread reads back its own, from L2) instead.
+ //
+ // Specialization macros: K, N, Y_STRIDE, XCAP, DUAL, F8N_EPI2 (DUAL), F8N_BLOCK_SCALED, QOUT and QCAP. Requires K % 512 == 0, N % 128 == 0, XCAP % 128 == 0 and an
+ // even Y_STRIDE. Grid: x = persistent blocks (at most the number of tiles), 288 threads, F8N_SHARED bytes of dynamic shared memory.
+@@ -97,6 +98,10 @@ struct F8nParams
+     const f8n_u8* w2;
+ #endif
+     float* y;
++#if QOUT && !F8N_BLOCK_SCALED
++    // The f32 rows of the outputs: the first tile of a pair parks its outputs there until the second tile stores both.
++    float* yf;
++#endif
+     f8n_u32 T;
+     F8nTensorMap mx;
+     F8nTensorMap mw;
+@@ -387,8 +392,8 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
+         }
+     }
+ 
+-#if QOUT
+-    // The first tile's outputs of the current pair.
++#if QOUT && F8N_BLOCK_SCALED
++    // The first tile's outputs of the current pair (with the promotion's accumulators they would not fit: they go to p.yf).
+     float held[F8N_FM][2][F8N_FN / 2][2];
+ #endif
+     for (f8n_u32 lt = 0; lt < myTiles; lt++)
+@@ -554,8 +559,14 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
+ #pragma unroll
+                     for (int jj = 0; jj < F8N_FN / 2; jj++)
+                     {
++#if F8N_BLOCK_SCALED
+                         held[i][h][jj][0] = out[i][h][jj][0];
+                         held[i][h][jj][1] = out[i][h][jj][1];
++#else
++                        // Each thread reads back only what it wrote (from L2: two tiles later).
++                        float* yr = p.yf + (f8n_u64)(t0 + wm * F8N_TM + i * 16 + g + h * 8) * Y_STRIDE;
++                        *(float2*)(yr + n0 + wn * (F8N_TN / 2) + jj * 8 + c4 * 2) = make_float2(out[i][h][jj][0], out[i][h][jj][1]);
++#endif
+                     }
+                 }
+             }
+@@ -597,7 +608,12 @@ extern "C" __global__ void __launch_bounds__(F8N_THREADS) gemm_fp8_tma(const __g
+                     for (int jj = 0; jj < F8N_FN / 2; jj++)
+                     {
+                         const f8n_u32 n = wn * (F8N_TN / 2) + jj * 8 + c4 * 2;
+-                        *(unsigned short*)(qr + pair0 + n) = f8n_e4m3x2(held[i][h][jj][0] * inv, held[i][h][jj][1] * inv);
++#if F8N_BLOCK_SCALED
++                        const float2 first = make_float2(held[i][h][jj][0], held[i][h][jj][1]);
++#else
++                        const float2 first = *(const float2*)(p.yf + (f8n_u64)t * Y_STRIDE + pair0 + n);
++#endif
++                        *(unsigned short*)(qr + pair0 + n) = f8n_e4m3x2(first.x * inv, first.y * inv);
+                         *(unsigned short*)(qr + n0 + n) = f8n_e4m3x2(out[i][h][jj][0] * inv, out[i][h][jj][1] * inv);
+                     }
+ 
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs
+index 6b48399d..f6a73b4a 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs
+@@ -150,9 +150,12 @@ public sealed partial class GraphLowerer
+             NoteDenseScales(copy, outRows);
+             _fp8Copies[output!] = (copy, storeMin);
+             long qcap = DenseScaleCapacityOf(copy);
++            // The promoting form parks the first tile of each pair in the f32 rows (QOUT without F8N_BLOCK_SCALED).
++            KernelArg[] park = Fp8BlockScaled ? [] : [Pointer(y)];
++            TensorRef[] parked = Fp8BlockScaled ? [] : [y];
+             Emit($"{label} fp8 e4m3 out", nodes, [NativeFp8TmaVariant(n, k, cudaEpilogue, xcap, b => rows(b) >= storeMin, rows, qcap)],
+-                [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(copy), TokenArg(x, rowsPerLead)],
+-                [quantized, weightA, weightB], [copy]);
++                [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(copy), .. park, TokenArg(x, rowsPerLead)],
++                [quantized, weightA, weightB], [copy, .. parked]);
+         }
+         var splits = new SortedSet<int>();
+         long scratchBytes = 0;
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
+index 097d514d..c8db49c8 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.NativeGemm.cs
+@@ -312,17 +312,17 @@ public sealed partial class GraphLowerer
+     /// The smallest step from which the dual FP8 GEMM of a gate / up pair writing <paramref name="output"/> (f32 rows <paramref name="y"/>
+     /// of <paramref name="n"/> values) stores E4M3 activation rows for the FP8 GEMMs reading it instead of f32 rows that a separate
+     /// <c>quantize_fp8</c> launch turns into the same codes and scales (<c>QOUT</c> of <c>gemm_fp8_tma.cu</c>: bit for bit the same, so
+-    /// the next GEMM's inputs do not change; the f32 round trip and the launch go). Only in the block-scaled mode
+-    /// (<see cref="Fp8BlockScaled"/>): the promoting form holds the first tile's outputs next to its per-block accumulators and spills
+-    /// at the 168 registers per thread that 288-thread blocks get (Qwen3-8B-FP8 gate / up at 2,048 rows 1,494 → 1,713 µs, the step
+-    /// 134.7 → 137.2 ms; block-scaled 129.2 → 125.4 ms, benchmarks.md section 86). long.MaxValue when that does not apply: without a
++    /// the next GEMM's inputs do not change; the quantization launch and most of the f32 round trip go: the promoting form, whose
++    /// per-block accumulators leave no room in the 168 registers of a 288-thread block for the first tile's outputs, parks them in its f32
++    /// rows and reads them back from L2; the block-scaled form (<see cref="Fp8BlockScaled"/>) keeps them in registers; benchmarks.md
++    /// section 86). long.MaxValue when that does not apply: without a
+     /// CUDA epilogue, when a reader is not an FP8 GEMM or the value is a segment output, or with <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=0</c>.
+     /// The caller checks that the 128-row tiles run on tensor copies.
+     /// </summary>
+     private long Fp8StoreMinRows(Value? output, TensorRef y, long n, string? cudaEpilogue)
+     {
+         long min = DiagnosticSwitches.Fp8StoreMinRows ?? DefaultFp8StoreMinRows;
+-        if (min <= 0 || !Fp8BlockScaled || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
++        if (min <= 0 || output is null || cudaEpilogue is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense
+             || y.Buffer != _arena || RootOf(output) != output || _fp8Copies.ContainsKey(output) || _seg.Outputs.Any(o => RootOf(o) == output)
+             || PrefillCopyCode(output, n) != ActivationCode.Fp8)
+         {
+diff --git a/tests/Sharplight.Vulkan.Tests/Fp8BlockScaledTests.cs b/tests/Sharplight.Vulkan.Tests/Fp8BlockScaledTests.cs
+index 97ce321d..d83a7452 100644
+--- a/tests/Sharplight.Vulkan.Tests/Fp8BlockScaledTests.cs
++++ b/tests/Sharplight.Vulkan.Tests/Fp8BlockScaledTests.cs
+@@ -217,20 +217,21 @@ public sealed class Fp8BlockScaledTests
+ 
+     /// <summary>
+     /// The dual GEMM's E4M3 store (<c>QOUT</c>, from <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS</c> rows) writes the codes and scales a separate
+-    /// <c>quantize_fp8</c> writes from its f32 rows: in the block-scaled mode the MLP's outputs are bit-identical with the store on (from
+-    /// 256 rows) and off.
++    /// <c>quantize_fp8</c> writes from its f32 rows: the MLP's outputs are bit-identical with the store on (from 256 rows) and off, with
++    /// f32 scales (the promoting form) and, where the device has <c>block_scaled_fp8</c>, in the block-scaled mode.
+     /// </summary>
+     [Fact]
+     public void E4m3StoreMatchesSeparateQuantization()
+     {
+         Gpu.Require();
+-        Assert.SkipUnless(Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.BlockScaledFp8), "The device has no block_scaled_fp8.");
++        Assert.SkipUnless(Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.TensorCopies), "The device has no tensor_copies (no E4M3 store).");
+         Assert.SkipWhen(Environment.GetEnvironmentVariable("SL_TEST_FP8_OUT") is not null, "This is the child run.");
+         string dir = Path.Combine(Path.GetTempPath(), $"sl-fp8-store-{Environment.ProcessId}");
+         Directory.CreateDirectory(dir);
+         try
+         {
+-            foreach (var mode in new[] { "1" })
++            string[] modes = Gpu.Device!.EnabledFeatures.Contains(DeviceFeatures.BlockScaledFp8) ? ["0", "1"] : ["0"];
++            foreach (var mode in modes)
+             {
+                 RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "store" + mode), [Switch] = mode }, 2);
+                 RunChild([nameof(MlpOutput)], new() { ["SL_TEST_FP8_OUT"] = Path.Combine(dir, "separate" + mode), [Switch] = mode, ["SHARPLIGHT_FP8_QSTORE_MIN_ROWS"] = "0" }, 2);

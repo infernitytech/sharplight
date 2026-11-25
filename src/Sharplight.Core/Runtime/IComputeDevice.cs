@@ -27,6 +27,33 @@ public interface IComputeDevice : IDisposable
     /// <see cref="Runtime.SharedWeights"/> for the provider contract). False (the default): each compiled segment holds its own copy.
     /// </summary>
     public bool SharesWeights => false;
+
+    /// <summary>
+    /// Whether compilations on this device honour <see cref="CompileOptions.StreamWeights"/> (weights copied in at every execution, the
+    /// streamed segments of one graph sharing the memory). False (the default): the device keeps every weight it compiles.
+    /// </summary>
+    public bool StreamsWeights => false;
+
+    /// <summary>
+    /// Whether compilations on this device honour <see cref="CompileOptions.SparseExpertSlots"/> (expert banks holding a few experts, the
+    /// selected ones copied in at every execution). False (the default): <see cref="CompiledModel"/> does not split expert passes onto it.
+    /// </summary>
+    public bool StreamsSelectedExperts => false;
+
+    /// <summary>
+    /// Whether the sparse compilations of <see cref="StreamsSelectedExperts"/> also take routed experts left on disk
+    /// (<see cref="CompileOptions.DiskExperts"/>): they copy the selected experts straight from the expert cache's slots, which the device
+    /// page-locks or imports, so a split decode pass needs no CPU copy of them.
+    /// </summary>
+    public bool CopiesFromExpertCache => false;
+
+    /// <summary>
+    /// Device memory one compiled segment of this device takes beyond the buffers it allocates: driver objects such as its streams and events
+    /// and the instantiated graphs of its recorded steps, estimated by the provider. A placement keeps this much free for every device segment
+    /// it adds by moving groups to the fallback device (<see cref="PlacementOptions.ReservePerSegment"/> when that is not set). Default 0.
+    /// </summary>
+    public long SegmentOverheadBytes => 0;
+
     /// <summary>Whether the device can execute the node; unsupported nodes go to the placement fallback.</summary>
     public OpSupport Supports(Node node);
     /// <summary>

@@ -1,11 +1,12 @@
 using Sharplight.Cpu;
+using Sharplight.Cuda;
 using Sharplight.Metal;
 using Sharplight.Runtime;
 
 namespace Sharplight.Vulkan.Tests;
 
 /// <summary>
-/// Device access: the GPU under test is a Vulkan device, or a Metal device with <c>SHARPLIGHT_TEST_PROVIDER=metal</c>; tests skip when it
+/// Device access: the GPU under test is a Vulkan device, or a Metal or CUDA device with <c>SHARPLIGHT_TEST_PROVIDER=metal|cuda</c>; tests skip when it
 /// is not available.
 /// </summary>
 internal static class Gpu
@@ -14,7 +15,12 @@ internal static class Gpu
     {
         try
         {
-            IExecutionProvider p = TestSwitches.Provider == MetalProvider.ProviderName ? new MetalProvider() : new VulkanProvider();
+            IExecutionProvider p = TestSwitches.Provider switch
+            {
+                MetalProvider.ProviderName => new MetalProvider(),
+                CudaProvider.ProviderName => new CudaProvider(),
+                _ => new VulkanProvider(),
+            };
             var av = p.CheckAvailability();
             if (!av.IsAvailable)
             {
@@ -53,6 +59,13 @@ internal static class Gpu
     public static void RequireVulkan()
     {
         Assert.SkipUnless(TestSwitches.Provider == "vulkan", "Tests Vulkan internals; the provider under test is " + TestSwitches.Provider);
+        Require();
+    }
+
+    /// <summary>Requires the CUDA provider under test (tests of properties of its hand-written kernels, such as stream-K's summation order).</summary>
+    public static void RequireCuda()
+    {
+        Assert.SkipUnless(TestSwitches.Provider == "cuda", "Tests CUDA kernels; the provider under test is " + TestSwitches.Provider);
         Require();
     }
 }

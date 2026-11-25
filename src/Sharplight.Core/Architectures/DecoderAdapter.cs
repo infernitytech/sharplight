@@ -186,6 +186,10 @@ public sealed class DecoderAdapter : IModelAdapter
                 graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
             }
             graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length);
+            if (graphs.ContainsKey(WellKnown.DraftGraph) && graphBuilder.BuildDraftMultimodal(vision.DeepstackLayers.Length) is { } draft)
+            {
+                graphs[WellKnown.DraftMultimodalGraph] = draft;
+            }
         }
 
         // Audio tower (audio language models such as Qwen3-ASR): its rows replace the audio placeholders through the multimodal graph.
@@ -210,13 +214,18 @@ public sealed class DecoderAdapter : IModelAdapter
             if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph))
             {
                 graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(0);
+                if (graphs.ContainsKey(WellKnown.DraftGraph) && graphBuilder.BuildDraftMultimodal(0) is { } draft)
+                {
+                    graphs[WellKnown.DraftMultimodalGraph] = draft;
+                }
             }
 
             audioDescription = AudioLanguageModelDescription.Build(src, audio, prompt, graphs, weights);
         }
 
         // Models whose every input row is an embedding the host computes (Chatterbox's T3: conditioning, text and speech rows with learned positions).
-        if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph) && src.Arch("embedding_input", false))
+        // (A bidirectional model has no decode graph; its denoise graph takes the embedding rows itself.)
+        if (!graphs.ContainsKey(WellKnown.DecodeMultimodalGraph) && graphs.ContainsKey(WellKnown.DecodeGraph) && src.Arch("embedding_input", false))
         {
             graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(0);
         }
@@ -276,6 +285,12 @@ public sealed class DecoderAdapter : IModelAdapter
                 [WellKnown.DraftHiddenSource] = SharedKvDraftHead.FeaturesOutput,
                 [WellKnown.DraftAnchored] = true,
             };
+        }
+
+        if (eagle is not null || dflash is not null || sharedKvDrafter is not null)
+        {
+            // A separate drafter replaces the NextN head: the multimodal variant of that head no longer applies.
+            graphs.Remove(WellKnown.DraftMultimodalGraph);
         }
 
         var eos = new List<int>();

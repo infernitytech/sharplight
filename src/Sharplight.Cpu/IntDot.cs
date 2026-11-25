@@ -35,7 +35,8 @@ internal static unsafe partial class IntDot
     /// <summary>Whether <paramref name="f"/> has a decoder for the integer-dot path.</summary>
     public static bool Supports(WeightFormat f) => f is WeightFormat.Q8_0 or WeightFormat.Q4_0 or WeightFormat.Q4_1 or WeightFormat.Q5_0
         or WeightFormat.Q5_1 or WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K or WeightFormat.IQ4_NL or WeightFormat.IQ4_XS
-        or WeightFormat.MXFP4;
+        or WeightFormat.MXFP4 or WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS
+        or WeightFormat.IQ3_S;
 
     /// <summary>
     /// Whether the decoded codes of <paramref name="f"/> stay below 128, so <c>vpmaddubsw</c> cannot saturate and needs no

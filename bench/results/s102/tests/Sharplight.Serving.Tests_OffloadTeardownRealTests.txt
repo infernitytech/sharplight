@@ -1,0 +1,80 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0mGraph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [34 ms]
+Loaded Qwen3 0.6B Instruct (decoder): 310 tensors, 0.63 GB, vocab 151936 [445 ms]
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 2048 tokens in 260 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 30 groups, 0.81 GiB weights+state
+1 segment(s): [0@0: 676 nodes]
+Model 'm' loaded in 773 ms (estimated 1123 MiB, resident 835 MiB).
+Graph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [12 ms]
+Loaded Qwen3 0.6B Instruct (decoder): 310 tensors, 0.63 GB, vocab 151936 [297 ms]
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 2048 tokens in 134 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 30 groups, 0.81 GiB weights+state
+1 segment(s): [0@0: 676 nodes]
+Model 'm' loaded in 435 ms (estimated 1123 MiB, resident 835 MiB).
+Graph optimization (sharplight-ir/1): decode 676 -> 676 nodes, decode_embeddings 675 -> 675 nodes, embed 620 -> 620 nodes, classify 620 -> 620 nodes [39 ms]
+Loaded Qwen3 0.6B Instruct (decoder): 310 tensors, 0.63 GB, vocab 151936 [359 ms]
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 2048 tokens in 140 ms
+slot 0 AMD EPYC 7443 24-Core Processor: 30 groups, 0.81 GiB weights+state
+1 segment(s): [0@0: 676 nodes]
+Model 'm' loaded in 503 ms (estimated 1123 MiB, resident 835 MiB).
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [13 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [267 ms]
+Model 'm' needs 4732 MiB on NVIDIA RTX PRO 4500 Blackwell but only 1400 MiB are free; offloading layers.
+Paged KV cache shrunk to 1056 tokens (132 MiB) to fit 1400 MiB.
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 1056 tokens in 3038 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 7 groups, 0.16 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 27 groups, 3.89 GiB weights+state
+14 segment(s): [0@0: 23 nodes] → [1@1: 9 nodes] → [2@0: 23 nodes] → [3@1: 9 nodes] → [4@0: 23 nodes] → [5@1: 9 nodes] → [6@0: 23 nodes] → [7@1: 9 nodes] → [8@0: 23 nodes] → [9@1: 9 nodes] → [10@0: 23 nodes] → [11@1: 9 nodes] → [12@0: 1 nodes] → [13@1: 324 nodes]
+Model 'm' loaded in 3337 ms (estimated 4732 MiB, resident 4305 MiB, offloaded to fit).
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [8 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [169 ms]
+Model 'm' needs 4732 MiB on NVIDIA RTX PRO 4500 Blackwell but only 1400 MiB are free; offloading layers.
+Paged KV cache shrunk to 1056 tokens (132 MiB) to fit 1400 MiB.
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 1056 tokens in 1380 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 17 groups, 0.34 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 17 groups, 3.71 GiB weights+state
+34 segment(s): [0@0: 23 nodes] → [1@1: 9 nodes] → [2@0: 23 nodes] → [3@1: 9 nodes] → [4@0: 23 nodes] → [5@1: 9 nodes] → [6@0: 23 nodes] → [7@1: 9 nodes] → [8@0: 23 nodes] → [9@1: 9 nodes] → [10@0: 23 nodes] → [11@1: 9 nodes] → [12@0: 23 nodes] → [13@1: 9 nodes] → [14@0: 23 nodes] → [15@1: 9 nodes] → [16@0: 23 nodes] → [17@1: 9 nodes] → [18@0: 23 nodes] → [19@1: 9 nodes] → [20@0: 23 nodes] → [21@1: 9 nodes] → [22@0: 23 nodes] → [23@1: 9 nodes] → [24@0: 23 nodes] → [25@1: 9 nodes] → [26@0: 23 nodes] → [27@1: 9 nodes] → [28@0: 23 nodes] → [29@1: 9 nodes] → [30@0: 23 nodes] → [31@1: 9 nodes] → [32@0: 1 nodes] → [33@1: 4 nodes]
+Model 'm' loaded in 1571 ms (estimated 4732 MiB, resident 4472 MiB, offloaded to fit).
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [28 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [194 ms]
+Model 'm' needs 4732 MiB on NVIDIA RTX PRO 4500 Blackwell but only 1400 MiB are free; offloading layers.
+Paged KV cache shrunk to 1056 tokens (132 MiB) to fit 1400 MiB.
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 1056 tokens in 1065 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 7 groups, 0.16 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 27 groups, 3.89 GiB weights+state
+14 segment(s): [0@0: 23 nodes] → [1@1: 9 nodes] → [2@0: 23 nodes] → [3@1: 9 nodes] → [4@0: 23 nodes] → [5@1: 9 nodes] → [6@0: 23 nodes] → [7@1: 9 nodes] → [8@0: 23 nodes] → [9@1: 9 nodes] → [10@0: 23 nodes] → [11@1: 9 nodes] → [12@0: 1 nodes] → [13@1: 324 nodes]
+Model 'm' loaded in 1280 ms (estimated 4732 MiB, resident 4305 MiB, offloaded to fit).
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [8 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [175 ms]
+Model 'm' needs 4732 MiB on NVIDIA RTX PRO 4500 Blackwell but only 1400 MiB are free; offloading layers.
+Paged KV cache shrunk to 1056 tokens (132 MiB) to fit 1400 MiB.
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 1056 tokens in 11996 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 18 groups, 0.42 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 16 groups, 3.63 GiB weights+state
+33 segment(s): [0@0: 23 nodes] → [1@1: 9 nodes] → [2@0: 23 nodes] → [3@1: 9 nodes] → [4@0: 23 nodes] → [5@1: 9 nodes] → [6@0: 23 nodes] → [7@1: 9 nodes] → [8@0: 23 nodes] → [9@1: 9 nodes] → [10@0: 23 nodes] → [11@1: 9 nodes] → [12@0: 23 nodes] → [13@1: 9 nodes] → [14@0: 23 nodes] → [15@1: 9 nodes] → [16@0: 23 nodes] → [17@1: 9 nodes] → [18@0: 23 nodes] → [19@1: 9 nodes] → [20@0: 23 nodes] → [21@1: 9 nodes] → [22@0: 23 nodes] → [23@1: 9 nodes] → [24@0: 23 nodes] → [25@1: 9 nodes] → [26@0: 23 nodes] → [27@1: 9 nodes] → [28@0: 23 nodes] → [29@1: 9 nodes] → [30@0: 23 nodes] → [31@1: 9 nodes] → [32@0: 5 nodes]
+Model 'm' loaded in 12175 ms (estimated 4732 MiB, resident 4481 MiB, offloaded to fit).
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [8 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [157 ms]
+Model 'm' needs 4732 MiB on NVIDIA RTX PRO 4500 Blackwell but only 1400 MiB are free; offloading layers.
+Paged KV cache shrunk to 1056 tokens (132 MiB) to fit 1400 MiB.
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 1056 tokens in 1181 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 18 groups, 0.42 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 16 groups, 3.63 GiB weights+state
+33 segment(s): [0@0: 23 nodes] → [1@1: 9 nodes] → [2@0: 23 nodes] → [3@1: 9 nodes] → [4@0: 23 nodes] → [5@1: 9 nodes] → [6@0: 23 nodes] → [7@1: 9 nodes] → [8@0: 23 nodes] → [9@1: 9 nodes] → [10@0: 23 nodes] → [11@1: 9 nodes] → [12@0: 23 nodes] → [13@1: 9 nodes] → [14@0: 23 nodes] → [15@1: 9 nodes] → [16@0: 23 nodes] → [17@1: 9 nodes] → [18@0: 23 nodes] → [19@1: 9 nodes] → [20@0: 23 nodes] → [21@1: 9 nodes] → [22@0: 23 nodes] → [23@1: 9 nodes] → [24@0: 23 nodes] → [25@1: 9 nodes] → [26@0: 23 nodes] → [27@1: 9 nodes] → [28@0: 23 nodes] → [29@1: 9 nodes] → [30@0: 23 nodes] → [31@1: 9 nodes] → [32@0: 5 nodes]
+Model 'm' loaded in 1341 ms (estimated 4732 MiB, resident 4481 MiB, offloaded to fit).
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [38 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [229 ms]
+Model 'm' needs 4732 MiB on NVIDIA RTX PRO 4500 Blackwell but only 1400 MiB are free; offloading layers.
+Paged KV cache shrunk to 1056 tokens (132 MiB) to fit 1400 MiB.
+Compiled 'decode' for 2 sequences x 1024 tokens, paged KV cache of 1056 tokens in 1210 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 18 groups, 0.42 GiB weights+state
+slot 1 AMD EPYC 7443 24-Core Processor: 16 groups, 3.63 GiB weights+state
+33 segment(s): [0@0: 23 nodes] → [1@1: 9 nodes] → [2@0: 23 nodes] → [3@1: 9 nodes] → [4@0: 23 nodes] → [5@1: 9 nodes] → [6@0: 23 nodes] → [7@1: 9 nodes] → [8@0: 23 nodes] → [9@1: 9 nodes] → [10@0: 23 nodes] → [11@1: 9 nodes] → [12@0: 23 nodes] → [13@1: 9 nodes] → [14@0: 23 nodes] → [15@1: 9 nodes] → [16@0: 23 nodes] → [17@1: 9 nodes] → [18@0: 23 nodes] → [19@1: 9 nodes] → [20@0: 23 nodes] → [21@1: 9 nodes] → [22@0: 23 nodes] → [23@1: 9 nodes] → [24@0: 23 nodes] → [25@1: 9 nodes] → [26@0: 23 nodes] → [27@1: 9 nodes] → [28@0: 23 nodes] → [29@1: 9 nodes] → [30@0: 23 nodes] → [31@1: 9 nodes] → [32@0: 5 nodes]
+Model 'm' loaded in 1442 ms (estimated 4732 MiB, resident 4481 MiB, offloaded to fit).
+[37m  Finished:    Sharplight.Serving.Tests (ID = 'd40a0fc83e95311490f7d22d0afa36b88f60a3f7cab7454f463eb876b7473d22')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 9, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 37.832s
+[0m[0m

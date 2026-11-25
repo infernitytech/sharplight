@@ -1,0 +1,19 @@
+Loaded RedHatAI_Qwen3-30B-A3B-NVFP4 (decoder): 579 tensors, 19.96 GB, vocab 151936 [360 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+Uploading weights 19.96 / 19.96 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiling 137 / 137, 94 cached (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 16985 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 50 groups, 18.96 GiB weights+state
+1 segment(s): [0@0: 1685 nodes]
+Ready (decode)
+--- rendered prompt ---
+<|im_start|>user
+Explain in three sentences why the sky is blue.<|im_end|>
+<|im_start|>assistant
+
+-----------------------
+<think>
+Okay, the user wants an explanation of why the sky is blue in three sentences. Let me start by recalling the basic science behind it. I remember that it has to do with sunlight and the atmosphere. Sunlight is made of different colors, each with different wavelengths. The blue light has a shorter wavelength, so it scatters more in the atmosphere.
+
+Wait, but I should make sure I'm not mixing up Rayleigh scattering. Yes, that's the term.
+prompt: 19 tok in 71 ms (266.7 tok/s) | generated: 96 tok, 229.25 tok/s

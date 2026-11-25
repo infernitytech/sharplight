@@ -1,0 +1,35 @@
+[hold 23:35:58] ./t_run.sh
+0 %, 2 MiB, 8.49 W
+== b_gu_m0
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.587 ms 260 TFLOPS, 197.8 W, 0.762 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.395 ms 296 TFLOPS 74 GB/s of weights
+  sustained: 1.501 ms 258 TFLOPS, 205.1 W, 0.796 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.450 ms 267 TFLOPS 72 GB/s of weights
+== b_gu_mc
+./t_run.sh: line 3: 412175 Killed                  timeout -s KILL 60 ./$b
+== b_dn_m0
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.822 ms 251 TFLOPS, 202.2 W, 0.806 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.735 ms 280 TFLOPS 71 GB/s of weights
+  sustained: 0.737 ms 262 TFLOPS, 189.1 W, 0.721 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.705 ms 274 TFLOPS 74 GB/s of weights
+== b_dn_mc
+./t_run.sh: line 3: 413057 Killed                  timeout -s KILL 60 ./$b
+== b_gu_m0
+  check T=2048: max err 0.0938 of max 3.35e+05
+  sustained: 1.598 ms 258 TFLOPS, 196.9 W, 0.763 pJ/flop
+T= 2048 K= 4096 N=12288 dual=1 split=1: 1.403 ms 294 TFLOPS 74 GB/s of weights
+  sustained: 1.512 ms 256 TFLOPS, 192.2 W, 0.752 pJ/flop
+T= 1920 K= 4096 N=12288 dual=1 split=1: 1.468 ms 263 TFLOPS 71 GB/s of weights
+== b_gu_mc
+./t_run.sh: line 3: 413980 Killed                  timeout -s KILL 60 ./$b
+== b_dn_m0
+  check T=2048: max err 0.000366 of max 1.87e+03
+  sustained: 0.823 ms 250 TFLOPS, 189.3 W, 0.756 pJ/flop
+T= 2048 K=12288 N= 4096 dual=0 split=1: 0.735 ms 280 TFLOPS 71 GB/s of weights
+  sustained: 0.739 ms 262 TFLOPS, 188.7 W, 0.721 pJ/flop
+T= 1920 K=12288 N= 4096 dual=0 split=1: 0.707 ms 274 TFLOPS 73 GB/s of weights
+== b_dn_mc
+./t_run.sh: line 3: 414925 Killed                  timeout -s KILL 60 ./$b
+[release 23:40:21]

@@ -1,0 +1,12 @@
+[first] 64+0: 25.9 ms; recorded True record 6.8 submit 0.0 wait 10.6 gpu 18.0
+[stamp] 64+0 1795525588193 1795525588705 steps 37 gpu_ms 13.776
+[first] 96+0: 22.3 ms; recorded True record 7.8 submit 0.0 wait 14.4 gpu 22.2
+[stamp] 96+0 1795525589136 1795525589645 steps 30 gpu_ms 16.890
+[first] 128+0: 23.0 ms; recorded True record 5.7 submit 1.1 wait 16.0 gpu 22.8
+[stamp] 128+0 1795525590125 1795525590628 steps 26 gpu_ms 19.303
+[first] 192+0: 27.5 ms; recorded True record 4.4 submit 0.0 wait 23.0 gpu 27.4
+[stamp] 192+0 1795525591214 1795525591720 steps 20 gpu_ms 25.185
+[first] 256+0: 31.7 ms; recorded True record 4.9 submit 0.0 wait 26.7 gpu 31.5
+[stamp] 256+0 1795525592413 1795525592931 steps 18 gpu_ms 28.664
+[first] 256+256x7: 122.7 ms; recorded True record 4.4 submit 0.0 wait 116.0 gpu 120.4
+[stamp] 256+256x7 1795525594950 1795525595555 steps 5 gpu_ms 120.421

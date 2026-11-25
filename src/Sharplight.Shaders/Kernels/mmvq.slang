@@ -4,7 +4,8 @@
 // block is read once for all activation rows and the activation traffic is one byte per value.
 //
 // Quantized activation row (QROW bytes): [K int8 q][K/32 float2 (d, d * sum(q))], x ≈ d * q per 32-value block.
-// Specialization macros: WFMT (q8_0r, q4_k, q5_k, q6_k and the 32-value block formats q8_0, q4_0, q5_0, iq4_nl, mxfp4, and the group formats q4z_*, q8z_*, nvfp4, nvfp4_gs), K, N,
+// Specialization macros: WFMT (q8_0r, q4_k, q5_k, q6_k, the 32-value block formats q8_0, q4_0, q5_0, iq4_nl, mxfp4, the group formats q4z_*, q8z_*, nvfp4, nvfp4_gs
+// and the grid formats iq2_xxs, iq2_xs, iq2_s, iq3_xxs, iq3_s), K, N,
 // Y_STRIDE, ROW_BYTES, SG;
 // MQ_COLS (activation rows handled per launch, >= T), MQ_ROWS (weight rows per workgroup), MQ_SG (subgroups per workgroup).
 #include "common.slang"
@@ -422,6 +423,99 @@ XChunk load_xchunk(uint8_t* x, uint ch)
     return c;
 }
 float dot_chunk(WChunk w, XChunk x, uint ch) { return w.d * (x.d.x * float(dot16(w.lo, x.lo) + dot16(w.hi, x.hi)) - w.off * x.d.y); }
+#elif WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S
+// ggml's grid formats (quant_iq.slang), one 32-value sub-block per chunk: the grid entries hold the magnitudes as bytes (all
+// nonzero, below 64) and each value has a sign bit, so the weights unpack to signed int8 quads; the sub-block scale (IQ2_XS /
+// IQ2_S: one per 16 values) applies once per chunk. Values 0..15 of the chunk are in lo, 16..31 in hi.
+#define CHUNK_VALUES 32
+struct WChunk { uint4 lo; uint4 hi; float dlo; float dhi; };
+struct XChunk { uint4 lo; uint4 hi; float2 d; };
+
+// Four magnitude bytes with the sign bits s (bit j negates byte j) applied: (m ^ 0xFF) + 1 per negative byte, without carries as no
+// magnitude is zero.
+uint signed_bytes(uint m, uint s)
+{
+    uint neg = ((s & 0xFu) * 0x00204081u) & 0x01010101u;
+    return (m ^ (neg * 0xFFu)) + neg;
+}
+
+#if WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S
+// The 8 values l of a sub-block: two 4-byte grid entries.
+uint2 iq_values(uint i1, uint i2, uint signs) { return uint2(signed_bytes(g_grid[i1], signs), signed_bytes(g_grid[i2], signs >> 4)); }
+#else
+// The 8 values of one 8-byte grid entry.
+uint2 iq_values(uint idx, uint signs) { return uint2(signed_bytes(g_grid[2 * idx], signs), signed_bytes(g_grid[2 * idx + 1], signs >> 4)); }
+#endif
+
+WChunk load_chunk(uint8_t* w, uint row, uint ch)
+{
+    uint ib = ch & 7;
+    WChunk c;
+    uint2 v[4];
+#if WFMT == FMT_IQ2_XXS
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(ch >> 3) * 66;
+    float d = h2f(*(uint16_t*)blk);
+    uint w0 = rd32(blk, 2 + 8 * ib);
+    uint w1 = rd32(blk, 6 + 8 * ib);
+    c.dlo = d * (0.5 + float(w1 >> 28)) * 0.25;
+    c.dhi = c.dlo;
+    [ForceUnroll]
+    for (uint l = 0; l < 4; l++) v[l] = iq_values((w0 >> (8 * l)) & 255, iq_sign_byte((w1 >> (7 * l)) & 127));
+#elif WFMT == FMT_IQ2_XS
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(ch >> 3) * 74;
+    float d = h2f(*(uint16_t*)blk);
+    uint sc = uint(blk[66 + ib]);
+    c.dlo = d * (0.5 + float(sc & 15)) * 0.25;
+    c.dhi = d * (0.5 + float(sc >> 4)) * 0.25;
+    [ForceUnroll]
+    for (uint l = 0; l < 4; l++)
+    {
+        uint q = rd16(blk, 2 + 8 * ib + 2 * l);
+        v[l] = iq_values(q & 511, iq_sign_byte(q >> 9));
+    }
+#elif WFMT == FMT_IQ2_S
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(ch >> 3) * 82;
+    float d = h2f(*(uint16_t*)blk);
+    uint sc = uint(blk[74 + ib]);
+    uint qh = uint(blk[66 + ib]);
+    c.dlo = d * (0.5 + float(sc & 15)) * 0.25;
+    c.dhi = d * (0.5 + float(sc >> 4)) * 0.25;
+    [ForceUnroll]
+    for (uint l = 0; l < 4; l++) v[l] = iq_values(uint(blk[2 + 4 * ib + l]) | ((qh << (8 - 2 * l)) & 0x300), uint(blk[34 + 4 * ib + l]));
+#elif WFMT == FMT_IQ3_XXS
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(ch >> 3) * 98;
+    float d = h2f(*(uint16_t*)blk);
+    uint word = rd32(blk, 66 + 4 * ib);
+    c.dlo = d * (0.5 + float(word >> 28)) * 0.5;
+    c.dhi = c.dlo;
+    [ForceUnroll]
+    for (uint l = 0; l < 4; l++) v[l] = iq_values(uint(blk[2 + 8 * ib + 2 * l]), uint(blk[3 + 8 * ib + 2 * l]), iq_sign_byte((word >> (7 * l)) & 127));
+#else
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(ch >> 3) * 110;
+    float d = h2f(*(uint16_t*)blk);
+    uint qh = uint(blk[66 + ib]);
+    c.dlo = d * float(1 + 2 * ((uint(blk[106 + (ib >> 1)]) >> (4 * (ib & 1))) & 15));
+    c.dhi = c.dlo;
+    [ForceUnroll]
+    for (uint l = 0; l < 4; l++)
+    {
+        v[l] = iq_values(uint(blk[2 + 8 * ib + 2 * l]) | ((qh << (8 - 2 * l)) & 256), uint(blk[3 + 8 * ib + 2 * l]) | ((qh << (7 - 2 * l)) & 256),
+            uint(blk[74 + 4 * ib + l]));
+    }
+#endif
+    c.lo = uint4(v[0], v[1]);
+    c.hi = uint4(v[2], v[3]);
+    return c;
+}
+XChunk load_xchunk(uint8_t* x, uint ch)
+{
+    XChunk c;
+    c.lo = *(uint4*)(x + ch * 32);
+    c.hi = *(uint4*)(x + ch * 32 + 16);
+    c.d = *(float2*)(x + K + ch * 8);
+    return c;
+}
+float dot_chunk(WChunk w, XChunk x, uint ch) { return x.d.x * (w.dlo * float(dot16(w.lo, x.lo)) + w.dhi * float(dot16(w.hi, x.hi))); }
 #else
 #error "mmvq: unsupported WFMT"
 #endif
@@ -471,19 +565,34 @@ float row_group_sum(float v, uint lane)
 #ifdef KERNEL_MMVQ
 struct Params
 {
+#if HAS_GRID
+    uint* grid;
+#endif
     uint8_t* xq;
     uint8_t* w;
 #if DUAL
     uint8_t* w2;
 #endif
     float* y;
+#if MM_EPI && MM_EPI_ARGS > 0
+    float* e0;   // the store epilogue's tensors (mm_epi.slang; not with DUAL)
+#endif
+#if MM_EPI && MM_EPI_ARGS > 1
+    float* e1;
+#endif
+#if MM_EPI && MM_EPI_ARGS > 2
+    float* e2;
+#endif
     uint T;
 };
+
+#include "mm_epi.slang"
 
 [shader("compute")]
 [numthreads(MQ_THREADS, 1, 1)]
 void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x;
     uint lane = tid % SG;
 #if MQ_LPR < SG
@@ -545,7 +654,7 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #if DUAL
         s = epi2(s, row_group_sum(acc2[i], lane));
 #endif
-        if (lane % MQ_LPR == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = s;
+        if (lane % MQ_LPR == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = MM_STORE(s, c, row0 + r);
     }
 #elif MQ_SG > 1
     uint sg = tid / SG;
@@ -572,7 +681,7 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         [ForceUnroll] for (int g = 0; g < MQ_SG; g++) s2 += mqPart[g][MQ_OUT + i];
         s = epi2(s, s2);
 #endif
-        p.y[uint64_t(c) * Y_STRIDE + row0 + r] = s;
+        p.y[uint64_t(c) * Y_STRIDE + row0 + r] = MM_STORE(s, c, row0 + r);
     }
 #else
     [ForceUnroll]
@@ -584,7 +693,7 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #if DUAL
         s = epi2(s, WaveActiveSum(acc2[i]));
 #endif
-        if (lane == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = s;
+        if (lane == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = MM_STORE(s, c, row0 + r);
     }
 #endif
 }
@@ -613,6 +722,9 @@ groupshared float slotPart[S][SLOT_ROWS];
 #endif
 struct MoeParams
 {
+#if HAS_GRID
+    uint* grid;
+#endif
     uint8_t* xq;
     uint8_t* w;
 #if DUAL
@@ -630,6 +742,7 @@ struct MoeParams
 [numthreads(MQ_THREADS, 1, 1)]
 void moe_mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform MoeParams p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x;
     uint lane = tid % SG;
 #if SLOT_SUM

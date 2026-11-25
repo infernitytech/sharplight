@@ -129,14 +129,34 @@ float score_bias(uint h, uint j, uint qp)
     return b;
 }
 #endif
-#define KV_QUANT (KV_FMT == FMT_Q8_0 || KV_FMT == FMT_Q4_0)
-#define KV_BLOCK_BYTES (KV_FMT == FMT_Q8_0 ? 34 : 18)
+// KV_FP8: f8e4m3_b32 caches, blocks of { f32 d; u8 e4m3[32] } (36 bytes, 4-byte aligned), value = d * e4m3(q).
+#define KV_FP8 (KV_FMT == FMT_F8E4M3_B32)
+#define KV_QUANT (KV_FMT == FMT_Q8_0 || KV_FMT == FMT_Q4_0 || KV_FP8)
+#define KV_BLOCK_BYTES (KV_FP8 ? 36 : KV_FMT == FMT_Q8_0 ? 34 : 18)
+#define KV_SCALE_BYTES (KV_FP8 ? 4 : 2)
+// One byte per value (q8_0, f8e4m3_b32) rather than q4_0's nibbles.
+#define KV_BYTE_QUANTS (KV_FMT == FMT_Q8_0 || KV_FP8)
 
 // ---- KV cache element access (elements are addressed linearly in the cache; quantized caches in 32-value blocks) -------
-// Block of cache element `elem`, its f16 scale, and the 16-bit word holding the byte at offset `b` of its quants (blocks are
-// 2-byte aligned: 34 / 18 bytes).
+// Block of cache element `elem`, its scale (f16; f32 for f8e4m3_b32), and the 16-bit word holding the byte at offset `b` of its
+// quants (blocks are 2-byte aligned: 34 / 18 bytes; 4-byte aligned: 36).
 uint8_t* kv_block(uint8_t* base, uint64_t elem) { return byteAt(base, (elem >> 5) * KV_BLOCK_BYTES); }
-uint kv_word(uint8_t* blk, uint b) { return uint(*(uint16_t*)(blk + 2 + b)); }
+uint kv_word(uint8_t* blk, uint b) { return uint(*(uint16_t*)(blk + KV_SCALE_BYTES + b)); }
+float kv_scale(uint8_t* blk)
+{
+#if KV_FP8
+    return *(float*)blk;
+#else
+    return h2f(*(uint16_t*)blk);
+#endif
+}
+
+// An E4M3 code (low byte of `code`) as a float, exact: its sign and 7 exponent / mantissa bits placed as half bits are the
+// value * 2^-8 (the exponent biases differ by 8; subnormals included).
+float e4m3_value(uint code)
+{
+    return f16tof32(((code & 0x7Fu) << 7) | ((code & 0x80u) << 8)) * 256.0;
+}
 
 // 8 cache values starting at element `elem` (a multiple of 8) as raw data: kept packed in registers until used, so a kernel
 // can issue many loads before the first one is consumed.
@@ -166,9 +186,13 @@ Kv8 load_kv8(uint8_t* cache, uint64_t elem)
 #else
     uint8_t* blk = kv_block(cache, elem);
     uint within = uint(elem & 31);
-    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
-    r.d = h2f(*(uint16_t*)blk);
+    uint b = KV_BYTE_QUANTS ? within : within & 15;
+    r.d = kv_scale(blk);
+#if KV_FP8
+    r.q = uint2(*(uint*)(blk + 4 + b), *(uint*)(blk + 8 + b));
+#else
     r.q = uint2(kv_word(blk, b) | (kv_word(blk, b + 2) << 16), kv_word(blk, b + 4) | (kv_word(blk, b + 6) << 16));
+#endif
     r.shift = KV_FMT == FMT_Q4_0 && within >= 16 ? 4 : 0;
 #endif
     return r;
@@ -196,7 +220,9 @@ float kv_quant(Kv8 k, uint e)
 {
     uint w = e < 4 ? k.q.x : k.q.y;
     uint byte = (w >> ((e & 3) * 8)) & 0xFF;
-#if KV_FMT == FMT_Q8_0
+#if KV_FP8
+    return e4m3_value(byte);
+#elif KV_FMT == FMT_Q8_0
     return float(int(byte << 24) >> 24);
 #else
     return float((byte >> k.shift) & 0xF) - 8.0;
@@ -247,9 +273,11 @@ float load_kv(uint8_t* base, uint64_t elem)
 #else
     uint8_t* blk = kv_block(base, elem);
     uint within = uint(elem & 31);
-    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
+    uint b = KV_BYTE_QUANTS ? within : within & 15;
     uint byte = (kv_word(blk, b & ~1u) >> ((b & 1) * 8)) & 0xFF;
-#if KV_FMT == FMT_Q8_0
+#if KV_FP8
+    return kv_scale(blk) * e4m3_value(byte);
+#elif KV_FMT == FMT_Q8_0
     return h2f(*(uint16_t*)blk) * float(int(byte << 24) >> 24);
 #else
     return h2f(*(uint16_t*)blk) * (float((byte >> (within >= 16 ? 4 : 0)) & 0xF) - 8.0);
@@ -332,13 +360,33 @@ uint decode_max_splits(uint T)
     return clamp(uint(DEC_TARGET_WG) / max(T * DEC_GROUPS, 1u), 1u, uint(DEC_MAX_SPLITS));
 }
 
-// Keys per split range of a row with `span` keys (a multiple of DEC_BC).
+// Keys per split range of a row with `span` keys (a multiple of DEC_BC). With ranges of several batches (DEC_MIN_KEYS > DEC_BC):
+// as many ranges as hold DEC_MIN_KEYS keys each, at most decode_max_splits(T), the keys spread evenly over them; rounding the
+// range up to DEC_MIN_KEYS instead left a short last range (300 keys in 256 + 44: a second workgroup and the combine for little
+// work). Launches with few workgroups (under an eighth of DEC_TARGET_WG) take one range more instead (the count rounded up), since
+// there the latency of a range, not the work, sets the time (RTX PRO 4500, one Qwen3-8B-FP8 row at ~280 keys: 2 ranges 11.40 ms
+// per step, 3 ranges 11.23). Ranges of one batch: the even split rounded up to whole batches.
 uint decode_split_keys(uint span, uint T)
 {
     uint ms = decode_max_splits(T);
+#if DEC_MIN_KEYS > DEC_BC
+    uint ns = clamp(span / uint(DEC_MIN_KEYS), 1u, ms);
+#ifdef DEC_INVARIANT_ROWS
+    uint rows = T <= DEC_INVARIANT_ROWS ? 1u : T;
+#else
+    uint rows = T;
+#endif
+    if (rows * DEC_GROUPS * ns < uint(DEC_TARGET_WG) / 8)
+    {
+        ns = clamp((span + DEC_MIN_KEYS - 1) / uint(DEC_MIN_KEYS), 1u, ms);   // few workgroups: one range more, shorter ones
+    }
+    uint per = (span + ns - 1) / ns;
+    return (per + DEC_BC - 1) / DEC_BC * DEC_BC;
+#else
     uint per = (span + ms - 1) / ms;
     per = (per + DEC_BC - 1) / DEC_BC * DEC_BC;
     return max(per, uint(DEC_MIN_KEYS));
+#endif
 }
 
 // Key range [jLo, L) of query row t and the cache base of its sequence (see kv_base).
@@ -914,9 +962,16 @@ using namespace linalg;
 #define FA_PS (FA_BC + 8)
 #define FA_DC 64
 #define FA_NC (FA_DVP / FA_DC)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias FaA = CuA16;
+typealias FaB = CuB16;
+typealias FaC = CuAccF;
+#else
 typealias FaA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias FaB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias FaC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 // FA_FRAG8 (DeviceFeatures.MatrixF16Small, Metal simdgroup_matrix): each 16x16 tile of S and of P·V is computed as 2 x 2 fragments of
 // 8x8 over K steps of 8, with the same shared-memory layout and stores.
 #ifndef FA_FRAG8
@@ -1356,9 +1411,11 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 // registers and its scores and probabilities only pass through its own shared slices (subgroup barriers). The workgroup shares
 // the K/V tiles of FE_BC keys, fetched into registers one tile ahead: two workgroup barriers per tile. FA_SPLIT: Q, K, V and P
 // in two f16 parts (three products each, near-f32 accuracy); otherwise single f16 products. SCALE multiplies the f32 scores; P
-// is scaled by 2^12 before its f16 conversion. Head sizes are zero-padded to 16 (D % 8 == DV % 8 == 0, padded sizes <= 128);
+// is scaled by 2^12 before its f16 conversion. Head sizes are zero-padded to 16 (D % 8 == DV % 8 == 0, padded sizes <= 128; with
+// FE_REG up to 512, FE_DS above 256);
 // 32-wide subgroups.
-// FE_CAUSAL (not FULL_ATTN; prefill against a KV cache): query t sees keys [0, n_past + t]; a block reads only the keys its
+// FE_CAUSAL (not FULL_ATTN; prefill against a KV cache): query t sees keys [0, n_past + t] (WINDOW: its last WINDOW of them, the
+// block's key loop starting at its first query's window); a block reads only the keys its
 // last query sees. One sequence: the blocks run longest first. MULTI_SEQ: grid z = runs (optionally paged, MIX_RUN).
 // FE_REG (not FA_SPLIT; DeviceFeatures.MatrixMmaLayout): the fragments hold their elements in the layout of the 16x8x16 MMA
 // instructions (lane l: rows l / 4 and l / 4 + 8, columns 2 (l % 4) + {0, 1, 8, 9}; accumulators and A operands alike), so
@@ -1385,7 +1442,16 @@ using namespace linalg;
 #ifndef FE_BC
 #define FE_BC (FE_REG ? 64 : 32)
 #endif
-#define FE_T (FE_BR * 2)
+// FE_DS (FE_REG only): subgroups sharing a 16-row group, each holding the query fragments of its share of the key dimensions and
+// the output accumulators of its share of the value dimensions (2 for head sizes above 256, so the registers stay those of 256).
+// Per tile the pair's partial scores are exchanged through feX and summed in the same order in both, so both run the same softmax.
+#ifndef FE_DS
+#define FE_DS 1
+#endif
+#if FE_DS != 1 && (!FE_REG || FE_DS != 2)
+#error "FE_DS = 2 takes the register softmax"
+#endif
+#define FE_T (FE_BR * 2 * FE_DS)
 #define FE_DP ((D + 15) / 16 * 16)
 #define FE_DVP ((DV + 15) / 16 * 16)
 #define FE_QS (FE_DP + 8)
@@ -1395,7 +1461,17 @@ using namespace linalg;
 #define FE_SS (FE_BC + 4)                         // score row stride (floats): conflict-free fragment stores
 #define FE_KT (FE_BC * FE_KS)                      // halves of one K part
 #define FE_VT (FE_BC * FE_VS)                      // halves of one V part
-#define FE_QT (FE_BR * FE_QS)                      // halves of one staged Q part
+// FE_QPASS (FE_REG only): Q is staged in passes of FE_BR / FE_QPASS rows, each pass's subgroups loading their fragments before the
+// next one overwrites it, so that a block of queries whose staged rows would not fit the shared memory (64 queries of head size 512:
+// 66 KiB) shares each key tile.
+#ifndef FE_QPASS
+#define FE_QPASS 1
+#endif
+#if FE_QPASS > 1 && (!FE_REG || FA_SPLIT || (FE_BR / FE_QPASS) % 16 != 0)
+#error "FE_QPASS takes the register softmax and passes of whole row groups"
+#endif
+#define FE_QR (FE_BR / FE_QPASS)                    // query rows staged per pass
+#define FE_QT (FE_QR * FE_QS)                      // halves of one staged Q part
 #if FA_SPLIT
 #define FE_PARTS 2                                 // f16 parts per value (hi, lo)
 #else
@@ -1410,10 +1486,22 @@ using namespace linalg;
 #define FE_VPT ((FE_BC * FE_VC + FE_T - 1) / FE_T)
 #define FE_ND (FE_DP / 16)
 #define FE_NO (FE_DVP / 16)
+#define FE_NDW (FE_ND / FE_DS)                     // K steps of a subgroup's share of Q·Kᵀ
+#define FE_NOW (FE_NO / FE_DS)                     // output fragments of a subgroup
+#if FE_DS > 1 && (FE_ND % FE_DS != 0 || FE_NO % FE_DS != 0)
+#error "FE_DS needs head sizes split into whole fragments"
+#endif
 #define FE_P_SCALE 4096.0
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias FeA = CuA16;
+typealias FeB = CuB16;
+typealias FeC = CuAccF;
+#else
 typealias FeA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias FeB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias FeC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint4 feBuf[FE_BUF / 8];          // staged Q (hi, lo), then the K / V tiles (hi, lo each): packed halves, 8 per uint4
 #if !FE_REG
@@ -1600,10 +1688,14 @@ void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
 }
 
 #if FE_REG
+#if FE_DS > 1
+groupshared float feX[(FE_T / 32) * (FE_BC / 16) * 8 * 32];   // partial scores of each subgroup (FE_DS = 2)
+#endif
 // One key tile of FE_REG (see above): scores S = Q·Kᵀ of the subgroup's 16 rows against the staged FE_BC keys, the online
 // softmax on the accumulators (element e of a fragment: row g + 8 (e >> 2), key column 2c + (e & 1) + 8 ((e >> 1) & 1)), and
-// o = o · corr + P·V with P converted element by element into A operands of the same layout.
-void fe_reg_tile(FeA qa[FE_ND], inout FeC o[FE_NO], inout float2 m2, inout float2 l2, uint j0, uint jStop, uint sg, uint lane
+// o = o · corr + P·V with P converted element by element into A operands of the same layout. `part`: the subgroup's share of the
+// head dimensions (FE_DS); every subgroup of the workgroup calls it once per tile (FE_DS = 2 synchronizes the workgroup).
+void fe_reg_tile(FeA qa[FE_NDW], inout FeC o[FE_NOW], inout float2 m2, inout float2 l2, uint j0, uint jStop, uint sg, uint part, uint lane
 #if FE_CAUSAL
     , uint nPast
 #endif
@@ -1619,12 +1711,32 @@ void fe_reg_tile(FeA qa[FE_ND], inout FeC o[FE_NO], inout float2 m2, inout float
     {
         sc[kh] = FeC(0.0);
         [ForceUnroll]
-        for (uint k = 0; k < FE_ND; k++)
+        for (uint k = 0; k < FE_NDW; k++)
         {
-            FeB b = FeB.Load<CoopMatMatrixLayout.ColumnMajor>(feBuf, (kh * 16 * FE_KS + k * 16) / 8, FE_KS / 8);
+            FeB b = FeB.Load<CoopMatMatrixLayout.ColumnMajor>(feBuf, (kh * 16 * FE_KS + (part * FE_NDW + k) * 16) / 8, FE_KS / 8);
             sc[kh] = coopMatMulAdd<float, false>(qa[k], b, sc[kh]);
         }
     }
+#if FE_DS > 1
+    // The partner's partial scores added (mine + its in part 0, its + mine in part 1: the same sum in both subgroups).
+    [ForceUnroll]
+    for (uint kh = 0; kh < FE_BC / 16; kh++)
+    {
+        [ForceUnroll] for (uint e = 0; e < 8; e++) feX[((sg * (FE_BC / 16) + kh) * 8 + e) * 32 + lane] = sc[kh][e];
+    }
+    GroupMemoryBarrierWithGroupSync();
+    [ForceUnroll]
+    for (uint kh = 0; kh < FE_BC / 16; kh++)
+    {
+        [ForceUnroll]
+        for (uint e = 0; e < 8; e++)
+        {
+            float x = feX[(((sg ^ 1) * (FE_BC / 16) + kh) * 8 + e) * 32 + lane];
+            sc[kh][e] = part == 0 ? sc[kh][e] + x : x + sc[kh][e];
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+#endif
     float sv[FE_BC / 16][8];
     float2 mx = float2(-1e30, -1e30);
     [ForceUnroll]
@@ -1636,7 +1748,7 @@ void fe_reg_tile(FeA qa[FE_ND], inout FeC o[FE_NO], inout float2 m2, inout float
             uint hr = e >> 2, tq = tq0 + 8 * hr, j = j0 + kh * 16 + c2 + (e & 1) + 8 * ((e >> 1) & 1);
             float v = sc[kh][e] * SCALE;
 #if FE_CAUSAL
-            bool visible = tq < qT && j <= nPast + tq;
+            bool visible = tq < qT && j <= nPast + tq && (WINDOW == 0 || j + WINDOW > nPast + tq);
 #else
             bool visible = tq < qT && j < jStop;
 #endif
@@ -1672,13 +1784,13 @@ void fe_reg_tile(FeA qa[FE_ND], inout FeC o[FE_NO], inout float2 m2, inout float
     // The tile's P·V products accumulate from zero on the tensor cores and are added to the rescaled f32 output with an IEEE
     // add, so the tensor cores' truncating accumulation only rounds sums over one key tile.
     [ForceUnroll]
-    for (uint i = 0; i < FE_NO; i++)
+    for (uint i = 0; i < FE_NOW; i++)
     {
         FeC t = FeC(0.0);
         [ForceUnroll]
         for (uint kh = 0; kh < FE_BC / 16; kh++)
         {
-            FeB v = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_VO + kh * 16 * FE_VS + i * 16) / 8, FE_VS / 8);
+            FeB v = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_VO + kh * 16 * FE_VS + (part * FE_NOW + i) * 16) / 8, FE_VS / 8);
             t = coopMatMulAdd<float, false>(pa[kh], v, t);
         }
         [ForceUnroll] for (uint e = 0; e < 8; e++) o[i][e] = o[i][e] * (e < 4 ? corr.x : corr.y) + t[e];
@@ -1692,6 +1804,7 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
     uint h = gid.x, t0 = gid.y * FE_BR;
     uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
+    uint rg = sg / FE_DS, part = sg % FE_DS;   // the subgroup's 16 rows and its share of the head dimensions
     uint hk = h / (HQ / HKV);
 #if FE_CAUSAL && MULTI_SEQ
     // Runs of a multi-sequence step: workgroup (h, blk, u) handles query tile blk of run u (grid z = runs); tiles past a run's
@@ -1725,6 +1838,10 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint ksplit = gid.z % FA_KSPLIT;
     uint kPer = ((L + FA_KSPLIT - 1) / FA_KSPLIT + FE_BC - 1) / FE_BC * FE_BC;
     uint jStart = min(L, ksplit * kPer), jStop = min(L, jStart + kPer);
+#if FE_CAUSAL && WINDOW
+    // Sliding window: the block's keys start at its first query's window (whole tiles, so the tiles match the unwindowed form's).
+    jStart = max(jStart, nPast + t0 + 1 > WINDOW ? (nPast + t0 + 1 - WINDOW) / FE_BC * FE_BC : 0);
+#endif
 
 #if FE_REG
     // The fragment layout FE_REG relies on, verified once (as in matmul_skinny's sk_direct_layout): a wrong detection gives NaN
@@ -1762,41 +1879,56 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     if (tid == 0) feScales[FE_VMAX] = 0;
     GroupMemoryBarrierWithGroupSync();
 #endif
-    // Q (unscaled; FA_SPLIT: times the row scale) through shared memory into register fragments.
-    for (uint i = tid; i < FE_BR * FE_KC; i += FE_T)
-    {
-        uint r = i / FE_KC, d0 = (i % FE_KC) * 8, t = t0 + r;
-        uint64_t qi = uint64_t(qRow0 + min(t, qT - 1)) * QS0 + uint64_t(h) * QS1 + d0;
-        float x[8];
-        [ForceUnroll] for (uint e = 0; e < 8; e++) x[e] = t < qT && d0 + e < D ? p.q[qi + e] : 0.0;
-#if FA_SPLIT
-        fe_put8_scaled(x, asfloat(feScales[FE_QSCALE + r]), r * FE_QS + d0, FE_QT + r * FE_QS + d0);
-#else
-        fe_put8(x, r * FE_QS + d0, FE_QT + r * FE_QS + d0);
-#endif
-    }
+    // Q (unscaled; FA_SPLIT: times the row scale) through shared memory into register fragments, FE_QR rows per pass.
     Kv8 kb[FE_KPT];
     Kv8 vb[FE_VPT];
-    fe_fetch(kb, vb, p.kc, p.vc, kvRow, jStart, jStop, hk, tid);
-    GroupMemoryBarrierWithGroupSync();
-    FeA qa[FE_ND];
+    FeA qa[FE_NDW];
 #if FA_SPLIT
     FeA qal[FE_ND];
 #endif
-    [ForceUnroll]
-    for (uint k = 0; k < FE_ND; k++)
+    for (uint pass = 0; pass < FE_QPASS; pass++)
     {
-        qa[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (sg * 16 * FE_QS + k * 16) / 8, FE_QS / 8);
+        if (pass > 0)
+        {
+            GroupMemoryBarrierWithGroupSync();   // the previous pass's rows are read
+        }
+
+        for (uint i = tid; i < FE_QR * FE_KC; i += FE_T)
+        {
+            uint r = i / FE_KC, d0 = (i % FE_KC) * 8, t = t0 + pass * FE_QR + r;
+            uint64_t qi = uint64_t(qRow0 + min(t, qT - 1)) * QS0 + uint64_t(h) * QS1 + d0;
+            float x[8];
+            [ForceUnroll] for (uint e = 0; e < 8; e++) x[e] = t < qT && d0 + e < D ? p.q[qi + e] : 0.0;
 #if FA_SPLIT
-        qal[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_QT + sg * 16 * FE_QS + k * 16) / 8, FE_QS / 8);
+            fe_put8_scaled(x, asfloat(feScales[FE_QSCALE + pass * FE_QR + r]), r * FE_QS + d0, FE_QT + r * FE_QS + d0);
+#else
+            fe_put8(x, r * FE_QS + d0, FE_QT + r * FE_QS + d0);
 #endif
+        }
+        if (pass == 0)
+        {
+            fe_fetch(kb, vb, p.kc, p.vc, kvRow, jStart, jStop, hk, tid);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (rg * 16 / FE_QR == pass)
+        {
+            uint qr = rg * 16 - pass * FE_QR;
+            [ForceUnroll]
+            for (uint k = 0; k < FE_NDW; k++)
+            {
+                qa[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (qr * FE_QS + (part * FE_NDW + k) * 16) / 8, FE_QS / 8);
+#if FA_SPLIT
+                qal[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, (FE_QT + sg * 16 * FE_QS + k * 16) / 8, FE_QS / 8);
+#endif
+            }
+        }
     }
-    FeC o[FE_NO];
-    [ForceUnroll] for (uint i = 0; i < FE_NO; i++) o[i] = FeC(0.0);
+    FeC o[FE_NOW];
+    [ForceUnroll] for (uint i = 0; i < FE_NOW; i++) o[i] = FeC(0.0);
 
 #if FE_REG
     // Lane rows g and g + 8 of the subgroup's 16 (g = lane / 4): m2 / l2 hold their running maxima and sums.
-    uint tq0 = t0 + sg * 16 + lane / 4;
+    uint tq0 = t0 + rg * 16 + lane / 4;
     float2 m2 = float2(-1e30, -1e30), l2 = float2(0, 0);
 #if HAS_MASK
 #if CROSS_ATTN
@@ -1847,7 +1979,7 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 #endif
 
 #if FE_REG
-        fe_reg_tile(qa, o, m2, l2, j0, jStop, sg, lane
+        fe_reg_tile(qa, o, m2, l2, j0, jStop, sg, part, lane
 #if FE_CAUSAL
             , nPast
 #endif
@@ -1891,7 +2023,7 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             float sc = feS[sBase + row * FE_SS + c] * SCALE;
 #endif
 #if FE_CAUSAL
-            bool visible = rowValid && j <= nPast + tq;
+            bool visible = rowValid && j <= nPast + tq && (WINDOW == 0 || j + WINDOW > nPast + tq);
 #else
             bool visible = rowValid && j < jStop;
 #endif
@@ -1992,12 +2124,12 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         }
 #endif
         [ForceUnroll]
-        for (uint i = 0; i < FE_NO; i++)
+        for (uint i = 0; i < FE_NOW; i++)
         {
             [ForceUnroll]
             for (uint e = 0; e < 8; e++)
             {
-                uint t = tq0 + 8 * (e >> 2), d = i * 16 + c2 + (e & 1) + 8 * ((e >> 1) & 1);
+                uint t = tq0 + 8 * (e >> 2), d = (part * FE_NOW + i) * 16 + c2 + (e & 1) + 8 * ((e >> 1) & 1);
                 if (t < qT && d < DV)
                 {
                     float v = o[i][e] * (e < 4 ? f2.x : f2.y);
@@ -2186,9 +2318,22 @@ void fes(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p
 // Per FM_BC-key tile: cache rows (fetched into registers during the previous tile) into shared memory (f16), S = Q·Kᵀ split along D over the subgroups (the query fragments
 // stay in registers), online softmax in scalar code, then O += P·V with the output tiles in cooperative-matrix
 // accumulators, rescaled per row by an element-wise product with a matrix of the row corrections.
+// FM_SEPV: separate key and value caches of one head size (D == DV, f16 / f32 / q8_0 / q4_0 caches: Gemma 4's and Qwen3.5's head sizes 256 /
+// 512 on targets without the hand-written CUDA kernel): the decode rows' key and value tiles are fetched and staged side by side
+// (fmV), FM_BC keys per tile (16 or 32, so both tiles fit the shared memory).
 using namespace linalg;
 #define FM_BR 16
+#ifndef FM_BC
 #define FM_BC 32
+#endif
+#ifndef FM_SEPV
+#define FM_SEPV 0
+#endif
+#define FM_NH (FM_BC / 16)                          // 16-key halves of a tile
+#define FM_CPL (FM_BC / 8)                          // key columns per lane in the softmax (8 lanes per row)
+#if (FM_BC != 16 && FM_BC != 32) || (FM_SEPV && DV != D)
+#error "fa_mqa: unsupported tile"
+#endif
 #define FM_T 128
 #define FM_NSG (FM_T / 32)
 #define FM_G (HQ / HKV)
@@ -2201,11 +2346,21 @@ using namespace linalg;
 #define FM_OPS ((FM_OT + FM_NSG - 1) / FM_NSG)      // output tiles per subgroup
 #define FM_PS (FM_BC + 8)
 #define FM_SS (FM_BR * FM_BC)                       // floats of one subgroup's partial scores (and staging slice)
+#if SL_TARGET_CUDA
+#include "cuda_mma.slang"
+typealias FmA = CuA16;
+typealias FmB = CuB16;
+typealias FmC = CuAccF;
+#else
 typealias FmA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias FmB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias FmC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+#endif
 
 groupshared uint4 fmKV[FM_BC * FM_KS / 8];   // key/value tile as packed f16 x 8; holds the query tile before the key loop
+#if FM_SEPV
+groupshared uint4 fmV[FM_BC * FM_KS / 8];    // value tile (FM_SEPV)
+#endif
 groupshared float fmS[FM_NSG * FM_SS];   // per-subgroup partial scores, then per-subgroup staging of output tiles
 groupshared half fmP[FM_BR * FM_PS];
 groupshared float fmCorr[FM_BR];
@@ -2236,7 +2391,7 @@ struct FmTile
 #endif
 
 // Issues the loads of cache rows j0 .. j0 + FM_BC (all D columns, zero-padded to FM_DP; rows >= jEnd are zero).
-void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
+void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid, uint rowElems = D)
 {
 #if KV_QUANT
     buf.mis = 0;
@@ -2248,11 +2403,15 @@ void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd
         [ForceUnroll] for (uint n = 0; n < FM_NW; n++) buf.w[k * FM_NW + n] = 0;
         if (i < FM_BC * FM_BPR && j < jEnd)
         {
-            uint64_t elem = (kv_row(kvRow, j) + hk) * D + (i % FM_BPR) * 32;
+            uint64_t elem = (kv_row(kvRow, j) + hk) * rowElems + (i % FM_BPR) * 32;
             uint64_t s = (elem >> 5) * KV_BLOCK_BYTES;
             uint* w = (uint*)byteAt(cache, s & ~uint64_t(3));
             [ForceUnroll] for (uint n = 0; n + 1 < FM_NW; n++) buf.w[k * FM_NW + n] = w[n];
-            if ((s & 2) != 0)
+            if (KV_FP8)
+            {
+                buf.w[k * FM_NW + FM_NW - 1] = w[FM_NW - 1];   // 4-byte aligned blocks of 9 whole words
+            }
+            else if ((s & 2) != 0)
             {
                 buf.w[k * FM_NW + FM_NW - 1] = w[FM_NW - 1];
                 buf.mis |= 1u << k;
@@ -2271,13 +2430,13 @@ void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd
         uint r = i / FM_CPR, c = (i % FM_CPR) * 8;
         uint j = j0 + r;
         bool valid = i < FM_BC * FM_CPR && j < jEnd && c < D;
-        buf.c[k] = valid ? load_kv8(cache, (kv_row(kvRow, j) + hk) * D + c) : zero_kv8();
+        buf.c[k] = valid ? load_kv8(cache, (kv_row(kvRow, j) + hk) * rowElems + c) : zero_kv8();
     }
 #endif
 }
 
-// Stores fetched rows into fmKV as f16 (one 16-byte store per 8 values).
-void fm_store(FmTile buf, uint tid)
+// Stores fetched rows into fmKV (FM_SEPV values: fmV) as f16 (one 16-byte store per 8 values).
+void fm_store(FmTile buf, uint tid, bool values = false)
 {
 #if KV_QUANT
     [ForceUnroll]
@@ -2295,7 +2454,7 @@ void fm_store(FmTile buf, uint tid)
                 v[n] = mis ? (buf.w[k * FM_NW + n] >> 16) | hi : buf.w[k * FM_NW + n];
             }
 
-            float d = f16tof32(v[0] & 0xFFFF);
+            float d = KV_FP8 ? asfloat(v[0]) : f16tof32(v[0] & 0xFFFF);
             uint dst = i / FM_BPR * (FM_KS / 8) + i % FM_BPR * 4;
             [ForceUnroll]
             for (uint c = 0; c < 4; c++)
@@ -2305,7 +2464,10 @@ void fm_store(FmTile buf, uint tid)
                 for (uint e = 0; e < 8; e++)
                 {
                     uint el = c * 8 + e;
-#if KV_FMT == FMT_Q8_0
+#if KV_FP8
+                    uint b = 4 + el;
+                    x[e] = d * e4m3_value(v[b >> 2] >> ((b & 3) * 8));
+#elif KV_FMT == FMT_Q8_0
                     uint b = 2 + el;
                     x[e] = d * float(int(((v[b >> 2] >> ((b & 3) * 8)) & 0xFF) << 24) >> 24);
 #else
@@ -2313,6 +2475,13 @@ void fm_store(FmTile buf, uint tid)
                     x[e] = d * (float((v[b >> 2] >> ((b & 3) * 8 + (el >= 16 ? 4 : 0))) & 0xF) - 8.0);
 #endif
                 }
+#if FM_SEPV
+                if (values)
+                {
+                    fmV[dst + c] = pack_half8(x);
+                    continue;
+                }
+#endif
                 fmKV[dst + c] = pack_half8(x);
             }
         }
@@ -2324,6 +2493,13 @@ void fm_store(FmTile buf, uint tid)
         uint i = tid + k * FM_T;
         if (i < FM_BC * FM_CPR)
         {
+#if FM_SEPV
+            if (values)
+            {
+                fmV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = kv8_to_half(buf.c[k]);
+                continue;
+            }
+#endif
             fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = kv8_to_half(buf.c[k]);
         }
     }
@@ -2341,6 +2517,12 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     uint g0 = gid.x % FM_TILES * FM_BR;   // first head of the tile within the group
     uint t = gid.y + p.row0;
     uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
+#if MULTI_SEQ && MIX_RUN > 0
+    if (p.seq[t * 4 + 2] >= MIX_RUN)
+    {
+        return;   // rows of long runs: the flash kernel of the mixed step
+    }
+#endif
 
     uint jLo, L;
     uint64_t kvRow;
@@ -2365,6 +2547,10 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     // All loads are issued before the first store (one memory round trip).
     FmTile next;
     fm_fetch(next, p.kc, kvRow, jBeg, jEnd, hk, tid);
+#if FM_SEPV
+    FmTile nextV;
+    fm_fetch(nextV, p.vc, kvRow, jBeg, jEnd, hk, tid, VRS);
+#endif
     float qv[FM_QPT][8];
     [ForceUnroll]
     for (uint k = 0; k < FM_QPT; k++)
@@ -2395,7 +2581,7 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = FmC(0.0);
     GroupMemoryBarrierWithGroupSync();
 
-    // Softmax layout: 8 adjacent lanes per row, 4 key columns each.
+    // Softmax layout: 8 adjacent lanes per row, FM_CPL key columns each.
     uint row = tid / 8, sub = tid % 8;
     bool rowValid = g0 + row < FM_G;
     float m = -1e30, l = 0;
@@ -2403,38 +2589,46 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     for (uint j0 = jBeg; j0 < jEnd; j0 += FM_BC)
     {
         fm_store(next, tid);
+#if FM_SEPV
+        fm_store(nextV, tid, true);
+#endif
         GroupMemoryBarrierWithGroupSync();
         if (j0 + FM_BC < jEnd)
         {
             fm_fetch(next, p.kc, kvRow, j0 + FM_BC, jEnd, hk, tid);   // in flight during this tile's products
+#if FM_SEPV
+            fm_fetch(nextV, p.vc, kvRow, j0 + FM_BC, jEnd, hk, tid, VRS);
+#endif
         }
 
-        // Partial scores of this subgroup's D chunks for both 16-key halves.
+        // Partial scores of this subgroup's D chunks for the 16-key halves.
         {
-            FmC s0 = FmC(0.0), s1 = FmC(0.0);
+            FmC sh[FM_NH];
+            [ForceUnroll] for (uint h = 0; h < FM_NH; h++) sh[h] = FmC(0.0);
             [ForceUnroll]
             for (uint c = 0; c < FM_KPS; c++)
             {
                 uint k = sg * FM_KPS + c;
                 if (k < FM_KCH)
                 {
-                    FmB b0 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, k * 2, FM_KS / 8);
-                    FmB b1 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, 2 * FM_KS + k * 2, FM_KS / 8);
-                    s0 = coopMatMulAdd<float, false>(qa[c], b0, s0);
-                    s1 = coopMatMulAdd<float, false>(qa[c], b1, s1);
+                    [ForceUnroll]
+                    for (uint h = 0; h < FM_NH; h++)
+                    {
+                        FmB b = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, h * 2 * FM_KS + k * 2, FM_KS / 8);
+                        sh[h] = coopMatMulAdd<float, false>(qa[c], b, sh[h]);
+                    }
                 }
             }
-            s0.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS, FM_BC);
-            s1.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS + 16, FM_BC);
+            [ForceUnroll] for (uint h = 0; h < FM_NH; h++) sh[h].Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS + h * 16, FM_BC);
         }
         GroupMemoryBarrierWithGroupSync();
 
-        float sv[4];
+        float sv[FM_CPL];
         float mx = -1e30;
         [ForceUnroll]
-        for (uint e = 0; e < 4; e++)
+        for (uint e = 0; e < FM_CPL; e++)
         {
-            uint c = sub * 4 + e;
+            uint c = sub * FM_CPL + e;
             float sc = 0;
             [ForceUnroll] for (uint w = 0; w < FM_NSG; w++) sc += fmS[w * FM_SS + row * FM_BC + c];
 #if HAS_SOFTCAP
@@ -2451,11 +2645,11 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         m = mNew;
         float ps = 0;
         [ForceUnroll]
-        for (uint e = 0; e < 4; e++)
+        for (uint e = 0; e < FM_CPL; e++)
         {
             float pe = sv[e] > -1e29 ? exp(sv[e] - m) : 0.0;
             ps += pe;
-            fmP[row * FM_PS + sub * 4 + e] = half(pe);
+            fmP[row * FM_PS + sub * FM_CPL + e] = half(pe);
         }
         ps += WaveReadLaneAt(ps, lane ^ 1);
         ps += WaveReadLaneAt(ps, lane ^ 2);
@@ -2470,18 +2664,24 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         FmC cm = FmC.Load<CoopMatMatrixLayout.RowMajor>(fmCorrM, 0, 16);
         [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = o[i] * cm;
 
-        FmA p0 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 0, FM_PS);
-        FmA p1 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 16, FM_PS);
+        FmA ph[FM_NH];
+        [ForceUnroll] for (uint h = 0; h < FM_NH; h++) ph[h] = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, h * 16, FM_PS);
         [ForceUnroll]
         for (uint i = 0; i < FM_OPS; i++)
         {
             uint ot = sg * FM_OPS + i;
             if (ot < FM_OT)
             {
-                FmB v0 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, ot * 2, FM_KS / 8);
-                FmB v1 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, 2 * FM_KS + ot * 2, FM_KS / 8);
-                o[i] = coopMatMulAdd<float, false>(p0, v0, o[i]);
-                o[i] = coopMatMulAdd<float, false>(p1, v1, o[i]);
+                [ForceUnroll]
+                for (uint h = 0; h < FM_NH; h++)
+                {
+#if FM_SEPV
+                    FmB v = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmV, h * 2 * FM_KS + ot * 2, FM_KS / 8);
+#else
+                    FmB v = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, h * 2 * FM_KS + ot * 2, FM_KS / 8);
+#endif
+                    o[i] = coopMatMulAdd<float, false>(ph[h], v, o[i]);
+                }
             }
         }
         GroupMemoryBarrierWithGroupSync();   // tile, P and staging free for the next keys

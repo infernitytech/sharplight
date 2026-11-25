@@ -9,4 +9,14 @@ namespace Sharplight.FeedTool;
 /// <param name="WeightBytes">Weight bytes.</param>
 /// <param name="FormatVersion">Container version.</param>
 /// <param name="HasChatTemplate">Whether a chat template is embedded.</param>
-internal sealed record PackageInspection(string Name, string Kind, string? Architecture, int? ContextLength, long Parameters, long WeightBytes, int FormatVersion, bool HasChatTemplate);
+internal sealed record PackageInspection(string Name, string Kind, string? Architecture, int? ContextLength, long Parameters, long WeightBytes, int FormatVersion, bool HasChatTemplate)
+{
+    /// <summary>Weight bytes per engine weight type, largest first.</summary>
+    public IReadOnlyList<KeyValuePair<string, long>> WeightTypes { get; init; } = [];
+
+    /// <summary>Context memory of the decode graph, or <see langword="null"/> for models without one (encoders, diffusion, ...).</summary>
+    public ContextMemory? Context { get; init; }
+
+    /// <summary>The routed experts of the decode graph, or <see langword="null"/> for models without (dense models, models without a decode graph).</summary>
+    public ExpertMemory? Experts { get; init; }
+}

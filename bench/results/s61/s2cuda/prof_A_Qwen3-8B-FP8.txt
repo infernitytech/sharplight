@@ -1,0 +1,27 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 151936, device sampling: True, KV paged 2048 x 16
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 64 | 28.9 | 727 / 0 | 17.46 / 17.58, 17.34 |
+--- profile batch 64 (greedy)
+GPU time 389.99 ms
+   110.458 ms  28.3%    720x  min    147.6 us  matmul2 [4096→12288]x2 f8e4m3_b128g fused[Silu,Mul] fp8 gemm_fp8 T=64,U=64,R=64
+    74.397 ms  19.1%    720x  min     99.9 us  attention decode T=64,U=64,R=64
+    56.679 ms  14.5%    720x  min     75.1 us  matmul [12288→4096] f8e4m3_b128g fp8 split-k gemm_fp8 T=64,U=64,R=64
+    46.974 ms  12.0%   1440x  min     28.6 us  matmul [4096→4096] f8e4m3_b128g fp8 split-k gemm_fp8 T=64,U=64,R=64
+    31.863 ms   8.2%     20x  min   1589.6 us  matmul [4096→151936] f16 gemm_cm2 T=64,U=64,R=64
+    18.038 ms   4.6%   1440x  min     10.4 us  matmul [4096→1024] f8e4m3_b128g fp8 split-k gemm_fp8 T=64,U=64,R=64
+    15.387 ms   3.9%   3600x  min      2.1 us  matmul fp8 split-k reduce splitk_reduce T=64,U=64,R=64
+    12.032 ms   3.1%   1440x  min      6.1 us  fused[Add]+RmsNorm main T=64,U=64,R=64
+     4.743 ms   1.2%    720x  min      5.1 us  attention combine decode_combine T=64,U=64,R=64
+     4.491 ms   1.2%    720x  min      3.9 us  rope+norm rope_row T=64,U=64,R=64
+     4.300 ms   1.1%    720x  min      4.0 us  matmul [12288→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64
+     3.368 ms   0.9%    720x  min      3.4 us  rope+norm+cache_write rope_row T=64,U=64,R=64
+     3.166 ms   0.8%    720x  min      3.2 us  matmul [4096→4096] f8e4m3_b128g x→fp8 quantize_fp8 T=64,U=64,R=64
+     2.387 ms   0.6%    720x  min      1.9 us  cache_write cache_write T=64,U=64,R=64
+     1.066 ms   0.3%     20x  min     52.1 us  sample sample T=64,U=64,R=64
+     0.281 ms   0.1%     40x  min      5.4 us  gather gather T=64,U=64,R=64
+     0.150 ms   0.0%     20x  min      6.0 us  RmsNorm main T=64,U=64,R=64
+     0.122 ms   0.0%     20x  min      4.5 us  matmul [4096→151936] f16 f16 range f16_range_unscale T=64,U=64,R=64
+     0.087 ms   0.0%     20x  min      3.3 us  matmul [4096→151936] f16 x→ranged f16 to_f16_ranged T=64,U=64,R=64
+

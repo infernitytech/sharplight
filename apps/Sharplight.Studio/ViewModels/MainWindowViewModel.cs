@@ -37,6 +37,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Audio = new AudioPageViewModel(services, this);
         Image = new ImagePageViewModel(services, this);
         Video = new VideoPageViewModel(services, this);
+        Enhance = new VideoEnhancementPageViewModel(services, this);
         Vision = new VisionPageViewModel(services, this);
         Tasks = new TasksPageViewModel(services, this);
         Models = new ModelsPageViewModel(services, this);
@@ -45,8 +46,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
         About = new AboutViewModel(services.Platform, services.Updates.CurrentVersion);
+        LicenseDialog = new LicenseDialogViewModel(services.Licenses, services.Platform, services.Dispatcher);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
-        Pages = [Chat, Transcribe, Speak, Search, Audio, Image, Video, Vision, Tasks, Models, Server, Stats];
+        Pages = [Chat, Transcribe, Speak, Search, Audio, Image, Video, Enhance, Vision, Tasks, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         services.Server.StateChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         UpdateStatus();
@@ -73,6 +75,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     /// <summary>Video page: video generation.</summary>
     public VideoPageViewModel Video { get; }
 
+    /// <summary>Enhance page: video enhancement (restoring and enlarging videos and images).</summary>
+    public VideoEnhancementPageViewModel Enhance { get; }
+
     /// <summary>Vision page: image classification, embedding, object detection and depth estimation.</summary>
     public VisionPageViewModel Vision { get; }
 
@@ -96,6 +101,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Update checks and the "update available" dialog (the same instance the Settings page shows).</summary>
     public UpdatesViewModel Updates => Settings.Updates;
+
+    /// <summary>The dialog that asks to accept licence terms before a download.</summary>
+    public LicenseDialogViewModel LicenseDialog { get; }
 
     /// <summary>The About dialog.</summary>
     public AboutViewModel About { get; }
@@ -227,6 +235,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
             Sharplight.Models.ModelKinds.AudioCodec or Sharplight.Models.ModelKinds.VoiceActivity => Audio,
             Sharplight.Models.ModelKinds.ImageGeneration => Image,
             Sharplight.Models.ModelKinds.VideoGeneration => Video,
+            Sharplight.Models.ModelKinds.VideoEnhancement => Enhance,
             Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding
                 or Sharplight.Models.ModelKinds.ObjectDetection or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation or Sharplight.Models.ModelKinds.SemanticSegmentation
                 or Sharplight.Models.ModelKinds.Ocr or Sharplight.Models.ModelKinds.ImageUpscaling => Vision,
