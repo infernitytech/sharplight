@@ -17697,7 +17697,7 @@ python3 bench/same_stat_summarize_offload.py out
 SHARPLIGHT_LOAD_TIMING=1 SHARPLIGHT_BENCH_PROMPT=vocab sharplight $OSS --provider cuda --cpu-offload --bench 512   # [stream] lines: experts selected per layer
 ```
 
-## §BF16. A bf16 activation fallback for components that overflow f16: SDXL's VAE decoder under reduced precision 11.2 → 67.8 dB at the same speed; FLUX.1 / SD 1.5 keep f16 (2026-11-25)
+## 112. A bf16 activation fallback for components that overflow f16: SDXL's VAE decoder under reduced precision 11.2 → 67.8 dB at the same speed; FLUX.1 / SD 1.5 keep f16 (2026-11-25)
 
 Branch `perf/vae-bf16` (`develop` at `d7498b57`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB), shared with other
 rounds: every timing run held the bench lock. Raw output in [`bench/results/vae-bf16/`](../bench/results/vae-bf16) (`run-vae.sh`;

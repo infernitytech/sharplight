@@ -1924,7 +1924,7 @@ Verification (tools/make-diffusion-references.py writes the diffusers references
   upcast to fp32, CUDA): UNet 5.7e-5, VAE decode 1.5e-5, second text encoder 6e-4 relative RMS; Euler 42.4 dB, DPM++ 2M Karras
   30.0 dB (visually identical; the multistep sampler drifts further). Unlike SD 2.1 (attention upcast in its config, 2.2 % UNet
   error in f16), SDXL keeps its accuracy with f16 weights.
-- SDXL's VAE decoder under reduced precision (2026-11-25, §BF16 in benchmarks.md): its activations exceed f16's range at large sizes
+- SDXL's VAE decoder under reduced precision (2026-11-25, §112 in benchmarks.md): its activations exceed f16's range at large sizes
   (the property `madebyollin/sdxl-vae-fp16-fix` exists for), which made the reduced-precision decode at 1024 × 1024 an 11.2 dB image.
   The image generator now measures each VAE graph's activation range once (strict products, 256 × 256 pixels, unit Gaussian latents;
   `TaskModel.CalibrateActivationPrecision`) and compiles a graph whose activations pass 1/16 of f16's largest value with bf16
