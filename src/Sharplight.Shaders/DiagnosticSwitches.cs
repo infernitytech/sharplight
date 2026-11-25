@@ -905,6 +905,18 @@ internal static class DiagnosticSwitches
     /// <summary>Disables the cooperative-matrix convolution (conv_cm).</summary>
     public static bool ConvNoMatrix { get; } = IsSet("SHARPLIGHT_CONV_NO_MATRIX");
 
+    /// <summary>
+    /// Whether reduced-precision convolutions may run over channels-last 16-bit activations (conv_cl, the default where it applies);
+    /// <c>SHARPLIGHT_CONV_CHANNELS_LAST=0</c> keeps them on conv_cm with f32 activations.
+    /// </summary>
+    public static bool ConvChannelsLast { get; } = IsNotZero("SHARPLIGHT_CONV_CHANNELS_LAST");
+
+    /// <summary>
+    /// Tuning override of conv_cl's tile: <c>SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN[,tileK]</c> (subgroup rows and columns,
+    /// 16-pixel fragments per subgroup, K per step: 32 double-buffered or 64 single-buffered); unset, the lowering chooses.
+    /// </summary>
+    public static int[]? ConvChannelsLastTile { get; } = Read("SHARPLIGHT_CONV_CL_TILE")?.Split(',').Select(v => int.Parse(v, CultureInfo.InvariantCulture)).ToArray();
+
     /// <summary>Keeps conv_cm's channel-major reduction order for the split-f16 forms (no tap-major weights).</summary>
     public static bool ConvNoTapMajor { get; } = IsSet("SHARPLIGHT_CONV_NO_TAP_MAJOR");
 

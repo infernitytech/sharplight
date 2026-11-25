@@ -1,0 +1,20 @@
+# vulkan NVIDIA RTX PRO 4500 Blackwell, reduced precision, x f32, weights f32, 10 runs
+BENCH seedvr2 384>128 480x832            1x384x480x832 -> 128 k3 s1 parts 3     10.613 ms     33.3 TFLOPS
+BENCH seedvr2 768>128 480x832            1x768x480x832 -> 128 k3 s1 parts 3     21.028 ms     33.6 TFLOPS
+BENCH seedvr2 768>256 240x416            1x768x240x416 -> 256 k3 s1 parts 3      9.913 ms     35.6 TFLOPS
+BENCH seedvr2 1536>256 240x416           1x1536x240x416 -> 256 k3 s1 parts 3     20.459 ms     34.5 TFLOPS
+BENCH seedvr2 1536>512 120x208           1x1536x120x208 -> 512 k3 s1 parts 3      9.883 ms     35.8 TFLOPS
+BENCH seedvr2 1536>512 60x104 x4         4x1536x60x104 -> 512 k3 s1 parts 3      9.740 ms     36.3 TFLOPS
+BENCH sdxl-vae 512>512 128x128           1x512x128x128 -> 512 k3 s1 parts 1      1.971 ms     39.2 TFLOPS
+BENCH sdxl-vae 512>512 256x256           1x512x256x256 -> 512 k3 s1 parts 1      7.691 ms     40.2 TFLOPS
+BENCH sdxl-vae 512>512 512x512           1x512x512x512 -> 512 k3 s1 parts 1     30.627 ms     40.4 TFLOPS
+BENCH sdxl-vae 512>256 512x512           1x512x512x512 -> 256 k3 s1 parts 1     15.419 ms     40.1 TFLOPS
+BENCH sdxl-vae 256>256 512x512           1x256x512x512 -> 256 k3 s1 parts 1      7.796 ms     39.7 TFLOPS
+BENCH sdxl-vae 256>128 1024x1024         1x256x1024x1024 -> 128 k3 s1 parts 1     15.738 ms     39.3 TFLOPS
+BENCH sdxl-vae 128>128 1024x1024         1x128x1024x1024 -> 128 k3 s1 parts 1      8.016 ms     38.6 TFLOPS
+BENCH sdxl-vae 128>128 1024x1024 +res    1x128x1024x1024 -> 128 k3 s1 parts 1 +res      8.461 ms     36.5 TFLOPS
+BENCH esrgan 64>64 480x832               1x64x480x832 -> 64 k3 s1 parts 1      0.878 ms     33.5 TFLOPS
+BENCH esrgan 192>64 480x832              1x192x480x832 -> 64 k3 s1 parts 1      2.514 ms     35.1 TFLOPS
+BENCH resnet 256>256 14x14 b32           32x256x14x14 -> 256 k3 s1 parts 1      0.186 ms     39.7 TFLOPS
+BENCH resnet 64>64 56x56 b8              8x64x56x56 -> 64 k3 s1 parts 1      0.071 ms     26.0 TFLOPS
+BENCH 1x1 512>512 256x256                1x512x256x256 -> 512 k1 s1 parts 1      0.829 ms     41.4 TFLOPS
