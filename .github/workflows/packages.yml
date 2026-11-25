@@ -100,12 +100,20 @@ jobs:
         with:
           user: ${{ vars.NUGET_USER }}
 
+      # nuget.org rejects packages above 250 MB (Sharplight.Cuda.Blas carries cuBLASLt, ~375 MB): those are skipped with a
+      # warning instead of failing the push of every package after them (docs/cuda.md: the Blas package is for other feeds).
       - name: Push
-        run: >
-          dotnet nuget push "packages/*.nupkg"
-          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
-          --source https://api.nuget.org/v3/index.json
-          --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          limit=$((250 * 1024 * 1024))
+          for package in packages/*.nupkg; do
+            if [ "$(stat -c %s "$package")" -gt "$limit" ]; then
+              echo "::warning::$(basename "$package") exceeds nuget.org's 250 MB limit; not pushed"
+              continue
+            fi
+            dotnet nuget push "$package" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
 
   # Prerelease feed: green develop builds go to GitHub Packages (https://nuget.pkg.github.com/<owner>/index.json) so that
   # consumers can test against develop without waiting for a release (docs/releasing.md, "Prerelease feed").
