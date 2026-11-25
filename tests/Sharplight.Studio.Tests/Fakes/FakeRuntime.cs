@@ -117,6 +117,11 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public Task<double> EstimateExpertActiveShareAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(ExpertActiveShare);
 
+    /// <summary>The weight formats <see cref="DescribeWeightFormatsAsync"/> reports.</summary>
+    public ModelWeightFormats WeightFormats { get; set; } = ModelWeightFormats.None;
+
+    public Task<ModelWeightFormats> DescribeWeightFormatsAsync(ModelLoadRequest request, CancellationToken cancellationToken) => Task.FromResult(WeightFormats);
+
     public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken) =>
         Task.FromResult(Memory?.Invoke() ??
         [

@@ -94,6 +94,12 @@ internal static class ModelInspector
     /// </summary>
     private static string InferKind(string path)
     {
+        // A video enhancement model given as its checkpoint folder or transformer file (the files of the importer's layout beside it).
+        if (new Sharplight.Import.SeedVr.SeedVrImporter().CanOpen(path))
+        {
+            return ModelKinds.VideoEnhancement;
+        }
+
         if (ImageModelProbe.KindOf(path) is { } imageKind)
         {
             return imageKind;

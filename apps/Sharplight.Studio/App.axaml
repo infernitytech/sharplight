@@ -47,6 +47,9 @@
     <DataTemplate DataType="video:VideoPageViewModel">
       <views:VideoPage />
     </DataTemplate>
+    <DataTemplate DataType="video:VideoEnhancementPageViewModel">
+      <views:VideoEnhancementPage />
+    </DataTemplate>
     <DataTemplate DataType="vision:VisionPageViewModel">
       <views:VisionPage />
     </DataTemplate>

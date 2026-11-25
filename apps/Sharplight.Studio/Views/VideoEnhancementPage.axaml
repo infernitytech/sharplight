@@ -1,0 +1,75 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sharplight.Studio.ViewModels.Video"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             xmlns:vw="using:Sharplight.Studio.Views"
+             x:Class="Sharplight.Studio.Views.VideoEnhancementPage"
+             x:DataType="vm:VideoEnhancementPageViewModel">
+  <iv:InferenceFrame>
+    <iv:InferenceFrame.Workspace>
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <Grid RowDefinitions="Auto,*" RowSpacing="14">
+        <!-- Input -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h2" Text="Input" />
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="8,0,0,0">
+                <Button x:Name="PickInputButton" Classes="small" Content="Choose…" Command="{Binding PickInputCommand}"
+                        ToolTip.Tip="Choose the video or image to enhance" />
+                <Button Classes="small" Content="Clear" Command="{Binding ClearInputCommand}" IsVisible="{Binding HasInput}" />
+              </StackPanel>
+              <TextBlock x:Name="InputSummaryText" Text="{Binding InputSummary}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                         ToolTip.Tip="{Binding InputPath}" />
+            </DockPanel>
+            <TextBlock x:Name="VideoSupportText" Classes="caption" Text="{Binding VideoSupportNotice}" TextWrapping="Wrap" IsVisible="{Binding !CanReadVideos}" />
+            <TextBlock x:Name="OutputSizeLabel" Classes="caption" Text="{Binding OutputSizeText}" IsVisible="{Binding HasInput}" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button x:Name="EnhanceButton" Classes="accent" Content="Enhance" Command="{Binding RunCommand}" />
+              <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsEnhancing}" />
+              <TextBlock x:Name="RunHintText" Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <!-- Result -->
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,*,Auto">
+            <DockPanel Margin="0,0,0,10">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResultFile}">
+                <Button Classes="small" Content="Open" Command="{Binding OpenResultCommand}" ToolTip.Tip="Open the result in the system's viewer" />
+                <Button Classes="small" Content="Save as…" Command="{Binding SaveResultCommand}" ToolTip.Tip="Save a copy of the result elsewhere" />
+              </StackPanel>
+              <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
+            </DockPanel>
+            <Grid Grid.Row="1" MinHeight="360" ClipToBounds="True">
+              <StackPanel IsVisible="{Binding ShowPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <Path Classes="icon huge" Data="{StaticResource IconUpscale}" HorizontalAlignment="Center" />
+                <TextBlock Classes="muted" Text="The input shows here, then the enhanced frames as they are finished." HorizontalAlignment="Center" TextWrapping="Wrap" />
+              </StackPanel>
+              <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding Player.HasFrames}">
+                <vw:VideoView Frame="{Binding Player.CurrentFrame}" />
+              </Border>
+            </Grid>
+            <StackPanel Grid.Row="2" Spacing="8" Margin="0,8,0,0">
+              <Panel IsVisible="{Binding Player.CanPlay}">
+                <Grid ColumnDefinitions="Auto,*,Auto" DataContext="{Binding Player}" x:DataType="vm:VideoPlayerViewModel">
+                  <Button Classes="small" Command="{Binding TogglePlayCommand}" ToolTip.Tip="{Binding PlayTip}" Width="34">
+                    <Path Classes="icon" Data="{Binding PlayIcon, Converter={x:Static conv:IconConverter.Instance}}" />
+                  </Button>
+                  <Slider Grid.Column="1" Margin="10,0" Minimum="0" Maximum="{Binding LastPosition}" Value="{Binding Position}" SmallChange="1" LargeChange="4"
+                          TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" />
+                  <ToggleButton Grid.Column="2" Classes="small" Content="Loop" IsChecked="{Binding Loop}" ToolTip.Tip="Start again after the last frame" />
+                </Grid>
+              </Panel>
+              <TextBlock Classes="caption" Text="{Binding Player.PositionText}" IsVisible="{Binding Player.HasFrames}" />
+              <TextBlock Classes="caption" Text="{Binding StepText}" IsVisible="{Binding HasStepText}" />
+              <TextBlock Classes="caption" Text="{Binding ResultSummary}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Grid>
+        </Border>
+      </Grid>
+      </ScrollViewer>
+    </iv:InferenceFrame.Workspace>
+  </iv:InferenceFrame>
+</UserControl>
