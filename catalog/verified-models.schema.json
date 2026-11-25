@@ -69,6 +69,7 @@
               "speech-synthesis",
               "image-generation",
               "video-generation",
+              "video-enhancement",
               "image-classification",
               "image-embedding",
               "object-detection",
