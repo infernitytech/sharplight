@@ -17447,7 +17447,7 @@ full-resolution levels run frame by frame.
 
 ## 109. LLM round 46: a KV admission policy at KV saturation (queue, the default, or preempt with recomputation as vLLM does: Llama-3.1-8B bf16 at 256 streams TTFT p50 3.9 → 2.0 s for -4 % tok/s); the FP8 (E4M3) KV cache, default off (decode attention -38 % per layer, Qwen3-8B-FP8 256-row decode steps -12 %; throughput and accuracy partly pending) (2026-11-25)
 
-Branch `perf/llm-r46` (`develop` at `bce0d388`, §105 merged; `develop` `22be85fe` merged before the hand-back). GPU 0 of the RunPod machine
+Branch `perf/llm-r46` (`develop` at `bce0d388`, §105 merged; `develop` `a4f8f173` merged before the hand-back). GPU 0 of the RunPod machine
 (RTX PRO 4500 Blackwell 32 GB, 200 W cap), shared with a llama.cpp re-measure and the SeedVR2 bring-up: every measurement took the bench
 lock (`flock`). vLLM rows are §105.2's (vLLM 0.33, the same machine and the same `loadgen.py --length-mix` requests, measured a day earlier).
 Raw output in [`bench/results/s109/`](../bench/results/s109) (`sat/kvadm/`, `bb/`, `ppl/`, `tests/`, `scripts/`).
@@ -17554,7 +17554,20 @@ CPU reference on the dequantized cache (109.5).
 
 ### 109.5 Tests
 
-TESTS_PLACEHOLDER
+Merged `develop` (`a4f8f173`) and rebuilt; one class per process (`tests/`):
+
+* CPU-side, devices hidden (`tests/cpu/`): `Sharplight.Core.Tests`, `Sharplight.Hosting.Tests`, `Sharplight.Serving.Tests`: 73 classes,
+  2,109 tests, 0 failed, 359 skipped (GPU and model tests). Inside the GPU hold (`tests/cuda/`, `SHARPLIGHT_TEST_PROVIDER=cuda`):
+  Core.Tests 1,663, 0 failed (331 skipped), Hosting.Tests 31, 0 failed, `Sharplight.Cuda.Tests` 92, 0 failed (1 skipped), `Sharplight.Serving.Tests`
+  415, 1 failed (13 skipped): `OpenAiApiTests.ClientDisconnect_CancelsGeneration`, a timing test of the HTTP layer that fails on `develop`'s
+  build too (interleaved runs, devices hidden: branch 4 of 10, `develop` 3 of 10).
+* `Sharplight.Vulkan.Tests` attention classes (`PagedAttentionTests`, `FullAttentionTests`, `SparseAttentionTests`, `StatefulTests`,
+  `CompressedKvTests`, `FusionTests`) on CUDA and on Vulkan (`tests/vk-cuda/`, `tests/vk-vulkan/`): 272 / 272, 0 failed each. New FP8 cases:
+  `StatefulTests.CachedAttentionAcrossSteps` / `LongPrefill` / `GroupedDecode` / `WideDecode` / `LatentShapes` (head sizes 64-576; the native
+  decode and prompt kernels on CUDA, the generated `decode` / `fa` / `fa_mqa` elsewhere), `PagedAttentionTests.PagedAttentionMatchesCpu` and
+  `ManySequencesDecodeOneRowEach` (paged multi-sequence steps, the serving form).
+* New elsewhere: `KvAdmissionTests` (4), `ModelHostingJsonTests.KvAdmissionRoundTripsAndReachesTheEngine`,
+  `QuantTests.E4m3_EncodesEveryCodeBackAndRoundsToNearestEven` (Cpu.Tests).
 
 ### 109.6 Reproduce
 
