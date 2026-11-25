@@ -3,6 +3,20 @@
 Release notes per version are in [docs/release-notes](docs/release-notes). Prereleases (`-alpha`) are built from `develop` and
 have no curated notes; their changes are the commit log.
 
+## Unreleased
+
+Task API made consistent across model kinds (breaking for callers of the renamed members):
+
+- Every task client has `services.Add<Client>(...)` registrations; new: `AddAudioCodec`, `AddVoiceActivityDetector`, `AddAudioEmbedder`,
+  `AddAudioSeparator`, `AddAudioGenerator`, `AddMusicGenerator`, and `AddSemanticSegmenter((o, services) => ...)`.
+- `IImageGenerator.Defaults`, `IVideoGenerator.Defaults`, `IVideoEnhancer.Defaults` replace `GetService(typeof(...Defaults))`.
+- Per-request vision and audio options are immutable records like the other kinds (`with` instead of setting properties).
+- Renamed: `UpscaleOptions` → `ImageUpscalingOptions`, `EmbedOptions` → `TextEmbeddingOptions`,
+  `IVoiceActivityDetector.ProbabilitiesAsync` → `ComputeProbabilitiesAsync`.
+- `IImageUpscaler.UpscaleAsync` takes progress as an `IProgress<double>` parameter (was `UpscaleOptions.Progress`).
+- `TaskClientProvider.Create(Type, TaskModel)`, `TaskKindClients.ClientTypes`, `DeviceOptions.ResolveSubmissionBudgetMs` /
+  `ResolveConcurrentWorkgroups` added.
+
 ## 0.2 (first stable release)
 
 Every model kind on one engine (text, speech recognition and synthesis, audio, vision, image and video generation), a verified-model
