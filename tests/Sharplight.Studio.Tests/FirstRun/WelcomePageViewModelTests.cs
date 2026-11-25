@@ -67,7 +67,8 @@ public sealed class WelcomePageViewModelTests
 
         var welcome = flow.Welcome;
         Assert.Equal("Test GPU · 16.0 GB", welcome.GpuText);
-        Assert.Equal("32.0 GB", welcome.MemoryText);
+        // The fake machine has 32 GB; system memory never exceeds the process limit (a hosted CI runner has about 16 GB).
+        Assert.Equal(ByteFormat.Format(Math.Min(32L << 30, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes)), welcome.MemoryText);
         Assert.Contains("200 GB free", welcome.DiskText, StringComparison.Ordinal);
         Assert.Equal([WelcomeFeed.Chat, WelcomeFeed.Speech, WelcomeFeed.Embedding], welcome.Items.Select(item => item.Package.Id));
         Assert.Equal([true, true, false], welcome.Items.Select(item => item.IsSelected));
