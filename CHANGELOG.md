@@ -17,6 +17,10 @@ Task API made consistent across model kinds (breaking for callers of the renamed
 - `TaskClientProvider.Create(Type, TaskModel)`, `TaskKindClients.ClientTypes`, `DeviceOptions.ResolveSubmissionBudgetMs` /
   `ResolveConcurrentWorkgroups` added.
 
+Reduced precision falls back to bf16 activations for graphs whose activations exceed f16's range (SDXL's VAE decoder: 11.2 → 67.8 dB
+at the same speed): new `CompileOptions.ActivationPrecision`, `ActivationRangeProbe` / `ActivationRange` and
+`TaskModel.CalibrateActivationPrecision` / `ActivationPrecisionOf`; the image generator calibrates its VAE graphs once.
+
 ## 0.2 (first stable release)
 
 Every model kind on one engine (text, speech recognition and synthesis, audio, vision, image and video generation), a verified-model

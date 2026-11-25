@@ -1,0 +1,2 @@
+VAE sd15-diffusers decode 512x512: median 83.0 ms, min 81.8 ms (5 runs)
+VAE reduced vs f32 products: PSNR 79.1 dB (range 2), max abs 1.01E-002

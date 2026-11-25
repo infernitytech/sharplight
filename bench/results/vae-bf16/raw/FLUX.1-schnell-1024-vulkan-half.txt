@@ -1,0 +1,2 @@
+VAE FLUX.1-schnell decode 1024x1024: median 856.0 ms, min 855.4 ms (5 runs)
+VAE reduced vs f32 products: PSNR 88.5 dB (range 2), max abs 5.01E-003

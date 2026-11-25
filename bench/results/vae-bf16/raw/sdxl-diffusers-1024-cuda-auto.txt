@@ -1,0 +1,14 @@
+Graph optimization (sharplight-ir/1): text_encode 266 -> 266 nodes, denoise 2776 -> 2776 nodes, vae_decode 137 -> 137 nodes, vae_encode 107 -> 107 nodes, text_encode_2 714 -> 714 nodes [65 ms]
+Loaded sdxl-diffusers (latent_diffusion, image-generation, components text-encoder, tokenizer, denoiser, vae, scheduler): 2641 tensors, 6.94 GB [597 ms]
+Graph optimization (sharplight-ir/1): text_encode 266 -> 266 nodes, denoise 2776 -> 2776 nodes, vae_decode 137 -> 137 nodes, vae_encode 107 -> 107 nodes, text_encode_2 714 -> 714 nodes [49 ms]
+Rebuilt sdxl-diffusers for height=256, width=256 [57 ms]
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 7 groups, 0.09 GiB weights+state
+1 segment(s): [0@0: 219 nodes]
+Activation range of 'vae_decode': max |x| 2.017E+04 at 'conv_109' -> BFloat16 activations [858 ms]
+activation precision BFloat16 (measured in 860 ms)
+Graph optimization (sharplight-ir/1): text_encode 266 -> 266 nodes, denoise 2776 -> 2776 nodes, vae_decode 137 -> 137 nodes, vae_encode 107 -> 107 nodes, text_encode_2 714 -> 714 nodes [32 ms]
+Rebuilt sdxl-diffusers for height=1024, width=1024 [37 ms]
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 7 groups, 0.09 GiB weights+state
+1 segment(s): [0@0: 137 nodes]
+VAE sdxl-diffusers decode 1024x1024: median 585.7 ms, min 584.1 ms (5 runs)
+VAE reduced vs f32 products: PSNR 67.8 dB (range 2), max abs 3.24E-002

@@ -17696,3 +17696,66 @@ bench/offload_selected_experts.sh out A sl-first oss-vk oss-vk-before cn-vk cn-v
 python3 bench/same_stat_summarize_offload.py out
 SHARPLIGHT_LOAD_TIMING=1 SHARPLIGHT_BENCH_PROMPT=vocab sharplight $OSS --provider cuda --cpu-offload --bench 512   # [stream] lines: experts selected per layer
 ```
+
+## §BF16. A bf16 activation fallback for components that overflow f16: SDXL's VAE decoder under reduced precision 11.2 → 67.8 dB at the same speed; FLUX.1 / SD 1.5 keep f16 (2026-11-25)
+
+Branch `perf/vae-bf16` (`develop` at `d7498b57`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB), shared with other
+rounds: every timing run held the bench lock. Raw output in [`bench/results/vae-bf16/`](../bench/results/vae-bf16) (`run-vae.sh`;
+`raw/`).
+
+### BF16.1 Cause
+
+Under reduced precision the convolutions stage their f32 inputs as f16 (`conv_cl`, §110). SDXL's VAE decoder has activations past
+f16's largest value (65504) at large sizes: one convolution input late in the decoder (`conv_109`) reaches 4.3e4 for unit
+Gaussian latents at 1024 × 1024 and 1.4e5 for the uniform latents in [-1, 1] the benchmark decodes (strict measurement), so the staged
+values become infinite and the image is lost (11.2 dB from the f32 decode in §110.5). At 256 × 256 the same decoder is still fine (81.9 dB): the magnitudes grow with the
+image size and depend on the latents. The other VAEs stay far below (FLUX.1 ≤ 1.1e3, SD 1.5 ≤ 6e2 at any size measured).
+
+### BF16.2 Changes
+
+* **`CompileOptions.ActivationPrecision`** (new, Core): `Half` (default) or `BFloat16`, the 16-bit format reduced precision gives the
+  activations entering products. Under `BFloat16` `conv_cl` and `conv_cm` take their bf16 forms where the device has bf16 matrix
+  products, and every other kernel that would convert f32 activations to f16 (f32-weight GEMMs, attention, MoE, delta chunks) keeps
+  its strict form; without bf16 matrices that is f32 everywhere. CPU compilations ignore it.
+* **`ActivationRangeProbe`** (new, Core): instruments a graph with a per-row max |x| of every activation read by a matrix product,
+  convolution or attention (extra outputs, the graph's nodes shared) and reads the largest after one run; `ActivationRange.FitsHalf`
+  holds while it stays under 1/16 of f16's largest value (4094), a margin for larger sizes and other inputs.
+* **`TaskModel.CalibrateActivationPrecision`** (new): measures a component graph once (strict products, at the caller's sizes, with
+  the caller's input), decides its precision for every later compilation of that graph name, and records the measured range in the
+  model's compilation artifacts (`ExportCompilation` / `ModelPackage.AddArtifacts` store it in a `.slm`; a load reads it instead of
+  measuring). Skipped, `Half`, when reduced precision is off or no device multiplies f16 matrices.
+* **Image generation**: `LatentDiffusionGenerator` calibrates each VAE graph (decode, encode) before compiling it the first time, at
+  256 × 256 pixels with unit Gaussian latents (pixels uniform in [0, 1] for the encoder). Nothing names a model.
+
+### BF16.3 Results
+
+`bench/ConvBench --vae <model> --size N --runs 5 --check`, median of 5 after one warm-up; "half" is `--activations half` (f16, the
+previous behaviour), "auto" measures first as the generator does; PSNR against the same decoder with f32 products (images in [-1, 1]).
+
+| decoder | provider | half: time | half: PSNR | auto: precision | auto: time | auto: PSNR | measuring |
+|---|---|---|---|---|---|---|---|
+| SDXL (diffusers) 1024² | CUDA | 588.2 ms | 11.2 dB | bf16 (2.0e4) | **585.7 ms** | **67.8 dB** | 0.86 s |
+| SDXL (diffusers) 1024² | Vulkan | 853.1 ms | 11.2 dB | bf16 (2.0e4) | **853.5 ms** | **67.9 dB** | 1.08 s |
+| FLUX.1-schnell 1024² | CUDA | 586.8 ms | 88.5 dB | f16 (1.0e3) | 587.7 ms | 88.5 dB | 4.45 s |
+| FLUX.1-schnell 1024² | Vulkan | 856.0 ms | 88.5 dB | f16 (1.0e3) | 858.2 ms | 88.5 dB | 1.07 s |
+| SD 1.5 512² | CUDA | 66.7 ms | 79.2 dB | f16 (3.6e2) | 66.4 ms | 79.2 dB | 3.84 s |
+| SD 1.5 512² | Vulkan | 83.0 ms | 79.1 dB | f16 (3.6e2) | 83.1 ms | 79.1 dB | 1.22 s |
+
+* SDXL's decoder with bf16 activations takes the time of the f16 one (`conv_cl`'s bf16 and f16 forms run at the same rate on this
+  GPU) and lands at 67.8 / 67.9 dB, well above the 40 dB target; what remains is the bf16 rounding (8 significant bits) of the
+  activations. The other two decoders are not flagged and run as before (differences within the run-to-run spread).
+* "measuring" is the calibration (rebuild at 256 × 256, compile of the instrumented graph with strict products, one run), once per
+  process and graph; with a cold kernel cache it took up to 30 s the first time on this machine (new kernel shapes), 0.9-4.5 s after.
+  A package that stores the measured range skips it.
+* Probe size: SDXL's flagged value grows with the image (2.0e4 at 128-256 px, 2.9e4 at 512, 4.3e4 at 1024 for Gaussian latents; 4.9e4
+  and 1.4e5 for uniform latents at 256 and 1024), while FLUX.1's stays at 1.0-1.1e3 and SD 1.5's at 2.7-6.0e2 at every size
+  (`raw/probe-sizes.txt`). The f16-safe limit of 4094 sits between the two groups with a factor 4-5 on either side, so a 256 × 256
+  probe separates them.
+
+### BF16.4 Tests
+
+* `ActivationPrecisionTests` (Vulkan suite, also with `SHARPLIGHT_TEST_PROVIDER=cuda`): a conv → × 2e5 → conv → × 5e-6 stack is
+  flagged (location: the scaled value) and with bf16 activations matches the f32 CPU oracle at the bf16 tolerance, while f16
+  activations give non-finite or far-off output; the same stack at × 4 is not flagged.
+* `VaeActivationPrecisionTests` (ImageGeneration suite): SDXL's decoder calibrates to `BFloat16`, SD 1.5's and FLUX.1-schnell's to
+  `Half`; SDXL then decodes the diffusers reference latents under reduced precision within 2e-2 relative RMS of the diffusers image.
