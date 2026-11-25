@@ -146,7 +146,7 @@ internal sealed class VibeVoiceRecognizer : ISpeechRecognizer
         var semanticCaches = _semanticCaches ??= new VibeVoiceConvCaches(encoder, VibeVoiceAdapter.SemanticPrefix);
         var graph = encoder.Graph;
         var input = graph.Inputs.First(i => i.Input!.Name == AudioCodecGraphs.AudioInput);
-        var normalized = Normalize((float[])samples.Clone());
+        var normalized = VibeVoiceLoudness.Normalize((float[])samples.Clone(), _normalizeDbfs);
         int rows = (normalized.Length + _hop - 1) / _hop;
         int block = VibeVoiceAsrAdapter.EncodeFrames;
         caches.Reset();
@@ -314,34 +314,5 @@ internal sealed class VibeVoiceRecognizer : ISpeechRecognizer
             PositionAxes = 1,
             NextPosition = startPosition + tokens.Length,
         };
-    }
-
-    // The feature extractor's normalization: the recording's RMS to the target level, then its peak to 1 when it exceeds it.
-    private float[] Normalize(float[] samples)
-    {
-        double energy = 0;
-        foreach (float s in samples)
-        {
-            energy += (double)s * s;
-        }
-
-        double rms = Math.Sqrt(energy / Math.Max(1, samples.Length));
-        float gain = (float)(Math.Pow(10, _normalizeDbfs / 20) / (rms + 1e-6));
-        float peak = 0;
-        for (int i = 0; i < samples.Length; i++)
-        {
-            samples[i] *= gain;
-            peak = MathF.Max(peak, MathF.Abs(samples[i]));
-        }
-
-        if (peak > 1f)
-        {
-            for (int i = 0; i < samples.Length; i++)
-            {
-                samples[i] /= peak + 1e-6f;
-            }
-        }
-
-        return samples;
     }
 }

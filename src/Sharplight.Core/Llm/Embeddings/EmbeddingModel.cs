@@ -1,5 +1,6 @@
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Embeddings;
@@ -237,28 +238,13 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
                 var v = vectors[i].AsSpan(0, dims).ToArray();
                 if (IsNormalized)
                 {
-                    L2Normalize(v);
+                    VectorMath.L2Normalize(v);
                 }
 
                 vectors[i] = v;
             }
         }
         return new EmbeddingResult(vectors, [.. seqs.Select(s => s.Length)]);
-    }
-
-    internal static void L2Normalize(Span<float> v)
-    {
-        double s = 0;
-        foreach (float x in v)
-        {
-            s += (double)x * x;
-        }
-
-        float inv = s > 0 ? (float)(1 / Math.Sqrt(s)) : 0;
-        for (int i = 0; i < v.Length; i++)
-        {
-            v[i] *= inv;
-        }
     }
 
     /// <summary>
