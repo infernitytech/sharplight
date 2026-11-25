@@ -3,7 +3,11 @@
 Release notes per version are in [docs/release-notes](docs/release-notes). Prereleases (`-alpha`) are built from `develop` and
 have no curated notes; their changes are the commit log.
 
-## Unreleased
+## 0.3
+
+CUDA execution provider, LLM serving at vLLM's level, models larger than the GPU (experts in system memory or on disk), native FP8 / MXFP4 / NVFP4,
+SeedVR2 video enhancement, 16-bit convolutions, a consistent task API across every model kind, and Studio for all of it. Details, numbers,
+breaking changes and known issues: [docs/release-notes/v0.3.md](docs/release-notes/v0.3.md). The entries below list every API change.
 
 Task API made consistent across model kinds (breaking for callers of the renamed members):
 
