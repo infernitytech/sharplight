@@ -9,6 +9,7 @@ internal static class CompileOptionsCodec
     {
         w.Int64(options.MaxTokens).Int64(options.ContextLength).Map(options.SymbolBounds).Strings([.. options.DisabledFeatures]);
         w.Bool(options.AllowReducedPrecision).Bool(options.SplitHalfMatMul).Int32((int)options.MatrixPrecision).Int64(options.RowInvariantRows);
+        w.Int32((int)options.ActivationPrecision);
     }
 
     /// <summary>The options as sent; the worker adds its own weight sharing, expert store and cancellation.</summary>
@@ -29,6 +30,7 @@ internal static class CompileOptionsCodec
             SplitHalfMatMul = r.Bool(),
             MatrixPrecision = (MatrixPrecision)r.Int32(),
             RowInvariantRows = r.Int64(),
+            ActivationPrecision = (ActivationPrecision)r.Int32(),
             SharedWeights = sharedWeights,
             DiskExperts = diskExperts,
             CancellationToken = cancellationToken,

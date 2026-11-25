@@ -48,6 +48,10 @@ Task API round 2 (breaking):
 - `VideoEnhancementUpdate` positional order is now `(Phase, Batch, TotalBatches, Result, Frames)`, like the image and video updates
   (counters, result, then previews / frames).
 
+Reduced precision falls back to bf16 activations for graphs whose activations exceed f16's range (SDXL's VAE decoder: 11.2 → 67.8 dB
+at the same speed): new `CompileOptions.ActivationPrecision`, `ActivationRangeProbe` / `ActivationRange` and
+`TaskModel.CalibrateActivationPrecision` / `ActivationPrecisionOf`; the image generator calibrates its VAE graphs once.
+
 ## 0.2 (first stable release)
 
 Every model kind on one engine (text, speech recognition and synthesis, audio, vision, image and video generation), a verified-model

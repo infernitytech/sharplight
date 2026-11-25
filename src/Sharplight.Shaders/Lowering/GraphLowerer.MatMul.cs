@@ -708,7 +708,14 @@ public sealed partial class GraphLowerer
     /// True when f32 matrix products use one f16 product of row-scaled inputs (<see cref="MatrixPrecision.Fast"/>) instead of the
     /// split form's three; reduced precision, where allowed, takes precedence with its own kernels.
     /// </summary>
-    private bool FastMatrixProducts => _opt.Compile.MatrixPrecision == MatrixPrecision.Fast && !_opt.Compile.AllowReducedPrecision;
+    private bool FastMatrixProducts => _opt.Compile.MatrixPrecision == MatrixPrecision.Fast && !HalfActivations;
+
+    /// <summary>
+    /// True when reduced precision lets f32 activations enter products as f16 (<see cref="CompileOptions.AllowReducedPrecision"/> with
+    /// <see cref="ActivationPrecision.Half"/>). Under <see cref="ActivationPrecision.BFloat16"/> only the kernels with a bf16 form
+    /// (conv_cl, conv_cm) compute in 16 bits; every other kernel keeps its strict form, which holds f32's range.
+    /// </summary>
+    private bool HalfActivations => _opt.Compile.AllowReducedPrecision && _opt.Compile.ActivationPrecision == ActivationPrecision.Half;
 
     /// <summary>
     /// The split f16 form of the constant f32 weights <paramref name="weight"/> ([N, K] or a conv's [O, CG, KH, KW], read as
@@ -867,7 +874,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool SmallMatrixGemmUsable(Node n, DataType type, long k)
         => DiagnosticSwitches.SmallMatrixGemm && _opt.Has(DeviceFeatures.MatrixF16Small) && _opt.Has(DeviceFeatures.Float16) && k % 32 == 0
-           && (type != DataType.F32 || _opt.Compile.AllowReducedPrecision) && QuantizedActivationsAllowed(n);
+           && (type != DataType.F32 || HalfActivations) && QuantizedActivationsAllowed(n);
 
     /// <summary>
     /// True when matmul <paramref name="n"/> with f32 weights may run on the split-f16 tensor-core GEMM (gemm_cm2 with GEMM_SPLIT):
@@ -876,7 +883,7 @@ public sealed partial class GraphLowerer
     /// it. The weights must also be graph constants (<see cref="SplitWeights"/>).
     /// </summary>
     private bool SplitHalfGemmUsable(Node n, DataType type, long k)
-        => type == DataType.F32 && _opt.Compile.SplitHalfMatMul && !_opt.Compile.AllowReducedPrecision && DiagnosticSwitches.GemmSplitHalf
+        => type == DataType.F32 && _opt.Compile.SplitHalfMatMul && !HalfActivations && DiagnosticSwitches.GemmSplitHalf
            && DiagnosticSwitches.Gemm2 && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32
            && k % 32 == 0 && n.Op.Name == "MatMul";
 
@@ -906,7 +913,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool CoopUsable(DataType type, long k)
         => _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && k % 32 == 0
-           && (type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
+           && (type != DataType.F32 || HalfActivations);
 
     private static string MatMulLabel(MatMulPlan p) => $"matmul {p.Node.Output.Name} [{p.K}→{p.N}] {p.W.Type}";
 

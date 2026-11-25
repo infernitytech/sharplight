@@ -1,6 +1,8 @@
 // ConvBench [--provider cuda|vulkan] [--strict] [--x-type f32|f16] [--weight-type f32|f16] [--iters 20] [--filter text] [--cases "label:N:C:H:W:O:k:s[:parts]" ...]
-// ConvBench --vae <image-generation model> --size N [--runs 5] [--provider ...] [--strict] [--top K] [--check]: the model's VAE decoder
-// (VaeDecodeBench); --check also decodes with f32 products and prints the PSNR of the reduced-precision image against it.
+// ConvBench --vae <image-generation model> --size N [--runs 5] [--provider ...] [--strict] [--top K] [--check] [--activations auto|half]
+// [--probe-size N]: the model's VAE decoder (VaeDecodeBench); --check also decodes with f32 products and prints the PSNR of the
+// reduced-precision image against it. --activations auto (default) measures the decoder's activation range at --probe-size (256)
+// pixels and picks the activation precision as the image generator does; half keeps f16.
 // GPU time of single 2-D convolutions (bias, "same" padding) compiled alone: the sum over the graph's launches of each launch's
 // minimum time across the timed runs (the GPU is shared, so minimums), with the TFLOPS of the convolution's multiply-adds. A case with
 // parts > 1 convolves the channel concatenation of that many inputs (the stacked frame windows of a causal 3-D convolution), so the
@@ -28,6 +30,8 @@ string? vae = null;
 int size = 1024;
 int runs = 5;
 bool check = false;
+string activations = "auto";
+int probeSize = 256;
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
@@ -43,6 +47,8 @@ for (int i = 0; i < args.Length; i++)
         case "--size": size = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
         case "--runs": runs = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
         case "--check": check = true; break;
+        case "--activations": activations = args[++i]; break;
+        case "--probe-size": probeSize = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
         case "--cases":
             while (i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
             {
@@ -72,7 +78,7 @@ if (!catalog.TryFind(provider, out var executionProvider))
 using var device = executionProvider.OpenDevice(executionProvider.GetDevices()[0]);
 if (vae is not null)
 {
-    VaeDecodeBench.Run(services.GetRequiredService<ModelLoader>(), device, vae, size, strict, runs, top, check);
+    VaeDecodeBench.Run(services.GetRequiredService<ModelLoader>(), device, vae, size, strict, runs, top, check, activations, probeSize);
     return 0;
 }
 

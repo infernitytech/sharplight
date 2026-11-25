@@ -7,7 +7,7 @@ namespace Sharplight.Shaders.Lowering;
 
 /// <summary>
 /// Reduced-precision convolutions over channels-last 16-bit activations (conv_cl.slang): f16 where the device has f16 matrices,
-/// else bf16 where it has bf16 ones, f32 accumulation. The activations are staged once into the channels-last layout
+/// else (or with <see cref="ActivationPrecision.BFloat16"/>) bf16 where it has bf16 ones, f32 accumulation. The activations are staged once into the channels-last layout
 /// (conv_cl_stage), so the implicit GEMM loads 8 channels of an input pixel with one 16-byte load and one bounds check instead
 /// of converting and addressing every value (conv_cm); the constant weights are converted and reordered tap-major on the host.
 /// A channel concatenation read only by such a convolution (the stacked frame windows of a causal 3-D convolution, the skip
@@ -101,7 +101,7 @@ public sealed partial class GraphLowerer
             return null;
         }
 
-        DataType? type = _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) ? DataType.F16
+        DataType? type = HalfActivations && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) ? DataType.F16
             : _opt.Has(DeviceFeatures.MatrixBF16) && _opt.Has(DeviceFeatures.BFloat16) ? DataType.BF16 : null;
         var x = n.Inputs[0];
         var w = n.Inputs[1];

@@ -27,7 +27,7 @@ public sealed partial class GraphLowerer
         long paddedD = (plan.D + 15) / 16 * 16;
         long sharedBytes = 32 * (paddedD + 8) * 2 + 4 * 16 * 32 * 4 + 16 * 40 * 2 + 16 * 4;
         bool sharedRow = plan.K.Buffer == plan.V.Buffer && plan.K.ByteOffset == plan.V.ByteOffset && plan.V.Shape[2] == plan.D;
-        bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type) || (plan.K.Type == DataType.F32 && _opt.Compile.AllowReducedPrecision);
+        bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type) || (plan.K.Type == DataType.F32 && HalfActivations);
         bool alibi = plan.Node.Attributes.Has("alibi_slopes") || plan.Node.Attributes.Has("position_bias");   // the latent-attention kernel has no score bias
         if (plan.Full || alibi || !sharedRow || !typeAllowed || !DiagnosticSwitches.AttentionMqaFlash
             || !_opt.Has(DeviceFeatures.MatrixF16) || !_opt.Has(DeviceFeatures.Float16) || !_opt.Has(DeviceFeatures.SubgroupOps) || _opt.SubgroupSize != 32

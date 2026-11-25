@@ -234,7 +234,7 @@ public sealed partial class GraphLowerer
     /// <summary>Whether the expert products of <paramref name="w"/> (inner size <paramref name="k"/>) run the tensor-core grouped GEMM.</summary>
     private bool MoeTensorCoreGemm(TensorRef w, long k)
         => !DiagnosticSwitches.MoeNoCoop && (_opt.Has(DeviceFeatures.MatrixF16) || SmallFragments) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32
-           && k % 32 == 0 && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
+           && k % 32 == 0 && (w.Type != DataType.F32 || HalfActivations);
 
     /// <summary>
     /// Two expert products of the same activations and routing (gate / up) whose outputs only feed one elementwise group, which

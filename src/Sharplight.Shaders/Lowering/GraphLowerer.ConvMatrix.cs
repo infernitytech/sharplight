@@ -82,8 +82,10 @@ public sealed partial class GraphLowerer
         // sixth of the products of the strict form.
         long reducedColumns = (columns * Math.Max(1, batchBound) + 127) / 128 * ((OG + 127) / 128) * groups < TargetWorkgroups ? 64 : 128;
         bool splitHalf = splitWeights && f16 && !SmallFragments && weightFormat == 0 && _opt.Compile.SplitHalfMatMul && DiagnosticSwitches.ConvSplitHalf;
-        ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision
-            ? f16 ? new ConvMatrixForm(1, reducedColumns) : bf16 ? new ConvMatrixForm(2, reducedColumns) : null
+        // Reduced precision with bf16 activations (ActivationPrecision.BFloat16) takes the two-part bf16 form, else the strict ones.
+        bool halfProducts = f16 && HalfActivations;
+        ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision && (halfProducts || bf16)
+            ? halfProducts ? new ConvMatrixForm(1, reducedColumns) : new ConvMatrixForm(2, reducedColumns)
             : splitHalf ? new ConvMatrixForm(4, reducedColumns) : bf16 ? new ConvMatrixForm(3, 64) : null;
         return form is { } f && columns * Math.Max(1, batchBound) >= ConvMatrixMinColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
     }
@@ -126,7 +128,7 @@ public sealed partial class GraphLowerer
         // once per item and step.
         long taps = w.Shape[2] * w.Shape[3];
         bool tapMajor = !DiagnosticSwitches.ConvNoTapMajor;
-        var splitWeights = !_opt.Compile.AllowReducedPrecision && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
+        var splitWeights = !HalfActivations && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
             ? SplitWeights(n.Inputs[1], w, tapMajor ? taps : 1) : null;
         if (ChooseConvMatrixForm(K, OG, HW, format, bound, G, splitWeights is not null) is not { } form)
         {
