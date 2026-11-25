@@ -53,4 +53,7 @@ public static class PackageTasks
 
     /// <summary>Audio encoding and decoding.</summary>
     public const string AudioCodec = "audio-codec";
+
+    /// <summary>Video (and still image) restoration and super-resolution.</summary>
+    public const string VideoEnhancement = "video-enhancement";
 }

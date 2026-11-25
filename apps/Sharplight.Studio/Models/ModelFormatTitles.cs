@@ -15,6 +15,7 @@ internal static class ModelFormatTitles
         ModelFormat.Diffusers => "Diffusers",
         ModelFormat.WhisperCpp => "whisper.cpp",
         ModelFormat.Slm => ".slm",
+        ModelFormat.PyTorch => "PyTorch",
         _ => format.ToString(),
     };
 }

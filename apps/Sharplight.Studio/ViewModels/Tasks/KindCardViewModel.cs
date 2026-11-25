@@ -94,5 +94,9 @@ internal sealed partial class KindCardViewModel : ObservableObject
         {
             _navigator.OpenDiscover(Info.Tasks[0]);
         }
+        else
+        {
+            _navigator.OpenVerifiedModels(Info.Id);
+        }
     }
 }

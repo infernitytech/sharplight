@@ -276,6 +276,13 @@
               <TextBlock Text="{Binding GatedNotice}" FontSize="12" TextWrapping="Wrap" MaxWidth="340" />
             </StackPanel>
           </Border>
+          <Border DockPanel.Dock="Top" x:Name="VerifiedNotice" Classes="callout ok" Margin="0,0,0,8"
+                  IsVisible="{Binding VerifiedNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <StackPanel Spacing="6">
+              <TextBlock Text="{Binding VerifiedNotice}" FontSize="12" TextWrapping="Wrap" MaxWidth="340" />
+              <Button Classes="small" HorizontalAlignment="Left" Content="Show in the verified list" Command="{Binding ShowVerifiedEntryCommand}" />
+            </StackPanel>
+          </Border>
           <Border DockPanel.Dock="Top" x:Name="NoDownload" Classes="callout bad" Margin="0,0,0,8"
                   IsVisible="{Binding NoDownloadReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
             <StackPanel Orientation="Horizontal" Spacing="7">
