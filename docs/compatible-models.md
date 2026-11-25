@@ -462,6 +462,7 @@ worst frame. Supported: any output size or scale, batches of 1 + 4k frames, wave
 | Model | Hub repository | Formats | Verification | Notes | Verified |
 |---|---|---|---|---|---|
 | SeedVR2 3B | ByteDance-Seed/SeedVR2-3B | official folder (.pth DiT, VAE, text embeddings); fp16 safetensors conversion; .slm | whole enhancement vs official code: 49.3 dB CPU (tiny, f32), 48.9 dB CUDA / 48.8 dB Vulkan (480p, bf16 reference); 7B 43.6 dB | one-step video restoration and super-resolution; videos and images, any size, batches of 1 + 4k frames | 2026-11-24 |
+| SeedVR2 7B | ByteDance-Seed/SeedVR2-7B (+ text embeddings of ByteDance-Seed/SeedVR2-3B) | official folder (.pth DiT, VAE, text embeddings); .slm | official .pth files, whole enhancement vs the official code (17 frames 416x240 -> 832x480, wavelet colour fix, same frames and noise; reference: bf16 autocast with the DiT weights held in bf16, which a 32 GB GPU needs; Sharplight: f16 matrices, f32 activations): 7B 44.2 dB worst frame on CUDA and Vulkan, 7B sharp 42.7 dB CUDA / 42.6 dB Vulkan | one-step video restoration and super-resolution, 7B DiT (standard and sharp checkpoints); the text embeddings come from the official 3B repository (identical to the GitHub release) | 2026-11-25 |
 <!-- verified-catalog:end -->
 
 ## 9. Known unsupported or not working
