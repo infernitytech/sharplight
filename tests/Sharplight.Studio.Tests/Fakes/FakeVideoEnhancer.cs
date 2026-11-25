@@ -17,6 +17,9 @@ internal sealed class FakeVideoEnhancer : IVideoEnhancer
     /// <summary>When set, the stream waits on it after the first stage (until cancelled).</summary>
     public TaskCompletionSource? Gate { get; set; }
 
+    /// <summary>When set, awaited after each batch's finished frames were handed out (the argument is the batch).</summary>
+    public Func<int, Task>? AfterBatch { get; set; }
+
     public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.VideoEnhancement, "fake-enhancer", "fake");
 
     public Task<VideoEnhancementResult> EnhanceAsync(VideoEnhancementRequest request, VideoEnhancementOptions? options = null, CancellationToken cancellationToken = default)
@@ -48,6 +51,10 @@ internal sealed class FakeVideoEnhancer : IVideoEnhancer
             var decoded = Enumerable.Range(0, count).Select(i => FakeImageGenerator.Gradient(width, height, (batch * perBatch + i) * 10)).ToList();
             output.AddRange(decoded);
             yield return new VideoEnhancementUpdate(VideoEnhancementPhase.Decoding, batch, batches, Frames: decoded);
+            if (AfterBatch is { } after)
+            {
+                await after(batch).WaitAsync(cancellationToken);
+            }
         }
 
         var result = new VideoEnhancementResult(output, request.FramesPerSecond ?? 24, options.Seed ?? 777);

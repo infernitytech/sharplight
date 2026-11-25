@@ -118,8 +118,21 @@ internal sealed partial class VideoPlayerViewModel : ObservableObject
         Pause();
         _audio = null;
         _frames = frames;
-        Position = Math.Max(0, frames.Count - 1);
+
+        // The scrubber's range first: a bound slider would clamp a position beyond its old maximum and write that back.
         NotifyFramesChanged();
+        Position = Math.Max(0, frames.Count - 1);
+    }
+
+    /// <summary>Replaces the frames with <paramref name="frames"/> (the same clip, grown) without pausing, and moves to <paramref name="position"/> (clamped).</summary>
+    /// <param name="frames">The frames so far.</param>
+    /// <param name="position">The frame to show.</param>
+    public void Extend(IReadOnlyList<ImageInput> frames, double position)
+    {
+        _audio = null;
+        _frames = frames;
+        NotifyFramesChanged();
+        Position = Math.Clamp(Math.Round(position), 0, Math.Max(0, frames.Count - 1));
     }
 
     /// <summary>Removes the frames.</summary>
