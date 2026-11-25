@@ -134,7 +134,7 @@ public sealed class TinyWanTests
         Assert.SkipWhen(slot is null, "no Vulkan device");
         using var model = Env.Load(Path.Combine(Root("ti2v"), "diffusers"), slot!);
         using var generator = Env.Clients.Create<IVideoGenerator>(model);
-        var defaults = (VideoGenerationDefaults)generator.GetService(typeof(VideoGenerationDefaults))!;
+        var defaults = generator.Defaults;
         Assert.True(defaults.SupportsImage);
         var index = Index("ti2v");
         var image = PngCodec.Decode(File.ReadAllBytes(Path.Combine(Root("ti2v"), "reference", "input.png")));
@@ -238,7 +238,7 @@ public sealed class TinyWanTests
         Assert.SkipWhen(slot is null, "no Vulkan device");
         using var model = Env.Load(Path.Combine(Root("i2v"), "diffusers"), slot!);
         using var generator = Env.Clients.Create<IVideoGenerator>(model);
-        Assert.True(((VideoGenerationDefaults)generator.GetService(typeof(VideoGenerationDefaults))!).SupportsImage);
+        Assert.True(generator.Defaults.SupportsImage);
         var index = Index("i2v");
         var request = new VideoGenerationRequest
         {
@@ -302,7 +302,7 @@ public sealed class TinyWanTests
         Assert.True(rms < 1e-4, $"transformer: max {maxAbs}, relative RMS {rms}");
 
         using var generator = Env.Clients.Create<IVideoGenerator>(model);
-        var defaults = (VideoGenerationDefaults)generator.GetService(typeof(VideoGenerationDefaults))!;
+        var defaults = generator.Defaults;
         Assert.True(defaults.RequiresImage);
         Assert.Equal(last is not null, defaults.SupportsLastImage);
         var request = new VideoGenerationRequest

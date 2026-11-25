@@ -16,6 +16,9 @@ internal sealed class FakeImageGenerator : IImageGenerator
     /// <summary>The size of the images when the options name none.</summary>
     public int NativeSize { get; set; } = 64;
 
+    /// <summary>The model defaults reported (a regular, guided model).</summary>
+    public ImageGenerationDefaults Defaults { get; set; } = new(64, 64, 20, 7.5f, "euler");
+
     /// <summary>When set, the stream waits on it after the first step (until cancelled).</summary>
     public TaskCompletionSource? Gate { get; set; }
 

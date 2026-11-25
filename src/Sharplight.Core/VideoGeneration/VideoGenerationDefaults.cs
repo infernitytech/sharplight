@@ -2,7 +2,7 @@ namespace Sharplight.VideoGeneration;
 
 /// <summary>
 /// The values a video generator uses for the options a request leaves unset (<see cref="VideoGenerationOptions"/>) and what it accepts;
-/// a front end that shows these options reads them with <c>generator.GetService(typeof(VideoGenerationDefaults))</c>.
+/// a front end that shows these options reads them with <see cref="IVideoGenerator.Defaults"/>.
 /// </summary>
 /// <param name="Width">Default width in pixels.</param>
 /// <param name="Height">Default height in pixels.</param>

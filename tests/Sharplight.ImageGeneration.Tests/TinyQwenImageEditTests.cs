@@ -102,7 +102,7 @@ public sealed class TinyQwenImageEditTests
         var index = Index(variant);
         int height = index.GetProperty("height").GetInt32();
         int width = index.GetProperty("width").GetInt32();
-        var defaults = (ImageGenerationDefaults)generator.GetService(typeof(ImageGenerationDefaults))!;
+        var defaults = generator.Defaults;
         Assert.Equal(3, defaults.ReferenceImages);
         var images = new[] { PngCodec.Read(Path.Combine(Root(variant), "reference", "ref_0.png")), PngCodec.Read(Path.Combine(Root(variant), "reference", "ref_1.png")) };
         foreach (int n in source == "gguf" ? new[] { 2 } : new[] { 1, 2 })

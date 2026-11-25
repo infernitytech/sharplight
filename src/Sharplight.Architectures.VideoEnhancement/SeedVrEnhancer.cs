@@ -24,7 +24,6 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     private readonly TaskModel _model;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, CompiledModel> _compiled = new(StringComparer.Ordinal);
-    private readonly VideoEnhancementDefaults _defaults;
     private readonly float _timestep;
     private readonly int _latentChannels;
     private readonly int _spatialDownscale;
@@ -40,7 +39,7 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
         _timestep = (float)description.ConfigValue(SeedVrConfigKeys.Timestep, 1000.0);
         _latentChannels = vae.ConfigValue(DiffusionConfigKeys.LatentChannels, 16);
         _spatialDownscale = vae.ConfigValue(SeedVrConfigKeys.SpatialDownscale, 8);
-        _defaults = new VideoEnhancementDefaults(
+        Defaults = new VideoEnhancementDefaults(
             (float)description.ConfigValue(SeedVrConfigKeys.DefaultScale, 2.0),
             description.ConfigValue(SeedVrConfigKeys.SizeMultiple, 16),
             description.ConfigValue(SeedVrConfigKeys.FrameMultiple, 4),
@@ -53,7 +52,9 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     public TaskClientMetadata Metadata { get; }
 
     /// <inheritdoc/>
-    /// <remarks>Also answers <see cref="VideoEnhancementDefaults"/>.</remarks>
+    public VideoEnhancementDefaults Defaults { get; }
+
+    /// <inheritdoc/>
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
@@ -62,8 +63,7 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
             return null;
         }
 
-        return serviceType == typeof(VideoEnhancementDefaults) ? _defaults
-            : serviceType.IsInstanceOfType(_model) ? _model
+        return serviceType.IsInstanceOfType(_model) ? _model
             : serviceType.IsInstanceOfType(this) ? this
             : null;
     }
@@ -87,7 +87,7 @@ internal sealed class SeedVrEnhancer : IVideoEnhancer
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var plan = EnhancementPlan.Create(request, options ?? VideoEnhancementOptions.Default, _defaults);
+        var plan = EnhancementPlan.Create(request, options ?? VideoEnhancementOptions.Default, Defaults);
         var settings = options ?? VideoEnhancementOptions.Default;
         if ((settings.InitialNoise is not null || settings.EncoderNoise is not null) && plan.Batches.Count > 1)
         {

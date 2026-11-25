@@ -55,7 +55,7 @@ internal sealed class FakeVideoGenerator : IVideoGenerator
         yield return new VideoGenerationUpdate(VideoGenerationPhase.Completed, steps, steps, result);
     }
 
-    public object? GetService(Type serviceType, object? serviceKey = null) => serviceType == typeof(VideoGenerationDefaults) ? Defaults : null;
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public void Dispose()
     {

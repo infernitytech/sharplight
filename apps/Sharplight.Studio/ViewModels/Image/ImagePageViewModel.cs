@@ -488,18 +488,13 @@ internal sealed partial class ImagePageViewModel : InferencePageViewModel
     /// </summary>
     private async Task ApplyModelDefaultsAsync(ILoadedModel model)
     {
-        ImageGenerationDefaults? defaults;
+        ImageGenerationDefaults defaults;
         try
         {
             using var lease = await model.AcquireClientAsync<IImageGenerator>(CancellationToken.None).ConfigureAwait(false);
-            defaults = lease.Client.GetService(typeof(ImageGenerationDefaults)) as ImageGenerationDefaults;
+            defaults = lease.Client.Defaults;
         }
         catch (Exception error) when (error is InvalidOperationException or NotSupportedException or ObjectDisposedException)
-        {
-            return;
-        }
-
-        if (defaults is null)
         {
             return;
         }

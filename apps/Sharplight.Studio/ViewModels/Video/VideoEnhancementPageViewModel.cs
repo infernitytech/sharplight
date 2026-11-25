@@ -295,18 +295,13 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
     /// <summary>Sets the enlargement, frames per batch and colour correction to the model's defaults.</summary>
     private async Task ApplyModelDefaultsAsync(ILoadedModel model)
     {
-        VideoEnhancementDefaults? defaults;
+        VideoEnhancementDefaults defaults;
         try
         {
             using var lease = await model.AcquireClientAsync<IVideoEnhancer>(CancellationToken.None).ConfigureAwait(false);
-            defaults = lease.Client.GetService(typeof(VideoEnhancementDefaults)) as VideoEnhancementDefaults;
+            defaults = lease.Client.Defaults;
         }
         catch (Exception error) when (error is InvalidOperationException or NotSupportedException or ObjectDisposedException)
-        {
-            return;
-        }
-
-        if (defaults is null)
         {
             return;
         }

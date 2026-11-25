@@ -173,16 +173,13 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private bool Aesthetic => _sizeConditions == 5;
 
     /// <inheritdoc/>
-    /// <remarks>Also answers <see cref="ImageGenerationDefaults"/> (the model's native size, steps, guidance and sampler).</remarks>
+    public ImageGenerationDefaults Defaults => new(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler,
+        _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance, Aesthetic ? DefaultAestheticScore : 0f);
+
+    /// <inheritdoc/>
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
-        if (serviceKey is null && serviceType == typeof(ImageGenerationDefaults))
-        {
-            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance,
-                Aesthetic ? DefaultAestheticScore : 0f);
-        }
-
         return serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model
             : serviceKey is null && serviceType.IsInstanceOfType(this) ? this
             : null;

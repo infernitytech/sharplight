@@ -54,7 +54,7 @@ internal sealed class FakeVideoEnhancer : IVideoEnhancer
         yield return new VideoEnhancementUpdate(VideoEnhancementPhase.Completed, batches - 1, batches, Result: result);
     }
 
-    public object? GetService(Type serviceType, object? serviceKey = null) => serviceType == typeof(VideoEnhancementDefaults) ? Defaults : null;
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public void Dispose()
     {

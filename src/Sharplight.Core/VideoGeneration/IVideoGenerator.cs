@@ -10,6 +10,12 @@ namespace Sharplight.VideoGeneration;
 /// </summary>
 public interface IVideoGenerator : ITaskClient
 {
+    /// <summary>
+    /// The model's own defaults (native size, steps, guidance, sampler and what it supports), which the <see langword="null"/> values of the
+    /// per-request options resolve to.
+    /// </summary>
+    public VideoGenerationDefaults Defaults { get; }
+
     /// <summary>Generates a video.</summary>
     /// <param name="request">The prompt and optional start image.</param>
     /// <param name="options">Size, frames, steps, guidance, seed, ..., or <see langword="null"/> for the model's defaults.</param>
