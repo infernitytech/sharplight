@@ -222,7 +222,7 @@ internal abstract partial class InferencePageViewModel : PageViewModel
         }
         else
         {
-            _navigator.OpenDiscover();
+            _navigator.OpenVerifiedModels(info.Id);
         }
     }
 }

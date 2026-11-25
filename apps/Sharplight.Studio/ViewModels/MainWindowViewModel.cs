@@ -278,6 +278,19 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         OpenDiscover();
     }
 
+    /// <inheritdoc/>
+    public void OpenVerifiedModels(string kind)
+    {
+        Models.Discover.ShowVerifiedKind(kind);
+        if (Models.Discover.Filters.Current.Task is not null)
+        {
+            // The kind has no Hub task: a task left from an earlier visit would select another kind's list.
+            Models.Discover.Filters.Apply(Models.Discover.Filters.Current with { Task = null });
+        }
+
+        OpenDiscover();
+    }
+
     /// <summary>Shows the resident models.</summary>
     [RelayCommand]
     public void OpenResident()

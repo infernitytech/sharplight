@@ -35,6 +35,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
     /// <summary>The user picked a mode; the mode no longer follows the model type.</summary>
     private bool _modeChosen;
+    private string? _requestedKind;
 
     public HubSearchViewModel(StudioServices services, DownloadsViewModel downloads, Func<IReadOnlySet<string>> storedNames,
         Func<IReadOnlyList<ModelManifest>>? storedModels = null)
@@ -105,10 +106,29 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         _ = Feed.LoadAsync();
     }
 
+    /// <summary>Shows the verified list of <paramref name="kind"/> (a kind the Hub has no task for, e.g. video enhancement).</summary>
+    /// <param name="kind">The catalog kind.</param>
+    public void ShowVerifiedKind(string kind)
+    {
+        _modeChosen = true;
+        _requestedKind = kind;
+        IsFeedMode = false;
+        IsVerifiedMode = true;
+        Verified.SelectKind(kind);
+        _ = Verified.LoadAsync();
+    }
+
     /// <summary>Follows the model type: the verified list when the catalog has models of it, else the Hub search (until a mode is picked).</summary>
     private void ChooseMode()
     {
         var task = Filters.Current.Task;
+        if (_requestedKind is { } kind && task is null)
+        {
+            Verified.SelectKind(kind);
+            return;
+        }
+
+        _requestedKind = null;
         Verified.SelectTask(task);
         if (!_modeChosen)
         {
@@ -235,6 +255,32 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     /// <summary>Why the selected repository cannot be downloaded (its kind or layout is not supported yet), or empty.</summary>
     [ObservableProperty]
     public partial string NoDownloadReason { get; set; } = "";
+
+    /// <summary>
+    /// The verified-catalog entry that installs the selected repository (with the companions it needs and the kind it has), or null.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VerifiedNotice))]
+    public partial CatalogEntryViewModel? VerifiedEntry { get; set; }
+
+    /// <summary>Points to the verified install of the selected repository, or empty.</summary>
+    public string VerifiedNotice => VerifiedEntry is { } entry
+        ? $"Verified: {entry.Entry.Name} is in Sharplight's verified catalog, which installs it with everything it needs in one click."
+        : "";
+
+    /// <summary>Shows the selected repository's entry in the verified list.</summary>
+    [RelayCommand]
+    private void ShowVerifiedEntry()
+    {
+        if (VerifiedEntry is not { } entry)
+        {
+            return;
+        }
+
+        ShowVerifiedKind(entry.Entry.Kind);
+        Verified.Query = "";
+        Verified.SelectedEntry = Verified.Entries.FirstOrDefault(candidate => ReferenceEquals(candidate, entry)) ?? Verified.SelectedEntry;
+    }
 
     /// <summary>What to do about a gated repository (accept its terms, set a token), or empty for an open one.</summary>
     [ObservableProperty]
@@ -578,7 +624,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
         var tag = variant.Info.Tag;
         var reference = new ModelReference(result.Id, tag.Length == 0 ? null : tag);
-        _downloads.Enqueue(reference, variant.Info.Bytes, result.HasKind ? result.Kind.Id : null);
+        _downloads.Enqueue(reference, variant.Info.Bytes, VerifiedEntry?.Entry.Kind ?? (result.HasKind ? result.Kind.Id : null));
     }
 
     [RelayCommand]
@@ -609,6 +655,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         IsMultiComponent = false;
         IsPulledAsOne = false;
         NoDownloadReason = "";
+        VerifiedEntry = Verified.AllEntries.FirstOrDefault(entry => entry.Entry.Variants.Any(variant => string.Equals(variant.Repository, result.Id, StringComparison.OrdinalIgnoreCase)));
         GatedNotice = result.Gated ? GatedText() : "";
         DetailFormat = null;
         _openDetails = null;
@@ -663,7 +710,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     {
         if (details.Format is not null)
         {
-            DetailFormat = details.Format.ToString();
+            DetailFormat = ModelFormatTitles.Title(details.Format.Value);
             if (details.Layout is not null)
             {
                 // A multi-component repository that is pulled as one model: its parts are shown beside the variants (weight precision).
@@ -698,7 +745,9 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         }
 
         DetailFormat = "No supported model files";
-        NoDownloadReason = kind.Runnable ? "" : $"Not yet supported: {kind.Title.ToLowerInvariant()}.";
+        NoDownloadReason = RepoLayouts.UnsupportedFormat(details.Repository.Files.Select(file => file.Path)) is { } format
+            ? $"The repository ships {format}, which Sharplight does not read."
+            : kind.Runnable ? "" : $"Not yet supported: {kind.Title.ToLowerInvariant()}.";
     }
 
     /// <summary>What to do about a gated repository, depending on whether a token is set.</summary>

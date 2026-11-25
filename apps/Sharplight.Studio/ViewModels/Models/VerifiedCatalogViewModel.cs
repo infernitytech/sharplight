@@ -121,6 +121,19 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
         SelectedKind = Kinds.FirstOrDefault(option => option.Value == kind) ?? s_allKinds;
     }
 
+    /// <summary>Shows the models of <paramref name="kind"/> (every model when the catalog has none of it).</summary>
+    /// <param name="kind">The catalog kind.</param>
+    public void SelectKind(string kind)
+    {
+        if (_all.Count == 0)
+        {
+            _pendingKind = kind;
+            return;
+        }
+
+        SelectedKind = Kinds.FirstOrDefault(option => option.Value == kind) ?? s_allKinds;
+    }
+
     /// <summary>Marks the variants that are in the library (after a download or a library change).</summary>
     public void RefreshInstalled()
     {

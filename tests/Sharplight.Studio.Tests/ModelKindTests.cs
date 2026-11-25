@@ -289,6 +289,10 @@ public sealed class ModelKindTests
         image.BrowseCommand.Execute(null);
         image.ShowLibraryCommand.Execute(null);
         Assert.Equal(["chat", "library:time-series", "discover:TimeSeries", "library:time-series"], navigator.Visited);
+
+        // A kind without a Hub task (video enhancement) browses the verified list of its kind.
+        page.Kinds.Single(card => card.Info.Id == ModelKinds.VideoEnhancement).BrowseCommand.Execute(null);
+        Assert.Equal("verified:video-enhancement", navigator.Visited[^1]);
     }
 
     [Fact]

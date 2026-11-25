@@ -39,6 +39,7 @@ public static class CatalogFormats
         WhisperCpp => ModelFormat.WhisperCpp,
         Onnx => ModelFormat.Onnx,
         Slm => ModelFormat.Slm,
+        PyTorch => ModelFormat.PyTorch,
         _ => ModelFormat.Safetensors,
     };
 }

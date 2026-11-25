@@ -108,6 +108,55 @@ public sealed class CatalogInstallTests : IDisposable
         Assert.Empty(CatalogValidator.Validate(CatalogSamples.Catalog(entry)));
     }
 
+    /// <summary>
+    /// A PyTorch folder variant (SeedVR2 7B: the DiT and VAE of one repository, the text embeddings of another) is downloaded into one
+    /// folder that the importer opens, recorded as a PyTorch model and converted without auxiliary roles.
+    /// </summary>
+    [Fact]
+    public async Task PyTorchFolderVariant_WithFilesOfAnotherRepository_IsConvertedAsOneFolder()
+    {
+        _hub.Add("owner/SeedVR2-7B").WithSize("seedvr2_ema_7b.pth", 30_000).WithSize("seedvr2_ema_7b_sharp.pth", 30_000).WithSize("ema_vae.pth", 3_000).With("README.md", "readme");
+        _hub.Add("owner/SeedVR2-3B", commit: VaeCommit).WithSize("seedvr2_ema_3b.pth", 12_000).WithSize("pos_emb.pt", 1_100).WithSize("neg_emb.pt", 1_200)
+            .WithSize("apex-0.1-cp39-cp39-linux_x86_64.whl", 2_000);
+        var variant = new CatalogVariant
+        {
+            Id = "official", Label = "Official checkpoint (F32)", Format = CatalogFormats.PyTorch, Repository = "owner/SeedVR2-7B",
+            Include = ["seedvr2_ema_7b.pth", "ema_vae.pth"], Companions = ["text-embeddings"],
+        };
+        var companion = new CatalogCompanion
+        {
+            Id = "text-embeddings", Role = "text-encoder", Label = "Text embeddings", Repository = "owner/SeedVR2-3B", Include = ["pos_emb.pt", "neg_emb.pt"],
+            IntoVariantFolder = true,
+        };
+        var catalog = CatalogSamples.Catalog(CatalogSamples.Entry("seedvr2-7b", variant) with { Kind = "video-enhancement", Companions = [companion] });
+        var entry = (await new CatalogResolver(new HubClient(_http, _hub.Options()), _ => { }).ResolveAsync(catalog, ResolveMode.Missing, null, TestContext.Current.CancellationToken)).Entries[0];
+        Assert.Empty(CatalogValidator.Validate(CatalogSamples.Catalog(entry)));
+        var plan = CatalogInstallPlan.For(entry, entry.Variants[0]);
+        List<string>? converted = null;
+        IReadOnlyList<KeyValuePair<string, string>>? roles = null;
+        var options = _hub.Options();
+        var puller = new ModelPuller(new HubClient(_http, options), new FileDownloader(_http, options), _store, TestHost.Converter)
+        {
+            FreeSpace = _ => 1L << 40,
+            CompositeConverter = (primary, auxiliary, destination, _) =>
+            {
+                converted = [.. Directory.GetFiles(primary).Select(path => Path.GetFileName(path)).Order(StringComparer.Ordinal)];
+                roles = auxiliary;
+                Assert.True(new Sharplight.Import.SeedVr.SeedVrImporter().CanOpen(primary));
+                File.WriteAllText(destination, "package");
+                return new ConversionResult(destination, "SeedVR2-7B", "seedvr", "seedvr", 4, 1, 7, TimeSpan.Zero, TimeSpan.Zero, 0, 0, "seedvr");
+            },
+        };
+
+        var result = await puller.InstallAsync(plan, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(ModelFormat.PyTorch, result.Manifest.Format);
+        Assert.Empty(roles!);
+        Assert.Equal(["ema_vae.pth", "neg_emb.pt", "pos_emb.pt", "seedvr2_ema_7b.pth"], converted);
+        Assert.Equal(["SeedVR2-7B/ema_vae.pth", "SeedVR2-7B/neg_emb.pt", "SeedVR2-7B/pos_emb.pt", "SeedVR2-7B/seedvr2_ema_7b.pth"],
+            result.Manifest.SourceFiles.Select(file => file.Path).Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void StoreTagFollowsThePullNaming()
     {

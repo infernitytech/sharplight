@@ -166,8 +166,11 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   Every choice is saved in the settings (`Discover` in the settings file) and *Reset filters* clears them.
   - *Model type* maps the Hub's pipeline tags and library names to the groups below. A group with several tags is searched once
     per tag and the answers are merged, so a type is never half of its tags.
-  - *Format*: GGUF, safetensors, Diffusers, ONNX, whisper.cpp (`ggml-*.bin`) or `.slm` (the Hub's `gguf`, `safetensors`,
-    `diffusers`, `onnx`, `ggml` and `slm` tags).
+  - *Format*: GGUF, safetensors, Diffusers, ONNX, whisper.cpp (`ggml-*.bin`), `.slm` (the Hub's `gguf`, `safetensors`,
+    `diffusers`, `onnx`, `ggml` and `slm` tags) or PyTorch checkpoints (`.pth`, `.pt`, `.ckpt`, `pytorch_model*.bin`; the Hub has no
+    tag for them, so the results are filtered by their files). A repository whose weights are only in a format Sharplight does not
+    read says which (*NeMo archives (.nemo): not supported*, CTranslate2, Core ML, OpenVINO, TensorFlow / Keras, TFLite, Flax,
+    PaddlePaddle, pickled `.pkl`) instead of *No model files*; one that is in the verified catalog points to its one-click install.
   - *Quantization* (`Q2` to `Q8`, `IQ`, `F16`, `BF16`, `FP8`, `MXFP4`, `NVFP4`) matches the start of a name segment of the
     repository's quantization labels (`Q4` matches `Q4_K_M` and `q4f16`, not `IQ4_XS`) or a checkpoint's quantization method.
   - *Size* (under 1B, 1B to 4B, 4B to 14B, 14B to 40B, over 40B parameters) and *Fits this machine* use the parameter count the

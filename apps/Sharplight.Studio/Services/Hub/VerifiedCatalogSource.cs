@@ -107,9 +107,13 @@ internal sealed class VerifiedCatalogSource
         _current = Newer(_current!, downloaded);
     }
 
-    /// <summary><paramref name="candidate"/> when it is valid and newer (by <see cref="VerifiedCatalog.Updated"/>), else <paramref name="current"/>.</summary>
+    /// <summary>
+    /// <paramref name="candidate"/> (the published copy, downloaded now or earlier) when it is valid and not older (by
+    /// <see cref="VerifiedCatalog.Updated"/>), else <paramref name="current"/>. On the same date the published copy wins: entries were
+    /// added to the catalog of 2026-11-20 without a new date, and hosts built before them kept their embedded copy.
+    /// </summary>
     private static VerifiedCatalog Newer(VerifiedCatalog current, VerifiedCatalog? candidate)
-        => candidate is not null && string.CompareOrdinal(candidate.Updated, current.Updated) > 0 ? candidate : current;
+        => candidate is not null && string.CompareOrdinal(candidate.Updated, current.Updated) >= 0 ? candidate : current;
 
     /// <summary>The catalog in <paramref name="text"/> when it parses and validates, else null.</summary>
     private static VerifiedCatalog? TryRead(string? text)
