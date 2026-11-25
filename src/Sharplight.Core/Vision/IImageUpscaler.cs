@@ -17,5 +17,5 @@ public interface IImageUpscaler : ITaskClient
     /// <param name="options">Request settings, or <see langword="null"/> for the defaults.</param>
     /// <param name="cancellationToken">Cancels the request, also between the tiles.</param>
     /// <returns>The image, <see cref="Scale"/> times as wide and high.</returns>
-    public Task<ImageInput> UpscaleAsync(ImageInput image, UpscaleOptions? options = null, CancellationToken cancellationToken = default);
+    public Task<ImageInput> UpscaleAsync(ImageInput image, ImageUpscalingOptions? options = null, CancellationToken cancellationToken = default);
 }

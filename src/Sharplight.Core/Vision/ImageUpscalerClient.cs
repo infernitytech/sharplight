@@ -37,11 +37,11 @@ internal sealed class ImageUpscalerClient : IImageUpscaler
     public object? GetService(Type serviceType, object? serviceKey = null)
         => serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model : null;
 
-    public Task<ImageInput> UpscaleAsync(ImageInput image, UpscaleOptions? options = null, CancellationToken cancellationToken = default)
+    public Task<ImageInput> UpscaleAsync(ImageInput image, ImageUpscalingOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
         image.Validate();
-        options ??= new UpscaleOptions();
+        options ??= new ImageUpscalingOptions();
         ArgumentOutOfRangeException.ThrowIfNegative(options.TileSize);
         ArgumentOutOfRangeException.ThrowIfNegative(options.TilePadding);
         cancellationToken.ThrowIfCancellationRequested();
@@ -67,7 +67,7 @@ internal sealed class ImageUpscalerClient : IImageUpscaler
         }
     }
 
-    private ImageInput Upscale(ImageInput image, UpscaleOptions options, CancellationToken cancellationToken)
+    private ImageInput Upscale(ImageInput image, ImageUpscalingOptions options, CancellationToken cancellationToken)
     {
         // The network wants multiples of its unshuffle factor: the missing edge pixels repeat the last ones and are cut off again.
         int sourceWidth = image.Width;

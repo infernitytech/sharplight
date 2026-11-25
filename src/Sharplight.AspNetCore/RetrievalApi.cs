@@ -172,7 +172,7 @@ public static class RetrievalApi
         }
 
         string? prompt = ResolvePrompt(b, model);
-        var options = new EmbedOptions { Prompt = prompt, Dimensions = dims, Truncate = b.Bool("truncate") ?? models.TruncateByDefault };
+        var options = new TextEmbeddingOptions { Prompt = prompt, Dimensions = dims, Truncate = b.Bool("truncate") ?? models.TruncateByDefault };
 
         var (texts, tokens) = ParseInput(b, models.MaxInputs);
         var result = await Task.Run(() => texts is not null ? model.Embed(texts, options) : model.EmbedTokens(tokens!, options), http.RequestAborted);

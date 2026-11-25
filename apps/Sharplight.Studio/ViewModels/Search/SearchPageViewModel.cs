@@ -593,7 +593,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             context.Report(null, "Loading the model");
             using var lease = await model.AcquireEmbedderAsync(context.CancellationToken).ConfigureAwait(false);
             context.Report(0.5, "Embedding the question");
-            var embedded = await Task.Run(() => lease.Embedder.Embed([query], new EmbedOptions { Prompt = QueryPrompt(lease.Embedder) }), context.CancellationToken).ConfigureAwait(false);
+            var embedded = await Task.Run(() => lease.Embedder.Embed([query], new TextEmbeddingOptions { Prompt = QueryPrompt(lease.Embedder) }), context.CancellationToken).ConfigureAwait(false);
             if (options.Mode == SearchMode.Hybrid)
             {
                 ranked = await Task.Run(() => Fuse(index, embedded.Vectors[0], query, pool, wanted), context.CancellationToken).ConfigureAwait(false);

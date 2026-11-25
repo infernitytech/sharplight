@@ -176,9 +176,9 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `object-detection` | `IObjectDetector` | `DetectAsync(ImageInput)` | - | `ObjectDetectionOptions` (score threshold, max detections, optional NMS) | `ObjectDetection` (`DetectedObject`: class, label, score, `BoundingBox` in pixels, `Mask` for instance segmentation models, `ReadingOrder` for document layout models: the objects then come back in reading order; `ObjectDetectionOptions.IncludeMasks`) |
 | `image-segmentation` | `IImageSegmenter` | `EncodeImageAsync(ImageInput)` once per image, then `SegmentAsync(SegmentationImage, SegmentationPrompt)` per prompt (or `SegmentAsync(ImageInput, SegmentationPrompt)`) | - | `SegmentationOptions` (all candidate masks or the best one) | `ImageSegmentation` (`SegmentMask`: per-pixel mask at the image size, predicted IoU, area; object score) |
 | `ocr` | `ITextRecognizer` | `RecognizeAsync(ImageInput)` | - | `TextRecognitionOptions` (max tokens, `Task`, `Input`) | `TextRecognition` (text, `TextRegion`s with optional boxes); also implemented by decoder-only vision-language recognizers (GLM-OCR: tasks `text`, `formula`, `table`). `DocumentReader(IObjectDetector layout, ITextRecognizer recognizer).ReadAsync(page)` runs layout, then OCR per region in reading order, and returns a `DocumentPage` of `DocumentRegion`s |
-| `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | `UpscaleOptions.Progress` reports finished tiles | `UpscaleOptions` (tile size, tile padding, progress) | `ImageInput` at `Scale` times the size |
+| `image-upscaling` | `IImageUpscaler` | `UpscaleAsync(ImageInput)` | `ImageUpscalingOptions.Progress` reports finished tiles | `ImageUpscalingOptions` (tile size, tile padding, progress) | `ImageInput` at `Scale` times the size |
 | `audio-codec` | `IAudioCodec` | `EncodeAsync(AudioBuffer)` → codes, `DecodeAsync(CodecCodes)` → `AudioBuffer` | - | `AudioCodecOptions` (number of codebooks) | `CodecCodes` (codebook-major i32 codes) |
-| `voice-activity` | `IVoiceActivityDetector` | `DetectAsync(AudioBuffer)` → segments, `ProbabilitiesAsync` | - | `VoiceActivityOptions` (thresholds, minimum speech and silence, padding, maximum segment) | `SpeechSegment` (start and end sample, `Start`, `End`) |
+| `voice-activity` | `IVoiceActivityDetector` | `DetectAsync(AudioBuffer)` → segments, `ComputeProbabilitiesAsync` | - | `VoiceActivityOptions` (thresholds, minimum speech and silence, padding, maximum segment) | `SpeechSegment` (start and end sample, `Start`, `End`) |
 
 `SpeechSynthesisOptions` carries the voice: a built-in `Voice`, or a recording in `ReferenceAudio` (voice cloning) with its words in
 `ReferenceText` for models that align them (F5-TTS, CosyVoice 3 zero-shot), and `Instructions`, a natural-language instruction on how to speak
@@ -327,7 +327,7 @@ prompt stage: `EncodeImageAsync` returns a `SegmentationImage` (embedding and sk
 A prompt is points (positive or negative) and/or a `BoundingBox` in image pixels; the graph takes them as `point_coords` and `point_kinds` (`SegmentPromptKinds`) with a symbolic point count, so there is no limit
 on the number of points. The decoder's low-resolution logits are resampled to the image on the host. OCR (TrOCR: the `encoder_decoder` adapter with an image encoder, `encoder.input` "image") reuses the speech recognizers' decoding machinery
 (KV-cached decoder, cross-attention keys and values cached once per source) with the model's tokenizer; `ITextRecognizer` is the task client. Upscalers (Real-ESRGAN: `RrdbNetAdapter`, graph `upscale` of generic Conv, Resize and LeakyRelu ops)
-are rebuilt for every input size through the model's dimensions (`height`, `width`); `IImageUpscaler` runs an image that fits one tile whole and cuts a larger one into overlapping tiles (`UpscaleOptions.TileSize`, `TilePadding`)
+are rebuilt for every input size through the model's dimensions (`height`, `width`); `IImageUpscaler` runs an image that fits one tile whole and cuts a larger one into overlapping tiles (`ImageUpscalingOptions.TileSize`, `TilePadding`)
 whose outputs are blended with linear weights, so seams are invisible. The official `RealESRGAN_x4plus.pth` loads through the restricted unpickler of `Sharplight.Import.PyTorch` (`SuperResolutionImporter`).
 All three inference paths run on the thread pool, never on the caller's thread.
 
@@ -352,7 +352,7 @@ AudioBuffer again = await codec.DecodeAsync(codes);
 ```
 
 `voice-activity` models (Silero VAD v5, imported from its 16 kHz ONNX export by `Sharplight.Import.SileroVad`) have one component whose stateful graph `vad_step` runs once
-per 512-sample frame (the frame with the 64 samples before it, and the recurrent state in and out). `IVoiceActivityDetector.ProbabilitiesAsync` returns the frame
+per 512-sample frame (the frame with the 64 samples before it, and the recurrent state in and out). `IVoiceActivityDetector.ComputeProbabilitiesAsync` returns the frame
 probabilities, `DetectAsync` the segments (`SpeechSegmentation.FromProbabilities` is the reference implementation's hysteresis, minimum durations, padding and splitting
 of overlong segments, usable with any detector). Long-form speech recognition can use a detector as pre-segmentation:
 `new SpeechRecognitionOptions { UseVoiceActivityDetection = true, VoiceActivityDetector = detector }` (or resolved from the container, see "Registration" below) transcribes only the speech, in windows of at most 30 s that start
@@ -574,7 +574,7 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 - Options (`VideoGenerationOptions`): width and height (multiples of the VAE's downscale times the patch size: 16 for Wan 2.1, 32
   for Wan 2.2 TI2V), frames (1 + 4k; other counts are rounded down), frames per second of the result, steps, guidance scale, seed,
   sampler (`unipc`, the Wan default, or `euler`: both follow the diffusers schedulers step by step with the model's flow shift),
-  explicit initial latents [C, T, h, w] (`InitialNoise`) and preview frames. `VideoGenerationDefaults` (via `GetService`) reports the
+  explicit initial latents [C, T, h, w] (`InitialNoise`) and preview frames. `IVideoGenerator.Defaults` (`VideoGenerationDefaults`) reports the
   model's defaults (Wan 2.1: 832×480, 81 frames at 16 fps; Wan 2.2 TI2V: 1280×704, 121 frames at 24 fps; 50 steps, guidance 5)
   and whether it takes a start image.
 - Text conditioning: the prompt is tokenized to 512 tokens, encoded with the padding masked out and the padding rows zeroed (the Wan
@@ -628,7 +628,7 @@ ImageInput still = await enhancer.EnhanceImageAsync(PngCodec.Read("photo.png"), 
   its last frame, as the official script does); smaller batches bound memory for long clips. `ColorCorrection`: `Wavelet` (default: the
   output's high frequencies over the input's low frequencies), `AdaIn` (per-frame channel mean and deviation) or `None`. `Seed`, and for
   reproducing another implementation's run exactly the explicit `InitialNoise` and `EncoderNoise` (the encoder's latent sample).
-- `VideoEnhancementDefaults` (via `GetService`) reports the default scale, the size and frame multiples, the default colour correction and
+- `IVideoEnhancer.Defaults` (`VideoEnhancementDefaults`) reports the default scale, the size and frame multiples, the default colour correction and
   frames per batch.
 - Stages: all batches are encoded first, then restored, then decoded. Compiled graphs stay for later requests; when the device runs out of
   memory they are released and the graph compiled again from the cached kernels, so only one network's weights and activations need to
@@ -881,8 +881,8 @@ using var embedder = EmbeddingModel.Load(loader, "bge-small-en-v1.5", new Embedd
 
 EmbeddingResult result = embedder.Embed(["first text", "second text"]);
 float[] vector = result.Vectors[0];                       // embedder.Dimensions long, L2-normalized when the model says so
-float[] query = embedder.Embed("what is a vector?", new EmbedOptions { Prompt = "query" });   // a prompt the model defines
-float[] small = embedder.Embed("text", new EmbedOptions { Dimensions = 256 });                // Matryoshka cut
+float[] query = embedder.Embed("what is a vector?", new TextEmbeddingOptions { Prompt = "query" });   // a prompt the model defines
+float[] small = embedder.Embed("text", new TextEmbeddingOptions { Dimensions = 256 });                // Matryoshka cut
 ```
 
 `Reranker` scores documents against a query with a cross-encoder or a yes/no decoder reranker:

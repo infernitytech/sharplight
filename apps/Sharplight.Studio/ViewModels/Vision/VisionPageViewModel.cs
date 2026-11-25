@@ -429,7 +429,7 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                 {
                     using var lease = await model.AcquireClientAsync<IImageUpscaler>(token).ConfigureAwait(false);
                     context.Report(null, "Upscaling");
-                    var upscale = new UpscaleOptions
+                    var upscale = new ImageUpscalingOptions
                     {
                         TileSize = options.Upscale.TileSize,
                         TilePadding = options.Upscale.TilePadding,
@@ -855,6 +855,6 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
             panel.GetBool("invert"),
             new SegmentationOptions { MultipleMasks = true },
             new TextRecognitionOptions { MaxTokens = panel.GetInt("maxtokens") },
-            new UpscaleOptions { TileSize = panel.GetInt("tile"), TilePadding = panel.GetInt("tilepad") }), presets);
+            new ImageUpscalingOptions { TileSize = panel.GetInt("tile"), TilePadding = panel.GetInt("tilepad") }), presets);
     }
 }

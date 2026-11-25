@@ -95,7 +95,7 @@ public class ReferenceTests
         if (reference.TryGetProperty("prompt_name", out var pn))
         {
             // GGUF files carry no prompts: pass the prompt text itself.
-            var o = m.Prompts.ContainsKey(pn.GetString()!) ? new EmbedOptions { Prompt = pn.GetString() } : new EmbedOptions { Prefix = reference.GetProperty("prompt").GetString() };
+            var o = m.Prompts.ContainsKey(pn.GetString()!) ? new TextEmbeddingOptions { Prompt = pn.GetString() } : new TextEmbeddingOptions { Prefix = reference.GetProperty("prompt").GetString() };
             var pt = reference.GetProperty("prompt_tokens").EnumerateArray().Select(Env.Ints).ToList();
             for (int i = 0; i < pt.Count; i++)
             {

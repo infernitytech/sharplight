@@ -21,7 +21,7 @@ public class SileroVadTests
         using var detector = AudioModels.Client<IVoiceActivityDetector>(model);
         var audio = WavFile.Read(wav);
 
-        var probabilities = await detector.ProbabilitiesAsync(audio);
+        var probabilities = await detector.ComputeProbabilitiesAsync(audio);
         var expected = AudioModels.Floats($"silero_probs_{clip}.f32");
         Assert.Equal(expected.Length, probabilities.Length);
         float worst = probabilities.Zip(expected, (a, b) => MathF.Abs(a - b)).Max();

@@ -9,15 +9,15 @@ internal sealed class FakeTextEmbedder : ITextEmbedder, IDisposable
     public int Dimensions => 4;
     public int MaxSequenceLength => 100;
     public IReadOnlyDictionary<string, string> Prompts { get; } = new Dictionary<string, string> { ["query"] = "q: " };
-    public EmbedOptions? Last { get; private set; }
+    public TextEmbeddingOptions? Last { get; private set; }
     public bool Disposed { get; private set; }
 
-    public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
+    public EmbeddingResult Embed(IReadOnlyList<string> texts, TextEmbeddingOptions? options = null)
     {
         Last = options;
         return new([.. texts.Select(t => new float[] { t.Length, 1, 2, 3 }.Take(options?.Dimensions ?? 4).ToArray())], [.. texts.Select(t => t.Length)]);
     }
 
-    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, EmbedOptions? options = null) => throw new NotSupportedException();
+    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, TextEmbeddingOptions? options = null) => throw new NotSupportedException();
     public void Dispose() => Disposed = true;
 }

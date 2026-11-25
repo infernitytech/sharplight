@@ -40,7 +40,7 @@ internal sealed class VoiceActivityDetectorClient : IVoiceActivityDetector
     public object? GetService(Type serviceType, object? serviceKey = null)
         => serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model : null;
 
-    public Task<float[]> ProbabilitiesAsync(AudioBuffer audio, CancellationToken cancellationToken = default)
+    public Task<float[]> ComputeProbabilitiesAsync(AudioBuffer audio, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(audio);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -50,7 +50,7 @@ internal sealed class VoiceActivityDetectorClient : IVoiceActivityDetector
     public async Task<IReadOnlyList<SpeechSegment>> DetectAsync(AudioBuffer audio, VoiceActivityOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(audio);
-        var probabilities = await ProbabilitiesAsync(audio, cancellationToken).ConfigureAwait(false);
+        var probabilities = await ComputeProbabilitiesAsync(audio, cancellationToken).ConfigureAwait(false);
         long total = (long)Math.Round(audio.FrameCount * (double)SampleRate / audio.SampleRate);
         var segments = SpeechSegmentation.FromProbabilities(probabilities, FrameSamples, SampleRate, total, options);
         if (audio.SampleRate == SampleRate)

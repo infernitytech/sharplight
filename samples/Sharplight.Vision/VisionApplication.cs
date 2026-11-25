@@ -172,7 +172,7 @@ public static class VisionApplication
         using var runtime = new SampleRuntime(services => services.AddImageUpscaler((options, container) => Configure(options, settings, container)));
         var upscaler = runtime.Services.GetRequiredService<IImageUpscaler>();
         var progress = new Progress<double>(fraction => Console.Error.Write($"\rtiles {fraction:P0}"));
-        var result = await upscaler.UpscaleAsync(image, new UpscaleOptions { TileSize = settings.TileSize, TilePadding = settings.TilePadding, Progress = progress }, cancellationToken);
+        var result = await upscaler.UpscaleAsync(image, new ImageUpscalingOptions { TileSize = settings.TileSize, TilePadding = settings.TilePadding, Progress = progress }, cancellationToken);
         Console.Error.WriteLine();
         Console.WriteLine($"{image.Width}x{image.Height} -> {result.Width}x{result.Height} ({upscaler.Scale}x)");
         if (settings.OutputPath is not null)
