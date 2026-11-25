@@ -162,8 +162,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
         ArtifactStore = ArtifactStore.For(options);
         Code = new SpirvCodeGenerator((int)phys.SubgroupSize, phys.MaxSharedMemory, EnabledFeatures,
-            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options),
-            SpirvCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options),
+            options.ResolveSubmissionBudgetMs(info.SubmissionBudgetMs),
+            options.ResolveConcurrentWorkgroups(info.ConcurrentWorkgroups),
             SpirvCodeGenerator.ComputeUnitsOf(info.Capabilities));
         _kernelBinaries = phys.PipelineBinaries && !phys.PrefersInternalPipelineCache
             && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
