@@ -108,8 +108,7 @@ instead of being created per segment (a capture without them runs its launches o
 limit that took a segment from 2.4 MiB beyond its buffers to 0.9 MiB (`ManySegmentPlacementTests`; Kimi-K3's ~185 segments failed with
 `cuStreamCreate: out of memory` at the first capture before). Vulkan takes the driver's memory budget (VK_EXT_memory_budget) as the limit where it
 exists, else 92 % of the device-local heap. Switches: `SHARPLIGHT_SPLIT_EXPERTS=0` (whole layers to the CPU, as before),
-`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (no streaming), `SHARPLIGHT_STREAM_RESIDENT=0` (no resident layer), `SHARPLIGHT_SPARSE_EXPERT_ROWS=0`
-(no split), `SHARPLIGHT_STREAM_REGISTER=0` (no page locking), `SHARPLIGHT_SHARED_ARENA=0` (one activation buffer per segment),
+`PlacementOptions.StreamExpertsMinRows = 0` (no streaming), `SHARPLIGHT_SPARSE_EXPERT_ROWS=0` (no split),
 `SHARPLIGHT_DEVICE_RESERVE_MIB` / `SHARPLIGHT_SEGMENT_RESERVE_MIB` (reserves).
 
 **Routed experts on disk** (opt-in: `TaskLoadOptions.ExpertsOnDisk`, CLI `--cpu-offload --experts-on-disk [--expert-cache 24G]`, hosting

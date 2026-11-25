@@ -308,14 +308,14 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         // The segments of one graph on this device run one after another and share their transient buffers.
-        if (b.Kind == BufferKind.Activations && _options.StateScope is { } arenaScope && SharedArena<CudaBuffer>.Enabled)
+        if (b.Kind == BufferKind.Activations && _options.StateScope is { } arenaScope)
         {
             return ShareArena(arenaScope, b.Name, b);
         }
 
         // The streamed and sparse compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to
         // its outputs read back (no device forwarding reaches them): they share their input and output buffers too.
-        if (b.Kind is BufferKind.Input or BufferKind.Output && _options.StreamWeights && _options.StateScope is { } ioScope && SharedArena<CudaBuffer>.Enabled
+        if (b.Kind is BufferKind.Input or BufferKind.Output && _options.StreamWeights && _options.StateScope is { } ioScope
             && SharesStreamedIo(_program, b))
         {
             // By ordinal: the layers' value names differ, their inputs and outputs correspond.
@@ -606,11 +606,6 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         nint done;
         CudaApi.Check(CudaApi.cuEventCreate(&done, CudaApi.EventDisableTiming), "cuEventCreate");
         _streamDone = done;
-        if (Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_REGISTER") is "0" or "false")
-        {
-            return;
-        }
-
         const long Page = 4096;
         var banks = StreamedExpertBanks.Of(Segment);
         foreach (var b in _streamedWeights)
@@ -1736,8 +1731,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             int sms = _dev.Properties.Multiprocessors;
             bool dependent = kernel.WaitsForPrevious && _dev.DependentLaunches && _previousOneWave && oneWave
                              && (kernel.HasIndependentPrologue || _previousBlocks + blocks <= sms
-                                 || kernel.SharedPerBlock * ((blocks + sms - 1) / sms) <= Math.Max(_previousShared, DependentSharedFloor)
-                                 || DiagnosticSwitches.DependentAnyShared);
+                                 || kernel.SharedPerBlock * ((blocks + sms - 1) / sms) <= Math.Max(_previousShared, DependentSharedFloor));
             _previousOneWave = oneWave;
             _previousShared = kernel.SharedPerBlock * kernel.BlocksPerMultiprocessor;
             _previousBlocks = blocks;

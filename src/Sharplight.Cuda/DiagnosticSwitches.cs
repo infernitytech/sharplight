@@ -30,18 +30,6 @@ internal static class DiagnosticSwitches
     public static string? MinBlocks { get; } = Read("SHARPLIGHT_CUDA_MIN_BLOCKS");
 
     /// <summary>
-    /// <c>SHARPLIGHT_CUDA_PDL_TRIGGER=0</c>: kernels compiled for dependent launches only wait for the previous launch at their entry and
-    /// do not let the next launch start early (<c>griddepcontrol.launch_dependents</c>); it then starts when this kernel's blocks exit.
-    /// </summary>
-    public static bool DependentTrigger { get; } = Read("SHARPLIGHT_CUDA_PDL_TRIGGER") != "0";
-
-    /// <summary>
-    /// <c>SHARPLIGHT_CUDA_PDL_SHARED=any</c>: kernels are launched as programmatic dependents whatever shared memory they need against the
-    /// previous kernel (the rule before benchmarks.md section 99; comparisons).
-    /// </summary>
-    public static bool DependentAnyShared { get; } = Read("SHARPLIGHT_CUDA_PDL_SHARED") == "any";
-
-    /// <summary>
     /// <c>SHARPLIGHT_CUDA_PDL_SHARED_FLOOR=bytes</c>: the shared memory per multiprocessor a dependent may always need, whatever the previous
     /// kernel's share (see CudaSegment's dependent rule), or null for the default (twice the driver's reservation per block).
     /// </summary>
