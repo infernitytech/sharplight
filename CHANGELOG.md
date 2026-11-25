@@ -52,6 +52,11 @@ Reduced precision falls back to bf16 activations for graphs whose activations ex
 at the same speed): new `CompileOptions.ActivationPrecision`, `ActivationRangeProbe` / `ActivationRange` and
 `TaskModel.CalibrateActivationPrecision` / `ActivationPrecisionOf`; the image generator calibrates its VAE graphs once.
 
+Studio:
+
+- Load options: "When the KV cache is full" (queue new requests, the default, or preempt the newest request and recompute it later;
+  with two or more parallel slots) and the FP8 KV cache type (`f8e4m3_b32`, about half the memory of f16).
+
 ## 0.2 (first stable release)
 
 Every model kind on one engine (text, speech recognition and synthesis, audio, vision, image and video generation), a verified-model

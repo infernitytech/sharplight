@@ -17,7 +17,7 @@ internal sealed record LoadSettings
     /// <summary>Maximum rows per forward pass (prompt chunk size).</summary>
     public int BatchTokens { get; init; } = 512;
 
-    /// <summary>KV cache element type: <c>f16</c>, <c>f32</c>, <c>q8_0</c> or <c>q4_0</c>.</summary>
+    /// <summary>KV cache element type: <c>f16</c>, <c>f32</c>, <c>q8_0</c>, <c>f8e4m3_b32</c> or <c>q4_0</c>.</summary>
     public string KvCacheType { get; init; } = "f16";
 
     /// <summary>
@@ -63,4 +63,7 @@ internal sealed record LoadSettings
 
     /// <summary>Rows per sequence holding a slot that the adaptive step budget allows, or null for the engine's default (several slots only).</summary>
     public int? StepRowsPerSequence { get; init; }
+
+    /// <summary>What happens to new requests when the KV cache is full, or null for the engine's default, queueing (several slots only).</summary>
+    public KvAdmissionPolicy? KvAdmission { get; init; }
 }

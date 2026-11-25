@@ -10,6 +10,7 @@ internal sealed record KvCacheChoice(string Value, string Name)
     [
         new("f16", "F16 (default)"),
         new("q8_0", "Q8_0 (half the memory)"),
+        new("f8e4m3_b32", "FP8 (E4M3, about half the memory of f16)"),
         new("q4_0", "Q4_0 (quarter, less accurate)"),
         new("f32", "F32"),
     ];

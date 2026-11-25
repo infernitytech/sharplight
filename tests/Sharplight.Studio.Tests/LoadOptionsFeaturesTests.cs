@@ -14,11 +14,12 @@ using Sharplight.Studio.ViewModels;
 using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.ViewModels.Models;
 using Sharplight.Studio.Views;
+using Sharplight.Tensors;
 
 namespace Sharplight.Studio.Tests;
 
 /// <summary>
-/// The load panel's engine options (experts on disk, FP8 and FP4 tensor-core modes, the step budget of several slots): each is enabled only
+/// The load panel's engine options (experts on disk, FP8 and FP4 tensor-core modes, the KV cache type, the step budget and KV admission of several slots): each is enabled only
 /// where it applies to the device and the model, says why otherwise, and reaches the load request; the view binds them. Also the task pages
 /// every runnable kind opens.
 /// </summary>
@@ -143,6 +144,39 @@ public sealed class LoadOptionsFeaturesTests
     }
 
     [Fact]
+    public async Task KvAdmission_AppliesWithSeveralSlots_Only()
+    {
+        using var services = new TestServices();
+        var panel = await OpenAsync(services);
+        Assert.Equal(KvAdmissionPolicy.Queue, panel.KvAdmission.Value);
+        Assert.Contains("two or more parallel slots", panel.KvAdmissionHint, StringComparison.Ordinal);
+        panel.KvAdmission = panel.KvAdmissionChoices.Single(choice => choice.Value == KvAdmissionPolicy.Preempt);
+        Assert.Null(panel.ToRequest().Settings.KvAdmission);
+
+        panel.Slots = 4;
+        Assert.Contains("Preempt starts new requests sooner", panel.KvAdmissionHint, StringComparison.Ordinal);
+        Assert.Equal(KvAdmissionPolicy.Preempt, panel.ToRequest().Settings.KvAdmission);
+        panel.KvAdmission = panel.KvAdmissionChoices[0];
+        Assert.Equal(KvAdmissionPolicy.Queue, panel.ToRequest().Settings.KvAdmission);
+    }
+
+    [Fact]
+    public async Task Fp8KvCache_IsOffered_AndReachesTheRequest_OnEveryDevice()
+    {
+        using var services = new TestServices();
+        var panel = await OpenAsync(services);
+        var fp8 = panel.KvCacheChoices.Single(choice => choice.Value == "f8e4m3_b32");
+        Assert.Contains("FP8", fp8.Name, StringComparison.Ordinal);
+        Assert.Equal("f16", panel.KvCache.Value);
+
+        panel.KvCache = fp8;
+        Assert.Equal("f8e4m3_b32", panel.ToRequest().Settings.KvCacheType);
+        panel.SelectedDevice = FakeRuntime.Cpu;
+        Assert.Equal("f8e4m3_b32", panel.ToRequest().Settings.KvCacheType);
+        Assert.Equal(DataType.F8E4M3_B32, DataType.Get(fp8.Value));
+    }
+
+    [Fact]
     public async Task ExpertsOnDisk_NeedsCpuOffload_OnAGpu()
     {
         using var services = new TestServices();
@@ -189,12 +223,18 @@ public sealed class LoadOptionsFeaturesTests
             var fp4 = view.FindControl<ToggleSwitch>("Fp4ActivationsToggle")!;
             var floor = view.FindControl<ComboBox>("StepFloorPicker")!;
             var rows = view.FindControl<NumericUpDown>("StepRowsInput")!;
+            var admission = view.FindControl<ComboBox>("KvAdmissionPicker")!;
+            var kv = view.FindControl<ComboBox>("KvCachePicker")!;
             Assert.True(fp8.IsEffectivelyEnabled);
             Assert.True(fp8.IsChecked);
             Assert.False(fp4.IsEffectivelyEnabled);
             Assert.Equal(panel.Fp4ActivationsHint, ToolTip.GetTip(fp4));
             Assert.False(floor.IsEffectivelyEnabled);
             Assert.False(rows.IsEffectivelyEnabled);
+            Assert.False(admission.IsEffectivelyEnabled);
+            Assert.Equal(panel.KvAdmissionHint, ToolTip.GetTip(admission));
+            kv.SelectedItem = panel.KvCacheChoices.Single(choice => choice.Value == "f8e4m3_b32");
+            Assert.Equal("f8e4m3_b32", panel.KvCache.Value);
 
             fp8.IsChecked = false;
             Assert.False(panel.BlockScaledFp8);
@@ -204,6 +244,9 @@ public sealed class LoadOptionsFeaturesTests
             Assert.True(rows.IsEffectivelyEnabled);
             floor.SelectedIndex = 3;
             Assert.Equal(StepFloorPolicy.Full, panel.StepFloor.Value);
+            Assert.True(admission.IsEffectivelyEnabled);
+            admission.SelectedIndex = 1;
+            Assert.Equal(KvAdmissionPolicy.Preempt, panel.KvAdmission.Value);
 
             panel.SelectedDevice = FakeRuntime.Cpu;
             await HeadlessApp.RenderAsync(window);
