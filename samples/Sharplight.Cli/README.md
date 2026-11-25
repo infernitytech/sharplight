@@ -31,7 +31,8 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M --chat -p "Say hi" 
 # Benchmark: warm prefill of 512 synthetic tokens, then 64 decode steps
 # (set SHARPLIGHT_VK_PROFILE=1 for per-kernel profiles, SHARPLIGHT_DUMP_SCHEDULE=1 for the dispatch schedule;
 #  SHARPLIGHT_BENCH_PREFILL_REPEATS=N times 1 + N prefills (default 4), SHARPLIGHT_BENCH_DECODE_RUNS=R times R decode runs of
-#  64 steps after the prompt (default 1); the summary's "per run" part is llama-bench's mean ± sd of the per-run tok/s)
+#  64 steps after the prompt (default 1); the summary's "per run" part is llama-bench's mean ± sd of the per-run tok/s;
+#  SHARPLIGHT_BENCH_PROMPT=vocab draws the prompt from the whole vocabulary, as llama-bench does, instead of ids 1000-49999)
 dotnet run -c Release --project samples/Sharplight.Cli -- $M --bench 512
 
 # Describe an image with a vision model

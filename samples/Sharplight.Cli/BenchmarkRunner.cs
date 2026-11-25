@@ -25,6 +25,8 @@ internal sealed class BenchmarkRunner
     private const int EndSyntheticTokenId = 50000;
     private const int WarmUpDecodeTokenId = 5;
     private const string DumpScheduleVariable = "SHARPLIGHT_DUMP_SCHEDULE";
+    private const string PromptVariable = "SHARPLIGHT_BENCH_PROMPT";
+    private const string WholeVocabularyPrompt = "vocab";
 
     private readonly InferenceSession _session;
     private readonly TextWriter _log;
@@ -36,7 +38,7 @@ internal sealed class BenchmarkRunner
         _session = session;
         _log = log;
         _diskExperts = diskExperts is { IsActive: true } ? diskExperts : null;
-        _promptTokens = CreateSyntheticPrompt(promptTokenCount);
+        _promptTokens = CreateSyntheticPrompt(promptTokenCount, session.VocabSize);
     }
 
     /// <summary>
@@ -92,10 +94,17 @@ internal sealed class BenchmarkRunner
         return FormatSummary(prefillSeconds, decode);
     }
 
-    private static int[] CreateSyntheticPrompt(int count)
+    /// <summary>
+    /// Random token ids from [<see cref="FirstSyntheticTokenId"/>, <see cref="EndSyntheticTokenId"/>), or with <c>SHARPLIGHT_BENCH_PROMPT=vocab</c>
+    /// from the whole vocabulary, as llama-bench draws its prompts (the experts a mixture-of-experts prompt selects depend on its tokens).
+    /// </summary>
+    private static int[] CreateSyntheticPrompt(int count, int vocabularySize)
     {
         var random = new Random(RandomSeed);
-        return [.. Enumerable.Range(0, count).Select(_ => random.Next(FirstSyntheticTokenId, EndSyntheticTokenId))];
+        bool wholeVocabulary = Environment.GetEnvironmentVariable(PromptVariable) == WholeVocabularyPrompt;
+        int first = wholeVocabulary ? 0 : FirstSyntheticTokenId;
+        int end = wholeVocabulary ? vocabularySize : EndSyntheticTokenId;
+        return [.. Enumerable.Range(0, count).Select(_ => random.Next(first, end))];
     }
 
     private static double TimeSeconds(Action action)
