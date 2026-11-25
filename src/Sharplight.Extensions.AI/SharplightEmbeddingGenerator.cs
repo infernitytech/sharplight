@@ -1,12 +1,11 @@
 using Microsoft.Extensions.AI;
 using Sharplight.Llm.Embeddings;
-using Sharplight.Models;
 
 namespace Sharplight.Extensions.AI;
 
 /// <summary>
-/// <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> over a Sharplight embedding model (<see cref="EmbeddingModel"/> or any
-/// <see cref="ITextEmbedder"/>). <see cref="EmbeddingGenerationOptions.Dimensions"/> cuts Matryoshka embeddings (re-normalized);
+/// <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> over a Sharplight text embedder (<see cref="ITextEmbedder"/>, e.g. from
+/// <c>services.AddTextEmbedder(...)</c>). <see cref="EmbeddingGenerationOptions.Dimensions"/> cuts Matryoshka embeddings (re-normalized);
 /// <see cref="EmbeddingGenerationOptions.AdditionalProperties"/> may carry <c>prompt_name</c> (one of the model's prompts, e.g.
 /// "query") or <c>input_type</c> ("query" / "document": the model's prompt of that name when it has one) and <c>truncate</c>
 /// (bool, default true). Inputs are embedded as one batch.
@@ -23,16 +22,8 @@ public sealed class SharplightEmbeddingGenerator : IEmbeddingGenerator<string, E
         ArgumentNullException.ThrowIfNull(model);
         _model = model;
         _ownsModel = ownsModel;
-        _metadata = new EmbeddingGeneratorMetadata("sharplight", null, modelId ?? model.Name, model.Dimensions);
+        _metadata = new EmbeddingGeneratorMetadata("sharplight", null, modelId ?? model.Metadata.ModelName, model.Dimensions);
     }
-
-    /// <summary>Loads a model and returns a generator owning it.</summary>
-    /// <param name="loader">The model loader (from the service container: <c>services.AddSharplight()</c>).</param>
-    /// <param name="path">Model file or directory.</param>
-    /// <param name="load">Devices and batch settings.</param>
-    /// <returns>The generator; disposing it disposes the model.</returns>
-    public static SharplightEmbeddingGenerator Load(ModelLoader loader, string path, EmbeddingLoadOptions load)
-        => new(EmbeddingModel.Load(loader, path, load), ownsModel: true);
 
     /// <summary>The wrapped embedder.</summary>
     public ITextEmbedder Model => _model;
@@ -49,7 +40,7 @@ public sealed class SharplightEmbeddingGenerator : IEmbeddingGenerator<string, E
         }
 
         var o = ToEmbedOptions(options);
-        var result = await Task.Run(() => _model.Embed(texts, o), cancellationToken).ConfigureAwait(false);
+        var result = await _model.EmbedAsync(texts, o, cancellationToken).ConfigureAwait(false);
         var created = DateTimeOffset.UtcNow;
         string model = options?.ModelId ?? _metadata.DefaultModelId!;
         var list = new GeneratedEmbeddings<Embedding<float>>(result.Vectors.Select(v => new Embedding<float>(v) { ModelId = model, CreatedAt = created }))

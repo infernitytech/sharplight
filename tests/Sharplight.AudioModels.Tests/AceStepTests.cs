@@ -22,8 +22,9 @@ public class AceStepTests
         Prompt = Caption,
         Lyrics = "[Instrumental]",
         Duration = TimeSpan.FromSeconds(10),
-        InitialNoise = AudioModels.Floats("acestep_noise.f32"),
     };
+
+    private static AudioGenerationOptions Options() => new() { InitialNoise = AudioModels.Floats("acestep_noise.f32") };
 
     [Theory]
     [InlineData(false, 2e-3)]
@@ -36,16 +37,16 @@ public class AceStepTests
         Assert.Equal(48000, generator.SampleRate);
         Assert.Equal(2, generator.Channels);
         Assert.Equal(25, generator.LatentFrameRate);
-        Assert.Equal(8, generator.DefaultSteps);
+        Assert.Equal(8, generator.Defaults.Steps);
 
-        var latents = await generator.GenerateLatentsAsync(Request());
+        var latents = await generator.GenerateLatentsAsync(Request(), Options());
         var expected = AudioModels.Floats("acestep_latent.f32");
         Assert.Equal(expected.Length, latents.Values.Length);
         double latentError = AudioModels.RelativeRms(latents.Values, expected);
         ParityReport.Write($"acestep gpu={gpu} latent relative RMS {latentError:E2}");
         Assert.True(latentError < tolerance, $"latent relative RMS {latentError}");
 
-        var audio = await generator.GenerateAsync(Request());
+        var audio = (await generator.GenerateAsync(Request(), Options())).Audio;
         var reference = AudioModels.Floats("acestep_wav.f32");
         Assert.Equal(reference.Length, audio.Samples.Length);
         double audioError = AudioModels.RelativeRms(audio.Samples, reference);
@@ -59,10 +60,19 @@ public class AceStepTests
         RequireAll();
         using var model = AudioModels.Load(AudioModels.Open(gpu: false), AudioModels.Model(Model));
         using var generator = AudioModels.Client<IAudioGenerator>(model);
-        var request = new AudioGenerationRequest { Prompt = Caption, Duration = TimeSpan.FromSeconds(2.4), Steps = 2, Seed = 7 };
+        var request = new AudioGenerationRequest { Prompt = Caption, Duration = TimeSpan.FromSeconds(2.4) };
+        var options = new AudioGenerationOptions { Steps = 2, Seed = 7 };
         var steps = new List<int>();
-        var first = await generator.GenerateAsync(request, new Progress<(int Step, int Steps)>(p => steps.Add(p.Step)));
-        var second = await generator.GenerateAsync(request);
+        AudioBuffer? first = null;
+        await foreach (var update in generator.GenerateStreamingAsync(request, options))
+        {
+            steps.Add(update.Step);
+            first = update.Result?.Audio ?? first;
+        }
+
+        var second = (await generator.GenerateAsync(request, options)).Audio;
+        Assert.Equal([1, 2, 2], steps);
+        Assert.NotNull(first);
         Assert.Equal(48000 * 2.4, first.FrameCount, 1);
         Assert.Equal(first.Samples, second.Samples);
         Assert.Equal(2, first.Channels);
@@ -79,12 +89,13 @@ public class AceStepTests
         {
             AudioModels.Services.GetRequiredService<ModelConverter>().Convert(AudioModels.Model(Model), path);
             Assert.Equal(ModelKinds.AudioGeneration, ModelPackageReader.Open(path).Definition.Description.Kind);
-            var request = new AudioGenerationRequest { Prompt = Caption, Duration = TimeSpan.FromSeconds(1.2), Steps = 2, Seed = 3 };
+            var request = new AudioGenerationRequest { Prompt = Caption, Duration = TimeSpan.FromSeconds(1.2) };
+            var options = new AudioGenerationOptions { Steps = 2, Seed = 3 };
             using var original = AudioModels.Load(AudioModels.Open(gpu: false), AudioModels.Model(Model));
             using var packaged = AudioModels.Load(AudioModels.Open(gpu: false), path);
             using var a = AudioModels.Client<IAudioGenerator>(original);
             using var b = AudioModels.Client<IAudioGenerator>(packaged);
-            Assert.Equal((await a.GenerateAsync(request)).Samples, (await b.GenerateAsync(request)).Samples);
+            Assert.Equal((await a.GenerateAsync(request, options)).Audio.Samples, (await b.GenerateAsync(request, options)).Audio.Samples);
         }
         finally
         {

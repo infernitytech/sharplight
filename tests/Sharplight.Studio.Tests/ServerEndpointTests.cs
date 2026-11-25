@@ -62,7 +62,7 @@ public sealed class ServerEndpointTests : IAsyncLifetime
         HostedTaskModel.Register(_host, "whisper", ModelKind.Task, () => new HostedTaskModel(_recognizer));
         HostedTaskModel.Register(_host, "tts", ModelKind.Task, () => new HostedTaskModel(_synthesizer));
         HostedTaskModel.Register(_host, "sd", ModelKind.Task, () => new HostedTaskModel(_generator));
-        HostedTaskModel.Register(_host, "embed", ModelKind.Embedding, () => new EmbeddingModelInstance(_embedder, 0, ownsEmbedder: false));
+        HostedTaskModel.Register(_host, "embed", ModelKind.Embedding, () => new TaskClientInstance([_embedder], 0, ModelKind.Embedding, ownsClients: false));
     }
 
     private async Task<HttpResponseMessage> PostJson(string path, string json)

@@ -100,7 +100,8 @@ public sealed class TaskModel : IDisposable
 
         var stopwatch = Stopwatch.StartNew();
         var adapter = options.ContextLength > 0 && options.Adapter.ContextLength == 0 ? options.Adapter.WithContext(options.ContextLength) : options.Adapter;
-        var (definition, source) = loader.Load(options.ModelPath, options.Auxiliary, adapter, options.Progress, options.Log, cancellationToken);
+        var (definition, source) = loader.Load(options.ModelPath, options.Auxiliary, adapter, options.Progress, options.Log, cancellationToken,
+            HalfPrecisionMatrices.Enabled(options.HalfPrecisionMatrices, options.Devices) ? HalfPrecisionMatrices.Transform : null);
         var model = new TaskModel(definition, source, options, loader.Architectures);
         options.Log?.Invoke($"Loaded {definition.Name} ({definition.Architecture}, {model.Description.Kind}, components "
             + $"{string.Join(", ", model.Description.Components.Select(c => c.Role))}): {definition.Weights.Count} tensors, "

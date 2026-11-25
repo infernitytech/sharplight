@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -36,7 +35,6 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
     private readonly int _samplesPerFrame;
     private readonly int _codecFrames;
     private readonly int _codecCodebooks;
-    private readonly float _guidance;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _disposed;
 
@@ -49,7 +47,7 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
         _codebooks = decoder.ConfigValue(MusicGenerationGraphs.CodebooksKey, 0);
         _vocabulary = decoder.ConfigValue(MusicGenerationGraphs.VocabularyKey, 0);
         _maxSteps = decoder.ConfigValue(MusicGenerationGraphs.MaxStepsKey, 0);
-        _guidance = (float)decoder.ConfigValue(MusicGenerationGraphs.GuidanceKey, 3.0);
+        Defaults = new MusicGenerationDefaults((float)decoder.ConfigValue(MusicGenerationGraphs.GuidanceKey, 3.0), Temperature: 1f, TopK: 250, TopP: 1f);
         SampleRate = decoder.ConfigValue(MusicGenerationGraphs.SampleRateKey, 0);
         FrameRate = decoder.ConfigValue(MusicGenerationGraphs.FrameRateKey, 0.0);
         _maxTokens = text.ConfigValue(MusicGenerationGraphs.MaxTokensKey, 512);
@@ -75,6 +73,8 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
 
     public TaskClientMetadata Metadata { get; }
 
+    public MusicGenerationDefaults Defaults { get; }
+
     public int SampleRate { get; }
 
     public double FrameRate { get; }
@@ -84,36 +84,26 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
     public object? GetService(Type serviceType, object? serviceKey = null)
         => serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model : null;
 
-    public Task<CodecCodes> GenerateCodesAsync(MusicGenerationRequest request, CancellationToken cancellationToken = default)
+    public Task<CodecCodes> GenerateCodesAsync(MusicGenerationRequest request, MusicGenerationOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        options ??= MusicGenerationOptions.Default;
+        long seed = AudioGenerationStreams.ResolveSeed(options.Seed);
         return BackgroundCompute.RunAsync(_gate, () =>
         {
-            var session = new Session(this, request, cancellationToken);
+            var session = new Session(this, request, options, seed, cancellationToken);
             session.StepUntil(session.Frames);
             return session.Codes(0, session.Frames);
         }, cancellationToken);
     }
 
-    public Task<AudioBuffer> GenerateAsync(MusicGenerationRequest request, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        return BackgroundCompute.RunAsync(_gate, () =>
-        {
-            var session = new Session(this, request, cancellationToken);
-            session.StepUntil(session.Frames);
-            return Decode(session.Codes(0, session.Frames), cancellationToken);
-        }, cancellationToken);
-    }
+    public Task<AudioGenerationResult> GenerateAsync(MusicGenerationRequest request, MusicGenerationOptions? options = null, CancellationToken cancellationToken = default)
+        => AudioGenerationStreams.CompleteAsync(Stream(request, options, pieces: false, cancellationToken));
 
-    public IAsyncEnumerable<AudioBuffer> GenerateStreamingAsync(MusicGenerationRequest request, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        return BackgroundCompute.StreamAsync(token => StreamCoreAsync(request, token), cancellationToken);
-    }
+    public IAsyncEnumerable<AudioGenerationUpdate> GenerateStreamingAsync(MusicGenerationRequest request, MusicGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
+        => Stream(request, options, pieces: true, cancellationToken);
 
     public void Dispose()
     {
@@ -130,30 +120,41 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
         _gate.Dispose();
     }
 
-    private async IAsyncEnumerable<AudioBuffer> StreamCoreAsync(MusicGenerationRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
+    /// <summary>
+    /// Generates in chunks of <see cref="StreamChunkFrames"/> frames with an update after each; with <paramref name="pieces"/> every update carries the audio of
+    /// its chunk (decoded with context and lookahead frames). The last update carries the whole audio, decoded at once.
+    /// </summary>
+    private IAsyncEnumerable<AudioGenerationUpdate> Stream(MusicGenerationRequest request, MusicGenerationOptions? options, bool pieces, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        ArgumentNullException.ThrowIfNull(request);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        options ??= MusicGenerationOptions.Default;
+        long seed = AudioGenerationStreams.ResolveSeed(options.Seed);
+        return AudioGenerationStreams.Stream(_gate, (emit, token) =>
         {
-            var session = new Session(this, request, cancellationToken);
+            var session = new Session(this, request, options, seed, token);
             int emitted = 0;
             while (emitted < session.Frames)
             {
-                int target = Math.Min(session.Frames, emitted + StreamChunkFrames + StreamLookaheadFrames);
+                int target = Math.Min(session.Frames, emitted + StreamChunkFrames + (pieces ? StreamLookaheadFrames : 0));
                 session.StepUntil(target);
-                int end = target == session.Frames ? target : target - StreamLookaheadFrames;
-                int from = Math.Max(0, emitted - StreamContextFrames);
-                var audio = Decode(session.Codes(from, target - from), cancellationToken);
-                int skip = (emitted - from) * _samplesPerFrame;
-                int count = (end - emitted) * _samplesPerFrame;
-                yield return new AudioBuffer(audio.Samples.AsSpan(skip, count).ToArray(), SampleRate);
+                int end = target == session.Frames || !pieces ? target : target - StreamLookaheadFrames;
+                AudioBuffer? piece = null;
+                if (pieces)
+                {
+                    int from = Math.Max(0, emitted - StreamContextFrames);
+                    var audio = Decode(session.Codes(from, target - from), token);
+                    int skip = (emitted - from) * _samplesPerFrame;
+                    int count = (end - emitted) * _samplesPerFrame;
+                    piece = new AudioBuffer(audio.Samples.AsSpan(skip, count).ToArray(), SampleRate);
+                }
+
+                emit(new AudioGenerationUpdate(end, session.Frames, Audio: piece));
                 emitted = end;
             }
-        }
-        finally
-        {
-            _gate.Release();
-        }
+
+            emit(new AudioGenerationUpdate(session.Frames, session.Frames, new AudioGenerationResult(Decode(session.Codes(0, session.Frames), token), seed)));
+        }, cancellationToken);
     }
 
     private AudioBuffer Decode(CodecCodes codes, CancellationToken cancellationToken)
@@ -188,11 +189,15 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
     {
         private readonly MusicGeneratorClient _client;
         private readonly MusicGenerationRequest _request;
+        private readonly bool _greedy;
+        private readonly int _topK;
+        private readonly float _topP;
+        private readonly float _temperature;
         private readonly CancellationToken _cancellationToken;
         private readonly int[][] _delayed;
         private readonly Random _random;
         private readonly float _guidance;
-        private readonly int _conditionRows;
+            private readonly int _conditionRows;
         private float[] _condition = [];
         private readonly float[] _guided;
         private readonly float[] _conditionalLogits;
@@ -200,7 +205,7 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
         private readonly int _length;
         private int _step;
 
-        public Session(MusicGeneratorClient client, MusicGenerationRequest request, CancellationToken cancellationToken)
+        public Session(MusicGeneratorClient client, MusicGenerationRequest request, MusicGenerationOptions options, long seed, CancellationToken cancellationToken)
         {
             _client = client;
             _request = request;
@@ -213,8 +218,12 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
             }
 
             _length = Frames + k;
-            _random = request.Seed is { } seed ? new Random(seed) : new Random();
-            _guidance = request.GuidanceScale ?? client._guidance;
+            _random = Seeds.CreateRandom(seed);
+            _guidance = options.GuidanceScale ?? client.Defaults.GuidanceScale;
+            _greedy = options.Greedy;
+            _topK = options.TopK ?? client.Defaults.TopK;
+            _topP = options.TopP ?? client.Defaults.TopP;
+            _temperature = options.Temperature ?? client.Defaults.Temperature;
             _delayed = new int[k][];
             for (int q = 0; q < k; q++)
             {
@@ -324,7 +333,7 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
                     _guided[v] = guide ? _unconditionalLogits[(q * vocabulary) + v] + (_guidance * (c - _unconditionalLogits[(q * vocabulary) + v])) : c;
                 }
 
-                _delayed[q][next] = _request.Greedy ? Sampler.ArgMax(_guided) : Sample(_guided);
+                _delayed[q][next] = _greedy ? Sampler.ArgMax(_guided) : Sample(_guided);
             }
 
             _step++;
@@ -340,8 +349,8 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
             }
 
             Array.Sort(order, (a, b) => logits[b].CompareTo(logits[a]));
-            int keep = _request.TopK > 0 ? Math.Min(_request.TopK, n) : n;
-            float temperature = Math.Max(_request.Temperature, 1e-4f);
+            int keep = _topK > 0 ? Math.Min(_topK, n) : n;
+            float temperature = Math.Max(_temperature, 1e-4f);
             var probabilities = new double[keep];
             double max = logits[order[0]];
             double sum = 0;
@@ -356,7 +365,7 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
             for (int i = 0; i < keep; i++)
             {
                 cumulative += probabilities[i] / sum;
-                if (_request.TopP < 1f && cumulative >= _request.TopP)
+                if (_topP < 1f && cumulative >= _topP)
                 {
                     count = i + 1;
                     break;

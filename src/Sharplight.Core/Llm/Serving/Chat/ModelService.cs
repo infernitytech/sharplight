@@ -365,7 +365,7 @@ public sealed class ModelService
         {
             for (int i = 0; i < n; i++)
             {
-                var sampling = template.Sampling.Seed is int s && i > 0 ? template.Sampling with { Seed = s + i } : template.Sampling;
+                var sampling = template.Sampling.Seed is long s && i > 0 ? template.Sampling with { Seed = s + i } : template.Sampling;
                 handles.Add(Engine.Submit(template with { Sampling = sampling, MaxTokens = maxTokens }, ct));
             }
         }

@@ -751,7 +751,7 @@ internal sealed partial class ConversationViewModel : ObservableObject
             MinP = Math.Round(MinP, 2),
             RepetitionPenalty = Math.Round(RepetitionPenalty, 2),
             MaxTokens = (int)MaxTokens,
-            Seed = int.TryParse(SeedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seed) ? seed : null,
+            Seed = long.TryParse(SeedText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seed) ? seed : null,
         };
     }
 

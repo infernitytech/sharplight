@@ -61,7 +61,7 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
         _chunkMask = (float)denoiser.ConfigValue(AudioGenerationGraphs.ChunkMaskValueKey, 1.0);
         _patch = denoiser.ConfigValue(AudioGenerationGraphs.PatchSizeKey, 1);
         _maxFrames = denoiser.ConfigValue(AudioGenerationGraphs.MaxFramesKey, 0);
-        DefaultSteps = denoiser.ConfigValue(AudioGenerationGraphs.DefaultStepsKey, 8);
+        Defaults = new AudioGenerationDefaults(denoiser.ConfigValue(AudioGenerationGraphs.DefaultStepsKey, 8), null, SupportsLyrics: true, SupportsShift: true);
         _defaultShift = (float)denoiser.ConfigValue(AudioGenerationGraphs.DefaultShiftKey, 1.0);
         _referenceFrames = encoder.ConfigValue(AudioGenerationGraphs.ReferenceFramesKey, 0);
         _decodeFrames = vae.ConfigValue(AudioGenerationGraphs.DecodeFramesKey, 256);
@@ -87,29 +87,43 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
 
     public int LatentChannels { get; }
 
-    public int DefaultSteps { get; }
-
-    public bool SupportsLyrics => true;
-
-    public bool SupportsShift => true;
+    public AudioGenerationDefaults Defaults { get; }
 
     public TimeSpan MaxDuration => TimeSpan.FromSeconds(_maxFrames / LatentFrameRate);
 
     public object? GetService(Type serviceType, object? serviceKey = null)
         => serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model : null;
 
-    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null, CancellationToken cancellationToken = default)
+    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return BackgroundCompute.RunAsync(_gate, () => Denoise(request, progress, cancellationToken), cancellationToken);
+        options ??= AudioGenerationOptions.Default;
+        long seed = AudioGenerationStreams.ResolveSeed(options.Seed);
+        return BackgroundCompute.RunAsync(_gate, () => Denoise(request, options, seed, null, cancellationToken), cancellationToken);
     }
 
-    public Task<AudioBuffer> GenerateAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null, CancellationToken cancellationToken = default)
+    public Task<AudioGenerationResult> GenerateAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default)
+        => AudioGenerationStreams.CompleteAsync(GenerateStreamingAsync(request, options, cancellationToken));
+
+    public IAsyncEnumerable<AudioGenerationUpdate> GenerateStreamingAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return BackgroundCompute.RunAsync(_gate, () => Decode(Denoise(request, progress, cancellationToken), cancellationToken), cancellationToken);
+        options ??= AudioGenerationOptions.Default;
+        long seed = AudioGenerationStreams.ResolveSeed(options.Seed);
+        return AudioGenerationStreams.Stream(_gate, (emit, token) =>
+        {
+            int done = 0;
+            int total = 0;
+            var latents = Denoise(request, options, seed, (step, steps) =>
+            {
+                (done, total) = (step, steps);
+                emit(new AudioGenerationUpdate(step, steps));
+            }, token);
+            emit(new AudioGenerationUpdate(done, total, new AudioGenerationResult(Decode(latents, token), seed)));
+        }, cancellationToken);
     }
 
     public void Dispose()
@@ -128,7 +142,7 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
         _gate.Dispose();
     }
 
-    private AudioLatents Denoise(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress, CancellationToken cancellationToken)
+    private AudioLatents Denoise(AudioGenerationRequest request, AudioGenerationOptions options, long seed, Action<int, int>? progress, CancellationToken cancellationToken)
     {
         int frames = (int)Math.Round(request.Duration.TotalSeconds * LatentFrameRate);
         if (frames < 1 || frames > _maxFrames)
@@ -136,21 +150,21 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
             throw new ArgumentOutOfRangeException(nameof(request), $"The duration must be between one frame and {MaxDuration.TotalSeconds:0.##} s.");
         }
 
-        int steps = request.Steps ?? DefaultSteps;
+        int steps = options.Steps ?? Defaults.Steps;
         if (steps < 1)
         {
-            throw new ArgumentOutOfRangeException(nameof(request), "The number of steps must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(options), "The number of steps must be positive.");
         }
 
         int padded = (frames + _patch - 1) / _patch * _patch;
         float[] condition = Condition(request, out int conditionRows);
 
         float[] noise;
-        if (request.InitialNoise is { } given)
+        if (options.InitialNoise is { } given)
         {
             if (given.Length != frames * _latentChannels)
             {
-                throw new ArgumentException($"The initial noise has {given.Length} values, {frames * _latentChannels} are needed.", nameof(request));
+                throw new ArgumentException($"The initial noise has {given.Length} values, {frames * _latentChannels} are needed.", nameof(options));
             }
 
             noise = given.ToArray();
@@ -158,7 +172,7 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
         else
         {
             noise = new float[frames * _latentChannels];
-            AudioNoise.Fill(AudioNoise.Create(request.Seed), noise);
+            AudioNoise.Fill(AudioNoise.Create(seed), noise);
         }
 
         // Context: the silence latent as source audio and the chunk mask, zero rows for the padding.
@@ -195,7 +209,7 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
             Condition = _denoise.Graph.Inputs.First(v => v.Input!.Name == AudioGenerationGraphs.ConditionInput),
             Positions = _denoise.Graph.Inputs.First(v => v.Input!.Name == AudioGenerationGraphs.PositionsInput),
         };
-        float shift = request.Shift ?? _defaultShift;
+        float shift = options.Shift ?? _defaultShift;
         var parameters = new RunParameters();
         parameters.Symbols[WellKnown.TokenSymbol] = padded;
         parameters.Symbols[WellKnown.EncoderSymbol] = conditionRows;
@@ -219,7 +233,7 @@ internal sealed class AudioGeneratorClient : IAudioGenerator
             }
 
             t = next;
-            progress?.Report((step + 1, steps));
+            progress?.Invoke(step + 1, steps);
         }
 
         return new AudioLatents(frames, _latentChannels, latent[..(frames * _latentChannels)]);

@@ -1,6 +1,8 @@
 using System.Collections.Frozen;
 using Sharplight.Audio;
 using Sharplight.ImageGeneration;
+using Sharplight.Llm.Embeddings;
+using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Models;
 using Sharplight.Speech;
 using Sharplight.Tasks;
@@ -35,7 +37,21 @@ public static class TaskKindClients
         [ModelKinds.MusicGeneration] = typeof(IMusicGenerator),
         [ModelKinds.AudioGeneration] = typeof(IAudioGenerator),
         [ModelKinds.AudioSeparation] = typeof(IAudioSeparator),
+        [ModelKinds.TextEmbedding] = typeof(ITextEmbedder),
+        [ModelKinds.TextReranking] = typeof(ITextReranker),
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The host kind a model of task kind <paramref name="kind"/> is registered as: <see cref="ModelKind.Embedding"/> for text embedding
+    /// and <see cref="ModelKind.Reranker"/> for reranking models (the kinds the retrieval endpoints serve), else <see cref="ModelKind.Task"/>.
+    /// </summary>
+    /// <param name="kind">The task kind (<see cref="ModelKinds"/>).</param>
+    public static ModelKind HostedKind(string kind) => kind switch
+    {
+        ModelKinds.TextEmbedding => ModelKind.Embedding,
+        ModelKinds.TextReranking => ModelKind.Reranker,
+        _ => ModelKind.Task,
+    };
 
     /// <summary>Whether models of <paramref name="kind"/> run through the task layer (the others are language models).</summary>
     /// <param name="kind">The model kind.</param>

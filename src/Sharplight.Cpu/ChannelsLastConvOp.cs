@@ -124,7 +124,7 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
         _rowRuns = UsesRowRuns(_c, dw);
         _segs = _rowRuns ? kh : kh * kw;
         _len = _rowRuns ? kw * _c : _c;
-        _chunks = DiagnosticSwitches.NoChannelsLastChunks ? [(0, _segs, 0, _len)] : Chunks(_segs, _len);
+        _chunks = Chunks(_segs, _len);
         if (_rowRuns)
         {
             // Padded extent: every row and column any output reads.

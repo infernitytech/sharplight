@@ -24,12 +24,12 @@ public class StableAudio3Tests
         => AudioModels.Require(AudioModels.Model(Model), AudioModels.Reference($"{tag}_noise.f32"), AudioModels.Reference($"{tag}_latent.f32"),
             AudioModels.Reference($"{tag}_wav.f32"));
 
-    private static AudioGenerationRequest Request(string tag = "sa3", float guidance = 7, string prompt = Prompt)
+    private static AudioGenerationRequest Request(string prompt = Prompt) => new() { Prompt = prompt, Duration = TimeSpan.FromSeconds(10) };
+
+    private static AudioGenerationOptions Options(string tag = "sa3", float guidance = 7)
     {
-        var request = new AudioGenerationRequest
+        var options = new AudioGenerationOptions
         {
-            Prompt = prompt,
-            Duration = TimeSpan.FromSeconds(10),
             Steps = 8,
             GuidanceScale = guidance,
             InitialNoise = AudioModels.Floats($"{tag}_noise.f32"),
@@ -39,10 +39,10 @@ public class StableAudio3Tests
         {
             var stepNoise = AudioModels.Floats($"{tag}_step_noise.f32");
             int count = Frames * Channels;
-            request = request with { StepNoise = [.. Enumerable.Range(0, stepNoise.Length / count).Select(i => new ReadOnlyMemory<float>(stepNoise, i * count, count))] };
+            options = options with { StepNoise = [.. Enumerable.Range(0, stepNoise.Length / count).Select(i => new ReadOnlyMemory<float>(stepNoise, i * count, count))] };
         }
 
-        return request;
+        return options;
     }
 
     [Theory]
@@ -102,11 +102,11 @@ public class StableAudio3Tests
         using var generator = AudioModels.Client<IAudioGenerator>(model);
         var client = Assert.IsType<FlowAudioDiffusionClient>(generator);
         var latents = new AudioLatents(Frames, Channels, AudioModels.Floats("sa3_latent.f32"));
-        var audio = client.Decode(latents, Request(), CancellationToken.None);
+        var audio = client.Decode(latents, Request(), Options(), CancellationToken.None);
         Report(gpu, "decoded reference latents", audio.Samples, AudioModels.Floats("sa3_wav.f32"), gpu ? 1e-2 : 1e-3);
 
         // The autoencoder's own dither moves the audio about as much as the reference's (34.7 dB there).
-        var dithered = client.Decode(latents, Request() with { DecoderNoise = null, Seed = 5 }, CancellationToken.None);
+        var dithered = client.Decode(latents, Request(), Options() with { DecoderNoise = null, Seed = 5 }, CancellationToken.None);
         double error = AudioModels.RelativeRms(dithered.Samples, audio.Samples);
         ParityReport.Write($"stable-audio-3 gpu={gpu} decoder dither: SNR {-20 * Math.Log10(error):F1} dB (reference dither {Snr("sa3_wav_dither.f32", "sa3_wav.f32"):F1} dB)");
         Assert.InRange(-20 * Math.Log10(error), 25, 45);
@@ -123,18 +123,18 @@ public class StableAudio3Tests
         Assert.Equal(44100, generator.SampleRate);
         Assert.Equal(2, generator.Channels);
         Assert.Equal(Channels, generator.LatentChannels);
-        Assert.Equal(50, generator.DefaultSteps);
-        Assert.Equal(7f, generator.DefaultGuidanceScale);
-        Assert.True(generator.SupportsNegativePrompt);
+        Assert.Equal(50, generator.Defaults.Steps);
+        Assert.Equal(7f, generator.Defaults.GuidanceScale);
+        Assert.True(generator.Defaults.SupportsNegativePrompt);
         Assert.Equal(1300 * 4096 / 44100.0, generator.MaxDuration.TotalSeconds, 3);
 
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var latents = await generator.GenerateLatentsAsync(Request());
+        var latents = await generator.GenerateLatentsAsync(Request(), Options());
         ParityReport.Write($"stable-audio-3 gpu={gpu} 8 Euler steps with APG in {watch.Elapsed.TotalSeconds:F1} s");
         Assert.Equal(Frames, latents.Frames);
         Report(gpu, "final latents", latents.Values, AudioModels.Floats("sa3_latent.f32"), tolerance);
 
-        var audio = await generator.GenerateAsync(Request());
+        var audio = (await generator.GenerateAsync(Request(), Options())).Audio;
         Report(gpu, "audio", audio.Samples, AudioModels.Floats("sa3_wav.f32"), tolerance * 2);
     }
 
@@ -148,7 +148,7 @@ public class StableAudio3Tests
         using var model = AudioModels.Load(AudioModels.Open(gpu), AudioModels.Model(Model));
         using var generator = AudioModels.Client<IAudioGenerator>(model);
         var client = Assert.IsType<FlowAudioDiffusionClient>(generator);
-        var latents = await client.GenerateLatentsAsync(Request("sa3pp", 1f), pingPong: true);
+        var latents = await client.GenerateLatentsAsync(Request(), Options("sa3pp", 1f), pingPong: true);
         Report(gpu, "ping-pong latents", latents.Values, AudioModels.Floats("sa3pp_latent.f32"), tolerance);
     }
 
@@ -164,15 +164,16 @@ public class StableAudio3Tests
         using var model = AudioModels.Load(AudioModels.Open(gpu), AudioModels.Model(name));
         using var generator = AudioModels.Client<IAudioGenerator>(model);
         Assert.Equal(maxFrames * 4096 / 44100.0, generator.MaxDuration.TotalSeconds, 3);
-        var request = Request(tag, prompt: prompt);
+        var request = Request(prompt);
+        var options = Options(tag);
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var latents = await generator.GenerateLatentsAsync(request);
+        var latents = await generator.GenerateLatentsAsync(request, options);
         ParityReport.Write($"{name} gpu={gpu} 8 Euler steps with APG in {watch.Elapsed.TotalSeconds:F1} s");
         Report(gpu, $"{name} final latents", latents.Values, AudioModels.Floats($"{tag}_latent.f32"), tolerance);
         var client = Assert.IsType<FlowAudioDiffusionClient>(generator);
-        Report(gpu, $"{name} audio", client.Decode(latents, request, CancellationToken.None).Samples, AudioModels.Floats($"{tag}_wav.f32"), tolerance * 2);
+        Report(gpu, $"{name} audio", client.Decode(latents, request, options, CancellationToken.None).Samples, AudioModels.Floats($"{tag}_wav.f32"), tolerance * 2);
         Report(gpu, $"{name} decoded reference latents", client.Decode(new AudioLatents(Frames, Channels, AudioModels.Floats($"{tag}_latent.f32")), request,
-            CancellationToken.None).Samples, AudioModels.Floats($"{tag}_wav.f32"), gpu ? 1e-2 : 1e-3);
+            options, CancellationToken.None).Samples, AudioModels.Floats($"{tag}_wav.f32"), gpu ? 1e-2 : 1e-3);
     }
 
     [Fact]
@@ -181,12 +182,13 @@ public class StableAudio3Tests
         RequireAll();
         using var model = AudioModels.Load(AudioModels.Open(gpu: false), AudioModels.Model(Model));
         using var generator = AudioModels.Client<IAudioGenerator>(model);
-        var request = new AudioGenerationRequest { Prompt = Prompt, NegativePrompt = "low quality, noise", Duration = TimeSpan.FromSeconds(1.5), Steps = 2, Seed = 7 };
-        var first = await generator.GenerateAsync(request);
-        var second = await generator.GenerateAsync(request);
+        var request = new AudioGenerationRequest { Prompt = Prompt, NegativePrompt = "low quality, noise", Duration = TimeSpan.FromSeconds(1.5) };
+        var options = new AudioGenerationOptions { Steps = 2, Seed = 7 };
+        var first = (await generator.GenerateAsync(request, options)).Audio;
+        var second = (await generator.GenerateAsync(request, options)).Audio;
         Assert.Equal((int)(1.5 * 44100), first.FrameCount);
         Assert.Equal(first.Samples, second.Samples);
-        var other = await generator.GenerateAsync(request with { NegativePrompt = null });
+        var other = (await generator.GenerateAsync(request with { NegativePrompt = null }, options)).Audio;
         Assert.NotEqual(first.Samples, other.Samples);
     }
 
@@ -201,12 +203,13 @@ public class StableAudio3Tests
         {
             AudioModels.Services.GetRequiredService<ModelConverter>().Convert(AudioModels.Model(Model), path);
             Assert.Equal(ModelKinds.AudioGeneration, ModelPackageReader.Open(path).Definition.Description.Kind);
-            var request = new AudioGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(1), Steps = 2, Seed = 3 };
+            var request = new AudioGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(1) };
+            var options = new AudioGenerationOptions { Steps = 2, Seed = 3 };
             using var original = AudioModels.Load(AudioModels.Open(gpu: false), AudioModels.Model(Model));
             using var packaged = AudioModels.Load(AudioModels.Open(gpu: false), path);
             using var a = AudioModels.Client<IAudioGenerator>(original);
             using var b = AudioModels.Client<IAudioGenerator>(packaged);
-            Assert.Equal((await a.GenerateAsync(request)).Samples, (await b.GenerateAsync(request)).Samples);
+            Assert.Equal((await a.GenerateAsync(request, options)).Audio.Samples, (await b.GenerateAsync(request, options)).Audio.Samples);
         }
         finally
         {

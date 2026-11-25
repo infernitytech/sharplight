@@ -15,8 +15,8 @@ public sealed record SamplingOptions
     public float RepetitionPenalty { get; init; } = 1.0f;
     /// <summary>Number of most recent tokens the repetition penalty looks at.</summary>
     public int RepetitionWindow { get; init; } = 64;
-    /// <summary>Seed for reproducible sampling; null seeds from entropy.</summary>
-    public int? Seed { get; init; }
+    /// <summary>Seed for reproducible sampling; null seeds from entropy. Seeds within the <see cref="int"/> range reproduce the runs of earlier releases.</summary>
+    public long? Seed { get; init; }
 
     /// <summary>Always pick the most likely token.</summary>
     public static SamplingOptions Greedy { get; } = new() { Temperature = 0 };

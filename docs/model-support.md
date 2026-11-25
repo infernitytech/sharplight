@@ -1843,7 +1843,7 @@ Stable Audio Open's autoencoder shares (`OobleckDecoderGraph`, weights mapped by
 Stable Audio Open 1.0 runs through its own graph contract (`TimedAudioDiffusionGraphs`: `text_encode`, `timing_encode`, `denoise`, `audio_decode`) and client: the prompt's T5 rows (padding rows zero, as the pipeline masks them) and the two timing rows are the cross-attention rows,
 the timing rows side by side the global row; without a negative prompt the unconditional pass sees all-zero rows (the pipeline's behaviour), with one its T5 rows and the same timing. The sampler is diffusers' `CosineDPMSolverMultistepScheduler`
 (k-diffusion's DPM-Solver++(2M) SDE with the midpoint solver: exponential sigmas from 500 to 0.3 and then 0, `c_in = 1/√(σ²+1)`, network time `atan(σ)·2/π`, first-order first and last step). The SDE noise is drawn from the request's seed;
-the reference's Brownian-tree samples (torchsde) cannot be reproduced bit for bit, so the parity runs pass them in (`AudioGenerationRequest.StepNoise`). The transformer always denoises its 1024-frame window (47.5 s) as the pipeline does; only the frames that
+the reference's Brownian-tree samples (torchsde) cannot be reproduced bit for bit, so the parity runs pass them in (`AudioGenerationOptions.StepNoise`). The transformer always denoises its 1024-frame window (47.5 s) as the pipeline does; only the frames that
 cover the requested duration are decoded. The peak of the decoded audio is limited to 1 (8 steps at guidance 7 reach 3.0 in the reference).
 
 Stable Audio 3 uses the rectified-flow form of the same contract (`TimedAudioDiffusionGraphs.ObjectiveKey`, client `FlowAudioDiffusionClient`): the latent length follows the duration (the duration plus 6 s of headroom, rounded up to whole frames

@@ -46,7 +46,7 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     public override ShaderTarget SourceTarget => ShaderTarget.CudaSource;
 
     /// <inheritdoc />
-    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.DependentTrigger ? "" : "|pdl-wait")}{(DiagnosticSwitches.MinBlocks is { } bounds ? "|bounds=" + bounds : "")}{(DiagnosticSwitches.NvrtcSass is { } sass ? "|sass=" + sass : "")}";
+    public override string Id => $"nvrtc|compute_{ComputeCapability}|{OptionsVersion}{(DiagnosticSwitches.MinBlocks is { } bounds ? "|bounds=" + bounds : "")}{(DiagnosticSwitches.NvrtcSass is { } sass ? "|sass=" + sass : "")}";
 
     /// <summary>Kernels this process compiled with NVRTC and the time spent (diagnostics).</summary>
     public static (int Kernels, TimeSpan Time) Statistics => (Volatile.Read(ref s_compiled), Stopwatch.GetElapsedTime(0, Volatile.Read(ref s_ticks)));
@@ -187,10 +187,8 @@ internal sealed partial class NvrtcTranslator : KernelTranslator
     {
         bool waitsItself = source.Contains("griddepcontrol.wait", StringComparison.Ordinal);
         string prologue = waitsItself
-            ? DiagnosticSwitches.DependentTrigger ? "\n    asm volatile(\"griddepcontrol.launch_dependents;\" ::: \"memory\");\n" : "\n"
-            : DiagnosticSwitches.DependentTrigger
-                ? "\n    asm volatile(\"griddepcontrol.wait;\\n\\tgriddepcontrol.launch_dependents;\" ::: \"memory\");\n"
-                : "\n    asm volatile(\"griddepcontrol.wait;\" ::: \"memory\");\n";
+            ? "\n    asm volatile(\"griddepcontrol.launch_dependents;\" ::: \"memory\");\n"
+            : "\n    asm volatile(\"griddepcontrol.wait;\\n\\tgriddepcontrol.launch_dependents;\" ::: \"memory\");\n";
         var text = new StringBuilder(source.Length + 256);
         int at = 0, count = 0;
         foreach (Match entry in KernelEntryPattern().Matches(source))

@@ -22,8 +22,8 @@ internal sealed class RequestSampler
     public RequestSampler(SamplingParams p, ReadOnlySpan<int> prompt)
     {
         _p = p;
-        _rng = p.Seed is int s ? new Random(s) : new Random();
-        _deviceSeed = unchecked((uint)(p.Seed ?? Random.Shared.Next()));
+        _rng = Tasks.Seeds.CreateRandom(p.Seed);
+        _deviceSeed = unchecked((uint)(p.Seed is { } seed ? Tasks.Seeds.ToInt32(seed) : Random.Shared.Next()));
         _hasPenalties = p.RepetitionPenalty != 1f || p.PresencePenalty != 0 || p.FrequencyPenalty != 0;
         if (p.RepetitionPenalty != 1f)
         {

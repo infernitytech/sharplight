@@ -46,16 +46,16 @@ public class ReferenceTests
     /// <summary>8-bit weights: the reference is the unquantized model, so tolerances are wider.</summary>
     private static bool Quantized(string format) => format.Contains("q8_0", StringComparison.OrdinalIgnoreCase);
 
-    private static readonly Dictionary<(string, string), EmbeddingModel> s_embedders = [];
-    private static readonly Dictionary<(string, string), Reranker> s_rerankers = [];
+    private static readonly Dictionary<(string, string), ITextEmbedder> s_embedders = [];
+    private static readonly Dictionary<(string, string), TextRerankerClient> s_rerankers = [];
 
-    internal static EmbeddingModel LoadEmbedder(string path, string device)
+    internal static ITextEmbedder LoadEmbedder(string path, string device)
     {
         lock (s_embedders)
         {
             if (!s_embedders.TryGetValue((path, device), out var m))
             {
-                s_embedders[(path, device)] = m = EmbeddingModel.Load(TestHost.Loader, path, new EmbeddingLoadOptions { Devices = [Env.Device(device)], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
+                s_embedders[(path, device)] = m = TestHost.Load<ITextEmbedder>(path, Env.Device(device), maxBatchTokens: 2048).Client;
             }
 
             return m;
@@ -63,7 +63,7 @@ public class ReferenceTests
     }
 
     [Theory, MemberData(nameof(Embedders))]
-    public void Embeddings(string model, string format, string device)
+    public async Task Embeddings(string model, string format, string device)
     {
         Env.Init();
         string path = PathOf(model, format);
@@ -83,7 +83,7 @@ public class ReferenceTests
             }
         }
 
-        var result = m.Embed(texts);
+        var result = await m.EmbedAsync(texts, cancellationToken: TestContext.Current.CancellationToken);
         var refEmb = reference.GetProperty("embeddings").EnumerateArray().Select(Env.Floats).ToList();
         double minCos = 1;
         for (int i = 0; i < texts.Count; i++)
@@ -106,7 +106,7 @@ public class ReferenceTests
             }
 
             var pe = reference.GetProperty("prompt_embeddings").EnumerateArray().Select(Env.Floats).ToList();
-            var r2 = m.Embed(texts.Take(pe.Count).ToList(), o);
+            var r2 = await m.EmbedAsync(texts.Take(pe.Count).ToList(), o, TestContext.Current.CancellationToken);
             for (int i = 0; i < pe.Count; i++)
             {
                 minPromptCos = Math.Min(minPromptCos, Env.Cosine(r2.Vectors[i], pe[i]));
@@ -120,7 +120,7 @@ public class ReferenceTests
     }
 
     [Theory, MemberData(nameof(Rerankers))]
-    public void Rerank(string model, string format, string device)
+    public async Task Rerank(string model, string format, string device)
     {
         Env.Init();
         string path = PathOf(model, format);
@@ -129,18 +129,18 @@ public class ReferenceTests
         var reference = Env.Reference(model);
         string query = reference.GetProperty("query").GetString()!;
         var docs = reference.GetProperty("documents").EnumerateArray().Select(t => t.GetString()!).ToList();
-        Reranker r;
+        TextRerankerClient r;
         lock (s_rerankers)
         {
             if (!s_rerankers.TryGetValue((path, device), out r!))
             {
-                s_rerankers[(path, device)] = r = Reranker.Load(TestHost.Loader, path, new RerankerLoadOptions { Devices = [dev], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
+                s_rerankers[(path, device)] = r = (TextRerankerClient)TestHost.Load<ITextReranker>(path, dev, maxBatchTokens: 2048).Client;
             }
         }
 
         var refTokens = reference.GetProperty("tokens").EnumerateArray().Select(Env.Ints).ToList();
         int tokenMismatches = docs.Select((d, i) => r.Encode(query, d).Tokens.SequenceEqual(refTokens[i]) ? 0 : 1).Sum();
-        var result = r.Score(query, docs);
+        var result = await r.RerankAsync(query, docs, cancellationToken: TestContext.Current.CancellationToken);
         var refLogits = Env.Floats(reference.GetProperty("logits"));
         double maxErr = 0;
         for (int i = 0; i < docs.Count; i++)

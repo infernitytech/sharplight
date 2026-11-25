@@ -45,8 +45,6 @@ public static class HostingServiceCollectionExtensions
             services.TryAddSingleton<IModelHostManager>(provider => provider.GetRequiredService<ModelHostManager>());
             services.TryAddSingleton(provider => provider.GetRequiredService<IModelHostManager>().Host);
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedModelLoaderFactory, ChatModelLoaderFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedModelLoaderFactory, EmbeddingModelLoaderFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedModelLoaderFactory, RerankerModelLoaderFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedModelLoaderFactory, TaskModelLoaderFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HostedModelStartup>());
             return services;

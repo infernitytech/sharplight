@@ -458,7 +458,7 @@ internal sealed partial class OmniVoiceSynthesizer : ISpeechSynthesizer, IVoiceC
         var state = new int[cl * t];
         state.AsSpan().Fill(_maskId);
         var schedule = Schedule(t, settings);
-        var random = new Random(settings.Seed ?? Random.Shared.Next());
+        var random = new Random(settings.Seed is { } seed ? Tasks.Seeds.ToInt32(seed) : Random.Shared.Next());
         int c = prompt.Length;
         int stride = _codebooks * _audioVocab;
         var scores = new float[cl * t];

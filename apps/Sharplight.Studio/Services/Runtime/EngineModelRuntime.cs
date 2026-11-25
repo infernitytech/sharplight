@@ -418,18 +418,20 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return gpus.Count == 0 ? [] : [.. gpus.Where(device => device.Provider == gpus[0].Provider)];
     }
 
-    private RetrievalModelLoader CreateRetrievalLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model, bool reranker)
+    private TaskModelLoader CreateRetrievalLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model, bool reranker)
     {
         var disabled = new HashSet<string>(request.DisabledFeatures, StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<DeviceSlot> slots = device.IsSplit ? SplitSlots(disabled) : [new DeviceSlot { Device = Open(device, disabled) }];
-        PackedModelLoadOptions options = reranker ? new RerankerLoadOptions() : new EmbeddingLoadOptions();
+        var options = new TaskLoadOptions();
+        TextEmbeddingLoadDefaults.Apply(options);
         options.ModelPath = request.Path;
         options.Devices = [.. slots];
         options.DisabledFeatures = disabled;
         options.AllowReducedPrecision = request.Settings.AllowReducedPrecision;
         options.Log = model.OnLoadMessage;
         options.Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress);
-        return new RetrievalModelLoader(reranker ? ModelKind.Reranker : ModelKind.Embedding, options, [.. slots.Select(slot => new ComputeDeviceMemoryDomain(slot.Device))], _engine.Services);
+        return new TaskModelLoader(reranker ? Sharplight.Models.ModelKinds.TextReranking : Sharplight.Models.ModelKinds.TextEmbedding, options,
+            [.. slots.Select(slot => new ComputeDeviceMemoryDomain(slot.Device))], _engine.Services, model.Abandon.Token);
     }
 
     private TaskModelLoader CreateTaskLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model)

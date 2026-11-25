@@ -418,7 +418,7 @@ checkpoints' f32 scales and the promoting GEMM, bit for bit the earlier default:
 
 | where | setting |
 |---|---|
-| code | `TaskLoadOptions.BlockScaledFp8 = false` (`LlmLoadOptions`, `EmbeddingLoadOptions`, ...), or `block_scaled_fp8` in `DisabledFeatures` |
+| code | `TaskLoadOptions.BlockScaledFp8 = false` (`LlmLoadOptions`, ...), or `block_scaled_fp8` in `DisabledFeatures` |
 | CLI (`sharplight`, `run`, `serve`, `segment-worker`) | `--fp8-block-scaled off` (same as `--disable-features block_scaled_fp8`) |
 | hosting JSON (`sharplight serve --config`, Sharplight.Hosting) | `"blockScaledFp8": false` in `defaults` or per model |
 | environment (process-wide override) | `SHARPLIGHT_FP8_BLOCK_SCALED=0` (off) / `=1` (on even where a load's options turned it off) |

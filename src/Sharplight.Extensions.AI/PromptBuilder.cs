@@ -74,7 +74,7 @@ internal static class PromptBuilder
 
             if (o.Seed is { } seed)
             {
-                s = s with { Seed = unchecked((int)seed) };
+                s = s with { Seed = seed };
             }
         }
         return new GenerationOptions

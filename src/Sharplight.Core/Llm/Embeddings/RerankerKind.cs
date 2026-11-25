@@ -1,7 +1,7 @@
 namespace Sharplight.Llm.Embeddings;
 
 /// <summary>How a reranker turns a (query, document) pair into a score.</summary>
-public enum RerankerKind
+internal enum RerankerKind
 {
     /// <summary>Pick from the model: a classifier head → <see cref="CrossEncoder"/>, otherwise a decoder → <see cref="YesNo"/>.</summary>
     Auto,

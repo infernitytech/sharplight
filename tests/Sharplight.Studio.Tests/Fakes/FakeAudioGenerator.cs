@@ -18,6 +18,8 @@ internal sealed class FakeAudioGenerator : IAudioGenerator
 
     public TimeSpan MaxDuration { get; set; } = TimeSpan.FromSeconds(60);
 
+    public AudioGenerationDefaults Defaults => new(DefaultSteps, DefaultGuidanceScale, SupportsLyrics, SupportsNegativePrompt, SupportsShift);
+
     public int DefaultSteps { get; set; } = 8;
 
     public bool SupportsLyrics { get; set; } = true;
@@ -31,14 +33,28 @@ internal sealed class FakeAudioGenerator : IAudioGenerator
     /// <summary>The requests received.</summary>
     public List<AudioGenerationRequest> Requests { get; } = [];
 
-    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null, CancellationToken cancellationToken = default)
+    /// <summary>The options of the requests received.</summary>
+    public List<AudioGenerationOptions?> Options { get; } = [];
+
+    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 
-    public Task<AudioBuffer> GenerateAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null, CancellationToken cancellationToken = default)
+    public Task<AudioGenerationResult> GenerateAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default)
+        => Task.FromResult(Generate(request, options));
+
+    public async IAsyncEnumerable<AudioGenerationUpdate> GenerateStreamingAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        yield return new AudioGenerationUpdate(1, 1, Generate(request, options));
+    }
+
+    private AudioGenerationResult Generate(AudioGenerationRequest request, AudioGenerationOptions? options)
     {
         Requests.Add(request);
-        progress?.Report((1, 1));
-        return Task.FromResult(new AudioBuffer([.. Enumerable.Range(0, (int)(SampleRate * request.Duration.TotalSeconds)).Select(i => 0.2f * MathF.Sin(2 * MathF.PI * 330 * i / SampleRate))], SampleRate));
+        Options.Add(options);
+        var audio = new AudioBuffer([.. Enumerable.Range(0, (int)(SampleRate * request.Duration.TotalSeconds)).Select(i => 0.2f * MathF.Sin(2 * MathF.PI * 330 * i / SampleRate))], SampleRate);
+        return new AudioGenerationResult(audio, options?.Seed ?? 1);
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;

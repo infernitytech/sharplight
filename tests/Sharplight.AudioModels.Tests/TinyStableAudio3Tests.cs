@@ -48,6 +48,9 @@ public class TinyStableAudio3Tests
             Prompt = "a dog barking twice in a quiet room",
             NegativePrompt = kind == "negative" ? "music, noise" : null,
             Duration = TimeSpan.FromSeconds(0.5),
+        };
+        var options = new AudioGenerationOptions
+        {
             Steps = pingPong ? 4 : 6,
             GuidanceScale = pingPong ? 1 : 3,
             InitialNoise = Floats($"{tag}_noise.f32"),
@@ -57,15 +60,15 @@ public class TinyStableAudio3Tests
         {
             var stepNoise = Floats($"{tag}_step_noise.f32");
             int count = Frames * Channels;
-            request = request with { StepNoise = [.. Enumerable.Range(0, stepNoise.Length / count).Select(i => new ReadOnlyMemory<float>(stepNoise, i * count, count))] };
+            options = options with { StepNoise = [.. Enumerable.Range(0, stepNoise.Length / count).Select(i => new ReadOnlyMemory<float>(stepNoise, i * count, count))] };
         }
 
-        var latents = await client.GenerateLatentsAsync(request, pingPong);
+        var latents = await client.GenerateLatentsAsync(request, options, pingPong);
         double latentError = AudioModels.RelativeRms(latents.Values, Floats($"{tag}_latent.f32"));
         ParityReport.Write($"tiny-stable-audio-3 {tag} gpu={gpu} latent relative RMS {latentError:E2}");
         Assert.True(latentError < (gpu ? 1e-3 : 1e-4), $"latent relative RMS {latentError}");
 
-        var audio = client.Decode(latents, request, CancellationToken.None);
+        var audio = client.Decode(latents, request, options, CancellationToken.None);
         var expected = Floats($"{tag}_wav.f32");
         Assert.Equal(expected.Length, audio.Samples.Length);
         double audioError = AudioModels.RelativeRms(audio.Samples, expected);
