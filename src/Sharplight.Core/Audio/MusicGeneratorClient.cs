@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
@@ -323,24 +324,10 @@ internal sealed class MusicGeneratorClient : IMusicGenerator
                     _guided[v] = guide ? _unconditionalLogits[(q * vocabulary) + v] + (_guidance * (c - _unconditionalLogits[(q * vocabulary) + v])) : c;
                 }
 
-                _delayed[q][next] = _request.Greedy ? ArgMax(_guided) : Sample(_guided);
+                _delayed[q][next] = _request.Greedy ? Sampler.ArgMax(_guided) : Sample(_guided);
             }
 
             _step++;
-        }
-
-        private static int ArgMax(float[] values)
-        {
-            int best = 0;
-            for (int i = 1; i < values.Length; i++)
-            {
-                if (values[i] > values[best])
-                {
-                    best = i;
-                }
-            }
-
-            return best;
         }
 
         private int Sample(float[] logits)

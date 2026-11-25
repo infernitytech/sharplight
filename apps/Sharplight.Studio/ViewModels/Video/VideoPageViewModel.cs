@@ -327,18 +327,13 @@ internal sealed partial class VideoPageViewModel : InferencePageViewModel
     /// </summary>
     private async Task ApplyModelDefaultsAsync(ILoadedModel model)
     {
-        VideoGenerationDefaults? defaults;
+        VideoGenerationDefaults defaults;
         try
         {
             using var lease = await model.AcquireClientAsync<IVideoGenerator>(CancellationToken.None).ConfigureAwait(false);
-            defaults = lease.Client.GetService(typeof(VideoGenerationDefaults)) as VideoGenerationDefaults;
+            defaults = lease.Client.Defaults;
         }
         catch (Exception error) when (error is InvalidOperationException or NotSupportedException or ObjectDisposedException)
-        {
-            return;
-        }
-
-        if (defaults is null)
         {
             return;
         }

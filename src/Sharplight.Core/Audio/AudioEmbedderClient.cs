@@ -1,6 +1,7 @@
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tasks;
+using Sharplight.Tensors;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Audio;
@@ -119,19 +120,7 @@ internal sealed class AudioEmbedderClient : IAudioEmbedder
 
     private static AudioClassification Rank(float[] logits, IReadOnlyList<string> labels, int topK)
     {
-        var scores = new float[logits.Length];
-        float max = logits.Length > 0 ? logits.Max() : 0f;
-        float sum = 0f;
-        for (int i = 0; i < logits.Length; i++)
-        {
-            scores[i] = MathF.Exp(logits[i] - max);
-            sum += scores[i];
-        }
-
-        for (int i = 0; i < logits.Length; i++)
-        {
-            scores[i] /= sum;
-        }
+        var scores = VectorMath.Softmax(logits);
 
         int count = topK <= 0 ? logits.Length : Math.Min(topK, logits.Length);
         var best = Enumerable.Range(0, logits.Length).OrderByDescending(i => scores[i]).ThenBy(i => i).Take(count)

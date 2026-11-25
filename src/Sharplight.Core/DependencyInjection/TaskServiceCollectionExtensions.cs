@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Sharplight.Audio;
 using Sharplight.ImageGeneration;
 using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
@@ -53,14 +54,14 @@ public static class TaskServiceCollectionExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ObjectDetectorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, DepthEstimatorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, SemanticSegmenterFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioCodecFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.VoiceActivityDetectorFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioEmbedderFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.MusicGeneratorFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioGeneratorFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.TimedAudioDiffusionFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.FlowAudioDiffusionFactory>());
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, Sharplight.Audio.AudioSeparatorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, AudioCodecFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, VoiceActivityDetectorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, AudioEmbedderFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, MusicGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, AudioGeneratorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TimedAudioDiffusionFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, FlowAudioDiffusionFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, AudioSeparatorFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ImageSegmenterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextRecognizerFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LanguageModelTextRecognizerFactory>());
@@ -252,9 +253,20 @@ public static class TaskServiceCollectionExtensions
             => services.AddTaskClient<IObjectDetector>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="ISemanticSegmenter"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
-        /// <param name="configure">Configures the model to load.</param>
-        /// <param name="serviceKey">The key to register under, or <see langword="null"/>.</param>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
         public IServiceCollection AddSemanticSegmenter(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<ISemanticSegmenter>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="ISemanticSegmenter"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddSemanticSegmenter(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<ISemanticSegmenter>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="IDepthEstimator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
@@ -378,6 +390,108 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The same service collection.</returns>
         public IServiceCollection AddVideoEnhancer(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<IVideoEnhancer>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IAudioCodec"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioCodec(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioCodec>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IAudioCodec"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioCodec(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioCodec>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IVoiceActivityDetector"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddVoiceActivityDetector(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IVoiceActivityDetector>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IVoiceActivityDetector"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddVoiceActivityDetector(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IVoiceActivityDetector>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IAudioEmbedder"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioEmbedder(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioEmbedder>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IAudioEmbedder"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioEmbedder(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioEmbedder>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IAudioSeparator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioSeparator(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioSeparator>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IAudioSeparator"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioSeparator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioSeparator>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IAudioGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioGenerator(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioGenerator>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IAudioGenerator"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddAudioGenerator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IAudioGenerator>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="IMusicGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddMusicGenerator(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<IMusicGenerator>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="IMusicGenerator"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddMusicGenerator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<IMusicGenerator>(configure, serviceKey);
     }
 
     private static TClient CreateClient<TClient>(IServiceProvider provider, TaskModelKey modelKey)

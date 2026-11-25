@@ -14,6 +14,7 @@ namespace Sharplight.Cpu;
 /// <item><c>SHARPLIGHT_CPU_NO_SHIFTED_CONV=1</c>: disable the tap-major shifted convolution.</item>
 /// <item><c>SHARPLIGHT_CPU_CONV_PLAN=tiles</c>: never choose the weight-major convolution plan.</item>
 /// <item><c>SHARPLIGHT_CPU_CL_CHUNKS=0</c>: channels-last convolution runs as one chunk.</item>
+/// <item><c>SHARPLIGHT_CPU_NO_PAIR=1|true</c>: lower the gate and up expert projections of a layer separately instead of as one pair.</item>
 /// <item><c>SHARPLIGHT_CPU_PROFILE=1|true|min</c>: per-op timing report (<c>min</c>: minimum per op instance).</item>
 /// </list>
 /// </summary>
@@ -39,4 +40,7 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when channels-last convolution chunking is disabled.</summary>
     public static readonly bool NoChannelsLastChunks = Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_CL_CHUNKS") == "0";
+
+    /// <summary>True when paired expert projections (gate and up of one layer, see <c>PairedMatMulId</c>) are disabled.</summary>
+    public static readonly bool NoExpertPairs = Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_NO_PAIR") is "1" or "true";
 }

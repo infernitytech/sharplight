@@ -43,7 +43,7 @@ public class ImageUpscalerTests
             Assert.Equal("image-upscaling", model.Description.Kind);
             using var upscaler = new TaskClientProvider([.. Env.TaskFactories()]).Create<IImageUpscaler>(model);
             Assert.Equal(4, upscaler.Scale);
-            var whole = await upscaler.UpscaleAsync(input, new UpscaleOptions { TileSize = 0 }, TestContext.Current.CancellationToken);
+            var whole = await upscaler.UpscaleAsync(input, new ImageUpscalingOptions { TileSize = 0 }, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal((expected.Width, expected.Height), (whole.Width, whole.Height));
             double psnr = Psnr(whole, expected);
             TestContext.Current.SendDiagnosticMessage($"{name} {backend}: whole image {psnr:f1} dB from the reference");
@@ -54,7 +54,7 @@ public class ImageUpscalerTests
             }
 
             var progress = new List<double>();
-            var tiled = await upscaler.UpscaleAsync(input, new UpscaleOptions { TileSize = 64, TilePadding = 16, Progress = new Progress<double>(progress.Add) }, TestContext.Current.CancellationToken);
+            var tiled = await upscaler.UpscaleAsync(input, new ImageUpscalingOptions { TileSize = 64, TilePadding = 16 }, new Progress<double>(progress.Add), TestContext.Current.CancellationToken);
             double tiledPsnr = Psnr(tiled, expected);
             TestContext.Current.SendDiagnosticMessage($"{name} {backend}: tiled {tiledPsnr:f1} dB from the reference, {progress.Count} tiles");
             Assert.True(tiledPsnr > tiledMinimum, $"{backend}: tiled {tiledPsnr} dB");

@@ -45,8 +45,8 @@ internal sealed class CudaProfileDevice : IComputeDevice
         };
         EnabledFeatures = DeviceFeatures.Effective(Info.Features, options.DisabledFeatures);
         _code = new CudaCodeGenerator(computeCapability, profile.MaxSharedMemory, EnabledFeatures,
-            CudaCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options),
-            CudaCodeGenerator.EffectiveConcurrentWorkgroups(profile.ConcurrentWorkgroups, options), CudaCodeGenerator.ComputeUnitsOf(profile.Properties));
+            options.ResolveSubmissionBudgetMs(profile.SubmissionBudgetMs),
+            options.ResolveConcurrentWorkgroups(profile.ConcurrentWorkgroups), CudaCodeGenerator.ComputeUnitsOf(profile.Properties));
         ArtifactStore = ArtifactStore.For(options);
         ArtifactTargets = [_code.CreateCodeTarget(Info.Provider)];
     }

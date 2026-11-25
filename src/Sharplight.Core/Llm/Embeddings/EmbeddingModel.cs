@@ -1,5 +1,6 @@
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Embeddings;
@@ -19,7 +20,7 @@ namespace Sharplight.Llm.Embeddings;
 /// EmbeddingResult result = embedder.Embed(["first text", "second text"]);
 ///
 /// // Models that distinguish queries from documents define named prompts.
-/// float[] query = embedder.Embed("what is a vector?", new EmbedOptions { Prompt = "query" });
+/// float[] query = embedder.Embed("what is a vector?", new TextEmbeddingOptions { Prompt = "query" });
 /// </code>
 /// </example>
 public sealed class EmbeddingModel : ITextEmbedder, IDisposable
@@ -44,7 +45,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
     public int MaxSequenceLength { get; }
     /// <summary>Named prompt prefixes the model was trained with (e.g. "query" → "Instruct: ...\nQuery:").</summary>
     public IReadOnlyDictionary<string, string> Prompts { get; }
-    /// <summary>Name of the prompt applied when <see cref="EmbedOptions.Prompt"/> is not set, if the model declares one.</summary>
+    /// <summary>Name of the prompt applied when <see cref="TextEmbeddingOptions.Prompt"/> is not set, if the model declares one.</summary>
     public string? DefaultPrompt { get; }
     /// <summary>The compiled packed-sequence graph.</summary>
     internal PackedBatchRunner Runner => _runner;
@@ -121,9 +122,9 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
     }
 
     /// <summary>Token ids of one input as the model sees it: prompt prefix, special tokens, truncation.</summary>
-    public int[] Tokenize(string text, EmbedOptions? options = null)
+    public int[] Tokenize(string text, TextEmbeddingOptions? options = null)
     {
-        options ??= new EmbedOptions();
+        options ??= new TextEmbeddingOptions();
         string prefix = options.Prefix ?? ((options.Prompt ?? DefaultPrompt) is { } name
             ? Prompts.TryGetValue(name, out var p) ? p : throw new ArgumentException($"The model has no prompt named '{name}' (available: {string.Join(", ", Prompts.Keys)}).")
             : "");
@@ -163,19 +164,19 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
     }
 
     /// <summary>Embeds texts (batched). Vectors are in input order.</summary>
-    public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
+    public EmbeddingResult Embed(IReadOnlyList<string> texts, TextEmbeddingOptions? options = null)
     {
-        options ??= new EmbedOptions();
+        options ??= new TextEmbeddingOptions();
         return EmbedSequences([.. texts.Select(t => Tokenize(t, options))], options);
     }
 
     /// <summary>Embeds one text.</summary>
-    public float[] Embed(string text, EmbedOptions? options = null) => Embed([text], options).Vectors[0];
+    public float[] Embed(string text, TextEmbeddingOptions? options = null) => Embed([text], options).Vectors[0];
 
     /// <summary>Embeds pre-tokenized inputs (used as given: no prompt and no special tokens are added; truncated to the model's limit).</summary>
-    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, EmbedOptions? options = null)
+    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, TextEmbeddingOptions? options = null)
     {
-        options ??= new EmbedOptions();
+        options ??= new TextEmbeddingOptions();
         var seqs = new int[tokens.Count][];
         for (int i = 0; i < tokens.Count; i++)
         {
@@ -207,7 +208,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
         return EmbedSequences(seqs, options);
     }
 
-    private EmbeddingResult EmbedSequences(int[][] seqs, EmbedOptions options)
+    private EmbeddingResult EmbedSequences(int[][] seqs, TextEmbeddingOptions options)
     {
         if (seqs.Any(s => s.Length == 0))
         {
@@ -237,28 +238,13 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
                 var v = vectors[i].AsSpan(0, dims).ToArray();
                 if (IsNormalized)
                 {
-                    L2Normalize(v);
+                    VectorMath.L2Normalize(v);
                 }
 
                 vectors[i] = v;
             }
         }
         return new EmbeddingResult(vectors, [.. seqs.Select(s => s.Length)]);
-    }
-
-    internal static void L2Normalize(Span<float> v)
-    {
-        double s = 0;
-        foreach (float x in v)
-        {
-            s += (double)x * x;
-        }
-
-        float inv = s > 0 ? (float)(1 / Math.Sqrt(s)) : 0;
-        for (int i = 0; i < v.Length; i++)
-        {
-            v[i] *= inv;
-        }
     }
 
     /// <summary>

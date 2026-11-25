@@ -16,12 +16,12 @@ internal sealed class FakeTextEmbedder : ITextEmbedder
     public IReadOnlyDictionary<string, string> Prompts { get; } = new Dictionary<string, string> { ["query"] = "query: " };
 
     /// <summary>The options of every call.</summary>
-    public List<EmbedOptions?> Calls { get; } = [];
+    public List<TextEmbeddingOptions?> Calls { get; } = [];
 
     /// <summary>Every text embedded so far.</summary>
     public List<string> Texts { get; } = [];
 
-    public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
+    public EmbeddingResult Embed(IReadOnlyList<string> texts, TextEmbeddingOptions? options = null)
     {
         Calls.Add(options);
         Texts.AddRange(texts);
@@ -29,7 +29,7 @@ internal sealed class FakeTextEmbedder : ITextEmbedder
         return new EmbeddingResult(vectors, [.. texts.Select(text => text.Length)]);
     }
 
-    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, EmbedOptions? options = null) => throw new NotSupportedException();
+    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, TextEmbeddingOptions? options = null) => throw new NotSupportedException();
 
     private static int CountOf(string text, string word)
     {

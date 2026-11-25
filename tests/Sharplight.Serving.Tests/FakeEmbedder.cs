@@ -9,18 +9,18 @@ internal sealed class FakeEmbedder : ITextEmbedder
     public int Dimensions => 8;
     public int MaxSequenceLength => 16;
     public IReadOnlyDictionary<string, string> Prompts { get; } = new Dictionary<string, string> { ["query"] = "q: " };
-    public List<EmbedOptions> Calls { get; } = [];
+    public List<TextEmbeddingOptions> Calls { get; } = [];
 
-    public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
+    public EmbeddingResult Embed(IReadOnlyList<string> texts, TextEmbeddingOptions? options = null)
     {
-        options ??= new EmbedOptions();
+        options ??= new TextEmbeddingOptions();
         string prefix = options.Prompt is { } p ? Prompts[p] : "";
         return EmbedTokens([.. texts.Select(t => (IReadOnlyList<int>)[.. (prefix + t).Select(c => (int)c)])], options);
     }
 
-    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, EmbedOptions? options = null)
+    public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, TextEmbeddingOptions? options = null)
     {
-        options ??= new EmbedOptions();
+        options ??= new TextEmbeddingOptions();
         Calls.Add(options);
         var vectors = new List<float[]>();
         foreach (var t in tokens)

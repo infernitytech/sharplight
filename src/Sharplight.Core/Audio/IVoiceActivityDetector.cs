@@ -17,7 +17,7 @@ public interface IVoiceActivityDetector : ITaskClient
     /// <summary>The speech probability of every frame of the audio (frame <c>i</c> covers the samples <c>[i · FrameSamples, (i + 1) · FrameSamples)</c> at <see cref="SampleRate"/>).</summary>
     /// <param name="audio">The audio.</param>
     /// <param name="cancellationToken">Stops the analysis between frames.</param>
-    public Task<float[]> ProbabilitiesAsync(AudioBuffer audio, CancellationToken cancellationToken = default);
+    public Task<float[]> ComputeProbabilitiesAsync(AudioBuffer audio, CancellationToken cancellationToken = default);
 
     /// <summary>Finds the speech segments of the audio; their positions are in samples of the audio's own sample rate.</summary>
     /// <param name="audio">The audio.</param>

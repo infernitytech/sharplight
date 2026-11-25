@@ -45,7 +45,7 @@ public sealed class SdxlRefinerTests
         Assert.True(text.Outputs.ContainsKey(DiffusionGraphs.Pooled));
         Assert.False(model.Description.Component(ModelComponentRoles.TextEncoder).Graphs.Contains(DiffusionGraphs.TextEncode2));
         using var generator = Env.Clients.Create<IImageGenerator>(model);
-        var defaults = (ImageGenerationDefaults)generator.GetService(typeof(ImageGenerationDefaults))!;
+        var defaults = generator.Defaults;
         Assert.Equal(6f, defaults.AestheticScore);
         Assert.Equal(1024, defaults.Width);
     }

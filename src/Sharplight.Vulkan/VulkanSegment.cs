@@ -684,7 +684,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// </remarks>
     public bool TryForwardFrom(Value input, ICompiledSegment producer)
     {
-        if (!DiagnosticSwitches.DeviceForwarding || producer is not VulkanSegment source || source._dev != _dev
+        if (producer is not VulkanSegment source || source._dev != _dev
             || !_program.InputRefs.TryGetValue(input, out var r) || !source._program.OutputRefs.TryGetValue(input, out var o))
         {
             return false;

@@ -10,6 +10,12 @@ namespace Sharplight.ImageGeneration;
 /// </summary>
 public interface IImageGenerator : ITaskClient
 {
+    /// <summary>
+    /// The model's own defaults (native size, steps, guidance, sampler and what it supports), which the <see langword="null"/> values of the
+    /// per-request options resolve to.
+    /// </summary>
+    public ImageGenerationDefaults Defaults { get; }
+
     /// <summary>Generates images.</summary>
     /// <param name="request">The prompt and optional input image.</param>
     /// <param name="options">Size, steps, guidance, seed, ..., or <see langword="null"/> for the model's defaults.</param>

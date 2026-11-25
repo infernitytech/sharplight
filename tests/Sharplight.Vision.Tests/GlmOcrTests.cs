@@ -75,8 +75,7 @@ public class GlmOcrTests
         Assert.Equal(reference.GetProperty("text").GetString()!.Trim(), plain.Text);
         foreach (var name in new[] { "formula", "table" })
         {
-            options.Task = name;
-            var result = await recognizer.RecognizeAsync(image, options, TestContext.Current.CancellationToken);
+            var result = await recognizer.RecognizeAsync(image, options with { Task = name }, TestContext.Current.CancellationToken);
             Assert.Equal(tasks.GetProperty(name).GetString()!.Trim(), result.Text);
         }
     }

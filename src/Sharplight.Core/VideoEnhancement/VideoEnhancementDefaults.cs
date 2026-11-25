@@ -1,8 +1,8 @@
 namespace Sharplight.VideoEnhancement;
 
 /// <summary>
-/// What a video enhancer does without options and which sizes it takes (<c>GetService(typeof(VideoEnhancementDefaults))</c> on an
-/// <see cref="IVideoEnhancer"/>), for front ends that offer the choices.
+/// What a video enhancer does without options and which sizes it takes (<see cref="IVideoEnhancer.Defaults"/>), for front
+/// ends that offer the choices.
 /// </summary>
 /// <param name="Scale">The enlargement when the request gives no size.</param>
 /// <param name="SizeMultiple">The network works on sizes that are multiples of this many pixels; other sizes are padded and cropped back.</param>

@@ -1,7 +1,7 @@
 namespace Sharplight.Llm.Embeddings;
 
-/// <summary>Per-call options of <see cref="EmbeddingModel.Embed(IReadOnlyList{string}, EmbedOptions?)"/>.</summary>
-public sealed record EmbedOptions
+/// <summary>Per-call options of <see cref="EmbeddingModel.Embed(IReadOnlyList{string}, TextEmbeddingOptions?)"/>.</summary>
+public sealed record TextEmbeddingOptions
 {
     /// <summary>Name of one of the model's prompts (<see cref="EmbeddingModel.Prompts"/>, e.g. "query"); null = the model's default prompt.</summary>
     public string? Prompt { get; init; }

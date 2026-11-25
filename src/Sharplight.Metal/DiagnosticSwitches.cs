@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Sharplight.Metal;
 
 /// <summary>
@@ -33,22 +31,6 @@ internal static class DiagnosticSwitches
     public static string? DumpSourceDirectory { get; } = Read("SHARPLIGHT_MTL_DUMP_SOURCE");
 
     public static bool LoadTiming { get; } = IsSet("SHARPLIGHT_LOAD_TIMING");
-
-    public static bool DeviceForwarding { get; } = Read("SHARPLIGHT_DEVICE_FORWARDING") is not ("0" or "false");
-
-    /// <summary>The submission budget in milliseconds from the device setting or the environment, or null when unset or malformed.</summary>
-    public static double? SubmissionBudgetMs(string? deviceSetting)
-    {
-        string? text = deviceSetting ?? Read("SHARPLIGHT_SUBMISSION_BUDGET_MS");
-        return text is not null && double.TryParse(text, CultureInfo.InvariantCulture, out double ms) ? ms : null;
-    }
-
-    /// <summary>The concurrent-workgroup hint from the device setting or the environment, or null when unset or malformed.</summary>
-    public static int? ConcurrentWorkgroups(string? deviceSetting)
-    {
-        string? text = deviceSetting ?? Read("SHARPLIGHT_CONCURRENT_WORKGROUPS");
-        return text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int workgroups) ? workgroups : null;
-    }
 
     private static string? Read(string name) => Environment.GetEnvironmentVariable(name);
 

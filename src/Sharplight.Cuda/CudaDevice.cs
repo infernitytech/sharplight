@@ -55,8 +55,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
         ArtifactStore = ArtifactStore.For(options);
         Code = new CudaCodeGenerator(properties.ComputeCapability, properties.KernelSharedMemory, EnabledFeatures,
-            CudaCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options),
-            CudaCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options), properties.Multiprocessors);
+            options.ResolveSubmissionBudgetMs(info.SubmissionBudgetMs),
+            options.ResolveConcurrentWorkgroups(info.ConcurrentWorkgroups), properties.Multiprocessors);
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
         LaunchGraphs = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.LaunchGraphs) && !options.DisabledFeatures.Contains(DeviceFeatures.LaunchGraphs);
         BatchesCopies = properties.DriverVersion >= CudaApi.BatchCopyDriverVersion;

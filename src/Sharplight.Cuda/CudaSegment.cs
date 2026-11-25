@@ -985,7 +985,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// <remarks>The producer's output buffer is copied into the input buffer on the device at the start of each execution.</remarks>
     public bool TryForwardFrom(Value input, ICompiledSegment producer)
     {
-        if (!DiagnosticSwitches.DeviceForwarding || producer is not CudaSegment source || source._dev != _dev
+        if (producer is not CudaSegment source || source._dev != _dev
             || !_program.InputRefs.TryGetValue(input, out var r) || !source._program.OutputRefs.TryGetValue(input, out var o))
         {
             return false;

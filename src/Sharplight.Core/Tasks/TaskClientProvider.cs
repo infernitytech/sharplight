@@ -34,19 +34,28 @@ public sealed class TaskClientProvider
     /// <exception cref="NotSupportedException">No registered factory serves the model's kind and architecture with this client interface.</exception>
     public TClient Create<TClient>(TaskModel model)
         where TClient : class, ITaskClient
+        => (TClient)Create(typeof(TClient), model);
+
+    /// <summary>Creates a client implementing <paramref name="clientType"/> for <paramref name="model"/>; the client does not own the model.</summary>
+    /// <param name="clientType">The client interface, e.g. <c>typeof(ISpeechRecognizer)</c>; it derives from <see cref="ITaskClient"/>.</param>
+    /// <param name="model">The loaded model.</param>
+    /// <returns>A client assignable to <paramref name="clientType"/>.</returns>
+    /// <exception cref="NotSupportedException">No registered factory serves the model's kind and architecture with this client interface.</exception>
+    public ITaskClient Create(Type clientType, TaskModel model)
     {
+        ArgumentNullException.ThrowIfNull(clientType);
         ArgumentNullException.ThrowIfNull(model);
-        var factory = Find(typeof(TClient), model)
-            ?? throw new NotSupportedException($"No {typeof(TClient).Name} is registered for '{model.Description.Kind}' models of architecture "
+        var factory = Find(clientType, model)
+            ?? throw new NotSupportedException($"No {clientType.Name} is registered for '{model.Description.Kind}' models of architecture "
                 + $"'{model.Definition.Architecture}'. Register one with services.AddTaskClientFactory(...) or services.AddSharplight().");
         var client = factory.Create(model);
-        if (client is TClient typed)
+        if (clientType.IsInstanceOfType(client))
         {
-            return typed;
+            return client;
         }
 
         client.Dispose();
-        throw new InvalidOperationException($"The {factory.Kind} factory for {typeof(TClient).Name} produced a {client.GetType().Name}.");
+        throw new InvalidOperationException($"The {factory.Kind} factory for {clientType.Name} produced a {client.GetType().Name}.");
     }
 
     private ITaskClientFactory? Find(Type clientType, TaskModel model)

@@ -90,9 +90,6 @@ internal sealed class GraphRewriter
     /// <summary>Drops a node; none of its outputs may still be used.</summary>
     public void Remove(Node n) => _removed.Add(n);
 
-    /// <summary>Whether the node was dropped.</summary>
-    public bool IsRemoved(Node n) => _removed.Contains(n);
-
     /// <summary>
     /// Re-emits <paramref name="n"/> as <paramref name="op"/> over <paramref name="inputs"/> with <paramref name="attributes"/>, keeping
     /// its outputs. The rewrite is only recorded when the op's shape inference yields exactly the node's output types and shapes.

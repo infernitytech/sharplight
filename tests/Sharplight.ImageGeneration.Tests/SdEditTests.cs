@@ -208,7 +208,7 @@ public sealed class SdEditTests
         var slot = Env.Device("cpu")!;
         using var model = Env.Load(Model("instruct-pix2pix"), slot);
         using var generator = Env.Clients.Create<IImageGenerator>(model);
-        var defaults = (ImageGenerationDefaults)generator.GetService(typeof(ImageGenerationDefaults))!;
+        var defaults = generator.Defaults;
         Assert.Equal(1.5f, defaults.ImageGuidanceScale);
         await Assert.ThrowsAsync<ArgumentException>(async () => await generator.GenerateAsync(new ImageGenerationRequest { Prompt = "x" },
             new ImageGenerationOptions { Steps = 1 }, TestContext.Current.CancellationToken));

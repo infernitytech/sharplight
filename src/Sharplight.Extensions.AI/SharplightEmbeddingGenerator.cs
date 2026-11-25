@@ -59,7 +59,7 @@ public sealed class SharplightEmbeddingGenerator : IEmbeddingGenerator<string, E
         return list;
     }
 
-    private EmbedOptions ToEmbedOptions(EmbeddingGenerationOptions? options)
+    private TextEmbeddingOptions ToEmbedOptions(EmbeddingGenerationOptions? options)
     {
         var props = options?.AdditionalProperties;
         string? prompt = props?.TryGetValue("prompt_name", out var p) == true ? p?.ToString() : null;
@@ -69,7 +69,7 @@ public sealed class SharplightEmbeddingGenerator : IEmbeddingGenerator<string, E
         }
 
         bool truncate = props?.TryGetValue("truncate", out var tr) != true || tr is not bool b || b;
-        return new EmbedOptions { Prompt = prompt, Dimensions = options?.Dimensions, Truncate = truncate };
+        return new TextEmbeddingOptions { Prompt = prompt, Dimensions = options?.Dimensions, Truncate = truncate };
     }
 
     /// <inheritdoc/>

@@ -15,6 +15,8 @@ internal sealed class FakeImageGenerator : IImageGenerator
 
     public TaskClientMetadata Metadata { get; } = new(ModelKinds.ImageGeneration, "fake-sd", "fake");
 
+    public ImageGenerationDefaults Defaults { get; } = new(64, 64, 20, 7.5f, "euler");
+
     public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public Task<ImageGenerationResult> GenerateAsync(ImageGenerationRequest request, ImageGenerationOptions? options = null,

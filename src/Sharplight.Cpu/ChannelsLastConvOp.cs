@@ -24,7 +24,6 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
     /// <summary>K values per chunk: a chunk of a weight panel (values x NB floats) stays in L1 while the task's tiles run over it.</summary>
     private const int ChunkValues = 256;
 
-    /// <summary><c>SHARPLIGHT_CPU_CL_CHUNKS=0</c> runs all of K per tile (no K chunks), for comparisons.</summary>
     /// <summary>Planning estimate: f32 multiply-add rate of one thread (flop/s).</summary>
     private const double ThreadFlops = 1.3e11;
 

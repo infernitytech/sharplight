@@ -235,7 +235,7 @@ public sealed unsafe class MetalSegment : ICompiledSegment, IPartialOutputSegmen
     /// <remarks>The producer's output buffer is copied into the input buffer by the CPU at the start of each execution (unified memory).</remarks>
     public bool TryForwardFrom(Value input, ICompiledSegment producer)
     {
-        if (!DiagnosticSwitches.DeviceForwarding || producer is not MetalSegment source || source._dev != _dev
+        if (producer is not MetalSegment source || source._dev != _dev
             || !_program.InputRefs.TryGetValue(input, out var r) || !source._program.OutputRefs.TryGetValue(input, out var o))
         {
             return false;
