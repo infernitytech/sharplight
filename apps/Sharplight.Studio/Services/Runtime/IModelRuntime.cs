@@ -70,6 +70,11 @@ internal interface IModelRuntime : IDisposable
     /// <param name="cancellationToken">Cancels reading the model.</param>
     public Task<double> EstimateExpertActiveShareAsync(ModelLoadRequest request, CancellationToken cancellationToken);
 
+    /// <summary>The weight formats of the model that load options depend on (FP8, NVFP4), read from its definition without loading it.</summary>
+    /// <param name="request">The model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public Task<ModelWeightFormats> DescribeWeightFormatsAsync(ModelLoadRequest request, CancellationToken cancellationToken);
+
     /// <summary>Free and total memory of every physical device (GPUs first, then the CPU's system memory), opening devices as needed.</summary>
     /// <param name="disabledFeatures">Device features not to use, for devices opened by this call.</param>
     /// <param name="cancellationToken">Cancels the query.</param>

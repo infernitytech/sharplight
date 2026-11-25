@@ -87,6 +87,20 @@ internal sealed class FootprintEstimator(ModelLoader loader) : IDisposable
         }
     }
 
+    /// <summary>The weight formats of the model that load options depend on: block-scaled FP8 and NVFP4 matrices.</summary>
+    /// <param name="request">Model and settings.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public ModelWeightFormats WeightFormats(ModelLoadRequest request, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            var weights = Get(request, cancellationToken).Definition.Weights.Values;
+            bool fp8 = weights.Any(weight => weight.Type == DataType.F8E4M3_B128 || weight.Type == DataType.F8E4M3_B32);
+            bool nvfp4 = weights.Any(weight => weight.Type == DataType.NVFP4 || weight.Type == DataType.NVFP4_GS);
+            return new ModelWeightFormats(fp8, nvfp4);
+        }
+    }
+
     /// <summary>Closes the models read.</summary>
     public void Dispose()
     {
