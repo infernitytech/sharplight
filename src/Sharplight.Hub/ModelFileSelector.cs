@@ -4,8 +4,9 @@ namespace Sharplight.Hub;
 
 /// <summary>
 /// Chooses the files of one model variant in a repository: a GGUF quantization (all shards of a split model, plus a vision
-/// projector when the repository has one), a safetensors checkpoint (configuration, tokenizer, index and the shards it lists)
-/// or an ONNX model file with its external data.
+/// projector when the repository has one), a safetensors checkpoint (configuration, tokenizer, index and the shards it lists),
+/// an ONNX model file with its external data or a PyTorch checkpoint (<see cref="ModelFormat.PyTorch"/>; safetensors win when a
+/// repository has both).
 /// </summary>
 public static class ModelFileSelector
 {
@@ -63,12 +64,30 @@ public static class ModelFileSelector
             return ModelFormat.Onnx;
         }
 
-        return list.Any(RepoLayouts.IsWhisperCpp) ? ModelFormat.WhisperCpp : null;
+        if (list.Any(RepoLayouts.IsWhisperCpp))
+        {
+            return ModelFormat.WhisperCpp;
+        }
+
+        return PyTorchSelection.HasWeights(list) ? ModelFormat.PyTorch : null;
     }
 
     /// <summary>The tags a repository with these files offers, most recommended first; empty for a single variant.</summary>
     /// <param name="paths">Repository paths.</param>
     public static IReadOnlyList<string> ListVariants(IEnumerable<string> paths) => ListVariants(paths, null);
+
+    /// <summary>
+    /// The tags <paramref name="repository"/> offers, most recommended first; empty for a single variant. Unlike the overloads on paths it
+    /// also tells the alternative checkpoints of a PyTorch folder apart (by their sizes).
+    /// </summary>
+    /// <param name="repository">The repository and its files.</param>
+    /// <param name="indexJson">The text of the file named by <see cref="IndexPath"/>, or null.</param>
+    public static IReadOnlyList<string> ListVariants(HubRepository repository, string? indexJson)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        var paths = repository.Files.Select(file => file.Path).ToList();
+        return DetectFormat(paths) == ModelFormat.PyTorch ? PyTorchSelection.Variants(repository.Files) : ListVariants(paths, indexJson);
+    }
 
     /// <summary>The tags a repository with these files offers; <paramref name="indexJson"/> (the text of <see cref="IndexPath"/>) refines a Diffusers pipeline's components.</summary>
     /// <param name="paths">Repository paths.</param>
@@ -98,6 +117,11 @@ public static class ModelFileSelector
             return RepoLayouts.DiffusersIndex;
         }
 
+        if (!safetensors && (tag is null || string.Equals(tag, DefaultTag, StringComparison.OrdinalIgnoreCase)) && DetectFormat(paths) == ModelFormat.PyTorch)
+        {
+            return PyTorchSelection.IndexPath(paths);
+        }
+
         return safetensors ? paths.Where(IsRootFile).Where(path => path.EndsWith(IndexSuffix, StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).FirstOrDefault() : null;
     }
 
@@ -110,7 +134,8 @@ public static class ModelFileSelector
     {
         var paths = repository.Files.Select(file => file.Path).ToList();
         var format = ForcedFormat(tag) ?? DetectFormat(paths)
-            ?? throw new HubException($"{repository.Id} has no model files Sharplight can pull (GGUF, safetensors checkpoint or ONNX).");
+            ?? throw new HubException($"{repository.Id} has no model files Sharplight can pull (GGUF, safetensors or PyTorch checkpoint, ONNX, Diffusers pipeline, whisper.cpp)"
+                + (RepoLayouts.UnsupportedFormat(paths) is { } other ? $"; it has {other}." : "."));
         if (ForcedFormat(tag) is not null)
         {
             tag = null;
@@ -123,6 +148,7 @@ public static class ModelFileSelector
             ModelFormat.Onnx => SelectOnnx(repository, tag),
             ModelFormat.Diffusers => DiffusersSelection.Select(repository, tag, indexJson),
             ModelFormat.WhisperCpp => SelectWhisper(repository, tag),
+            ModelFormat.PyTorch => PyTorchSelection.Select(repository, tag, indexJson),
             _ => throw new HubException($"{repository.Id}: {format} repositories cannot be pulled yet."),
         };
     }

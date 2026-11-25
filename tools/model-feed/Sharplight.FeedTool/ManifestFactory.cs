@@ -29,6 +29,7 @@ internal static class ManifestFactory
         ["ocr"] = PackageTasks.Ocr,
         ["image-upscaling"] = PackageTasks.ImageUpscaling,
         ["audio-codec"] = PackageTasks.AudioCodec,
+        ["video-enhancement"] = PackageTasks.VideoEnhancement,
     };
 
     private static readonly string[] CapabilityTags = [PackageCapabilities.Tools, PackageCapabilities.Reasoning, PackageCapabilities.Vision];
@@ -208,6 +209,8 @@ internal static class ManifestFactory
                 return ([PackageTasks.Speech], capabilities, new PackageModalities { Input = ["text"], Output = ["audio"] });
             case "voice-activity":
                 return ([PackageTasks.VoiceActivity], capabilities, new PackageModalities { Input = ["audio"], Output = ["segments"] });
+            case "video-enhancement":
+                return ([PackageTasks.VideoEnhancement], capabilities, new PackageModalities { Input = ["video", "image"], Output = ["video", "image"] });
             default:
                 return ([TaskOfKind.GetValueOrDefault(entry.Kind, entry.Kind)], capabilities, new PackageModalities());
         }

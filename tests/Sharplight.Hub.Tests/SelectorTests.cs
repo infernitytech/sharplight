@@ -168,7 +168,7 @@ public sealed class SelectorTests
     [Fact]
     public void RepositoryWithoutModelFilesIsRejected()
     {
-        var error = Assert.Throws<HubException>(() => ModelFileSelector.Select(Repository("README.md", "pytorch_model.bin"), null));
+        var error = Assert.Throws<HubException>(() => ModelFileSelector.Select(Repository("README.md", "tf_model.h5", "optimizer.pt"), null));
 
         Assert.Contains("no model files", error.Message, StringComparison.Ordinal);
     }

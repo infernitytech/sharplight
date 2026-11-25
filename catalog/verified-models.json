@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-20",
+  "updated": "2026-11-25",
   "docSections": [
     {
       "id": "1.1",

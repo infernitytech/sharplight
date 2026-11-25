@@ -25,4 +25,11 @@ public enum ModelFormat
 
     /// <summary>Sharplight packages (<c>*.slm</c>). Listed and filtered; not pulled (yet).</summary>
     Slm,
+
+    /// <summary>
+    /// PyTorch checkpoints: a Hugging Face checkpoint with <c>pytorch_model*.bin</c> weights, a checkpoint folder in its authors' layout
+    /// (<c>.pth</c> / <c>.pt</c> / <c>.ckpt</c> files with their configuration) or a single <c>.ckpt</c> / <c>.pth</c> file. Read with the
+    /// restricted unpickler, which never runs code. A repository that also has safetensors weights is pulled as <see cref="Safetensors"/>.
+    /// </summary>
+    PyTorch,
 }
