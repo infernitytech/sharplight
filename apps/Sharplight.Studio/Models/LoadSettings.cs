@@ -1,3 +1,5 @@
+using Sharplight.Llm.Serving;
+
 namespace Sharplight.Studio.Models;
 
 /// <summary>How a model is loaded: device, context, batching, KV cache and speculation.</summary>
@@ -41,4 +43,24 @@ internal sealed record LoadSettings
 
     /// <summary>Opt-in: let kernels trade precision for speed (f16 products where the default keeps near-f32 accuracy).</summary>
     public bool AllowReducedPrecision { get; init; }
+
+    /// <summary>
+    /// Block-scaled FP8 (default on): on GPUs whose tensor cores apply a power-of-two scale per 32 values, block-scaled E4M3 weights are
+    /// requantized to such scales at load and prompt-sized products run on the block-scaled MMA. Off keeps the checkpoint's f32 scales.
+    /// Ignored for models without such weights and on other devices.
+    /// </summary>
+    public bool BlockScaledFp8 { get; init; } = true;
+
+    /// <summary>
+    /// FP4 activations (default on): on GPUs with the block-scaled E2M1 MMA, prompt-sized products of NVFP4 weights quantize their
+    /// activations to FP4 per 16 values and run on the FP4 GEMM (W4A4). Off keeps 16-bit activations. Ignored for models without NVFP4 weights
+    /// and on other devices.
+    /// </summary>
+    public bool Fp4Activations { get; init; } = true;
+
+    /// <summary>When the floor of the engine's load-adaptive step budget applies, or null for the engine's default (several slots only).</summary>
+    public StepFloorPolicy? StepFloor { get; init; }
+
+    /// <summary>Rows per sequence holding a slot that the adaptive step budget allows, or null for the engine's default (several slots only).</summary>
+    public int? StepRowsPerSequence { get; init; }
 }

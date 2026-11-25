@@ -42,16 +42,15 @@ public sealed class PlacementOptions
     /// <summary>
     /// With <see cref="SplitExperts"/> and a CPU fallback: from this many rows per forward pass (prefill) the routed experts that the
     /// placement put on the CPU run on the GPU before them instead, their weights copied in for each pass
-    /// (<see cref="CompileOptions.StreamWeights"/>; the GPU keeps room for one layer's experts). 0 turns streaming off. Default 32;
-    /// <c>SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS</c> overrides it.
+    /// (<see cref="CompileOptions.StreamWeights"/>; the GPU keeps room for one layer's experts). 0 turns streaming off. Default 32.
     /// </summary>
-    public int StreamExpertsMinRows { get; init; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS"), out int rows) && rows >= 0 ? rows : 32;
+    public int StreamExpertsMinRows { get; init; } = 32;
     /// <summary>
-    /// Memories for streamed experts the GPU keeps, 1 or 2 (default 1; <c>SHARPLIGHT_STREAM_BUFFERS</c>): with two, alternate layers use
+    /// Memories for streamed experts the GPU keeps, 1 or 2 (default 1): with two, alternate layers use
     /// alternate memories and the copy of a layer starts while the layer streamed before it still runs, which hides more of the copies
     /// behind prefill work for one more layer's worth of GPU memory (one more expert layer on the CPU in decode).
     /// </summary>
-    public int StreamBuffers { get; init; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_BUFFERS") == "2" ? 2 : 1;
+    public int StreamBuffers { get; init; } = 1;
 
     /// <summary>A copy with the compile options <paramref name="compile"/> and every other setting kept.</summary>
     internal PlacementOptions WithCompile(CompileOptions compile) => With(compile, ReservePerDevice);

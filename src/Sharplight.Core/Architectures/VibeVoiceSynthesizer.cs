@@ -383,7 +383,7 @@ internal sealed class VibeVoiceSynthesizer : ISpeechSynthesizer, IVoiceCloner
     public float[] EncodeVoice(AudioBuffer recording, VibeVoiceNoise noise, CancellationToken cancellationToken, bool sample = true)
     {
         var tables = _tables.Value;
-        var samples = Normalize(recording.ToModelInput(SampleRate).Samples.ToArray());
+        var samples = VibeVoiceLoudness.Normalize(recording.ToModelInput(SampleRate).Samples.ToArray(), _normalizeDbfs);
         int frames = (samples.Length + _hop - 1) / _hop;
         int block = VibeVoiceAdapter.EncodeFrames;
         var encoder = _encoder ??= new TokenizerStream(_model.CompileComponent(VibeVoiceAdapter.AcousticEncoderRole, VibeVoiceAdapter.AcousticEncodeGraph), VibeVoiceAdapter.AcousticPrefix);
@@ -613,34 +613,6 @@ internal sealed class VibeVoiceSynthesizer : ISpeechSynthesizer, IVoiceCloner
         }
 
         return best;
-    }
-
-    private float[] Normalize(float[] samples)
-    {
-        double energy = 0;
-        foreach (float s in samples)
-        {
-            energy += (double)s * s;
-        }
-
-        double rms = Math.Sqrt(energy / Math.Max(1, samples.Length));
-        float gain = (float)(Math.Pow(10, _normalizeDbfs / 20) / (rms + 1e-6));
-        float peak = 0;
-        for (int i = 0; i < samples.Length; i++)
-        {
-            samples[i] *= gain;
-            peak = MathF.Max(peak, MathF.Abs(samples[i]));
-        }
-
-        if (peak > 1f)
-        {
-            for (int i = 0; i < samples.Length; i++)
-            {
-                samples[i] /= peak + 1e-6f;
-            }
-        }
-
-        return samples;
     }
 
     private InferenceSession CreateSession()

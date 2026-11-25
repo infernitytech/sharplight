@@ -593,7 +593,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
             context.Report(null, "Loading the model");
             using var lease = await model.AcquireEmbedderAsync(context.CancellationToken).ConfigureAwait(false);
             context.Report(0.5, "Embedding the question");
-            var embedded = await Task.Run(() => lease.Embedder.Embed([query], new EmbedOptions { Prompt = QueryPrompt(lease.Embedder) }), context.CancellationToken).ConfigureAwait(false);
+            var embedded = await lease.Embedder.EmbedAsync([query], new TextEmbeddingOptions { Prompt = QueryPrompt(lease.Embedder) }, context.CancellationToken).ConfigureAwait(false);
             if (options.Mode == SearchMode.Hybrid)
             {
                 ranked = await Task.Run(() => Fuse(index, embedded.Vectors[0], query, pool, wanted), context.CancellationToken).ConfigureAwait(false);
@@ -609,7 +609,7 @@ internal sealed partial class SearchPageViewModel : InferencePageViewModel
         {
             context.Report(0.75, $"Reranking {hits.Count} passages");
             using var rerankLease = await reranker.AcquireRerankerAsync(context.CancellationToken).ConfigureAwait(false);
-            var scored = await Task.Run(() => rerankLease.Reranker.Score(query, [.. hits.Select(hit => hit.Text)]), context.CancellationToken).ConfigureAwait(false);
+            var scored = await rerankLease.Reranker.RerankAsync(query, [.. hits.Select(hit => hit.Text)], cancellationToken: context.CancellationToken).ConfigureAwait(false);
             hits = [.. hits.Select((hit, i) => hit with { Score = scored.Scores[i] }).OrderByDescending(hit => hit.Score).Take(top)];
         }
 

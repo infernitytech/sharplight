@@ -1,0 +1,2 @@
+== 2026-11-25T03:38:14Z sharplight coder-next vulkan A
+prefill 512 tok: best 822 ms = 622.6 tok/s | decode: best 95.59, median 89.47, mean 85.62 tok/s | GPU ms/step: best 4.74, median 4.76, wall best 10.46 | prefill median of 5: 832.0 ms = 615.4 tok/s | per run: prefill 609.1 ± 12.5 tok/s of 5, decode 86.18 ± 7.35 tok/s of 5 (73.24, 87.31, 89.62, 90.87, 89.87)

@@ -1,0 +1,2 @@
+VAE sdxl-diffusers decode 1024x1024: median 853.1 ms, min 849.9 ms (5 runs)
+VAE reduced vs f32 products: PSNR 11.2 dB (range 2), max abs 1.00E+000

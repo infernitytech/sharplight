@@ -1,0 +1,69 @@
+23:20:10.704 Graph optimization (sharplight-ir/1): restore 7946 -> 7185 nodes, vae_encode 2709 -> 1922 nodes, vae_decode 5348 -> 3701 nodes, color_correct 14 -> 14 nodes [399 ms]
+23:20:10.709 Loaded seedvr2_ema_3b (seedvr, video-enhancement, components transformer, vae): 856 tensors, 7.79 GB [639 ms]
+seedvr2_ema_3b on vulkan (NVIDIA RTX PRO 4500 Blackwell), loaded in 0.7 s
+23:20:12.017 Graph optimization (sharplight-ir/1): restore 6986 -> 6226 nodes, vae_encode 8599 -> 6435 nodes, vae_decode 17420 -> 12572 nodes, color_correct 14 -> 14 nodes [864 ms]
+23:20:12.018 Rebuilt seedvr2_ema_3b for frames=9, height=720, width=1280, half_caches=1 [948 ms]
+23:20:15.477 Compiled 'vae_encode' in 3454 ms
+23:20:15.477 vae_encode@1280x720x9: 10.16 GiB on the device
+23:20:29.670 Compiled 'restore' in 3850 ms
+23:20:29.670 restore@1280x720x9: 10.27 GiB on the device
+23:20:34.205 vae_decode: DeviceOutOfMemoryException; releasing 2 compiled graph(s) and retrying
+23:20:35.181 Compiled 'vae_decode' in 839 ms
+23:20:35.181 vae_decode@1280x720x9: 19.18 GiB on the device
+23:21:00.704 Compiled 'color_correct' in 658 ms
+23:21:00.704 color_correct@1280x720x9: 1.72 GiB on the device
+warm-up read 0.17 s, encoding 14.83 s, restoring 6.62 s, decoding 28.52 s, enhance 49.99 s, write 0.00 s, total 50.17 s
+23:21:01.565 Compiled 'vae_encode' in 418 ms
+23:21:01.566 vae_encode@1280x720x9: 10.16 GiB on the device
+23:21:11.667 restore: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+23:21:12.923 Compiled 'restore' in 1038 ms
+23:21:12.923 restore@1280x720x9: 10.27 GiB on the device
+23:21:16.185 Compiled 'vae_decode' in 628 ms
+23:21:16.185 vae_decode@1280x720x9: 19.18 GiB on the device
+23:21:41.447 color_correct: DeviceOutOfMemoryException; releasing 2 compiled graph(s) and retrying
+23:21:41.748 Compiled 'color_correct' in 189 ms
+23:21:41.748 color_correct@1280x720x9: 1.72 GiB on the device
+timed read 0.12 s, encoding 10.61 s, restoring 3.94 s, decoding 26.37 s, enhance 40.92 s, write 0.00 s, total 41.03 s
+23:21:42.513 Compiled 'vae_encode' in 343 ms
+23:21:42.513 vae_encode@1280x720x9: 10.16 GiB on the device
+23:21:53.635 Compiled 'restore' in 1017 ms
+23:21:53.635 restore@1280x720x9: 10.27 GiB on the device
+23:21:56.667 vae_decode: DeviceOutOfMemoryException; releasing 3 compiled graph(s) and retrying
+23:21:57.469 Compiled 'vae_decode' in 568 ms
+23:21:57.469 vae_decode@1280x720x9: 19.18 GiB on the device
+23:22:22.626 Compiled 'color_correct' in 181 ms
+23:22:22.626 color_correct@1280x720x9: 1.72 GiB on the device
+timed read 0.11 s, encoding 10.53 s, restoring 3.69 s, decoding 26.55 s, enhance 40.77 s, write 0.00 s, total 40.88 s
+23:22:23.354 Compiled 'vae_encode' in 322 ms
+23:22:23.354 vae_encode@1280x720x9: 10.16 GiB on the device
+23:22:33.475 restore: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+23:22:34.596 Compiled 'restore' in 902 ms
+23:22:34.596 restore@1280x720x9: 10.27 GiB on the device
+23:22:37.814 Compiled 'vae_decode' in 593 ms
+23:22:37.814 vae_decode@1280x720x9: 19.18 GiB on the device
+23:23:02.978 color_correct: DeviceOutOfMemoryException; releasing 2 compiled graph(s) and retrying
+23:23:03.275 Compiled 'color_correct' in 188 ms
+23:23:03.275 color_correct@1280x720x9: 1.72 GiB on the device
+timed read 0.09 s, encoding 10.53 s, restoring 3.80 s, decoding 26.23 s, enhance 40.56 s, write 0.00 s, total 40.65 s
+23:23:04.012 Compiled 'vae_encode' in 313 ms
+23:23:04.012 vae_encode@1280x720x9: 10.16 GiB on the device
+23:23:15.015 Compiled 'restore' in 887 ms
+23:23:15.015 restore@1280x720x9: 10.27 GiB on the device
+23:23:18.086 vae_decode: DeviceOutOfMemoryException; releasing 3 compiled graph(s) and retrying
+23:23:18.886 Compiled 'vae_decode' in 565 ms
+23:23:18.886 vae_decode@1280x720x9: 19.18 GiB on the device
+23:23:44.001 Compiled 'color_correct' in 181 ms
+23:23:44.001 color_correct@1280x720x9: 1.72 GiB on the device
+timed read 0.12 s, encoding 10.50 s, restoring 3.58 s, decoding 26.53 s, enhance 40.61 s, write 0.00 s, total 40.73 s
+23:23:44.741 Compiled 'vae_encode' in 344 ms
+23:23:44.741 vae_encode@1280x720x9: 10.16 GiB on the device
+23:23:54.861 restore: InsufficientMemoryException; releasing 3 compiled graph(s) and retrying
+23:23:55.979 Compiled 'restore' in 901 ms
+23:23:55.979 restore@1280x720x9: 10.27 GiB on the device
+23:23:59.167 Compiled 'vae_decode' in 571 ms
+23:23:59.167 vae_decode@1280x720x9: 19.18 GiB on the device
+23:24:24.369 color_correct: DeviceOutOfMemoryException; releasing 2 compiled graph(s) and retrying
+23:24:24.667 Compiled 'color_correct' in 187 ms
+23:24:24.667 color_correct@1280x720x9: 1.72 GiB on the device
+timed read 0.09 s, encoding 10.54 s, restoring 3.79 s, decoding 26.25 s, enhance 40.57 s, write 0.00 s, total 40.67 s
+median of 5: read 0.11 s, encoding 10.53 s, restoring 3.79 s, decoding 26.37 s, enhance 40.61 s, write 0.00 s, total 40.73 s

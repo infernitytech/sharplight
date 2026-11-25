@@ -11,6 +11,12 @@ namespace Sharplight.VideoEnhancement;
 /// </summary>
 public interface IVideoEnhancer : ITaskClient
 {
+    /// <summary>
+    /// The model's own defaults (native size, steps, guidance, sampler and what it supports), which the <see langword="null"/> values of the
+    /// per-request options resolve to.
+    /// </summary>
+    public VideoEnhancementDefaults Defaults { get; }
+
     /// <summary>Enhances a clip.</summary>
     /// <param name="request">The frames to enhance.</param>
     /// <param name="options">Output size, frames per batch, seed, colour correction, ..., or <see langword="null"/> for the model's defaults.</param>

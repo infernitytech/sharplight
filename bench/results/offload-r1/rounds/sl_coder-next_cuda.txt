@@ -1,0 +1,4 @@
+== 2026-11-25T03:28:28Z sharplight coder-next cuda A
+prefill 512 tok: best 547 ms = 935.7 tok/s | decode: best 107.21, median 100.66, mean 97.24 tok/s | GPU ms/step: best 4.28, median 4.31, wall best 9.33 | prefill median of 5: 548.1 ms = 934.1 tok/s | per run: prefill 925.1 ± 21.4 tok/s of 5, decode 97.76 ± 7.60 tok/s of 5 (84.53, 98.39, 100.74, 102.80, 102.36)
+== 2026-11-25T03:35:22Z sharplight coder-next cuda B
+prefill 512 tok: best 546 ms = 938.5 tok/s | decode: best 102.57, median 94.24, mean 91.60 tok/s | GPU ms/step: best 4.29, median 4.32, wall best 9.75 | prefill median of 5: 547.2 ms = 935.7 tok/s | per run: prefill 926.6 ± 21.0 tok/s of 5, decode 91.96 ± 6.14 tok/s of 5 (81.17, 92.99, 94.64, 94.80, 96.20)

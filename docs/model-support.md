@@ -1843,7 +1843,7 @@ Stable Audio Open's autoencoder shares (`OobleckDecoderGraph`, weights mapped by
 Stable Audio Open 1.0 runs through its own graph contract (`TimedAudioDiffusionGraphs`: `text_encode`, `timing_encode`, `denoise`, `audio_decode`) and client: the prompt's T5 rows (padding rows zero, as the pipeline masks them) and the two timing rows are the cross-attention rows,
 the timing rows side by side the global row; without a negative prompt the unconditional pass sees all-zero rows (the pipeline's behaviour), with one its T5 rows and the same timing. The sampler is diffusers' `CosineDPMSolverMultistepScheduler`
 (k-diffusion's DPM-Solver++(2M) SDE with the midpoint solver: exponential sigmas from 500 to 0.3 and then 0, `c_in = 1/√(σ²+1)`, network time `atan(σ)·2/π`, first-order first and last step). The SDE noise is drawn from the request's seed;
-the reference's Brownian-tree samples (torchsde) cannot be reproduced bit for bit, so the parity runs pass them in (`AudioGenerationRequest.StepNoise`). The transformer always denoises its 1024-frame window (47.5 s) as the pipeline does; only the frames that
+the reference's Brownian-tree samples (torchsde) cannot be reproduced bit for bit, so the parity runs pass them in (`AudioGenerationOptions.StepNoise`). The transformer always denoises its 1024-frame window (47.5 s) as the pipeline does; only the frames that
 cover the requested duration are decoded. The peak of the decoded audio is limited to 1 (8 steps at guidance 7 reach 3.0 in the reference).
 
 Stable Audio 3 uses the rectified-flow form of the same contract (`TimedAudioDiffusionGraphs.ObjectiveKey`, client `FlowAudioDiffusionClient`): the latent length follows the duration (the duration plus 6 s of headroom, rounded up to whole frames
@@ -1924,6 +1924,13 @@ Verification (tools/make-diffusion-references.py writes the diffusers references
   upcast to fp32, CUDA): UNet 5.7e-5, VAE decode 1.5e-5, second text encoder 6e-4 relative RMS; Euler 42.4 dB, DPM++ 2M Karras
   30.0 dB (visually identical; the multistep sampler drifts further). Unlike SD 2.1 (attention upcast in its config, 2.2 % UNet
   error in f16), SDXL keeps its accuracy with f16 weights.
+- SDXL's VAE decoder under reduced precision (2026-11-25, §112 in benchmarks.md): its activations exceed f16's range at large sizes
+  (the property `madebyollin/sdxl-vae-fp16-fix` exists for), which made the reduced-precision decode at 1024 × 1024 an 11.2 dB image.
+  The image generator now measures each VAE graph's activation range once (strict products, 256 × 256 pixels, unit Gaussian latents;
+  `TaskModel.CalibrateActivationPrecision`) and compiles a graph whose activations pass 1/16 of f16's largest value with bf16
+  activations (f32 where the device has no bf16 matrix products): SDXL's decoder is flagged (2.0e4) and decodes at 67.8 dB (CUDA) / 67.9 dB (Vulkan) from
+  the f32 decode at the same speed; FLUX.1's (1.0e3) and SD 1.5's (3.6e2) keep f16. No model names are involved; the measured range is kept with the model's
+  compilation artifacts.
 - SDXL as stable-diffusion.cpp GGUF (2026-11-15; `SdxlGgufTests`, `ImporterTests.SingleFileCheckpointsMapToTheDiffusersNames`): the
   gpustack Q8_0 / Q4_0, kostakoff Q4_K and OlegSkutte SDXL-Turbo Q8_0 files map to exactly the SDXL diffusers folder's names and
   shapes. Against diffusers (fp32-upcast published files, same initial noise), on Vulkan: gpustack Q8_0 text encoders 1.3e-4 /
@@ -3115,6 +3122,10 @@ Implementation notes:
   the decoder's levels after the temporal upsampling) run frame by frame. Every op of the VAE but the causal convolutions works per
   frame, so chunking changes nothing. Activations (CUDA lowering, any clip length): encoder 4.6 / 9.5 / 14.0 / 18.3 GB and decoder
   7.6 / 18.3 / 29.4 / 38.2 GB at 480p / 720p / 960p / 1080p.
+- Under reduced precision on GPUs with 16-bit matrices the convolutions run on the shared channels-last kernel `conv_cl` (f16
+  operands, f32 accumulation; [benchmarks.md](benchmarks.md) section §110): the stacked windows are not copied any more, the
+  convolution reads its three windows in place: the chunk's frames from one channels-last f16 copy, the cached frames converted
+  from the f16 cache directly.
 - A fix in the shared GPU lowering came with it: a view (here `After`) closed an open fused group only when its first input came from
   that group, so an `After` whose second input did ran ahead of it and the chunks overlapped again (3 GB more per chunk).
 - The pipeline encodes all batches, then restores them, then decodes them; compiled graphs stay until the device runs out of memory,
@@ -3142,6 +3153,6 @@ intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Te
   7.1e-2 relative RMS, whole enhancement 43.6 dB worst frame on CUDA and Vulkan (44.8 dB in the benchmark's parity run): the bf16
   weights of the reference account for it.
 - Speed and memory against the official PyTorch inference: [benchmarks.md](benchmarks.md) section 108. In short: the DiT is as fast as
-  PyTorch's (flash attention, bf16); the VAE is about 2 × slower (its convolutions run with f32 activations on the shared implicit-GEMM
-  kernel); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
+  PyTorch's (flash attention, bf16); the VAE is about as fast since section §110 (channels-last f16 convolutions: 3B at 480p 8.4 s
+  against 15.1 s before, PyTorch 10.1 s, 48.9 dB); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
   GPU. 1080p output needs 38 GB of decoder activations and does not fit 32 GB yet (spatial tiling of the VAE is not implemented).

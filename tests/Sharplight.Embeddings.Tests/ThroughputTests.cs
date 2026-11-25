@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Sharplight.Llm.Embeddings;
+using Sharplight.Tasks;
 
 namespace Sharplight.Embeddings.Tests;
 
@@ -37,20 +38,22 @@ public class ThroughputTests
         var dev = Env.Device(device);
         var texts = Texts();
         Func<int> run;
-        IDisposable owner;
+        TaskModel owner;
+        ITaskClient client;
         if (kind == "rerank")
         {
-            var r = Reranker.Load(TestHost.Loader, path, new RerankerLoadOptions { Devices = [dev] });
-            owner = r;
-            run = () => r.Score("what is a fast local vector search model?", texts).TotalTokens;
+            var (loaded, r) = TestHost.Load<ITextReranker>(path, dev);
+            (owner, client) = (loaded, r);
+            run = () => r.RerankAsync("what is a fast local vector search model?", texts).GetAwaiter().GetResult().TotalTokens;
         }
         else
         {
-            var m = EmbeddingModel.Load(TestHost.Loader, path, new EmbeddingLoadOptions { Devices = [dev] });
-            owner = m;
-            run = () => m.Embed(texts).TotalTokens;
+            var (loaded, m) = TestHost.Load<ITextEmbedder>(path, dev);
+            (owner, client) = (loaded, m);
+            run = () => m.EmbedAsync(texts).GetAwaiter().GetResult().TotalTokens;
         }
         using (owner)
+        using (client)
         {
             int tokens = run();
             double best = double.MaxValue;

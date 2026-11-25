@@ -50,7 +50,7 @@ internal static class OpenAiApi
         RepetitionPenalty = b.Float("repeat_penalty") ?? b.Float("repetition_penalty") ?? d.RepetitionPenalty,
         PresencePenalty = b.Float("presence_penalty") ?? d.PresencePenalty,
         FrequencyPenalty = b.Float("frequency_penalty") ?? d.FrequencyPenalty,
-        Seed = b.Int("seed") ?? d.Seed,
+        Seed = b.Long("seed") ?? d.Seed,
         LogitBias = ParseLogitBias(b) ?? d.LogitBias,
     };
 

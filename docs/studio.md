@@ -919,7 +919,7 @@ versions kept them.
   speech, image and retrieval endpoints look the model up in the host per request (task models are `ModelKind.Task` instances
   holding their clients, text embedders `ModelKind.Embedding`) and lease it for the request, so loads, unloads, idle unloading and
   the served switch apply without remapping. Chat and API requests to the same model share one engine and are batched together.
-  Stopping the server leaves the models loaded. Text embedding models are loaded by the runtime with `RetrievalModelLoader`
+  Stopping the server leaves the models loaded. Text embedding models are loaded by the runtime with `TaskModelLoader` (kind `text-embedding`)
   (`Sharplight.Hosting`), the same loaders `sharplight serve` uses.
 
 ## Tests

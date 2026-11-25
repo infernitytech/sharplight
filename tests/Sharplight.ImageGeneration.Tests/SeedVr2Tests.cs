@@ -153,7 +153,7 @@ public sealed class SeedVr2Tests
         Assert.SkipWhen(!Available(reference), "SeedVR2-3B or the tiny reference missing");
         using var model = Env.Load(ModelPath(reference), Env.Cpu());
         using var enhancer = Env.Clients.Create<IVideoEnhancer>(model);
-        var defaults = (VideoEnhancementDefaults)enhancer.GetService(typeof(VideoEnhancementDefaults))!;
+        var defaults = enhancer.Defaults;
         Assert.Equal(16, defaults.SizeMultiple);
         Assert.Equal(4, defaults.FrameMultiple);
         var frames = new ReferenceRun(Reference(reference)).InputFrames();

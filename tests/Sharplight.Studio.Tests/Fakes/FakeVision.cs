@@ -145,12 +145,13 @@ internal sealed class FakeVision : IImageClassifier, IImageEmbedder, IObjectDete
         return Task.FromResult(new TextRecognition(Text, [new TextRegion(Text, null)]));
     }
 
-    public Task<ImageInput> UpscaleAsync(ImageInput image, UpscaleOptions? options = null, CancellationToken cancellationToken = default)
+    public Task<ImageInput> UpscaleAsync(ImageInput image, ImageUpscalingOptions? options = null, IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         Options.Add(options);
         SlowWork.Block(StepWork, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        options?.Progress?.Report(1);
+        progress?.Report(1);
         var rgb = new byte[3 * image.Width * Scale * image.Height * Scale];
         Array.Fill(rgb, (byte)200);
         return Task.FromResult(new ImageInput(image.Width * Scale, image.Height * Scale, rgb));

@@ -87,8 +87,10 @@ public sealed partial class GraphLowerer
     private KernelProgram Run()
     {
         var units = Schedule(FormUnits());
+        PlanChannelsLastConcats(units);
         PlanConcatSlices(units);
         ComputeLiveness(units);
+        ExtendChannelsLastSources();
         LowerUnits(units);
         CopyNonMaterializedOutputs();
         foreach (var check in _deferredCopyChecks)
@@ -186,6 +188,11 @@ public sealed partial class GraphLowerer
 
     private void LowerUnit(LoweringUnit unit)
     {
+        if ((unit.Node ?? (unit.Fused is [var only] ? only : null)) is { } single && TryLowerChannelsLastPart(single))
+        {
+            return;
+        }
+
         if (unit.Dual is { } dual)
         {
             if (dual.A.Op.Name == "MatMulId")

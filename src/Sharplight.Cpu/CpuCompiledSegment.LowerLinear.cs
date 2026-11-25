@@ -174,11 +174,11 @@ internal sealed unsafe partial class CpuCompiledSegment
 
     /// <summary>
     /// Another MatMulId of this segment not lowered yet that reads the same rows and ids as <paramref name="n"/> with a static weight of the same
-    /// shape, type and precision switches (the gate and up projections of a layer's experts), or null. <c>SHARPLIGHT_CPU_NO_PAIR=1</c> turns it off.
+    /// shape, type and precision switches (the gate and up projections of a layer's experts), or null. <see cref="DiagnosticSwitches.NoExpertPairs"/> turns it off.
     /// </summary>
     private Node? PairedMatMulId(Node n)
     {
-        if (Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_NO_PAIR") is "1" or "true" || !_consumers.TryGetValue(n.Inputs[0], out var readers))
+        if (DiagnosticSwitches.NoExpertPairs || !_consumers.TryGetValue(n.Inputs[0], out var readers))
         {
             return null;
         }

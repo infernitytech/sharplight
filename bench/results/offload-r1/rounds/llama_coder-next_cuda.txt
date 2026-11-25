@@ -1,0 +1,6 @@
+== 2026-11-25T03:28:58Z llama coder-next cuda A ncmoe 16
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         16 |      10 |   1 |           pp512 |       585.81 ± 10.18 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         16 |      10 |   1 |     tg64 @ d512 |         95.76 ± 2.20 |
+== 2026-11-25T03:34:47Z llama coder-next cuda B ncmoe 16
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         16 |      10 |   1 |           pp512 |       572.46 ± 21.00 |
+| qwen3next 80B.A3B Q4_K - Medium |  45.19 GiB |    79.67 B | CUDA       |  99 |         16 |      10 |   1 |     tg64 @ d512 |         95.80 ± 1.91 |

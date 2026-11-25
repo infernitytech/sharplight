@@ -15,7 +15,8 @@ internal sealed record AudioGeneratorTraits(bool Lyrics, bool NegativePrompt, bo
     public static AudioGeneratorTraits For(IAudioGenerator client)
     {
         ArgumentNullException.ThrowIfNull(client);
-        return new AudioGeneratorTraits(client.SupportsLyrics, client.SupportsNegativePrompt, client.DefaultGuidanceScale is not null, client.SupportsShift,
-            client.DefaultGuidanceScale);
+        var defaults = client.Defaults;
+        return new AudioGeneratorTraits(defaults.SupportsLyrics, defaults.SupportsNegativePrompt, defaults.GuidanceScale is not null, defaults.SupportsShift,
+            defaults.GuidanceScale);
     }
 }

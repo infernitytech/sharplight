@@ -1,0 +1,14 @@
+Graph optimization (sharplight-ir/1): text_encode 297 -> 297 nodes, text_encode_2 702 -> 702 nodes, denoise 2987 -> 2987 nodes, vae_decode 136 -> 136 nodes, vae_encode 106 -> 106 nodes [69 ms]
+Loaded FLUX.1-schnell (flux, image-generation, components text-encoder, text-encoder-2, tokenizer, tokenizer-2, denoiser, vae, scheduler): 1435 tensors, 33.73 GB [692 ms]
+Graph optimization (sharplight-ir/1): text_encode 297 -> 297 nodes, text_encode_2 702 -> 702 nodes, denoise 2987 -> 2987 nodes, vae_decode 136 -> 136 nodes, vae_encode 106 -> 106 nodes [42 ms]
+Rebuilt FLUX.1-schnell for height=256, width=256 [49 ms]
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 7 groups, 0.09 GiB weights+state
+1 segment(s): [0@0: 216 nodes]
+Activation range of 'vae_decode': max |x| 1038 at 'reshape_20' -> Half activations [1074 ms]
+activation precision Half (measured in 1076 ms)
+Graph optimization (sharplight-ir/1): text_encode 297 -> 297 nodes, text_encode_2 702 -> 702 nodes, denoise 2987 -> 2987 nodes, vae_decode 136 -> 136 nodes, vae_encode 106 -> 106 nodes [45 ms]
+Rebuilt FLUX.1-schnell for height=1024, width=1024 [55 ms]
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 7 groups, 0.09 GiB weights+state
+1 segment(s): [0@0: 136 nodes]
+VAE FLUX.1-schnell decode 1024x1024: median 858.2 ms, min 854.9 ms (5 runs)
+VAE reduced vs f32 products: PSNR 88.5 dB (range 2), max abs 5.01E-003

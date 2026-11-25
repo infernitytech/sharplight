@@ -6,15 +6,12 @@ namespace Sharplight.Runtime.Experts;
 /// Cache slots of one size (<see cref="DiskExpertTensor.SlotBytes"/>) in one page-aligned allocation. Eviction takes only slots that no pass
 /// holds and no read fills, by segmented LRU: experts used at least twice are protected (up to <see cref="ProtectedShare"/> of the slots), the
 /// least recently used of the others goes first, so that a prefill, which touches every expert once, does not flush the experts decode keeps
-/// reusing. <c>SHARPLIGHT_EXPERT_CACHE=lru</c> evicts plain least recently used first. Not thread-safe: the <see cref="ExpertStore"/> lock guards it.
+/// reusing. Not thread-safe: the <see cref="ExpertStore"/> lock guards it.
 /// </summary>
 internal sealed unsafe class ExpertSlotPool : IDisposable
 {
     /// <summary>Most of the slots the protected segment may hold before its least recently used expert is evicted instead.</summary>
     private const double ProtectedShare = 0.8;
-
-    /// <summary>Whether eviction is segmented (default) or plain least recently used.</summary>
-    private static readonly bool s_segmented = Environment.GetEnvironmentVariable("SHARPLIGHT_EXPERT_CACHE") is not "lru";
 
     private readonly Slot[] _slots;
     private readonly Stack<int> _free = new();
@@ -143,7 +140,7 @@ internal sealed unsafe class ExpertSlotPool : IDisposable
             }
         }
 
-        if (s_segmented && best >= 0)
+        if (best >= 0)
         {
             bool overfull = protectedCount > ProtectedShare * _slots.Length;
             best = overfull && bestProtected >= 0 ? bestProtected : bestProbation >= 0 ? bestProbation : best;

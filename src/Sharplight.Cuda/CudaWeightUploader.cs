@@ -69,9 +69,15 @@ internal sealed unsafe class CudaWeightUploader : IDisposable
     internal bool Pinned => _pinned[0];
 
     /// <summary>Copies a whole weight or constant buffer to <paramref name="destination"/>, in chunks that fit a staging buffer.</summary>
-    internal void Upload(BufferDecl buffer, CudaBuffer destination)
+    internal void Upload(BufferDecl buffer, CudaBuffer destination) => Upload(buffer, destination, 0, buffer.Weight?.ByteSize ?? buffer.InitialData!.Length);
+
+    /// <summary>
+    /// Copies bytes [<paramref name="offset"/>, <paramref name="end"/>) of a weight or constant buffer to the same offsets of
+    /// <paramref name="destination"/>, in chunks that fit a staging buffer; a repacked weight's range must hold whole repacked rows.
+    /// </summary>
+    internal void Upload(BufferDecl buffer, CudaBuffer destination, long offset, long end)
     {
-        long total = buffer.Weight?.ByteSize ?? buffer.InitialData!.Length;
+        long total = end;
         var source = buffer.Weight?.Source;
         nint pointer = source?.TryGetPointer() ?? 0;
         // Repacked weights are transformed in whole rows.
@@ -82,7 +88,7 @@ internal sealed unsafe class CudaWeightUploader : IDisposable
             throw new InvalidOperationException($"A repacked row of {rowBytes} bytes does not fit the {StagingSize}-byte staging buffer.");
         }
 
-        for (long done = 0; done < total; done += chunkBytes)
+        for (long done = offset; done < total; done += chunkBytes)
         {
             long chunk = Math.Min(chunkBytes, total - done);
             // The slot is free once the copy queued from it last time has finished.

@@ -1,0 +1,28 @@
+VAE sdxl-diffusers decode 1024x1024: median 694.2 ms, min 693.1 ms (5 runs)
+GPU time 692.95 ms
+   413.178 ms  59.6%      1x  min 413177.7 us  attention main N=1,16384*N=16384|
+    72.132 ms  10.4%     12x  min   1664.4 us  conv [512→512 3x3 s1 g1] f16 f16 cm conv_cm N=1,16384*N=16384|
+    49.398 ms   7.1%      4x  min   7076.0 us  conv [256→256 3x3 s1 g1] f16 f16 cm conv_cm N=1,16384*N=16384|
+    21.335 ms   3.1%      3x  min   7005.8 us  conv [128→128 3x3 s1 g1] f16 f16 cm conv_cm N=1,16384*N=16384|
+    21.213 ms   3.1%      6x  min   1782.7 us  conv [512→512 3x3 s1 g1] f16 fused[Add] f16 cm conv_cm N=1,16384*N=16384|
+    19.169 ms   2.8%     29x  min     37.5 us  fused[Silu] main N=1,16384*N=16384|
+    18.603 ms   2.7%     30x  min     27.5 us  groupnorm groupnorm_apply N=1,16384*N=16384|
+    15.232 ms   2.2%      2x  min   7606.3 us  conv [128→128 3x3 s1 g1] f16 fused[Add] f16 cm conv_cm N=1,16384*N=16384|
+    14.796 ms   2.1%      2x  min   7393.9 us  conv [256→256 3x3 s1 g1] f16 fused[Add] f16 cm conv_cm N=1,16384*N=16384|
+    14.193 ms   2.0%      1x  min  14192.8 us  conv [256→128 3x3 s1 g1] f16 f16 cm conv_cm N=1,16384*N=16384|
+    13.803 ms   2.0%      1x  min  13802.7 us  conv [512→256 3x3 s1 g1] f16 f16 cm conv_cm N=1,16384*N=16384|
+     8.881 ms   1.3%     30x  min     18.1 us  groupnorm stats groupnorm_stats N=1,16384*N=16384|
+     3.038 ms   0.4%      3x  min    233.9 us  resize resize N=1,16384*N=16384|
+     2.782 ms   0.4%      1x  min   2782.2 us  conv [256→128 1x1 s1 g1] f16 fused[Add] f16 cm conv_cm N=1,16384*N=16384|
+     2.036 ms   0.3%      1x  min   2036.3 us  conv [512→256 1x1 s1 g1] f16 fused[Add] f16 cm conv_cm N=1,16384*N=16384|
+     1.686 ms   0.2%      1x  min   1685.8 us  conv [128→3 3x3 s1 g1] f16 fused[Scale,Clip] narrow conv_narrow N=1,16384*N=16384|
+     0.684 ms   0.1%      3x  min     92.4 us  fused[Add] main N=1,16384*N=16384|
+     0.262 ms   0.0%      1x  min    261.7 us  matmul [512→512+512+512] f16 native fused[Add] gemm_f16_native N=1,16384*N=16384|
+     0.252 ms   0.0%      2x  min    122.9 us  contiguous main N=1,16384*N=16384|
+     0.108 ms   0.0%      1x  min    107.9 us  matmul [512→512] f16 native fused[Add] gemm_f16_native N=1,16384*N=16384|
+     0.090 ms   0.0%      2x  min     33.9 us  matmul [512→512] f16 x→ranged f16 to_f16_ranged N=1,16384*N=16384|
+     0.042 ms   0.0%      1x  min     41.8 us  conv [4→512 3x3 s1 g1] f16 f16 cm conv_cm N=1,16384*N=16384|
+     0.023 ms   0.0%      1x  min     23.1 us  fused[Scale] main N=1,16384*N=16384|
+     0.012 ms   0.0%      1x  min     12.1 us  conv [4→4 1x1 s1 g1] f16 narrow conv_narrow N=1,16384*N=16384|
+
+VAE reduced vs f32 products: PSNR 11.2 dB (range 2), max abs 1.00E+000

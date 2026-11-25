@@ -96,20 +96,22 @@ internal static class Diff
                 case float[] f: m.SetInput(v, MemoryMarshal.AsBytes(f.AsSpan())); break;
                 case int[] i: m.SetInput(v, MemoryMarshal.AsBytes(i.AsSpan())); break;
                 case long[] l: m.SetInput(v, MemoryMarshal.AsBytes(l.AsSpan())); break;
-                default: throw new ArgumentException("input data must be float[] or int[]");
+                case Half[] h: m.SetInput(v, MemoryMarshal.AsBytes(h.AsSpan())); break;
+                default: throw new ArgumentException("input data must be float[], Half[], int[] or long[]");
             }
         }
     }
 
     /// <summary>
     /// Runs all steps on the Vulkan device only (state persists across steps); per step, every f32 output concatenated.
-    /// <paramref name="rowInvariantRows"/> sets <see cref="CompileOptions.RowInvariantRows"/>.
+    /// <paramref name="rowInvariantRows"/> sets <see cref="CompileOptions.RowInvariantRows"/>, <paramref name="allowReducedPrecision"/>
+    /// <see cref="CompileOptions.AllowReducedPrecision"/>.
     /// </summary>
     public static List<float[]> RunVulkan(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64, IReadOnlySet<string>? disabledFeatures = null,
-        long rowInvariantRows = 0)
+        long rowInvariantRows = 0, bool allowReducedPrecision = false)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Device!, g, maxTokens, ctx, disabledFeatures, rowInvariantRows: rowInvariantRows);
+        using var vk = Compile(Gpu.Device!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision, rowInvariantRows: rowInvariantRows);
         var results = new List<float[]>();
         foreach (var s in steps)
         {

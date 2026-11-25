@@ -83,24 +83,10 @@ internal sealed class SseWriter
     /// <summary>Sends everything written so far.</summary>
     public async ValueTask FlushAsync() => await _pipe.FlushAsync(_http.RequestAborted);
 
-    /// <summary>Writes a <c>data:</c> event and flushes it.</summary>
-    public async Task DataAsync(JsonNode node)
-    {
-        Data(node);
-        await FlushAsync();
-    }
-
     /// <summary>Writes a named event and flushes it.</summary>
     public async Task EventAsync(string name, JsonNode node)
     {
         Event(name, node);
-        await FlushAsync();
-    }
-
-    /// <summary>Writes raw text and flushes it.</summary>
-    public async Task RawAsync(string text)
-    {
-        Raw(text);
         await FlushAsync();
     }
 

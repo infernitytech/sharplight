@@ -689,7 +689,7 @@ within the noise; VNNI shows up in the kernel benchmark (single thread q4_k matv
 |---|---|
 | `SHARPLIGHT_CPU_ISA` | cap the tier: `scalar`, `v128`, `avx2`, `avxvnni`, `avx512`, `avx512vnni` (an unsupported cap selects the next lower supported tier) |
 | `SHARPLIGHT_CPU_THREADS` | worker count (default: logical processor count; the `threads` device setting overrides it) |
-| `SHARPLIGHT_CPU_POOL=0` | use `Parallel.For` instead of the spinning pool |
+| `SHARPLIGHT_CPU_POOL=0` (switch removed in 0.3) | use `Parallel.For` instead of the spinning pool |
 | `SHARPLIGHT_CPU_SPIN_US` | pool spin time after each job (default 200) |
 | `SHARPLIGHT_CPU_GEMM_MIN_ROWS` | rows from which MatMul uses the GEMM (default 8, 32 with integer dots) |
 | `SHARPLIGHT_CPU_NO_FUSION=1` | lower every node on its own: no bias / residual / activation epilogues on Conv and MatMul (§21) |
@@ -2879,7 +2879,7 @@ How the numbers were taken:
     * or, for stride-1 convs, the **shifted form** runs instead. The input is zero-padded once, and each tap's B rows are
       read in place through a per-k offset table (`Gemm.TileGather`). Stride-1 weights are packed tap-major, so both
       forms share them.
-  * `SHARPLIGHT_CPU_NO_SHIFTED_CONV=1` disables the shifted form.
+  * `SHARPLIGHT_CPU_NO_SHIFTED_CONV=1` (switch removed in 0.3) disables the shifted form.
 * **Vulkan kernels for detection ops** (merged from a parallel branch):
   * Ops: NonMaxSuppression, RoiAlign, MaxPool with indices, NonZero, TopK with a symbolic k, and Concat /
     ScatterElements along a symbolic axis.
@@ -3267,7 +3267,7 @@ session). Raw data is in `bench/results/s27/`.
 
 * **CPU convolution scheduling** (`ConvOp`).
   * The task split compares splitting the weight panels with splitting the output tiles by operand traffic. Blocks
-    that stay in L2 are counted once per thread. The plan aims at about 6 tasks per thread. `SHARPLIGHT_CPU_CONV_PLAN=tiles`
+    that stay in L2 are counted once per thread. The plan aims at about 6 tasks per thread. `SHARPLIGHT_CPU_CONV_PLAN=tiles` (switch removed in 0.3)
     restores the old split.
   * Strided 1x1 convs without leading padding subsample their input once and then run like the in-place 1x1 form.
     resnet50's 256x56 → 128 stride-2 conv went from 98 to 63 µs.
@@ -3278,7 +3278,7 @@ session). Raw data is in `bench/results/s27/`.
   pool went from 258 to 39 µs.
 * **Parallel loops** (`CpuThreadJob`) give each participant one contiguous range and claim several items at a time;
   idle participants steal from other ranges. Consecutive ops that split their outputs alike then run each region on
-  the same core. An empty `CpuParallel.For` over 1024 items went from 38 to 12 µs. `SHARPLIGHT_CPU_AFFINITY=0` goes
+  the same core. An empty `CpuParallel.For` over 1024 items went from 38 to 12 µs. `SHARPLIGHT_CPU_AFFINITY=0` (switch removed in 0.3) goes
   back to one shared counter.
 * **JIT**: executables compile methods with loops fully optimized on first use
   (`TieredCompilationQuickJitForLoops=false`). Before, short runs and first runs measured tier-0 kernels: a 64-channel
@@ -8241,7 +8241,7 @@ docs/model-support.md was its layer split (`-ngl 38`).
 | | CPU groups | decode | prefill 512 |
 |---|---:|---:|---:|
 | CUDA before (layer split) | 7 (6 layers + head) | 26.0 / 25.5 | 211 / 207 |
-| CUDA, experts on the CPU, no streaming (`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`) | 8 | **58.4 / 57.6** | 227 / 222 |
+| CUDA, experts on the CPU, no streaming (`SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (switch removed in 0.3)) | 8 | **58.4 / 57.6** | 227 / 222 |
 | CUDA, experts on the CPU + streamed prefill (default) | 10 | 53.1 / 52.2 | **927 / 926** |
 | llama.cpp CUDA `-ncmoe 6` / `8` | | 72.1 / 65.2 | 985 / 866 |
 | llama.cpp CUDA `-ngl 38` (layer split) | | 9.2 (shared GPU) / 21.5 (§ model-support) | 589 |
@@ -8301,7 +8301,7 @@ prefill varies by ±40 % between its three runs).
   the one-lookup sign table (it reads explicit sign bytes).
 * Pairing the gate and up products into one op (one quantization, one pass) is in (bit-identical results), but its effect on the decode
   step was within the run-to-run noise of this machine.
-* Two streaming memories (`SHARPLIGHT_STREAM_BUFFERS=2`, the next layer's copy overlapping the current layer) made the 122B prefill
+* Two streaming memories (`SHARPLIGHT_STREAM_BUFFERS=2` (switch removed in 0.3), the next layer's copy overlapping the current layer) made the 122B prefill
   slower, 831 against 927 tok/s, and decode 47.8 against 53.1: the extra layer of experts it moves to the CPU costs more in each pass than
   the overlap saves. It stays an option, off by default.
 * A thread-count sweep (8 / 10 / default threads) was inconclusive: other jobs took 2-5 cores during most runs.
@@ -8309,7 +8309,7 @@ prefill varies by ±40 % between its three runs).
   memory; on Vulkan the repack wrote out of order into write-combined staging memory (5 GB/s) until it went through cached memory first.
 * Decode on CUDA stays behind llama.cpp: the GPU part of a step (9.5 ms) and three to four more expert layers on the CPU. Each moved
   layer costs a GPU segment boundary, a transfer buffer and the per-segment reserve; streaming costs one layer's memory (~10 % decode for
-  a 4.5x faster prefill; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` keeps it for decode-only use).
+  a 4.5x faster prefill; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (switch removed in 0.3) keeps it for decode-only use).
 
 ### 59.6 Reproduce
 
@@ -8318,8 +8318,8 @@ export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICE
 CLI=samples/Sharplight.Cli/bin/Release/net11.0/sharplight
 M=~/models/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf     # or gpt-oss-120b/gpt-oss-120b-MXFP4.gguf
 for p in cuda vulkan; do SHARPLIGHT_LOAD_TIMING=1 $CLI $M --provider $p --cpu-offload --bench 512; done
-SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --bench 512    # no streamed prefill (more GPU room)
-SHARPLIGHT_STREAM_BUFFERS=2 $CLI $M --provider cuda --cpu-offload --bench 512             # two streaming memories
+SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --bench 512    # no streamed prefill (more GPU room) (switch removed in 0.3)
+SHARPLIGHT_STREAM_BUFFERS=2 $CLI $M --provider cuda --cpu-offload --bench 512             # two streaming memories (switch removed in 0.3)
 SHARPLIGHT_SPLIT_EXPERTS=0 $CLI $M --provider cuda --cpu-offload --bench 512              # whole layers on the CPU (before)
 SHARPLIGHT_CPU_PROFILE=1 SHARPLIGHT_CUDA_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
 for n in 6 8; do $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-bench -m $M -ngl 99 -ncmoe $n -fa 1 -p 512 -n 64 -r 3 -t 10; done
@@ -8755,7 +8755,7 @@ each larger segment compiled later allocated its own). On the GPU, the routed ex
   stored as is (gpt-oss's repacked MXFP4 and its bias gathers keep the CPU path). Vulkan has no sparse copies yet (`IComputeDevice.StreamsSelectedExperts`).
 * **Resident streamed experts** (`IStreamedSegment.WeightsResident`): the streaming memory the GPU keeps for prefill holds the last streamed
   layer between prefills (copied at load, and the last copy of every streamed pass), so that layer runs on the GPU in decode too: streaming
-  no longer costs a decode layer (`SHARPLIGHT_STREAM_RESIDENT=0` for the old behavior).
+  no longer costs a decode layer (`SHARPLIGHT_STREAM_RESIDENT=0` (switch removed in 0.3) for the old behavior).
 * **Memory**: a session's logits buffer holds one row (`CreateSession`, `R` = 1); the largest GPU segment of each device compiles first, so the
   others share its activation arena (274 MiB instead of 614); the streamed and sparse compilations share their input and output buffers (by
   ordinal; inputs holding graph inputs excluded), counted once by the planner, which also keeps room for the sparse banks; `ReservePerSegment`
@@ -8802,7 +8802,7 @@ each larger segment compiled later allocated its own). On the GPU, the routed ex
   sleep during the GPU segment before and wake for the first product). Longer worker spinning (`SHARPLIGHT_CPU_SPIN_US=1000`) gave 74.3 / 71.7
   and 75.2 / 74.2 against 71.5 / 69.9 and 75.4 / 71.6 at the default 200 µs: within this machine's noise, so the default stays.
 * Resident layer: worth ~0.4 ms per step without the split (51.7 against 50.5); with the split the layer it keeps would run split
-  (`SHARPLIGHT_STREAM_RESIDENT=0`: 74.7 / 70.9, within noise of the default).
+  (`SHARPLIGHT_STREAM_RESIDENT=0` (switch removed in 0.3): 74.7 / 70.9, within noise of the default).
 * Greedy output: the FamilyGenerationTests cases (raw prompt, chat turn, story; 32 tokens against llama.cpp b11177) pass on CUDA and on Vulkan.
 
 ### 62.4 gpt-oss-120b MXFP4 (tok/s, best / median)
@@ -8855,7 +8855,7 @@ for p in cuda vulkan; do SHARPLIGHT_LOAD_TIMING=1 SHARPLIGHT_SEGMENT_TIMING=1 $C
 SHARPLIGHT_SPARSE_EXPERT_ROWS=0 $CLI $M --provider cuda --cpu-offload --bench 512      # no split decode
 SHARPLIGHT_NO_ROUTER_FUSION=1 $CLI $M --provider cuda --cpu-offload --bench 512        # router in five launches
 SHARPLIGHT_MMVQ_GRID=0 $CLI $M --provider cuda --cpu-offload --bench 512               # f32 expert matvec for the IQ formats
-SHARPLIGHT_STREAM_RESIDENT=0 $CLI $M --provider cuda --cpu-offload --bench 512         # no resident streamed layer
+SHARPLIGHT_STREAM_RESIDENT=0 $CLI $M --provider cuda --cpu-offload --bench 512         # no resident streamed layer (switch removed in 0.3)
 SHARPLIGHT_DEVICE_RESERVE_MIB=1024 SHARPLIGHT_SEGMENT_RESERVE_MIB=32 $CLI $M --provider cuda --cpu-offload --bench 512   # the old reserves
 SHARPLIGHT_DISABLE_FEATURES=memory_budget $CLI $M --provider vulkan --cpu-offload --bench 512   # Vulkan at 92 % of the heap
 SHARPLIGHT_CPU_PROFILE=1 $CLI $M --provider cuda --cpu-offload --bench 64
@@ -12663,7 +12663,7 @@ thread: 10-25x less. io_uring cannot be measured on this pod; the reader detects
 
 A functional test on a model that would fit: the GPU capped at 16 GiB (`--gpu-mem 16`) so that 32 layers' experts (20.7 GiB) go to the CPU,
 and a 6 GiB cache (`--expert-cache 6G`) so that they do not fit it. "Resident" is the same placement with the experts read from the
-memory-mapped file (page cache warm; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0`: no streamed prefill or split decode; a disk placement has no
+memory-mapped file (page cache warm; `SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0` (switch removed in 0.3): no streamed prefill or split decode; a disk placement has no
 streamed prefill either, and on the final build CUDA splits its small passes, copying from the pinned cache slots), CUDA, `--bench 64` and
 `-p "The capital of France is" -n 32` in one hold per build:
 
@@ -12708,7 +12708,7 @@ pessimistic; the cache's 38-41 % hits and the reads at the full 7.3 GB/s give 0.
 * **`ExpertStore`** (Core, `Sharplight.Runtime.Experts`), one per loaded model (`LlmModel.DiskExperts`, `TaskModel.DiskExperts`): the decision
   (CPU experts larger than the fallback's budget minus a 4 GiB reserve, or than the cache asked for), the weights left on disk
   (`IWeightSource.TryGetFileRange`: GGUF, `.slm`, safetensors), one slot pool per slot size (budget split by bytes, at least 32 small-pass
-  experts per pool), segmented LRU (experts used twice protected up to 80 % of a pool; `SHARPLIGHT_EXPERT_CACHE=lru`), the pool memory
+  experts per pool), segmented LRU (experts used twice protected up to 80 % of a pool; `SHARPLIGHT_EXPERT_CACHE=lru` (switch removed in 0.3)), the pool memory
   committed at layout, statistics (hits, read ahead, misses, evictions, bytes, wait), a read-speed probe and the speed estimate in the load log.
 * **`IExpertReader`**: batches of (file, offset, length, destination) reads, awaited per batch; `IoUringExpertReader` (raw syscalls,
   `IORING_OP_READ`, 32 in flight, a reaper thread, short reads resubmitted), `ThreadPoolExpertReader` (8 threads of `pread`), `O_DIRECT`
@@ -12776,7 +12776,7 @@ $CLI $DS --provider cuda --cpu-offload --experts-on-disk --expert-cache 28G --ct
 SHARPLIGHT_BENCH_PREFILL_REPEATS=1 $CLI $DS --provider cuda --cpu-offload --experts-on-disk --expert-cache 28G --ctx 4096 --batch 64 --bench 8
 $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-completion -m $DS -ngl 99 -ncmoe 59 -fa on -t 10 -c 4096 --temp 0 --no-warmup -no-cnv -p "The capital of France is" -n 16
 M=~/models/gguf/Qwen3.5-122B-A10B/Qwen3.5-122B-A10B-UD-IQ2_XXS.gguf
-SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --gpu-mem 16 --bench 64          # resident, CPU experts
+SHARPLIGHT_STREAM_EXPERTS_MIN_ROWS=0 $CLI $M --provider cuda --cpu-offload --gpu-mem 16 --bench 64          # resident, CPU experts (switch removed in 0.3)
 $CLI $M --provider cuda --cpu-offload --gpu-mem 16 --experts-on-disk --expert-cache 6G --bench 64            # disk
 gcc -O2 -o uring_probe uring_probe.c -lpthread && ./uring_probe <file> pread 1024 8 8192 1                  # disk probe (pread | uring | mmap)
 ```
@@ -13492,7 +13492,7 @@ The provider's own PTX of the down projection (dumped with `SHARPLIGHT_CUDA_DUMP
 runs 0.809-0.816 ms there, the same as the harness build. In the model's profile, though, the same kernel takes 826-834 µs, against
 820-829 for `develop`'s. With the copy warpgroup but without the uniform scales (`SHARPLIGHT_FP8_UNIFORM_SCALES=0`) the model's step
 got slower (146.3 / 146.5 ms against 136.4 / 137.3 ms, down 947 µs), while in the harness that form is 3 % faster. Turning off
-dependent launches (`SHARPLIGHT_CUDA_PDL_TRIGGER=0`) did not change the ranking. The real activations draw less power than random
+dependent launches (`SHARPLIGHT_CUDA_PDL_TRIGGER=0` (switch removed in 0.3)) did not change the ranking. The real activations draw less power than random
 codes (§86.1), so in the model the kernel is probably limited by issue and latency rather than by energy, and there the copy
 warpgroup's gain shrinks. It is not explained yet. What the model gains comes from the uniform scales on gate / up (1,611 → 1,561 µs
 with 9 warps) and from the store (the quantization launch goes); the copy warpgroup is kept because it is what lets the store run with
@@ -14321,7 +14321,7 @@ one that matches vLLM's tail; the default sits in between. The owner decides; pr
   Qwen3-8B-FP8 (12,288 tokens, 1,024-row steps, PPL 8.6693), Qwen3.8-27B-FP8 (6,144 tokens, 512-row steps, PPL 6.6574) and
   Qwen3.8-27B-FP8 at §92.3's setting (2,048 tokens, 512-row steps, PPL 5.8506): all fifteen dumps byte-identical to `develop`'s
   (`correct/correct.txt`). Before the fix the last setting gave PPL 5.8441-5.8687 from run to run (`correct/repro_ppl_27b.txt`:
-  two runs with the copy warpgroup, three with `SHARPLIGHT_CUDA_PDL_TRIGGER=0`, all different).
+  two runs with the copy warpgroup, three with `SHARPLIGHT_CUDA_PDL_TRIGGER=0` (switch removed in 0.3), all different).
 * gpt-oss-20b has no FP8 TMA GEMM; its kernels are `develop`'s (the serving rows of 93.4 differ only in the step policy).
 
 ### 93.6 Tests
@@ -14934,7 +14934,7 @@ Per-kernel profiles (`profiles-new-vs-1119.log`) of bert b1 and efficientnet-lit
 (efficientnet 3.21 / 3.21 ms over 3 profiled runs); only the unprofiled run, where launches overlap, is slower. Switches on `develop`,
 same hold, GPU ms (`cuda-pdl-variants.log`, `cuda-pdl-trigger.log`, 2 interleaved reps each):
 
-| row | `develop` | `dependent_launches` off | `SHARPLIGHT_CUDA_PDL_TRIGGER=0` (wait only) | 11-19 | `SHARPLIGHT_CUDA_CONCURRENT=0` |
+| row | `develop` | `dependent_launches` off | `SHARPLIGHT_CUDA_PDL_TRIGGER=0` (switch removed in 0.3) (wait only) | 11-19 | `SHARPLIGHT_CUDA_CONCURRENT=0` |
 |---|---:|---:|---:|---:|---:|
 | bert-base b1 | 1.10 | 1.01 | 1.00-1.01 | 1.01 | 1.10 |
 | efficientnet-lite4 b1 | 0.75 | 0.70 | 0.71 | 0.70 | 0.75 |
@@ -15013,7 +15013,7 @@ python3 bench/onnx/parity_bench.py run trt.jsonl --rounds 1 --engines ort-trt --
 ONNX_BENCH_DLL_CBASE=<11-19 build>/OnnxBench.dll python3 bench/onnx/parity_bench.py run ab.jsonl --rounds 2 \
   --engines sl-vulkan,sl-vulkan@cbase,sl-cuda,sl-cuda@cbase --models "bert-base (16 tok),efficientnet-lite4"
 BENCH_THREADS=8 python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 2 --runs 10 --engines sl-cpu,ort-cpu --models "resnet50,..."
-SHARPLIGHT_CUDA_PDL_TRIGGER=0 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/survey/bert-base-uncased.model.json cuda --batch 1
+SHARPLIGHT_CUDA_PDL_TRIGGER=0 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/survey/bert-base-uncased.model.json cuda --batch 1   # switch removed in 0.3
 ```
 
 ## 97. LLM round 38: the clock limiter of §96.4 found: copies of one 32-byte sector split across shared-memory granules; the MXFP4 expert GEMM's stage layout fixed (gate / up -11 %, down -8 % per routing; decode step -2.4 %) (2026-11-23)
@@ -15282,7 +15282,7 @@ Variants measured on the way (same-hold A/B, GPU ms min, 2 interleaved reps; `on
 | variant | bert b1 | efficientnet b1 | phi-3.5 q4f16 | qwen2.5 q4 | Qwen3-8B-FP8 decode 16 / 64 | gpt-oss-20b decode 16 / 64 |
 |---|---:|---:|---:|---:|---:|---:|
 | `develop` (trigger at entry, every one-wave pair) | 1.10 | 0.755 | 3.63 | 2.094 | 12.19 / 15.60 | 11.98 / 16.85 |
-| no trigger (`SHARPLIGHT_CUDA_PDL_TRIGGER=0`) | 1.006 | 0.705 | 3.39 | 2.169 | 12.30 / 15.70 | 12.05 / 16.88 |
+| no trigger (`SHARPLIGHT_CUDA_PDL_TRIGGER=0` (switch removed in 0.3)) | 1.006 | 0.705 | 3.39 | 2.169 | 12.30 / 15.70 | 12.05 / 16.88 |
 | trigger before the first global store | 1.015 | 0.704 | 3.63 | 2.146 | 12.27 / 15.65 | - |
 | dependents only with ≥ 1 block per SM | 1.025 | 0.697 | 3.39 | 2.169 | 12.22 / 15.67 | 12.03 / 16.85 |
 | shared memory per SM ≤ the previous kernel's (rule 1 only) | 0.988 | 0.693 | 3.38 | 2.10 | 12.26 / 15.62 | 12.04 / 16.6-16.9 |
@@ -15491,7 +15491,7 @@ python bench/s73_vllm_routing.py ~/models/hf/gpt-oss-20b --out vllm16_words.txt 
 ROUTES=vllm16_words.txt LAYERS=24 PASSES=2 SUSTAINED_ONLY=1 ENERGY=3 ./gu   # §97.9's gate / up harness build; ./dn for down
 python bench/s73_marlin_replay.py vllm16_words.txt --product gate_up --seconds 3 --energy --gpu 0
 python bench/s54_vllm_decode_profile.py ~/models/hf/gpt-oss-20b --seqs 16 --words --skip 5 --gpu-util 0.6
-SHARPLIGHT_CUDA_PDL_SHARED=any ...   # the dependent rule of `develop` before this section, for A/B runs
+SHARPLIGHT_CUDA_PDL_SHARED=any ...   # the dependent rule of `develop` before this section, for A/B runs (switch removed in 0.3)
 dotnet bench/BatchBench/bin/Release/net11.0/BatchBench.dll ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 64 --ctx 640 --depth 256 \
   --sizes 1,16,64 --modes greedy --reps 30 --text
 ONNX_BENCH_DLL_BASE=<develop build>/OnnxBench.dll python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 \
@@ -15624,7 +15624,7 @@ with any shared memory (which always carries the 1 KB reservation) launched late
 need is twice the driver's reservation per block (2 KB here; device attribute, not a constant). The fused row norms (`main_0`, 16
 blocks, two per layer) used a 256-float reduction array (`red[Threads]`, 1 KB + 1 KB) even with subgroup sums, which need one float
 per subgroup; it is now `Threads / 4` floats (subgroups of at least 4 lanes), so the norm after `rowreduce_narrow` (180 blocks)
-launches early: nsys of the 16-sequence step, end-to-end time per launch 2.54 → 2.11 µs (`SHARPLIGHT_CUDA_PDL_SHARED=any`: 2.14).
+launches early: nsys of the 16-sequence step, end-to-end time per launch 2.54 → 2.11 µs (`SHARPLIGHT_CUDA_PDL_SHARED=any` (switch removed in 0.3): 2.14).
 The norm after `splitk_reduce` keeps its 12 KB (the quantized-row staging of its int-dot output) and stays late.
 
 Effect on whole steps is within the run-to-run spread: gpt-oss-20b at 1 / 16 / 64 sequences 5.15 / 12.01-12.03 / 16.80-16.86 ms
@@ -15677,7 +15677,7 @@ vLLM's; at 16 streams the ITL p95 difference is the prompt-step share of 100.1 (
 
 * **A token-tile trim / cost-aware chunking for 16-stream waves** (not built): the traces show the trim's case (a step ≤ 32 rows past a
   tile boundary) in 7 of 588 steps, ~3 ms each on Qwen3-8B-FP8 and nothing on gpt-oss-20b (no tile steps): ≤ 0.3 % of a run.
-* **`SHARPLIGHT_CUDA_PDL_SHARED=any` / rule 2 at the dependent's occupancy** for the remaining 0.25 % (100.3): costs bert b1 3 % (§99).
+* **`SHARPLIGHT_CUDA_PDL_SHARED=any` (switch removed in 0.3) / rule 2 at the dependent's occupancy** for the remaining 0.25 % (100.3): costs bert b1 3 % (§99).
 * **Policies 64 rows per slot and `full`** as defaults: owner's call (100.1); 48 is proposed.
 
 ### 100.7 Gap to vLLM and ranked plan
@@ -15847,7 +15847,7 @@ Qwen3-8B (bf16), Llama-3.1-8B and gpt-oss-20b batched. `bench/s16_serve.sh` does
 kernels do the same work). Bisected on `develop`'s merges (`diag/`): `perf/llm-r28` (`8246ce2e`) correct, `perf/llm-r29`
 (`e9c118ee`) garbage on all 32. On `develop`: garbage with `SHARPLIGHT_ATTN_MIXED=0`, `SHARPLIGHT_FP8_WG=0`,
 `SHARPLIGHT_CUDA_CONCURRENT=0` (and 23 of 32 with `SHARPLIGHT_FP8_TMA=0`); correct with `SHARPLIGHT_CUDA_SYNC=1`,
-`SHARPLIGHT_CUDA_PDL_TRIGGER=0` and `SHARPLIGHT_FP8_DECODE_KERNEL=0`: a dependent-launch race in `gemm_fp8_decode.cu`. That kernel
+`SHARPLIGHT_CUDA_PDL_TRIGGER=0` (switch removed in 0.3) and `SHARPLIGHT_FP8_DECODE_KERNEL=0`: a dependent-launch race in `gemm_fp8_decode.cu`. That kernel
 loads only weights before `griddepcontrol.wait` and its activations after it, but through `__ldg`; the wait makes the previous
 launch's writes visible in L2, not in a non-coherent L1 line of the same rows that the SM cached before (the rows of `x` are rewritten
 by every layer's `quantize_fp8`, and the SM runs earlier launches' blocks while this grid's blocks start). Fixed by reading `x` and
@@ -17568,3 +17568,318 @@ BatchBench ~/models/hf/Qwen3-8B-FP8 --provider cuda --slots 264 --ctx 2560 --kv-
 # 109.3
 PplBench ~/models/hf/Llama-3.1-8B-Instruct --provider cuda --text wikitext2_test.txt --seq 3072 --chunk 1024 --tokens 12288 --kv-type f8e4m3_b32
 ```
+
+## 110. Convolutions over channels-last f16 activations: the shared implicit-GEMM convolution 2-3 × faster (70-120 TFLOPS), SeedVR2 3B end to end 15.1 → 8.4 s, ahead of the official PyTorch inference at 480p; Vulkan on par with CUDA (2026-11-24)
+
+Branch `perf/conv-f16` (`develop` at `22be85fe`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, driver 595.112, shared
+with other rounds: every timing run held the bench lock). Scripts and raw output: [`bench/results/conv-f16/`](../bench/results/conv-f16)
+(`run-kernels.sh`, `run-vae.sh`, `run-e2e.sh`; `raw/` the final runs, `raw/tuning/` the tile variants). "Before" is the same build with
+`SHARPLIGHT_CONV_CHANNELS_LAST=0`, which lowers every convolution exactly as `develop` does.
+
+### 110.1 Cause
+
+Under reduced precision the convolutions ran on `conv_cm` with f32 activations and f16 products. Per K step of 32 every thread converted
+16 scalar f32 loads to f16, each with its own im2col address (a division by KH·KW and KW, a bounds check), so the kernel was bound by
+that integer and load work, not by the tensor cores: 35-44 TFLOPS on every shape (the f16 GEMM reaches ~140 on this GPU). The f32 weights
+of a checkpoint like SeedVR2's VAE were converted on every load too. Video VAEs (SeedVR2, Hunyuan, LTX) also copy their stacked frame
+windows into one f32 tensor per convolution piece (`Concat` along the channels, three times the frames for a 3-tap kernel), and the
+fused residual add of a convolution's store waited for each previous store (the compiler cannot tell that y does not alias the residual).
+
+### 110.2 Changes
+
+* **`conv_cl`** (new, `conv_cl.slang`, one kernel for Vulkan and CUDA): an implicit GEMM over **channels-last 16-bit activations**
+  (f16 where the device has f16 matrices, else bf16 with bf16 matrices; f32 accumulation). The reduction runs tap-major
+  (k = tap · C + c), so a staged item of 8 k is 8 channels of one input pixel: one 16-byte load and one bounds check. The constant
+  weights are converted to f16 and reordered tap-major on the host when uploaded (`HalfTapMajor`, shared per source tensor through
+  `DerivedWeightCache`, the generalized split-weight cache). 128 × 128 tiles of 2 × 2 subgroups (64 × 128 for fewer than 128 outputs
+  per group, 64-pixel tiles when 128-pixel tiles would not fill the device), the next K step's loads in registers during the
+  products: 32-value K steps with two shared buffers on CUDA, 64-value steps with one on Vulkan (two buffers of 64 exceed the 48 KB a
+  Vulkan compute shader gets on NVIDIA). The channel tiles of a pixel tile are adjacent workgroups (they read its input from L2), and
+  the epilogue stores along the pixels, 32 consecutive outputs per store, through the free A tiles.
+* **Staging** (`conv_cl_stage`): a convolution's input is converted to channels-last f16 once (any strides, f32 / f16 / bf16). A
+  channel concatenation that only a `conv_cl` convolution reads is never materialized: with 2-4 parts of one shape the convolution
+  reads them **in place** (`X_PARTS`, a pointer per part); a part that is a slice of a value (through `Slice` / `After`) is a view of
+  that value's channels-last copy, staged once while the parts cover it at least once (the windows of a causal convolution's pieces);
+  a part produced by a lone `Cast` between floats or a batch `Concat` is staged by that unit from its own inputs (a causal cache's
+  f16 frames are converted once, not to f32 and back). Other concatenations stage each part into its channel range. All of it is
+  decided on op, shape, dtype and device features only (`ChooseConvChannelsLast`, `PlanChannelsLastConcats`).
+* **Epilogues** of `conv_cl` and `conv_cm` load everything (results, bias, residual) before the first store: a fused residual add ran
+  3.5 × slower than the plain convolution in an untimed check (now 4 % slower: the `+res` row of §110.3); `conv_cm` got the same
+  reordering.
+* Strict precision is unchanged (`conv_cm`'s split-f16 and bf16 forms). `SHARPLIGHT_CONV_CHANNELS_LAST=0` restores the old lowering;
+  `SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN[,tileK]` overrides the tile.
+* Tried and not kept: a ring of 2-4 asynchronous copies (`cp.async`) on CUDA, the shape of `gemm_f16_native.cu`: 2 stages tied the
+  register prefetch, 3 and 4 stages (60-80 KB, one workgroup per SM) were 5-20 % slower; 8-subgroup tiles (2 × 4) 5-20 % slower;
+  64-value K steps double-buffered on CUDA (74 KB) 10-17 % slower (`raw/tuning/`).
+
+### 110.3 Kernels
+
+`bench/ConvBench` (new), reduced precision, f32 inputs and weights, bias; GPU time = sum of every launch's minimum over 10 runs, so the
+"after" times include the channels-last staging of the input (SeedVR2 rows: three stacked windows from three inputs). TFLOPS of the
+convolution's multiply-adds in parentheses.
+
+| shape | CUDA before | CUDA after | Vulkan before | Vulkan after |
+|---|---|---|---|---|
+| seedvr2 384>128 480x832 | 10.030 ms (35) | **5.014 ms (70)** | 10.638 ms (33) | **4.675 ms (76)** |
+| seedvr2 768>128 480x832 | 19.927 ms (36) | **10.351 ms (68)** | 21.088 ms (34) | **9.954 ms (71)** |
+| seedvr2 768>256 240x416 | 9.383 ms (38) | **3.275 ms (108)** | 9.967 ms (35) | **3.566 ms (99)** |
+| seedvr2 1536>256 240x416 | 19.542 ms (36) | **6.745 ms (105)** | 20.506 ms (34) | **7.282 ms (97)** |
+| seedvr2 1536>512 120x208 | 9.405 ms (38) | **2.949 ms (120)** | 9.879 ms (36) | **3.164 ms (112)** |
+| seedvr2 1536>512 60x104 x4 | 9.386 ms (38) | **2.942 ms (120)** | 9.743 ms (36) | **3.168 ms (112)** |
+| sdxl-vae 512>512 128x128 | 1.745 ms (44) | **0.728 ms (106)** | 1.966 ms (39) | **0.717 ms (108)** |
+| sdxl-vae 512>512 256x256 | 7.077 ms (44) | **2.782 ms (111)** | 7.712 ms (40) | **2.738 ms (113)** |
+| sdxl-vae 512>512 512x512 | 27.982 ms (44) | **11.221 ms (110)** | 30.692 ms (40) | **11.151 ms (111)** |
+| sdxl-vae 512>256 512x512 | 14.069 ms (44) | **6.398 ms (97)** | 15.413 ms (40) | **6.342 ms (98)** |
+| sdxl-vae 256>256 512x512 | 7.190 ms (43) | **3.165 ms (98)** | 7.820 ms (40) | **3.152 ms (98)** |
+| sdxl-vae 256>128 1024x1024 | 14.366 ms (43) | **9.531 ms (65)** | 15.803 ms (39) | **9.087 ms (68)** |
+| sdxl-vae 128>128 1024x1024 | 7.350 ms (42) | **4.740 ms (65)** | 8.039 ms (38) | **4.374 ms (71)** |
+| sdxl-vae 128>128 1024x1024 +res | 7.990 ms (39) | **4.934 ms (63)** | 8.475 ms (36) | **4.603 ms (67)** |
+| esrgan 64>64 480x832 | 0.890 ms (33) | **0.619 ms (48)** | 0.880 ms (33) | **0.670 ms (44)** |
+| esrgan 192>64 480x832 | 2.543 ms (35) | **2.459 ms (36)** | 2.513 ms (35) | **2.539 ms (35)** |
+| resnet 256>256 14x14 b32 | 0.136 ms (54) | **0.092 ms (80)** | 0.186 ms (40) | **0.092 ms (81)** |
+| resnet 64>64 56x56 b8 | 0.050 ms (37) | **0.037 ms (50)** | 0.071 ms (26) | **0.047 ms (40)** |
+| 1x1 512>512 256x256 | 0.857 ms (40) | **0.703 ms (49)** | 0.831 ms (41) | **0.676 ms (51)** |
+
+Where it is still slow: the 128-channel convolutions at 1024 × 1024 and ESRGAN's 192 → 64 spend 30-60 % of their time staging an f32
+input of many channels for few outputs (the staging reads 4 bytes and writes 2 per input value, once); a producer that wrote the
+channels-last f16 tensor itself would remove that.
+
+### 110.4 End to end
+
+SeedVR2 3B, the procedure of section 108 (`bench/VideoEnhancementBench --reduced-precision`, the fox clip, median of 5 runs after one
+warm-up; this round writes no output video, so the totals leave out section 108's 0.4-1.0 s of video encoding; PyTorch's from 108.1
+include it):
+
+33 frames, 416 × 240 → 832 × 480:
+
+| run | total | encode | DiT | decode |
+|---|---|---|---|---|
+| PyTorch (official, section 108.1) | 10.08 s | 1.77 s | 1.32 s | 6.45 s |
+| Sharplight CUDA before | 15.13 s | 3.92 s | 1.06 s | 10.07 s |
+| Sharplight CUDA after | **8.42 s** | 2.11 s | 1.06 s | 5.18 s |
+| Sharplight Vulkan before | 15.71 s | 4.09 s | 1.16 s | 10.39 s |
+| Sharplight Vulkan after | **8.43 s** | 2.07 s | 1.15 s | 5.13 s |
+
+33 frames, 640 × 360 → 1280 × 720:
+
+| run | total | encode | DiT | decode |
+|---|---|---|---|---|
+| PyTorch (official, section 108.1, offloading) | 35.26 s | 9.39 s | 2.91 s | 21.32 s |
+| Sharplight CUDA before | 39.65 s | 10.45 s | 3.44 s | 25.46 s |
+| Sharplight CUDA after | **23.85 s** | 6.09 s | 3.53 s | 14.01 s |
+| Sharplight Vulkan before | 40.73 s | 10.53 s | 3.79 s | 26.37 s |
+| Sharplight Vulkan after | **24.24 s** | 6.10 s | 3.79 s | 14.21 s |
+
+With section 108's video encoding added back (0.44 s / 0.96 s) Sharplight takes 8.9 s against PyTorch's 10.1 s at 480p (0.88 ×) and
+24.8 s against 35.3 s at 720p (0.70 ×; PyTorch has to offload there). The VAE is now as fast as PyTorch's at 480p: the encoder 2.1 s
+against 1.8 s, the decoder 5.2 s against PyTorch's 4.2 s plus its 2.2 s of colour fix on the CPU (Sharplight's colour fix runs on the
+GPU, inside the decode time).
+
+Image-generation VAE decoders at 1024 × 1024 (`ConvBench --vae`, one image, median of 5; the convolutions' share from the per-kernel
+profile of one more run):
+
+| decoder | CUDA before | CUDA after | Vulkan before | Vulkan after | convolutions + staging (CUDA / Vulkan) |
+|---|---|---|---|---|---|
+| SDXL (diffusers, f16 weights) | 694 ms | **592 ms** | 979 ms | **858 ms** | 229 → 127 ms / 243 → 122 ms |
+| FLUX.1-schnell (`vae`) | 694 ms | **589 ms** | 978 ms | **861 ms** | 229 → 127 ms / 244 → 122 ms |
+
+The rest of these decoders is the mid-block's single-head attention over 16,384 tokens with head size 512 (`attention main`: 413 ms on
+CUDA, 683 ms on Vulkan, 1-2 TFLOPS), which no flash kernel takes at that head size: the next item for every SD-family VAE.
+
+### 110.5 Correctness
+
+* SeedVR2 3B against the official bf16 run `fox-480p-cuda-bf16` (17 frames, its input frames and noise, `raw/3b-parity-*.log`), worst /
+  mean frame: CUDA 49.02 / 49.73 dB before, **48.89 / 49.52 dB** after; Vulkan 48.90 / 49.47 before, **48.92 / 49.39 dB** after.
+  Sharplight in strict f32 is 48.87 dB from the same reference (the bf16 reference limits it); reduced precision before and after are
+  57.8 / 57.5 dB worst frame from the strict run (untimed check), the same distance.
+* VAE decoders against the same decoder with f32 products (`--check`): FLUX.1 88.6 → 88.5 dB, SD 1.5 79.2 dB (512 px). SDXL's VAE
+  overflows f16 (11.2 dB before and after; the known property of that checkpoint, which `sdxl-vae-fp16-fix` exists for): unchanged by
+  this round, a bf16 or f32 activation choice for such a model would be the fix.
+* Tests: `ConvChannelsLastTests` (Vulkan suite, also run with `SHARPLIGHT_TEST_PROVIDER=cuda`): 16 cases against the f32 CPU oracle at
+  2e-2 + 1e-2 · |ref| (f16) and 8e-2 + 4e-2 · |ref| (bf16, f16 matrices off): partial tiles, groups, stride 2, dilation 2, no padding,
+  1x1 / 5x5, 24 channels (k groups crossing taps), K splits, two images, a concatenated input with a cast part and a fused residual
+  add + SiLU, stacked frame windows of 1- and 2-frame pieces (in place, from the frames' copy, with cached f16 frames), row bands of
+  windows, an f16 input; each asserts that the channels-last kernel ran. `ConvChannelsLastCudaTests` (CUDA suite): f16 and bf16
+  against the CPU. The existing `ConvMatrixTests` (reduced-precision cases now on `conv_cl`), `ConvTests`, `ConvEpilogueTests` pass on
+  both providers.
+
+### 110.6 Not done
+
+* Producers writing channels-last f16 directly (group norm + SiLU before a convolution), which would remove the remaining staging.
+* The SD-family VAE attention at head size 512 (see §110.4).
+* A bf16 activation choice for checkpoints that overflow f16 (SDXL's VAE).
+
+## 111. MoE offload round 7: streamed prefill copies only the selected experts; a stale resident copy fixed (2026-11-25)
+
+Branch `perf/offload-r1` (base `develop` at `3705851f`, §107). Same machine, files and procedure as §107 SS.2 (`bench/same_stat_offload.sh`:
+llama-bench's statistic, mean ± sd of 5 runs, pp512 from an empty cache and tg64 at depth 512, one warm-up; llama.cpp b11177 `-ngl 99
+-ncmoe N -fa 1 -t 10`, gpt-oss-120b with `-lm none`, from the local-disk copy of the 63 GB file). Two rounds per model on CUDA (A: Sharplight
+first, B: llama.cpp first), one on Vulkan, each in its own GPU-lock hold started only when no other process used the GPU, the 1-minute load
+was below 8 and the other jobs held under 12 GB of memory (`quiet.sh` in the raw results). Sharplight drew its 512-token prompt from the
+whole vocabulary as llama-bench does (`SHARPLIGHT_BENCH_PROMPT=vocab`, new): the experts a prompt selects depend on its tokens, and with this
+round's change the prefill cost does too. "Before" rows are the same build with `SHARPLIGHT_STREAM_SELECTED_EXPERTS=0` (switch removed in 0.3) (whole-bank copies,
+the old behaviour), measured in the same holds. Raw output in [`bench/results/offload-r1/`](../bench/results/offload-r1) (`rounds/`, the
+diagnostics in `diag/`); driver `bench/offload_selected_experts.sh`.
+
+### OFF.1 Where gpt-oss-120b's prefill went
+
+A 512-token prefill with 20 expert layers on the CPU streams each layer's experts to the GPU (§59) and waits for the copies: 1.70 GB per
+layer, 34 GB per pass, at most 28 GB/s over this PCIe 4 link (`cudaMemcpy` from page-locked memory, measured), and only 13-14 of the 20
+layers page-locked within the default budget (half the process memory: 31 GB of a 62 GB cgroup); the other 6-7 went through staging at
+11-15 GB/s (110-160 ms per layer). The GPU's work per layer is ~1 ms. llama.cpp's 637 tok/s (0.80 s for 22 CPU layers, 37 GB) is not
+possible with whole layers over this bus: its scheduler copies only the experts the batch's ids select (`sched_copy_experts`), and a
+512-token prompt over 128 experts of top 4 selects 30-118 of them per layer (`diag/gpt-oss_stream_selected.txt`: 107, 93, 104, ... 33,
+40, 51; later layers fewer). Our streamed passes copied every expert.
+
+### OFF.2 Changes
+
+* **Streamed passes copy only the selected experts** (`IStreamedSegment.StreamsSelectedExperts` / `BeginStreaming(ids)`, CUDA and Vulkan):
+  the banks of the segment's `MatMulId`s indexed by its one ids input (`StreamedExpertBanks`) are copied as runs of consecutive selected
+  experts at their places in the bank; page-locked banks as batched asynchronous copies, the others through staging (`CudaWeightUploader`
+  takes byte ranges now; Vulkan `WeightUploader.UploadRange`); per-expert tables (biases) and other weights whole. `CompiledModel` starts
+  such a copy once the segment before it produced the ids (they are on the host for the CPU twin anyway) instead of while that segment runs;
+  the last streamed segment of each memory stays whole (it remains resident for decode); a segment whose last selection at that row count
+  chose at least 90 % of its experts goes back to whole copies started ahead (re-checked every 8 passes). Keyed on op (expert products over
+  a mapped bank in the stored layout), the pass's ids and its row count; `SHARPLIGHT_STREAM_SELECTED_EXPERTS=0` (switch removed in 0.3) copies every expert.
+* **The resident segment gets the page-locked sources first**: the streamed compilations compile the last segment of each memory first
+  (it is copied whole at every pass), so where the lock budget runs out the selected-expert copies take the staging (gpt-oss-120b CUDA
+  531 / 541 → 544 / 545 tok/s). The memories are now fixed by the plan, not by the order compilations succeed in.
+* **Bug fix, a stale resident copy**: the last streamed segment of each memory is copied in at load; the first streaming pass copies the
+  layers before it over that memory, and the resident segment, whose load-time copy no execution had consumed, did not copy again: the
+  first long prompt (32+ rows) after a load ran that layer's experts with the previous layer's weights, and decode kept them until the next
+  streaming pass (since §59; later prompts were right, so the timed bench passes were not affected, but `-p` with a long prompt and a
+  server's first long prompt were). `WeightsResident = false` now drops such a copy (Vulkan waits for it first). The new
+  `StreamedExpertsTests.StreamedSelectedExpertsMatchTheGpu` failed by 5e-3 on both providers with or without selected copies before the fix
+  and is bit-identical to the GPU-only compilation after it.
+
+### OFF.3 Results against llama.cpp (tok/s, mean ± sd of 5 runs; rounds A / B)
+
+| model, provider | llama.cpp | Sharplight prefill before | **prefill now** | llama.cpp pp512 | **prefill ratio** (before) | Sharplight decode | llama.cpp tg64 @ d512 | **decode ratio** |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| gpt-oss-120b MXFP4, CUDA | `-ncmoe 22 -lm none` | 302.2 ± 6.9 / 299.3 ± 6.5 | 543.7 ± 8.6 / 544.7 ± 9.5 | 642.2 ± 14.8 / 638.1 ± 17.8 | **0.85** (0.47) | 51.1 ± 3.9 / 49.9 ± 3.9 | 47.7 ± 0.5 / 47.7 ± 0.8 | **1.06** |
+| same, all CPU experts page-locked (`SHARPLIGHT_LIMIT_PINNED_HOST_MEMORY=40G`, as llama.cpp's pinned host buffer) | | | 613.1 ± 4.2 (A) | | **0.96** | 50.3 ± 4.9 | | 1.06 |
+| gpt-oss-120b MXFP4, Vulkan | `-ncmoe 22 -lm none` | 289.8 ± 61.5 | 441.8 ± 10.8 | 548.5 ± 7.0 | **0.81** (0.53) | 46.2 ± 4.6 | 38.9 ± 1.2 | **1.19** |
+| Qwen3-Coder-Next Q4_K_M, CUDA | `-ncmoe 16` | 662.8 ± 10.2 / 661.6 ± 14.6 | 925.1 ± 21.4 / 926.6 ± 21.0 | 585.8 ± 10.2 / 572.5 ± 21.0 | **1.60** (1.14) | 97.8 ± 7.6 / 92.0 ± 6.1 | 95.8 ± 2.2 / 95.8 ± 1.9 | **0.99** (1.02 / 0.96) |
+| Qwen3-Coder-Next Q4_K_M, Vulkan | `-ncmoe 16` | 531.3 ± 20.5 | 609.1 ± 12.5 | 380.5 ± 3.8 | **1.60** (1.40) | 86.2 ± 7.4 | 57.9 ± 1.6 | **1.49** |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | `-ncmoe 6` | (§107: 1001.9-1005.0) | 1077.4 ± 0.6 / 1072.8 ± 0.4 | 992.2 ± 39.2 / 974.1 ± 53.7 | **1.09** (1.02) | 74.1 ± 2.3 / 73.0 ± 1.2 | 73.2 ± 1.0 / 70.5 ± 1.5 | **1.02** |
+
+* gpt-oss-120b CUDA prefill 0.47x → **0.85x** with the default lock budget, **0.96x** with the CPU experts page-locked as llama.cpp's
+  `-lm none` keeps them (in a pinned host buffer, 37 GB). The rest of the gap with the default budget is the staged layers (`diag/
+  gpt-oss_stream_selected_resident-first.txt`: 7 layers at 20-44 ms of host-thread copies); a larger default budget was not changed (the pod's
+  memory is shared, and the 40 GB run is the configuration llama.cpp uses). Decode is unchanged by this round (1.06x).
+* The prompt distribution barely moves the selection here: our earlier prompt (ids 1000-49999) selected 103, 93, 102, 102, ... 30 experts
+  per layer (`diag/gpt-oss_stream_selected.txt`), llama-bench's uniform draw over the 201088-token vocabulary 107, 93, 104, 90, ... 34
+  (`diag/gpt-oss_stream_selected_resident-first.txt`); the latter is the comparison here.
+* Qwen3-Coder-Next (512 experts of top 10) gains as much: a 512-token prompt selects far fewer than its 512 experts per layer. The
+  Qwen3.5-122B's 256 experts of top 8 gain 7 %.
+* Page faults inside the timed phases (`sample_faults.sh`): 0-14 for Coder-Next and the 122B, 725-1480 (134-148 MB read) for gpt-oss with
+  the default budget, 12 with everything locked; llama.cpp's estimated windows include its `-lm none` loading.
+
+### OFF.4 Qwen3-Coder-Next decode: the slow first run (not fixed)
+
+Our first of five decode runs is still 75-88 tok/s against 95-103 for runs 3-5 (OFF.3: 84.5, 98.4, 100.7, 102.8, 102.4), so our mean is at
+parity (0.96-1.02x per round) where runs 3-5 lead by ~5 %. What it is and is not (`diag/coder-next_first-run_*.txt`, fixed split share
+`SHARPLIGHT_SPARSE_GPU_SLOTS=1` unless noted):
+
+* It is the CPU expert passes: run 0's CPU share of a split layer takes 1.2-1.5 ms against 0.3 ms from run 1 on in the disturbed run that
+  showed it most clearly, the GPU's ms per step are identical in every run (4.33), the first ~15 steps of run 0 are the slowest (~15 ms
+  against ~10) and the runs improve over about 120 steps (run 1 is still a little slow). Process CPU time per step falls from 123 to 79 ms.
+* It is not the split balance (§66: a fixed share shows it as much), the JIT (`DOTNET_TieredCompilation=0`, `DOTNET_TieredPGO=0`), the GC
+  (`DOTNET_GCgen0size=256 MiB`), page faults (0-30 minor faults per step, no major ones), the CPU clocks of the workers' cores (3.5-3.8 GHz in
+  every run), the workers' spin time (`SHARPLIGHT_CPU_SPIN_US=0` / `2000`) or 4 KiB pages (CPU expert banks copied to transparent huge
+  pages: 93 against 88 tok/s on average, the same first-run pattern; not kept).
+* It follows CPU idle time: a 3 s pause before every run makes every run slow (72 tok/s on average), and run 0 follows the 2-5 s of GPU-only
+  prefills. A machine-level state of the cores the workers run on (caches and page-walk caches refilled by other jobs on this shared pod,
+  where the cgroup is throttled in 13 % of all periods) is the likely cause; llama.cpp's workers poll continuously during its runs. Left open.
+
+### OFF.5 Gemma 4 31B single-sequence decode on CUDA (0.98x, not changed)
+
+The GPU work per token is at parity. Our per-launch profile (`diag/gemma4-31b_sharplight_profile.txt`) and llama.cpp's kernels with CUDA
+graph nodes traced (`nsys --cuda-graph-trace=node`, `diag/gemma4-31b_llama_kernels.csv`): Q4_K products 20.3 ms per token on both, Q6_K
+4.4 against 4.2 ms, norms, rope and attention 2.7 against ~4.8 ms (llama.cpp's many small kernels inflated by the tracing). Our device time
+per step is 25.6-25.7 ms (`GPU ms/step` median, depth 512) against llama.cpp's 25.68 ms wall per step (§107); window-sized caches cost
+nothing here (25.71 against 25.98 ms with `window_kv` disabled). The 0.5 ms between our mean step and our device time is the host side of a
+step (the 262144-float logits copy, sampling, graph launch), the remaining 2 %; no generic GPU cause, nothing changed.
+
+### OFF.6 Tests and text
+
+| suite | result |
+|---|---|
+| Sharplight.Core.Tests | 1676 / 0 failed / 332 skipped |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StreamedExperts (new StreamedSelectedExpertsMatchTheGpu), Moe, StateHandoff | 9 + 129 + 1 / 0 failed each |
+| Sharplight.Cuda.Tests | 94 / 0 failed / 1 skipped |
+| Greedy text, 80-token prompt (streamed prefill) + 32 tokens, `--cpu-offload`, selected-expert copies against whole copies: gpt-oss-120b and Qwen3-Coder-Next, CUDA and Vulkan | identical (gpt-oss CUDA = Vulkan); before the stale-copy fix the gpt-oss texts differed between the two modes, both using a wrong layer |
+
+### OFF.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i> LLAMA_ROOT=... MODELS=~/models/gguf OSS=<local copy>/gpt-oss-120b-MXFP4.gguf
+bench/offload_selected_experts.sh out A sl-first oss oss-before oss-pin cn cn-before q122
+bench/offload_selected_experts.sh out B llama-first oss cn q122 oss-before cn-before
+bench/offload_selected_experts.sh out A sl-first oss-vk oss-vk-before cn-vk cn-vk-before
+python3 bench/same_stat_summarize_offload.py out
+SHARPLIGHT_LOAD_TIMING=1 SHARPLIGHT_BENCH_PROMPT=vocab sharplight $OSS --provider cuda --cpu-offload --bench 512   # [stream] lines: experts selected per layer
+```
+
+## 112. A bf16 activation fallback for components that overflow f16: SDXL's VAE decoder under reduced precision 11.2 → 67.8 dB at the same speed; FLUX.1 / SD 1.5 keep f16 (2026-11-25)
+
+Branch `perf/vae-bf16` (`develop` at `d7498b57`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB), shared with other
+rounds: every timing run held the bench lock. Raw output in [`bench/results/vae-bf16/`](../bench/results/vae-bf16) (`run-vae.sh`;
+`raw/`).
+
+### BF16.1 Cause
+
+Under reduced precision the convolutions stage their f32 inputs as f16 (`conv_cl`, §110). SDXL's VAE decoder has activations past
+f16's largest value (65504) at large sizes: one convolution input late in the decoder (`conv_109`) reaches 4.3e4 for unit
+Gaussian latents at 1024 × 1024 and 1.4e5 for the uniform latents in [-1, 1] the benchmark decodes (strict measurement), so the staged
+values become infinite and the image is lost (11.2 dB from the f32 decode in §110.5). At 256 × 256 the same decoder is still fine (81.9 dB): the magnitudes grow with the
+image size and depend on the latents. The other VAEs stay far below (FLUX.1 ≤ 1.1e3, SD 1.5 ≤ 6e2 at any size measured).
+
+### BF16.2 Changes
+
+* **`CompileOptions.ActivationPrecision`** (new, Core): `Half` (default) or `BFloat16`, the 16-bit format reduced precision gives the
+  activations entering products. Under `BFloat16` `conv_cl` and `conv_cm` take their bf16 forms where the device has bf16 matrix
+  products, and every other kernel that would convert f32 activations to f16 (f32-weight GEMMs, attention, MoE, delta chunks) keeps
+  its strict form; without bf16 matrices that is f32 everywhere. CPU compilations ignore it.
+* **`ActivationRangeProbe`** (new, Core): instruments a graph with a per-row max |x| of every activation read by a matrix product,
+  convolution or attention (extra outputs, the graph's nodes shared) and reads the largest after one run; `ActivationRange.FitsHalf`
+  holds while it stays under 1/16 of f16's largest value (4094), a margin for larger sizes and other inputs.
+* **`TaskModel.CalibrateActivationPrecision`** (new): measures a component graph once (strict products, at the caller's sizes, with
+  the caller's input), decides its precision for every later compilation of that graph name, and records the measured range in the
+  model's compilation artifacts (`ExportCompilation` / `ModelPackage.AddArtifacts` store it in a `.slm`; a load reads it instead of
+  measuring). Skipped, `Half`, when reduced precision is off or no device multiplies f16 matrices.
+* **Image generation**: `LatentDiffusionGenerator` calibrates each VAE graph (decode, encode) before compiling it the first time, at
+  256 × 256 pixels with unit Gaussian latents (pixels uniform in [0, 1] for the encoder). Nothing names a model.
+
+### BF16.3 Results
+
+`bench/ConvBench --vae <model> --size N --runs 5 --check`, median of 5 after one warm-up; "half" is `--activations half` (f16, the
+previous behaviour), "auto" measures first as the generator does; PSNR against the same decoder with f32 products (images in [-1, 1]).
+
+| decoder | provider | half: time | half: PSNR | auto: precision | auto: time | auto: PSNR | measuring |
+|---|---|---|---|---|---|---|---|
+| SDXL (diffusers) 1024² | CUDA | 588.2 ms | 11.2 dB | bf16 (2.0e4) | **585.7 ms** | **67.8 dB** | 0.86 s |
+| SDXL (diffusers) 1024² | Vulkan | 853.1 ms | 11.2 dB | bf16 (2.0e4) | **853.5 ms** | **67.9 dB** | 1.08 s |
+| FLUX.1-schnell 1024² | CUDA | 586.8 ms | 88.5 dB | f16 (1.0e3) | 587.7 ms | 88.5 dB | 4.45 s |
+| FLUX.1-schnell 1024² | Vulkan | 856.0 ms | 88.5 dB | f16 (1.0e3) | 858.2 ms | 88.5 dB | 1.07 s |
+| SD 1.5 512² | CUDA | 66.7 ms | 79.2 dB | f16 (3.6e2) | 66.4 ms | 79.2 dB | 3.84 s |
+| SD 1.5 512² | Vulkan | 83.0 ms | 79.1 dB | f16 (3.6e2) | 83.1 ms | 79.1 dB | 1.22 s |
+
+* SDXL's decoder with bf16 activations takes the time of the f16 one (`conv_cl`'s bf16 and f16 forms run at the same rate on this
+  GPU) and lands at 67.8 / 67.9 dB, well above the 40 dB target; what remains is the bf16 rounding (8 significant bits) of the
+  activations. The other two decoders are not flagged and run as before (differences within the run-to-run spread).
+* "measuring" is the calibration (rebuild at 256 × 256, compile of the instrumented graph with strict products, one run), once per
+  process and graph; with a cold kernel cache it took up to 30 s the first time on this machine (new kernel shapes), 0.9-4.5 s after.
+  A package that stores the measured range skips it.
+* Probe size: SDXL's flagged value grows with the image (2.0e4 at 128-256 px, 2.9e4 at 512, 4.3e4 at 1024 for Gaussian latents; 4.9e4
+  and 1.4e5 for uniform latents at 256 and 1024), while FLUX.1's stays at 1.0-1.1e3 and SD 1.5's at 2.7-6.0e2 at every size
+  (`raw/probe-sizes.txt`). The f16-safe limit of 4094 sits between the two groups with a factor 4-5 on either side, so a 256 × 256
+  probe separates them.
+
+### BF16.4 Tests
+
+* `ActivationPrecisionTests` (Vulkan suite, also with `SHARPLIGHT_TEST_PROVIDER=cuda`): a conv → × 2e5 → conv → × 5e-6 stack is
+  flagged (location: the scaled value) and with bf16 activations matches the f32 CPU oracle at the bf16 tolerance, while f16
+  activations give non-finite or far-off output; the same stack at × 4 is not flagged.
+* `VaeActivationPrecisionTests` (ImageGeneration suite): SDXL's decoder calibrates to `BFloat16`, SD 1.5's and FLUX.1-schnell's to
+  `Half`; SDXL then decodes the diffusers reference latents under reduced precision within 2e-2 relative RMS of the diffusers image.

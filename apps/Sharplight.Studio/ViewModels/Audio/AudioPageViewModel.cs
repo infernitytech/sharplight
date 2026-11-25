@@ -478,15 +478,15 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
                         NegativePrompt = negative.Length == 0 ? null : negative,
                         Duration = settings.Generation.Duration > lease.Client.MaxDuration ? lease.Client.MaxDuration : settings.Generation.Duration,
                     };
-                    var progress = new Progress<(int Step, int Steps)>(p => context.Report((double)p.Step / p.Steps, "Generating"));
                     context.Report(null, "Generating");
-                    music = await lease.Client.GenerateAsync(request, progress, context.CancellationToken).ConfigureAwait(false);
+                    music = await GenerateAsync(lease.Client.GenerateStreamingAsync(request, settings.GenerationOptions, context.CancellationToken), context).ConfigureAwait(false);
                 }
                 else
                 {
                     using var lease = await model.AcquireClientAsync<IMusicGenerator>(context.CancellationToken).ConfigureAwait(false);
                     context.Report(null, "Generating");
-                    music = await lease.Client.GenerateAsync(settings.Music with { Prompt = prompt, Duration = TimeSpan.FromSeconds(Math.Min(30, settings.Music.Duration.TotalSeconds)) }, context.CancellationToken).ConfigureAwait(false);
+                    var request = settings.Music with { Prompt = prompt, Duration = TimeSpan.FromSeconds(Math.Min(30, settings.Music.Duration.TotalSeconds)) };
+                    music = await GenerateAsync(lease.Client.GenerateStreamingAsync(request, settings.MusicOptions, context.CancellationToken), context).ConfigureAwait(false);
                 }
 
                 using var stored = new MemoryStream();
@@ -861,6 +861,9 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             {
                 Prompt = "",
                 Duration = TimeSpan.FromSeconds(panel.GetNumber("duration")),
+            },
+            new MusicGenerationOptions
+            {
                 GuidanceScale = (float)panel.GetNumber("guidance"),
                 Greedy = panel.GetBool("greedy"),
                 Seed = panel.GetInt("seed") < 0 ? null : panel.GetInt("seed"),
@@ -871,11 +874,31 @@ internal sealed partial class AudioPageViewModel : InferencePageViewModel
             {
                 Prompt = "",
                 Duration = TimeSpan.FromSeconds(panel.GetNumber("duration")),
+                Language = panel.GetChoice("musiclanguage") is { Length: > 0 } musicLanguage ? musicLanguage : null,
+            },
+            new AudioGenerationOptions
+            {
                 Seed = panel.GetInt("seed") < 0 ? null : panel.GetInt("seed"),
                 Steps = panel.GetInt("musicsteps") is > 0 and var musicSteps ? musicSteps : null,
                 Shift = panel.GetNumber("shift") > 0 ? (float)panel.GetNumber("shift") : null,
-                Language = panel.GetChoice("musiclanguage") is { Length: > 0 } musicLanguage ? musicLanguage : null,
                 GuidanceScale = panel.Parameters.First(candidate => candidate.Key == "guidance").IsVisibleNow ? (float)panel.GetNumber("guidance") : null,
             }), presets);
+    }
+
+    /// <summary>Runs a generation, reporting its steps, and returns its audio.</summary>
+    private static async Task<AudioBuffer> GenerateAsync(IAsyncEnumerable<AudioGenerationUpdate> updates, RunContext context)
+    {
+        AudioGenerationResult? result = null;
+        await foreach (var update in updates.ConfigureAwait(false))
+        {
+            if (update.TotalSteps > 0)
+            {
+                context.Report((double)update.Step / update.TotalSteps, "Generating");
+            }
+
+            result = update.Result ?? result;
+        }
+
+        return (result ?? throw new InvalidOperationException("The generation ended without a result.")).Audio;
     }
 }

@@ -26,10 +26,9 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     /// <summary>Lowering and SPIR-V generation for this device's profile.</summary>
     internal readonly SpirvCodeGenerator Code;
     /// <summary>
-    /// Queue family of the transfer-only queue that downloads large outputs (the copy engines), or -1 when the device has none or
-    /// <c>SHARPLIGHT_VK_TRANSFER_QUEUE=0</c>. On the NVIDIA driver measured, vkCmdCopyBuffer from device memory into host memory on
-    /// the compute queue moved about 4.3 GB/s, on the transfer queue about 26 GB/s (segformer-b0 at batch 8 returns 79 MB:
-    /// 18 ms against 3 ms).
+    /// Queue family of the transfer-only queue that downloads large outputs (the copy engines), or -1 when the device has none. On the
+    /// NVIDIA driver measured, vkCmdCopyBuffer from device memory into host memory on the compute queue moved about 4.3 GB/s, on the
+    /// transfer queue about 26 GB/s (segformer-b0 at batch 8 returns 79 MB: 18 ms against 3 ms).
     /// </summary>
     internal readonly int TransferFamily;
     /// <summary>The transfer queue of <see cref="TransferFamily"/> (null handle when there is none).</summary>
@@ -162,8 +161,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
         ArtifactStore = ArtifactStore.For(options);
         Code = new SpirvCodeGenerator((int)phys.SubgroupSize, phys.MaxSharedMemory, EnabledFeatures,
-            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options),
-            SpirvCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options),
+            options.ResolveSubmissionBudgetMs(info.SubmissionBudgetMs),
+            options.ResolveConcurrentWorkgroups(info.ConcurrentWorkgroups),
             SpirvCodeGenerator.ComputeUnitsOf(info.Capabilities));
         _kernelBinaries = phys.PipelineBinaries && !phys.PrefersInternalPipelineCache
             && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
@@ -173,7 +172,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         var computeFamily = QueueFamilyProperties(inst.Api, phys)[QueueFamily];
         Timestamps = computeFamily.timestampValidBits > 0;
         SparseBinding = phys.SparseBinding && (computeFamily.queueFlags & VkQueueFlags.SparseBinding) != 0;
-        TransferFamily = DiagnosticSwitches.TransferQueue ? SelectTransferQueueFamily(inst.Api, phys) : -1;
+        TransferFamily = SelectTransferQueueFamily(inst.Api, phys);
         SharingFamilies = TransferFamily >= 0 ? [QueueFamily, (uint)TransferFamily] : [];
         var device = CreateLogicalDevice(inst.Api, out _budgetExt, out _pipelineStats, out bool hostImport);
         Handle = device;

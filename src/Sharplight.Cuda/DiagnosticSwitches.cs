@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Sharplight.Cuda;
 
 /// <summary>
@@ -32,18 +30,6 @@ internal static class DiagnosticSwitches
     public static string? MinBlocks { get; } = Read("SHARPLIGHT_CUDA_MIN_BLOCKS");
 
     /// <summary>
-    /// <c>SHARPLIGHT_CUDA_PDL_TRIGGER=0</c>: kernels compiled for dependent launches only wait for the previous launch at their entry and
-    /// do not let the next launch start early (<c>griddepcontrol.launch_dependents</c>); it then starts when this kernel's blocks exit.
-    /// </summary>
-    public static bool DependentTrigger { get; } = Read("SHARPLIGHT_CUDA_PDL_TRIGGER") != "0";
-
-    /// <summary>
-    /// <c>SHARPLIGHT_CUDA_PDL_SHARED=any</c>: kernels are launched as programmatic dependents whatever shared memory they need against the
-    /// previous kernel (the rule before benchmarks.md section 99; comparisons).
-    /// </summary>
-    public static bool DependentAnyShared { get; } = Read("SHARPLIGHT_CUDA_PDL_SHARED") == "any";
-
-    /// <summary>
     /// <c>SHARPLIGHT_CUDA_PDL_SHARED_FLOOR=bytes</c>: the shared memory per multiprocessor a dependent may always need, whatever the previous
     /// kernel's share (see CudaSegment's dependent rule), or null for the default (twice the driver's reservation per block).
     /// </summary>
@@ -65,22 +51,6 @@ internal static class DiagnosticSwitches
     /// (<c>if:a|b</c>: one of the texts).
     /// </summary>
     public static string? NvrtcSass { get; } = Read("SHARPLIGHT_CUDA_NVRTC_SASS");
-
-    public static bool DeviceForwarding { get; } = Read("SHARPLIGHT_DEVICE_FORWARDING") is not ("0" or "false");
-
-    /// <summary>The submission budget in milliseconds from the device setting or the environment, or null when unset or malformed.</summary>
-    public static double? SubmissionBudgetMs(string? deviceSetting)
-    {
-        string? text = deviceSetting ?? Read("SHARPLIGHT_SUBMISSION_BUDGET_MS");
-        return text is not null && double.TryParse(text, CultureInfo.InvariantCulture, out double ms) ? ms : null;
-    }
-
-    /// <summary>The concurrent-workgroup hint from the device setting or the environment, or null when unset or malformed.</summary>
-    public static int? ConcurrentWorkgroups(string? deviceSetting)
-    {
-        string? text = deviceSetting ?? Read("SHARPLIGHT_CONCURRENT_WORKGROUPS");
-        return text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int workgroups) ? workgroups : null;
-    }
 
     private static string? Read(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value ? value : null;
 

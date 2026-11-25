@@ -7,7 +7,7 @@ namespace Sharplight.VideoEnhancement;
 /// <param name="Phase">What is running.</param>
 /// <param name="Batch">The batch of frames the update belongs to (0-based).</param>
 /// <param name="TotalBatches">Batches in the request.</param>
-/// <param name="Frames">The finished frames of the batch, in order, on the <see cref="VideoEnhancementPhase.Decoding"/> update that ends its decoding; otherwise <see langword="null"/>.</param>
 /// <param name="Result">The whole result on the last update; <see langword="null"/> before.</param>
-public sealed record VideoEnhancementUpdate(VideoEnhancementPhase Phase, int Batch, int TotalBatches, IReadOnlyList<Vision.ImageInput>? Frames = null,
-    VideoEnhancementResult? Result = null);
+/// <param name="Frames">The finished frames of the batch, in order, on the <see cref="VideoEnhancementPhase.Decoding"/> update that ends its decoding; otherwise <see langword="null"/>.</param>
+public sealed record VideoEnhancementUpdate(VideoEnhancementPhase Phase, int Batch, int TotalBatches, VideoEnhancementResult? Result = null,
+    IReadOnlyList<Vision.ImageInput>? Frames = null);

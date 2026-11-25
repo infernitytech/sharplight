@@ -8,8 +8,7 @@ namespace Sharplight.Cpu;
 /// </summary>
 /// <remarks>
 /// Diagnostic environment switches: <c>SHARPLIGHT_CPU_THREADS</c> (initial degree of parallelism, default: logical
-/// processors), <c>SHARPLIGHT_CPU_SPIN_US</c> (how long idle workers spin before blocking, default 200 µs) and
-/// <c>SHARPLIGHT_CPU_POOL=0</c> (always use <see cref="Parallel"/>, for comparisons).
+/// processors) and <c>SHARPLIGHT_CPU_SPIN_US</c> (how long idle workers spin before blocking, default 200 µs).
 /// </remarks>
 internal static class CpuParallel
 {
@@ -48,7 +47,7 @@ internal static class CpuParallel
             return;
         }
 
-        if (DiagnosticSwitches.UsePool && Interlocked.CompareExchange(ref s_busy, 1, 0) == 0)
+        if (Interlocked.CompareExchange(ref s_busy, 1, 0) == 0)
         {
             try
             {

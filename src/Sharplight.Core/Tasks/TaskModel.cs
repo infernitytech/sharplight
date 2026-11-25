@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -31,7 +32,9 @@ namespace Sharplight.Tasks;
 public sealed class TaskModel : IDisposable
 {
     private const long DefaultReserve = 1L << 30;
+    private const string ActivationRangeKeyPrefix = "activation-range|";
     private readonly ConcurrentDictionary<string, Lazy<ModelDefinition>> _variants = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<ActivationPrecision>> _activationPrecisions = new(StringComparer.Ordinal);
     private bool _disposed;
 
     internal TaskModel(ModelDefinition definition, ModelSource source, TaskLoadOptions options, ArchitectureCatalog architectures)
@@ -100,7 +103,8 @@ public sealed class TaskModel : IDisposable
 
         var stopwatch = Stopwatch.StartNew();
         var adapter = options.ContextLength > 0 && options.Adapter.ContextLength == 0 ? options.Adapter.WithContext(options.ContextLength) : options.Adapter;
-        var (definition, source) = loader.Load(options.ModelPath, options.Auxiliary, adapter, options.Progress, options.Log, cancellationToken);
+        var (definition, source) = loader.Load(options.ModelPath, options.Auxiliary, adapter, options.Progress, options.Log, cancellationToken,
+            HalfPrecisionMatrices.Enabled(options.HalfPrecisionMatrices, options.Devices) ? HalfPrecisionMatrices.Transform : null);
         var model = new TaskModel(definition, source, options, loader.Architectures);
         options.Log?.Invoke($"Loaded {definition.Name} ({definition.Architecture}, {model.Description.Kind}, components "
             + $"{string.Join(", ", model.Description.Components.Select(c => c.Role))}): {definition.Weights.Count} tensors, "
@@ -196,6 +200,97 @@ public sealed class TaskModel : IDisposable
     /// <exception cref="KeyNotFoundException">The component does not exist or has no such graph.</exception>
     public CompiledModel CompileComponent(string role, string? graph, IReadOnlyDictionary<string, long>? symbolBounds,
         IReadOnlyDictionary<string, long>? dimensions)
+        => CompileComponent(role, ResolveComponentGraph(role, graph, dimensions), symbolBounds);
+
+    /// <summary>
+    /// The activation precision (<see cref="CompileOptions.ActivationPrecision"/>) every later compilation of a component graph uses,
+    /// decided once per graph name: <see cref="ActivationPrecision.BFloat16"/> when the graph's activations exceed f16's safe range
+    /// (<see cref="ActivationRange.FitsHalf"/>), measured by one run of the graph instrumented with <see cref="ActivationRangeProbe"/>,
+    /// otherwise <see cref="ActivationPrecision.Half"/>. Nothing is measured, and the result is <see cref="ActivationPrecision.Half"/>,
+    /// when <see cref="TaskLoadOptions.AllowReducedPrecision"/> is off or no configured device multiplies f16 matrices (the CPU). The
+    /// measured range is recorded in the model's compilation artifacts (<see cref="Artifacts"/>, stored with a package by
+    /// <see cref="ExportCompilation"/>) and read from there by later loads. Thread-safe; concurrent callers for one graph share one
+    /// measurement.
+    /// </summary>
+    /// <param name="role">The component role.</param>
+    /// <param name="graph">One of the component's graph names.</param>
+    /// <param name="dimensions">Fixed sizes to measure at (<see cref="DefinitionFor"/>), small ones being cheapest; <see langword="null"/>
+    /// for the built ones.</param>
+    /// <param name="prepare">Sets the inputs and symbols of the measuring run: a small, representative input.</param>
+    /// <returns>The precision the graph's compilations use from now on.</returns>
+    /// <exception cref="KeyNotFoundException">The component does not exist or has no such graph.</exception>
+    public ActivationPrecision CalibrateActivationPrecision(string role, string graph, IReadOnlyDictionary<string, long>? dimensions,
+        Action<CompiledModel, RunParameters> prepare)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(prepare);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!Options.AllowReducedPrecision || !Options.Devices.Any(slot => HasHalfMatrices(slot.Device)))
+        {
+            return ActivationPrecision.Half;
+        }
+
+        return _activationPrecisions.GetOrAdd(graph, _ => new Lazy<ActivationPrecision>(() => MeasureActivationPrecision(role, graph, dimensions, prepare))).Value;
+    }
+
+    private ActivationPrecision MeasureActivationPrecision(string role, string graph, IReadOnlyDictionary<string, long>? dimensions,
+        Action<CompiledModel, RunParameters> prepare)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var instrumented = ActivationRangeProbe.Instrument(ResolveComponentGraph(role, graph, dimensions));
+        string key = ActivationRangeKeyPrefix + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(instrumented.Dump())), 0, 12);
+        var cache = Options.Devices.Select(slot => Artifacts.For(slot.Device)).FirstOrDefault(c => c is not null);
+        ActivationRange range;
+        if (cache is not null && cache.TryGet(key, out var stored) && stored.Length == sizeof(float))
+        {
+            range = new ActivationRange(BitConverter.ToSingle(stored.Span), Location: null);
+        }
+        else
+        {
+            try
+            {
+                // Strict products: every activation exact, none lost to an earlier overflow.
+                using var compiled = CompileComponent(role, instrumented, symbolBounds: null, allowReducedPrecision: false);
+                var parameters = new RunParameters();
+                prepare(compiled, parameters);
+                compiled.Run(parameters);
+                range = ActivationRangeProbe.Read(compiled, parameters);
+            }
+            catch (InsufficientMemoryException e)
+            {
+                // Not measurable now (the device is full): keep f16 as without the measurement, and measure again next load.
+                Options.Log?.Invoke($"Activation range of '{graph}' not measured: {e.Message}");
+                return ActivationPrecision.Half;
+            }
+
+            cache?.Put(key, BitConverter.GetBytes(range.MaxMagnitude));
+        }
+
+        Options.Log?.Invoke(string.Create(CultureInfo.InvariantCulture,
+            $"Activation range of '{graph}': max |x| {range.MaxMagnitude:G4}{(range.Location is null ? " (stored)" : $" at '{range.Location}'")} -> {range.Precision} activations [{stopwatch.ElapsedMilliseconds} ms]"));
+        return range.Precision;
+    }
+
+    private bool HasHalfMatrices(IComputeDevice device)
+    {
+        var features = DeviceFeatures.Effective(device.EnabledFeatures, Options.CompileDisabledFeatures());
+        return features.Contains(DeviceFeatures.MatrixF16) || features.Contains(DeviceFeatures.MatrixF16Small);
+    }
+
+    private ComputeGraph ResolveComponentGraph(string role, string? graph, IReadOnlyDictionary<string, long>? dimensions)
+    {
+        if (dimensions is null || dimensions.Count == 0)
+        {
+            return ComponentGraph(role, graph);
+        }
+
+        var component = Description.Component(role);
+        string name = (graph is null ? component.Graphs.FirstOrDefault() : component.Graphs.FirstOrDefault(g => g == graph))
+            ?? throw new KeyNotFoundException($"Component '{role}' of {Definition.Name} has no graph{(graph is null ? "" : $" '{graph}'")}.");
+        return DefinitionFor(dimensions).Graph(name);
+    }
+
+    private CompiledModel CompileComponent(string role, ComputeGraph graph, IReadOnlyDictionary<string, long>? symbolBounds, bool? allowReducedPrecision = null)
     {
         var bounds = new Dictionary<string, long>(Description.Component(role).SymbolBounds, StringComparer.Ordinal);
         foreach (var (symbol, bound) in symbolBounds ?? new Dictionary<string, long>())
@@ -205,15 +300,7 @@ public sealed class TaskModel : IDisposable
 
         long? maxTokens = bounds.Remove(WellKnown.TokenSymbol, out long rows) ? rows : null;
         long? contextLength = bounds.Remove(WellKnown.ContextSymbol, out long context) ? context : null;
-        if (dimensions is null || dimensions.Count == 0)
-        {
-            return Compile(ComponentGraph(role, graph), bounds, maxTokens, contextLength);
-        }
-
-        var component = Description.Component(role);
-        string name = (graph is null ? component.Graphs.FirstOrDefault() : component.Graphs.FirstOrDefault(g => g == graph))
-            ?? throw new KeyNotFoundException($"Component '{role}' of {Definition.Name} has no graph{(graph is null ? "" : $" '{graph}'")}.");
-        return Compile(DefinitionFor(dimensions).Graph(name), bounds, maxTokens, contextLength);
+        return Compile(graph, bounds, maxTokens, contextLength, allowReducedPrecision ?? Options.AllowReducedPrecision);
     }
 
     /// <summary>
@@ -265,6 +352,10 @@ public sealed class TaskModel : IDisposable
     /// <param name="maxTokens">Upper bound of the row symbol per run, or <see langword="null"/> for <see cref="TaskLoadOptions.MaxBatchTokens"/>.</param>
     /// <param name="contextLength">Upper bound of the context symbol, or <see langword="null"/> for <see cref="TaskLoadOptions.ContextLength"/>.</param>
     public CompiledModel Compile(ComputeGraph graph, IReadOnlyDictionary<string, long>? symbolBounds = null, long? maxTokens = null, long? contextLength = null)
+        => Compile(graph, symbolBounds, maxTokens, contextLength, Options.AllowReducedPrecision);
+
+    private CompiledModel Compile(ComputeGraph graph, IReadOnlyDictionary<string, long>? symbolBounds, long? maxTokens, long? contextLength,
+        bool allowReducedPrecision)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -280,7 +371,8 @@ public sealed class TaskModel : IDisposable
                 ContextLength = contextLength ?? Options.ContextLength,
                 SymbolBounds = symbolBounds ?? new Dictionary<string, long>(),
                 DisabledFeatures = Options.CompileDisabledFeatures(),
-                AllowReducedPrecision = Options.AllowReducedPrecision,
+                AllowReducedPrecision = allowReducedPrecision,
+                ActivationPrecision = ActivationPrecisionOf(graph.Name),
                 CacheFor = Artifacts.For,
                 Progress = Options.Progress,
                 SharedWeights = SharedWeights,
@@ -291,6 +383,14 @@ public sealed class TaskModel : IDisposable
         Options.Log?.Invoke($"Compiled '{graph.Name}' in {stopwatch.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
         return compiled;
     }
+
+    /// <summary>
+    /// The activation precision compilations of the graph named <paramref name="graph"/> use: what
+    /// <see cref="CalibrateActivationPrecision"/> decided for it, else <see cref="ActivationPrecision.Half"/>.
+    /// </summary>
+    /// <param name="graph">A graph name.</param>
+    public ActivationPrecision ActivationPrecisionOf(string graph)
+        => _activationPrecisions.TryGetValue(graph, out var decided) && decided.IsValueCreated ? decided.Value : ActivationPrecision.Half;
 
     /// <summary>
     /// The artifact sets every compilation of this model recorded, e.g. to store with <c>ModelPackage.AddArtifacts</c> so later loads skip

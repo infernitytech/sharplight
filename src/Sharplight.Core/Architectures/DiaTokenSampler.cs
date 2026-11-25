@@ -1,3 +1,5 @@
+using Sharplight.Llm;
+
 namespace Sharplight.Architectures;
 
 /// <summary>
@@ -34,7 +36,7 @@ internal sealed class DiaTokenSampler
         _settings = settings;
         _delayLeft = [.. delays];
         _finished = new bool[channels];
-        _random = settings.Seed is { } seed ? new Random(seed) : new Random();
+        _random = Tasks.Seeds.CreateRandom(settings.Seed);
         _maxGenerationLength = settings.MaxLength - delays.Max() - 1;
     }
 
@@ -90,7 +92,7 @@ internal sealed class DiaTokenSampler
         }
 
         // The delay pattern: once the first codebook ends, every codebook ends after its own delay.
-        bool first = Argmax(scores.AsSpan(0, _vocabulary)) == _eos;
+        bool first = Sampler.ArgMax(scores.AsSpan(0, _vocabulary)) == _eos;
         _active |= first || length == _maxGenerationLength;
         for (int c = 0; c < _channels; c++)
         {
@@ -117,7 +119,7 @@ internal sealed class DiaTokenSampler
             }
 
             var row = scores.AsSpan(c * _vocabulary, _vocabulary);
-            next[c] = _settings.Temperature > 0f ? Sample(row) : Argmax(row);
+            next[c] = _settings.Temperature > 0f ? Sample(row) : Sampler.ArgMax(row);
             _finished[c] = next[c] == _eos;
         }
 
@@ -163,7 +165,7 @@ internal sealed class DiaTokenSampler
     private void FilterEnd(Span<float> row, int channel)
     {
         row[(channel == 0 ? _eos + 1 : _eos)..].Fill(float.NegativeInfinity);
-        if (Argmax(row) == _eos)
+        if (Sampler.ArgMax(row) == _eos)
         {
             row[.._eos].Fill(float.NegativeInfinity);
         }
@@ -215,23 +217,9 @@ internal sealed class DiaTokenSampler
         return copy[copy.Length - k];
     }
 
-    private static int Argmax(ReadOnlySpan<float> row)
-    {
-        int best = 0;
-        for (int v = 1; v < row.Length; v++)
-        {
-            if (row[v] > row[best])
-            {
-                best = v;
-            }
-        }
-
-        return best;
-    }
-
     private int Sample(ReadOnlySpan<float> row)
     {
-        int best = Argmax(row);
+        int best = Sampler.ArgMax(row);
         double max = row[best];
         double total = 0;
         var probabilities = new double[row.Length];

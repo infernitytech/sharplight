@@ -371,6 +371,11 @@ public sealed partial class GraphLowerer
         }
 
         _halfCopies.Remove(root);
+        foreach (var source in _channelsLastCopies.Keys.Where(source => RootOf(source) == root).ToList())
+        {
+            _channelsLastCopies.Remove(source);
+        }
+
         foreach (var key in _quantizedActivations.Keys.Where(key => key.Root == root).ToList())
         {
             _quantizedActivations.Remove(key);

@@ -1,0 +1,10 @@
+[timings] run 0
+  segment   1 streamed    1.241 ms/run (64 runs), split: 1.00 GPU slots, before the CPU 0.052 ms, CPU 1.174 ms, wait for the GPU 0.007 ms
+  segment   3 streamed    1.592 ms/run (64 runs), split: 1.00 GPU slots, before the CPU 0.051 ms, CPU 1.528 ms, wait for the GPU 0.005 ms
+  segment  36 DiscreteGpu    0.142 ms/run (64 runs), device 3.159 ms, submit 0.132 ms, wait 4.493 ms
+  total 20.763 ms/run
+[timings] run 1
+  segment   1 streamed    0.385 ms/run (64 runs), split: 1.00 GPU slots, before the CPU 0.040 ms, CPU 0.333 ms, wait for the GPU 0.004 ms
+  segment   3 streamed    0.355 ms/run (64 runs), split: 1.00 GPU slots, before the CPU 0.041 ms, CPU 0.304 ms, wait for the GPU 0.004 ms
+  segment  36 DiscreteGpu    0.040 ms/run (64 runs), device 3.101 ms, submit 0.032 ms, wait 3.115 ms
+  total 8.085 ms/run

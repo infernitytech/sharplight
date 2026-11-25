@@ -50,8 +50,8 @@ internal sealed unsafe class MetalDevice : IComputeDevice
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
         ArtifactStore = ArtifactStore.For(options);
         Code = new MetalCodeGenerator(properties.MaxSharedMemory, EnabledFeatures,
-            MetalCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options),
-            MetalCodeGenerator.EffectiveConcurrentWorkgroups(info.ConcurrentWorkgroups, options), 0);
+            options.ResolveSubmissionBudgetMs(info.SubmissionBudgetMs),
+            options.ResolveConcurrentWorkgroups(info.ConcurrentWorkgroups), 0);
         _kernelBinaries = !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.KernelBinaries) && !options.DisabledFeatures.Contains(DeviceFeatures.KernelBinaries);
         ArtifactTargets = _kernelBinaries ? [Code.CreateCodeTarget(info.Provider), CreateArchiveTarget()] : [Code.CreateCodeTarget(info.Provider)];
         _limits = DeviceMemoryLimits.For(options);

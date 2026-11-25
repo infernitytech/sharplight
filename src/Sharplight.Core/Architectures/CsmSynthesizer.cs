@@ -1,6 +1,5 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using Sharplight.Audio;
 using Sharplight.Graph;
 using Sharplight.Llm;
@@ -8,7 +7,6 @@ using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Speech;
 using Sharplight.Tasks;
-using Sharplight.Tensors;
 using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
@@ -448,43 +446,9 @@ internal sealed class CsmSynthesizer : ISpeechSynthesizer
         private float[] ReadHead(int head)
         {
             long count = (long)DepthHidden * _vocabulary;
-            return ReadFloats(_headWeight, head * count, count);
+            return WeightConversions.ReadFloats(_headWeight, head * count, count);
         }
 
-        private static float[] ReadRow(WeightInfo weight, int row, int width) => ReadFloats(weight, (long)row * width, width);
-
-        private static float[] ReadFloats(WeightInfo weight, long first, long count)
-        {
-            var values = new float[count];
-            if (weight.Type == DataType.F32)
-            {
-                weight.Source.Read(first * sizeof(float), MemoryMarshal.AsBytes(values.AsSpan()));
-            }
-            else
-            {
-                var raw = new ushort[count];
-                weight.Source.Read(first * sizeof(ushort), MemoryMarshal.AsBytes(raw.AsSpan()));
-                if (weight.Type == DataType.BF16)
-                {
-                    for (int i = 0; i < raw.Length; i++)
-                    {
-                        values[i] = BitConverter.Int32BitsToSingle(raw[i] << 16);
-                    }
-                }
-                else if (weight.Type == DataType.F16)
-                {
-                    for (int i = 0; i < raw.Length; i++)
-                    {
-                        values[i] = (float)BitConverter.UInt16BitsToHalf(raw[i]);
-                    }
-                }
-                else
-                {
-                    throw new NotSupportedException($"CSM: weight '{weight.Name}' of type {weight.Type} is not supported.");
-                }
-            }
-
-            return values;
-        }
+        private static float[] ReadRow(WeightInfo weight, int row, int width) => WeightConversions.ReadFloats(weight, (long)row * width, width);
     }
 }

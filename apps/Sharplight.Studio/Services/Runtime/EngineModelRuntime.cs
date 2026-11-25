@@ -226,6 +226,10 @@ internal sealed class EngineModelRuntime : IModelRuntime
         => Task.Run(() => _estimator.ExpertActiveShare(request, cancellationToken), cancellationToken);
 
     /// <inheritdoc/>
+    public Task<ModelWeightFormats> DescribeWeightFormatsAsync(ModelLoadRequest request, CancellationToken cancellationToken)
+        => Task.Run(() => _estimator.WeightFormats(request, cancellationToken), cancellationToken);
+
+    /// <inheritdoc/>
     public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken)
     {
         var disabled = new HashSet<string>(disabledFeatures, StringComparer.OrdinalIgnoreCase);
@@ -414,18 +418,20 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return gpus.Count == 0 ? [] : [.. gpus.Where(device => device.Provider == gpus[0].Provider)];
     }
 
-    private RetrievalModelLoader CreateRetrievalLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model, bool reranker)
+    private TaskModelLoader CreateRetrievalLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model, bool reranker)
     {
         var disabled = new HashSet<string>(request.DisabledFeatures, StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<DeviceSlot> slots = device.IsSplit ? SplitSlots(disabled) : [new DeviceSlot { Device = Open(device, disabled) }];
-        PackedModelLoadOptions options = reranker ? new RerankerLoadOptions() : new EmbeddingLoadOptions();
+        var options = new TaskLoadOptions();
+        TextEmbeddingLoadDefaults.Apply(options);
         options.ModelPath = request.Path;
         options.Devices = [.. slots];
         options.DisabledFeatures = disabled;
         options.AllowReducedPrecision = request.Settings.AllowReducedPrecision;
         options.Log = model.OnLoadMessage;
         options.Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress);
-        return new RetrievalModelLoader(reranker ? ModelKind.Reranker : ModelKind.Embedding, options, [.. slots.Select(slot => new ComputeDeviceMemoryDomain(slot.Device))], _engine.Services);
+        return new TaskModelLoader(reranker ? Sharplight.Models.ModelKinds.TextReranking : Sharplight.Models.ModelKinds.TextEmbedding, options,
+            [.. slots.Select(slot => new ComputeDeviceMemoryDomain(slot.Device))], _engine.Services, model.Abandon.Token);
     }
 
     private TaskModelLoader CreateTaskLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model)
@@ -444,7 +450,8 @@ internal sealed class EngineModelRuntime : IModelRuntime
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
             Auxiliary = (request.Auxiliary ?? []).ToDictionary(entry => entry.Role, entry => entry.Path, StringComparer.Ordinal),
-            DisabledFeatures = disabled,
+            DisabledFeatures = CompileDisabledFeatures(disabled, settings),
+            BlockScaledFp8 = settings.BlockScaledFp8,
             AllowReducedPrecision = settings.AllowReducedPrecision,
             Log = model.OnLoadMessage,
             Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress),
@@ -467,7 +474,8 @@ internal sealed class EngineModelRuntime : IModelRuntime
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
             KvCacheType = DataType.Get(settings.KvCacheType),
-            DisabledFeatures = disabled,
+            DisabledFeatures = CompileDisabledFeatures(disabled, settings),
+            BlockScaledFp8 = settings.BlockScaledFp8,
             AllowReducedPrecision = settings.AllowReducedPrecision,
             Auxiliary = request.Projector is { } projector ? new Dictionary<string, string> { [AuxiliaryRoles.Mmproj] = projector } : [],
             Log = model.OnLoadMessage,
@@ -476,15 +484,36 @@ internal sealed class EngineModelRuntime : IModelRuntime
         };
 
         var id = request.Id;
+        var defaults = new EngineOptions();
         var chat = new ChatModelOptions
         {
             Slots = Math.Max(1, settings.Slots),
-            Engine = new EngineOptions { RequestFinished = finished => OnRequestFinished(id, device, finished) },
+            Engine = new EngineOptions
+            {
+                RequestFinished = finished => OnRequestFinished(id, device, finished),
+                StepFloor = settings.StepFloor ?? defaults.StepFloor,
+                BatchTokensPerSequence = settings.StepRowsPerSequence is > 0 and var rows ? rows : defaults.BatchTokensPerSequence,
+            },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,
             MtpDraftTokens = settings.MtpDraftTokens,
             Service = new ModelServiceOptions { DefaultMaxTokens = 0, ImageDecoder = ChatRequestMapper.DecodeImage },
         };
         return new LlmChatModelLoader(_engine.Loader, id, request.Path, load, chat);
+    }
+
+    /// <summary>
+    /// The device features the compilations of a load must not use: the disabled ones, plus the FP4 GEMM (W4A4) when the load turns FP4
+    /// activations off. The devices themselves are opened with <paramref name="disabled"/> only, so they stay shared with other loads.
+    /// </summary>
+    private static HashSet<string> CompileDisabledFeatures(HashSet<string> disabled, LoadSettings settings)
+    {
+        var features = new HashSet<string>(disabled, StringComparer.OrdinalIgnoreCase);
+        if (!settings.Fp4Activations)
+        {
+            features.Add(DeviceFeatures.BlockScaledFp4);
+        }
+
+        return features;
     }
 
     /// <summary>

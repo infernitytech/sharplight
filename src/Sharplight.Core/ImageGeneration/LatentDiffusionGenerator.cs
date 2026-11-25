@@ -61,6 +61,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly float[] _rgbFactors;
     private readonly int _secondPadId;
     private readonly bool _zeroEmptyNegative;
+    /// <summary>Image size of the VAE activation-range measurement (<see cref="TaskModel.CalibrateActivationPrecision"/>).</summary>
+    private const long ProbeSize = 256;
+    private const int ProbeSeed = 5;
     private readonly Dictionary<string, CompiledModel> _compiled = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _disposed;
@@ -173,16 +176,13 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private bool Aesthetic => _sizeConditions == 5;
 
     /// <inheritdoc/>
-    /// <remarks>Also answers <see cref="ImageGenerationDefaults"/> (the model's native size, steps, guidance and sampler).</remarks>
+    public ImageGenerationDefaults Defaults => new(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler,
+        _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance, Aesthetic ? DefaultAestheticScore : 0f);
+
+    /// <inheritdoc/>
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
-        if (serviceKey is null && serviceType == typeof(ImageGenerationDefaults))
-        {
-            return new ImageGenerationDefaults(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler, _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance,
-                Aesthetic ? DefaultAestheticScore : 0f);
-        }
-
         return serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model
             : serviceKey is null && serviceType.IsInstanceOfType(this) ? this
             : null;
@@ -1183,6 +1183,12 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             : $"{graph}@{dimensions[DiffusionGraphs.Width]}x{dimensions[DiffusionGraphs.Height]}+{dimensions.GetValueOrDefault(DiffusionGraphs.References)}";
         if (!_compiled.TryGetValue(key, out var compiled))
         {
+            if (role == ModelComponentRoles.Vae)
+            {
+                // Some VAEs (SDXL's) have activations beyond f16's range: measured once per graph, such a VAE runs with bf16 activations.
+                _model.CalibrateActivationPrecision(role, graph, ProbeDimensions(dimensions), PrepareProbe);
+            }
+
             try
             {
                 compiled = _model.CompileComponent(role, graph, null, dimensions);
@@ -1206,6 +1212,35 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         }
 
         return compiled;
+    }
+
+    /// <summary>The sizes the activation range of a VAE graph is measured at: <see cref="ProbeSize"/> pixels square (a whole number of latent patches).</summary>
+    private Dictionary<string, long> ProbeDimensions(IReadOnlyDictionary<string, long>? dimensions)
+    {
+        long unit = (long)_downscale * _patchSize;
+        long size = Math.Max(unit, ProbeSize / unit * unit);
+        return new Dictionary<string, long>(dimensions ?? new Dictionary<string, long>(), StringComparer.Ordinal)
+        {
+            [DiffusionGraphs.Width] = size,
+            [DiffusionGraphs.Height] = size,
+        };
+    }
+
+    /// <summary>
+    /// The input of the activation-range measurement of a VAE graph, one image: unit Gaussian latents (what the denoiser produces), or
+    /// pixels uniform in [0, 1].
+    /// </summary>
+    private static void PrepareProbe(CompiledModel probe, RunParameters parameters)
+    {
+        parameters.Symbols[DiffusionGraphs.BatchSymbol] = 1;
+        var random = new Random(ProbeSeed);
+        foreach (var input in probe.Graph.Inputs.Where(i => i.Type == Tensors.DataType.F32))
+        {
+            int count = (int)input.Shape.Resolve(parameters.Symbols).Aggregate(1L, (a, b) => a * b);
+            var values = input.Name == DiffusionGraphs.Latent ? LatentNoise.Draw(ProbeSeed, 0, count)
+                : Enumerable.Range(0, count).Select(_ => random.NextSingle()).ToArray();
+            probe.SetInput<float>(input, values);
+        }
     }
 
     private static bool IsTextGraph(string key)

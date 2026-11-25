@@ -172,7 +172,7 @@ public sealed class ServingChatClient : IChatClient
             Temperature = options?.Temperature ?? _options.DefaultSampling.Temperature,
             TopP = options?.TopP ?? _options.DefaultSampling.TopP,
             TopK = options?.TopK ?? _options.DefaultSampling.TopK,
-            Seed = options?.Seed is { } seed ? (int)seed : _options.DefaultSampling.Seed,
+            Seed = options?.Seed ?? _options.DefaultSampling.Seed,
             FrequencyPenalty = options?.FrequencyPenalty ?? _options.DefaultSampling.FrequencyPenalty,
             PresencePenalty = options?.PresencePenalty ?? _options.DefaultSampling.PresencePenalty,
         };

@@ -30,6 +30,8 @@ internal static class SectionViews
             InspectorTab.Overview, true),
         ["ATCH"] = new("Attachment", "A file a component refers to (tokenizer files, scheduler configuration, filter banks, voices), 64 KiB aligned.",
             InspectorTab.Overview, true),
+        ["WLAY"] = new("Weight layout", "Per weight, layout facts kernels may rely on (such as the row block of block scales); absent when none apply.",
+            InspectorTab.Weights, true),
         [TableKind] = new("Section table", "Kind, name, offset and length of every section; written last.", InspectorTab.Sections, true),
         [UnusedKind] = new("Unused", "Bytes no section covers: alignment padding, or superseded sets and old tables that compacting removes.",
             InspectorTab.Sections, true),

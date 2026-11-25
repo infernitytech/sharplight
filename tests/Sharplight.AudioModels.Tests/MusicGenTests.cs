@@ -22,14 +22,15 @@ public class MusicGenTests
         Assert.Equal(32000, generator.SampleRate);
         var expected = AudioModels.Ints("musicgen_codes.i32");
         int frames = expected.Length / 4;
-        var request = new MusicGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(frames / generator.FrameRate), Greedy = true };
+        var request = new MusicGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(frames / generator.FrameRate) };
+        var options = new MusicGenerationOptions { Greedy = true };
 
-        var codes = await generator.GenerateCodesAsync(request);
+        var codes = await generator.GenerateCodesAsync(request, options);
         Assert.Equal(frames, codes.Frames);
         int wrong = expected.Where((v, i) => v != codes.Values[i]).Count();
         Assert.True(wrong == 0, $"{wrong} of {expected.Length} codes differ");
 
-        var audio = await generator.GenerateAsync(request);
+        var audio = (await generator.GenerateAsync(request, options)).Audio;
         var reference = AudioModels.Floats("musicgen_audio.f32");
         Assert.Equal(reference.Length, audio.Samples.Length);
         double error = AudioModels.RelativeRms(audio.Samples, reference);
@@ -44,14 +45,23 @@ public class MusicGenTests
         using var generator = AudioModels.Client<IMusicGenerator>(model);
         var expected = AudioModels.Ints("musicgen_codes.i32");
         int frames = expected.Length / 4;
-        var request = new MusicGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(frames / generator.FrameRate), Greedy = true };
+        var request = new MusicGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(frames / generator.FrameRate) };
         var samples = new List<float>();
         int pieces = 0;
-        await foreach (var piece in generator.GenerateStreamingAsync(request))
+        AudioGenerationResult? result = null;
+        await foreach (var update in generator.GenerateStreamingAsync(request, new MusicGenerationOptions { Greedy = true }))
         {
-            samples.AddRange(piece.Samples);
-            pieces++;
+            if (update.Audio is { } piece)
+            {
+                samples.AddRange(piece.Samples);
+                pieces++;
+            }
+
+            result = update.Result ?? result;
         }
+
+        Assert.NotNull(result);
+        Assert.Equal(samples.Count, result.Audio.Samples.Length);
 
         var reference = AudioModels.Floats("musicgen_audio.f32");
         Assert.Equal(reference.Length, samples.Count);
@@ -66,11 +76,12 @@ public class MusicGenTests
         RequireAll();
         using var model = AudioModels.Load(AudioModels.Open(gpu: false), AudioModels.Model(Model));
         using var generator = AudioModels.Client<IMusicGenerator>(model);
-        var request = new MusicGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(0.5), Seed = 7 };
-        var a = await generator.GenerateCodesAsync(request);
-        var b = await generator.GenerateCodesAsync(request);
+        var request = new MusicGenerationRequest { Prompt = Prompt, Duration = TimeSpan.FromSeconds(0.5) };
+        var options = new MusicGenerationOptions { Seed = 7 };
+        var a = await generator.GenerateCodesAsync(request, options);
+        var b = await generator.GenerateCodesAsync(request, options);
         Assert.Equal(a.Values, b.Values);
-        var c = await generator.GenerateCodesAsync(request with { Seed = 8 });
+        var c = await generator.GenerateCodesAsync(request, options with { Seed = 8 });
         Assert.NotEqual(a.Values, c.Values);
     }
 }

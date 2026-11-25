@@ -24,8 +24,13 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     private readonly Dictionary<BufferDecl, SharedArenaBuffer<Allocation>> _sharedArenas = [];
     /// <summary>With <see cref="CompileOptions.StreamWeights"/>: the weight buffers, copied in at every execution (see <see cref="StreamWeights"/>).</summary>
     private readonly List<BufferDecl> _streamedWeights = [];
-    /// <summary>The copy of the streamed weights that <see cref="BeginStreaming"/> started on a worker thread, until an execution waits for it.</summary>
+    /// <summary>The copy of the streamed weights that <see cref="BeginStreaming()"/> started on a worker thread, until an execution waits for it.</summary>
     private Task? _streaming;
+    /// <summary>
+    /// The expert banks of the streamed weights stored as is in mapped memory and their experts: <see cref="BeginStreaming(ReadOnlySpan{int})"/>
+    /// copies only the experts a pass selects of them.
+    /// </summary>
+    private readonly Dictionary<BufferDecl, int> _streamedBanks = [];
     /// <summary>With <see cref="CompileOptions.SparseExpertSlots"/>: the expert ids input, the experts of the banks and the gathered tables.</summary>
     private readonly SparseExpertLayout? _sparse;
     /// <summary>The experts the last <see cref="SetInput"/> of the ids selected, in slot order (copied in at the next execution).</summary>
@@ -221,6 +226,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 }
             }
 
+            IReadOnlyDictionary<Models.WeightInfo, int>? banks = null;
             foreach (var b in program.Buffers)
             {
                 ulong size = (ulong)Math.Max(16, b.Bytes);
@@ -236,6 +242,13 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                     bytes += ShareArena(dev, streamScope, $"stream{options.StreamBuffer}:" + _streamedWeights.Count, b, size);
                     _streamedWeights.Add(b);
                     TryImportSource(b);
+                    banks ??= StreamedExpertBanks.Of(segment);
+                    if (banks.TryGetValue(b.Weight!, out int experts) && b.Repack == WeightRepack.None && b.InitialData is null
+                        && b.Weight!.Source.TryGetPointer() != 0 && b.Bytes == b.Weight.ByteSize && b.Bytes % experts == 0)
+                    {
+                        _streamedBanks[b] = experts;
+                    }
+
                     continue;
                 }
 
@@ -251,7 +264,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 }
 
                 // The segments of one graph on this device run one after another and share their transient buffers.
-                if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope && SharedArena<Allocation>.Enabled)
+                if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope)
                 {
                     bytes += ShareArena(dev, arenaScope, b.Name, b, size);
                     continue;
@@ -260,7 +273,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 // The streamed compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to its
                 // outputs read back: their device-side input and output buffers are shared too (by ordinal: the layers' value names differ;
                 // not inputs holding graph inputs, which the caller sets for every segment before a run); each keeps its own staging memory.
-                if (b.Kind is BufferKind.Input or BufferKind.Output && options.StreamWeights && options.StateScope is { } ioScope && SharedArena<Allocation>.Enabled
+                if (b.Kind is BufferKind.Input or BufferKind.Output && options.StreamWeights && options.StateScope is { } ioScope
                     && (b.Kind == BufferKind.Output || program.InputRefs.All(kv => kv.Value.Buffer != b || kv.Key.Kind == ValueKind.Intermediate)))
                 {
                     bytes += ShareArena(dev, ioScope, $"streamed-{b.Kind}:{(b.Kind == BufferKind.Input ? streamedInputs++ : streamedOutputs++)}", b, size);
@@ -518,10 +531,54 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     }
 
     /// <inheritdoc />
-    public bool WeightsResident { get; set; }
+    /// <remarks>True when an expert bank of the streamed weights is stored as is in mapped memory (its experts are copied apart).</remarks>
+    public bool StreamsSelectedExperts => _streamedBanks.Count > 0;
+
+    /// <inheritdoc />
+    /// <remarks>The selection is taken on the calling thread; the copy runs on a worker thread, as <see cref="BeginStreaming()"/>'s.</remarks>
+    public void BeginStreaming(ReadOnlySpan<int> expertIds)
+    {
+        if (!StreamsSelectedExperts || _streaming is not null || WeightsResident)
+        {
+            BeginStreaming();
+            return;
+        }
+
+        var used = new bool[_streamedBanks.Values.Max()];
+        foreach (int id in expertIds)
+        {
+            if ((uint)id < (uint)used.Length)
+            {
+                used[id] = true;
+            }
+        }
+
+        _streaming = Task.Run(() => CopyStreamedWeights(used));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// False also drops a copy <see cref="BeginStreaming()"/> started that no execution consumed (waiting for it first): the memory has been
+    /// overwritten since, so the next <see cref="BeginStreaming()"/> copies again.
+    /// </remarks>
+    public bool WeightsResident
+    {
+        get => _weightsResident;
+        set
+        {
+            _weightsResident = value;
+            if (!value && _streaming is { } stale)
+            {
+                stale.GetAwaiter().GetResult();
+                _streaming = null;
+            }
+        }
+    }
+
+    private bool _weightsResident;
 
     /// <summary>
-    /// Waits for the copy <see cref="BeginStreaming"/> started, or copies the streamed weights now unless they are <see cref="WeightsResident"/>.
+    /// Waits for the copy <see cref="BeginStreaming()"/> started, or copies the streamed weights now unless they are <see cref="WeightsResident"/>.
     /// </summary>
     private void StreamWeights()
     {
@@ -543,9 +600,15 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     }
 
     /// <summary>Copies the streamed weights into their shared buffers (<see cref="CompileOptions.StreamWeights"/>) and waits for the copies.</summary>
-    private void CopyStreamedWeights()
+    private void CopyStreamedWeights() => CopyStreamedWeights(null);
+
+    /// <summary>
+    /// Copies the streamed weights into their shared buffers and waits for the copies: with <paramref name="usedExperts"/>, of the expert banks
+    /// (<see cref="_streamedBanks"/>) only the experts it marks, in runs of consecutive experts at their places in the bank.
+    /// </summary>
+    private void CopyStreamedWeights(bool[]? usedExperts)
     {
-        long total = _streamedWeights.Sum(b => b.Bytes);
+        long total = 0;
         long largestRow = _streamedWeights.Where(b => b.Repack != WeightRepack.None).Select(b => WeightRepacker.RowBytes(b.Repack, b.RepackRowElements)).DefaultIfEmpty(1).Max();
         var timer = Stopwatch.StartNew();
         lock (_dev.StreamLock)
@@ -553,7 +616,29 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
             var uploader = _dev.StreamUploader(largestRow);
             foreach (var buffer in _streamedWeights)
             {
-                uploader.Upload(buffer, _alloc[buffer]);
+                if (usedExperts is null || !_streamedBanks.TryGetValue(buffer, out int experts))
+                {
+                    uploader.Upload(buffer, _alloc[buffer]);
+                    total += buffer.Bytes;
+                    continue;
+                }
+
+                long expertBytes = buffer.Bytes / experts;
+                for (int e = 0; e < experts; e++)
+                {
+                    int run = 0;
+                    while (e + run < experts && usedExperts[e + run])
+                    {
+                        run++;
+                    }
+
+                    if (run > 0)
+                    {
+                        uploader.UploadRange(buffer, e * expertBytes, run * expertBytes, _alloc[buffer], (ulong)(e * expertBytes));
+                        total += run * expertBytes;
+                        e += run;
+                    }
+                }
             }
 
             uploader.Complete();
@@ -561,7 +646,8 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
 
         if (DiagnosticSwitches.LoadTiming)
         {
-            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB in {timer.Elapsed.TotalMilliseconds:F1} ms");
+            string selected = usedExperts is null ? "" : $", {usedExperts.Count(u => u)} experts of {usedExperts.Length} selected";
+            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB in {timer.Elapsed.TotalMilliseconds:F1} ms{selected}");
         }
     }
 
@@ -598,7 +684,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     /// </remarks>
     public bool TryForwardFrom(Value input, ICompiledSegment producer)
     {
-        if (!DiagnosticSwitches.DeviceForwarding || producer is not VulkanSegment source || source._dev != _dev
+        if (producer is not VulkanSegment source || source._dev != _dev
             || !_program.InputRefs.TryGetValue(input, out var r) || !source._program.OutputRefs.TryGetValue(input, out var o))
         {
             return false;

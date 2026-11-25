@@ -23,6 +23,13 @@ public sealed class CompileOptions
     public bool AllowReducedPrecision { get; init; }
 
     /// <summary>
+    /// The format of the activations entering the products of the kernels that <see cref="AllowReducedPrecision"/> lets compute in 16
+    /// bits (default: <see cref="ActivationPrecision.Half"/>). <see cref="ActivationPrecision.BFloat16"/> is for graphs whose activations
+    /// exceed f16's range (measured with <see cref="ActivationRangeProbe"/>). Without reduced precision it has no effect.
+    /// </summary>
+    public ActivationPrecision ActivationPrecision { get; init; }
+
+    /// <summary>
     /// Allow f32-weight matmuls on f16 tensor cores in the error-compensated split form (default: true): each row of the
     /// activations and of the weights is scaled by a power of two, each value becomes an f16 hi part plus an f16 lo part, and
     /// each product is hi·hi + hi·lo + lo·hi, summed in f32. The scaling keeps both parts in f16's normal range, so the pair
@@ -189,6 +196,7 @@ public sealed class CompileOptions
             SymbolBounds = copy.SymbolBounds,
             DisabledFeatures = copy.DisabledFeatures,
             AllowReducedPrecision = copy.AllowReducedPrecision,
+            ActivationPrecision = copy.ActivationPrecision,
             SplitHalfMatMul = copy.SplitHalfMatMul,
             MatrixPrecision = copy.MatrixPrecision,
             RowInvariantRows = copy.RowInvariantRows,
@@ -212,6 +220,7 @@ public sealed class CompileOptions
         SymbolBounds = symbolBounds,
         DisabledFeatures = disabledFeatures ?? DisabledFeatures,
         AllowReducedPrecision = AllowReducedPrecision,
+        ActivationPrecision = ActivationPrecision,
         SplitHalfMatMul = SplitHalfMatMul,
         MatrixPrecision = MatrixPrecision,
         RowInvariantRows = RowInvariantRows,

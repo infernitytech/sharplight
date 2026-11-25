@@ -8,7 +8,7 @@ namespace Sharplight.Architectures;
 /// <param name="PositionTemperature">Gumbel temperature of the choice of which positions to reveal (0 reveals the most confident).</param>
 /// <param name="Denoise">Whether a voice-cloning prompt carries the denoise token.</param>
 /// <param name="Seed">The seed of the position noise.</param>
-internal sealed record OmniVoiceGenerationSettings(int Steps = 32, float GuidanceScale = 2f, double TimeShift = 0.1, float LayerPenalty = 5f, float PositionTemperature = 5f, bool Denoise = true, int? Seed = null)
+internal sealed record OmniVoiceGenerationSettings(int Steps = 32, float GuidanceScale = 2f, double TimeShift = 0.1, float LayerPenalty = 5f, float PositionTemperature = 5f, bool Denoise = true, long? Seed = null)
 {
     /// <summary>Settings that choose deterministically.</summary>
     public static OmniVoiceGenerationSettings Greedy { get; } = new(PositionTemperature: 0f);

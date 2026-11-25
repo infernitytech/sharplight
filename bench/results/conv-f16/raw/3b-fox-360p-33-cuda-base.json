@@ -1,0 +1,64 @@
+{
+  "model": "seedvr2_ema_3b",
+  "provider": "cuda",
+  "device": "NVIDIA RTX PRO 4500 Blackwell",
+  "load_seconds": 0.6576795,
+  "frames": 33,
+  "output": "1280x720",
+  "runs": [
+    {
+      "read": 0.0942546,
+      "encoding": 10.4508844,
+      "restoring": 3.4194832999999996,
+      "decoding": 25.434783600000003,
+      "enhance": 39.3059311,
+      "write": 2E-07,
+      "total": 39.4001963
+    },
+    {
+      "read": 0.0907017,
+      "encoding": 10.509632700000001,
+      "restoring": 3.5684495,
+      "decoding": 25.492940299999997,
+      "enhance": 39.5714116,
+      "write": 1E-07,
+      "total": 39.6621177
+    },
+    {
+      "read": 0.0883128,
+      "encoding": 10.5806655,
+      "restoring": 3.545532399999999,
+      "decoding": 25.435957,
+      "enhance": 39.5625992,
+      "write": 1E-07,
+      "total": 39.6509172
+    },
+    {
+      "read": 0.0876175,
+      "encoding": 10.4461873,
+      "restoring": 3.4418839000000006,
+      "decoding": 25.4640426,
+      "enhance": 39.3525664,
+      "write": 1E-07,
+      "total": 39.4401894
+    },
+    {
+      "read": 0.0885365,
+      "encoding": 10.4526875,
+      "restoring": 3.4126768999999992,
+      "decoding": 25.7101155,
+      "enhance": 39.575861,
+      "write": 1E-07,
+      "total": 39.664421
+    }
+  ],
+  "median": {
+    "read": 0.0885365,
+    "encoding": 10.4526875,
+    "restoring": 3.4418839000000006,
+    "decoding": 25.4640426,
+    "enhance": 39.5625992,
+    "write": 1E-07,
+    "total": 39.6509172
+  }
+}

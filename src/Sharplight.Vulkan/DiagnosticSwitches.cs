@@ -23,7 +23,6 @@ namespace Sharplight.Vulkan;
 /// every device (to check the rewritten kernels on a native driver).</item>
 /// <item><c>SHARPLIGHT_VK_PORTABILITY_FAST_MATH=1</c>: on macOS, keep MoltenVK's default Metal fast math instead of turning it off
 /// at instance creation.</item>
-/// <item><c>SHARPLIGHT_VK_TRANSFER_QUEUE=0</c>: download large outputs on the compute queue instead of the transfer-only queue.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS=ms</c>: overrides the per-device submission budget (0 disables slicing); the
 /// <c>submission_budget_ms</c> device setting wins over it.</item>
@@ -59,17 +58,8 @@ internal static class DiagnosticSwitches
     /// <summary>Number of launches recorded per command buffer; <see cref="int.MaxValue"/> records all.</summary>
     public static int MaxLaunches { get; } = int.TryParse(Read("SHARPLIGHT_VK_MAX_LAUNCHES"), out int max) ? max : int.MaxValue;
 
-    /// <summary>False (<c>SHARPLIGHT_VK_TRANSFER_QUEUE=0</c>) when large outputs are downloaded on the compute queue.</summary>
-    public static bool TransferQueue { get; } = Read("SHARPLIGHT_VK_TRANSFER_QUEUE") != "0";
-
     /// <summary>Prints each recorded launch.</summary>
     public static bool ListLaunches { get; } = IsSet("SHARPLIGHT_VK_LIST_LAUNCHES");
-
-    /// <summary>
-    /// False (<c>SHARPLIGHT_DEVICE_FORWARDING=0</c>) when segments on the same device pass boundary values through host memory
-    /// instead of copying them on the device (<see cref="Runtime.IDeviceForwardingSegment"/>).
-    /// </summary>
-    public static bool DeviceForwarding { get; } = Read("SHARPLIGHT_DEVICE_FORWARDING") is not ("0" or "false");
 
     /// <summary>True when kernels for portability-subset devices get <see cref="SpirvPortability.Rewrite"/> (the default).</summary>
     public static bool PortabilityRewrite { get; } = Read("SHARPLIGHT_VK_SPIRV_PORTABILITY") != "0";
@@ -82,26 +72,6 @@ internal static class DiagnosticSwitches
 
     /// <summary>Prints load-phase timings.</summary>
     public static bool LoadTiming { get; } = IsSet("SHARPLIGHT_LOAD_TIMING");
-
-    /// <summary>
-    /// The submission budget in milliseconds from the environment, or null when unset or malformed. Read on every call
-    /// because it is applied per opened device.
-    /// </summary>
-    public static double? SubmissionBudgetMs(string? deviceSetting)
-    {
-        string? text = deviceSetting ?? Read("SHARPLIGHT_SUBMISSION_BUDGET_MS");
-        return text is not null && double.TryParse(text, CultureInfo.InvariantCulture, out double ms) ? ms : null;
-    }
-
-    /// <summary>
-    /// The concurrent-workgroup hint from the device setting or the environment, or null when unset or malformed. Read on every call
-    /// because it is applied per opened device.
-    /// </summary>
-    public static int? ConcurrentWorkgroups(string? deviceSetting)
-    {
-        string? text = deviceSetting ?? Read("SHARPLIGHT_CONCURRENT_WORKGROUPS");
-        return text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int workgroups) ? workgroups : null;
-    }
 
     /// <summary>The Vulkan enumeration indices listed by <c>SHARPLIGHT_VK_DEVICES</c>, or null to list every device.</summary>
     public static IReadOnlySet<int>? VisibleDevices { get; } = ParseIndices(Read("SHARPLIGHT_VK_DEVICES"));

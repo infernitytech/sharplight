@@ -170,6 +170,34 @@
           <ToggleSwitch Content="Read experts from disk when they do not fit memory (slow)" IsChecked="{Binding ExpertsOnDisk}" IsEnabled="{Binding CpuOffload}"
                         ToolTip.ShowOnDisabled="True"
                         ToolTip.Tip="Mixture-of-experts models larger than system memory and GPU memory together: their routed experts stay in the model file and are read on demand from a fast SSD (about 1 token/s on huge models). Needs 'Offload to the CPU' turned on." />
+          <StackPanel x:Name="LowPrecision" Spacing="2">
+            <ToggleSwitch x:Name="BlockScaledFp8Toggle" Content="FP8 block-scaled tensor cores" IsChecked="{Binding BlockScaledFp8}" IsEnabled="{Binding CanUseBlockScaledFp8}"
+                          ToolTip.ShowOnDisabled="True" ToolTip.Tip="{Binding BlockScaledFp8Hint}" />
+            <ToggleSwitch x:Name="Fp4ActivationsToggle" Content="FP4 activations for NVFP4 weights (W4A4)" IsChecked="{Binding Fp4Activations}" IsEnabled="{Binding CanUseFp4Activations}"
+                          ToolTip.ShowOnDisabled="True" ToolTip.Tip="{Binding Fp4ActivationsHint}" />
+          </StackPanel>
+          <StackPanel x:Name="StepBudget" Spacing="4">
+            <Grid ColumnDefinitions="*,10,*">
+              <StackPanel>
+                <TextBlock Classes="label" Text="Step floor" />
+                <ComboBox x:Name="StepFloorPicker" ItemsSource="{Binding StepFloorChoices}" SelectedItem="{Binding StepFloor}" HorizontalAlignment="Stretch"
+                          IsEnabled="{Binding CanTuneSteps}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{Binding StepTuningHint}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="mvm:StepFloorChoice">
+                      <TextBlock Text="{Binding Name}" ToolTip.Tip="{Binding Description}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Classes="label" Text="Rows per slot" />
+                <NumericUpDown x:Name="StepRowsInput" Value="{Binding StepRowsPerSequence}" Minimum="0" Maximum="4096" Increment="16" FormatString="0"
+                               IsEnabled="{Binding CanTuneSteps}" ToolTip.ShowOnDisabled="True"
+                               ToolTip.Tip="Prompt rows per busy slot a step may carry while few slots are busy (0 = engine default, 48). Larger values prefill prompt waves in fewer, longer steps (lower inter-token latency tail), smaller ones give a shorter time to first token." />
+              </StackPanel>
+            </Grid>
+            <TextBlock Classes="caption" Text="{Binding StepTuningHint}" TextWrapping="Wrap" />
+          </StackPanel>
         </StackPanel>
         <StackPanel Spacing="4" IsVisible="{Binding NeedsCompanions}">
           <ItemsControl ItemsSource="{Binding Companions}">

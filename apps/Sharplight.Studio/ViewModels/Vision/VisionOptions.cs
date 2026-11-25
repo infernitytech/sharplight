@@ -14,4 +14,4 @@ namespace Sharplight.Studio.ViewModels.Vision;
 /// <param name="Recognition">Options of text recognition.</param>
 /// <param name="Upscale">Options of upscaling.</param>
 internal sealed record VisionOptions(ImageClassificationOptions Classification, ObjectDetectionOptions Detection, DepthEstimationOptions Depth,
-    ImageEmbeddingOptions Embedding, string Template, string Colormap, bool Invert, SegmentationOptions Segmentation, TextRecognitionOptions Recognition, UpscaleOptions Upscale);
+    ImageEmbeddingOptions Embedding, string Template, string Colormap, bool Invert, SegmentationOptions Segmentation, TextRecognitionOptions Recognition, ImageUpscalingOptions Upscale);

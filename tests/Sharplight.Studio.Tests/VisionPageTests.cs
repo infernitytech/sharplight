@@ -373,7 +373,7 @@ public sealed class VisionPageTests
         await RunAsync(page);
 
         Assert.True(page.ShowAfter);
-        var options = (UpscaleOptions)client.Options[0]!;
+        var options = (ImageUpscalingOptions)client.Options[0]!;
         Assert.Equal((96, 8), (options.TileSize, options.TilePadding));
         var after = PngCodec.Decode(page.AfterPng!);
         Assert.Equal((160, 128), (after.Width, after.Height));

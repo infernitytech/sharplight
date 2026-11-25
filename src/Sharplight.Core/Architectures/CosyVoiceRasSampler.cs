@@ -11,9 +11,9 @@ namespace Sharplight.Architectures;
 /// <param name="tauR">The repetition ratio (0.1).</param>
 /// <param name="temperature">Divides the logits (1 in the reference).</param>
 /// <param name="seed">The seed of the generator, or <see langword="null"/>.</param>
-internal sealed class CosyVoiceRasSampler(float topP, int topK, int window, float tauR, float temperature, int? seed)
+internal sealed class CosyVoiceRasSampler(float topP, int topK, int window, float tauR, float temperature, long? seed)
 {
-    private readonly Random _random = seed is { } s ? new Random(s) : new Random();
+    private readonly Random _random = Tasks.Seeds.CreateRandom(seed);
 
     /// <summary>Draws the next token.</summary>
     /// <param name="logits">The logits (modified: a repeated token is set to −∞).</param>

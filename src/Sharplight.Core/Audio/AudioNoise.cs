@@ -23,5 +23,5 @@ internal static class AudioNoise
 
     /// <summary>A generator for a request's seed (a random one without).</summary>
     /// <param name="seed">The seed, or <see langword="null"/>.</param>
-    public static Random Create(int? seed) => seed is { } s ? new Random(s) : new Random();
+    public static Random Create(long? seed) => Tasks.Seeds.CreateRandom(seed);
 }
