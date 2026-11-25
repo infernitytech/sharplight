@@ -75,6 +75,16 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
             if (args.PropertyName == nameof(VideoPlayerViewModel.HasFrames))
             {
                 OnPropertyChanged(nameof(ShowPlaceholder));
+                OnPropertyChanged(nameof(ShowPlayer));
+            }
+        };
+        Compare = new EnhancementComparisonViewModel(services.Dispatcher);
+        Compare.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(EnhancementComparisonViewModel.HasFrames))
+            {
+                OnPropertyChanged(nameof(ShowPlaceholder));
+                OnPropertyChanged(nameof(ShowPlayer));
             }
         };
         foreach (var parameter in Panel.Parameters)
@@ -95,8 +105,14 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
     /// <summary>The typed parameter panel (maps to <see cref="VideoEnhancementOptions"/>).</summary>
     public ParameterPanelViewModel<VideoEnhancementOptions> Panel => (ParameterPanelViewModel<VideoEnhancementOptions>)Parameters;
 
-    /// <summary>The playback of the frames shown (the input, the frames finished so far, then the result).</summary>
+    /// <summary>The playback of the input (and of a restored result's still) while there is nothing to compare.</summary>
     public VideoPlayerViewModel Player { get; }
+
+    /// <summary>The before/after comparison of the frames finished so far (live while enhancing, the whole clip afterwards).</summary>
+    public EnhancementComparisonViewModel Compare { get; }
+
+    /// <summary>The input (or a restored still) is shown: there is nothing to compare.</summary>
+    public bool ShowPlayer => Player.HasFrames && !Compare.HasFrames;
 
     /// <summary>Videos can be read (the bundled FFmpeg libraries are present); without them only images can be enhanced.</summary>
     public bool CanReadVideos => _decoders.IsAvailable;
@@ -153,7 +169,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
     public bool IsEnhancing => Queue.IsBusy;
 
     /// <summary>Nothing is shown yet.</summary>
-    public bool ShowPlaceholder => !Player.HasFrames;
+    public bool ShowPlaceholder => !Player.HasFrames && !Compare.HasFrames;
 
     /// <summary>Why <see cref="RunCommand"/> cannot run, for the hint under the button; empty when it can.</summary>
     public string RunHint => InvalidReason() ?? "";
@@ -237,6 +253,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
         ResultPath = "";
         ResultSummary = "";
         StepText = "";
+        Compare.Clear();
         if (preview.Count > 0)
         {
             Player.Load(preview, framesPerSecond > 0 ? framesPerSecond : 24);
@@ -277,6 +294,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
     {
         Input = null;
         Player.Clear();
+        Compare.Clear();
         Notice = "";
     }
 
@@ -401,30 +419,47 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
         var watch = Stopwatch.StartNew();
         VideoEnhancementResult? result = null;
         VideoClip? clip = null;
-        var received = new List<ImageInput>();
         RunOutcome outcome = RunOutcome.Completed;
         string? error = null;
         try
         {
             VideoEnhancementRequest request;
+            IReadOnlyList<ImageInput> originals;
             if (plan.Input.Image is { } image)
             {
                 request = VideoEnhancementRequest.FromImage(image);
+                originals = [image];
             }
             else
             {
                 context.Report(null, "Reading the video");
                 clip = await _decoders.ReadClipAsync(plan.Input.Path, null, context.CancellationToken).ConfigureAwait(false);
                 request = VideoEnhancementRequest.FromClip(clip);
+                originals = clip.Frames;
             }
+
+            Compare.Begin(originals.Count, clip?.FramesPerSecond ?? 0);
+            int finished = 0;
 
             context.Report(null, "Loading the model");
             using var lease = await model.AcquireClientAsync<IVideoEnhancer>(context.CancellationToken).ConfigureAwait(false);
             context.Report(0, "Starting");
             await foreach (var update in lease.Client.EnhanceStreamingAsync(request, plan.Options, context.CancellationToken).ConfigureAwait(false))
             {
-                ShowProgress(context, update, received);
+                ShowProgress(context, update);
+                if (update.Frames is { Count: > 0 } frames)
+                {
+                    Compare.Add(firstIndex: finished, originals, frames);
+                    finished += frames.Count;
+                }
+
                 result = update.Result ?? result;
+            }
+
+            if (finished == 0 && result is { Frames.Count: > 0 })
+            {
+                // A model that streams no batches: compare its result as a whole.
+                Compare.Add(firstIndex: 0, originals, result.Frames);
             }
         }
         catch (OperationCanceledException)
@@ -460,7 +495,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
         await FinishAsync(model, plan, title, result!, clip?.Audio, seconds, context.CancellationToken).ConfigureAwait(false);
     }
 
-    private void ShowProgress(RunContext context, VideoEnhancementUpdate update, List<ImageInput> received)
+    private void ShowProgress(RunContext context, VideoEnhancementUpdate update)
     {
         int total = Math.Max(1, update.TotalBatches);
         string batch = total > 1 ? $"Batch {update.Batch + 1} of {total}: " : "";
@@ -472,21 +507,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
             _ => ("Done", 1.0),
         };
         context.Report(Math.Min(1, fraction), text);
-        ImageInput[]? shown = null;
-        if (update.Frames is { Count: > 0 } frames)
-        {
-            received.AddRange(frames);
-            shown = [.. received];
-        }
-
-        Services.Dispatcher.Post(() =>
-        {
-            StepText = text;
-            if (shown is not null)
-            {
-                Player.Follow(shown);
-            }
-        });
+        Services.Dispatcher.Post(() => StepText = text);
     }
 
     private async Task FinishAsync(ILoadedModel model, EnhancementRun plan, string title, VideoEnhancementResult finished, AudioBuffer? audio,
@@ -519,7 +540,6 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
         string summary = string.Join(" · ", metadata.Where(pair => pair.Key != OutputMetadataKey).Select(pair => $"{pair.Key}: {pair.Value}"));
         Services.Dispatcher.Post(() =>
         {
-            Player.Load(finished.Frames, finished.FramesPerSecond);
             StepText = written is null ? "" : $"Saved {Path.GetFileName(written)}";
             ResultSummary = summary;
             ResultPath = written ?? "";
@@ -587,6 +607,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
     protected override void Restore(RunRecord record)
     {
         Panel.Apply(record.Options);
+        Compare.Clear();
         string still = Archive.PathOf(record, ResultStillName);
         if (File.Exists(still))
         {

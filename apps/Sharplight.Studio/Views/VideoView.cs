@@ -1,8 +1,6 @@
-using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
-using Avalonia.Platform;
 using Avalonia.Threading;
 using Sharplight.Vision;
 
@@ -16,8 +14,6 @@ namespace Sharplight.Studio.Views;
 /// </summary>
 internal sealed class VideoView : UserControl
 {
-    private const int BytesPerPixel = 4;
-
     /// <summary>The frame shown (8-bit RGB), or null.</summary>
     public static readonly StyledProperty<ImageInput?> FrameProperty = AvaloniaProperty.Register<VideoView, ImageInput?>(nameof(Frame));
 
@@ -133,35 +129,10 @@ internal sealed class VideoView : UserControl
 
     private WriteableBitmap Convert(ImageInput frame)
     {
-        var size = new PixelSize(frame.Width, frame.Height);
         int slot = _next;
         _next ^= 1;
-        var bitmap = _buffers[slot];
-        if (bitmap is null || bitmap.PixelSize != size)
-        {
-            bitmap = new WriteableBitmap(size, new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Opaque);
-            _buffers[slot] = bitmap;
-        }
-
-        using var buffer = bitmap.Lock();
-        var row = new byte[frame.Width * BytesPerPixel];
-        byte[] rgb = frame.Rgb;
-        for (int y = 0; y < frame.Height; y++)
-        {
-            int source = y * frame.Width * 3;
-            for (int x = 0; x < frame.Width; x++)
-            {
-                int target = x * BytesPerPixel;
-                row[target] = rgb[source + 2];
-                row[target + 1] = rgb[source + 1];
-                row[target + 2] = rgb[source];
-                row[target + 3] = 255;
-                source += 3;
-            }
-
-            Marshal.Copy(row, 0, buffer.Address + y * buffer.RowBytes, row.Length);
-        }
-
+        var bitmap = FrameBitmaps.Fill(frame, _buffers[slot]);
+        _buffers[slot] = bitmap;
         return bitmap;
     }
 }

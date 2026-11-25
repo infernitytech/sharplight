@@ -217,7 +217,8 @@ public sealed class VideoEnhancementPageTests
         var (request, options) = Assert.Single(client.Requests);
         Assert.Equal(7, request.Frames.Count);
         Assert.Equal(4, options.FramesPerBatch);
-        Assert.Equal(7, page.Player.Frames.Count);
+        await page.Compare.Idle;
+        Assert.Equal(7, page.Compare.Count);
         Assert.EndsWith(".mp4", page.ResultPath, StringComparison.Ordinal);
         var info = await new FfmpegVideoDecoder().ProbeAsync(page.ResultPath, TestContext.Current.CancellationToken);
         Assert.Equal((64, 32), (info.Width, info.Height));
