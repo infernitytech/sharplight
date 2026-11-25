@@ -557,7 +557,25 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
     }
 
     /// <inheritdoc />
-    public bool WeightsResident { get; set; }
+    /// <remarks>
+    /// False also drops a copy <see cref="BeginStreaming()"/> started that no execution consumed (waiting for it first): the memory has been
+    /// overwritten since, so the next <see cref="BeginStreaming()"/> copies again.
+    /// </remarks>
+    public bool WeightsResident
+    {
+        get => _weightsResident;
+        set
+        {
+            _weightsResident = value;
+            if (!value && _streaming is { } stale)
+            {
+                stale.GetAwaiter().GetResult();
+                _streaming = null;
+            }
+        }
+    }
+
+    private bool _weightsResident;
 
     /// <summary>
     /// Waits for the copy <see cref="BeginStreaming()"/> started, or copies the streamed weights now unless they are <see cref="WeightsResident"/>.

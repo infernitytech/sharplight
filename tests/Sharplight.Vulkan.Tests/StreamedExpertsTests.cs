@@ -154,7 +154,8 @@ public sealed class StreamedExpertsTests
 
     /// <summary>
     /// Large passes over routed CPU layers copy only the experts they select into the streaming memory (the rest of the memory keeps the
-    /// experts of earlier layers and passes) and match the GPU-only compilation, pass after pass with different routings.
+    /// experts of earlier layers and passes) and match the GPU-only compilation, pass after pass with different routings. The first pass
+    /// also covers the resident segment's copy at load, which the layers streamed before it overwrite: it must be copied again.
     /// </summary>
     [Fact]
     public void StreamedSelectedExpertsMatchTheGpu()

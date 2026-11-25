@@ -28,7 +28,8 @@ public interface IStreamedSegment : ICompiledSegment
     /// Whether the streamed-weight memory still holds this segment's weights from its last copy, so that <see cref="BeginStreaming()"/> and the
     /// next executions copy nothing and use them as they are (the memory is shared with the other streamed segments of the graph on the
     /// device, see <see cref="CompileOptions.StreamBuffer"/>). <see cref="CompiledModel"/> tracks which segment's weights each memory holds and
-    /// sets it before it starts or runs the segment; false (the default) copies the weights in for every execution.
+    /// sets it before it starts or runs the segment; false (the default) copies the weights in for every execution. Setting it to false
+    /// also discards a copy started earlier that no execution consumed: the memory no longer holds what it copied.
     /// </summary>
     public bool WeightsResident { get; set; }
 

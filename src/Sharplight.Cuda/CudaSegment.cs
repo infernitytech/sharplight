@@ -836,7 +836,25 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     }
 
     /// <inheritdoc />
-    public bool WeightsResident { get; set; }
+    /// <remarks>
+    /// False also drops a copy <see cref="BeginStreaming()"/> queued that no execution consumed: the memory has been overwritten since
+    /// (another streamed segment of the memory copied in after it), so the next <see cref="BeginStreaming()"/> copies again. The copies of
+    /// the memory all go on the upload stream, so the new one lands after the dropped one.
+    /// </remarks>
+    public bool WeightsResident
+    {
+        get => _weightsResident;
+        set
+        {
+            _weightsResident = value;
+            if (!value && _sparse is null)
+            {
+                _streaming = false;
+            }
+        }
+    }
+
+    private bool _weightsResident;
 
     /// <inheritdoc />
     /// <remarks>
