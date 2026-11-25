@@ -228,6 +228,13 @@ jobs:
           SHARPLIGHT_STUDIO_SCREENSHOTS: ${{ runner.temp }}/studio-screenshots
         run: dotnet run --project tests/Sharplight.Studio.Tests -c Release -- -class "Sharplight.Studio.Tests.PageScreenshotTests"
 
+      # Headless view-model and view tests of the load options and the task pages (fakes only: no GPU, no model downloads).
+      - name: Load options and task page tests
+        run: >
+          dotnet run --project tests/Sharplight.Studio.Tests -c Release --no-build --
+          -class "Sharplight.Studio.Tests.LoadOptionsFeaturesTests" -class "Sharplight.Studio.Tests.VideoEnhancementPageTests"
+          -class "Sharplight.Studio.Tests.LoadFitTests" -class "Sharplight.Studio.Tests.VideoPageTests"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

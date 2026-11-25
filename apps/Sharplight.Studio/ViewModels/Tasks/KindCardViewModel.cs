@@ -63,6 +63,8 @@ internal sealed partial class KindCardViewModel : ObservableObject
         Sharplight.Models.ModelKinds.SpeechRecognition => "Open transcribe",
         Sharplight.Models.ModelKinds.SpeechSynthesis => "Open speak",
         Sharplight.Models.ModelKinds.ImageGeneration => "Open image",
+        Sharplight.Models.ModelKinds.VideoGeneration => "Open video",
+        Sharplight.Models.ModelKinds.VideoEnhancement => "Open enhance",
         ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker => "Open search",
         Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding or Sharplight.Models.ModelKinds.ObjectDetection
             or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation or Sharplight.Models.ModelKinds.SemanticSegmentation or Sharplight.Models.ModelKinds.Ocr

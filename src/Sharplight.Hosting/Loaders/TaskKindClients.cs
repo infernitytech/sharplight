@@ -3,6 +3,7 @@ using Sharplight.ImageGeneration;
 using Sharplight.Models;
 using Sharplight.Speech;
 using Sharplight.Tasks;
+using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
 using Sharplight.Vision;
 
@@ -14,7 +15,7 @@ public static class TaskKindClients
     /// <summary>Whether models of <paramref name="kind"/> run through the task layer (the others are language models).</summary>
     /// <param name="kind">The model kind.</param>
     public static bool Handles(string kind) => kind is ModelKinds.SpeechRecognition or ModelKinds.SpeechSynthesis or ModelKinds.ImageGeneration
-        or ModelKinds.VideoGeneration or ModelKinds.ImageClassification or ModelKinds.ImageEmbedding or ModelKinds.ObjectDetection
+        or ModelKinds.VideoGeneration or ModelKinds.VideoEnhancement or ModelKinds.ImageClassification or ModelKinds.ImageEmbedding or ModelKinds.ObjectDetection
         or ModelKinds.DepthEstimation or ModelKinds.ImageSegmentation or ModelKinds.SemanticSegmentation or ModelKinds.Ocr or ModelKinds.ImageUpscaling
         or ModelKinds.AudioCodec or ModelKinds.VoiceActivity or ModelKinds.AudioEmbedding or ModelKinds.MusicGeneration or ModelKinds.AudioGeneration or ModelKinds.AudioSeparation;
 
@@ -29,6 +30,7 @@ public static class TaskKindClients
         ModelKinds.SpeechSynthesis => provider.Create<ISpeechSynthesizer>(model),
         ModelKinds.ImageGeneration => provider.Create<IImageGenerator>(model),
         ModelKinds.VideoGeneration => provider.Create<IVideoGenerator>(model),
+        ModelKinds.VideoEnhancement => provider.Create<IVideoEnhancer>(model),
         ModelKinds.ImageClassification => provider.Create<IImageClassifier>(model),
         ModelKinds.ImageEmbedding => provider.Create<IImageEmbedder>(model),
         ModelKinds.ObjectDetection => provider.Create<IObjectDetector>(model),
