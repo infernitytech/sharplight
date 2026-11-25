@@ -742,7 +742,7 @@ public sealed partial class GraphLowerer
 
     /// <summary>Whether f16 products are allowed: by the compile options or by the node (<see cref="StandardOps.F16ProductsAttribute"/>).</summary>
     private bool ReducedPrecision(AttentionPlan plan)
-        => _opt.Compile.AllowReducedPrecision || plan.Node.Attributes.Get(StandardOps.F16ProductsAttribute, false);
+        => HalfActivations || plan.Node.Attributes.Get(StandardOps.F16ProductsAttribute, false);
 
     /// <summary>
     /// Key ranges per query block of bidirectional flash attention (FA_KSPLIT): enough workgroups for about

@@ -32,7 +32,7 @@ public sealed partial class GraphLowerer
             return null;
         }
 
-        int parts = DiagnosticSwitches.DeltaChunkParts is 1 or 2 ? DiagnosticSwitches.DeltaChunkParts : _opt.Compile.AllowReducedPrecision ? 1 : 2;
+        int parts = DiagnosticSwitches.DeltaChunkParts is 1 or 2 ? DiagnosticSwitches.DeltaChunkParts : HalfActivations ? 1 : 2;
         int[] candidates = DiagnosticSwitches.DeltaChunkColumns > 0 ? [DiagnosticSwitches.DeltaChunkColumns] : [32, 16];
         foreach (int columns in candidates)
         {
