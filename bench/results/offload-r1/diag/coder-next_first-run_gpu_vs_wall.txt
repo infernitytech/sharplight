@@ -1,0 +1,8 @@
+Qwen3-Coder-Next Q4_K_M, CUDA --cpu-offload, SHARPLIGHT_SPARSE_GPU_SLOTS=1 (fixed split share), 5 decode runs of 64 steps.
+Per run: mean wall ms of steps 1-15 and 16-63, the GPU ms of the step's device segments, process CPU time per step (all threads).
+run 0  wall s1-15 15.75 rest 13.54 | gpu s1-15 4.34 rest 4.33 | cpu ms/step 122.7
+run 1  wall s1-15 12.69 rest 11.57 | gpu s1-15 4.35 rest 4.32 | cpu ms/step 97.1
+run 2  wall s1-15 11.55 rest 10.68 | gpu s1-15 4.33 rest 4.31 | cpu ms/step 87.1
+run 3  wall s1-15 10.79 rest 10.34 | gpu s1-15 4.33 rest 4.32 | cpu ms/step 81.9
+run 4  wall s1-15 10.25 rest 10.11 | gpu s1-15 4.33 rest 4.31 | cpu ms/step 78.7
+Mean clock of the CPUs the sharplight-cpu workers ran on (sampled every 100 ms): run 0 3531 MHz, run 1 3670, run 2 3647, run 3 3770, run 4 3288.

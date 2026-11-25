@@ -59,7 +59,14 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly List<(ulong Destination, ulong Source, nuint Bytes, bool Locked)> _sparseCopies = [];
     /// <summary>Most copies in one batched call.</summary>
     private const int MaxBatchedCopies = 256;
-    /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming"/>).</summary>
+    /// <summary>
+    /// The mapped expert banks of the streamed weights in their stored layout (page-locked or copied through staging) and their experts: <see cref="BeginStreaming(ReadOnlySpan{int})"/>
+    /// copies only the experts a pass selects of them.
+    /// </summary>
+    private readonly Dictionary<BufferDecl, int> _streamedBanks = [];
+    /// <summary>Per expert of the bank being copied, whether the pass selects it (reused).</summary>
+    private bool[] _usedExperts = [];
+    /// <summary>Recorded on the upload stream after the streamed weights' copies (<see cref="BeginStreaming()"/>).</summary>
     private nint _streamDone;
     /// <summary>Input and output buffers allocated so far by a streamed or sparse compilation (their ordinals key the shared buffers).</summary>
     private int _streamedInputs;
@@ -592,7 +599,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     /// <summary>
     /// Page-locks the mapped source of every streamed weight stored as is (no repack), the whole pages inside it, so that
-    /// <see cref="BeginStreaming"/> copies it asynchronously; weights the budget or the driver refuses go through staging memory.
+    /// <see cref="BeginStreaming()"/> copies it asynchronously; weights the budget or the driver refuses go through staging memory.
     /// </summary>
     private void RegisterStreamedSources()
     {
@@ -605,12 +612,18 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         const long Page = 4096;
+        var banks = StreamedExpertBanks.Of(Segment);
         foreach (var b in _streamedWeights)
         {
             nint source = b.Repack == WeightRepack.None && b.InitialData is null ? b.Weight?.Source.TryGetPointer() ?? 0 : 0;
             if (source == 0)
             {
                 continue;
+            }
+
+            if (banks.TryGetValue(b.Weight!, out int experts) && b.Bytes == b.Weight!.ByteSize && b.Bytes % experts == 0)
+            {
+                _streamedBanks[b] = experts;
             }
 
             long start = ((source + Page - 1) & ~(Page - 1)) - source;
@@ -643,12 +656,40 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             return;
         }
 
+        QueueStreamedCopies([]);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>True when an expert bank of the streamed weights is mapped in its stored layout (its experts are copied apart).</remarks>
+    public bool StreamsSelectedExperts => _sparse is null && _streamedBanks.Count > 0;
+
+    /// <inheritdoc />
+    /// <remarks>Repacked banks and every other weight are copied whole.</remarks>
+    public void BeginStreaming(ReadOnlySpan<int> expertIds)
+    {
+        if (!StreamsSelectedExperts)
+        {
+            BeginStreaming();
+            return;
+        }
+
+        QueueStreamedCopies(expertIds, selected: true);
+    }
+
+    /// <summary>
+    /// Queues the copies of the streamed weights on the upload stream: with <paramref name="selected"/>, of the expert banks
+    /// (<see cref="_streamedBanks"/>) only the experts <paramref name="expertIds"/> names, in runs of consecutive experts.
+    /// </summary>
+    private void QueueStreamedCopies(ReadOnlySpan<int> expertIds, bool selected = false)
+    {
         if (_streamedWeights.Count == 0 || _streaming || WeightsResident)
         {
             return;
         }
 
         var timer = Stopwatch.StartNew();
+        long selectedBytes = 0;
+        int usedExperts = 0;
         _dev.Enter();
         lock (_dev.StreamLock)
         {
@@ -660,27 +701,33 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
                 var uploader = _dev.StreamUploader(largestRow);
                 foreach (var buffer in staged)
                 {
+                    if (selected && _streamedBanks.TryGetValue(buffer, out int experts))
+                    {
+                        usedExperts = MarkUsedExperts(expertIds, experts);
+                        selectedBytes += UploadSelectedExperts(uploader, buffer, buffer.Bytes / experts);
+                        continue;
+                    }
+
                     uploader.Upload(buffer, _alloc[buffer]);
                 }
             }
 
+            _sparseCopies.Clear();
             foreach (var (buffer, source, offset, bytes) in _registeredWeights)
             {
-                ulong destination = _alloc[buffer].Pointer;
-                long tail = buffer.Bytes - offset - bytes;
-                // The partial pages around the registered range are copied from pageable memory, still on the upload stream.
-                if (offset > 0)
+                if (selected && _streamedBanks.TryGetValue(buffer, out int experts))
                 {
-                    CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination, (void*)source, (nuint)offset, _dev.Stream), "cuMemcpyHtoDAsync");
+                    usedExperts = MarkUsedExperts(expertIds, experts);
+                    selectedBytes += QueueSelectedExperts(buffer, source, offset, offset + bytes, buffer.Bytes / experts);
+                    continue;
                 }
 
-                CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination + (ulong)offset, (byte*)source + offset, (nuint)bytes, _dev.Stream), "cuMemcpyHtoDAsync");
-                if (tail > 0)
-                {
-                    CudaApi.Check(CudaApi.cuMemcpyHtoDAsync(destination + (ulong)(offset + bytes), (byte*)source + offset + bytes, (nuint)tail, _dev.Stream), "cuMemcpyHtoDAsync");
-                }
+                // The partial pages around the registered range are copied from pageable memory, still on the upload stream.
+                AddCopies(_alloc[buffer].Pointer, source, 0, buffer.Bytes, offset, offset + bytes);
+                selectedBytes += buffer.Bytes;
             }
 
+            SubmitSparseCopies();
             CudaApi.Check(CudaApi.cuEventRecord(_streamDone, _dev.Stream), "cuEventRecord");
         }
 
@@ -688,12 +735,126 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         if (DiagnosticSwitches.LoadTiming)
         {
             long total = _streamedWeights.Sum(b => b.Bytes);
-            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB queued in {timer.Elapsed.TotalMilliseconds:F1} ms ({_registeredWeights.Sum(r => r.Bytes) / 1e9:F2} GB direct)");
+            string experts = selected ? $", {usedExperts} experts of {_streamedBanks.Values.Max()} selected" : "";
+            Console.Error.WriteLine($"[stream] segment {Segment.Index}: {total / 1e9:F2} GB queued in {timer.Elapsed.TotalMilliseconds:F1} ms ({selectedBytes / 1e9:F2} GB copied{experts})");
+        }
+    }
+
+    /// <summary>Sets <see cref="_usedExperts"/> to the experts of a bank of <paramref name="experts"/> that <paramref name="expertIds"/> names; returns their count.</summary>
+    private int MarkUsedExperts(ReadOnlySpan<int> expertIds, int experts)
+    {
+        if (_usedExperts.Length < experts)
+        {
+            _usedExperts = new bool[experts];
+        }
+
+        var used = _usedExperts.AsSpan(0, experts);
+        used.Clear();
+        int count = 0;
+        foreach (int id in expertIds)
+        {
+            if ((uint)id < (uint)experts && !used[id])
+            {
+                used[id] = true;
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// Adds the copies of the experts <see cref="MarkUsedExperts"/> marked of a bank to <see cref="_sparseCopies"/>, at their places in the
+    /// bank's memory; returns the bytes.
+    /// </summary>
+    private long QueueSelectedExperts(BufferDecl bank, nint source, long lockedStart, long lockedEnd, long expertBytes)
+    {
+        int experts = (int)(bank.Bytes / expertBytes);
+        long bytes = 0;
+        for (int e = 0; e < experts; e++)
+        {
+            if (!_usedExperts[e])
+            {
+                continue;
+            }
+
+            int run = 1;
+            while (e + run < experts && _usedExperts[e + run])
+            {
+                run++;
+            }
+
+            AddCopies(_alloc[bank].Pointer, source, e * expertBytes, (e + run) * expertBytes, lockedStart, lockedEnd);
+            bytes += run * expertBytes;
+            e += run - 1;
+        }
+
+        return bytes;
+    }
+
+    /// <summary>Copies the experts <see cref="MarkUsedExperts"/> marked of a bank through the staging buffers; returns the bytes.</summary>
+    private long UploadSelectedExperts(CudaWeightUploader uploader, BufferDecl bank, long expertBytes)
+    {
+        int experts = (int)(bank.Bytes / expertBytes);
+        long bytes = 0;
+        for (int e = 0; e < experts; e++)
+        {
+            int run = 0;
+            while (e + run < experts && _usedExperts[e + run])
+            {
+                run++;
+            }
+
+            if (run > 0)
+            {
+                uploader.Upload(bank, _alloc[bank], e * expertBytes, (e + run) * expertBytes);
+                bytes += run * expertBytes;
+                e += run;
+            }
+        }
+
+        return bytes;
+    }
+
+    /// <summary>
+    /// Adds the copies of bytes [<paramref name="from"/>, <paramref name="to"/>) of a weight from <paramref name="source"/> to the same offsets
+    /// at <paramref name="destination"/> to <see cref="_sparseCopies"/>: a copy must not span page-locked and pageable memory, so the range is
+    /// cut at the registered range [<paramref name="lockedStart"/>, <paramref name="lockedEnd"/>).
+    /// </summary>
+    private void AddCopies(ulong destination, nint source, long from, long to, long lockedStart, long lockedEnd)
+    {
+        foreach (long cut in (ReadOnlySpan<long>)[lockedStart, lockedEnd, to])
+        {
+            if (cut > from && from < to)
+            {
+                long end = Math.Min(cut, to);
+                bool locked = from >= lockedStart && end <= lockedEnd;
+                _sparseCopies.Add((destination + (ulong)from, (ulong)((byte*)source + from), (nuint)(end - from), locked));
+                from = end;
+            }
         }
     }
 
     /// <inheritdoc />
-    public bool WeightsResident { get; set; }
+    /// <remarks>
+    /// False also drops a copy <see cref="BeginStreaming()"/> queued that no execution consumed: the memory has been overwritten since
+    /// (another streamed segment of the memory copied in after it), so the next <see cref="BeginStreaming()"/> copies again. The copies of
+    /// the memory all go on the upload stream, so the new one lands after the dropped one.
+    /// </remarks>
+    public bool WeightsResident
+    {
+        get => _weightsResident;
+        set
+        {
+            _weightsResident = value;
+            if (!value && _sparse is null)
+            {
+                _streaming = false;
+            }
+        }
+    }
+
+    private bool _weightsResident;
 
     /// <inheritdoc />
     /// <remarks>
@@ -705,7 +866,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             || (_diskBanks.TryGetValue(w.Buffer, out var disk) && _options.DiskExperts!.IsPinnedFor(_dev, disk)));
 
     /// <summary>
-    /// Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming"/> did not and the
+    /// Makes this segment's stream wait for the streamed weights' copies, starting them when <see cref="BeginStreaming()"/> did not and the
     /// weights are not <see cref="WeightsResident"/> (the wait then is for their last copy, normally long done).
     /// </summary>
     private void StreamWeights()
