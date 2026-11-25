@@ -16,7 +16,7 @@ namespace Sharplight.Speak;
 /// <param name="ReferencePath">A WAV recording of the voice to speak with (F5-TTS), or <see langword="null"/>.</param>
 /// <param name="ReferenceText">The words of the reference recording, or <see langword="null"/>.</param>
 /// <param name="Instructions">An instruction on how to speak (CosyVoice 3), or <see langword="null"/>.</param>
-internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, string Text, string OutputPath, string? Voice, bool UseCpu, int DeviceIndex, int? Seed,
+internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, string Text, string OutputPath, string? Voice, bool UseCpu, int DeviceIndex, long? Seed,
     bool Greedy, string? Language, float Speed, bool Stream, string? ReferencePath = null, string? ReferenceText = null, string? Instructions = null)
 {
     /// <summary>The usage text.</summary>
@@ -52,7 +52,7 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
         string? language = null;
         float speed = 1f;
         int device = 0;
-        int? seed = null;
+        long? seed = null;
         string? reference = null;
         string? referenceText = null;
         string? instructions = null;
@@ -80,7 +80,7 @@ internal sealed record SpeakSettings(string ModelPath, string? VocoderPath, stri
                     device = int.Parse(value(), System.Globalization.CultureInfo.InvariantCulture);
                     break;
                 case "--seed":
-                    seed = int.Parse(value(), System.Globalization.CultureInfo.InvariantCulture);
+                    seed = long.Parse(value(), System.Globalization.CultureInfo.InvariantCulture);
                     break;
                 case "--cpu":
                     cpu = true;

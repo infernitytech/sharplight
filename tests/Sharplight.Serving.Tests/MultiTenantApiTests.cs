@@ -39,7 +39,7 @@ public sealed class MultiTenantApiTests : IAsyncLifetime
         _host.Register(new ModelRegistration
         {
             Name = "embed-x",
-            Loader = new FakeInstanceLoader(ModelKind.Embedding, () => new EmbeddingModelInstance(new FakeEmbedder(), 0)),
+            Loader = new FakeInstanceLoader(ModelKind.Embedding, () => new TaskClientInstance([new FakeEmbedder()], 0, ModelKind.Embedding)),
         });
 
         var builder = WebApplication.CreateBuilder();

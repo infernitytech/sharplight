@@ -819,7 +819,7 @@ internal sealed partial class SpeakPageViewModel : InferencePageViewModel
                 TopK = panel.GetInt("topk"),
                 TopP = (float)panel.GetNumber("topp"),
                 RepetitionPenalty = (float)panel.GetNumber("repetition"),
-                Seed = int.TryParse(panel.GetText("seed").Trim(), out int seed) ? seed : null,
+                Seed = long.TryParse(panel.GetText("seed").Trim(), out long seed) ? seed : null,
             },
         }, presets);
     }

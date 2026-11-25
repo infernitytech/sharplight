@@ -36,7 +36,7 @@ internal sealed class DiaTokenSampler
         _settings = settings;
         _delayLeft = [.. delays];
         _finished = new bool[channels];
-        _random = settings.Seed is { } seed ? new Random(seed) : new Random();
+        _random = Tasks.Seeds.CreateRandom(settings.Seed);
         _maxGenerationLength = settings.MaxLength - delays.Max() - 1;
     }
 

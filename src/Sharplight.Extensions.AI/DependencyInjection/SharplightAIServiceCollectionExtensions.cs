@@ -5,6 +5,7 @@ using Sharplight.Llm;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
 using Sharplight.Speech;
+using Sharplight.Tasks;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -87,15 +88,15 @@ public static class SharplightAIServiceCollectionExtensions
         }
 
         /// <summary>
-        /// Registers a singleton <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> over one embedding model, loaded on first use with
-        /// the <see cref="EmbeddingLoadOptions"/> named after <paramref name="serviceKey"/> (see
-        /// <c>AddSharplightChatClient(configure, client, serviceKey)</c>). Returns the
+        /// Registers a singleton <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> over one embedding model: the model is registered
+        /// as an <see cref="ITextEmbedder"/> with <c>services.AddTextEmbedder(configure, serviceKey)</c> (loaded on first use, disposed by
+        /// the container) and the generator wraps it; with <paramref name="serviceKey"/>, both are keyed services of that key. Returns the
         /// builder for middleware (e.g. <c>.UseDistributedCache()</c>).
         /// </summary>
         /// <param name="configure">Configures the model path, devices and batch settings.</param>
-        /// <param name="serviceKey">The service key of the generator, or <see langword="null"/> for an unkeyed generator.</param>
+        /// <param name="serviceKey">The service key of the embedder and the generator, or <see langword="null"/>.</param>
         /// <returns>The embedding generator builder.</returns>
-        public EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(Action<EmbeddingLoadOptions> configure, object? serviceKey = null)
+        public EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(Action<TaskLoadOptions> configure, object? serviceKey = null)
         {
             ArgumentNullException.ThrowIfNull(configure);
             return services.AddSharplightEmbeddingGenerator((options, _) => configure(options), serviceKey);
@@ -106,24 +107,17 @@ public static class SharplightAIServiceCollectionExtensions
         /// <c>AddSharplightEmbeddingGenerator(configure, serviceKey)</c>), configured with access to the container.
         /// </summary>
         /// <param name="configure">Configures the model path, devices and batch settings from the container's services.</param>
-        /// <param name="serviceKey">The service key of the generator, or <see langword="null"/> for an unkeyed generator.</param>
+        /// <param name="serviceKey">The service key of the embedder and the generator, or <see langword="null"/>.</param>
         /// <returns>The embedding generator builder.</returns>
-        public EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(Action<EmbeddingLoadOptions, IServiceProvider> configure,
+        public EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(Action<TaskLoadOptions, IServiceProvider> configure,
             object? serviceKey = null)
         {
             ArgumentNullException.ThrowIfNull(services);
             ArgumentNullException.ThrowIfNull(configure);
-            string name = OptionsName(typeof(IEmbeddingGenerator<string, Embedding<float>>), serviceKey);
-            services.AddModelLoader();
-            services.AddOptions<EmbeddingLoadOptions>(name).Configure<IServiceProvider>(configure);
-
-            IEmbeddingGenerator<string, Embedding<float>> Create(IServiceProvider provider)
-            {
-                var load = provider.GetRequiredService<IOptionsMonitor<EmbeddingLoadOptions>>().Get(name);
-                return SharplightEmbeddingGenerator.Load(provider.GetRequiredService<ModelLoader>(), RequirePath(load.ModelPath), load);
-            }
-
-            return serviceKey is null ? services.AddEmbeddingGenerator(Create) : services.AddKeyedEmbeddingGenerator(serviceKey, Create);
+            services.AddTextEmbedder(configure, serviceKey);
+            return serviceKey is null
+                ? services.AddEmbeddingGenerator(provider => new SharplightEmbeddingGenerator(provider.GetRequiredService<ITextEmbedder>()))
+                : services.AddKeyedEmbeddingGenerator(serviceKey, provider => new SharplightEmbeddingGenerator(provider.GetRequiredKeyedService<ITextEmbedder>(serviceKey)));
         }
 
         /// <summary>Registers a generator over an already loaded embedder (not disposed by the container).</summary>

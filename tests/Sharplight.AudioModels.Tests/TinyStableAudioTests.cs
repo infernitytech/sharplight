@@ -14,14 +14,18 @@ public class TinyStableAudioTests
 
     private static float[] Floats(string name) => System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(File.ReadAllBytes(Reference(name))).ToArray();
 
-    private static AudioGenerationRequest Request(string kind, int count)
+    private static AudioGenerationRequest Request(string kind) => new()
+    {
+        Prompt = "a dog barking twice in a quiet room",
+        NegativePrompt = kind == "negative" ? "music, noise" : null,
+        Duration = TimeSpan.FromSeconds(0.4),
+    };
+
+    private static AudioGenerationOptions Options(string kind, int count)
     {
         var stepNoise = Floats($"{kind}_step_noise.f32");
-        return new AudioGenerationRequest
+        return new AudioGenerationOptions
         {
-            Prompt = "a dog barking twice in a quiet room",
-            NegativePrompt = kind == "negative" ? "music, noise" : null,
-            Duration = TimeSpan.FromSeconds(0.4),
             Steps = 4,
             GuidanceScale = 3,
             InitialNoise = Floats($"{kind}_noise.f32"),
@@ -43,14 +47,15 @@ public class TinyStableAudioTests
         Assert.Equal(64, generator.LatentFrameRate);
         Assert.Equal(0.5, generator.MaxDuration.TotalSeconds, 6);
 
-        var request = Request(kind, 32 * 8);
-        var latents = await generator.GenerateLatentsAsync(request);
+        var request = Request(kind);
+        var options = Options(kind, 32 * 8);
+        var latents = await generator.GenerateLatentsAsync(request, options);
         var expectedLatents = Floats($"{kind}_latent.f32");
         double latentError = AudioModels.RelativeRms(latents.Values, expectedLatents);
         ParityReport.Write($"tiny-stable-audio {kind} gpu={gpu} latent relative RMS {latentError:E2}");
         Assert.True(latentError < (gpu ? 1e-3 : 1e-4), $"latent relative RMS {latentError}");
 
-        var audio = await generator.GenerateAsync(request);
+        var audio = (await generator.GenerateAsync(request, options)).Audio;
         var expected = Floats($"{kind}_wav.f32");
         Assert.Equal(expected.Length, audio.Samples.Length);
         double audioError = AudioModels.RelativeRms(audio.Samples, expected);

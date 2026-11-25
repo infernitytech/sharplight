@@ -121,7 +121,7 @@ public sealed class HostModelApiTests : IAsyncLifetime
     [Fact]
     public async Task EmbedsWithAHostEmbeddingModel()
     {
-        Add("embed", ModelKind.Embedding, () => new EmbeddingModelInstance(_embedder, 0, ownsEmbedder: false));
+        Add("embed", ModelKind.Embedding, () => new TaskClientInstance([_embedder], 0, ModelKind.Embedding, ownsClients: false));
         using var response = await Json("/v1/embeddings", """{"model":"embed","input":["hello","world"]}""");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));

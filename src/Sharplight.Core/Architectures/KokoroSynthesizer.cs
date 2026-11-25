@@ -126,7 +126,7 @@ internal sealed class KokoroSynthesizer : ISpeechSynthesizer
         foreach (string phonemes in PhonemizerFor(options).Chunks(text, options.Language, _context - 2))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return await Task.Run(() => SynthesizePhonemes(phonemes, options.Voice, options.Speed, options.Sampling.Seed ?? 0), cancellationToken).ConfigureAwait(false);
+            yield return await Task.Run(() => SynthesizePhonemes(phonemes, options.Voice, options.Speed, options.Sampling.Seed is { } seed ? Tasks.Seeds.ToInt32(seed) : 0), cancellationToken).ConfigureAwait(false);
         }
     }
 

@@ -47,11 +47,14 @@ using (var lease = await host.AcquireAsync("qwen3", ModelKind.Chat, cancellation
 
 using (var lease = await host.AcquireAsync("bge", ModelKind.Embedding, cancellationToken))
 {
-    var embedder = ((IEmbeddingModel)lease.As<LoadedModel>()).Embedder;                    // ITextEmbedder
+    var embedder = ((ITaskClientModel)lease.As<LoadedModel>()).FindClient<ITextEmbedder>();  // ITextEmbedder
 }
 ```
 
-Rerankers give an `IRerankerModel`, task models a `TaskModelInstance` with `GetClient<ISpeechRecognizer>()` and the like.
+Embedding and reranking models load through the task loader like every other task model (`TaskModelLoaderFactory`, as kinds
+`text-embedding` and `text-reranking` with `TextEmbeddingLoadDefaults`); a lease on any of them is an `ITaskClientModel`
+(`FindClient<ITextReranker>()`, `FindClient<ISpeechRecognizer>()` and the like). `TaskClientInstance` registers clients an application
+created itself.
 
 ## Options and the JSON form
 

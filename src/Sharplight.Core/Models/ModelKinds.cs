@@ -10,6 +10,12 @@ public static class ModelKinds
     /// <summary>Autoregressive or masked-diffusion text generation (<c>Sharplight.Llm.ITextGenerator</c>, <c>LlmModel</c>).</summary>
     public const string TextGeneration = "text-generation";
 
+    /// <summary>Texts in, embedding vectors out (<c>Sharplight.Llm.Embeddings.ITextEmbedder</c>).</summary>
+    public const string TextEmbedding = "text-embedding";
+
+    /// <summary>A query and documents in, relevance scores out (<c>Sharplight.Llm.Embeddings.ITextReranker</c>).</summary>
+    public const string TextReranking = "text-reranking";
+
     /// <summary>Audio in, text with timestamps out (<c>Sharplight.Speech.ISpeechRecognizer</c>).</summary>
     public const string SpeechRecognition = "speech-recognition";
 

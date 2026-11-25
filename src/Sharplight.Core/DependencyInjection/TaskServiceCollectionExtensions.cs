@@ -6,6 +6,7 @@ using Sharplight.ImageGeneration;
 using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
 using Sharplight.Llm;
+using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
 using Sharplight.Speech;
 using Sharplight.Tasks;
@@ -66,6 +67,13 @@ public static class TaskServiceCollectionExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextRecognizerFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LanguageModelTextRecognizerFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ImageUpscalerFactory>());
+            if (!services.Any(d => d.ServiceType == typeof(ITaskClientFactory) && d.ImplementationInstance is TextEmbedderFactory))
+            {
+                services.AddSingleton<ITaskClientFactory>(new TextEmbedderFactory(ModelKinds.TextGeneration));
+                services.AddSingleton<ITaskClientFactory>(new TextEmbedderFactory(ModelKinds.TextEmbedding));
+                services.AddSingleton<ITaskClientFactory>(new TextRerankerFactory(ModelKinds.TextGeneration));
+                services.AddSingleton<ITaskClientFactory>(new TextRerankerFactory(ModelKinds.TextReranking));
+            }
 
             return services;
         }
@@ -492,6 +500,67 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The service collection.</returns>
         public IServiceCollection AddMusicGenerator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<IMusicGenerator>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="ITextEmbedder"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>). The options
+        /// start from the text-embedding load defaults (<see cref="TextEmbeddingLoadDefaults"/>: 8192 tokens per batch, F16 matrices on GPUs) before
+        /// <paramref name="configure"/> runs.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTextEmbedder(Action<TaskLoadOptions> configure, object? serviceKey = null)
+        {
+            ArgumentNullException.ThrowIfNull(configure);
+            return services.AddTextEmbedder((options, _) => configure(options), serviceKey);
+        }
+
+        /// <summary>
+        /// Adds an <see cref="ITextEmbedder"/> for one model, configured with access to the container (see
+        /// <c>AddTextEmbedder(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTextEmbedder(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+        {
+            ArgumentNullException.ThrowIfNull(configure);
+            return services.AddTaskClient<ITextEmbedder>((options, provider) =>
+            {
+                TextEmbeddingLoadDefaults.Apply(options);
+                configure(options, provider);
+            }, serviceKey);
+        }
+
+        /// <summary>
+        /// Adds an <see cref="ITextReranker"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>). The options
+        /// start from the text-embedding load defaults (<see cref="TextEmbeddingLoadDefaults"/>) before <paramref name="configure"/> runs.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTextReranker(Action<TaskLoadOptions> configure, object? serviceKey = null)
+        {
+            ArgumentNullException.ThrowIfNull(configure);
+            return services.AddTextReranker((options, _) => configure(options), serviceKey);
+        }
+
+        /// <summary>
+        /// Adds an <see cref="ITextReranker"/> for one model, configured with access to the container (see
+        /// <c>AddTextReranker(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTextReranker(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+        {
+            ArgumentNullException.ThrowIfNull(configure);
+            return services.AddTaskClient<ITextReranker>((options, provider) =>
+            {
+                TextEmbeddingLoadDefaults.Apply(options);
+                configure(options, provider);
+            }, serviceKey);
+        }
     }
 
     private static TClient CreateClient<TClient>(IServiceProvider provider, TaskModelKey modelKey)

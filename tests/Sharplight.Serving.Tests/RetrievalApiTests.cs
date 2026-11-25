@@ -84,7 +84,7 @@ public sealed class RetrievalApiTests : IAsyncLifetime
 
         (s, body) = await Post("/v1/embeddings", """{"input":"hello"}""");
         Assert.Equal(HttpStatusCode.OK, s);
-        var expected = _embedder.Embed(["hello"]).Vectors[0];
+        var expected = (await _embedder.EmbedAsync(["hello"], cancellationToken: TestContext.Current.CancellationToken)).Vectors[0];
         Assert.Equal(expected, body.GetProperty("data")[0].GetProperty("embedding").EnumerateArray().Select(e => e.GetSingle()));
     }
 
@@ -96,7 +96,7 @@ public sealed class RetrievalApiTests : IAsyncLifetime
         var bytes = Convert.FromBase64String(body.GetProperty("data")[0].GetProperty("embedding").GetString()!);
         var floats = new float[bytes.Length / 4];
         Buffer.BlockCopy(bytes, 0, floats, 0, bytes.Length);
-        Assert.Equal(_embedder.Embed(["hello"]).Vectors[0], floats);
+        Assert.Equal((await _embedder.EmbedAsync(["hello"], cancellationToken: TestContext.Current.CancellationToken)).Vectors[0], floats);
     }
 
     [Fact]

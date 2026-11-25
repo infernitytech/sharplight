@@ -115,13 +115,14 @@ public sealed class AudioModelsPageTests
         await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
 
         var request = Assert.Single(client.Requests);
+        var options = Assert.Single(client.Options)!;
         Assert.Equal("upbeat pop", request.Prompt);
         Assert.Equal("[verse]\nHello world", request.Lyrics);
         Assert.Equal("en", request.Language);
-        Assert.Equal(12, request.Steps);
-        Assert.Equal(2.5f, request.Shift);
-        Assert.Equal(7, request.Seed);
-        Assert.Null(request.GuidanceScale);   // turbo takes none
+        Assert.Equal(12, options.Steps);
+        Assert.Equal(2.5f, options.Shift);
+        Assert.Equal(7, options.Seed);
+        Assert.Null(options.GuidanceScale);   // turbo takes none
         Assert.Equal(TimeSpan.FromSeconds(20), request.Duration);   // limited by the model
         Assert.Equal("[verse]\nHello world", page.History.Items.Single().Record.Input["lyrics"]);
     }
@@ -138,8 +139,9 @@ public sealed class AudioModelsPageTests
         await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
 
         var request = Assert.Single(client.Requests);
-        Assert.Null(request.Steps);
-        Assert.Null(request.Shift);
+        var options = Assert.Single(client.Options)!;
+        Assert.Null(options.Steps);
+        Assert.Null(options.Shift);
         Assert.Null(request.Language);
         Assert.Null(request.Lyrics);
     }
@@ -193,12 +195,13 @@ public sealed class AudioModelsPageTests
         await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
 
         var request = Assert.Single(client.Requests);
+        var options = Assert.Single(client.Options)!;
         Assert.Equal("rain on a tin roof", request.Prompt);
         Assert.Equal("music, voices", request.NegativePrompt);
-        Assert.Equal(50, request.Steps);
-        Assert.Equal(6f, request.GuidanceScale);
-        Assert.Equal(11, request.Seed);
-        Assert.Null(request.Shift);
+        Assert.Equal(50, options.Steps);
+        Assert.Equal(6f, options.GuidanceScale);
+        Assert.Equal(11, options.Seed);
+        Assert.Null(options.Shift);
         Assert.Null(request.Lyrics);
         Assert.Equal(TimeSpan.FromSeconds(47.55), request.Duration);   // limited by the model
         Assert.Equal("music, voices", page.History.Items.Single().Record.Input["negative"]);
@@ -238,10 +241,11 @@ public sealed class AudioModelsPageTests
         page.RunCommand.Execute(null);
         await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
         var request = Assert.Single(client.Requests);
+        var options = Assert.Single(client.Options)!;
         Assert.Equal(TimeSpan.FromSeconds(120.7), request.Duration);   // limited by the model
         Assert.Null(request.Lyrics);
-        Assert.Null(request.Shift);
-        Assert.Equal(4, request.Seed);
+        Assert.Null(options.Shift);
+        Assert.Equal(4, options.Seed);
     }
 
     // ---- Kind detection ----

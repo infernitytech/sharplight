@@ -57,10 +57,12 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         _samplesPerFrame = denoiser.ConfigValue(AudioGenerationGraphs.SamplesPerFrameKey, 1);
         LatentChannels = denoiser.ConfigValue(AudioGenerationGraphs.LatentChannelsKey, 0);
         _maxFrames = denoiser.ConfigValue(TimedAudioDiffusionGraphs.FramesKey, 0);
-        DefaultSteps = denoiser.ConfigValue(AudioGenerationGraphs.DefaultStepsKey, 50);
         _objective = denoiser.ConfigValue(TimedAudioDiffusionGraphs.ObjectiveKey, "rectified_flow");
         float guidance = (float)denoiser.ConfigValue(TimedAudioDiffusionGraphs.DefaultGuidanceKey, 1.0);
-        DefaultGuidanceScale = _objective == PingPong && guidance == 1f ? null : guidance;
+        float? defaultGuidance = _objective == PingPong && guidance == 1f ? null : guidance;
+        // The guided models (the base models) take a negative prompt; the post-trained ones sample without guidance.
+        Defaults = new AudioGenerationDefaults(denoiser.ConfigValue(AudioGenerationGraphs.DefaultStepsKey, 50), defaultGuidance,
+            SupportsNegativePrompt: defaultGuidance is not null);
         _memoryTokens = denoiser.ConfigValue(TimedAudioDiffusionGraphs.MemoryTokensKey, 0);
         _frameAlign = denoiser.ConfigValue(TimedAudioDiffusionGraphs.FrameAlignKey, 1);
         _headroomSeconds = denoiser.ConfigValue(TimedAudioDiffusionGraphs.HeadroomSecondsKey, 6.0);
@@ -92,12 +94,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
 
     public int LatentChannels { get; }
 
-    public int DefaultSteps { get; }
-
-    /// <summary>The guided models (the base models) take a negative prompt; the post-trained ones sample without guidance.</summary>
-    public bool SupportsNegativePrompt => DefaultGuidanceScale is not null;
-
-    public float? DefaultGuidanceScale { get; }
+    public AudioGenerationDefaults Defaults { get; }
 
     public TimeSpan MaxDuration { get; }
 
@@ -106,29 +103,50 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
 
     /// <inheritdoc/>
     /// <remarks>The latents cover the duration plus the model's headroom (<see cref="Frames"/>); the decoded audio is cut to the duration.</remarks>
-    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null, CancellationToken cancellationToken = default)
+    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return BackgroundCompute.RunAsync(_gate, () => Denoise(request, progress, cancellationToken), cancellationToken);
+        options ??= AudioGenerationOptions.Default;
+        long seed = AudioGenerationStreams.ResolveSeed(options.Seed);
+        return BackgroundCompute.RunAsync(_gate, () => Denoise(request, options, seed, null, cancellationToken), cancellationToken);
     }
 
     /// <summary>Denoises with the chosen sampler instead of the model's own (ping-pong steps on a base model, Euler steps on a post-trained one).</summary>
-    /// <param name="request">The request.</param>
+    /// <param name="request">What to generate.</param>
+    /// <param name="options">Steps, guidance and seed, or <see langword="null"/> for the model's defaults.</param>
     /// <param name="pingPong">Whether to take ping-pong steps.</param>
     /// <param name="cancellationToken">Stops generation between steps.</param>
-    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, bool pingPong, CancellationToken cancellationToken = default)
+    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, AudioGenerationOptions? options, bool pingPong, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return BackgroundCompute.RunAsync(_gate, () => Denoise(request, null, cancellationToken, pingPong), cancellationToken);
+        options ??= AudioGenerationOptions.Default;
+        long seed = AudioGenerationStreams.ResolveSeed(options.Seed);
+        return BackgroundCompute.RunAsync(_gate, () => Denoise(request, options, seed, null, cancellationToken, pingPong), cancellationToken);
     }
 
-    public Task<AudioBuffer> GenerateAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null, CancellationToken cancellationToken = default)
+    public Task<AudioGenerationResult> GenerateAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default)
+        => AudioGenerationStreams.CompleteAsync(GenerateStreamingAsync(request, options, cancellationToken));
+
+    public IAsyncEnumerable<AudioGenerationUpdate> GenerateStreamingAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return BackgroundCompute.RunAsync(_gate, () => Decode(Denoise(request, progress, cancellationToken), request, cancellationToken), cancellationToken);
+        options ??= AudioGenerationOptions.Default;
+        long seed = AudioGenerationStreams.ResolveSeed(options.Seed);
+        return AudioGenerationStreams.Stream(_gate, (emit, token) =>
+        {
+            int done = 0;
+            int total = 0;
+            var latents = Denoise(request, options, seed, (step, steps) =>
+            {
+                (done, total) = (step, steps);
+                emit(new AudioGenerationUpdate(step, steps));
+            }, token);
+            emit(new AudioGenerationUpdate(done, total, new AudioGenerationResult(Decode(latents, request, options.DecoderNoise, seed, token), seed)));
+        }, cancellationToken);
     }
 
     public void Dispose()
@@ -157,7 +175,8 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         return (int)Math.Min(samples / _samplesPerFrame, _maxFrames);
     }
 
-    private AudioLatents Denoise(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress, CancellationToken cancellationToken, bool? pingPongOverride = null)
+    private AudioLatents Denoise(AudioGenerationRequest request, AudioGenerationOptions options, long seed, Action<int, int>? progress, CancellationToken cancellationToken,
+        bool? pingPongOverride = null)
     {
         double seconds = request.Duration.TotalSeconds;
         if (seconds <= 0 || request.Duration > MaxDuration)
@@ -165,18 +184,18 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
             throw new ArgumentOutOfRangeException(nameof(request), $"The duration must be between 0 and {MaxDuration.TotalSeconds:0.##} s.");
         }
 
-        int steps = request.Steps ?? DefaultSteps;
+        int steps = options.Steps ?? Defaults.Steps;
         if (steps < 1)
         {
-            throw new ArgumentOutOfRangeException(nameof(request), "The number of steps must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(options), "The number of steps must be positive.");
         }
 
         int frames = Frames(seconds);
         int count = frames * LatentChannels;
         bool pingPong = pingPongOverride ?? _objective == PingPong;
-        if (pingPong && request.StepNoise is { } given && (given.Count < steps || given.Any(n => n.Length != count)))
+        if (pingPong && options.StepNoise is { } given && (given.Count < steps || given.Any(n => n.Length != count)))
         {
-            throw new ArgumentException($"The step noise needs {steps} arrays of {count} values.", nameof(request));
+            throw new ArgumentException($"The step noise needs {steps} arrays of {count} values.", nameof(options));
         }
 
         // The frames of the duration, the valid frames (those plus the headroom) and the time schedule.
@@ -184,7 +203,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         int validFrames = Math.Min(effective + (int)(_headroomSeconds * SampleRate / _samplesPerFrame), frames);
         float[] times = _schedule.Times(steps, effective);
 
-        float guidance = request.GuidanceScale ?? DefaultGuidanceScale ?? 1f;
+        float guidance = options.GuidanceScale ?? Defaults.GuidanceScale ?? 1f;
         bool guided = guidance != 1f;
         float[] secondsRow = SecondsRow(seconds);
         float[] condition = [.. Encode(request.Prompt, zeroPadding: false), .. secondsRow];
@@ -195,13 +214,13 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
             uncondition = request.NegativePrompt is { } negative ? [.. Encode(negative, zeroPadding: true), .. secondsRow] : new float[condition.Length];
         }
 
-        var random = AudioNoise.Create(request.Seed);
+        var random = AudioNoise.Create(seed);
         var x = new float[count];
-        if (request.InitialNoise is { } initial)
+        if (options.InitialNoise is { } initial)
         {
             if (initial.Length != count)
             {
-                throw new ArgumentException($"The initial noise has {initial.Length} values, {count} are needed ({frames} frames of {LatentChannels}).", nameof(request));
+                throw new ArgumentException($"The initial noise has {initial.Length} values, {count} are needed ({frames} frames of {LatentChannels}).", nameof(options));
             }
 
             initial.Span.CopyTo(x);
@@ -252,7 +271,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
             if (noise is not null)
             {
                 // Ping-pong: denoise, then noise again to the next time.
-                if (request.StepNoise is { } stepNoise)
+                if (options.StepNoise is { } stepNoise)
                 {
                     stepNoise[step].Span.CopyTo(noise);
                 }
@@ -276,7 +295,7 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
                 }
             }
 
-            progress?.Report((step + 1, steps));
+            progress?.Invoke(step + 1, steps);
 
             void Predict(float[] rowsIn, float[] result)
             {
@@ -337,16 +356,20 @@ internal sealed class FlowAudioDiffusionClient : IAudioGenerator
         return row;
     }
 
-    /// <summary>Decodes latents to the request's duration (with the request's decoder noise and seed), as <see cref="GenerateAsync"/> does after denoising.</summary>
-    /// <param name="latents">The latents of <see cref="GenerateLatentsAsync"/>.</param>
-    /// <param name="request">The request (duration, seed, decoder noise).</param>
+    /// <summary>Decodes latents to the request's duration (with the options' decoder noise and seed), as <see cref="GenerateAsync"/> does after denoising.</summary>
+    /// <param name="latents">The latents of <see cref="GenerateLatentsAsync(AudioGenerationRequest, AudioGenerationOptions?, CancellationToken)"/>.</param>
+    /// <param name="request">The request (duration).</param>
+    /// <param name="options">The decoder noise and seed, or <see langword="null"/> for the defaults (a random seed).</param>
     /// <param name="cancellationToken">Stops between decoder windows.</param>
-    public AudioBuffer Decode(AudioLatents latents, AudioGenerationRequest request, CancellationToken cancellationToken)
+    public AudioBuffer Decode(AudioLatents latents, AudioGenerationRequest request, AudioGenerationOptions? options, CancellationToken cancellationToken)
+        => Decode(latents, request, options?.DecoderNoise, options?.Seed, cancellationToken);
+
+    private AudioBuffer Decode(AudioLatents latents, AudioGenerationRequest request, float? decoderNoise, long? seed, CancellationToken cancellationToken)
     {
         int length = (int)(request.Duration.TotalSeconds * SampleRate);
         int needed = Math.Min(latents.Frames, (length + _samplesPerFrame - 1) / _samplesPerFrame);
-        float dither = request.DecoderNoise ?? 1f;
-        var random = AudioNoise.Create(request.Seed is { } seed ? unchecked((seed * 31) + 17) : null);
+        float dither = decoderNoise ?? 1f;
+        var random = AudioNoise.Create(seed is { } s ? unchecked((Seeds.ToInt32(s) * 31) + 17) : null);
         var values = latents.Values.ToArray();
         if (dither != 0f && _latentNoise > 0f)
         {

@@ -3,11 +3,15 @@ using Sharplight.Tasks;
 namespace Sharplight.Audio;
 
 /// <summary>
-/// Text-to-audio generation with a latent diffusion model (kind <see cref="Models.ModelKinds.AudioGeneration"/>: ACE-Step, Stable Audio Open, Stable Audio 3): a prompt (and lyrics) in, music or sound
-/// out. Follows the task-client pattern of every model kind (<see cref="ITaskClient"/>). Generation runs off the caller's thread, one request at a time per client.
+/// Text-to-audio generation with a latent diffusion model (kind <see cref="Models.ModelKinds.AudioGeneration"/>: ACE-Step, Stable Audio Open, Stable Audio 3): a prompt
+/// (and lyrics) in, music or sound out. Follows the task-client pattern of every model kind (<see cref="ITaskClient"/>) and the request / options / updates shape of
+/// image and video generation. Generation runs off the caller's thread, one request at a time per client.
 /// </summary>
 public interface IAudioGenerator : ITaskClient
 {
+    /// <summary>The model's own defaults (steps, guidance) and what it supports, which the <see langword="null"/> values of the per-request options resolve to.</summary>
+    public AudioGenerationDefaults Defaults { get; }
+
     /// <summary>The sample rate of the generated audio.</summary>
     public int SampleRate { get; }
 
@@ -23,32 +27,25 @@ public interface IAudioGenerator : ITaskClient
     /// <summary>The longest audio the model generates in one request.</summary>
     public TimeSpan MaxDuration { get; }
 
-    /// <summary>The number of denoising steps used when a request has none.</summary>
-    public int DefaultSteps { get; }
-
-    /// <summary>The model sings lyrics (<see cref="AudioGenerationRequest.Lyrics"/> and <see cref="AudioGenerationRequest.Language"/>); other models ignore them.</summary>
-    public bool SupportsLyrics => false;
-
-    /// <summary>The model takes a negative prompt (<see cref="AudioGenerationRequest.NegativePrompt"/>); other models ignore it.</summary>
-    public bool SupportsNegativePrompt => false;
-
-    /// <summary>The classifier-free guidance scale used when a request has none, or <see langword="null"/> when the model runs without guidance (a distilled model).</summary>
-    public float? DefaultGuidanceScale => null;
-
-    /// <summary>The model's sampler shifts its timestep schedule (<see cref="AudioGenerationRequest.Shift"/>); other models ignore the shift.</summary>
-    public bool SupportsShift => false;
-
     /// <summary>Denoises the latents of the audio (the autoencoder's decoder not applied).</summary>
-    /// <param name="request">The request.</param>
-    /// <param name="progress">Called after every step with the number of finished steps and the total.</param>
+    /// <param name="request">What to generate.</param>
+    /// <param name="options">Steps, guidance and seed, or <see langword="null"/> for the model's defaults.</param>
     /// <param name="cancellationToken">Stops generation between steps.</param>
-    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null,
-        CancellationToken cancellationToken = default);
+    /// <returns>The denoised latents.</returns>
+    public Task<AudioLatents> GenerateLatentsAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>Generates the audio.</summary>
-    /// <param name="request">The request.</param>
-    /// <param name="progress">Called after every step with the number of finished steps and the total.</param>
+    /// <param name="request">What to generate.</param>
+    /// <param name="options">Steps, guidance and seed, or <see langword="null"/> for the model's defaults.</param>
     /// <param name="cancellationToken">Stops generation between steps.</param>
-    public Task<AudioBuffer> GenerateAsync(AudioGenerationRequest request, IProgress<(int Step, int Steps)>? progress = null,
+    /// <returns>The audio and the seed it was drawn from.</returns>
+    public Task<AudioGenerationResult> GenerateAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Generates the audio, reporting each denoising step; the last update carries the finished audio.</summary>
+    /// <param name="request">What to generate.</param>
+    /// <param name="options">Steps, guidance and seed, or <see langword="null"/> for the model's defaults.</param>
+    /// <param name="cancellationToken">Stops generation between steps.</param>
+    /// <returns>An update per step, then one with the result.</returns>
+    public IAsyncEnumerable<AudioGenerationUpdate> GenerateStreamingAsync(AudioGenerationRequest request, AudioGenerationOptions? options = null,
         CancellationToken cancellationToken = default);
 }

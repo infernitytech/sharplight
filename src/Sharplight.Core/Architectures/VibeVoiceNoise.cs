@@ -7,9 +7,9 @@ internal sealed class VibeVoiceNoise
 
     /// <summary>Creates the generator.</summary>
     /// <param name="seed">The seed, or <see langword="null"/> for a random one.</param>
-    public VibeVoiceNoise(int? seed)
+    public VibeVoiceNoise(long? seed)
     {
-        _random = seed is { } s ? new Random(s) : new Random();
+        _random = Tasks.Seeds.CreateRandom(seed);
     }
 
     /// <summary>One normal sample.</summary>

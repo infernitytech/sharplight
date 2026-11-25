@@ -4,14 +4,15 @@ using Sharplight.Llm;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tasks;
 
 namespace Sharplight.Package;
 
 /// <summary>
 /// The <see cref="CompilationWorkload"/> of a package: compiles every graph the way the loaders compile it, so the recorded kernels are
 /// the ones a later load asks for: language models through <see cref="LlmModel"/> (decode, decode_multimodal, vision_encode and, with
-/// <see cref="PrecompileOptions.Slots"/> above 1, the serving batch decoder), packed-sequence graphs through <see cref="EmbeddingModel"/>
-/// (embed) and <see cref="Reranker"/> (classify), the graphs of every component of a model with a <see cref="ModelDescription"/> (speech,
+/// <see cref="PrecompileOptions.Slots"/> above 1, the serving batch decoder), packed-sequence graphs through the text embedder
+/// (embed) and reranker (classify) clients, the graphs of every component of a model with a <see cref="ModelDescription"/> (speech,
 /// image generation, ...), and other graphs (e.g. ONNX models) as a <see cref="CompiledModel"/> with the given symbol bounds plus the
 /// component's default bounds.
 /// </summary>
@@ -89,16 +90,20 @@ internal sealed class ModelCompilation(string packagePath, ModelDefinition defin
             }
         }
 
-        if (definition.Graphs.ContainsKey(WellKnown.EmbedGraph))
+        if (definition.Graphs.ContainsKey(WellKnown.EmbedGraph) || definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
         {
-            Optional(WellKnown.EmbedGraph,
-                () => EmbeddingModel.Load(s_packageLoader, packagePath, new EmbeddingLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
-        }
+            var load = new TaskLoadOptions { ModelPath = packagePath, Devices = devices, Log = options.Log, Artifacts = artifacts };
+            TextEmbeddingLoadDefaults.Apply(load);
+            using var model = TaskModel.Load(s_packageLoader, load);
+            if (definition.Graphs.ContainsKey(WellKnown.EmbedGraph))
+            {
+                Optional(WellKnown.EmbedGraph, () => new TextEmbedderClient(model));
+            }
 
-        if (definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
-        {
-            Optional(WellKnown.ClassifyGraph,
-                () => Reranker.Load(s_packageLoader, packagePath, new RerankerLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
+            if (definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
+            {
+                Optional(WellKnown.ClassifyGraph, () => new TextRerankerClient(model));
+            }
         }
     }
 

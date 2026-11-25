@@ -22,5 +22,5 @@ internal sealed record SamplingSettings
     public int MaxTokens { get; init; } = 2048;
 
     /// <summary>Random seed; null for a different one every time.</summary>
-    public int? Seed { get; init; }
+    public long? Seed { get; init; }
 }

@@ -331,7 +331,7 @@ internal sealed class VoxCpm2Synthesizer : ISpeechSynthesizer, IVoiceCloner
 
         int steps = options?.DiffusionSteps ?? _defaultSteps;
         float guidance = options?.GuidanceScale ?? _defaultGuidance;
-        int seed = options?.Sampling.Seed ?? Random.Shared.Next();
+        int seed = options?.Sampling.Seed is { } requested ? Tasks.Seeds.ToInt32(requested) : Random.Shared.Next();
         int budget = Math.Min((int)(prompt.TargetTokens * LengthRatio) + LengthSlack, forcing?.MaxSteps ?? MaxPatches);
         budget = forcing?.Steps ?? Math.Min(budget, Math.Min(baseModel.ContextLength, residualModel.ContextLength) - rows);
         for (int step = 0; step < budget; step++)

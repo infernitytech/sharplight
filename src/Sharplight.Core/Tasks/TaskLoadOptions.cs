@@ -5,7 +5,7 @@ namespace Sharplight.Tasks;
 
 /// <summary>
 /// How a model is loaded (<see cref="TaskModel.Load(ModelLoader, TaskLoadOptions, CancellationToken)"/>) and how its graphs are compiled:
-/// the settings every model kind shares. Kind-specific loaders extend it (<c>LlmLoadOptions</c>, <c>EmbeddingLoadOptions</c>, ...).
+/// the settings every model kind shares. Kind-specific loaders extend it (<c>LlmLoadOptions</c>, <c>SpanScorerLoadOptions</c>, ...).
 /// Configured in code or through Microsoft.Extensions.Options (named after the service key when registered with
 /// <c>services.AddTaskClient&lt;TClient&gt;(...)</c>).
 /// </summary>
@@ -74,6 +74,15 @@ public class TaskLoadOptions
 
     /// <summary>Opt-in: let kernels trade precision for speed (see <see cref="CompileOptions.AllowReducedPrecision"/>).</summary>
     public bool AllowReducedPrecision { get; set; }
+
+    /// <summary>
+    /// Store F32 matrices (rank ≥ 2 weights, e.g. of Hugging Face checkpoints saved in float32) as F16 at load: half the memory and f16
+    /// matrix units on GPUs, at a cosine similarity to the F32 result of ~0.99999 for text embedders. False (default) keeps the stored
+    /// types; null = on when the first device is a GPU (what the hosting loader and <c>AddTextEmbedder</c> / <c>AddTextReranker</c> use
+    /// for text embedding and reranking models). Norms, biases and quantized or 16-bit weights are never changed, nor are prebuilt
+    /// <c>.slm</c> definitions.
+    /// </summary>
+    public bool? HalfPrecisionMatrices { get; set; } = false;
 
     /// <summary>
     /// The device features compilations of this load must not use: <see cref="DisabledFeatures"/>, plus

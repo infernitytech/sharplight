@@ -1,7 +1,10 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Cpu;
 using Sharplight.Llm.Embeddings;
+using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tasks;
 using Sharplight.Vulkan;
 
 namespace Sharplight.Families.Tests;
@@ -70,7 +73,7 @@ public class EmbeddingFamilyTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public void MatchesReference(string model, string name, bool vulkan)
+    public async Task MatchesReference(string model, string name, bool vulkan)
     {
         _ = name;
         string path = Path.Combine(Home, "models", model);
@@ -89,11 +92,13 @@ public class EmbeddingFamilyTests
         // The test owns the device (models do not): disposed after the embedder, so no device outlives the test.
         var slot = Device(vulkan);
         using var device = slot.Device;
-        using var embedder = EmbeddingModel.Load(TestHost.Loader, path, new EmbeddingLoadOptions
+        using var taskModel = TaskModel.Load(TestHost.Loader, new TaskLoadOptions
         {
-            Devices = [slot], Pooling = pooling, Normalize = false, MaxBatchTokens = 256, MaxBatchSequences = 8,
+            ModelPath = path, Devices = [slot], MaxBatchTokens = 256, HalfPrecisionMatrices = null,
+            Adapter = new AdapterOptions { EmbeddingPooling = pooling, EmbeddingNormalize = false },
         });
-        var result = embedder.EmbedTokens(inputs);
+        using var embedder = TestHost.Services.GetRequiredService<TaskClientProvider>().Create<ITextEmbedder>(taskModel);
+        var result = await embedder.EmbedTokensAsync(inputs, cancellationToken: TestContext.Current.CancellationToken);
         for (int i = 0; i < inputs.Count; i++)
         {
             var got = result.Vectors[i];

@@ -5,7 +5,7 @@ namespace Sharplight.Models;
 /// <summary>
 /// The one load path of every model kind: opens the file set through the registered importers (<see cref="Importers"/>), then builds
 /// the definition through the registered architectures (<see cref="Architectures"/>), or takes the prebuilt definition of an
-/// <c>.slm</c> package. <c>TaskModel</c>, <c>LlmModel</c>, <c>EmbeddingModel</c>, <c>Reranker</c> and the package converter all load
+/// <c>.slm</c> package. <c>TaskModel</c>, <c>LlmModel</c>, <c>SpanScorer</c> and the package converter all load
 /// through a loader. Registered as a singleton by <c>services.AddSharplight()</c> and by every importer or architecture registration;
 /// thread-safe.
 /// </summary>
