@@ -116,7 +116,7 @@ public sealed class CompiledModel : IDisposable
     public int SparseSegmentCount => _sparse.Count(s => s is not null);
 
     private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments, ICompiledSegment?[] streamed, int streamMinRows, int streamBuffers,
-        ICompiledSegment?[] sparse)
+        int[] streamBufferOf, ICompiledSegment?[] sparse)
     {
         _sparse = sparse;
         _sparseIds = new Value?[segments.Length];
@@ -131,15 +131,7 @@ public sealed class CompiledModel : IDisposable
         }
 
         _streamBuffers = streamBuffers;
-        _streamBufferOf = new int[streamed.Length];
-        int ordinal = 0;
-        for (int i = 0; i < streamed.Length; i++)
-        {
-            if (streamed[i] is not null)
-            {
-                _streamBufferOf[i] = ordinal++ % streamBuffers;
-            }
-        }
+        _streamBufferOf = streamBufferOf;
 
         Graph = graph;
         Plan = plan;
@@ -431,6 +423,7 @@ public sealed class CompiledModel : IDisposable
         var compiled = new ICompiledSegment[plan.Segments.Count];
         int buffers = Math.Clamp(placement.StreamBuffers, 1, 2);
         var streamed = new ICompiledSegment?[plan.Segments.Count];
+        var streamBufferOf = StreamBuffersOf(plan, buffers);
         var sparse = new ICompiledSegment?[plan.Segments.Count];
         var order = CompileOrder(plan);
         bool twinsCompiled = false;
@@ -440,7 +433,7 @@ public sealed class CompiledModel : IDisposable
             {
                 if (i == order.FirstCount)
                 {
-                    CompileStreamed(plan, segmentOptions, buffers, retryOnStreamingOom, streamed, ct);
+                    CompileStreamed(plan, segmentOptions, streamBufferOf, retryOnStreamingOom, streamed, ct);
                     CompileSparse(plan, segmentOptions, sparse, ct);
                     twinsCompiled = true;
                 }
@@ -490,7 +483,7 @@ public sealed class CompiledModel : IDisposable
             }
         }
 
-        return new CompiledModel(graph, plan, placement.Compile, compiled, streamed, placement.StreamExpertsMinRows, buffers, sparse);
+        return new CompiledModel(graph, plan, placement.Compile, compiled, streamed, placement.StreamExpertsMinRows, buffers, streamBufferOf, sparse);
     }
 
     /// <summary>
@@ -781,28 +774,47 @@ public sealed class CompiledModel : IDisposable
     }
 
     /// <summary>
-    /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>) into
-    /// <paramref name="streamed"/>. A segment that does not compile (an unsupported kernel; no memory left unless <paramref name="throwOnOom"/>)
-    /// keeps running on the CPU only.
+    /// The streamed-weight memory of each segment the plan streams (<see cref="PlacementPlan.StreamedSegments"/>): the memories alternate in
+    /// segment order (<see cref="PlacementOptions.StreamBuffers"/>).
     /// </summary>
-    private static void CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, int buffers, bool throwOnOom, ICompiledSegment?[] streamed, CancellationToken ct)
+    private static int[] StreamBuffersOf(PlacementPlan plan, int buffers)
+    {
+        var bufferOf = new int[plan.Segments.Count];
+        int ordinal = 0;
+        foreach (int index in plan.StreamedSegments.Keys.Order())
+        {
+            bufferOf[index] = ordinal++ % buffers;
+        }
+
+        return bufferOf;
+    }
+
+    /// <summary>
+    /// Compiles the streamed GPU versions of the segments the plan lists (<see cref="PlacementPlan.StreamedSegments"/>) into
+    /// <paramref name="streamed"/>, each with its memory of <paramref name="bufferOf"/>. The last segment of each memory compiles first: it is
+    /// copied whole at every streaming pass (it stays resident for decode), so it gets the page-locked sources first where a device page-locks
+    /// them within a budget (the others copy only their selected experts). A segment that does not compile (an unsupported kernel; no memory
+    /// left unless <paramref name="throwOnOom"/>) keeps running on the CPU only.
+    /// </summary>
+    private static void CompileStreamed(PlacementPlan plan, CompileOptions segmentOptions, int[] bufferOf, bool throwOnOom, ICompiledSegment?[] streamed, CancellationToken ct)
     {
         if (!plan.StreamsPrefill)
         {
             return;
         }
 
-        int ordinal = 0;
-        foreach (var (index, slot) in plan.StreamedSegments.OrderBy(kv => kv.Key))
+        var indices = plan.StreamedSegments.Keys.Order().ToList();
+        var lastOfBuffer = indices.GroupBy(index => bufferOf[index]).Select(g => g.Max()).ToHashSet();
+        foreach (int index in indices.OrderBy(index => lastOfBuffer.Contains(index) ? 0 : 1).ThenBy(index => index))
         {
             ct.ThrowIfCancellationRequested();
-            var options = segmentOptions.WithStreamedWeights(ordinal % buffers);
+            int slot = plan.StreamedSegments[index];
+            var options = segmentOptions.WithStreamedWeights(bufferOf[index]);
             var segment = plan.Segments[index];
             var twin = new GraphSegment { Graph = segment.Graph, Index = segment.Index, Nodes = segment.Nodes, Inputs = segment.Inputs, Outputs = segment.Outputs, DeviceSlot = slot };
             try
             {
                 streamed[index] = plan.Slots[slot].Device.Compile(twin, options);
-                ordinal++;
             }
             catch (Exception e) when (e is DeviceOutOfMemoryException && !throwOnOom || e is InsufficientMemoryException or NotSupportedException)
             {
