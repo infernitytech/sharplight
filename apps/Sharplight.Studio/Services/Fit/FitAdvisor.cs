@@ -159,7 +159,7 @@ internal sealed class FitAdvisor
         {
             "f32" => ["f16", "q8_0", "q4_0"],
             "f16" => ["q8_0", "q4_0"],
-            "q8_0" => ["q4_0"],
+            "q8_0" or "f8e4m3_b32" => ["q4_0"],
             _ => [],
         };
         await AddBestAsync(suggestions, request, report, memory, [.. smallerKv.Select(type => settings with { KvCacheType = type })],
@@ -341,7 +341,7 @@ internal sealed class FitAdvisor
     private static string? KvAlternative(string type) => type switch
     {
         "f16" => "q8_0",
-        "q8_0" or "q4_0" or "f32" => "f16",
+        "q8_0" or "q4_0" or "f8e4m3_b32" or "f32" => "f16",
         _ => null,
     };
 

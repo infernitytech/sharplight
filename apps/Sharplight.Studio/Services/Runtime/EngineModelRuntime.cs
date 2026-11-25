@@ -493,6 +493,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
                 RequestFinished = finished => OnRequestFinished(id, device, finished),
                 StepFloor = settings.StepFloor ?? defaults.StepFloor,
                 BatchTokensPerSequence = settings.StepRowsPerSequence is > 0 and var rows ? rows : defaults.BatchTokensPerSequence,
+                KvAdmission = settings.KvAdmission ?? defaults.KvAdmission,
             },
             Speculator = settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(settings.NgramDraftTokens) : null,
             MtpDraftTokens = settings.MtpDraftTokens,

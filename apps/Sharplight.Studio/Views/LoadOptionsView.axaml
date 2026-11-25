@@ -148,7 +148,7 @@
           </Grid>
           <StackPanel>
             <TextBlock Classes="label" Text="KV cache" />
-            <ComboBox ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
+            <ComboBox x:Name="KvCachePicker" ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
               <ComboBox.ItemTemplate>
                 <DataTemplate x:DataType="mvm:KvCacheChoice">
                   <TextBlock Text="{Binding Name}" />
@@ -196,6 +196,17 @@
                                ToolTip.Tip="Prompt rows per busy slot a step may carry while few slots are busy (0 = engine default, 48). Larger values prefill prompt waves in fewer, longer steps (lower inter-token latency tail), smaller ones give a shorter time to first token." />
               </StackPanel>
             </Grid>
+            <StackPanel>
+              <TextBlock Classes="label" Text="When the KV cache is full" />
+              <ComboBox x:Name="KvAdmissionPicker" ItemsSource="{Binding KvAdmissionChoices}" SelectedItem="{Binding KvAdmission}" HorizontalAlignment="Stretch"
+                        IsEnabled="{Binding CanTuneSteps}" ToolTip.ShowOnDisabled="True" ToolTip.Tip="{Binding KvAdmissionHint}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="mvm:KvAdmissionChoice">
+                    <TextBlock Text="{Binding Name}" ToolTip.Tip="{Binding Description}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
             <TextBlock Classes="caption" Text="{Binding StepTuningHint}" TextWrapping="Wrap" />
           </StackPanel>
         </StackPanel>

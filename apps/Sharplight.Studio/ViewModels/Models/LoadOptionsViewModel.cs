@@ -116,6 +116,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         Fp4Activations = defaults.Fp4Activations;
         StepFloor = StepFloorChoice.All.FirstOrDefault(choice => choice.Value == defaults.StepFloor) ?? StepFloorChoice.All[0];
         StepRowsPerSequence = defaults.StepRowsPerSequence ?? 0;
+        KvAdmission = KvAdmissionChoice.All.FirstOrDefault(choice => choice.Value == defaults.KvAdmission) ?? KvAdmissionChoice.All[0];
         _ready = true;
         services.Runtime.ModelsChanged += _modelsChanged;
         services.Memory.Changed += _memoryChanged;
@@ -195,7 +196,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
 
     /// <summary>Concurrent sequences.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanTuneSteps), nameof(StepTuningHint))]
+    [NotifyPropertyChangedFor(nameof(CanTuneSteps), nameof(StepTuningHint), nameof(KvAdmissionHint))]
     public partial double Slots { get; set; }
 
     /// <summary>Offload what does not fit to the CPU.</summary>
@@ -241,6 +242,14 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// <summary>The step floor choices.</summary>
     public IReadOnlyList<StepFloorChoice> StepFloorChoices => StepFloorChoice.All;
 
+    /// <summary>What happens to new requests when the KV cache is full (applies when <see cref="CanTuneSteps"/>).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(KvAdmissionHint))]
+    public partial KvAdmissionChoice KvAdmission { get; set; }
+
+    /// <summary>The choices for a full KV cache.</summary>
+    public IReadOnlyList<KvAdmissionChoice> KvAdmissionChoices => KvAdmissionChoice.All;
+
     /// <summary>The weight formats of the model, once read (null before, and for models that are not language models).</summary>
     public ModelWeightFormats? WeightFormats
     {
@@ -282,6 +291,11 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
     /// <summary>What the step settings do, or why they do not apply.</summary>
     public string StepTuningHint => CanTuneSteps
         ? "How many prompt rows a step carries while few slots are busy: larger steps prefill a wave of prompts faster, smaller ones stream the first tokens sooner."
+        : "Applies with two or more parallel slots (serving several requests at once).";
+
+    /// <summary>What the choice for a full KV cache does, or why it does not apply.</summary>
+    public string KvAdmissionHint => CanTuneSteps
+        ? "Queue keeps throughput highest; Preempt starts new requests sooner (lower time to first token) at slightly lower throughput."
         : "Applies with two or more parallel slots (serving several requests at once).";
 
     private bool DeviceHas(string feature) => SelectedDevice is { } device && device.Features.Contains(feature)
@@ -374,6 +388,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
             Fp4Activations = Fp4Activations || !CanUseFp4Activations,
             StepFloor = CanTuneSteps ? StepFloor.Value : null,
             StepRowsPerSequence = CanTuneSteps && StepRowsPerSequence >= 1 ? (int)StepRowsPerSequence : null,
+            KvAdmission = CanTuneSteps ? KvAdmission.Value : null,
         };
         var auxiliary = new List<(string Role, string Path)>();
         if (NeedsVocoder && VocoderPath.Trim().Length > 0)
