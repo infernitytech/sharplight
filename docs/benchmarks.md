@@ -17556,7 +17556,7 @@ CPU reference on the dequantized cache (109.5).
 
 Merged `develop` (`a4f8f173`) and rebuilt; one class per process (`tests/`):
 
-* CPU-side, devices hidden (`tests/cpu/`): `Sharplight.Core.Tests`, `Sharplight.Hosting.Tests`, `Sharplight.Serving.Tests`: 73 classes,
+* CPU-side, devices hidden (`tests/cpu/` holds the Serving files of this run and the Core / Hosting files of the GPU-hold run): `Sharplight.Core.Tests`, `Sharplight.Hosting.Tests`, `Sharplight.Serving.Tests`: 73 classes,
   2,109 tests, 0 failed, 359 skipped (GPU and model tests). Inside the GPU hold (`tests/cuda/`, `SHARPLIGHT_TEST_PROVIDER=cuda`):
   Core.Tests 1,663, 0 failed (331 skipped), Hosting.Tests 31, 0 failed, `Sharplight.Cuda.Tests` 92, 0 failed (1 skipped), `Sharplight.Serving.Tests`
   415, 1 failed (13 skipped): `OpenAiApiTests.ClientDisconnect_CancelsGeneration`, a timing test of the HTTP layer that fails on `develop`'s
