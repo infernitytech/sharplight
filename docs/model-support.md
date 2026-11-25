@@ -3116,7 +3116,7 @@ Implementation notes:
   frame, so chunking changes nothing. Activations (CUDA lowering, any clip length): encoder 4.6 / 9.5 / 14.0 / 18.3 GB and decoder
   7.6 / 18.3 / 29.4 / 38.2 GB at 480p / 720p / 960p / 1080p.
 - Under reduced precision on GPUs with 16-bit matrices the convolutions run on the shared channels-last kernel `conv_cl` (f16
-  operands, f32 accumulation; [benchmarks.md](benchmarks.md) section §CONV): the stacked windows are not copied any more, the
+  operands, f32 accumulation; [benchmarks.md](benchmarks.md) section §110): the stacked windows are not copied any more, the
   convolution reads its three windows in place: the chunk's frames from one channels-last f16 copy, the cached frames converted
   from the f16 cache directly.
 - A fix in the shared GPU lowering came with it: a view (here `After`) closed an open fused group only when its first input came from
@@ -3146,6 +3146,6 @@ intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Te
   7.1e-2 relative RMS, whole enhancement 43.6 dB worst frame on CUDA and Vulkan (44.8 dB in the benchmark's parity run): the bf16
   weights of the reference account for it.
 - Speed and memory against the official PyTorch inference: [benchmarks.md](benchmarks.md) section 108. In short: the DiT is as fast as
-  PyTorch's (flash attention, bf16); the VAE is about as fast since section §CONV (channels-last f16 convolutions: 3B at 480p 8.4 s
+  PyTorch's (flash attention, bf16); the VAE is about as fast since section §110 (channels-last f16 convolutions: 3B at 480p 8.4 s
   against 15.1 s before, PyTorch 10.1 s, 48.9 dB); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
   GPU. 1080p output needs 38 GB of decoder activations and does not fit 32 GB yet (spatial tiling of the VAE is not implemented).

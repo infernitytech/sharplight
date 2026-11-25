@@ -17445,14 +17445,14 @@ full-resolution levels run frame by frame.
 * The VAE's convolution speed (108.2).
 * `torch.compile`: not offered by the official inference script, so not used.
 
-## §CONV. Convolutions over channels-last f16 activations: the shared implicit-GEMM convolution 2-3 × faster (70-120 TFLOPS), SeedVR2 3B end to end 15.1 → 8.4 s, ahead of the official PyTorch inference at 480p; Vulkan on par with CUDA (2026-11-24)
+## 110. Convolutions over channels-last f16 activations: the shared implicit-GEMM convolution 2-3 × faster (70-120 TFLOPS), SeedVR2 3B end to end 15.1 → 8.4 s, ahead of the official PyTorch inference at 480p; Vulkan on par with CUDA (2026-11-24)
 
 Branch `perf/conv-f16` (`develop` at `22be85fe`). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, driver 595.112, shared
 with other rounds: every timing run held the bench lock). Scripts and raw output: [`bench/results/conv-f16/`](../bench/results/conv-f16)
 (`run-kernels.sh`, `run-vae.sh`, `run-e2e.sh`; `raw/` the final runs, `raw/tuning/` the tile variants). "Before" is the same build with
 `SHARPLIGHT_CONV_CHANNELS_LAST=0`, which lowers every convolution exactly as `develop` does.
 
-### §CONV.1 Cause
+### 110.1 Cause
 
 Under reduced precision the convolutions ran on `conv_cm` with f32 activations and f16 products. Per K step of 32 every thread converted
 16 scalar f32 loads to f16, each with its own im2col address (a division by KH·KW and KW, a bounds check), so the kernel was bound by
@@ -17461,7 +17461,7 @@ of a checkpoint like SeedVR2's VAE were converted on every load too. Video VAEs 
 windows into one f32 tensor per convolution piece (`Concat` along the channels, three times the frames for a 3-tap kernel), and the
 fused residual add of a convolution's store waited for each previous store (the compiler cannot tell that y does not alias the residual).
 
-### §CONV.2 Changes
+### 110.2 Changes
 
 * **`conv_cl`** (new, `conv_cl.slang`, one kernel for Vulkan and CUDA): an implicit GEMM over **channels-last 16-bit activations**
   (f16 where the device has f16 matrices, else bf16 with bf16 matrices; f32 accumulation). The reduction runs tap-major
@@ -17480,7 +17480,7 @@ fused residual add of a convolution's store waited for each previous store (the 
   f16 frames are converted once, not to f32 and back). Other concatenations stage each part into its channel range. All of it is
   decided on op, shape, dtype and device features only (`ChooseConvChannelsLast`, `PlanChannelsLastConcats`).
 * **Epilogues** of `conv_cl` and `conv_cm` load everything (results, bias, residual) before the first store: a fused residual add ran
-  3.5 × slower than the plain convolution in an untimed check (now 4 % slower: the `+res` row of §CONV.3); `conv_cm` got the same
+  3.5 × slower than the plain convolution in an untimed check (now 4 % slower: the `+res` row of §110.3); `conv_cm` got the same
   reordering.
 * Strict precision is unchanged (`conv_cm`'s split-f16 and bf16 forms). `SHARPLIGHT_CONV_CHANNELS_LAST=0` restores the old lowering;
   `SHARPLIGHT_CONV_CL_TILE=warpsM,warpsN,fragN[,tileK]` overrides the tile.
@@ -17488,7 +17488,7 @@ fused residual add of a convolution's store waited for each previous store (the 
   register prefetch, 3 and 4 stages (60-80 KB, one workgroup per SM) were 5-20 % slower; 8-subgroup tiles (2 × 4) 5-20 % slower;
   64-value K steps double-buffered on CUDA (74 KB) 10-17 % slower (`raw/tuning/`).
 
-### §CONV.3 Kernels
+### 110.3 Kernels
 
 `bench/ConvBench` (new), reduced precision, f32 inputs and weights, bias; GPU time = sum of every launch's minimum over 10 runs, so the
 "after" times include the channels-last staging of the input (SeedVR2 rows: three stacked windows from three inputs). TFLOPS of the
@@ -17520,7 +17520,7 @@ Where it is still slow: the 128-channel convolutions at 1024 × 1024 and ESRGAN'
 input of many channels for few outputs (the staging reads 4 bytes and writes 2 per input value, once); a producer that wrote the
 channels-last f16 tensor itself would remove that.
 
-### §CONV.4 End to end
+### 110.4 End to end
 
 SeedVR2 3B, the procedure of section 108 (`bench/VideoEnhancementBench --reduced-precision`, the fox clip, median of 5 runs after one
 warm-up; this round writes no output video, so the totals leave out section 108's 0.4-1.0 s of video encoding; PyTorch's from 108.1
@@ -17562,7 +17562,7 @@ profile of one more run):
 The rest of these decoders is the mid-block's single-head attention over 16,384 tokens with head size 512 (`attention main`: 413 ms on
 CUDA, 683 ms on Vulkan, 1-2 TFLOPS), which no flash kernel takes at that head size: the next item for every SD-family VAE.
 
-### §CONV.5 Correctness
+### 110.5 Correctness
 
 * SeedVR2 3B against the official bf16 run `fox-480p-cuda-bf16` (17 frames, its input frames and noise, `raw/3b-parity-*.log`), worst /
   mean frame: CUDA 49.02 / 49.73 dB before, **48.89 / 49.52 dB** after; Vulkan 48.90 / 49.47 before, **48.92 / 49.39 dB** after.
@@ -17579,8 +17579,8 @@ CUDA, 683 ms on Vulkan, 1-2 TFLOPS), which no flash kernel takes at that head si
   against the CPU. The existing `ConvMatrixTests` (reduced-precision cases now on `conv_cl`), `ConvTests`, `ConvEpilogueTests` pass on
   both providers.
 
-### §CONV.6 Not done
+### 110.6 Not done
 
 * Producers writing channels-last f16 directly (group norm + SiLU before a convolution), which would remove the remaining staging.
-* The SD-family VAE attention at head size 512 (see §CONV.4).
+* The SD-family VAE attention at head size 512 (see §110.4).
 * A bf16 activation choice for checkpoints that overflow f16 (SDXL's VAE).
