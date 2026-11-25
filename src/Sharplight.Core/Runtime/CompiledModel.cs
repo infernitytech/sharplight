@@ -26,13 +26,12 @@ public sealed class CompiledModel : IDisposable
     /// one every streaming pass copies, so the memory the GPU keeps for streaming holds one layer's experts between prefills.
     /// </summary>
     private readonly int[] _residentIn;
-    private readonly bool _keepsResident = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_RESIDENT") is not ("0" or "false");
     /// <summary>
     /// Per streamed segment whose compilation copies only the experts a pass selects (<see cref="IStreamedSegment.StreamsSelectedExperts"/>):
     /// the ids input those experts are read from, else null. A pass of many rows selects only part of a large bank (a 512-token prompt over
     /// 128 experts of top 4 reads about half of them), and the copies over the bus are what such a pass waits for; the copy starts once the
     /// segment before it produced the ids instead of while it runs. The last streamed segment of each memory (the one that stays resident) is
-    /// copied whole. <c>SHARPLIGHT_STREAM_SELECTED_EXPERTS=0</c> copies every expert.
+    /// copied whole.
     /// </summary>
     private readonly Value?[] _selectedExpertIds;
     /// <summary>
@@ -144,7 +143,7 @@ public sealed class CompiledModel : IDisposable
         _splitTimes = _segmentTimes is null ? null : new (long, double, double, double, int)[segments.Length];
         _residentIn = new int[streamBuffers];
         _residentIn.AsSpan().Fill(-1);
-        if (_keepsResident && streamMinRows > 0)
+        if (streamMinRows > 0)
         {
             // The last streamed segment of each memory: its weights stay there between streaming passes.
             for (int i = streamed.Length - 1; i >= 0; i--)
@@ -158,8 +157,7 @@ public sealed class CompiledModel : IDisposable
 
         _selectedExpertIds = new Value?[segments.Length];
         _selectingNow = new bool[segments.Length];
-        bool selects = Environment.GetEnvironmentVariable("SHARPLIGHT_STREAM_SELECTED_EXPERTS") is not ("0" or "false");
-        for (int i = 0; i < streamed.Length && selects; i++)
+        for (int i = 0; i < streamed.Length; i++)
         {
             if (streamed[i] is IStreamedSegment { StreamsSelectedExperts: true } && !_residentIn.Contains(i))
             {

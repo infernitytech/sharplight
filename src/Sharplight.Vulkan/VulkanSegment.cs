@@ -264,7 +264,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 }
 
                 // The segments of one graph on this device run one after another and share their transient buffers.
-                if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope && SharedArena<Allocation>.Enabled)
+                if (b.Kind == BufferKind.Activations && options.StateScope is { } arenaScope)
                 {
                     bytes += ShareArena(dev, arenaScope, b.Name, b, size);
                     continue;
@@ -273,7 +273,7 @@ public sealed unsafe class VulkanSegment : IStreamedSegment, IPartialOutputSegme
                 // The streamed compilations of a graph's CPU expert segments run one at a time, each from its inputs set by the host to its
                 // outputs read back: their device-side input and output buffers are shared too (by ordinal: the layers' value names differ;
                 // not inputs holding graph inputs, which the caller sets for every segment before a run); each keeps its own staging memory.
-                if (b.Kind is BufferKind.Input or BufferKind.Output && options.StreamWeights && options.StateScope is { } ioScope && SharedArena<Allocation>.Enabled
+                if (b.Kind is BufferKind.Input or BufferKind.Output && options.StreamWeights && options.StateScope is { } ioScope
                     && (b.Kind == BufferKind.Output || program.InputRefs.All(kv => kv.Value.Buffer != b || kv.Key.Kind == ValueKind.Intermediate)))
                 {
                     bytes += ShareArena(dev, ioScope, $"streamed-{b.Kind}:{(b.Kind == BufferKind.Input ? streamedInputs++ : streamedOutputs++)}", b, size);

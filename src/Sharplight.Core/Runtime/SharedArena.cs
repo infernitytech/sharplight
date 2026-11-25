@@ -10,16 +10,12 @@ namespace Sharplight.Runtime;
 /// <remarks>
 /// A segment that needs more than the current buffer holds gets a new, larger buffer, which later segments share; the earlier
 /// segments keep theirs. Every holder calls <see cref="SharedArenaBuffer{T}.Release"/> once; the last one frees the buffer. Thread-safe.
-/// <c>SHARPLIGHT_SHARED_ARENA=0</c> turns sharing off (<see cref="Enabled"/>).
 /// </remarks>
 public sealed class SharedArena<T>
     where T : class
 {
     private readonly Lock _lock = new();
     private SharedArenaBuffer<T>? _current;
-
-    /// <summary>Whether providers share activation arenas (default true; <c>SHARPLIGHT_SHARED_ARENA=0</c> turns it off).</summary>
-    public static bool Enabled { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_SHARED_ARENA") is not ("0" or "false");
 
     /// <summary>Takes a hold on a buffer of at least <paramref name="bytes"/>, allocating it with <paramref name="allocate"/> when the current one is smaller.</summary>
     /// <param name="bytes">Bytes the segment's arena needs.</param>

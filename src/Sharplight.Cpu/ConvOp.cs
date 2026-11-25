@@ -38,8 +38,6 @@ internal sealed unsafe partial class ConvOp : CpuOp
     /// <summary>Largest packed-B buffer for the pack-once form; larger ones pack per task instead.</summary>
     private const long MaxPrepackBytes = 64L * 1024 * 1024;
 
-    /// <summary><c>SHARPLIGHT_CPU_NO_SHIFTED_CONV=1</c> runs stride-1 convs through im2col packing instead of the shifted form.</summary>
-    /// <summary><c>SHARPLIGHT_CPU_CONV_PLAN=tiles</c> always splits the output tiles first (the plan before the traffic model).</summary>
     private readonly TRef _x;
     private readonly TRef _y;
     private readonly TRef? _bias;
@@ -151,7 +149,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
             && _hw >= MinSubsampleTiles * Gemm.NR;
         // Stride-1 convs order K (tap, input channel), for both im2col packing and the shifted form, so one weight packing
         // serves either choice at run time.
-        _tapMajor = !_direct && sh == 1 && sw == 1 && !DiagnosticSwitches.NoShiftedConv;
+        _tapMajor = !_direct && sh == 1 && sw == 1;
         float* weights = wDense;
         if (_tapMajor)
         {
@@ -341,7 +339,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
         }
 
         double traffic2 = Traffic(aBytes, bBytes, mBlocks2, cBlocks2, threads);
-        if (!DiagnosticSwitches.NoWeightMajorConvPlan && traffic2 < 0.75 * traffic)
+        if (traffic2 < 0.75 * traffic)
         {
             mBlocks = mBlocks2;
             mpt = mpt2;
