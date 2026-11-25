@@ -37,7 +37,8 @@ internal sealed class ImageUpscalerClient : IImageUpscaler
     public object? GetService(Type serviceType, object? serviceKey = null)
         => serviceKey is null && serviceType.IsInstanceOfType(_model) ? _model : null;
 
-    public Task<ImageInput> UpscaleAsync(ImageInput image, ImageUpscalingOptions? options = null, CancellationToken cancellationToken = default)
+    public Task<ImageInput> UpscaleAsync(ImageInput image, ImageUpscalingOptions? options = null, IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
         image.Validate();
@@ -49,7 +50,7 @@ internal sealed class ImageUpscalerClient : IImageUpscaler
         {
             lock (_gate)
             {
-                return Upscale(image, options, cancellationToken);
+                return Upscale(image, options, progress, cancellationToken);
             }
         }, cancellationToken);
     }
@@ -67,7 +68,7 @@ internal sealed class ImageUpscalerClient : IImageUpscaler
         }
     }
 
-    private ImageInput Upscale(ImageInput image, ImageUpscalingOptions options, CancellationToken cancellationToken)
+    private ImageInput Upscale(ImageInput image, ImageUpscalingOptions options, IProgress<double>? progress, CancellationToken cancellationToken)
     {
         // The network wants multiples of its unshuffle factor: the missing edge pixels repeat the last ones and are cut off again.
         int sourceWidth = image.Width;
@@ -87,7 +88,7 @@ internal sealed class ImageUpscalerClient : IImageUpscaler
         if (options.TileSize == 0 || (width <= options.TileSize && height <= options.TileSize))
         {
             result = Run(planes, width, height, cancellationToken);
-            options.Progress?.Report(1);
+            progress?.Report(1);
         }
         else
         {
@@ -105,7 +106,7 @@ internal sealed class ImageUpscalerClient : IImageUpscaler
                     var tile = Run(Crop(planes, width, height, x0, y0, canvasWidth, canvasHeight), canvasWidth, canvasHeight, cancellationToken);
                     Blend(tile, canvasWidth * Scale, canvasHeight * Scale, x0 * Scale, y0 * Scale, outWidth, outHeight, result, weight,
                         x0 > 0, y0 > 0, x0 + canvasWidth < width, y0 + canvasHeight < height, pad * Scale);
-                    options.Progress?.Report((double)++done / (xs.Count * ys.Count));
+                    progress?.Report((double)++done / (xs.Count * ys.Count));
                 }
             }
 

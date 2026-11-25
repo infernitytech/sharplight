@@ -15,7 +15,9 @@ public interface IImageUpscaler : ITaskClient
     /// <summary>Enlarges an image.</summary>
     /// <param name="image">The image, any size.</param>
     /// <param name="options">Request settings, or <see langword="null"/> for the defaults.</param>
+    /// <param name="progress">Receives the fraction of tiles done (0 to 1) after every tile, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">Cancels the request, also between the tiles.</param>
     /// <returns>The image, <see cref="Scale"/> times as wide and high.</returns>
-    public Task<ImageInput> UpscaleAsync(ImageInput image, ImageUpscalingOptions? options = null, CancellationToken cancellationToken = default);
+    public Task<ImageInput> UpscaleAsync(ImageInput image, ImageUpscalingOptions? options = null, IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default);
 }

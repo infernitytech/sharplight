@@ -14,7 +14,4 @@ public sealed record ImageUpscalingOptions
     /// seams are invisible. More padding is closer to running the whole image at once.
     /// </summary>
     public int TilePadding { get; init; } = 16;
-
-    /// <summary>Receives the fraction of tiles done (0 to 1) after every tile, or <see langword="null"/>.</summary>
-    public IProgress<double>? Progress { get; init; }
 }

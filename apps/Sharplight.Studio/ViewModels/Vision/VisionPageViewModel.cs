@@ -433,9 +433,9 @@ internal sealed partial class VisionPageViewModel : InferencePageViewModel
                     {
                         TileSize = options.Upscale.TileSize,
                         TilePadding = options.Upscale.TilePadding,
-                        Progress = new Progress<double>(fraction => context.Report(fraction, "Upscaling")),
                     };
-                    upscaled = await lease.Client.UpscaleAsync(image, upscale, token).ConfigureAwait(false);
+                    var progress = new Progress<double>(fraction => context.Report(fraction, "Upscaling"));
+                    upscaled = await lease.Client.UpscaleAsync(image, upscale, progress, token).ConfigureAwait(false);
                     file.Mode = "upscale";
                     file.OutputWidth = upscaled.Width;
                     file.OutputHeight = upscaled.Height;
