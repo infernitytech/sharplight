@@ -1,0 +1,16 @@
+quiet check: gpu apps 0, load 7, anon 1 GB after 10 s
+quiet check: gpu apps 0, load 6, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 25 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 6, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 6, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 25 s
+quiet check: gpu apps 0, load 7, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 4, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 5, anon 1 GB after 5 s
+quiet check: gpu apps 0, load 7, anon 2 GB after 20 s

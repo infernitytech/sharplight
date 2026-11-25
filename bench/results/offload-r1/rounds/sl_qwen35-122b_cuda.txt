@@ -1,0 +1,4 @@
+== 2026-11-25T03:29:47Z sharplight qwen35-122b cuda A
+prefill 512 tok: best 475 ms = 1078.2 tok/s | decode: best 78.99, median 76.12, mean 73.99 tok/s | GPU ms/step: best 8.69, median 8.72, wall best 12.66 | prefill median of 5: 475.2 ms = 1077.5 tok/s | per run: prefill 1077.4 ± 0.6 tok/s of 5, decode 74.05 ± 2.32 tok/s of 5 (70.09, 73.91, 75.46, 75.73, 75.04)
+== 2026-11-25T03:36:13Z sharplight qwen35-122b cuda B
+prefill 512 tok: best 477 ms = 1073.2 tok/s | decode: best 76.40, median 74.85, mean 72.94 tok/s | GPU ms/step: best 8.71, median 8.73, wall best 13.09 | prefill median of 5: 477.2 ms = 1072.9 tok/s | per run: prefill 1072.8 ± 0.4 tok/s of 5, decode 72.95 ± 1.20 tok/s of 5 (71.09, 72.50, 73.56, 74.19, 73.41)

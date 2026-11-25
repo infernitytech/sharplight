@@ -3,7 +3,7 @@
 # llama-bench's prompt distribution (SHARPLIGHT_BENCH_PROMPT=vocab); "before" rows with SHARPLIGHT_STREAM_SELECTED_EXPERTS=0 (whole-bank copies).
 # The caller takes the GPU lock for each job; env: LLAMA_ROOT, MODELS (GGUF directory), OSS (a local-disk copy of gpt-oss-120b-MXFP4.gguf).
 # usage: offload_selected_experts.sh <out dir> <tag> <sl-first|llama-first> <job...>
-#   jobs: oss oss-before oss-pin oss-vk cn cn-before cn-vk q122
+#   jobs: oss oss-before oss-pin oss-vk oss-vk-before cn cn-before cn-vk cn-vk-before q122
 OUT=$1; R=$2; ORD=$3; shift 3
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export SHARPLIGHT_BENCH_PROMPT=vocab
@@ -15,6 +15,8 @@ for job in "$@"; do
     oss-before) SHARPLIGHT_STREAM_SELECTED_EXPERTS=0 "$HERE/same_stat_offload.sh" "$OUT" gpt-oss-120b-before "$OSS" cuda 22 "$R" sl ;;
     oss-pin) SHARPLIGHT_LIMIT_PINNED_HOST_MEMORY=40G "$HERE/same_stat_offload.sh" "$OUT" gpt-oss-120b-pin40 "$OSS" cuda 22 "$R" sl ;;
     oss-vk) LLAMA_EXTRA="-lm none" "$HERE/same_stat_offload.sh" "$OUT" gpt-oss-120b "$OSS" vulkan 22 "$R" "$ORD" ;;
+    oss-vk-before) SHARPLIGHT_STREAM_SELECTED_EXPERTS=0 "$HERE/same_stat_offload.sh" "$OUT" gpt-oss-120b-before "$OSS" vulkan 22 "$R" sl ;;
+    cn-vk-before) SHARPLIGHT_STREAM_SELECTED_EXPERTS=0 "$HERE/same_stat_offload.sh" "$OUT" coder-next-before "$CN" vulkan 16 "$R" sl ;;
     cn) "$HERE/same_stat_offload.sh" "$OUT" coder-next "$CN" cuda 16 "$R" "$ORD" ;;
     cn-before) SHARPLIGHT_STREAM_SELECTED_EXPERTS=0 "$HERE/same_stat_offload.sh" "$OUT" coder-next-before "$CN" cuda 16 "$R" sl ;;
     cn-vk) "$HERE/same_stat_offload.sh" "$OUT" coder-next "$CN" vulkan 16 "$R" "$ORD" ;;

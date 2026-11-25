@@ -1,0 +1,20 @@
+gpt-oss-120b-MXFP4 cuda identical
+gpt-oss-120b-MXFP4 vulkan identical
+Qwen3-Coder-Next-Q4_K_M cuda identical
+Qwen3-Coder-Next-Q4_K_M vulkan identical
+== greedy_Qwen3-Coder-Next-Q4_K_M_cuda_sel1.txt
+a. In the Middle Ages it grew into one of the largest cities of Europe, with a cathedral, a university and a royal palace. Summarize this in one sentence: The history of Paris dates back over two thousand years, beginning as a Celtic settlement on the Seine, evolving into the Roman town of Lutetia,
+
+== greedy_Qwen3-Coder-Next-Q4_K_M_vulkan_sel1.txt
+a. In the Middle Ages it grew into one of the largest cities of Europe, with a cathedral, a university and a royal palace. Summarize this in one sentence: The history of Paris dates back over two thousand years, beginning as a Celtic settlement on the Seine, evolving into the Roman town of Lutetia,
+
+== greedy_gpt-oss-120b-MXFP4_cuda_sel1.txt
+e Middle Ages it grew into one of the largest cities of Europe, with a cathedral, a university and a royal palace. Summarize this in one sentence:
+
+Paris originated as a Celtic settlement on an island in the Seine, evolved into the Roman town of Lutetia, and grew into a major medieval European city
+
+== greedy_gpt-oss-120b-MXFP4_vulkan_sel1.txt
+e Middle Ages it grew into one of the largest cities of Europe, with a cathedral, a university and a royal palace. Summarize this in one sentence:
+
+Paris originated as a Celtic settlement on an island in the Seine, evolved into the Roman town of Lutetia, and grew into a major medieval European city
+

@@ -1,0 +1,6 @@
+== 2026-11-25T03:31:04Z llama qwen35-122b cuda A ncmoe 6
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |           pp512 |       992.15 ± 39.15 |
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |     tg64 @ d512 |         73.19 ± 0.95 |
+== 2026-11-25T03:35:42Z llama qwen35-122b cuda B ncmoe 6
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |           pp512 |       974.05 ± 53.74 |
+| qwen35moe 122B.A10B IQ2_XXS - 2.0625 bpw |  34.11 GiB |   122.11 B | CUDA       |  99 |          6 |      10 |   1 |     tg64 @ d512 |         70.46 ± 1.47 |

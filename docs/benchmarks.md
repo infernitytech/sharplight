@@ -17335,3 +17335,115 @@ bench/same_stat_offload.sh out qwen35-122b $G/Qwen3.5-122B-A10B/Qwen3.5-122B-A10
 LLAMA_EXTRA="-lm mmap,none" bench/same_stat_offload.sh out gpt-oss-120b <local copy>/gpt-oss-120b-MXFP4.gguf cuda 22,24 B llama-first
 python3 bench/same_stat_summarize_batched.py out; python3 bench/same_stat_summarize_offload.py out
 ```
+
+## §OFF. MoE offload round 7: streamed prefill copies only the selected experts; a stale resident copy fixed (2026-11-25)
+
+Branch `perf/offload-r1` (base `develop` at `3705851f`, §107). Same machine, files and procedure as §107 SS.2 (`bench/same_stat_offload.sh`:
+llama-bench's statistic, mean ± sd of 5 runs, pp512 from an empty cache and tg64 at depth 512, one warm-up; llama.cpp b11177 `-ngl 99
+-ncmoe N -fa 1 -t 10`, gpt-oss-120b with `-lm none`, from the local-disk copy of the 63 GB file). Two rounds per model on CUDA (A: Sharplight
+first, B: llama.cpp first), one on Vulkan, each in its own GPU-lock hold started only when no other process used the GPU, the 1-minute load
+was below 8 and the other jobs held under 12 GB of memory (`quiet.sh` in the raw results). Sharplight drew its 512-token prompt from the
+whole vocabulary as llama-bench does (`SHARPLIGHT_BENCH_PROMPT=vocab`, new): the experts a prompt selects depend on its tokens, and with this
+round's change the prefill cost does too. "Before" rows are the same build with `SHARPLIGHT_STREAM_SELECTED_EXPERTS=0` (whole-bank copies,
+the old behaviour), measured in the same holds. Raw output in [`bench/results/offload-r1/`](../bench/results/offload-r1) (`rounds/`, the
+diagnostics in `diag/`); driver `bench/offload_selected_experts.sh`.
+
+### OFF.1 Where gpt-oss-120b's prefill went
+
+A 512-token prefill with 20 expert layers on the CPU streams each layer's experts to the GPU (§59) and waits for the copies: 1.70 GB per
+layer, 34 GB per pass, at most 28 GB/s over this PCIe 4 link (`cudaMemcpy` from page-locked memory, measured), and only 13-14 of the 20
+layers page-locked within the default budget (half the process memory: 31 GB of a 62 GB cgroup); the other 6-7 went through staging at
+11-15 GB/s (110-160 ms per layer). The GPU's work per layer is ~1 ms. llama.cpp's 637 tok/s (0.80 s for 22 CPU layers, 37 GB) is not
+possible with whole layers over this bus: its scheduler copies only the experts the batch's ids select (`sched_copy_experts`), and a
+512-token prompt over 128 experts of top 4 selects 30-118 of them per layer (`diag/gpt-oss_stream_selected.txt`: 107, 93, 104, ... 33,
+40, 51; later layers fewer). Our streamed passes copied every expert.
+
+### OFF.2 Changes
+
+* **Streamed passes copy only the selected experts** (`IStreamedSegment.StreamsSelectedExperts` / `BeginStreaming(ids)`, CUDA and Vulkan):
+  the banks of the segment's `MatMulId`s indexed by its one ids input (`StreamedExpertBanks`) are copied as runs of consecutive selected
+  experts at their places in the bank; page-locked banks as batched asynchronous copies, the others through staging (`CudaWeightUploader`
+  takes byte ranges now; Vulkan `WeightUploader.UploadRange`); per-expert tables (biases) and other weights whole. `CompiledModel` starts
+  such a copy once the segment before it produced the ids (they are on the host for the CPU twin anyway) instead of while that segment runs;
+  the last streamed segment of each memory stays whole (it remains resident for decode); a segment whose last selection at that row count
+  chose at least 90 % of its experts goes back to whole copies started ahead (re-checked every 8 passes). Keyed on op (expert products over
+  a mapped bank in the stored layout), the pass's ids and its row count; `SHARPLIGHT_STREAM_SELECTED_EXPERTS=0` copies every expert.
+* **The resident segment gets the page-locked sources first**: the streamed compilations compile the last segment of each memory first
+  (it is copied whole at every pass), so where the lock budget runs out the selected-expert copies take the staging (gpt-oss-120b CUDA
+  531 / 541 → 544 / 545 tok/s). The memories are now fixed by the plan, not by the order compilations succeed in.
+* **Bug fix, a stale resident copy**: the last streamed segment of each memory is copied in at load; the first streaming pass copies the
+  layers before it over that memory, and the resident segment, whose load-time copy no execution had consumed, did not copy again: the
+  first long prompt (32+ rows) after a load ran that layer's experts with the previous layer's weights, and decode kept them until the next
+  streaming pass (since §59; later prompts were right, so the timed bench passes were not affected, but `-p` with a long prompt and a
+  server's first long prompt were). `WeightsResident = false` now drops such a copy (Vulkan waits for it first). The new
+  `StreamedExpertsTests.StreamedSelectedExpertsMatchTheGpu` failed by 5e-3 on both providers with or without selected copies before the fix
+  and is bit-identical to the GPU-only compilation after it.
+
+### OFF.3 Results against llama.cpp (tok/s, mean ± sd of 5 runs; rounds A / B)
+
+| model, provider | llama.cpp | Sharplight prefill before | **prefill now** | llama.cpp pp512 | **prefill ratio** (before) | Sharplight decode | llama.cpp tg64 @ d512 | **decode ratio** |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| gpt-oss-120b MXFP4, CUDA | `-ncmoe 22 -lm none` | 302.2 ± 6.9 / 299.3 ± 6.5 | 543.7 ± 8.6 / 544.7 ± 9.5 | 642.2 ± 14.8 / 638.1 ± 17.8 | **0.85** (0.47) | 51.1 ± 3.9 / 49.9 ± 3.9 | 47.7 ± 0.5 / 47.7 ± 0.8 | **1.06** |
+| same, all CPU experts page-locked (`SHARPLIGHT_LIMIT_PINNED_HOST_MEMORY=40G`, as llama.cpp's pinned host buffer) | | | 613.1 ± 4.2 (A) | | **0.96** | 50.3 ± 4.9 | | 1.06 |
+| gpt-oss-120b MXFP4, Vulkan | `-ncmoe 22 -lm none` | 289.8 ± 61.5 | 441.8 ± 10.8 | 548.5 ± 7.0 | **0.81** (0.53) | 46.2 ± 4.6 | 38.9 ± 1.2 | **1.19** |
+| Qwen3-Coder-Next Q4_K_M, CUDA | `-ncmoe 16` | 662.8 ± 10.2 / 661.6 ± 14.6 | 925.1 ± 21.4 / 926.6 ± 21.0 | 585.8 ± 10.2 / 572.5 ± 21.0 | **1.60** (1.14) | 97.8 ± 7.6 / 92.0 ± 6.1 | 95.8 ± 2.2 / 95.8 ± 1.9 | **0.99** (1.02 / 0.96) |
+| Qwen3-Coder-Next Q4_K_M, Vulkan | `-ncmoe 16` | 531.3 ± 20.5 | 609.1 ± 12.5 | 380.5 ± 3.8 | **1.60** (1.40) | 86.2 ± 7.4 | 57.9 ± 1.6 | **1.49** |
+| Qwen3.5-122B-A10B UD-IQ2_XXS, CUDA | `-ncmoe 6` | (§107: 1001.9-1005.0) | 1077.4 ± 0.6 / 1072.8 ± 0.4 | 992.2 ± 39.2 / 974.1 ± 53.7 | **1.09** (1.02) | 74.1 ± 2.3 / 73.0 ± 1.2 | 73.2 ± 1.0 / 70.5 ± 1.5 | **1.02** |
+
+* gpt-oss-120b CUDA prefill 0.47x → **0.85x** with the default lock budget, **0.96x** with the CPU experts page-locked as llama.cpp's
+  `-lm none` keeps them (in a pinned host buffer, 37 GB). The rest of the gap with the default budget is the staged layers (`diag/
+  gpt-oss_stream_selected_resident-first.txt`: 7 layers at 20-44 ms of host-thread copies); a larger default budget was not changed (the pod's
+  memory is shared, and the 40 GB run is the configuration llama.cpp uses). Decode is unchanged by this round (1.06x).
+* The prompt distribution barely moves the selection here: our earlier prompt (ids 1000-49999) selected 103, 93, 102, 102, ... 30 experts
+  per layer (`diag/gpt-oss_stream_selected.txt`), llama-bench's uniform draw over the 201088-token vocabulary 107, 93, 104, 90, ... 34
+  (`diag/gpt-oss_stream_selected_resident-first.txt`); the latter is the comparison here.
+* Qwen3-Coder-Next (512 experts of top 10) gains as much: a 512-token prompt selects far fewer than its 512 experts per layer. The
+  Qwen3.5-122B's 256 experts of top 8 gain 7 %.
+* Page faults inside the timed phases (`sample_faults.sh`): 0-14 for Coder-Next and the 122B, 725-1480 (134-148 MB read) for gpt-oss with
+  the default budget, 12 with everything locked; llama.cpp's estimated windows include its `-lm none` loading.
+
+### OFF.4 Qwen3-Coder-Next decode: the slow first run (not fixed)
+
+Our first of five decode runs is still 75-88 tok/s against 95-103 for runs 3-5 (OFF.3: 84.5, 98.4, 100.7, 102.8, 102.4), so our mean is at
+parity (0.96-1.02x per round) where runs 3-5 lead by ~5 %. What it is and is not (`diag/coder-next_first-run_*.txt`, fixed split share
+`SHARPLIGHT_SPARSE_GPU_SLOTS=1` unless noted):
+
+* It is the CPU expert passes: run 0's CPU share of a split layer takes 1.2-1.5 ms against 0.3 ms from run 1 on in the disturbed run that
+  showed it most clearly, the GPU's ms per step are identical in every run (4.33), the first ~15 steps of run 0 are the slowest (~15 ms
+  against ~10) and the runs improve over about 120 steps (run 1 is still a little slow). Process CPU time per step falls from 123 to 79 ms.
+* It is not the split balance (§66: a fixed share shows it as much), the JIT (`DOTNET_TieredCompilation=0`, `DOTNET_TieredPGO=0`), the GC
+  (`DOTNET_GCgen0size=256 MiB`), page faults (0-30 minor faults per step, no major ones), the CPU clocks of the workers' cores (3.5-3.8 GHz in
+  every run), the workers' spin time (`SHARPLIGHT_CPU_SPIN_US=0` / `2000`) or 4 KiB pages (CPU expert banks copied to transparent huge
+  pages: 93 against 88 tok/s on average, the same first-run pattern; not kept).
+* It follows CPU idle time: a 3 s pause before every run makes every run slow (72 tok/s on average), and run 0 follows the 2-5 s of GPU-only
+  prefills. A machine-level state of the cores the workers run on (caches and page-walk caches refilled by other jobs on this shared pod,
+  where the cgroup is throttled in 13 % of all periods) is the likely cause; llama.cpp's workers poll continuously during its runs. Left open.
+
+### OFF.5 Gemma 4 31B single-sequence decode on CUDA (0.98x, not changed)
+
+The GPU work per token is at parity. Our per-launch profile (`diag/gemma4-31b_sharplight_profile.txt`) and llama.cpp's kernels with CUDA
+graph nodes traced (`nsys --cuda-graph-trace=node`, `diag/gemma4-31b_llama_kernels.csv`): Q4_K products 20.3 ms per token on both, Q6_K
+4.4 against 4.2 ms, norms, rope and attention 2.7 against ~4.8 ms (llama.cpp's many small kernels inflated by the tracing). Our device time
+per step is 25.6-25.7 ms (`GPU ms/step` median, depth 512) against llama.cpp's 25.68 ms wall per step (§107); window-sized caches cost
+nothing here (25.71 against 25.98 ms with `window_kv` disabled). The 0.5 ms between our mean step and our device time is the host side of a
+step (the 262144-float logits copy, sampling, graph launch), the remaining 2 %; no generic GPU cause, nothing changed.
+
+### OFF.6 Tests and text
+
+| suite | result |
+|---|---|
+| Sharplight.Core.Tests | 1676 / 0 failed / 332 skipped |
+| Sharplight.Vulkan.Tests on CUDA and on Vulkan, one class per process: StreamedExperts (new StreamedSelectedExpertsMatchTheGpu), Moe, StateHandoff | 9 + 129 + 1 / 0 failed each |
+| Sharplight.Cuda.Tests | 94 / 0 failed / 1 skipped |
+| Greedy text, 80-token prompt (streamed prefill) + 32 tokens, `--cpu-offload`, selected-expert copies against whole copies: gpt-oss-120b and Qwen3-Coder-Next, CUDA and Vulkan | identical (gpt-oss CUDA = Vulkan); before the stale-copy fix the gpt-oss texts differed between the two modes, both using a wrong layer |
+
+### OFF.7 Reproduce
+
+```bash
+export CUDA_VISIBLE_DEVICES=<i> SHARPLIGHT_VK_DEVICES=<i> GGML_VK_VISIBLE_DEVICES=<i> LLAMA_ROOT=... MODELS=~/models/gguf OSS=<local copy>/gpt-oss-120b-MXFP4.gguf
+bench/offload_selected_experts.sh out A sl-first oss oss-before oss-pin cn cn-before q122
+bench/offload_selected_experts.sh out B llama-first oss cn q122 oss-before cn-before
+bench/offload_selected_experts.sh out A sl-first oss-vk oss-vk-before cn-vk cn-vk-before
+python3 bench/same_stat_summarize_offload.py out
+SHARPLIGHT_LOAD_TIMING=1 SHARPLIGHT_BENCH_PROMPT=vocab sharplight $OSS --provider cuda --cpu-offload --bench 512   # [stream] lines: experts selected per layer
+```

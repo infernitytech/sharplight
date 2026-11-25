@@ -1,0 +1,2 @@
+== 2026-11-25T03:31:27Z sharplight gpt-oss-120b-pin40 cuda A
+prefill 512 tok: best 832 ms = 615.5 tok/s | decode: best 56.15, median 53.51, mean 49.86 tok/s | GPU ms/step: best 3.98, median 4.00, wall best 17.81 | prefill median of 5: 832.8 ms = 614.8 tok/s | per run: prefill 613.1 ± 4.2 tok/s of 5, decode 50.29 ± 4.85 tok/s of 5 (41.69, 51.32, 52.67, 52.81, 52.95)
