@@ -118,6 +118,19 @@ public class LogprobReferenceTests
         new("inkling-2-mini 24 layers 32 experts 'The capital of France is Paris. The capital of Germany is'", "hf/Inkling-2-Mini-E32",
             "The capital of France is Paris. The capital of Germany is",
             [(154328, -0.744), (220, -2.491), (149884, -2.943), (175232, -3.013), (145038, -3.412)], Tolerance: 0.1, CudaDisabled: Fp4AndFp8Activations),
+        // Gemma 4 31B-it, Google's release (BF16, pinned revision 842da37) and its quantization-aware-trained W4A16 release (compressed-tensors
+        // pack-quantized int4, group 32, pinned revision 52f3f65), each cut to its first 6 layers (5 sliding, 1 global with head size 512 and
+        // k = v; tools/truncate-hf-remote.py ... --layers 6 --set text_config.final_logit_softcapping=null). The cap is lifted because the
+        // 6-layer logits saturate it (every top token ties at the cap), so the log-probabilities are far apart. Reference: transformers in
+        // float32 (5.23.0 for BF16; 5.20.2 with compressed-tensors 0.17, which decompresses the int4 weights, for W4A16) on the prompt with
+        // <bos> (the release's tokenizer does not add it; the chat template and our tokenizer do). The full models do not fit this machine's
+        // 62 GB of host memory in float32.
+        new("gemma-4-31b-it bf16 6 layers 'The capital of France is Paris. The capital of Germany is'", "hf/gemma-4-31B-it-L6",
+            "The capital of France is Paris. The capital of Germany is",
+            [(537, 0.000), (236744, -255.135), (522, -300.021), (759, -322.053), (1852, -324.830)], Tolerance: 0.1),
+        new("gemma-4-31b-it qat w4a16 6 layers 'The capital of France is Paris. The capital of Germany is'", "hf/gemma-4-31B-it-qat-w4a16-ct-L6",
+            "The capital of France is Paris. The capital of Germany is",
+            [(173374, 0.000), (1132, -63.050), (9848, -76.117), (1630, -76.463), (698, -76.943)], Tolerance: 0.1),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));

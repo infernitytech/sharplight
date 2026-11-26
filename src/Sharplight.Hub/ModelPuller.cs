@@ -223,12 +223,15 @@ public sealed class ModelPuller
         return new PullResult(manifest, false, transferred, downloadTime, convertTime, precompileTime);
     }
 
-    /// <summary>The downloads of a catalog file set: its pinned files, checked against the catalog's sizes and checksums.</summary>
+    /// <summary>
+    /// The downloads of a catalog file set: its pinned files, checked against the catalog's sizes and checksums; files of a set that is not
+    /// on the Hub (GitHub) carry their own address.
+    /// </summary>
     private static IEnumerable<PlannedFile> Plan(CatalogFileSet set, string directory)
     {
         var repository = new HubRepository(set.Repository, set.Revision, set.Revision, false,
             [.. set.Files.Select(file => new HubFile(file.Path, file.Size, file.Sha256, file.GitOid))]);
-        return repository.Files.Select(file => new PlannedFile(repository, file, RepoPath.ToLocal(directory, file.Path)));
+        return repository.Files.Select(file => new PlannedFile(repository, file, RepoPath.ToLocal(directory, file.Path), set.GetDirectFileUri(file.Path)));
     }
 
     private static string PrimaryPath(string directory, CatalogFileSet set) => set.Primary.Length == 0 ? directory : RepoPath.ToLocal(directory, set.Primary);
@@ -263,7 +266,7 @@ public sealed class ModelPuller
     private void EnsureFreeSpace(string directory, IReadOnlyList<PlannedFile> files)
     {
         long remaining = 0;
-        foreach (var (_, file, local) in files)
+        foreach (var (_, file, local, _) in files)
         {
             long onDisk = File.Exists(local) ? new FileInfo(local).Length
                 : File.Exists(local + DownloadRequest.PartialExtension) ? new FileInfo(local + DownloadRequest.PartialExtension).Length
@@ -284,9 +287,9 @@ public sealed class ModelPuller
     private async Task<long> DownloadAsync(IReadOnlyList<PlannedFile> files, PullOptions options, CancellationToken cancellationToken)
     {
         var progress = new AggregateProgress(options.Progress, files.Sum(planned => planned.File.Size));
-        foreach (var (repository, file, local) in files)
+        foreach (var (repository, file, local, directUri) in files)
         {
-            var request = DownloadRequest.For(_hub, repository, file, local);
+            var request = directUri is null ? DownloadRequest.For(_hub, repository, file, local) : new DownloadRequest(directUri, local, file.Size, file.Sha256, file.GitOid);
             await _downloader.DownloadAsync(request, progress, options.Log, cancellationToken).ConfigureAwait(false);
             progress.CompleteFile(file.Size);
         }

@@ -88,6 +88,10 @@ public static class VerifiedCatalogSerializer
         {
             node["enum"] = new JsonArray([.. CatalogFormats.All.Select(format => (JsonNode)format)]);
         }
+        else if (property.Name == "source")
+        {
+            node["enum"] = new JsonArray([.. CatalogSources.All.Select(source => (JsonNode)source)]);
+        }
         else if (property.Name == "role")
         {
             node["enum"] = new JsonArray([.. CatalogValidator.Roles.Select(role => (JsonNode)role)]);

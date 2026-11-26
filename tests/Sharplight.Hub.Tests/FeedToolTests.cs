@@ -65,7 +65,7 @@ public sealed class FeedToolTests
         var plan = CatalogInstallPlan.For(entry, variant);
         var file = new PackageFile { Name = "whisper-tiny.q5-1-whispercpp.1.0.0.slm", Role = PackageFileRoles.Package, Size = 1000, Sha256 = new string('a', 64) };
         var inspection = new PackageInspection("Whisper tiny", "speech-recognition", "whisper", 448, 39_000_000, 30_000_000, 3, false);
-        var manifest = ManifestFactory.Create(plan, inspection, file, "1.0.0", Overlay().Packages["whisper-tiny.q5-1-whispercpp"], "0.4.2-alpha", null, DateTimeOffset.UnixEpoch);
+        var manifest = ManifestFactory.Create(plan, inspection, file, "1.0.0", Overlay().For("whisper-tiny", "whisper-tiny.q5-1-whispercpp"), "0.4.2-alpha", null, DateTimeOffset.UnixEpoch);
 
         Assert.Equal("whisper-tiny.q5-1-whispercpp", manifest.Id);
         Assert.Equal([PackageTasks.Transcription], manifest.Model!.Tasks);
@@ -78,12 +78,33 @@ public sealed class FeedToolTests
         Assert.Equal(variant.Files[0].Sha256, manifest.Provenance.Sources[0].Files[0].Sha256);
         var dependency = Assert.Single(manifest.Dependencies);
         Assert.Equal("silero-vad-v5.onnx", dependency.Id);
+        Assert.Equal("[1.0.1,2.0.0)", dependency.Range);
         Assert.True(dependency.IsRequired);
+        Assert.StartsWith("Smallest multilingual Whisper speech recognition model (whisper.cpp q5_1)", manifest.Display!.Summary, StringComparison.Ordinal);
         Assert.Equal("verified", manifest.Verification!.Level);
 
         // The manifest round-trips through the feed reader.
         var parsed = FeedJson.ReadManifest(FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest));
         Assert.Equal(manifest.Id, parsed.Id);
+    }
+
+    /// <summary>Silero publishes on GitHub only: the package's provenance names the GitHub release, not a Hub repository.</summary>
+    [Fact]
+    public void Manifest_OfAGitHubRelease_RecordsItsSource()
+    {
+        var entry = Catalog().Entries.Single(candidate => candidate.Id == "silero-vad-v5");
+        var variant = Assert.Single(entry.Variants);
+        var plan = CatalogInstallPlan.For(entry, variant);
+        var file = new PackageFile { Name = "silero-vad-v5.onnx.1.0.1.slm", Role = PackageFileRoles.Package, Size = 1000, Sha256 = new string('a', 64) };
+        var inspection = new PackageInspection("Silero VAD", "voice-activity", "silero_vad", null, 300_000, 1_200_000, 3, false);
+
+        var manifest = ManifestFactory.Create(plan, inspection, file, "1.0.1", Overlay().For(entry.Id, "silero-vad-v5.onnx"), "0.4.2-alpha", null, DateTimeOffset.UnixEpoch);
+
+        var source = Assert.Single(manifest.Provenance!.Sources);
+        Assert.Equal(("snakers4/silero-vad", CatalogSources.GitHub, "v6.2"), (source.Repository, source.Source, source.Release));
+        Assert.Equal(variant.Files[0].Sha256, source.Files[0].Sha256);
+        var parsed = FeedJson.ReadManifest(FeedJson.Write(manifest, FeedJsonContext.Default.PackageManifest));
+        Assert.Equal(CatalogSources.GitHub, parsed.Provenance!.Sources[0].Source);
     }
 
     [Fact]

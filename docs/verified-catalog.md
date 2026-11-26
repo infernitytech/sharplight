@@ -64,6 +64,31 @@ JSON, schema version 1. The JSON schema is `catalog/verified-models.schema.json`
 }
 ```
 
+### Sources
+
+A file set (variant or companion) comes from the Hugging Face Hub unless it says otherwise. Publishers that release only on GitHub are
+pinned there with `source`:
+
+```jsonc
+{
+  "repository": "snakers4/silero-vad", "source": "github", "release": "v6.2",
+  "revision": "<40-hex commit of the tag>",          // downloads come from raw.githubusercontent.com/<repository>/<revision>/<path>
+  "include": ["src/silero_vad/data/silero_vad_16k_op15.onnx"],
+  "files": [{ "path": "...", "size": 1289603, "sha256": "...", "gitOid": "..." }]
+}
+```
+
+- `github`: files of the repository at `revision` (the commit of the release tag `release`, which documents where the commit came from);
+- `github-release`: assets of the release `release` (`github.com/<repository>/releases/download/<release>/<path>`), `revision` the tag's commit.
+
+Every file from GitHub has a sha256 (checked after the download, like the Hub's LFS files; `resolve` downloads repository files once to
+hash them and also records their git blob id, release assets come with GitHub's sha256 digest). `resolve` pins a GitHub set to the
+commit of its `release` tag (`--update` resolves the tag again), `check` checks that the tag still points at the pinned commit and that
+the files are unchanged. No token is needed (`GITHUB_TOKEN`, when set, only raises the API rate limit of the catalog tool). Studio's
+"Open the pinned revision" link opens the GitHub tree or release page, and feed manifests record the source in
+`provenance.sources[].source` / `release`. Hosts built before the field existed read such a set as a Hub repository and cannot install
+it from the catalog (the feed package installs everywhere).
+
 ### Licence notices
 
 `licenseNotice` is an optional one-to-two-sentence note (at most 600 characters) on the licence: non-commercial use, a custom agreement, a

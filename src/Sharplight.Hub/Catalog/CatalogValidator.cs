@@ -219,6 +219,21 @@ public static partial class CatalogValidator
             problem($"{what}: revision '{set.Revision}' is not a 40-digit lower-case commit");
         }
 
+        if (set.Source is { } source && !CatalogSources.All.Contains(source, StringComparer.Ordinal))
+        {
+            problem($"{what}: unknown source '{source}' ({string.Join(", ", CatalogSources.All)})");
+        }
+
+        if (set.Source == CatalogSources.GitHubRelease && string.IsNullOrWhiteSpace(set.Release))
+        {
+            problem($"{what}: a github-release set needs the release tag");
+        }
+
+        if (set.Release is not null && !CatalogSources.IsGitHub(set.Source))
+        {
+            problem($"{what}: a release tag needs a GitHub source");
+        }
+
         if (set.Files.Count == 0)
         {
             problem($"{what}: no files");
@@ -243,6 +258,11 @@ public static partial class CatalogValidator
             if (!hasSha && !hasOid)
             {
                 problem($"{what}: {file.Path} needs a sha256 (LFS) or a git oid");
+            }
+            else if (!hasSha && !set.IsHubSource)
+            {
+                // GitHub lists no content checksums (release assets aside): the catalog records the sha256 the files were verified with.
+                problem($"{what}: {file.Path} needs a sha256 (files from GitHub)");
             }
         }
 

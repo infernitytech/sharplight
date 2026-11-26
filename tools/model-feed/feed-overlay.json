@@ -24,6 +24,12 @@
       "summary": "Google's dense 31B Gemma 4 instruction model with image input (vision projector included).",
       "languages": ["en", "de", "fr", "es", "it", "pt", "ja", "ko", "zh"]
     },
+    "whisper-tiny": {
+      "summary": "Smallest multilingual Whisper speech recognition model; long recordings are pre-segmented with the voice activity detector.",
+      "dependencies": [
+        { "id": "silero-vad-v5.onnx", "range": "[1.0.1,2.0.0)", "kind": "required", "role": "voice-activity" }
+      ]
+    },
     "gpt-oss-120b": {
       "summary": "OpenAI's open-weight 117B mixture of experts (5.1B active) with configurable reasoning effort and tool calls.",
       "languages": ["en"]
@@ -46,12 +52,11 @@
       "languages": ["en"]
     },
     "whisper-tiny.q5-1-whispercpp": {
-      "summary": "Smallest multilingual Whisper speech recognition model (whisper.cpp q5_1); long recordings are pre-segmented with the voice activity detector.",
-      "dependencies": [
-        { "id": "silero-vad-v5.onnx", "range": "[1.0.0,2.0.0)", "kind": "required", "role": "voice-activity" }
-      ]
+      "summary": "Smallest multilingual Whisper speech recognition model (whisper.cpp q5_1); long recordings are pre-segmented with the voice activity detector."
     },
     "silero-vad-v5.onnx": {
+      // 1.0.0 was built from a community mirror (luvox-ai/silero-vad) of the same file; 1.0.1 (the same package file, official provenance)
+      // and later come from Silero's GitHub release, which the whisper packages require.
       "summary": "Voice activity detector (16 kHz) used to segment speech before recognition."
     }
   }

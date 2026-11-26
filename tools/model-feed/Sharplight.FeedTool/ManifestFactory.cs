@@ -95,7 +95,7 @@ internal static class ManifestFactory
             {
                 CatalogEntry = entry.Id,
                 CatalogVariant = variant.Id,
-                Sources = [Source(variant.Repository, variant.Revision, variant.Files, "primary"), .. plan.Companions.Select(companion => Source(companion.Repository, companion.Revision, companion.Files, string.Join(",", companion.AllRoles)))],
+                Sources = [Source(variant, "primary"), .. plan.Companions.Select(companion => Source(companion, string.Join(",", companion.AllRoles)))],
                 Converter = new ConverterInfo { Engine = engineVersion, Tool = $"feedtool {engineVersion}", Options = new Dictionary<string, string> { ["optimize"] = "true" } },
                 Built = built,
             },
@@ -216,11 +216,13 @@ internal static class ManifestFactory
         }
     }
 
-    private static ProvenanceSource Source(string repository, string revision, IReadOnlyList<CatalogFile> files, string role) => new()
+    private static ProvenanceSource Source(CatalogFileSet set, string role) => new()
     {
-        Repository = repository,
-        Revision = revision,
+        Repository = set.Repository,
+        Revision = set.Revision,
         Role = role,
-        Files = [.. files.Select(file => new ProvenanceFile { Path = file.Path, Size = file.Size, Sha256 = file.Sha256, GitOid = file.GitOid })],
+        Files = [.. set.Files.Select(file => new ProvenanceFile { Path = file.Path, Size = file.Size, Sha256 = file.Sha256, GitOid = file.GitOid })],
+        Source = set.IsHubSource ? null : set.Source,
+        Release = set.Release,
     };
 }

@@ -10,8 +10,10 @@ namespace Sharplight.CatalogTool;
 /// </summary>
 /// <param name="hub">Reads repositories.</param>
 /// <param name="log">Receives progress lines.</param>
-internal sealed class CatalogResolver(HubClient hub, Action<string> log)
+/// <param name="github">Reads the sets that come from GitHub, or <see langword="null"/> to report them as failures.</param>
+internal sealed class CatalogResolver(HubClient hub, Action<string> log, GitHubReader? github = null)
 {
+    private const string GitHubDefaultRef = "HEAD";
     private const string DefaultRevision = "main";
     private const int MaxBaseModelDepth = 3;
     private readonly Dictionary<(string Repository, string Revision), HubRepository> _repositories = [];
@@ -57,7 +59,7 @@ internal sealed class CatalogResolver(HubClient hub, Action<string> log)
             repositories.AddIfNotNull(repository);
         }
 
-        if (entry.License is null && repositories.Count == 0 && variants.FirstOrDefault() is { Revision.Length: 40 } first)
+        if (entry.License is null && repositories.Count == 0 && variants.FirstOrDefault() is { Revision.Length: 40, IsHubSource: true } first)
         {
             repositories.Add(await GetRepositoryAsync(first.Repository, first.Revision, cancellationToken).ConfigureAwait(false));
         }
@@ -114,6 +116,11 @@ internal sealed class CatalogResolver(HubClient hub, Action<string> log)
             return (set, null);
         }
 
+        if (!set.IsHubSource)
+        {
+            return (await ResolveGitHubSetAsync(entryId, set, mode, cancellationToken).ConfigureAwait(false), null);
+        }
+
         string revision = mode == ResolveMode.Update || set.Revision.Length == 0 ? DefaultRevision : set.Revision;
         log($"{entryId}: {set.Repository} @ {revision}");
         HubRepository repository;
@@ -140,6 +147,71 @@ internal sealed class CatalogResolver(HubClient hub, Action<string> log)
         return (pinned, repository);
     }
 
+    /// <summary>
+    /// Pins a set from GitHub: the commit of its release tag (or of the default branch when it has none; <c>--update</c> resolves the tag
+    /// again), the files its include patterns choose (repository files, or the release's assets) with sizes and sha256 checksums.
+    /// Repository files are downloaded to hash them; a file whose path and git blob id did not change keeps its recorded sha256.
+    /// </summary>
+    private async Task<T> ResolveGitHubSetAsync<T>(string entryId, T set, ResolveMode mode, CancellationToken cancellationToken)
+        where T : CatalogFileSet
+    {
+        string gitRef = mode == ResolveMode.Update || set.Revision.Length == 0 ? set.Release ?? GitHubDefaultRef : set.Revision;
+        log($"{entryId}: GitHub {set.Repository} @ {gitRef}");
+        try
+        {
+            if (github is null)
+            {
+                throw new HubException("no GitHub reader");
+            }
+
+            if (set.Include.Count == 0)
+            {
+                throw new HubException("a GitHub set names its files with include patterns");
+            }
+
+            string commit = await github.ResolveCommitAsync(set.Repository, gitRef, cancellationToken).ConfigureAwait(false);
+            bool assets = set.Source == CatalogSources.GitHubRelease;
+            var available = assets
+                ? await github.ListReleaseAssetsAsync(set.Repository, set.Release ?? "", cancellationToken).ConfigureAwait(false)
+                : await github.ListFilesAsync(set.Repository, commit, cancellationToken).ConfigureAwait(false);
+            var chosen = Matching(available, set.Include, $"{set.Repository}@{commit[..12]}");
+            var pinned = set with { Revision = commit, Files = [] };
+            var files = new List<CatalogFile>();
+            foreach (var file in chosen)
+            {
+                var known = set.Files.FirstOrDefault(old => old.Path == file.Path && old.GitOid is not null && old.GitOid == file.GitOid);
+                string sha256 = file.Sha256 ?? known?.Sha256
+                    ?? await github.Sha256Async(pinned.GetDirectFileUri(file.Path)!, cancellationToken).ConfigureAwait(false);
+                files.Add(new CatalogFile { Path = file.Path, Size = file.Size, Sha256 = sha256, GitOid = file.GitOid });
+            }
+
+            return pinned with { Files = files, Primary = set.Primary.Length > 0 ? set.Primary : PrimaryOf(chosen) };
+        }
+        catch (HubException error)
+        {
+            _failures.Add($"{entryId}: GitHub {set.Repository}@{gitRef}: {error.Message}");
+            return set;
+        }
+    }
+
+    /// <summary>The files that match the include patterns, in pattern order; a pattern without a match is an error.</summary>
+    private static List<HubFile> Matching(IReadOnlyList<HubFile> available, IReadOnlyList<string> include, string where)
+    {
+        var files = new List<HubFile>();
+        foreach (var pattern in include)
+        {
+            var matches = available.Where(file => GlobPattern.IsMatch(pattern, file.Path)).ToList();
+            if (matches.Count == 0)
+            {
+                throw new HubException($"{where}: no file matches '{pattern}'.");
+            }
+
+            files.AddRange(matches.Where(match => !files.Contains(match)));
+        }
+
+        return files;
+    }
+
     private async Task<HubRepository> GetRepositoryAsync(string id, string revision, CancellationToken cancellationToken)
     {
         if (!_repositories.TryGetValue((id, revision), out var repository))
@@ -155,18 +227,7 @@ internal sealed class CatalogResolver(HubClient hub, Action<string> log)
     {
         if (set.Include.Count > 0)
         {
-            var files = new List<HubFile>();
-            foreach (var pattern in set.Include)
-            {
-                var matches = repository.Files.Where(file => GlobPattern.IsMatch(pattern, file.Path)).ToList();
-                if (matches.Count == 0)
-                {
-                    throw new HubException($"{repository.Id}@{repository.Commit[..12]}: no file matches '{pattern}'.");
-                }
-
-                files.AddRange(matches.Where(match => !files.Contains(match)));
-            }
-
+            var files = Matching(repository.Files, set.Include, $"{repository.Id}@{repository.Commit[..12]}");
             return (files, set.Primary.Length > 0 ? set.Primary : PrimaryOf(files));
         }
 

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Sharplight.Hub.Catalog;
 
 /// <summary>
@@ -30,4 +32,46 @@ public abstract record CatalogFileSet
 
     /// <summary>Total size of <see cref="Files"/> in bytes.</summary>
     public long TotalBytes => Files.Sum(file => file.Size);
+
+    /// <summary>
+    /// Where the files are downloaded from (<see cref="CatalogSources"/>): <see langword="null"/> for the Hugging Face Hub, <c>github</c>
+    /// for the files of a GitHub repository at <see cref="Revision"/>, <c>github-release</c> for the assets of the GitHub release
+    /// <see cref="Release"/>. Files from GitHub carry a sha256 each, checked after the download like the Hub's LFS files.
+    /// </summary>
+    public string? Source { get; init; }
+
+    /// <summary>
+    /// The GitHub release tag the files belong to: the release whose assets a <c>github-release</c> set downloads, or the release a
+    /// <c>github</c> set's <see cref="Revision"/> was resolved from (the tag's commit); <see langword="null"/> otherwise.
+    /// </summary>
+    public string? Release { get; init; }
+
+    /// <summary>Whether the files come from the Hugging Face Hub (no <see cref="Source"/>, or <c>huggingface</c>).</summary>
+    [JsonIgnore]
+    public bool IsHubSource => Source is null or CatalogSources.HuggingFace;
+
+    /// <summary>
+    /// The download address of one of <see cref="Files"/> when the set is not on the Hugging Face Hub, pinned to <see cref="Revision"/>
+    /// (repository files) or to the release's asset; <see langword="null"/> for Hub sets, whose addresses the <see cref="HubClient"/> makes.
+    /// </summary>
+    /// <param name="path">The file's path in the set.</param>
+    public Uri? GetDirectFileUri(string path) => Source switch
+    {
+        CatalogSources.GitHub => new Uri(CatalogSources.GitHubRaw, $"{Repository}/{Revision}/{CatalogSources.EscapePath(path)}"),
+        CatalogSources.GitHubRelease => new Uri(CatalogSources.GitHubWeb, $"{Repository}/releases/download/{Uri.EscapeDataString(Release ?? "")}/{CatalogSources.EscapePath(path)}"),
+        _ => null,
+    };
+
+    /// <summary>The web page of the pinned files: the repository tree at <see cref="Revision"/>, or the GitHub release page.</summary>
+    /// <param name="hubEndpoint">The Hugging Face Hub address (<see cref="HubClientOptions.Endpoint"/>), for Hub sets.</param>
+    public Uri GetPageUri(Uri hubEndpoint)
+    {
+        ArgumentNullException.ThrowIfNull(hubEndpoint);
+        return Source switch
+        {
+            CatalogSources.GitHub => new Uri(CatalogSources.GitHubWeb, $"{Repository}/tree/{Revision}"),
+            CatalogSources.GitHubRelease => new Uri(CatalogSources.GitHubWeb, $"{Repository}/releases/tag/{Uri.EscapeDataString(Release ?? "")}"),
+            _ => new Uri(hubEndpoint, $"{Repository}/tree/{Revision}"),
+        };
+    }
 }

@@ -14601,7 +14601,7 @@
         "date": "2026-11-15",
         "tests": []
       },
-      "notes": "Q4_0 file produces a degenerate image in every implementation; TAESD variant: TAESD decoder / encoder 2.3e-6 / 9e-7 relative RMS vs diffusers\u0027 AutoencoderTiny (CPU, Vulkan, CUDA); SD 1.5 decoded through TAESD 75.1 dB vs diffusers",
+      "notes": "Q4_0 file produces a degenerate image in every implementation; TAESD variant: TAESD decoder / encoder 2.3e-6 / 9e-7 relative RMS vs diffusers\u0027 AutoencoderTiny (CPU, Vulkan, CUDA); SD 1.5 decoded through TAESD 75.1 dB vs diffusers. Source: stable-diffusion-v1-5/*, the community preservation copy of the RunwayML release (runwayml/* was deleted), accepted as the official source; its checkpoint files carry the sha256 of the RunwayML originals (v1-5-pruned-emaonly.safetensors 6ce0161689).",
       "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
@@ -22800,7 +22800,7 @@
     },
     {
       "id": "silero-vad-v5",
-      "name": "Silero VAD v5",
+      "name": "Silero VAD v6.2",
       "kind": "voice-activity",
       "family": "Silero VAD",
       "architecture": "silero_vad",
@@ -22819,21 +22819,24 @@
           "format": "onnx",
           "quantization": "F32",
           "recommended": true,
-          "memoryBytes": 405232659,
+          "memoryBytes": 404136227,
           "companions": [],
-          "repository": "luvox-ai/silero-vad",
-          "revision": "331e6d93913be53a4f25b4ef35434b8a08ed7ae6",
+          "repository": "snakers4/silero-vad",
+          "revision": "be95df9152c0d7618fa1edfeb296fc3dae32376f",
           "include": [
-            "silero_vad_16k_op15.onnx"
+            "src/silero_vad/data/silero_vad_16k_op15.onnx"
           ],
-          "primary": "silero_vad_16k_op15.onnx",
+          "primary": "src/silero_vad/data/silero_vad_16k_op15.onnx",
           "files": [
             {
-              "path": "silero_vad_16k_op15.onnx",
+              "path": "src/silero_vad/data/silero_vad_16k_op15.onnx",
               "size": 1289603,
-              "sha256": "7ed98ddbad84ccac4cd0aeb3099049280713df825c610a8ed34543318f1b2c49"
+              "sha256": "7ed98ddbad84ccac4cd0aeb3099049280713df825c610a8ed34543318f1b2c49",
+              "gitOid": "625ad8909b1abdba2292f3a9a10db6864fd5d561"
             }
-          ]
+          ],
+          "source": "github",
+          "release": "v6.2"
         }
       ],
       "companions": [],
@@ -22844,10 +22847,10 @@
           "CPU",
           "Vulkan"
         ],
-        "date": "2026-11-16",
+        "date": "2026-11-26",
         "tests": []
       },
-      "notes": "8 kHz branch not imported; also used to pre-segment long speech recognition",
+      "notes": "8 kHz branch not imported; also used to pre-segment long speech recognition. Official file from Silero\u0027s GitHub release v6.2 (src/silero_vad/data/silero_vad_16k_op15.onnx; Silero publishes on GitHub only), byte-identical to the file first verified (a community mirror); the catalog id keeps its first name (v5, the same architecture).",
       "doc": [
         {
           "section": "6",
@@ -26828,6 +26831,124 @@
       ],
       "variants": [
         {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors (Google)",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": false,
+          "memoryBytes": 72330942169,
+          "companions": [],
+          "quality": "reference",
+          "qualityNote": "Google\u0027s release weights; text only (images need a GGUF variant with its projector).",
+          "level": "partial",
+          "verification": "Read and wiring verified on a cut-down checkpoint of this repository (layers 0-5: 5 sliding, 1 global; text only; the final logit cap lifted, which 6 layers saturate): prompt log-probabilities match transformers (float32) within 0.1 on CPU. The full 62.6 GB model was not run (its float32 reference does not fit the verification machine); the architecture is verified on the Q4_K_M GGUF.",
+          "repository": "google/gemma-4-31B-it",
+          "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "chat_template.jinja",
+              "size": 18683,
+              "gitOid": "4741bf6e4132ba23a5537f9d6e74e9a6d613d7cd"
+            },
+            {
+              "path": "config.json",
+              "size": 4621,
+              "gitOid": "5f291aa9973fbb38982f9bade924989edc7b895d"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 208,
+              "gitOid": "e605bb4523b1462ea9d9a3810b9e3ecf7ab7b1f6"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 120246,
+              "gitOid": "17fcef4a0ceb639c8ad4e2f7719f70aaff7de63b"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 1689,
+              "gitOid": "5465974d23e1eca2c46c2809b26c997946ce0d90"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 32169626,
+              "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 3082,
+              "gitOid": "6068e357379d36f823c377e30efb101fa2c67fe4"
+            },
+            {
+              "path": "model-00001-of-00002.safetensors",
+              "size": 49784788364,
+              "sha256": "eeef8791537bc04f110967c513149e037d2a9ae97d49add7291ebfa62806bbfa"
+            },
+            {
+              "path": "model-00002-of-00002.safetensors",
+              "size": 12761549884,
+              "sha256": "018912220f559f7025d60333e0996183cd538aa77ad6f4988a89ce47be681f10"
+            }
+          ]
+        },
+        {
+          "id": "qat-w4a16-safetensors",
+          "label": "QAT W4A16 safetensors (Google)",
+          "format": "safetensors",
+          "quantization": "W4A16",
+          "recommended": false,
+          "memoryBytes": 27157808499,
+          "companions": [],
+          "quality": "good",
+          "qualityNote": "Google\u0027s quantization-aware-trained int4 weights (group 32), closer to BF16 than post-training 4-bit; text only.",
+          "level": "partial",
+          "verification": "Read and wiring verified on a cut-down checkpoint of this repository (layers 0-5, text only, the final logit cap lifted): prompt log-probabilities match transformers (float32 on the int4 weights decompressed by compressed-tensors) within 0.1 on CPU. The full model was not compared with a reference.",
+          "repository": "google/gemma-4-31B-it-qat-w4a16-ct",
+          "revision": "52f3f65bc7a02d555763bc923bd1d9094898219d",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "chat_template.jinja",
+              "size": 18683,
+              "gitOid": "4741bf6e4132ba23a5537f9d6e74e9a6d613d7cd"
+            },
+            {
+              "path": "config.json",
+              "size": 18711,
+              "gitOid": "e8beda78f4e93f78a5d9d8f2b78cd9bc272d35e5"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 208,
+              "gitOid": "f6bc6f4146a610a3881015c90d36a78beb1333bb"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 1689,
+              "gitOid": "5465974d23e1eca2c46c2809b26c997946ce0d90"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 32169626,
+              "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 3728,
+              "gitOid": "b22e2c5c05597a7e8c0cb1cebdb7d45570772005"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 23265352448,
+              "sha256": "1b9b1d622a93f02c0d33f98e502f233b5d707443af6ddc464ed0bf5498506c20"
+            }
+          ]
+        },
+        {
           "id": "ud-iq2-m-gguf",
           "label": "UD-IQ2_M GGUF \u002B mmproj",
           "format": "gguf",
@@ -27004,8 +27125,8 @@
         {
           "section": "1.1",
           "cells": {
-            "repositories": "google/gemma-4-31B-it, unsloth/gemma-4-31B-it-GGUF",
-            "formats": "GGUF Q4_K_M"
+            "repositories": "google/gemma-4-31B-it, google/gemma-4-31B-it-qat-w4a16-ct, unsloth/gemma-4-31B-it-GGUF",
+            "formats": "GGUF Q4_K_M; safetensors BF16, QAT W4A16 (cut-down checks)"
           }
         }
       ]
@@ -28157,6 +28278,7 @@
           "SdEditTests"
         ]
       },
+      "notes": "Source: stable-diffusion-v1-5/*, the community preservation copy of the RunwayML release (runwayml/* was deleted), accepted as the official source; its checkpoint files carry the sha256 of the RunwayML originals (sd-v1-5-inpainting.ckpt c6bbc15e32).",
       "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
@@ -30442,7 +30564,7 @@
           "ControlNetTests"
         ]
       },
-      "notes": "Takes a control image (a Canny edge map; ImageGenerationRequest.ControlImage, Studio does not show it yet); ControlScale 1 by default. Other v1.1 SD 1.5 ControlNets (depth, openpose, lineart, ...) share the layout and load the same way; only Canny was compared with diffusers.",
+      "notes": "Takes a control image (a Canny edge map; ImageGenerationRequest.ControlImage, Studio does not show it yet); ControlScale 1 by default. Other v1.1 SD 1.5 ControlNets (depth, openpose, lineart, ...) share the layout and load the same way; only Canny was compared with diffusers. Source: stable-diffusion-v1-5/*, the community preservation copy of the RunwayML release (runwayml/* was deleted), accepted as the official source; its checkpoint files carry the sha256 of the RunwayML originals (v1-5-pruned-emaonly.safetensors 6ce0161689).",
       "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {

@@ -278,6 +278,23 @@
                 },
                 "totalBytes": {
                   "type": "integer"
+                },
+                "source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "huggingface",
+                    "github",
+                    "github-release"
+                  ]
+                },
+                "release": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -366,6 +383,23 @@
                 },
                 "totalBytes": {
                   "type": "integer"
+                },
+                "source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "huggingface",
+                    "github",
+                    "github-release"
+                  ]
+                },
+                "release": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -546,6 +580,23 @@
               },
               "totalBytes": {
                 "type": "integer"
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "huggingface",
+                  "github",
+                  "github-release"
+                ]
+              },
+              "release": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [

@@ -366,7 +366,15 @@ published to `unstable`. `promote` lists package versions (`id@version`, or `id`
 
 **Official sources only.** The feed carries official releases: every package is built from the publisher's own Hugging Face
 repository at the pinned revision of its catalog entry. Community quantizations (GGUF and the like) are published only as extra
-lower-precision variants next to an official one; an ungated mirror of a gated release is never a source. Gated repositories are
+lower-precision variants next to an official one; an ungated mirror of a gated release is never a source. Two exceptions, both
+recorded in the entry's `notes`:
+
+- Publishers that release only on GitHub are fed from their GitHub repository or release (catalog `source` `github` / `github-release`,
+  docs/verified-catalog.md "Sources"): the files at the commit of a pinned release tag, each with its sha256. No token is needed. Silero VAD
+  comes from `snakers4/silero-vad` this way.
+- A release whose publisher deleted it may come from a preservation copy whose files are byte-identical to the original (same
+  checksums as the publisher's published hashes): Stable Diffusion 1.5, its inpainting model and the SD 1.5 ControlNet pipeline come
+  from `stable-diffusion-v1-5/*`, the community copy of RunwayML's deleted `runwayml/*` repositories. Gated repositories are
 downloaded with the token in the secret `HF_TOKEN` (passed to the build as the environment variable of the same name, which the
 Hub client sends to the Hub only); the account that owns the token must have accepted each repository's terms (or been granted
 access), otherwise the build of that entry fails with 403. The catalog pins such a repository before access is granted (`resolve`

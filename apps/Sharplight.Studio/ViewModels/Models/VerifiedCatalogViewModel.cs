@@ -184,7 +184,7 @@ internal sealed partial class VerifiedCatalogViewModel : ObservableObject
     {
         if (SelectedVariant is { } variant)
         {
-            _services.Platform.Open(new Uri(HubClientOptions.DefaultEndpoint, $"{variant.Variant.Repository}/tree/{variant.Variant.Revision}").ToString());
+            _services.Platform.Open(variant.Variant.GetPageUri(HubClientOptions.DefaultEndpoint).ToString());
         }
     }
 

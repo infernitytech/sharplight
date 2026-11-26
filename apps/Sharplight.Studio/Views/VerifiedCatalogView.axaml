@@ -132,7 +132,7 @@
             </StackPanel>
             <Button Classes="ghost small" Command="{Binding OpenOnHubCommand}" Padding="4,1" HorizontalAlignment="Left">
               <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Text="Open the pinned revision on Hugging Face" FontSize="12" />
+                <TextBlock Text="Open the pinned revision (Hugging Face or GitHub)" FontSize="12" />
                 <Path Classes="icon" Data="{StaticResource IconExternal}" Width="11" Height="11" />
               </StackPanel>
             </Button>

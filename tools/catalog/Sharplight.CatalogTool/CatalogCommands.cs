@@ -56,7 +56,7 @@ internal sealed class CatalogCommands
         var catalog = VerifiedCatalogSerializer.Parse(await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false));
         var mode = result.GetValue(_update) ? ResolveMode.Update : result.GetValue(_refresh) ? ResolveMode.Refresh : ResolveMode.Missing;
         using var http = HubClientOptions.CreateHttpClient();
-        var resolver = new CatalogResolver(new HubClient(http, HubClientOptions.FromEnvironment()), Console.Error.WriteLine);
+        var resolver = new CatalogResolver(new HubClient(http, HubClientOptions.FromEnvironment()), Console.Error.WriteLine, GitHubReader.FromEnvironment(http));
         var resolved = await resolver.ResolveAsync(catalog, mode, result.GetValue(_entry), cancellationToken).ConfigureAwait(false);
         await File.WriteAllTextAsync(path, VerifiedCatalogSerializer.Serialize(resolved), cancellationToken).ConfigureAwait(false);
         foreach (var failure in resolver.Failures)
@@ -118,7 +118,7 @@ internal sealed class CatalogCommands
     private async Task<int> CheckAsync(ParseResult result, CancellationToken cancellationToken)
     {
         using var http = HubClientOptions.CreateHttpClient();
-        var checker = new CatalogChecker(new HubClient(http, HubClientOptions.FromEnvironment()), Console.Error.WriteLine);
+        var checker = new CatalogChecker(new HubClient(http, HubClientOptions.FromEnvironment()), Console.Error.WriteLine, GitHubReader.FromEnvironment(http));
         var problems = await checker.CheckAsync(Load(result), cancellationToken).ConfigureAwait(false);
         foreach (var problem in problems)
         {
