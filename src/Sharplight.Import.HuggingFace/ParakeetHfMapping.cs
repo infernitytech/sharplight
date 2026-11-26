@@ -51,6 +51,9 @@ internal sealed partial class ParakeetHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["parakeet_ctc", "parakeet_tdt", "parakeet_rnnt"];
 
+    /// <summary>The voice-activity head of moondream's Parakeet releases (<c>vad_head.{proj,ctx,out}</c>), not imported.</summary>
+    private const string VadHeadPrefix = "vad_head.";
+
     /// <inheritdoc/>
     public IEnumerable<string> Validate(HfConfig config) => ValidateEncoder(config, "parakeet");
 
@@ -99,6 +102,13 @@ internal sealed partial class ParakeetHfMapping : IHfArchitectureMapping
         var collector = new HfWeightCollector();
         foreach (var (name, tensor) in tensors)
         {
+            // moondream/parakeet-ultra adds a voice-activity head over the encoder output (its own runtime's feature), which transcription
+            // does not use.
+            if (name.StartsWith(VadHeadPrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             var info = tensor.ToWeightInfo();
             if (TryMapEncoder(name, info, collector))
             {

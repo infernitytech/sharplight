@@ -20,6 +20,7 @@ public class CompressedKvServingTests
     [Theory]
     [InlineData("hf/tiny-random-deepseek-v4", false, false)]
     [InlineData("hf/tiny-random-deepseek-v4", true, false)]
+    [InlineData("hf/tiny-random-deepseek-v4", false, true)]
     [InlineData("gguf/tiny-random-deepseek-v41.gguf", false, true)]
     [InlineData("gguf/tiny-random-deepseek-v41.gguf", true, true)]
     public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan, bool f32Kv)

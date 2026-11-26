@@ -14,14 +14,19 @@ using Sharplight.Vision;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// The <see cref="ISpeechSynthesizer"/> of a Qwen3-TTS CustomVoice model (<see cref="Qwen3TtsAdapter"/>), as the official <c>qwen_tts</c> package's non-streaming
-/// <c>generate_custom_voice</c>: the talker's prompt is the projected text of <c>&lt;|im_start|&gt;assistant\n</c>, the codec control rows (think or no-think with the
-/// language, the speaker, pad and bos) under text pad / bos rows, and the whole text with its end, each over a codec pad row; every step the talker predicts a frame's
-/// first codebook, the code predictor the other fifteen from the talker's hidden state, and the sum of the frame's sixteen codebook embeddings (plus the text pad row) is
-/// the talker's next input. The codec decoder turns the frames into 24 kHz audio in chunks of <see cref="Qwen3TtsAdapter.CodecChunkFrames"/> frames with
+/// The <see cref="ISpeechSynthesizer"/> of a Qwen3-TTS model (<see cref="Qwen3TtsAdapter"/>), as the official <c>qwen_tts</c> package's <c>generate_custom_voice</c>
+/// (built-in speakers), <c>generate_voice_design</c> (a voice described by <see cref="SpeechSynthesisOptions.Instructions"/>) and <c>generate_voice_clone</c> (a reference
+/// recording, <see cref="IVoiceCloner"/>): the talker's prompt is the projected instruction (<c>&lt;|im_start|&gt;user\n…&lt;|im_end|&gt;\n</c>, when the model reads
+/// one), the projected text of <c>&lt;|im_start|&gt;assistant\n</c>, the codec control rows (think or no-think with the language, the speaker's codec row or the
+/// reference's speaker embedding, pad and bos) under text pad / bos rows, then the text. Non-streaming text (the custom-voice and voice-design default) prefills the whole
+/// text and its end over codec pad rows; interleaved text (the voice-cloning default) prefills its first token over codec bos and adds one more text row to each of the
+/// first generation steps. With a reference transcript the prompt continues the reference instead (in-context): the reference's and the request's text over the
+/// reference's frames. Every step the talker predicts a frame's first codebook, the code predictor the other fifteen from the talker's hidden state, and the sum of the
+/// frame's sixteen codebook embeddings (plus the next text row or the text pad row) is the talker's next input. The codec decoder turns the frames (after the reference's
+/// frames, whose audio is dropped) into 24 kHz audio in chunks of <see cref="Qwen3TtsAdapter.CodecChunkFrames"/> frames with
 /// <see cref="Qwen3TtsAdapter.CodecContextFrames"/> frames of context, like the reference.
 /// </summary>
-internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
+internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer, IVoiceCloner, ISpeechLanguageList
 {
     /// <summary>Frames decoded per streamed buffer.</summary>
     public const int StreamFrames = 25;
@@ -46,11 +51,17 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
     private readonly int _frameSamples;
     private readonly SamplingOptions _defaults;
     private readonly SamplingOptions _predictorDefaults;
+    private readonly bool _instructions;
+    private readonly bool _interleaved;
+    private readonly bool _cloning;
+    private readonly Lazy<IAudioFeatureExtractor>? _speakerFeatures;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Lazy<Tables> _tables;
     private InferenceSession? _talker;
     private InferenceSession? _predictor;
     private CompiledModel? _codec;
+    private CompiledModel? _codecEncoder;
+    private CompiledModel? _speakerEncoder;
     private bool _disposed;
 
     /// <summary>Creates the synthesizer; nothing is compiled until the first request.</summary>
@@ -71,6 +82,14 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
         _nothink = text.ConfigValue("codecNothink", 0);
         _thinkBos = text.ConfigValue("codecThinkBos", 0);
         _thinkEos = text.ConfigValue("codecThinkEos", 0);
+        _instructions = text.ConfigValue("instructions", false);
+        _interleaved = text.ConfigValue("interleavedText", false);
+        _cloning = model.Description.TryGetComponent(Qwen3TtsAdapter.SpeakerEncoderRole, out _) && model.Description.TryGetComponent(Qwen3TtsAdapter.CodecEncoderRole, out _);
+        if (_cloning)
+        {
+            _speakerFeatures = new Lazy<IAudioFeatureExtractor>(() => AudioFeatureExtractors.Create(model, Qwen3TtsAdapter.SpeakerFeaturesRole));
+        }
+
         _speakers = text.ConfigValue("speakers", "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(e => e.Split('='))
             .ToDictionary(p => p[0], p => (int.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture), p[2]), StringComparer.OrdinalIgnoreCase);
         _languages = text.ConfigValue("languages", "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(e => e.Split('='))
@@ -101,7 +120,17 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
     public int SampleRate { get; }
 
     /// <inheritdoc/>
+    /// <remarks>The built-in speakers of a custom-voice model; voice-cloning and voice-design models have none (they speak with a reference's or a described voice).</remarks>
     public IReadOnlyList<string> Voices { get; }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> LanguageNames => Languages;
+
+    /// <summary>Whether the model reads <see cref="SpeechSynthesisOptions.Instructions"/> (voice design, and the larger custom-voice models' speaking style).</summary>
+    public bool AcceptsInstructions => _instructions;
+
+    /// <inheritdoc/>
+    public string VoiceArchitecture => Qwen3TtsAdapter.Family;
 
     /// <summary>The languages a request can name (<see cref="SpeechSynthesisOptions.Language"/>; none or <c>auto</c> lets the model choose).</summary>
     public IReadOnlyList<string> Languages { get; }
@@ -121,6 +150,11 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
             return null;
         }
 
+        if (serviceType == typeof(IVoiceCloner) && !_cloning)
+        {
+            return null;
+        }
+
         return serviceType.IsInstanceOfType(this) ? this : serviceType.IsInstanceOfType(_model) ? _model : serviceType.IsInstanceOfType(_llm) ? _llm : null;
     }
 
@@ -130,15 +164,114 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
         string normalized = options.NormalizedText(text);
         var audio = await BackgroundCompute.RunAsync(_gate, () =>
         {
-            var frames = new List<int[]>();
-            foreach (var frame in GenerateFrames(normalized, options, cancellationToken))
+            var prompt = BuildPrompt(normalized, options, cancellationToken);
+            var frames = new List<int[]>(prompt.ReferenceFrames);
+            frames.AddRange(GenerateFrames(prompt, options, cancellationToken));
+            return DecodeAfter(frames, prompt.ReferenceFrames.Count, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
+        return new SpeechSynthesisResult(audio, options?.VoiceProfile?.Name ?? options?.Voice ?? (Voices.Count > 0 ? Voices[0] : ""));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>The voice is the recording's speaker embedding and, with <paramref name="referenceText"/>, its codec frames for the in-context prompt.</remarks>
+    /// <exception cref="NotSupportedException">The model does not clone voices (it is not a voice-cloning model).</exception>
+    public async Task<VoiceProfile> CreateVoiceAsync(string name, AudioBuffer recording, string? referenceText = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        RequireCloning();
+        var reference = await BackgroundCompute.RunAsync(_gate, () => EncodeReference(recording, referenceText, cancellationToken), cancellationToken).ConfigureAwait(false);
+        var tensors = new Dictionary<string, VoiceTensor>(StringComparer.Ordinal) { ["speaker"] = VoiceTensor.From(reference.Speaker) };
+        if (reference.Frames is { } frames)
+        {
+            tensors["codes"] = VoiceTensor.From([.. frames.SelectMany(f => f)], [frames.Count, _groups]);
+        }
+
+        return new VoiceProfile { Name = name, Architecture = VoiceArchitecture, ReferenceText = reference.Text, SampleRate = SampleRate, Tensors = tensors };
+    }
+
+    /// <summary>
+    /// The voice of a recording: the speaker encoder's embedding and, when <paramref name="text"/> is given, the codec frames of the recording (in-context prompt).
+    /// Recordings longer than <see cref="Qwen3TtsAdapter.MaxReferenceFrames"/> frames are cut.
+    /// </summary>
+    /// <param name="recording">The recording (any rate and channel count).</param>
+    /// <param name="text">The words spoken in it, or <see langword="null"/> for the speaker embedding alone.</param>
+    /// <param name="cancellationToken">Stops between the encoders.</param>
+    public Qwen3TtsReference EncodeReference(AudioBuffer recording, string? text, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        RequireCloning();
+        var all = recording.ToModelInput(SampleRate).Samples;
+        var samples = all.AsSpan(0, Math.Min(all.Length, Qwen3TtsAdapter.MaxReferenceFrames * _frameSamples));
+        if (samples.Length < _frameSamples)
+        {
+            throw new ArgumentException("The reference recording is shorter than one codec frame.", nameof(recording));
+        }
+
+        var speaker = SpeakerEmbedding(samples);
+        cancellationToken.ThrowIfCancellationRequested();
+        return string.IsNullOrEmpty(text) ? new Qwen3TtsReference(speaker, null, null) : new Qwen3TtsReference(speaker, ReferenceFrames(samples, cancellationToken), text);
+    }
+
+    /// <summary>The speaker encoder's embedding of a recording at the model's rate.</summary>
+    /// <param name="samples">Mono samples at <see cref="SampleRate"/>.</param>
+    public float[] SpeakerEmbedding(ReadOnlySpan<float> samples)
+    {
+        RequireCloning();
+        var features = _speakerFeatures!.Value.Extract(samples);
+        var encoder = _speakerEncoder ??= _model.CompileComponent(Qwen3TtsAdapter.SpeakerEncoderRole, EcapaTdnnGraph.GraphName);
+        encoder.SetInput<float>(encoder.Graph.Inputs.First(v => v.Input!.Name == EcapaTdnnGraph.FeaturesInput), S3SpeechEncoders.TimeMajor(features));
+        var run = new RunParameters();
+        run.Symbols[WellKnown.TokenSymbol] = features.Frames;
+        encoder.Run(run);
+        var embedding = new float[(int)encoder.Graph.Outputs[EcapaTdnnGraph.EmbeddingOutput].Shape[-1].Fixed];
+        encoder.GetOutput<float>(EcapaTdnnGraph.EmbeddingOutput, embedding);
+        return embedding;
+    }
+
+    /// <summary>The codec frames (16 codes each) of a recording at the model's rate, zero padded to whole frames and encoded in segments of the codec's limit.</summary>
+    /// <param name="samples">Mono samples at <see cref="SampleRate"/>.</param>
+    /// <param name="cancellationToken">Stops between segments.</param>
+    public IReadOnlyList<int[]> ReferenceFrames(ReadOnlySpan<float> samples, CancellationToken cancellationToken = default)
+    {
+        RequireCloning();
+        var encoder = _codecEncoder ??= _model.CompileComponent(Qwen3TtsAdapter.CodecEncoderRole, AudioCodecGraphs.EncodeGraph);
+        var component = _model.Description.Component(Qwen3TtsAdapter.CodecEncoderRole);
+        int rowsPerSample = component.ConfigValue(AudioCodecGraphs.PositionsDenominatorKey, 1);
+        int frames = (samples.Length + _frameSamples - 1) / _frameSamples;
+        var result = new List<int[]>(frames);
+        for (int start = 0; start < frames; start += Qwen3TtsCodecAdapter.MaxFrames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int count = Math.Min(Qwen3TtsCodecAdapter.MaxFrames, frames - start);
+            var segment = new float[count * _frameSamples];
+            int from = start * _frameSamples;
+            samples.Slice(from, Math.Min(segment.Length, samples.Length - from)).CopyTo(segment);
+            encoder.SetInput<float>(encoder.Graph.Inputs.First(v => v.Input!.Name == AudioCodecGraphs.AudioInput), segment);
+            SetPositions(encoder, segment.Length / rowsPerSample);
+            var run = new RunParameters();
+            run.Symbols[WellKnown.TokenSymbol] = segment.Length;
+            encoder.Run(run);
+            var part = new int[count];
+            var codes = new int[count][];
+            for (int f = 0; f < count; f++)
             {
-                frames.Add(frame);
+                codes[f] = new int[_groups];
             }
 
-            return Decode(frames, cancellationToken);
-        }, cancellationToken).ConfigureAwait(false);
-        return new SpeechSynthesisResult(audio, options?.Voice ?? Voices[0]);
+            for (int q = 0; q < _groups; q++)
+            {
+                encoder.GetOutput<int>(AudioCodecGraphs.CodesName(q), part);
+                for (int f = 0; f < count; f++)
+                {
+                    codes[f][q] = part[f];
+                }
+            }
+
+            result.AddRange(codes);
+        }
+
+        return result;
     }
 
     /// <inheritdoc/>
@@ -155,9 +288,10 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
         try
         {
             string normalized = options.NormalizedText(text);
-            var frames = new List<int[]>();
-            int decoded = 0;
-            using var generation = GenerateFrames(normalized, options, cancellationToken).GetEnumerator();
+            var prompt = await Task.Run(() => BuildPrompt(normalized, options, cancellationToken), cancellationToken).ConfigureAwait(false);
+            var frames = new List<int[]>(prompt.ReferenceFrames);
+            int decoded = frames.Count;
+            using var generation = GenerateFrames(prompt, options, cancellationToken).GetEnumerator();
             while (await Task.Run(generation.MoveNext, cancellationToken).ConfigureAwait(false))
             {
                 frames.Add(generation.Current);
@@ -188,11 +322,38 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
         return _llm.Tokenizer.Encode($"<|im_start|>assistant\n{text}<|im_end|>\n<|im_start|>assistant\n", addSpecial: false, parseSpecial: true);
     }
 
-    /// <summary>The talker's prompt rows [rows, hidden] for a request.</summary>
+    /// <summary>The talker's prompt rows [rows, hidden] for a request with a built-in or no speaker (no reference recording).</summary>
     /// <param name="text">The text to speak.</param>
-    /// <param name="voice">The speaker (one of <see cref="Voices"/>), or <see langword="null"/> for the first.</param>
+    /// <param name="voice">The speaker (one of <see cref="Voices"/>), or <see langword="null"/> for the first (none for a model without speakers).</param>
     /// <param name="language">The language (one of <see cref="Languages"/>), or <see langword="null"/> / <c>auto</c> to let the model choose.</param>
-    public float[] PromptFor(string text, string? voice = null, string? language = null)
+    /// <param name="instructions">The instruction (models that read one), or <see langword="null"/>.</param>
+    public float[] PromptFor(string text, string? voice = null, string? language = null, string? instructions = null)
+        => BuildPrompt(text, new SpeechSynthesisOptions { Voice = voice, Language = language, Instructions = instructions }).Rows;
+
+    /// <summary>The talker's input for a request: its voice (built-in speaker, reference recording or saved voice), language, instruction and text.</summary>
+    /// <param name="text">The text to speak.</param>
+    /// <param name="options">Request settings, or <see langword="null"/> for the defaults.</param>
+    /// <param name="cancellationToken">Stops while a reference recording is encoded.</param>
+    public Qwen3TtsPrompt BuildPrompt(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken = default)
+    {
+        Qwen3TtsReference? reference = null;
+        if (options?.VoiceProfile is { } profile)
+        {
+            reference = ReferenceOf(profile);
+        }
+        else if (options?.ReferenceAudio is { } recording)
+        {
+            reference = EncodeReference(recording, options.ReferenceText, cancellationToken);
+        }
+
+        return BuildPrompt(text, options, reference);
+    }
+
+    /// <summary>The talker's input for a request with an already encoded reference (or none).</summary>
+    /// <param name="text">The text to speak.</param>
+    /// <param name="options">Request settings (voice, language, instructions), or <see langword="null"/>; its reference recording and saved voice are not read.</param>
+    /// <param name="reference">The reference voice (voice-cloning models), or <see langword="null"/>.</param>
+    public Qwen3TtsPrompt BuildPrompt(string text, SpeechSynthesisOptions? options, Qwen3TtsReference? reference)
     {
         var tables = _tables.Value;
         int h = tables.Hidden;
@@ -202,65 +363,181 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
             throw new ArgumentException("The text is empty.", nameof(text));
         }
 
+        var (speakerRow, dialect) = SpeakerOf(options?.Voice, reference);
+        int? languageId = LanguageOf(options?.Language);
+
+        // A dialect speaker speaks its dialect when the language is Chinese or chosen by the model.
+        if (dialect.Length > 0 && (languageId is null || languageId == _languages.GetValueOrDefault("chinese", -1)))
+        {
+            languageId = _languages[dialect];
+        }
+
+        var rows = new List<float[]>();
+        if (_instructions && !string.IsNullOrWhiteSpace(options?.Instructions))
+        {
+            foreach (int id in _llm.Tokenizer.Encode($"<|im_start|>user\n{options.Instructions}<|im_end|>\n", addSpecial: false, parseSpecial: true))
+            {
+                rows.Add(tables.TextRow(id));
+            }
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            rows.Add(tables.TextRow(ids[i]));
+        }
+
+        var codec = new List<float[]>();
+        int[] control = languageId is { } l ? [_think, _thinkBos, l, _thinkEos] : [_nothink, _thinkBos, _thinkEos];
+        codec.AddRange(control.Select(c => tables.Codec(c).ToArray()));
+        if (speakerRow is not null)
+        {
+            codec.Add(speakerRow);
+        }
+
+        codec.Add(tables.Codec(_codecPad).ToArray());
+        var pad = tables.TextRow(_textPad);
+        var bos = tables.TextRow(_textBos);
+        var eos = tables.TextRow(_textEos);
+        for (int i = 0; i < codec.Count; i++)
+        {
+            rows.Add(Sum(i < codec.Count - 1 ? pad : bos, codec[i]));
+        }
+
+        // The text between the role tokens and the five closing tokens, and its end row.
+        var content = ids[3..^5].Select(tables.TextRow).ToList();
+        var trailing = new List<float[]>();
+        var referenceFrames = reference?.Frames ?? [];
+        if (reference is { Frames: { } frames, Text: { } transcript })
+        {
+            var referenceIds = _llm.Tokenizer.Encode($"<|im_start|>assistant\n{transcript}<|im_end|>\n", addSpecial: false, parseSpecial: true);
+            var textRows = referenceIds[3..^2].Select(tables.TextRow).Concat(content).Append(eos).ToList();
+            var codecRows = frames.Select(FrameSum).Prepend(tables.Codec(_codecBos).ToArray()).ToList();
+            if (!_interleaved)
+            {
+                rows.AddRange(textRows.Select(t => Sum(t, tables.Codec(_codecPad))));
+                rows.AddRange(codecRows.Select(c => Sum(c, pad)));
+            }
+            else
+            {
+                for (int i = 0; i < codecRows.Count; i++)
+                {
+                    rows.Add(Sum(i < textRows.Count ? textRows[i] : pad, codecRows[i]));
+                }
+
+                trailing.AddRange(textRows.Skip(codecRows.Count));
+            }
+        }
+        else if (!_interleaved)
+        {
+            rows.AddRange(content.Append(eos).Select(t => Sum(t, tables.Codec(_codecPad))));
+            rows.Add(Sum(pad, tables.Codec(_codecBos)));
+        }
+        else
+        {
+            rows.Add(Sum(content[0], tables.Codec(_codecBos)));
+            trailing.AddRange(content.Skip(1).Append(eos));
+        }
+
+        return new Qwen3TtsPrompt(Flatten(rows, h), Flatten(trailing, h), referenceFrames);
+    }
+
+    // The speaker's codec row (built-in speaker) or embedding (reference) and the speaker's dialect; no row for a model without speakers and no reference.
+    private (float[]? Row, string Dialect) SpeakerOf(string? voice, Qwen3TtsReference? reference)
+    {
+        if (reference is not null)
+        {
+            if (reference.Speaker.Length != _tables.Value.Hidden)
+            {
+                throw new ArgumentException($"The voice's speaker embedding has {reference.Speaker.Length} values; this model takes {_tables.Value.Hidden} (a voice of another model size).");
+            }
+
+            return (reference.Speaker, "");
+        }
+
+        if (_cloning)
+        {
+            throw new ArgumentException("A Qwen3-TTS voice-cloning model speaks with the voice of a recording: set SpeechSynthesisOptions.ReferenceAudio (with ReferenceText for "
+                + "the in-context prompt) or VoiceProfile.");
+        }
+
+        if (Voices.Count == 0)
+        {
+            return (null, "");
+        }
+
         string speaker = voice ?? Voices[0];
         if (!_speakers.TryGetValue(speaker, out var spk))
         {
             throw new ArgumentException($"Unknown voice '{speaker}' (voices: {string.Join(", ", Voices)}).", nameof(voice));
         }
 
-        int? languageId = null;
-        if (!string.IsNullOrEmpty(language) && !language.Equals("auto", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!_languages.TryGetValue(language, out int id))
-            {
-                throw new ArgumentException($"Unknown language '{language}' (languages: {string.Join(", ", Languages)}).", nameof(language));
-            }
+        return (_tables.Value.Codec(spk.Id).ToArray(), spk.Dialect);
+    }
 
-            languageId = id;
+    private int? LanguageOf(string? language)
+    {
+        if (string.IsNullOrEmpty(language) || language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
         }
 
-        // A dialect speaker speaks its dialect when the language is Chinese or chosen by the model.
-        if (spk.Dialect.Length > 0 && (languageId is null || languageId == _languages.GetValueOrDefault("chinese", -1)))
+        return _languages.TryGetValue(language, out int id)
+            ? id
+            : throw new ArgumentException($"Unknown language '{language}' (languages: {string.Join(", ", Languages)}).", nameof(language));
+    }
+
+    private Qwen3TtsReference ReferenceOf(VoiceProfile profile)
+    {
+        profile.RequireArchitecture(VoiceArchitecture);
+        RequireCloning();
+        var speaker = profile.Tensor("speaker").ToFloats();
+        if (!profile.Tensors.TryGetValue("codes", out var codes) || string.IsNullOrEmpty(profile.ReferenceText))
         {
-            languageId = _languages[spk.Dialect];
+            return new Qwen3TtsReference(speaker, null, null);
         }
 
-        int[] control = languageId is { } l ? [_think, _thinkBos, l, _thinkEos] : [_nothink, _thinkBos, _thinkEos];
-        int[] codec = [.. control, spk.Id, _codecPad, _codecBos];
-        int content = ids.Length - 8;
-        var rows = new List<float[]>();
-        for (int i = 0; i < 3; i++)
+        var values = codes.ToInts();
+        var frames = Enumerable.Range(0, values.Length / _groups).Select(f => values.AsSpan(f * _groups, _groups).ToArray()).ToList();
+        return new Qwen3TtsReference(speaker, frames, profile.ReferenceText);
+    }
+
+    private void RequireCloning()
+    {
+        if (!_cloning)
         {
-            rows.Add(tables.TextRow(ids[i]));
+            throw new NotSupportedException("This Qwen3-TTS model does not clone voices (only the Base models have the speaker encoder).");
+        }
+    }
+
+    // The sum of a frame's sixteen codebook embeddings (the talker's input for that frame, without the text row).
+    private float[] FrameSum(int[] frame)
+    {
+        var tables = _tables.Value;
+        var sum = tables.Codec(frame[0]).ToArray();
+        for (int g = 1; g < _groups; g++)
+        {
+            Add(sum, tables.PredictorEmbedding(g - 1, frame[g]));
         }
 
-        var pad = tables.TextRow(_textPad);
-        var bos = tables.TextRow(_textBos);
-        var eos = tables.TextRow(_textEos);
-        for (int i = 0; i < codec.Length - 1; i++)
-        {
-            var row = (float[])(i < codec.Length - 2 ? pad : bos).Clone();
-            Add(row, tables.Codec(codec[i]));
-            rows.Add(row);
-        }
+        return sum;
+    }
 
-        for (int i = 0; i <= content; i++)
-        {
-            var row = i < content ? tables.TextRow(ids[3 + i]) : (float[])eos.Clone();
-            Add(row, tables.Codec(_codecPad));
-            rows.Add(row);
-        }
+    private static float[] Sum(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        var sum = a.ToArray();
+        Add(sum, b);
+        return sum;
+    }
 
-        var last = (float[])pad.Clone();
-        Add(last, tables.Codec(_codecBos));
-        rows.Add(last);
-        var prompt = new float[rows.Count * h];
+    private static float[] Flatten(List<float[]> rows, int width)
+    {
+        var result = new float[rows.Count * width];
         for (int i = 0; i < rows.Count; i++)
         {
-            rows[i].CopyTo(prompt, i * h);
+            rows[i].CopyTo(result, i * width);
         }
 
-        return prompt;
+        return result;
     }
 
     /// <summary>
@@ -273,7 +550,18 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
     /// <param name="observe">Receives each step's talker logits and the code predictor's logits of the frame, or <see langword="null"/>.</param>
     public IEnumerable<int[]> GenerateFrames(string text, SpeechSynthesisOptions? options, CancellationToken cancellationToken, IReadOnlyList<int[]>? forced = null,
         Action<float[], IReadOnlyList<float[]>>? observe = null)
+        => GenerateFrames(BuildPrompt(text, options, cancellationToken), options, cancellationToken, forced, observe);
+
+    /// <summary>Generates the codec frames of a prepared prompt (<see cref="BuildPrompt(string, SpeechSynthesisOptions?, CancellationToken)"/>), one by one.</summary>
+    /// <param name="prompt">The talker's input.</param>
+    /// <param name="options">Request settings (sampling), or <see langword="null"/> for the defaults.</param>
+    /// <param name="cancellationToken">Stops generation between frames.</param>
+    /// <param name="forced">Feeds these frames instead of the generated ones (teacher forcing), or <see langword="null"/>.</param>
+    /// <param name="observe">Receives each step's talker logits and the code predictor's logits of the frame, or <see langword="null"/>.</param>
+    public IEnumerable<int[]> GenerateFrames(Qwen3TtsPrompt prompt, SpeechSynthesisOptions? options, CancellationToken cancellationToken, IReadOnlyList<int[]>? forced = null,
+        Action<float[], IReadOnlyList<float[]>>? observe = null)
     {
+        ArgumentNullException.ThrowIfNull(prompt);
         ObjectDisposedException.ThrowIf(_disposed, this);
         var tables = _tables.Value;
         int h = tables.Hidden;
@@ -284,11 +572,12 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
         var talker = _talker ??= CreateSession(WellKnown.DecodeMultimodalGraph);
         var predictor = _predictor ??= CreateSession(Qwen3TtsAdapter.CodePredictorGraph);
         talker.Reset();
-        var prompt = PromptFor(text, options?.Voice, options?.Language);
-        var logits = Process(talker, prompt, prompt.Length / h);
+        int promptRows = prompt.Rows.Length / h;
+        var logits = Process(talker, prompt.Rows, promptRows);
         var hidden = talker.LastHidden[^h..].ToArray();
         var pad = tables.TextRow(_textPad);
-        int budget = Math.Min(Qwen3TtsAdapter.MaxFrames, talker.ContextLength - (prompt.Length / h) - 1);
+        int trailing = prompt.Trailing.Length / h;
+        int budget = Math.Min(Qwen3TtsAdapter.MaxFrames, talker.ContextLength - promptRows - 1);
         int vocabulary = logits.Length;
         for (int step = 0; step < budget; step++)
         {
@@ -330,12 +619,8 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
 
             observe?.Invoke(logits, predictorLogits!);
             yield return frame;
-            var next = (float[])pad.Clone();
-            Add(next, tables.Codec(first));
-            for (int g = 1; g < _groups; g++)
-            {
-                Add(next, tables.PredictorEmbedding(g - 1, frame[g]));
-            }
+            var next = FrameSum(frame);
+            Add(next, step < trailing ? prompt.Trailing.AsSpan(step * h, h) : pad);
 
             logits = Process(talker, next, 1);
             hidden = talker.LastHidden[^h..].ToArray();
@@ -357,6 +642,25 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
         }
 
         return new AudioBuffer([.. samples], SampleRate);
+    }
+
+    /// <summary>
+    /// Decodes frames whose first <paramref name="reference"/> are a reference recording's and drops the reference's share of the audio, as the reference cuts
+    /// <c>reference / frames</c> of the decoded samples.
+    /// </summary>
+    /// <param name="frames">The reference's frames followed by the generated ones.</param>
+    /// <param name="reference">The reference's frames at the start.</param>
+    /// <param name="cancellationToken">Stops between chunks.</param>
+    public AudioBuffer DecodeAfter(IReadOnlyList<int[]> frames, int reference, CancellationToken cancellationToken = default)
+    {
+        var audio = Decode(frames, cancellationToken);
+        if (reference == 0)
+        {
+            return audio;
+        }
+
+        int cut = (int)((double)reference / Math.Max(frames.Count, 1) * audio.Samples.Length);
+        return new AudioBuffer(audio.Samples[cut..], SampleRate);
     }
 
     /// <summary>Decodes frames <c>[first, end)</c> with <paramref name="context"/> frames before them whose audio is dropped.</summary>
@@ -403,6 +707,26 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
     }
 
     private Value Input(string name) => _codec!.Graph.Inputs.First(i => i.Input!.Name == name);
+
+    // The row positions and the single-sequence attention spans of the codec encoder's transformer.
+    private static void SetPositions(CompiledModel compiled, int rows)
+    {
+        if (compiled.Graph.Inputs.FirstOrDefault(v => v.Input!.Name == AudioCodecGraphs.PositionsInput) is { } positions)
+        {
+            compiled.SetInput<int>(positions, [.. Enumerable.Range(0, rows)]);
+        }
+
+        if (compiled.Graph.Inputs.FirstOrDefault(v => v.Input!.Name == AudioCodecGraphs.SpansInput) is { } spans)
+        {
+            var values = new int[2 * rows];
+            for (int i = 0; i < rows; i++)
+            {
+                values[(2 * i) + 1] = rows;
+            }
+
+            compiled.SetInput<int>(spans, values);
+        }
+    }
 
     private InferenceSession CreateSession(string graph)
     {
@@ -463,6 +787,8 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer
         _talker?.Dispose();
         _predictor?.Dispose();
         _codec?.Dispose();
+        _codecEncoder?.Dispose();
+        _speakerEncoder?.Dispose();
         _gate.Dispose();
     }
 

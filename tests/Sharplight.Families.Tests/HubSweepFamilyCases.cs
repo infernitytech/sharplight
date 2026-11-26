@@ -18,6 +18,9 @@ internal static class HubSweepFamilyCases
     private static readonly int[] Spark25Ids = [127014, 35203, 9121, 63078, 97488, 1941, 28582, 74250, 101384, 30139, 107273, 63558, 117809, 120517, 35895, 88845,
         72935, 47223, 89644, 109280, 52132, 109143, 88939, 91766];
 
+    private static readonly int[] AionIds = [138652, 139819, 160182, 160182, 104038, 167799, 37332, 143048, 145401, 25763, 59631, 59631, 59631, 151599, 45870,
+        138888, 50151];
+
     private static readonly int[] CloverIds = [220936, 185169, 118692, 98572, 181106, 175839, 164194, 181971, 210750, 103853, 102860, 143626, 167167,
         147275, 52747, 168635, 43474, 197560, 233695, 110073, 195413, 86318, 53563, 147735];
 
@@ -66,6 +69,9 @@ internal static class HubSweepFamilyCases
         new("tiny-random-llava-onevision2 HF (llava_onevision2, remote code)", "hf/tiny-random-llava-onevision2", Prompt, "ids", LlavaOneVision2Ids, ""),
         new("tiny-random-llava-onevision2 f32 GGUF (llava_onevision2, llama.cpp)", "gguf/tiny-random-llava-onevision2-hf-f32.gguf", Prompt, "ids",
             LlavaOneVision2Ids, ""),
+        // Aion 1.0 (aion_instruct, remote code): Qwen3 layers with sliding layers from layer_types, YaRN on the full layers only. The 18th token is a
+        // 0.012 near-tie, so 17 are compared.
+        new("tiny-random-aion-instruct HF (aion_instruct, remote code)", "hf/tiny-random-aion-instruct", Prompt, "ids", AionIds, ""),
         // Clover (remote code): Qwen3.5-MoE layers decoded causally with plain rope; the block-diffusion preview tensors are left out.
         new("tiny-random-clover-moe HF (clover_moe, remote code)", "hf/tiny-random-clover-moe", Prompt, "ids", CloverIds, ""),
         new("tiny-random-clover-moe f32 GGUF (clover_moe, llama.cpp)", "gguf/tiny-random-clover-moe-hf-f32.gguf", Prompt, "ids", CloverIds, ""),
@@ -76,6 +82,9 @@ internal static class HubSweepFamilyCases
             ""),
         new("Mage-VL-Cowork HF (llava_onevision2, transformers)", "hf/Mage-VL-Cowork", Prompt, "ids",
             [11, 7674, 11, 323, 3840, 13, 576, 6722, 3283, 374, 1083, 279, 1992, 1380, 279, 3946], ""),
+        // Aion 1.0 Instruct 2.3B (Microsoft): the 18th token is a 0.012 near-tie, so 17 are compared.
+        new("Aion-1.0-Instruct-2.3B HF (aion_instruct, transformers)", "hf/Aion-1.0-Instruct-2.3B", Prompt, "ids",
+            [11, 12808, 11, 326, 27660, 13, 1225, 382, 1217, 5542, 395, 1617, 5678, 326, 9674, 13, 623], ""),
         new("Spark-X2.6-4B HF (spark2_5, transformers)", "hf/Spark-X2.6-4B", Prompt, "ids",
             [25, 16239, 25, 317, 28548, 27, 614, 11862, 314, 17349, 390, 19500, 27, 198, 63842, 3445], ""),
     ];

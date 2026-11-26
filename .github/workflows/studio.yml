@@ -1,20 +1,20 @@
 name: Studio
 
 # Builds Sharplight Studio for Windows x64/ARM64, Linux x64/ARM64 and macOS ARM64 on native runners: a self-contained publish packed
-# with Velopack (vpk) for the update channel `<rid>-stable` (release/* branches) or `<rid>-unstable` (develop; main and pull
-# requests are only built as a check).
+# with Velopack (vpk) for the update channel `<rid>-stable` (release/* branches) or `<rid>-unstable` (main; pull requests and
+# other branches are only built as a check).
 #
-#   push to develop     -> build, upload packages + delta packages to Cloudflare R2, channel <rid>-unstable; upload the verified
+#   push to main        -> build, upload packages + delta packages to Cloudflare R2, channel <rid>-unstable; upload the verified
 #                          catalog to catalog/verified-models.json (job catalog)
 #   push to release/*   -> build, upload to R2, channel <rid>-stable, attach the installers to a GitHub release
-#   push to main, PRs   -> build only (workflow artifacts)
+#   PRs, other branches -> build only (workflow artifacts)
 #
-# R2 credentials live in the GitHub environment `studio-release` (restricted to develop and release/*), see docs/releasing.md.
+# R2 credentials live in the GitHub environment `studio-release` (restricted to main and release/*), see docs/releasing.md.
 # Outputs per platform: Windows Setup.exe + portable zip; Linux AppImage + tar.gz; macOS .pkg + zip.
 
 on:
   push:
-    branches: [develop, main, 'release/**']
+    branches: [main, 'release/**']
     paths-ignore: ['docs/**', 'bench/**', '**.md']
   pull_request:
     paths-ignore: ['docs/**', 'bench/**', '**.md']
@@ -49,11 +49,11 @@ jobs:
           - { rid: osx-arm64, os: macos-15 }
     runs-on: ${{ matrix.os }}
     env:
-      # Uploads to R2 only from pushes to develop (unstable) and release/* (stable); never from pull requests or other branches.
-      UPLOAD: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/')) }}
+      # Uploads to R2 only from pushes to main (unstable) and release/* (stable); never from pull requests or other branches.
+      UPLOAD: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) }}
       CHANNEL_KIND: ${{ startsWith(github.ref, 'refs/heads/release/') && 'stable' || 'unstable' }}
     # The R2 secrets only exist in this environment; it is entered only by the uploading pushes.
-    environment: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/'))) && 'studio-release' || '' }}
+    environment: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))) && 'studio-release' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -160,11 +160,11 @@ jobs:
 
   catalog:
     # The verified-model catalog Studio refreshes from download.sharplight.dev/catalog/verified-models.json (docs/verified-catalog.md):
-    # validated on every run, uploaded to R2 from develop pushes only (the same studio-release environment and R2 secrets as the packages).
+    # validated on every run, uploaded to R2 from main pushes only (the same studio-release environment and R2 secrets as the packages).
     runs-on: ubuntu-latest
     env:
-      UPLOAD: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
-    environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/develop') && 'studio-release' || '' }}
+      UPLOAD: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'studio-release' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:

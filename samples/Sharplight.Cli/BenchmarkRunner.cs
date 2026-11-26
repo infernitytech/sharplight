@@ -25,6 +25,7 @@ internal sealed class BenchmarkRunner
     private const int EndSyntheticTokenId = 50000;
     private const int WarmUpDecodeTokenId = 5;
     private const string DumpScheduleVariable = "SHARPLIGHT_DUMP_SCHEDULE";
+    private const string ProfileTopVariable = "SHARPLIGHT_PROFILE_TOP";
     private const string PromptVariable = "SHARPLIGHT_BENCH_PROMPT";
     private const string WholeVocabularyPrompt = "vocab";
 
@@ -226,22 +227,24 @@ internal sealed class BenchmarkRunner
 
     private void PrintProfiles(string phase)
     {
+        // SHARPLIGHT_PROFILE_TOP=n prints the n heaviest entries instead of 30 (the Vulkan entries are per node).
+        int top = int.TryParse(Environment.GetEnvironmentVariable(ProfileTopVariable), out int n) && n > 0 ? n : 30;
         foreach (var segment in VulkanSegments.Where(segment => segment.Profile))
         {
             _log.WriteLine($"--- {phase} profile, segment {segment.Segment.Index}");
-            _log.WriteLine(segment.ProfileReport());
+            _log.WriteLine(segment.ProfileReport(top));
         }
 
         foreach (var segment in MetalSegments.Where(segment => segment.Profile))
         {
             _log.WriteLine($"--- {phase} profile, segment {segment.Segment.Index}");
-            _log.WriteLine(segment.ProfileReport());
+            _log.WriteLine(segment.ProfileReport(top));
         }
 
         foreach (var segment in CudaSegments.Where(segment => segment.Profile))
         {
             _log.WriteLine($"--- {phase} profile, segment {segment.Segment.Index}");
-            _log.WriteLine(segment.ProfileReport());
+            _log.WriteLine(segment.ProfileReport(top));
         }
     }
 

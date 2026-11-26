@@ -3,13 +3,13 @@ name: Packages
 # Builds the solution and packs the libraries under src/ as NuGet packages (versions from version.json via
 # Nerdbank.GitVersioning). Every run uploads the packages as a build artifact.
 # A push to a release/* branch (cut with `nbgv prepare-release`, see docs/releasing.md) also publishes them to nuget.org
-# (trusted publishing). Nothing is ever published to nuget.org from develop, main or a pull request, not even by a manual run.
-# A push to develop publishes the prerelease packages (0.x.y-alpha.g<commit>) to the GitHub Packages NuGet feed of the
+# (trusted publishing). Nothing is ever published to nuget.org from main or a pull request, not even by a manual run.
+# A push to main publishes the prerelease packages (0.x.y-alpha.g<commit>) to the GitHub Packages NuGet feed of the
 # repository owner once CI is green for the same commit (job `prerelease`); never from forks, pull requests or other branches.
 
 on:
   push:
-    branches: [develop, main, 'release/**']
+    branches: [main, 'release/**']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -76,7 +76,7 @@ jobs:
 
   publish:
     needs: pack
-    # Release branches only: never develop, main, tags or pull requests.
+    # Release branches only: never main, tags or pull requests.
     if: >-
       startsWith(github.ref, 'refs/heads/release/') &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish))
@@ -115,12 +115,12 @@ jobs:
             dotnet nuget push "$package" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
           done
 
-  # Prerelease feed: green develop builds go to GitHub Packages (https://nuget.pkg.github.com/<owner>/index.json) so that
-  # consumers can test against develop without waiting for a release (docs/releasing.md, "Prerelease feed").
+  # Prerelease feed: green main builds go to GitHub Packages (https://nuget.pkg.github.com/<owner>/index.json) so that
+  # consumers can test against main without waiting for a release (docs/releasing.md, "Prerelease feed").
   prerelease:
     needs: pack
     if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/develop' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       !github.event.repository.fork
     runs-on: ubuntu-latest
     timeout-minutes: 180

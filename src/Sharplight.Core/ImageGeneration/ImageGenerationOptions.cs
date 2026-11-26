@@ -39,8 +39,8 @@ public sealed record ImageGenerationOptions
 
     /// <summary>
     /// Every how many steps the streaming call attaches a low-resolution preview of the current estimate to its update
-    /// (<see cref="ImageGenerationUpdate.Preview"/>); 0 for none. Previews are cheap (no VAE decode) and need a model that
-    /// describes its latent colours.
+    /// (<see cref="ImageGenerationUpdate.Preview"/>); 0 for none. Previews are cheap: decoded by the model's tiny autoencoder
+    /// (TAESD) at full size when it has one, otherwise the latent colours at latent resolution (no VAE decode; needs a model that describes them).
     /// </summary>
     public int PreviewInterval { get; init; }
 
@@ -73,6 +73,32 @@ public sealed record ImageGenerationOptions
 
     /// <summary>The default <see cref="RefinerStart"/>.</summary>
     public const float DefaultRefinerStart = 0.8f;
+
+    /// <summary>
+    /// Whether to decode the image (and encode an input image) with the model's tiny autoencoder (TAESD, loaded as its <c>tiny-vae</c>
+    /// auxiliary source; <see cref="ImageGenerationDefaults.TinyAutoencoder"/>) instead of its VAE: a fraction of the VAE's time and memory,
+    /// at a visibly lower fidelity (fine detail and text). Previews (<see cref="PreviewInterval"/>) use the tiny autoencoder whenever the
+    /// model has one, regardless of this option.
+    /// </summary>
+    public bool TinyAutoencoder { get; init; }
+
+    /// <summary>
+    /// For models with a ControlNet (<see cref="ImageGenerationDefaults.ControlNet"/>): how strongly the control image steers the denoiser
+    /// (the scale of the ControlNet's residuals, diffusers' <c>controlnet_conditioning_scale</c>), or <see langword="null"/> for 1.
+    /// </summary>
+    public float? ControlScale { get; init; }
+
+    /// <summary>
+    /// For models with a ControlNet: the fraction of the steps after which the control image starts to apply, in [0, 1) (diffusers'
+    /// <c>control_guidance_start</c>), or <see langword="null"/> for 0.
+    /// </summary>
+    public float? ControlStart { get; init; }
+
+    /// <summary>
+    /// For models with a ControlNet: the fraction of the steps after which the control image stops applying, in (0, 1] (diffusers'
+    /// <c>control_guidance_end</c>), or <see langword="null"/> for 1.
+    /// </summary>
+    public float? ControlEnd { get; init; }
 
     /// <summary>The defaults.</summary>
     public static ImageGenerationOptions Default { get; } = new();

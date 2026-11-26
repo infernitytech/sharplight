@@ -255,7 +255,8 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   the same in every block of a row) from 9 activation rows (`SHARPLIGHT_NATIVE_FP4_MIN_ROWS`); below, the integer-dot matvec. The
   activations are quantized to FP4 per row (`quantize_fp4.cu`: E2M1 codes, an E4M3 scale per 16 values under the row's f32 scale
   amax / 2688, 160-byte records per 256 values, a numerics change like the W4A4 mode of the checkpoints' producers: about 9 % relative
-  error per activation); the weights are read in their stored 36- / 40-byte blocks (cp.async into shared memory, 32-byte sectors kept in
+  error per activation; so weights of a weight-only format, `WeightInfo.Activations` unquantized as the importer reads it from
+  the checkpoint's config, e.g. ModelOpt `W4A16_NVFP4`, never take it, see below); the weights are read in their stored 36- / 40-byte blocks (cp.async into shared memory, 32-byte sectors kept in
   one granule, [benchmarks.md §97](benchmarks.md)) and multiplied by `mma.sync.m16n8k64.kind::mxf4nvf4.block_scale.scale_vec::4X` with
   both operands' 16-value scales applied in the MMA and f32 accumulation over all of K; the store multiplies by the activation row's
   and the weight row's f32 scales. Tiles: 16 / 32 / 64 token rows over 32-64 weight rows at decode batches, 64 x 128 and 128 x 128 above
@@ -264,6 +265,14 @@ byte-identical to `develop` ([benchmarks.md §53.7](benchmarks.md)).
   `quantize_fp4` is a file of its own so that it gets the dependency wait at its entry (a source that issues
   `griddepcontrol.wait` itself gets none). `SHARPLIGHT_NATIVE_FP4=0` (or disabling `block_scaled_fp4`) keeps NVFP4 matmuls on the
   integer-dot matvec, the skinny GEMM and the GEMMs on dequantized weights; `SHARPLIGHT_NATIVE_FP4_MOE=0` only the expert products.
+
+- **Weight-only checkpoints** (`WeightInfo.Activations` unquantized: ModelOpt `W4A16_*` / `*_WO`, compressed-tensors groups without
+  `input_activations`, torchao `Float8WeightOnlyConfig`, ...): their products never quantize activations to E2M1 or E4M3, whatever
+  the device offers (`LowPrecisionActivationsAllowed` in the lowering; `CompileOptions.AllowReducedPrecision` lifts it). NVFP4 weights
+  then keep the integer-dot matvec (q8 blocks), the skinny GEMM and the GEMMs on decoded weights from 9 rows; block-scaled E4M3
+  weights keep their stored layout (no 128-row groups, so no hand-written FP8 GEMM and no power-of-two requantization) and run the
+  f16 tensor-core GEMM on decoded weights. Formats that declare activation quantization (W4A4, W8A8, `quant_method fp8`) and
+  sources that say nothing (GGUF) keep the native paths. `WeightOnlyActivationTests` checks the selection on a Blackwell profile.
 
 - **`gemm_fp8_decode.cu`** (`native_gemm_fp8`): single block-scaled E4M3 matmuls at 9-16 rows in the grouped layout. No shared-memory
   stages: every warp loads 16 bytes per lane of its 32 weight rows and of the 16 activation rows straight into registers (the same

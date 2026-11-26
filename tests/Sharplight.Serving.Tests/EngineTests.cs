@@ -5,6 +5,9 @@ namespace Sharplight.Serving.Tests;
 
 public class EngineTests
 {
+    /// <summary>A context (and generation length) that sequences decoding at simulated step times do not reach during a test.</summary>
+    private const int LongContext = 1 << 24;
+
     private static InferenceEngine Engine(FakeBatchDecoder d, EngineOptions? o = null) => new(d, new FakeTokenizer(), o);
 
     private static GenerationRequest Req(string prompt, int max = 100, IReadOnlyList<string>? stops = null, int priority = 0, TimeSpan? timeout = null) => new()
@@ -185,14 +188,16 @@ public class EngineTests
     [InlineData(false)]
     public async Task TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore(bool tileAware)
     {
-        var d = new FakeBatchDecoder(4, maxBatchTokens: 400)
+        // Simulated step times take no wall time, so the running sequence gets a context it cannot fill during the test.
+        var d = new FakeBatchDecoder(4, contextLength: LongContext, maxBatchTokens: 400)
         {
             StepDelayForRows = rows => TimeSpan.FromMilliseconds(rows <= 1 ? 1 : rows <= 9 ? 2 : 10 * ((rows + 31) / 32)),
+            SimulatesStepTime = true,
         };
         d.Script("a", loop: true);
         using var e = Engine(d, new EngineOptions { MinBatchTokens = 0, BatchTokensGranule = 32, TileAwarePrompts = tileAware });
         using var cts = new CancellationTokenSource();
-        var running = e.Submit(Req("r", max: 100000), cts.Token);
+        var running = e.Submit(Req("r", max: LongContext), cts.Token);
         await T.WaitUntil(() => d.Steps.Count > 20);
 
         // Prompt steps of one to four tiles (none ends 1-8 rows past a tile), and decode steps carrying a few held rows.
@@ -221,6 +226,71 @@ public class EngineTests
         else
         {
             Assert.Contains(67, rows);
+        }
+
+        cts.Cancel();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PricedPromptChunks_SpreadPromptsWhenSmallChunksCostLessPerRow(bool priced)
+    {
+        // A step's time grows faster than its rows: prompt rows riding a decode step cost less per row in small chunks.
+        // Simulated step times take no wall time, so the running sequences get a context they cannot fill during the test.
+        var d = new FakeBatchDecoder(8, contextLength: LongContext, maxBatchTokens: 512)
+        {
+            StepDelayForRows = rows => TimeSpan.FromMilliseconds(1 + 0.01 * rows + 0.00005 * rows * rows),
+            SimulatesStepTime = true,
+        };
+        d.Script("a", loop: true);
+        using var e = Engine(d, new EngineOptions
+        {
+            MinBatchTokens = 64, BatchTokensGranule = 32, BatchTokensPerSequence = 48, SmallChunkRowsPerSequence = 16, PricedPromptChunks = priced,
+        });
+        using var cts = new CancellationTokenSource();
+        var running = Enumerable.Range(0, 4).Select(_ => e.Submit(Req("r", max: LongContext), cts.Token)).ToList();
+        await T.WaitUntil(() => d.Steps.Count > 20);
+
+        // Prompt-bearing decode steps of both chunk sizes, so their prices are measured: four prompts of 90 rows in one step, then
+        // single prompts of about 110 rows.
+        for (int round = 0; round < 3; round++)
+        {
+            e.PauseAdmission();
+            var group = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('A' + 4 * round + i), 90), max: 2))).ToList();
+            e.ResumeAdmission();
+            foreach (var h in group)
+            {
+                await h.CompleteAsync();
+            }
+        }
+
+        // (Distinct characters: a prompt sharing a prefix with an earlier one would be served from the prefix cache.)
+        int[] sizes = [100, 110, 115, 105];
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            await e.Submit(Req(new string((char)('m' + i), sizes[i]), max: 2)).CompleteAsync();
+        }
+
+        // Four prompts of ~60 rows at once: at 8 sequences the large budget is 384 rows (all four in one step), the small one 128.
+        // (Admitted together: with simulated step times the steps take no wall time, so requests submitted one by one could each start alone.)
+        int start = d.Steps.Count;
+        e.PauseAdmission();
+        var wave = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('c' + i), 60), max: 2))).ToList();
+        e.ResumeAdmission();
+        foreach (var h in wave)
+        {
+            Assert.Equal("aa", (await h.CompleteAsync()).Text);
+        }
+
+        var rows = d.Steps.ToList().Skip(start).Select(s => s.Sum(x => x.Rows)).ToList();
+        if (priced)
+        {
+            Assert.True(rows.Max() <= 128, string.Join(",", rows));
+        }
+        else
+        {
+            Assert.True(rows.Max() > 200, string.Join(",", rows));
         }
 
         cts.Cancel();
@@ -347,10 +417,15 @@ public class EngineTests
         using var e = Engine(d);
         var blocker = e.Submit(Req("blocker", max: 3));
         await T.WaitUntil(() => e.GetMetrics().ActiveSequences == 1);
-        var order = new List<int>();
-        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req("r" + i)).CompleteAsync().ContinueWith(_ => Record(order, i))).ToArray();
+        // The order the prompts are prefilled in (one slot: one after another), told apart by their lengths; completion callbacks
+        // could run in any order.
+        int start = d.Steps.Count;
+        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('k' + i), 2 + i))).CompleteAsync()).ToArray();
         await Task.WhenAll(tasks);
-        Assert.Equal([0, 1, 2, 3], order);
+        var prefills = d.Steps.ToList().Skip(start).Where(s => s.Length == 1 && s[0].Rows > 1).Select(s => s[0].Rows).ToList();
+        Assert.Equal(4, prefills.Count);
+        Assert.Equal([.. prefills.Order()], prefills);
+        Assert.Equal(4, prefills.Distinct().Count());
     }
 
     // ---- stop strings / detokenization ---------------------------------------------------------------------------------

@@ -75,7 +75,7 @@ public static class ModelPackageReader
 
     /// <summary>
     /// The kind tags of every section kind the format defines, in kind-number order: <c>DEFN</c>, <c>WIDX</c>, <c>WDAT</c>,
-    /// <c>KSET</c> (version 1), <c>ARTS</c>, <c>DESC</c>, <c>ATCH</c> and <c>WLAY</c>. A <see cref="PackageSectionInfo.Kind"/> that is not in this list is a section of a
+    /// <c>KSET</c> (version 1), <c>ARTS</c>, <c>DESC</c>, <c>ATCH</c>, <c>WLAY</c> and <c>WACT</c>. A <see cref="PackageSectionInfo.Kind"/> that is not in this list is a section of a
     /// newer format version (its number), which readers skip.
     /// </summary>
     public static IReadOnlyList<string> SectionKinds { get; } =

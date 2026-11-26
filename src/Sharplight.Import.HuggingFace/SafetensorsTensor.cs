@@ -49,13 +49,14 @@ internal sealed class SafetensorsTensor
 
     /// <summary>The values of a scale tensor in f32: any readable float dtype, or <see cref="E8m0DType"/> (2^(e - 127), 255 is NaN).</summary>
     /// <exception cref="NotSupportedException">The dtype is neither.</exception>
-    public unsafe float[] DecodeScales()
-    {
-        if (DType != E8m0DType)
-        {
-            return HfTransforms.DecodeF32(ToWeightInfo());
-        }
+    public float[] DecodeScales() => DType == E8m0DType ? DecodeExponentScales() : HfTransforms.DecodeF32(ToWeightInfo());
 
+    /// <summary>
+    /// The values of a scale tensor of exponent bytes (<see cref="E8m0DType"/>, or U8 holding the same codes as MXFP8 / MXFP4 checkpoints
+    /// store them): 2^(e - 127), 255 is NaN.
+    /// </summary>
+    public unsafe float[] DecodeExponentScales()
+    {
         var values = new float[ByteLength];
         byte* codes = Pointer;
         for (long i = 0; i < values.LongLength; i++)

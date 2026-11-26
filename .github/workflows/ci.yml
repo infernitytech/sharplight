@@ -1,12 +1,12 @@
 name: CI
 
-# Builds and tests the solution on every push to develop, main and release/* branches and on pull requests.
-# develop is the unstable integration branch, main is stable, releases are cut from release/vX.Y (docs/releasing.md).
+# Builds and tests the solution on every push to main and release/* branches and on pull requests.
+# main is the unstable integration branch (0.x-alpha), releases are cut from and stabilized on release/vX.Y (docs/releasing.md).
 # Nothing is published from here; see packages.yml (NuGet) and studio.yml (Sharplight Studio packages).
 
 on:
   push:
-    branches: [develop, main, 'release/**']
+    branches: [main, 'release/**']
   pull_request:
   workflow_dispatch:
 

@@ -27,5 +27,9 @@ namespace Sharplight.ImageGeneration;
 /// The default <see cref="ImageGenerationOptions.AestheticScore"/> of models conditioned on an aesthetic score (the SDXL refiner, typically
 /// the second stage of <see cref="ImageGenerationOptions.Refiner"/>); 0 for models without it.
 /// </param>
+/// <param name="TinyAutoencoder">
+/// Whether the model has a tiny autoencoder (TAESD) for previews and <see cref="ImageGenerationOptions.TinyAutoencoder"/>.
+/// </param>
+/// <param name="ControlNet">Whether the model has a ControlNet, which takes <see cref="ImageGenerationRequest.ControlImage"/>.</param>
 public sealed record ImageGenerationDefaults(int Width, int Height, int Steps, float GuidanceScale, string Sampler, bool ClassifierFreeGuidance = true,
-    int ReferenceImages = 0, float ImageGuidanceScale = 0f, float AestheticScore = 0f);
+    int ReferenceImages = 0, float ImageGuidanceScale = 0f, float AestheticScore = 0f, bool TinyAutoencoder = false, bool ControlNet = false);

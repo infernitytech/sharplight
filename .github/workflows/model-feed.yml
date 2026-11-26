@@ -4,9 +4,9 @@
 # - Channels: package versions are stored once (models/packages/<id>/<version>/, shared); models/unstable/ and models/stable/ each
 #   have their own signed index. New builds go to unstable; `promote` lists already published versions in stable (no re-upload).
 #   Every run re-signs both channels' indexes.
-# - Push to develop that changes tools/model-feed/publish-request.json: builds the entries listed there into unstable and promotes
-#   the listed versions (no entries and no promotions: only re-signs). This is the trigger until the workflow is on the default branch (dispatch and schedule only
-#   run from there) and the one the studio-release environment admits (develop, release/*).
+# - Push to main that changes tools/model-feed/publish-request.json: builds the entries listed there into unstable and promotes
+#   the listed versions (no entries and no promotions: only re-signs). main is the branch the studio-release environment admits
+#   (main, release/*) and the one dispatch and schedule run from.
 # - Manual dispatch: builds the given catalog entries and publishes them (or only re-signs the index when no entries are given).
 # - Weekly schedule: only re-signs the index (new sequence, expiry 30 days ahead), so the published index never expires while
 #   nobody publishes; it builds nothing and does nothing before the first publication.
@@ -20,14 +20,14 @@
 # - Runners (docs/model-feed.md, "Self-hosted feed runner"): the `plan` job splits the requested entries by size from the catalog.
 #   Small ones build and publish on ubuntu-latest (about 14 GB free disk); large ones (sources above MODEL_FEED_LARGE_BYTES, default
 #   6 GB, or listed in MODEL_FEED_LARGE_ENTRIES) afterwards on the self-hosted runner labelled `sharplight-feed`, only for a push or a
-#   dispatch on develop, and only when the repository variable MODEL_FEED_SELF_HOSTED is 'true' (and, when the secret
+#   dispatch on main, and only when the repository variable MODEL_FEED_SELF_HOSTED is 'true' (and, when the secret
 #   MODEL_FEED_RUNNER_TOKEN is set, a runner with that label is online). Otherwise large entries are skipped with a warning and the small
 #   ones still publish. Both passes run model-feed-publish.yml in the studio-release environment, one after the other.
 name: model-feed
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
     paths: [tools/model-feed/publish-request.json]
   schedule:
     - cron: '17 4 * * 1' # Mondays 04:17 UTC: re-sign only, well before the 30-day expiry
@@ -139,8 +139,8 @@ jobs:
           available=false
           if [ "$ENABLED" != "true" ]; then
             echo "The self-hosted feed runner is not enabled (repository variable MODEL_FEED_SELF_HOSTED)."
-          elif [ "$EVENT" != "push" ] && [ "$EVENT" != "workflow_dispatch" ] || [ "$REF" != "refs/heads/develop" ]; then
-            echo "The self-hosted feed runner only takes pushes and dispatches on develop (this is $EVENT on $REF)."
+          elif [ "$EVENT" != "push" ] && [ "$EVENT" != "workflow_dispatch" ] || [ "$REF" != "refs/heads/main" ]; then
+            echo "The self-hosted feed runner only takes pushes and dispatches on main (this is $EVENT on $REF)."
           elif [ -z "$GH_TOKEN" ]; then
             echo "::notice::MODEL_FEED_RUNNER_TOKEN is not set: assuming the self-hosted feed runner is online. If it is not, the large pass waits in the queue (GitHub cancels it after 24 hours); the small pass is published first either way."
             available=true
@@ -188,7 +188,7 @@ jobs:
     needs: [plan, small]
     if: >-
       !cancelled() && needs.small.result == 'success' && needs.plan.outputs.large != '' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/develop'
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/model-feed-publish.yml
     secrets: inherit
     with:

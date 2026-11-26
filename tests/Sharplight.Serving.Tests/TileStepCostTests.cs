@@ -72,4 +72,50 @@ public sealed class TileStepCostTests
         Assert.Null(cost.SavedMs(266, 10));
         Assert.Null(cost.HeldMs(10));
     }
+
+    /// <summary>
+    /// Steps of 16 decode rows (12 ms alone) carrying <paramref name="rowMs"/>(prompt rows) per prompt row, as measured on a dense FP8 model
+    /// (rising: prompt rows ride the decode step's weight reads until the GEMMs turn compute-bound) or a mixture of experts (falling).
+    /// </summary>
+    private static TileStepCost Marginal(Func<int, double> rowMs)
+    {
+        var cost = new TileStepCost(128);
+        int[] prompts = [48, 112, 176, 240, 368, 496, 752, 240, 496, 112, 752];
+        foreach (int p in prompts)
+        {
+            cost.Observe(16, 0, 12);
+            cost.Observe(16, p, 12 + p * rowMs(p));
+        }
+
+        return cost;
+    }
+
+    [Fact]
+    public void RisingRowPricesPreferSmallChunks()
+    {
+        // 0.015 ms per row at 48 rows to 0.052 at 752 (Qwen3-8B-FP8, 16 decode rows; benchmarks.md §R47).
+        var cost = Marginal(p => 0.013 + 0.00005 * p);
+        Assert.InRange(cost.MarginalRowMs(256)!.Value, 0.023, 0.026);
+        Assert.True(cost.PrefersSmallChunks(256, 768));
+    }
+
+    [Fact]
+    public void FallingOrFlatRowPricesKeepLargeChunks()
+    {
+        Assert.False(Marginal(p => 0.065 - 0.00002 * p).PrefersSmallChunks(256, 768));
+        Assert.False(Marginal(_ => 0.05).PrefersSmallChunks(256, 768));
+        // A fixed price per prompt-bearing step (1.5 ms) and 0.05 ms per row, as on a mixture of experts: large chunks are cheaper per row.
+        Assert.False(Marginal(p => 1.5 / p + 0.05).PrefersSmallChunks(256, 768));
+    }
+
+    [Fact]
+    public void NoChunkPreferenceBeforeEnoughSteps()
+    {
+        var cost = new TileStepCost(128);
+        cost.Observe(16, 0, 12);
+        cost.Observe(16, 100, 14);
+        cost.Observe(16, 700, 50);
+        Assert.Null(cost.MarginalRowMs(256));
+        Assert.False(cost.PrefersSmallChunks(256, 768));
+    }
 }

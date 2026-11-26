@@ -1,11 +1,12 @@
 {
   "entries": [
-    "qwen3.5-122b-a10b:q6-k-gguf",
-    "qwen3.5-122b-a10b:fp8-safetensors",
-    "qwen3.8-flash-next:fp8-safetensors"
+    "nvidia-nemotron-3.5-bolt-74b-a9b-24gb:mixed-precision-safetensors",
+    "nvidia-nemotron-3.5-bolt-e4b:q4-k-m-gguf-nvidia",
+    "sdxl-controlnet-canny-1.0:fp16-diffusers",
+    "sdxl-base-1.0:fp16-diffusers-taesdxl"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Publish the three largest mixture-of-experts variants with routed-expert figures (they needed more free disk on the runner than run 45054150496 had)."
+  "reason": "List four official packages that an earlier run (45768889634) uploaded but stopped before listing: NVIDIA Nemotron 3.5 Bolt 74B-A9B 24 GB and Bolt E4B (nvidia), the SDXL Canny ControlNet and SDXL base with TAESDXL (stabilityai). SD3.5 Medium with TAESD3 is left out: it was built from a community mirror, and the feed carries official releases only."
 }

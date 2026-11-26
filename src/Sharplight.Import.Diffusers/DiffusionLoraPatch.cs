@@ -9,8 +9,10 @@ namespace Sharplight.Import.Diffusers;
 /// Merges a LoRA into the canonical weights of an image generator: every module is mapped to the canonical weight it adapts (through the
 /// same name mappings the importer uses for the model's own tensors: SD 1.x / 2.x / XL UNets and CLIP text encoders from diffusers or kohya
 /// names, SDXL's SGM names included; FLUX / Chroma transformers from diffusers names (q / k / v and the single blocks' MLP input as row
-/// blocks of the fused projections) or the original names; Qwen-Image's diffusers names), and the weight becomes W + s · α / r · up · down,
-/// computed when it is read (quantized weights are decoded; the result is f16, or f32 for f32 weights).
+/// blocks of the fused projections) or the original names; Qwen-Image's diffusers names), and the weight becomes W + s · α / r · ΔW, where ΔW
+/// is up · down for a LoRA / LoCon and the LyCORIS reconstructions for LoHa / LoKr (<see cref="LoraDelta"/>); DoRA modules renormalize the
+/// result to their magnitude. Computed when the weight is read (quantized weights are decoded; the result is f16, Q8_0 for quantized weights
+/// whose rows allow it, or f32 for f32 weights).
 /// </summary>
 internal sealed class DiffusionLoraPatch : IWeightPatch
 {
@@ -152,10 +154,16 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
         long columns = target.Shape.Elements() / rows;
         foreach (var (module, row, _) in deltas)
         {
-            long outRows = module.Up.Shape[0].Fixed;
-            if (module.Down.Shape.Elements() != module.Rank * columns || module.Up.Shape.Elements() != outRows * module.Rank || row + outRows > rows)
+            var delta = module.Delta;
+            if (delta.Columns != columns || row + delta.Rows > rows)
             {
-                throw new NotSupportedException($"{target.Name}: LoRA matrices {module.Down.Shape} / {module.Up.Shape} do not fit the weight {target.Shape}.");
+                throw new NotSupportedException($"{target.Name}: the {delta.Kind} module '{module.Name}' ({delta.Rows} x {delta.Columns}) does not fit the weight {target.Shape}.");
+            }
+
+            if (module.Magnitude is { } magnitude && magnitude.Shape.Elements() != delta.Rows
+                && (magnitude.Shape.Elements() != columns || delta.Rows != rows))
+            {
+                throw new NotSupportedException($"{target.Name}: the DoRA magnitude {magnitude.Shape} of '{module.Name}' fits neither its rows nor its columns.");
             }
         }
 
@@ -169,31 +177,7 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
             float[] w = Decode(target);
             foreach (var (module, first, swap) in deltas)
             {
-                float[] down = Decode(module.Down);
-                float[] up = Decode(module.Up);
-                int rank = (int)module.Rank;
-                int outRows = (int)module.Up.Shape[0].Fixed;
-                float factor = scale * module.Factor;
-                int half = outRows / 2;
-                Parallel.For(0, outRows, i =>
-                {
-                    int r = swap ? (i + half) % outRows : i;
-                    var destination = w.AsSpan((int)((first + r) * columns), (int)columns);
-                    for (int k = 0; k < rank; k++)
-                    {
-                        float u = up[i * rank + k] * factor;
-                        if (u == 0f)
-                        {
-                            continue;
-                        }
-
-                        var source = down.AsSpan((int)(k * columns), (int)columns);
-                        for (int c = 0; c < destination.Length; c++)
-                        {
-                            destination[c] += u * source[c];
-                        }
-                    }
-                });
+                Apply(w, columns, module, first, swap, scale);
             }
 
             if (type == DataType.F32)
@@ -216,7 +200,76 @@ internal sealed class DiffusionLoraPatch : IWeightPatch
         });
     }
 
-    private static float[] Decode(WeightInfo weight)
+    /// <summary>
+    /// Adds one module's scaled difference to the rows from <paramref name="first"/> of <paramref name="w"/>; for DoRA the patched rows are then
+    /// renormalized to the module's magnitude (PEFT's merge: m · (W + s · ΔW) / ‖W + s · ΔW‖, the norm per output row, or per input column for
+    /// LyCORIS files that store the magnitude per input).
+    /// </summary>
+    private static void Apply(float[] w, long columns, LoraModule module, long first, bool swap, float scale)
+    {
+        float[] delta = module.Delta.Compute();
+        int outRows = (int)module.Delta.Rows;
+        float factor = scale * module.Factor;
+        int half = outRows / 2;
+        Parallel.For(0, outRows, i =>
+        {
+            int r = swap ? (i + half) % outRows : i;
+            var destination = w.AsSpan((int)((first + r) * columns), (int)columns);
+            var source = delta.AsSpan((int)(i * columns), (int)columns);
+            for (int c = 0; c < destination.Length; c++)
+            {
+                destination[c] += factor * source[c];
+            }
+        });
+        if (module.Magnitude is not { } magnitudeWeight)
+        {
+            return;
+        }
+
+        float[] magnitude = Decode(magnitudeWeight);
+        if (magnitude.Length == outRows)
+        {
+            Parallel.For(0, outRows, i =>
+            {
+                int r = swap ? (i + half) % outRows : i;
+                var row = w.AsSpan((int)((first + r) * columns), (int)columns);
+                double squares = 0;
+                foreach (float value in row)
+                {
+                    squares += value * (double)value;
+                }
+
+                float ratio = squares > 0 ? (float)(magnitude[i] / Math.Sqrt(squares)) : 1f;
+                for (int c = 0; c < row.Length; c++)
+                {
+                    row[c] *= ratio;
+                }
+            });
+            return;
+        }
+
+        var norms = new double[columns];
+        for (long i = 0; i < outRows; i++)
+        {
+            for (long c = 0; c < columns; c++)
+            {
+                double value = w[(first + i) * columns + c];
+                norms[c] += value * value;
+            }
+        }
+
+        for (long i = 0; i < outRows; i++)
+        {
+            for (long c = 0; c < columns; c++)
+            {
+                w[(first + i) * columns + c] *= norms[c] > 0 ? (float)(magnitude[c] / Math.Sqrt(norms[c])) : 1f;
+            }
+        }
+    }
+
+    /// <summary>The values of a stored tensor as f32 (f32, f16, bf16 or any ggml type).</summary>
+    /// <param name="weight">The tensor.</param>
+    internal static float[] Decode(WeightInfo weight)
     {
         byte[] bytes = weight.ReadAll();
         if (weight.Type == DataType.F32)

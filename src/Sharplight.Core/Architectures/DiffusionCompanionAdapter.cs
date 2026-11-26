@@ -43,12 +43,13 @@ public abstract class DiffusionCompanionAdapter : ICompositeModelAdapter
     public bool CanLoad(ModelSourceSet sources)
     {
         ArgumentNullException.ThrowIfNull(sources);
-        if (sources.Primary.Architecture != Architecture || sources.Auxiliary.Count == 0)
+        var companions = sources.Auxiliary.Where(pair => !DiffusionAddOns.IsAddOnRole(pair.Key)).ToList();
+        if (sources.Primary.Architecture != Architecture || companions.Count == 0)
         {
             return false;
         }
 
-        return sources.Auxiliary.All(pair => Slots.TryGetValue(pair.Key, out var slot) && slot.Accepts(pair.Value.Architecture));
+        return companions.All(pair => Slots.TryGetValue(pair.Key, out var slot) && slot.Accepts(pair.Value.Architecture));
     }
 
     /// <inheritdoc/>
@@ -60,7 +61,7 @@ public abstract class DiffusionCompanionAdapter : ICompositeModelAdapter
         var metadata = new Dictionary<string, object>(primary.Metadata, StringComparer.Ordinal);
         var weights = new Dictionary<string, WeightInfo>(primary.Weights, StringComparer.Ordinal);
         var resources = new List<IDisposable>(primary.OwnedResources);
-        foreach (var (role, source) in sources.Auxiliary)
+        foreach (var (role, source) in sources.Auxiliary.Where(pair => !DiffusionAddOns.IsAddOnRole(pair.Key)))
         {
             var slot = Slots[role];
             foreach (string name in weights.Keys.Where(n => n.StartsWith(slot.WeightPrefix, StringComparison.Ordinal)).ToList())
@@ -108,7 +109,8 @@ public abstract class DiffusionCompanionAdapter : ICompositeModelAdapter
             FormatData = primary.FormatData,
             CompilationCaches = primary.CompilationCaches,
         };
-        return BuildMerged(merged, options);
+        // Add-ons (a tiny autoencoder) are namespaced and join the merged source as they are.
+        return BuildMerged(DiffusionAddOns.Merge(merged, sources.Auxiliary, acceptsControlNet: false), options);
     }
 
     /// <summary>A CLIP text encoder slot: weights under <paramref name="weightPrefix"/>, metadata under <c>{arch}.{metadataKey}.</c>.</summary>

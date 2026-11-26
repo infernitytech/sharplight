@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Sharplight.Cpu;
 using Sharplight.Runtime;
-using Sharplight.Vulkan;
+using Sharplight.Tests;
 
 [assembly: Xunit.CollectionBehavior(CollectionBehavior.CollectionPerAssembly)]
 
@@ -39,25 +39,10 @@ internal static class Env
         => JsonDocument.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json"))).RootElement;
 
     private static readonly Lazy<DeviceSlot> s_cpu = new(() => { var p = new CpuExecutionProvider(); return new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) }; });
-    private static readonly Lazy<DeviceSlot?> s_vk = new(() =>
-    {
-        try
-        {
-            var p = new VulkanProvider();
-            if (!p.CheckAvailability().IsAvailable)
-            {
-                return null;
-            }
+    // The GPU under test: Vulkan unless SHARPLIGHT_TEST_PROVIDER names another provider (tests/Shared/TestGpu.cs).
+    private static readonly Lazy<DeviceSlot?> s_vk = new(() => TestGpu.Open().Device is { } device ? new DeviceSlot { Device = device } : null);
 
-            var devs = p.GetDevices();
-            var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
-                : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
-            return dev is null ? null : new DeviceSlot { Device = p.OpenDevice(dev) };
-        }
-        catch { return null; }
-    });
-
-    /// <summary>"cpu" or "vulkan" (skips the test when no Vulkan device is available).</summary>
+    /// <summary>"cpu" or "vulkan" (the GPU under test: Vulkan, or the provider SHARPLIGHT_TEST_PROVIDER names; skips the test when there is none).</summary>
     public static DeviceSlot Device(string kind)
     {
         if (kind == "cpu")
@@ -65,7 +50,7 @@ internal static class Env
             return s_cpu.Value;
         }
 
-        Assert.SkipWhen(s_vk.Value is null, "No Vulkan device.");
+        Assert.SkipWhen(s_vk.Value is null, $"No {TestGpu.ProviderName} device.");
         return s_vk.Value!;
     }
 

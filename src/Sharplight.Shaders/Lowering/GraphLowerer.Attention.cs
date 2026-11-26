@@ -154,9 +154,9 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
-        if (plan.Selection is not null || plan.Compressed is not null || plan.RelativeBias is not null)
+        if (plan.Selection is not null || plan.Compressed is not null || plan.RelativeBias is not null || plan.Sinks is { Rank: 2 })
         {
-            // The relative bias is read by the per-(head, query) kernel only.
+            // The relative bias and per-row sinks are read by the per-(head, query) kernel only.
             EmitSelectedAttention(plan);
             return;
         }
@@ -304,7 +304,8 @@ public sealed partial class GraphLowerer
         bool hasCompressed = !full && n.Attributes.Has("compression");
         // inputs: q, k, v, [sinks], [compressed cache], [selection], [relative bias], [rows, runs, [block table]]
         int sinksInputs = (hasSinks ? 1 : 0) + (hasCompressed ? 1 : 0) + (hasSelection ? 1 : 0);
-        TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
+        // attention sinks f32, [HQ] or one logit per query row and head [T, HQ]
+        TensorRef? sinks = !hasSinks ? null : n.Inputs[3].Rank == 2 ? DenseInput(n.Inputs[3], "attn-sinks") : Ref(n.Inputs[3]);
         TensorRef? compressed = hasCompressed ? Ref(n.Inputs[hasSinks ? 4 : 3]) : null;   // compressed cache [entries, HKV, VRS]
         TensorRef? selection = hasSelection ? DenseInput(n.Inputs[2 + sinksInputs], "attn-selection") : null;   // sparse attention: [T, K] or [T, Hs, K] key positions
         // inputs after the selection: [relative bias [T, HQ, E]], then the multi-sequence tables
@@ -368,7 +369,7 @@ public sealed partial class GraphLowerer
             ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, k)), ("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("VRS", valueRowStride),
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window), ("CHUNK", n.Attributes.Get("chunk", 0)),
-            ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
+            ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null), ("SINK_ROWS", sinks is { Rank: 2 }),
             ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1),
             ("SEQ_ROWS", sequenceRows), ("SEQ_KEYS", sequenceKeys), ("HAS_MASK", mask is not null), ("MASK_PER_ROW", mask is not null && n.Inputs[3].Rank == 2),
             .. AlibiMacros(n), ("REL_BIAS", relativeExtent),
