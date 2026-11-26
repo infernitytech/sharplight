@@ -19,7 +19,9 @@ namespace Sharplight.Import.Gguf;
 /// merger, newline column, begin / end rows and RMS norms) and <c>cogvlm</c> (CogVLM's EVA2-CLIP: fixed image size, class token, post-norm blocks,
 /// GLU projector, begin / end rows; the language model's visual experts are in the text file) to <c>decoder</c> as well,
 /// as do <c>deepseekocr</c> (DeepSeek-OCR and Unlimited-OCR: SAM and CLIP stages) and <c>deepseekocr2</c> (DeepSeek-OCR-2: SAM and a
-/// query encoder), see ClipGgufMapping.DeepseekOcr.cs.
+/// query encoder), see ClipGgufMapping.DeepseekOcr.cs. <c>gemma3</c> (Gemma 3's SigLIP tower: fixed square image, 4×4 average pooling, soft-embedding
+/// norm and input projection, image rows framed by <c>&lt;start_of_image&gt;</c> / <c>&lt;end_of_image&gt;</c>) and <c>idefics3</c> (SmolVLM: SigLIP
+/// tower on tiles plus an overview, pixel shuffle and a linear projection, the Idefics3 prompt layout) belong to <c>decoder</c> too.
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -39,11 +41,13 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// canonical name differs from the Qwen towers' (<c>Names</c>, checked first) and canonical hyper-parameters the file does not store
     /// (<c>Extra</c>, without the <c>{architecture}.vision.</c> prefix). <c>ClassToken</c>: an EVA2-CLIP tower whose first position row belongs to
     /// the class token (<c>v.class_embd</c>) and whose images are resized to the fixed square <c>clip.vision.image_size</c>. <c>ExactGelu</c>:
-    /// <c>clip.use_gelu</c> means the exact GELU of the checkpoint (llama.cpp runs every GELU as the tanh approximation).
+    /// <c>clip.use_gelu</c> means the exact GELU of the checkpoint (llama.cpp runs every GELU as the tanh approximation). <c>DefaultMerge</c>: the
+    /// merge size when the file has neither <c>clip.vision.spatial_merge_size</c> nor <c>clip.vision.projector.scale_factor</c>. <c>FixedSize</c>:
+    /// images are resized to the square <c>clip.vision.image_size</c>. <c>Tiled</c>: images are cut into tiles of that size (Idefics3).
     /// </summary>
     private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh",
         string NormType = "layer", bool LearnedPositions = true, IReadOnlyDictionary<string, string>? Names = null, IReadOnlyDictionary<string, object>? Extra = null,
-        bool ClassToken = false, bool ExactGelu = false, bool AxialPositions = false);
+        bool ClassToken = false, bool ExactGelu = false, bool AxialPositions = false, int DefaultMerge = 2, bool FixedSize = false, bool Tiled = false);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
     private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
@@ -148,6 +152,37 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
                 ["spatial_merge_size"] = 3, ["image_token"] = "<|image|>", ["image_begin_token"] = "<|image>", ["image_end_token"] = "<image|>",
                 ["image_mean"] = new[] { 0.5f, 0.5f, 0.5f }, ["image_std"] = new[] { 0.5f, 0.5f, 0.5f },
             }),
+        // Gemma 3: SigLIP tower on a fixed 896² image (bilinear resize), trunk post-norm v.post_ln, 4×4 average pooling, the soft-embedding RMS
+        // norm mm.soft_emb_norm (the converter already added Gemma's 1) and mm.input_projection (stored [vision, text], transposed by Transform).
+        // The prompt frames the 256 rows with <start_of_image> / <end_of_image>; the chat template's <start_of_image> is the placeholder.
+        ["gemma3"] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultMerge: 4, FixedSize: true,
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["v.post_ln.weight"] = "vision.post_norm.weight",
+                ["v.post_ln.bias"] = "vision.post_norm.bias",
+                ["mm.soft_emb_norm.weight"] = "vision.merger.pool_norm.weight",
+                ["mm.input_projection.weight"] = "vision.merger.out.weight",
+            },
+            Extra: new Dictionary<string, object>
+            {
+                ["merger.pool"] = true, ["merger.pool.scale"] = "mean", ["resize.filter"] = "bilinear", ["image_token"] = "<start_of_image>",
+                ["image_begin_token"] = "<start_of_image>", ["image_end_token"] = "<end_of_image>",
+            }),
+        // Idefics3 / SmolVLM: SigLIP tower, trunk post-norm v.post_ln, pixel shuffle (clip.vision.projector.scale_factor) and the linear
+        // mm.model.fc; images are cut into tiles of clip.vision.image_size after a Lanczos resize to clip.vision.preproc_image_size (default
+        // 4·image_size, SmolVLM's longest edge), the overview last; prompt layout of the Idefics3 processor.
+        ["idefics3"] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, Tiled: true,
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["v.post_ln.weight"] = "vision.post_norm.weight",
+                ["v.post_ln.bias"] = "vision.post_norm.bias",
+                ["mm.model.fc.weight"] = "vision.merger.out.weight",
+            },
+            Extra: new Dictionary<string, object>
+            {
+                ["resize.filter"] = "lanczos", ["image_token"] = "<image>", ["image_begin_token"] = "<fake_token_around_image>",
+                ["tile.layout"] = "idefics3", ["tile.global_token"] = "<global-img>",
+            }),
         [DeepseekOcr] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "quick_gelu"),
         [DeepseekOcr2] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "silu"),
     };
@@ -197,7 +232,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             [a + "patch_size"] = patch,
             [a + "temporal_patch_size"] = p.TemporalPatchSize,
             [a + "in_channels"] = 3,
-            [a + "spatial_merge_size"] = g.Int("vision.spatial_merge_size", 2),
+            [a + "spatial_merge_size"] = g.Int("vision.spatial_merge_size", g.Int("vision.projector.scale_factor", p.DefaultMerge)),
             // The learned position grid is (image_size / patch_size)² entries.
             // The learned position grid is (image_size / patch_size)² entries; PaddleOCR files store sqrt(max_pixels) as image_size, so the
             // tensor's row count is taken when the file has it.
@@ -234,10 +269,21 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
 
         // The merger activation is the trunk's (GLM-4V's gated SiLU projector); the Qwen and PaddleOCR mergers use the exact GELU.
         md[a + "merger.activation"] = p.Names?.ContainsKey("mm.gate.weight") == true ? md[a + "activation"] : "gelu";
-        if (p.ClassToken)
+        if (p.Tiled)
+        {
+            int tile = g.Int("vision.image_size");
+            md[a + "tile_size"] = tile;
+            md[a + "resize.longest_edge"] = g.Int("vision.preproc_image_size", 4 * tile);
+        }
+
+        if (p.ClassToken || p.FixedSize)
         {
             int side = g.Int("vision.image_size");
-            md[a + "position_embedding_count"] = (int)md[a + "position_embedding_count"] - 1;   // row 0 is the class token's
+            if (p.ClassToken)
+            {
+                md[a + "position_embedding_count"] = (int)md[a + "position_embedding_count"] - 1;   // row 0 is the class token's
+            }
+
             md[a + "image_size"] = side;
             md[a + "min_pixels"] = (long)side * side;
             md[a + "max_pixels"] = (long)side * side;
@@ -358,6 +404,16 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         }
 
         SplitClassPosition(weights);
+        if (weights.TryGetValue("vision.merger.out.weight", out var projection) && projection.Shape.Rank == 2
+            && projection.Shape[1].Fixed == g.Int("vision.projection_dim") && projection.Shape[0].Fixed != projection.Shape[1].Fixed)
+        {
+            // Gemma 3's mm.input_projection is a [vision, text] matrix (x · W), the transpose of a linear weight.
+            long r = projection.Shape[0].Fixed;
+            long c = projection.Shape[1].Fixed;
+            weights["vision.merger.out.weight"] = projection.As(projection.Name, new Shape(1, r * c)).TransposeRowBlocks("vision.merger.out.weight", r, c)
+                .As("vision.merger.out.weight", new Shape(c, r));
+        }
+
         SwapLegacyMlpNames(weights, g);
         if (weights.Remove("vision.merger.downsample.weight", out var kernel) && kernel.Shape.Rank == 4)
         {

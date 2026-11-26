@@ -3369,17 +3369,115 @@
       ],
       "verification": {
         "reference": "llama.cpp",
-        "summary": "HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp",
+        "summary": "HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp; image input via the gemma3 mmproj (tower vs transformers on a tiny checkpoint)",
         "providers": [
           "CPU",
           "Vulkan"
         ],
-        "date": "2026-11-15",
+        "date": "2026-11-27",
         "tests": []
       },
-      "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late",
+      "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late. Images: the image rows attend causally (llama.cpp and transformers let them attend to each other), so image answers are close to llama.cpp\u0027s but not identical",
       "licenseNotice": "Gemma Terms of Use: use is allowed under Google\u0027s terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
-      "doc": []
+      "doc": [
+        {
+          "section": "1.3",
+          "cells": {
+            "repositories": "ggml-org/gemma-3-4b-it-GGUF",
+            "formats": "GGUF Q4_K_M \u002B mmproj (F16)",
+            "verification": "tower and prompt vs transformers on a tiny Gemma 3 (embeddings 2e-7, logits, greedy); 4B: the test image described correctly, wording differs from llama-mtmd-cli",
+            "notes": "image rows attend causally (bidirectional image attention is a follow-up)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "smolvlm-256m-instruct",
+      "name": "SmolVLM 256M Instruct",
+      "kind": "text-generation",
+      "family": "SmolVLM",
+      "architecture": "llama",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co/HuggingFaceTB"
+      },
+      "tags": [
+        "vision"
+      ],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 723301225,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+          "revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+          "include": [
+            "SmolVLM-256M-Instruct-Q8_0.gguf"
+          ],
+          "primary": "SmolVLM-256M-Instruct-Q8_0.gguf",
+          "files": [
+            {
+              "path": "SmolVLM-256M-Instruct-Q8_0.gguf",
+              "size": 175054528,
+              "sha256": "2a31195d3769c0b0fd0a4906201666108834848db768af11de1d2cef7cd35e65"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "Vision projector (Q8_0)",
+          "repository": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+          "revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+          "include": [
+            "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf"
+          ],
+          "primary": "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf",
+          "files": [
+            {
+              "path": "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf",
+              "size": 103769856,
+              "sha256": "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp",
+        "summary": "greedy image description identical to llama-mtmd-cli (b12798) for 60 tokens on the same GGUF and mmproj converted at llama.cpp HEAD; tiny Idefics3 vs transformers",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "idefics3 mmproj: tiles plus overview, pixel shuffle, the Idefics3 prompt layout. This older mmproj lacks clip.vision.preproc_image_size; Sharplight then resizes to transformers\u0027 longest edge 2048, llama.cpp slices differently",
+      "doc": [
+        {
+          "section": "1.3",
+          "cells": {
+            "repositories": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+            "formats": "GGUF Q8_0 \u002B mmproj",
+            "verification": "60 greedy tokens identical to llama-mtmd-cli (HEAD-converted f16 files, CPU and GPU); tower, layout and greedy vs transformers on a tiny Idefics3",
+            "notes": ""
+          }
+        }
+      ]
     },
     {
       "id": "gemma-2-2b-it",
@@ -8938,7 +9036,7 @@
     },
     {
       "id": "ministral-3-3b-gemma-3-4b-lfm2-vl-450m",
-      "name": "Ministral 3 3B, Gemma 3 4B, LFM2-VL 450M",
+      "name": "Ministral 3 3B, LFM2-VL 450M",
       "kind": "text-generation",
       "family": "",
       "level": "verified",
@@ -8956,12 +9054,12 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Three licences: Ministral 3 is Apache-2.0 (no conditions); Gemma 3 is under the Gemma Terms of Use (Prohibited Use Policy, binds derived work); LFM2-VL is under the LFM Open License v1.0 (commercial use only below 10 million US dollars annual revenue).",
+      "licenseNotice": "Two licences: Ministral 3 is Apache-2.0 (no conditions); LFM2-VL is under the LFM Open License v1.0 (commercial use only below 10 million US dollars annual revenue).",
       "doc": [
         {
           "section": "1.3",
           "cells": {
-            "repositories": "mistralai / google / LiquidAI",
+            "repositories": "mistralai / LiquidAI",
             "formats": "GGUF \u002B mmproj"
           }
         }

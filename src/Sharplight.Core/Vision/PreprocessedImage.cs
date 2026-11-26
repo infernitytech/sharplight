@@ -31,10 +31,11 @@ public sealed class PreprocessedImage
     /// Two-stage towers of fixed-size views (<see cref="VisionParameters.Sam"/>) only: columns of the local tile grid, 0 without tiles. The
     /// views are then in <see cref="Patches"/> as normalized channels-first pixels, the global view (<see cref="Width"/> = <see cref="Height"/>)
     /// first, then the tiles in raster order; the position inputs are empty, <see cref="MergedHeight"/> is 1 and <see cref="MergedWidth"/> the
-    /// number of embedding rows (layout rows included).
+    /// number of embedding rows (layout rows included). Tiled towers (<see cref="VisionParameters.TileSize"/>, Idefics3) also set the tile grid; their
+    /// views are patchified one after the other (tiles, then the overview), see <see cref="VisionPreprocessor"/>.
     /// </summary>
     public int TileColumns { get; init; }
-    /// <summary>Two-stage towers only: rows of the local tile grid, 0 without tiles.</summary>
+    /// <summary>Two-stage and tiled towers only: rows of the local tile grid, 0 without tiles.</summary>
     public int TileRows { get; init; }
 
     /// <summary>
