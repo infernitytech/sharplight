@@ -10,7 +10,7 @@ namespace Sharplight.Serving.Tests;
 /// recurrent-state snapshots with <c>stateSnapshots</c>) and fails a step that needs more blocks than are free. Attached blocks bring
 /// back the tokens they were computed from, so a wrongly attached block shows up as a wrong context.
 /// </summary>
-public sealed class FakeBatchDecoder : IBatchDecoder
+public sealed class FakeBatchDecoder : IBatchDecoder, ISimulatedStepTime
 {
     public const int Marker = 1;   // prompts end with this token; scripted replies are indexed relative to it
     private readonly List<int>[] _ctx;
@@ -75,6 +75,13 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     public TimeSpan StepDelay { get; set; }
     /// <summary>Extra delay of a step by its rows (a device whose cost follows token tiles, say).</summary>
     public Func<int, TimeSpan>? StepDelayForRows { get; set; }
+    /// <summary>
+    /// Steps take no time and report <see cref="StepDelay"/> plus <see cref="StepDelayForRows"/> as their time to the engine
+    /// (<see cref="ISimulatedStepTime"/>), so tests of measured step prices do not depend on the host's load.
+    /// </summary>
+    public bool SimulatesStepTime { get; set; }
+    /// <inheritdoc/>
+    public TimeSpan? LastStepTime { get; private set; }
     public int FailAfterSteps { get; set; } = -1;
     public RecordedList<(int Slot, int Rows, bool Logits)[]> Steps { get; } = new();
     /// <summary>Embedding width of a decoder with media input (0: token rows only).</summary>
@@ -360,14 +367,23 @@ public sealed class FakeBatchDecoder : IBatchDecoder
 
             LogitsRowsPerStep.Add([.. inputs.Select(i => i.OutputRows)]);
         }
-        if (StepDelay > TimeSpan.Zero)
+        var extra = StepDelayForRows?.Invoke(inputs.Sum(i => i.Tokens.Length)) ?? TimeSpan.Zero;
+        if (SimulatesStepTime)
         {
-            Thread.Sleep(StepDelay);
+            // The engine prices the step at its delays (no sleep: host load cannot distort the prices).
+            LastStepTime = StepDelay + extra;
         }
-
-        if (StepDelayForRows?.Invoke(inputs.Sum(i => i.Tokens.Length)) is { } extra && extra > TimeSpan.Zero)
+        else
         {
-            Thread.Sleep(extra);
+            if (StepDelay > TimeSpan.Zero)
+            {
+                Thread.Sleep(StepDelay);
+            }
+
+            if (extra > TimeSpan.Zero)
+            {
+                Thread.Sleep(extra);
+            }
         }
 
         if (inputs.Sum(i => i.OutputRows) > MaxLogitsRows)

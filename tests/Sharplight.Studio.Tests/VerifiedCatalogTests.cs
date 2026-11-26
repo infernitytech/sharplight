@@ -243,6 +243,12 @@ public sealed class VerifiedCatalogTests
     [InlineData("multilingual-reranker-small")]
     [InlineData("nvidia-nemotron-3.5-bolt-e4b")]
     [InlineData("aion-1.0-instruct-2.3b")]
+    [InlineData("qwen3-tts-12hz-1.7b-base")]
+    [InlineData("qwen3-tts-12hz-0.6b-base")]
+    [InlineData("qwen3-tts-12hz-1.7b-voicedesign")]
+    [InlineData("inkling-2-mini")]
+    [InlineData("embeddinggemma-2")]
+    [InlineData("parakeet-ultra")]
     public async Task CommittedEntry_IsListedUnderItsTask_AndInstallsWithOneClick(string id)
     {
         var catalog = await new VerifiedCatalogSource(null, null).GetAsync(TestContext.Current.CancellationToken);

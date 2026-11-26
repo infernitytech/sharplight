@@ -1,0 +1,7 @@
+ready=1 after 5 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 22.016413109959103, "agg_tok_s": 372.0860414040086, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251.03125, "shared_prefix_words": 0, "per_stream_tok_s": 24.398351466522808, "ttft_p50_ms": 206.75439649494365, "ttft_p95_ms": 495.24428003351204, "itl_mean_ms": 40.986375713625925, "itl_p50_ms": 21.621702006086707, "itl_p9
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 16.575231728027575, "agg_tok_s": 494.23140106981987, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251.015625, "shared_prefix_words": 0, "per_stream_tok_s": 32.819243306435624, "ttft_p50_ms": 197.97487946925685, "ttft_p95_ms": 592.7662697969936, "itl_mean_ms": 30.469928592287406, "itl_p50_ms": 20.95511497464031, "itl_p9
+round 2: another GPU process appeared, repeating (try 1)
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 22.62220973102376, "agg_tok_s": 362.1220074167032, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251.015625, "shared_prefix_words": 0, "per_stream_tok_s": 23.6491252257706, "ttft_p50_ms": 253.0290560098365, "ttft_p95_ms": 476.0097849997692, "itl_mean_ms": 42.284862144088684, "itl_p50_ms": 21.657032426446676, "itl_p95_ms
+textcheck wave 16: 16/16 identical to single-request, 0 part within 3 words, 0 garbage -> ok
+textcheck: clean

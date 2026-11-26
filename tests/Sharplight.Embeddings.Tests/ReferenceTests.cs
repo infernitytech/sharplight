@@ -24,6 +24,8 @@ public class ReferenceTests
         { "granite-embedding-311m-multilingual-r2", "hf", "cpu" }, { "granite-embedding-311m-multilingual-r2", "hf", "vulkan" },
         { "harrier-oss-v1-0.6b", "hf", "cpu" }, { "harrier-oss-v1-0.6b", "hf", "vulkan" },
         { "Qwen3-Embedding-4B", "hf", "vulkan" },
+        // Bring-up round 3: google/embeddinggemma-2 (the release's text embeddings; its audio and vision towers are not imported).
+        { "embeddinggemma-2", "hf", "cpu" }, { "embeddinggemma-2", "hf", "vulkan" },
         // 8-bit quantized against the unquantized reference (tolerance 0.995).
         { "bge-small-en-v1.5", "gguf:bge-small-en-v1.5/bge-small-en-v1.5-q8_0.gguf", "cpu" }, { "bge-small-en-v1.5", "gguf:bge-small-en-v1.5/bge-small-en-v1.5-q8_0.gguf", "vulkan" },
         { "nomic-embed-text-v1.5", "gguf:nomic-embed-text-v1.5/nomic-embed-text-v1.5.Q8_0.gguf", "cpu" },

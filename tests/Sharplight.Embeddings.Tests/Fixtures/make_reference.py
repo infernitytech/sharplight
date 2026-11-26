@@ -59,7 +59,8 @@ def embedder(name, prompt_name=None, trust=False, extra_texts=None):
                 return (1.0 - mask[:, None, None, :].to(torch.float32)) * torch.finfo(torch.float32).min
             type(mod).get_extended_attention_mask = extended
     texts = TEXTS + (extra_texts or [])
-    tokens = [m.tokenizer(t, truncation=True, max_length=m.max_seq_length)["input_ids"] for t in texts]
+    # embeddinggemma-2 reports an unbounded max_seq_length, which the fast tokenizer cannot take.
+    tokens = [m.tokenizer(t, truncation=True, max_length=min(m.max_seq_length, 1 << 20))["input_ids"] for t in texts]
     emb = m.encode(texts, convert_to_numpy=True, batch_size=4)
     out = {"model": name, "texts": texts, "tokens": tokens, "embeddings": emb.tolist()}
     if prompt_name:
@@ -118,6 +119,8 @@ if __name__ == "__main__":
         if want(n): embedder(n)
     if want("nomic-embed-text-v1.5"): embedder("nomic-embed-text-v1.5", trust=True)
     if want("Qwen3-Embedding-0.6B"): embedder("Qwen3-Embedding-0.6B", prompt_name="query")
+    # google/embeddinggemma-2 (embedding_gemma2 with audio and vision towers; the text embeddings only), sentence-transformers 6.1.
+    if want("embeddinggemma-2"): embedder("embeddinggemma-2", prompt_name="query")
     # hs-rerank-1 and multilingual-reranker-small: ModernBERT (mmBERT-small) cross-encoders on a Gemma vocabulary.
     for n in ["ms-marco-MiniLM-L6-v2", "bge-reranker-base", "bge-reranker-v2-m3", "hs-rerank-1", "multilingual-reranker-small"]:
         if want(n): cross_encoder(n)

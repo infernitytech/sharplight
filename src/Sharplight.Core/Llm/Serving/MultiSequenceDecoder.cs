@@ -87,6 +87,26 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     public bool CaptureHiddenStates { get; set; }
 
     /// <summary>
+    /// Whether prompt-bearing steps are padded to shape buckets (<see cref="ShapePaddingRows"/>; <see cref="EngineOptions.StepShapeBuckets"/>).
+    /// </summary>
+    internal bool PadsStepShapes { get; set; }
+
+    /// <summary>Pad rows of the most recent step (<see cref="ShapePaddingRows"/>; diagnostics and tests).</summary>
+    internal int LastPadRows { get; private set; }
+
+    /// <summary>Whether the most recent step ran in a shape bucket (<see cref="ShapePaddingRows"/>; diagnostics and tests).</summary>
+    internal bool LastStepBucketed { get; private set; }
+
+    /// <summary>
+    /// Rows a padded step is a multiple of: within the 64- and 128-row token tiles of the GEMMs, so a padded step runs the GEMM tiles of
+    /// its real rows (benchmarks.md §114).
+    /// </summary>
+    internal const int StepRowsBucket = 64;
+
+    /// <summary>Logits rows a padded step is a multiple of (the extra rows repeat the last real one and are not sampled).</summary>
+    internal const int LogitsRowsBucket = 8;
+
+    /// <summary>
     /// Host work to do while a step runs on the device (<see cref="RunsAsynchronously"/>): invoked after the step is submitted and before
     /// its results are read. It must not use this decoder.
     /// </summary>
@@ -645,9 +665,14 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         long t0 = Stopwatch.GetTimestamp();
         var (T, R) = PackInputs(inputs);
+        int padRows = ShapePaddingRows(inputs, T);
+        bool bucketed = padRows >= 0;
+        padRows = Math.Max(0, padRows);
+        LastPadRows = padRows;
+        LastStepBucketed = bucketed;
         if (_pool is not null)
         {
-            GrowBlocksForStep(inputs);
+            GrowBlocksForStep(inputs, padRows);
         }
 
         bool anyLogits = R > 0;
@@ -656,7 +681,20 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _outBuf[R++] = T - 1;   // the graph needs at least one output row
         }
 
-        bool needLogits = SetSamplingRows(inputs, sampling, R, anyLogits, out bool anySampled);
+        // A prompt-bearing step of a bucketed shape: pad rows on the last run, empty runs up to the slot count, logits rows of the
+        // last real row (sampling skips them); the results below read the real rows only.
+        int runs = count;
+        int logitsRows = R;
+        if (bucketed)
+        {
+            PadStep(inputs, T, padRows);
+            T += padRows;
+            runs = SlotCount;
+            logitsRows = Math.Min(MaxLogitsRows, (R + LogitsRowsBucket - 1) / LogitsRowsBucket * LogitsRowsBucket);
+            _outBuf.AsSpan(R, logitsRows - R).Fill(_outBuf[R - 1]);
+        }
+
+        bool needLogits = SetSamplingRows(inputs, sampling, logitsRows, anyLogits, out bool anySampled);
         if (anySampled && (tokens.Length < R || logprobs.Length < R))
         {
             throw new ArgumentException($"The step samples {R} rows on the device; the token and log-probability spans are shorter.");
@@ -675,7 +713,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         _compiled.SetInput<int>(_rows, _rowBuf.AsSpan(0, T * 4));
-        _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, count * 4));
+        _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, runs * 4));
         if (_runEndRows is not null)
         {
             _compiled.SetInput<int>(_runEndRows, _runEndRowBuf.AsSpan(0, T * 4));
@@ -694,12 +732,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         if (_outputRows is not null)
         {
-            _compiled.SetInput<int>(_outputRows, _outBuf.AsSpan(0, R));
+            _compiled.SetInput<int>(_outputRows, _outBuf.AsSpan(0, logitsRows));
         }
 
         _run.Symbols[WellKnown.TokenSymbol] = T;
-        _run.Symbols["R"] = R;
-        _run.Symbols[WellKnown.RunSymbol] = count;
+        _run.Symbols["R"] = logitsRows;
+        _run.Symbols[WellKnown.RunSymbol] = runs;
         _run.SkipOutputs.Clear();
         if (!needLogits)
         {
@@ -727,6 +765,15 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _length[input.Slot] += input.Tokens.Length;
         }
 
+        if (padRows > 0)
+        {
+            // The blocks only pad rows wrote go back, so a slot holds the blocks of its context as without padding (a fork shares all of
+            // a slot's blocks, and copies only a partly filled last one before writing to it). The device runs the next step after this
+            // one, so a block taken again by another slot is written after the pad rows.
+            int slot = inputs[^1].Slot;
+            _pool!.Release(slot, _pool.BlocksFor(_length[slot]));
+        }
+
         if (CaptureHiddenStates && _hiddenSize > 0)
         {
             NoteHiddenRows(inputs);
@@ -735,13 +782,13 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         if (needLogits)
         {
             // The per-input results are slices of one buffer (no per-sequence copies).
-            ReadLogits(R);
+            ReadLogits(logitsRows);
         }
 
         if (anySampled)
         {
-            _compiled.GetOutput<int>(SamplingHead.TokensOutput, _sampledBuf.AsSpan(0, R));
-            _compiled.GetOutput<float>(SamplingHead.LogprobsOutput, _logprobBuf.AsSpan(0, R));
+            _compiled.GetOutput<int>(SamplingHead.TokensOutput, _sampledBuf.AsSpan(0, logitsRows));
+            _compiled.GetOutput<float>(SamplingHead.LogprobsOutput, _logprobBuf.AsSpan(0, logitsRows));
         }
 
         for (int u = 0, r = 0; u < count; u++)
@@ -1024,7 +1071,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     }
 
     /// <summary>Allocates the KV blocks every input of the step needs and uploads the block table when it changed.</summary>
-    private void GrowBlocksForStep(IReadOnlyList<SequenceInput> inputs)
+    /// <param name="inputs">The step's inputs.</param>
+    /// <param name="padRows">Rows the last input's run is padded with (<see cref="ShapePaddingRows"/>): their KV rows need blocks too.</param>
+    private void GrowBlocksForStep(IReadOnlyList<SequenceInput> inputs, int padRows)
     {
         var pool = _pool!;
         int count = inputs.Count;
@@ -1040,7 +1089,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         int need = 0;
         for (int u = 0; u < count; u++)
         {
-            need += KvBlocksNeeded(inputs[u].Slot, inputs[u].Tokens.Length);
+            need += KvBlocksNeeded(inputs[u].Slot, inputs[u].Tokens.Length + (u == count - 1 ? padRows : 0));
         }
 
         if (need > pool.Free)
@@ -1056,7 +1105,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 throw new InvalidOperationException($"Slot {slot} shares the block it writes into and the device cannot copy it.");
             }
 
-            pool.Grow(slot, _length[slot] + inputs[u].Tokens.Length);
+            pool.Grow(slot, _length[slot] + inputs[u].Tokens.Length + (u == count - 1 ? padRows : 0));
         }
 
         if (pool.TableDirty)
@@ -1069,6 +1118,88 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         {
             _compiled.SetInput<int>(_windowTable!, window.Table);
             window.TableDirty = false;
+        }
+    }
+
+    /// <summary>
+    /// Whether a step runs in a shape bucket, and the rows it is padded with up to a multiple of <see cref="StepRowsBucket"/>: a
+    /// prompt-bearing step (some input of several rows) of a decoder that pads (<see cref="PadsStepShapes"/>), so that steps of nearby
+    /// row counts, run counts and logits rows share one recorded step (and its CUDA graph) instead of each paying a first run.
+    /// Decode-only steps keep their exact (prepared) shapes. The pad rows extend the last run past its end: positions a sequence has
+    /// not reached, whose KV rows its own later rows overwrite before any query reads them. So bucketing needs causal attention over
+    /// paged caches (window-sized caches take blocks by position too; no recurrent state, bidirectional runs or hidden-state inputs),
+    /// and pad rows a last input of several rows with room in its slot's context and blocks for them (else the step is bucketed by its
+    /// runs and logits rows only).
+    /// </summary>
+    /// <returns>The pad rows, or -1 when the step runs at its exact shape.</returns>
+    private int ShapePaddingRows(IReadOnlyList<SequenceInput> inputs, int rows)
+    {
+        if (!PadsStepShapes || rows == inputs.Count || _pool is not { } pool || !CanTruncate || _runEndRows is not null
+            || _hiddenInput is not null || _commits is not null || _snapshots is not null)
+        {
+            return -1;
+        }
+
+        int padded = Math.Min(MaxBatchTokens, (rows + StepRowsBucket - 1) / StepRowsBucket * StepRowsBucket);
+        var last = inputs[^1];
+        int pad = padded - rows;
+        if (pad <= 0 || last.Tokens.Length < 2 || _length[last.Slot] + last.Tokens.Length + pad > ContextLength)
+        {
+            return 0;
+        }
+
+        int need = 0;
+        for (int u = 0; u < inputs.Count; u++)
+        {
+            need += KvBlocksNeeded(inputs[u].Slot, inputs[u].Tokens.Length + (u == inputs.Count - 1 ? pad : 0));
+        }
+
+        return need <= pool.Free ? pad : 0;
+    }
+
+    /// <summary>
+    /// Appends <paramref name="padRows"/> rows (none or more) to the last run of a step packed into <paramref name="rows"/> rows (repeats of
+    /// its last token at the positions after it) and fills the run table up to <see cref="SlotCount"/> with empty runs.
+    /// </summary>
+    private void PadStep(IReadOnlyList<SequenceInput> inputs, int rows, int padRows)
+    {
+        int u = inputs.Count - 1;
+        var last = inputs[u];
+        int n = last.Tokens.Length;
+        int first = rows - n;
+        int pos0 = _length[last.Slot];
+        int axes = Math.Max(1, _posAxes);
+        for (int i = 0; i < n; i++)
+        {
+            _rowBuf[(first + i) * 4 + 2] = n + padRows;
+        }
+
+        for (int i = 0; i < padRows; i++)
+        {
+            int row = rows + i;
+            _tokBuf[row] = _tokBuf[rows - 1];
+            _rowBuf[row * 4] = last.Slot;
+            _rowBuf[row * 4 + 1] = pos0 + n + i;
+            _rowBuf[row * 4 + 2] = n + padRows;
+            _rowBuf[row * 4 + 3] = u;
+            if (_positions is not null)
+            {
+                // The last row's positions advanced by one per pad row on the text axes (explicit positions included).
+                for (int a = 0; a < axes; a++)
+                {
+                    int previous = _posBuf[(rows - 1) * axes + a];
+                    _posBuf[row * axes + a] = a < _textPositionAxes ? previous + i + 1 : previous;
+                }
+            }
+        }
+
+        _runBuf[u * 4 + 2] = n + padRows;
+        for (int r = inputs.Count; r < SlotCount; r++)
+        {
+            _runBuf[r * 4] = last.Slot;
+            _runBuf[r * 4 + 1] = rows + padRows;
+            _runBuf[r * 4 + 2] = 0;
+            _runBuf[r * 4 + 3] = 0;
         }
     }
 

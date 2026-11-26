@@ -11,7 +11,9 @@ namespace Sharplight.Speech.Tests;
 /// Parakeet (FastConformer) checkpoints of Hugging Face transformers against transformers itself (fixtures from
 /// <c>tools/make_parakeet_fixtures.py</c>) on jfk.wav and a 29 s LibriSpeech recording, each one variable-length window: NeMo's log-mel
 /// features, the encoder output, and token-exact greedy decoding (CTC for parakeet-ctc-0.6b, TDT for parakeet-tdt-0.6b-v3) through the
-/// speech-recognition task client of the service container, on the CPU and on Vulkan.
+/// speech-recognition task client of the service container, on the CPU and on Vulkan. moondream/parakeet-ultra (a post-trained
+/// parakeet-tdt-0.6b-v3 with a voice-activity head that is not imported) has no processor files; its fixtures come from transformers with
+/// parakeet-tdt-0.6b-v3's processor and tokenizer configs next to the release's weights, and the import needs none of them.
 /// </summary>
 public sealed class ParakeetParityTests
 {
@@ -19,7 +21,7 @@ public sealed class ParakeetParityTests
     public static TheoryData<string, string, string> Cases()
     {
         var cases = new TheoryData<string, string, string>();
-        foreach (string model in new[] { "parakeet-ctc-0.6b", "parakeet-tdt-0.6b-v3" })
+        foreach (string model in new[] { "parakeet-ctc-0.6b", "parakeet-tdt-0.6b-v3", "parakeet-ultra" })
         {
             foreach (string clip in new[] { SpeechEnvironment.JfkName, SpeechEnvironment.LibriSpeechName })
             {
@@ -35,6 +37,7 @@ public sealed class ParakeetParityTests
     [Theory]
     [InlineData("parakeet-ctc-0.6b", SpeechEnvironment.JfkName)]
     [InlineData("parakeet-tdt-0.6b-v3", SpeechEnvironment.LibriSpeechName)]
+    [InlineData("parakeet-ultra", SpeechEnvironment.JfkName)]
     public void FeaturesMatchTransformers(string name, string clip)
     {
         using var model = Load(name, clip, "cpu");
