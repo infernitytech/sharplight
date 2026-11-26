@@ -18252,3 +18252,92 @@ failed once in six CPU-only runs of the suite (steps `0,0,0,0,0,0,0,1,1,2`, timi
   capturing prepared shapes ahead needs the input copies captured without staged inputs.
 * The 64-stream p95 of the bucketed runs (42-54 against 37-41 ms) wants a closer look (pad rows on large prompt steps, or noise).
 * Gemma 31B host time per step (114.4).
+
+## §R49. LLM round 49: Vulkan prefill on the workgroup-scope cooperative matrices (VK_NV_cooperative_matrix2) measured and rejected for FP8 and bf16 (the driver-staged E4M3 GEMM peaks at 155 TFLOPS without block scaling, 101-114 with it, against 173-194 for the shipped kernel); q / k / v as one launch on Vulkan prefill (-1.5 ms of GPU time per 2,048-row pass, end to end within noise); the dual GEMM's E4M3 store blocked by an atomic in gemm_fp8 corrupting its products on the NVIDIA Vulkan driver (2026-11-26)
+
+Branch `perf/llm-r49` (`develop` at `1645526b`, `develop` merged again before the tests). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell
+32 GB, 82 SMs, driver 595.112), shared with other agents: every GPU run held the bench lock; load averages 4.6-22 are in the raw files.
+Raw output in [`bench/results/r49/`](../bench/results/r49) (`vk/`, `pp/`, `prof/`, `probes/`, `tests/`). Model: Qwen3-8B-FP8 (official
+Hugging Face checkpoint), Vulkan weights in the split E4M3 layout (`f8e4m3_b128r`).
+
+### R49.1 FP8 GEMM on VK_NV_cooperative_matrix2 (target 1): rejected
+
+The driver reports E4M3 x E4M3 → f32 workgroup-scope matrices for 32 / 64 / 128 / 256-invocation workgroups (32 x 32 x 32 granularity at 256),
+next to f16 / bf16 / int8 (`sharplight --devices`, `coopmat2_shapes`). Probe kernel `gemm_fp8_nv2` (kept only as a patch,
+`probes/nv2-fp8-and-dual-e4m3-store.diff`): A = E4M3 activation rows and B = the split weight rows loaded through tensor layouts (B with a
+transposed view, no decode function needed for the split layout), one 128-value K block per `coopMatMulAdd` into a fresh accumulator, then
+the block scaling on the accumulator, either per element (`MapElement` reading the step's activation and weight scales from shared memory,
+three-buffered so one barrier per step suffices) or with broadcast tensor loads of the scales (stride 0) and elementwise products.
+`BenchTests.MatMulPrefill`, 2,048 rows, ms / TFLOPS (`vk/nv2_fp8_probe.txt`, `vk/nv2_fp8_ceiling.txt`):
+
+| kernel | [4096 → 12288] | [12288 → 4096] |
+|---|---:|---:|
+| shipped `gemm_fp8` (128 x 128, kernel-staged) | 1.062 / 194.1 | 1.193 / 172.7 |
+| nv2, scales per element (`MapElement`) | 1.808 / 114.0 | 2.030 / 101.5 |
+| nv2, scales as broadcast loads | 2.760 / 74.7 | 3.107 / 66.4 |
+| nv2 without any block scaling (ceiling, wrong results): 128 x 128, K step 128 | 1.511 / 136.4 | 1.701 / 121.2 |
+| ... K step 64 (128 registers, 23 KB shared) | 1.327 / 155.4 | 1.547 / 133.3 |
+| ... K step 32 | 1.426 / 144.6 | 1.662 / 124.1 |
+| ... K step 256 (255 registers, 47 KB) | 1.611 / 128.0 | 1.808 / 114.0 |
+| ... 128 x 256 tile, K step 128 / 64 | 1.435 / 143.7, 1.375 / 150.0 | 1.954 / 105.5, 1.950 / 105.7 |
+| ... 128 x 64 tile | 1.963 / 105.0 | 2.094 / 98.4 |
+
+Even with no block scaling at all the driver-staged E4M3 GEMM stays at 155 TFLOPS, 20 % below the kernel-staged one it would replace, and
+the per-block scaling that FP8 checkpoints need costs another 25-35 %. The driver's own staging does not hide the global → shared fetch
+better than the hand-written prefetch; it is not a way around §113.1's limit on this driver. Nothing kept.
+
+### R49.2 bf16 on the same path (target 2): not pursued
+
+The existing f16 `gemm_nv2` (`SHARPLIGHT_GEMM_NV2=1`), measured in the same hold against gemm_cm2 (`vk/dual_tiles_and_16bit_nv2.txt`):
+[4096 → 12288] 2.298 ms / 89.7 TFLOPS against 1.627 / 126.7, [12288 → 4096] 2.436 / 84.6 against 1.995 / 103.3 (bf16 on gemm_cm2: 1.542 /
+133.7 and 1.932 / 106.7). bf16 x bf16 workgroup matrices would also need bf16 activation copies (a numerics change from the f16 copies);
+with the f16 form 30 % behind and the FP8 ceiling of R49.1 the same technique cannot lift gemm_cm2. Nothing kept.
+
+### R49.3 q / k / v as one launch on Vulkan prefill (kept)
+
+The generated FP8 GEMM gets a tall multi-output form (`gemm_fp8.slang` MULTI without a K split): the q / k / v members of a multi-output
+group (no epilogue of their own) register their unsplit launches, and where every member and the concatenation run unsplit one launch over
+the concatenated weight rows serves them (each column tile in one member's matrix, stored to that member's output; same tile and K order, so
+bit-identical). `SHARPLIGHT_MULTI_GEMM_TALL=0` (existing switch) keeps the members' launches. Per-node profile, one 2,048-row prefill
+(`prof/`): q 13.44 ms + k / v 7.88 ms (36 + 72 launches) → 19.75 ms (36 launches), -1.57 ms per pass (0.9 %).
+
+End to end, `sharplight --bench N` (prefill best of 5, tok/s), two rounds in opposite order in one hold (`pp/same_hold_prefill.txt`):
+
+| prompt | Vulkan, members | Vulkan, one launch | CUDA | Vulkan / CUDA | Vulkan / vLLM 0.33 (§42) |
+|---|---:|---:|---:|---:|---:|
+| 512 | 11,144 / 11,164 | 11,132 / 11,178 | 16,495 | 0.68 | 0.77 |
+| 2,048 | 11,142 / 11,339 | 11,108 / 11,321 | 16,416 | 0.69 | 0.75 |
+| 8,192 | 9,266 / 9,325 | 9,276 / 9,324 | 13,035 | 0.72 | 0.76 |
+
+The 0.9 % of GPU time does not show above the run-to-run spread (±1 %). Vulkan prefill against CUDA and vLLM is where §113 left it.
+
+### R49.4 The dual GEMM writing the down projection's E4M3 rows (target 3b): blocked
+
+Two forms were tried (`probes/`):
+
+* **128 outputs per workgroup** (64-row tiles of layout 2,4,2,4, so one workgroup covers a 128-value scale group): the dual GEMM
+  [4096 → 2 x 12288] at 2,048 rows takes 2.471 ms (166.9 TFLOPS) against 2.060 ms (200.1) on the shipped 128-row tiles (64-row tiles of
+  the shipped layout: 2.390 ms), +0.41 ms per layer for a quantize_fp8 launch of 0.12 ms. Rejected.
+* **Pairs of workgroups** (`F8_QOUT`): both 64-output workgroups of a 128-output group store y as now, count their arrival on a
+  per-group counter, and the second quantizes the group's rows of y as quantize_fp8 does, into the E4M3 rows the down projection reads
+  (the readers' `NormFp8Copy` mechanism). On the NVIDIA Vulkan driver the products of that dual GEMM are wrong in every element as soon
+  as the kernel contains the arrival atomic: bisected to the `OpAtomicIAdd` alone (with the counter reset and the quantization removed it
+  still fails; without the atomic and with everything else it passes), with the pair counter in its own buffer and the pointers passed
+  separately. The kernel is otherwise unchanged; the module already uses the Vulkan memory model (Slang emits it for every kernel here),
+  and the barriers carry no MakeAvailable / MakeVisible semantics. Same family as §61 (the fused split-K form of gemm_fp8 returned wrong
+  outputs there, gemm_cm2's fused form and gemm_kq's arrivals work). Not kept; a test for it (`DualE4m3RowsMatchSeparateQuantizationBitwise`,
+  in the patch) reproduces it at 2,048 rows.
+
+### R49.5 Tests
+
+On GPU 0, one class per process under the bench lock (`tests/`): see the suite summaries there. New:
+`Fp8GemmTests.TallSiblingsMatchSeparateBitwise` (q / k / v widths 2,048 / 512 / 520 at 300, 1,024 and 2,048 rows: every output of the
+one-launch form bit-identical to each projection compiled alone). `FusionTests` 107 / 107, `Fp8GemmTests` 55 (1 skipped) pass with it.
+
+### R49.6 What is left
+
+The Vulkan FP8 and bf16 prefill GEMMs stay at 0.68-0.72 of CUDA: the global → shared fetch (§113.1) is not solved by the driver-staged
+path either. Remaining levers: the E4M3 store of the dual GEMM once the atomic problem of gemm_fp8 on this driver is understood (a reduced
+reproducer: gemm_fp8 plus one `InterlockedAdd`; next step a SPIR-V diff of the two kernels' main loops, or the barriers with explicit
+availability / visibility semantics as gemm_kq's `KQ_X_BAR` experiments emit them), and a retest of `gemm_fp8_nv2` on later drivers
+(the probe is in the patch).

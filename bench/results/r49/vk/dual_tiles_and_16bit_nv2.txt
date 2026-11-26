@@ -1,0 +1,25 @@
+ 09:29:48 up 8 days, 13:11,  0 user,  load average: 10.94, 9.27, 8.55
+### dual shipped
+      1    Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.760s
+      1 BENCH matmul f8e4m3_b128 T=2048 4096->12288    2.060 ms     200.1 TFLOP/s
+### dual 64-row tiles 2,4,2,2
+      1    Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.003s
+      1 BENCH matmul f8e4m3_b128 T=2048 4096->12288    2.390 ms     172.5 TFLOP/s
+### dual 64-row tiles 2,4,2,4 (128 outputs)
+      1    Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.804s
+      1 BENCH matmul f8e4m3_b128 T=2048 4096->12288    2.471 ms     166.9 TFLOP/s
+      1 [pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+      1 [pipeline] gemm_fp8.slang gemm_fp8: Register Count=236 Shared Memory Size=47360
+      1 [pipeline] gemm_fp8.slang gemm_fp8: Register Count=242 Shared Memory Size=37888
+      1 [pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=48384
+      1 [pipeline] gemm_fp8_dual.slang gemm_fp8: Register Count=255 Shared Memory Size=48384
+### f16 cm2 / nv2 / bf16 cm2
+      1    Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.212s
+      1 BENCH matmul f16 T=2048 12288->4096    1.995 ms     103.3 TFLOP/s
+      1 BENCH matmul f16 T=2048 4096->12288    1.627 ms     126.7 TFLOP/s
+      1    Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.795s
+      1 BENCH matmul f16 T=2048 12288->4096    2.436 ms      84.6 TFLOP/s
+      1 BENCH matmul f16 T=2048 4096->12288    2.298 ms      89.7 TFLOP/s
+      1    Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.779s
+      1 BENCH matmul bf16 T=2048 12288->4096    1.932 ms     106.7 TFLOP/s
+      1 BENCH matmul bf16 T=2048 4096->12288    1.542 ms     133.7 TFLOP/s

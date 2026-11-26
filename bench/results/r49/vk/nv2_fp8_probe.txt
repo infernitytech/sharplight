@@ -1,0 +1,17 @@
+ 09:26:12 up 8 days, 13:07,  0 user,  load average: 9.37, 8.82, 8.29
+### shipped
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.062 ms     194.1 TFLOP/s
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    1.193 ms     172.7 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 6.375s
+### nv2 mapelement
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.808 ms     114.0 TFLOP/s
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    2.030 ms     101.5 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 5.299s
+### nv2 bcast
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    2.760 ms      74.7 TFLOP/s
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    3.107 ms      66.4 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.903s
+### nv2 noscale
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.511 ms     136.4 TFLOP/s
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    1.701 ms     121.2 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.763s

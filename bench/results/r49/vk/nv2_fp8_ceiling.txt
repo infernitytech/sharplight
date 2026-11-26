@@ -1,0 +1,82 @@
+ 09:27:49 up 8 days, 13:09,  0 user,  load average: 9.02, 8.95, 8.40
+### noscale bk64
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=128 Shared Memory Size=23648
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.327 ms     155.4 TFLOP/s
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=128 Shared Memory Size=23648
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    1.547 ms     133.3 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.353s
+### noscale bk256
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=255 Shared Memory Size=47200
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.611 ms     128.0 TFLOP/s
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=255 Shared Memory Size=47200
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    1.808 ms     114.0 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 7.853s
+### noscale bk32
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=104 Shared Memory Size=15456
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.426 ms     144.6 TFLOP/s
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=104 Shared Memory Size=15456
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=222 Shared Memory Size=37888
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    1.662 ms     124.1 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.066s
+### noscale 128x256
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=255 Shared Memory Size=48736
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.435 ms     143.7 TFLOP/s
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=255 Shared Memory Size=48736
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    1.954 ms     105.5 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 9.714s
+### noscale 128x256 bk64
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=239 Shared Memory Size=35424
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.375 ms     150.0 TFLOP/s
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=239 Shared Memory Size=35424
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=255 Shared Memory Size=56832
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    1.950 ms     105.7 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.459s
+### noscale 128x64
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=147 Shared Memory Size=30048
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=147 Shared Memory Size=28416
+BENCH matmul f8e4m3_b128 T=2048 4096->12288    1.963 ms     105.0 TFLOP/s
+[pipeline] gemm_fp8.slang gemm_fp8_nv2: Register Count=147 Shared Memory Size=30048
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=159 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=154 Shared Memory Size=28416
+[pipeline] gemm_fp8.slang gemm_fp8: Register Count=147 Shared Memory Size=28416
+BENCH matmul f8e4m3_b128 T=2048 12288->4096    2.094 ms      98.4 TFLOP/s
+   Sharplight.Vulkan.Tests  Total: 11, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 8.215s

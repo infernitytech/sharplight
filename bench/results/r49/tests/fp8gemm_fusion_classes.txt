@@ -1,0 +1,2 @@
+   Sharplight.Vulkan.Tests  Total: 55, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 48.477s
+   Sharplight.Vulkan.Tests  Total: 107, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 19.194s

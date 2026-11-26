@@ -1,0 +1,451 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [187 ms]
+Loaded Qwen3-8B-FP8 (decoder): 399 tensors, 9.65 GB, vocab 151936 [4797 ms]
+Rows per forward pass: 2048 (automatic, 31057 MiB available).
+Compiling 139 / 139, 118 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 9.65 / 9.65 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 46905 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 9.31 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+segment 0: 473 dispatches, 328 barriers per step
+--- prefill T=2048 profile, segment 0
+GPU time 180.45 ms
+     7.463 ms   4.1%     72x  min     93.2 us  fused[Add]+RmsNorm main
+     2.239 ms   1.2%      1x  min   2239.1 us  matmul2 mul_742 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.237 ms   1.2%      1x  min   2237.0 us  matmul2 mul_766 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.235 ms   1.2%      1x  min   2235.0 us  matmul2 mul_790 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.234 ms   1.2%      1x  min   2234.0 us  matmul2 mul_862 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.232 ms   1.2%      1x  min   2231.9 us  matmul2 mul_838 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.230 ms   1.2%      1x  min   2229.9 us  matmul2 mul_718 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.229 ms   1.2%      1x  min   2228.8 us  matmul2 mul_814 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.228 ms   1.2%      1x  min   2227.8 us  matmul2 mul_646 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.225 ms   1.2%      1x  min   2224.7 us  matmul2 mul_670 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.225 ms   1.2%      1x  min   2224.7 us  matmul2 mul_694 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.214 ms   1.2%      1x  min   2214.5 us  matmul2 mul_622 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.203 ms   1.2%      1x  min   2203.2 us  matmul2 mul_550 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.203 ms   1.2%      1x  min   2203.2 us  matmul2 mul_574 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.191 ms   1.2%      1x  min   2190.9 us  matmul2 mul_598 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.059 ms   1.1%      1x  min   2058.9 us  matmul2 mul_478 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.056 ms   1.1%      1x  min   2055.8 us  matmul2 mul_502 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.056 ms   1.1%      1x  min   2055.8 us  matmul2 mul_526 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.052 ms   1.1%      1x  min   2051.7 us  matmul2 mul_454 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.029 ms   1.1%      1x  min   2029.2 us  matmul2 mul_94 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.027 ms   1.1%      1x  min   2027.1 us  matmul2 mul_70 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.025 ms   1.1%      1x  min   2025.1 us  matmul2 mul_46 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.024 ms   1.1%      1x  min   2024.1 us  matmul2 mul_118 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.024 ms   1.1%      1x  min   2023.7 us  matmul2 mul_430 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.023 ms   1.1%      1x  min   2023.0 us  matmul2 mul_142 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.023 ms   1.1%      1x  min   2023.0 us  matmul2 mul_334 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.023 ms   1.1%      1x  min   2023.0 us  matmul2 mul_382 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.023 ms   1.1%      1x  min   2023.0 us  matmul2 mul_406 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.022 ms   1.1%      1x  min   2022.0 us  matmul2 mul_238 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.021 ms   1.1%      1x  min   2021.0 us  matmul2 mul_286 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.021 ms   1.1%      1x  min   2021.0 us  matmul2 mul_358 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.021 ms   1.1%      1x  min   2020.6 us  matmul2 mul_166 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.021 ms   1.1%      1x  min   2020.6 us  matmul2 mul_310 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.019 ms   1.1%      1x  min   2018.9 us  matmul2 mul_190 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.019 ms   1.1%      1x  min   2018.9 us  matmul2 mul_262 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.018 ms   1.1%      1x  min   2017.9 us  matmul2 mul_214 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     2.017 ms   1.1%      1x  min   2016.9 us  matmul2 mul_22 [4096→12288]x2 f8e4m3_b128r fused[Silu,Mul] fp8 gemm_fp8
+     1.495 ms   0.8%      1x  min   1495.0 us  matmul logits [4096→151936] bf16 matvec_sk
+     1.178 ms   0.7%      1x  min   1177.6 us  matmul layers.29.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.177 ms   0.7%      1x  min   1176.5 us  matmul layers.30.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.173 ms   0.7%      1x  min   1173.5 us  matmul layers.31.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.173 ms   0.7%      1x  min   1173.5 us  matmul layers.33.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.172 ms   0.6%      1x  min   1172.4 us  matmul layers.32.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.170 ms   0.6%      1x  min   1170.4 us  matmul layers.25.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.170 ms   0.6%      1x  min   1170.4 us  matmul layers.27.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.168 ms   0.6%      1x  min   1168.4 us  matmul layers.34.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.167 ms   0.6%      1x  min   1167.3 us  matmul layers.26.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.167 ms   0.6%      1x  min   1167.3 us  matmul layers.28.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.167 ms   0.6%      1x  min   1167.3 us  matmul layers.35.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.157 ms   0.6%      1x  min   1157.1 us  matmul layers.22.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.155 ms   0.6%      1x  min   1155.0 us  matmul layers.23.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.149 ms   0.6%      1x  min   1148.9 us  matmul layers.24.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.117 ms   0.6%      1x  min   1117.2 us  matmul layers.21.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.082 ms   0.6%      1x  min   1082.4 us  matmul layers.19.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.081 ms   0.6%      1x  min   1081.3 us  matmul layers.18.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.080 ms   0.6%      1x  min   1080.3 us  matmul layers.20.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.076 ms   0.6%      1x  min   1076.2 us  matmul layers.17.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.063 ms   0.6%      1x  min   1062.9 us  matmul layers.3.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.063 ms   0.6%      1x  min   1062.9 us  matmul layers.14.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.062 ms   0.6%      1x  min   1061.9 us  matmul layers.1.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.062 ms   0.6%      1x  min   1061.9 us  matmul layers.7.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.062 ms   0.6%      1x  min   1061.9 us  matmul layers.13.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.062 ms   0.6%      1x  min   1061.9 us  matmul layers.2.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.061 ms   0.6%      1x  min   1060.9 us  matmul layers.6.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.061 ms   0.6%      1x  min   1060.9 us  matmul layers.16.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.061 ms   0.6%      1x  min   1060.8 us  matmul layers.8.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.060 ms   0.6%      1x  min   1059.8 us  matmul layers.5.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.060 ms   0.6%      1x  min   1059.8 us  matmul layers.9.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.060 ms   0.6%      1x  min   1059.8 us  matmul layers.10.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.060 ms   0.6%      1x  min   1059.8 us  matmul layers.12.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.060 ms   0.6%      1x  min   1059.8 us  matmul layers.0.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.060 ms   0.6%      1x  min   1059.8 us  matmul layers.15.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.059 ms   0.6%      1x  min   1058.8 us  matmul layers.4.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     1.059 ms   0.6%      1x  min   1058.8 us  matmul layers.11.ffn_out [12288→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.407 ms   0.2%      1x  min    406.5 us  matmul layers.32.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.407 ms   0.2%      1x  min    406.5 us  matmul layers.34.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.406 ms   0.2%      1x  min    406.5 us  matmul layers.30.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.406 ms   0.2%      1x  min    406.3 us  matmul layers.33.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.406 ms   0.2%      1x  min    406.2 us  matmul layers.31.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.405 ms   0.2%      1x  min    404.5 us  matmul layers.27.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.404 ms   0.2%      1x  min    404.5 us  matmul layers.28.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.404 ms   0.2%      1x  min    404.5 us  matmul layers.35.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.404 ms   0.2%      1x  min    404.4 us  matmul layers.29.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.404 ms   0.2%      1x  min    404.4 us  matmul layers.26.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.401 ms   0.2%      1x  min    401.4 us  matmul layers.22.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.401 ms   0.2%      1x  min    401.4 us  matmul layers.23.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.400 ms   0.2%      1x  min    400.1 us  matmul layers.25.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.399 ms   0.2%      1x  min    399.4 us  matmul layers.24.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.396 ms   0.2%      1x  min    396.1 us  matmul matmul_770 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.395 ms   0.2%      1x  min    395.2 us  matmul matmul_674 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.395 ms   0.2%      1x  min    395.1 us  matmul matmul_794 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.395 ms   0.2%      1x  min    395.1 us  matmul matmul_698 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.395 ms   0.2%      1x  min    395.1 us  matmul matmul_746 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.394 ms   0.2%      1x  min    394.1 us  matmul matmul_650 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.394 ms   0.2%      1x  min    394.1 us  matmul matmul_722 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.394 ms   0.2%      1x  min    394.1 us  matmul matmul_818 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.394 ms   0.2%      1x  min    394.1 us  matmul matmul_842 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.394 ms   0.2%      1x  min    394.1 us  matmul matmul_626 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.391 ms   0.2%      1x  min    391.0 us  matmul matmul_554 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.389 ms   0.2%      1x  min    389.0 us  matmul matmul_530 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.389 ms   0.2%      1x  min    389.0 us  matmul matmul_602 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.388 ms   0.2%      1x  min    388.0 us  matmul matmul_578 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.379 ms   0.2%      1x  min    378.9 us  matmul layers.19.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.378 ms   0.2%      1x  min    377.9 us  matmul layers.20.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.377 ms   0.2%      1x  min    376.8 us  matmul layers.18.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.377 ms   0.2%      1x  min    376.8 us  matmul layers.21.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.373 ms   0.2%      1x  min    372.7 us  matmul layers.13.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.372 ms   0.2%      1x  min    371.7 us  matmul layers.10.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.372 ms   0.2%      1x  min    371.7 us  matmul layers.12.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.372 ms   0.2%      1x  min    371.7 us  matmul layers.15.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.371 ms   0.2%      1x  min    370.7 us  matmul layers.4.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.371 ms   0.2%      1x  min    370.7 us  matmul layers.6.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.371 ms   0.2%      1x  min    370.7 us  matmul layers.7.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.371 ms   0.2%      1x  min    370.7 us  matmul layers.9.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.371 ms   0.2%      1x  min    370.7 us  matmul layers.11.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.371 ms   0.2%      1x  min    370.7 us  matmul layers.14.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.370 ms   0.2%      1x  min    369.7 us  matmul layers.1.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.370 ms   0.2%      1x  min    369.7 us  matmul layers.3.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.370 ms   0.2%      1x  min    369.7 us  matmul layers.5.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.370 ms   0.2%      1x  min    369.7 us  matmul layers.17.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.369 ms   0.2%      1x  min    369.2 us  matmul layers.8.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.369 ms   0.2%      1x  min    368.6 us  matmul layers.0.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.369 ms   0.2%      1x  min    368.6 us  matmul layers.2.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.369 ms   0.2%      1x  min    368.6 us  matmul layers.16.attn_out [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.369 ms   0.2%      1x  min    368.5 us  matmul matmul_506 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.366 ms   0.2%      1x  min    366.5 us  matmul matmul_434 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.366 ms   0.2%      1x  min    366.5 us  matmul matmul_458 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.365 ms   0.2%      1x  min    365.5 us  matmul matmul_482 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.361 ms   0.2%      1x  min    361.3 us  matmul matmul_242 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_122 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_146 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_194 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_218 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_266 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_290 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_338 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.4 us  matmul matmul_362 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.3 us  matmul matmul_314 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.3 us  matmul matmul_386 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.360 ms   0.2%      1x  min    360.3 us  matmul matmul_410 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.359 ms   0.2%      1x  min    359.3 us  matmul matmul_74 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.359 ms   0.2%      1x  min    359.3 us  matmul matmul_26 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.358 ms   0.2%      1x  min    358.3 us  matmul matmul_2 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.358 ms   0.2%      1x  min    358.3 us  matmul matmul_50 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.358 ms   0.2%      1x  min    358.3 us  matmul matmul_98 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.358 ms   0.2%      1x  min    358.3 us  matmul matmul_170 [4096→4096] f8e4m3_b128r fp8 gemm_fp8
+     0.340 ms   0.2%      1x  min    340.0 us  attention layers.26.attn fe
+     0.340 ms   0.2%      1x  min    340.0 us  attention layers.30.attn fe
+     0.340 ms   0.2%      1x  min    340.0 us  attention layers.33.attn fe
+     0.340 ms   0.2%      1x  min    340.0 us  attention layers.28.attn fe
+     0.340 ms   0.2%      1x  min    340.0 us  attention layers.31.attn fe
+     0.340 ms   0.2%      1x  min    340.0 us  attention layers.34.attn fe
+     0.338 ms   0.2%      1x  min    338.0 us  attention layers.27.attn fe
+     0.338 ms   0.2%      1x  min    338.0 us  attention layers.29.attn fe
+     0.338 ms   0.2%      1x  min    338.0 us  attention layers.32.attn fe
+     0.338 ms   0.2%      1x  min    338.0 us  attention layers.35.attn fe
+     0.336 ms   0.2%      1x  min    335.9 us  attention layers.24.attn fe
+     0.336 ms   0.2%      1x  min    335.9 us  attention layers.25.attn fe
+     0.334 ms   0.2%      1x  min    333.8 us  attention layers.22.attn fe
+     0.333 ms   0.2%      1x  min    332.8 us  attention layers.23.attn fe
+     0.320 ms   0.2%      1x  min    319.5 us  attention layers.18.attn fe
+     0.319 ms   0.2%      1x  min    319.5 us  attention layers.21.attn fe
+     0.318 ms   0.2%      1x  min    318.5 us  attention layers.19.attn fe
+     0.317 ms   0.2%      1x  min    317.4 us  attention layers.0.attn fe
+     0.317 ms   0.2%      1x  min    317.4 us  attention layers.20.attn fe
+     0.314 ms   0.2%      1x  min    314.4 us  attention layers.14.attn fe
+     0.313 ms   0.2%      1x  min    313.4 us  attention layers.1.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.2.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.3.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.4.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.5.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.6.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.8.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.10.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.12.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.13.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.15.attn fe
+     0.313 ms   0.2%      1x  min    313.3 us  attention layers.17.attn fe
+     0.312 ms   0.2%      1x  min    312.3 us  attention layers.16.attn fe
+     0.311 ms   0.2%      1x  min    311.3 us  attention layers.9.attn fe
+     0.311 ms   0.2%      1x  min    311.3 us  attention layers.11.attn fe
+     0.310 ms   0.2%      1x  min    310.3 us  attention layers.7.attn fe
+     0.125 ms   0.1%      1x  min    125.3 us  matmul layers.35.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.124 ms   0.1%      1x  min    124.2 us  matmul layers.30.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.124 ms   0.1%      1x  min    124.2 us  matmul layers.34.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.123 ms   0.1%      1x  min    123.2 us  matmul layers.22.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.123 ms   0.1%      1x  min    123.2 us  matmul layers.26.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.123 ms   0.1%      1x  min    123.2 us  matmul layers.28.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.123 ms   0.1%      1x  min    123.2 us  matmul layers.31.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.123 ms   0.1%      1x  min    123.2 us  matmul layers.33.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.123 ms   0.1%      1x  min    123.2 us  matmul layers.29.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.122 ms   0.1%      1x  min    122.4 us  matmul layers.12.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.122 ms   0.1%      1x  min    122.2 us  matmul layers.27.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.122 ms   0.1%      1x  min    122.1 us  matmul layers.25.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.122 ms   0.1%      1x  min    122.1 us  matmul layers.32.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.121 ms   0.1%      1x  min    121.4 us  matmul layers.6.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.121 ms   0.1%      1x  min    121.4 us  matmul layers.14.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.121 ms   0.1%      1x  min    121.4 us  matmul layers.16.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.121 ms   0.1%      1x  min    121.4 us  matmul layers.8.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.121 ms   0.1%      1x  min    121.2 us  matmul layers.23.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.121 ms   0.1%      1x  min    121.2 us  matmul layers.24.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.9.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.15.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.5.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.0.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.1.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.7.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.10.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.4 us  matmul layers.17.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.3 us  matmul layers.2.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.3 us  matmul layers.18.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.3 us  matmul layers.19.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.3 us  matmul layers.20.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.120 ms   0.1%      1x  min    120.3 us  matmul layers.21.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.119 ms   0.1%      1x  min    119.4 us  matmul layers.11.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.119 ms   0.1%      1x  min    119.3 us  matmul layers.3.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.119 ms   0.1%      1x  min    119.3 us  matmul layers.4.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.119 ms   0.1%      1x  min    119.3 us  matmul layers.13.ffn_out [12288→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.116 ms   0.1%      1x  min    115.8 us  matmul matmul_702 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.116 ms   0.1%      1x  min    115.8 us  matmul matmul_823 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.116 ms   0.1%      1x  min    115.8 us  matmul matmul_630 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.116 ms   0.1%      1x  min    115.8 us  matmul matmul_726 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.116 ms   0.1%      1x  min    115.8 us  matmul matmul_750 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.116 ms   0.1%      1x  min    115.8 us  matmul matmul_798 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_607 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_535 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_558 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_559 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_582 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_583 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_655 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_679 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_775 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_799 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_846 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.8 us  matmul matmul_847 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_534 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_606 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_631 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_654 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_678 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_703 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_727 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_751 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_774 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.114 ms   0.1%      1x  min    113.7 us  matmul matmul_822 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.7 us  matmul matmul_414 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.7 us  matmul matmul_463 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.7 us  matmul matmul_486 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.7 us  matmul matmul_487 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.6 us  matmul matmul_438 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.6 us  matmul matmul_462 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.6 us  matmul matmul_510 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.108 ms   0.1%      1x  min    107.6 us  matmul matmul_511 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.107 ms   0.1%      1x  min    106.6 us  matmul matmul_439 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_6 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_7 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_30 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_31 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_54 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_55 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_78 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_79 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_102 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_103 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_126 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_127 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_151 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_174 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_175 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_198 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_199 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_222 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_223 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_246 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_247 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_270 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_271 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_294 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_295 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_318 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_319 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_342 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_343 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_366 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_367 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_390 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_391 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.106 ms   0.1%      1x  min    105.6 us  matmul matmul_415 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.105 ms   0.1%      1x  min    104.6 us  matmul matmul_150 [4096→1024] f8e4m3_b128r fp8 gemm_fp8
+     0.084 ms   0.0%      1x  min     84.1 us  gather inp_embd gather
+     0.073 ms   0.0%      1x  min     72.6 us  rope+norm rope_653 rope_row
+     0.073 ms   0.0%      1x  min     72.6 us  rope+norm rope_701 rope_row
+     0.073 ms   0.0%      1x  min     72.5 us  rope+norm rope_557 rope_row
+     0.071 ms   0.0%      1x  min     70.5 us  rope+norm rope_485 rope_row
+     0.071 ms   0.0%      1x  min     70.5 us  rope+norm rope_581 rope_row
+     0.071 ms   0.0%      1x  min     70.5 us  rope+norm rope_677 rope_row
+     0.071 ms   0.0%      1x  min     70.5 us  rope+norm rope_773 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_725 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_749 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_821 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_845 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_533 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_605 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_629 rope_row
+     0.070 ms   0.0%      1x  min     70.5 us  rope+norm rope_797 rope_row
+     0.070 ms   0.0%      1x  min     69.5 us  rope+norm rope_101 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_53 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_77 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_125 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_149 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_173 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_197 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_221 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_245 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_269 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_293 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_317 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_341 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_365 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_389 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_413 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_461 rope_row
+     0.069 ms   0.0%      1x  min     68.5 us  rope+norm rope_509 rope_row
+     0.068 ms   0.0%      1x  min     68.5 us  rope+norm rope_437 rope_row
+     0.066 ms   0.0%      1x  min     66.5 us  rope+norm rope_5 rope_row
+     0.066 ms   0.0%      1x  min     66.5 us  rope+norm rope_29 rope_row
+     0.031 ms   0.0%      1x  min     30.7 us  RmsNorm layers.0.attn_norm main
+     0.025 ms   0.0%      1x  min     24.6 us  rope+norm+cache_write rope_635 rope_row
+     0.025 ms   0.0%      1x  min     24.6 us  rope+norm+cache_write rope_707 rope_row
+     0.025 ms   0.0%      1x  min     24.6 us  rope+norm+cache_write rope_803 rope_row
+     0.025 ms   0.0%      1x  min     24.5 us  rope+norm+cache_write rope_779 rope_row
+     0.025 ms   0.0%      1x  min     24.5 us  rope+norm+cache_write rope_827 rope_row
+     0.025 ms   0.0%      1x  min     24.5 us  rope+norm+cache_write rope_851 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_11 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_35 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_83 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_107 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_131 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_179 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_203 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_227 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_251 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_275 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_299 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_323 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_347 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_371 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_395 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_419 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_443 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_467 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_491 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_515 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_539 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_563 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_587 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_611 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_683 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_731 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_755 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_659 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_59 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_155 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  cache_write layers.28.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.5 us  cache_write layers.32.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.4 us  cache_write layers.24.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.4 us  cache_write layers.30.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.2 us  matmul layers.0.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.020 ms   0.0%      1x  min     20.2 us  matmul layers.1.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.020 ms   0.0%      1x  min     20.2 us  matmul layers.29.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.020 ms   0.0%      1x  min     20.2 us  matmul layers.35.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.019 ms   0.0%      1x  min     19.1 us  matmul layers.24.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.22.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.25.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.34.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.0.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.1.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.2.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.3.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.4.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.5.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.6.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.7.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.8.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.9.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.10.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.11.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.12.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.13.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.14.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.15.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.16.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.17.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.18.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.19.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.20.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.21.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.23.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  matmul layers.25.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.26.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.27.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.31.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  matmul layers.31.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.33.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.35.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.29.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.3 us  matmul layers.33.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.26.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.30.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.3.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.5.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.6.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.9.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.12.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.13.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.2 us  matmul layers.16.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.2.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.4.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.7.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.10.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.11.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.14.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.15.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.17.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.18.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.19.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.20.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.21.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.23.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.28.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.34.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.22.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.27.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.018 ms   0.0%      1x  min     18.1 us  matmul layers.32.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.017 ms   0.0%      1x  min     16.6 us  matmul layers.8.attn_out [4096→4096] f8e4m3_b128r x→fp8 quantize_fp8
+     0.004 ms   0.0%      1x  min      4.1 us  gather selected_rows gather
+     0.004 ms   0.0%      1x  min      3.7 us  sample sampled_tokens sample
+

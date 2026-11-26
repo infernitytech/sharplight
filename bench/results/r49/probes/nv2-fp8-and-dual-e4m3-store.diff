@@ -1,0 +1,702 @@
+diff --git a/src/Sharplight.Shaders/Kernels/gemm_fp8.slang b/src/Sharplight.Shaders/Kernels/gemm_fp8.slang
+index 8e87cded..2ec3f088 100644
+--- a/src/Sharplight.Shaders/Kernels/gemm_fp8.slang
++++ b/src/Sharplight.Shaders/Kernels/gemm_fp8.slang
+@@ -19,6 +19,10 @@
+ // holds both results of an output element and stores `epi2(a, b)` (defined by the including generated source, e.g.
+ // silu(a) * b); a workgroup covers F8_BN / 2 outputs.
+ //
++// MULTI (splitk.slang) with SPLITK = 1 and no SPLITK_FUSED: the tall multi-output form over the concatenated weight rows of sibling
++// projections (q / k / v), each column tile in one member's matrix and stored to that member's output (p.yout, p.yout1, p.yout2;
++// p.y is not written). Each output is the product its member's own launch computes (the same tile and K order).
++//
+ // Specialization macros: KERNEL_GEMM_FP8 / KERNEL_QUANTIZE_FP8, WBLOCK (32 or 128), K, N, Y_STRIDE, ROW_BYTES, F8_WM, F8_WN,
+ // F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GROUPED, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE and DENSE_XCAP
+ // (quantize_fp8). Requires K % 128 == 0 and 32-lane subgroups.
+@@ -122,6 +126,10 @@ struct Params
+     uint8_t* w2;
+ #endif
+     float* y;
++#if F8_QOUT
++    uint8_t* qout;    // F8_QOUT: the E4M3 activation rows of y ([T][N codes][N / 128 f32 scales])
++    uint* pairs;      // F8_QOUT: per token tile and 128-output group, the workgroups arrived so far (zero between launches)
++#endif
+ #if SPLITK_FUSED || MULTI > 1
+     float* yout;      // SPLITK_FUSED (splitk.slang): the reduced output (y holds the partial slices)
+ #endif
+@@ -301,6 +309,72 @@ void fp8_step<let PAIR : bool>(inout float acc[F8_FM][F8_FN][8], uint wm, uint w
+     }
+ }
+ 
++#if F8_QOUT
++#if !DUAL || SPLITK != 1 || SPLITK_FUSED || N % 128 != 0 || Y_STRIDE % 4 != 0
++#error "F8_QOUT needs the dual GEMM without a K split, N % 128 == 0 and Y_STRIDE % 4 == 0"
++#endif
++groupshared uint gPairLast;
++
++// The second workgroup of the two that store a 128-output group of a token tile (64 outputs each) quantizes the group's rows of y
++// into qout as quantize_fp8 does (one subgroup per row, the same scale and codes from the same f32 values), so the GEMM that reads
++// y as E4M3 activations needs no quantize_fp8 launch. The first publishes its stores and leaves.
++void fp8_qout(float* y, uint8_t* qout, uint* pairs, uint T, uint3 gid, uint tid, uint t0, uint n0)
++{
++    DeviceMemoryBarrier();
++    GroupMemoryBarrierWithGroupSync();
++    uint group = n0 / 128;
++#if F8_QOUT_DBG == 4
++    return;
++#endif
++    if (tid == 0)
++    {
++        uint arrived;
++        // Indexed, not through a dereferenced pointer (see splitk_arrive).
++        InterlockedAdd(pairs[gid.x * (N / 128) + group], 1u, arrived);
++#if F8_QOUT_DBG == 3
++        arrived = 0;
++#endif
++        bool last = arrived == 1;
++        if (last)
++        {
++            pairs[gid.x * (N / 128) + group] = 0;
++        }
++        gPairLast = last ? 1u : 0u;
++    }
++    GroupMemoryBarrierWithGroupSync();
++    if (gPairLast == 0)
++    {
++        return;
++    }
++
++    DeviceMemoryBarrier();
++#if F8_QOUT_DBG == 1
++    return;
++#endif
++    uint lane = tid % 32;
++    for (uint r = tid / 32; r < F8_BM; r += F8_THREADS / 32)
++    {
++        uint t = t0 + r;
++        if (t >= T)
++        {
++            break;
++        }
++
++        float4 v = *(float4*)(y + uint64_t(t) * Y_STRIDE + group * 128 + lane * 4);
++        float d = e4m3_group_scale(v);
++#if F8_QOUT_DBG == 2
++        continue;
++#endif
++        uint8_t* row = qout + uint64_t(t) * (N + N / 32);
++        *(uint*)(row + group * 128 + lane * 4) = e4m3_pack4(v, d);
++        if (lane == 0)
++        {
++            *(float*)(row + N + group * 4) = d;
++        }
++    }
++}
++#endif
++
+ // The tile loop and the stores. PAIR: the accumulator layout is the pair layout (element e is row r0 + 8 * (e >> 2),
+ // column c0 + (e & 1) + 8 * ((e >> 1) & 1)); otherwise every element's row and column come from `index` (row * 16 + column).
+ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
+@@ -486,6 +560,9 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
+                 uint n = n0 + wn + j * 16 + (uint(index[e]) & 15);
+ #if SPLITK_FUSED
+                 if (t < p.T && n < N) yb[uint64_t(t) * N + n] = acc[i][j][e];
++#elif MULTI > 1 && SPLITK == 1
++                // The tall multi-output form: every column tile lies in one member's matrix, stored to that member's output.
++                if (t < p.T && n < N) MULTI_STORE(p, acc[i][j][e], t, n)
+ #else
+                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = acc[i][j][e];
+ #endif
+@@ -499,6 +576,10 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
+ #elif SPLITK_FUSED
+     // Grid x = token tile, y = weight tile; the last workgroup of the tile reduces it.
+     SPLITK_FINISH(p, tid, F8_THREADS, F8_BM, F8_BN, gid.x * ((N + F8_BN - 1) / F8_BN) + gid.y, t0, n0)
++#elif F8_QOUT
++#ifndef F8_QOUT_SKIP
++    fp8_qout(p.y, p.qout, p.pairs, p.T, gid, tid, t0, n0);
++#endif
+ #endif
+ }
+ 
+@@ -527,3 +608,81 @@ void gemm_fp8(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
+         fp8_tile<false>(gid, tid, p, index);
+ }
+ #endif
++
++#if defined(KERNEL_GEMM_FP8) && defined(F8_NV2)
++// ---------------------------------------------------------------------------------------------
++// PROBE: FP8 GEMM on workgroup-scope cooperative matrices (VK_NV_cooperative_matrix2): the driver stages the E4M3 tiles.
++#ifndef NV_BT
++#define NV_BT 128
++#endif
++#ifndef NV_BN
++#define NV_BN 128
++#endif
++#ifndef NV8_BK
++#define NV8_BK 128
++#endif
++typealias Nv8A = CoopMat<FloatE4M3, MemoryScope.Workgroup, NV_BT, NV8_BK, CoopMatMatrixUse.MatrixA>;
++typealias Nv8B = CoopMat<FloatE4M3, MemoryScope.Workgroup, NV8_BK, NV_BN, CoopMatMatrixUse.MatrixB>;
++typealias Nv8C = CoopMat<float, MemoryScope.Workgroup, NV_BT, NV_BN, CoopMatMatrixUse.MatrixAccumulator>;
++// Three buffers: step s writes the scales of step s + 1 while slower invocations may still read those of step s - 1.
++groupshared float nvXs[3][NV_BT];
++groupshared float nvWs[3][NV_BN];
++
++struct Nv8Scale : IFunc<float, uint32_t, uint32_t, float>
++{
++    uint buf;
++    float operator()(uint32_t r, uint32_t c, float v)
++    {
++        return v * (nvXs[buf][r] * nvWs[buf][c]);
++    }
++}
++
++[shader("compute")]
++[numthreads(256, 1, 1)]
++void gemm_fp8_nv2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
++{
++    uint tid = ltid.x;
++    uint t0 = gid.x * NV_BT, n0 = gid.y * NV_BN;
++    var lx = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(p.T, K).Stride(F8ROW, 1);
++    var lw = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(N, K).Stride(uint(ROW_BYTES), 1);
++    var wT = TensorView<2, false, 1, 0>();
++    Nv8C acc = Nv8C(0.0);
++    uint steps = K / NV8_BK;
++    // Scales of step s in buffer s % 3.
++    #define NV8_SCALES(s, b)                                                                                           \
++    if (tid < NV_BT) nvXs[b][tid] = *(float*)byteAt(p.x, uint64_t(min(t0 + tid, p.T - 1)) * F8ROW + K + (s) * 4);      \
++    else if (tid - NV_BT < NV_BN) nvWs[b][tid - NV_BT] = *(float*)(rowStart(p.w, ROW_BYTES, min(n0 + tid - NV_BT, uint(N) - 1)) + uint64_t(K) + (s) * 4);
++    NV8_SCALES(0, 0)
++    for (uint s = 0; s < steps; s++)
++    {
++        uint k0 = s * NV8_BK;
++        Nv8A a = Nv8A.Load((FloatE4M3*)p.x, Nv8A(0.0), lx.Slice(t0, NV_BT, k0, NV8_BK));
++        Nv8B b = Nv8B.Load((FloatE4M3*)p.w, Nv8B(0.0), lw.Slice(n0, NV_BN, k0, NV8_BK), wT);
++#ifdef NV8_NOSCALE
++        acc = coopMatMulAdd<float, false>(a, b, acc);
++        continue;
++#endif
++        Nv8C c = coopMatMulAdd<float, false>(a, b, Nv8C(0.0));
++#ifdef NV8_BCAST
++        // Scales as broadcast tensor loads (stride 0 along the other dimension).
++        var lxs = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(p.T, N).Stride(F8ROW / 4, 0);
++        var lws = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(p.T, N).Stride(0, uint(ROW_BYTES / 4));
++        Nv8C sx = Nv8C.Load((float*)p.x + K / 4 + s, Nv8C(0.0), lxs.Slice(t0, NV_BT, n0, NV_BN));
++        Nv8C sw = Nv8C.Load((float*)p.w + K / 4 + s, Nv8C(0.0), lws.Slice(t0, NV_BT, n0, NV_BN));
++        acc = acc + c * sx * sw;
++#else
++        if (s + 1 < steps)
++        {
++            NV8_SCALES(s + 1, (s + 1) % 3)
++        }
++        GroupMemoryBarrierWithGroupSync();
++        Nv8Scale f;
++        f.buf = s % 3;
++        acc = acc + c.MapElement(f);
++#endif
++    }
++    #undef NV8_SCALES
++    var ly = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(p.T, N).Stride(Y_STRIDE, 1);
++    acc.Store(p.y, ly.Slice(t0, NV_BT, n0, NV_BN));
++}
++#endif
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs
+index 88c63b64..3c0f6d77 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Fp8Gemm.cs
+@@ -21,9 +21,15 @@ public sealed partial class GraphLowerer
+                || type == ShaderTypes.F8E4M3_B128G)
+            && k % 128 == 0;
+ 
+-    /// <summary>Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>).</summary>
+-    private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
+-        (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
++    /// <summary>
++    /// Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>); a member of a
++    /// q / k / v group without an epilogue of its own leaves the batches the group's tall multi-output form serves to it
++    /// (<see cref="EmitGeneratedFp8TallMultiGemm"/>).
++    /// </summary>
++    private void EmitFp8Gemm(MatMulPlan p, bool hasEpilogue) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
++        (tileRows, split) => Environment.GetEnvironmentVariable("SL_PROBE_NV2") == "1" && tileRows == 128 && split == 1 && p.W.Type == ShaderTypes.F8E4M3_B128R
++            ? Lib("gemm_fp8.slang", "gemm_fp8_nv2", new Dictionary<string, string>(Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)) { ["F8_NV2"] = "1" })
++            : Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true, multiTall: !hasEpilogue,
+         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
+             ? NativeFp8MemberVariants(p, quantized, xcap, min, max) : null : null,
+         nativeMinRows: NativeFp8MinRows(!_multiGemmOf.ContainsKey(p.Node)),
+@@ -148,37 +154,51 @@ public sealed partial class GraphLowerer
+         int outputs64 = MmqColumns((int)DualFp8AlwaysMaxRows) / 2;
+         int DualSplit(long r) => DualFp8Split && r <= DualFp8AlwaysMaxRows && Generated(r)
+             ? WaveFillSplit(Grid.Div(n, outputs64), k / 128, GemmWaveTiles) : 1;
++        // From qoutMin rows the generated launches also store the E4M3 rows of the readers (F8_QOUT, a launch of their own below).
++        long qoutMin = rowsMax < nativeMin && storeMin == long.MaxValue ? GeneratedFp8StoreMinRows(output, y, n, rowsMax, Generated) : long.MaxValue;
++        var qoutVariants = new List<KernelVariant>();
++        if (Environment.GetEnvironmentVariable("SL_DBG") == "1") { Console.Error.WriteLine($"DBG qoutMin={qoutMin} rowsMax={rowsMax} nativeMin={nativeMin} storeMin={storeMin} n={n} y={y.Buffer.Name}@{y.ByteOffset} dense={y.IsDense}"); }
+         foreach (int tileRows in tall ? new[] { 64, 128 } : [(int)DualFp8AlwaysMaxRows])
+         {
+             int outputs = MmqColumns(tileRows) / 2;
+-            var macros = Fp8GemmMacros(weightA.Type, n, k, tileRows, 1);
+-            macros["DUAL"] = "1";
+-            macros["KERNEL_GEMM_FP8"] = "1";
+-            var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
+-            variants.Add(new KernelVariant(b => Generated(rows(b)) && TileRows(rows(b)) == tileRows && DualSplit(rows(b)) == 1, kernel,
+-                b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, outputs))));
++            foreach (bool qout in new[] { false, true })
++            {
++                if (qout && qoutMin == long.MaxValue)
++                {
++                    continue;
++                }
++
++                var macros = Fp8GemmMacros(weightA.Type, n, k, tileRows, 1);
++                macros["DUAL"] = "1";
++                macros["KERNEL_GEMM_FP8"] = "1";
++                if (qout)
++                {
++                    macros["F8_QOUT"] = "1";
++                }
++
++                var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
++                (qout ? qoutVariants : variants).Add(new KernelVariant(
++                    b => Generated(rows(b)) && TileRows(rows(b)) == tileRows && DualSplit(rows(b)) == 1 && (rows(b) >= qoutMin) == qout, kernel,
++                    b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, outputs))));
++            }
+         }
+ 
+         Emit($"{label} fp8", nodes, variants, [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
+             [quantized, weightA, weightB], [y]);
++        if (qoutMin != long.MaxValue)
++        {
++            var copy = AddFp8StoredCopy(output!, y, n, qoutMin);
++            long pairBytes = Grid.Div(rowsMax, 64) * (n / 128) * 4;
++            var pairBuffer = NewBuffer(BufferKind.Weight, "const:fp8-qout-pairs", pairBytes, init: new byte[pairBytes]);
++            var pairs = new TensorRef(pairBuffer, 0, DataType.U32, [pairBytes / 4], [1], null);
++            if (Environment.GetEnvironmentVariable("SL_DBG") == "1") { Console.Error.WriteLine($"DBG copy={copy.Buffer.Name}@{copy.ByteOffset}+{copy.Shape[0]*copy.Shape[1]} q={quantized.Buffer.Name}@{quantized.ByteOffset}+{quantized.Shape[0]*quantized.Shape[1]} y={y.Buffer.Name}@{y.ByteOffset}+{y.Shape.Aggregate(1L,(a,d)=>a*d)*4} pairs={pairs.Buffer.Name} wa={weightA.Buffer.Name}"); }
++            Emit($"{label} fp8 e4m3 out", nodes, [.. qoutVariants],
++                [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), Pointer(copy), Pointer(pairs), TokenArg(x, rowsPerLead)],
++                [quantized, weightA, weightB], [y, copy, pairs]);
++        }
+         if (storeMin != long.MaxValue)
+         {
+-            // The readers' E4M3 rows of the output (as AddFp8CopyOutput allocates them for a norm), written by this launch from storeMin rows;
+-            // their quantize_fp8 launches run for smaller steps only (NormFp8Copy).
+-            long outRows = y.Shape.Aggregate(1L, (a, d) => a * d) / n;
+-            long allocatedRows = Fp8ActivationRows(outRows, n + n / 32);
+-            var allocation = new object();
+-            long offset = _alloc.Allocate(allocation, allocatedRows * (n + n / 32));
+-            if (!_rootScratch.TryGetValue(output!, out var list))
+-            {
+-                _rootScratch[output!] = list = [];
+-            }
+-
+-            list.Add(allocation);
+-            long[] shape = [allocatedRows, n + n / 32];
+-            var copy = new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), y.Symbol);
+-            NoteDenseScales(copy, outRows);
+-            _fp8Copies[output!] = (copy, storeMin);
++            var copy = AddFp8StoredCopy(output!, y, n, storeMin);
+             long qcap = DenseScaleCapacityOf(copy);
+             Emit($"{label} fp8 e4m3 out", nodes, NativeFp8TmaVariants(n, k, cudaEpilogue, xcap, b => rows(b) >= storeMin, rows, qcap, uniformScales),
+                 [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(copy), TokenArg(x, rowsPerLead)],
+@@ -217,6 +237,64 @@ public sealed partial class GraphLowerer
+         return true;
+     }
+ 
++    /// <summary>
++    /// Allocates the readers' E4M3 rows of <paramref name="output"/> (as AddFp8CopyOutput allocates them for a norm), which the launch
++    /// producing <paramref name="y"/> writes from <paramref name="minRows"/> rows on; the readers' quantize_fp8 launches run for smaller
++    /// steps only (NormFp8Copy).
++    /// </summary>
++    private TensorRef AddFp8StoredCopy(Value output, TensorRef y, long n, long minRows)
++    {
++        long outRows = y.Shape.Aggregate(1L, (a, d) => a * d) / n;
++        long allocatedRows = Fp8ActivationRows(outRows, n + n / 32);
++        var allocation = new object();
++        long offset = _alloc.Allocate(allocation, allocatedRows * (n + n / 32));
++        if (!_rootScratch.TryGetValue(output, out var list))
++        {
++            _rootScratch[output] = list = [];
++        }
++
++        list.Add(allocation);
++        long[] shape = [allocatedRows, n + n / 32];
++        var copy = new TensorRef(_arena, offset, DataType.U8, shape, TensorRef.DenseStrides(shape), y.Symbol);
++        NoteDenseScales(copy, outRows);
++        _fp8Copies[output] = (copy, minRows);
++        return copy;
++    }
++
++    /// <summary>
++    /// The fewest rows from which the generated dual fp8 GEMM stores the E4M3 rows of its output's readers as well (F8_QOUT of
++    /// gemm_fp8.slang: the second workgroup of each 128-output group quantizes the group's rows of y as quantize_fp8 would, so the
++    /// down projection reads the same codes without a quantize_fp8 launch), or <see cref="long.MaxValue"/> when it does not: the output
++    /// must be a dense f32 root of the arena that only GEMMs reading E4M3 rows read (<see cref="PrefillCopyCode"/>), N a multiple of
++    /// 128, and every batch from that row count on must run on the generated dual launches (<paramref name="generated"/>). Starts at
++    /// the norms' copy threshold (<see cref="NormCopyPrefillMinRows"/>). <c>SHARPLIGHT_FP8_QSTORE_MIN_ROWS=0</c> disables it.
++    /// </summary>
++    private long GeneratedFp8StoreMinRows(Value? output, TensorRef y, long n, long rowsMax, Func<long, bool> generated)
++    {
++        if (DiagnosticSwitches.Fp8StoreMinRows is <= 0 || output is null || n % 128 != 0 || y.Type != DataType.F32 || !y.IsDense || (y.Buffer != _arena && Environment.GetEnvironmentVariable("SL_DBG3") != "1")
++            || RootOf(output) != output || _fp8Copies.ContainsKey(output) || (Environment.GetEnvironmentVariable("SL_DBG3") != "1" && _seg.Outputs.Any(o => RootOf(o) == output))
++            || PrefillCopyCode(output, n) != ActivationCode.Fp8)
++        {
++            return long.MaxValue;
++        }
++
++        long min = Math.Max(NormCopyPrefillMinRows, DiagnosticSwitches.Fp8StoreMinRows ?? 0);
++        if (min > rowsMax)
++        {
++            return long.MaxValue;
++        }
++
++        for (long r = rowsMax; r >= min; r--)
++        {
++            if (!generated(r))
++            {
++                return r == rowsMax ? long.MaxValue : r + 1;
++            }
++        }
++
++        return min;
++    }
++
+     private Dictionary<string, string> Fp8GemmMacros(DataType type, long n, long k, int tileRows, int split)
+     {
+         var layout = MmqLayout(tileRows);
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.MatMul.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.MatMul.cs
+index 6c6595dc..3068b7e7 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.MatMul.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.MatMul.cs
+@@ -512,7 +512,7 @@ public sealed partial class GraphLowerer
+         {
+             var beforeFp8 = _launchCondition;
+             _launchCondition = outer;
+-            EmitFp8Gemm(plan);
++            EmitFp8Gemm(plan, epilogue is not null);
+             _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows(plan.W.Type, plan.N, plan.K);
+         }
+         else if (fp4Gemm)
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.Mmq.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.Mmq.cs
+index 2d20f5ac..c98a581c 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.Mmq.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.Mmq.cs
+@@ -161,11 +161,12 @@ public sealed partial class GraphLowerer
+     /// <paramref name="native"/> gives the launch variants of the hand-written provider GEMM for the quantized activations and a
+     /// row range from <see cref="NativeGemmMinRows"/> (same arguments), or null. <paramref name="fusedKernel"/>, when given, compiles the
+     /// split-K form that reduces in the last workgroup of each tile (splitk.slang, SPLITK_FUSED), which then replaces the partial
+-    /// launch and the reduction.
++    /// launch and the reduction. <paramref name="multiTall"/> (fp8): the launches without a K split leave the batches its q / k / v
++    /// group's tall multi-output form serves to that form (<see cref="EmitGeneratedFp8TallMultiGemm"/>).
+     /// </summary>
+     private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel,
+         bool tokenTilesFirst = false, Func<TensorRef, long, long, KernelVariant[]?>? native = null, Func<int, int, CompiledKernel>? fusedKernel = null,
+-        long? nativeMinRows = null)
++        long? nativeMinRows = null, bool multiTall = false)
+     {
+ 
+         long n = p.N;
+@@ -200,10 +201,11 @@ public sealed partial class GraphLowerer
+             direct.AddRange(nativeVariants);
+         }
+ 
++        var notTall = fp8 && multiTall ? NoteGeneratedFp8TallPart(p, quantized, minRows, rowsMax, b => InRange(b) && Split(b) == 1) : _ => true;
+         foreach (int tileRows in new[] { 64, 128 })
+         {
+             int columns = MmqColumns(tileRows);
+-            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b), fp8) == tileRows && Split(b) == 1,
++            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b), fp8) == tileRows && Split(b) == 1 && notTall(b),
+                 kernel(tileRows, 1),
+                 b => TileGrid(p.RowCount(b), tileRows, columns)));
+         }
+diff --git a/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs b/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs
+index beb8832b..45111d55 100644
+--- a/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs
++++ b/src/Sharplight.Shaders/Lowering/GraphLowerer.MultiGemm.cs
+@@ -109,6 +109,7 @@ public sealed partial class GraphLowerer
+             EmitNativeF16TallMultiGemm(group);
+             EmitNativeFp8TallMultiGemm(group);
+             EmitNativeFp4MultiGemm(group);
++            EmitGeneratedFp8TallMultiGemm(group);
+             EmitMultiGemm(group);
+             foreach (var emit in group.AfterEmit)
+             {
+@@ -577,6 +578,81 @@ public sealed partial class GraphLowerer
+         group.TallServes = serves;
+     }
+ 
++    /// <summary>
++    /// Records a member's launches on the generated FP8 GEMM without a K split (the rows <paramref name="direct"/> accepts under the current
++    /// launch condition) for its multi-output group (none: no group) and returns the condition they add: the bindings the group's tall
++    /// multi-output form does not serve.
++    /// </summary>
++    private Func<Bindings, bool> NoteGeneratedFp8TallPart(MatMulPlan p, TensorRef quantized, long minRows, long rowsMax, Func<Bindings, bool> direct)
++    {
++        if (!DiagnosticSwitches.MultiGemmTall || p.RowsPerLead != 1 || !_multiGemmOf.TryGetValue(p.Node, out var group))
++        {
++            return _ => true;
++        }
++
++        var condition = _launchCondition;
++        var part = new MultiGemmTallPart(quantized, p.W, p.Y, null, null, p.RowCount, minRows, rowsMax,
++            b => (condition?.Invoke(b) ?? true) && direct(b), TokenArg(p.X, p.RowsPerLead), Fp8: true);
++        if (!group.GeneratedFp8Parts.TryAdd(p.Node, part))
++        {
++            return _ => true;
++        }
++
++        return b => !(group.GeneratedFp8Serves?.Invoke(b) ?? false);
++    }
++
++    /// <summary>
++    /// The tall multi-output form of the generated FP8 GEMM (<c>gemm_fp8.slang</c> MULTI without a K split) over the concatenated weight
++    /// rows of a q / k / v group whose members all run there on the same E4M3 activation rows (<see cref="MultiGemmGroup.GeneratedFp8Parts"/>):
++    /// one launch instead of one per member for the batches where every member and the concatenation run without a K split, each column
++    /// tile in one member's matrix, stored to its output. The short k / v matrices alone fill 1.6 waves each (Qwen3-8B-FP8 at 2,048 rows:
++    /// 128 tiles of 128 x 128 on 82 SMs at one workgroup per SM). Each output is the product its member's launch computes (the same tile
++    /// and K order). <c>SHARPLIGHT_MULTI_GEMM_TALL=0</c> keeps the members' launches.
++    /// </summary>
++    private void EmitGeneratedFp8TallMultiGemm(MultiGemmGroup group)
++    {
++        if (group.Members.Count > MultiGemmMaxMembers || !group.Members.All(group.GeneratedFp8Parts.ContainsKey))
++        {
++            return;
++        }
++
++        var parts = group.Members.Select(m => group.GeneratedFp8Parts[m]).ToList();
++        var first = parts[0];
++        long[] widths = [.. parts.Select(pt => pt.Weight.Shape[0])];
++        int[] tileHeights = [64, 128];
++        if (parts.Any(pt => pt.Activations.Buffer != first.Activations.Buffer || pt.Activations.ByteOffset != first.Activations.ByteOffset
++                            || pt.MinRows != first.MinRows || pt.MaxRows != first.MaxRows || pt.Weight.Type != first.Weight.Type
++                            || pt.Weight.Shape[1] != first.Weight.Shape[1] || !DenseRowsOf(pt.Output, pt.Weight.Shape[0]))
++            || tileHeights.Any(h => widths.SkipLast(1).Any(w => w % MmqColumns(h) != 0)))
++        {
++            return;
++        }
++
++        long n = widths.Sum();
++        long k = first.Weight.Shape[1];
++        var rowsOf = first.Rows;
++        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b)) && QuantizedGemmSplit(n, k, rowsOf(b), 128, fp8: true) == 1;
++        var variants = tileHeights.Select(tileRows =>
++        {
++            var macros = Fp8GemmMacros(first.Weight.Type, n, k, tileRows, 1);
++            macros["MULTI"] = widths.Length.ToString(CultureInfo.InvariantCulture);
++            macros["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture);
++            macros["MULTI_O2"] = (widths.Length > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture);
++            return new KernelVariant(b => serves(b) && MmqTileRowsFor(rowsOf(b), fp8: true) == tileRows, Lib("gemm_fp8.slang", "gemm_fp8", macros),
++                b => new Grid(Grid.Div(rowsOf(b), tileRows), Grid.Div(n, MmqColumns(tileRows))));
++        }).ToArray();
++        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
++        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
++        var outer = _launchCondition;
++        _launchCondition = null;
++        // Params: x, w, y (not written by this form), yout, the other members' weights, their outputs, T.
++        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8", group.Members, variants,
++            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
++            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
++        _launchCondition = outer;
++        group.GeneratedFp8Serves = serves;
++    }
++
+     /// <summary>True when <paramref name="r"/> holds dense rows of <paramref name="width"/> values.</summary>
+     private static bool DenseRowsOf(TensorRef r, long width)
+         => r.Strides.Length >= 1 && r.Strides[^1] == 1 && r.Shape[^1] == width
+diff --git a/src/Sharplight.Shaders/Lowering/MultiGemmGroup.cs b/src/Sharplight.Shaders/Lowering/MultiGemmGroup.cs
+index 970242f4..fc1e0f56 100644
+--- a/src/Sharplight.Shaders/Lowering/MultiGemmGroup.cs
++++ b/src/Sharplight.Shaders/Lowering/MultiGemmGroup.cs
+@@ -50,4 +50,15 @@ internal sealed class MultiGemmGroup
+ 
+     /// <summary>The bindings the FP4 GEMM's multi-output form serves (null until it is emitted); the members' FP4 launches skip them.</summary>
+     public Func<Bindings, bool>? Fp4Serves { get; set; }
++
++    /// <summary>
++    /// The members' launches on the generated FP8 GEMM's tiles without a K split (<c>gemm_fp8.slang</c>), captured while they are lowered.
++    /// </summary>
++    public Dictionary<Node, MultiGemmTallPart> GeneratedFp8Parts { get; } = [];
++
++    /// <summary>
++    /// The bindings the tall multi-output form of the generated FP8 GEMM serves (null until it is emitted, or when it is not); the
++    /// members' own launches skip them.
++    /// </summary>
++    public Func<Bindings, bool>? GeneratedFp8Serves { get; set; }
+ }
+diff --git a/src/Sharplight.Shaders/SlangCompiler.cs b/src/Sharplight.Shaders/SlangCompiler.cs
+index 87d7fd4c..3bef2bc3 100644
+--- a/src/Sharplight.Shaders/SlangCompiler.cs
++++ b/src/Sharplight.Shaders/SlangCompiler.cs
+@@ -247,6 +247,11 @@ public sealed class SlangCompiler : IDisposable
+                     code = translator.Translate(kernel.Name, kernel.EntryPoint, code);
+                 }
+ 
++                if (DiagnosticSwitches.DumpKernelsDirectory is { } dumpSpv)
++                {
++                    File.WriteAllBytes(Path.Combine(dumpSpv, $"{Path.GetFileNameWithoutExtension(kernel.Name)}_{kernel.EntryPoint}_{kernel.CacheKey[..12]}.bin"), code);
++                }
++
+                 kernel.Complete(code);
+             },
+             error =>
+diff --git a/tests/Sharplight.Vulkan.Tests/Fp8GemmTests.cs b/tests/Sharplight.Vulkan.Tests/Fp8GemmTests.cs
+index 58f96f74..9adff056 100644
+--- a/tests/Sharplight.Vulkan.Tests/Fp8GemmTests.cs
++++ b/tests/Sharplight.Vulkan.Tests/Fp8GemmTests.cs
+@@ -232,6 +232,158 @@ public sealed class Fp8GemmTests
+         }
+     }
+ 
++    /// <summary>
++    /// A gate / up / down block: the dual fp8 GEMM stores the down projection's E4M3 activation rows itself at prefill batches (the
++    /// second workgroup of each 128-output group quantizes them), which must give the down product bit-identical to quantizing the
++    /// activation product in its own launch (the second graph also outputs the activation product, which keeps its quantization
++    /// separate). Repeated, since the two workgroups of a group meet through an arrival counter.
++    /// </summary>
++    [Theory]
++    [InlineData(266)]
++    [InlineData(512)]
++    [InlineData(2048)]
++    public void DualE4m3RowsMatchSeparateQuantizationBitwise(int t)
++    {
++        Gpu.Require();
++        const int K = 1024, N = 3072;
++        var type = DataType.Get("f8e4m3_b128");
++        var x = Rnd.F((long)t * K, 13);
++        List<float[]> Run(bool exposeProduct, int repeats)
++        {
++            var tg = new TG();
++            var xv = tg.InF("x", TG.T, K);
++            var g = tg.B.MatMul(xv, tg.W("wg", type, new Shape((Dim)N, (Dim)K), Rnd.WeightBytes(type, (long)N * K, 1, 0.05f)));
++            var u = tg.B.MatMul(xv, tg.W("wu", type, new Shape((Dim)N, (Dim)K), Rnd.WeightBytes(type, (long)N * K, 2, 0.05f)));
++            var h = tg.B.Mul(tg.B.Silu(g), u);
++            tg.B.Output("y", tg.B.MatMul(h, tg.W("wd", type, new Shape((Dim)K, (Dim)N), Rnd.WeightBytes(type, (long)K * N, 3, 0.05f))));
++            if (exposeProduct)
++            {
++                tg.B.Output("h", h);
++            }
++
++            using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
++            {
++                Devices = [new DeviceSlot { Device = Gpu.Device! }],
++                Compile = new CompileOptions { MaxTokens = t },
++                ReservePerDevice = 0,
++            });
++            m.SetInput(xv, MemoryMarshal.AsBytes(x.AsSpan()));
++            var p = new RunParameters();
++            p.Symbols["T"] = t;
++            var runs = new List<float[]>();
++            for (int r = 0; r < repeats; r++)
++            {
++                m.Run(p);
++                var y = new float[(long)t * K];
++                m.GetOutput<float>("y", y);
++                runs.Add(y);
++            }
++
++            return runs;
++        }
++
++        if (Environment.GetEnvironmentVariable("SL_DBG2") == "1")
++        {
++            var hs = RunH(false);
++            var hf = RunH(true);
++            int badH = Enumerable.Range(0, hs.Length).Count(i => BitConverter.SingleToInt32Bits(hs[i]) != BitConverter.SingleToInt32Bits(hf[i]));
++            Console.WriteLine($"DBG h differs in {badH} of {hs.Length}");
++        }
++
++        float[] RunH(bool dbg)
++        {
++            Environment.SetEnvironmentVariable("SL_DBG3", dbg ? "1" : "0");
++            var tg = new TG();
++            var xv = tg.InF("x", TG.T, K);
++            var g = tg.B.MatMul(xv, tg.W("wg", type, new Shape((Dim)N, (Dim)K), Rnd.WeightBytes(type, (long)N * K, 1, 0.05f)));
++            var u = tg.B.MatMul(xv, tg.W("wu", type, new Shape((Dim)N, (Dim)K), Rnd.WeightBytes(type, (long)N * K, 2, 0.05f)));
++            var h = tg.B.Mul(tg.B.Silu(g), u);
++            tg.B.Output("y", tg.B.MatMul(h, tg.W("wd", type, new Shape((Dim)K, (Dim)N), Rnd.WeightBytes(type, (long)K * N, 3, 0.05f))));
++            tg.B.Output("h", h);
++            using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
++            {
++                Devices = [new DeviceSlot { Device = Gpu.Device! }],
++                Compile = new CompileOptions { MaxTokens = t },
++                ReservePerDevice = 0,
++            });
++            m.SetInput(xv, MemoryMarshal.AsBytes(x.AsSpan()));
++            var p = new RunParameters();
++            p.Symbols["T"] = t;
++            m.Run(p);
++            var hv = new float[(long)t * N];
++            m.GetOutput<float>("h", hv);
++            var yv = new float[(long)t * K];
++            m.GetOutput<float>("y", yv);
++            Console.WriteLine($"DBG dbg={dbg} y0={yv[0]:R} y1={yv[1]:R}");
++            return hv;
++        }
++
++        var separate = Run(exposeProduct: true, 1)[0];
++        var fused = Run(exposeProduct: false, 5);
++        for (int r = 0; r < fused.Count; r++)
++        {
++            int bad = Enumerable.Range(0, separate.Length).Count(i => BitConverter.SingleToInt32Bits(fused[r][i]) != BitConverter.SingleToInt32Bits(separate[i]));
++            Assert.True(bad == 0, $"T={t}, run {r}: {bad} of {separate.Length} elements differ");
++        }
++    }
++
++    /// <summary>
++    /// Sibling projections of the same rows (q / k / v; the last width not a multiple of the column tile) run as one tall multi-output
++    /// fp8 GEMM at the batches where none of them splits K, and must give bit-identical results to each projection compiled on its own.
++    /// </summary>
++    [Theory]
++    [InlineData(300)]
++    [InlineData(1024)]
++    [InlineData(2048)]
++    public void TallSiblingsMatchSeparateBitwise(int t)
++    {
++        Gpu.Require();
++        const int K = 1024;
++        (string Name, long N)[] members = [("q", 2048), ("k", 512), ("v", 520)];
++        var x = Rnd.F((long)t * K, 11);
++        float[][] Run(IEnumerable<(string Name, long N)> group)
++        {
++            var tg = new TG();
++            var xv = tg.InF("x", TG.T, K);
++            var xn = tg.B.Mul(xv, xv);
++            var list = group.ToList();
++            foreach (var (name, n) in list)
++            {
++                var type = DataType.Get("f8e4m3_b128");
++                var w = tg.W("w" + name, type, new Shape((Dim)n, (Dim)K), Rnd.WeightBytes(type, n * K, name[0], 0.05f));
++                tg.B.Output(name, tg.B.MatMul(xn, w));
++            }
++
++            using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
++            {
++                Devices = [new DeviceSlot { Device = Gpu.Device! }],
++                Compile = new CompileOptions { MaxTokens = t },
++                ReservePerDevice = 0,
++            });
++            m.SetInput(xv, MemoryMarshal.AsBytes(x.AsSpan()));
++            var p = new RunParameters();
++            p.Symbols["T"] = t;
++            m.Run(p);
++            return [.. list.Select(member =>
++            {
++                var y = new float[t * member.N];
++                m.GetOutput<float>(member.Name, y);
++                return y;
++            })];
++        }
++
++        var together = Run(members);
++        for (int j = 0; j < members.Length; j++)
++        {
++            var alone = Run([members[j]])[0];
++            for (int i = 0; i < alone.Length; i++)
++            {
++                Assert.True(BitConverter.SingleToInt32Bits(together[j][i]) == BitConverter.SingleToInt32Bits(alone[i]),
++                    $"T={t} {members[j].Name}: element {i} differs ({together[j][i]:R} vs {alone[i]:R})");
++            }
++        }
++    }
++
+     /// <summary>With <c>matrix_fp8</c> disabled the same batches run on the f16 tensor-core GEMM.</summary>
+     /// <summary>
+     /// Decode-sized batches of weights in the hand-written FP8 GEMM's 128-row groups (N % 128 == 0, K % 512 == 0): on CUDA, 9-16 rows
