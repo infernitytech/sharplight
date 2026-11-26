@@ -96,6 +96,24 @@ VideoClip input = await reader.ReadClipAsync("in.mov", new VideoDecodeOptions { 
 `IVideoDecoder` (`FfmpegVideoDecoder`) probes files (`VideoInfo`), streams frames as RGB or I420 with timestamps (`VideoDecodeOptions`:
 range, frame limit, frame-rate resampling, scaling) and decodes the audio track to an `AudioBuffer`. All work runs on the thread pool.
 
+Long videos are written incrementally, so memory does not grow with their length: `VideoEncoderCatalog.OpenWriter(path,
+VideoStreamSettings, options)` returns an `IVideoFrameWriter` (every FFmpeg format except GIF, whose palette needs every frame:
+`IVideoEncoder.SupportsIncrementalWriting`). `WriteAsync` encodes one frame at a time, `CompleteAsync` finishes the file, and a writer
+completed early (a cancelled run) leaves a valid video of the frames written so far; disposing it without completing deletes the file.
+`VideoStreamSettings.AudioSourcePath` takes the sound track from a media file (from `AudioSourceStart` on) without decoding it into
+memory: its packets are copied as they are when the output format accepts the codec (and no `AudioCodec` is requested), else transcoded
+to the format's audio codec as the frames are written; either way the track ends with the video.
+
+```csharp
+await using var writer = videos.OpenWriter("enhanced.mp4", new VideoStreamSettings { Width = 1280, Height = 720, FramesPerSecond = 30, AudioSourcePath = "in.mp4" });
+await foreach (VideoFrame frame in decoder.ReadFramesAsync("in.mp4"))
+{
+    await writer.WriteAsync(Process(frame.ToImage()));
+}
+
+await writer.CompleteAsync();
+```
+
 The FFmpeg libraries (avutil, swresample, swscale, avcodec, avformat, avfilter of FFmpeg 9.0) are built by `native/ffmpeg/build.sh` (LGPL
 only, see `src/Sharplight.Video/THIRD-PARTY-NOTICES.md`), shipped as `runtimes/<rid>/native/` assets for win-x64, win-arm64, linux-x64,
 linux-arm64 and osx-arm64, and loaded by full path (`BundledFfmpeg`; `SHARPLIGHT_FFMPEG_DIR` points at another build of the same major
