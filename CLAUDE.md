@@ -41,6 +41,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   (built by `native/ffmpeg/build.sh`; rebuild and re-upload when the FFmpeg pins in third_party/sources.json change).
   To build it yourself (~10 min): `ZIG=$(native/sharplight_audio/install-zig.sh ~/.local/share/sharplight/zig | tail -1)
   native/ffmpeg/build.sh linux-x64 --jobs 16` (needs cmake, ninja, a host cc (for nasm), pkg-config, python3-venv).
+- CPU tiers: `SHARPLIGHT_CPU_ISA=scalar|v128|avx2|avx512|...` caps the kernels' tier (`CpuIsa`); on these Zen hosts v128
+  still has FMA3 and VEX encoding. To emulate a real pre-AVX x86 (unfused mul + add), run with `DOTNET_EnableAVX=0`.
+  Run Sharplight.Cpu.Tests under `v128` and `scalar` too when changing CPU kernels.
 - GPU tests: `SHARPLIGHT_VK_DEVICES=<i>[,<j>]` restricts the Vulkan provider to those device indices — set it to the
   GPU(s) assigned to your session on multi-GPU machines.
 - Vulkan `a / b` is only 2.5-ULP accurate (RADV, RTX 4090; the Blackwell driver happens to be exact). Where an exact
