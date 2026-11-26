@@ -126,16 +126,26 @@ struct ResizeParams { float* x; float* y; uint total; };
 #define YS_N (C * OH * OW)
 #endif
 
+// Correctly rounded a / b. Vulkan only guarantees 2.5 ULP for OpFDiv (RADV, the RTX 4090 driver: 3.5 / 0.875 comes out
+// as 3.9999998), which moves exact round-half source coordinates off the tie, so nearest picks the wrong neighbour.
+// One residual step with an exact fma restores the IEEE quotient the CPU (and ONNX Runtime) computes.
+float div_rn(float a, float b)
+{
+    float q = a / b;
+    float r = fma(-q, b, a);
+    return fma(r, 1.0 / b, q);
+}
+
 float orig_coord(float xr, float scale, float lenR, float lenO)
 {
 #if COORD == 0
-    return (xr + 0.5) / scale - 0.5;
+    return div_rn(xr + 0.5, scale) - 0.5;
 #elif COORD == 1
-    return lenR == 1.0 ? 0.0 : xr * (lenO - 1.0) / (lenR - 1.0);
+    return lenR == 1.0 ? 0.0 : div_rn(xr * (lenO - 1.0), lenR - 1.0);
 #elif COORD == 2
-    return xr / scale;
+    return div_rn(xr, scale);
 #else
-    return lenR > 1.0 ? (xr + 0.5) / scale - 0.5 : 0.0;
+    return lenR > 1.0 ? div_rn(xr + 0.5, scale) - 0.5 : 0.0;
 #endif
 }
 
@@ -165,7 +175,7 @@ void resize(uint3 dtid : SV_DispatchThreadID, uniform ResizeParams p)
     uint c = nc % C, n = nc / C;
     float* xp = p.x + uint64_t(n) * XS_N + uint64_t(c) * XS_C;
     uint64_t yi = uint64_t(n) * YS_N + (idx - n * (C * OH * OW));
-    float sh = float(OH) / float(H), sw = float(OW) / float(W);
+    float sh = div_rn(float(OH), float(H)), sw = div_rn(float(OW), float(W));
     float fy = orig_coord(float(oy), sh, float(OH), float(H));
     float fx = orig_coord(float(ox), sw, float(OW), float(W));
 #if LINEAR

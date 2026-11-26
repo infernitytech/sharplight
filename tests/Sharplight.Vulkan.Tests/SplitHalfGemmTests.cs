@@ -5,11 +5,21 @@ namespace Sharplight.Vulkan.Tests;
 
 /// <summary>
 /// The split-f16 tensor-core GEMM (<see cref="CompileOptions.SplitHalfMatMul"/>, the strict-precision default for f32 weights):
-/// its error against an f64 reference is at most that of the f32 SIMT GEMM, for values far outside f16's range too, and far
-/// below single f16 products (reduced precision).
+/// its error against an f64 reference is at most that of the f32 SIMT GEMM (or the rounding floor of its f32 step sums, see
+/// <see cref="SplitFloor"/>), for values far outside f16's range too, and far below single f16 products (reduced precision).
 /// </summary>
 public sealed class SplitHalfGemmTests
 {
+    /// <summary>
+    /// Relative RMS error the split-f16 GEMM may always reach, whatever the f32 SIMT GEMM's: the rounding of its f32 sums of
+    /// 32-value K steps. Blackwell's tensor cores accumulate the steps' f16 products round-to-nearest (about 1.5e-7 on these shapes);
+    /// Ada's (RTX 4090) align them to the largest term and truncate, which a CPU model of that accumulator puts at 1.7e-7 (24 kept
+    /// bits) to 2.5e-7 (23 bits) independent of K, and the 4090 measures 1.4e-7 to 2.2e-7. At small K (384) or on the wide-range
+    /// case the f32 SIMT GEMM's own error (1.2e-7 to 1.8e-7) is then below that, so "at most f32" holds only up to this floor. It
+    /// stays three orders of magnitude below single f16 products (2.6e-4) and dropped lo parts (the fast precision's 2.6e-4).
+    /// </summary>
+    private const double SplitFloor = 3e-7;
+
     /// <summary>
     /// Encoder-like shapes (weights ~0.03, activations ~1), shapes off the tile grid (split-K, partial tiles), and value
     /// ranges f16 cannot hold: activations up to 1e6, weights around 1e-7, rows spanning 2^±20.
@@ -52,7 +62,7 @@ public sealed class SplitHalfGemmTests
         double reduced = RelativeRms(Run(x, w, rows, k, n, split: false, reduced: true), expected);
         TestContext.Current.TestOutputHelper?.WriteLine($"[{rows} x {k}] x [{k} -> {n}] w~{weightScale} x~{activationScale}{(wideRange ? " wide" : "")}: relative rms f32 SIMT {strict:E2}, split-f16 {split:E2}, f16 {reduced:E2}");
         Assert.True(strict < 1e-6, $"strict {strict:E2}");
-        Assert.True(split <= strict * 1.1, $"split-f16 {split:E2} vs f32 SIMT {strict:E2}");
+        Assert.True(split <= Math.Max(strict * 1.1, SplitFloor), $"split-f16 {split:E2} vs f32 SIMT {strict:E2} (floor {SplitFloor:E2})");
         Assert.All(splitResult, v => Assert.True(float.IsFinite(v)));
         if (wideRange)
         {

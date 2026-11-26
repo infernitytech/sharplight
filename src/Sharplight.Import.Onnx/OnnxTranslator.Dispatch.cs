@@ -41,7 +41,7 @@ internal sealed partial class OnnxTranslator
         "TransposeMatMul", "FusedGemm", "GemmFastGelu", "ScaledSiLU", "BiasSplitGelu", "GatedRMSNorm", "CDist", "ComplexMul", "ComplexMulConj",
         "GroupNorm", "SkipGroupNorm", "NhwcMaxPool", "UnfoldTensor", "EmbedLayerNormalization", "CropAndResize", "MoE", "GatherBlockQuantized",
         "NGramRepeatBlock", "Inverse", "ExpandDims", "MatMulIntegerToFloat", "DynamicQuantizeMatMul", "QGemm", "MatMulInteger16", "QLinearWhere",
-        "WordConvEmbedding", "MurmurHash3",
+        "WordConvEmbedding", "MurmurHash3", "QAttention", "QLinearConv", "Unique", "DecoderMaskedMultiHeadAttention", "QMoE",
     ];
 
     // ai.onnx.preview operators.

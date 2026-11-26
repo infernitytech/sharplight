@@ -13,7 +13,8 @@ namespace Sharplight.Import.Onnx.Conformance;
 /// Sharplight's IR erases some ONNX element types (int64 travels as i32, double and float16 compute as f32, bool as 0/1), so values are
 /// compared numerically: integer and bool outputs exactly, float outputs with <c>|a - e| &lt;= atol + rtol·|e|</c>, where rtol is at least
 /// two units in the last place of a bfloat16 or float16 output (the reference rounds intermediate results to that precision, Sharplight
-/// computes them in f32). A scalar and a one-element vector are the same shape.
+/// computes them in f32). A scalar and a one-element vector are the same shape. Float-to-integer Cast elements the spec leaves undefined
+/// (out of range) are not compared (<see cref="UndefinedCastElements"/>).
 /// </remarks>
 internal static class NodeTestRunner
 {
@@ -242,9 +243,10 @@ internal static class NodeTestRunner
                 return new(NodeTestStatus.RunFail, Describe(e));
             }
 
+            bool[]? undefined = UndefinedCastElements(model.Graph, values);
             for (int k = 0; k < expected.Count; k++)
             {
-                if (CompareValue(outputInfos[k].Name, expected[k], actual) is { } mismatch)
+                if (CompareValue(outputInfos[k].Name, expected[k], actual, k == 0 ? undefined : null) is { } mismatch)
                 {
                     return new(NodeTestStatus.Wrong, mismatch);
                 }
@@ -252,6 +254,39 @@ internal static class NodeTestRunner
         }
 
         return NodeTestOutcome.Passed with { Pinned = pinnedNames, FallbackOps = fallbackOps };
+    }
+
+    /// <summary>
+    /// The output elements of a single float-to-integer <c>Cast</c> / <c>CastLike</c> node whose value the ONNX spec leaves undefined
+    /// (Cast: "floating point to fixed point: undefined if OOR"): input elements that are NaN, infinite or out of the target type's
+    /// range after truncation. The node tests take the expected value from numpy / ml_dtypes, whose result for those elements changed
+    /// between ml_dtypes versions (wrap-around up to 0.5, 0 since 0.7), so they are not compared. Null for every other test.
+    /// </summary>
+    private static bool[]? UndefinedCastElements(OnnxGraph graph, Dictionary<string, TestValue> values)
+    {
+        if (graph.Nodes is not [{ OpType: "Cast" or "CastLike", Domain: "" or "ai.onnx" } node] || graph.Outputs.Count != 1
+            || !values.TryGetValue(node.Inputs[0], out var input) || input.Tensor is not { IsFloat: true } source)
+        {
+            return null;
+        }
+
+        int to = graph.Outputs[0].ElemType;
+        if (!OnnxType.IsInteger(to))
+        {
+            return null;
+        }
+
+        int bits = OnnxType.ElementBits(to);
+        double min = OnnxType.IsUnsigned(to) ? 0 : -Math.Pow(2, bits - 1);
+        double max = OnnxType.IsUnsigned(to) ? Math.Pow(2, bits) - 1 : Math.Pow(2, bits - 1) - 1;
+        var undefined = new bool[source.Values.Length];
+        for (int i = 0; i < undefined.Length; i++)
+        {
+            double v = source.Values[i];
+            undefined[i] = !double.IsFinite(v) || Math.Truncate(v) < min || Math.Truncate(v) > max;
+        }
+
+        return undefined;
     }
 
     /// <summary>Import errors that pinning inputs to constants can resolve.</summary>
@@ -267,11 +302,12 @@ internal static class NodeTestRunner
     /// Compares an expected output with the graph outputs: a tensor by its name, a sequence either element by element
     /// (<see cref="OnnxGraphAdapter.SequenceElementName"/>) or as one output stacking the elements, an empty optional by its absence.
     /// </summary>
-    private static string? CompareValue(string name, TestValue expected, Dictionary<string, (long[] Shape, double[] Values, string[]? Strings)> actual)
+    private static string? CompareValue(string name, TestValue expected, Dictionary<string, (long[] Shape, double[] Values, string[]? Strings)> actual,
+        bool[]? undefined = null)
     {
         if (expected.Tensor is { } tensor)
         {
-            return actual.TryGetValue(name, out var a) ? Compare(name, tensor, a.Shape, a.Values, a.Strings) : $"output '{name}' is missing";
+            return actual.TryGetValue(name, out var a) ? Compare(name, tensor, a.Shape, a.Values, a.Strings, undefined) : $"output '{name}' is missing";
         }
 
         if (expected.Elements is not { } elements)
@@ -313,7 +349,7 @@ internal static class NodeTestRunner
         return null;
     }
 
-    private static string? Compare(string name, TestTensor expected, long[] shape, double[] values, string[]? strings)
+    private static string? Compare(string name, TestTensor expected, long[] shape, double[] values, string[]? strings, bool[]? undefined = null)
     {
         if (!SameShape(expected.Dims, shape))
         {
@@ -336,11 +372,12 @@ internal static class NodeTestRunner
             OnnxType.Float16 => 1.0 / 512,
             _ => Rtol,
         };
+        bool Differs(int i) => !(undefined is not null && i < undefined.Length && undefined[i]) && !Close(expected.Values[i], values[i], expected.IsFloat, rtol);
         for (int i = 0; i < values.Length; i++)
         {
-            if (!Close(expected.Values[i], values[i], expected.IsFloat, rtol))
+            if (Differs(i))
             {
-                int bad = Enumerable.Range(0, values.Length).Count(j => !Close(expected.Values[j], values[j], expected.IsFloat, rtol));
+                int bad = Enumerable.Range(0, values.Length).Count(Differs);
                 return $"output '{name}' [{i}] = {values[i]}, expected {expected.Values[i]} ({bad} of {values.Length} elements differ)";
             }
         }

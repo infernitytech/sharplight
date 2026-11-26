@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Tensors;
 
 namespace Sharplight.Import.Onnx;
 
@@ -107,5 +108,46 @@ internal sealed partial class OnnxTranslator
         int type = ElemTypeOf(ins[8]!);
         var (lo, hi) = OnnxFold.Range(type);
         _env[n.Outputs[0]] = Typed(Emit("Clip", [quantized], Attributes.From(("min", (float)lo), ("max", (float)hi)), name), type);
+    }
+
+    /// <summary>
+    /// QAttention: com.microsoft Attention over a quantized input and weight. Both are dequantized ((q - zp) · scale; the weight scale and
+    /// zero point per tensor or per output column) and the node runs as Attention with the same mask_index, past and attributes.
+    /// </summary>
+    private void QAttention(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        string name = Nm(n);
+        var input = Deq(ins[0]!, ins[3]!, Opt(ins, 6), name + ".x");
+        TranslatedTensor weight;
+        if (ins[1]!.IsConst && ins[4]!.IsConst && Opt(ins, 7) is null or { IsConst: true })
+        {
+            weight = TranslatedTensor.Const(DequantConst(ins[1]!.C!, ins[4]!.C!, Opt(ins, 7)?.C, 1).Reshaped(ins[1]!.C!.Dims, name + ".w"));
+        }
+        else
+        {
+            weight = TranslatedTensor.Dyn(Deq(ins[1]!, ins[4]!, Opt(ins, 7), name + ".w"));
+        }
+
+        var attention = new OnnxNode
+        {
+            Name = n.Name, OpType = "Attention", Domain = n.Domain, Inputs = n.Inputs, Outputs = n.Outputs, Attributes = n.Attributes,
+        };
+        ContribAttention(attention, [TranslatedTensor.Dyn(input), weight, Opt(ins, 2), Opt(ins, 5), Opt(ins, 8)]);
+    }
+
+    /// <summary>com.microsoft Unique: the distinct values of a 1-D tensor in order of first occurrence, inverse indices and counts.</summary>
+    private void ContribUnique(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        var x = ins[0]!.V ?? AsValue(ins[0]!);
+        var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)Math.Max(1, x.Shape.Elements());
+        var outputs = _b.Emit("Unique", [x], Attributes.From(("count_symbol", NewDynamicSymbol("unique", bound)), ("sorted", false), ("slices", false)), Nm(n));
+        int[] map = [0, 2, 3];   // y, idx (inverse indices), counts
+        for (int i = 0; i < n.Outputs.Count && i < map.Length; i++)
+        {
+            if (n.Outputs[i] != "")
+            {
+                SetDyn(n, i, outputs[map[i]]);
+            }
+        }
     }
 }
