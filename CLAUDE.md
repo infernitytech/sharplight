@@ -40,6 +40,12 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
   `llama-completion`) takes a few minutes and is the reference for architectures the pin lacks; fedora-blackwell has one in
   `~/scratch/llama.cpp-up` (#22).
+- Vision towers (mmproj): `ClipGgufMapping` maps each `clip.projector_type` onto the canonical `VisionParameters` keys that
+  `VisionTowerGraph` / `VisionPreprocessor` / `Qwen35Multimodal` interpret; a new projector is usually a table entry plus a few keys.
+  Tiny VL checkpoints are compared with transformers in `TinyQwenVlImageTests` (references written by the tools scripts named in
+  docs/model-support.md 8.3; the GGUFs come from llama.cpp HEAD's converter, which stores some projector weights in f16 regardless of
+  `--outtype`, so round them in the reference too). The language model does not yet model bidirectional attention over image rows
+  (Gemma 3, PaliGemma; #98).
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
   `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
   `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`
