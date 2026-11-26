@@ -74,7 +74,8 @@ internal sealed class StreamSegmentConnection : ISegmentConnection
         {
             _stream.ReadExactly(_receiveHeader);
             var (kind, requestId, length) = FrameHeader.Read(_receiveHeader, _maxFrameBytes);
-            var payload = length == 0 ? [] : new byte[length];
+            // Not zeroed: every byte is read into it.
+            var payload = length == 0 ? [] : GC.AllocateUninitializedArray<byte>(length);
             _stream.ReadExactly(payload);
             return new Frame(kind, requestId, payload);
         }
