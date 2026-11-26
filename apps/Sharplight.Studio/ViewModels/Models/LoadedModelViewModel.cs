@@ -26,6 +26,7 @@ internal sealed partial class LoadedModelViewModel : ObservableObject
         Sharplight.Models.ModelKinds.SpeechRecognition => "Transcribe",
         Sharplight.Models.ModelKinds.SpeechSynthesis => "Speak",
         Sharplight.Models.ModelKinds.ImageGeneration => "Image",
+        Sharplight.Models.ModelKinds.TimeSeriesForecasting => "Time series",
         ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker => "Search",
         Sharplight.Models.ModelKinds.AudioCodec or Sharplight.Models.ModelKinds.VoiceActivity => "Audio",
         Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding or Sharplight.Models.ModelKinds.ObjectDetection

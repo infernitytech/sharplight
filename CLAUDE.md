@@ -35,6 +35,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   when downloading public models there; `glslc` is at `~/.local/bin/glslc`. `$LLAMA_ROOT` (llama.cpp reference builds
   for the bench/ scripts) is not provisioned; a llama.cpp checkout at the pinned parity commit 8ca5a80 sits unbuilt in
   `~/scratch/llama.cpp`.
+- Time-series models (Sharplight.TimeSeries.Tests, #25): Hub downloads `amazon/chronos-bolt-*` / `amazon/chronos-t5-*` in
+  `~/models/timeseries/<name>`, references from `tools/timeseries-reference/reference_chronos.py <name>...` (venv with torch CPU +
+  chronos-forecasting; writes `~/models/timeseries/refs/<name>.json`). Chronos-T5 parity runs greedy (top-k 1); sampling is seeded, not torch-RNG equal.
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
   `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
   `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`

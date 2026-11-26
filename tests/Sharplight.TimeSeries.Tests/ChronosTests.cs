@@ -9,8 +9,14 @@ public class ChronosTests
     [Theory]
     [InlineData("chronos-t5-tiny", false)]
     [InlineData("chronos-t5-tiny", true)]
+    [InlineData("chronos-t5-mini", false)]
+    [InlineData("chronos-t5-mini", true)]
     [InlineData("chronos-t5-small", false)]
     [InlineData("chronos-t5-small", true)]
+    [InlineData("chronos-t5-base", false)]
+    [InlineData("chronos-t5-base", true)]
+    [InlineData("chronos-t5-large", false)]
+    [InlineData("chronos-t5-large", true, Skip = "Vulkan on NVIDIA: a decoder pass corrupts the next encoder run (#88)")]
     public async Task Greedy_forecasts_match_the_reference(string name, bool gpu)
     {
         TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));

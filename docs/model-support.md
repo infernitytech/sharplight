@@ -3546,3 +3546,32 @@ Inkling 2 GGUFs (the unsloth repository moved its files to `Old_Support/` during
 Speech TurboCTC, Nemotron 3.5 Rerank, LTX-2.5, Kandinsky Image SR, Kolibri 1.1, Sarvam 105B (transformers 5.24 now has `sarvam_mla`), ERNIE
 5.5 Flash Preview (no modeling code).
 
+
+## 26. Time series: Chronos-Bolt and Chronos (2026-11-27, issue #25)
+
+Kind `time-series`, client `ITimeSeriesForecaster` (api-overview.md "Time series"), Studio page "Time series". Models under `~/models/timeseries/<name>`
+(Hub downloads of `amazon/<name>`), references in `~/models/timeseries/refs/<name>.json` from `tools/timeseries-reference/reference_chronos.py`
+(chronos-forecasting 2.3.2, torch CPU, f32); tests in `tests/Sharplight.TimeSeries.Tests` (skip without the files).
+
+| model | architecture | params | CPU | GPU (Vulkan) | `.slm` |
+|---|---|---|---|---|---|
+| chronos-bolt-tiny / mini / small / base | `chronos_bolt` | 9M / 21M / 48M / 205M | quantiles within 1e-6 of the forecast range | same | yes |
+| chronos-t5-tiny / mini / small / base / large | `chronos` | 8M / 20M / 46M / 200M / 710M | greedy paths identical (within float rounding) | same | yes |
+
+**Chronos-Bolt** (`ChronosBoltModelForForecasting`): the input residual block embeds patches of 16 values plus their observation mask, a register token
+row follows, the T5 encoder runs over 129 rows, and one decoder step from the start token cross-attends to it; the output residual block gives
+9 quantiles x 64 steps. The graph is built for the full 2048-value context; shorter histories are left-padded with missing values and their
+patches masked out of the attention, which is exact (T5's position bias depends only on distances). Longer horizons use the reference's
+heuristic (each quantile forecast extends its own context, the 81 forecasts per step are reduced to quantiles again).
+
+**Chronos** (`T5ForConditionalGeneration` with the `MeanScaleUniformBins` tokenizer): the existing `encoder_decoder` graphs with the decoder's
+cross-attention cached per context (`encoder.variable_rows` adds the source-span input for contexts shorter than 513 tokens). The host
+mean-scales, quantizes into 4093 bins (`torch.bucketize` semantics), samples every path (temperature, top-k 50 by default, the end token
+suppressed) and maps tokens back to the bin centers; longer horizons continue from the median path (`torch.median`: the lower middle
+sample). Sampled paths are not comparable with torch's RNG, so the parity cases decode greedily; seeded sampling is reproducible.
+
+Deviation: missing values inside a Chronos context become padding tokens that stay visible to the attention (the reference masks them; the
+encoder graph has no key mask); leading missing values are dropped, which is exact. Chronos-Bolt handles missing values exactly.
+
+Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates), TimesFM, Moirai (follow-up issues), batching several series in one
+pass, an HTTP forecasting endpoint.

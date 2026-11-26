@@ -788,6 +788,11 @@
     <Setter Property="SecondaryStroke" Value="{DynamicResource AccentSecondaryBrush}" />
     <Setter Property="AxisBrush" Value="{DynamicResource GridLineBrush}" />
   </Style>
+  <Style Selector="c|ForecastChart">
+    <Setter Property="HistoryStroke" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="ForecastStroke" Value="{DynamicResource AccentSecondaryBrush}" />
+    <Setter Property="AxisBrush" Value="{DynamicResource GridLineBrush}" />
+  </Style>
   <Style Selector="c|BarChart">
     <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
     <Setter Property="SecondaryFill" Value="{DynamicResource AccentSecondaryBrush}" />

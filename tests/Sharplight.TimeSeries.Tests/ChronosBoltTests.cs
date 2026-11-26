@@ -6,8 +6,12 @@ public class ChronosBoltTests
     [Theory]
     [InlineData("chronos-bolt-tiny", false)]
     [InlineData("chronos-bolt-tiny", true)]
+    [InlineData("chronos-bolt-mini", false)]
+    [InlineData("chronos-bolt-mini", true)]
     [InlineData("chronos-bolt-small", false)]
     [InlineData("chronos-bolt-small", true)]
+    [InlineData("chronos-bolt-base", false)]
+    [InlineData("chronos-bolt-base", true)]
     public async Task Forecasts_match_the_reference(string name, bool gpu)
     {
         TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));

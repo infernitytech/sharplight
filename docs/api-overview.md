@@ -186,6 +186,7 @@ of an `.slm` package) into a `TaskModel`. What an application calls is a **task 
 | `music-generation` | `IMusicGenerator` | `GenerateAsync(MusicGenerationRequest)`, `GenerateCodesAsync` | `GenerateStreamingAsync` → `AudioGenerationUpdate` (code frames, audio pieces) | `MusicGenerationOptions` (guidance, sampling, seed); `Defaults` → `MusicGenerationDefaults` | `AudioGenerationResult`, `CodecCodes` |
 | `text-embedding` | `ITextEmbedder` | `EmbedAsync(texts)`, `EmbedTokensAsync` | - | `TextEmbeddingOptions` (prompt, dimensions, truncation) | `EmbeddingResult` |
 | `text-reranking` | `ITextReranker` | `RerankAsync(query, documents)` | - | `RerankOptions` (instruction, truncation) | `RerankResult` |
+| `time-series` | `ITimeSeriesForecaster` | `ForecastAsync(history)` (one univariate series, NaN = missing) | - | `TimeSeriesForecastOptions` (horizon, quantile levels; samples, temperature, top-k, seed for sampling models) | `TimeSeriesForecast` (per quantile level the forecast of every step, `Mean`) |
 
 Conventions shared by all task clients: each is registered with `services.Add<Client>(o => ...)` (or `AddTaskClient<TClient>`), every
 method is `...Async` and takes a `CancellationToken` last; per-request options are immutable records (derive variants with `with`) whose
@@ -619,6 +620,23 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   the same family as `Auxiliary[AuxiliaryRoles.TextEncoder]` and `Auxiliary[AuxiliaryRoles.Vae]` (`WanCompanionAdapter` merges its umT5
   encoder, tokenizer and VAE).
 - `sharplight-generate-video` (samples/Sharplight.GenerateVideo) is a command-line front end.
+
+### Time series
+
+`time-series` models forecast one univariate series (`Sharplight.TimeSeries`): Chronos-Bolt (`chronos_bolt`) and the original Chronos (`chronos`), imported from their Hugging Face
+checkpoints (T5 configs with a `chronos_config`, so the importer tells them apart by that section). `TimeSeriesGraphs` documents both contracts. Chronos-Bolt is one graph
+(`forecast`: scaled patches and the patch mask in, the scaled forecast of each of its nine quantile levels out); the host does the instance normalization and patching, so a
+history of any length up to `ContextLength` (2048) runs through the same compiled graph. Chronos is the T5 encoder-decoder of `EncoderDecoderAdapter` over 4096 value bins; the host
+mean-scales and quantizes the context, encodes it once and samples `SampleCount` paths token by token (cross-attention cached per context), and the quantiles are the samples'
+empirical quantiles. Horizons beyond `PredictionLength` (64) follow the reference pipelines (Chronos-Bolt: each quantile forecast extends its own context; Chronos: the median path
+does). Levels other than the native ones are interpolated as the reference does. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
+
+```csharp
+using var forecaster = provider.GetRequiredService<TaskClientProvider>().Create<ITimeSeriesForecaster>(model);
+var table = TimeSeriesTable.Load("sales.csv");
+TimeSeriesForecast forecast = await forecaster.ForecastAsync(table.Column("sales").Values, new TimeSeriesForecastOptions { Horizon = 48 });
+float[] median = forecast.Quantile(0.5f), low = forecast.Quantile(0.1f), high = forecast.Quantile(0.9f);
+```
 
 ### Video enhancement
 

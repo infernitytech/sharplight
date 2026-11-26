@@ -284,7 +284,7 @@ internal static class ModelInspector
 
     /// <summary>
     /// The kind of a checkpoint folder by its <c>config.json</c>: the speech-recognition families recognize speech, a Kokoro configuration (the <c>istftnet</c> section) and a folder
-    /// named like Orpheus (a language model that speaks through a codec) synthesize it, everything else is a language model.
+    /// named like Orpheus (a language model that speaks through a codec) synthesize it, a <c>chronos_config</c> section forecasts time series, everything else is a language model.
     /// </summary>
     private static string KindOfConfig(string config, string folder)
     {
@@ -305,6 +305,11 @@ internal static class ModelInspector
         }
 
         string? modelType = root.TryGetProperty("model_type", out var type) && type.ValueKind == System.Text.Json.JsonValueKind.String ? type.GetString() : null;
+        if (root.TryGetProperty("chronos_config", out var chronos) && chronos.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            return ModelKinds.TimeSeriesForecasting;   // Chronos and Chronos-Bolt: T5 configs with the forecaster's settings
+        }
+
         if (modelType is not null && s_speechRecognitionModelTypes.Contains(modelType))
         {
             return ModelKinds.SpeechRecognition;
