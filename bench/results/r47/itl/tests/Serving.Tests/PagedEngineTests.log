@@ -1,0 +1,13 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Serving.Tests
+[0m[37m  Discovered:  Sharplight.Serving.Tests
+[0m[37m  Starting:    Sharplight.Serving.Tests
+[0m[91m    Sharplight.Serving.Tests.PagedEngineTests.GrowingSequences_ArePreempted_AndRecomputed [FAIL]
+[0m[37m      expected a preemption
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Serving.Tests/PagedEngineTests.cs(44,0): at Sharplight.Serving.Tests.PagedEngineTests.GrowingSequences_ArePreempted_AndRecomputed()
+[0m[37m        --- End of stack trace from previous location ---
+[0m[37m  Finished:    Sharplight.Serving.Tests (ID = 'dcfea2f17c8b7c640910173e96b6e9ede7ebcd1f176be1bf5704b4ab25cefb47')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Serving.Tests  Total: 5, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 0.382s
+[0m[0m
