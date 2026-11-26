@@ -315,7 +315,7 @@ public sealed class DecoderAdapter : IModelAdapter
             [WellKnown.EmbeddingPooling] = graphBuilder.Pooling,
             [WellKnown.EmbeddingNormalize] = graphBuilder.Normalize,
             [WellKnown.CausalAttention] = hp.Causal,
-            [WellKnown.ClassifierLabels] = hp.Vocab,
+            [WellKnown.ClassifierLabels] = !hp.Causal && SequenceClassifierHead.IsPresent(src) ? SequenceClassifierHead.LabelCount(src) : hp.Vocab,
         };
         if (SpanScoring.IsPresent(src))
         {

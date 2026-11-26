@@ -22,6 +22,7 @@ public static partial class CatalogValidator
     [
         AuxiliaryRoles.Mmproj, AuxiliaryRoles.Draft, AuxiliaryRoles.Vocoder, AuxiliaryRoles.TextEncoder, AuxiliaryRoles.SecondTextEncoder,
         AuxiliaryRoles.ThirdTextEncoder, AuxiliaryRoles.Vae, AuxiliaryRoles.Lora, AuxiliaryRoles.SecondTransformer, AuxiliaryRoles.ImageEncoder,
+        AuxiliaryRoles.TinyVae, AuxiliaryRoles.ControlNet,
     ];
 
     /// <summary>The kind of text embedding models (not a <see cref="ModelKinds"/> value).</summary>
