@@ -54,20 +54,26 @@ public class InklingFamilyServingTests
         var check = GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(header), GgufHeaderProbe.ReadTensorTable(header)!);
         Assert.True(check.IsAccepted, string.Join(" ", check.Problems));
 
-        string hf2 = Path.Combine(Models, "hf/tiny-random-inkling2");
-        if (Directory.Exists(hf2))
-        {
-            string config2 = File.ReadAllText(Path.Combine(hf2, "config.json"));
-            Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(config2)));
-            Assert.Empty(HfSupport.Validate(config2));
-        }
-
-        foreach (string path in Directory.Exists(hf2) ? new[] { hf, gguf, hf2 } : [hf, gguf])
+        foreach (string path in new[] { hf, gguf })
         {
             using var device = OpenDevice(vulkan: false);
             using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64 });
             Assert.Equal(1024, model.Tokenizer.VocabSize);
         }
+    }
+
+    /// <summary>The header-only check accepts the tiny Inkling 2 checkpoint (release layout) that the importer loads.</summary>
+    [Fact]
+    public void Inkling2_HeaderOnlyCheck_AgreesWithTheImport()
+    {
+        string hf = Path.Combine(Models, "hf/tiny-random-inkling2");
+        Assert.SkipUnless(Directory.Exists(hf), "tiny Inkling 2 checkpoint not present");
+        string config = File.ReadAllText(Path.Combine(hf, "config.json"));
+        Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(config)));
+        Assert.Empty(HfSupport.Validate(config));
+        using var device = OpenDevice(vulkan: false);
+        using var model = LlmModel.Load(TestHost.Loader, hf, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64 });
+        Assert.Equal(1024, model.Tokenizer.VocabSize);
     }
 
     [Theory]
