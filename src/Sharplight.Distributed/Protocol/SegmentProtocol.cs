@@ -7,7 +7,7 @@ internal static class SegmentProtocol
     public const uint Magic = 0x57534C53;
 
     /// <summary>Protocol version; both ends must speak the same one.</summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary><see cref="Transport.FrameKind.Hello"/> role: a coordinator that compiles and runs segments.</summary>
     public const byte CoordinatorRole = 1;

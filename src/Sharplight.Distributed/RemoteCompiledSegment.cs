@@ -69,6 +69,15 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
     /// <summary>Asynchronous unless its ops produce data-dependent symbols, which later segments need at once.</summary>
     public bool ExecutesAsynchronously => _producedSymbols.Count == 0;
 
+    /// <summary>How the narrowed boundary values travel.</summary>
+    internal BoundaryPrecision Precision { get; init; }
+
+    /// <summary>The inputs that travel in <see cref="Precision"/> (by input index); none by default.</summary>
+    internal bool[] NarrowInputs { get; init; } = [];
+
+    /// <summary>The outputs that travel in <see cref="Precision"/> (by output index); none by default.</summary>
+    internal bool[] NarrowOutputs { get; init; } = [];
+
     /// <summary>The worker's handle of the compiled segment.</summary>
     internal uint Handle => _handle;
 
@@ -81,13 +90,15 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
     public void SetInput(Value value, ReadOnlySpan<byte> data)
     {
         int i = _inputIndex[value];
-        if (_inputs[i] is not { } buffer || buffer.Length < data.Length)
+        var precision = Narrowed(NarrowInputs, i);
+        int length = BoundaryCodec.EncodedLength(data.Length, precision);
+        if (_inputs[i] is not { } buffer || buffer.Length < length)
         {
-            _inputs[i] = buffer = new byte[data.Length];
+            _inputs[i] = buffer = new byte[length];
         }
 
-        data.CopyTo(buffer);
-        _inputLengths[i] = data.Length;
+        BoundaryCodec.Encode(data, buffer, precision);
+        _inputLengths[i] = length;
         _dirty[i] = true;
     }
 
@@ -172,12 +183,14 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
             throw new InvalidOperationException($"Output {value} of remote segment {Segment.Index} was not downloaded in the last execution.");
         }
 
-        if (bytes.Length < destination.Length)
+        var precision = Narrowed(NarrowOutputs, _outputIndex[value]);
+        int decoded = BoundaryCodec.DecodedLength(bytes.Length, precision);
+        if (decoded < destination.Length)
         {
-            throw new InvalidOperationException($"Output {value}: the worker returned {bytes.Length} bytes, {destination.Length} were asked for.");
+            throw new InvalidOperationException($"Output {value}: the worker returned {decoded} bytes, {destination.Length} were asked for.");
         }
 
-        bytes.Span[..destination.Length].CopyTo(destination);
+        BoundaryCodec.Decode(bytes.Span, destination, precision);
     }
 
     public void ResetState()
@@ -215,6 +228,8 @@ internal sealed class RemoteCompiledSegment : ICompiledSegment, IDeviceForwardin
         remote.Call(FrameKind.AddForward, new PayloadWriter().UInt32(remote.Handle).Int32(remote.OutputIndex(input)).String(destination).Int64(tag));
         return true;
     }
+
+    private BoundaryPrecision Narrowed(bool[] flags, int index) => index < flags.Length && flags[index] ? Precision : BoundaryPrecision.Float32;
 
     /// <summary>Sends a request about this segment and waits for its reply; a failure fails the pipeline.</summary>
     internal Frame Call(FrameKind kind, PayloadWriter payload)

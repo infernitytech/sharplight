@@ -32,6 +32,23 @@ public sealed class RemoteSegmentOptions
     /// </summary>
     public bool PeerForwarding { get; set; } = Environment.GetEnvironmentVariable("SHARPLIGHT_REMOTE_FORWARDING") is not ("0" or "false");
 
+    /// <summary>
+    /// How f32 activations between stages on different machines travel: <see cref="BoundaryPrecision.Float32"/> (default, the results equal
+    /// a run in one process) or narrowed to 16 bits, which halves the bytes per hop. <c>SHARPLIGHT_REMOTE_BOUNDARY=f16|bf16</c> sets it too.
+    /// Graph inputs and outputs (logits, sampled tokens) are never narrowed.
+    /// </summary>
+    public BoundaryPrecision BoundaryPrecision { get; set; } = ParseBoundaryPrecision(Environment.GetEnvironmentVariable("SHARPLIGHT_REMOTE_BOUNDARY"));
+
     /// <summary>The transport to use: <see cref="Transport"/>, or TCP without TLS.</summary>
     internal ISegmentTransport ResolvedTransport => Transport ?? new TcpSegmentTransport();
+
+    /// <summary>Reads a boundary precision name (<c>f32</c>, <c>f16</c>, <c>bf16</c>; null or empty: f32).</summary>
+    /// <exception cref="ArgumentException">Another name.</exception>
+    public static BoundaryPrecision ParseBoundaryPrecision(string? name) => name?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "f32" or "float32" => BoundaryPrecision.Float32,
+        "f16" or "fp16" or "half" or "float16" => BoundaryPrecision.Float16,
+        "bf16" or "bfloat16" => BoundaryPrecision.BFloat16,
+        _ => throw new ArgumentException($"Unknown boundary precision '{name}' (f32, f16 or bf16).", nameof(name)),
+    };
 }

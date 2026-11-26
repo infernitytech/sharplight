@@ -118,7 +118,12 @@ public sealed class RemoteComputeDevice : IComputeDevice
 
         var w = new PayloadWriter((int)blob.Length + 1024);
         CompileOptionsCodec.Write(w, options);
-        w.Byte((byte)verification).String(fingerprint).Bytes(blob.GetBuffer().AsSpan(0, (int)blob.Length));
+        w.Byte((byte)verification).String(fingerprint);
+        var precision = Options.BoundaryPrecision;
+        var narrowInputs = segment.Inputs.Select(v => BoundaryCodec.IsNarrowed(v, segment.Graph, precision)).ToArray();
+        var narrowOutputs = segment.Outputs.Select(v => BoundaryCodec.IsNarrowed(v, segment.Graph, precision)).ToArray();
+        w.Bytes(blob.GetBuffer().AsSpan(0, (int)blob.Length));
+        w.Byte((byte)precision).Indices(narrowInputs).Indices(narrowOutputs);
         Frame reply;
         try
         {
@@ -133,7 +138,12 @@ public sealed class RemoteComputeDevice : IComputeDevice
         uint handle = r.UInt32();
         long bytes = r.Int64();
         bool canCopy = r.Bool();
-        return new RemoteCompiledSegment(this, _connection, pipeline, segment, handle, bytes, canCopy, ProducedSymbols(segment));
+        return new RemoteCompiledSegment(this, _connection, pipeline, segment, handle, bytes, canCopy, ProducedSymbols(segment))
+        {
+            Precision = precision,
+            NarrowInputs = narrowInputs,
+            NarrowOutputs = narrowOutputs,
+        };
     }
 
     /// <summary>Starts <see cref="Statistics"/> again from zero executions .</summary>

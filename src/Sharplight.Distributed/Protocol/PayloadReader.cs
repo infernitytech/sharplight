@@ -41,6 +41,25 @@ internal sealed class PayloadReader(ReadOnlyMemory<byte> payload)
         }
     }
 
+    /// <summary>Flags of <paramref name="count"/> items, the indices written by <see cref="PayloadWriter.Indices"/> set.</summary>
+    public bool[] Indices(int count)
+    {
+        var flags = new bool[count];
+        int set = Count();
+        for (int i = 0; i < set; i++)
+        {
+            int index = Int32();
+            if ((uint)index >= (uint)count)
+            {
+                throw new InvalidDataException($"Corrupt segment message (index {index} of {count}).");
+            }
+
+            flags[index] = true;
+        }
+
+        return flags;
+    }
+
     public List<string> Strings()
     {
         int count = Count();
