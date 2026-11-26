@@ -39,6 +39,8 @@ public class WinogradConvTests
     [InlineData(96, 21, 19, 160)]
     public void ErrorIsNearTheDirectConv(int C, int H, int W, int O)
     {
+        // Below 256-bit vectors WinogradConvOp.Applies is false and both runs take the direct conv.
+        Assert.SkipUnless(CpuIsa.Use256, "Winograd runs only with 256-bit vectors");
         float scale = 1f / MathF.Sqrt(9 * C);
         var (exp, wino) = Run(C, H, W, O, [1, 1, 1, 1], 1, "none", true, scale);
         var (_, direct) = Run(C, H, W, O, [1, 1, 1, 1], 1, "none", false, scale);
