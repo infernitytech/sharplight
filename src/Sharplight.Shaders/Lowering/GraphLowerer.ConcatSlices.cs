@@ -33,8 +33,15 @@ public sealed partial class GraphLowerer
 
         var producers = new Dictionary<Value, Node>();
         var consumers = new Dictionary<Value, int>();
+        var stridedWriters = new HashSet<Value>();
+        var halvesGroups = units.Where(u => u.Halves is not null).Select(u => u.Halves!.Value.Group).ToHashSet();
         foreach (var unit in units)
         {
+            if (IsPlainElementwiseUnit(unit) && !halvesGroups.Contains(unit))
+            {
+                stridedWriters.UnionWith(unit.FusedOutputs ?? []);
+            }
+
             foreach (var node in unit.Nodes)
             {
                 foreach (var output in node.Outputs)
@@ -55,13 +62,13 @@ public sealed partial class GraphLowerer
             {
                 if (node.Op.Name == "Concat" && !_channelsLastConcats.ContainsKey(node.Output) && !_channelsLastParts.ContainsKey(node.Output))
                 {
-                    PlanConcatSlices(node, producers, consumers);
+                    PlanConcatSlices(node, producers, consumers, stridedWriters);
                 }
             }
         }
     }
 
-    private void PlanConcatSlices(Node concat, Dictionary<Value, Node> producers, Dictionary<Value, int> consumers)
+    private void PlanConcatSlices(Node concat, Dictionary<Value, Node> producers, Dictionary<Value, int> consumers, HashSet<Value> stridedWriters)
     {
         var y = concat.Output;
         int axis = concat.Attributes.Get<int>("axis");
@@ -71,7 +78,8 @@ public sealed partial class GraphLowerer
         }
 
         bool contiguous = HasSlices(y, axis, batchStrided: false);
-        if (!(contiguous || HasSlices(y, axis, batchStrided: true)) || concat.Inputs.Any(i => i.Rank != y.Rank || i.Shape.Dims[axis].IsSymbolic))
+        bool strided = !contiguous && axis > 0 && StaticElements(y);
+        if (!(contiguous || strided || HasSlices(y, axis, batchStrided: true)) || concat.Inputs.Any(i => i.Rank != y.Rank || i.Shape.Dims[axis].IsSymbolic))
         {
             return;
         }
@@ -92,11 +100,16 @@ public sealed partial class GraphLowerer
             start += extent;
             bool produced = producers.TryGetValue(input, out var producer) && producer.Op.Category != OpCategory.View
                             && producer.Op.Name != "Concat";
+            // A plain fused elementwise kernel stores each element through the output's strides with scalar stores, so it fills a slice
+            // strided along every outer axis at any element offset (the concatenation is its value's only reader).
+            bool stridedWrite = !contiguous && produced && stridedWriters.Contains(input) && consumers.GetValueOrDefault(input) == 1
+                                && !_channelsLastParts.ContainsKey(input) && StaticElements(input);
             bool fits = contiguous ? HasSlices(input, axis, batchStrided: false)
-                : produced && s_batchStridedWriters.Contains(producer!.Op.Name) && input.Rank == 4 && consumers.GetValueOrDefault(input) == 1
-                  && HasSlices(input, axis, batchStrided: true);
-            if (!produced || !fits || input.Type != y.Type || _segmentOutputs.Contains(input) || _concatSlices.ContainsKey(input)
-                || concat.Inputs.Count(i => i == input) != 1 || offset % 256 != 0 || bytes % 16 != 0 || bytes == 0)
+                : stridedWrite || (produced && s_batchStridedWriters.Contains(producer!.Op.Name) && input.Rank == 4 && consumers.GetValueOrDefault(input) == 1
+                  && HasSlices(input, axis, batchStrided: true));
+            bool aligned = stridedWrite ? bytes > 0 : offset % 256 == 0 && bytes % 16 == 0 && bytes > 0;
+            if (!produced || !fits || !aligned || input.Type != y.Type || _segmentOutputs.Contains(input) || _concatSlices.ContainsKey(input)
+                || concat.Inputs.Count(i => i == input) != 1)
             {
                 continue;
             }
@@ -105,6 +118,20 @@ public sealed partial class GraphLowerer
             _concatSliceRoots.Add(y);
         }
     }
+
+    /// <summary>
+    /// True for a fused elementwise group lowered by itself (<see cref="EmitElementwiseKernel"/>): no row norm, product, convolution
+    /// or expert sum computed in its kernel.
+    /// </summary>
+    private static bool IsPlainElementwiseUnit(LoweringUnit unit)
+        => unit is { Fused: not null, NormTail: null, NormHead: null, Dual: null, ConvHead: null, MatMulHead: null, ExpertSum: null, Halves: null };
+
+    /// <summary>
+    /// True when <paramref name="v"/> holds plain elements with a static shape but for the outermost axis (a dynamic batch, laid out
+    /// at its bound like every tensor of the segment).
+    /// </summary>
+    private static bool StaticElements(Value v)
+        => v.Type.BlockSize == 1 && !v.Type.IsQuantized && v.Rank >= 2 && v.Shape.Dims.Skip(1).All(d => !d.IsSymbolic);
 
     /// <summary>
     /// True when slices of <paramref name="v"/> along <paramref name="axis"/> are contiguous: plain elements, every axis before it

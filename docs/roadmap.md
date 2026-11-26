@@ -276,6 +276,9 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
     group decode with 16-bit loads (phi-3.5 q4f16 decode step at ORT CUDA's level); Vulkan Unique along an axis (the
     three remaining Vulkan conformance failures); ssd-10's strict parity gap verified as tie order (all 200 detections
     match, two near-tied boxes swap).
+  - decode steps (§120): fused elementwise kernels store into strided concatenation slices and sibling elementwise
+    groups that share an input run as one launch, so ONNX RotaryEmbedding is one launch per q / k, written in place
+    (phi-3.5 q4f16 GPU time -1.6 % Vulkan, -2.7 % CUDA).
 
   Open gaps:
   - strict Vulkan against ORT's TF32 on the RTX PRO 4500 (§37): vit 1.7-1.8x, convnext b8 1.19x, whisper 1.03x,
@@ -284,10 +287,10 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - TensorRT against fast precision (§37): convnext 1.38x (LayerNorm, the split pre-pass, a residual add through a
     transpose), mobilesam 1.31x, ssd-10 1.20x, yolov10n 1.13x, mobilenetv2 b8 1.09x. The fast 3x3 conv reaches 45-55
     TFLOPS against the GEMM's 96: next are a double-buffered conv pipeline and NHWC activations;
-  - phi-3.5 q4f16 decode at 1.04x of ORT CUDA: the f32-activation Q4_0 matvec reads about 520 GB/s; f16
-    MultiHeadAttention does not take the fused attention (f32 only), rotary runs as four elementwise launches;
-  - batch-strided concatenation slices only from Resize (convs / GEMMs / elementwise producers would need an output
-    batch stride);
+  - phi-3.5 q4f16 decode at 1.04x of ORT CUDA on the RTX PRO 4500 (0.83-0.85x on an RTX 4090, §120): the f32-activation
+    Q4_0 matvec reads about 520 GB/s; f16 MultiHeadAttention does not take the fused attention (f32 only);
+  - strided concatenation slices from Resize (batch-strided) and plain fused elementwise kernels (any outer strides, §120)
+    only: convs / GEMMs would need an output batch stride;
   - convnext b8 1.5x strict (low-K GEMMs, split-K reductions); raft 1.25x strict / 1.04x fast (SIMT bmm for the
     correlation volume, about 290 small concats); Faster / Mask R-CNN on the CPU backend 2.1-2.3x of ORT CPU;
   - `fes` for head sizes above 64; a compute-unit query (VK_NV_shader_sm_builtins / VK_AMD_shader_core_properties)
