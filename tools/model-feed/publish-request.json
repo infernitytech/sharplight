@@ -1,15 +1,12 @@
 {
   "entries": [
-    "inkling-2-mini:nvfp4-mxfp8-safetensors",
-    "embeddinggemma-2:bf16-safetensors",
-    "parakeet-ultra:f16-safetensors",
-    "qwen3-tts-12hz-1.7b-base:bf16-safetensors",
-    "qwen3-tts-12hz-0.6b-base:bf16-safetensors",
-    "qwen3-tts-12hz-1.7b-voicedesign:bf16-safetensors",
-    "nvidia-nemotron-3.5-super-vl-120b-a12b-nvfp4:nvfp4-safetensors"
+    "nvidia-nemotron-3.5-bolt-74b-a9b-24gb:mixed-precision-safetensors",
+    "nvidia-nemotron-3.5-bolt-e4b:q4-k-m-gguf-nvidia",
+    "sdxl-controlnet-canny-1.0:fp16-diffusers",
+    "sdxl-base-1.0:fp16-diffusers-taesdxl"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Bring-up round 3 (2026-11-26), official files at pinned revisions: Inkling 2 Mini (thinkingmachines, the 20.5 GB NVFP4 / MXFP8 release; partial, verified on a 32-expert cut against transformers in float32, the whole release runs), Qwen3-TTS 1.7B Base, 0.6B Base and 1.7B VoiceDesign (voice cloning and voice design, verified against qwen_tts), EmbeddingGemma 2 (google, verified against sentence-transformers) and Parakeet Ultra (moondream, verified against transformers). No entry is over 200 GB. Also Nemotron 3.5 Super-VL 120B-A12B NVFP4 from the previous request, which stopped for runner disk space (freed)."
+  "reason": "List four official packages that an earlier run (45768889634) uploaded but stopped before listing: NVIDIA Nemotron 3.5 Bolt 74B-A9B 24 GB and Bolt E4B (nvidia), the SDXL Canny ControlNet and SDXL base with TAESDXL (stabilityai). SD3.5 Medium with TAESD3 is left out: it was built from a community mirror, and the feed carries official releases only."
 }
