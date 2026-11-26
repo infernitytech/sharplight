@@ -39,7 +39,7 @@ internal static class WeightLayoutCodec
 
             if (weights.TryGetValue(name, out var w))
             {
-                weights[name] = new WeightInfo { Name = w.Name, Type = w.Type, Shape = w.Shape, Source = w.Source, InputOrder = w.InputOrder, ScaleRowBlock = block };
+                weights[name] = w.WithFacts(block, w.Activations);
             }
         }
     }

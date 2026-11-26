@@ -28,12 +28,14 @@ public class LogprobReferenceTests
     public sealed record Case(string Name, string Path, string Prompt, (int Id, double LogProb)[] Expected, double Tolerance = DefaultTolerance,
         string[]? CudaDisabled = null);
 
-    // CUDA's native NVFP4 matmuls quantize the activations to FP4 and its FP8 matmuls to FP8 (docs/cuda.md), also for weight-only (W4A16)
-    // checkpoints: 0.31 (Bolt) and 0.19 (Super-VL) off the unquantized reference, so those cases compare the dequantizing paths.
-    private static readonly string[] NativeFp4 = [DeviceFeatures.BlockScaledFp4];
-
-    private static readonly string[] NativeFp4AndFp8 =
-        [DeviceFeatures.BlockScaledFp4, DeviceFeatures.BlockScaledFp8, DeviceFeatures.NativeGemmFp8, DeviceFeatures.MatrixFp8, DeviceFeatures.Float8];
+    // The Super-VL release declares W8A8 FP8 (static per-tensor input scales) for its Mamba, attention and LM-head projections, so CUDA's FP8
+    // GEMMs quantize their activations to E4M3 as the format allows. This 8-layer cut is that sensitive to FP8 activation rounding (likely a near
+    // tie in its 22-of-512 expert selection) that it moves 0.17-0.19 with either rounding: ours (dynamic per-128-value scales) and the release's own (static scales, simulated
+    // in the reference with tools/hf-logprob-reference.py --fp8-input-scales: (99093, -4.491), (35192, -4.929), (26642, -5.179),
+    // (73731, -5.241), (26114, -5.522)) part by up to 0.31, so the case compares the products without FP8 activations. Its W4A4 NVFP4
+    // experts keep the native FP4 GEMM (0.06 off). Bolt's NVFP4 projections are weight-only (W4A16) and never take it.
+    private static readonly string[] Fp8Activations =
+        [DeviceFeatures.BlockScaledFp8, DeviceFeatures.NativeGemmFp8, DeviceFeatures.MatrixFp8, DeviceFeatures.Float8];
 
     private static readonly Case[] Cases =
     [
@@ -94,14 +96,15 @@ public class LogprobReferenceTests
         // language_model.backbone.=language_model.model.).
         new("nemotron-3.5-bolt 8 layers 'The capital of France is Paris. The capital of Germany is'", "hf/Nemotron-3.5-Bolt-74B-A9B-24GB-L8",
             "The capital of France is Paris. The capital of Germany is",
-            [(35192, -4.270), (99093, -4.419), (17893, -4.916), (75560, -5.583), (99868, -5.612)], Tolerance: 0.1, CudaDisabled: NativeFp4),
+            [(35192, -4.270), (99093, -4.419), (17893, -4.916), (75560, -5.583), (99868, -5.612)], Tolerance: 0.1),
         // NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 (the release: ModelOpt NVFP4 experts with a second-level scale per expert, FP8
         // per-tensor attention, Mamba and LM-head weights) cut to its first 8 layers (4 Mamba-2, 3 latent MoE with all 512 experts,
         // 1 attention; pinned revision ae13683). Reference: the release's remote code (modeling_nemotron_h_omni.py, torch path) in
         // float32 on the dequantized weights.
         new("nemotron-3.5-super-vl-nvfp4 8 layers 'The capital of France is Paris. The capital of Germany is'", "hf/Nemotron-3.5-Super-VL-120B-A12B-NVFP4-L8",
             "The capital of France is Paris. The capital of Germany is",
-            [(99093, -4.391), (35192, -4.766), (26642, -5.298), (73731, -5.329), (26114, -5.329)], Tolerance: 0.1, CudaDisabled: NativeFp4AndFp8),
+            [(99093, -4.391), (35192, -4.766), (26642, -5.298), (73731, -5.329), (26114, -5.329)], Tolerance: 0.1,
+            CudaDisabled: Fp8Activations),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));
