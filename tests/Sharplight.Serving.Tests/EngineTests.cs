@@ -231,10 +231,10 @@ public class EngineTests
     [InlineData(false)]
     public async Task PricedPromptChunks_SpreadPromptsWhenSmallChunksCostLessPerRow(bool priced)
     {
-        // A step's time grows with the square of its rows: prompt rows riding a decode step cost less per row in small chunks.
+        // A step's time grows faster than its rows: prompt rows riding a decode step cost less per row in small chunks.
         var d = new FakeBatchDecoder(8, maxBatchTokens: 512)
         {
-            StepDelayForRows = rows => TimeSpan.FromMilliseconds(1 + 0.0002 * rows * rows),
+            StepDelayForRows = rows => TimeSpan.FromMilliseconds(1 + 0.01 * rows + 0.00005 * rows * rows),
         };
         d.Script("a", loop: true);
         using var e = Engine(d, new EngineOptions
@@ -245,11 +245,22 @@ public class EngineTests
         var running = Enumerable.Range(0, 4).Select(_ => e.Submit(Req("r", max: 100000), cts.Token)).ToList();
         await T.WaitUntil(() => d.Steps.Count > 20);
 
-        // Prompt-bearing decode steps of different sizes, so the prices are measured.
-        int[] sizes = [20, 45, 70, 100, 30, 60, 90, 120, 25, 50, 80, 110];
-        foreach (int size in sizes)
+        // Prompt-bearing decode steps of both chunk sizes, so their prices are measured: four prompts of 90 rows in one step, then
+        // single prompts of about 110 rows.
+        for (int round = 0; round < 3; round++)
         {
-            await e.Submit(Req(new string('p', size), max: 2)).CompleteAsync();
+            var group = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('A' + 4 * round + i), 90), max: 2))).ToList();
+            foreach (var h in group)
+            {
+                await h.CompleteAsync();
+            }
+        }
+
+        // (Distinct characters: a prompt sharing a prefix with an earlier one would be served from the prefix cache.)
+        int[] sizes = [100, 110, 115, 105];
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            await e.Submit(Req(new string((char)('m' + i), sizes[i]), max: 2)).CompleteAsync();
         }
 
         // Four prompts of ~60 rows at once: at 8 sequences the large budget is 384 rows (all four in one step), the small one 128.

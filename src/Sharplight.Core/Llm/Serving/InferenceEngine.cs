@@ -1577,13 +1577,7 @@ public sealed class InferenceEngine : IDisposable
         }
 
         int small = Math.Max(1, Math.Min(large, _opt.SmallChunkRowsPerSequence));
-        int decodeRows = 0;
-        foreach (var s in _active)
-        {
-            decodeRows += !s.Prefilling && s.Replay is null ? 1 : 0;
-        }
-
-        _smallChunks = _tiles.PrefersSmallChunks(_load * small - decodeRows, _load * large - decodeRows);
+        _smallChunks = _tiles.PrefersSmallChunks((int)Math.Min((long)_load * small, _budget), (int)Math.Min((long)_load * large, _budget));
         return _smallChunks ? small : large;
     }
 
