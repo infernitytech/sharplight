@@ -45,10 +45,11 @@ public class StepShapeBucketTests
         var rng = new Random(11);
         int vocab = Math.Min(1000, model.Tokenizer.VocabSize);
         int[] Tokens(int n) => [.. Enumerable.Range(0, n).Select(_ => rng.Next(10, vocab))];
-        int[] a = Tokens(37), b = Tokens(48), c = Tokens(30), d = Tokens(20);
+        int[] a = Tokens(37), b = Tokens(48), c = Tokens(30), d = Tokens(20), f = Tokens(61);
         // A prompt and the first chunk of another (62 rows, padded to 64), that prompt's second chunk behind a decode row (24 rows, padded
         // to 64; the prompt ends on a block boundary, so a block holds pad rows only), a fork of it (which shares the slot's blocks), a
-        // third prompt behind decode rows and its continuation, then decode steps that read every cache row the pads went past.
+        // third prompt behind decode rows and its continuation, decode steps that read every cache row the pads went past, and a step of
+        // exactly 64 rows (bucketed by its runs and logits rows, no pad rows).
         SequenceInput[][] steps =
         [
             [new(0, a), new(1, b.AsMemory(0, 25), WantLogits: false)],
@@ -57,8 +58,10 @@ public class StepShapeBucketTests
             [new(0, a[2..3]), new(1, b[1..2]), new(3, c[1..2]), new(2, d)],
             [new(0, a[3..4]), new(1, b[2..3]), new(3, c[2..3]), new(2, c[..1])],
             [new(0, a[4..5]), new(1, b[3..4]), new(3, c[3..4]), new(2, c[1..2])],
+            [new(0, a[5..6]), new(1, b[4..5]), new(3, c[4..5]), new(2, f)],
+            [new(0, a[6..7]), new(1, b[5..6]), new(3, c[5..6]), new(2, f[..1])],
         ];
-        int paddedSteps = 0;
+        int paddedSteps = 0, bucketedSteps = 0;
         for (int s = 0; s < steps.Length; s++)
         {
             if (s == 2)
@@ -71,7 +74,9 @@ public class StepShapeBucketTests
             var expected = exact.Step(steps[s]).Select(m => m.ToArray()).ToArray();
             var actual = padded.Step(steps[s]).Select(m => m.ToArray()).ToArray();
             paddedSteps += padded.LastPadRows > 0 ? 1 : 0;
+            bucketedSteps += padded.LastStepBucketed ? 1 : 0;
             Assert.Equal(0, exact.LastPadRows);
+            Assert.False(exact.LastStepBucketed);
             Assert.Equal(expected.Length, actual.Length);
             for (int u = 0; u < expected.Length; u++)
             {
@@ -90,8 +95,9 @@ public class StepShapeBucketTests
             }
         }
 
-        // The prompt-bearing steps (0 to 3, each ending in a prompt chunk) are padded; decode-only steps never are.
+        // The prompt-bearing steps run in buckets: 0 to 3 padded, 6 (64 rows) by its runs and logits rows only; decode-only steps never.
         Assert.Equal(4, paddedSteps);
+        Assert.Equal(5, bucketedSteps);
     }
 
     private static IComputeDevice OpenDevice(bool gpu)

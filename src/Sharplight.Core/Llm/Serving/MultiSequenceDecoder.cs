@@ -94,6 +94,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <summary>Pad rows of the most recent step (<see cref="ShapePaddingRows"/>; diagnostics and tests).</summary>
     internal int LastPadRows { get; private set; }
 
+    /// <summary>Whether the most recent step ran in a shape bucket (<see cref="ShapePaddingRows"/>; diagnostics and tests).</summary>
+    internal bool LastStepBucketed { get; private set; }
+
     /// <summary>
     /// Rows a padded step is a multiple of: within the 64- and 128-row token tiles of the GEMMs, so a padded step runs the GEMM tiles of
     /// its real rows (benchmarks.md §R48).
@@ -663,7 +666,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         long t0 = Stopwatch.GetTimestamp();
         var (T, R) = PackInputs(inputs);
         int padRows = ShapePaddingRows(inputs, T);
+        bool bucketed = padRows >= 0;
+        padRows = Math.Max(0, padRows);
         LastPadRows = padRows;
+        LastStepBucketed = bucketed;
         if (_pool is not null)
         {
             GrowBlocksForStep(inputs, padRows);
@@ -679,7 +685,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         // last real row (sampling skips them); the results below read the real rows only.
         int runs = count;
         int logitsRows = R;
-        if (padRows > 0)
+        if (bucketed)
         {
             PadStep(inputs, T, padRows);
             T += padRows;
@@ -1116,20 +1122,22 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     }
 
     /// <summary>
-    /// Rows a prompt-bearing step (some input of several rows) is padded with up to a multiple of <see cref="StepRowsBucket"/>, so that
-    /// steps of nearby row counts, run counts and logits rows share one recorded step (and its CUDA graph) instead of each paying a
-    /// first run; 0 when <see cref="PadsStepShapes"/> is off, the step is decode-only (those shapes are prepared) or already a whole
-    /// bucket, or padding is not safe for the graph or the step. The pad rows extend the last run past its end: positions a sequence
-    /// has not reached, whose KV rows its own later rows overwrite before any query reads them. So padding needs causal attention over
-    /// paged caches with blocks for the rows (window-sized caches take blocks by position too; no recurrent state, bidirectional runs
-    /// or hidden-state inputs) and room in the slot's context.
+    /// Whether a step runs in a shape bucket, and the rows it is padded with up to a multiple of <see cref="StepRowsBucket"/>: a
+    /// prompt-bearing step (some input of several rows) of a decoder that pads (<see cref="PadsStepShapes"/>), so that steps of nearby
+    /// row counts, run counts and logits rows share one recorded step (and its CUDA graph) instead of each paying a first run.
+    /// Decode-only steps keep their exact (prepared) shapes. The pad rows extend the last run past its end: positions a sequence has
+    /// not reached, whose KV rows its own later rows overwrite before any query reads them. So bucketing needs causal attention over
+    /// paged caches (window-sized caches take blocks by position too; no recurrent state, bidirectional runs or hidden-state inputs),
+    /// and pad rows a last input of several rows with room in its slot's context and blocks for them (else the step is bucketed by its
+    /// runs and logits rows only).
     /// </summary>
+    /// <returns>The pad rows, or -1 when the step runs at its exact shape.</returns>
     private int ShapePaddingRows(IReadOnlyList<SequenceInput> inputs, int rows)
     {
         if (!PadsStepShapes || rows == inputs.Count || _pool is not { } pool || !CanTruncate || _runEndRows is not null
             || _hiddenInput is not null || _commits is not null || _snapshots is not null)
         {
-            return 0;
+            return -1;
         }
 
         int padded = Math.Min(MaxBatchTokens, (rows + StepRowsBucket - 1) / StepRowsBucket * StepRowsBucket);
@@ -1150,8 +1158,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     }
 
     /// <summary>
-    /// Appends <paramref name="padRows"/> rows to the last run of a step packed into <paramref name="rows"/> rows (repeats of its last
-    /// token at the positions after it) and fills the run table up to <see cref="SlotCount"/> with empty runs.
+    /// Appends <paramref name="padRows"/> rows (none or more) to the last run of a step packed into <paramref name="rows"/> rows (repeats of
+    /// its last token at the positions after it) and fills the run table up to <see cref="SlotCount"/> with empty runs.
     /// </summary>
     private void PadStep(IReadOnlyList<SequenceInput> inputs, int rows, int padRows)
     {
