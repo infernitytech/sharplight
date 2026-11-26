@@ -237,7 +237,6 @@ public sealed partial class GraphLowerer
     /// The K block shrinks (then the subgroups halve) until the staged slices fit <paramref name="sharedBytes"/>. With
     /// <paramref name="direct"/>, one fragment and 8 subgroups, 16 with <paramref name="wide"/> (the K block is not used).
     /// </summary>
-
     private static (int Fn, int Sg, int Bk) SkinnyConfig(long n, long k, int fm, int matrices, long sharedBytes, bool direct, bool wide = false)
     {
         int bk = k % 64 == 0 ? 64 : 32;

@@ -65,7 +65,7 @@ public sealed class SkinnyGemmTests
     }
 
     /// <summary>
-    /// Long K, where the direct path splits K over 16 subgroups (GraphLowerer.DirectSkinnyWideMinBlocks: from 6144 single, 4096 dual).
+    /// Long K, where the direct path splits K over 16 subgroups (GraphLowerer.DirectSkinnyWide: from K 6144 single, 4096 dual).
     /// </summary>
     [Theory]
     [InlineData("f8e4m3_b128", 9, false)]
