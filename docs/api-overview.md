@@ -624,12 +624,15 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
 ### Time series
 
 `time-series` models forecast one univariate series (`Sharplight.TimeSeries`): Chronos-Bolt (`chronos_bolt`) and the original Chronos (`chronos`), imported from their Hugging Face
-checkpoints (T5 configs with a `chronos_config`, so the importer tells them apart by that section). `TimeSeriesGraphs` documents both contracts. Chronos-Bolt is one graph
+checkpoints (T5 configs with a `chronos_config`, so the importer tells them apart by that section). `TimeSeriesGraphs` documents the contracts. Chronos-Bolt is one graph
 (`forecast`: scaled patches and the patch mask in, the scaled forecast of each of its nine quantile levels out); the host does the instance normalization and patching, so a
 history of any length up to `ContextLength` (2048) runs through the same compiled graph. Chronos is the T5 encoder-decoder of `EncoderDecoderAdapter` over 4096 value bins; the host
 mean-scales and quantizes the context, encodes it once and samples `SampleCount` paths token by token (cross-attention cached per context), and the quantiles are the samples'
 empirical quantiles. Horizons beyond `PredictionLength` (64) follow the reference pipelines (Chronos-Bolt: each quantile forecast extends its own context; Chronos: the median path
-does). Levels other than the native ones are interpolated as the reference does. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
+does). TimesFM 2.0 (`timesfm`) and 2.5 (`timesfm2_5`) are the third form, a decoder-only patch transformer (`patch_decoder` graph with symbolic patch rows): the host fills
+missing values, normalizes the patches (first-patch or running statistics), runs the causal graph over all patches and de-normalizes the next 128-step output patch of the
+last one; longer horizons append the point forecast and run again (TimesFM 2.5 also applies its model card's forecast flags: flip invariance, the continuous quantile head,
+non-negativity, the quantile-crossing fix). Levels other than the native ones are interpolated as the reference does. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
 
 ```csharp
 using var forecaster = provider.GetRequiredService<TaskClientProvider>().Create<ITimeSeriesForecaster>(model);

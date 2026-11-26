@@ -36,7 +36,7 @@ entries; where a page is ambiguous it goes with its output:
 | **Images** | Generate (Image: generation and editing); Vision | image generation; classification, image embedding, detection, segmentation, depth, OCR, upscaling |
 | **Video** | Generate (Video); Enhance | video generation; video enhancement (SeedVR2, also enlarges images) |
 | **Audio** | Transcribe; Speak; Music & tools (Audio) | speech recognition; speech synthesis; music and audio generation, source separation, audio tagging, codecs, voice activity |
-| **Data** | Time series | time series forecasting (Chronos, Chronos-Bolt) |
+| **Data** | Time series | time series forecasting (Chronos, Chronos-Bolt, TimesFM) |
 | **Models** | Library, Discover, Downloads, Loaded, Storage (the tabs of the Models page); Tasks | |
 
 Server, Statistics and Settings are pinned to the bottom, below the running downloads. OCR stays with Vision: the Vision page reads
@@ -714,7 +714,7 @@ switch appears: a search then takes the nearest 4x *Results* passages (at least 
 against the question with the reranker (a cross-encoder reads both together) and lists the best of them by the reranker's score; the
 run records the reranker in its metadata. The same model answers `/v1/rerank` (also `/v2/rerank`, `/rerank`) of the embedded server.
 
-**Time series** (forecasting, `time-series`, `ITimeSeriesForecaster`; Chronos and Chronos-Bolt). The input is a CSV, TSV or semicolon-separated file (choose, or drop it on the page). Its numeric
+**Time series** (forecasting, `time-series`, `ITimeSeriesForecaster`; Chronos, Chronos-Bolt and TimesFM). The input is a CSV, TSV or semicolon-separated file (choose, or drop it on the page). Its numeric
 columns are the series (empty or non-numeric cells are missing values); a leading column of dates is the time axis. *Column* picks the series to forecast (the first numeric column
 at first). The options are the *Horizon* (1 to 1024 steps; the model's prediction length when the model is chosen, longer horizons are predicted step by step with a quality
 loss), the *Interval* (50, 80 or 90 %: the shaded band is bounded by the quantile levels (1 - p) / 2 and (1 + p) / 2, so 80 % is 0.1 and 0.9) and, for sampling models (Chronos),

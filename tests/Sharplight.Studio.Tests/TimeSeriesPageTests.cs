@@ -1,5 +1,6 @@
 using Sharplight.Models;
 using Sharplight.Studio.Controls;
+using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Tests.Fakes;
 using Sharplight.Studio.ViewModels.Inference;
 using Sharplight.Studio.ViewModels.TimeSeries;
@@ -247,5 +248,20 @@ public sealed class TimeSeriesPageTests
         Assert.Equal(12, max, 6);
         var (flatMin, flatMax) = ForecastChart.ValueRange([5, 5]);
         Assert.True(flatMin < 5 && flatMax > 5);
+    }
+
+    [Theory]
+    [InlineData("timesfm-2.0-500m-pytorch", """{"architectures":["TimesFmModelForPrediction"],"model_type":"timesfm","patch_length":32}""")]
+    [InlineData("timesfm-2.5-200m-pytorch", """{"architectures":["TimesFmModelForPrediction"],"model_type":"timesfm","quantile_horizon_length":1024}""")]
+    [InlineData("timesfm-2.5-200m-transformers", """{"architectures":["TimesFm2_5ModelForPrediction"],"model_type":"timesfm2_5"}""")]
+    public void Inspector_RecognizesTimesFm_AsTimeSeriesForecasting(string name, string config)
+    {
+        using var directory = new TempDir();
+        string root = directory.File(name);
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "config.json"), config);
+        File.WriteAllBytes(Path.Combine(root, "model.safetensors"), [0]);
+
+        Assert.Equal(ModelKinds.TimeSeriesForecasting, ModelInspector.Inspect(root).Kind);
     }
 }
