@@ -7,7 +7,7 @@ namespace Sharplight.Tokenizers.Spm;
 /// Character-level BPE with ▁ for spaces and byte fallback (model "bpe"; Gemma 4): text is split into Unicode characters
 /// (spaces become ▁), characters missing from the vocabulary fall back to byte tokens <c>&lt;0xXX&gt;</c>, then the adjacent pair
 /// with the lowest merge rank is merged repeatedly (the Hugging Face BPE model with <c>byte_fallback</c>; no pre-tokenization
-/// beyond special-token splitting, so a whole prompt is one BPE unit). Merges are <c>"left right"</c> strings of vocabulary tokens.
+/// beyond special-token splitting, so a whole prompt is one BPE unit, unless <see cref="TokenizerData.SplitAtSpaceMarker"/> cuts it before every ▁). Merges are <c>"left right"</c> strings of vocabulary tokens.
 /// </summary>
 internal sealed class RankedBpeTokenizer : ByteFallbackTokenizer
 {
@@ -18,6 +18,7 @@ internal sealed class RankedBpeTokenizer : ByteFallbackTokenizer
 
     private readonly Dictionary<string, int> _toId = new(StringComparer.Ordinal);
     private readonly MergeTable _merges;
+    private readonly bool _splitAtSpaceMarker;
 
     public RankedBpeTokenizer(TokenizerData data)
         : base(data, defaultBosId: null, defaultEosId: null, defaultAddSpacePrefix: false)
@@ -28,6 +29,7 @@ internal sealed class RankedBpeTokenizer : ByteFallbackTokenizer
         }
 
         _merges = BuildMerges(data.Merges ?? []);
+        _splitAtSpaceMarker = data.SplitAtSpaceMarker ?? false;
         ResolveEndOfGeneration(data, EogNames, name => _toId.TryGetValue(name, out int id) ? id : null);
     }
 
@@ -80,7 +82,7 @@ internal sealed class RankedBpeTokenizer : ByteFallbackTokenizer
             }
 
             string withPrefix = WithSpacePrefix(fragment, atTextStart, previousWasSpecial);
-            EncodeText(withPrefix.Replace(' ', '▁'), output);
+            EncodePieces(withPrefix.Replace(' ', '▁'), output);
             previousWasSpecial = false;
             atTextStart = false;
         }
@@ -91,6 +93,26 @@ internal sealed class RankedBpeTokenizer : ByteFallbackTokenizer
         }
 
         return [.. output];
+    }
+
+    /// <summary>Merges the fragment as one unit or, with <see cref="TokenizerData.SplitAtSpaceMarker"/>, each run that starts at a ▁ on its own.</summary>
+    private void EncodePieces(string text, List<int> output)
+    {
+        if (!_splitAtSpaceMarker)
+        {
+            EncodeText(text, output);
+            return;
+        }
+
+        int start = 0;
+        for (int i = 1; i <= text.Length; i++)
+        {
+            if (i == text.Length || text[i] == '▁')
+            {
+                EncodeText(text[start..i], output);
+                start = i;
+            }
+        }
     }
 
     /// <summary>Initial symbols: one per character, or one byte token per UTF-8 byte of a character missing from the vocabulary.</summary>

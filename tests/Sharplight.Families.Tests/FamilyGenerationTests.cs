@@ -81,6 +81,10 @@ public class FamilyGenerationTests
         // Gemma 4 E4B finetune (NVIDIA Nemotron 3.5 Bolt E4B, arch gemma4): IQ4_NL per-layer embedding table, 42 layers with 18 shared-KV layers.
         new("NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL GGUF (llama.cpp)", "gguf/NVIDIA-Nemotron-3.5-Bolt-E4B/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf", "def fibonacci(n):", "text", [],
             "\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n\n# Test cases\nprint"),
+        // The same model as NVIDIA's own Q4_K_M file (NVIDIA-Nemotron-3.5-Bolt-E4B-4GB, 6.2 GB); llama.cpp b11177 gives this text on the CPU and on Vulkan.
+        new("NVIDIA-Nemotron-3.5-Bolt-E4B-4GB Q4_K_M GGUF (NVIDIA, llama.cpp)", "gguf/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB/Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf",
+            "def fibonacci(n):", "text", [],
+            "\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\n# Test cases\nprint(f\"fib"),
         // Muse Glimmer: sandwich norms, sigmoid-gated attention, NoPE global layers, weight-less embedding norm, scaled+capped logits (tiny random HF model).
         new("tiny-random-muse-glimmer HF (transformers)", "hf/tiny-random-muse-glimmer", "The capital of France is", "ids",
             [88179, 31190, 88859, 146248, 146248, 98533, 196087, 39796, 187054, 134096, 16817, 4968, 3047, 169161, 51166, 87988], ""),

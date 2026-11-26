@@ -34,7 +34,7 @@ public sealed class DiffusersImporter : IModelImporter
     /// <see cref="Open"/> rejects by name, instead of leaving them to an importer that would fail on an unknown architecture.
     /// </remarks>
     public bool CanOpen(string path)
-        => DiffusersFolder.IsFolder(path) || SingleFileCheckpoint.Kind(path) is not null || DiffusionTransformerCheckpoint.FamilyOf(path) is not null;
+        => DiffusersFolder.IsFolder(path) || ComponentFolder.WeightsFile(path) is not null || SingleFileCheckpoint.Kind(path) is not null || DiffusionTransformerCheckpoint.FamilyOf(path) is not null;
 
     /// <summary>Opens a diffusers folder, a single-file checkpoint, a transformer-only FLUX file or a stand-alone component file.</summary>
     /// <param name="path">The pipeline folder, or a <c>.safetensors</c> / <c>.ckpt</c> / <c>.gguf</c> checkpoint.</param>
@@ -42,6 +42,11 @@ public sealed class DiffusersImporter : IModelImporter
     /// <exception cref="NotSupportedException">The model is not a supported diffusion model (e.g. a diffusion transformer other than FLUX.1, not supported yet).</exception>
     public ModelSource Open(string path)
     {
+        if (ComponentFolder.WeightsFile(path) is { } componentFile)
+        {
+            return Open(componentFile);
+        }
+
         if (Directory.Exists(path))
         {
             return DiffusersFolder.Open(path);
@@ -70,6 +75,8 @@ public sealed class DiffusersImporter : IModelImporter
             Flux2Config.Architecture => Flux2Checkpoint.Open(path),
             Krea2Config.Architecture => Krea2Checkpoint.Open(path),
             LoraCheckpoint.Architecture => LoraCheckpoint.Open(path),
+            TinyAutoencoderCheckpoint.Architecture => TinyAutoencoderCheckpoint.Open(path),
+            ControlNetCheckpoint.Architecture => ControlNetCheckpoint.Open(path),
             WanConfig.Architecture => WanCheckpoint.Open(path),
             HunyuanVideoFolder.Architecture => HunyuanVideoCheckpoint.Open(path),
             LtxFolder.Architecture => LtxCheckpoint.Open(path),

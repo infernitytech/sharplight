@@ -118,6 +118,7 @@ if __name__ == "__main__":
         if want(n): embedder(n)
     if want("nomic-embed-text-v1.5"): embedder("nomic-embed-text-v1.5", trust=True)
     if want("Qwen3-Embedding-0.6B"): embedder("Qwen3-Embedding-0.6B", prompt_name="query")
-    for n in ["ms-marco-MiniLM-L6-v2", "bge-reranker-base", "bge-reranker-v2-m3"]:
+    # hs-rerank-1 and multilingual-reranker-small: ModernBERT (mmBERT-small) cross-encoders on a Gemma vocabulary.
+    for n in ["ms-marco-MiniLM-L6-v2", "bge-reranker-base", "bge-reranker-v2-m3", "hs-rerank-1", "multilingual-reranker-small"]:
         if want(n): cross_encoder(n)
     if want("Qwen3-Reranker-0.6B"): qwen3_reranker("Qwen3-Reranker-0.6B")

@@ -7,6 +7,8 @@
 // checkpoint the small files and every shard's JSON header. They are written into sparse files of the real size under the
 // scratch dir, so the real import (LlmModel.Load: importer mapping, adapter graph build, tokenizer) runs on them; tensor data
 // reads as zeros and is never needed for that. Then the chat template is rendered and a test string tokenized.
+// A checkpoint the text-generation load rejects is built once more through the loader alone, so models of the other task kinds (speech,
+// text to speech, embeddings, image generation) report their kind instead of a text-model error.
 // One tab-separated line per variant goes to stdout:
 //   repo  variant  arch  types  check  import  tokens  template
 // "check" is the header-only verdict as the compatibility check computes it (architecture mapped, every tensor type known and with
@@ -214,9 +216,12 @@ namespace ModelSweep
         public static async Task FetchCheckpointAsync(HubClient hub, HubRepository repo, string dir)
         {
             Directory.CreateDirectory(dir);
+            // A diffusers pipeline keeps each component's config and tokenizer in its own folder.
+            bool pipeline = repo.Files.Any(f => f.Path == "model_index.json");
             foreach (var file in repo.Files)
             {
-                if (file.Path.Contains('/', StringComparison.Ordinal) && !file.Path.EndsWith(".safetensors", StringComparison.Ordinal))
+                bool nested = file.Path.Contains('/', StringComparison.Ordinal);
+                if (nested && !file.Path.EndsWith(".safetensors", StringComparison.Ordinal) && !(pipeline && IsSmallModelFile(file.Name)))
                 {
                     continue;
                 }
@@ -301,6 +306,12 @@ namespace ModelSweep
         private static string CheckConfig(string dir)
         {
             string config = Path.Combine(dir, "config.json");
+            string pipeline = Path.Combine(dir, "model_index.json");
+            if (!File.Exists(config) && File.Exists(pipeline))
+            {
+                return CheckPipeline(pipeline);
+            }
+
             if (!File.Exists(config))
             {
                 return "no config.json";
@@ -341,6 +352,24 @@ namespace ModelSweep
             }
 
             return (level == SupportLevel.Partial ? "partial" : "supported") + (quantization.Method is { } m ? $" ({m})" : "");
+        }
+
+        /// <summary>A diffusers pipeline's verdict from its <c>model_index.json</c> class and components, as the importers classify it.</summary>
+        private static string CheckPipeline(string modelIndex)
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(modelIndex));
+            var root = doc.RootElement;
+            string pipelineClass = root.TryGetProperty("_class_name", out var name) ? name.GetString() ?? "" : "";
+            var components = root.EnumerateObject().Where(p => !p.Name.StartsWith('_') && p.Value.ValueKind == JsonValueKind.Array).Select(p => p.Name).ToList();
+            foreach (var importer in Loader.Importers.Importers)
+            {
+                if (importer.ClassifyPipeline(pipelineClass, components) is { } support)
+                {
+                    return support.Supported ? $"supported ({pipelineClass})" : "pipeline: " + OneLine(support.Reason);
+                }
+            }
+
+            return $"unknown pipeline {pipelineClass}";
         }
 
         /// <summary>Runs the real import on the (sparse) model and prints the result line.</summary>
@@ -408,10 +437,34 @@ namespace ModelSweep
             }
             catch (Exception error)
             {
-                import = $"FAIL {error.GetType().Name}: {OneLine(error.Message.Replace(path, "<file>", StringComparison.Ordinal))}";
+                import = TryTaskImport(path) ?? $"FAIL {error.GetType().Name}: {OneLine(error.Message.Replace(path, "<file>", StringComparison.Ordinal))}";
             }
 
             Console.WriteLine($"{repo}\t{variant}\t{arch}\t{types}\t{check}\t{import}\t{tokens}\t{template}\t{sw.ElapsedMilliseconds}ms");
+        }
+
+        /// <summary>
+        /// The import of a model that is not a text decoder (speech, text to speech, embeddings, image generation, ...): the importer mapping and the
+        /// adapter build through the loader, reported with the task kind of its description; null when that fails too (the LLM error is reported).
+        /// </summary>
+        private static string? TryTaskImport(string path)
+        {
+            try
+            {
+                var definition = Loader.Build(path);
+                var description = ModelDescription.Resolve(definition);
+                if (description.Kind == "text-generation")
+                {
+                    return null;
+                }
+
+                var kernels = definition.Weights.Values.Select(w => w.Type).Distinct().Where(type => !CpuExecutionProvider.SupportsWeightType(type)).ToList();
+                return kernels.Count == 0 ? $"ok {definition.Architecture} ({description.Kind})" : $"NO KERNEL {string.Join(",", kernels.Select(k => k.Name))}";
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         private static string RenderTemplate(LlmModel model)

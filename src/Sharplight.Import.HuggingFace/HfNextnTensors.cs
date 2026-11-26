@@ -17,6 +17,8 @@ internal static class HfNextnTensors
         ["enorm.weight"] = "embedding_norm.weight",
         ["hnorm.weight"] = "hidden_norm.weight",
         ["shared_head.norm.weight"] = "output_norm.weight",
+        // Ling 3 / LingSante (BailingMoeV3MTPLayer) names the shared head's norm final_layernorm.
+        ["final_layernorm.weight"] = "output_norm.weight",
         ["shared_head.head.weight"] = null,
         ["embed_tokens.weight"] = null,
     };

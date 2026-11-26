@@ -64,10 +64,35 @@ internal sealed class MiMoV2FlashHfMapping : HfMoeFamilyMapping
         int kvHeads = LayerKvHeadCounts(c)[layer];
         int keyRows = kvHeads * headDim;
         int valueRows = kvHeads * c.Int("v_head_dim");
-        collector.Add(w.RowSlice(layerPrefix + "attention.q.weight", 0, queryRows));
-        collector.Add(w.RowSlice(layerPrefix + "attention.k.weight", queryRows, keyRows));
-        collector.Add(w.RowSlice(layerPrefix + "attention.v.weight", queryRows + keyRows, valueRows));
+        int chunks = PreShardedChunks(c, kvHeads);
+        long chunkRows = (queryRows + keyRows + valueRows) / chunks;
+        if (w.Shape[0].Fixed != chunks * chunkRows)
+        {
+            throw new InvalidDataException($"{layerPrefix}self_attn.qkv_proj.weight: {w.Shape[0].Fixed} rows are not {chunks} slices of query, key and value rows.");
+        }
+
+        (long, long)[] Part(long offset, long rows) => [.. Enumerable.Range(0, chunks).Select(i => (i * chunkRows + offset / chunks, rows / chunks))];
+        collector.Add(w.GatherRows(layerPrefix + "attention.q.weight", Part(0, queryRows)));
+        collector.Add(w.GatherRows(layerPrefix + "attention.k.weight", Part(queryRows, keyRows)));
+        collector.Add(w.GatherRows(layerPrefix + "attention.v.weight", Part(queryRows + keyRows, valueRows)));
         return true;
+    }
+
+    /// <summary>
+    /// The slices the fused <c>qkv_proj</c> is stored in: 1 ([Q | K | V]), or for block-quantized FP8 checkpoints (MiMo-V2.6-Pro) one slice per
+    /// key-value head of <c>num_key_value_heads</c>, [Q_0 | K_0 | V_0 | Q_1 | K_1 | V_1 | ...], each quantized on its own (pre-sharded for
+    /// tensor parallelism, as vLLM's <c>mimo_v2</c> loader reads them).
+    /// </summary>
+    private int PreShardedChunks(HfConfig c, int layerKvHeads)
+    {
+        if (!c.TryGetQuantization("quantization_config", out var quantization) || !quantization.TryGetProperty("weight_block_size", out var block)
+            || block.ValueKind != JsonValueKind.Array)
+        {
+            return 1;
+        }
+
+        int chunks = c.Int("num_key_value_heads");
+        return HeadCount(c) % chunks == 0 && layerKvHeads % chunks == 0 ? chunks : 1;
     }
 
     /// <inheritdoc/>
