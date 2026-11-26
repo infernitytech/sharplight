@@ -18638,7 +18638,7 @@ several subgroups (`MQ_SG` > 1: few output rows, long K). End to end that was no
 by 0.13-0.40 in the logits at every position, at 40- and 700-token prompts (`VerificationRowInvarianceTests`). The q8
 activation quantization of the next layer amplifies each last-bit difference.
 
-Change: in row-invariant compiles (`CompileOptions.RowInvariantRows` > 0), the int-dot matvec of the formats whose single
+Change: in row-invariant Vulkan (SPIR-V) compiles (`CompileOptions.RowInvariantRows` > 0), the int-dot matvec of the formats whose single
 rows use it gets `MQ_FMA_CHAIN`. Their `dot_chunk` then writes its sum as explicit operations, marked `precise` so no
 variant can contract them differently:
 
@@ -18655,15 +18655,19 @@ Results (RTX PRO 6000 Blackwell, Vulkan):
 | test | before | after |
 |---|---|---|
 | `RowInvarianceTests.KQuantMatMul` (24 cases, incl. against the plain compile) | 10 failed | all pass |
-| `RowInvarianceTests` (all 103 cases, q4_k [2048→48] and q5_k no longer skipped) | n/a | all pass |
+| `RowInvarianceTests` (all 109 cases, q4_k [2048→48] no longer skipped, q5_k added), Vulkan and `SHARPLIGHT_TEST_PROVIDER=cuda` | n/a | all pass |
 | `VerificationRowInvarianceTests` Qwen3-0.6B Q4_K_M, prompt 40 / 700 | 0.13-0.40 logit differences | identical |
 | same, Qwen3-0.6B Q8_0 | identical | identical |
 
-On Mesa RADV, the rows of a 2-4-row step equal single-row steps too (all 103 cases pass with the plain-compile comparison
+On Mesa RADV, the rows of a 2-4-row step equal single-row steps too (all cases pass with the plain-compile comparison
 off). RADV contracts the plain single-row kernel differently, though: its rows of an invariant compile differ from a plain
 compile's in the last bit. So on RADV, speculative output on K-quant weights can still leave plain decoding at a near
 tie. The plain-compile comparison in the test therefore runs on NVIDIA only. A vendor-specific form, or the explicit form in
 plain compiles too, would close that gap; both are left open.
+
+CUDA (same lowering, Slang → CUDA C++ → NVRTC) needed no change: on main, all K-quant cases already pass there, including
+the comparison with the plain compile. With the explicit form, its rows still agreed with each other but no longer with
+NVRTC's plain compile. So `MQ_FMA_CHAIN` applies to SPIR-V targets only.
 
 Not covered: the expert int-dot matvec (`moe_mmvq`) keeps the plain sums. Its K-quant `ExpertMatMul` case passes as
 before.

@@ -88,9 +88,10 @@ public sealed class RowInvarianceTests
 
     /// <summary>
     /// K-quant weights (integer-dot matvec at every row count, K split over one to four subgroups): rows of 2-4-row steps equal
-    /// single-row steps, and on NVIDIA both equal the single-row steps of a plain compile (what decoding without speculation
-    /// computes), bit for bit. The explicit sum is the one the NVIDIA driver makes of the plain expression; Mesa RADV contracts
-    /// the plain kernel otherwise, so there speculative output on K-quant weights can still leave plain decoding at a near tie.
+    /// single-row steps, and on NVIDIA (Vulkan and CUDA) both equal the single-row steps of a plain compile (what decoding
+    /// without speculation computes), bit for bit. The explicit Vulkan sum is the one the NVIDIA driver makes of the plain
+    /// expression (CUDA keeps the plain sums, which NVRTC contracts alike in every variant); Mesa RADV contracts the plain kernel
+    /// otherwise, so there speculative output on K-quant weights can still leave plain decoding at a near tie.
     /// </summary>
     [Theory]
     [MemberData(nameof(KQuantCases))]
