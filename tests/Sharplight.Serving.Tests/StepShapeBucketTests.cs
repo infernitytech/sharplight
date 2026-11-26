@@ -89,9 +89,11 @@ public class StepShapeBucketTests
                     norm += (double)expected[u][i] * expected[u][i];
                 }
 
-                // The padded step runs other row counts (other GEMM tiles); KV rows overwritten by pad rows would be far off.
+                // The padded step runs other row counts, so on the GPU other GEMM kernels (Qwen3-0.6B Q8_0 on CUDA: up to 3.2e-2 in the
+                // decode steps after the padded ones, on every slot alike, padded or not); the CPU's products are row-invariant. KV rows
+                // written by pad rows where real rows were, or a fork sharing a pad block, are 7.6e-2 to 1.1 off on the CPU.
                 double relative = Math.Sqrt(error / Math.Max(norm, 1e-30));
-                Assert.True(relative <= (gpu ? 2e-2 : 1e-4), $"step {s}, input {u}: logits {relative:E2} (relative L2) away from the exact step");
+                Assert.True(relative <= (gpu ? 5e-2 : 1e-4), $"step {s}, input {u}: logits {relative:E2} (relative L2) away from the exact step");
             }
         }
 
