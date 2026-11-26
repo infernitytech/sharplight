@@ -1,0 +1,6 @@
+== sinks_on_fe=1
+GPU time 92.68 ms
+fe: 3.122 ms over 24 launches
+== sinks_on_fe=0
+GPU time 100.16 ms
+fa: 8.689 ms over 24 launches

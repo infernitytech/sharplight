@@ -600,12 +600,15 @@ public sealed partial class GraphLowerer
     /// it per run (also in mixed steps), with the tiles of the single-sequence form, so a prompt's rows sum alike in the session
     /// and the batch decoder (speculative decoding reproduces plain decoding). Sliding windows run it too (its key loop starts at
     /// the block's first window; <c>SHARPLIGHT_ATTN_FE_WINDOW=0</c> keeps them on <c>fa</c>: Gemma 4 31B on Vulkan, 50 window layers at
-    /// head size 256, pp2048 1551 → 1613-1629 tok/s, docs/benchmarks.md section 74); chunks, score biases, soft caps and sinks keep <c>fa</c>.
+    /// head size 256, pp2048 1551 → 1613-1629 tok/s, docs/benchmarks.md section 74); per-head sinks (gpt-oss) run it too, the sink
+    /// joining each row's denominator at the output (<c>SHARPLIGHT_ATTN_FE_SINKS=0</c> keeps them on <c>fa</c>); chunks, score biases, soft caps and
+    /// per-row sinks keep <c>fa</c>.
     /// </summary>
     private bool CausalFlash(AttentionPlan plan)
     {
         var a = plan.Node.Attributes;
-        bool plain = !plan.Full && (plan.Seq is null || plan.Runs is not null) && plan.Spans is null && plan.Sinks is null && plan.Selection is null
+        bool plain = !plan.Full && (plan.Seq is null || plan.Runs is not null) && plan.Spans is null
+                     && (plan.Sinks is null || (plan.Sinks.Rank == 1 && DiagnosticSwitches.AttentionCausalFlashSinks)) && plan.Selection is null
                      && plan.Compressed is null && plan.RelativeBias is null && a.Get("causal", true) && (a.Get("window", 0) == 0 || DiagnosticSwitches.AttentionCausalFlashWindow)
                      && a.Get("chunk", 0) == 0 && a.Get("softcap", 0f) <= 0 && a.Get<float[]?>("alibi_slopes", null) is null
                      && a.Get<float[]?>("position_bias", null) is null;
