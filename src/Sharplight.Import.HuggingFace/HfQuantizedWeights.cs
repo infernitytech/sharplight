@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Sharplight.Models;
+
 namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
@@ -6,7 +9,9 @@ namespace Sharplight.Import.HuggingFace;
 /// (<see cref="HfIntegerWeights"/>: GPTQ, AWQ, compressed-tensors), ggml blocks (<see cref="HfGgmlPackedWeights"/>, ModelOpt mixed precision), bitsandbytes (<see cref="HfBitsAndBytesWeights"/>) and MLX
 /// affine quantization (<see cref="HfMlxWeights"/>).
 /// Each format is recognized by its tensors, so checkpoints that mix formats per module work. Calibration tensors the runtime does
-/// not use (static activation and KV-cache scales) are dropped.
+/// not use (static activation and KV-cache scales) are dropped. Every converted weight carries the activation scheme its module's
+/// quantization config declares (<see cref="HfActivationSchemes"/>, <see cref="WeightInfo.Activations"/>), so kernels keep the
+/// activations of weight-only modules at full precision.
 /// </summary>
 internal static class HfQuantizedWeights
 {
@@ -17,7 +22,9 @@ internal static class HfQuantizedWeights
     /// <summary>The checkpoint tensors with every quantized weight converted and its companion tensors removed.</summary>
     /// <param name="config">The checkpoint config (its <c>quantization_config</c>).</param>
     /// <param name="tensors">The checkpoint tensors.</param>
-    public static IReadOnlyDictionary<string, SafetensorsTensor> Resolve(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors)
+    /// <param name="modelOpt">The <c>quantization</c> object of <c>hf_quant_config.json</c>, when the checkpoint has one.</param>
+    public static IReadOnlyDictionary<string, SafetensorsTensor> Resolve(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors,
+        JsonElement? modelOpt = null)
     {
         var resolved = HfFp8Weights.Resolve(config, HfTorchAoLayouts.RenameFloat8(HfQuantoLayouts.RenameFloat8(tensors)));
         resolved = HfGgmlPackedWeights.Resolve(config, resolved);
@@ -36,7 +43,27 @@ internal static class HfQuantizedWeights
             return tensors;
         }
 
+        var schemes = HfActivationSchemes.From(config, modelOpt);
         return resolved.Where(pair => !s_ignoredSuffixes.Any(suffix => pair.Key.EndsWith(suffix, StringComparison.Ordinal)))
-            .ToDictionary(StringComparer.Ordinal);
+            .ToDictionary(pair => pair.Key, pair => WithScheme(pair.Value, schemes), StringComparer.Ordinal);
+    }
+
+    /// <summary><paramref name="tensor"/>, a converted weight with the activation scheme its module declares.</summary>
+    private static SafetensorsTensor WithScheme(SafetensorsTensor tensor, HfActivationSchemes schemes)
+    {
+        if (tensor.Converted is not { Activations: ActivationScheme.Unspecified } w || schemes.For(tensor.Name) is var scheme && scheme == ActivationScheme.Unspecified)
+        {
+            return tensor;
+        }
+
+        var converted = new WeightInfo
+        {
+            Name = w.Name, Type = w.Type, Shape = w.Shape, Source = w.Source, InputOrder = w.InputOrder, ScaleRowBlock = w.ScaleRowBlock, Activations = scheme,
+        };
+        return new SafetensorsTensor
+        {
+            Name = tensor.Name, DType = tensor.DType, Type = tensor.Type, Shape = tensor.Shape, Offset = tensor.Offset, ByteLength = tensor.ByteLength,
+            File = tensor.File, Converted = converted,
+        };
     }
 }
