@@ -18,6 +18,9 @@ internal static class SeedVrConfigKeys
     /// <summary>Clips hold 1 + k · this many frames.</summary>
     public const string FrameMultiple = "frameMultiple";
 
+    /// <summary>The longest batch a whole-clip request is restored in (longer clips and frame sources are cut into batches of this many frames).</summary>
+    public const string MaxFramesPerBatch = "maxFramesPerBatch";
+
     /// <summary>VAE component: spatial compression.</summary>
     public const string SpatialDownscale = "spatialDownscale";
 

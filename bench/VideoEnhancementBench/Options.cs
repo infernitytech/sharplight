@@ -2,7 +2,7 @@ using System.Globalization;
 
 /// <summary>The command line of VideoEnhancementBench.</summary>
 internal sealed record Options(string Model, string Input, string? InputShape, int Width, int Height, string Provider, int? Batch, int Runs, int Warmup,
-    bool ReducedPrecision, string? OutputU8, string? OutputVideo, string? Json, string? Noise, string? Profile, string? Memory)
+    bool ReducedPrecision, string? OutputU8, string? OutputVideo, string? Json, string? Noise, string? Profile, string? Memory, int? Tile)
 {
     public static Options Parse(string[] args)
     {
@@ -11,6 +11,7 @@ internal sealed record Options(string Model, string Input, string? InputShape, i
             int.Parse(Get("--height") ?? "0", CultureInfo.InvariantCulture), Get("--provider") ?? "cuda",
             Get("--batch") is { } batch ? int.Parse(batch, CultureInfo.InvariantCulture) : null,
             int.Parse(Get("--runs") ?? "5", CultureInfo.InvariantCulture), int.Parse(Get("--warmup") ?? "1", CultureInfo.InvariantCulture),
-            args.Contains("--reduced-precision"), Get("--output-u8"), Get("--output-video"), Get("--json"), Get("--noise"), Get("--profile"), Get("--memory"));
+            args.Contains("--reduced-precision"), Get("--output-u8"), Get("--output-video"), Get("--json"), Get("--noise"), Get("--profile"), Get("--memory"),
+            Get("--tile") is { } tile ? int.Parse(tile, CultureInfo.InvariantCulture) : null);
     }
 }

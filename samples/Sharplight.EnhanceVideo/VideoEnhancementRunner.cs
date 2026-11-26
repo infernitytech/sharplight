@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Imaging;
 using Sharplight.Runtime;
@@ -10,13 +9,17 @@ using Sharplight.VideoEnhancement;
 
 namespace Sharplight.EnhanceVideo;
 
-/// <summary>Reads the input, loads the model through the <see cref="SampleRuntime"/> container, runs its <see cref="IVideoEnhancer"/> and writes the result.</summary>
+/// <summary>
+/// Loads the model through the <see cref="SampleRuntime"/> container and streams the input through its <see cref="IVideoEnhancer"/>: a video is
+/// decoded frame by frame, enhanced batch by batch and encoded as the batches finish (with the input's sound track), so a clip of any length
+/// runs in the memory of a few batches.
+/// </summary>
 internal sealed class VideoEnhancementRunner(EnhanceVideoSettings settings)
 {
     public async Task<int> RunAsync(CancellationToken cancellationToken)
     {
         using var runtime = new SampleRuntime();
-        var request = await ReadInputAsync(runtime.Services.GetRequiredService<VideoDecoderCatalog>(), cancellationToken);
+        var request = await OpenInputAsync(runtime.Services.GetRequiredService<VideoDecoderCatalog>(), cancellationToken);
         var provider = runtime.SelectProvider(settings.Cpu);
         using var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.Device));
         var stopwatch = Stopwatch.StartNew();
@@ -29,13 +32,13 @@ internal sealed class VideoEnhancementRunner(EnhanceVideoSettings settings)
         }, cancellationToken);
         using var enhancer = runtime.Services.GetRequiredService<TaskClientProvider>().Create<IVideoEnhancer>(model);
         Console.WriteLine($"Loaded {enhancer.Metadata.ModelName} ({enhancer.Metadata.Architecture}) on {device.Info.Name} in {stopwatch.Elapsed.TotalSeconds:F1} s");
-        var result = await EnhanceAsync(enhancer, request, cancellationToken);
-        await WriteAsync(runtime.Services.GetRequiredService<VideoEncoderCatalog>(), result, cancellationToken);
+        await using var output = new EnhancedFrameOutput(settings, runtime.Services.GetRequiredService<VideoEncoderCatalog>());
+        await EnhanceAsync(enhancer, request, output, cancellationToken);
         return ExitCodes.Success;
     }
 
-    /// <summary>A PNG becomes a one-frame request; anything else is decoded as a video.</summary>
-    private async Task<VideoEnhancementRequest> ReadInputAsync(VideoDecoderCatalog decoders, CancellationToken cancellationToken)
+    /// <summary>A PNG becomes a one-frame request; anything else is a video whose frames are decoded while the enhancement runs.</summary>
+    private async Task<VideoEnhancementRequest> OpenInputAsync(VideoDecoderCatalog decoders, CancellationToken cancellationToken)
     {
         if (!File.Exists(settings.Input))
         {
@@ -47,19 +50,22 @@ internal sealed class VideoEnhancementRunner(EnhanceVideoSettings settings)
             return VideoEnhancementRequest.FromImage(PngCodec.Read(settings.Input));
         }
 
-        if (!decoders.IsAvailable)
+        if (!decoders.TryGet(out var decoder))
         {
             throw new SampleException("No video decoder is available (the bundled FFmpeg libraries are missing).", ExitCodes.InvalidInput);
         }
 
-        var clip = await decoders.ReadClipAsync(settings.Input, new VideoDecodeOptions { Start = TimeSpan.FromSeconds(settings.Start), MaxFrames = settings.MaxFrames },
-            cancellationToken);
-        Console.WriteLine($"Read {clip.Frames.Count} frames of {clip.Width}x{clip.Height} at {clip.FramesPerSecond:F2} fps from {settings.Input}");
-        return VideoEnhancementRequest.FromClip(clip);
+        var info = await decoder.ProbeAsync(settings.Input, cancellationToken);
+        var range = new VideoDecodeOptions { Start = TimeSpan.FromSeconds(settings.Start), MaxFrames = settings.MaxFrames };
+        long expected = Math.Max(0, info.FrameCount - (long)Math.Round(settings.Start * info.FramesPerSecond));
+        expected = settings.MaxFrames is { } most ? Math.Min(expected, most) : expected;
+        Console.WriteLine($"Reading {settings.Input}: {info.Width}x{info.Height} at {info.FramesPerSecond:F2} fps, ~{expected} frames");
+        var frames = decoder.ReadFramesAsync(settings.Input, range, cancellationToken).Select(frame => frame.ToImage());
+        return VideoEnhancementRequest.FromSource(frames, info.FramesPerSecond > 0 ? info.FramesPerSecond : null, expected > 0 ? expected : null);
     }
 
-    /// <summary>One request with progress and timings per phase.</summary>
-    private async Task<VideoEnhancementResult> EnhanceAsync(IVideoEnhancer enhancer, VideoEnhancementRequest request, CancellationToken cancellationToken)
+    /// <summary>One streamed request: progress per batch, the finished frames written as they arrive.</summary>
+    private async Task EnhanceAsync(IVideoEnhancer enhancer, VideoEnhancementRequest request, EnhancedFrameOutput output, CancellationToken cancellationToken)
     {
         var options = new VideoEnhancementOptions
         {
@@ -71,54 +77,19 @@ internal sealed class VideoEnhancementRunner(EnhanceVideoSettings settings)
             Seed = settings.Seed,
         };
         var stopwatch = Stopwatch.StartNew();
-        var phaseStart = new Dictionary<VideoEnhancementPhase, double>();
-        VideoEnhancementResult? result = null;
         await foreach (var update in enhancer.EnhanceStreamingAsync(request, options, cancellationToken))
         {
-            phaseStart.TryAdd(update.Phase, stopwatch.Elapsed.TotalSeconds);
-            result = update.Result ?? result;
-            Console.Write($"\r{update.Phase,-10} batch {update.Batch + 1}/{update.TotalBatches}  {stopwatch.Elapsed.TotalSeconds:F1} s   ");
+            if (update.Frames is { } frames)
+            {
+                await output.WriteAsync(frames, update, cancellationToken);
+            }
+
+            string total = update.TotalFrames is { } count ? $"/{count}" : "";
+            Console.Write($"\r{update.Phase,-10} batch {update.Batch + 1}  frames {update.FinishedFrames}{total}  {stopwatch.Elapsed.TotalSeconds:F1} s   ");
         }
 
         Console.WriteLine();
-        double encode = phaseStart.GetValueOrDefault(VideoEnhancementPhase.Restoring) - phaseStart.GetValueOrDefault(VideoEnhancementPhase.Encoding);
-        double restore = phaseStart.GetValueOrDefault(VideoEnhancementPhase.Decoding) - phaseStart.GetValueOrDefault(VideoEnhancementPhase.Restoring);
-        double decode = phaseStart.GetValueOrDefault(VideoEnhancementPhase.Completed) - phaseStart.GetValueOrDefault(VideoEnhancementPhase.Decoding);
-        Console.WriteLine($"total {stopwatch.Elapsed.TotalSeconds:F1} s (encoding {encode:F1} s, restoring {restore:F1} s, decoding {decode:F1} s; first runs include compilation)");
-        return result ?? throw new InvalidOperationException("Video enhancement produced no result.");
-    }
-
-    /// <summary>Writes a PNG (one frame), a video file (the encoder chosen by the extension) or, without an extension, numbered PNGs into a folder.</summary>
-    private async Task WriteAsync(VideoEncoderCatalog encoders, VideoEnhancementResult result, CancellationToken cancellationToken)
-    {
-        string output = settings.Output;
-        string extension = Path.GetExtension(output);
-        if (result.Frames.Count == 1 && string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase))
-        {
-            PngCodec.Write(output, result.Frames[0]);
-            Console.WriteLine($"wrote {output} ({result.Width}x{result.Height})");
-            return;
-        }
-
-        if (extension.Length > 0)
-        {
-            if (encoders.FindForPath(output) is null)
-            {
-                throw new SampleException($"No available encoder writes '{extension}' files.", ExitCodes.InvalidInput);
-            }
-
-            await encoders.SaveAsync(result.ToClip(), output, cancellationToken: cancellationToken);
-            Console.WriteLine($"wrote {output} ({result.Frames.Count} frames of {result.Width}x{result.Height} at {result.FramesPerSecond:F2} fps, seed {result.Seed})");
-            return;
-        }
-
-        Directory.CreateDirectory(output);
-        for (int i = 0; i < result.Frames.Count; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            PngCodec.Write(Path.Combine(output, string.Create(CultureInfo.InvariantCulture, $"frame-{i:D4}.png")), result.Frames[i]);
-        }
-
-        Console.WriteLine($"wrote {result.Frames.Count} frames of {result.Width}x{result.Height} to {output}");
+        await output.CompleteAsync(cancellationToken);
+        Console.WriteLine($"total {stopwatch.Elapsed.TotalSeconds:F1} s (the first batches include compilation)");
     }
 }
