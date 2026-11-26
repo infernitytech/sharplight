@@ -1,0 +1,5 @@
+ready=1 after 225 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 12.107718712999485, "agg_tok_s": 676.5931877162488, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251.03125, "shared_prefix_words": 0, "per_stream_tok_s": 47.29689742061177, "ttft_p50_ms": 326.28223299980164, "ttft_p95_ms": 457.06600443809293, "itl_mean_ms": 21.143035897407607, "itl_p50_ms": 20.2141665504314, "itl_p95_m
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 14.519187225960195, "agg_tok_s": 564.2189106393481, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251.015625, "shared_prefix_words": 0, "per_stream_tok_s": 38.45446867073865, "ttft_p50_ms": 297.75161296129227, "ttft_p95_ms": 485.76001275214367, "itl_mean_ms": 26.004780057224792, "itl_p50_ms": 20.06330603035167, "itl_p95
+textcheck wave 16: 9/16 identical to single-request, 0 part within 3 words, 0 garbage -> ok
+textcheck: clean

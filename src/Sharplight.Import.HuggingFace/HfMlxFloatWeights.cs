@@ -60,7 +60,15 @@ internal static unsafe class HfMlxFloatWeights
         File = source.File,
     };
 
-    private static SafetensorsTensor Mxfp8(string name, SafetensorsTensor codes, SafetensorsTensor scales, long columns)
+    /// <summary>
+    /// E4M3 codes with one E8M0 exponent byte per 32 values of a row (MXFP8, also the FP8 checkpoints whose scales have that layout) as a
+    /// lazily converted <see cref="DataType.F8E4M3_B32"/> weight, row by row from the memory map (no scale array is materialized).
+    /// </summary>
+    /// <param name="name">The weight name.</param>
+    /// <param name="codes">The codes, <paramref name="columns"/> bytes per row.</param>
+    /// <param name="scales">The exponent bytes, <paramref name="columns"/> / 32 per row.</param>
+    /// <param name="columns">Values per row, a multiple of 32.</param>
+    internal static SafetensorsTensor Mxfp8(string name, SafetensorsTensor codes, SafetensorsTensor scales, long columns)
     {
         long[] shape = [.. codes.Shape[..^1], columns];
         long rows = shape.Aggregate(1L, (a, d) => a * d) / columns;

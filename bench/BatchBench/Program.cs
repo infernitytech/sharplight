@@ -260,9 +260,16 @@ if (mixed is not null)
         var first = Stopwatch.StartNew();
         Step(mode, Inputs());
         double firstMs = first.Elapsed.TotalMilliseconds;
-        Console.Error.WriteLine($"[first] {spec}: {firstMs:F1} ms; " + string.Join("; ", segments.Select(s => s.Timings()).Select(t => $"recorded {t.Recorded} record {t.RecordMs:F1} submit {t.SubmitMs:F1} wait {t.WaitMs:F1} gpu {t.GpuMs:F1}")));
+        Console.Error.WriteLine($"[first] {spec}: {firstMs:F1} ms; " + string.Join("; ", segments.Select(s => s.Timings()).Select(t => $"recorded {t.Recorded} replayed {t.Replayed} record {t.RecordMs:F1} submit {t.SubmitMs:F1} wait {t.WaitMs:F1} gpu {t.GpuMs:F1}")));
         var stats = segments.Select(s => s.Stats(d + p * n)).Aggregate((0, 0), (a, x) => (a.Item1 + x.Dispatches, a.Item2 + x.Barriers));
-        for (int i = 0; i < 3; i++) Step(mode, Inputs());
+        for (int i = 0; i < 3; i++)
+        {
+            var again = Stopwatch.StartNew();
+            Step(mode, Inputs());
+            double againMs = again.Elapsed.TotalMilliseconds;
+            Console.Error.WriteLine($"[run {i + 2}] {spec}: {againMs:F1} ms; " + string.Join("; ", segments.Select(s => s.Timings()).Select(t => $"recorded {t.Recorded} replayed {t.Replayed} record {t.RecordMs:F1} submit {t.SubmitMs:F1} wait {t.WaitMs:F1} gpu {t.GpuMs:F1}")));
+        }
+
         var wall = new List<double>();
         var gpuSteps = new List<double>();
         for (int i = 0; i < reps; i++)

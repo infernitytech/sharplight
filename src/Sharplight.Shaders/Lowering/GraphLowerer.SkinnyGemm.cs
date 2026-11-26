@@ -26,7 +26,7 @@ public sealed partial class GraphLowerer
     /// narrow matrices leave the GPU idle and take a fixed ~20 µs at K = 5120, where the split-K matvec (up to 8 rows) and
     /// the split-K gemm_cm2 (9+ rows) spread K over many workgroups. Blackwell, FP8 at K = 5120, skinny vs those: N = 48
     /// 24 vs 8 µs at 4 rows; N = 1024 23 vs 20 µs at 4 rows, 23 vs 35 µs at 8 rows, 21 vs 12 µs at 16 rows; N = 2048
-    /// 21 vs 16 µs at 16 rows; N = 4096 even at 16 rows. 16-bit weights (<paramref name="type"/> f16 / bf16), whose small batches
+    /// 21 vs 16 µs at 16 rows; N = 4096 even at 16 rows. 16-bit weights (<paramref name="w"/> f16 / bf16), whose small batches
     /// otherwise take the f32 split-K matvec, use it up to 8 rows from 256 outputs: that matvec re-reads the weights per row (RTX
     /// PRO 4500, bf16 [2880→512] at 2 / 4 / 8 rows: 12 / 16 / 24 µs against 8 µs on the skinny GEMM).
     /// </summary>
@@ -39,10 +39,10 @@ public sealed partial class GraphLowerer
     /// its store: Qwen3-8B-FP8 gate / up at 16 rows 139 → 131 µs per layer, decode step at 16 sequences 12.57 → 12.28 ms (RTX PRO 4500,
     /// benchmarks.md §84).
     /// </remarks>
-    private long SkinnyMaxRowsFor(long n, DataType type) => DiagnosticSwitches.SkinnyGemmMaxRows
-        ?? (UsesNativeKQuantDecode(type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, type))
-            : UsesNativeFp8Decode(type) ? Math.Min(NativeFp8DecodeMinRows - 1, SkinnyRowsFor(n, type))
-            : UsesNativeFp4(type) ? Math.Min(NativeFp4MinRows - 1, SkinnyRowsFor(n, type)) : SkinnyRowsFor(n, type));
+    private long SkinnyMaxRowsFor(long n, TensorRef w) => DiagnosticSwitches.SkinnyGemmMaxRows
+        ?? (UsesNativeKQuantDecode(w.Type) ? Math.Min(MatvecMaxRows, SkinnyRowsFor(n, w.Type))
+            : UsesNativeFp8Decode(w.Type) ? Math.Min(NativeFp8DecodeMinRows - 1, SkinnyRowsFor(n, w.Type))
+            : UsesNativeFp4(w.Buffer.Weight, w.Type) ? Math.Min(NativeFp4MinRows - 1, SkinnyRowsFor(n, w.Type)) : SkinnyRowsFor(n, w.Type));
 
     /// <summary>
     /// True when the hand-written FP8 GEMM's decode form takes batches from <see cref="NativeFp8DecodeMinRows"/> rows of
@@ -95,7 +95,7 @@ public sealed partial class GraphLowerer
     /// True when <paramref name="rows"/> activation rows are in the skinny GEMM's range for <paramref name="n"/> output rows,
     /// starting at <paramref name="minRows"/>.
     /// </summary>
-    private bool InSkinnyRange(long rows, long n, DataType type, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n, type);
+    private bool InSkinnyRange(long rows, long n, TensorRef w, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n, w);
 
     /// <summary>
     /// Smallest row count for which the skinny GEMM reads an f16 copy of x (shared with the matmul's siblings) rather than
@@ -126,7 +126,7 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long maxRows = Math.Min(SkinnyMaxRowsFor(n, weights[0].Type), rowsMax);
+        long maxRows = Math.Min(SkinnyMaxRowsFor(n, weights[0]), rowsMax);
         long halfMin = Math.Max(minRows, SkinnyHalfMinRows);
         if (minRows < halfMin && minRows <= maxRows)
         {

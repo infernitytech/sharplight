@@ -58,6 +58,11 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             WeightLayoutCodec.Apply(Reader(s), weights);
         }
 
+        foreach (var s in sections.Where(s => s.Kind == PackageSectionKind.WeightActivations))
+        {
+            WeightActivationCodec.Apply(Reader(s), weights);
+        }
+
         Weights = weights;
         var def = sections.Single(s => s.Kind == PackageSectionKind.Definition);
         var description = sections.Where(s => s.Kind == PackageSectionKind.Description).Select(ReadDescription).LastOrDefault();

@@ -17,8 +17,11 @@ namespace Sharplight.Cuda;
 /// </summary>
 public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
-    /// <summary>Most steps kept recorded per segment (one per distinct symbol binding).</summary>
-    private const int MaxRecordings = 64;
+    /// <summary>
+    /// Most steps kept recorded per segment (one per distinct symbol binding): the decode steps of every batch size of a 64-slot
+    /// decoder and its prompt-bearing step shapes (each graph also counts against the device's memory, see <see cref="RunStep"/>).
+    /// </summary>
+    private const int MaxRecordings = 128;
 
     /// <summary>Runtime scalar slots (uints) of the runtime buffer.</summary>
     private const int RuntimeSlots = 64;
@@ -118,7 +121,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     /// <summary>Blocks of the stream's previous kernel launch (see <see cref="_previousShared"/>).</summary>
     private long _previousBlocks;
-    private readonly Queue<string> _recordOrder = new();
+    /// <summary>When each recording last ran (a counter of executions): the least recently run one is evicted first.</summary>
+    private readonly Dictionary<string, long> _lastExecuted = [];
+    private long _executions;
     private readonly nint _stream;
     /// <summary>Whether the stream's driver memory is counted as the device's (<see cref="CudaDevice.ChargeDriverMemory"/>).</summary>
     private readonly bool _streamCharged;
@@ -1055,8 +1060,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
         var bindings = new Bindings(RecordingSymbols(parameters));
         var downloads = Downloads(bindings, skipDownloads);
-        // The downloads are part of a step's graph: the skipped outputs are part of its key.
-        var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}")) + DownloadKey(downloads);
+        var key = RecordingKey(bindings, downloads);
         long recordStart = Stopwatch.GetTimestamp();
         bool recorded = false;
         if (!_recorded.TryGetValue(key, out var recording))
@@ -1069,13 +1073,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             // starts while the rest is still being recorded (mixed serving steps of a new row count record ~700 launches).
             recording = Record(_program.Launches, bindings, launch: !Profile);
             _recorded[key] = recording;
-            _recordOrder.Enqueue(key);
             if (DiagnosticSwitches.Trace)
             {
                 Console.Error.WriteLine($"[cuda] recorded {key}: {recording.Length} launches");
             }
         }
 
+        _lastExecuted[key] = ++_executions;
         long recordEnd = Stopwatch.GetTimestamp();
         _replayed = false;
         double recordMs = recorded ? Stopwatch.GetElapsedTime(recordStart, recordEnd).TotalMilliseconds : 0;
@@ -1150,6 +1154,37 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     }
 
     /// <summary>The recording key's part for the downloads: the indices of the outputs downloaded, when that is not every output.</summary>
+    /// <summary>The key of a step's recording: its symbol bindings and, since the downloads are part of a step's graph, the outputs it skips.</summary>
+    private string RecordingKey(Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads)
+        => string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}")) + DownloadKey(downloads);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Records the step's launches (variants, grids, arguments, barrier placement) without launching them, kept like those of executed
+    /// steps: the first execution of the shape then launches the recording at once instead of selecting every launch's variant first
+    /// (2-5 ms of an 8B model's step), the second captures its graph.
+    /// </remarks>
+    public void Prepare(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
+    {
+        if (Profile)
+        {
+            return;
+        }
+
+        var bindings = new Bindings(RecordingSymbols(parameters));
+        var key = RecordingKey(bindings, Downloads(bindings, skipDownloads));
+        if (_recorded.ContainsKey(key))
+        {
+            return;
+        }
+
+        CheckWithinCompiledBounds(bindings);
+        EvictOldestRecording();
+        _dev.Enter();
+        _recorded[key] = Record(_program.Launches, bindings);
+        _lastExecuted[key] = ++_executions;
+    }
+
     private string DownloadKey(List<(Value Value, nint Staging, long Bytes)> downloads)
     {
         if (downloads.Count == _program.OutputRefs.Count)
@@ -1298,7 +1333,10 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
     }
 
-    /// <summary>Keeps the recording cache bounded (data-dependent symbols can take a new value on every run).</summary>
+    /// <summary>
+    /// Keeps the recording cache bounded (data-dependent symbols can take a new value on every run) by evicting the recording that ran
+    /// least recently: a serving decoder's decode steps, recorded first, stay while prompt-bearing shapes come and go.
+    /// </summary>
     private void EvictOldestRecording()
     {
         if (_recorded.Count < MaxRecordings)
@@ -1306,7 +1344,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             return;
         }
 
-        string key = _recordOrder.Dequeue();
+        string key = _lastExecuted.MinBy(p => p.Value).Key;
+        _lastExecuted.Remove(key);
         _recorded.Remove(key);
         DestroyGraph(key);
     }
@@ -1863,6 +1902,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         _recorded.Clear();
+        _lastExecuted.Clear();
         foreach (var (b, a) in _alloc)
         {
             if (_sharedArenas.TryGetValue(b, out var arena))

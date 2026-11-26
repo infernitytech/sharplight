@@ -309,7 +309,9 @@
                     "vae",
                     "lora",
                     "transformer-2",
-                    "image-encoder"
+                    "image-encoder",
+                    "tiny-vae",
+                    "controlnet"
                   ]
                 },
                 "additionalRoles": {

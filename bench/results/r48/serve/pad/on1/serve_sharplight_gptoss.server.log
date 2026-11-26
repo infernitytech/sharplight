@@ -1,0 +1,17 @@
+Graph optimization (sharplight-ir/1): decode 1084 -> 1084 nodes, decode_embeddings 1083 -> 1083 nodes [36 ms]
+Loaded gpt-oss-20b (decoder): 412 tensors, 13.78 GB, vocab 201088 [2002 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+[load] lower segment 0: 694 ms (2385 launches, 487 buffers)
+Compiling 174 / 174, 173 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 13.78 / 13.78 GB (NVIDIA RTX PRO 4500 Blackwell)
+[load] upload segment 0: 31201 ms, 13.78 GB; Runtime 0.0 MiB, Activations 767.2 MiB, Input 0.1 MiB, State 330.0 MiB, Output 34.8 MiB
+[load] kernels segment 0: waited 0 ms for 174 kernels; slang CompileStatistics { Compiled = 0, CompileTime = 00:00:00 }; nvrtc 1 kernels 240 ms; 174 linked, 0 cubins cached, 1327 ms summed
+[load] NVIDIA RTX PRO 4500 Blackwell after compiling 'decode': 17352 MiB available, 14269 MiB held, 1 segments, 0 streamed, 0 sparse, 1024 MiB reserved
+Compiled 'decode' for 16 sequences x 512 tokens, paged KV cache of 8192 tokens, window-sized caches for the 128-key window layers in 32221 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 26 groups, 13.15 GiB weights+state
+1 segment(s): [0@0: 1085 nodes]
+Ready (decode)
+Model 'gpt-oss-20b' loaded in 34891 ms (estimated 14969 MiB, resident 14269 MiB).
+Serving 'gpt-oss-20b' (both API, VRAM reserve 1 GiB) on http://127.0.0.1:18080
+  gpt-oss-20b [Chat] Loaded 14269 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 14774 MiB (ours 14269 MiB), available 17352 MiB

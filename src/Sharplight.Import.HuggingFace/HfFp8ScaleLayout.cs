@@ -9,11 +9,19 @@ namespace Sharplight.Import.HuggingFace;
 /// <param name="RowBlock">Rows sharing a scale.</param>
 /// <param name="ColumnBlock">Columns (K values) sharing a scale; K or more for one scale per row.</param>
 /// <param name="Columns">Scales per scale row.</param>
-internal readonly record struct HfFp8ScaleLayout(long BatchStride, long RowBlock, long ColumnBlock, long Columns)
+/// <param name="ChunkRows">
+/// 0, or the rows of each equal slice of a matrix quantized on its own (a fused projection stored pre-sharded for tensor parallelism,
+/// MiMo-V2.6's FP8 <c>qkv_proj</c>): the scale rows are then tiled per slice, ceil(<paramref name="ChunkRows"/> / <paramref name="RowBlock"/>)
+/// of them per slice, the last block of a slice partly filled.
+/// </param>
+internal readonly record struct HfFp8ScaleLayout(long BatchStride, long RowBlock, long ColumnBlock, long Columns, long ChunkRows = 0)
 {
     /// <summary>The scale of value (<paramref name="batch"/>, <paramref name="row"/>, <paramref name="column"/>).</summary>
     public float At(float[] scales, long batch, long row, long column)
-        => scales[batch * BatchStride + row / RowBlock * Columns + column / ColumnBlock];
+    {
+        long scaleRow = ChunkRows == 0 ? row / RowBlock : row / ChunkRows * ((ChunkRows + RowBlock - 1) / RowBlock) + row % ChunkRows / RowBlock;
+        return scales[batch * BatchStride + scaleRow * Columns + column / ColumnBlock];
+    }
 
     /// <summary>
     /// The layout of a scale tensor of shape <paramref name="scaleShape"/> for <paramref name="batch"/> matrices of
@@ -55,14 +63,42 @@ internal readonly record struct HfFp8ScaleLayout(long BatchStride, long RowBlock
             return null;
         }
 
-        long? rowBlock = BlockSize(rows, scaleRows, configBlock?.Rows);
         long? columnBlock = BlockSize(columns, scaleColumns, configBlock?.Columns);
-        if (rowBlock is null || columnBlock is null)
+        if (columnBlock is null)
         {
             return null;
         }
 
-        return new HfFp8ScaleLayout(scaleRows * scaleColumns, rowBlock.Value, columnBlock.Value, scaleColumns);
+        if (BlockSize(rows, scaleRows, configBlock?.Rows) is { } rowBlock)
+        {
+            return new HfFp8ScaleLayout(scaleRows * scaleColumns, rowBlock, columnBlock.Value, scaleColumns);
+        }
+
+        return ChunkedRows(rows, scaleRows, configBlock?.Rows) is { } chunkRows
+            ? new HfFp8ScaleLayout(scaleRows * scaleColumns, configBlock!.Value.Rows, columnBlock.Value, scaleColumns, chunkRows)
+            : null;
+    }
+
+    /// <summary>
+    /// The rows of each slice when <paramref name="scales"/> scale rows are the declared row blocks tiled over equal slices of the
+    /// <paramref name="rows"/> (the fewest slices that fit), else null. Only with a declared block size: without one the tiling is ambiguous.
+    /// </summary>
+    private static long? ChunkedRows(long rows, long scales, long? declared)
+    {
+        if (declared is not { } block || block <= 1)
+        {
+            return null;
+        }
+
+        for (long chunks = 2; chunks <= scales; chunks++)
+        {
+            if (rows % chunks == 0 && chunks * ((rows / chunks + block - 1) / block) == scales)
+            {
+                return rows / chunks;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

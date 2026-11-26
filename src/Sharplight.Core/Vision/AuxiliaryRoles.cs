@@ -39,4 +39,16 @@ public static class AuxiliaryRoles
 
     /// <summary>The image encoder whose states condition a video model (Wan 2.1 I2V / FLF2V: CLIP ViT-H/14 with its image processor).</summary>
     public const string ImageEncoder = "image-encoder";
+
+    /// <summary>
+    /// A tiny autoencoder for an image generator's latents (TAESD: taesd, taesdxl, taesd3, taef1), kept as the model's
+    /// <c>tiny-vae</c> component beside its VAE for fast previews and decodes (<c>ImageGenerationOptions.TinyAutoencoder</c>).
+    /// </summary>
+    public const string TinyVae = "tiny-vae";
+
+    /// <summary>
+    /// A ControlNet for a UNet image generator (SD 1.x / SDXL), kept as the model's <c>controlnet</c> component: it conditions the denoiser
+    /// on a control image (<c>ImageGenerationRequest.ControlImage</c>).
+    /// </summary>
+    public const string ControlNet = "controlnet";
 }

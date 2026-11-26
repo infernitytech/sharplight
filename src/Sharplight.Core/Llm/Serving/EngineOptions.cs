@@ -51,6 +51,27 @@ public sealed record EngineOptions
     /// </summary>
     public bool TileAwarePrompts { get; set; } = true;
     /// <summary>
+    /// Prompt chunk sizes chosen on measured prices while some sequence decodes (default on): when the prompt rows of the steps measured
+    /// on this engine cost less per row in smaller chunks (their price over the decode-only step grows with the chunk, as where prompt
+    /// rows ride the decode rows' weight reads), the budget is <see cref="SmallChunkRowsPerSequence"/> rows per slot instead of
+    /// <see cref="BatchTokensPerSequence"/>; where larger chunks are as cheap or cheaper per row (expert GEMMs that read more experts as
+    /// rows grow), it stays <see cref="BatchTokensPerSequence"/>. Needs <see cref="TileAwarePrompts"/> (its step prices).
+    /// </summary>
+    public bool PricedPromptChunks { get; set; } = true;
+    /// <summary>
+    /// Rows per sequence holding a slot of a decoding step's budget when <see cref="PricedPromptChunks"/> chooses the smaller chunks
+    /// (default 16: 256 rows at 16 slots; at most <see cref="BatchTokensPerSequence"/>).
+    /// </summary>
+    public int SmallChunkRowsPerSequence { get; set; } = 16;
+    /// <summary>
+    /// Steps that carry prompt rows run in shape buckets (default on): their rows are padded up to a multiple of 64 on the last prompt
+    /// chunk (positions the sequence has not reached yet), their logits rows up to a multiple of 8 and their run table to the slot count,
+    /// so steps with nearby row counts replay one recorded step (a CUDA graph) instead of each paying the first run of a new shape (its
+    /// recording, then its capture). Applies to decoders whose caches allow it (paged, causal attention, no recurrent state or
+    /// window-sized caches); others run every step at its exact shape (benchmarks.md §114).
+    /// </summary>
+    public bool StepShapeBuckets { get; set; } = true;
+    /// <summary>
     /// Paged KV cache: what happens when the pool runs short of blocks. <see cref="KvAdmissionPolicy.Queue"/> (default) admits a request only
     /// with room for its prompt and some growth, so new requests wait while the pool is full; <see cref="KvAdmissionPolicy.Preempt"/> admits on
     /// the prompt alone and preempts the newest running sequences (recomputing them later) when the running ones need blocks. The

@@ -48,6 +48,11 @@ public static class CanonicalKeys
     /// the text that does not start with a space; "always" = before every fragment that does not start with a space.
     /// </summary>
     public const string TokenizerSpacePrefixScheme = "tokenizer.space_prefix_scheme";
+    /// <summary>
+    /// Ranked BPE ("bpe"): whether the text is cut before every ▁ and each piece is merged on its own (bool; absent = false, the whole
+    /// fragment is one BPE unit), so that no token spans a word boundary (a Metaspace pre-tokenizer with <c>split</c>).
+    /// </summary>
+    public const string TokenizerSplitAtSpaceMarker = "tokenizer.split_at_space_marker";
     /// <summary>Beginning-of-sequence token id (int).</summary>
     public const string TokenizerBosId = "tokenizer.bos_token_id";
     /// <summary>End-of-sequence token id (int).</summary>
@@ -117,6 +122,10 @@ public static class CanonicalKeys
     /// "text=Text Recognition:", "table=Table Recognition:"): the user-turn text the model is prompted with next to the image (<c>ITextRecognizer</c>).
     /// </summary>
     public const string RecognitionTasks = "recognition.tasks";
+    /// <summary>Rows a sequence classification head reads (string): "cls" (the first row, default) or "mean" (the average of the rows).</summary>
+    public const string ClassifierPooling = "classifier.pooling";
+    /// <summary>Activation after the dense layer of a sequence classification head (<c>classifier.pre</c>): "gelu", "gelu_tanh", "relu", "silu" (string).</summary>
+    public const string ClassifierHeadActivation = "classifier.head_activation";
     /// <summary>Activation applied to classifier logits to get a score: "sigmoid", "softmax", "none" (string).</summary>
     public const string ClassifierActivation = "classifier.activation";
     /// <summary>Label names of a classifier head (string[]).</summary>

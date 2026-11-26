@@ -17,6 +17,10 @@ public sealed class Qwen3AsrParityTests
 {
     private const string Fixture = "qwen3-asr-1.7b.json";
 
+    // <|im_end|> and <asr_text> in the Qwen3 vocabulary.
+    private const int QwenEndOfTurn = 151645;
+    private const int QwenTranscriptMarker = 151704;
+
     /// <summary>The checkpoints and the files they load from.</summary>
     public static string ModelPath(string layout) => layout switch
     {
@@ -148,9 +152,35 @@ public sealed class Qwen3AsrParityTests
             clip == SpeechEnvironment.LibriSpeechName ? 8 : null);
     }
 
+    /// <summary>
+    /// Reson8's Rumble-2-Flash (a Qwen3-ASR 0.6B derivative with 14 decoder layers, an 18-layer audio tower and a vocabulary pruned to 99,630 rows,
+    /// so its special tokens have other ids) gives the tokens of transformers' <c>generate</c>.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SmallModelCases))]
+    public async Task RumbleTokensMatchTransformers(string clip, string device, string mode)
+    {
+        const int EndOfTurn = 99564;
+        const int TranscriptMarker = 99623;
+        await CheckTokensAsync(SpeechEnvironment.HotModel("Rumble-2-Flash"), clip, device, mode, "rumble-2-flash.json", null, EndOfTurn, TranscriptMarker);
+    }
+
+    /// <summary>
+    /// oruk's Fourier 2B (a Qwen3-ASR 1.7B fine-tune with the base model's layout and vocabulary) gives the tokens of transformers' plain greedy
+    /// <c>generate</c>. Its generation_config.json asks for beam search (3 beams), an 8-gram repeat block and 32k banned token ids, which this
+    /// engine does not apply: the comparison is greedy against greedy.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SmallModelCases))]
+    public async Task OrukFourierTokensMatchTransformers(string clip, string device, string mode)
+    {
+        await CheckTokensAsync(SpeechEnvironment.HotModel("oruk-fourier-2b"), clip, device, mode, "oruk-fourier-2b.json");
+    }
+
     private static Task CheckTokensAsync(string path, string clip, string device, string mode) => CheckTokensAsync(path, clip, device, mode, Fixture);
 
-    private static async Task CheckTokensAsync(string path, string clip, string device, string mode, string fixtureName, int? tieAt = null)
+    private static async Task CheckTokensAsync(string path, string clip, string device, string mode, string fixtureName, int? tieAt = null,
+        int endOfTurn = QwenEndOfTurn, int transcriptMarker = QwenTranscriptMarker)
     {
         Skip(path, clip, device);
         using var fixture = SpeechEnvironment.Fixture(fixtureName);
@@ -167,10 +197,8 @@ public sealed class Qwen3AsrParityTests
         var result = await recognizer.TranscribeAsync(WavFile.Read(SpeechEnvironment.Audio(clip)), options, TestContext.Current.CancellationToken);
         TestContext.Current.TestOutputHelper?.WriteLine($"{clip} {device} {mode}: [{result.Language}] {result.Text}");
         int[] ids = [.. expected.GetProperty("ids").EnumerateArray().Select(e => e.GetInt32())];
-        const int EndOfTurn = 151645;
-        const int TranscriptMarker = 151704;
-        int end = ids.Length > 0 && ids[^1] == EndOfTurn ? ids.Length - 1 : ids.Length;
-        int begin = mode == "auto" ? Array.IndexOf(ids, TranscriptMarker) + 1 : 0;
+        int end = ids.Length > 0 && ids[^1] == endOfTurn ? ids.Length - 1 : ids.Length;
+        int begin = mode == "auto" ? Array.IndexOf(ids, transcriptMarker) + 1 : 0;
         int[] actual = result.Segments.SelectMany(s => s.Tokens).ToArray();
         string text = expected.GetProperty("text").GetString()!;
         text = text[(text.IndexOf("<asr_text>", StringComparison.Ordinal) is var at and >= 0 ? at + "<asr_text>".Length : 0)..].Trim();

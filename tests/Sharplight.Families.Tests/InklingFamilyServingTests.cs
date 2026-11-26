@@ -12,7 +12,8 @@ namespace Sharplight.Families.Tests;
 /// <summary>
 /// Inkling (<see cref="InklingFamilyCases"/>) behind the continuous-batching engine: greedy output of prompts
 /// of different lengths decoded together, prefilled in small chunks, is token-identical to decoding each prompt alone (the prompts run past
-/// the sliding window, the relative-bias extent and the temperature floor, and the short-convolution states follow each sequence).
+/// the sliding window, the relative-bias extent and the temperature floor, and the short-convolution states follow each sequence). Inkling 2
+/// (tiny-random-inkling2) adds per-token sinks, the per-token convolution windows and the loop's per-pass caches and windows.
 /// </summary>
 public class InklingFamilyServingTests
 {
@@ -26,6 +27,7 @@ public class InklingFamilyServingTests
         [
             "hf/tiny-random-inkling",
             "gguf/tiny-random-inkling-f32.gguf",
+            "hf/tiny-random-inkling2",
         ];
         foreach (string model in models)
         {
@@ -57,6 +59,49 @@ public class InklingFamilyServingTests
             using var device = OpenDevice(vulkan: false);
             using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64 });
             Assert.Equal(1024, model.Tokenizer.VocabSize);
+        }
+    }
+
+    /// <summary>The header-only check accepts the tiny Inkling 2 checkpoint (release layout) that the importer loads.</summary>
+    [Fact]
+    public void Inkling2_HeaderOnlyCheck_AgreesWithTheImport()
+    {
+        string hf = Path.Combine(Models, "hf/tiny-random-inkling2");
+        Assert.SkipUnless(Directory.Exists(hf), "tiny Inkling 2 checkpoint not present");
+        string config = File.ReadAllText(Path.Combine(hf, "config.json"));
+        Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(config)));
+        Assert.Empty(HfSupport.Validate(config));
+        using var device = OpenDevice(vulkan: false);
+        using var model = LlmModel.Load(TestHost.Loader, hf, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64 });
+        Assert.Equal(1024, model.Tokenizer.VocabSize);
+    }
+
+    /// <summary>Inkling 2 stored as an <c>.slm</c> package (converted once) gives the checkpoint's prompt logits bit for bit.</summary>
+    [Fact]
+    public void Inkling2_Package_GivesTheCheckpointsLogits()
+    {
+        string hf = Path.Combine(Models, "hf/tiny-random-inkling2");
+        Assert.SkipUnless(Directory.Exists(hf), "tiny Inkling 2 checkpoint not present");
+        string folder = Path.Combine(Environment.GetEnvironmentVariable("SHARPLIGHT_WORK") ?? Path.GetTempPath(), "families-tests");
+        Directory.CreateDirectory(folder);
+        string package = Path.Combine(folder, $"inkling2-{Guid.NewGuid():N}.slm");
+        try
+        {
+            TestHost.Converter.Convert(hf, package);
+            int[] prompt = [.. Enumerable.Range(0, 40).Select(i => 10 + (i * 37 % 900))];
+            float[] Logits(string path)
+            {
+                using var device = OpenDevice(vulkan: false);
+                using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64 });
+                using var session = model.CreateSession(WellKnown.DecodeGraph);
+                return session.Process(prompt);
+            }
+
+            Assert.Equal(Logits(hf), Logits(package));
+        }
+        finally
+        {
+            File.Delete(package);
         }
     }
 
