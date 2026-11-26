@@ -16,7 +16,8 @@ toolchain and model-asset notes are still accurate.
 - Requires the .NET 11 SDK (`net11.0`). On fedora-ws the SDK comes from dotnetup; non-interactive shells resolve
   `dotnet` to an SDK 10 install first, so run
   `eval "$(~/.dotnetup/dotnetup env script --shell bash --dotnet --dotnetup)"` (or prepend
-  `~/.local/share/dotnetup/dotnet` to PATH and set `DOTNET_ROOT` to it) before building.
+  `~/.local/share/dotnetup/dotnet` to PATH and set `DOTNET_ROOT` to it) before building. The eval itself exits
+  nonzero (a harmless trailing `hash -d`), so don't chain it with `&&`.
 - Build: `dotnet build Sharplight.slnx -c Release`. Keep builds niced on shared machines (`nice -n 10`).
 - Tests are xunit v3 executables: `dotnet run --project tests/<Suite> -c Release --no-build` (or `dotnet test`).
 - Many suites need model assets under `~/models` (tiny-* test models, audio, whisper.cpp, sd, onnx) and skip without
