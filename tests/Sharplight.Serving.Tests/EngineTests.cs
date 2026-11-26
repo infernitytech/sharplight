@@ -226,6 +226,53 @@ public class EngineTests
         cts.Cancel();
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PricedPromptChunks_SpreadPromptsWhenSmallChunksCostLessPerRow(bool priced)
+    {
+        // A step's time grows with the square of its rows: prompt rows riding a decode step cost less per row in small chunks.
+        var d = new FakeBatchDecoder(8, maxBatchTokens: 512)
+        {
+            StepDelayForRows = rows => TimeSpan.FromMilliseconds(1 + 0.0002 * rows * rows),
+        };
+        d.Script("a", loop: true);
+        using var e = Engine(d, new EngineOptions
+        {
+            MinBatchTokens = 64, BatchTokensGranule = 32, BatchTokensPerSequence = 48, SmallChunkRowsPerSequence = 16, PricedPromptChunks = priced,
+        });
+        using var cts = new CancellationTokenSource();
+        var running = Enumerable.Range(0, 4).Select(_ => e.Submit(Req("r", max: 100000), cts.Token)).ToList();
+        await T.WaitUntil(() => d.Steps.Count > 20);
+
+        // Prompt-bearing decode steps of different sizes, so the prices are measured.
+        int[] sizes = [20, 45, 70, 100, 30, 60, 90, 120, 25, 50, 80, 110];
+        foreach (int size in sizes)
+        {
+            await e.Submit(Req(new string('p', size), max: 2)).CompleteAsync();
+        }
+
+        // Four prompts of ~60 rows at once: at 8 sequences the large budget is 384 rows (all four in one step), the small one 128.
+        int start = d.Steps.Count;
+        var wave = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('c' + i), 60), max: 2))).ToList();
+        foreach (var h in wave)
+        {
+            Assert.Equal("aa", (await h.CompleteAsync()).Text);
+        }
+
+        var rows = d.Steps.ToList().Skip(start).Select(s => s.Sum(x => x.Rows)).ToList();
+        if (priced)
+        {
+            Assert.True(rows.Max() <= 128, string.Join(",", rows));
+        }
+        else
+        {
+            Assert.True(rows.Max() > 200, string.Join(",", rows));
+        }
+
+        cts.Cancel();
+    }
+
     [Fact]
     public async Task Cancel_RunningRequest_FreesSlot()
     {

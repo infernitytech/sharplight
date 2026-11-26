@@ -21,6 +21,10 @@ internal sealed class TileStepCost
     private const int MinHeldSteps = 3;
     /// <summary>Share of a step's predicted time that a move between steps must save (<see cref="Moves"/>).</summary>
     private const double Margin = 0.02;
+    /// <summary>Prompt-bearing steps with decode rows before the marginal price fit is used.</summary>
+    private const int MinMarginalSteps = 8;
+    /// <summary>Share of the larger chunks' price per row that smaller chunks must save (<see cref="PrefersSmallChunks"/>).</summary>
+    private const double MarginalMargin = 0.1;
     /// <summary>Ridge weight on the tile term per weighted step (pulls an unidentified tile cost towards 0).</summary>
     private const double TileRidge = 1e-3;
 
@@ -32,6 +36,9 @@ internal sealed class TileStepCost
     private int _minTiles = int.MaxValue, _maxTiles;
     private double _held;
     private int _heldSteps;
+    private readonly double[] _m = new double[8]; // w, p, p², p³, p⁴, y, p·y, p²·y of the extra-time fit (p in tiles, y: ms over decode-only)
+    private int _marginalSteps;
+    private int _minPromptRows = int.MaxValue, _maxPromptRows;
 
     /// <param name="tileRows">Rows of one token tile (at least 2).</param>
     public TileStepCost(int tileRows)
@@ -66,6 +73,11 @@ internal sealed class TileStepCost
         {
             _decode[decodeRows] = _decode.TryGetValue(decodeRows, out double d) ? Smoothing * d + (1 - Smoothing) * ms : ms;
             return;
+        }
+
+        if (decodeRows > 0 && DecodeOnlyMs(decodeRows) is { } decodeOnly)
+        {
+            ObserveExtra(promptRows, ms - decodeOnly);
         }
 
         if (decodeRows > 0 && promptRows <= HeldMaxRows && _decode.TryGetValue(decodeRows, out double plain))
@@ -141,8 +153,96 @@ internal sealed class TileStepCost
         return SavedMs(stepRows, rows) is { } added && HeldMs(rows) is { } held && held - added > Margin * PromptStepMs(stepRows);
     }
 
+    /// <summary>
+    /// Predicted milliseconds per prompt row that <paramref name="promptRows"/> prompt rows add to a step of decode rows, over the
+    /// decode-only step of the same decode rows (null until <see cref="MinMarginalSteps"/> such steps spanning at least a factor of two
+    /// in prompt rows were seen). The added time is fitted as <c>f + b · rows + d · rows²</c> (a fixed price of carrying a prompt, a price
+    /// per row, and a growth term): <c>d &gt; 0</c> where prompt rows ride the decode step's weight reads until the GEMMs turn
+    /// compute-bound (dense models), <c>d ≤ 0</c> and a large <c>f</c> where more prompt rows share fixed costs (expert GEMMs that read
+    /// more experts as rows grow).
+    /// </summary>
+    public double? MarginalRowMs(int promptRows)
+    {
+        if (_marginalSteps < MinMarginalSteps || _maxPromptRows < 2 * _minPromptRows || promptRows <= 0)
+        {
+            return null;
+        }
+
+        // Normal equations of the weighted least squares in p = rows / tile.
+        double s0 = _m[0], s1 = _m[1], s2 = _m[2], s3 = _m[3], s4 = _m[4], y0 = _m[5], y1 = _m[6], y2 = _m[7];
+        double det = s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
+        if (Math.Abs(det) < 1e-12 * Math.Max(1, s0 * s2 * s4))
+        {
+            return null;
+        }
+
+        double f = (y0 * (s2 * s4 - s3 * s3) - s1 * (y1 * s4 - s3 * y2) + s2 * (y1 * s3 - s2 * y2)) / det;
+        double b = (s0 * (y1 * s4 - y2 * s3) - y0 * (s1 * s4 - s3 * s2) + s2 * (s1 * y2 - y1 * s2)) / det;
+        double d = (s0 * (s2 * y2 - s3 * y1) - s1 * (s1 * y2 - y1 * s2) + y0 * (s1 * s3 - s2 * s2)) / det;
+        double p = (double)promptRows / TileRows;
+        return Math.Max(0, f + b * p + d * p * p) / promptRows;
+    }
+
+    /// <summary>
+    /// Whether prompt chunks of <paramref name="smallRows"/> rows per decoding step cost less per prompt row than chunks of
+    /// <paramref name="largeRows"/>, by more than <see cref="MarginalMargin"/> of the larger chunks' price (false before
+    /// <see cref="MarginalRowMs"/> has a fit).
+    /// </summary>
+    public bool PrefersSmallChunks(int smallRows, int largeRows)
+    {
+        return smallRows > 0 && largeRows > smallRows && MarginalRowMs(smallRows) is { } small && MarginalRowMs(largeRows) is { } large
+               && large > 0 && small < (1 - MarginalMargin) * large;
+    }
+
     /// <summary>Predicted milliseconds of a prompt-bearing step of <paramref name="rows"/> rows (0 before <see cref="Fitted"/>).</summary>
     public double PromptStepMs(int rows) => _fitted ? Math.Max(0, _a + _b * rows + _c * Tiles(rows)) : 0;
+
+    /// <summary>
+    /// The decode-only step price of <paramref name="decodeRows"/> rows: measured, else interpolated linearly between the nearest decode
+    /// row counts measured below and above, else the nearest one (null before any decode-only step).
+    /// </summary>
+    private double? DecodeOnlyMs(int decodeRows)
+    {
+        if (_decode.TryGetValue(decodeRows, out double exact))
+        {
+            return exact;
+        }
+
+        int below = 0, above = int.MaxValue;
+        foreach (int rows in _decode.Keys)
+        {
+            if (rows < decodeRows && rows > below)
+            {
+                below = rows;
+            }
+            else if (rows > decodeRows && rows < above)
+            {
+                above = rows;
+            }
+        }
+
+        if (below > 0 && above < int.MaxValue)
+        {
+            double lo = _decode[below], hi = _decode[above];
+            return lo + (hi - lo) * (decodeRows - below) / (above - below);
+        }
+
+        return below > 0 ? _decode[below] : above < int.MaxValue ? _decode[above] : null;
+    }
+
+    private void ObserveExtra(int promptRows, double extraMs)
+    {
+        double p = (double)promptRows / TileRows;
+        Span<double> x = [1, p, p * p, p * p * p, p * p * p * p, extraMs, p * extraMs, p * p * extraMs];
+        for (int i = 0; i < _m.Length; i++)
+        {
+            _m[i] = Decay * _m[i] + x[i];
+        }
+
+        _marginalSteps++;
+        _minPromptRows = Math.Min(_minPromptRows, promptRows);
+        _maxPromptRows = Math.Max(_maxPromptRows, promptRows);
+    }
 
     private long Tiles(int rows) => (rows + TileRows - 1) / TileRows;
 
