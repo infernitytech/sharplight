@@ -55,7 +55,7 @@ internal sealed partial class DecoderGraphBuilder
         {
             // Packed sequences: causal within each sequence unless the model is bidirectional (then a sliding window is symmetric).
             var (packedK, packedV) = packedKv[sourceSlot];
-            var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, _hp.Causal, _hp.SoftCap, $"{p}attn", _hp.AlibiSlopes(heads),
+            var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScaleOf(il), _hp.Causal, _hp.SoftCap, $"{p}attn", _hp.AlibiSlopes(heads),
                 _hp.Windowed(il) ? _hp.Window : 0);
             return AttentionOutput(b, ExclusiveAttention(b, packed, ownValues, p, heads), h, p, heads, _hp.ValueDimOf(il));
         }
@@ -240,7 +240,7 @@ internal sealed partial class DecoderGraphBuilder
     /// </summary>
     private Value CachedAttention(GraphBuilder b, Value q, string p, int il, int cacheSlot, Value? selection)
     {
-        var attrs = new List<(string, object)> { ("scale", _hp.AttnScale), ("offset", WellKnown.PastScalar) };
+        var attrs = new List<(string, object)> { ("scale", _hp.AttnScaleOf(il)), ("offset", WellKnown.PastScalar) };
         if (_hp.Windowed(il))
         {
             attrs.Add(("window", _hp.Window));

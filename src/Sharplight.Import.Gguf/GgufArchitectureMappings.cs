@@ -42,6 +42,7 @@ internal static class GgufArchitectureMappings
     {
         yield return new SmolLm3GgufMapping();
         yield return new Olmo2GgufMapping();
+        yield return new DomynEdgeGgufMapping();
         yield return new ChameleonGgufMapping();
         yield return new Glm4GgufMapping();
         yield return new Ernie45GgufMapping();

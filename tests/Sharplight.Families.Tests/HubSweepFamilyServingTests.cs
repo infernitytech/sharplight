@@ -7,7 +7,7 @@ using Sharplight.Vulkan;
 namespace Sharplight.Families.Tests;
 
 /// <summary>
-/// The families of bring-up round 11 (<see cref="HubSweepFamilyCases"/>) behind the continuous-batching engine: greedy output of prompts of different
+/// The families of bring-up round 11 (<see cref="HubSweepFamilyCases"/>) and of <see cref="LlamaCppAdditionsFamilyCases"/> behind the continuous-batching engine: greedy output of prompts of different
 /// lengths decoded together, prefilled in small chunks, is token-identical to decoding each prompt alone.
 /// </summary>
 public class HubSweepFamilyServingTests
@@ -31,6 +31,8 @@ public class HubSweepFamilyServingTests
             "hf/tiny-random-paligemma2",
             "hf/tiny-random-mimo-v2",
             "hf/tiny-random-llava-onevision2",
+            // Architectures llama.cpp added after 8ca5a80 (LlamaCppAdditionsFamilyCases).
+            "hf/tiny-random-domynedge",
         ];
         foreach (string model in models)
         {

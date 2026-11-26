@@ -33308,6 +33308,138 @@
       ]
     },
     {
+      "id": "domyn-edge-teacher-if",
+      "name": "Domyn Edge Teacher IF",
+      "kind": "text-generation",
+      "family": "Domyn Edge",
+      "architecture": "domynedge",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Domyn",
+        "countryOfOrigin": "IT",
+        "url": "https://www.domyn.com"
+      },
+      "tags": [
+        "reasoning",
+        "tools"
+      ],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 5212499332,
+          "companions": [],
+          "repository": "prithivMLmods/Domyn-Edge-Teacher-IF-GGUF",
+          "revision": "d55de8f85dcb6bbb66d1fdca431641972b75614b",
+          "include": [
+            "Domyn-Edge-Teacher-IF.Q8_0.gguf"
+          ],
+          "primary": "Domyn-Edge-Teacher-IF.Q8_0.gguf",
+          "files": [
+            {
+              "path": "Domyn-Edge-Teacher-IF.Q8_0.gguf",
+              "size": 4182474912,
+              "sha256": "41b2ce17da5173a31c482777f4c1700e852b7fb3f603614687094f5e1b4b0992"
+            }
+          ]
+        },
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": false,
+          "memoryBytes": 9438924086,
+          "companions": [],
+          "repository": "domyn/Domyn-Edge-Teacher-IF",
+          "revision": "3f968ac6da88eedcb39c76b2cc1bbd46db84de20",
+          "include": [
+            "*.json",
+            "*.jinja",
+            "*.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4875,
+              "gitOid": "2c427d3b607c959877564e7c0ca147a79e9fa865"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 170,
+              "gitOid": "3f84527b250a1c0a987f9b54dbf4f1c2bbc2943e"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 36912,
+              "gitOid": "b806e5da7a1199d6426f0ae0454e4826ea5fac41"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 918,
+              "gitOid": "ccfeb535b8536c2b7b7eb8b0751842bf167d7dd9"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 15956463,
+              "sha256": "b674b69c9a68226dc8ca2a88a161ee1fd917dafc0361c442f8ec3d4073e967d2"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 3261,
+              "gitOid": "195d2b1d1f0988be3ec4d51d76644eebcece24d1"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 7944,
+              "gitOid": "c2380bbd830a6c28be5a0c8c42383a797d77924e"
+            },
+            {
+              "path": "model-00001-of-00002.safetensors",
+              "size": 5359123648,
+              "sha256": "2baa5bedad7a6846f4a42dae07d003dbec6fd07d2b34ac1feed887ab61c0c7e4"
+            },
+            {
+              "path": "model-00002-of-00002.safetensors",
+              "size": 2498503224,
+              "sha256": "c2cc7decd38e82655b44b4ede3d0b5dac8d350f9f467be8a5d6df5eb4bafb940"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "llama.cpp b12798 (9fa7a33) and transformers (remote code)",
+        "summary": "BF16 (safetensors and GGUF) greedy output identical to llama.cpp b12798 CPU to the end of a 78-token chat answer on CPU, Vulkan and CUDA; Q8_0 identical for 68 tokens, then a 0.13-logit near tie; tiny checkpoints vs transformers and llama.cpp",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-27",
+        "tests": [
+          "Sharplight.Families.Tests.FamilyGenerationTests",
+          "Sharplight.Families.Tests.HubSweepFamilyServingTests"
+        ]
+      },
+      "notes": "the raw-text prompt degenerates in every runtime (transformers too); use the chat template",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "domyn/Domyn-Edge-Teacher-IF, prithivMLmods/Domyn-Edge-Teacher-IF-GGUF",
+            "formats": "safetensors (bf16), GGUF Q8_0, Q4_K_M"
+          }
+        }
+      ]
+    },
+    {
       "id": "chronos-bolt-tiny",
       "name": "Chronos-Bolt Tiny",
       "kind": "time-series",
