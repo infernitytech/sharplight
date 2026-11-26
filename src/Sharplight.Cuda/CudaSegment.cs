@@ -23,6 +23,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// </summary>
     private const int MaxRecordings = 128;
 
+    /// <summary>
+    /// Device memory that stays free when <see cref="Prepare"/> captures a shape's graph ahead of its first run (a large model's decode
+    /// graph takes ~5 KiB of driver memory per launch, 10-15 MB): prepared shapes that never run must not take the room of the graphs,
+    /// buffers or other models of the work that does.
+    /// </summary>
+    private const long AheadCaptureFreeBytes = 1L << 30;
+
     /// <summary>Runtime scalar slots (uints) of the runtime buffer.</summary>
     private const int RuntimeSlots = 64;
 
@@ -84,6 +91,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     private readonly Dictionary<string, long> _graphBytes = [];
     /// <summary>Steps whose graph did not fit the device (or the driver refused): they run launch by launch.</summary>
     private readonly HashSet<string> _uncaptured = [];
+    /// <summary>Graphs captured ahead of their first run (<see cref="Prepare"/>), counted against <see cref="CudaDevice.AheadGraphBudget"/>.</summary>
+    private readonly HashSet<string> _aheadGraphs = [];
 
     /// <summary>
     /// True when the stream's previous launch was a kernel whose grid the GPU holds at once (one wave). A kernel is launched as the
@@ -130,6 +139,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     /// <summary>Barrier placement of each recorded launch set (see <see cref="HazardTracker.Order(IReadOnlyList{KernelLaunch}, Bindings, bool, Dictionary{string, ValueTuple{int, bool}[]}, int)"/>).</summary>
     private readonly Dictionary<string, (int Index, bool BarrierBefore)[]> _orders = [];
+    /// <summary>Per program launch and variant, the part of its recording that does not depend on the bindings (built at first use).</summary>
+    private CudaLaunchTemplate?[][]? _templates;
     private readonly nint _start;
     private readonly nint _end;
     /// <summary>Pinned host copy of the runtime scalar slots, uploaded at the start of every execution.</summary>
@@ -1161,8 +1172,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// <inheritdoc />
     /// <remarks>
     /// Records the step's launches (variants, grids, arguments, barrier placement) without launching them, kept like those of executed
-    /// steps: the first execution of the shape then launches the recording at once instead of selecting every launch's variant first
-    /// (2-5 ms of an 8B model's step), the second captures its graph.
+    /// steps, and captures its CUDA graph (<see cref="DeviceFeatures.LaunchGraphs"/>, when the device has room for it): the first
+    /// execution of the shape then replays the graph instead of selecting every launch's variant first (2-5 ms of an 8B model's step)
+    /// and launching them one by one.
     /// </remarks>
     public void Prepare(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
     {
@@ -1172,7 +1184,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         var bindings = new Bindings(RecordingSymbols(parameters));
-        var key = RecordingKey(bindings, Downloads(bindings, skipDownloads));
+        var downloads = Downloads(bindings, skipDownloads);
+        var key = RecordingKey(bindings, downloads);
         if (_recorded.ContainsKey(key))
         {
             return;
@@ -1181,8 +1194,18 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         CheckWithinCompiledBounds(bindings);
         EvictOldestRecording();
         _dev.Enter();
-        _recorded[key] = Record(_program.Launches, bindings);
+        var recording = Record(_program.Launches, bindings);
+        _recorded[key] = recording;
         _lastExecuted[key] = ++_executions;
+        if (Captures(recording) && _streamedWeights.Count == 0 && _sparse is null)
+        {
+            // Captured now too: the shape's first execution replays the graph instead of launching ~1,000-3,000 launches one by one
+            // (about 3 ms more device time on an 8B decode step), and its second does not capture and instantiate one. Capturing does not
+            // run anything; the graph reads the scalar slots, staging buffers and forwarded inputs at its launch. Segments that stream
+            // their weights (offload) keep capturing at the second run: their device memory is the tightest.
+            _graphs.TryGetValue(key, out var entry);
+            _graphs[key] = TryCapture(key, recording, bindings, downloads, entry, ahead: true);
+        }
     }
 
     private string DownloadKey(List<(Value Value, nint Staging, long Bytes)> downloads)
@@ -1358,37 +1381,16 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     /// </summary>
     private void RunStep(CudaRecordedLaunch[] recording, string key, Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads)
     {
-        // A graph's scalar upload must read page-locked memory (a capture refuses pageable copies).
-        bool scalarsCapturable = _program.ScalarSlots.Count == 0 || _runtimeSlotsPinned;
-        if (!_dev.LaunchGraphs || DiagnosticSwitches.SyncEachLaunch || recording.Length < 2 || !scalarsCapturable)
+        if (!Captures(recording))
         {
             Submit(recording, bindings, downloads, "the launches of segment " + Segment.Index);
             return;
         }
 
         _graphs.TryGetValue(key, out var entry);
-        if (entry.Exec == 0 && entry.Runs >= 1 && !_uncaptured.Contains(key))
+        if (entry.Exec == 0 && entry.Runs >= 1)
         {
-            // The graph's driver memory is counted as the device's; when the device has no room for it, the step keeps running launch by
-            // launch (a placement of many segments must not fail at its first capture).
-            long bytes = CudaDevice.GraphBytes + recording.Length * CudaDevice.GraphBytesPerNode;
-            if (_dev.TryChargeDriverMemory(bytes))
-            {
-                entry = Capture(recording, bindings, downloads, entry.Runs);
-                if (entry.Exec != 0)
-                {
-                    _graphBytes[key] = bytes;
-                }
-                else
-                {
-                    _dev.ReleaseDriverMemory(bytes);
-                    _uncaptured.Add(key);
-                }
-            }
-            else
-            {
-                _uncaptured.Add(key);
-            }
+            entry = TryCapture(key, recording, bindings, downloads, entry);
         }
 
         entry.Runs++;
@@ -1404,6 +1406,69 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         _replayed = true;
         _pendingTimed = true;
         _pending = "the graph of segment " + Segment.Index;
+    }
+
+    /// <summary>True when a recording's steps can be replayed as a CUDA graph (see <see cref="RunStep"/>).</summary>
+    private bool Captures(CudaRecordedLaunch[] recording)
+        // A graph's scalar upload must read page-locked memory (a capture refuses pageable copies).
+        => _dev.LaunchGraphs && !DiagnosticSwitches.SyncEachLaunch && recording.Length >= 2 && (_program.ScalarSlots.Count == 0 || _runtimeSlotsPinned);
+
+    /// <summary>
+    /// Captures the graph of recording <paramref name="key"/> unless it was refused before; returns its entry, with the graph when the
+    /// capture succeeded.
+    /// </summary>
+    /// <param name="key">The recording's key.</param>
+    /// <param name="recording">Its launches.</param>
+    /// <param name="bindings">Its symbol bindings (the input copies' sizes).</param>
+    /// <param name="downloads">The downloads the graph ends with.</param>
+    /// <param name="entry">Its graph entry so far.</param>
+    /// <param name="ahead">Captured before the shape's first run (<see cref="Prepare"/>): only within <see cref="CudaDevice.AheadGraphBudget"/>
+    /// and while <see cref="AheadCaptureFreeBytes"/> of device memory stay free; a shape refused now may still be captured at its second run.</param>
+    private (int Runs, nint Graph, nint Exec) TryCapture(string key, CudaRecordedLaunch[] recording, Bindings bindings,
+        List<(Value Value, nint Staging, long Bytes)> downloads, (int Runs, nint Graph, nint Exec) entry, bool ahead = false)
+    {
+        if (_uncaptured.Contains(key))
+        {
+            return entry;
+        }
+
+        // The graph's driver memory is counted as the device's; when the device has no room for it, the step keeps running launch by
+        // launch (a placement of many segments must not fail at its first capture).
+        long bytes = CudaDevice.GraphBytes + recording.Length * CudaDevice.GraphBytesPerNode;
+        if (ahead ? !_dev.TryChargeAheadGraph(bytes, AheadCaptureFreeBytes) : !_dev.TryChargeDriverMemory(bytes))
+        {
+            if (!ahead)
+            {
+                _uncaptured.Add(key);
+            }
+
+            return entry;
+        }
+
+        entry = Capture(recording, bindings, downloads, entry.Runs);
+        if (entry.Exec != 0)
+        {
+            _graphBytes[key] = bytes;
+            if (ahead)
+            {
+                _aheadGraphs.Add(key);
+            }
+        }
+        else
+        {
+            if (ahead)
+            {
+                _dev.ReleaseAheadGraph(bytes);
+            }
+            else
+            {
+                _dev.ReleaseDriverMemory(bytes);
+            }
+
+            _uncaptured.Add(key);
+        }
+
+        return entry;
     }
 
     /// <summary>
@@ -1509,7 +1574,14 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
         if (_graphBytes.Remove(key, out long bytes))
         {
-            _dev.ReleaseDriverMemory(bytes);
+            if (_aheadGraphs.Remove(key))
+            {
+                _dev.ReleaseAheadGraph(bytes);
+            }
+            else
+            {
+                _dev.ReleaseDriverMemory(bytes);
+            }
         }
     }
 
@@ -1578,9 +1650,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         bool reorder = DiagnosticSwitches.ConcurrentLaunches && !Profile;
         bool barrierPending = true;
         // The order cache holds the program's launch list only (other lists, such as state copies, are ordered afresh).
-        var ordered = ReferenceEquals(launches, _program.Launches) ? HazardTracker.Order(launches, bindings, reorder, _orders, 0)
-            : HazardTracker.Order(launches, bindings, reorder);
-        foreach (var (item, _, variant, barrierBefore) in ordered)
+        bool program = ReferenceEquals(launches, _program.Launches);
+        var ordered = program ? HazardTracker.Order(launches, bindings, reorder, _orders, 0) : HazardTracker.Order(launches, bindings, reorder);
+        foreach (var (item, index, variant, barrierBefore) in ordered)
         {
             barrierPending |= barrierBefore;
             var grid = variant.Grid(bindings);
@@ -1589,9 +1661,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
                 continue;
             }
 
-            var kernel = _dev.Kernel(variant.Kernel);
-            recorded.Add(new CudaRecordedLaunch(item.Name, ProfileName(item.Name, variant.Kernel.EntryPoint), kernel, grid.X, grid.Y, grid.Z,
-                PackArguments(item, bindings, kernel.TensorMaps), barrierPending));
+            var template = program ? Template(index, item, variant) : NewTemplate(item, variant);
+            recorded.Add(new CudaRecordedLaunch(item.Name, template.ProfileName, template.Kernel, grid.X, grid.Y, grid.Z, template.Arguments(bindings),
+                barrierPending));
             barrierPending = false;
             if (launch)
             {
@@ -1602,13 +1674,37 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         return [.. recorded];
     }
 
+    /// <summary>The template of program launch <paramref name="index"/> with <paramref name="variant"/>, built at its first recording.</summary>
+    private CudaLaunchTemplate Template(int index, KernelLaunch launch, KernelVariant variant)
+    {
+        _templates ??= new CudaLaunchTemplate?[_program.Launches.Count][];
+        var templates = _templates[index] ??= new CudaLaunchTemplate?[launch.Variants.Count];
+        int v = 0;
+        while (!ReferenceEquals(launch.Variants[v], variant))
+        {
+            v++;
+        }
+
+        return templates[v] ??= NewTemplate(launch, variant);
+    }
+
+    /// <summary>Resolves the binding-independent part of a launch with <paramref name="variant"/> (see <see cref="CudaLaunchTemplate"/>).</summary>
+    private CudaLaunchTemplate NewTemplate(KernelLaunch launch, KernelVariant variant)
+    {
+        var kernel = _dev.Kernel(variant.Kernel);
+        var packed = PackArguments(launch, kernel.TensorMaps, out var symbols);
+        return new CudaLaunchTemplate(kernel, ProfileName(launch.Name, variant.Kernel.EntryPoint), packed, symbols);
+    }
+
     /// <summary>
     /// The kernel's parameter struct: every pointer (8 bytes) first, then the 32-bit scalars, as the kernels declare them, then the
     /// kernel's tensor maps (<paramref name="tensorMaps"/>, 128 bytes each from the next 64-byte boundary), encoded over the pointers
-    /// they describe.
+    /// they describe. The scalars of <see cref="SymbolArg"/>s are left zero and listed in <paramref name="symbols"/> (byte offset,
+    /// symbol, multiplier) for <see cref="CudaLaunchTemplate.Arguments"/> to write per binding.
     /// </summary>
-    private byte[] PackArguments(KernelLaunch launch, Bindings bindings, CudaTensorMapSpec[] tensorMaps)
+    private byte[] PackArguments(KernelLaunch launch, CudaTensorMapSpec[] tensorMaps, out (int Offset, string Symbol, long Multiplier)[] symbols)
     {
+        var symbolArgs = new List<(int, string, long)>();
         int pointers = launch.Args.Count(a => a is PointerArg);
         int bytes = pointers * 8 + (launch.Args.Count - pointers) * 4;
         int mapsOffset = (bytes + 63) & ~63;
@@ -1645,7 +1741,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
                         offset += 4;
                         break;
                     case SymbolArg s:
-                        *(uint*)(p + offset) = (uint)(bindings[s.Symbol] * s.Multiplier);
+                        symbolArgs.Add((offset, s.Symbol, s.Multiplier));
                         offset += 4;
                         break;
                 }
@@ -1657,6 +1753,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             }
         }
 
+        symbols = [.. symbolArgs];
         return packed;
     }
 

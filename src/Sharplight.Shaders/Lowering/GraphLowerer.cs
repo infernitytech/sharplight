@@ -550,7 +550,8 @@ public sealed partial class GraphLowerer
     {
         if (_launchCondition is { } cond)
         {
-            variants = [.. variants.Select(v => v with { When = b => cond(b) && v.When(b) })];
+            // The condition is shared by every variant of the launches emitted under it: evaluated once per recorded shape.
+            variants = [.. variants.Select(v => v with { When = b => b.Holds(cond) && v.When(b) })];
         }
 
         _launches.Add(new KernelLaunch

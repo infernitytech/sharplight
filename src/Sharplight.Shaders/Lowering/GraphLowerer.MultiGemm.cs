@@ -460,9 +460,9 @@ public sealed partial class GraphLowerer
         return b => (condition?.Invoke(b) ?? true) && rows(b) >= minRows;
     }
 
-    /// <summary>The variants, each also requiring <paramref name="condition"/>.</summary>
+    /// <summary>The variants, each also requiring <paramref name="condition"/> (evaluated once per recorded shape, see <see cref="Bindings.Holds"/>).</summary>
     private static KernelVariant[] Unless(KernelVariant[] variants, Func<Bindings, bool> condition)
-        => [.. variants.Select(v => v with { When = b => condition(b) && v.When(b) })];
+        => [.. variants.Select(v => v with { When = b => b.Holds(condition) && v.When(b) })];
 
     /// <summary>
     /// The multi-output form of the hand-written f16 GEMM's prompt-sized tiles (<c>gemm_f16_native.cu</c> H_CFG 0 / 1 with MULTI)

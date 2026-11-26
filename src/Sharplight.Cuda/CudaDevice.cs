@@ -30,6 +30,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     private readonly CompilationArtifacts _ownArtifacts = new();
     private readonly bool _kernelBinaries;
     private readonly long _budget;
+    /// <summary>Driver memory of the graphs captured ahead of their first run (<see cref="TryChargeAheadGraph"/>).</summary>
+    private long _aheadGraphBytes;
     private readonly nint _context;
     private readonly Lazy<CudaBlas?> _blas;
     private long _used;
@@ -677,17 +679,20 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// driver's free memory leave room for them (and <see cref="DriverMargin"/>); else counts nothing and returns false, and the caller does
     /// without the object (a graph capture runs its launches one by one). <see cref="ReleaseDriverMemory"/> gives the bytes back.
     /// </summary>
-    internal bool TryChargeDriverMemory(long bytes)
+    /// <param name="bytes">The object's driver memory.</param>
+    /// <param name="keepFree">Device memory that must stay free besides it: <see cref="DriverMargin"/> when 0, else the larger of both (an
+    /// object made ahead of its need leaves room for the objects of the work that runs).</param>
+    internal bool TryChargeDriverMemory(long bytes, long keepFree = 0)
     {
         Enter();
-        if (Limits.DeviceMemory is { } cap && Interlocked.Read(ref _used) + bytes > cap)
+        if (Limits.DeviceMemory is { } cap && Interlocked.Read(ref _used) + bytes + Math.Max(0, keepFree - DriverMargin) > cap)
         {
             return false;
         }
 
         nuint free;
         nuint total;
-        if (CudaApi.cuMemGetInfo(&free, &total) == 0 && (long)free < bytes + DriverMargin)
+        if (CudaApi.cuMemGetInfo(&free, &total) == 0 && (long)free < bytes + Math.Max(keepFree, DriverMargin))
         {
             return false;
         }
@@ -708,6 +713,41 @@ internal sealed unsafe class CudaDevice : IComputeDevice
 
     /// <summary>Gives back driver memory counted by <see cref="TryChargeDriverMemory"/>.</summary>
     internal void ReleaseDriverMemory(long bytes) => Interlocked.Add(ref _used, -bytes);
+
+    /// <summary>
+    /// Driver memory of the graphs captured ahead of their first run held at most on this device: 1/64 of its memory budget (512 MB on
+    /// 32 GB, 128 MB on 8 GB), so step shapes prepared but never run cannot take a noticeable share of a small device.
+    /// </summary>
+    internal long AheadGraphBudget => _budget / 64;
+
+    /// <summary>
+    /// Counts the driver memory of a graph captured ahead of its first run (<see cref="TryChargeDriverMemory"/> with
+    /// <paramref name="keepFree"/>) when the device's graphs captured ahead stay within <see cref="AheadGraphBudget"/>; else counts nothing
+    /// and returns false. <see cref="ReleaseAheadGraph"/> gives the bytes back.
+    /// </summary>
+    internal bool TryChargeAheadGraph(long bytes, long keepFree)
+    {
+        if (Interlocked.Add(ref _aheadGraphBytes, bytes) > AheadGraphBudget)
+        {
+            Interlocked.Add(ref _aheadGraphBytes, -bytes);
+            return false;
+        }
+
+        if (!TryChargeDriverMemory(bytes, keepFree))
+        {
+            Interlocked.Add(ref _aheadGraphBytes, -bytes);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Releases the driver memory of a graph counted by <see cref="TryChargeAheadGraph"/>.</summary>
+    internal void ReleaseAheadGraph(long bytes)
+    {
+        Interlocked.Add(ref _aheadGraphBytes, -bytes);
+        ReleaseDriverMemory(bytes);
+    }
 
     internal void Free(CudaBuffer buffer)
     {

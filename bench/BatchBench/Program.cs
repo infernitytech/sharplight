@@ -1,6 +1,6 @@
 // BatchBench <model> [--slots 64] [--ctx 512] [--depth 256] [--sizes 1,2,4,8,16,32,64] [--reps 30] [--profile B[,B...]] [--profile-mode logits|greedy|sampled]
 //            [--modes logits,download,greedy,sampled,no-logits] [--profile-top 40] [--batch 512] [--mixed D+P[x N],...] [--text] [--feedback]
-//            [--warmup 5] [--refill] [--dump-steps <file>]
+//            [--warmup 5] [--refill] [--dump-steps <file>] [--prepare-probe [--prepare-rounds N]]
 // <model> is a GGUF, a .slm package or a Hugging Face safetensors directory.
 // Prefills every slot with --depth random tokens, then times decode steps of the multi-sequence decoder for each batch size
 // (rows = batch size). Modes per step: "logits" = logits downloaded for every row and arg-max taken on the CPU (the path without a
@@ -119,6 +119,25 @@ void Refill(int count)
 }
 
 Prefill(usedSlots);
+// --prepare-probe: times preparing the decode step of every batch size 1 .. --slots (records the launches of each shape without running
+// them: variant selection, grids, arguments, barrier placement), the host cost of a new step shape, and exits.
+if (argv.Contains("--prepare-probe"))
+{
+    // One decode step of every slot first: the kernels of decode steps are loaded before the timing.
+    dec.Step([.. Enumerable.Range(0, slots).Select(s => new SequenceInput(s, new[] { rng.Next(1000, 30000) }, true))]);
+    // --prepare-rounds N: prepares them N times; with more slots than a segment keeps recordings (128 on CUDA) every round records
+    // every shape again (the least recently run go first), a longer window for a sampling profiler.
+    int rounds = int.Parse(Opt("--prepare-rounds", "1")!);
+    for (int round = 0; round < rounds; round++)
+    {
+        var probe = Stopwatch.StartNew();
+        int shapes = dec.PrepareDecodeSteps(deviceSampling: true);
+        Console.WriteLine($"[prepare] round {round + 1}: {shapes} decode shapes in {probe.Elapsed.TotalMilliseconds:F1} ms, {probe.Elapsed.TotalMilliseconds / Math.Max(1, shapes):F3} ms per shape");
+    }
+
+    return;
+}
+
 double Median(List<double> l)
 {
     var sorted = l.Order().ToList();
