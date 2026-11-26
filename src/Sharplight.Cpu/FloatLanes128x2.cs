@@ -1,12 +1,12 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.Arm;
 
 namespace Sharplight.Cpu;
 
 /// <summary>
-/// Eight float lanes as a pair of 128-bit vectors (Arm64 NEON): the lane count of the AVX2 tier, so every broadcast feeds two
-/// fused multiply-adds and the tiled kernels keep their task shapes.
+/// Eight float lanes as a pair of 128-bit vectors (Arm64 NEON and the x86 v128 tier): the lane count of the AVX2 tier, so every
+/// broadcast feeds two multiply-adds and the tiled kernels keep their task shapes. <see cref="Fma"/> is fused with NEON or FMA3,
+/// else a multiply and an add (<see cref="Vec128.MultiplyAdd"/>).
 /// </summary>
 internal readonly unsafe struct FloatLanes128x2(Vector128<float> lower, Vector128<float> upper) : IFloatLanes<FloatLanes128x2>
 {
@@ -36,7 +36,7 @@ internal readonly unsafe struct FloatLanes128x2(Vector128<float> lower, Vector12
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static FloatLanes128x2 Fma(FloatLanes128x2 a, FloatLanes128x2 b, FloatLanes128x2 c) =>
-        new(AdvSimd.FusedMultiplyAdd(c._lower, a._lower, b._lower), AdvSimd.FusedMultiplyAdd(c._upper, a._upper, b._upper));
+        new(Vec128.MultiplyAdd(a._lower, b._lower, c._lower), Vec128.MultiplyAdd(a._upper, b._upper, c._upper));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static FloatLanes128x2 Multiply(FloatLanes128x2 a, FloatLanes128x2 b) => new(a._lower * b._lower, a._upper * b._upper);

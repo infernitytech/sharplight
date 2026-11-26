@@ -14,7 +14,8 @@ namespace Sharplight.Cpu;
 /// row (KW·C values) is one contiguous run; that copy also reads NCHW input. The weights are packed once into
 /// [panel][tap][channel][NB] panels. Bias, a residual addend in the output's layout and Relu / Clip are applied in
 /// registers, other activations by the <see cref="OutputEpilogue"/> on each stored tile (or pixel). With AVX-512 the
-/// tiles are 8 pixels x 32 channels, or 12 x 16 for convs with at most 16 output channels; with AVX2, 6 x 16.
+/// tiles are 8 pixels x 32 channels, or 12 x 16 for convs with at most 16 output channels; with AVX2 and NEON, 6 x 16; on the
+/// v128 tier, 6 x 8.
 /// </summary>
 internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
 {
@@ -118,7 +119,7 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
         _padBody = PadBody;
         _narrow = CpuIsa.Use512 && _o <= 16;
         _mr = CpuIsa.Use512 ? (_narrow ? 12 : 8) : 6;
-        _nb = CpuIsa.Use512 && !_narrow ? 32 : 16;
+        _nb = CpuIsa.Use512 && !_narrow ? 32 : CpuIsa.Use256 || CpuIsa.UseNeon ? 16 : 8;
         _panels = (_o + _nb - 1) / _nb;
         _k = _c * kh * kw;
         _rowRuns = UsesRowRuns(_c, dw);
@@ -501,9 +502,17 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
         {
             Kernel8x32(ptrs, s0, s1, k0, k1, _len, b, bias, acc, c, ldc, residual, lo, hi);
         }
-        else
+        else if (CpuIsa.Use256)
         {
             Kernel6x16(ptrs, s0, s1, k0, k1, _len, b, bias, acc, c, ldc, residual, lo, hi);
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            Kernel6x16Neon(ptrs, s0, s1, k0, k1, _len, b, bias, acc, c, ldc, residual, lo, hi);
+        }
+        else
+        {
+            Kernel6x8V128(ptrs, s0, s1, k0, k1, _len, b, bias, acc, c, ldc, residual, lo, hi);
         }
     }
 

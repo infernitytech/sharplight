@@ -176,9 +176,19 @@ internal sealed unsafe class ChannelsLastDepthwiseOp : CpuOp
             }
         }
 
-        for (; c + 8 <= c1; c += 8)
+        if (CpuIsa.Use256)
         {
-            Channels<FloatLanes256>(xr, yr, rr, c, fh0, fh1);
+            for (; c + 8 <= c1; c += 8)
+            {
+                Channels<FloatLanes256>(xr, yr, rr, c, fh0, fh1);
+            }
+        }
+        else if (CpuIsa.Use128)
+        {
+            for (; c + 8 <= c1; c += 8)
+            {
+                Channels<FloatLanes128x2>(xr, yr, rr, c, fh0, fh1);
+            }
         }
 
         if (c < c1)
