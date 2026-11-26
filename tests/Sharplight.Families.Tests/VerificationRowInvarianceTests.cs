@@ -21,12 +21,15 @@ public class VerificationRowInvarianceTests(ITestOutputHelper output)
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>
-    /// Model, whether it is large, and the prompt length: Q8_0 runs few-row batches on the integer-dot matvec, FP8 on the skinny
-    /// GEMM, and the 27B has recurrent (gated delta rule) layers; its 700-token prompt is prefilled in two chunks.
+    /// Model, whether it is large, and the prompt length: Q8_0 runs few-row batches on the integer-dot matvec, Q4_K_M (Q4_K and
+    /// Q6_K; unsloth/Qwen3-0.6B-GGUF) single rows too, FP8 few-row batches on the skinny GEMM, and the 27B has recurrent (gated
+    /// delta rule) layers; the 700-token prompts are prefilled in two chunks.
     /// </summary>
     public static TheoryData<string, bool, int> Models() => new()
     {
         { "gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf", false, 40 },
+        { "gguf/Qwen3-0.6B/Qwen3-0.6B-Q4_K_M.gguf", false, 40 },
+        { "gguf/Qwen3-0.6B/Qwen3-0.6B-Q4_K_M.gguf", false, 700 },
         { "lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q8_0.gguf", true, 700 },
         { "hf-vllm/Qwen3.8-27B-FP8", true, 700 },
     };

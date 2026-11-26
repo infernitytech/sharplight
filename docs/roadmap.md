@@ -234,13 +234,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   0.80x; barriers are ~30 % of its step), batched expert matmuls at 16-64 rows.
 - **Single-stream gaps** (§28.5): 27B Q8_0 decode (0.90x of llama.cpp; single matvecs at 1.34-1.42 TB/s) and Mistral-7B
   Q4_K_M pp512 (0.91x). Both need a different summation order, i.e. a deliberate change of greedy output.
-- **Row-invariant MTP verification** (§28.1): verification rows now reproduce plain decoding bit for bit. Next: a
-  row-invariant skinny GEMM so k = 3 on FP8 regains its 5-8 %, and bit-exact int-dot variants for K-quant weights.
-- **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
-  27B); verify drafts on the device instead of reading back 1 MB of logits per row; count rollback records and the draft
-  head in `EstimateFootprint`; wire up DeepSeek-V3 and GLM-4.5 NextN heads.
-- **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
-  loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
+- **Row-invariant MTP verification** (§28.1, §123): verification rows now reproduce plain decoding bit for bit, on K-quant
+  weights too (§123: the int-dot matvec's explicit sums; on Mesa RADV they only agree within the speculative compile). Next: a
+  row-invariant skinny GEMM so k = 3 on FP8 regains its 5-8 %.
+- **MTP follow-ups**: the shared embedding / LM head, device-side verification (greedy and sampled), the footprint of the
+  records and the head, the DeepSeek-V3 / GLM-4.5 NextN heads and the chunked delta rule in rollback-form graphs are done
+  (§17.4). Left: acceptance of the NextN heads on real DeepSeek-V3 / GLM-4.5 checkpoints (only tiny models were run).
 - **ONNX operator coverage**: control flow (Loop, If, Scan), sequences and the rest of the opset.
 - **ONNX latency parity with onnxruntime** (§21, §25-§27, §30, §31, §33). Done:
   - conv / matmul epilogues on CPU and Vulkan, prepacked weights, decomposed LayerNorm / GELU and attention-scale
@@ -378,7 +377,6 @@ GPU (Vulkan):
 - **Chunked scans for other recurrences**: Mamba-2 is a simplified case of the chunked delta-rule kernel; RWKV-7 needs a
   formulation for its per-channel decay (§18).
 - **ONNX `LinearAttention`**: lower to `GatedDeltaRule` with g = 0, which gives it the chunked kernel.
-- **Device-side speculative verification for sampled decoding**, not only greedy.
 
 CPU:
 

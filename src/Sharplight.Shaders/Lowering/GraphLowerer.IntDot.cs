@@ -134,6 +134,13 @@ public sealed partial class GraphLowerer
             var macros = Macros(("WFMT", format), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", w.Type.ByteSize(k) + "ull"),
                 ("MQ_COLS", columns), ("MQ_ROWS", layout.Rows), ("MQ_SG", layout.Subgroups), ("MQ_LPR", layout.LanesPerRow),
                 ("DUAL", weights.Length - 1), ("KERNEL_MMVQ", 1));
+            // Row-invariant compiles of formats whose single rows take this kernel: explicit sums (mmvq.slang), which variants that
+            // split K over several subgroups otherwise contract differently from the single-row one (benchmarks §123).
+            if (InvariantRows > 0 && IntDotMinRows(w.Type) == 1)
+            {
+                macros["MQ_FMA_CHAIN"] = "1";
+            }
+
             int bucket = columns;
             long rowsPerWorkgroup = layout.LanesPerRow < _opt.SubgroupSize
                 ? layout.Subgroups * (_opt.SubgroupSize / layout.LanesPerRow) * layout.Rows
