@@ -17,8 +17,11 @@ namespace Sharplight.Cuda;
 /// </summary>
 public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
-    /// <summary>Most steps kept recorded per segment (one per distinct symbol binding).</summary>
-    private const int MaxRecordings = 64;
+    /// <summary>
+    /// Most steps kept recorded per segment (one per distinct symbol binding): the decode steps of every batch size of a 64-slot
+    /// decoder and its prompt-bearing step shapes (each graph also counts against the device's memory, see <see cref="RunStep"/>).
+    /// </summary>
+    private const int MaxRecordings = 128;
 
     /// <summary>Runtime scalar slots (uints) of the runtime buffer.</summary>
     private const int RuntimeSlots = 64;
@@ -118,7 +121,9 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
     /// <summary>Blocks of the stream's previous kernel launch (see <see cref="_previousShared"/>).</summary>
     private long _previousBlocks;
-    private readonly Queue<string> _recordOrder = new();
+    /// <summary>When each recording last ran (a counter of executions): the least recently run one is evicted first.</summary>
+    private readonly Dictionary<string, long> _lastExecuted = [];
+    private long _executions;
     private readonly nint _stream;
     /// <summary>Whether the stream's driver memory is counted as the device's (<see cref="CudaDevice.ChargeDriverMemory"/>).</summary>
     private readonly bool _streamCharged;
@@ -1069,13 +1074,13 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             // starts while the rest is still being recorded (mixed serving steps of a new row count record ~700 launches).
             recording = Record(_program.Launches, bindings, launch: !Profile);
             _recorded[key] = recording;
-            _recordOrder.Enqueue(key);
             if (DiagnosticSwitches.Trace)
             {
                 Console.Error.WriteLine($"[cuda] recorded {key}: {recording.Length} launches");
             }
         }
 
+        _lastExecuted[key] = ++_executions;
         long recordEnd = Stopwatch.GetTimestamp();
         _replayed = false;
         double recordMs = recorded ? Stopwatch.GetElapsedTime(recordStart, recordEnd).TotalMilliseconds : 0;
@@ -1298,7 +1303,10 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
     }
 
-    /// <summary>Keeps the recording cache bounded (data-dependent symbols can take a new value on every run).</summary>
+    /// <summary>
+    /// Keeps the recording cache bounded (data-dependent symbols can take a new value on every run) by evicting the recording that ran
+    /// least recently: a serving decoder's decode steps, recorded first, stay while prompt-bearing shapes come and go.
+    /// </summary>
     private void EvictOldestRecording()
     {
         if (_recorded.Count < MaxRecordings)
@@ -1306,7 +1314,8 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
             return;
         }
 
-        string key = _recordOrder.Dequeue();
+        string key = _lastExecuted.MinBy(p => p.Value).Key;
+        _lastExecuted.Remove(key);
         _recorded.Remove(key);
         DestroyGraph(key);
     }
@@ -1863,6 +1872,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
         }
 
         _recorded.Clear();
+        _lastExecuted.Clear();
         foreach (var (b, a) in _alloc)
         {
             if (_sharedArenas.TryGetValue(b, out var arena))
