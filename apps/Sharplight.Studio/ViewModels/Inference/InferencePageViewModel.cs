@@ -86,6 +86,9 @@ internal abstract partial class InferencePageViewModel : PageViewModel
     /// <summary>The page's stable id.</summary>
     public string PageId { get; }
 
+    /// <summary>The model kinds the page runs; the first is the primary kind.</summary>
+    public IReadOnlyList<string> Kinds => _kinds;
+
     /// <summary>The model picker (resident models of the page's kind).</summary>
     public ModelPickerViewModel Picker { get; }
 
