@@ -3481,7 +3481,7 @@ The fix keeps verification steps on the single-row arithmetic:
 Tests: `RowInvarianceTests` (Vulkan): single-row steps against 2-, 3- and 4-row steps, bit for bit, for f32, f16, bf16, q8_0,
 q4_k, q6_k and block FP8 weights, single and as gate / up pairs. The K-quants rely on the driver contracting their
 int-dot variants alike; it does at these shapes but not at all (q4_k [2048→48] differs in the last bit), so verification
-on K-quant weights is not guaranteed bit-exact. `VerificationRowInvarianceTests` (Families): verify-step rows against
+on K-quant weights is not guaranteed bit-exact (fixed in §123). `VerificationRowInvarianceTests` (Families): verify-step rows against
 single-row session steps over a prompt and 1-row / 4-row decode, bit for bit, on Qwen3-0.6B Q8_0 and (large) the 27B
 Q8_0 GGUF and FP8 checkpoint.
 
@@ -18745,4 +18745,56 @@ docs/onnx-support.md.
 ```
 source bench/onnx/env.sh; python bench/onnx/make_survey_refs.py qwen2.5-0.5b.model_fp16
 for b in cpu vulkan cuda; do SHARPLIGHT_ONNX_MODELS=~/models/onnx dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll ~/models/onnx/ref/survey/qwen2.5-0.5b.model_fp16.json $b; done
+```
+
+## 123. Row-invariant K-quant int-dot matvec: MTP verification on Q4_K / Q5_K / Q6_K weights reproduces plain decoding (2026-11-26)
+
+Section 28.1 left K-quant weights out of the row-invariance guarantee: their single rows take the integer-dot matvec
+(`mmvq.slang`), and its variants for more activation rows were left to the driver to contract. `RowInvarianceTests` had to
+skip q4_k [2048→48]. A wider sweep (`RowInvarianceTests.KQuantMatMul`: q4_k, q5_k and q6_k at 8 shapes from [256→64] to
+[12288→512]) found that 10 of 24 cases differed in the last bit. Every failing case is a layout that splits K over
+several subgroups (`MQ_SG` > 1: few output rows, long K). End to end that was not small. On Qwen3-0.6B Q4_K_M
+(unsloth/Qwen3-0.6B-GGUF), the verification rows of a k = 3 speculative decoder differed from plain single-row decoding
+by 0.13-0.40 in the logits at every position, at 40- and 700-token prompts (`VerificationRowInvarianceTests`). The q8
+activation quantization of the next layer amplifies each last-bit difference.
+
+Change: in row-invariant Vulkan (SPIR-V) compiles (`CompileOptions.RowInvariantRows` > 0), the int-dot matvec of the formats whose single
+rows use it gets `MQ_FMA_CHAIN`. Their `dot_chunk` then writes its sum as explicit operations, marked `precise` so no
+variant can contract them differently:
+
+* Q4_K / Q5_K: `fma(dhi·xdhi, int_hi, (dlo·xdlo)·int_lo) − fma(mhi, xmhi, mlo·xmlo)`;
+* Q6_K: the mul + fma chain of `dot()`.
+
+These are the forms the NVIDIA driver makes of the plain expressions in single-row kernels; each was found by comparing
+candidates against the plain compile. The same compiled sums are why invariant compiles also equal the plain
+compile's single rows: with a different choice (e.g. an fma chain over all four Q4_K terms) the rows agree with each
+other but not with decoding without speculation. Plain compiles are unchanged.
+
+Results (RTX PRO 6000 Blackwell, Vulkan):
+
+| test | before | after |
+|---|---|---|
+| `RowInvarianceTests.KQuantMatMul` (24 cases, incl. against the plain compile) | 10 failed | all pass |
+| `RowInvarianceTests` (all 109 cases, q4_k [2048→48] no longer skipped, q5_k added), Vulkan and `SHARPLIGHT_TEST_PROVIDER=cuda` | n/a | all pass |
+| `VerificationRowInvarianceTests` Qwen3-0.6B Q4_K_M, prompt 40 / 700 | 0.13-0.40 logit differences | identical |
+| same, Qwen3-0.6B Q8_0 | identical | identical |
+
+On Mesa RADV, the rows of a 2-4-row step equal single-row steps too (all cases pass with the plain-compile comparison
+off). RADV contracts the plain single-row kernel differently, though: its rows of an invariant compile differ from a plain
+compile's in the last bit. So on RADV, speculative output on K-quant weights can still leave plain decoding at a near
+tie. The plain-compile comparison in the test therefore runs on NVIDIA only. A vendor-specific form, or the explicit form in
+plain compiles too, would close that gap; both are left open.
+
+CUDA (same lowering, Slang → CUDA C++ → NVRTC) needed no change: on main, all K-quant cases already pass there, including
+the comparison with the plain compile. With the explicit form, its rows still agreed with each other but no longer with
+NVRTC's plain compile. So `MQ_FMA_CHAIN` applies to SPIR-V targets only.
+
+Not covered: the expert int-dot matvec (`moe_mmvq`) keeps the plain sums. Its K-quant `ExpertMatMul` case passes as
+before.
+
+Commands:
+
+```
+SHARPLIGHT_VK_DEVICES=0 dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method "*RowInvarianceTests*"
+SHARPLIGHT_VK_DEVICES=0 dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*VerificationRowInvarianceTests*"
 ```
