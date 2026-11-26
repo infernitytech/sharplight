@@ -14,3 +14,7 @@
 23:32:01 end qwen sharplight mix rc=0
 23:32:01 start qwen sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 127632 --kv-admission queue
 23:34:15 end qwen sharplight mix rc=0
+19:03:04 start qwen sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 127632 --kv-admission preempt
+19:06:16 end qwen sharplight mix rc=0
+19:06:16 start qwen sharplight mix concs=256 args=--provider cuda --max-queue 4096 --kv-tokens 127632 --kv-admission queue
+19:09:26 end qwen sharplight mix rc=0

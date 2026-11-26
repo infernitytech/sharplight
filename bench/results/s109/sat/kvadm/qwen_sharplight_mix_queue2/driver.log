@@ -1,0 +1,7 @@
+ready=1 after 41 s
+{"concurrency": 256, "requests": 2048, "errors": 0, "wall_s": 130.1313446459826, "agg_tok_s": 3157.7634206263156, "out_tokens": 410924, "avg_out_tokens": 200.646484375, "avg_prompt_tokens": 286.8408203125, "shared_prefix_words": 0, "per_stream_tok_s": 17.09795288697559, "ttft_p50_ms": 211.7544460343197, "ttft_p95_ms": 2914.359427645104, "itl_mean_ms": 58.486533833050416, "itl_p50_ms": 47.656631504
+textcheck wave 16: 5/16 identical to single-request, 3 part within 3 words, 0 garbage -> ok
+textcheck wave 256: 75/256 identical to single-request, 44 part within 3 words, 1 garbage -> FAIL
+  #64 ['symbols:0.28']: ' The essay should be at least 1500 words.\n**The Role of Water and Power in Modern History**  \n**Intr'
+textcheck: GARBAGE
+TEXT CHECK FAILED (rc=1): batched greedy text differs from single-request text, see $TREE/bench/results/s109/sat/kvadm/qwen_sharplight_mix_queue2/serve_sharplight_qwen.textcheck.json

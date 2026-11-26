@@ -1,0 +1,1 @@
+TEXT CHECK FAILED (rc=1): batched greedy text differs from single-request text, see $TREE/bench/results/s109/sat/kvadm/qwen_sharplight_mix_queue2/serve_sharplight_qwen.textcheck.json

@@ -17445,7 +17445,7 @@ full-resolution levels run frame by frame.
 * The VAE's convolution speed (108.2).
 * `torch.compile`: not offered by the official inference script, so not used.
 
-## 109. LLM round 46: a KV admission policy at KV saturation (queue, the default, or preempt with recomputation as vLLM does: Llama-3.1-8B bf16 at 256 streams TTFT p50 3.9 → 2.0 s for -4 % tok/s); the FP8 (E4M3) KV cache, default off (decode attention -38 % per layer, Qwen3-8B-FP8 256-row decode steps -12 %; throughput and accuracy partly pending) (2026-11-25)
+## 109. LLM round 46: a KV admission policy at KV saturation (queue, the default, or preempt with recomputation as vLLM does: Llama-3.1-8B bf16 at 256 streams TTFT p50 3.9 → 2.0 s for -4 % tok/s); the FP8 (E4M3) KV cache, default off (decode attention -38 % per layer, Qwen3-8B-FP8 256-row decode steps -12 %, perplexity +0.03 to +0.20 %; serving against vLLM pending) (2026-11-25)
 
 Branch `perf/llm-r46` (`develop` at `bce0d388`, §105 merged; `develop` `a4f8f173` merged before the hand-back). GPU 0 of the RunPod machine
 (RTX PRO 4500 Blackwell 32 GB, 200 W cap), shared with a llama.cpp re-measure and the SeedVR2 bring-up: every measurement took the bench
@@ -17499,9 +17499,9 @@ preempt preempt queue (`sat/kvadm/`). Tok/s whole run / steady window; TTFT p50 
 * **Non-binding case** (Qwen3-8B-FP8, the same load, `--kv-tokens 127632`: KV use stays ≤ 0.96, no preemption under either policy): queue
   3,073 / 3,659 tok/s, TTFT p50 217 ms. The one preempt run scheduled the same work (996,326 rows in 3,538 steps against 3,529, 0 preemptions)
   but its steps took 187 s against 133 s in all, i.e. the GPU was slower during that run (another agent's load; it was not flagged by the
-  script's foreign-process check, which sees only CUDA processes), so its 2,131 tok/s are not the policy's. A rerun failed to load (other
-  processes held 21 GB of the GPU). **Pending**: the clean rerun. By construction the policies differ only when an admission would leave
-  less than the growth reserve, which never bound here (queue's waiting mean 3.4 is slots and steps, not blocks).
+  script's foreign-process check, which sees only CUDA processes), so its 2,131 tok/s are not the policy's. The clean rerun (order preempt,
+  queue): **preempt 3,165 / 3,623 tok/s, TTFT p50 182 ms, ITL p50 50.5 ms; queue 3,158 / 3,638, 212 ms, 47.7 ms; 0 preemptions in both**:
+  Preempt costs nothing while KV does not bind (the policies differ only when an admission would leave less than the growth reserve).
 
 ### 109.2 FP8 KV cache: steps
 
@@ -17538,19 +17538,21 @@ split-K decode kernel).
 |---|---|---|---|---|
 | Llama-3.1-8B | prompt (chunk 1,024) | 6.6821 | 6.6905 (+0.13 %) | 6.6835 (+0.02 %) |
 | Llama-3.1-8B | decode (chunk 8) | 8.4176 | 8.4251 (+0.09 %) | |
-| Qwen3-8B-FP8 | prompt (chunk 1,024) | 8.7358 | pending | pending |
-| Qwen3-8B-FP8 | decode (chunk 8) | pending | 10.0213 | |
+| Qwen3-8B-FP8 | prompt (chunk 1,024) | 8.7358 | 8.7533 (+0.20 %) | see `ppl/` |
+| Qwen3-8B-FP8 | decode (chunk 8) | 10.0187 | 10.0213 (+0.03 %) | |
 
-The Qwen3-8B-FP8 runs marked pending failed to load (other processes held the GPU's memory). Kernel tests compare every FP8 path with the
-CPU reference on the dequantized cache (109.5).
+FP8 KV costs 0.03-0.20 % perplexity on both models (q8_0: +0.02 % on Llama). Kernel tests compare every FP8 path with the CPU reference on
+the dequantized cache (109.5).
 
 ### 109.4 Pending (follow-up commits on this branch)
 
-* FP8 KV: Qwen3-8B-FP8 perplexities, the clock windows of the Llama steps, serving with the FP8 cache against vLLM's `--kv-cache-dtype fp8`
-  (throughput at 128 / 256 streams and long context, where 1.78x the KV tokens in the same memory matter: Llama-3.1-8B's 256-stream mix
-  would no longer be KV-bound), the fused rope / quantizing cache write and a cheaper prompt-kernel conversion, a native Vulkan check of the
-  step times.
-* KV admission: the clean Qwen3-8B-FP8 preempt rerun (non-binding case).
+* FP8 KV serving against vLLM's `--kv-cache-dtype fp8` (length mix at 256 streams, and long context: 32 streams of ~8K-token prompts,
+  where 1.78x the KV tokens in the same memory matter). Attempted (`scripts/f8b.sh`): vLLM 0.33's fp8-KV server failed in its output
+  handler on this GPU, so no KV size to match and no rows; ours not run without it. Also pending: the clock windows of the Llama steps
+  (the sampler run failed), Vulkan step times.
+* Kernel work: quantize inside `rope_qkv` (the warp form can take per-block scales with a wave max over the row's lanes and no shared
+  memory; the `rope_row` fallback needs the same) and convert the prompt kernel's FP8 tiles in registers instead of a second shared tile:
+  together the +3-4 % of prompt steps and the +0.5 % of single-row steps.
 
 ### 109.5 Tests
 

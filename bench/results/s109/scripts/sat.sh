@@ -9,6 +9,7 @@ export QUIET_GPU=1 ROUNDS=${ROUNDS:-1} SLOTS=${SLOTS:-256} CTX_PER_SLOT=${CTX:-2
 export XDG_CACHE_HOME=$WORK/cache_serve
 LA="--gauges"
 [ $LOAD = mix ] && LA="$LA --length-mix"
+LA="$LA ${LA_EXTRA:-}"
 export LOADGEN_ARGS="$LA"
 O=$OUT/sat/${N}/${m}_${ENG}_${LOAD}${SUFFIX:-}; mkdir -p $O
 if [ $ENG = sharplight ]; then X=(--provider cuda --max-queue 4096 "$@"); else X=(--gpu-memory-utilization ${U:-0.9} "$@"); fi
