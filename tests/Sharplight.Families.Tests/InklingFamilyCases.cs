@@ -27,7 +27,8 @@ internal static class InklingFamilyCases
         new("tiny-random-inkling f32 GGUF (inkling, unsloth llama.cpp)", "gguf/tiny-random-inkling-f32.gguf", Prompt, "ids", InklingIds, ""),
         // Inkling 2 Mini (inkling2_loop, tools/mk_tiny_inkling2.py): block attention residuals over normalized rows, per-token sinks, output gates,
         // L2 clips, static and per-token key / value convolutions, softcapped SwiGLU experts, the loop over layers 2-5 run 3 times with message
-        // gates, the final logit soft cap and the unpadded vocabulary, in the release's layout (transformers 5.24 reference).
-        new("tiny-random-inkling2 HF (inkling2_loop)", "hf/tiny-random-inkling2", Prompt, "ids", Inkling2Ids, ""),
+        // gates, the final logit soft cap and the unpadded vocabulary, in the release's layout (transformers 5.24 reference). f32 KV caches: the
+        // tiny random router has near-tied expert scores, and f16 key / value rounding switches experts in some of the 20 layer passes.
+        new("tiny-random-inkling2 HF (inkling2_loop)", "hf/tiny-random-inkling2", Prompt, "ids", Inkling2Ids, "", F32KvCache: true),
     ];
 }
