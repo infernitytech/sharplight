@@ -54,8 +54,13 @@ public sealed class PreparedStepGraphTests
 
         // Another shape after the prepared one, then the prepared one again: each keeps its own recording and results.
         int other = rows == 1 ? 2 : rows - 1;
-        Assert.Equal(Run(plain, x, input.AsSpan(0, other * Hidden).ToArray(), other).Output,
-            Run(prepared, x, input.AsSpan(0, other * Hidden).ToArray(), other).Output);
+        var otherInput = new float[other * Hidden];
+        for (int i = 0; i < otherInput.Length; i++)
+        {
+            otherInput[i] = MathF.Cos(i * 0.21f);
+        }
+
+        Assert.Equal(Run(plain, x, otherInput, other).Output, Run(prepared, x, otherInput, other).Output);
         Assert.Equal(launched, Run(prepared, x, input, rows).Output);
     }
 

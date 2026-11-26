@@ -9,7 +9,11 @@ namespace Sharplight.Shaders.Lowering;
 public sealed class Bindings(IReadOnlyDictionary<string, long> symbols)
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _evaluated = new(StringComparer.Ordinal);
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<Func<Bindings, bool>, bool> _conditions = new(ReferenceEqualityComparer.Instance);
+    /// <summary>
+    /// Remembered conditions (<see cref="Holds"/>), sized for a large model's shared conditions up front: growing a concurrent table is
+    /// what remembering cost most (its locks are rebuilt each time).
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Func<Bindings, bool>, bool> _conditions = new(1, 1024, ReferenceEqualityComparer.Instance);
 
     /// <summary>The bound value of <paramref name="symbol"/>; an expression (<c>12*N</c>) is evaluated from the bindings of its symbols.</summary>
     /// <exception cref="KeyNotFoundException">The symbol is not bound.</exception>
