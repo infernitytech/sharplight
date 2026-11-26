@@ -51,6 +51,11 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   constants (nearest Resize reads `ResizeNearestTable` index arrays, #67: the `div_rn` residual fma step in
   `spatial.slang` was not enough on the RTX 4090). The integrated RADV / llvmpipe devices (`SHARPLIGHT_VK_DEVICES=1`/`2` on fedora-blackwell) are handy
   for reproducing such driver-precision bugs.
+- Sharplight.Vulkan.Tests also runs on the CUDA provider with `SHARPLIGHT_TEST_PROVIDER=cuda` (same lowering, NVRTC).
+  Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
+  arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC
+  each differ; #10, benchmarks §123), so after touching matvec / int-dot sums run `*RowInvarianceTests*` on both providers
+  and `VerificationRowInvarianceTests` (Families).
 
 ## Style and layout
 
