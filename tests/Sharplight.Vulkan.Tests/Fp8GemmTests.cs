@@ -37,6 +37,32 @@ public sealed class Fp8GemmTests
             what: $"T={t} N={n} K={k}", disabledFeatures: disabled);
     }
 
+    /// <summary>
+    /// Absolute tolerance of the cases whose activations E4M3 represents exactly. Every product is then exact, so the only error left
+    /// is the summation, and that depends on the tensor cores: Blackwell's f8 x f8 -> f32 MMAs accumulate in full f32 (max |d| about
+    /// 1e-5 here), while Ada's (RTX 4090; Hopper too, as documented for DeepSeek-V3's FP8 training) align the products of an MMA to the
+    /// largest one and keep only about 14 fraction bits. A CPU model of that accumulator (products and partial sum truncated to 13-14
+    /// bits below the largest exponent, per 32-value MMA, chained over a 128-value weight block) reproduces the RTX 4090 results: max
+    /// |d| 3e-3 to 4e-3 at 14 bits and 9e-3 at 13 bits, for outputs of RMS 5-15, whatever K. A structural defect (a K step lost or
+    /// summed twice in a stream-K or split-K tile, a wrong block scale, unwritten rows of a partial tile) errs by about the RMS of a
+    /// block's contribution, 0.5 or more, so this tolerance still sits far below what the tests are for.
+    /// </summary>
+    private const double ExactAtol = 1.5e-2;
+
+    /// <summary>
+    /// Relative RMS error bound of the exact-activation cases: 1.3e-4 for the 13-bit accumulator model above, about 1.6e-6 on
+    /// Blackwell. It keeps the check of the whole output tight where the per-element tolerance has to allow for the tails.
+    /// </summary>
+    private const double ExactMaxRelativeRms = 3e-4;
+
+    /// <summary>An fp8 GEMM with activations E4M3 represents exactly (<see cref="Rnd.ExactFp8"/>) against the f32 CPU oracle.</summary>
+    private static void RunExact(string fmt, int t, int n, int k, int seed, int maxTokens = 0)
+    {
+        Run(fmt, t, n, k, Rnd.ExactFp8((long)t * k, seed), atol: ExactAtol, rtol: 1e-3, maxTokens: maxTokens);
+        double rel = Diff.RelativeRms[$"MatMul.fp8.{fmt} T={t} N={n} K={k}"];
+        Assert.True(rel <= ExactMaxRelativeRms, $"MatMul.fp8.{fmt} T={t} N={n} K={k}: relative rms {rel:E2} > {ExactMaxRelativeRms:E2}");
+    }
+
     /// <summary>Random activations: E4M3 keeps 4 significant bits, so each product errs by up to ~3 %.</summary>
     [Theory]
     [MemberData(nameof(Cases))]
@@ -46,13 +72,13 @@ public sealed class Fp8GemmTests
         Run(fmt, t, n, K, Rnd.F((long)t * K, 3), atol: 1.5, rtol: 5e-2);
     }
 
-    /// <summary>Activations that per-128 E4M3 quantization represents exactly: the fp8 GEMM must then match the f32 reference.</summary>
+    /// <summary>Activations that per-128 E4M3 quantization represents exactly: the fp8 GEMM must then match the f32 reference (up to the tensor cores' summation, see <see cref="ExactAtol"/>).</summary>
     [Theory]
     [MemberData(nameof(Cases))]
     public void ExactActivations(string fmt, int t, int n)
     {
         const int K = 1024;
-        Run(fmt, t, n, K, Rnd.ExactFp8((long)t * K, 5), atol: 2e-3, rtol: 1e-3);
+        RunExact(fmt, t, n, K, seed: 5);
     }
 
     /// <summary>
@@ -68,7 +94,7 @@ public sealed class Fp8GemmTests
     public void PartialTokenTiles(int t)
     {
         const int K = 1024, N = 6144;
-        Run("f8e4m3_b128", t, N, K, Rnd.ExactFp8((long)t * K, 13), atol: 2e-3, rtol: 1e-3, maxTokens: 512);
+        RunExact("f8e4m3_b128", t, N, K, seed: 13, maxTokens: 512);
     }
 
     /// <summary>
@@ -85,7 +111,7 @@ public sealed class Fp8GemmTests
     [InlineData(130, 10752, 1024)]
     public void StreamKTiles(int t, int n, int k)
     {
-        Run("f8e4m3_b128", t, n, k, Rnd.ExactFp8((long)t * k, 17), atol: 2e-3, rtol: 1e-3, maxTokens: Math.Max(t, 512));
+        RunExact("f8e4m3_b128", t, n, k, seed: 17, maxTokens: Math.Max(t, 512));
     }
 
     /// <summary>
@@ -144,7 +170,7 @@ public sealed class Fp8GemmTests
     public void ShortTilesBelowMaxTokens(string fmt, int t)
     {
         const int K = 4096;
-        Run(fmt, t, 4096, K, Rnd.ExactFp8((long)t * K, 9), atol: 2e-3, rtol: 1e-3, maxTokens: 2048);
+        RunExact(fmt, t, 4096, K, seed: 9, maxTokens: 2048);
     }
 
     /// <summary><see cref="ShortTilesBelowMaxTokens"/> with the opt-in 64-row tiles (read once per process, so in a child run).</summary>
@@ -179,7 +205,7 @@ public sealed class Fp8GemmTests
     {
         const int K = 256;
         const int T = 1000;
-        Run(fmt, T, 3000, K, Rnd.ExactFp8((long)T * K, 7), atol: 2e-3, rtol: 1e-3);
+        RunExact(fmt, T, 3000, K, seed: 7);
     }
 
     /// <summary>
