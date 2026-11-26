@@ -645,7 +645,8 @@ during this sweep (load average 26-37) than for the tables above, so compare the
 | avx512 (8x32 GEMM tile, 512-bit `vpmaddubsw`) | 1569 | 60 | 905 | 52 | 13.6 |
 | avx512vnni (+ `vpdpbusd zmm`, default here) | 1682 | 61 | 916 | 52 | 16.8 |
 
-The scalar and v128 tiers share the scalar 4x8 GEMM tile (there is no 128-bit GEMM kernel), so their prefill is ~25x
+The scalar and v128 tiers shared the scalar 4x8 GEMM tile at the time (§121 adds a 128-bit 6x8 tile and channels-last
+convs for v128: resnet50 155 → 8.8 ms, Qwen3-0.6B prefill 63 → 354 tok/s on the 9950X), so their prefill is ~25x
 slower; their decode keeps half the speed because it is bound by memory. Decode differences between the vector tiers are
 within the noise; VNNI shows up in the kernel benchmark (single thread q4_k matvec 10.8 GB/s with zmm VNNI).
 
@@ -703,7 +704,8 @@ decoders with ggml's dequantization, MatMul with int dots with a 1 % relative-er
 Remaining gaps: decode is DRAM-bound at ~30-40 GB/s per matvec (llama.cpp's level); Relu is not fused into the conv
 epilogue (7 % of resnet50); the decomposed LayerNorm of convnext still runs as 5 elementwise passes; exp/sigmoid use
 .NET's `Vector512.Exp` (0.3 ns/value) rather than a cheaper polynomial (yolov8n's SiLU is ~20 % of its time); no ARM64
-(NEON / SDOT) integer-dot kernel and no 128-bit GEMM tile yet (the Vector128 tier is the portable fallback).
+(NEON / SDOT) integer-dot kernel and no 128-bit GEMM tile yet (the Vector128 tier is the portable fallback; both added
+later, §121 and docs/macos.md).
 
 ## 13. FP8 checkpoints, the fp8 tensor-core GEMM and the int8 GEMM rework (2026-11-13)
 
@@ -18573,4 +18575,54 @@ LayerNorm rows.
 ```
 SHARPLIGHT_CPU_PROFILE=min SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/vit-base-patch16-224.json cpu --batch 1 --runs 40
 for isa in scalar v128 avx2 avx512vnni; do SHARPLIGHT_CPU_ISA=$isa dotnet run --project tests/Sharplight.Cpu.Tests -c Release --no-build -- -class Sharplight.Cpu.Tests.LayerNormTests; done
+```
+
+## 121. CPU v128 tier: a 128-bit 6x8 GEMM tile and 128-bit channels-last convs (resnet50 155 → 8.8 ms, Qwen3-0.6B prefill 63 → 354 tok/s); NEON gets channels-last too (2026-11-26)
+
+The v128 tier (x86 without AVX2, or `SHARPLIGHT_CPU_ISA=v128`) ran every GEMM on the scalar 4x8 tile, and
+`DeviceFeatures.ChannelsLast` was only set with AVX2, so v128 and NEON had no channels-last convs at all (§12 "Per tier").
+
+- **`Gemm.V128.cs`**: a 6 x 8 tile in 12 `Vector128` accumulators (+ 2 B vectors + 1 broadcast = 15 of the 16 xmm
+  registers), strided and gathered B (`Tile` / `TileGather` / `TileEdge`); `MR`/`NR` = 6/8 on v128. Multiply-adds go
+  through `Vec128.MultiplyAdd`: FMA3 or NEON fused, else `mul + add` (`Vector128.FusedMultiplyAdd` falls back to a per-lane
+  software fma without hardware FMA, which is far slower than the unfused pair).
+- **`ChannelsLastConvOp.Kernels.V128.cs`**: `Kernel6x8V128` (v128, panels of 8 output channels) and `Kernel6x16Neon` (24
+  accumulators, `fmla v.4s, v.4s, v.s[0]` through `AdvSimd.Arm64.FusedMultiplyAddByScalar`, panels of 16).
+  `ChannelsLastDepthwiseOp` / `ChannelsLastPoolOp` run `FloatLanes128x2` (now portable: its `Fma` uses `Vec128.MultiplyAdd`)
+  below AVX2, and the depthwise op on the scalar tier runs its scalar loop instead of emulated `Vector256` code.
+- `CpuDevice.DetectFeatures` sets `ChannelsLast` on every vector tier (`CpuIsa.Use128`, which includes NEON); the scalar
+  reference tier keeps NCHW. Winograd stays AVX2-only (`WinogradConvOp.Applies`).
+
+The NEON paths are compile-checked only (no arm64 machine in the swarm); the macOS / Linux arm64 CI runs of
+Sharplight.Cpu.Tests exercise them.
+
+Ryzen 9 9950X, 16 threads on cores 0-15, main 435d733c ("before") against this branch, 2 interleaved rounds on a shared
+machine (load 2-29); resnet50-v1-12 min of 30 runs, Qwen3-0.6B Q8_0 `--bench 512` best prefill. "SSE only" is
+`DOTNET_EnableAVX=0`, which hides AVX / AVX2 / FMA from the JIT (a real pre-AVX x86: unfused `mul + add`, 2-operand SSE),
+so the host itself detects the v128 tier.
+
+| tier | resnet50 before (ms) | resnet50 after (ms) | Qwen3 prefill before (tok/s) | Qwen3 prefill after (tok/s) |
+|---|---|---|---|---|
+| v128 (`SHARPLIGHT_CPU_ISA=v128`, FMA3 + VEX available) | 122-155 | 8.8 | 61-63 | 354-371 |
+| SSE only (`DOTNET_EnableAVX=0`) | 133-170 | 12-21 | 46-47 | 114-120 |
+| avx2 (unchanged code; control) | 4.9-5.8 | 4.3-9.0 | 1387-1450 | 1404-1455 |
+
+The avx2 resnet50 minima are bimodal on this machine (~5 or ~8 ms for both builds, from run to run); the per-op profile
+minima are identical (4.80 vs 4.79 ms). With `SHARPLIGHT_CPU_PROFILE=min` at v128 the conv time drops from 122 ms (NCHW
+im2col on the scalar tile) to 10.2 ms (channels-last, 6x8 kernel). Single-thread micro-kernel (`GemmKernelBenchTests`,
+kc = 256): scalar 4x8 5.7 GFLOP/s, v128 6x8 86 GFLOP/s (61 SSE only), avx2 6x16 170 GFLOP/s.
+
+Qwen3's v128 prefill stays 4x below AVX2: Q8_0 matmuls without packed int8 dots (`CpuIsa.HasPackedIntDot` is AVX2+ /
+NEON-dot) dequantize to f32 for the GEMM. A 128-bit `pmaddubsw` (SSSE3) int-dot path would close most of that (follow-up).
+Decode is unchanged (memory bound).
+
+Tests: Sharplight.Cpu.Tests under `SHARPLIGHT_CPU_ISA=v128`, `DOTNET_EnableAVX=0` and the default tier: 0 failures apart
+from the 4 `WinogradConvTests.ErrorIsNearTheDirectConv` cases below AVX2, which also fail on main (#68: Winograd only
+applies with AVX2, so the test compares the direct conv with itself). `ChannelsLastTests` now runs the channels-last path
+on the v128 tier.
+
+```
+SHARPLIGHT_CPU_ISA=v128 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 sharplight-onnxrun resnet50-v1-12.onnx --provider cpu --runs 30
+DOTNET_EnableAVX=0 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 sharplight Qwen3-0.6B-Q8_0.gguf --cpu --bench 512
+SHARPLIGHT_BENCH=1 SHARPLIGHT_CPU_ISA=v128 dotnet run --project tests/Sharplight.Cpu.Tests -c Release --no-build -- -method "*GemmKernelBenchTests.MicroKernel"
 ```
