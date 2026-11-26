@@ -3,7 +3,7 @@ namespace Sharplight.Import.HuggingFace;
 /// <summary>
 /// Turns the quantized weights of a checkpoint into self-contained block-quantized weights before the architecture mapping sees
 /// them: FP8 (<see cref="HfFp8Weights"/>), packed FP4 (<see cref="HfFp4Weights"/>), packed integer codes with group scales
-/// (<see cref="HfIntegerWeights"/>: GPTQ, AWQ, compressed-tensors), bitsandbytes (<see cref="HfBitsAndBytesWeights"/>) and MLX
+/// (<see cref="HfIntegerWeights"/>: GPTQ, AWQ, compressed-tensors), ggml blocks (<see cref="HfGgmlPackedWeights"/>, ModelOpt mixed precision), bitsandbytes (<see cref="HfBitsAndBytesWeights"/>) and MLX
 /// affine quantization (<see cref="HfMlxWeights"/>).
 /// Each format is recognized by its tensors, so checkpoints that mix formats per module work. Calibration tensors the runtime does
 /// not use (static activation and KV-cache scales) are dropped.
@@ -20,6 +20,7 @@ internal static class HfQuantizedWeights
     public static IReadOnlyDictionary<string, SafetensorsTensor> Resolve(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors)
     {
         var resolved = HfFp8Weights.Resolve(config, HfTorchAoLayouts.RenameFloat8(HfQuantoLayouts.RenameFloat8(tensors)));
+        resolved = HfGgmlPackedWeights.Resolve(config, resolved);
         resolved = HfQuarkFloatWeights.Resolve(config, resolved);
         resolved = HfFp4Weights.Resolve(resolved);
         resolved = HfIntegerWeights.Resolve(config, resolved);
