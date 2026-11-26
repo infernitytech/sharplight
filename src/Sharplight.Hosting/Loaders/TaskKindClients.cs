@@ -6,6 +6,7 @@ using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Models;
 using Sharplight.Speech;
 using Sharplight.Tasks;
+using Sharplight.TimeSeries;
 using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
 using Sharplight.Vision;
@@ -39,6 +40,7 @@ public static class TaskKindClients
         [ModelKinds.AudioSeparation] = typeof(IAudioSeparator),
         [ModelKinds.TextEmbedding] = typeof(ITextEmbedder),
         [ModelKinds.TextReranking] = typeof(ITextReranker),
+        [ModelKinds.TimeSeriesForecasting] = typeof(ITimeSeriesForecaster),
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>

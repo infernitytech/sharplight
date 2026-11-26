@@ -1,0 +1,79 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ts="using:Sharplight.Studio.ViewModels.TimeSeries"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             xmlns:c="using:Sharplight.Studio.Controls"
+             x:Class="Sharplight.Studio.Views.TimeSeriesPage"
+             x:DataType="ts:TimeSeriesPageViewModel">
+  <iv:InferenceFrame>
+    <iv:InferenceFrame.Workspace>
+      <!-- Scrolls when the window is too small for the input and the result, instead of laying the result out over the controls around it. -->
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <Grid RowDefinitions="Auto,*" RowSpacing="14">
+        <!-- Input -->
+        <Border x:Name="InputCard" Classes="card" DragDrop.AllowDrop="True">
+          <StackPanel Spacing="12">
+            <TextBlock Classes="h2" Text="Series" />
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="small" Content="Choose file" Command="{Binding ChooseFileCommand}" Margin="12,0,0,0" />
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{Binding TableName}" TextTrimming="CharacterEllipsis" FontWeight="Medium" IsVisible="{Binding HasTable}" ToolTip.Tip="{Binding TablePath}" />
+                <TextBlock Classes="caption" Text="{Binding TableSummary}" IsVisible="{Binding HasTable}" />
+                <TextBlock Classes="muted" Text="Drop a CSV or TSV file here, or choose one. Numeric columns are series; a leading date column is the time axis." IsVisible="{Binding !HasTable}" TextWrapping="Wrap" />
+              </StackPanel>
+            </DockPanel>
+            <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasTable}">
+              <TextBlock Text="Column" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding ColumnNames}" SelectedItem="{Binding SelectedColumn}" MinWidth="200" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="accent" Content="Forecast" Command="{Binding RunCommand}" />
+              <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsForecasting}" />
+              <TextBlock Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" />
+              <TextBlock Classes="caption" Text="{Binding ModelInfo}" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <!-- Result -->
+        <Border Grid.Row="1" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="h2" Text="Forecast" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Classes="small" Content="Export CSV" Command="{Binding ExportCsvCommand}" IsVisible="{Binding HasResult}" ToolTip.Tip="Export the forecast: step or timestamp, mean and every quantile" />
+            </Grid>
+            <Panel Grid.Row="1" MinHeight="260" Height="300">
+              <c:ForecastChart History="{Binding HistoryPoints}" Forecast="{Binding ForecastPoints}" Lower="{Binding LowerPoints}" Upper="{Binding UpperPoints}"
+                               StartLabel="{Binding ChartStart}" EndLabel="{Binding ChartEnd}" EmptyText="The forecast appears here, after the history." />
+            </Panel>
+            <TextBlock Grid.Row="2" Classes="caption" Text="{Binding ResultSummary}" TextWrapping="Wrap" IsVisible="{Binding HasResult}" />
+            <Grid Grid.Row="3" RowDefinitions="Auto,Auto" IsVisible="{Binding HasResult}">
+              <Grid ColumnDefinitions="60,150,*,*,*" Margin="0,0,0,4">
+                <TextBlock Classes="caption" Text="Step" />
+                <TextBlock Grid.Column="1" Classes="caption" Text="Time" IsVisible="{Binding HasTimes}" />
+                <TextBlock Grid.Column="2" Classes="caption" Text="{Binding LowHeader}" />
+                <TextBlock Grid.Column="3" Classes="caption" Text="Mean" />
+                <TextBlock Grid.Column="4" Classes="caption" Text="{Binding HighHeader}" />
+              </Grid>
+              <ScrollViewer Grid.Row="1" MaxHeight="260">
+                <ItemsControl ItemsSource="{Binding Rows}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="ts:ForecastRowViewModel">
+                      <Grid ColumnDefinitions="60,150,*,*,*">
+                        <TextBlock Classes="caption mono" Text="{Binding Step}" />
+                        <TextBlock Grid.Column="1" Classes="caption mono" Text="{Binding Time}" />
+                        <TextBlock Grid.Column="2" Classes="mono" Text="{Binding Low}" />
+                        <TextBlock Grid.Column="3" Classes="mono" Text="{Binding Mean}" />
+                        <TextBlock Grid.Column="4" Classes="mono" Text="{Binding High}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Grid>
+          </Grid>
+        </Border>
+      </Grid>
+      </ScrollViewer>
+    </iv:InferenceFrame.Workspace>
+  </iv:InferenceFrame>
+</UserControl>

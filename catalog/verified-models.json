@@ -383,6 +383,35 @@
           "title": "Verified"
         }
       ]
+    },
+    {
+      "id": "9",
+      "columns": [
+        {
+          "key": "model",
+          "title": "Model"
+        },
+        {
+          "key": "repositories",
+          "title": "Hub repository"
+        },
+        {
+          "key": "formats",
+          "title": "Formats"
+        },
+        {
+          "key": "verification",
+          "title": "Verification"
+        },
+        {
+          "key": "notes",
+          "title": "Notes"
+        },
+        {
+          "key": "date",
+          "title": "Verified"
+        }
+      ]
     }
   ],
   "entries": [
@@ -33504,6 +33533,608 @@
           "cells": {
             "repositories": "domyn/Domyn-Edge-Teacher-IF, prithivMLmods/Domyn-Edge-Teacher-IF-GGUF",
             "formats": "safetensors (bf16), GGUF Q8_0, Q4_K_M"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-tiny",
+      "name": "Chronos-Bolt Tiny",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 40000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-tiny",
+          "revision": "a0e552de83495b5c28c14c71c374f3e33280b340",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1120,
+              "gitOid": "d57acc2ef40d0a0d71be5ecdeeec067256b59cc8"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 34622352,
+              "sha256": "75068728d376d2bec670379eeef4bfb4d24c0cfe24d957451f8d19b447030a32"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-tiny",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-mini",
+      "name": "Chronos-Bolt Mini",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 90000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-mini",
+          "revision": "251268337516a88e253628c43e1d26ec577b376b",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1120,
+              "gitOid": "40ff13b0845337298878ba4e81dc13183e57046c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 84956096,
+              "sha256": "1a1a4297f132b808c5c7da24e3cce549d519c01ff5c2661fcad404baba018f24"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-mini",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-small",
+      "name": "Chronos-Bolt Small",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 200000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-small",
+          "revision": "772f3d25d38aec6d914c8949dab4462e2d46f5d8",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1121,
+              "gitOid": "d8f9b65552d4d211e28d332ad5666484092bbf77"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 190888824,
+              "sha256": "06a6a19bbe74bc10a9cd193bd4bf2bf638ae07f7e0d51653ae7ab8ea968a21dd"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-base",
+      "name": "Chronos-Bolt Base",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 820000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-base",
+          "revision": "5d9f166d69f47aef3401367a7b842e78fe97b121",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1123,
+              "gitOid": "a408d6913e164963361eeacbe10f2e62d894a1d7"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 821203576,
+              "sha256": "31f875483a3215bc6880a0837ea608a13ce55f88ad90538c3cdd0b29aeb60b36"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-base",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-tiny",
+      "name": "Chronos Tiny",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 40000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-tiny",
+          "revision": "29d808298f1a62493e7b9a5e08529d0d930fa189",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1142,
+              "gitOid": "1e3c667271f9f04556624f09b821551e296fd83c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 33588440,
+              "sha256": "eed458758bd8165d80f496a90bcd2cfed9f1bf7d7b08677acd64e0f7d72bdcf2"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-tiny",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-mini",
+      "name": "Chronos Mini",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 90000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-mini",
+          "revision": "bd6a4fde8403b8469acd0abd52852b29dbe61c7b",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1113,
+              "gitOid": "048393599e2dcbf1042f7d9dff72168dc2250d0b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 81835272,
+              "sha256": "5cf49253460171e8dfc3a75cfd5e3796091352ec48df16baeb8a1bfeacef769c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-mini",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-small",
+      "name": "Chronos Small",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 200000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-small",
+          "revision": "a971ba21945c4f1796b17a91fe69214b5f4ad472",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1113,
+              "gitOid": "b9ce8d0e4e0eee976236d60380470d74b210328b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 184632480,
+              "sha256": "9c8b6fde5300f72b01c173153bf9288fa0a200614275bf0585071ad71a6a3d43"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-base",
+      "name": "Chronos Base",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 820000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-base",
+          "revision": "ad294eaacead15db499b740ea4122266dd2a81a2",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1116,
+              "gitOid": "96942cd803921f3847f808a8343491fb8ecdc757"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 805530528,
+              "sha256": "44a2eef44aa13d9048a625ea289beb1ea5d709d7b2044f72134c974132644bf2"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-base",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-large",
+      "name": "Chronos Large",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 2900000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-large",
+          "revision": "0e46c9c7e2e9f74b53db0617fdfcfe42a413e54a",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1117,
+              "gitOid": "a6f442b58723cd629be90c08f189799361521e09"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 2835915592,
+              "sha256": "dad1e592a5ba771788d47fd3868f174eeb07e7ca0c4d6dc5ab77674952f452e1"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention; Vulkan on NVIDIA wrong after the first forecast (#88)",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-large",
+            "formats": "safetensors; .slm"
           }
         }
       ]

@@ -84,6 +84,7 @@
               "audio-embedding",
               "music-generation",
               "audio-generation",
+              "time-series",
               "embeddings",
               "reranker"
             ]

@@ -65,11 +65,11 @@ public sealed class DiscoverFiltersTests
         var service = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null, TestServices.CreateLayout(directory.Path));
         service.Update(settings => settings with
         {
-            Discover = new DiscoverFilterSettings { Task = ModelTask.TimeSeries, Format = ModelFormat.Diffusers, Gated = GatedFilter.Only, Sort = HubSortOrder.Modified },
+            Discover = new DiscoverFilterSettings { Task = ModelTask.ThreeD, Format = ModelFormat.Diffusers, Gated = GatedFilter.Only, Sort = HubSortOrder.Modified },
         });
 
         var reread = new Studio.Services.Settings.JsonSettingsService(directory.File("settings.json"), null, TestServices.CreateLayout(directory.Path)).Current.Discover;
-        Assert.Equal(ModelTask.TimeSeries, reread.Task);
+        Assert.Equal(ModelTask.ThreeD, reread.Task);
         Assert.Equal(ModelFormat.Diffusers, reread.Format);
         Assert.Equal(GatedFilter.Only, reread.Gated);
         Assert.Equal(HubSortOrder.Modified, reread.Sort);
@@ -193,8 +193,8 @@ public sealed class DiscoverFiltersTests
     public async Task ChoosingAModelType_ShowsThatTypesHighlights_AndNamesTheKindsTheEngineCannotRun()
     {
         using var services = new TestServices();
-        var diffuser = Model("stabilityai/sd-turbo", pipeline: "time-series-forecasting", formats: [ModelFormat.Safetensors], variants: []);
-        services.Hub.TaskHighlights[ModelTask.TimeSeries] =
+        var diffuser = Model("stabilityai/sd-turbo", pipeline: "image-to-3d", formats: [ModelFormat.Safetensors], variants: []);
+        services.Hub.TaskHighlights[ModelTask.ThreeD] =
         [
             new HighlightSection(HighlightKind.Trending, [diffuser]),
             new HighlightSection(HighlightKind.New, []),
@@ -204,23 +204,23 @@ public sealed class DiscoverFiltersTests
         await search.LoadHighlightsAsync();
         Assert.Equal([(ModelTask?)null], services.Hub.HighlightTasks);
 
-        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.TimeSeries);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ThreeD);
         await Task.Delay(100, TestContext.Current.CancellationToken);
         await search.LoadHighlightsAsync();
 
-        Assert.Equal([(ModelTask?)null, ModelTask.TimeSeries], services.Hub.HighlightTasks);
+        Assert.Equal([(ModelTask?)null, ModelTask.ThreeD], services.Hub.HighlightTasks);
         Assert.True(search.IsShowingHighlights);
-        Assert.Equal("Time series models", search.HighlightsHeading);
+        Assert.Equal("3D models", search.HighlightsHeading);
         Assert.Equal(["Trending", "Most downloaded"], search.Highlights.Select(section => section.Title));
         var badge = search.Highlights[0].Items[0].Compatibility;
-        Assert.Equal("Not yet supported: Time series", badge.Text);
+        Assert.Equal("Not yet supported: 3D", badge.Text);
         Assert.True(badge.IsBad);
-        Assert.Contains("Time series", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
+        Assert.Contains("3D", search.Highlights[0].Items[0].KindTitle, StringComparison.Ordinal);
 
         // "Supported only" hides them, and says why the page is empty; turning it off brings them back.
         search.ShowOnlySupported = true;
         Assert.Empty(search.Highlights);
-        Assert.Contains("cannot run time series models yet", search.HighlightsStatus, StringComparison.Ordinal);
+        Assert.Contains("cannot run 3d models yet", search.HighlightsStatus, StringComparison.Ordinal);
         search.ShowOnlySupported = false;
         Assert.Equal(2, search.Highlights.Count);
         Assert.Equal("", search.HighlightsStatus);
@@ -232,20 +232,20 @@ public sealed class DiscoverFiltersTests
         using var services = new TestServices();
         services.Hub.Results.AddRange(
         [
-            new HubModelSummary("black-forest-labs/FLUX.1-schnell", 5000, 900, false, "diffusers", "time-series-forecasting", null, [ModelFormat.Diffusers], []),
+            new HubModelSummary("black-forest-labs/FLUX.1-schnell", 5000, 900, false, "diffusers", "image-to-3d", null, [ModelFormat.Diffusers], []),
             Model("a/qwen-chat"),
         ]);
         var search = CreateSearch(services);
-        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.TimeSeries);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ThreeD);
         search.Query = "flux";
         await search.SearchCommand.ExecuteAsync(null);
 
-        Assert.Equal(ModelTask.TimeSeries, services.Hub.Queries[^1].Task);
+        Assert.Equal(ModelTask.ThreeD, services.Hub.Queries[^1].Task);
         // The kind is named, nothing is hidden silently, and the supported result comes first.
         Assert.Equal(["a/qwen-chat", "black-forest-labs/FLUX.1-schnell"], search.Results.Select(result => result.Id));
         var flux = search.Results[1];
-        Assert.Equal("Not yet supported: Time series", flux.Compatibility.Text);
-        Assert.Equal("Time series", flux.KindTitle);
+        Assert.Equal("Not yet supported: 3D", flux.Compatibility.Text);
+        Assert.Equal("3D", flux.KindTitle);
         Assert.Equal("DIFFUSERS", flux.Formats);
 
         search.ShowOnlySupported = true;
@@ -257,12 +257,12 @@ public sealed class DiscoverFiltersTests
     public async Task DiffusersRepository_IsShownAsOneModelWithItsComponents_AndCannotBeDownloaded()
     {
         using var services = new TestServices();
-        var summary = new HubModelSummary("o/tiny-sd", 10, 1, false, "diffusers", "time-series-forecasting", null, [ModelFormat.Diffusers], []);
+        var summary = new HubModelSummary("o/tiny-sd", 10, 1, false, "diffusers", "image-to-3d", null, [ModelFormat.Diffusers], []);
         services.Hub.Results.Add(summary);
         services.Hub.Details = repository => new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], null), null, [], ModelFormat.Diffusers,
             [new HubComponent("unet", 3_400_000_000, 1), new HubComponent("text_encoder", 490_000_000, 1), new HubComponent("vae", 330_000_000, 1)]);
         var search = CreateSearch(services);
-        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.TimeSeries);
+        search.Filters.SelectedTask = search.Filters.Tasks.Single(option => option.Value == ModelTask.ThreeD);
         search.Query = "tiny";
         await search.SearchCommand.ExecuteAsync(null);
         await search.FitEstimate;
@@ -270,11 +270,11 @@ public sealed class DiscoverFiltersTests
         Assert.True(search.IsMultiComponent);
         Assert.Equal(["unet", "text_encoder", "vae"], search.Components.Select(component => component.Name));
         Assert.Contains("Diffusers · 3 parts", search.DetailFormat, StringComparison.Ordinal);
-        Assert.Contains("Not yet supported: time series", search.NoDownloadReason, StringComparison.Ordinal);
+        Assert.Contains("Not yet supported: 3d", search.NoDownloadReason, StringComparison.Ordinal);
         Assert.Empty(search.Variants);
         Assert.False(search.DownloadCommand.CanExecute(null));
         // The kind verdict stays; it is not replaced by "no model files".
-        Assert.Equal("Not yet supported: Time series", search.SelectedResult!.Compatibility.Text);
+        Assert.Equal("Not yet supported: 3D", search.SelectedResult!.Compatibility.Text);
     }
 
     [Fact]
@@ -344,9 +344,9 @@ public sealed class DiscoverFiltersTests
     [Fact]
     public void KindVerdict_NamesTheKind_AndLeavesLanguageModelsToTheArchitectureCheck()
     {
-        var image = CompatibilityChecker.FromSummary(new HubModelSummary("a/sd", 1, 1, false, "diffusers", "time-series-forecasting", null, [ModelFormat.Diffusers], []));
+        var image = CompatibilityChecker.FromSummary(new HubModelSummary("a/sd", 1, 1, false, "diffusers", "image-to-3d", null, [ModelFormat.Diffusers], []));
         Assert.Equal(CompatibilityState.UnsupportedKind, image.State);
-        Assert.Equal("Not yet supported: Time series", image.Text);
+        Assert.Equal("Not yet supported: 3D", image.Text);
         Assert.True(image.IsUnsupported);
 
         // No pipeline tag: judged by the files, as before. Language and embedding tasks run, so they are checked by architecture.
@@ -366,7 +366,7 @@ public sealed class DiscoverFiltersTests
         }
 
         Assert.True(ModelKindCatalog.For(ModelKinds.TextGeneration).Runnable);
-        Assert.False(ModelKindCatalog.For("time-series").Runnable);
+        Assert.False(ModelKindCatalog.For("3d-generation").Runnable);
         Assert.True(ModelKindCatalog.For(ModelKinds.VideoGeneration).Runnable);
         // A kind nobody listed gets a readable generic entry.
         var unknown = ModelKindCatalog.For("point-cloud-segmentation");
