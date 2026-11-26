@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-20",
+  "updated": "2026-11-25",
   "docSections": [
     {
       "id": "1.1",
@@ -3321,6 +3321,7 @@
           "id": "mmproj",
           "role": "mmproj",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Vision projector (F16)",
           "repository": "ggml-org/gemma-3-4b-it-GGUF",
           "revision": "d0976223747697cb51e056d85c532013931fe52e",
@@ -12767,6 +12768,7 @@
           "id": "dac",
           "role": "vocoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Descript Audio Codec 44.1 kHz",
           "repository": "descript/dac_44khz",
           "revision": "c1bc521685adf9cfe247bc39a5ca58917eda1ac4",
@@ -13047,6 +13049,7 @@
           "id": "snac",
           "role": "vocoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "SNAC 24 kHz codec",
           "repository": "hubertsiuzdak/snac_24khz",
           "revision": "d73ad176a12188fcf4f360ba3bf2c2fbbe8f58ec",
@@ -13159,6 +13162,7 @@
           "id": "wavtokenizer",
           "role": "vocoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "WavTokenizer-Large-75 (F16)",
           "repository": "ggml-org/WavTokenizer",
           "revision": "0c97fdc098158ec9bf4e703cd5f81a5aa20520e6",
@@ -13335,6 +13339,7 @@
           "id": "vocos",
           "role": "vocoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Vocos mel 24 kHz",
           "repository": "charactr/vocos-mel-24khz",
           "revision": "0feb3fdd929bcd6649e0e7c5a688cf7dd012ef21",
@@ -14684,6 +14689,7 @@
           "id": "clip-l",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "CLIP-L text encoder",
           "repository": "comfyanonymous/flux_text_encoders",
           "revision": "6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5",
@@ -14703,6 +14709,7 @@
           "id": "t5xxl",
           "role": "text-encoder-2",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "T5-XXL encoder (Q8_0)",
           "repository": "city96/t5-v1_1-xxl-encoder-gguf",
           "revision": "005a6ea51a7d0b84d677b3e633bb52a8c85a83d9",
@@ -14722,6 +14729,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "FLUX VAE",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -14807,6 +14815,7 @@
           "id": "clip-l",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "CLIP-L text encoder",
           "repository": "comfyanonymous/flux_text_encoders",
           "revision": "6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5",
@@ -14826,6 +14835,7 @@
           "id": "t5xxl",
           "role": "text-encoder-2",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "T5-XXL encoder (Q8_0)",
           "repository": "city96/t5-v1_1-xxl-encoder-gguf",
           "revision": "005a6ea51a7d0b84d677b3e633bb52a8c85a83d9",
@@ -14845,6 +14855,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "FLUX VAE (from FLUX.1-schnell)",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -14932,6 +14943,7 @@
           "id": "clip-l",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "CLIP-L text encoder",
           "repository": "comfyanonymous/flux_text_encoders",
           "revision": "6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5",
@@ -14951,6 +14963,7 @@
           "id": "t5xxl",
           "role": "text-encoder-2",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "T5-XXL encoder (Q8_0)",
           "repository": "city96/t5-v1_1-xxl-encoder-gguf",
           "revision": "005a6ea51a7d0b84d677b3e633bb52a8c85a83d9",
@@ -14970,6 +14983,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "FLUX VAE (from FLUX.1-schnell)",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -15219,6 +15233,7 @@
           "id": "clip-l",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "CLIP-L text encoder",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -15271,6 +15286,7 @@
           "id": "clip-g",
           "role": "text-encoder-2",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "CLIP-G text encoder",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -15323,6 +15339,7 @@
           "id": "t5xxl",
           "role": "text-encoder-3",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "T5-XXL encoder",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -15386,6 +15403,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "SD3 VAE",
           "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
           "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
@@ -15481,6 +15499,7 @@
           "id": "t5xxl",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "T5-XXL encoder (from FLUX.1-schnell)",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -15542,6 +15561,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "FLUX VAE",
           "repository": "black-forest-labs/FLUX.1-schnell",
           "revision": "741f7c3ce8b383c54771c7003378a50191e9efe9",
@@ -15637,6 +15657,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen2.5-VL-7B text encoder (BF16)",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -15723,6 +15744,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen-Image VAE",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -15928,6 +15950,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen3-4B text encoder (BF16)",
           "repository": "Tongyi-MAI/Z-Image-Turbo",
           "revision": "f332072aa78be7aecdf3ee76d5c247082da564a6",
@@ -15999,6 +16022,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "FLUX VAE",
           "repository": "Tongyi-MAI/Z-Image-Turbo",
           "revision": "f332072aa78be7aecdf3ee76d5c247082da564a6",
@@ -16094,6 +16118,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen3-4B text encoder (BF16)",
           "repository": "Tongyi-MAI/Z-Image",
           "revision": "04cc4abb7c5069926f75c9bfde9ef43d49423021",
@@ -16165,6 +16190,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "VAE",
           "repository": "Tongyi-MAI/Z-Image",
           "revision": "04cc4abb7c5069926f75c9bfde9ef43d49423021",
@@ -16260,6 +16286,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Text encoder (Mistral Small 3.2 24B, Q8_0 GGUF)",
           "repository": "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
           "revision": "b750ec2299225e492f1bd27cab88a0a595fa848f",
@@ -16279,6 +16306,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "VAE",
           "repository": "black-forest-labs/FLUX.2-dev",
           "revision": "26afe3a78bb242c0a8bb181dcc8937bb16e5c66c",
@@ -16378,6 +16406,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Text encoder (pipeline folder, BF16)",
           "repository": "black-forest-labs/FLUX.2-klein-4B",
           "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
@@ -16459,6 +16488,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "VAE",
           "repository": "black-forest-labs/FLUX.2-klein-4B",
           "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
@@ -16554,6 +16584,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen3-8B text encoder (pipeline folder, BF16)",
           "repository": "unsloth/FLUX.2-klein-9B",
           "revision": "455f1273c2f08f1fc93d725c2e6f1d7fc681cd94",
@@ -16645,6 +16676,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "VAE",
           "repository": "unsloth/FLUX.2-klein-9B",
           "revision": "455f1273c2f08f1fc93d725c2e6f1d7fc681cd94",
@@ -16741,6 +16773,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Text encoder (pipeline folder, BF16)",
           "repository": "black-forest-labs/FLUX.2-klein-4B",
           "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
@@ -16822,6 +16855,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "VAE",
           "repository": "black-forest-labs/FLUX.2-klein-4B",
           "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
@@ -16917,6 +16951,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Text encoder (pipeline folder, BF16)",
           "repository": "Qwen/Qwen-Image-2.1",
           "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
@@ -17018,6 +17053,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "VAE",
           "repository": "Qwen/Qwen-Image-2.1",
           "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
@@ -17114,6 +17150,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Text encoder (pipeline folder, BF16)",
           "repository": "Qwen/Qwen-Image-2.1",
           "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
@@ -17215,6 +17252,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "VAE",
           "repository": "Qwen/Qwen-Image-2.1",
           "revision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
@@ -17311,6 +17349,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen3-VL-4B text encoder (pipeline folder)",
           "repository": "unsloth/Krea-2-Turbo",
           "revision": "2489d0f4cb200616c0b5410f96f64d8fdc611b06",
@@ -17357,6 +17396,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen-Image VAE",
           "repository": "unsloth/Krea-2-Turbo",
           "revision": "2489d0f4cb200616c0b5410f96f64d8fdc611b06",
@@ -18055,6 +18095,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen2.5-VL-7B text encoder (BF16)",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -18141,6 +18182,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen-Image VAE",
           "repository": "Qwen/Qwen-Image",
           "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
@@ -21952,6 +21994,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "LTX-Video 0.9.8 VAE (stand-alone file)",
           "repository": "QuantStack/LTXV-13B-0.9.8-distilled-GGUF",
           "revision": "78b86e5a8fb04a3867296a35b83bf1d5c62927c4",
@@ -21971,6 +22014,7 @@
           "id": "t5",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "T5-XXL encoder and tokenizer (LTX-Video pipeline folder subset)",
           "repository": "Lightricks/LTX-Video",
           "revision": "8984fa25007f376c1a299016d0957a37a2f797bb",
@@ -22129,6 +22173,7 @@
           "additionalRoles": [
             "vae"
           ],
+          "intoVariantFolder": false,
           "label": "Wan 2.2 umT5 text encoder and VAE (pipeline folder)",
           "repository": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
           "revision": "b8fff7315c768468a5333511427288870b2e9635",
@@ -22281,6 +22326,7 @@
           "id": "low-noise",
           "role": "transformer-2",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Low-noise expert (Q4_K_M)",
           "repository": "QuantStack/Wan2.2-T2V-A14B-GGUF",
           "revision": "73eafba53a1a8f29254e4c77f92e74ea27d7cd6f",
@@ -22302,6 +22348,7 @@
           "additionalRoles": [
             "vae"
           ],
+          "intoVariantFolder": false,
           "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
           "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
           "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
@@ -22466,6 +22513,7 @@
           "additionalRoles": [
             "vae"
           ],
+          "intoVariantFolder": false,
           "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
           "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
           "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
@@ -22565,6 +22613,7 @@
           "id": "image-encoder",
           "role": "image-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "CLIP-H image encoder (pipeline folder)",
           "repository": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
           "revision": "b184e23a8a16b20f108f727c902e769e873ffc73",
@@ -22691,6 +22740,7 @@
           "additionalRoles": [
             "vae"
           ],
+          "intoVariantFolder": false,
           "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
           "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
           "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
@@ -22790,6 +22840,7 @@
           "id": "image-encoder",
           "role": "image-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "CLIP-H image encoder (pipeline folder)",
           "repository": "Wan-AI/Wan2.1-FLF2V-14B-720P-diffusers",
           "revision": "17c30769b1e0b5dcaa1799b117bf20a9c31f59d7",
@@ -22944,6 +22995,7 @@
           "id": "low-noise",
           "role": "transformer-2",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Low-noise expert (Q4_K_M)",
           "repository": "QuantStack/Wan2.2-I2V-A14B-GGUF",
           "revision": "6c6717459277b9cd1f72579d78a0fd62a79e57dc",
@@ -22965,6 +23017,7 @@
           "additionalRoles": [
             "vae"
           ],
+          "intoVariantFolder": false,
           "label": "Wan 2.1 umT5 text encoder and VAE (pipeline folder)",
           "repository": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
           "revision": "0fad780a534b6463e45facd96134c9f345acfa5b",
@@ -23130,6 +23183,7 @@
           "additionalRoles": [
             "vae"
           ],
+          "intoVariantFolder": false,
           "label": "Llama and CLIP text encoders and VAE (pipeline folder without its transformer)",
           "repository": "hunyuanvideo-community/HunyuanVideo",
           "revision": "e8c2aaa66fe3742a32c11a6766aecbf07c56e773",
@@ -24186,6 +24240,7 @@
           "id": "mmproj",
           "role": "mmproj",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Vision projector (F16)",
           "repository": "unsloth/Qwen3.5-4B-GGUF",
           "revision": "e87f176479d0855a907a41277aca2f8ee7a09523",
@@ -24272,6 +24327,7 @@
           "id": "mmproj",
           "role": "mmproj",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Vision projector (F16)",
           "repository": "unsloth/Qwen3.5-9B-GGUF",
           "revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
@@ -25114,6 +25170,7 @@
           "id": "mmproj",
           "role": "mmproj",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Vision projector (F16)",
           "repository": "unsloth/Qwen3.5-122B-A10B-GGUF",
           "revision": "51eab4d59d53f573fb9206cb3ce613f1d0aa392b",
@@ -25204,6 +25261,7 @@
           "id": "mmproj",
           "role": "mmproj",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Vision projector (F16)",
           "repository": "bartowski/NousResearch_Arete-27B-GGUF",
           "revision": "9762c8502a79bd2b8634735d75f426b9febe092c",
@@ -25403,6 +25461,7 @@
           "id": "mmproj",
           "role": "mmproj",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Vision projector (F16)",
           "repository": "unsloth/gemma-4-31B-it-GGUF",
           "revision": "c1ac76e99d5513b141e8adde7288b85c3f9c32ec",
@@ -26623,6 +26682,7 @@
           "id": "text-encoder",
           "role": "text-encoder",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen2.5-VL-7B text encoder with its vision tower (BF16)",
           "repository": "Qwen/Qwen-Image-Edit-2511",
           "revision": "6f3ccc0b56e431dc6a0c2b2039706d7d26f22cb9",
@@ -26709,6 +26769,7 @@
           "id": "vae",
           "role": "vae",
           "additionalRoles": [],
+          "intoVariantFolder": false,
           "label": "Qwen-Image VAE",
           "repository": "Qwen/Qwen-Image-Edit-2511",
           "revision": "6f3ccc0b56e431dc6a0c2b2039706d7d26f22cb9",
@@ -28286,6 +28347,132 @@
           "cells": {
             "repositories": "ByteDance-Seed/SeedVR2-3B",
             "formats": "official folder (.pth DiT, VAE, text embeddings); fp16 safetensors conversion; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "seedvr2-7b",
+      "name": "SeedVR2 7B",
+      "kind": "video-enhancement",
+      "family": "SeedVR2",
+      "architecture": "seedvr",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "ByteDance Seed",
+        "countryOfOrigin": "CN",
+        "url": "https://seed.bytedance.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "official",
+          "label": "Official checkpoint (F32)",
+          "format": "pytorch",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 22000000000,
+          "companions": [
+            "text-embeddings"
+          ],
+          "repository": "ByteDance-Seed/SeedVR2-7B",
+          "revision": "eb0c4281d41ba3767d4f14370f0e37e9e9180c16",
+          "include": [
+            "seedvr2_ema_7b.pth",
+            "ema_vae.pth"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "seedvr2_ema_7b.pth",
+              "size": 32958774606,
+              "sha256": "e1b2ae25505607e61f2a7dc7967ba778aaf3e3626d9969ce6e24c52d9ddebfcd"
+            },
+            {
+              "path": "ema_vae.pth",
+              "size": 1002691902,
+              "sha256": "c7df8a67e68b7f9aca3d5d2153d2ce8ab4373687741a0f9ce87cb356ace51cac"
+            }
+          ]
+        },
+        {
+          "id": "sharp",
+          "label": "Official sharp checkpoint (F32)",
+          "format": "pytorch",
+          "quantization": "F32",
+          "recommended": false,
+          "memoryBytes": 22000000000,
+          "companions": [
+            "text-embeddings"
+          ],
+          "repository": "ByteDance-Seed/SeedVR2-7B",
+          "revision": "eb0c4281d41ba3767d4f14370f0e37e9e9180c16",
+          "include": [
+            "seedvr2_ema_7b_sharp.pth",
+            "ema_vae.pth"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "seedvr2_ema_7b_sharp.pth",
+              "size": 32958774606,
+              "sha256": "ced5706c976d5879efcab9e108349d67abcbd8a9b36a1f48bf0f19c24164a264"
+            },
+            {
+              "path": "ema_vae.pth",
+              "size": 1002691902,
+              "sha256": "c7df8a67e68b7f9aca3d5d2153d2ce8ab4373687741a0f9ce87cb356ace51cac"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "text-embeddings",
+          "role": "text-encoder",
+          "additionalRoles": [],
+          "intoVariantFolder": true,
+          "label": "SeedVR2 text embeddings (official, from the 3B repository)",
+          "repository": "ByteDance-Seed/SeedVR2-3B",
+          "revision": "37255ff8cccfb01071b87f635a5948ca8d53117c",
+          "include": [
+            "pos_emb.pt",
+            "neg_emb.pt"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "pos_emb.pt",
+              "size": 595100,
+              "sha256": "fa07a14844314772266b66c3b95deb0027696d8fe7065721263db5176f45d799"
+            },
+            {
+              "path": "neg_emb.pt",
+              "size": 656540,
+              "sha256": "6a43e5800ef2354f1c156d27535834da055cbec8248298b8923492bba2076581"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "official PyTorch inference (ByteDance-Seed/SeedVR projects/inference_seedvr2_7b.py via tools/seedvr2-reference.py; bench/results/seedvr2/run-bench.sh)",
+        "summary": "official .pth files, whole enhancement vs the official code (17 frames 416x240 -\u003E 832x480, wavelet colour fix, same frames and noise; reference: bf16 autocast with the DiT weights held in bf16, which a 32 GB GPU needs; Sharplight: f16 matrices, f32 activations): 7B 44.2 dB worst frame on CUDA and Vulkan, 7B sharp 42.7 dB CUDA / 42.6 dB Vulkan",
+        "providers": [
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-25",
+        "tests": []
+      },
+      "notes": "one-step video restoration and super-resolution, 7B DiT (standard and sharp checkpoints); the text embeddings come from the official 3B repository (identical to the GitHub release)",
+      "doc": [
+        {
+          "section": "8.1",
+          "cells": {
+            "repositories": "ByteDance-Seed/SeedVR2-7B (\u002B text embeddings of ByteDance-Seed/SeedVR2-3B)",
+            "formats": "official folder (.pth DiT, VAE, text embeddings); .slm"
           }
         }
       ]

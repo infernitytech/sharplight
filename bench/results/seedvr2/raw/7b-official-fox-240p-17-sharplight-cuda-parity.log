@@ -1,0 +1,17 @@
+23:43:57.993 Graph optimization (sharplight-ir/1): restore 9896 -> 9300 nodes, vae_encode 2709 -> 1922 nodes, vae_decode 5348 -> 3701 nodes, color_correct 14 -> 14 nodes [2110 ms]
+23:43:58.059 Loaded seedvr2_ema_7b (seedvr, video-enhancement, components transformer, vae): 1345 tensors, 17.49 GB [3195 ms]
+seedvr2_ema_7b on cuda (NVIDIA RTX PRO 4500 Blackwell), loaded in 3.3 s
+23:44:00.183 Graph optimization (sharplight-ir/1): restore 9896 -> 9300 nodes, vae_encode 3129 -> 2348 nodes, vae_decode 6284 -> 4573 nodes, color_correct 14 -> 14 nodes [1690 ms]
+23:44:00.184 Rebuilt seedvr2_ema_7b for frames=5, height=480, width=832, half_caches=1 [1815 ms]
+23:44:36.577 Compiled 'vae_encode' in 36387 ms
+23:44:36.577 vae_encode@832x480x5: 3.98 GiB on the device
+23:45:55.160 Compiled 'restore' in 77197 ms
+23:45:55.160 restore@832x480x5: 16.38 GiB on the device
+23:46:30.062 Compiled 'vae_decode' in 32998 ms
+23:46:30.062 vae_decode@832x480x5: 7.98 GiB on the device
+23:46:33.276 Compiled 'color_correct' in 110 ms
+23:46:33.276 color_correct@832x480x5: 0.39 GiB on the device
+timed read 0.02 s, encoding 39.79 s, restoring 79.10 s, decoding 36.42 s, enhance 155.40 s, write 0.00 s, total 155.41 s
+median of 1: read 0.02 s, encoding 39.79 s, restoring 79.10 s, decoding 36.42 s, enhance 155.40 s, write 0.00 s, total 155.41 s
+frames 44.2 44.6 44.5 44.7 44.8 45.1 45.3 45.5 45.8 45.8 45.4 45.4 44.9 44.5 45.1 45.1 45.2
+worst 44.20 dB, mean 45.05 dB

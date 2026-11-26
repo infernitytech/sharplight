@@ -117,7 +117,7 @@ internal sealed class HubService : IHubService, IDisposable
             return new RepositoryDetails(repo, null, []);
         }
 
-        var tags = ModelFileSelector.ListVariants(paths, index);
+        var tags = ModelFileSelector.ListVariants(repo, index);
         var variants = new List<VariantInfo>();
         if (tags.Count == 0)
         {
@@ -162,7 +162,7 @@ internal sealed class HubService : IHubService, IDisposable
                     Func<long, int, CancellationToken, Task<byte[]>> Reader(string path) => (offset, count, token) => client.GetFileRangeAsync(repo, path, offset, count, token);
                     return await VariantProbe.ProbeGgufAsync(Reader(variant.PrimaryPath), readWeightFormats, cancellationToken,
                         [.. variant.OtherShards.Select(Reader)]).ConfigureAwait(false);
-                case ModelFormat.Safetensors or ModelFormat.Onnx:
+                case ModelFormat.Safetensors or ModelFormat.Onnx or ModelFormat.PyTorch:
                     bool onnx = variant.PrimaryPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase);
                     var directory = onnx ? variant.PrimaryPath[..Math.Max(0, variant.PrimaryPath.LastIndexOf('/'))] : variant.PrimaryPath;
                     var configPath = FindNear(repo, directory, "config.json");

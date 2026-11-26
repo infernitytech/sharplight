@@ -89,12 +89,12 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
 
     /// <summary>Downloaded bytes of <see cref="CurrentFile"/>.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(FileProgress), nameof(FileText))]
+    [NotifyPropertyChangedFor(nameof(FileText))]
     public partial long FileReceived { get; set; }
 
     /// <summary>Size of <see cref="CurrentFile"/>.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(FileProgress), nameof(FileText))]
+    [NotifyPropertyChangedFor(nameof(FileText))]
     public partial long FileSize { get; set; }
 
     /// <summary>Work done in the converting / compiling step.</summary>
@@ -111,9 +111,6 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
     public double Progress => Phase is PullPhase.Converting or PullPhase.Precompiling
         ? StageTotal <= 0 ? 0 : Math.Clamp((double)StageCompleted / StageTotal, 0, 1)
         : TotalBytes <= 0 ? 0 : Math.Clamp((double)ReceivedBytes / TotalBytes, 0, 1);
-
-    /// <summary>Progress of the current file, 0..1.</summary>
-    public double FileProgress => FileSize <= 0 ? 0 : Math.Clamp((double)FileReceived / FileSize, 0, 1);
 
     /// <summary><c>model-00001.safetensors · 1.2 GB / 4.0 GB</c> while downloading.</summary>
     public string FileText => Phase == PullPhase.Downloading && CurrentFile is not null
