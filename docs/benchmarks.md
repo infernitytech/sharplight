@@ -18305,3 +18305,71 @@ PipelineBench ~/models/hf/Qwen3-0.6B --workers 127.0.0.1:7181 --remote-only --si
 PipelineBench ~/models/hf/Qwen3-0.6B --provider cuda --sizes 1,8 --groups 1,2 --reps 200 --prefill 512 --chunks 512,128      # in process
 PipelineBench ~/models/hf/Qwen3-0.6B --workers 127.0.0.1:7181 --split 1,6 --boundary f16 --sizes 1,8 --groups 1 --reps 100 --prefill 512 --chunks 512,128
 ```
+
+## 116. CPU Winograd F(4x4, 3x3) on the channels-last layout: 1.2-2.3x per isolated conv, but inside models only a win with AVX2 at batch 8 (ResNet-50 -10 %); off by default with AVX-512 (2026-11-26)
+
+Machine: Ryzen 9 9950X (Zen 5, two CCDs of 8 cores, 1 MB L2 per core, 32 MB L3 per CCD), 16 threads pinned to the physical cores
+(`taskset -c 0-15`), shared with other agents (load average 5-9): repeated runs of the same build move by ±10-25 %, so only the
+interleaved comparisons below are meaningful.
+
+`WinogradConvOp` (`src/Sharplight.Cpu/WinogradConvOp.cs`) runs 3x3 stride-1 convs (groups 1, no dilation, ≥ 32 input and output
+channels in multiples of 16, ≥ 16 output tiles per image, ≤ 16 MB of transformed weights) on the channels-last layout: each task
+takes a block of 4x4 output tiles x a block of output-channel panels, transforms its 6x6 input patches 64 channels at a time
+(Bᵀ d B, written as 36 row-major [tile][channel] matrices), accumulates the 36 products with the channels-last conv's 8x32 / 6x16
+register kernels against the weights transformed once in f64 (G g Gᵀ, packed [position][panel][C][NB]), and applies Aᵀ m A with bias,
+residual and Relu / Clip in registers. Everything a task touches stays in its core's caches.
+
+**Accuracy** (`WinogradConvTests.ErrorIsNearTheDirectConv`, RMS against an f64 reference, weights ~ 1/√(9C)): 5.5e-7 to 1.0e-6 against
+1.5e-7 to 3.5e-7 for the direct conv (3.6-3.8x), 2-3e-6 of the output RMS, i.e. still f32 class. ResNet-50 parity RMS 1.42e-6
+(direct 1.28e-6); fcn-resnet50 and yolov10n are unchanged within their tolerances.
+
+### 116.1 One conv in isolation (`WinogradConvTests.Throughput`, weights and activations hot, p10 of 40 runs, µs)
+
+| conv | AVX-512 direct | AVX-512 Winograd | | AVX2 direct | AVX2 Winograd | |
+|---|---:|---:|---:|---:|---:|---:|
+| 64 ch 56x56 b1 | 110 | 85 | 1.30x | 124 | 103 | 1.20x |
+| 128 ch 28x28 b1 | 97 | 85 | 1.14x | 164 | 109 | 1.50x |
+| 256 ch 14x14 b1 | 106 | 141 | 0.75x | 195 | 117 | 1.67x |
+| 64 ch 56x56 b8 | 691 | 349 | 1.98x | 927 | 409 | 2.27x |
+| 128 ch 28x28 b8 | 616 | 367 | 1.68x | 911 | 416 | 2.19x |
+| 256 ch 14x14 b8 | 565 | 721 | 0.78x | 930 | 560 | 1.66x |
+
+512 ch 7x7 (4 tiles per image, 38 MB of transformed weights) ran at 0.55-0.65x and is excluded by the shape rules. On one thread
+Winograd is 2.0-2.4x faster (AVX-512, the direct conv's 0.26 TFLOPS against 0.54-0.64 equivalent).
+
+### 116.2 Inside ResNet-50 (`OnnxBench … cpu`, min ms of 40-60 runs, interleaved process runs)
+
+| tier, batch | direct | Winograd | |
+|---|---:|---:|---:|
+| AVX-512, b1 | 4.4 | 5.6-6.4 | 0.75x |
+| AVX-512, b8 | 22.3 | 24.6-25.6 | 0.89x |
+| AVX2, b1 | 5.1-5.9 | 5.8-6.6 | ~0.9x |
+| AVX2, b8 | 33.8 (best of 5) | 30.5 (best of 5, 4 of 5 rounds faster) | 1.10x |
+
+Why the isolated wins do not carry over (per-op profiles, `SHARPLIGHT_CPU_PROFILE=min`):
+
+- **Weights from DRAM.** The transformed weights are 4x the direct conv's (36 instead of 9 values per channel pair). In a model every
+  layer's weights arrive cold: at b1 the 256-channel convs took 270 µs against 108 µs direct (9.4 MB per layer), the 128-channel ones
+  145 against 82.
+- **Cross-CCD operand traffic.** Isolated, the 64-channel b8 conv scaled 7.5x from 1 to 8 threads and not at all from 8 to 16: each
+  task re-reads its input patches once per output-panel block, and half of them come from the other CCD's L3. Counting the input
+  re-reads in the planner (and a lower shared bandwidth, 1.2e11 B/s) made it prefer whole-panel tasks and fixed the isolated scaling
+  (64 ch b8 1.43-1.98x), but inside the model, where the producer's output sits spread over both CCDs, the AVX-512 3x3 convs stay at
+  about the direct conv's time (64 ch b8 473 against 476 µs).
+- A schedule of three passes (all input transforms, then 36 product passes reading only their position's weights, then all output
+  transforms) was 1.3-2.5x slower than the fused tasks: its shared transform buffers cross the CCDs.
+
+With AVX2 the direct conv's 6x16 kernels run at ~2 TFLOPS instead of 2.7-3.3, so the saved products outweigh the traffic at batch 8.
+Default (`SHARPLIGHT_CPU_WINOGRAD=auto`): Winograd on tiers without AVX-512 from batch 4; a symbolic batch keeps the direct op as
+well and runs it for smaller batches. `SHARPLIGHT_CPU_WINOGRAD=n` uses it from batch n on any tier, `0` never.
+
+Next, if it is picked up again: transformed weights in a blocked layout read once per CCD (tasks of one CCD sharing a weight block),
+fusing the input transform into the producing conv's store, and a measurement on a single-CCD CPU, where the cross-CCD cost is absent.
+
+### 116.3 Commands
+
+```
+SHARPLIGHT_BENCH=1 SHARPLIGHT_THREADS=16 taskset -c 0-15 dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -method "*WinogradConvTests.Throughput"
+SHARPLIGHT_BENCH=1 ... -method "*WinogradConvTests.BottleneckThroughput"      # 1x1 → 3x3 → 1x1 + residual; SHARPLIGHT_BENCH_COLD=1 evicts the caches per run
+SHARPLIGHT_CPU_ISA=avx2 SHARPLIGHT_CPU_WINOGRAD=auto|1|0 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/resnet50-v1-12.json cpu --batch 8 --runs 40
+```
