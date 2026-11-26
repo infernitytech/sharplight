@@ -327,6 +327,9 @@
                     "type": "string"
                   }
                 },
+                "intoVariantFolder": {
+                  "type": "boolean"
+                },
                 "label": {
                   "type": "string"
                 },

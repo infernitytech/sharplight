@@ -162,6 +162,12 @@ public sealed class ModelPuller
         var auxiliary = new List<KeyValuePair<string, string>>();
         foreach (var companion in plan.Companions)
         {
+            if (companion.IntoVariantFolder)
+            {
+                planned.AddRange(Plan(companion, filesDirectory));
+                continue;
+            }
+
             var companionDirectory = Path.Combine(sourceDirectory, CompanionDirectoryName, companion.Id, RepoPath.Name(companion.Repository));
             planned.AddRange(Plan(companion, companionDirectory));
             auxiliary.AddRange(companion.AllRoles.Select(role => new KeyValuePair<string, string>(role, PrimaryPath(companionDirectory, companion))));

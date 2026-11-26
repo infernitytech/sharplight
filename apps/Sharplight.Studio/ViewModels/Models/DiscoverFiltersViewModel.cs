@@ -31,6 +31,7 @@ internal sealed partial class DiscoverFiltersViewModel : ObservableObject
             new("Safetensors", ModelFormat.Safetensors),
             new("Diffusers", ModelFormat.Diffusers),
             new("ONNX", ModelFormat.Onnx),
+            new("PyTorch", ModelFormat.PyTorch),
             new("whisper.cpp", ModelFormat.WhisperCpp),
             new(".slm package", ModelFormat.Slm),
         ];

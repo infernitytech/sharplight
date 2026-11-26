@@ -90,6 +90,7 @@ internal static class HubJson
             var files = model.TryGetProperty("siblings", out var siblings) && siblings.ValueKind == JsonValueKind.Array
                 ? siblings.EnumerateArray().Select(sibling => String(sibling, "rfilename")).OfType<string>().ToList()
                 : [];
+            var formats = Formats(files);
             var config = model.TryGetProperty("config", out var configValue) && configValue.ValueKind == JsonValueKind.Object ? configValue : default;
             var gguf = model.TryGetProperty("gguf", out var ggufValue) && ggufValue.ValueKind == JsonValueKind.Object ? ggufValue : default;
             results.Add(new HubModelSummary(
@@ -100,7 +101,7 @@ internal static class HubJson
                 String(model, "library_name"),
                 String(model, "pipeline_tag"),
                 Parameters(model),
-                Formats(files),
+                formats,
                 ModelFileSelector.ListVariants(files),
                 gguf.ValueKind == JsonValueKind.Object ? String(gguf, "architecture") : null,
                 config.ValueKind == JsonValueKind.Object ? String(config, "model_type") : null,
@@ -108,7 +109,8 @@ internal static class HubJson
                 files.Any(GgufFileName.IsGguf) && files.Where(GgufFileName.IsGguf).All(GgufFileName.IsProjector),
                 Date(model, "createdAt"),
                 License(model),
-                Date(model, "lastModified")));
+                Date(model, "lastModified"),
+                formats.Count == 0 ? RepoLayouts.UnsupportedFormat(files) : null));
         }
 
         return results;
@@ -187,6 +189,12 @@ internal static class HubJson
         if (files.Any(file => file.EndsWith(".slm", StringComparison.OrdinalIgnoreCase)))
         {
             formats.Add(ModelFormat.Slm);
+        }
+
+        // PyTorch weights beside safetensors, GGUF or a pipeline are copies or parts of that model, which is pulled in its other format.
+        if (!formats.Any(format => format is ModelFormat.Safetensors or ModelFormat.Gguf or ModelFormat.Diffusers) && PyTorchSelection.HasWeights(files))
+        {
+            formats.Add(ModelFormat.PyTorch);
         }
 
         return formats;
