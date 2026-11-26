@@ -18057,3 +18057,198 @@ On GPU 0, one class per process under the bench lock: `Sharplight.Vulkan.Tests` 
 which passed 3 of 3 class reruns and 5 of 5 single reruns with the switch on and off (timing). New: `TileStepCostTests` (rising prices
 prefer small chunks; falling, flat and fixed-cost prices keep large ones; no preference before enough steps),
 `EngineTests.PricedPromptChunks_SpreadPromptsWhenSmallChunksCostLessPerRow` (on and off).
+
+## 114. LLM round 48: f16 / bf16 products from 65 rows on the hand-written GEMM (Llama-3.1-8B bf16 mixed steps of 176-240 rows -19 to -28 %, decode-only steps of 96-255 rows -7 to -20 %), prompt-bearing steps in shape buckets (recorded steps and CUDA graphs reused across row counts), the least recently run recording evicted first; Llama-3.1-8B at 16 streams: ITL p99 84-87 → 34 ms (vLLM 33.5) at +1-2 % tok/s and a third of vLLM's TTFT (2026-11-26)
+
+Branch `perf/llm-r48` (`develop` at `352afb67`; `3e91ab4d` merged before the tests). GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell
+32 GB, 82 SMs, 200 W cap), shared with other agents: every GPU run held the bench lock, but other agents' builds and test suites ran
+beside it (load average 7-24 on 10 cores; the cgroup's CPU throttling counters are kept per serving run in `run_*.thr0/thr1`, load in
+`run_*.load`). `develop` ran from a worktree at `352afb67` (`base`), the branch from its own; `perf-r48-x` was the branch with a local
+switch for the padding A/B (removed). vLLM 0.33 (venv `vllm-r12`) in the same session. Raw output in
+[`bench/results/r48/`](../bench/results/r48) (`steps/` BatchBench, `serve/` serving runs and step profiles, `scripts/` the queues).
+
+Kept (keyed on row counts, tile shapes, scheduler state and cache features; no model names):
+
+1. **The library path's row threshold follows the hand-written f16 GEMM** (`GraphLowerer.LibraryGemmMinRows`): 65 rows where the
+   provider has `gemm_f16_native.cu` (the rows past its decode form's 64-row tile), 256 for the vendor library as before.
+2. **`EngineOptions.StepShapeBuckets`** (default on): prompt-bearing steps padded to 64-row, 8-logits-row and full-run-table buckets
+   (`MultiSequenceDecoder.ShapePaddingRows` / `PadStep`).
+3. **Least recently run eviction of CUDA step recordings, up to 128** (`CudaSegment.EvictOldestRecording`; was first-recorded-first, 64).
+4. Test fixes (§114.5): engine tests that priced steps on wall-clock sleeps take the fake decoder's simulated step time.
+5. **`CudaSegment.Prepare`**: the decode shapes the engine prepares at start are recorded ahead on CUDA too (Vulkan already recorded
+   its command buffers), so their first use launches at once instead of selecting variants first.
+
+### 114.1 Where the 16-stream tail came from on Llama-3.1-8B: gemm_cm2 at 65-255 rows, then first runs
+
+BatchBench (`--mixed`, 24-32 slots at depth 256, greedy, GPU ms min of 10; `steps/base_llama`, `align_llama`, `lib256_llama` /
+`lib65_llama`): a mixed step of 16 decode rows and one prompt chunk costs more at 240 rows than at 256, because below 256 rows the
+bf16 products (stored as f16) ran on gemm_cm2 with K splits instead of the hand-written f16 GEMM (`prof_llama`: gate / up 488 µs at
+240 rows against 406 µs at 256, down 282 against 198).
+
+| Llama-3.1-8B, decode + prompt rows (step rows) | `develop` | r48 | change |
+|---|---:|---:|---:|
+| 16 + 0 (16) | 20.43 | 20.50 | 0 |
+| 16 + 48 (64) | 21.57 | 21.45 | -0.6 % |
+| 16 + 64 (80) | 24.01 | 22.47 | **-6.4 %** |
+| 16 + 98 (114) | 25.16 | 23.12 | **-8.1 %** |
+| 16 + 160 (176) | 36.81 | 26.35 | **-28 %** |
+| 16 + 176 (192) | 37.46 | 28.00 | **-25 %** |
+| 16 + 224 (240) | 39.13 | 31.84 | **-19 %** |
+| 13 + 240 (253) | 39.74 | 32.98 | **-17 %** |
+| 16 + 240 (256) | 32.68 | 32.49 | 0 |
+| 16 + 496 (512) | 60.59 | 59.53 | -1.7 % |
+
+Decode-only steps (256 slots at depth 128, `steps/dec_base_llama`, `dec_br_llama`, GPU ms min): 65 rows 24.68 → 23.33, 96 rows
+26.76 → 24.86, 128 rows 28.76 → 26.07, 160 rows 38.95 → 31.73, 192 rows 41.27 → 33.18, 224 rows 45.11 → 38.02, 255 rows 47.85 →
+40.66 (-5 to -20 %); 64 rows 22.45 / 22.43 unchanged (the decode form serves up to 64). At 256 rows both run the same kernels (a
+per-kernel profile, `prof256_*`: 35.8 / 35.9 ms per step summed), the step minima (37.95 / 40.70, then 34.53 / 38.11) moved with the
+shared GPU. FP8, K-quant and MoE expert products do not take this path; bias products keep their 1,024-row threshold
+(`NativeBiasGemmMinRows`), so gpt-oss-20b is unchanged. 16 + 241 rows (257) still costs 41.2 ms: a third 128-row token tile, which the
+step budget's tile rule keeps serving steps away from (§101).
+
+**First runs of a new step shape** (BatchBench `[first]` / `[run 2]` / `[run 3]` lines, new in this round; `steps/base_llama`):
+
+| Llama-3.1-8B, `develop` | first run: wall / GPU | second (capture) | steady |
+|---|---|---|---|
+| 13 + 240 | 45.2 / 44.1 | 39.3 / 36.8 | 37.3 / 37.1 |
+| 15 + 200 | 42.2 / 42.0 | 40.2 / 37.0 | 37.1 / 36.9 |
+| 16 + 240 | 35.7 / 35.6 | 34.8 / 32.0 | 31.8 / 31.7 |
+| 10 + 246 | 35.3 / 35.2 | 34.2 / 31.8 | 31.7 / 31.5 |
+| 14 + 100 | 29.4 / 29.3 | 29.9 / 25.3 | 25.3 / 25.1 |
+
+A first run costs 3.5-7 ms, the second 2.5-4.6 ms of host time (capture and instantiation of the graph, `submit`). The first run's GPU
+time includes the host's variant selection for all ~2,600 launches before the first one goes out (`HazardTracker.Order`: 2.0-4.6 ms
+of the 3.5-9 ms recording, timed with a local probe, `steps/dbg_br_llama`); the concurrent lanes a graph adds are worth only 0.1-0.3 ms
+(`steps/noconc_base_llama`: the same steady steps without them). A recording differs from another with the same rows but other run /
+logits counts in 36 of 358 launches (attention grids; `steps/diff_llama`), from one with other rows in nearly all of them.
+
+### 114.2 Prompt-bearing steps in shape buckets
+
+A CUDA segment keeps one recording per binding of its symbols (rows `T`, logits rows `R`, runs `U`) and captures a graph on a
+recording's second run. Serving steps that carry prompt rows rarely repeat all three: in a 16-stream run on `develop` 15 of 39 prompt
+steps were first runs (`serve/prof/llama_base.csv`). So the decoder now pads such a step (some input of several rows) up to a bucket:
+
+* rows up to a multiple of 64, on the last input's run when it is a prompt chunk: the pad rows repeat its last token at the positions
+  after it, positions the sequence has not reached, whose KV rows (and window blocks) its own later rows overwrite before any query
+  reads them (causal attention). A multiple of 64 stays inside the GEMMs' 64- and 128-row token tiles, so the padded step runs the
+  GEMM tiles of its real rows;
+* logits rows up to a multiple of 8 (repeats of the last real row, skipped by device sampling, not returned);
+* the run table up to the slot count (empty runs, whose attention blocks exit at once).
+
+The KV blocks the pad rows need are taken for the step and the ones that hold only pad rows given back after it, so the slot holds its
+context's blocks as before (a fork shares all of a slot's blocks and copies only a partly filled last one before writing). Padding is
+skipped when the last input is a single row, the slot's context or the pool's free blocks have no room, and for decoders whose state is
+not position-addressed (recurrent state, bidirectional runs, hidden-state inputs); decode-only steps keep their prepared exact shapes.
+Every model class whose serving decoder is paged and causal benefits on every provider that records steps (CUDA graphs, Vulkan command
+buffers); `EngineOptions.StepShapeBuckets = false` keeps exact shapes.
+
+With buckets a 64-slot decoder's decode shapes and its prompt buckets can exceed the 64 recordings a CUDA segment kept, and eviction
+was first-recorded-first, which dropped the decode shapes (recorded at start-up) once 48 prompt shapes had come by (`develop`'s
+16-stream profile shows decode steps re-recorded mid-run): now the least recently run recording goes first, up to 128 (each graph's
+~2.5 MB of driver memory is charged against the device, and a graph that does not fit runs launch by launch as before).
+
+**Prepared decode shapes on CUDA.** `CudaSegment` had no `Prepare`, so the 16-64 decode shapes the engine prepares at start were
+recorded at their first use. At 64 streams that is 13-20 decode steps per round in the steady half at 21.8-24 ms against 18.7 ms
+replayed (`prof/c64_base3.csv`, `c64_br3.csv`); prepared, they launch at once at 21.7 ms (the replay's graph comes on the second use;
+`prof/c64_br4.csv`): `c64/br4` 1702-1703 tok/s, ITL mean 32.59-32.60 ms (the other branch runs 1660-1697, 32.69-33.56; 16 streams
+unchanged, `ab/br4` r2 682 tok/s, p99 34.2 ms).
+
+### 114.3 Serving at 16 and 64 streams against vLLM 0.33
+
+Closed loop, `bench/s16_serve.sh` (16 slots of 512 tokens, 64 requests of ~250 prompt + 128 output tokens; 64 streams: 192
+requests), text check clean on every run listed, vLLM 0.33 in the same session. tok/s, TTFT p50, ITL mean / p95 / p99 / max (ms);
+r1 is a server's first round (the priced chunk rule of §113.2 still learning), r2 the steady state. Runs whose CPU quota was exhausted
+by other agents (cgroup throttling of 600-1,300 s of CPU time within a 2-4 minute run, see `run_*.thr0/thr1`) are marked *loaded*;
+they are slower for both engines and are not used for the comparisons.
+
+**Llama-3.1-8B (bf16), 16 streams**
+
+| build | tok/s | TTFT p50 | ITL mean | p95 | p99 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| `develop` (`ab/base2` r2) | 661 | 171 | 22.68 | 34.1 | 83.4 | 89.9 |
+| r48 without buckets (GEMM threshold, eviction; `pad/off1`, `ab/off2` r2) | 680, 681 | 102, 102 | 22.14, 22.13 | 33.5, 33.5 | 36.4, 35.8 | 43.5, 42.0 |
+| r48 (`pad/on1`, `ab/br2` r2) | **686, 682** | **100, 100** | **21.99, 22.08** | 32.9, 33.0 | **34.1, 34.9** | 43.7, 44.1 |
+| vLLM 0.33 (`vllm` r1) | 677 | 326 | 21.14 | 21.3 | 33.5 | 226.9 |
+| r48, third run (`ab/br3` r2) | 682 | 101 | 22.10 | 32.9 | 34.2 | 42.3 |
+
+Against `develop`: ITL p99 83-87 → 34-35 ms, mean -2.6 %, throughput +3 % and TTFT 171 → 100 ms. The GEMM threshold does most of it:
+prompt steps of ~250 rows became cheaper per row than 48-row-per-slot chunks, so the priced chunk rule (§113.2) now picks the small
+chunks for Llama-3.1-8B too (its prompt steps carry 248-256 rows at 32.8 ms instead of 640-768 at 70-85 ms). Shape buckets then take
+the prompt steps' first runs from 15 of 66 to 2-3 of 62-66 (`serve/prof/llama_pad0.csv`, `llama_br2.csv`, `llama_br3.csv`): ITL
+p99 35.8-36.4 → 34.1-34.9 ms and mean 22.13-22.14 → 21.99-22.10 ms over two pairs. Against vLLM: throughput +0.7-1.3 %, ITL p99 at
+parity (34 against 33.5), TTFT 100 against 326 ms; mean +4 % and p95 33 against 21 ms remain: 7 % of our steps carry a prompt (one
+per arriving request), while vLLM prefills each wave of 16 prompts in one step that no running stream waits on in this closed loop
+(§100.1; its TTFT is the price). A server's first round still runs 48-row chunks until the step prices are measured (r1 p99 60-69 ms),
+and on a CPU-starved host the measured prices can keep 48 (`gemm/br`, loaded: r2 p99 86.5 ms).
+
+**gpt-oss-20b (MXFP4 experts, sliding-window layers), Qwen3-8B-FP8: 16 streams**
+
+| model, build | tok/s | TTFT p50 | ITL mean | p95 | p99 |
+|---|---:|---:|---:|---:|---:|
+| gpt-oss-20b, `develop` (`ab/base3`) | 1431, 1434 | 97, 99 | 10.24, 10.24 | 11.6, 11.2 | 48.9, 47.0 |
+| gpt-oss-20b, r48 (`ab/br3`) | 1427, 1442 | 97, 92 | 10.28, 10.23 | 14.3, 12.0 | 47.0, 48.2 |
+| gpt-oss-20b, vLLM 0.33 | 1428, 1438 | 172, 156 | 9.79, 9.77 | 10.3, 10.2 | 11.9, 13.0 |
+| Qwen3-8B-FP8, `develop` (`ab/base2`) | 1108, 1121 | 99, 63 | 13.49, 13.38 | 15.2, 20.6 | 48.5, 23.0 |
+| Qwen3-8B-FP8, r48 (`ab/br3`) | 1106, 1098 | 94, 65 | 13.52, 13.56 | 15.3, 21.1 | 47.9, 22.8 |
+
+Both unchanged within the noise of this machine (Qwen3-8B-FP8 r2 -1 % tok/s in one pair; its prompt steps' first runs went from 14
+of 55 to 1 of 68, `fp8_br2.csv` → `fp8_br3.csv`, and its products are FP8, which the GEMM threshold does not touch). gpt-oss-20b keeps
+48-row chunks (its expert GEMMs are cheaper per row in large chunks), so its p99 is still the 640-768-row prompt step (41-48 ms),
+against vLLM's 12-13 ms with its wave behaviour; closing that needs `StepFloor = Full` (owner's call, §100.1), not graph reuse
+(its first runs were 20 of 33 prompt steps and are now 5 of 35; `gptoss_pad1.csv`, `gptoss_br2.csv`).
+
+**Llama-3.1-8B, 64 streams** (192 requests)
+
+| build | tok/s | TTFT p50 | ITL mean | p95 | p99 |
+|---|---:|---:|---:|---:|---:|
+| `develop` (`c64/base2`, `c64/base3`) | 1698, 1699, 1686, 1656 | 451, 452, 456, 457 | 32.64-33.56 | 34.3-66.9 | 221.9-225.3 |
+| r48 (`c64/br`, `c64/br2`, `c64/br3`) | 1660-1697 | 448-453 | 32.69-33.56 | 42.0-54.3 | 221.9-224.6 |
+| r48 without buckets (`c64/off3`) | 1693, 1695 | 451, 451 | 32.74, 32.79 | 36.7, 40.8 | 222.3, 223.7 |
+| vLLM 0.33 (`vllm64`, `--gpu-memory-utilization 0.8`) | 1713, 1712 | 696, 894 | 31.43, 30.83 | 29.7, 27.9 | 230.0, 230.7 |
+
+No regression at 64 streams (within the spread of `develop`'s own runs; `c64/base` at 1155-1229 tok/s ran on a CPU-starved host and is
+not used), and parity with vLLM: -1 % tok/s, p99 223 against 230 ms, TTFT 451 against 696-894 ms. Its p99 is the 2,048-row prompt wave
+step (~220 ms), which neither the threshold nor buckets change; buckets take its prompt steps' first runs from 28 to 10 of 44. The
+ITL p95 of the branch's runs (42-54 ms) sits above those without buckets (36.7-40.8) and `develop`'s steady ones (34.3-36.8): possibly
+the pad rows on the 64-stream prompt steps (up to 63 rows on steps of ~1,000-2,000), not resolved within this round's noise.
+
+### 114.4 Gemma 31B-class host time per step
+
+Not reached: the GPU queue of the shared machine (other agents' verify suites held the bench lock for 40-130 minutes at a time) left no
+slot for it after the serving A/Bs and the tests; the BatchBench queue for it (`scripts/q7.sh`, decode-only steps of Gemma 4 31B Q4_K_M at
+1 and 16 sequences in greedy, download and logits modes, wall against GPU time) is ready to run. §107's numbers stand: 16 sequences
+38.27 ms mean step against ~37.05 ms GPU, 1.1-1.2 ms of host time per step, most of it the 16 x 262,144-float logits copy of the
+download mode, which serving's device sampling does not do.
+
+### 114.5 Engine tests without wall-clock prices
+
+`EngineTests.PricedPromptChunks_SpreadPromptsWhenSmallChunksCostLessPerRow` (§113.2) failed in 2 of 3 verify runs on a loaded machine
+(e.g. step rows `4,248,8,4` > 128): it priced steps on `FakeBatchDecoder`'s 1-3 ms sleeps, so CPU contention distorted the measured
+prices; `TileAwarePrompts_HoldRowsPastATileWhenTheTileCostsMore` (§101) does the same and failed once here under load. The fake decoder
+can now simulate its step time (`SimulatesStepTime`): it does not sleep and reports the time to the engine through the internal
+`ISimulatedStepTime`, which only test decoders implement (production decoders keep the measured wall time). Both tests use it; since
+simulated steps take no wall time, they also submit their waves with admission paused (else the unpriced case could admit one request
+per step: rows `65,188,7,4`) and give their running sequences a context they cannot fill during the test (else they could finish and
+leave the prompts no decode rows to ride). After the last change 4 CPU-only runs and 2 CUDA runs of the whole suite passed both (and the
+class alone 6 of 6 before it; the simulated time alone, 13 of 13 class runs, 8 of them beside six busy CPU loops). `EqualPriority_IsFifo` read the order of completion continuations
+(thread-pool order); it now checks the order in which the prompts are prefilled (one slot, distinct prompt lengths).
+
+### 114.6 Tests
+
+On GPU 0 under the bench lock, the branch with `develop` at `3e91ab4d` merged: `Sharplight.Cuda.Tests` 108, 0 failed, 1 skipped (cuBLASLt);
+`Sharplight.Serving.Tests` (CUDA, `SHARPLIGHT_TEST_PROVIDER=cuda`) 435, 0 failed, 13 skipped; `Sharplight.Core.Tests` 1,677, 0 failed, 332 skipped (`tests/`). New:
+`StepShapeBucketTests` (padded steps against exact ones on a CPU and a GPU decoder: logits, the decode steps after them, a fork of a
+slot whose prompt ended on a block boundary, a step of exactly 64 rows; tiny-random Qwen, granitemoe-swa and gemma4 with 8-key
+window-sized caches, Qwen3-0.6B; a mutation that wrote pad rows over real positions, and one that kept the pad-only blocks, failed it),
+`BatchedDecodeRowsTests` at 80 and 128 bf16 rows. `PrefixCacheTests.ConcurrentPrompts_RecomputeASharedPrefix_WhenThatCostsLessThanWaitingAPass`
+failed once in six CPU-only runs of the suite (steps `0,0,0,0,0,0,0,1,1,2`, timing: it prices on wall-clock sleeps like the tests of
+R48.5; not changed here).
+
+### 114.7 Remaining
+
+* The ITL p95 at 16 streams (33 against vLLM's 21 ms) and gpt-oss-20b's p99 (47 against 13 ms) come from prompts riding decode steps
+  (one prompt step per arriving request) rather than vLLM's prompt waves; that is the TTFT trade of §100.1 (`StepFloor`).
+* A shape's first use still launches its recording one launch at a time (~3 ms more GPU time than the graph for an 8B decode step):
+  capturing prepared shapes ahead needs the input copies captured without staged inputs.
+* The 64-stream p95 of the bucketed runs (42-54 against 37-41 ms) wants a closer look (pad rows on large prompt steps, or noise).
+* Gemma 31B host time per step (R48.4).

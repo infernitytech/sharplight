@@ -1,0 +1,672 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Core.Tests
+[0m[37m  Discovered:  Sharplight.Core.Tests
+[0m[37m  Starting:    Sharplight.Core.Tests
+[0m[93m    Sharplight.Core.Tests.Runtime.ExpertReaderTests.IoUringReadsTheFileBytes [SKIP]
+[0m[37m      io_uring is unavailable here: io_uring_setup: EPERM (blocked by a seccomp profile or kernel.io_uring_disabled)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.HeapPathMatchesScanPathOnRealVocab [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EveryPresetRoundTrips(pre: "default") [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EveryPresetRoundTrips(pre: "gpt-2") [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EveryPresetRoundTrips(pre: "llama-bpe") [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EveryPresetRoundTrips(pre: "qwen2") [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EveryPresetRoundTrips(pre: "qwen35") [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 0) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 1) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 2) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 3) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 4) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 5) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 6) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 7) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 8) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 9) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 10) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 11) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 12) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 13) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 14) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 15) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 16) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 17) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 18) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 19) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 20) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 21) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 22) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 23) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 24) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 25) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 26) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 27) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 28) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 29) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 30) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 31) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 32) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 33) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 34) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 35) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 36) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 37) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 38) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 39) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 40) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 41) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 42) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 43) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 44) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 45) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 46) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 47) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 48) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 49) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 50) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 51) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 52) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 53) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 54) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 55) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 56) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 57) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 58) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 59) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 60) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 61) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 62) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 63) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 64) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 65) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 66) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 67) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 68) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 69) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 70) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 71) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 72) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 73) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 74) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 75) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 76) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 77) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 78) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 79) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 80) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 81) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 82) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 83) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 84) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 85) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 86) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 87) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 88) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 89) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 90) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 91) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 92) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 93) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 94) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 95) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 96) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 97) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 98) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 99) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 100) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 101) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 102) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 103) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 104) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 105) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 106) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 107) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 108) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 109) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 110) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 111) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 112) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 113) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 114) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 115) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 116) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 117) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 118) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 119) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 120) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 121) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 122) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 123) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 124) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 125) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 126) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 127) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 128) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 129) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 130) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 131) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 132) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 133) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 134) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 135) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 136) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 137) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 138) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 139) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 140) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 141) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 142) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 143) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 144) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 145) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 146) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 147) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 148) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 149) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 150) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 151) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 152) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 153) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 154) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 155) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 156) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 157) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.DecodeRoundTrips(index: 158) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.StreamingDecoderReproducesDecodeForEveryFixtureCase [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.SpecialTokenIdsAndEndOfGeneration [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeThroughput [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 0) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 1) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 2) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 3) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 4) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 5) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 6) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 7) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 8) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 9) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 10) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 11) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 12) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 13) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 14) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 15) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 16) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 17) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 18) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 19) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 20) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 21) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 22) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 23) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 24) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 25) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 26) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 27) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 28) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 29) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 30) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 31) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 32) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 33) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 34) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 35) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 36) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 37) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 38) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 39) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 40) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 41) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 42) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 43) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 44) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 45) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 46) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 47) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 48) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 49) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 50) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 51) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 52) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 53) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 54) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 55) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 56) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 57) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 58) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 59) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 60) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 61) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 62) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 63) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 64) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 65) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 66) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 67) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 68) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 69) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 70) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 71) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 72) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 73) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 74) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 75) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 76) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 77) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 78) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 79) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 80) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 81) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 82) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 83) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 84) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 85) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 86) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 87) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 88) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 89) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 90) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 91) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 92) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 93) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 94) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 95) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 96) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 97) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 98) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 99) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 100) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 101) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 102) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 103) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 104) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 105) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 106) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 107) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 108) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 109) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 110) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 111) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 112) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 113) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 114) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 115) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 116) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 117) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 118) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 119) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 120) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 121) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 122) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 123) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 124) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 125) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 126) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 127) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 128) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 129) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 130) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 131) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 132) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 133) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 134) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 135) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 136) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 137) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 138) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 139) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 140) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 141) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 142) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 143) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 144) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 145) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 146) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 147) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 148) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 149) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 150) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 151) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 152) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 153) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 154) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 155) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 156) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 157) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.EncodeMatchesLlamaCpp(index: 158) [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.SweepMatchesLlamaCpp [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.UnusedTokensDecodeToNothing [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.ChatTemplateTokens [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[93m    Sharplight.Tokenizers.Tests.QwenTokenizerTests.StreamingDecoderSplitsEmojiAcrossTokens [SKIP]
+[0m[37m      qwen35.json not exported (run .work/tokenizer/export_gguf_tokenizer.py)
+[0m[37m  Finished:    Sharplight.Core.Tests (ID = 'e641d9fa9b20fe7996b2f8824b7401cbcc8251e16a378d82434db7065195b71c')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Core.Tests  Total: 1677, Errors: 0, Failed: 0, Skipped: 332, Not Run: 0, Time: 0.777s
+[0m[0m
