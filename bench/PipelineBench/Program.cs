@@ -1,5 +1,6 @@
 // PipelineBench <model> [--workers h:p,h:p] [--local-stages N] [--provider cpu|cuda|vulkan] [--remote-only] [--slots 8] [--ctx 512]
 //               [--depth 64] [--sizes 1,4,8] [--groups 1,2] [--reps 20] [--prefill 512] [--chunks 512,128] [--tokens 16]
+//               [--split 1,4] (one share per stage) [--boundary f32|f16|bf16] (boundary values on the wire)
 // Stages: the local device (or --local-stages copies of it: the same split in one process), then the segment workers.
 // 1. greedy tokens of one sequence (compare runs for correctness);
 // 2. decode: for each micro-batch count G and batch size B, G multi-sequence decoders (B/G rows each) step concurrently from G threads
@@ -88,7 +89,11 @@ var provider = services.GetRequiredService<ExecutionProviderCatalog>().Discover(
 int localStages = argv.Contains("--remote-only") ? 0 : int.Parse(Opt("--local-stages", "1")!);
 var local = Enumerable.Range(0, localStages).Select(_ => provider.OpenDevice(provider.GetDevices()[int.Parse(Opt("--device", "0")!)])).ToList();
 var workers = (Opt("--workers") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
-using var remoteProvider = new RemoteExecutionProvider(new RemoteSegmentOptions { Workers = workers });
+using var remoteProvider = new RemoteExecutionProvider(new RemoteSegmentOptions
+{
+    Workers = workers,
+    BoundaryPrecision = RemoteSegmentOptions.ParseBoundaryPrecision(Opt("--boundary") ?? Environment.GetEnvironmentVariable("SHARPLIGHT_REMOTE_BOUNDARY")),
+});
 var remote = workers.Length > 0 ? remoteProvider.OpenAll() : [];
 var devices = local.Cast<IComputeDevice>().Concat(remote).ToList();
 int slots = int.Parse(Opt("--slots", "8")!);
@@ -97,7 +102,7 @@ int depth = int.Parse(Opt("--depth", "64")!);
 int reps = int.Parse(Opt("--reps", "20")!);
 using var model = LlmModel.Load(loader, argv[0], new LlmLoadOptions
 {
-    Devices = [.. devices.Select(d => new DeviceSlot { Device = d, Weight = 1 })],
+    Devices = [.. devices.Select((d, i) => new DeviceSlot { Device = d, Weight = Opt("--split") is { } split ? double.Parse(split.Split(',')[i], CultureInfo.InvariantCulture) : 1 })],
     ContextLength = ctx,
     MaxBatchTokens = int.Parse(Opt("--batch", "512")!),
 });

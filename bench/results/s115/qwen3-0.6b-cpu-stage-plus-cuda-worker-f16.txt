@@ -1,0 +1,11 @@
+stages: AMD Ryzen 9 7950X 16-Core Processor | 127.0.0.1:7181 (NVIDIA GeForce RTX 4090)
+sampling: on the last stage (token ids return)
+greedy: 12095,13,576,6722,315,15344,374,21718,13,576,6722,315 " Paris. The capital of Italy is Rome. The capital of"
+decode G=1 B=1: median 2.00 ms/step, min 1.88 ms, 499.8 tok/s
+  [decode G=1 B=1] 127.0.0.1:7181: 110 exec, round trip 3.127 ms, worker 1.923 ms, wait 1.121 ms, overhead 0.083 ms, 2.1 KiB out, 0.1 KiB in per exec
+decode G=1 B=8: median 2.33 ms/step, min 2.16 ms, 3433.5 tok/s
+  [decode G=1 B=8] 127.0.0.1:7181: 102 exec, round trip 2.278 ms, worker 2.127 ms, wait 0.034 ms, overhead 0.117 ms, 16.8 KiB out, 0.1 KiB in per exec
+prefill 512 tok in chunks of 512: median 7.9 ms, 64783.1 tok/s
+  [prefill chunk 512] 127.0.0.1:7181: 4 exec, round trip 8.267 ms, worker 6.886 ms, wait 0.663 ms, overhead 0.718 ms, 1034.5 KiB out, 593.6 KiB in per exec
+prefill 512 tok in chunks of 128: median 29.4 ms, 17397.0 tok/s
+  [prefill chunk 128] 127.0.0.1:7181: 16 exec, round trip 18.298 ms, worker 7.227 ms, wait 10.826 ms, overhead 0.245 ms, 258.9 KiB out, 148.4 KiB in per exec

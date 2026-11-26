@@ -27,6 +27,21 @@ internal sealed class HostedSegment(CompiledModel model, ComputeGraph graph, IRe
     /// <summary>Inputs taken from a neighbour at every execution: input index and tag.</summary>
     public List<(int Input, long Tag)> ForwardedInputs { get; } = [];
 
+    /// <summary>How the narrowed inputs and outputs travel.</summary>
+    public BoundaryPrecision Precision { get; init; }
+
+    /// <summary>The inputs that travel in <see cref="Precision"/> (by input index).</summary>
+    public bool[] NarrowInputs { get; init; } = [];
+
+    /// <summary>The outputs that travel in <see cref="Precision"/> (by output index).</summary>
+    public bool[] NarrowOutputs { get; init; } = [];
+
+    /// <summary>The precision input <paramref name="index"/> travels in.</summary>
+    public BoundaryPrecision InputPrecision(int index) => NarrowInputs[index] ? Precision : BoundaryPrecision.Float32;
+
+    /// <summary>The precision output <paramref name="index"/> travels in.</summary>
+    public BoundaryPrecision OutputPrecision(int index) => NarrowOutputs[index] ? Precision : BoundaryPrecision.Float32;
+
     /// <summary>Byte size of output <paramref name="index"/> in the current execution.</summary>
     public int OutputBytes(int index) => checked((int)CompiledModel.ByteCount(Graph.Outputs[OutputNames[index]], Parameters));
 

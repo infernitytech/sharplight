@@ -26,7 +26,15 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
 - Tests are xunit v3 executables: `dotnet run --project tests/<Suite> -c Release --no-build` (or `dotnet test`).
 - Many suites need model assets under `~/models` (tiny-* test models, audio, whisper.cpp, sd, onnx) and skip without
   them; the layout table is in docs/handoff/README.md, tiny models are regenerable with `tools/make-tiny-*.py` /
-  `tools/mk_tiny_*.py` / `tools/model-assets`.
+  `tools/mk_tiny_*.py` / `tools/model-assets`. fedora-ws is provisioned (2026-11-26, issue #15): tiny hf/gguf models
+  (including the tokenizer-source dirs the generators copy from — they skip the copy silently when the source dir is
+  missing, leaving models without `tokenizer.json`), audio, whisper.cpp, sd (incl. full sd15-diffusers weights) and
+  the onnx survey set, plus the small real checkpoints some suites load directly (distil-small.en,
+  Qwen3-Embedding-0.6B, ERNIE-4.5-0.3B-PT, Llama-3.2-1B-Instruct); only the optional ~800 GB real-checkpoint parity
+  models are absent (their tests skip). The stored HF token on fedora-ws is expired — set `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`
+  when downloading public models there; `glslc` is at `~/.local/bin/glslc`. `$LLAMA_ROOT` (llama.cpp reference builds
+  for the bench/ scripts) is not provisioned; a llama.cpp checkout at the pinned parity commit 8ca5a80 sits unbuilt in
+  `~/scratch/llama.cpp`.
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
   `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
   `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`

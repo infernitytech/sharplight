@@ -25,6 +25,8 @@ internal sealed class WorkerSession : IDisposable
     private long _enqueued;
     private long _abortedThrough;
     private long _lastReceived = Stopwatch.GetTimestamp();
+    private readonly PayloadWriter _reply = new(64 << 10);
+    private byte[] _scratch = [];
     private uint _nextHandle;
     /// <summary>When the request the executor handles arrived (the time it queued behind earlier work counts as waiting).</summary>
     private long _received;
@@ -191,6 +193,14 @@ internal sealed class WorkerSession : IDisposable
         var verification = (WeightVerification)r.Byte();
         string fingerprint = r.String();
         var graph = ReadGraph(r.Bytes(), out var outputNames);
+        var precision = (BoundaryPrecision)r.Byte();
+        if (!Enum.IsDefined(precision))
+        {
+            throw new InvalidDataException($"Unknown boundary precision {(int)precision}.");
+        }
+
+        var narrowInputs = r.Indices(graph.Inputs.Count);
+        var narrowOutputs = r.Indices(outputNames.Count);
         string local = SegmentFingerprint.Compute(graph.Weights.Select(v => v.Weight!), verification);
         if (local != fingerprint)
         {
@@ -209,7 +219,12 @@ internal sealed class WorkerSession : IDisposable
         uint handle = ++_nextHandle;
         lock (_segments)
         {
-            _segments[handle] = new HostedSegment(model, graph, outputNames);
+            _segments[handle] = new HostedSegment(model, graph, outputNames)
+            {
+                Precision = precision,
+                NarrowInputs = narrowInputs,
+                NarrowOutputs = narrowOutputs,
+            };
         }
 
         _worker.Log($"compiled {graph.Name} ({graph.Nodes.Count} nodes, {model.ResidentMemoryBytes / (1024.0 * 1024 * 1024):F2} GiB) for {_connection.RemoteName} "
@@ -240,7 +255,7 @@ internal sealed class WorkerSession : IDisposable
         for (int i = 0; i < inputs; i++)
         {
             int index = r.Int32();
-            segment.Model.SetInput(segment.Graph.Inputs[index], r.Bytes().Span);
+            SetInput(segment, index, r.Bytes().Span);
         }
 
         try
@@ -248,7 +263,7 @@ internal sealed class WorkerSession : IDisposable
             foreach (var (input, tag) in segment.ForwardedInputs)
             {
                 var data = _worker.Mailbox.Take(tag, sequence, timeout, abort);
-                segment.Model.SetInput(segment.Graph.Inputs[input], data);
+                SetInput(segment, input, data);
             }
 
             var started = Stopwatch.GetTimestamp();
@@ -263,28 +278,39 @@ internal sealed class WorkerSession : IDisposable
             }
 
             segment.Model.Run(p);
+            byte[]? forwarded = null;
+            int forwardedOutput = -1;
             foreach (var (output, endpoint, tag) in segment.Forwards)
             {
-                var data = ReadOutput(segment, output);
+                if (output != forwardedOutput)
+                {
+                    forwarded = new byte[WireBytes(segment, output)];
+                    ReadOutput(segment, output, forwarded);
+                    forwardedOutput = output;
+                }
+
                 if (endpoint.Length == 0)
                 {
-                    _worker.Mailbox.Post(tag, sequence, data, null, source: null);
+                    _worker.Mailbox.Post(tag, sequence, forwarded, null, source: null);
                 }
                 else
                 {
-                    _worker.Links.Send(endpoint, tag, sequence, data, null);
+                    _worker.Links.Send(endpoint, tag, sequence, forwarded!, null);
                 }
             }
 
-            var outputs = returned.Select(output => ReadOutput(segment, output)).ToList();
-            double workerMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-            var produced = segment.Graph.DynamicSymbols.Where(s => p.Symbols.ContainsKey(s.Key)).ToDictionary(s => s.Key, s => p.Symbols[s.Key], StringComparer.Ordinal);
-            var w = new PayloadWriter(outputs.Sum(o => o.Length) + 256).Double(workerMs).Double(waitMs).Map(produced).Int32(returned.Length);
-            for (int i = 0; i < returned.Length; i++)
+            // The reply is built in place: the outputs are read straight into it.
+            var w = _reply;
+            w.Clear();
+            int workerMsAt = w.Length;
+            w.Double(0).Double(waitMs).Map(ProducedSymbols(segment, p)).Int32(returned.Length);
+            foreach (int output in returned)
             {
-                w.Int32(returned[i]).Bytes(outputs[i]);
+                w.Int32(output);
+                ReadOutput(segment, output, w.Block(WireBytes(segment, output)));
             }
 
+            w.SetDouble(workerMsAt, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             return (FrameKind.ExecuteReply, w);
         }
         catch (Exception e)
@@ -434,11 +460,63 @@ internal sealed class WorkerSession : IDisposable
         }
     }
 
-    private static byte[] ReadOutput(HostedSegment segment, int output)
+    /// <summary>Bytes of output <paramref name="output"/> on the wire in the current execution.</summary>
+    private static int WireBytes(HostedSegment segment, int output) => BoundaryCodec.EncodedLength(segment.OutputBytes(output), segment.OutputPrecision(output));
+
+    /// <summary>Reads output <paramref name="output"/> into <paramref name="destination"/> as it goes on the wire (<see cref="WireBytes"/>).</summary>
+    private void ReadOutput(HostedSegment segment, int output, Span<byte> destination)
     {
-        var data = new byte[segment.OutputBytes(output)];
-        segment.Model.GetOutput(segment.OutputNames[output], data);
-        return data;
+        var precision = segment.OutputPrecision(output);
+        if (precision == BoundaryPrecision.Float32)
+        {
+            segment.Model.GetOutput(segment.OutputNames[output], destination);
+            return;
+        }
+
+        var values = Scratch(segment.OutputBytes(output));
+        segment.Model.GetOutput(segment.OutputNames[output], values);
+        BoundaryCodec.Encode(values, destination, precision);
+    }
+
+    /// <summary>Sets input <paramref name="index"/> from its bytes on the wire.</summary>
+    private void SetInput(HostedSegment segment, int index, ReadOnlySpan<byte> data)
+    {
+        var precision = segment.InputPrecision(index);
+        if (precision == BoundaryPrecision.Float32)
+        {
+            segment.Model.SetInput(segment.Graph.Inputs[index], data);
+            return;
+        }
+
+        var values = Scratch(BoundaryCodec.DecodedLength(data.Length, precision));
+        BoundaryCodec.Decode(data, values, precision);
+        segment.Model.SetInput(segment.Graph.Inputs[index], values);
+    }
+
+    /// <summary>The executor's buffer for widened values (valid until the next call).</summary>
+    private Span<byte> Scratch(int length)
+    {
+        if (_scratch.Length < length)
+        {
+            _scratch = new byte[Math.Max(length, _scratch.Length * 2)];
+        }
+
+        return _scratch.AsSpan(0, length);
+    }
+
+    /// <summary>The data-dependent symbols the execution produced.</summary>
+    private static Dictionary<string, long> ProducedSymbols(HostedSegment segment, RunParameters p)
+    {
+        var produced = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (symbol, _) in segment.Graph.DynamicSymbols)
+        {
+            if (p.Symbols.TryGetValue(symbol, out long value))
+            {
+                produced[symbol] = value;
+            }
+        }
+
+        return produced;
     }
 
     private void Send(FrameKind kind, uint requestId, ReadOnlySpan<byte> payload)

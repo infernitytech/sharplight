@@ -69,6 +69,65 @@ public class RemotePipelineTests
         }
     }
 
+    [Theory]
+    [InlineData(BoundaryPrecision.Float16, true)]
+    [InlineData(BoundaryPrecision.Float16, false)]
+    [InlineData(BoundaryPrecision.BFloat16, true)]
+    public void NarrowBoundaryValuesHalveTheBytesAndStayClose(BoundaryPrecision precision, bool peerForwarding)
+    {
+        string path = TestModels.Require(TestModels.SmolLm);
+        float[][] reference;
+        int[] expected;
+        using (var cpu = TestModels.Cpu())
+        using (var single = TestModels.Load(path, [cpu]))
+        using (var decoder = single.CreateBatchDecoder(1, 256))
+        {
+            (expected, reference) = TestModels.Greedy(decoder, single, Prompt, 8);
+        }
+
+        using var w1 = TestModels.StartWorker(path);
+        using var w2 = TestModels.StartWorker(path);
+        long[] Run(BoundaryPrecision boundary, out int[] tokens, out float[][] logits)
+        {
+            var options = TestModels.Options(w1, w2);
+            options.PeerForwarding = peerForwarding;
+            options.BoundaryPrecision = boundary;
+            using var provider = new RemoteExecutionProvider(options);
+            var remote = provider.OpenAll();
+            try
+            {
+                using var local = TestModels.Cpu();
+                using var split = TestModels.Load(path, [local, .. remote]);
+                using var decoder = split.CreateBatchDecoder(1, 256);
+                foreach (var device in remote)
+                {
+                    device.ResetStatistics();
+                }
+
+                (tokens, logits) = TestModels.Greedy(decoder, split, Prompt, 8);
+                return [.. remote.Select(d => d.Statistics.BytesSent + d.Statistics.BytesReceived)];
+            }
+            finally
+            {
+                foreach (var device in remote)
+                {
+                    device.Dispose();
+                }
+            }
+        }
+
+        var wide = Run(BoundaryPrecision.Float32, out var wideTokens, out _);
+        var narrow = Run(precision, out var tokens, out var logits);
+        Assert.Equal(expected, wideTokens);
+        // Greedy decoding of a confident prompt is robust to 16-bit activations between the stages. The logits move by up to ~1.3
+        // (of ~20): SmolLM2's residual stream carries values in the hundreds, whose 16-bit rounding the last stage's norm passes on.
+        Assert.Equal(expected, tokens);
+        float difference = TestModels.MaxDifference(reference, logits);
+        Assert.True(difference > 0 && difference < 3f, $"logits differ by {difference}");
+        // The first worker's traffic is the hidden rows in and out: it carries about half the bytes.
+        Assert.True(narrow[0] < wide[0] * 0.6, $"{narrow[0]} bytes vs {wide[0]} in f32");
+    }
+
     [Fact]
     public void AllStagesRemoteWithSeveralSequences()
     {

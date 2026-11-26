@@ -14,6 +14,13 @@ internal sealed class PayloadWriter
     /// <summary>The bytes written so far.</summary>
     public ReadOnlySpan<byte> WrittenSpan => _buffer.WrittenSpan;
 
+    /// <summary>Bytes written so far.</summary>
+    public int Length => _buffer.WrittenCount;
+
+    /// <summary>Overwrites the double written at <paramref name="position"/> (a value known only after the bytes behind it were written).</summary>
+    public void SetDouble(int position, double value)
+        => BinaryPrimitives.WriteDoubleLittleEndian(System.Runtime.InteropServices.MemoryMarshal.AsMemory(_buffer.WrittenMemory).Span[position..], value);
+
     /// <summary>Forgets what was written, keeping the buffer.</summary>
     public void Clear() => _buffer.ResetWrittenCount();
 
@@ -89,6 +96,30 @@ internal sealed class PayloadWriter
         }
 
         return this;
+    }
+
+    /// <summary>The indices of the set flags (a count, then the indices).</summary>
+    public PayloadWriter Indices(IReadOnlyList<bool> flags)
+    {
+        Int32(flags.Count(f => f));
+        for (int i = 0; i < flags.Count; i++)
+        {
+            if (flags[i])
+            {
+                Int32(i);
+            }
+        }
+
+        return this;
+    }
+
+    /// <summary>A length-prefixed byte block of <paramref name="length"/> bytes the caller fills in the returned span (before the next write).</summary>
+    public Span<byte> Block(int length)
+    {
+        Int32(length);
+        var span = _buffer.GetSpan(length)[..length];
+        _buffer.Advance(length);
+        return span;
     }
 
     public PayloadWriter Strings(IReadOnlyCollection<string> values)
