@@ -55,11 +55,15 @@ internal static class TimeSeriesModels
         return cases;
     }
 
-    /// <summary>The largest error of <paramref name="actual"/> against <paramref name="expected"/>, relative to the spread of the expected values (at least 1).</summary>
+    /// <summary>
+    /// The largest error of <paramref name="actual"/> against <paramref name="expected"/>, relative to the spread of the expected values (but at least a thousandth
+    /// of their largest magnitude, so that a flat forecast does not divide by zero).
+    /// </summary>
     public static double RelativeError(IReadOnlyList<float[]> actual, IReadOnlyList<float[]> expected)
     {
         double low = double.MaxValue;
         double high = double.MinValue;
+        double magnitude = 0;
         double error = 0;
         for (int q = 0; q < expected.Count; q++)
         {
@@ -68,11 +72,12 @@ internal static class TimeSeriesModels
             {
                 low = Math.Min(low, expected[q][t]);
                 high = Math.Max(high, expected[q][t]);
+                magnitude = Math.Max(magnitude, Math.Abs(expected[q][t]));
                 error = Math.Max(error, Math.Abs(actual[q][t] - expected[q][t]));
             }
         }
 
-        return error / Math.Max(high - low, 1e-6);
+        return error / Math.Max(high - low, Math.Max(1e-3 * magnitude, 1e-6));
     }
 
     /// <summary>The CPU device or the GPU under test, opened once per assembly (skipping the test when there is none).</summary>

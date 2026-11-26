@@ -129,10 +129,11 @@ internal sealed partial class HfConfig : IDisposable
     /// The model type: the root <c>model_type</c> (e.g. "qwen3_5"), falling back to text_config's, then to the model type of a
     /// remote-code <c>architectures</c> class whose configs omit it (e.g. <c>BailingMoeV2ForCausalLM</c>). EAGLE-3 drafters, whose configs say
     /// <c>llama</c>, are <c>eagle3</c>; remote-code classes whose configs name another family (<c>GroveMoeForCausalLM</c>, configs say
-    /// <c>qwen3_moe</c>) get their own type.
+    /// <c>qwen3_moe</c>) get their own type, as do the Chronos forecasters (T5 configs with a <c>chronos_config</c>).
     /// </summary>
     public string? ModelType
         => _modelType ?? (Eagle3HfMapping.IsDrafter(this) ? "eagle3"
+            : ChronosHfMapping.IsTokenModel(this) ? ChronosHfMapping.ModelType
             : Architectures.Select(a => s_remoteCodeOverrides.GetValueOrDefault(a)).FirstOrDefault(t => t is not null) is { } overridden ? overridden
             : Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
             : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null)

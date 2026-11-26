@@ -52,7 +52,8 @@ namespace Sharplight.Architectures;
 /// <para>Cached cross-attention (<c>cross_attention.cached</c>, for sources of a fixed length <c>encoder.rows</c>): the decoder projects the
 /// cross-attention keys and values once per source into f32 states [rows, heads, head_dim] instead of on every step. The decode graph's
 /// <see cref="InputRole.EncoderOutput"/> input then carries the source on the first pass of a context (E = rows) and no rows afterwards
-/// (E = 0); the runtime scalar <see cref="WellKnown.SourcePastScalar"/> is 0.</para>
+/// (E = 0); the runtime scalar <see cref="WellKnown.SourcePastScalar"/> is 0. Token sources of up to <c>encoder.rows</c> rows
+/// (<c>encoder.variable_rows</c>: the Chronos forecasters) add the decode graph's <see cref="InputRole.RowSpans"/> input as variable-length audio does.</para>
 /// </remarks>
 public sealed class EncoderDecoderAdapter : IModelAdapter
 {
@@ -97,6 +98,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         bool encoderProjection = src.Weight("encoder.projection.weight") is not null;
         int crossWidth = encoderProjection ? nEmbd : src.Arch("encoder.hidden_size", nEmbd);
         bool cachedCross = src.Arch("cross_attention.cached", false);
+        bool variableRows = src.Arch("encoder.variable_rows", false);
         var extraWeights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         bool conformerEncoder = audio && src.Arch("encoder.type", "transformer") == "conformer";
         var conformer = conformerEncoder ? new ConformerEncoder(src, extraWeights) : null;
@@ -331,7 +333,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                 positions = HasPositions("decoder") || ropeDims > 0 ? b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1)) : null;
                 encoded = b.Input(WellKnown.EncoderOutput, InputRole.EncoderOutput, DataType.F32, new Shape(Dim.Sym(WellKnown.EncoderSymbol), crossWidth));
-                if ((variableAudio || imageText) && cachedCross)
+                if ((variableAudio || imageText || variableRows) && cachedCross)
                 {
                     // The cross states hold up to sourceRows rows; each query row sees the rows of the current source only.
                     sourceSpans = b.Input("source_spans", InputRole.RowSpans, DataType.I32, new Shape(T, 2));
