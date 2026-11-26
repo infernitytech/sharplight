@@ -38,6 +38,22 @@ internal static partial class HfTokenizerTranslator
             prependsSpace = AddsSpacePrefix(tok);
         }
 
+        // Gemma-vocabulary encoders (hs-rerank-1's ModernBERT): a space → ▁ normalizer, then a Metaspace pre-tokenizer that adds the prefix
+        // by its prepend_scheme and, with split (its default), cuts the text before every ▁.
+        if (prependsSpace == false && tok.TryGetProperty("pre_tokenizer", out var metaspacePreTokenizer)
+            && metaspacePreTokenizer.ValueKind == JsonValueKind.Object && FindMetaspace(metaspacePreTokenizer) is { } metaspace
+            && !HasByteLevel(metaspacePreTokenizer))
+        {
+            prependsSpace = AddsSpacePrefix(tok);
+            string? scheme = MetaspacePrependScheme(tok);
+            if (prependsSpace == true && scheme is "first" or "always")
+            {
+                md[CanonicalKeys.TokenizerSpacePrefixScheme] = scheme;
+            }
+
+            md[CanonicalKeys.TokenizerSplitAtSpaceMarker] = !metaspace.TryGetProperty("split", out var split) || split.ValueKind != JsonValueKind.False;
+        }
+
         bool spaceBpe = prependsSpace is not null;
         if (spaceBpe)
         {
@@ -77,6 +93,8 @@ internal static partial class HfTokenizerTranslator
             md[CanonicalKeys.TokenizerMerges] = merges;
         }
 
+        // Cross-encoders on a BPE vocabulary (mmBERT rerankers: <bos> A <eos> B <eos>) take the pair layout from the post-processor.
+        AddPairStyle(md, tok);
         HfSpecialVocab.AddTo(md, dir, config, tok, tokenizerConfig, addedTokens);
     }
 

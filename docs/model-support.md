@@ -3238,6 +3238,175 @@ intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Te
   against 15.1 s before, PyTorch 10.1 s, 48.9 dB); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
   GPU. 1080p output needs 38 GB of decoder activations and does not fit 32 GB yet (spatial tiling of the VAE is not implemented).
 
+## 23. Hot-model sweep 2026-11-25
+
+The models that were most downloaded or trending on the Hub in the four weeks before 2026-11-25, per kind, minus those sections 10 and 17 to 21 already
+cover. Selection and method:
+
+- **Ranking.** Hub API `GET /api/models?pipeline_tag=<tag>&sort=trendingScore|downloads|createdAt&limit=60` (createdAt: 100), queried on 2026-11-25
+  with `expand[]=downloads,likes,trendingScore,createdAt,config`, for `text-generation`, `image-text-to-text`, `any-to-any`,
+  `automatic-speech-recognition`, `text-to-speech`, `text-to-image`, `image-to-image`, `text-to-video`, `image-to-video`, `sentence-similarity`,
+  `feature-extraction` and `text-ranking`. Released or trending since about 2026-10-28; one entry per family and size; fine-tunes,
+  abliterations, "uncensored" re-uploads and LoRAs skipped (community only). "dl30" is the Hub's 30-day download count.
+- **Official files.** Each model is checked on its publisher's own repository at a pinned revision; conversions are extra variants only.
+- **Check.** `bench/ModelSweep` (section 10: headers through HTTP range requests, the header check and the real import, tokenizer against
+  transformers or llama.cpp b11177, chat template rendered). Two additions this round: a checkpoint the text-generation load rejects is built
+  once more through the loader alone and reported with its task kind (speech, embeddings, image generation), and a diffusers folder is checked
+  by its `model_index.json` pipeline class through the importers' `ClassifyPipeline` (what Studio's check shows), so unsupported pipelines are
+  reported with a reason instead of "no config.json".
+- **Status legend**: **verified** (output compared with the reference this round), **imports** (header check and import pass, output not
+  compared), **fixed + imports** (a mapping fix this round, output not compared), **rejected** (with the importer's reason), **needs X**
+  (what is missing, with an estimate), **lead** (owned by the lead agent's round: Inkling 2, DeepSeek V4.1 Flash HF, MiniMax M3.1 MXFP8, MiMo
+  V2.6 FP8, Nemotron 3.5 ModelOpt).
+
+Machine note: the `/workspace` volume was over its quota during this round (writes failed with "Disk quota exceeded"); downloads went to local
+disk and were linked into `~/models`.
+
+### 23.1 Text generation (`text-generation`)
+
+| # | Model | Released | dl30 / likes / trend | Format | Status |
+|---|---|---|---|---|---|
+| 1 | prism-ml/Ternary-Bonsai-2.5-27B-GGUF | 2026-11-24 | 59k / 313 / 275 | GGUF PQ2_0, PTQ1_0, Q2_0 (+ `-mtp`), `qwen35` with `prism.hadamard` rotated weights | imports (4 of 4 header-checked files). Not compared: our import unfolds the Hadamard rotation into F16 weights (about 54 GB for 27B), and llama.cpp b11177 ignores `prism.hadamard` (the Q2_0 file gives garbage on it), so a reference needs PrismML's llama.cpp fork or a newer upstream. Needs: the rotation applied to the activations (x·H before the matmuls, the trellis item of section 10), about 2 days, then a truncated file against the fork |
+| 2 | inclusionAI/LingSante-3.1-flash | 2026-11-19 | 1.5k / 192 / 134 | safetensors FP8 (block 128), `bailing_hybrid`, 574 GB, MIT | **fixed + imports**: the MTP layer's `final_layernorm` (the shared head norm of `BailingMoeV3MTPLayer`) had no mapping; it is now the draft head's `output_norm` (`HfNextnTensors`, `BailingMtpNamesTests`). Not run (574 GB) |
+| 3 | inclusionAI/LingSante-3.1-flash-MXFP4 | 2026-11-22 | 736 / 20 / 17 | safetensors, `quant_method: fp8` in config but MXFP4 experts with F8_E8M0 scales | rejected: unsupported dtype F8_E8M0 for `weight_scale_inv` under an fp8 config (quantization workstream, about 0.5 day) |
+| 4 | Aleph-Alpha/Kolibri-1.1 (+ `-GGUF`, 34k) | 2026-11-20 | 837 / 154 / 115 | HF `kolibri1_1`; GGUF `kolibri1` Q4_K_M 45 GB | HF rejected (`kolibri1_1`). The GGUF passes the header check but the import fails (`layers.9.attention.k.weight` missing): Kolibri 1.1 adds cross-layer KV sharing (`attention.kv_source_map`, 6 of 50 layers reuse another layer's KV) and a block-sparse attention indexer on some layers (`attention.indexer.types`, top-k 2048 over 16-token candidate blocks). Needs both, about 2 days; the check should reject such files until then |
+| 5 | baidu/ERNIE-5.5-Flash-Preview (+ FP8, BF16) | 2026-11-23 | 1.2k / 302 / 95 | `ernie5_5_moe` | rejected: model_type not supported (no modeling code published, as for ERNIE-5.5-Flash-Base in section 10) |
+| 6 | MemTensor/MemT-1.0-Pro, MemT-1.0-Flash | 2026-11-20 / 10-17 | 806 / 128, 21.7k / 148 | `memt_nemotron_h`, `memt_deepseek_v4` | rejected: model_type not supported. Memory-augmented variants of supported families (Nemotron-H, DeepSeek V4); needs a read of the remote code, about 1-2 days each |
+| 7 | KRAFTON/Raon-1-mini (+ `-gguf`) | 2026-11-24 | 264 / 112 / 91 | HF `raon1_mini`, GGUF `raon1` | rejected (HF and GGUF): the Raon-1 architecture of section 20.1.2 (RDA, MLA, hyper-connections) |
+| 8 | OVHaiLLM/Olala-v1.0-mini-7A1B (+ `-GGUF`, 21.7k) | 2026-10-30 | 64k / 349 / 63 | HF and GGUF `olala` | rejected (HF and GGUF): model_type / architecture not supported; not inspected further |
+| 9 | microsoft/Aion-1.0-Instruct-2.3B | 2026-11-18 | 6.0k / 344 / 55 | safetensors BF16, `aion_instruct` (remote code), MIT | **verified** (23.8): new mapping `AionInstructHfMapping` |
+| 10 | nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB | 2026-10-05 | 196k / 1.5k / 53 | NVIDIA's own GGUF Q4_K_M (6.2 GB), `gemma4` | **verified** (23.8): the earlier verification used unsloth's UD-Q4_K_XL; NVIDIA's file is now the catalog variant |
+| 11 | ai-forever/OrbitLM-1.8B-Thinking | 2026-11-17 | 138 / 34 / 32 | `ouro` | rejected: the Ouro looped decoder (shared layers run several times with an exit gate) is not implemented; `HierarchicalCycles` covers the looping, the exit gate is new, about 1-2 days |
+| 12 | sarvamai/sarvam-105b-1711 | 2026-11-15 | 748 / 27 / 24 | `sarvam_mla` | rejected: model_type not supported (MLA decoder, remote code; not inspected) |
+| 13 | AuroraAI-Research/Aurora2-400M-A20M | 2026-11-18 | 1.5k / 87 / 18 | `aurora2` | rejected: model_type not supported (not inspected) |
+| 14 | nvidia/Qwen3.8-27B-NVFP4-QAD | 2026-10-26 | 3.2k / 86 / 28.5 | ModelOpt mixed precision, `qwen3_5` | imports; tokenizer identical to transformers. Not run (no NVFP4 reference on this machine) |
+| 15 | XHToken/Spark-X2.6-4B | 2026-10-19 | 37k / 1.1k / 24 | BF16 safetensors | verified earlier (section 20). Finding: the sweep's test string differs from transformers at a whitespace run (" \n\n  spaces": ours `Ġ\n\n` + `Ġ`, transformers `Ġ\n\nĠ`): the `\s+(?!\S)` branch of its custom split regex. Open, about 0.5 day |
+| 16 | thinkingmachines/Inkling-2-Mini (+ unsloth GGUF 2.4M) | 2026-11-17 | 97k / 6.0k / 1316 | `inkling2_loop` | lead (Inkling 2) |
+
+Skipped as fine-tunes or re-uploads: ccore/*, SupraLabs/*, AtomicChat/*, DavidAU/*, orcarouter/*, shinmegamiboson/*, Lucebox/*, nari-labs Qwen3.8
+NariQ, harness-hub adapters.
+
+### 23.2 Vision-language (`image-text-to-text`, `any-to-any`)
+
+| # | Model | Released | dl30 / likes / trend | Format | Status |
+|---|---|---|---|---|---|
+| 1 | tencent/Hy4-flash, tencent/Hy4 | 2026-11-17 / 10-29 | 10.5k / 712 / 132, 2.9k / 335 / 70 | `hy_v4_flash`, `hy_v4_vl` | rejected: model_type not supported (`hy_v4` of Hy4-preview is supported; the vision wrappers are new) |
+| 2 | RadixArk/DaisyRose-27B | 2026-11-18 | 3.2k / 388 / 101 | `qwen3_5` BF16 | imports (text); tokenizer identical, template renders. Not run (27B BF16) |
+| 3 | sensenova/SenseNova-Loop-9B (+ GGUF 118k) | 2026-11-17 | 3.3k / 741 / 88 | `sensenova_loop` | rejected (compatible-models section 9: layer loops) |
+| 4 | llamaindex/OCRia-1, Cloudflare/clairic, clairic-flash | 2026-11-13 / 10-16 / 11-12 | 419-1.2k / 85-350 | `qwen3_5` | import (text); tokenizer identical, templates render. Not run |
+| 5 | baidu/Unlimited-OCR-2 | 2026-10-26 | 665k / 738 / 26 | `unlimited-ocr` | rejected (compatible-models section 9) |
+| 6 | inclusionAI/LingSante-3.1-air-VL | 2026-11-19 | 4.6k / 149 / 46.5 | `bailing_moe_v3_vl` | rejected: the vision wrapper around `bailing_hybrid` is not mapped, about 1-2 days |
+| 7 | voyager-so/shot-reader-8b | 2026-11-19 | 744 / 78 / 25.5 | `qwen3_vl` | imports; tokenizer identical. Not run |
+| 8 | LiquidAI/LFM3-Omni-2B (+ GGUF 575k) | 2026-10-21 | 32k / 669 / 13.5 | HF `lfm3_omni`, GGUF `lfm3` + mmproj | HF rejected (`lfm3_omni`); the GGUF imports as text (section 10); audio and the omni wrapper are not implemented |
+| 9 | thinkingmachines/Inkling-2-Small, DeepSeek-V4.1-Flash-1017, Kimi-K3.1-Pro | | | | lead / section 10 |
+
+### 23.3 Speech to text (`automatic-speech-recognition`)
+
+| # | Model | Released | dl30 / likes / trend | Format | Status |
+|---|---|---|---|---|---|
+| 1 | Reson8/Rumble-2-Flash | 2026-10-14 | 3.7k / 405 / 49.5 | `qwen3_asr` BF16 (a Qwen3-ASR 0.6B derivative: 14 decoder layers, 18-layer tower, vocabulary pruned to 99,630), Apache-2.0 | **verified** (23.8), no code change |
+| 2 | FluidVoice-Labs/fluid-speech-pro | 2026-10-30 | 10k / 188 / 27 | `parakeet_tdt` F32 | imports (`conformer_asr`, speech recognition). Not compared |
+| 3 | oruk/oruk-fourier-2b | 2026-11-20 | 2.3k / 18 / 18 | `qwen3_asr` BF16 (Qwen3-ASR 1.7B fine-tune), its own Q8_0 GGUFs, CC-BY-NC-4.0 | **verified** (23.8, greedy); the GGUFs import |
+| 4 | moondream/parakeet-ultra | 2026-09-22 | 15k / 175 / 16 | `parakeet_tdt` + `vad_head.*` | rejected: the voice-activity head (`vad_head.ctx`, ...) has no mapping; dropping it (or exposing it as VAD) is about 0.5 day |
+| 5 | moondream/parakeet-redux | 2026-09-18 | 9.4k / 335 / 12 | `parakeet_tdt`, quantized pointwise convolutions (`*.scales`) | rejected: the custom int8 layout of the convolutions is not read |
+| 6 | fihriaLab/fihrIA-ASR-1.7B, Musci-research/Musci-ASR-qwen-1019-hf | 2026-11-20 / 10-27 | 92, 1.0k | `qwen3_asr` | import; tokenizer identical. Not compared |
+| 7 | ibm-granite/granite-speech-5.0-470m-turboctc | 2026-08-04 | 43k / 124 / 4 | `granite_speech5_ctc` | rejected: model_type not supported (CTC conformer) |
+| 8 | nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B | 2026-10-07 | 98k / 2.4k / 11 | `nemo_speechlm` | rejected (section 19.1) |
+| 9 | Cactus-Compute/whistle, FermionResearch/Phonon-2, Metric-AI/OhanASR | | 83k, 2.9k, 0 | Cactus / MLX formats, no files | not checked (no format Sharplight reads) |
+| 10 | pyannote/speaker-diarization-community-1, -3.1 | 2025 | 4.8M, 5.9M | pyannote pipelines | section 19.3 (diarization, not run) |
+
+### 23.4 Text to speech (`text-to-speech`)
+
+| # | Model | Released | dl30 / likes / trend | Format | Status |
+|---|---|---|---|---|---|
+| 1 | software-mansion/Reverb-TTS | 2026-10-01 | 2.4k / 216 / 46.5 | `omnivoice` config, weights in `model/safetensors/<precision>/`, CC-BY-NC-4.0 | rejected (no importer opens the root folder). Needs: a pruned OmniVoice (per-layer kept KV heads `kept_kv_heads`, factorized embeddings `embedding_rank`) read from the precision sub-folder; about 1 day on top of the OmniVoice path |
+| 2 | n4ze3m/tiny-voca | 2026-11-14 | 15k / 443 / 32.5 | own format (no model_type) | not checked |
+| 3 | Zyphra/ZONOS3-Mini | 2026-11-09 | 196k / 665 / 25.5 | `zonos3` library, no config.json | needs arch (section 19.2) |
+| 4 | fishaudio/drama-3, Aratako/Drama-3-Japanese | 2026-10-01 / 10-22 | 44k / 1.3k, 1.4k / 47 | `fish_omni` | rejected: model_type not supported |
+| 5 | gradium/phonon-31m-en (+ 40m-multilingual, gated) | 2026-10-19 | 366k / 184 / 8 | HF `gradium_phonon_tts`, GGUF without `general.architecture` | rejected (HF model_type; the GGUFs are for Gradium's own runtime) |
+| 6 | KittenML/kitten-tts-2-mini / -nano / -pico, KaleComputer/kale-tts-1-nano | 2026-11-13 / 11-16 | 13k, 7.8k, 4.6k, 456 | ONNX (StyleTTS 2) | not run (section 19.2: the espeak phonemizer is the open part) |
+| 7 | inclusionAI/Ming-3.0-tts-0.5B | 2026-09-22 | 17.5k / 240 / 7 | `dense` (`BailingMMNativeForConditionalGeneration`, Qwen2 LM) | rejected: model_type not supported |
+| 8 | bosonai/higgs-tts-3-4b, BreezeBlue/Breeze-TTS-2 | 2026-06 / 08 | 73k / 861, 25k / 1.0k | `higgs_multimodal_qwen3`, `breeze` | rejected: model_type not supported |
+| 9 | hexgrad/Kokoro-82M, k2-fsa/OmniVoice, openbmb/VoxCPM2, Qwen3-TTS, XTTS-v2, chatterbox | | | | verified earlier (sections 12, 19.2) |
+
+### 23.5 Image generation (`text-to-image`, `image-to-image`)
+
+| # | Model | Released | dl30 / likes / trend | Format | Status |
+|---|---|---|---|---|---|
+| 1 | nvidia/Nemotron-Labs-Image-30B-A3B | 2026-09-24 | 218 / 151 / 124 | transformers (`nemotron_h`) | not checked (image generation through the language model; no diffusers folder) |
+| 2 | MiniMaxAI/MiniMax-H3-Image (Comfy repack 4.4M) | 2026-11-03 | 1.0M / 2.6k / 56.5 | diffusers-style, `MiniMaxH3ImagePipeline` | rejected: "Not supported yet: the MiniMaxH3ImagePipeline diffusers pipeline" (section 21.1 #1) |
+| 3 | OpenMOSS-Team/MOSS-Image-SFT, -Base, lodestones/Kromoss | 2026-10-11 / 10-19 | 15k / 1.0k, 57k / 516 | `MOSSImagePipeline` | rejected: pipeline not supported (section 21.1 #5) |
+| 4 | black-forest-labs/flux-3-image-klein (+ `-comfy` 860k, `-base`) | 2026-10-13 | 128k / 1.1k | diffusers (gated: this token has no access) | needs arch (section 21.1 #13) |
+| 5 | Pinkstack/LiliPixel-V1-190M | 2026-11-19 | 520 / 98 / 28 | custom `PixelArtDiTPipeline` | rejected: pipeline not supported |
+| 6 | kandinskylab/Kandinsky-ImageSR-2.0 | 2026-11-24 | 4 / 12 / 12 | `KandinskyImageSRPipeline` | rejected: pipeline not supported |
+| 7 | sensenova/SenseNova-U1.6-8B-MoT | 2026-11-16 | 297 / 55 / 44 | `neo_chat` | not checked (U1 text is supported, image generation out of scope, section 4) |
+| 8 | data-archetype/dflow_2b, Retro-Diffusion/rd-flow-64, thejagstudio/tessera-small | 2026-11 | | own libraries | not checked (no diffusers folder) |
+| 9 | Qwen-Image-2.1, FLUX.1, Krea 2, FLUX.2 Klein, Qwen-Image-Edit-2511 | | | | verified earlier (sections 15, 21) |
+
+Check of the tool path: stabilityai/sd-turbo (`StableDiffusionPipeline`) and Wan-AI/Wan2.2-TI2V-5B-Diffusers (`WanPipeline`) pass the check and import.
+
+### 23.6 Video generation (`text-to-video`, `image-to-video`)
+
+| # | Model | Released | dl30 / likes / trend | Format | Status |
+|---|---|---|---|---|---|
+| 1 | Lightricks/LTX-2.5 (single files 3.0M dl30, 13.4k likes; unsloth GGUF 474k) | 2026-07-23 | 3.0M / 13.4k / 157 | single file; `-Diffusers` folder gated for this token | needs arch: the LTX-2 pipeline (`LTX2Pipeline`: audio VAE, Gemma 3 text encoder with connectors, `LTX2VideoTransformer3DModel`, video VAE, vocoder; seen in OpenMOSS-Team/VideoGym-LTX-2.3, which the check rejects as an unsupported pipeline). Large: audio and video, 22B transformer |
+| 2 | Pika-Labs/Pika-H3-Flex (+ Turbo LoRA) | 2026-10-29 | 197k / 706 / 25 | `pika-h3-flex` / `minimax-h3` library files | needs arch (the MiniMax-H3 video family; no diffusers folder) |
+| 3 | apple/FastFrames-L, -S | 2026-11-16 | 0 / 630, 221 | no downloadable weights at query time | not checked |
+| 4 | Wan-AI/Wan2.2-TI2V-5B (native layout) | 2025-07-18 | 20k / 1.1k | Wan's own `ti2v` config | rejected (model_type `ti2v`); the `-Diffusers` repository imports and is verified (section 18) |
+| 5 | MiniMax-H3 video community packs (H3-Tiny, ReDiverse, Sulphur, Cobijada, Singularity), LongCat-Video-Avatar Comfy repack | | | | community only |
+
+### 23.7 Embeddings and rerankers (`sentence-similarity`, `feature-extraction`, `text-ranking`)
+
+| # | Model | Released | dl30 / likes | Format | Status |
+|---|---|---|---|---|---|
+| 1 | hindsight-ai/hs-rerank-1 | 2026-10-28 | 2.34M / 10 | ModernBERT (mmBERT-small) cross-encoder, MIT | **verified** (23.8). Before: imported as a plain embedding model with the classifier head dropped (no rerank scores) and a different tokenization |
+| 2 | Horizon-Labs/multilingual-reranker-small | 2026-10-01 | 84k / 3 | as #1, mean pooling, Apache-2.0 | **verified** (23.8) |
+| 3 | google/embeddinggemma-2 | 2026-09-14 | 587k / 3.5k | HF `embedding_gemma2` with audio and vision towers | rejected: 1376 tower tensors unmapped (the text model maps; the unsloth GGUF is verified, section 10). Skipping the towers for text embeddings is about 0.5 day |
+| 4 | nvidia/Nemotron-3.5-Rerank-1B-BF16 | 2026-11-13 | 894 / 2 | `mistral3` sequence classifier (`is_causal: false`, mean pooling, `score` head, sentence-transformers prompt template, remote code), NVIDIA license | rejected (`language_model.score.weight` unmapped). Needs the bidirectional Ministral 3 path plus the score head of 23.8 on a decoder, and the prompt template; about 1 day |
+| 5 | tencent/OmniEVIE-4B | 2026-11-24 | 399 / 20 | `qwen3_5` with custom projection heads | rejected (`custom_text_proj`, `mlp_w1`, ... unmapped) |
+| 6 | Linkup-Platform/linkup-sparseup-embed-v2 | 2026-11-18 | 224 / 15 | ModernBERT SPLADE (`vocab_fold_index`) | rejected: sparse (SPLADE) output not implemented |
+| 7 | perplexity-ai/pplx-embed-v2-context-0.6b, jinaai/jina-embeddings-v5-text-nano, knowledgator/EdgeCoder | 2026-10 / 01 / 10 | 2.2k, 84k, 3.3k | `pplx_contextual_qwen3_5`, `jina_embeddings_v5`, `deberta-v2` | rejected: model_type not supported |
+| 8 | opensearch-project/opensearch-neural-embed-v1, microsoft/harrier-oss-v1-27b, facebook/meta-encoder-v1 | 2026-11 / 03 / 11 | 615, 7.7k, 936 | `qwen3`, `gemma3_text`, `muse_glimmer` | import; tokenizers identical. Not compared |
+| 9 | minishlab/blink-8M, -code-16M, -multilingual-64M | 2026-11 | 2.7k / 33 | model2vec static embeddings | not checked (no importer) |
+
+### 23.8 Results and fixes
+
+New verifications (catalog entries with pinned revisions; Studio's Discover lists each under its task and installs it in one click,
+`VerifiedCatalogTests.CommittedEntry_IsListedUnderItsTask_AndInstallsWithOneClick`):
+
+| Model | Files (official repository) | Reference | CPU | Vulkan | CUDA |
+|---|---|---|---|---|---|
+| Reson8/Rumble-2-Flash | BF16 safetensors | transformers 5.23 fp32 greedy, jfk + LibriSpeech, language detected and English forced | identical (4 of 4) | identical (4 of 4) | identical (4 of 4) |
+| oruk/oruk-fourier-2b | BF16 safetensors | transformers plain greedy (as above) | identical (4 of 4) | identical (4 of 4) | identical (4 of 4) |
+| microsoft/Aion-1.0-Instruct-2.3B | BF16 safetensors | transformers fp32 greedy with the checkpoint's modeling code, 17 tokens; tokenizer | identical | identical | identical |
+| tiny-random-aion-instruct | `tools/mk_tiny_remote_code.py aion_instruct` | as above, 17 tokens | identical | identical | identical |
+| nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB | `Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf` | llama.cpp b11177 greedy text, 40 tokens (CPU and Vulkan agree) | identical | identical | identical |
+| hindsight-ai/hs-rerank-1 | F32 safetensors | sentence-transformers CrossEncoder logits, 6 pairs | tokens identical, max error 1.9e-6 | 2.3e-3 | 2.3e-3 |
+| Horizon-Labs/multilingual-reranker-small | F32 safetensors | as above | tokens identical, 4.8e-6 | 1.7e-3 | 1.4e-3 |
+
+Fixes:
+
+- **ModernBERT cross-encoders** (`ModernBertForSequenceClassification`; hs-rerank-1 is the most downloaded reranker of the month). The mapping
+  dropped `head.*` and `classifier.*`, so the checkpoint loaded as an embedding model. The head is now mapped (`head.dense` / `head.norm` /
+  `classifier` → `classifier.pre` / `classifier.pre_norm` / `classifier.out`, with `classifier_pooling` and `classifier_activation` as the
+  neutral keys `classifier.pooling` and `classifier.head_activation`), and the bidirectional branch of the decoder graph builds the classify
+  graph from it (`SequenceClassifierHead`: pooled rows, dense, activation, norm, output). The masked-LM head is still not loaded.
+- **Gemma-vocabulary BPE tokenizers with a Metaspace pre-tokenizer** (mmBERT and its fine-tunes): a space → ▁ normalizer followed by a
+  Metaspace step with `prepend_scheme: always` and `split: true`. The prefix was missing and the text was merged as one unit (`▁▁spaces`
+  instead of `▁` + `▁spaces`). The translator now takes the prefix and its scheme from the Metaspace step and sets the new neutral key
+  `tokenizer.split_at_space_marker`, with which the ranked BPE merges each ▁-led piece on its own. The BPE path also reads the pair layout
+  (`<bos> A <eos> B <eos>`) from the post-processor.
+- **Aion 1.0** (`AionInstructHfMapping`): the Qwen3 layer with sliding layers from `layer_types` and per-type `rope_parameters` (YaRN ×16
+  on the full layers, plain RoPE on the sliding ones); mapping only.
+- **Ling 3 / LingSante MTP norm**: `final_layernorm` of the NextN layer maps to the draft head's `output_norm`.
+- **Qwen3-ASR fixtures** (`tools/make_qwen3_asr_fixtures.py`): decoding is forced to plain greedy, since oruk's generation_config.json asks
+  for beam search; `Qwen3AsrParityTests` takes the end-of-turn and transcript-marker ids per model (Rumble's pruned vocabulary).
+- **Embeddings tests on CUDA**: `Sharplight.Embeddings.Tests` now uses the shared GPU switch (`SHARPLIGHT_TEST_PROVIDER=cuda`).
+- **ModelSweep**: non-LLM kinds and diffusers pipelines, see the method above.
+
+Not taken (owned elsewhere or not cheap): Inkling 2 (lead), ControlNet / TAESD / LyCORIS (image agent), Kolibri 1.1, Ternary-Bonsai 2.5 numerics,
+Reverb-TTS, Nemotron-3.5-Rerank, embeddinggemma-2 HF, parakeet-ultra's VAD head, LTX-2.5, MiniMax-H3 (image and video).
+
 ## 24. Bring-up round 2 (2026-11-26): the official releases of the open quantization rows
 
 The open rows of sections 10 and 11 that only needed the release's weight format (or a tensor-name mapping) read: MiniMax-M3.1-Flash,

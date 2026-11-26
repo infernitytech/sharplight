@@ -4927,6 +4927,106 @@
       ]
     },
     {
+      "id": "aion-1.0-instruct-2.3b",
+      "name": "Aion 1.0 Instruct 2.3B",
+      "kind": "text-generation",
+      "family": "Aion",
+      "architecture": "aion_instruct",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "Microsoft",
+        "countryOfOrigin": "US",
+        "url": "https://www.microsoft.com"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 5667006675,
+          "companions": [],
+          "repository": "microsoft/Aion-1.0-Instruct-2.3B",
+          "revision": "28902cbfd9f4e0347d6c853aa1301f5d559b2fc0",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "chat_template.jinja",
+            "model.safetensors",
+            "LICENSE"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1903,
+              "gitOid": "a50b0be4f12157118b91ba9abc44ac2880064323"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 252,
+              "gitOid": "964995024095b35fadbb9941f81b4b410867eb9d"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 15524476,
+              "sha256": "7ea8bdf68c3e7549a3fb4342523288ce628f6ab56a618f9a4dfb234a0b4d46a8"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 341,
+              "gitOid": "8651ebb2f8344ed9815f8366fd71ef7ba9c10c5a"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 4286,
+              "gitOid": "cf6215fdec06059fdeb0f20395c9cbc3dbd26e9a"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 4577698688,
+              "sha256": "6c779881b539d9074f356964ad3089459e9e837da7649d6f271859135256984e"
+            },
+            {
+              "path": "LICENSE",
+              "size": 1074,
+              "gitOid": "22aed37e650bbf933b6983cda9c2c5db65dcdd04"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "greedy ids identical to transformers (fp32, the checkpoint\u0027s own modeling code) for 17 tokens; tokenizer identical",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "FamilyGenerationTests.Generation_matches_reference_on_cpu"
+        ]
+      },
+      "notes": "Qwen3-style layers with sliding-window layers; YaRN on the full-attention layers only; hot-model sweep 2026-11-25.",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "microsoft/Aion-1.0-Instruct-2.3B",
+            "formats": "safetensors BF16"
+          }
+        }
+      ]
+    },
+    {
       "id": "mage-vl-cowork",
       "name": "Mage-VL-Cowork",
       "kind": "text-generation",
@@ -5173,25 +5273,59 @@
       "level": "verified",
       "license": "other",
       "gated": false,
+      "publisher": {
+        "name": "NVIDIA",
+        "countryOfOrigin": "US",
+        "url": "https://www.nvidia.com"
+      },
       "tags": [],
-      "variants": [],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf-nvidia",
+          "label": "Q4_K_M GGUF (NVIDIA)",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 7510166323,
+          "companions": [],
+          "repository": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB",
+          "revision": "0e5d71fc20036486786f71befa103d23a97b79b1",
+          "include": [
+            "Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf"
+          ],
+          "primary": "Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf",
+              "size": 6180446208,
+              "sha256": "c8af2b8aea10a690a1d9491db744a9446660173cb38fc489612b556615a69612"
+            }
+          ]
+        }
+      ],
       "companions": [],
       "verification": {
-        "summary": "text identical to llama.cpp",
+        "reference": "llama.cpp",
+        "summary": "text identical to llama.cpp b11177 (40 greedy tokens, CPU and Vulkan agree) on NVIDIA\u0027s own Q4_K_M file; earlier also on unsloth\u0027s UD-Q4_K_XL",
         "providers": [
           "CPU",
-          "Vulkan"
+          "Vulkan",
+          "CUDA"
         ],
-        "date": "2026-11-14",
-        "tests": []
+        "date": "2026-11-26",
+        "tests": [
+          "FamilyGenerationTests.Generation_matches_reference_on_cpu",
+          "FamilyGenerationTests.Generation_matches_reference_on_vulkan",
+          "FamilyGenerationTests.Generation_matches_reference_on_cuda"
+        ]
       },
       "licenseNotice": "OpenMDW 1.1: permissive. You may use, modify and share the model, also commercially, with no restrictions on outputs; when you distribute it, keep a copy of the agreement and the origin notices. Filing a patent or copyright suit over the model ends your rights.",
       "doc": [
         {
           "section": "1.1",
           "cells": {
-            "repositories": "NVIDIA-Nemotron-3.5-Bolt-E4B (GGUF)",
-            "formats": "GGUF UD-Q4_K_XL"
+            "repositories": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB (GGUF), unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF",
+            "formats": "GGUF Q4_K_M (NVIDIA), UD-Q4_K_XL"
           }
         }
       ]
@@ -24293,6 +24427,240 @@
       ]
     },
     {
+      "id": "rumble-2-flash",
+      "name": "Rumble-2-Flash",
+      "kind": "speech-recognition",
+      "family": "Qwen3-ASR",
+      "architecture": "qwen3_asr",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Reson8",
+        "url": "https://huggingface.co/Reson8"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 1572569776,
+          "companions": [],
+          "repository": "Reson8/Rumble-2-Flash",
+          "revision": "95bd5f9133a2398e5e48a98c089fe48e122bde97",
+          "include": [
+            "*.json",
+            "chat_template.jinja",
+            "merges.txt",
+            "model.safetensors",
+            "LICENSE"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "added_tokens.json",
+              "size": 1639,
+              "gitOid": "f0a94fd58343c27d1dc5916646b932e5e6af8da3"
+            },
+            {
+              "path": "chat_template.json",
+              "size": 3053,
+              "gitOid": "b60c8f393814cba9c66eba166b66308746597309"
+            },
+            {
+              "path": "config.json",
+              "size": 2710,
+              "gitOid": "a5489a69a3ce4a2614a6d3d4dcef83036e2eaa8d"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 162,
+              "gitOid": "d5a5d1b62cd54fda0ea227d6b4b79db978145ea0"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 356,
+              "gitOid": "dd74fb8eeeb2b9d44da2a4eb6a6a64deb20e12f1"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 487,
+              "gitOid": "a07dff48032bed341260501d6688036c6fd7f3ef"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 4264,
+              "gitOid": "78e89cb199f2ec6319f3ff9cc025252bc090357a"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 7422837,
+              "gitOid": "95ea25d98bcdc25a93fef4c594bd88876ae50af7"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 13640,
+              "gitOid": "cc7c090d90ca7aba329751eafa759c09f7e8c484"
+            },
+            {
+              "path": "vocab.json",
+              "size": 1961918,
+              "gitOid": "43d0e85d685f0ba7589b2dc39fae045de86fa14f"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 2963,
+              "gitOid": "042bf06c84e3b13d5a6c0c3a88cd9b7342823a02"
+            },
+            {
+              "path": "merges.txt",
+              "size": 1075910,
+              "gitOid": "729d405eff7b525730c8e388718713e10b00171b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1017318776,
+              "sha256": "6dc35af40ad150e50767382a9d401eb9af9c3a1ad4e915c61fe05aecfa79a3e1"
+            },
+            {
+              "path": "LICENSE",
+              "size": 11358,
+              "gitOid": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "greedy ids identical to transformers on jfk and LibriSpeech, language detected and English forced",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "Qwen3AsrParityTests.RumbleTokensMatchTransformers"
+        ]
+      },
+      "notes": "Qwen3-ASR 0.6B derivative (14 decoder layers, 18-layer audio tower, vocabulary pruned to 99,630 tokens); 45 languages; hot-model sweep 2026-11-25. The optional CTC head in ctc/ is not used.",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "model": "Rumble-2-Flash (audio language model)",
+            "repositories": "Reson8/Rumble-2-Flash",
+            "formats": "HF (transformers layout)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "oruk-fourier-2b",
+      "name": "Oruk Fourier 2B",
+      "kind": "speech-recognition",
+      "family": "Qwen3-ASR",
+      "architecture": "qwen3_asr",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "oruk",
+        "url": "https://huggingface.co/oruk"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 5090275226,
+          "companions": [],
+          "repository": "oruk/oruk-fourier-2b",
+          "revision": "78609f6900abefab0864699f9b8324f936ee6fac",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "processor_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "chat_template.jinja",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2479,
+              "gitOid": "3e925635b7b45eb61346489424a1771b955560c0"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 836102,
+              "gitOid": "d51efe6e80f0aba7764bf9fae8a69fbdf630fe3e"
+            },
+            {
+              "path": "processor_config.json",
+              "size": 487,
+              "gitOid": "a07dff48032bed341260501d6688036c6fd7f3ef"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 11429377,
+              "sha256": "bd2a97b55c8f7f9c328c73ee9b9178771037e9f566dfca8e238a063d41cbac92"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 1446,
+              "gitOid": "20d42a5b0d83062e93aec7c2531a3e73556441a6"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 1434,
+              "gitOid": "491fff331513a97316daf53591c7b9b9da53ef8c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 4076193080,
+              "sha256": "e64765ffdd90c83704c0951e0d88b7f2ed84499af5c208f7ddf8d922cf08441c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "greedy ids identical to transformers\u0027 plain greedy decoding on jfk and LibriSpeech, language detected and English forced",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "Qwen3AsrParityTests.OrukFourierTokensMatchTransformers"
+        ]
+      },
+      "notes": "English fine-tune of Qwen3-ASR 1.7B; hot-model sweep 2026-11-25. Decoding is greedy: the beam search (3 beams), 8-gram repeat block and banned-token list of its generation_config.json are not applied, so transcripts can differ from the publisher\u0027s recommended settings.",
+      "licenseNotice": "CC BY-NC 4.0: non-commercial use only. You may share and adapt the model with attribution, but not use it or its outputs for commercial purposes.",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "model": "Oruk Fourier 2B (audio language model)",
+            "repositories": "oruk/oruk-fourier-2b",
+            "formats": "HF (transformers layout)"
+          }
+        }
+      ]
+    },
+    {
       "id": "mobilenetv3-small-100-timm",
       "name": "MobileNetV3 Small 100 (timm)",
       "kind": "image-classification",
@@ -26243,6 +26611,204 @@
       },
       "notes": "",
       "doc": []
+    },
+    {
+      "id": "hs-rerank-1",
+      "name": "hs-rerank-1",
+      "kind": "reranker",
+      "family": "mmBERT",
+      "architecture": "modernbert",
+      "level": "verified",
+      "license": "mit",
+      "gated": false,
+      "publisher": {
+        "name": "Hindsight (Vectorize)",
+        "url": "https://github.com/vectorize-io/hindsight"
+      },
+      "tags": [
+        "reranker"
+      ],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 664386083,
+          "companions": [],
+          "repository": "hindsight-ai/hs-rerank-1",
+          "revision": "6bc7caf42bfcd5873ed76309cd0785cb1f550f51",
+          "include": [
+            "config.json",
+            "config_sentence_transformers.json",
+            "sentence_bert_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1748,
+              "gitOid": "5604d22f7ccf3da9738a18dab11be8ee8418b507"
+            },
+            {
+              "path": "config_sentence_transformers.json",
+              "size": 84,
+              "gitOid": "670f58c1c671853cb00f04a97b64c0b5e3a5f4b1"
+            },
+            {
+              "path": "sentence_bert_config.json",
+              "size": 55,
+              "gitOid": "b3030f4edaca7791ed3d3bfd6dd41bb25b54718c"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 34363188,
+              "sha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 524,
+              "gitOid": "8b7a20c656c11a316932f41e0c46207665c3a31a"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 227593826,
+              "sha256": "4a3b0d9a505dd9fe810bfa411e23a45c33d6c6d5801e1b680f390edea7db2782"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "sentence-transformers",
+        "summary": "6 pairs: tokens identical, logits within 2e-6 (CPU) and 3e-3 (GPU) of sentence-transformers\u0027 CrossEncoder",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "ReferenceTests.Rerank"
+        ]
+      },
+      "notes": "ModernBERT (mmBERT-small) cross-encoder, CLS pooling; hot-model sweep 2026-11-25.",
+      "doc": [
+        {
+          "section": "1.5",
+          "cells": {
+            "model": "hs-rerank-1 (reranker)",
+            "repositories": "hindsight-ai/hs-rerank-1",
+            "formats": "safetensors"
+          }
+        }
+      ]
+    },
+    {
+      "id": "multilingual-reranker-small",
+      "name": "Multilingual Reranker small",
+      "kind": "reranker",
+      "family": "mmBERT",
+      "architecture": "modernbert",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Horizon Labs",
+        "url": "https://huggingface.co/Horizon-Labs"
+      },
+      "tags": [
+        "reranker"
+      ],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 1049622313,
+          "companions": [],
+          "repository": "Horizon-Labs/multilingual-reranker-small",
+          "revision": "23139fec6f1f448cdf89a5ac2d2c6bf5e8c7b398",
+          "include": [
+            "config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "model.safetensors",
+            "LICENSE",
+            "NOTICE"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1995,
+              "gitOid": "0b7ae280309720a699fb1dacd2bf2972633c9d27"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 636,
+              "gitOid": "8d6368f7e735fbe4781bf6e956b7c6ad0586df80"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 34363439,
+              "sha256": "7925f638b5444897efe3b4608eed56c1652f0ed39c2662c8302de1bc264c6088"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 46440,
+              "gitOid": "9f755196cd8890b3d1bf9c1a9db9e4151456c19f"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 562581852,
+              "sha256": "81055d7aa5188db1ae638d04029c21c231cff9d9f8d011a025efa17454a92bbd"
+            },
+            {
+              "path": "LICENSE",
+              "size": 11358,
+              "gitOid": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+            },
+            {
+              "path": "NOTICE",
+              "size": 1565,
+              "gitOid": "b0a457c0569dd003bce97f521cfceed169ff544f"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "sentence-transformers",
+        "summary": "6 pairs: tokens identical, logits within 5e-6 (CPU) and 2e-3 (GPU) of sentence-transformers\u0027 CrossEncoder",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "ReferenceTests.Rerank"
+        ]
+      },
+      "notes": "ModernBERT (mmBERT-small) cross-encoder distilled from Qwen3-Reranker-4B, mean pooling, 40\u002B languages; hot-model sweep 2026-11-25.",
+      "doc": [
+        {
+          "section": "1.5",
+          "cells": {
+            "model": "Multilingual Reranker small (reranker)",
+            "repositories": "Horizon-Labs/multilingual-reranker-small",
+            "formats": "safetensors"
+          }
+        }
+      ]
     },
     {
       "id": "granite-embedding-311m-multilingual-r2",
