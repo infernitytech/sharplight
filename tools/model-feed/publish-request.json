@@ -1,11 +1,14 @@
 {
   "entries": [
-    "seedvr2-3b:official",
-    "seedvr2-7b:official",
-    "seedvr2-7b:sharp"
+    "sd-1.5-controlnet-canny:fp16-diffusers",
+    "sdxl-controlnet-canny-1.0:fp16-diffusers",
+    "stable-diffusion-1.5:fp16-diffusers-taesd",
+    "sdxl-base-1.0:fp16-diffusers-taesdxl",
+    "sd3.5-medium:fp16-diffusers-taesd3",
+    "flux.1-schnell:q8-0-gguf-taef1"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Publish SeedVR2 3B, 7B and 7B sharp (video enhancement, official ByteDance-Seed checkpoints verified against the official code; the 7B with the official text embeddings of the 3B repository)."
+  "reason": "Publish the image-generation add-ons verified on 2026-11-26: the SD 1.5 and SDXL Canny ControlNets (official lllyasviel / diffusers releases with their base pipelines) and the TAESD / TAESDXL / TAESD3 / TAEF1 variants of SD 1.5, SDXL base, SD3.5 Medium and FLUX.1-schnell."
 }
