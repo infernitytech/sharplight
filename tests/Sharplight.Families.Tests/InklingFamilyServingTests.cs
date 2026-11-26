@@ -76,6 +76,35 @@ public class InklingFamilyServingTests
         Assert.Equal(1024, model.Tokenizer.VocabSize);
     }
 
+    /// <summary>Inkling 2 stored as an <c>.slm</c> package (converted once) gives the checkpoint's prompt logits bit for bit.</summary>
+    [Fact]
+    public void Inkling2_Package_GivesTheCheckpointsLogits()
+    {
+        string hf = Path.Combine(Models, "hf/tiny-random-inkling2");
+        Assert.SkipUnless(Directory.Exists(hf), "tiny Inkling 2 checkpoint not present");
+        string folder = Path.Combine(Environment.GetEnvironmentVariable("SHARPLIGHT_WORK") ?? Path.GetTempPath(), "families-tests");
+        Directory.CreateDirectory(folder);
+        string package = Path.Combine(folder, $"inkling2-{Guid.NewGuid():N}.slm");
+        try
+        {
+            TestHost.Converter.Convert(hf, package);
+            int[] prompt = [.. Enumerable.Range(0, 40).Select(i => 10 + (i * 37 % 900))];
+            float[] Logits(string path)
+            {
+                using var device = OpenDevice(vulkan: false);
+                using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64 });
+                using var session = model.CreateSession(WellKnown.DecodeGraph);
+                return session.Process(prompt);
+            }
+
+            Assert.Equal(Logits(hf), Logits(package));
+        }
+        finally
+        {
+            File.Delete(package);
+        }
+    }
+
     [Theory]
     [MemberData(nameof(Cases))]
     public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan)
