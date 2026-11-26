@@ -48,6 +48,19 @@ public sealed class ResizeTests
     [MemberData(nameof(LinearCases))]
     public void Linear(string coord, int oh, int ow) => Run($"{coord} {oh}x{ow}", "linear", coord, "round_prefer_floor", 2, 3, 8, 7, oh, ow);
 
+    /// <summary>
+    /// The host index tables the GPU nearest kernel reads keep exact round-half ties: 8 -> 7 half_pixel row 3 maps to
+    /// (3 + 0.5) / 0.875 - 0.5 = 3.5 (floor 3 / ceil 4), which an inexact GPU division turned into 4 on the RTX 4090 (#67).
+    /// Needs no GPU.
+    /// </summary>
+    [Fact]
+    public void NearestTablesKeepExactTies()
+    {
+        Assert.Equal(new long[] { 0, 1, 2, 3, 5, 6, 7 }, Sharplight.Shaders.Lowering.ResizeNearestTable.Indices(8, 7, "half_pixel", "round_prefer_floor"));
+        Assert.Equal(new long[] { 0, 1, 2, 4, 5, 6, 7 }, Sharplight.Shaders.Lowering.ResizeNearestTable.Indices(8, 7, "half_pixel", "round_prefer_ceil"));
+        Assert.Equal(3, Sharplight.Shaders.Lowering.ResizeNearestTable.Indices(8, 7, "pytorch_half_pixel", "round_prefer_floor")[3]);
+    }
+
     [Fact] public void Upsample2x() => Run("2x", "nearest", "asymmetric", "floor", 1, 16, 14, 14, 28, 28);
     [Fact] public void BilinearUpsample2xStrided() => Run("2x bilinear sliced", "linear", "half_pixel", "round_prefer_floor", 2, 4, 10, 10, 20, 20, slice: true);
 

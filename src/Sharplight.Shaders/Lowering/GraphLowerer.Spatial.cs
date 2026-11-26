@@ -636,13 +636,21 @@ public sealed partial class GraphLowerer
         long OH = y.Shape[2];
         long OW = y.Shape[3];
         int coord = a.Get("coord", "half_pixel") switch { "half_pixel" => 0, "align_corners" => 1, "asymmetric" => 2, _ => 3 };
+        bool linear = a.Get("mode", "nearest") == "linear";
         int near = a.Get("nearest_mode", "round_prefer_floor") switch { "round_prefer_floor" => 0, "round_prefer_ceil" => 1, "floor" => 2, _ => 3 };
         var macros = new List<(string, object)>
         {
             ("C", C), ("H", x.Shape[2]), ("W", x.Shape[3]), ("OH", OH), ("OW", OW),
             ("XS_N", x.Strides[0]), ("XS_C", x.Strides[1]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]),
-            ("LINEAR", a.Get("mode", "nearest") == "linear"), ("COORD", coord), ("NEAREST", near),
+            ("LINEAR", linear), ("COORD", coord), ("NEAREST", near),
         };
+        if (!linear)
+        {
+            // Nearest: the source indices come from host tables computed like the CPU (exact ties, #67).
+            string coordName = a.Get("coord", "half_pixel"), nearName = a.Get("nearest_mode", "round_prefer_floor");
+            macros.Add(("RIY", IntList(ResizeNearestTable.Indices((int)x.Shape[2], (int)OH, coordName, nearName))));
+            macros.Add(("RIX", IntList(ResizeNearestTable.Indices((int)x.Shape[3], (int)OW, coordName, nearName))));
+        }
         if (y.Strides[0] != C * OH * OW && y.Shape[0] > 1)
         {
             // A channel slice of a concatenation (PlanConcatSlices): dense per batch index, batches further apart.
