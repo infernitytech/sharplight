@@ -65,6 +65,26 @@ public sealed class SkinnyGemmTests
     }
 
     /// <summary>
+    /// Long K, where the direct path splits K over 16 subgroups (GraphLowerer.DirectSkinnyWideMinBlocks: from 6144 single, 4096 dual).
+    /// </summary>
+    [Theory]
+    [InlineData("f8e4m3_b128", 9, false)]
+    [InlineData("f8e4m3_b128", 16, true)]
+    [InlineData("q8_0", 12, false)]
+    [InlineData("q8_0", 16, true)]
+    public void LongK(string fmt, int t, bool dual)
+    {
+        Gpu.Require();
+        int K = dual ? 4096 : 6144, N = 4096;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var g = tg.B.MatMul(x, tg.RandW("wg", DataType.Get(fmt), 0.1f, N, K));
+        tg.B.Output("y", dual ? tg.B.Mul(tg.B.Silu(g), tg.B.MatMul(x, tg.RandW("wu", DataType.Get(fmt), 0.1f, N, K))) : g);
+        Diff.Check($"Skinny.long{(dual ? ".dual." : ".")}{fmt}", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))),
+            atol: dual ? 6e-1 : 1.5e-1, rtol: 2e-2, what: $"T={t}");
+    }
+
+    /// <summary>
     /// Matmuls narrower than 4096 outputs, where the skinny GEMM serves at most 8 rows (1024-4095 outputs) or none (below 1024)
     /// and gemm_cm2 the rest: 9-16 rows read the shared f16 copy, which must cover them whatever the skinny GEMM reads.
     /// </summary>

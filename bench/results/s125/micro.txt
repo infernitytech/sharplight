@@ -1,0 +1,27 @@
+# BenchTests.MatMulPrefill, Vulkan, RTX 4090 (GPU 0), minimum over 300 launches, 4 weight copies, ms.
+# SHARPLIGHT_SKINNY_CFG=1,8,64 (old direct config) vs 1,16,64; rows 16 unless noted. Shape = K,N.
+f8e4m3_b128 single 17408,5120 sg8 0.166 sg16 0.127 sg12 0.135 (sg 6 0.174, 10 0.160, 20 0.126, 24 0.127, 32 0.150)
+f8e4m3_b128 single 25600,5120 sg8 0.245 sg16 0.195
+f8e4m3_b128 single 12288,4096 sg8 0.075 sg16 0.067
+f8e4m3_b128 single 14336,4096 sg8 0.092 sg16 0.080
+f8e4m3_b128 single 17408,4096 sg8 0.127 sg16 0.104
+f8e4m3_b128 single 17408,6144 sg8 0.179 sg16 0.149
+f8e4m3_b128 single 8192,5120  sg8 0.061 sg16 0.054
+f8e4m3_b128 single 6144,5120  sg8 0.049 sg16 0.043
+f8e4m3_b128 single 5120,5120  sg8 0.041 sg16 0.038
+f8e4m3_b128 single 4096,5120  sg8 0.032 sg16 0.029
+f8e4m3_b128 single 5120,4096  sg8 0.028 sg16 0.030
+f8e4m3_b128 single 5120,6144  sg8 0.043 sg16 0.042
+f8e4m3_b128 single 4096,6144  sg8 0.035 sg16 0.035
+f8e4m3_b128 single 5120,17408 sg8 0.113 sg16 0.109
+f8e4m3_b128 dual   5120,17408 sg8 0.265 sg16 0.208
+f8e4m3_b128 dual   4096,12288 sg8 0.139 sg16 0.119
+f8e4m3_b128 dual   2048,8192  sg8 0.044 sg16 0.045
+f8e4m3_b128 dual   1024,3072  sg8 0.008 sg16 0.008
+q8_0 single 17408,5120 sg8 0.154 sg16 0.123
+q8_0 single 5120,17408 sg8 0.111 sg16 0.108
+q8_0 single 6144,5120  sg8 0.048 sg16 0.043
+q8_0 single 12288,4096 sg8 0.071 sg16 0.066
+q8_0 dual   5120,17408 sg8 0.248 sg16 0.209
+rows 2/4/8: f8 single 17408,5120 0.161/0.163/0.164 -> 0.118/0.120/0.125; f8 dual 5120,17408 0.263/0.264/0.262 -> 0.209/0.208/0.210
+reference: 1-row matvec_sk f8 17408,5120 0.097; f16 skinny (staged) 17408,5120 16 rows 0.201

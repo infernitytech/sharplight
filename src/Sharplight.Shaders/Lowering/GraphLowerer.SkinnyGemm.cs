@@ -158,7 +158,7 @@ public sealed partial class GraphLowerer
             }
 
             bool direct = UseDirectSkinny(weights[0].Type, half, fm, k);
-            var (fn, sg, bk) = SkinnyConfig(n, k, fm, weights.Length, SkinnySharedBytes, direct);
+            var (fn, sg, bk) = SkinnyConfig(n, k, fm, weights.Length, SkinnySharedBytes, direct, direct && DirectSkinnyWide(weights[0].Type, weights.Length, k));
             var macros = new Dictionary<string, string>(baseMacros)
             {
                 ["X_STRIDE"] = activationStride.ToString(CultureInfo.InvariantCulture),
@@ -212,13 +212,33 @@ public sealed partial class GraphLowerer
         [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B128G, ShaderTypes.F8E4M3_B32R, DataType.Q8_0, ShaderTypes.Q8_0R, ShaderTypes.MXFP4R];
 
     /// <summary>
+    /// True when the direct skinny GEMM splits K over 16 subgroups instead of 8: from 96 64-value K blocks, 64 for the dual gate / up
+    /// form (<paramref name="matrices"/> 2). Each workgroup then reads a 1 KB stripe of its 16 weight rows per step instead of 512 bytes, and the dual
+    /// form, whose two B fragments per subgroup leave room for one 8-subgroup workgroup per SM, keeps twice the warps resident. RTX 4090
+    /// (Vulkan, 16 rows, minimum over 300 launches with 4 weight copies), 8 → 16 subgroups: FP8 [17408→5120] 166 → 128 µs (Q8_0 154 →
+    /// 123), [25600→5120] 245 → 195, [12288→4096] 75 → 67, [6144→5120] 49 → 42; dual FP8 [5120→17408]x2 265 → 208 (Q8_0 248 → 209),
+    /// [4096→12288]x2 139 → 119; the same at 2-8 rows. Shorter K gains nothing or loses: [5120→4096] 28 → 30 µs, dual [2048→8192]x2
+    /// 44 → 45. This changes the order in which those products' K partials are summed. Not for the dual form of FP8 weights where the
+    /// target compiles CUDA C++: its registers do not fit 512 threads per block, and capping them (<c>__launch_bounds__(512, 1)</c>)
+    /// made the Qwen3-14B-FP8 steps at 2-8 rows slower (RTX 4090, 18.1 → 20.5 ms).
+    /// </summary>
+    private bool DirectSkinnyWide(DataType type, int matrices, long k)
+        => k / 64 >= (matrices > 1 ? 64 : 96) && !(matrices > 1 && IsFp8Weight(type) && _compiler.CompilesCuda(_opt.Target));
+
+    /// <summary>The block-scaled E4M3 formats of the direct skinny GEMM (<see cref="s_directSkinnyFormats"/>).</summary>
+    private static bool IsFp8Weight(DataType type)
+        => type == DataType.F8E4M3_B128 || type == DataType.F8E4M3_B32 || type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B128G
+           || type == ShaderTypes.F8E4M3_B32R;
+
+    /// <summary>
     /// Skinny GEMM configuration for <paramref name="fm"/> token fragments: weight fragments per workgroup, subgroups splitting
     /// K inside the workgroup and the K block. One weight fragment per workgroup except for wide single matrices, more
     /// subgroups when there are few workgroups, so the launch keeps enough loads in flight; never more subgroups than K blocks.
     /// The K block shrinks (then the subgroups halve) until the staged slices fit <paramref name="sharedBytes"/>. With
-    /// <paramref name="direct"/>, one fragment and 8 subgroups (the K block is not used).
+    /// <paramref name="direct"/>, one fragment and 8 subgroups, 16 with <paramref name="wide"/> (the K block is not used).
     /// </summary>
-    private static (int Fn, int Sg, int Bk) SkinnyConfig(long n, long k, int fm, int matrices, long sharedBytes, bool direct)
+
+    private static (int Fn, int Sg, int Bk) SkinnyConfig(long n, long k, int fm, int matrices, long sharedBytes, bool direct, bool wide = false)
     {
         int bk = k % 64 == 0 ? 64 : 32;
         int fn = matrices > 1 || fm > 2 || n < SkinnyTwoFragmentMinN ? 1 : 2;
@@ -226,10 +246,10 @@ public sealed partial class GraphLowerer
         int sg = 4;
         if (direct)
         {
-            // The direct path keeps no slices in shared memory, so it takes 8 subgroups for every shape: one fragment and 8
-            // subgroups was the best or within 3 % of the best configuration for every 27B shape at 4 and 16 rows (Blackwell).
+            // The direct path keeps no slices in shared memory: one fragment, and 8 subgroups (the best or within 3 % of the best
+            // of 2-8 for every 27B shape at 4 and 16 rows, Blackwell), or 16 with <paramref name="wide"/> (long K, see DirectSkinnyWide).
             fn = 1;
-            sg = (int)Math.Clamp(k / 64, 1, 8);
+            sg = (int)Math.Clamp(k / 64, 1, wide ? 16 : 8);
         }
 
         while (!direct && sg < 8 && workgroups * sg < SkinnyTargetSubgroups && k / bk >= sg * 4)

@@ -18848,3 +18848,109 @@ SHARPLIGHT_CPU_ISA=v128 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 sharplight Qwe
 DOTNET_EnableAVX=0 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 sharplight Llama-3.2-1B-Instruct-Q4_K_M.gguf --cpu --bench 512
 SHARPLIGHT_CPU_PROFILE=1 SHARPLIGHT_CPU_ISA=v128 sharplight Qwen3-0.6B-Q8_0.gguf --cpu --bench 512
 ```
+
+## 125. Direct skinny GEMM: 16 subgroups for long K (RTX 4090: Qwen3-14B-FP8 decode steps at 2-16 rows -16 to -18 % on Vulkan, Q8_0 at 12-16 rows -12 to -14 % on Vulkan and CUDA) (2026-11-27)
+
+Follow-up to section 23.7 (issue #9). Machine: fedora-ws, RTX 4090 (128 SMs, 24 GB). The 27B checkpoints do not fit
+here, so the end-to-end check uses Qwen3-14B, which has the 27B's MLP shapes (hidden 5120, intermediate 17408):
+`Qwen/Qwen3-14B-FP8` (block-scaled E4M3, 128 x 128) and `Qwen/Qwen3-14B-GGUF` Q8_0. Base is `main` at `572fc94a`,
+built side by side in a worktree. Raw results are in [`bench/results/s125/`](../bench/results/s125).
+
+### 125.1 What was slow
+
+On the RTX 4090 the direct skinny GEMM (`SK_DIRECT`, section 23.1) read FP8 [17408→5120] at 0.55 TB/s. The 1-row
+matvec reads the same weights at 0.94 TB/s (97 µs against 166 µs), and the staged f16 skinny GEMM reads its twice as
+many bytes at 0.89 TB/s. The time did not depend on the row count (161 / 163 / 164 / 166 µs at 2 / 4 / 8 / 16 rows), so
+the bottleneck is the memory side, not the MMAs or the FP8 decode.
+
+The only knob that mattered was the number of subgroups that split K inside a workgroup
+(`SHARPLIGHT_SKINNY_CFG=1,<sg>,64`). Moving from 8 to 16 subgroups:
+
+* each workgroup reads a 1 KB stripe of its 16 weight rows per step instead of 512 bytes;
+* the dual gate / up form, whose two B fragments per subgroup leave room for only one 8-subgroup workgroup per SM, keeps
+  twice as many warps resident.
+
+Wave fill alone does not explain the gain: [17408→4096] has 256 workgroups, exactly one wave at 8 subgroups, and still
+went from 127 to 104 µs.
+
+### 125.2 Kernels
+
+`BenchTests.MatMulPrefill`, Vulkan, 16 rows, minimum over 300 launches with 4 weight copies, 8 → 16 subgroups
+(`micro.txt`):
+
+| shape | FP8 | Q8_0 |
+|---|---|---|
+| [17408→5120] | 166 → 127 µs (0.72 TB/s) | 154 → 123 µs |
+| [25600→5120] | 245 → 195 µs | |
+| [17408→4096] | 127 → 104 µs | |
+| [12288→4096] | 75 → 67 µs | 71 → 66 µs |
+| [6144→5120] | 49 → 42 µs | 48 → 43 µs |
+| [5120→17408] | 113 → 109 µs | 111 → 108 µs |
+| [5120→17408]x2 dual | 265 → 208 µs | 248 → 209 µs |
+| [4096→12288]x2 dual | 139 → 119 µs | |
+| [5120→4096] | 28 → 30 µs | |
+| [2048→8192]x2 dual | 44 → 45 µs | |
+
+* **Row counts.** The gains are the same at 2-8 rows.
+* **Other counts.** 12 subgroups land between 8 and 16. 20 and 24 are equal to 16, and 32 is slower.
+* **Short K.** K ≤ 5120 for single matrices (≤ 2048 for the dual form) gains little or loses.
+
+So the lowering (`GraphLowerer.DirectSkinnyWide`) takes 16 subgroups from 96 K blocks of 64 (K ≥ 6144), and from 64
+blocks (K ≥ 4096) for the dual form. All other shapes keep 8.
+
+**The FP8 dual form on CUDA keeps 8 subgroups.** Under NVRTC its registers do not fit 512 threads per block. Capping
+them (`__launch_bounds__(512, 1)`) made the Qwen3-14B-FP8 steps at 2-8 rows slower: 18.1 → 20.5 ms.
+
+### 125.3 Decode steps
+
+BatchBench `--slots 16 --ctx 1024 --modes greedy --reps 20`, minimum GPU ms per step. Vulkan: base and new alternated,
+2 process runs each (`batch_vulkan.txt`); CUDA: new, base, new (`batch_cuda.txt`).
+
+| rows | FP8 Vulkan | Q8_0 Vulkan | FP8 CUDA | Q8_0 CUDA |
+|---|---|---|---|---|
+| 1 | 16.81 → 16.80 | 16.55 → 16.56 | 16.84 → 16.83 | 16.62 → 16.62 |
+| 2 | 23.10 → 18.96 | 17.01 → 17.03 (int-dot) | 18.11 → 17.70 | 17.29 → 17.30 (int-dot) |
+| 4 | 23.17 → 19.11 | 18.02 → 18.03 (int-dot) | 18.29 → 17.88 | 20.82 → 20.84 (int-dot) |
+| 8 | 23.53 → 19.65 | 19.10 → 19.11 (int-dot) | 18.65 → 18.23 | 22.50 → 22.56 (int-dot) |
+| 12 | 24.04 → 20.39 | 21.82 → 19.22 | 19.29 → 19.28 (native FP8) | 21.84 → 19.05 |
+| 16 | 24.66 → 20.71 | 22.74 → 19.63 | 19.46 → 19.45 (native FP8) | 22.20 → 19.55 |
+
+* **Vulkan FP8.** The 2-16-row steps drop by 16-18 %. Single rows are unchanged (same kernels).
+* **Q8_0.** Rows up to 8 stay on the int-dot matvec and are unchanged. At 12 / 16 rows the steps drop by 12-14 % on
+  both providers.
+* **CUDA FP8.** From 9 rows the hand-written FP8 decode GEMM serves these steps (unchanged). Below that, the single
+  long-K matrices give 2 %.
+
+### 125.4 Correctness
+
+* **Summation order.** 16 subgroups sum K in 16 interleaved partials instead of 8, so batched rows (2-16, K ≥ 6144 or
+  dual K ≥ 4096, FP8 / Q8_0 / MXFP4R direct path) can round differently from before.
+* **Unaffected rows.** Single-row decode and the row-invariant MTP verification rows (`InvariantRows`) keep the
+  matvec's arithmetic.
+* **Tests.** New `SkinnyGemmTests.LongK` (FP8 b128 and Q8_0, single K = 6144 and dual K = 4096, 9-16 rows) covers the
+  16-subgroup form. All four cases fail with `SHARPLIGHT_GEMM_MACROS=SK_EXP=1` (the no-decode diagnostic), so they do
+  reach it.
+* **Suites.** `MatMulTests`, `FusionTests`, `Fp8GemmTests`, `QuantFormatTests`, `MoeTests` and `SkinnyGemmTests` pass
+  on Vulkan, and `SkinnyGemmTests` also passes with `SHARPLIGHT_SKINNY_DIRECT=0`.
+
+### 125.5 Not changed in this round
+
+* **The [5120→48] split-K matmuls** (the gated delta net's β / α projections, two per layer). The in-GEMM split-K
+  reduction (`SHARPLIGHT_SPLITK_FUSED=1`) removes their reduce launches: Qwen3.5-0.8B, [1024→16], 162 fewer dispatches
+  per 16-row step. The step's GPU time did not change on either provider (Vulkan 3.16 → 3.17 ms, CUDA 3.18 → 3.18 ms at
+  16 rows; Vulkan 4 / 8 rows equal too). The multi-output GEMM cannot take the pair, because both widths are below its
+  128-column tile and its tiles must each read one matrix.
+* **Blackwell.** The rule is not measured on the RTX PRO 6000 (188 SMs, 300 W). Section 23.1 found 8 subgroups best
+  among 2-8 there, and 16 was not tried.
+
+### 125.6 Commands
+
+```bash
+SHARPLIGHT_VK_DEVICES=0 SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_TYPES=f8e4m3_b128 SHARPLIGHT_BENCH_ROWS=16 SHARPLIGHT_BENCH_COPIES=4 \
+  SHARPLIGHT_BENCH_ITERS=300 SHARPLIGHT_BENCH_DUAL=0 SHARPLIGHT_BENCH_SHAPES="17408,5120" SHARPLIGHT_SKINNY_CFG=1,16,64 \
+  dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -method '*MatMulPrefill'
+#   SHARPLIGHT_SKINNY_CFG=1,8,64 forces the old direct configuration
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --provider vulkan|cuda --slots 16 --ctx 1024 --modes greedy --sizes 1,2,4,8,12,16 --reps 20
+SHARPLIGHT_SPLITK_FUSED=1 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3.5-0.8B --provider vulkan --ctx 1024 \
+  --modes greedy --sizes 4,8,16 --profile 16
+```

@@ -206,9 +206,13 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   (274–297 TFLOPS on the 27B shapes at 512 rows, §23.2); that is within the noise end to end.
 - **Skinny GEMM (2–16 rows)**: on NVIDIA (`matrix_mma_layout`), operands now load straight into the MMA fragments
   (§23.1). FP8 gate/up runs at 1.38 TB/s and [17408→5120] at 1.24 TB/s at 16 rows. The 16-row step dropped from 34.3 to
-  29.6 ms (FP8) and from 33.7 to 29.3 ms (Q8_0), against vLLM's 26.2 ms mean ITL at 16 streams. Next:
-  - close the remaining gap to f16's ~1.65 TB/s;
-  - fold the small [5120→48] split-K matmuls (~0.9 ms per step);
+  29.6 ms (FP8) and from 33.7 to 29.3 ms (Q8_0), against vLLM's 26.2 ms mean ITL at 16 streams. Long K now splits over 16
+  subgroups instead of 8 (§125; RTX 4090: FP8 [17408→5120] 166 → 127 µs, dual gate/up 265 → 208 µs, Qwen3-14B-FP8 steps at
+  2-16 rows -16 to -18 % on Vulkan, Q8_0 at 12-16 rows -12 to -14 %). Next:
+  - confirm the 16-subgroup rule on the Blackwell card's full 27B steps (unmeasured there, §125.5); the gap to f16's
+    ~1.65 TB/s remains;
+  - fold the small [5120→48] split-K matmuls (~0.9 ms per step in the serialized profile; their in-GEMM reduction removes
+    the reduce launches but did not change a Qwen3.5-0.8B step's GPU time, §125.5);
   - make Q8_0 at 5–8 rows use the direct GEMM (10–13 % faster) without changing greedy MTP output (§23.3);
   - serving against vLLM (§28.6): 0.81x / 0.82x / 0.69x / 0.77x at 1 / 4 / 16 / 64 streams (bf16 state opt-in: 0.83x /
     0.85x / 0.71x / 0.80x); mixed decode + prompt steps are 70 % fp8 GEMM at 100-500 rows and 20 % delta rule (§28.4).
