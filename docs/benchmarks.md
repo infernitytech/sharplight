@@ -18242,7 +18242,7 @@ slot whose prompt ended on a block boundary, a step of exactly 64 rows; tiny-ran
 window-sized caches, Qwen3-0.6B; a mutation that wrote pad rows over real positions, and one that kept the pad-only blocks, failed it),
 `BatchedDecodeRowsTests` at 80 and 128 bf16 rows. `PrefixCacheTests.ConcurrentPrompts_RecomputeASharedPrefix_WhenThatCostsLessThanWaitingAPass`
 failed once in six CPU-only runs of the suite (steps `0,0,0,0,0,0,0,1,1,2`, timing: it prices on wall-clock sleeps like the tests of
-R48.5; not changed here).
+114.5; not changed here).
 
 ### 114.7 Remaining
 
@@ -18251,4 +18251,4 @@ R48.5; not changed here).
 * A shape's first use still launches its recording one launch at a time (~3 ms more GPU time than the graph for an 8B decode step):
   capturing prepared shapes ahead needs the input copies captured without staged inputs.
 * The 64-stream p95 of the bucketed runs (42-54 against 37-41 ms) wants a closer look (pad rows on large prompt steps, or noise).
-* Gemma 31B host time per step (R48.4).
+* Gemma 31B host time per step (114.4).

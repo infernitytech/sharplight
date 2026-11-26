@@ -68,7 +68,7 @@ public sealed record EngineOptions
     /// chunk (positions the sequence has not reached yet), their logits rows up to a multiple of 8 and their run table to the slot count,
     /// so steps with nearby row counts replay one recorded step (a CUDA graph) instead of each paying the first run of a new shape (its
     /// recording, then its capture). Applies to decoders whose caches allow it (paged, causal attention, no recurrent state or
-    /// window-sized caches); others run every step at its exact shape (benchmarks.md §R48).
+    /// window-sized caches); others run every step at its exact shape (benchmarks.md §114).
     /// </summary>
     public bool StepShapeBuckets { get; set; } = true;
     /// <summary>

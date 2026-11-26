@@ -99,7 +99,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
     /// <summary>
     /// Rows a padded step is a multiple of: within the 64- and 128-row token tiles of the GEMMs, so a padded step runs the GEMM tiles of
-    /// its real rows (benchmarks.md §R48).
+    /// its real rows (benchmarks.md §114).
     /// </summary>
     internal const int StepRowsBucket = 64;
 

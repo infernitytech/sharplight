@@ -12,7 +12,7 @@ public sealed partial class GraphLowerer
     /// hand-written f16 GEMM (<see cref="NativeGemmF16"/>) from <see cref="NativeGemmMinRows"/>, the rows past its decode form's 64-row
     /// tile; on the vendor library from 256, below which the generated GEMMs' small-batch tiles and K splits are as fast as the library.
     /// The hand-written GEMM's 64- and 128-row token tiles beat gemm_cm2's K splits at 65-255 rows (RTX PRO 4500, Llama-3.1-8B bf16,
-    /// GPU ms: steps of 16 decode + 160 / 224 prompt rows 36.8 → 26.4 / 39.1 → 31.8; benchmarks.md §R48).
+    /// GPU ms: steps of 16 decode + 160 / 224 prompt rows 36.8 → 26.4 / 39.1 → 31.8; benchmarks.md §114).
     /// </summary>
     private long LibraryGemmMinRows => DiagnosticSwitches.LibraryGemmMinRows ?? (NativeGemmF16 ? NativeGemmMinRows : 256);
 
