@@ -8,6 +8,7 @@ namespace Sharplight.Cpu;
 /// A is packed as [k][MR] panels, B as [k][NR] panels (or read in place with a row stride);
 /// the kernel computes one MR x NR tile of C (row-major, leading dimension ldc):
 /// C = (acc ? C : bias ? bias[row] : 0) + sum_k A[k][i] * B[k][j].
+/// Tiles per tier: AVX-512 8x32, AVX2 and NEON 6x16, v128 6x8 (<c>Gemm.V128.cs</c>), scalar 4x8.
 /// </summary>
 internal static unsafe partial class Gemm
 {
@@ -26,6 +27,11 @@ internal static unsafe partial class Gemm
         {
             MR = 6;
             NR = 16;
+        }
+        else if (CpuIsa.Use128)
+        {
+            MR = 6;
+            NR = 8;
         }
         else
         {
@@ -48,6 +54,10 @@ internal static unsafe partial class Gemm
         else if (NR == 16)
         {
             K6x16(a, b, ldb, c, ldc, kc, bias, acc);
+        }
+        else if (MR == 6)
+        {
+            K6x8V128(a, b, ldb, null, c, ldc, kc, bias, acc);
         }
         else
         {
@@ -73,6 +83,10 @@ internal static unsafe partial class Gemm
         else if (NR == 16)
         {
             K6x16Gather(a, b, bOffsets, c, ldc, kc, bias, acc);
+        }
+        else if (MR == 6)
+        {
+            K6x8V128(a, b, 0, bOffsets, c, ldc, kc, bias, acc);
         }
         else
         {
