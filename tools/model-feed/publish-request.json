@@ -1,11 +1,11 @@
 {
   "entries": [
-    "qwen3.5-122b-a10b:q6-k-gguf",
-    "qwen3.5-122b-a10b:fp8-safetensors",
-    "qwen3.8-flash-next:fp8-safetensors"
+    "seedvr2-3b:official",
+    "seedvr2-7b:official",
+    "seedvr2-7b:sharp"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Publish the three largest mixture-of-experts variants with routed-expert figures (they needed more free disk on the runner than run 45054150496 had)."
+  "reason": "Publish SeedVR2 3B, 7B and 7B sharp (video enhancement, official ByteDance-Seed checkpoints verified against the official code; the 7B with the official text embeddings of the 3B repository)."
 }

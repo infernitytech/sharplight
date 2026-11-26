@@ -26,6 +26,24 @@ public sealed class RealHubTests
     }
 
     [Fact]
+    public async Task SearchFindsSeedVr2_AsPyTorch_AndSelectsTheFilesItsImporterNeeds()
+    {
+        Assert.SkipUnless(Enabled, $"set {EnableVariable}=1 to run network tests");
+        using var http = HubClientOptions.CreateHttpClient();
+        var client = new HubClient(http, HubClientOptions.FromEnvironment());
+
+        var results = await client.SearchAsync(new HubSearchQuery { Text = "SeedVR2", Format = ModelFormat.PyTorch, Limit = 50 }, TestContext.Current.CancellationToken);
+        var three = await client.GetRepositoryAsync("ByteDance-Seed/SeedVR2-3B", cancellationToken: TestContext.Current.CancellationToken);
+        var seven = await client.GetRepositoryAsync("ByteDance-Seed/SeedVR2-7B", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Contains(results, result => result.Id == "ByteDance-Seed/SeedVR2-3B");
+        Assert.Contains(results, result => result.Id == "ByteDance-Seed/SeedVR2-7B");
+        Assert.All(results, result => Assert.Contains(ModelFormat.PyTorch, result.Formats));
+        Assert.Equal(["ema_vae.pth", "neg_emb.pt", "pos_emb.pt", "seedvr2_ema_3b.pth"], ModelFileSelector.Select(three, null).Files.Select(file => file.Path));
+        Assert.Equal(["seedvr2_ema_7b", "seedvr2_ema_7b_sharp"], ModelFileSelector.ListVariants(seven, null));
+    }
+
+    [Fact]
     public async Task PullsConvertsAndStoresSmallGguf()
     {
         Assert.SkipUnless(Enabled, $"set {EnableVariable}=1 to run network tests");

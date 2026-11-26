@@ -3071,7 +3071,7 @@ and the architecture package `Sharplight.Architectures.VideoEnhancement` (adapte
 | family | formats | status | verified |
 |---|---|---|---|
 | SeedVR2-3B | the official folder (`seedvr2_ema_3b.pth`, `ema_vae.pth`, `pos_emb.pt`, `neg_emb.pt`), the fp16 safetensors conversion (`seedvr2_ema_3b_fp16.safetensors`, `ema_vae_fp16.safetensors`) with the embeddings beside it; `.slm` | **supported** (videos and images, any output size or scale, batches of 1 + 4k frames, wavelet / AdaIN / no colour correction) | CPU, Vulkan, CUDA below |
-| SeedVR2-7B, 7B-sharp | the official `.pth` and the fp16 safetensors conversions (the embeddings of the 3B release or the GitHub repository beside them) | **supported** | below |
+| SeedVR2-7B, 7B-sharp | the official `.pth` (verified on the official release, 44.2 / 42.6 dB) and the fp16 safetensors conversions (the embeddings of the 3B release or the GitHub repository beside them) | **supported** | Vulkan, CUDA below |
 | ComfyUI fp8 conversions (`*_fp8_e4m3fn.safetensors`, plain E4M3 casts without scales) | the file with `ema_vae_fp16.safetensors` and the embeddings beside it | **partial** (imports and runs: matrices kept as E4M3 and decoded by the matmuls; 29 dB against the official code on the fp16 conversion, the precision of a plain E4M3 cast) | tiny clip, CPU |
 | GGUF conversions (AInVFX/SeedVR2_comfyUI Q4_K_M / Q8_0) | - | missing (the importer reads PyTorch and safetensors files) | |
 
@@ -3149,9 +3149,14 @@ intermediate dumped; tests `SeedVr2Tests` in tests/Sharplight.ImageGeneration.Te
   on CUDA and Vulkan encoder 1.6e-2, DiT 2.7e-2, decoder 3.4e-3 relative RMS (the bf16 VAE of the reference); the whole enhancement
   48.9 dB worst frame on CUDA, 48.8 dB on Vulkan. Tiny clip: CUDA 49.0 dB, Vulkan 49.3 dB, CPU 49.3 dB (DiT 9.6e-3, encoder 3.2e-6,
   decoder 3.1e-6); the ComfyUI fp16 file 55.1 dB.
-- 7B (`seedvr2_ema_7b_fp16.safetensors` against the official code on the same file with bf16-held weights, 17 frames 480p): DiT
-  7.1e-2 relative RMS, whole enhancement 43.6 dB worst frame on CUDA and Vulkan (44.8 dB in the benchmark's parity run): the bf16
-  weights of the reference account for it.
+- 7B, official release (2026-11-25; `ByteDance-Seed/SeedVR2-7B` `seedvr2_ema_7b.pth` / `seedvr2_ema_7b_sharp.pth` with `ema_vae.pth` and
+  the official text embeddings, against the official code on the same files; the reference holds the DiT's weights in bf16 under its
+  bf16 autocast, Sharplight runs f16 matrices with f32 activations; 17 frames 416 × 240 → 832 × 480): whole enhancement 7B **44.2 dB** worst
+  frame on CUDA and Vulkan (mean 45.1 dB), 7B sharp **42.7 dB** CUDA / **42.6 dB** Vulkan (mean 44.0 dB) ([benchmarks.md](benchmarks.md)
+  §108.5). Catalog entry `seedvr2-7b` (variants `official` and `sharp`, the embeddings installed from the 3B repository into the same folder).
+- 7B, ComfyUI conversion (`seedvr2_ema_7b_fp16.safetensors` of numz/SeedVR2_comfyUI, not the official release, against the official code on
+  the same file with bf16-held weights, 17 frames 480p): DiT 7.1e-2 relative RMS, whole enhancement 43.6 dB worst frame on CUDA and Vulkan
+  (44.8 dB in the benchmark's parity run): the bf16 weights of the reference account for it.
 - Speed and memory against the official PyTorch inference: [benchmarks.md](benchmarks.md) section 108. In short: the DiT is as fast as
   PyTorch's (flash attention, bf16); the VAE is about as fast since section §110 (channels-last f16 convolutions: 3B at 480p 8.4 s
   against 15.1 s before, PyTorch 10.1 s, 48.9 dB); memory is lower and constant in the clip length, so 960p output runs where the official script runs out of memory on a 32 GB
