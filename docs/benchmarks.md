@@ -18338,4 +18338,5 @@ Reducing the model's host footprint is a separate item (not done here).
   producer when the consumer leaves). Core 1,689 passed, Hosting 31, Video 63 (with the incremental writer's 11).
 * Studio: the Enhance page streams a video (the request has no frame list; every frame read once), shows frames, playback time and time
   left, keeps the sound track, keeps a playable partial video on cancel (8 of 20 frames), and holds a 400-frame clip's comparison within
-  its memory cap.
+  its memory cap. Studio 976 passed, 19 skipped, with the Vulkan GPU visible. (With the GPU hidden, the suite aborts in a CPU GEMM of an
+  image-generation test, on `develop` as well; not looked into here.)
