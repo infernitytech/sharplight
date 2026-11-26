@@ -41,9 +41,10 @@ feedtool unlist silero-vad-v5.onnx 1.0.0 --feed out/ --key keys/feed.key.json --
 (Unlisted versions stay resolvable, so installed whisper-tiny 1.0.0 packages keep working; their range [1.0.0,2.0.0) picks 1.0.1.)
 
 `sd3.5-medium.fp16-diffusers-taesd3` 1.0.0 was uploaded from a community mirror but never listed in a channel, so there is nothing
-to unlist. Its manifest is in the synced listings, so the rebuild from `stabilityai/stable-diffusion-3.5-medium` becomes 2.0.0
-(other pinned revision). Only after 2.0.0 is published, delete the orphaned 1.0.0 objects (deleting them earlier would let the
-rebuild reuse version 1.0.0):
+to unlist. Its manifest is in the synced listings, so the rebuild from `stabilityai/stable-diffusion-3.5-medium` becomes 1.0.1
+(an identical package file: a manifest-only patch whose version folder gets its own copy of the file) or 2.0.0 (other pinned
+revision, different file). Only after that version is published, delete the orphaned 1.0.0 objects (deleting them earlier would
+let the rebuild take version 1.0.0 again):
 
 ```sh
 aws s3 rm --recursive "s3://$R2_BUCKET/models/packages/sd3.5-medium.fp16-diffusers-taesd3/1.0.0/" --endpoint-url "$R2_ENDPOINT"
