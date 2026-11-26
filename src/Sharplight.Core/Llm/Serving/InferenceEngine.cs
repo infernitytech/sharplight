@@ -79,6 +79,9 @@ public sealed class InferenceEngine : IDisposable
     private readonly int _budget;
     private readonly int _minBudget;
     private int _load;
+
+    /// <summary>Whether the current step's budget took the smaller prompt chunks (<see cref="PromptRowsPerSequence"/>; for the trace).</summary>
+    private bool _smallChunks;
     private long _loadTimestamp;
     /// <summary>A step this long after the previous one sees the load of its own sequences only (see <see cref="StepTokens"/>).</summary>
     private static readonly TimeSpan LoadHoldTime = TimeSpan.FromSeconds(1);
@@ -1552,11 +1555,30 @@ public sealed class InferenceEngine : IDisposable
         long now = Stopwatch.GetTimestamp();
         _load = Stopwatch.GetElapsedTime(_loadTimestamp, now) > LoadHoldTime ? _active.Count : Math.Max(_active.Count, _load - 1);
         _loadTimestamp = now;
-        long rows = Math.Max((long)_load * Math.Max(1, DiagnosticSwitches.BatchTokensPerSequence ?? _opt.BatchTokensPerSequence), _active.Count + oldest);
+        long rows = Math.Max((long)_load * PromptRowsPerSequence(decoding), _active.Count + oldest);
         // Whole token tiles: a prompt-sized GEMM's time follows its count of token tiles, so a budget inside a tile is rounded up.
         long granule = Math.Max(1, _opt.BatchTokensGranule);
         rows = (rows + granule - 1) / granule * granule;
         return (int)Math.Clamp(rows, decoding ? Math.Min(granule, _budget) : _minBudget, _budget);
+    }
+
+    /// <summary>
+    /// Rows per sequence holding a slot of the next step's budget: <see cref="EngineOptions.BatchTokensPerSequence"/>, or while some
+    /// sequence decodes <see cref="EngineOptions.SmallChunkRowsPerSequence"/> when the measured prices say prompt rows cost less per row
+    /// in such smaller chunks (<see cref="TileStepCost.PrefersSmallChunks"/>; <see cref="EngineOptions.PricedPromptChunks"/>).
+    /// </summary>
+    private int PromptRowsPerSequence(bool decoding)
+    {
+        int large = Math.Max(1, DiagnosticSwitches.BatchTokensPerSequence ?? _opt.BatchTokensPerSequence);
+        _smallChunks = false;
+        if (!decoding || _tiles is null || !_opt.PricedPromptChunks)
+        {
+            return large;
+        }
+
+        int small = Math.Max(1, Math.Min(large, _opt.SmallChunkRowsPerSequence));
+        _smallChunks = _tiles.PrefersSmallChunks((int)Math.Min((long)_load * small, _budget), (int)Math.Min((long)_load * large, _budget));
+        return _smallChunks ? small : large;
     }
 
     private void StepOnce()
@@ -1700,6 +1722,11 @@ public sealed class InferenceEngine : IDisposable
         if (_heldRows > 0 && _tiles is not null)
         {
             sb.Append(System.Globalization.CultureInfo.InvariantCulture, $" held<={_heldRows} (tile {_tiles.TileMs:F2} ms, row {_tiles.RowMs:F4} ms)");
+        }
+
+        if (_smallChunks)
+        {
+            sb.Append(" small");
         }
 
         Console.Error.WriteLine($"[sched] {elapsed.TotalMilliseconds,7:F2} ms rows {rows,5} decode {decode,3} active {_active.Count,3}{sb}");

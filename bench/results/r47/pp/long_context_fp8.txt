@@ -1,0 +1,6 @@
+0 %, 2 MiB
+### O=~/sl-worktrees/perf-r47/bench/results/r47/pp; for p in vulkan cuda; do ~/r47-scripts/r47-pp.sh $O base $p ~/models/hf/Qwen3-8B-FP8 16384 32768 | cut -c1-110; done
+base vulkan 16384: prefill 16384 tok: best 2118 ms = 7734.5 tok/s | decode: best 68.22, median 67.61, mean 67.
+base vulkan 32768: prefill 32768 tok: best 5767 ms = 5681.6 tok/s | decode: best 55.46, median 55.14, mean 55.
+base cuda 16384: prefill 16384 tok: best 1573 ms = 10412.9 tok/s | decode: best 71.14, median 70.91, mean 70.5
+base cuda 32768: prefill 32768 tok: best 4398 ms = 7450.2 tok/s | decode: best 58.98, median 58.86, mean 58.60

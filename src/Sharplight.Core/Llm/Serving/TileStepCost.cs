@@ -21,6 +21,14 @@ internal sealed class TileStepCost
     private const int MinHeldSteps = 3;
     /// <summary>Share of a step's predicted time that a move between steps must save (<see cref="Moves"/>).</summary>
     private const double Margin = 0.02;
+    /// <summary>Prompt-bearing steps with decode rows in (or next to) a token-tile bucket before its price per prompt row is used.</summary>
+    private const int MinChunkSteps = 2;
+    /// <summary>Weight of a token-tile bucket's previous prompt-row sums per new step in that bucket.</summary>
+    private const double ChunkDecay = 0.9;
+    /// <summary>Most a decode-only step counts in its row count's price, as a multiple of the price.</summary>
+    private const double DecodeStallCap = 1.25;
+    /// <summary>Share of the larger chunks' price per row that smaller chunks must save (<see cref="PrefersSmallChunks"/>).</summary>
+    private const double MarginalMargin = 0.1;
     /// <summary>Ridge weight on the tile term per weighted step (pulls an unidentified tile cost towards 0).</summary>
     private const double TileRidge = 1e-3;
 
@@ -32,6 +40,7 @@ internal sealed class TileStepCost
     private int _minTiles = int.MaxValue, _maxTiles;
     private double _held;
     private int _heldSteps;
+    private readonly Dictionary<long, (double ExtraMs, double Rows, int Steps)> _chunks = []; // per token tiles of prompt rows
 
     /// <param name="tileRows">Rows of one token tile (at least 2).</param>
     public TileStepCost(int tileRows)
@@ -64,8 +73,17 @@ internal sealed class TileStepCost
 
         if (promptRows == 0)
         {
-            _decode[decodeRows] = _decode.TryGetValue(decodeRows, out double d) ? Smoothing * d + (1 - Smoothing) * ms : ms;
+            // Faster steps pull the price down quickly (a first step of a new shape records its launches), slower ones count at most
+            // DecodeStallCap times the price (a step that waited for the host's CPU share is no price of the device).
+            _decode[decodeRows] = !_decode.TryGetValue(decodeRows, out double d) ? ms
+                : ms < d ? 0.5 * (d + ms) : Smoothing * d + (1 - Smoothing) * Math.Min(ms, DecodeStallCap * d);
             return;
+        }
+
+        // A step faster than the decode-only price of its decode rows means a stale price, not free prompt rows: such steps are left out.
+        if (decodeRows > 0 && DecodeOnlyMs(decodeRows) is { } decodeOnly && ms > decodeOnly * (1 - Margin))
+        {
+            ObserveExtra(decodeRows + promptRows, promptRows, Math.Max(0, ms - decodeOnly));
         }
 
         if (decodeRows > 0 && promptRows <= HeldMaxRows && _decode.TryGetValue(decodeRows, out double plain))
@@ -141,8 +159,81 @@ internal sealed class TileStepCost
         return SavedMs(stepRows, rows) is { } added && HeldMs(rows) is { } held && held - added > Margin * PromptStepMs(stepRows);
     }
 
+    /// <summary>
+    /// Measured milliseconds per prompt row that the prompt rows of a step of <paramref name="stepRows"/> rows (decode rows included) add
+    /// to its decode rows, over the decode-only step of the same decode rows: the decayed sums of the added time and of the prompt rows of
+    /// the prompt-bearing decode steps with the same count of token tiles, or with fewer than <see cref="MinChunkSteps"/> of those also
+    /// the neighbouring counts (null when too few such steps were seen). Keyed on the step's tiles, not its prompt rows: the prompt-sized
+    /// GEMMs run whole token tiles of all rows. Measured, never extrapolated: prompt rows that ride the decode step's weight reads are cheap per row
+    /// (dense models below the bandwidth / compute crossover), rows that make an expert GEMM read more experts are not.
+    /// </summary>
+    public double? MarginalRowMs(int stepRows)
+    {
+        if (stepRows <= 0)
+        {
+            return null;
+        }
+
+        long tiles = Tiles(stepRows);
+        var (extra, rows, steps) = _chunks.GetValueOrDefault(tiles);
+        if (steps < MinChunkSteps)
+        {
+            foreach (long near in (ReadOnlySpan<long>)[tiles - 1, tiles + 1])
+            {
+                var n = _chunks.GetValueOrDefault(near);
+                extra += n.ExtraMs;
+                rows += n.Rows;
+                steps += n.Steps;
+            }
+        }
+
+        return steps >= MinChunkSteps && rows > 0 ? Math.Max(0, extra) / rows : null;
+    }
+
+    /// <summary>
+    /// Whether decoding steps of <paramref name="smallRows"/> rows (decode and prompt rows) cost less per prompt row than steps of
+    /// <paramref name="largeRows"/>, by more than <see cref="MarginalMargin"/> of the larger steps' price (false until both were
+    /// measured, <see cref="MarginalRowMs"/>).
+    /// </summary>
+    public bool PrefersSmallChunks(int smallRows, int largeRows)
+    {
+        return smallRows > 0 && largeRows > smallRows && MarginalRowMs(smallRows) is { } small && MarginalRowMs(largeRows) is { } large
+               && large > 0 && small < (1 - MarginalMargin) * large;
+    }
+
     /// <summary>Predicted milliseconds of a prompt-bearing step of <paramref name="rows"/> rows (0 before <see cref="Fitted"/>).</summary>
     public double PromptStepMs(int rows) => _fitted ? Math.Max(0, _a + _b * rows + _c * Tiles(rows)) : 0;
+
+    /// <summary>
+    /// The decode-only step price of <paramref name="decodeRows"/> rows: the lowest price measured for at least as many decode rows (a step
+    /// with fewer rows costs no more, so a price inflated by a stall or a first run of a rarely seen row count is bounded by the well
+    /// measured counts above it), else the price of the nearest count below (null before any decode-only step).
+    /// </summary>
+    private double? DecodeOnlyMs(int decodeRows)
+    {
+        double? atLeast = null;
+        int below = 0;
+        foreach (var (rows, ms) in _decode)
+        {
+            if (rows >= decodeRows)
+            {
+                atLeast = atLeast is { } m ? Math.Min(m, ms) : ms;
+            }
+            else if (rows > below)
+            {
+                below = rows;
+            }
+        }
+
+        return atLeast ?? (below > 0 ? _decode[below] : null);
+    }
+
+    private void ObserveExtra(int stepRows, int promptRows, double extraMs)
+    {
+        long tiles = Tiles(stepRows);
+        var (extra, rows, steps) = _chunks.GetValueOrDefault(tiles);
+        _chunks[tiles] = (ChunkDecay * extra + extraMs, ChunkDecay * rows + promptRows, steps + 1);
+    }
 
     private long Tiles(int rows) => (rows + TileRows - 1) / TileRows;
 
