@@ -18,11 +18,24 @@ namespace Sharplight.Architectures;
 /// projection). A layer whose index is a multiple of the block size banks its raw input before its mixer runs; layer 0 reads its
 /// input unmixed (nothing is banked yet).
 /// One instance tracks the checkpoints of one graph under construction; <see cref="Reset"/> starts a new graph.
+/// Variant (Inkling 2): with <paramref name="normalizedValues"/> the result mixes the normalized rows instead of the raw ones, and every score is
+/// multiplied by <paramref name="scoreScale"/> (H^(-1/2) there: the mix is a one-query attention over the normalized rows); the caller decides
+/// when it banks (<see cref="Push"/>) and mixes (<see cref="Mix"/>), and may save and restore the bank (<see cref="Save"/>, <see cref="Restore"/>)
+/// or open a bank over the checkpoints added since a saved one (<see cref="Since"/>).
 /// </remarks>
-internal sealed class AttentionResiduals(int blockSize, float eps)
+internal sealed class AttentionResiduals(int blockSize, float eps, bool normalizedValues = false, float scoreScale = 1f)
 {
     private Value? _blocks;    // [T, N, H] banked checkpoints
-    private Value? _normed;    // [T, N, H] their RMS-normalized rows (scores only)
+    private Value? _normed;    // [T, N, H] their RMS-normalized rows (scores, and the values with normalizedValues)
+
+    /// <summary>The checkpoints banked so far (null while none), with their normalized rows; see <see cref="Save"/>.</summary>
+    /// <param name="Blocks">The banked rows [T, N, H].</param>
+    /// <param name="Normed">Their RMS-normalized rows [T, N, H].</param>
+    internal readonly record struct Bank(Value? Blocks, Value? Normed)
+    {
+        /// <summary>The number of banked checkpoints.</summary>
+        public int Count => Blocks is null ? 0 : (int)Blocks.Shape[1].Fixed;
+    }
 
     /// <summary>The block size in layers.</summary>
     public int BlockSize => blockSize;
@@ -39,6 +52,29 @@ internal sealed class AttentionResiduals(int blockSize, float eps)
     {
         _blocks = null;
         _normed = null;
+    }
+
+    /// <summary>The current bank.</summary>
+    public Bank Save() => new(_blocks, _normed);
+
+    /// <summary>Makes <paramref name="bank"/> (from <see cref="Save"/>) the current bank.</summary>
+    public void Restore(Bank bank) => (_blocks, _normed) = (bank.Blocks, bank.Normed);
+
+    /// <summary>
+    /// A new instance (same settings) whose bank holds the current checkpoints after the first <paramref name="skip"/> ones; nothing when none
+    /// remain.
+    /// </summary>
+    public AttentionResiduals Since(GraphBuilder b, int skip)
+    {
+        var tail = new AttentionResiduals(blockSize, eps, normalizedValues, scoreScale);
+        int count = Save().Count;
+        if (_blocks is not null && _normed is not null && count > skip)
+        {
+            tail._blocks = skip == 0 ? _blocks : b.Slice(_blocks, 1, skip, count - skip);
+            tail._normed = skip == 0 ? _normed : b.Slice(_normed, 1, skip, count - skip);
+        }
+
+        return tail;
     }
 
     /// <summary>Whether layer <paramref name="layer"/> starts a block (banks its input and restarts the running sum).</summary>
@@ -58,19 +94,29 @@ internal sealed class AttentionResiduals(int blockSize, float eps)
     /// unchanged while nothing is banked.
     /// </summary>
     public Value Mix(GraphBuilder b, Value current, string scoreWeight, int hidden, string name)
+        => Mix(b, current, b.Weight(scoreWeight), hidden, name);
+
+    /// <summary>
+    /// The mix of the checkpoints and <paramref name="current"/> [T, H] scored by the vector <paramref name="w"/> [H] (a weight or a row of
+    /// one); the current rows unchanged while nothing is banked (with normalized values: their normalized rows).
+    /// </summary>
+    public Value Mix(GraphBuilder b, Value current, Value w, int hidden, string name)
     {
         if (_blocks is null || _normed is null)
         {
-            return current;
+            return normalizedValues ? b.RmsNorm(current, null, eps) : current;
         }
 
-        var w = b.Weight(scoreWeight);
+        var currentNormed = b.RmsNorm(current, null, eps);
+
         int banked = (int)_blocks.Shape[1].Fixed;
         var blockScores = b.Reshape(b.Emit1("ReduceSum", [b.Mul(_normed, w)]), 0, banked);                                    // [T, N]
-        var currentScore = b.Emit1("ReduceSum", [b.Mul(b.RmsNorm(current, null, eps), w)]);                                    // [T, 1]
-        var probs = b.Emit1("Softmax", [b.Concat(1, blockScores, currentScore)], null, $"{name}_probs");                       // [T, N + 1]
-        var weighted = b.Mul(_blocks, b.Reshape(b.Slice(probs, 1, 0, banked), 0, banked, 1));                                  // [T, N, H]
+        var currentScore = b.Emit1("ReduceSum", [b.Mul(currentNormed, w)]);                                                    // [T, 1]
+        var scores = b.Concat(1, blockScores, currentScore);
+        var probs = b.Emit1("Softmax", [scoreScale == 1f ? scores : b.Scale(scores, scoreScale)], null, $"{name}_probs");     // [T, N + 1]
+        var values = normalizedValues ? _normed : _blocks;
+        var weighted = b.Mul(values, b.Reshape(b.Slice(probs, 1, 0, banked), 0, banked, 1));                                   // [T, N, H]
         var fromBlocks = b.Reshape(b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]), 0, hidden);
-        return b.Add(fromBlocks, b.Mul(current, b.Slice(probs, 1, banked, 1)), name);
+        return b.Add(fromBlocks, b.Mul(normalizedValues ? currentNormed : current, b.Slice(probs, 1, banked, 1)), name);
     }
 }

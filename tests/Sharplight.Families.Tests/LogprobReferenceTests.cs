@@ -37,6 +37,10 @@ public class LogprobReferenceTests
     private static readonly string[] Fp8Activations =
         [DeviceFeatures.BlockScaledFp8, DeviceFeatures.NativeGemmFp8, DeviceFeatures.MatrixFp8, DeviceFeatures.Float8];
 
+    // Inkling-2-Mini's parameter groups declare NVFP4 activations for its NVFP4 experts and MXFP8 ones for its MXFP8 experts; transformers'
+    // reference dequantizes the weights only, so its case compares the products without FP4 or FP8 activations.
+    private static readonly string[] Fp4AndFp8Activations = [DeviceFeatures.BlockScaledFp4, .. Fp8Activations];
+
     private static readonly Case[] Cases =
     [
         // RWKV-6 World 1.6B: llama.cpp F16 (the Q8_0 model flips the near-tied " the" / " France" continuation).
@@ -105,6 +109,15 @@ public class LogprobReferenceTests
             "The capital of France is Paris. The capital of Germany is",
             [(99093, -4.391), (35192, -4.766), (26642, -5.298), (73731, -5.329), (26114, -5.329)], Tolerance: 0.1,
             CudaDisabled: Fp8Activations),
+        // Inkling-2-Mini (the release: ModelOpt parameter groups, NVFP4 experts in layers 0-19 with a per-expert amax / outer-denominator factor,
+        // MXFP8 experts in layers 20-23, BF16 elsewhere) with all 24 layers (the loop over layers 6-17 run 3 times) and 32 of 128 experts with
+        // the router rows to match (tools/truncate-hf-remote.py ... --layers 24 --experts 32 --rows 'mlp\.experts\.w(13|2)_weight(_scale|_amax)?$=32',
+        // pinned revision c9d0283). Reference: transformers 5.24.1's Inkling2LoopForConditionalGeneration in float32, the experts dequantized
+        // by its own conversion op (Inkling2LoopDequantizeExperts). CUDA without its native FP4 / FP8 paths: they quantize the activations (the
+        // release's hf_quant_config asks for NVFP4 / MXFP8 activations, which transformers' dequantized reference does not apply; 1.1 off).
+        new("inkling-2-mini 24 layers 32 experts 'The capital of France is Paris. The capital of Germany is'", "hf/Inkling-2-Mini-E32",
+            "The capital of France is Paris. The capital of Germany is",
+            [(154328, -0.744), (220, -2.491), (149884, -2.943), (175232, -3.013), (145038, -3.412)], Tolerance: 0.1, CudaDisabled: Fp4AndFp8Activations),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));

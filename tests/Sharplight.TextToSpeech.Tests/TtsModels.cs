@@ -47,6 +47,21 @@ internal static class TtsModels
     /// <summary>Reference prompt, codes and logits of the official qwen_tts package (raw arrays, see <c>Qwen3TtsTests</c>).</summary>
     public static string Qwen3TtsReference => Path.Combine(s_root, "qwen3-tts-ref");
 
+    /// <summary>Qwen3-TTS 12 Hz 0.6B Base (voice cloning; the checkpoint directory).</summary>
+    public static string Qwen3TtsBase => Path.Combine(s_root, "Qwen3-TTS-12Hz-0.6B-Base");
+
+    /// <summary>Qwen3-TTS 12 Hz 1.7B Base (voice cloning; the checkpoint directory).</summary>
+    public static string Qwen3TtsBaseLarge => Path.Combine(s_root, "Qwen3-TTS-12Hz-1.7B-Base");
+
+    /// <summary>Qwen3-TTS 12 Hz 1.7B VoiceDesign (voices described by an instruction; the checkpoint directory).</summary>
+    public static string Qwen3TtsVoiceDesign => Path.Combine(s_root, "Qwen3-TTS-12Hz-1.7B-VoiceDesign");
+
+    /// <summary>
+    /// Reference cases of the Base and VoiceDesign models from the official qwen_tts package (one folder per case, raw arrays;
+    /// <c>tools/make_qwen3_tts_variant_reference.py</c>, see <c>Qwen3TtsVariantTests</c>).
+    /// </summary>
+    public static string Qwen3TtsVariantReference => Path.Combine(s_root, "qwen3-tts-variants-ref");
+
     /// <summary>CSM-1B (the transformers checkpoint directory, with the Mimi codec bundled).</summary>
     public static string Csm => Path.Combine(s_root, "csm-1b");
 
