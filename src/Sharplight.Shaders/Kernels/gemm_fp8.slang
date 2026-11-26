@@ -19,6 +19,10 @@
 // holds both results of an output element and stores `epi2(a, b)` (defined by the including generated source, e.g.
 // silu(a) * b); a workgroup covers F8_BN / 2 outputs.
 //
+// MULTI (splitk.slang) with SPLITK = 1 and no SPLITK_FUSED: the tall multi-output form over the concatenated weight rows of sibling
+// projections (q / k / v), each column tile in one member's matrix and stored to that member's output (p.yout, p.yout1, p.yout2;
+// p.y is not written). Each output is the product its member's own launch computes (the same tile and K order).
+//
 // Specialization macros: KERNEL_GEMM_FP8 / KERNEL_QUANTIZE_FP8, WBLOCK (32 or 128), K, N, Y_STRIDE, ROW_BYTES, F8_WM, F8_WN,
 // F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GROUPED, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE and DENSE_XCAP
 // (quantize_fp8). Requires K % 128 == 0 and 32-lane subgroups.
@@ -486,6 +490,9 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
                 uint n = n0 + wn + j * 16 + (uint(index[e]) & 15);
 #if SPLITK_FUSED
                 if (t < p.T && n < N) yb[uint64_t(t) * N + n] = acc[i][j][e];
+#elif MULTI > 1 && SPLITK == 1
+                // The tall multi-output form: every column tile lies in one member's matrix, stored to that member's output.
+                if (t < p.T && n < N) MULTI_STORE(p, acc[i][j][e], t, n)
 #else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = acc[i][j][e];
 #endif

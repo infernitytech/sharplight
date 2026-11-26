@@ -109,6 +109,7 @@ public sealed partial class GraphLowerer
             EmitNativeF16TallMultiGemm(group);
             EmitNativeFp8TallMultiGemm(group);
             EmitNativeFp4MultiGemm(group);
+            EmitGeneratedFp8TallMultiGemm(group);
             EmitMultiGemm(group);
             foreach (var emit in group.AfterEmit)
             {
@@ -575,6 +576,81 @@ public sealed partial class GraphLowerer
         EmitStreamK(label, group.Members, streamKVariants, args, reads, writes, NativeFp8StreamKSlotBytes);
         _launchCondition = outer;
         group.TallServes = serves;
+    }
+
+    /// <summary>
+    /// Records a member's launches on the generated FP8 GEMM without a K split (the rows <paramref name="direct"/> accepts under the current
+    /// launch condition) for its multi-output group (none: no group) and returns the condition they add: the bindings the group's tall
+    /// multi-output form does not serve.
+    /// </summary>
+    private Func<Bindings, bool> NoteGeneratedFp8TallPart(MatMulPlan p, TensorRef quantized, long minRows, long rowsMax, Func<Bindings, bool> direct)
+    {
+        if (!DiagnosticSwitches.MultiGemmTall || p.RowsPerLead != 1 || !_multiGemmOf.TryGetValue(p.Node, out var group))
+        {
+            return _ => true;
+        }
+
+        var condition = _launchCondition;
+        var part = new MultiGemmTallPart(quantized, p.W, p.Y, null, null, p.RowCount, minRows, rowsMax,
+            b => (condition?.Invoke(b) ?? true) && direct(b), TokenArg(p.X, p.RowsPerLead), Fp8: true);
+        if (!group.GeneratedFp8Parts.TryAdd(p.Node, part))
+        {
+            return _ => true;
+        }
+
+        return b => !(group.GeneratedFp8Serves?.Invoke(b) ?? false);
+    }
+
+    /// <summary>
+    /// The tall multi-output form of the generated FP8 GEMM (<c>gemm_fp8.slang</c> MULTI without a K split) over the concatenated weight
+    /// rows of a q / k / v group whose members all run there on the same E4M3 activation rows (<see cref="MultiGemmGroup.GeneratedFp8Parts"/>):
+    /// one launch instead of one per member for the batches where every member and the concatenation run without a K split, each column
+    /// tile in one member's matrix, stored to its output. The short k / v matrices alone fill 1.6 waves each (Qwen3-8B-FP8 at 2,048 rows:
+    /// 128 tiles of 128 x 128 on 82 SMs at one workgroup per SM). Each output is the product its member's launch computes (the same tile
+    /// and K order). <c>SHARPLIGHT_MULTI_GEMM_TALL=0</c> keeps the members' launches.
+    /// </summary>
+    private void EmitGeneratedFp8TallMultiGemm(MultiGemmGroup group)
+    {
+        if (group.Members.Count > MultiGemmMaxMembers || !group.Members.All(group.GeneratedFp8Parts.ContainsKey))
+        {
+            return;
+        }
+
+        var parts = group.Members.Select(m => group.GeneratedFp8Parts[m]).ToList();
+        var first = parts[0];
+        long[] widths = [.. parts.Select(pt => pt.Weight.Shape[0])];
+        int[] tileHeights = [64, 128];
+        if (parts.Any(pt => pt.Activations.Buffer != first.Activations.Buffer || pt.Activations.ByteOffset != first.Activations.ByteOffset
+                            || pt.MinRows != first.MinRows || pt.MaxRows != first.MaxRows || pt.Weight.Type != first.Weight.Type
+                            || pt.Weight.Shape[1] != first.Weight.Shape[1] || !DenseRowsOf(pt.Output, pt.Weight.Shape[0]))
+            || tileHeights.Any(h => widths.SkipLast(1).Any(w => w % MmqColumns(h) != 0)))
+        {
+            return;
+        }
+
+        long n = widths.Sum();
+        long k = first.Weight.Shape[1];
+        var rowsOf = first.Rows;
+        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b)) && QuantizedGemmSplit(n, k, rowsOf(b), 128, fp8: true) == 1;
+        var variants = tileHeights.Select(tileRows =>
+        {
+            var macros = Fp8GemmMacros(first.Weight.Type, n, k, tileRows, 1);
+            macros["MULTI"] = widths.Length.ToString(CultureInfo.InvariantCulture);
+            macros["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture);
+            macros["MULTI_O2"] = (widths.Length > 2 ? widths[0] + widths[1] : n).ToString(CultureInfo.InvariantCulture);
+            return new KernelVariant(b => serves(b) && MmqTileRowsFor(rowsOf(b), fp8: true) == tileRows, Lib("gemm_fp8.slang", "gemm_fp8", macros),
+                b => new Grid(Grid.Div(rowsOf(b), tileRows), Grid.Div(n, MmqColumns(tileRows))));
+        }).ToArray();
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        var outer = _launchCondition;
+        _launchCondition = null;
+        // Params: x, w, y (not written by this form), yout, the other members' weights, their outputs, T.
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} fp8", group.Members, variants,
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
+        _launchCondition = outer;
+        group.GeneratedFp8Serves = serves;
     }
 
     /// <summary>True when <paramref name="r"/> holds dense rows of <paramref name="width"/> values.</summary>

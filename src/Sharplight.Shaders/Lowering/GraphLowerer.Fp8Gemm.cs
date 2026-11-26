@@ -21,9 +21,14 @@ public sealed partial class GraphLowerer
                || type == ShaderTypes.F8E4M3_B128G)
            && k % 128 == 0;
 
-    /// <summary>Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>).</summary>
-    private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
+    /// <summary>
+    /// Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>); a member of a
+    /// q / k / v group without an epilogue of its own leaves the batches the group's tall multi-output form serves to it
+    /// (<see cref="EmitGeneratedFp8TallMultiGemm"/>).
+    /// </summary>
+    private void EmitFp8Gemm(MatMulPlan p, bool hasEpilogue) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
         (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true,
+        multiTall: !hasEpilogue,
         native: UseNativeFp8Gemm(p.W.Type, p.N, p.K) ? (quantized, min, max) => DenseScaleCapacityOf(quantized) is > 0 and var xcap
             ? NativeFp8MemberVariants(p, quantized, xcap, min, max) : null : null,
         nativeMinRows: NativeFp8MinRows(!_multiGemmOf.ContainsKey(p.Node)),

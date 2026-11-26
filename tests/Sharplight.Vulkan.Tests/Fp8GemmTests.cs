@@ -232,6 +232,63 @@ public sealed class Fp8GemmTests
         }
     }
 
+    /// <summary>
+    /// Sibling projections of the same rows (q / k / v; the last width not a multiple of the column tile) run as one tall multi-output
+    /// fp8 GEMM at the batches where none of them splits K, and must give bit-identical results to each projection compiled on its own.
+    /// </summary>
+    [Theory]
+    [InlineData(300)]
+    [InlineData(1024)]
+    [InlineData(2048)]
+    public void TallSiblingsMatchSeparateBitwise(int t)
+    {
+        Gpu.Require();
+        const int K = 1024;
+        (string Name, long N)[] members = [("q", 2048), ("k", 512), ("v", 520)];
+        var x = Rnd.F((long)t * K, 11);
+        float[][] Run(IEnumerable<(string Name, long N)> group)
+        {
+            var tg = new TG();
+            var xv = tg.InF("x", TG.T, K);
+            var xn = tg.B.Mul(xv, xv);
+            var list = group.ToList();
+            foreach (var (name, n) in list)
+            {
+                var type = DataType.Get("f8e4m3_b128");
+                var w = tg.W("w" + name, type, new Shape((Dim)n, (Dim)K), Rnd.WeightBytes(type, n * K, name[0], 0.05f));
+                tg.B.Output(name, tg.B.MatMul(xn, w));
+            }
+
+            using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = Gpu.Device! }],
+                Compile = new CompileOptions { MaxTokens = t },
+                ReservePerDevice = 0,
+            });
+            m.SetInput(xv, MemoryMarshal.AsBytes(x.AsSpan()));
+            var p = new RunParameters();
+            p.Symbols["T"] = t;
+            m.Run(p);
+            return [.. list.Select(member =>
+            {
+                var y = new float[t * member.N];
+                m.GetOutput<float>(member.Name, y);
+                return y;
+            })];
+        }
+
+        var together = Run(members);
+        for (int j = 0; j < members.Length; j++)
+        {
+            var alone = Run([members[j]])[0];
+            for (int i = 0; i < alone.Length; i++)
+            {
+                Assert.True(BitConverter.SingleToInt32Bits(together[j][i]) == BitConverter.SingleToInt32Bits(alone[i]),
+                    $"T={t} {members[j].Name}: element {i} differs ({together[j][i]:R} vs {alone[i]:R})");
+            }
+        }
+    }
+
     /// <summary>With <c>matrix_fp8</c> disabled the same batches run on the f16 tensor-core GEMM.</summary>
     /// <summary>
     /// Decode-sized batches of weights in the hand-written FP8 GEMM's 128-row groups (N % 128 == 0, K % 512 == 0): on CUDA, 9-16 rows

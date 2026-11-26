@@ -161,11 +161,12 @@ public sealed partial class GraphLowerer
     /// <paramref name="native"/> gives the launch variants of the hand-written provider GEMM for the quantized activations and a
     /// row range from <see cref="NativeGemmMinRows"/> (same arguments), or null. <paramref name="fusedKernel"/>, when given, compiles the
     /// split-K form that reduces in the last workgroup of each tile (splitk.slang, SPLITK_FUSED), which then replaces the partial
-    /// launch and the reduction.
+    /// launch and the reduction. <paramref name="multiTall"/> (fp8): the launches without a K split leave the batches its q / k / v
+    /// group's tall multi-output form serves to that form (<see cref="EmitGeneratedFp8TallMultiGemm"/>).
     /// </summary>
     private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel,
         bool tokenTilesFirst = false, Func<TensorRef, long, long, KernelVariant[]?>? native = null, Func<int, int, CompiledKernel>? fusedKernel = null,
-        long? nativeMinRows = null)
+        long? nativeMinRows = null, bool multiTall = false)
     {
 
         long n = p.N;
@@ -200,10 +201,11 @@ public sealed partial class GraphLowerer
             direct.AddRange(nativeVariants);
         }
 
+        var notTall = fp8 && multiTall ? NoteGeneratedFp8TallPart(p, quantized, minRows, rowsMax, b => InRange(b) && Split(b) == 1) : _ => true;
         foreach (int tileRows in new[] { 64, 128 })
         {
             int columns = MmqColumns(tileRows);
-            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b), fp8) == tileRows && Split(b) == 1,
+            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b), fp8) == tileRows && Split(b) == 1 && notTall(b),
                 kernel(tileRows, 1),
                 b => TileGrid(p.RowCount(b), tileRows, columns)));
         }

@@ -50,4 +50,15 @@ internal sealed class MultiGemmGroup
 
     /// <summary>The bindings the FP4 GEMM's multi-output form serves (null until it is emitted); the members' FP4 launches skip them.</summary>
     public Func<Bindings, bool>? Fp4Serves { get; set; }
+
+    /// <summary>
+    /// The members' launches on the generated FP8 GEMM's tiles without a K split (<c>gemm_fp8.slang</c>), captured while they are lowered.
+    /// </summary>
+    public Dictionary<Node, MultiGemmTallPart> GeneratedFp8Parts { get; } = [];
+
+    /// <summary>
+    /// The bindings the tall multi-output form of the generated FP8 GEMM serves (null until it is emitted, or when it is not); the
+    /// members' own launches skip them.
+    /// </summary>
+    public Func<Bindings, bool>? GeneratedFp8Serves { get; set; }
 }

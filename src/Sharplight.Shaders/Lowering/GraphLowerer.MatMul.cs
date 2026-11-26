@@ -512,7 +512,7 @@ public sealed partial class GraphLowerer
         {
             var beforeFp8 = _launchCondition;
             _launchCondition = outer;
-            EmitFp8Gemm(plan);
+            EmitFp8Gemm(plan, epilogue is not null);
             _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows(plan.W.Type, plan.N, plan.K);
         }
         else if (fp4Gemm)
