@@ -18252,3 +18252,90 @@ failed once in six CPU-only runs of the suite (steps `0,0,0,0,0,0,0,1,1,2`, timi
   capturing prepared shapes ahead needs the input copies captured without staged inputs.
 * The 64-stream p95 of the bucketed runs (42-54 against 37-41 ms) wants a closer look (pad rows on large prompt steps, or noise).
 * Gemma 31B host time per step (114.4).
+
+## §RVID. Streaming video enhancement: memory independent of clip length, SeedVR2's VAE in tiles (1080p on 32 GB), output identical to the batch-all path (2026-11-26)
+
+Branch `fix/video-streaming`. GPU 0 of the RunPod machine (RTX PRO 4500 Blackwell 32 GB, shared with other rounds: every GPU run held
+the bench lock, and other processes kept 5-10 GB of the card in use, so the enhancer met out-of-memory errors it had to recover from).
+SeedVR2 3B, the official ByteDance-Seed files (`seedvr2_ema_3b.pth`, `ema_vae.pth`, `pos_emb.pt`), CUDA, `--reduced-precision`.
+
+The bug: enhancing a 1-hour video in Studio crashed after about an hour. `VideoEnhancementRequest.Frames` was a list of every decoded
+frame, the enhancer encoded all batches, then restored all, then decoded all, and collected every output frame in the result; Studio
+decoded the whole video into that list first and encoded the output at the end. Memory grew with the clip (input and output frames), and
+with the default "whole clip in one batch" a long clip does not fit even the arrays of one batch.
+
+### RVID.1 Before and after on a long clip
+
+Input: a 640 × 360, 24 fps, 10-minute synthetic clip (14,400 frames, `mandelbrot` source, H.264 + AAC). Output 1280 × 720.
+
+* **Before** (`develop`, `sharplight-enhance-video` with the default batch): reading the clip into memory took the process to 9.6 GiB
+  of RSS in 61 s (14,400 × 691 KB of RGB), and the enhancement then failed at once with an `OverflowException` (the whole clip as one
+  batch: 14,400 frames × 3 × 720 × 1280 floats exceed an array). With batches it would have gone on to hold every output frame too
+  (14,400 × 2.76 MB = 39.8 GB more) before writing anything; Studio did the same.
+* **After** (`sharplight-enhance-video`, streaming: decoder → enhancer → incremental MP4 writer with the input's AAC track copied):
+  3,416 frames (2 min 22 s of the clip, the length the time budget allowed: 39 min of GPU time at 1.45 frames/s, compilation and the
+  stages taking turns included), process memory sampled every 10 s (`sample-memory.sh`):
+
+| window | RSS min / mean / max | device memory max |
+|---|---|---|
+| 0-10 min | 0.0 / 23.9 / 32.9 GiB | 23.3 GiB |
+| 10-20 min | 16.0 / 24.9 / 30.8 GiB | 23.3 GiB |
+| 20-30 min | 11.4 / 23.8 / 29.5 GiB | 23.3 GiB |
+| 30-39 min | 13.7 / 23.3 / 29.5 GiB | 23.3 GiB |
+
+  Flat: no growth over the run (peak RSS 36.3 GiB in the first minutes, while the first graphs compiled). The RSS swings within a
+  window are the stages taking turns: on this shared card the DiT (13.6 GiB at 65 frames of 720p) and the VAE decoder (16.6 GiB) do not
+  fit together, so the enhancer releases the compiled graphs and compiles them again from the cached kernels; it doubled its group of
+  batches to 8 within the first 400 frames, so that happens once per 520 frames. The output is a valid 1280 × 720 H.264 file of 3,416
+  frames with the AAC track copied (142.3 s). The absolute RSS is the model's host-side weights and the compile staging, not frames
+  (RVID.4).
+
+### RVID.2 Same output as before
+
+The streaming path replaced the batch-all path (one path; `EnhanceAsync` collects the stream). On CUDA with the 17-frame fox clip
+(416 × 240 → 832 × 480, seed 42), `develop`'s bench and this branch's wrote **byte-identical** frames, with the whole clip in one batch and
+with batches of 5. The CPU reference test against the official PyTorch code is unchanged (49.3 dB worst frame, tiny clip), and a frame
+source gives exactly the frames of the same clip as a list, on CPU, Vulkan and CUDA (`SeedVr2Tests.FrameSource_EqualsFrameList`).
+
+### RVID.3 VAE tiling
+
+`SpatialTiling` (Core, `Sharplight.ImageGeneration`): diffusers' crossfade of overlapping tiles over any stack of planes, for encoders and
+decoders; the video generators' tiled decoding now uses it (same values, checked against a copy of the old code). SeedVR2 runs its VAE
+encode and decode in equal tiles (one compiled size) with at least 64 pixels of overlap, chosen from the device's free memory once a
+compiled VAE graph has shown its cost per pixel; before that the whole frame is tried and an out-of-memory error halves the tile area.
+`VideoEnhancementOptions.TileSize` forces a size. PSNR of tiled against untiled output (fox clip, 17 frames, same seed):
+
+| output | tiles | worst frame | mean |
+|---|---|---|---|
+| 1248 × 720 | 768 px (2 × 1) | 43.3 dB | 47.7 dB |
+| 1248 × 720 | 512 px | 35.3 dB | 40.4 dB |
+| 1664 × 960 | 768 px | 38.8 dB | 41.8 dB |
+| 1664 × 960 | 512 px | 37.4 dB | 40.8 dB |
+| 1872 × 1080 | automatic (3 × 672 × 1088) vs 768 px | 39.8 dB | 42.4 dB |
+
+1080p output (1872 × 1088 padded), which ran out of memory before (§108.3: the decoder needs 38.8 GB untiled), now completes: the
+untiled decoder failed, the enhancer released its graphs, retried, then went on in 3 tiles of 672 × 1088 for the rest of the run. The
+difference to untiled output comes from the VAE's mid-block attention, which sees one tile instead of the frame; the seams themselves
+are crossfaded. On the 208 × 112 CPU test clip, 112-pixel tiles give 29.5 dB (tiles that small see little of the frame).
+
+### RVID.4 Host memory
+
+The process's own host memory is the same before and after: `develop`'s bench and this branch's, 17 frames 416 × 240 → 1248 × 720,
+sampled every 10 s, peaked at 31.0 and 29.2 GiB (and took 18.6 / 17.9 s). It is the model, not the clip: the DiT's f32 weights and their
+f16 copies, which stay on the host so released graphs can be compiled again, plus compile-time staging. The clip's share is a group of
+batches: at most 8 × 65 input frames (360p: 36 MB) read ahead and the float pixels of the batch being decoded (65 × 720p: 0.7 GB).
+Reducing the model's host footprint is a separate item (not done here).
+
+### RVID.5 Tests
+
+* `SeedVr2Tests` (official 3B files; CPU, Vulkan, CUDA): `FrameSource_EqualsFrameList` (bit-identical, one batch and batches of 5),
+  `LongFrameSource_HoldsABoundedNumberOfFrames` (a 60-frame CPU / 200-frame GPU source with a slow consumer: at most 15 frames read and
+  not yet handed out, against bounds of 35 / 70), `TiledVae_IsCloseToTheWholeFrame` (832 × 480 in 2 × 3 tiles of 320 × 272: 33.2 dB worst
+  / 38.3 dB mean on Vulkan and CUDA), and the reference runs unchanged (3B 48.9 dB CUDA / 48.8 dB Vulkan, 7B 43.6 dB, CPU 49.3 dB).
+  15 / 15 passed on the GPU.
+* Core: `SpatialTilingTests` (layouts; a resampling network reconstructed exactly; strided tiles equal to the video generator's former
+  tiling value for value), `BackgroundComputeTests` (a bounded stream holds its producer behind a slow consumer and stops a blocked
+  producer when the consumer leaves). Core 1,689 passed, Hosting 31, Video 63 (with the incremental writer's 11).
+* Studio: the Enhance page streams a video (the request has no frame list; every frame read once), shows frames, playback time and time
+  left, keeps the sound track, keeps a playable partial video on cancel (8 of 20 frames), and holds a 400-frame clip's comparison within
+  its memory cap.
