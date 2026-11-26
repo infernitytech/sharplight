@@ -60,7 +60,7 @@ Inter is not bundled: load it (or let the stack fall back to `system-ui`). Studi
 1. Edit `design/tokens.json` or `design/icons.json` (for example a surface colour or a new icon).
 2. Run the generator. Studio's resource dictionaries, the accent palettes and the web assets change in the same commit; CI runs
    `generate --check` and fails when someone edited a token without regenerating (or edited a generated file).
-3. Studio picks it up on the next build. Web UIs pick it up with the next `Sharplight.DesignTokens` package: every green `develop`
+3. Studio picks it up on the next build. Web UIs pick it up with the next `Sharplight.DesignTokens` package: every green `main`
    build publishes a prerelease to the GitHub Packages feed ([releasing.md](releasing.md#prerelease-feed)), releases go to nuget.org.
 
 Component styles are not tokens: the rules that combine tokens into a component (a card is a surface with a subtle border and the

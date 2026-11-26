@@ -817,7 +817,7 @@ The package cost is accepted (owner decision of 2026-11-19). The Windows x64 fil
 ([cuda.md](cuda.md#package-sizes)).
 
 **Channels.** Every build belongs to one of ten update channels, `<rid>-stable` (built from `release/*` branches) and `<rid>-unstable`
-(built from `develop`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
+(built from `main`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
 `osx-arm64-unstable`. An installed app checks the channel it was installed from until you pick another one: *Settings > Updates > Update
 channel* switches between **Stable** and **Preview (unstable)**, is saved in the settings (`UpdateChannel`) and re-checks the
 chosen feed at once. The page shows the installed channel and the selected one. A channel that has no release yet shows "No stable

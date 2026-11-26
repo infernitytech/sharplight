@@ -174,7 +174,7 @@ Studio embeds the catalog at build time and, when online, fetches `https://downl
 (at most once a day), uses it when its schema version is supported, it validates and its `updated` date is not older than the
 embedded copy's (on the same date the published copy wins), and caches it in Studio's data directory; offline, or when the download is not valid, the cached or embedded copy is used.
 The `catalog` job of `.github/workflows/studio.yml` validates the catalog (and that compatible-models.md matches it) on every run and,
-on pushes to develop, uploads it to R2 as `catalog/verified-models.json` (bucket and credentials of the `studio-release` environment, the
+on pushes to main, uploads it to R2 as `catalog/verified-models.json` (bucket and credentials of the `studio-release` environment, the
 same as the Studio packages; `STUDIO_CATALOG_KEY` overrides the key), so Studio installs pick up newly verified models without a
 release. CI (`ci.yml`, step "Verified catalog") runs `validate`, `docs --check` and `schema --check`, so the catalog and the document
 cannot drift apart.

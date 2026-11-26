@@ -14,7 +14,7 @@
 #      actions/setup-dotnet in each job into the runner's tool cache;
 #   3. downloads the Actions runner, registers it with the labels self-hosted, linux, x64, sharplight-feed (ephemeral: no; one
 #      job at a time) and installs it as a systemd service under that user;
-#   4. installs a job-started hook that refuses every job except model-feed on develop (push or workflow_dispatch) of the
+#   4. installs a job-started hook that refuses every job except model-feed on main (push or workflow_dispatch) of the
 #      repository set in ALLOWED_REPOSITORY (default: sharplight), so a public repository's other workflows or pull requests from
 #      forks cannot run on this machine even if a label matches.
 set -euo pipefail
@@ -78,18 +78,18 @@ fi
 hook="$runner_dir/feed-job-guard.sh"
 cat > "$hook" << EOF
 #!/usr/bin/env bash
-# Only the model feed's publication of $allowed_repository on develop runs on this machine (docs/model-feed.md, "Self-hosted feed runner").
+# Only the model feed's publication of $allowed_repository on main runs on this machine (docs/model-feed.md, "Self-hosted feed runner").
 repository_name="\${GITHUB_REPOSITORY#*/}"
 case "\${GITHUB_EVENT_NAME:-}" in
   push|workflow_dispatch) ;;
   *) echo "feed runner: refusing a \${GITHUB_EVENT_NAME:-unknown} event" >&2; exit 1 ;;
 esac
-if [ "\$repository_name" != "$allowed_repository" ] || [ "\${GITHUB_REF:-}" != "refs/heads/develop" ]; then
+if [ "\$repository_name" != "$allowed_repository" ] || [ "\${GITHUB_REF:-}" != "refs/heads/main" ]; then
   echo "feed runner: refusing \${GITHUB_REPOSITORY:-?} at \${GITHUB_REF:-?}" >&2
   exit 1
 fi
 case "\${GITHUB_WORKFLOW_REF:-}" in
-  "\$GITHUB_REPOSITORY/.github/workflows/model-feed.yml@refs/heads/develop") ;;
+  "\$GITHUB_REPOSITORY/.github/workflows/model-feed.yml@refs/heads/main") ;;
   *) echo "feed runner: refusing workflow \${GITHUB_WORKFLOW_REF:-?}" >&2; exit 1 ;;
 esac
 EOF
