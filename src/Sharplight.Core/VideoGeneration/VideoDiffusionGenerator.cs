@@ -585,116 +585,15 @@ internal sealed partial class VideoDiffusionGenerator : IVideoGenerator
     }
 
     /// <summary>
-    /// diffusers' spatial tiling: square tiles of <see cref="_spatialTile"/> latent pixels starting every <see cref="_spatialTileStride"/>
-    /// (the last ones in a row or column smaller), each decoded on its own; a tile fades in over the tile above and the tile to its left
-    /// across the overlap ((tile − stride) · downscale pixels, vertically first) and contributes its first stride · downscale rows and columns.
+    /// diffusers' spatial tiling (<see cref="SpatialTiling"/> with <see cref="SpatialTiling.Strided"/> tiles): square tiles of
+    /// <see cref="_spatialTile"/> latent pixels starting every <see cref="_spatialTileStride"/> (the last ones in a row or column smaller), each
+    /// decoded on its own and crossfaded over the overlap ((tile − stride) · downscale pixels).
     /// </summary>
     private float[] DecodeSpatialTiles(VideoRun run, float[] latents, int latentFrames)
-    {
-        int plane = run.PlaneSize;
-        int down = _spatialDownscale;
-        int strideLatent = _spatialTileStride;
-        int blend = (_spatialTile - _spatialTileStride) * down;
-        int strideOut = strideLatent * down;
-        var rows = new List<List<(float[] Pixels, int Height, int Width)>>();
-        int frames = 0;
-        for (int top = 0; top < run.LatentHeight; top += strideLatent)
-        {
-            var row = new List<(float[], int, int)>();
-            for (int left = 0; left < run.LatentWidth; left += strideLatent)
-            {
-                int height = Math.Min(_spatialTile, run.LatentHeight - top);
-                int width = Math.Min(_spatialTile, run.LatentWidth - left);
-                var tile = new float[run.LatentChannels * latentFrames * height * width];
-                for (int c = 0; c < run.LatentChannels; c++)
-                {
-                    for (int t = 0; t < latentFrames; t++)
-                    {
-                        for (int y = 0; y < height; y++)
-                        {
-                            latents.AsSpan(((c * latentFrames + t) * run.LatentHeight + top + y) * run.LatentWidth + left, width)
-                                .CopyTo(tile.AsSpan(((c * latentFrames + t) * height + y) * width));
-                        }
-                    }
-                }
-
-                var decoded = DecodeLatents(tile, latentFrames, height, width);
-                frames = decoded.Length / (3 * height * down * width * down);
-                row.Add((decoded, height * down, width * down));
-            }
-
-            rows.Add(row);
-        }
-
-        // [F, 3, H, W] layout per tile: images = F · 3 planes of H × W.
-        int images = frames * 3;
-        var output = new float[images * run.Height * run.Width];
-        int outTop = 0;
-        for (int i = 0; i < rows.Count; i++)
-        {
-            int outLeft = 0;
-            int keptHeight = 0;
-            for (int j = 0; j < rows[i].Count; j++)
-            {
-                var (pixels, height, width) = rows[i][j];
-                if (i > 0)
-                {
-                    var (above, aboveHeight, _) = rows[i - 1][j];
-                    int extent = Math.Min(Math.Min(aboveHeight, height), blend);
-                    for (int image = 0; image < images; image++)
-                    {
-                        for (int y = 0; y < extent; y++)
-                        {
-                            float weight = (float)y / extent;
-                            var into = pixels.AsSpan((image * height + y) * width, width);
-                            var from = above.AsSpan((image * aboveHeight + aboveHeight - extent + y) * width, width);
-                            for (int x = 0; x < width; x++)
-                            {
-                                into[x] = from[x] * (1f - weight) + into[x] * weight;
-                            }
-                        }
-                    }
-                }
-
-                if (j > 0)
-                {
-                    var (leftTile, _, leftWidth) = rows[i][j - 1];
-                    int extent = Math.Min(Math.Min(leftWidth, width), blend);
-                    for (int image = 0; image < images; image++)
-                    {
-                        for (int y = 0; y < height; y++)
-                        {
-                            var into = pixels.AsSpan((image * height + y) * width, width);
-                            var from = leftTile.AsSpan((image * height + y) * leftWidth, leftWidth);
-                            for (int x = 0; x < extent; x++)
-                            {
-                                float weight = (float)x / extent;
-                                into[x] = from[leftWidth - extent + x] * (1f - weight) + into[x] * weight;
-                            }
-                        }
-                    }
-                }
-
-                int keepHeight = Math.Min(Math.Min(height, strideOut), run.Height - outTop);
-                int keepWidth = Math.Min(Math.Min(width, strideOut), run.Width - outLeft);
-                for (int image = 0; image < images; image++)
-                {
-                    for (int y = 0; y < keepHeight; y++)
-                    {
-                        pixels.AsSpan((image * height + y) * width, keepWidth)
-                            .CopyTo(output.AsSpan((image * run.Height + outTop + y) * run.Width + outLeft));
-                    }
-                }
-
-                outLeft += keepWidth;
-                keptHeight = keepHeight;
-            }
-
-            outTop += keptHeight;
-        }
-
-        return output;
-    }
+        => SpatialTiling.Run(latents, run.LatentChannels * latentFrames, run.LatentHeight, run.LatentWidth,
+            SpatialTiling.Strided(run.LatentHeight, _spatialTile, _spatialTileStride), SpatialTiling.Strided(run.LatentWidth, _spatialTile, _spatialTileStride),
+            _spatialDownscale, 1, (_spatialTile - _spatialTileStride) * _spatialDownscale,
+            (tile, height, width) => DecodeLatents(tile, latentFrames, height, width));
 
     /// <summary>
     /// diffusers' temporal tiling: tiles of <see cref="_tileFrames"/> + 1 latent frames starting every <see cref="_tileStride"/> latent

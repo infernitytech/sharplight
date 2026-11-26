@@ -10,5 +10,10 @@ namespace Sharplight.VideoEnhancement;
 /// Batches hold 1 + k · this many frames (the temporal compression of a causal video VAE); shorter batches are padded with copies of their last frame.
 /// </param>
 /// <param name="ColorCorrection">The default colour correction.</param>
-/// <param name="FramesPerBatch">The default frames per batch, or 0 for the whole clip at once.</param>
-public sealed record VideoEnhancementDefaults(float Scale, int SizeMultiple, int FrameMultiple, VideoColorCorrection ColorCorrection, int FramesPerBatch);
+/// <param name="FramesPerBatch">The default frames per batch, or 0 for the whole clip at once (up to <paramref name="MaxFramesPerBatch"/>).</param>
+/// <param name="MaxFramesPerBatch">
+/// The longest batch a whole-clip request (frames per batch 0) is restored in: longer clips, and frame sources of unknown length, are cut
+/// into batches of this many frames so memory stays bounded; 0 for no limit.
+/// </param>
+public sealed record VideoEnhancementDefaults(float Scale, int SizeMultiple, int FrameMultiple, VideoColorCorrection ColorCorrection, int FramesPerBatch,
+    int MaxFramesPerBatch = 0);

@@ -174,6 +174,66 @@ public class BackgroundComputeTests
     }
 
     /// <summary>Whether the current thread is inside a MoveNextAsync call of the consumer (a producer step there ran inline).</summary>
+    [Fact]
+    public async Task StreamBlocking_WithACapacity_HoldsTheProducerBackBehindASlowConsumer()
+    {
+        const int capacity = 3;
+        int produced = 0;
+        int consumed = 0;
+        int mostAhead = 0;
+        var stream = BackgroundCompute.StreamBlocking<int>((emit, token) =>
+        {
+            for (int i = 0; i < 40; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                emit(i);
+                InterlockedMax(ref mostAhead, Interlocked.Increment(ref produced) - Volatile.Read(ref consumed));
+            }
+        }, capacity, TestContext.Current.CancellationToken);
+
+        var items = new List<int>();
+        await foreach (int item in stream)
+        {
+            await Task.Delay(5, TestContext.Current.CancellationToken);
+            items.Add(item);
+            Interlocked.Increment(ref consumed);
+        }
+
+        Assert.Equal(Enumerable.Range(0, 40), items);
+        // The queue, the item the consumer holds and the one being emitted.
+        Assert.True(mostAhead <= capacity + 2, $"the producer ran {mostAhead} items ahead");
+    }
+
+    [Fact]
+    public async Task StreamBlocking_WithACapacity_StopsABlockedProducerWhenTheConsumerLeaves()
+    {
+        var stopped = new TaskCompletionSource();
+        var stream = BackgroundCompute.StreamBlocking<int>((emit, token) =>
+        {
+            try
+            {
+                for (int i = 0; ; i++)
+                {
+                    emit(i);
+                }
+            }
+            finally
+            {
+                stopped.TrySetResult();
+            }
+        }, 1, TestContext.Current.CancellationToken);
+
+        await foreach (int item in stream)
+        {
+            if (item == 2)
+            {
+                break;
+            }
+        }
+
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+
     [ThreadStatic]
     private static bool s_insideCall;
 

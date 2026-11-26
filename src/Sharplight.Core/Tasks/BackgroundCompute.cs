@@ -56,7 +56,7 @@ internal static class BackgroundCompute
             {
                 emit(item);
             }
-        }, cancellationToken);
+        }, null, cancellationToken);
 
     /// <summary>
     /// Runs the blocking <paramref name="produce"/> on a dedicated thread and hands every item it emits to the caller as soon as it is emitted
@@ -69,18 +69,37 @@ internal static class BackgroundCompute
     /// <returns>The emitted items, in order.</returns>
     public static IAsyncEnumerable<T> StreamBlocking<T>(Action<Action<T>, CancellationToken> produce, CancellationToken cancellationToken)
         => Pump<T>((emit, token) => Task.Factory.StartNew(() => produce(emit, token), CancellationToken.None, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-            TaskScheduler.Default), cancellationToken);
+            TaskScheduler.Default), null, cancellationToken);
 
-    private static async IAsyncEnumerable<T> Pump<T>(Func<Action<T>, CancellationToken, Task> produce, [EnumeratorCancellation] CancellationToken cancellationToken)
+    /// <summary>
+    /// Like <see cref="StreamBlocking{T}(Action{Action{T}, CancellationToken}, CancellationToken)"/>, but at most <paramref name="capacity"/>
+    /// items wait for the consumer: an emit beyond that blocks the producing thread (between its steps) until the consumer takes one, so a
+    /// producer of large items (frames) cannot run ahead of a slow consumer and pile them up.
+    /// </summary>
+    /// <typeparam name="T">The item type.</typeparam>
+    /// <param name="produce">The blocking compute; calls its first argument for each item, honors its token between steps.</param>
+    /// <param name="capacity">The most items queued for the consumer (positive).</param>
+    /// <param name="cancellationToken">Stops the consumer at once and the producer at its next step (or its blocked emit).</param>
+    /// <returns>The emitted items, in order.</returns>
+    public static IAsyncEnumerable<T> StreamBlocking<T>(Action<Action<T>, CancellationToken> produce, int capacity, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
+        return Pump<T>((emit, token) => Task.Factory.StartNew(() => produce(emit, token), CancellationToken.None, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default), capacity, cancellationToken);
+    }
+
+    private static async IAsyncEnumerable<T> Pump<T>(Func<Action<T>, CancellationToken, Task> produce, int? capacity, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var channel = Channel.CreateUnbounded<T>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+        var channel = capacity is { } bound
+            ? Channel.CreateBounded<T>(new BoundedChannelOptions(bound) { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait })
+            : Channel.CreateUnbounded<T>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
         ExceptionDispatchInfo? failure = null;
         var producer = Task.Run(async () =>
         {
             try
             {
-                await produce(item => channel.Writer.TryWrite(item), stop.Token).ConfigureAwait(false);
+                await produce(item => Write(channel.Writer, item, stop.Token), stop.Token).ConfigureAwait(false);
             }
             catch (Exception error)
             {
@@ -108,6 +127,18 @@ internal static class BackgroundCompute
         {
             stop.Cancel();
             await producer.ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Queues an item; waits (blocking the producing thread) while a bounded channel is full.</summary>
+    private static void Write<T>(ChannelWriter<T> writer, T item, CancellationToken cancellationToken)
+    {
+        while (!writer.TryWrite(item))
+        {
+            if (!writer.WaitToWriteAsync(cancellationToken).AsTask().GetAwaiter().GetResult())
+            {
+                return;
+            }
         }
     }
 }
