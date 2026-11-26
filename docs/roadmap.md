@@ -382,7 +382,8 @@ GPU (Vulkan):
 
 CPU:
 
-- Single-pass LayerNorm, polynomial `exp`. Conv / MatMul epilogues (§21) and the attention-scale fold (§25) are done.
+- Polynomial `exp`. Conv / MatMul epilogues (§21), the attention-scale fold (§25) and the single-pass vectorized
+  LayerNorm (§119) are done.
 - Conv GEMM: one implicit GEMM over N·H·W with in-task packing and a shifted stride-1 form reaches 1.6-2.2 TFLOPS per
   conv (§25); channels-last convs with layout propagation are done (§30). Winograd F(4x4, 3x3) on the channels-last layout
   (§117): 1.2-2.3x per isolated conv at 3.6x the direct conv's (still f32-class) error, but inside models only AVX2 at batch
