@@ -7,7 +7,7 @@ namespace Sharplight.Cpu;
 /// Integer-dot matrix-vector products for quantized weights (<see cref="Runtime.DeviceFeatures.IntDot"/>), the llama.cpp
 /// approach: the activations are quantized to 8 bits per 32 values (<see cref="Q8Row"/>), a weight row is decoded into
 /// unsigned 8-bit codes <c>u</c> with one multiplier <c>a</c> and one offset <c>b</c> per 16 values (value = a * u + b), and
-/// the products u * q are summed exactly in int32 lanes of four (VNNI <c>vpdpbusd</c>, AVX2 <c>vpmaddubsw</c>, Arm64
+/// the products u * q are summed exactly in int32 lanes of four (VNNI <c>vpdpbusd</c>, AVX2 / SSSE3 <c>vpmaddubsw</c> / <c>pmaddubsw</c>, Arm64
 /// <c>sdot</c>, 128-bit widening multiplies or scalar code). Per 16 values:
 /// <c>sum(w * x) = a * dx * sum(u * q) + b * dx * sum(q)</c>.
 /// </summary>
@@ -57,9 +57,9 @@ internal static unsafe partial class IntDot
             {
                 QuantizeBlock256(x + b, dst.Q + b, dst.LaneScales + b / 4, dst.GroupSums + b / GroupSize);
             }
-            else if (CpuIsa.UseNeon)
+            else if (CpuIsa.Use128)
             {
-                QuantizeBlockNeon(x + b, dst.Q + b, dst.LaneScales + b / 4, dst.GroupSums + b / GroupSize);
+                QuantizeBlock128(x + b, dst.Q + b, dst.LaneScales + b / 4, dst.GroupSums + b / GroupSize);
             }
             else
             {
@@ -83,6 +83,7 @@ internal static unsafe partial class IntDot
         CpuIsaLevel.AvxVnni => DotAvxVnni(u, a, b, x, k),
         CpuIsaLevel.Avx2 => DotAvx2(u, a, b, smallCodes, x, k),
         CpuIsaLevel.NeonDot => DotNeonDot(u, a, b, x, k),
+        CpuIsaLevel.Vector128 when HasSsse3Dot => DotSsse3(u, a, b, smallCodes, x, k),
         CpuIsaLevel.Neon or CpuIsaLevel.Vector128 => DotVector128(u, a, b, x, k),
         _ => DotScalar(u, a, b, x, k),
     };

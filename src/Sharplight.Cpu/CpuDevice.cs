@@ -86,7 +86,7 @@ internal sealed class CpuDevice : IComputeDevice
 
     /// <summary>
     /// Provider-neutral features of the host: <see cref="DeviceFeatures.IntDot"/> when the kernels have packed int8 dot products
-    /// (AVX2 <c>vpmaddubsw</c>, VNNI or Arm64 <c>sdot</c>), which enables the quantized-activation matmul for quantized weights, and
+    /// (AVX2 <c>vpmaddubsw</c>, VNNI, SSSE3 <c>pmaddubsw</c> or Arm64 <c>sdot</c>), which enables the quantized-activation matmul for quantized weights, and
     /// <see cref="DeviceFeatures.ChannelsLast"/> with any vector tier (the channels-last conv kernels exist for 512-, 256- and
     /// 128-bit vectors and NEON; the scalar reference tier keeps NCHW).
     /// </summary>

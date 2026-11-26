@@ -18798,3 +18798,53 @@ Commands:
 SHARPLIGHT_VK_DEVICES=0 dotnet run --project tests/Sharplight.Vulkan.Tests -c Release -- -method "*RowInvarianceTests*"
 SHARPLIGHT_VK_DEVICES=0 dotnet run --project tests/Sharplight.Families.Tests -c Release -- -method "*VerificationRowInvarianceTests*"
 ```
+
+## 124. CPU v128 tier: SSSE3 int8 dots (pmaddubsw) and tiled attention (Qwen3-0.6B Q8_0 decode 29 → 62 tok/s, prefill 343 → 808 tok/s; SSE only 17 → 44 / 120 → 464) (2026-11-26)
+
+After §121 the v128 tier (x86 without AVX2) had no quantized-activation matmul (`DeviceFeatures.IntDot` needed AVX2+ /
+NEON-dot), and its attention ran the general (untiled) kernel. §121 put the 4x prefill gap down to the first. The profile
+showed it was mostly the second. At 512 prompt tokens every matmul has M >= 32 rows and takes the f32 GEMM whether int-dot
+is on or not (avx2 Qwen3 prefill: 1458 tok/s with int-dot, 1514 with `SHARPLIGHT_DISABLE_FEATURES=int_dot`). The v128
+prefill profile (`SHARPLIGHT_CPU_PROFILE=1`) had `CachedAttention` at 5176 ms (51 %) against 340 ms for
+`CachedAttention.tiled` at avx2. Int-dot matters for decode and short prompts (M < 32), where v128 ran the f32 fused dots
+at 2.4x the avx2 time per matmul (decode is compute-bound below AVX2).
+
+- **`IntDot.Ssse3.cs`**: `DotSsse3` is `pmaddubsw` + `pmaddwd` per 16 values, with the same sign trick as AVX2 for codes >= 128 and two
+  accumulators. `Offsets128` is the offset term. The float multiply-adds go through `Vec128.MultiplyAdd` (FMA3, or unfused on SSE-only hosts).
+  `IntDot.Dot` takes it for `CpuIsaLevel.Vector128` when `Ssse3.IsSupported` (x86-64-v2). The NEON activation quantizer
+  is now the portable `QuantizeBlock128` (an x86 shuffle max-reduction instead of `MaxAcross`), bit-identical to scalar.
+- `CpuIsa.HasPackedIntDot` is also true on the v128 tier with SSSE3, so `CpuDevice` sets `IntDot` there.
+- **`AttentionOp.Tiled.cs`**: the tiled kernel already ran on `FloatLanes128x2` for NEON, so it now runs on every 128-bit
+  tier (`CpuIsa.Use128`). The general path's softmax exp loop is enabled on v128 the same way.
+- `VectorExp.Exp(Vector128)` uses `Vec128.MultiplyAdd`: `Vector128.FusedMultiplyAdd` is a per-lane software fma without
+  hardware FMA (SSE-only), and the Cephes split ln 2 keeps `n * Ln2High` exact either way. FMA hosts and NEON are unchanged.
+
+Ryzen 9 9950X, 16 threads on cores 0-15, main 6c6c546c ("before") against this branch, 2 interleaved rounds (range shown;
+machine shared with other agents), `--bench 512`: best prefill and best decode tok/s.
+
+| model / tier | prefill 512 before | prefill 512 after | decode before | decode after |
+|---|---|---|---|---|
+| Qwen3-0.6B Q8_0, v128 (`SHARPLIGHT_CPU_ISA=v128`) | 323-343 | 679-808 | 27.5-29.1 | 60.4-62.5 |
+| Qwen3-0.6B Q8_0, SSE only (`DOTNET_EnableAVX=0`) | 115-120 | 426-464 | 16.7-17.1 | 44.3-44.4 |
+| Qwen3-0.6B Q8_0, avx2 (control) | 1251-1476 | 1403-1471 | 69.5-72.3 | 70.5-72.8 |
+| Llama-3.2-1B Q4_K_M, v128 | 283-288 | 393-432 | 15.6-16.0 | 58.2 |
+| Llama-3.2-1B Q4_K_M, SSE only | 118-132 | 245-248 | 9.2-9.7 | 38.8-50.6 |
+| Llama-3.2-1B Q4_K_M, avx2 (control) | 666-686 | 657-730 | 57-64 | 55-65 |
+
+16-token prompts (`--bench 16`, now on the int-dot path below AVX2, noisy): Qwen3 v128 131-261 → 264-326, SSE only 108-186
+→ 75-258; Llama v128 135-139 → 210-245, SSE only 86-112 → 166-184. Decode at v128 is now within ~15 % of avx2 (Qwen3) /
+at parity (Llama). The remaining prefill gap at 512 tokens is the f32 GEMM tile (86 vs 170 GFLOP/s, §121). An int8 GEMM for
+prompt-sized quantized matmuls on every tier is #80.
+
+Accuracy: last-token logits of a 15-token prompt against the f32-activation path (`SHARPLIGHT_DISABLE_FEATURES=int_dot`,
+avx2), relative RMS: Qwen3 avx2 int-dot 2.2e-2, v128 1.6e-2, SSE only 1.7e-2; Llama avx2 2.1e-2, v128 1.4e-2, SSE only 1.6e-2.
+Argmax is the same everywhere, and greedy 40-token continuations at v128 equal avx2. Sharplight.Cpu.Tests (IntDotTests
+`TierMatchesScalar` now runs `DotSsse3` for the v128 tier; `QuantizeMatchesReference` checks the portable quantizer under
+`SHARPLIGHT_CPU_ISA=v128`): 0 failures at the default tier, `v128`, `DOTNET_EnableAVX=0` and `scalar`;
+Sharplight.Import.Gguf.Tests at v128 / SSE only pass.
+
+```
+SHARPLIGHT_CPU_ISA=v128 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 sharplight Qwen3-0.6B-Q8_0.gguf --cpu --bench 512
+DOTNET_EnableAVX=0 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 sharplight Llama-3.2-1B-Instruct-Q4_K_M.gguf --cpu --bench 512
+SHARPLIGHT_CPU_PROFILE=1 SHARPLIGHT_CPU_ISA=v128 sharplight Qwen3-0.6B-Q8_0.gguf --cpu --bench 512
+```

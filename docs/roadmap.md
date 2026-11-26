@@ -390,8 +390,9 @@ CPU:
   (§117): 1.2-2.3x per isolated conv at 3.6x the direct conv's (still f32-class) error, but inside models only AVX2 at batch
   ≥ 4 gains (ResNet-50 b8 -10 %), so it is on there and off with AVX-512 (`SHARPLIGHT_CPU_WINOGRAD`); its transformed
   weights from DRAM and cross-CCD operand traffic are the limits. Next: cheaper b1 pooling / global-mean ops.
-- 128-bit GEMM / channels-last conv kernels for the v128 tier and channels-last on NEON are done (§121). Next: a 128-bit
-  `pmaddubsw` int-dot path for v128 (its Q8_0 prefill is 4x below AVX2); SVE kernels.
+- 128-bit GEMM / channels-last conv kernels for the v128 tier and channels-last on NEON are done (§121). The v128 tier
+  has SSSE3 `pmaddubsw` int dots and tiled attention too (§124: decode near AVX2, prefill ~half of it). Next: an int8 GEMM
+  for prompt-sized quantized matmuls on every tier (#80); SVE kernels.
 
 ## Precision options
 
