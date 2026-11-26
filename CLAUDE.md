@@ -22,7 +22,12 @@ toolchain and model-asset notes are still accurate.
 - Tests are xunit v3 executables: `dotnet run --project tests/<Suite> -c Release --no-build` (or `dotnet test`).
 - Many suites need model assets under `~/models` (tiny-* test models, audio, whisper.cpp, sd, onnx) and skip without
   them; the layout table is in docs/handoff/README.md, tiny models are regenerable with `tools/make-tiny-*.py` /
-  `tools/mk_tiny_*.py` / `tools/model-assets`.
+  `tools/mk_tiny_*.py` / `tools/model-assets`. fedora-ws is provisioned (2026-11-26, issue #15): tiny hf/gguf models,
+  audio, whisper.cpp, sd and the onnx survey set are in place; only the optional ~800 GB real-checkpoint parity models
+  are absent (their tests skip). The stored HF token on fedora-ws is expired — set `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`
+  when downloading public models there; `glslc` is at `~/.local/bin/glslc`. `$LLAMA_ROOT` (llama.cpp reference builds
+  for the bench/ scripts) is not provisioned; a llama.cpp checkout at the pinned parity commit 8ca5a80 sits unbuilt in
+  `~/scratch/llama.cpp`.
 - GPU tests: `SHARPLIGHT_VK_DEVICES=<i>[,<j>]` restricts the Vulkan provider to those device indices — set it to the
   GPU(s) assigned to your session on multi-GPU machines.
 
