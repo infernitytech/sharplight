@@ -18330,7 +18330,9 @@ Two forms were tried (`probes/`):
 
 ### R49.5 Tests
 
-On GPU 0, one class per process under the bench lock (`tests/`): see the suite summaries there. New:
+On GPU 0, one class per process under the bench lock, after merging `develop` (`tests/`): `Sharplight.Vulkan.Tests` 48 classes
+finished before the handoff, 1,377 tests, 0 failed, 30 skipped (`tests/vulkan_suite_partial.txt`); the remaining Vulkan classes and the
+Cuda, Core and Import.Onnx suites did not run (see R49.7). New:
 `Fp8GemmTests.TallSiblingsMatchSeparateBitwise` (q / k / v widths 2,048 / 512 / 520 at 300, 1,024 and 2,048 rows: every output of the
 one-launch form bit-identical to each projection compiled alone). `FusionTests` 107 / 107, `Fp8GemmTests` 55 (1 skipped) pass with it.
 
@@ -18341,3 +18343,14 @@ path either. Remaining levers: the E4M3 store of the dual GEMM once the atomic p
 reproducer: gemm_fp8 plus one `InterlockedAdd`; next step a SPIR-V diff of the two kernels' main loops, or the barriers with explicit
 availability / visibility semantics as gemm_kq's `KQ_X_BAR` experiments emit them), and a retest of `gemm_fp8_nv2` on later drivers
 (the probe is in the patch).
+
+### R49.7 Pending (handoff 2026-11-26)
+
+* Tests not completed: the Vulkan classes after the first 48 (`bench/r49/suite.sh <worktree> <logdir> Vulkan`, one class per process),
+  then `Cuda` (provider `cuda`), `Core` and `Import.Onnx`. The kept change touches only the generated FP8 GEMM's lowering (q / k / v groups
+  on Vulkan prefill and on CUDA below the hand-written GEMM's rows), so `Fp8GemmTests`, `FusionTests` and the Cuda FP8 classes matter most.
+* Not pushed by this round (the backup remote's disk was full; the coordinator pushes).
+* Scripts used: `bench/r49/` (`mmraw.sh` GEMM micro-benchmarks, `r49-pp.sh` end-to-end prefill, `prof.sh` per-node profile, `suite.sh`,
+  the `batch*.sh` holds); they take the worktree, models directory and lock file from `SL_WORKTREE`, `SL_MODELS`, `SL_BENCH_LOCK`.
+* To resume the E4M3 store of the dual GEMM: apply the `F8_QOUT` parts of `bench/results/r49/probes/nv2-fp8-and-dual-e4m3-store.diff`,
+  run `Fp8GemmTests.DualE4m3RowsMatchSeparateQuantizationBitwise` (in the diff) at 2,048 rows, then bisect with `F8_QOUT_DBG` as in R49.4.
