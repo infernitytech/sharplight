@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Sharplight.Audio;
 using Sharplight.Models;
 using Sharplight.Vision;
 
@@ -11,6 +13,10 @@ namespace Sharplight.Import.HuggingFace;
 /// predictor (a small Qwen3 decoder that predicts codebooks 1 to 15 of a frame) the same way with its hyper-parameters under <c>qwen3_tts.code_predictor.</c> and its weights
 /// under <c>code_predictor.</c>; the text embedding, the text projection, the code predictor's codebook embeddings and heads (read on the host) keep their names under
 /// <c>qwen3_tts.</c>. The speech tokenizer in <c>speech_tokenizer/</c> is the model's vocoder companion (<see cref="Qwen3TtsTokenizerHfMapping"/>).
+/// All three model types map: CustomVoice (built-in speakers), Base (voice cloning: the ECAPA-TDNN speaker encoder <c>speaker_encoder.*</c> keeps its names under
+/// <c>speaker_encoder.</c> in f32, with its log-mel front end as the <c>speaker-features/mel-filters</c> attachment) and VoiceDesign (voices described by an instruction).
+/// The official wrapper's choices become neutral keys: whether instructions are read (VoiceDesign and the 1.7B CustomVoice models; the wrapper drops them for the 0.6B ones)
+/// and whether the text is interleaved with the first frames (voice cloning's default) or prefilled whole.
 /// </summary>
 internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
 {
@@ -20,6 +26,14 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
     private const string Talker = "talker.";
     private const string TalkerModel = "talker.model.";
     private const string CodePredictor = "talker.code_predictor.";
+    private const string SpeakerEncoder = "speaker_encoder.";
+    private const string SpeakerFeaturesFilters = "speaker-features/mel-filters";
+
+    // The speaker encoder's log-mel front end, fixed in the reference's extract_speaker_embedding.
+    private const int SpeakerFftSize = 1024;
+    private const int SpeakerHopLength = 256;
+    private const int SpeakerMelBins = 128;
+    private const double SpeakerMaxFrequency = 12000;
 
     /// <inheritdoc/>
     public string Architecture => "qwen3_tts";
@@ -30,10 +44,10 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IEnumerable<string> Validate(HfConfig c)
     {
-        string type = c.Root.TryGetProperty("tts_model_type", out var t) ? t.GetString() ?? "" : "";
-        if (type != "custom_voice")
+        string type = ModelType(c);
+        if (type is not ("custom_voice" or "base" or "voice_design"))
         {
-            yield return $"qwen3_tts: only the CustomVoice models (predefined speakers) are supported, not '{type}' (voice cloning and voice design are not implemented).";
+            yield return $"qwen3_tts: the model type '{type}' is not supported (CustomVoice, Base and VoiceDesign are).";
         }
 
         if (c.Root.TryGetProperty("tokenizer_type", out var tokenizer) && tokenizer.GetString() != "qwen3_tts_tokenizer_12hz")
@@ -88,6 +102,27 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
         md[a + "speaker_dialects"] = speakers.Select(p => dialects.ValueKind == JsonValueKind.Object && dialects.TryGetProperty(p.Name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()!
             : "").ToArray();
+        string type = ModelType(c);
+        string size = c.Root.TryGetProperty("tts_model_size", out var s) ? s.GetString() ?? "" : "";
+        md[a + "instructions"] = type == "voice_design" || (type == "custom_voice" && size != "0b6");
+        md[a + "interleaved_text"] = type == "base";
+        if (type == "base")
+        {
+            var encoder = c.Root.TryGetProperty("speaker_encoder_config", out var e) ? e : default;
+            string k = a + "speaker_encoder.";
+            md[k + "mel_bins"] = IntOr(encoder, "mel_dim", SpeakerMelBins);
+            md[k + "embedding"] = IntOr(encoder, "enc_dim", 1024);
+            md[k + "channels"] = IntsOr(encoder, "enc_channels", [512, 512, 512, 512, 1536]);
+            md[k + "kernels"] = IntsOr(encoder, "enc_kernel_sizes", [5, 3, 3, 3, 1]);
+            md[k + "dilations"] = IntsOr(encoder, "enc_dilations", [1, 2, 3, 4, 1]);
+            md[k + "attention_channels"] = IntOr(encoder, "enc_attention_channels", 128);
+            md[k + "res2net_scale"] = IntOr(encoder, "enc_res2net_scale", 8);
+            md[k + "se_channels"] = IntOr(encoder, "enc_se_channels", 128);
+            md[k + "sample_rate"] = IntOr(encoder, "sample_rate", 24000);
+            md[k + "fft_size"] = SpeakerFftSize;
+            md[k + "hop_length"] = SpeakerHopLength;
+        }
+
         string generation = Path.Combine(c.Directory, "generation_config.json");
         if (File.Exists(generation))
         {
@@ -147,6 +182,10 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
             {
                 collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), a + "code_predictor.projection." + name[(CodePredictor + "small_to_mtp_projection.").Length..]));
             }
+            else if (name.StartsWith(SpeakerEncoder, StringComparison.Ordinal))
+            {
+                collector.Add(HfTransforms.ToF32(tensor.ToWeightInfo(), name));
+            }
             else if (name.StartsWith(CodePredictor + "model.", StringComparison.Ordinal))
             {
                 predictorTensors["model." + name[(CodePredictor + "model.").Length..]] = tensor;
@@ -181,6 +220,25 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
         return collector.Weights;
     }
 
+    /// <inheritdoc/>
+    /// <remarks>The voice-cloning models' speaker encoder front end: the Slaney mel filter bank of its log-mel (128 bins over 1024-point FFTs at 24 kHz, up to 12 kHz).</remarks>
+    public IReadOnlyDictionary<string, IWeightSource> MapAttachments(HfConfig config, string directory)
+    {
+        if (ModelType(config) != "base")
+        {
+            return new Dictionary<string, IWeightSource>();
+        }
+
+        var encoder = config.Root.TryGetProperty("speaker_encoder_config", out var e) ? e : default;
+        int bins = IntOr(encoder, "mel_dim", SpeakerMelBins);
+        int rate = IntOr(encoder, "sample_rate", 24000);
+        return new Dictionary<string, IWeightSource>(StringComparer.Ordinal)
+        {
+            [SpeakerFeaturesFilters] = new MemoryWeightSource(
+                () => MemoryMarshal.AsBytes(SlaneyMelFilterBank.Create(bins, SpeakerFftSize, rate, 0.0, SpeakerMaxFrequency).AsSpan()).ToArray()),
+        };
+    }
+
     /// <summary>The speech tokenizer folder as the vocoder companion.</summary>
     /// <param name="directory">The model folder.</param>
     public IReadOnlyDictionary<string, string> FindCompanions(string directory)
@@ -190,6 +248,14 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
             ? new Dictionary<string, string> { [AuxiliaryRoles.Vocoder] = codec }
             : new Dictionary<string, string>();
     }
+
+    private static string ModelType(HfConfig c) => c.Root.TryGetProperty("tts_model_type", out var t) ? t.GetString() ?? "" : "";
+
+    private static int IntOr(JsonElement e, string name, int fallback)
+        => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : fallback;
+
+    private static int[] IntsOr(JsonElement e, string name, int[] fallback)
+        => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array ? [.. v.EnumerateArray().Select(x => x.GetInt32())] : fallback;
 
     // A Qwen3 causal-LM configuration for one of the two decoders (the vocabulary is the codec's).
     private static HfConfig Qwen3Config(JsonElement source, string directory)
