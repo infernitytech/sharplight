@@ -3,8 +3,8 @@
 Creates, inspects and maintains Sharplight model packages (`.slm`, see [docs/model-format.md](../../docs/model-format.md)): a
 portable model (IR graphs and weights) plus optional precompiled artifact sets per device, in a code tier (driver-independent
 kernels, e.g. SPIR-V) and a binary tier (driver pipeline cache).
-Conversion and precompilation live in the `Sharplight.Package` library (`ModelConverter`, `PackagePrecompiler`),
-which `sharplight pull` uses as well.
+Conversion, optimization and precompilation live in the `Sharplight.Package` library (`ModelConverter`, `PackageOptimizer`,
+`PackagePrecompiler`), which `sharplight pull` uses as well.
 
 ```sh
 C="dotnet run -c Release --project samples/Sharplight.Convert --"
@@ -27,11 +27,16 @@ $C precompile qwen3.slm --profile nvidia-no-matrix
 $C info qwen3.slm --entries
 $C strip qwen3.slm --provider vulkan --tier binary
 $C compact qwen3.slm
+
+# Re-run the graph optimization on a package converted by an older pipeline (or with --no-optimize)
+$C optimize old.slm
+$C optimize old.slm -o optimized.slm
 ```
 
 | Command | Meaning |
 | --- | --- |
-| `convert <src> <dst>` | Builds the model and writes it. `--kv-type`, `--ctx` and `--mmproj` shape LLM graphs; `--shape` sets ONNX input shapes; `--no-optimize` skips the graph optimization (not available yet). The artifact sets of an `.slm` source are kept unless `--drop-artifacts`. |
+| `convert <src> <dst>` | Builds the model and writes it. `--kv-type`, `--ctx` and `--mmproj` shape LLM graphs; `--shape` sets ONNX input shapes; `--no-optimize` skips the graph optimization. The artifact sets of an `.slm` source are kept unless `--drop-artifacts`. |
+| `optimize <slm>` | Runs the device-independent graph optimization over a package's stored graphs and rewrites it, in place or into a new package (`-o`); weights, description, attachments and artifact sets are kept (`--drop-artifacts` drops the sets). A package that already carries the current pipeline id is left unchanged unless `--force`; `--passes` prints per-pass statistics. |
 | `profile --device provider:index` | Prints (or writes with `-o`) the device profile: what kernel code generation depends on. `--disable-features` leaves features out; `--list` / `--show <name>` show the shipped profiles (`rtx-pro-6000-blackwell`, `nvidia-no-matrix`, `radv-raphael`, `llvmpipe`, each exported from a real device). |
 | `info <slm>` | Version, sections, graphs, properties, weights, artifact sets; `--weights`, `--entries`, `--nodes <graph>` list details. |
 | `precompile <slm> --device provider:index` | Compiles every graph on the device and appends the artifact sets of `--tier code\|binary\|all`: LLM decode / multimodal / vision graphs, the serving batch decoder (`--slots`, `--kv-tokens`), embed and classify graphs, ONNX graphs (`--bound`). Use the `--ctx`/`--batch`/`--slots`/`--disable-features` the model will run with. Uses a fresh kernel cache unless `--use-kernel-cache`. |

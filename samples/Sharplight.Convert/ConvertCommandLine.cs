@@ -9,9 +9,10 @@ internal static class ConvertCommandLine
     public static RootCommand Build(SampleRuntime runtime)
     {
         var root = new RootCommand("Creates, inspects and maintains Sharplight model packages (.slm): conversion from GGUF, Hugging Face, ONNX or "
-            + "another package, precompiled artifact sets per device, stripping and compaction.");
+            + "another package, graph optimization, precompiled artifact sets per device, stripping and compaction.");
         root.Subcommands.Add(new ConvertCommand(runtime).Build());
         root.Subcommands.Add(new InfoCommand().Build());
+        root.Subcommands.Add(new OptimizeCommand().Build());
         root.Subcommands.Add(new PrecompileCommand(runtime).Build());
         root.Subcommands.Add(new ProfileCommand(runtime).Build());
         root.Subcommands.Add(new StripCommand().Build());

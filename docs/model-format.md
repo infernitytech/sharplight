@@ -1,9 +1,9 @@
 # Model format v2: portable graphs with tiered, optional precompiled artifacts
 
 Status: container v3 (v2 plus control-flow subgraphs and data-dependent symbols in the IR), artifact tiers, inspection API,
-device profiles, the two-stage provider precompilation contract, `sharplight-convert` (convert, info, profile, precompile --all-devices/--device/--profile, strip, compact), the graph
-optimization phase (run by `convert` unless `--no-optimize`) and the package inspector in Sharplight Studio are
-implemented; a separate `optimize` command is not yet (2026-11-13). Since 2026-11-15 a package can describe any model kind
+device profiles, the two-stage provider precompilation contract, `sharplight-convert` (convert, info, optimize, profile, precompile --all-devices/--device/--profile, strip, compact), the graph
+optimization phase (run by `convert` unless `--no-optimize`, re-runnable on existing packages with `optimize`) and the
+package inspector in Sharplight Studio are implemented. Since 2026-11-15 a package can describe any model kind
 (DESC: kind and components, ATCH: attachments), and precompilation covers every component graph.
 
 ## Goals
@@ -307,7 +307,12 @@ kind, shown raw); `ArtifactEntryInfo.Offset` is an entry's absolute file offset;
     speculator). By default into a fresh temporary artifact store instead of the per-user one. `--all-devices` precompiles for every device of every available
     provider (as Sharplight Studio does). Sets the package already holds completely are not stored again.
   - `strip <slm> [--provider] [--tier] [--compact]`, `compact <slm>`.
-  - Planned: `optimize <slm>`.
+  - `optimize <slm> [-o dst.slm] [--force] [--drop-artifacts] [--passes]` (`PackageOptimizer` in Sharplight.Core): runs the
+    graph optimization phase over the stored definition of an existing package — for packages converted by an older pipeline or
+    with `--no-optimize` — and rewrites it, in place (the input is replaced only after the new package was written completely) or
+    into a new package. Weights, description, attachments and artifact sets are carried over (code entries are content addressed
+    and stay valid; `--drop-artifacts` drops the sets); a package already carrying the current pipeline id is left unchanged
+    unless `--force`. A rewrite also reclaims dead space, like `compact`.
 - Device code stored by `precompile` and by `sharplight --save` holds only the model's pipelines: the device stage creates the
   pipelines of exactly the portable set's kernels, as kernel binaries or into a fresh driver cache, independent of the per-user
   artifact store.

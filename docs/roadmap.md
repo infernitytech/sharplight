@@ -433,6 +433,6 @@ llama.cpp's ARM CPU and Adreno OpenCL backends. Not started.
 
 ## Other
 
-- `optimize` command for `.slm` packages.
+- `optimize` command for `.slm` packages: done (`sharplight-convert optimize`, see [model-format.md](model-format.md)).
 - Device-profile open issues (offline compilation for devices not present).
 - Known flake: an occasional `vkCreateDevice` failure when tests create devices in parallel.
