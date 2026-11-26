@@ -756,6 +756,12 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool MultiGemmTall { get; } = Read("SHARPLIGHT_MULTI_GEMM_TALL") != "0";
 
+    /// <summary>
+    /// False (<c>SHARPLIGHT_MULTI_MATVEC=0</c>) keeps the members of a q / k / v group on their own single-row matvec launches instead
+    /// of one multi-output matvec (matmul.slang <c>matvec_sk_multi</c>) for decode steps of one row.
+    /// </summary>
+    public static bool MultiMatvec { get; } = Read("SHARPLIGHT_MULTI_MATVEC") != "0";
+
     /// <summary><c>SHARPLIGHT_MULTI_GEMM_MAX_ROWS=n</c>: the largest batch the split-K multi-output GEMM serves, or null for the default.</summary>
     public static long? MultiGemmMaxRows { get; } = Read("SHARPLIGHT_MULTI_GEMM_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 

@@ -145,11 +145,13 @@ struct Params
 // that every compiled variant (any MV_COLS) rounds a row's sum the same way. Otherwise the plain sum, which the driver
 // contracts per variant (on the NVIDIA driver mostly, but not always, into this same chain). The dual matvecs keep the
 // plain sum, which the driver contracts alike in all of their variants.
-float dot8(float w[8], float4 a, float4 b)
+float dot8_plain(float w[8], float4 a, float4 b)
 {
-#if DUAL || !defined(MV_FMA_CHAIN)
     return w[0] * a.x + w[1] * a.y + w[2] * a.z + w[3] * a.w + w[4] * b.x + w[5] * b.y + w[6] * b.z + w[7] * b.w;
-#else
+}
+
+float dot8_chain(float w[8], float4 a, float4 b)
+{
     float s = w[0] * a.x;
     s = fma(w[1], a.y, s);
     s = fma(w[2], a.z, s);
@@ -158,6 +160,14 @@ float dot8(float w[8], float4 a, float4 b)
     s = fma(w[5], b.y, s);
     s = fma(w[6], b.z, s);
     return fma(w[7], b.w, s);
+}
+
+float dot8(float w[8], float4 a, float4 b)
+{
+#if DUAL || !defined(MV_FMA_CHAIN)
+    return dot8_plain(w, a, b);
+#else
+    return dot8_chain(w, a, b);
 #endif
 }
 
@@ -355,6 +365,63 @@ void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Pa
             p.y[uint64_t(c) * Y_STRIDE + row] = s;
         }
     }
+}
+#endif
+
+// ---------------------------------------------------------------------------------------------
+// Multi-output single-row split-K matvec (MULTI 2 or 3, MV_COLS 1): the q / k / v projections of a decode step that share x, one
+// launch instead of one per matrix (k and v alone are a few hundred workgroups each, latency bound). Workgroups [0, MVM_WG1) compute
+// rows of p.w into p.y, [MVM_WG1, MVM_WG2) rows of p.mw1 into p.yout1 and (MULTI 3) [MVM_WG2, ...) rows of p.mw2 into p.yout2; each
+// member keeps its own split (MVM_SG<i> subgroups per row team, MVM_R<i> rows per team, MVM_CH<i> the fma chain) and so stores
+// exactly the outputs of its own matvec_sk launch (matvec_sk_multi_member.slang). MVM_N<i>: the members' rows. p.yout is unused.
+#ifdef KERNEL_MATVEC_SK_MULTI
+groupshared float skPartM[16];
+
+[shader("compute")]
+[numthreads(SG * 8, 1, 1)]
+void matvec_sk_multi(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+    GRID_BIND(p);
+    uint tid = ltid.x, lane = tid % SG, sg = tid / SG;
+    if (gid.x < MVM_WG1)
+    {
+#define MVM_SGN MVM_SG0
+#define MVM_RN MVM_R0
+#define MVM_CHAIN MVM_CH0
+#define MVM_NM MVM_N0
+#define MVM_W p.w
+#define MVM_Y p.y
+#define MVM_WGI gid.x
+#include "matvec_sk_multi_member.slang"
+    }
+#if MULTI > 2
+    else if (gid.x < MVM_WG2)
+#else
+    else
+#endif
+    {
+#define MVM_SGN MVM_SG1
+#define MVM_RN MVM_R1
+#define MVM_CHAIN MVM_CH1
+#define MVM_NM MVM_N1
+#define MVM_W p.mw1
+#define MVM_Y p.yout1
+#define MVM_WGI (gid.x - MVM_WG1)
+#include "matvec_sk_multi_member.slang"
+    }
+#if MULTI > 2
+    else
+    {
+#define MVM_SGN MVM_SG2
+#define MVM_RN MVM_R2
+#define MVM_CHAIN MVM_CH2
+#define MVM_NM MVM_N2
+#define MVM_W p.mw2
+#define MVM_Y p.yout2
+#define MVM_WGI (gid.x - MVM_WG2)
+#include "matvec_sk_multi_member.slang"
+    }
+#endif
 }
 #endif
 

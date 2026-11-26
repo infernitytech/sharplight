@@ -67,9 +67,13 @@ def longest_run(tokens):
     return best, tok
 
 
+MARKUP = set("*#_`|>-")
+
+
 def symbol_share(tokens):
-    """Fraction of tokens that are punctuation or symbols only."""
-    return sum(1 for t in tokens if not any(c.isalnum() for c in t)) / max(len(tokens), 1)
+    """Fraction of tokens that are punctuation or symbols only. Markdown markup tokens (``**``, ``#``, ``-``, ``|``, ...) are fluent
+    text, not symbols: a heading or bold title in a coherent completion pushed one to 0.28 (benchmarks.md section 115)."""
+    return sum(1 for t in tokens if not any(c.isalnum() for c in t) and not set(t) <= MARKUP) / max(len(tokens), 1)
 
 
 def scripts(text):
