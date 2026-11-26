@@ -140,7 +140,9 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
             HfSentenceTransformers.AddTo(md, dir, config);
             mapping.AddMetadata(md, config, dir);
 
-            var weights = mapping.MapWeights(config, HfQuantizedWeights.Resolve(config, checkpoint.Tensors), options);
+            using var modelOpt = ModelOptQuantization(dir);
+            System.Text.Json.JsonElement? modelOptQuantization = modelOpt is not null && modelOpt.RootElement.TryGetProperty("quantization", out var q) ? q : null;
+            var weights = mapping.MapWeights(config, HfQuantizedWeights.Resolve(config, checkpoint.Tensors, modelOptQuantization), options);
             if (decision != null)
             {
                 weights = weights.Concat(decision.HeadWeights(owned)).ToDictionary(StringComparer.Ordinal);
@@ -183,14 +185,20 @@ public sealed class HuggingFaceImporter(HuggingFaceImportOptions? options = null
     /// <exception cref="UnsupportedWeightFormatException">The quantization method is not read.</exception>
     private static void RejectUnsupportedQuantization(HfConfig config, string dir)
     {
-        string modelOptPath = Path.Combine(dir, "hf_quant_config.json");
-        using var modelOpt = File.Exists(modelOptPath) ? System.Text.Json.JsonDocument.Parse(File.ReadAllText(modelOptPath)) : null;
+        using var modelOpt = ModelOptQuantization(dir);
         var quantization = HfSupport.AssessQuantization(config, modelOpt?.RootElement);
         if (quantization.Level == SupportLevel.Unsupported)
         {
             throw new UnsupportedWeightFormatException(quantization.Method!,
                 $"{new DirectoryInfo(dir).Name}: weights quantized with {quantization.Method} are not supported (supported: unquantized, FP8, NVFP4, MXFP4, GPTQ, AWQ, compressed-tensors, bitsandbytes).");
         }
+    }
+
+    /// <summary>The parsed <c>hf_quant_config.json</c> of a ModelOpt checkpoint in <paramref name="dir"/>, or null when there is none.</summary>
+    private static System.Text.Json.JsonDocument? ModelOptQuantization(string dir)
+    {
+        string path = Path.Combine(dir, "hf_quant_config.json");
+        return File.Exists(path) ? System.Text.Json.JsonDocument.Parse(File.ReadAllText(path)) : null;
     }
 
     /// <summary>

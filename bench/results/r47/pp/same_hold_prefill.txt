@@ -1,0 +1,17 @@
+0 %, 2 MiB
+### O=~/sl-worktrees/perf-r47/bench/results/r47/pp; for m in Qwen3-8B-FP8 Qwen3-8B; do for p in vulkan cuda; do ~/r47-scripts/r47-pp.sh $O hold $p ~/models/hf/$m 512 2048 8192 | cut -c1-100; done; done
+hold vulkan 512: prefill 512 tok: best 46 ms = 11055.7 tok/s | decode: best 88.35, median 86.93, mea
+hold vulkan 2048: prefill 2048 tok: best 183 ms = 11170.3 tok/s | decode: best 86.21, median 85.46, 
+hold vulkan 8192: prefill 8192 tok: best 880 ms = 9314.3 tok/s | decode: best 77.30, median 76.60, m
+hold cuda 512: prefill 512 tok: best 31 ms = 16511.1 tok/s | decode: best 90.29, median 89.86, mean 
+hold cuda 2048: prefill 2048 tok: best 127 ms = 16073.8 tok/s | decode: best 87.80, median 87.49, me
+hold cuda 8192: prefill 8192 tok: best 629 ms = 13029.9 tok/s | decode: best 80.03, median 79.68, me
+hold vulkan 512: prefill 512 tok: best 67 ms = 7625.4 tok/s | decode: best 52.40, median 52.20, mean
+hold vulkan 2048: prefill 2048 tok: best 260 ms = 7865.7 tok/s | decode: best 51.98, median 51.65, m
+hold vulkan 8192: prefill 8192 tok: best 1208 ms = 6782.4 tok/s | decode: best 48.57, median 48.35, 
+hold cuda 512: prefill 512 tok: best 53 ms = 9635.2 tok/s | decode: best 52.44, median 52.37, mean 5
+hold cuda 2048: prefill 2048 tok: best 223 ms = 9177.9 tok/s | decode: best 51.68, median 51.61, mea
+hold cuda 8192: prefill 8192 tok: best 1005 ms = 8151.2 tok/s | decode: best 48.81, median 48.73, me
+### cd ~/sl-worktrees/perf-r47 && for m in Qwen3-8B-FP8 Qwen3-8B; do VLLM_VENV=~/venvs/vllm-r12 CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 timeout 1800 bench/s42_gap.sh bench/results/r47/pp/vllm $m vllm ~/models/hf/$m; grep -h '"pp' bench/results/r47/pp/vllm/vllm_$m.json | cut -c1-200; done
+{"name": "Qwen3-8B-FP8", "load_s": 84.67312526702881, "spec": null, "results": {"pp512": {"tok_s_median": 5092.792672660958, "tok_s_min": 4645.517782023252, "tok_s_max": 5394.796815086462}, "pp2048": 
+{"name": "Qwen3-8B", "load_s": 85.89101552963257, "spec": null, "results": {"pp512": {"tok_s_median": 5064.563142115803, "tok_s_min": 2608.87802141376, "tok_s_max": 5711.072346746176}, "pp2048": {"tok

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -11,10 +12,11 @@ public sealed partial class GraphLowerer
     /// True when the fp8 tensor-core GEMM (<c>gemm_fp8.slang</c>, <see cref="DeviceFeatures.MatrixFp8"/>) serves
     /// prefill-sized batches of a matmul with block-scaled E4M3 weights: activations quantized to E4M3 with one scale per
     /// 128 values, f8 x f8 MMAs with f32 accumulation, one scaling per weight block. Without the feature (or with
-    /// <c>SHARPLIGHT_FP8_GEMM=0</c>) the f16 tensor-core GEMM decodes the weights instead.
+    /// <c>SHARPLIGHT_FP8_GEMM=0</c>), and for <paramref name="weight"/> of a weight-only format (<see cref="LowPrecisionActivationsAllowed"/>),
+    /// the f16 tensor-core GEMM decodes the weights instead.
     /// </summary>
-    private bool UseFp8Gemm(DataType type, long k)
-        => DiagnosticSwitches.Fp8Gemm && _opt.Has(DeviceFeatures.MatrixFp8) && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32
+    private bool UseFp8Gemm(WeightInfo? weight, DataType type, long k)
+        => DiagnosticSwitches.Fp8Gemm && LowPrecisionActivationsAllowed(weight) && _opt.Has(DeviceFeatures.MatrixFp8) && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32
            && (type == DataType.F8E4M3_B128 || type == DataType.F8E4M3_B32 || type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R
                || type == ShaderTypes.F8E4M3_B128G)
            && k % 128 == 0;
@@ -111,7 +113,7 @@ public sealed partial class GraphLowerer
         serves = _ => false;
         long minRows = Fp8GemmMinRows(weightA.Type, n, k);
         long rowsMax = x.Shape[0] * rowsPerLead;
-        if (!DiagnosticSwitches.Fp8DualGemm || !UseFp8Gemm(weightA.Type, k) || UseMmq(weightA.Type, n, k) || rowsMax < minRows
+        if (!DiagnosticSwitches.Fp8DualGemm || !UseFp8Gemm(weightA.Buffer.Weight, weightA.Type, k) || UseMmq(weightA.Type, n, k) || rowsMax < minRows
             || MmqLayout(64)[3] % 2 != 0)
         {
             return false;

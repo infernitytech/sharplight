@@ -58,6 +58,12 @@ internal sealed record AppSettings
     /// </summary>
     public bool UseSystemTitleBar { get; init; }
 
+    /// <summary>The ids of the navigation groups the user collapsed (<c>NavigationGroupViewModel.Id</c>); a group not listed is expanded.</summary>
+    public IReadOnlyList<string> CollapsedNavigationGroups { get; init; } = [];
+
+    /// <summary>The user folded the navigation to a rail of group icons (a narrow window shows the rail regardless).</summary>
+    public bool CompactNavigation { get; init; }
+
     /// <summary>The tab of the Settings page that was open last (a name of the settings tab enumeration).</summary>
     public string? SettingsTab { get; init; }
 

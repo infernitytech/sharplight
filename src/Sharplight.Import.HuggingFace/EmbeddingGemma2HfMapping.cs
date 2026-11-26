@@ -37,10 +37,19 @@ internal sealed partial class EmbeddingGemma2HfMapping : HfDecoderFamilyMapping
         ["model.language_model.ple.per_layer_model_projection.weight"] = "per_layer.model_projection.weight",
         ["model.language_model.ple.per_layer_projection_norm.weight"] = "per_layer.projection_norm.weight",
         ["model.language_model.embedding_projection.weight"] = "embedding_projection.0.weight",
+        ["language_model.embed_tokens.weight"] = "token_embedding.weight",
+        ["language_model.norm.weight"] = "output_norm.weight",
+        ["language_model.ple.per_layer_model_projection.weight"] = "per_layer.model_projection.weight",
+        ["language_model.ple.per_layer_projection_norm.weight"] = "per_layer.projection_norm.weight",
+        ["language_model.embedding_projection.weight"] = "embedding_projection.0.weight",
     };
 
-    // The text model's tensors, saved alone (EmbeddingGemma2TextModel, bare or under "model.") or inside the composite model ("model.language_model.").
-    [GeneratedRegex(@"^model\.(?:language_model\.)?layers\.(\d+)\.(.+)$")]
+    // The multimodal parts of the composite model, with or without the "model." prefix (google/embeddinggemma-2 stores them bare).
+    private static readonly string[] s_towerPrefixes = ["vision_tower.", "audio_tower.", "embed_vision.", "embed_audio."];
+
+    // The text model's tensors, saved alone (EmbeddingGemma2TextModel, under "model.") or inside the composite model ("model.language_model.", or
+    // "language_model." without the prefix as in the google/embeddinggemma-2 release).
+    [GeneratedRegex(@"^(?:model\.(?:language_model\.)?|language_model\.)layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerNameRegex();
 
     /// <inheritdoc/>
@@ -63,8 +72,8 @@ internal sealed partial class EmbeddingGemma2HfMapping : HfDecoderFamilyMapping
 
     /// <inheritdoc/>
     protected override bool IsIgnored(string name)
-        => base.IsIgnored(name) || name.StartsWith("model.vision_tower.", StringComparison.Ordinal) || name.StartsWith("model.audio_tower.", StringComparison.Ordinal)
-           || name.StartsWith("model.embed_vision.", StringComparison.Ordinal) || name.StartsWith("model.embed_audio.", StringComparison.Ordinal);
+        => base.IsIgnored(name) || s_towerPrefixes.Any(p => name.StartsWith(p, StringComparison.Ordinal) || (name.StartsWith("model.", StringComparison.Ordinal)
+           && name.AsSpan(6).StartsWith(p, StringComparison.Ordinal)));
 
     /// <inheritdoc/>
     protected override void AddHyperParameters(Dictionary<string, object> md, HfConfig c)
@@ -99,8 +108,23 @@ internal sealed partial class EmbeddingGemma2HfMapping : HfDecoderFamilyMapping
         md[a + "per_layer.size"] = c.Int("hidden_size_per_layer_input");
     }
 
-    // The per_layer_config entry of a layer ({"head_dim", "num_key_value_heads"}), keyed by the layer index as a string.
+    // The per_layer_config entry of a layer ({"head_dim", "num_key_value_heads"}), keyed by the layer index as a string that may be zero-padded ("05" in
+    // google/embeddinggemma-2; the configuration class reads the keys as integers).
     private static JsonElement? LayerConfig(HfConfig c, int layer)
-        => c.Get("per_layer_config") is { ValueKind: JsonValueKind.Object } perLayer && perLayer.TryGetProperty(layer.ToString(System.Globalization.CultureInfo.InvariantCulture), out var entry)
-            ? entry : null;
+    {
+        if (c.Get("per_layer_config") is not { ValueKind: JsonValueKind.Object } perLayer)
+        {
+            return null;
+        }
+
+        foreach (var entry in perLayer.EnumerateObject())
+        {
+            if (int.TryParse(entry.Name, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int index) && index == layer)
+            {
+                return entry.Value;
+            }
+        }
+
+        return null;
+    }
 }

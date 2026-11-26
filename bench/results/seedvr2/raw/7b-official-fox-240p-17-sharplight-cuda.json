@@ -1,0 +1,46 @@
+{
+  "model": "seedvr2_ema_7b",
+  "provider": "cuda",
+  "device": "NVIDIA RTX PRO 4500 Blackwell",
+  "load_seconds": 1.826359,
+  "frames": 17,
+  "output": "832x480",
+  "runs": [
+    {
+      "read": 0.0517687,
+      "encoding": 1.1236146,
+      "restoring": 0.9592431000000001,
+      "decoding": 2.6187748,
+      "enhance": 4.7023122,
+      "write": 0.2406334,
+      "total": 4.9947242
+    },
+    {
+      "read": 0.0518248,
+      "encoding": 1.0690277,
+      "restoring": 0.8971351000000001,
+      "decoding": 2.6117287000000005,
+      "enhance": 4.5783024,
+      "write": 0.606563,
+      "total": 5.2366959
+    },
+    {
+      "read": 0.1155601,
+      "encoding": 1.2779156999999999,
+      "restoring": 0.9000187,
+      "decoding": 2.8045242000000004,
+      "enhance": 4.982913,
+      "write": 0.8090706,
+      "total": 5.9075522
+    }
+  ],
+  "median": {
+    "read": 0.0518248,
+    "encoding": 1.1236146,
+    "restoring": 0.9000187,
+    "decoding": 2.6187748,
+    "enhance": 4.7023122,
+    "write": 0.606563,
+    "total": 5.2366959
+  }
+}

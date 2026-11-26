@@ -124,6 +124,21 @@ internal sealed partial class OnnxTranslator
             case "RotaryEmbedding":
                 RotaryEmbedding(n, ins);
                 break;
+            case "DecoderMaskedMultiHeadAttention":
+                DecoderMaskedMultiHeadAttention(n, ins);
+                break;
+            case "QMoE":
+                QuantizedMoe(n, ins);
+                break;
+            case "QAttention":
+                QAttention(n, ins);
+                break;
+            case "QLinearConv":
+                QuantizedConv(n, ins);
+                break;
+            case "Unique":
+                ContribUnique(n, ins);
+                break;
             default:
                 if (!s_quantContrib.Contains(n.OpType))
                 {

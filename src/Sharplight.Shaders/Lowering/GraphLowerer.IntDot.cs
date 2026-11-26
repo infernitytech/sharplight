@@ -1,5 +1,6 @@
 using System.Globalization;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -23,10 +24,10 @@ public sealed partial class GraphLowerer
     /// range when that ends below <see cref="MatvecMaxRows"/> (<c>SHARPLIGHT_MMVQ_MAX_ROWS</c>) and the skinny GEMM covers the
     /// rows up to it for <paramref name="n"/> output rows, else above both the int-dot and the f32 matvec ranges.
     /// </summary>
-    private long IntDotSkinnyMinRows(DataType type, long k, long n)
+    private long IntDotSkinnyMinRows(TensorRef w, long k, long n)
     {
-        long cap = IntDotMaxRows(type, k);
-        return Math.Max((cap < MatvecMaxRows && SkinnyMaxRowsFor(n, type) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1, InvariantRows + 1);
+        long cap = IntDotMaxRows(w.Type, k);
+        return Math.Max((cap < MatvecMaxRows && SkinnyMaxRowsFor(n, w) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1, InvariantRows + 1);
     }
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
@@ -78,6 +79,15 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool QuantizedActivationsAllowed(Node n)
         => _opt.Compile.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false);
+
+    /// <summary>
+    /// True when products of <paramref name="weight"/> may quantize their activations to a low-precision float format (E4M3 for the
+    /// FP8 GEMMs, E2M1 for the FP4 GEMM): not for a weight whose quantization format is weight-only (<see cref="WeightInfo.Activations"/>
+    /// <see cref="ActivationScheme.Unquantized"/>: W4A16 NVFP4, W8A16 FP8) unless the compile allows reduced precision; those products
+    /// take the kernels that keep the activations (the integer-dot matvec's q8 blocks, the skinny GEMM and the GEMMs on decoded weights).
+    /// </summary>
+    private bool LowPrecisionActivationsAllowed(WeightInfo? weight)
+        => _opt.Compile.AllowReducedPrecision || weight?.Activations != ActivationScheme.Unquantized;
 
     /// <summary>
     /// Block formats of the integer-dot matvec read 32 values per chunk: the 32-value GGUF blocks, and the group-scaled formats of

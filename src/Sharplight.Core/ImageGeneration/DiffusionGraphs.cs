@@ -57,6 +57,33 @@ public static class DiffusionGraphs
     /// <summary>The VAE encoder graph: images to model latents.</summary>
     public const string VaeEncode = "vae_encode";
 
+    /// <summary>
+    /// The optional tiny autoencoder's decoder graph (component <see cref="TinyVaeRole"/>, TAESD): the inputs and outputs of
+    /// <see cref="VaeDecode"/>, much cheaper and less faithful (previews, <see cref="ImageGenerationOptions.TinyAutoencoder"/>).
+    /// </summary>
+    public const string TinyVaeDecode = "tiny_vae_decode";
+
+    /// <summary>The optional tiny autoencoder's encoder graph (component <see cref="TinyVaeRole"/>): the inputs and outputs of <see cref="VaeEncode"/>.</summary>
+    public const string TinyVaeEncode = "tiny_vae_encode";
+
+    /// <summary>The role of the optional tiny autoencoder component (graphs <see cref="TinyVaeDecode"/>, <see cref="TinyVaeEncode"/>).</summary>
+    public const string TinyVaeRole = "tiny-vae";
+
+    /// <summary>
+    /// The optional ControlNet-conditioned denoiser graph (component <see cref="ControlNetRole"/>; UNet models with a ControlNet): the inputs and
+    /// output of <see cref="Denoise"/> plus <see cref="ControlImage"/> and <see cref="ControlScale"/>.
+    /// </summary>
+    public const string DenoiseControl = "denoise_control";
+
+    /// <summary>The role of the optional ControlNet component (graph <see cref="DenoiseControl"/>).</summary>
+    public const string ControlNetRole = "controlnet";
+
+    /// <summary>Input of <see cref="DenoiseControl"/>: the control image per batch row, f32 [N, 3, H, W] in [0, 1] at the output size.</summary>
+    public const string ControlImage = "control_image";
+
+    /// <summary>Input of <see cref="DenoiseControl"/>: the scale of the ControlNet's residuals per batch row, f32 [N] (0: no control).</summary>
+    public const string ControlScale = "control_scale";
+
     /// <summary>Input of <see cref="TextEncode"/>: token ids.</summary>
     public const string Tokens = "tokens";
 

@@ -445,6 +445,135 @@ def cases():
              {"k": 2, "activation_type": "swiglu", "swiglu_fusion": 1, "activation_alpha": 1.702, "activation_beta": 1.0, "swiglu_limit": 7.0},
              inits={"w1": f32(3, 32, 8, scale=0.3), "b1": f32(3, 32), "w2": f32(3, 8, 16, scale=0.3), "b2": f32(3, 8)}),
     ]
+
+    # ---- quantized attention, NHWC QLinearConv, Unique (appended last so the inputs of the cases above stay the same) ----------
+    # Small weight magnitudes keep onnxruntime's u8 x s8 pair sums below the int16 range (exact on CPUs without VNNI too).
+    qx = u8(B, S, D)
+    qw = RNG.integers(-30, 31, (D, 3 * D), dtype=np.int8)
+    qb = f32(3 * D)
+    q_inits = {"w": qw, "b": qb, "xs": np.array(0.02, np.float32), "ws": np.array(0.01, np.float32), "xz": np.array(120, np.uint8)}
+    out += [
+        Case("ms_qattention", "QAttention", [("x", qx), ("w", None), ("b", None), ("xs", None), ("ws", None), ("m", None), ("xz", None)], ["y"],
+             {"num_heads": N}, inits=q_inits),
+        Case("ms_qattention_mask_index", "QAttention",
+             [("x", qx), ("w", None), ("b", None), ("xs", None), ("ws", None), ("m", mask_len), ("xz", None)], ["y"],
+             {"num_heads": N}, inits=q_inits),
+        Case("ms_qattention_unidirectional_wzp", "QAttention",
+             [("x", qx), ("w", None), ("b", None), ("xs", None), ("ws", None), ("m", None), ("xz", None), ("wz", None)], ["y"],
+             {"num_heads": N, "unidirectional": 1},
+             inits={**q_inits, "w": (qw.astype(np.int16) + 128).astype(np.uint8), "wz": np.array(128, np.uint8)}),
+        Case("ms_qattention_past", "QAttention",
+             [("x", u8(B, 1, D)), ("w", None), ("b", None), ("xs", None), ("ws", None), ("m", np.ones((B, P + 1), np.int32)), ("xz", None),
+              ("wz", None), ("past", f32(2, B, N, P, H))], ["y", "present"], {"num_heads": N, "unidirectional": 1},
+             inits={**q_inits, "wz": np.array(0, np.int8)}),
+        Case("ms_qlinear_conv_nhwc", "QLinearConv",
+             [("x", u8(1, 6, 6, 3)), ("xs", None), ("xz", None), ("w", None), ("ws", None), ("wz", None), ("ys", None), ("yz", None), ("b", None)], ["y"],
+             {"channels_last": 1, "kernel_shape": [3, 3], "pads": [1, 1, 1, 1]},
+             inits={"xs": np.array(0.02, np.float32), "xz": np.array(100, np.uint8), "w": RNG.integers(-30, 31, (4, 3, 3, 3), dtype=np.int8),
+                    "ws": (np.abs(f32(4)) * 0.01 + 0.002).astype(np.float32), "wz": np.zeros(4, np.int8), "ys": np.array(0.05, np.float32),
+                    "yz": np.array(128, np.uint8), "b": RNG.integers(-200, 200, (4,), dtype=np.int32)}),
+        Case("ms_qlinear_conv_nchw", "QLinearConv",
+             [("x", u8(1, 3, 6, 6)), ("xs", None), ("xz", None), ("w", None), ("ws", None), ("wz", None), ("ys", None), ("yz", None)], ["y"],
+             {"kernel_shape": [3, 3], "strides": [2, 2]},
+             inits={"xs": np.array(0.02, np.float32), "xz": np.array(100, np.uint8), "w": RNG.integers(-30, 31, (4, 3, 3, 3), dtype=np.int8),
+                    "ws": np.array(0.01, np.float32), "wz": np.array(0, np.int8), "ys": np.array(0.05, np.float32), "yz": np.array(128, np.uint8)}),
+        Case("ms_unique", "Unique", [("x", np.array([2.0, 1.0, 1.0, 3.0, 4.0, 3.0, 2.0], np.float32))], ["y", "idx", "counts"]),
+    ]
+
+    # ---- DecoderMaskedMultiHeadAttention: one decoded token over a shared past buffer of M rows, or cross attention ----------
+    M = 7
+
+    def dmmha(name, inputs, outputs=("y", "present_k", "present_v"), attrs=None):
+        names = ["q", "k", "v", "m", "ab", "pk", "pv", "pl", "bw", "ci", "bias"]
+        given = dict(inputs)
+        ins = [(nm, given[nm]) if nm in given else (nm, None) for nm in names[:max(names.index(nm) for nm in given) + 1]]
+        return Case(name, "DecoderMaskedMultiHeadAttention", ins, list(outputs), {"num_heads": N, "past_present_share_buffer": 1, **(attrs or {})})
+
+    def self_inputs(p):
+        return [("q", f32(B, 1, D)), ("k", f32(B, 1, D)), ("v", f32(B, 1, D)), ("pk", f32(B, N, M, H)), ("pv", f32(B, N, M, H)),
+                ("pl", np.array([p], np.int32))]
+
+    dm_mask = np.ones((B, 5), np.int32)   # [B, past_sequence_length + 1]
+    dm_mask[1, 1] = 0
+    out += [
+        dmmha("ms_dmmha_self", self_inputs(3)),
+        dmmha("ms_dmmha_self_first", self_inputs(0)),
+        dmmha("ms_dmmha_self_last_row_scale", self_inputs(M - 1), attrs={"scale": 0.3}),
+        dmmha("ms_dmmha_self_mask_bias", [*self_inputs(4), ("m", dm_mask), ("bias", f32(3 * D))]),
+        dmmha("ms_dmmha_self_attention_bias", [*self_inputs(2), ("ab", f32(B, N, 1, 3))]),
+        dmmha("ms_dmmha_cross", [("q", f32(B, 1, D)), ("k", f32(B, N, 9, H)), ("v", f32(B, N, 9, H))], outputs=("y",),
+              attrs={"past_present_share_buffer": 0}),
+    ]
+
+    # ---- QMoE: integer expert weights [E, N, K·bits/8] (low bits first) with row or block scales ---------------------------
+    E, HID, INTER = 3, 32, 32
+
+    def experts(rows, cols, bits, block=0, zero_points=False):
+        packed = u8(E, rows, cols * bits // 8)
+        scales = (np.abs(f32(E, rows, cols // block) if block else f32(E, rows)) * 0.05 + 0.01).astype(np.float32)
+        zp = None
+        if zero_points:
+            count = cols // block if block else 1
+            zp = u8(E, rows, (count * bits + 7) // 8) if block else u8(E, (rows * bits + 7) // 8)
+        return packed, scales, zp
+
+    def qmoe(name, bits, block=0, activation="relu", fusion=0, zero_points=False, fc3=False):
+        width = (2 if fusion else 1) * INTER
+        w1, s1, z1 = experts(width, HID, bits, block, zero_points)
+        w2, s2, z2 = experts(HID, INTER, bits, block, zero_points)
+        inits = {"w1": w1, "s1": s1, "b1": f32(E, width), "w2": w2, "s2": s2, "b2": f32(E, HID)}
+        names = ["x", "r", "w1", "s1", "b1", "w2", "s2", "b2"]
+        if fc3:
+            w3, s3, z3 = experts(INTER, HID, bits, block, zero_points)
+            inits |= {"w3": w3, "s3": s3, "b3": f32(E, INTER)}
+            names += ["w3", "s3", "b3"]
+        if zero_points:
+            names += [""] * (11 - len(names)) + ["z1", "z2"] + (["z3"] if fc3 else [])
+            inits |= {"z1": z1, "z2": z2} | ({"z3": z3} if fc3 else {})
+        given = {"x": f32(4, HID), "r": f32(4, E)}
+        ins = [(nm, given.get(nm)) if nm else (f"absent{i}", None) for i, nm in enumerate(names)]
+        attrs = {"k": 2, "expert_weight_bits": bits, "activation_type": activation}
+        if block:
+            attrs["block_size"] = block
+        if fusion:
+            attrs |= {"swiglu_fusion": fusion, "activation_alpha": 1.702, "activation_beta": 1.0, "swiglu_limit": 7.0}
+        return Case(name, "QMoE", ins, ["y"], attrs, inits=inits)
+
+    out += [
+        qmoe("ms_qmoe_4b_rows", 4),
+        qmoe("ms_qmoe_8b_rows", 8, activation="silu"),
+        qmoe("ms_qmoe_4b_blocks_zp", 4, block=16, zero_points=True),
+        # 8-bit block-wise experts are left out: onnxruntime's CPU kernel is ~1e-2 off the exact dequantized product for them.
+        qmoe("ms_qmoe_4b_blocks_swiglu", 4, block=16, activation="swiglu", fusion=1),
+        qmoe("ms_qmoe_8b_rows_zp", 8, activation="gelu", zero_points=True),   # onnxruntime CPU has no FC3 gating (fc3=True)
+    ]
+
+    # ---- QLinear* elementwise / pooling / concat (onnxruntime's QDQ-fused CNN exports) ---------------------------------------
+    def qp(scale, zero):
+        return np.array(scale, np.float32), np.array(zero, np.uint8)
+
+    (as_, az), (bs_, bz), (ys_, yz) = qp(0.05, 120), qp(0.03, 100), qp(0.07, 128)
+    qa, qb = u8(B, 6, 4, 4), u8(B, 6, 4, 4)
+    out += [
+        Case("ms_qlinear_add", "QLinearAdd", [("a", qa), ("as", None), ("az", None), ("b", qb), ("bs", None), ("bz", None), ("ys", None), ("yz", None)],
+             ["y"], inits={"as": as_, "az": az, "bs": bs_, "bz": bz, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_mul_broadcast", "QLinearMul",
+             [("a", qa), ("as", None), ("az", None), ("b", u8(1, 6, 1, 1)), ("bs", None), ("bz", None), ("ys", None), ("yz", None)],
+             ["y"], inits={"as": as_, "az": az, "bs": bs_, "bz": bz, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_sigmoid", "QLinearSigmoid", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             inits={"xs": as_, "xz": az, "ys": np.array(1 / 256, np.float32), "yz": np.array(0, np.uint8)}),
+        Case("ms_qlinear_leaky_relu", "QLinearLeakyRelu", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             {"alpha": 0.1}, inits={"xs": as_, "xz": az, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_softmax", "QLinearSoftmax", [("x", u8(B, 10)), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             {"axis": -1, "opset": 13}, inits={"xs": as_, "xz": az, "ys": np.array(1 / 256, np.float32), "yz": np.array(0, np.uint8)}),
+        Case("ms_qlinear_global_average_pool", "QLinearGlobalAveragePool", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)],
+             ["y"], {"channels_last": 0}, inits={"xs": as_, "xz": az, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_average_pool", "QLinearAveragePool", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             {"kernel_shape": [2, 2], "strides": [2, 2]}, inits={"xs": as_, "xz": az, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_concat", "QLinearConcat",
+             [("ys", None), ("yz", None), ("a", qa), ("as", None), ("az", None), ("b", u8(B, 3, 4, 4)), ("bs", None), ("bz", None)], ["y"],
+             {"axis": 1}, inits={"ys": ys_, "yz": yz, "as": as_, "az": az, "bs": bs_, "bz": bz}),
+    ]
     return out
 
 

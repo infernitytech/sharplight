@@ -1,0 +1,36 @@
+decoder: MultiSequenceDecoder, slots 32, vocab 128256, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 10 steps after 5 warm-up steps; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min; mean ± sd | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 16+0: 32.5 ms; recorded True replayed False record 6.3 submit 0.0 wait 17.8 gpu 24.7
+[run 2] 16+0: 25.2 ms; recorded False replayed True record 0.0 submit 4.5 wait 20.5 gpu 20.8
+[run 3] 16+0: 20.6 ms; recorded False replayed True record 0.0 submit 0.0 wait 20.5 gpu 20.5
+[run 4] 16+0: 20.7 ms; recorded False replayed True record 0.0 submit 0.0 wait 20.6 gpu 20.6
+| 16 | 0 (0) | 32.5 | 486 / 0 | 20.62 / 20.70, 20.55; mean 20.69 ± 0.06 |  |
+[first] 13+240: 44.1 ms; recorded True replayed False record 7.0 submit 0.0 wait 36.1 gpu 43.1
+[run 2] 13+240: 40.2 ms; recorded False replayed True record 0.0 submit 3.1 wait 37.0 gpu 37.1
+[run 3] 13+240: 37.5 ms; recorded False replayed True record 0.0 submit 0.0 wait 37.3 gpu 37.3
+[run 4] 13+240: 38.9 ms; recorded False replayed True record 0.0 submit 0.0 wait 38.8 gpu 38.8
+| 13 | 240 (1) | 44.1 | 454 / 0 | 39.45 / 39.65, 39.28; mean 39.65 ± 0.12 |  |
+[first] 12+250: 42.9 ms; recorded True replayed False record 3.4 submit 0.9 wait 38.4 gpu 42.7
+[run 2] 12+250: 42.7 ms; recorded False replayed True record 0.0 submit 2.7 wait 39.8 gpu 39.9
+[run 3] 12+250: 40.0 ms; recorded False replayed True record 0.0 submit 0.1 wait 39.7 gpu 39.7
+[run 4] 12+250: 40.6 ms; recorded False replayed True record 0.0 submit 0.0 wait 40.3 gpu 40.3
+| 12 | 250 (1) | 42.9 | 358 / 0 | 40.86 / 40.99, 40.78; mean 40.97 ± 0.06 |  |
+[first] 15+200: 41.1 ms; recorded True replayed False record 4.2 submit 0.0 wait 36.8 gpu 41.0
+[run 2] 15+200: 41.2 ms; recorded False replayed True record 0.0 submit 3.6 wait 37.3 gpu 37.5
+[run 3] 15+200: 37.3 ms; recorded False replayed True record 0.0 submit 0.0 wait 37.1 gpu 37.1
+[run 4] 15+200: 37.8 ms; recorded False replayed True record 0.0 submit 0.0 wait 37.5 gpu 37.6
+| 15 | 200 (1) | 41.1 | 454 / 0 | 38.35 / 38.48, 38.24; mean 38.46 ± 0.06 |  |
+[first] 16+240: 35.3 ms; recorded True replayed False record 4.0 submit 0.0 wait 31.1 gpu 35.1
+[run 2] 16+240: 35.0 ms; recorded False replayed True record 0.0 submit 2.6 wait 32.2 gpu 32.3
+[run 3] 16+240: 32.1 ms; recorded False replayed True record 0.0 submit 0.0 wait 31.9 gpu 31.9
+[run 4] 16+240: 32.4 ms; recorded False replayed True record 0.0 submit 0.0 wait 32.2 gpu 32.2
+| 16 | 240 (1) | 35.3 | 358 / 0 | 32.73 / 32.95, 32.61; mean 32.91 ± 0.09 | 0.050 |
+[first] 14+100: 37.7 ms; recorded True replayed False record 14.9 submit 0.0 wait 22.5 gpu 37.5
+[run 2] 14+100: 29.4 ms; recorded False replayed True record 0.0 submit 3.9 wait 25.3 gpu 25.4
+[run 3] 14+100: 25.4 ms; recorded False replayed True record 0.0 submit 0.0 wait 25.2 gpu 25.2
+[run 4] 14+100: 25.4 ms; recorded False replayed True record 0.0 submit 0.0 wait 25.2 gpu 25.2
+| 14 | 100 (1) | 37.7 | 582 / 0 | 25.73 / 26.00, 25.61; mean 26.01 ± 0.30 |  |

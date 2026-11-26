@@ -47,6 +47,6 @@ every line you touch, and use braces on every if/else/for/foreach/while/do/using
   before. GPU suites run with the GPU index given in your task (`SHARPLIGHT_VK_DEVICES`); the GPU is shared with other agents, so retry a timing-only failure once before investigating.
 - Work in your worktree. Commit in small logical commits (e.g. "Cpu: one type per file", "Cpu: extension blocks",
   "Cpu: XML docs") ending with a blank line and the trailer lines given in your task (`Co-Authored-By: ...`). Start with
-  `git merge develop` and merge it again before finishing; do not push and do not touch `develop` or `main`.
+  `git merge main` and merge it again before finishing; do not push and do not touch `main` or `release/*`.
 - Final report: what was split/removed/narrowed, any public API you thought should change but didn't (list it as a
   suggestion), test totals, and remaining warnings.

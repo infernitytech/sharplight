@@ -96,6 +96,11 @@ internal static partial class SingleFileCheckpoint
                 return LatentDiffusionSource.Architecture;
             }
 
+            if (ControlNetCheckpoint.IsControlNet(names))
+            {
+                return ControlNetCheckpoint.Architecture;
+            }
+
             return path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase) ? ComponentCheckpoint.Classify(names) : null;
         }
         catch (IOException)

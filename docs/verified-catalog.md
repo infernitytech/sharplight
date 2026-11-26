@@ -76,7 +76,7 @@ Readers that do not know the field ignore it (the schema does not forbid extra m
 
 Formats: `gguf`, `safetensors`, `pytorch` (`.bin` / `.pth`), `diffusers`, `single-file`, `whisper-cpp`, `onnx`, `slm`. Companion roles
 are the auxiliary roles of `Sharplight.Vision.AuxiliaryRoles` (`mmproj`, `vocoder`, `text-encoder`, `text-encoder-2`, `text-encoder-3`,
-`vae`, `transformer-2`, `image-encoder`, `draft`, `lora`): at install time each companion is passed to the converter in that role, so the
+`vae`, `transformer-2`, `image-encoder`, `draft`, `lora`, `tiny-vae`, `controlnet`): at install time each companion is passed to the converter in that role, so the
 installed package is complete and the Image, Video and Speak pages load it without picking companion files by hand. A companion with
 `"intoVariantFolder": true` is instead downloaded into the variant's own folder and not passed in a role: for official releases whose
 files are split over repositories while the importer expects them in one folder (SeedVR2 7B: the DiT and VAE of `SeedVR2-7B` with the
@@ -119,7 +119,9 @@ Q8_0 (CLIP-L, CLIP-G, T5, VAE from the pipeline), Z-Image-Turbo Q8_0 and Qwen-Im
 (SNAC), OuteTTS (WavTokenizer) and F5-TTS (Vocos), plus Kokoro, whisper.cpp, Silero VAD and a GGUF without companions; on 2026-11-17 also
 FLUX.2 Klein 4B Q8_0 and Qwen-Image 2.1 / 2.1 Turbo Q8_0 (pipeline text encoder and VAE), Wan 2.2 TI2V 5B Q8_0 and HunyuanVideo Q4_K_M (the
 pipeline folder without its transformer weights, one download in the text-encoder and VAE roles). Every one built a complete package.
-The Wan 2.2 A14B and Wan 2.1 I2V / FLF2V installs use the same folder subset (Wan 2.1's) and the roles of their verification tests; their
+On 2026-11-26 the feed builder (`feedtool build`, the same download and conversion) built `sd-1.5-controlnet-canny` (the SD 1.5 folder
+with the ControlNet in the `controlnet` role) and `stable-diffusion-1.5` / `fp16-diffusers-taesd` (TAESD in the `tiny-vae` role) from the Hub
+into complete packages. The Wan 2.2 A14B and Wan 2.1 I2V / FLF2V installs use the same folder subset (Wan 2.1's) and the roles of their verification tests; their
 conversion was not run through the installer (the Wan 2.1 umT5 files were not available locally). `RealCatalogInstallTests` installs whisper-tiny from the committed catalog against the real Hub
 (`SHARPLIGHT_HUB_NETWORK_TESTS=1`).
 
@@ -172,7 +174,7 @@ Studio embeds the catalog at build time and, when online, fetches `https://downl
 (at most once a day), uses it when its schema version is supported, it validates and its `updated` date is not older than the
 embedded copy's (on the same date the published copy wins), and caches it in Studio's data directory; offline, or when the download is not valid, the cached or embedded copy is used.
 The `catalog` job of `.github/workflows/studio.yml` validates the catalog (and that compatible-models.md matches it) on every run and,
-on pushes to develop, uploads it to R2 as `catalog/verified-models.json` (bucket and credentials of the `studio-release` environment, the
+on pushes to main, uploads it to R2 as `catalog/verified-models.json` (bucket and credentials of the `studio-release` environment, the
 same as the Studio packages; `STUDIO_CATALOG_KEY` overrides the key), so Studio installs pick up newly verified models without a
 release. CI (`ci.yml`, step "Verified catalog") runs `validate`, `docs --check` and `schema --check`, so the catalog and the document
 cannot drift apart.

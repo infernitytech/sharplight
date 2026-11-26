@@ -14,6 +14,8 @@
     <ProjectReference Include="../../src/Sharplight.Core/Sharplight.Core.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cuda/Sharplight.Cuda.csproj" />
+    <Compile Include="../Shared/TestGpu.cs" Link="Shared/TestGpu.cs" />
     <ProjectReference Include="../../src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
     <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
     <Content Include="Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />

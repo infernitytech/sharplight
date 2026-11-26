@@ -1,0 +1,2 @@
+ready=1 after 42 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 8.130174843012355, "agg_tok_s": 1007.6044068155289, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 67.48876868901311, "ttft_p50_ms": 103.42040553223342, "ttft_p95_ms": 256.98164047207683, "itl_mean_ms": 14.817280259001018, "itl_p50_ms": 12.530390988104045, "itl_p95

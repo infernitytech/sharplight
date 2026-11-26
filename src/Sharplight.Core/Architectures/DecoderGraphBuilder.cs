@@ -157,6 +157,11 @@ internal sealed partial class DecoderGraphBuilder
             // Bidirectional encoders with a decoder's layers (EuroBERT, NeoBERT, ModernBERT, EmbeddingGemma, Llama embedding models): every token
             // sees the whole sequence, so there is nothing to decode token by token; the embedding graph is the model.
             var packed = new Dictionary<string, ComputeGraph> { [WellKnown.EmbedGraph] = BuildPacked(WellKnown.EmbedGraph, classify: false) };
+            if (SequenceClassifierHead.IsPresent(_src))
+            {
+                packed[WellKnown.ClassifyGraph] = BuildPackedClassifier();
+            }
+
             if (IsDiffusion)
             {
                 packed[WellKnown.DenoiseGraph] = BuildDenoise();
@@ -429,6 +434,20 @@ internal sealed partial class DecoderGraphBuilder
                 var hidden = OutputNorm(b, last);
                 b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
             }
+        }
+
+        return b.Build();
+    }
+
+    // The classify graph of a bidirectional encoder with a sequence classification head (cross-encoders): the packed layers, the output norm, the head.
+    private ComputeGraph BuildPackedClassifier()
+    {
+        var b = new GraphBuilder(WellKnown.ClassifyGraph, _src.Weight);
+        var inp = PackedSequences.Declare(b, tokenTypes: false);
+        var x = PackedLayers(b, inp);
+        using (b.Group("output"))
+        {
+            SequenceClassifierHead.Output(b, _src, OutputNorm(b, x), inp.SequenceSpans, (v, weight) => _norm.Apply(b, v, weight, _hp.Eps, "classifier_norm"));
         }
 
         return b.Build();

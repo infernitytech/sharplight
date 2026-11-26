@@ -28,6 +28,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<Wav2Vec2CtcAdapter>()
                 .AddModelAdapter<NemotronHAdapter>()
                 .AddModelAdapter<HybridAdapter>()
+                .AddModelAdapter<BlockResidualDecoderAdapter>()
                 .AddModelAdapter<DepthMemoryAdapter>()
                 .AddModelAdapter<Rwkv7Adapter>()
                 .AddModelAdapter<Rwkv6Adapter>()

@@ -27,6 +27,12 @@ public sealed class WeightInfo
     /// views below only where the groups stay aligned; stored in packages.
     /// </summary>
     public int ScaleRowBlock { get; init; }
+    /// <summary>
+    /// What the weight's quantization format defines for the activations of its products (weight-only, or activations quantized
+    /// too); <see cref="ActivationScheme.Unspecified"/> when the source does not say. Importers set it from the checkpoint's
+    /// quantization config; kept by every view, stored in packages.
+    /// </summary>
+    public ActivationScheme Activations { get; init; }
     /// <summary>Size of the tensor in bytes, from <see cref="Type"/> and <see cref="Shape"/>.</summary>
     public long ByteSize => Type.ByteSize(Shape.Elements());
     /// <inheritdoc/>
@@ -61,8 +67,15 @@ public sealed class WeightInfo
             throw new ArgumentException($"{Name}: a weight with an input order cannot change its last dimension ({Shape} as {s}).");
         }
 
-        return new() { Name = name, Type = Type, Shape = s, Source = Source, InputOrder = InputOrder, ScaleRowBlock = ViewScaleRowBlock(s) };
+        return new()
+        {
+            Name = name, Type = Type, Shape = s, Source = Source, InputOrder = InputOrder, ScaleRowBlock = ViewScaleRowBlock(s), Activations = Activations,
+        };
     }
+
+    /// <summary>This weight (same name, type, shape, bytes and input order) with the given <see cref="ScaleRowBlock"/> and <see cref="Activations"/>.</summary>
+    internal WeightInfo WithFacts(int scaleRowBlock, ActivationScheme activations)
+        => new() { Name = Name, Type = Type, Shape = Shape, Source = Source, InputOrder = InputOrder, ScaleRowBlock = scaleRowBlock, Activations = activations };
 
     /// <summary><see cref="ScaleRowBlock"/> of a view of this tensor as <paramref name="shape"/> (the same elements, row-major).</summary>
     private int ViewScaleRowBlock(Shape shape)
@@ -113,6 +126,7 @@ public sealed class WeightInfo
             InputOrder = InputOrder,
             // Slices of a stack keep whole matrices; slices of a matrix keep the groups where they start on one.
             ScaleRowBlock = Shape.Rank > 2 || (ScaleRowBlock > 0 && firstRow % ScaleRowBlock == 0) ? ScaleRowBlock : 0,
+            Activations = Activations,
         };
     }
 
@@ -145,6 +159,7 @@ public sealed class WeightInfo
             Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]),
             InputOrder = CommonInputOrder(name, parts),
             ScaleRowBlock = first.Shape.Rank >= 2 ? CommonScaleRowBlock(parts, _ => true) : 0,
+            Activations = CommonActivations(parts),
         };
     }
 
@@ -182,7 +197,22 @@ public sealed class WeightInfo
             InputOrder = CommonInputOrder(name, parts),
             // Matrices joined by rows keep the groups where every part holds whole groups; stacks joined by matrices keep them.
             ScaleRowBlock = CommonScaleRowBlock(parts, w => w.Shape.Rank > 2 || w.Shape[0].Fixed % w.ScaleRowBlock == 0),
+            Activations = CommonActivations(parts),
         };
+    }
+
+    /// <summary>
+    /// The <see cref="Activations"/> of a tensor joined from <paramref name="parts"/>: weight-only when one part is (its products must
+    /// keep full-precision activations), quantized when all are, else unspecified.
+    /// </summary>
+    private static ActivationScheme CommonActivations(IReadOnlyList<WeightInfo> parts)
+    {
+        if (parts.Any(w => w.Activations == ActivationScheme.Unquantized))
+        {
+            return ActivationScheme.Unquantized;
+        }
+
+        return parts.All(w => w.Activations == ActivationScheme.Quantized) ? ActivationScheme.Quantized : ActivationScheme.Unspecified;
     }
 
     /// <summary>The input order shared by all <paramref name="parts"/>.</summary>
