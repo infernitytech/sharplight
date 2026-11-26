@@ -85,10 +85,11 @@ Notes: [core-task-utilities](memory/core-task-utilities.md), [project-goals-pari
   (release branch -> NuGet + Studio via Velopack to R2, then merge into `main`; a `v*` tag push needs the owner's go-ahead).
 - **`main`** = `43bd18d3` "Merge release/v0.3 into main (Sharplight 0.3.3)". Its two release fixes (Hub PyTorch
   checkpoints as a format, one progress bar per Studio download) are on develop as cherry-picks.
-- **`develop`** = `e3e8aed1` locally, 11 commits ahead of `origin/develop`: the video-streaming merge `9d494bcf`
+- **`develop`** contains the video-streaming merge `9d494bcf`
   (benchmarks §115: video enhancement streams frames through a bounded pipeline with memory independent of clip
   length, SeedVR2 VAE tiling for 1080p on 32 GB, Studio Enhance writes output incrementally and keeps partial results on
-  cancel) and its section-number commit. **Pending push** (the owner pushes). origin/develop already has §114
+  cancel) and its section-number commit, pushed 2026-11-26 (verify: Core, Hosting, Studio green; Video's BundledFfmpegTests
+  and one ControlNet test failed only for local environment reasons: no locally built FFmpeg, disk quota). It also has §114
   (perf/llm-r48: Llama-3.1-8B 16-stream ITL p99 84 -> 35 ms, vLLM 33.5) and the feed listing of the Nemotron 3.5 Bolt,
   SDXL ControlNet and SDXL TAESDXL packages.
 - Suites were green for the affected suites at each merge. Known failures on develop: CosyVoiceTests.Streams_chunks_(gpu:
