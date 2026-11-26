@@ -54,6 +54,9 @@ OVERRIDES = {
   "dpt-hybrid-midas": dict(shapes={"pixel_values": [-1, 3, 384, 384]}),
   "grounding-dino-tiny": dict(sym={"L": 6}, gen={"input_ids": ("vals", [[101, 4937, 1012, 4937, 1012, 102]]), "pixel_values": "imgnorm"}),
   "phi35-mini-q4f16": dict(sym={"L": 1, "past": 8}, f32ref=True),
+  # f16-weight matmuls take f16 activations on the GPU backends (CompileOptions.AllowReducedPrecision): against the f32 copy
+  # they land at 1.5-2.5e-3, the spread of one f16 rounding of every matmul input (benchmarks §122).
+  "qwen2.5-0.5b.model_fp16": dict(f32ref=True, rms=5e-3),
   "ssd-12-int8": dict(gen={"*": "img255norm"}, u8weights=True),
   "zipformer-encoder": dict(sym={"N": 1}),
   "efficientnet-lite4-int8": dict(gen={"*": "img255norm"}, rms=0.25),
@@ -92,7 +95,14 @@ def dims_of(i, sym, has_past, batchname_default=-1):
 
 def eval_dim(p, sym, has_past, iname):
     if p in sym: return sym[p]
-    if "+" in p: return sum(eval_dim(q.strip(), sym, has_past, iname) for q in p.split("+"))
+    if p.strip().isdigit(): return int(p)
+    if "+" in p:
+        terms = [q.strip() for q in p.split("+")]
+        # "past_sequence_length + 1" (optimum exports traced with one new token) is the total length past + L: the
+        # attention mask then covers exactly the past and the new tokens.
+        if has_past and len(terms) == 2 and any("past" in q.lower() for q in terms) and any(q.isdigit() for q in terms):
+            return sym.get("past", 8) + sym.get("L", 4)
+        return sum(eval_dim(q, sym, has_past, iname) for q in terms)
     lp = p.lower()
     if "past" in lp: return sym.get("past", 8)
     if "total" in lp: return sym.get("past", 8) + sym.get("L", 4)

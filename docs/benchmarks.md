@@ -18579,3 +18579,50 @@ LayerNorm rows.
 SHARPLIGHT_CPU_PROFILE=min SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/vit-base-patch16-224.json cpu --batch 1 --runs 40
 for isa in scalar v128 avx2 avx512vnni; do SHARPLIGHT_CPU_ISA=$isa dotnet run --project tests/Sharplight.Cpu.Tests -c Release --no-build -- -class Sharplight.Cpu.Tests.LayerNormTests; done
 ```
+
+## 122. ONNX qwen2.5-0.5b fp16 parity: the reference was the outlier, and the GPU gap is the f16 activations of f16-weight matmuls (2026-11-26)
+
+Issue #72. RTX PRO 6000 Blackwell (Vulkan and CUDA) and Ryzen 9 9950X (CPU). Model `qwen2.5-0.5b/model_fp16.onnx`
+(onnx-community, converted with fp16 casts at the graph inputs and outputs, so every internal op is fp16). Inputs: 4 new
+tokens and 8 past positions. Reference: onnxruntime 1.31.1 CPU EP.
+
+**122.1 The reference.** ORT CPU's fp16 run rounds every intermediate to fp16. Against it, all three Sharplight backends are
+7.3e-2 off and agree with each other: CPU 7.32e-2, Vulkan 7.29e-2, CUDA 7.27e-2 relative RMS on the logits. phi-3.5's
+reference (§33) already came from the f32 copy of the graph for this reason. `make_survey_refs.py` now does the same for
+this model (`f32ref`):
+
+| backend | worst rel. RMS vs ORT fp16 | vs f32 copy | vs f32 copy with f16-rounded matmul inputs |
+|---|---|---|---|
+| CPU | 7.3e-2 | 2.3e-4 | 1.7e-3 |
+| Vulkan | 7.3e-2 | 1.5e-3 | 1.8e-3 |
+| CUDA | 7.3e-2 | 2.5e-3 | 1.5e-3 |
+
+**122.2 The GPU gap.** I bisected it with probe outputs: the same graph, with 21 intermediate tensors (layer 0 op by op,
+then the residual stream of layers 1-23) as its outputs. At layer 0's `q_proj`, Vulkan and CUDA are 1.15e-5 off the f32
+copy and the CPU is 2.4e-8, even though the input (the RMSNorm output) still agrees to 3e-7. The matmul is the source:
+
+* the ONNX importer computes f16 values in f32 and rounds only at Casts;
+* a MatMul with an F16 constant weight uses the f16 tensor-core paths: `CoopUsable` is true for every non-F32 weight, and
+  the skinny GEMM and `gemm_cm2` take an f16 copy of the activations (`to_f16`). This is the documented contract of
+  `CompileOptions.AllowReducedPrecision`: "ops on f16/bf16/quantized weights may always use such paths";
+* `SplitHalfMatMul` (hi + lo activations) applies to F32 weights only, so `--no-split-f16` and `--reduced-precision`
+  change nothing here.
+
+I checked this with a second reference: the f32 copy with a Cast to f16 and back in front of the activation input of each
+of the 168 constant-weight MatMuls. Against it, the GPUs' `q_proj` error drops to 2.7e-7 (Vulkan) and 3.0e-8 (CUDA),
+attention scores to 1.5e-6, and the CPU now carries the 1.15e-5. Downstream of layer 0, all three backends are the same
+distance from that reference (last column above). The remaining 1.5-2.5e-3 is the spread one f16 rounding of every
+matmul input causes over 24 layers, not a kernel defect. The graph declares those inputs as fp16, so the GPU's rounding
+is the ONNX semantics; the CPU's f32 activations are the more precise side.
+
+**122.3 Survey manifest.** `qwen2.5-0.5b.model_fp16` now carries `f32ref=True, rms=5e-3`, and parity passes on CPU, Vulkan
+and CUDA. `eval_dim` also had a bug: it read the literal of `past_sequence_length + 1` as the default 16, so the
+attention mask of all three qwen manifests was 24 long for a 12-long KV. A "past + literal" dimension now means the total
+length past + L. The results are unchanged because the graph ignores the extra mask columns. q4 still passes at 1.1e-5.
+The dynamic-int8 variant (`model_quantized`) is still 1.8-1.9e-1 on every backend, CPU included. It is unrelated: see
+docs/onnx-support.md.
+
+```
+source bench/onnx/env.sh; python bench/onnx/make_survey_refs.py qwen2.5-0.5b.model_fp16
+for b in cpu vulkan cuda; do SHARPLIGHT_ONNX_MODELS=~/models/onnx dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll ~/models/onnx/ref/survey/qwen2.5-0.5b.model_fp16.json $b; done
+```

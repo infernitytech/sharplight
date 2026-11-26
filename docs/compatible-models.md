@@ -445,7 +445,7 @@ tolerance of onnxruntime (typically relative RMS below 1e-5).
 | Decoders | GPT-2 (plain, past, merged), gpt2-lm-head-10, T5-small decoder, distilBART decoder, Whisper tiny encoder and decoders, Moonshine encoder, TrOCR-small-printed, ViT-GPT2 captioning, Florence-2-base (4 parts), Qwen2.5-0.5B q4, Gemma-3-270m, LFM2-350M, Phi-3.5-mini q4f16 | Verified (decoders run in their no-past branch); Gemma-3, LFM2 and Phi-3.5 match onnxruntime since round 8 |
 | Speech and audio | wav2vec2-base, Silero VAD, OpenUnmix vocals, Zipformer streaming encoder, PP-OCR detection and recognition (v2, v3, v5) | Verified |
 | Other | tiny-mamba, tiny Stable Diffusion text / UNet / VAE, arcface (ResNet100, w600k-r50), emotion-FerPlus, mnist-12 | Verified |
-| Partial or not working | Qwen2.5-0.5B fp16 and dynamic-int8 (numerically off), ssd-12-int8 (differs from onnxruntime 1.32; matched 1.31), BERT-SQuAD-12-int8 (runtime-B MatMulInteger), GLiNER-small (dynamic Expand), Grounding-DINO-tiny, DPT-hybrid-MiDaS (convolution variant), Kokoro ONNX (the STFT operator is implemented since round 8; not re-run) | see onnx-support.md |
+| Partial or not working | Qwen2.5-0.5B dynamic-int8 (numerically off; fp16 passes since #72), ssd-12-int8 (differs from onnxruntime 1.32; matched 1.31), BERT-SQuAD-12-int8 (runtime-B MatMulInteger), GLiNER-small (dynamic Expand), Grounding-DINO-tiny, DPT-hybrid-MiDaS (convolution variant), Kokoro ONNX (the STFT operator is implemented since round 8; not re-run) | see onnx-support.md |
 
 ## 8. Video generation
 
