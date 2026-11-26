@@ -12,6 +12,12 @@ internal static class Env
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
+    /// <summary>The tiny autoencoders (madebyollin's taesd, taesdxl, taesd3, taef1 folders, the first two with the original files too).</summary>
+    public static readonly string TinyAutoencoders = Path.Combine(Home, "models/sd/tae");
+
+    /// <summary>The tiny autoencoders' diffusers references (tools/make-taesd-references.py).</summary>
+    public static readonly string TinyAutoencoderReference = Path.Combine(Home, "models/sd/tae-reference");
+
     /// <summary>The tiny random SD 1.x pipeline (tools/make-tiny-diffusion-models.py).</summary>
     public static readonly string Tiny = Path.Combine(Home, "models/sd/tiny-random-sd");
 
@@ -203,8 +209,29 @@ internal static class Env
         return device is null ? null : new DeviceSlot { Device = provider.OpenDevice(device) };
     }
 
-    /// <summary>A device slot by name ("cpu" or "vulkan"), or null when unavailable.</summary>
-    public static DeviceSlot? Device(string name) => name == "cpu" ? Cpu() : Vulkan();
+    private static readonly Lazy<DeviceSlot?> s_cuda = new(OpenCuda);
+
+    /// <summary>The first CUDA device, shared by the tests (opened once), or null; only with <c>SHARPLIGHT_TEST_CUDA=1</c>.</summary>
+    public static DeviceSlot? Cuda() => s_cuda.Value;
+
+    private static DeviceSlot? OpenCuda()
+    {
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_CUDA") != "1")
+        {
+            return null;
+        }
+
+        var provider = new Sharplight.Cuda.CudaProvider();
+        return provider.CheckAvailability().IsAvailable ? new DeviceSlot { Device = provider.OpenDevice(provider.GetDevices()[0]) } : null;
+    }
+
+    /// <summary>A device slot by name ("cpu", "vulkan" or "cuda"), or null when unavailable.</summary>
+    public static DeviceSlot? Device(string name) => name switch
+    {
+        "cpu" => Cpu(),
+        "cuda" => Cuda(),
+        _ => Vulkan(),
+    };
 
     /// <summary>Loads a model as a task model on one device.</summary>
     public static TaskModel Load(string path, DeviceSlot slot) => TaskModel.Load(TestHost.Loader, new TaskLoadOptions { ModelPath = path, Devices = [slot], Log = Log });
