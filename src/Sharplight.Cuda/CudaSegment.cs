@@ -1060,8 +1060,7 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
 
         var bindings = new Bindings(RecordingSymbols(parameters));
         var downloads = Downloads(bindings, skipDownloads);
-        // The downloads are part of a step's graph: the skipped outputs are part of its key.
-        var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}")) + DownloadKey(downloads);
+        var key = RecordingKey(bindings, downloads);
         long recordStart = Stopwatch.GetTimestamp();
         bool recorded = false;
         if (!_recorded.TryGetValue(key, out var recording))
@@ -1155,6 +1154,37 @@ public sealed unsafe class CudaSegment : IStreamedSegment, IPartialOutputSegment
     }
 
     /// <summary>The recording key's part for the downloads: the indices of the outputs downloaded, when that is not every output.</summary>
+    /// <summary>The key of a step's recording: its symbol bindings and, since the downloads are part of a step's graph, the outputs it skips.</summary>
+    private string RecordingKey(Bindings bindings, List<(Value Value, nint Staging, long Bytes)> downloads)
+        => string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}")) + DownloadKey(downloads);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Records the step's launches (variants, grids, arguments, barrier placement) without launching them, kept like those of executed
+    /// steps: the first execution of the shape then launches the recording at once instead of selecting every launch's variant first
+    /// (2-5 ms of an 8B model's step), the second captures its graph.
+    /// </remarks>
+    public void Prepare(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
+    {
+        if (Profile)
+        {
+            return;
+        }
+
+        var bindings = new Bindings(RecordingSymbols(parameters));
+        var key = RecordingKey(bindings, Downloads(bindings, skipDownloads));
+        if (_recorded.ContainsKey(key))
+        {
+            return;
+        }
+
+        CheckWithinCompiledBounds(bindings);
+        EvictOldestRecording();
+        _dev.Enter();
+        _recorded[key] = Record(_program.Launches, bindings);
+        _lastExecuted[key] = ++_executions;
+    }
+
     private string DownloadKey(List<(Value Value, nint Staging, long Bytes)> downloads)
     {
         if (downloads.Count == _program.OutputRefs.Count)
