@@ -190,6 +190,48 @@ public sealed class VerifiedCatalogTests
         Assert.Equal("2026-11-16", (await source.GetAsync(TestContext.Current.CancellationToken)).Updated);
     }
 
+    // Releases verified in bring-up round 2 (2026-11-26): each is listed on Discover's verified page and installs with one click (after
+    // accepting a restrictive licence).
+    [Theory]
+    [InlineData("minimax-m3.1-flash", "MiniMaxAI/MiniMax-M3.1-Flash")]
+    [InlineData("mimo-v2.6-pro-rl", "XiaomiMiMo/MiMo-V2.6-Pro-RL")]
+    [InlineData("deepseek-v4.1-flash", "deepseek-ai/DeepSeek-V4.1-Flash")]
+    [InlineData("nvidia-nemotron-3.5-bolt-74b-a9b-24gb", "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB")]
+    [InlineData("nvidia-nemotron-3.5-super-vl-120b-a12b-nvfp4", "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4")]
+    [InlineData("sd-1.5-controlnet-canny", null)]
+    [InlineData("sdxl-controlnet-canny-1.0", null)]
+    public async Task CommittedCatalog_ListsAndInstallsTheRound2Releases(string id, string? repository)
+    {
+        var catalog = await new VerifiedCatalogSource(null, null).GetAsync(TestContext.Current.CancellationToken);
+        var entry = catalog.Entries.Single(e => e.Id == id);
+        Assert.True(entry.IsInstallable);
+        using var services = new TestServices();
+        services.Hub.Catalog = catalog;
+        var downloads = new DownloadsViewModel(services.Services);
+        var verified = new HubSearchViewModel(services.Services, downloads, () => new HashSet<string>(), () => []).Verified;
+        await verified.LoadAsync();
+        verified.SelectedEntry = verified.Entries.Single(e => e.Name == entry.Name);
+
+        var install = verified.InstallCommand.ExecuteAsync(null);
+        if (entry.LicenseNotice is not null)
+        {
+            // A restrictive licence is shown once before the download starts.
+            Assert.Equal(entry.Name, services.Licenses.Pending!.ModelName);
+            services.Licenses.Accept();
+        }
+
+        await install;
+        await services.Hub.Started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        var plan = Assert.Single(services.Hub.Installs);
+        var variant = entry.Variants.Single(v => v.Id == verified.SelectedVariant!.Variant.Id);
+        Assert.Equal($"{id}/{variant.Id}", plan.Key);
+        Assert.Equal(repository ?? variant.Repository, plan.Reference.Repository);
+        Assert.Equal(variant.Companions.Order(StringComparer.Ordinal), plan.Companions.Select(c => c.Id).Order(StringComparer.Ordinal));
+        Assert.True(plan.TotalBytes > 0);
+        services.Hub.Release();
+    }
+
     [Fact]
     public async Task EmbeddedCatalog_IsTheCommittedOne()
     {

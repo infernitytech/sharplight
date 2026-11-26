@@ -19,7 +19,21 @@ public class LogprobReferenceTests
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>A prompt and the reference log-probability of some next-token candidates.</summary>
-    public sealed record Case(string Name, string Path, string Prompt, (int Id, double LogProb)[] Expected, double Tolerance = DefaultTolerance);
+    /// <param name="Name">The case name.</param>
+    /// <param name="Path">The model below ~/models.</param>
+    /// <param name="Prompt">The prompt, encoded with the model's special tokens.</param>
+    /// <param name="Expected">Reference log-probabilities of next-token candidates.</param>
+    /// <param name="Tolerance">Largest allowed difference.</param>
+    /// <param name="CudaDisabled">Device features turned off on CUDA (paths that quantize activations, which the reference does not).</param>
+    public sealed record Case(string Name, string Path, string Prompt, (int Id, double LogProb)[] Expected, double Tolerance = DefaultTolerance,
+        string[]? CudaDisabled = null);
+
+    // CUDA's native NVFP4 matmuls quantize the activations to FP4 and its FP8 matmuls to FP8 (docs/cuda.md), also for weight-only (W4A16)
+    // checkpoints: 0.31 (Bolt) and 0.19 (Super-VL) off the unquantized reference, so those cases compare the dequantizing paths.
+    private static readonly string[] NativeFp4 = [DeviceFeatures.BlockScaledFp4];
+
+    private static readonly string[] NativeFp4AndFp8 =
+        [DeviceFeatures.BlockScaledFp4, DeviceFeatures.BlockScaledFp8, DeviceFeatures.NativeGemmFp8, DeviceFeatures.MatrixFp8, DeviceFeatures.Float8];
 
     private static readonly Case[] Cases =
     [
@@ -80,7 +94,14 @@ public class LogprobReferenceTests
         // language_model.backbone.=language_model.model.).
         new("nemotron-3.5-bolt 8 layers 'The capital of France is Paris. The capital of Germany is'", "hf/Nemotron-3.5-Bolt-74B-A9B-24GB-L8",
             "The capital of France is Paris. The capital of Germany is",
-            [(35192, -4.270), (99093, -4.419), (17893, -4.916), (75560, -5.583), (99868, -5.612)], Tolerance: 0.1),
+            [(35192, -4.270), (99093, -4.419), (17893, -4.916), (75560, -5.583), (99868, -5.612)], Tolerance: 0.1, CudaDisabled: NativeFp4),
+        // NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 (the release: ModelOpt NVFP4 experts with a second-level scale per expert, FP8
+        // per-tensor attention, Mamba and LM-head weights) cut to its first 8 layers (4 Mamba-2, 3 latent MoE with all 512 experts,
+        // 1 attention; pinned revision ae13683). Reference: the release's remote code (modeling_nemotron_h_omni.py, torch path) in
+        // float32 on the dequantized weights.
+        new("nemotron-3.5-super-vl-nvfp4 8 layers 'The capital of France is Paris. The capital of Germany is'", "hf/Nemotron-3.5-Super-VL-120B-A12B-NVFP4-L8",
+            "The capital of France is Paris. The capital of Germany is",
+            [(99093, -4.391), (35192, -4.766), (26642, -5.298), (73731, -5.329), (26114, -5.329)], Tolerance: 0.1, CudaDisabled: NativeFp4AndFp8),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));
@@ -109,7 +130,11 @@ public class LogprobReferenceTests
         var slot = new DeviceSlot { Device = provider.OpenDevice(info) };
         // The test owns the device (models do not): disposed after the model, so no device outlives the test.
         using var device = slot.Device;
-        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 64 });
+        using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
+        {
+            Devices = [slot], ContextLength = 256, MaxBatchTokens = 64,
+            DisabledFeatures = kind == Device.Cuda && c.CudaDisabled is { } disabled ? new HashSet<string>(disabled) : new HashSet<string>(),
+        });
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(model.Tokenizer.Encode(c.Prompt, addSpecial: true, parseSpecial: false));
         double max = logits.Max();
