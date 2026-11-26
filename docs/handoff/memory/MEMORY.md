@@ -1,5 +1,5 @@
 - [Format-agnostic core](format-agnostic-core.md) — GGUF etc. only in own importer assemblies referencing Core; canonical ModelSource
-- [Device features & fallbacks](device-features-fallbacks.md) — detect, neutral names, disable per device/compile, always fallback; test on iGPU/llvmpipe
+- [Device features & hardware resilience](device-features-fallbacks.md) — features detected with fallbacks; never assume memory topology (small BAR, low VRAM, unified); every allocation falls back
 - [Benchmarking on shared GPU](benchmarking-shared-gpu.md) — GPU shared with user's apps; use GPU timestamps/min times/barrier counts
 - [Git worktrees for parallel work](git-worktrees-parallel.md) — repo on main (public); agents work in worktrees/branches, merged back to main
 - [Vulkan device-lost debugging](vulkan-device-lost-debugging.md) — GPU-AV env, launch bisect env vars, Xid in journal
@@ -11,3 +11,21 @@
 - [Releases and macOS](releases-and-macos.md) — v* tag publishes NuGet + AppImage; macOS on separate branch macos/round-1 until user decides
 - [Audio + image generation in scope](scope-audio-image-generation.md) — whisper.cpp STT/TTS and stable-diffusion.cpp models since 2026-11-15; never silently scope out model classes
 - [LONG-TERM GOAL: all model types](core-task-utilities.md) — every model class on one core, task utils in Core, importers/graph gen separate, all in .slm, Studio UIs per type
+- [Machine history: RunPod](machine-runpod-3gpu.md) — previous single-pod setup (3 GPUs, later 1 GPU + ~10 cores) and lessons for any machine
+- [Relaunch 2026-11-19 (history)](relaunch-handoff-2026-11-19.md) — superseded by docs/handoff/README.md (2026-11-26 handoff: state, branches, queue)
+- [Speed policy](speed-policy.md) — merge each green branch fast; build + affected suites only
+- [Keep machine responsive](keep-machine-responsive.md) — niced builds, build slots, agent cap sized to the machine, no broad pkill, no recursive / searches
+- [Three workstreams](three-workstreams.md) — engine / Studio / Server always progressing in parallel
+- [Work dirs and cleanup](work-dirs-cleanup.md) — local clone + worktrees on fast disk, logs/temp in a work dir (never /tmp), clean up merged worktrees
+- [CUDA provider](cuda-provider.md) — driver-only CUDA EP, ship runtime libs, Vulkan must not lag
+- [Feed runner](feed-runner.md) — self-hosted org runner (label sharplight-feed) for big feed packages; must be re-registered on the new machines (owner gives the token)
+- [Marketing perf claims](marketing-perf-claims.md) — owner: claim vLLM parity, promote only large measured leads (offload MoE, long context, TTFT)
+- [Experts on disk](experts-on-disk.md) — owner-approved: MoE experts streamed from disk with cache, io_uring on Linux, ~1 tok/s huge models
+- [Bring-ups: official releases, catalog, feed](bringup-catalog-feed.md) — verify the OFFICIAL release files; every bring-up adds catalog + feed entries and is installable in Studio
+- [Branching and Studio releases](branching-and-studio-releases.md) — main stable, develop integration, release/vX.Y; Velopack Studio packages, R2 channels
+- [Compatible models doc / catalog](compatible-models-doc.md) — catalog/verified-models.json is the source; docs/compatible-models.md generated; official releases first
+- [Native audio library](native-audio-library.md) — own miniaudio + Opus/Vorbis/FLAC build via zig cc, vendored in third_party/
+- [Sharplight Server product](sharplight-server-product.md) — private commercial server repo, consumes engine via NuGet; owner decisions M1-M7
+- [Sharplight website](sharplight-website.md) — Jekyll site repo; benchmarks apples to apples only
+- [Storage modes](storage-modes.md) — portable / system / custom for every file Studio writes
+- [UI thread async](ui-thread-async.md) — no inference or heavy work on the UI thread; async task clients

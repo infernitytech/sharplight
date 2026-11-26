@@ -29,3 +29,5 @@ importers/adapters ([[format-agnostic-core]]).
 **How to apply:** plan autonomous-loop rounds ([[autonomous-loop-workstreams]]) around these model classes; never scope
 a class out without asking. On 2026-11-15 the user also asked to keep GPU/RAM use low and do feature work first; no
 benchmark rounds until asked ([[benchmarking-shared-gpu]]).
+
+Owner 2026-11-24 (SeedVR2 bring-up): "Make sure that the core runtime only gains generic operations for this.... and that seedvr2 specific handling stays in architectures / adapters etc..." **How to apply:** every bring-up brief states it; before merging, grep the Core/Cpu/Shaders/Cuda diff for model/vendor names and require a generic justification for each new op.

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Runs a Sharplight test project with ~/models served from the local mirror ($SL_MODELS_LOCAL, see sync-local-models.sh).
+# Usage (from the repo or worktree root, after a Release build): sl-test <TestProjectName e.g. Sharplight.Families.Tests> [xunit args...]
+. "$(cd "$(dirname "$0")" && pwd)/env.sh"
+p=$1; shift
+export NUGET_PACKAGES=${NUGET_PACKAGES:-$HOME/.nuget/packages} DOTNET_CLI_HOME=$HOME
+HOME=$SL_TEST_HOME exec nice -n 15 ionice -c3 dotnet run --project "tests/$p" -c Release --no-build -- "$@"
