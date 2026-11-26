@@ -1,0 +1,21 @@
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:35: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<work>/venv/lib/python3.12/site-packages/rotary_embedding_torch/rotary_embedding_torch.py:253: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  @autocast(enabled = False)
+<All keys matched successfully>
+2026-11-25 23:42:02,086 [MainThread][common.decorators][INFO] Entering configure_vae_model
+<work>/venv/lib/python3.12/site-packages/diffusers/models/transformers/transformer_2d.py:34: FutureWarning: `Transformer2DModelOutput` is deprecated and will be removed in version 1.0.0. Importing `Transformer2DModelOutput` from `diffusers.models.transformer_2d` is deprecated and this will be removed in a future version. Please use `from diffusers.models.modeling_outputs import Transformer2DModelOutput`, instead.
+  deprecate("Transformer2DModelOutput", "1.0.0", deprecation_message)
+slicing_up_num: 0
+2026-11-25 23:42:12,377 [MainThread][common.decorators][INFO] Completed configure_vae_model in 10.286 seconds.
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:36<00:00, 36.34s/it]EulerSampler: 100%|██████████| 1/1 [00:36<00:00, 36.34s/it]
+{"read": 0.29282824508845806, "preprocess": 0.10155882395338267, "vae_encode": 2.1004425369901583, "dit": 36.34002088091802, "vae_decode": 2.2688244639430195, "color_fix": 6.494617286953144, "enhance": 47.305478031979874, "write": 0.9922489089658484, "total": 48.5905639360426}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:03<00:00,  3.62s/it]EulerSampler: 100%|██████████| 1/1 [00:03<00:00,  3.62s/it]
+{"read": 0.503912479034625, "preprocess": 0.07953523402102292, "vae_encode": 0.9115497609600425, "dit": 3.6215806329855695, "vae_decode": 2.2662258360069245, "color_fix": 4.218998591066338, "enhance": 11.097899434971623, "write": 0.5889986199326813, "total": 12.190815343987197}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.68s/it]EulerSampler: 100%|██████████| 1/1 [00:04<00:00,  4.68s/it]
+{"read": 0.38985678495373577, "preprocess": 0.007085592020303011, "vae_encode": 0.9108520488953218, "dit": 4.677001063944772, "vae_decode": 2.1973402459407225, "color_fix": 6.51743811997585, "enhance": 14.30972474894952, "write": 0.5896462920354679, "total": 15.289230946917087}
+EulerSampler:   0%|          | 0/1 [00:00<?, ?it/s]EulerSampler: 100%|██████████| 1/1 [00:03<00:00,  3.23s/it]EulerSampler: 100%|██████████| 1/1 [00:03<00:00,  3.23s/it]
+{"read": 0.3023761749500409, "preprocess": 0.004442143952473998, "vae_encode": 0.9762941770022735, "dit": 3.228419287945144, "vae_decode": 2.1870478040073067, "color_fix": 4.193435859051533, "enhance": 10.589651811984368, "write": 0.5123133260058239, "total": 11.404345343005843}
+peak 25.78 GiB, output (17, 480, 832, 3)
+peak_mib 30724
+pytorch setting: offload '--no-offload', DiT weights bf16

@@ -48,5 +48,69 @@ public static class RepoLayouts
             .Select(file => new HubComponent(file.Path["ggml-".Length..^".bin".Length], file.Size, 1))];
     }
 
+    /// <summary>
+    /// The model format of a repository Sharplight cannot read, named for people (<c>NeMo archives (.nemo)</c>), or null when it has
+    /// none of the formats listed here. Used to say why a repository without supported model files cannot be pulled.
+    /// </summary>
+    /// <param name="paths">Repository paths.</param>
+    public static string? UnsupportedFormat(IEnumerable<string> paths)
+    {
+        var list = paths.ToList();
+        bool Any(Func<string, bool> predicate) => list.Any(predicate);
+        bool Ends(string path, string extension) => path.EndsWith(extension, StringComparison.OrdinalIgnoreCase);
+        bool Named(string path, string name) => string.Equals(RepoPath.Name(path), name, StringComparison.OrdinalIgnoreCase);
+        if (Any(path => Ends(path, ".nemo")))
+        {
+            return "NeMo archives (.nemo)";
+        }
+
+        if (Any(path => RepoPath.IsRoot(path) && Named(path, "model.bin")) && Any(path => RepoPath.IsRoot(path) && RepoPath.Name(path).StartsWith("vocabulary.", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "CTranslate2 weights (model.bin)";
+        }
+
+        if (Any(path => path.Contains(".mlmodelc/", StringComparison.OrdinalIgnoreCase) || path.Contains(".mlpackage/", StringComparison.OrdinalIgnoreCase) || Ends(path, ".mlmodel")))
+        {
+            return "Core ML models";
+        }
+
+        if (Any(path => Ends(path, ".xml")) && Any(path => RepoPath.Name(path).StartsWith("openvino", StringComparison.OrdinalIgnoreCase) || path.Contains("openvino/", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "OpenVINO models";
+        }
+
+        if (Any(path => Ends(path, ".tflite")))
+        {
+            return "TensorFlow Lite models (.tflite)";
+        }
+
+        if (Any(path => Named(path, "saved_model.pb") || Ends(path, ".h5") || Ends(path, ".keras")))
+        {
+            return "TensorFlow / Keras weights";
+        }
+
+        if (Any(path => Ends(path, ".msgpack")))
+        {
+            return "Flax weights (.msgpack)";
+        }
+
+        if (Any(path => Ends(path, ".pdiparams") || Ends(path, ".pdparams")))
+        {
+            return "PaddlePaddle weights";
+        }
+
+        if (Any(path => Ends(path, ".pkl") || Ends(path, ".pickle")))
+        {
+            return "pickled Python objects (.pkl)";
+        }
+
+        if (Any(path => Ends(path, ".npz")))
+        {
+            return "NumPy archives (.npz)";
+        }
+
+        return Any(path => Ends(path, ".engine") || Ends(path, ".plan")) ? "TensorRT engines" : null;
+    }
+
     private static bool IsWeight(string path) => s_weightExtensions.Any(extension => path.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
 }

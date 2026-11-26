@@ -135,7 +135,15 @@ internal sealed class CatalogCommands
 
     private static bool Validate(VerifiedCatalog catalog)
     {
-        var problems = CatalogValidator.Validate(catalog);
+        var problems = CatalogValidator.Validate(catalog).ToList();
+
+        // Hosts replace their copy only with a catalog whose date is later: an entry verified after it would never reach them.
+        var latest = catalog.Entries.Select(entry => entry.Verification.Date).Where(date => date.Length > 0).DefaultIfEmpty("").Max(StringComparer.Ordinal)!;
+        if (string.CompareOrdinal(latest, catalog.Updated) > 0)
+        {
+            problems.Add($"updated '{catalog.Updated}' is older than the latest verification date '{latest}': set it to the day of the change, or hosts keep their older copy");
+        }
+
         foreach (var problem in problems)
         {
             Console.WriteLine(problem);

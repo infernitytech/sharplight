@@ -46,7 +46,9 @@ internal sealed partial class HubResultViewModel : ObservableObject
     public bool Gated => Summary.Gated;
 
     /// <summary>Formats as text.</summary>
-    public string Formats => Summary.Formats.Count == 0 ? "No model files" : string.Join(" · ", Summary.Formats.Select(format => ModelFormatTitles.Title(format).ToUpperInvariant()));
+    public string Formats => Summary.Formats.Count > 0
+        ? string.Join(" · ", Summary.Formats.Select(format => ModelFormatTitles.Title(format).ToUpperInvariant()))
+        : Summary.UnsupportedFormat is { } format ? $"{format}: not supported" : "No model files";
 
     /// <summary>How the model's kind is presented (from its Hub task).</summary>
     public ModelKindInfo Kind => ModelKindCatalog.For(Summary.Task);

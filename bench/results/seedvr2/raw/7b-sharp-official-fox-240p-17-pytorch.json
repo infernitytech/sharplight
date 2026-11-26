@@ -1,0 +1,89 @@
+{
+ "runs": [
+  {
+   "read": 0.1075003530131653,
+   "preprocess": 0.030352966976352036,
+   "vae_encode": 1.308724918984808,
+   "dit": 2.8164113619131967,
+   "vae_decode": 2.170853301999159,
+   "color_fix": 2.1898444020189345,
+   "enhance": 8.516196071985178,
+   "write": 0.26708442298695445,
+   "total": 8.890785466996022
+  },
+  {
+   "read": 0.10448452399577945,
+   "preprocess": 0.004204113967716694,
+   "vae_encode": 0.9111938689602539,
+   "dit": 1.3189491010271013,
+   "vae_decode": 2.170814890996553,
+   "color_fix": 2.4383692760020494,
+   "enhance": 6.843542051035911,
+   "write": 1.3824539040215313,
+   "total": 8.330488199018873
+  },
+  {
+   "read": 0.617428882047534,
+   "preprocess": 0.07683718507178128,
+   "vae_encode": 0.9136848180787638,
+   "dit": 4.3876773490337655,
+   "vae_decode": 2.18500789697282,
+   "color_fix": 2.6202920160721987,
+   "enhance": 10.18351242505014,
+   "write": 0.21702851296868175,
+   "total": 11.01797260006424
+  },
+  {
+   "read": 0.10871591698378325,
+   "preprocess": 0.004174542962573469,
+   "vae_encode": 0.91257563396357,
+   "dit": 1.3416591840796173,
+   "vae_decode": 2.194456666940823,
+   "color_fix": 6.207961451029405,
+   "enhance": 10.660834889044054,
+   "write": 1.8039652899606153,
+   "total": 12.573519475990906
+  }
+ ],
+ "peak_bytes": 27684873728,
+ "frames": 17,
+ "input": [
+  17,
+  240,
+  416,
+  3
+ ],
+ "output": [
+  17,
+  480,
+  832,
+  3
+ ],
+ "args": {
+  "repo": "<work>/src-seedvr",
+  "shims": "<work>/shims",
+  "color_fix_file": "<work>/color_fix.py",
+  "model": "7b",
+  "dit": "<models>/video/seedvr2/SeedVR2-7B-sharp/seedvr2_ema_7b_sharp.pth",
+  "vae": "<models>/video/seedvr2/SeedVR2-7B-sharp/ema_vae.pth",
+  "pos_emb": "<models>/video/seedvr2/SeedVR2-7B-sharp/pos_emb.pt",
+  "neg_emb": "<models>/video/seedvr2/SeedVR2-7B-sharp/neg_emb.pt",
+  "input": "<work>/inputs/fox-240p-17.mp4",
+  "frames": 0,
+  "res_h": 480,
+  "res_w": 832,
+  "seed": 42,
+  "device": "cuda",
+  "dit_dtype": "bf16",
+  "dit_weights": "bf16",
+  "vae_dtype": "bf16",
+  "attention": "flash",
+  "no_memory_limit": false,
+  "no_offload": true,
+  "no_color_fix": false,
+  "out": "<work>/bench/7b-sharp-official-fox-240p-17-pytorch-dump",
+  "repeat": 3,
+  "timing_json": "<work>/bench/7b-sharp-official-fox-240p-17-pytorch.json",
+  "save_video": "<work>/bench/7b-sharp-official-fox-240p-17-pytorch.mp4"
+ }
+}

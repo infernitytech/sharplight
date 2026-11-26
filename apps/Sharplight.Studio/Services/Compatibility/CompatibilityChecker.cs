@@ -169,7 +169,8 @@ internal static class CompatibilityChecker
                 : ModelCompatibility.Unknown("The Hub reports no GGUF architecture for this repository; it is read when the repository is opened.");
         }
 
-        if (summary.Formats.Contains(ModelFormat.Safetensors))
+        bool checkpoint = summary.Formats.Contains(ModelFormat.Safetensors) || (summary.Formats.Contains(ModelFormat.PyTorch) && summary.ModelType is not null);
+        if (checkpoint)
         {
             if (summary.ModelType is not { } modelType)
             {
@@ -186,9 +187,20 @@ internal static class CompatibilityChecker
             return verdict.IsUnsupported ? verdict : verdict with { WeightsChecked = false };
         }
 
-        return summary.Formats.Contains(ModelFormat.Onnx)
-            ? FromOnnx(null) with { WeightsChecked = false }
-            : ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files.");
+        if (summary.Formats.Contains(ModelFormat.Onnx))
+        {
+            return FromOnnx(null) with { WeightsChecked = false };
+        }
+
+        if (summary.Formats.Contains(ModelFormat.PyTorch))
+        {
+            return ModelCompatibility.Unknown("A PyTorch checkpoint without a config.json the Hub reads: whether an importer reads it (SeedVR2, upscalers, "
+                + "Stable Diffusion .ckpt files, ...) is known once it is downloaded.");
+        }
+
+        return summary.UnsupportedFormat is { } format
+            ? new ModelCompatibility(CompatibilityState.UnsupportedWeightFormat, null, $"The repository ships {format}, which Sharplight does not read.", WeightsChecked: false)
+            : ModelCompatibility.Unknown("The repository has no GGUF, safetensors, PyTorch or ONNX model files.");
     }
 
     /// <summary>The verdict for a model of a kind the engine cannot run yet: the kind is named, nothing else is checked.</summary>

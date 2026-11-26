@@ -32,6 +32,13 @@ internal interface INavigator
     /// <param name="task">The model type to browse.</param>
     public void OpenDiscover(Sharplight.Hub.ModelTask task);
 
+    /// <summary>
+    /// Shows Discover's verified list filtered to <paramref name="kind"/>: for kinds the Hub has no task for (video enhancement, image
+    /// embedding), which <see cref="OpenDiscover(Sharplight.Hub.ModelTask)"/> cannot name.
+    /// </summary>
+    /// <param name="kind">The kind (<see cref="Sharplight.Models.ModelKinds"/>).</param>
+    public void OpenVerifiedModels(string kind);
+
     /// <summary>Shows the model library filtered to one model kind.</summary>
     /// <param name="kind">The kind (<see cref="Sharplight.Models.ModelKinds"/>).</param>
     public void OpenLibrary(string kind);

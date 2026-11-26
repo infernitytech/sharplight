@@ -87,9 +87,9 @@ public sealed partial class HubClient
             url.Append(CultureInfo.InvariantCulture, $"&pipeline_tag={Uri.EscapeDataString(pipeline)}");
         }
 
-        if (query.Format is { } format)
+        if (query.Format is { } format && FormatFilter(format) is { } filter)
         {
-            url.Append(CultureInfo.InvariantCulture, $"&filter={FormatFilter(format)}");
+            url.Append(CultureInfo.InvariantCulture, $"&filter={filter}");
         }
 
         if (query.License is { Length: > 0 } license)
@@ -104,7 +104,8 @@ public sealed partial class HubClient
 
         string what = text.Length > 0 ? $"Search '{text}'" : "Model listing";
         var json = await GetStringAsync(new Uri(_options.Endpoint, url.ToString()), what, "", cancellationToken).ConfigureAwait(false);
-        return HubJson.ParseSearch(json);
+        var results = HubJson.ParseSearch(json);
+        return query.Format is { } wanted && FormatFilter(wanted) is null ? [.. results.Where(model => model.Formats.Contains(wanted))] : results;
     }
 
     /// <summary>Resolves <paramref name="revision"/> of a repository to its commit and lists every file at that commit.</summary>
@@ -226,13 +227,18 @@ public sealed partial class HubClient
         _ => "downloads",
     };
 
-    private static string FormatFilter(ModelFormat format) => format switch
+    /// <summary>
+    /// The Hub's filter for a format, or null when it has none: PyTorch checkpoints have no tag of their own (the <c>pytorch</c> library
+    /// tag also marks safetensors repositories and is missing on many checkpoint folders), so their results are filtered by their files.
+    /// </summary>
+    private static string? FormatFilter(ModelFormat format) => format switch
     {
         ModelFormat.Gguf => "gguf",
         ModelFormat.Safetensors => "safetensors",
         ModelFormat.Diffusers => "diffusers",
         ModelFormat.WhisperCpp => "ggml",
         ModelFormat.Slm => "slm",
+        ModelFormat.PyTorch => null,
         _ => "onnx",
     };
 
