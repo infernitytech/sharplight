@@ -14,10 +14,12 @@
     "stable-diffusion-1.5:fp16-diffusers-taesd",
     "sdxl-base-1.0:fp16-diffusers-taesdxl",
     "sd3.5-medium:fp16-diffusers-taesd3",
-    "flux.1-schnell:q8-0-gguf-taef1"
+    "flux.1-schnell:q8-0-gguf-taef1",
+    "nvidia-nemotron-3.5-bolt-74b-a9b-24gb:mixed-precision-safetensors",
+    "nvidia-nemotron-3.5-super-vl-120b-a12b-nvfp4:nvfp4-safetensors"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Publish SeedVR2 3B, 7B and 7B sharp (video enhancement, official ByteDance-Seed checkpoints verified against the official code; the 7B with the official text embeddings of the 3B repository). Hot-model sweep 2026-11-25 (official files): Rumble-2-Flash and oruk Fourier 2B (speech recognition), hs-rerank-1 and Multilingual Reranker small (rerankers), Aion 1.0 Instruct 2.3B and NVIDIA's own Nemotron 3.5 Bolt E4B Q4_K_M (text generation). Image generation add-ons verified on 2026-11-26: the SD 1.5 and SDXL Canny ControlNets (official lllyasviel / diffusers releases with their base pipelines) and the TAESD / TAESDXL / TAESD3 / TAEF1 variants of SD 1.5, SDXL base, SD3.5 Medium and FLUX.1-schnell."
+  "reason": "Publish SeedVR2 3B, 7B and 7B sharp (video enhancement, official ByteDance-Seed checkpoints verified against the official code; the 7B with the official text embeddings of the 3B repository). Hot-model sweep 2026-11-25 (official files): Rumble-2-Flash and oruk Fourier 2B (speech recognition), hs-rerank-1 and Multilingual Reranker small (rerankers), Aion 1.0 Instruct 2.3B and NVIDIA's own Nemotron 3.5 Bolt E4B Q4_K_M (text generation). Image generation add-ons verified on 2026-11-26: the SD 1.5 and SDXL Canny ControlNets (official lllyasviel / diffusers releases with their base pipelines) and the TAESD / TAESDXL / TAESD3 / TAEF1 variants of SD 1.5, SDXL base, SD3.5 Medium and FLUX.1-schnell. LLM releases verified on cuts against their own reference code on 2026-11-26: NVIDIA Nemotron 3.5 Bolt 74B-A9B (24 GB, ModelOpt mixed precision; the feed build was run locally) and Nemotron 3.5 Super-VL 120B-A12B NVFP4 (75 GB, large runner). MiniMax-M3.1-Flash, MiMo-V2.6-Pro-RL and DeepSeek-V4.1-Flash (250-566 GB) are catalogued but not requested."
 }
