@@ -1,0 +1,23 @@
+decoder: MultiSequenceDecoder, slots 256, vocab 128256, device sampling: True, KV paged 3750 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 10 steps after 5 warm-up steps; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 128 | 33.1 | 358 / 0 | 25.57 / 25.67, 25.51; mean 25.66 ± 0.06 |
+| 256 | 40.5 | 358 / 0 | 38.23 / 38.49, 38.11; mean 38.48 ± 0.15 |
+--- profile batch 256 (logits)
+GPU time 718.71 ms
+   262.658 ms  36.5%    640x  min    404.8 us  matmul2 [4096→14336]x2 f16 fused[Silu,Mul] native gemm_f16_native T=256,U=256,R=256|2,3
+   140.989 ms  19.6%    640x  min    206.9 us  attention attn_decode_native T=256,U=256,R=256|2,3
+   132.134 ms  18.4%    640x  min    201.4 us  matmul [14336→4096] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    62.934 ms   8.8%    640x  min     93.5 us  matmul [4096→4096+1024+1024] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    40.797 ms   5.7%    640x  min     61.2 us  matmul [4096→4096] f16 native stream-k gemm_f16_native T=256,U=256,R=256|2,3
+    38.066 ms   5.3%     20x  min   1885.4 us  matmul [4096→128256] f16 native gemm_f16_native T=256,U=256,R=256|2,3
+    15.300 ms   2.1%   1280x  min      9.2 us  fused[Add]+RmsNorm main T=256,U=256,R=256|2,3
+    14.196 ms   2.0%    640x  min     19.8 us  matmul [14336→4096] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+     6.471 ms   0.9%    640x  min      8.5 us  rope+qkv+cache_write rope_qkv T=256,U=256,R=256|2,3
+     3.877 ms   0.5%    640x  min      3.9 us  matmul [4096→4096] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+     0.866 ms   0.1%     40x  min     16.7 us  gather gather T=256,U=256,R=256|2,3
+     0.175 ms   0.0%     20x  min      7.7 us  RmsNorm main T=256,U=256,R=256|2,3
+     0.137 ms   0.0%     20x  min      5.1 us  matmul [4096→128256] f16 x→ranged f16 to_f16_ranged T=256,U=256,R=256|2,3
+     0.112 ms   0.0%     20x  min      3.9 us  sample sample T=256,U=256,R=256|2,3
+
