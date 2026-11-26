@@ -344,7 +344,8 @@ public static class MultiSequence
 
     /// <summary>
     /// The KV caches only sliding-window attention reads, and its window: every CachedAttention reading such a cache is causal, has the
-    /// same <c>window</c> and neither chunks nor a selection, no other op reads it, and it is written by CacheWrite only (uncompressed). The
+    /// same <c>window</c> and neither chunks, a selection nor a compressed cache (whose entries it reads through its own block table), no
+    /// other op reads it, and it is written by CacheWrite only (uncompressed). The
     /// window is the largest one any such cache has (all windowed caches share one pool layout); empty when no cache qualifies.
     /// </summary>
     public static (int Window, HashSet<StateDefinition> Caches) WindowedCaches(ComputeGraph g)
@@ -367,7 +368,11 @@ public static class MultiSequence
                 }
 
                 var a = n.Attributes;
-                int w = n.Op.Name == "CachedAttention" && a.Get("causal", true) && a.Get("chunk", 0) == 0 && !a.Get("selection", false) ? a.Get("window", 0) : 0;
+                // An attention that also reads a compressed cache addresses its entries through the same block table as its keys, which must then be
+                // the main table (the compressed caches are never window-sized).
+                int w = n.Op.Name == "CachedAttention" && a.Get("causal", true) && a.Get("chunk", 0) == 0 && !a.Get("selection", false) && !a.Has("compression")
+                    ? a.Get("window", 0)
+                    : 0;
                 if (w <= 0 || s.Compression > 1 || (window.TryGetValue(s, out int seen) && seen != w))
                 {
                     excluded.Add(s);
