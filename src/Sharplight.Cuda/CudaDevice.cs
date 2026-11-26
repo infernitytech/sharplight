@@ -197,7 +197,8 @@ internal sealed unsafe class CudaDevice : IComputeDevice
     /// <param name="bytes">Bytes to lock.</param>
     /// <param name="committed">
     /// The range is memory the process already committed (the expert cache's slots): locking it adds no memory use, so only an explicit
-    /// <see cref="DeviceMemoryLimits.PinnedHostMemory"/> caps it, not the default half of the process memory meant for mapped files.
+    /// <see cref="DeviceMemoryLimits.PinnedHostMemory"/> caps it, not the default half of the process memory meant for mapped files. It is
+    /// also written after it is locked, so it locks writable instead of read-only.
     /// </param>
     internal bool TryRegisterHost(byte* start, long bytes, bool committed = false)
     {
@@ -216,7 +217,11 @@ internal sealed unsafe class CudaDevice : IComputeDevice
             }
 
             Enter();
-            if (CudaApi.cuMemHostRegister(start, (nuint)bytes, CudaApi.MemHostRegisterReadOnly) != 0)
+            // Mapped weight files are only read, so they lock read-only. The cache's slots are written by the CPU (disk reads) after they are
+            // locked, and the driver refuses a read-only lock of such memory (CUDA_ERROR_NOT_SUPPORTED for the anonymous pool on the
+            // RTX 4090 and RTX PRO 6000 drivers), which left every sparse GPU twin of disk experts uncompiled.
+            uint flags = committed ? 0 : CudaApi.MemHostRegisterReadOnly;
+            if (CudaApi.cuMemHostRegister(start, (nuint)bytes, flags) != 0)
             {
                 return false;
             }
