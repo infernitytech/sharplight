@@ -18405,3 +18405,65 @@ GPU 0 of this machine: `Sharplight.Cuda.Tests` 108, 0 failed, 1 skipped; `Sharpl
 * The serving and step comparisons of this section again on a quiet GPU; Llama-3.1-8B and gpt-oss-20b gap tables on this card (their
   checkpoints are now in `~/models/hfsnap/`).
 * The multi-output matvec for 2-8 rows and for biased q / k / v (`LowerMatMulBias`).
+
+## 118. Vulkan round: causal `fe` with per-head sinks (gpt-oss-20b prefill attention 8.7 → 3.1 ms per 2,048 rows, pp8192 +21 %, logits 18x closer to the CPU); the FP8 dual GEMM cannot store the down projection's E4M3 rows (a 128-output tile costs 5x what it saves) (2026-11-26)
+
+Issue #8 on the MultiClaude board, branch `issue-8`. The RTX PRO 6000 Blackwell Max-Q of section 116 (188 SMs, 300 W cap), GPU idle apart
+from the desktop compositor. Raw output in [`bench/results/r118/`](../bench/results/r118), commands in `bench/s118_fe_sinks.sh`.
+
+### 118.1 Where Vulkan loses gpt-oss-20b prefill
+
+`sharplight --bench 2048` per kernel class (`SHARPLIGHT_VK_PROFILE=2` / `SHARPLIGHT_CUDA_PROFILE=1`, GPU ms per 2,048-row pass, before
+this change): Vulkan 104.3 ms against CUDA 61.8 ms. Expert gate / up 44.0 against 27.6 (CUDA: `gemm_moe_native`, §56), expert down 24.8
+against 15.5, **attention 10.9 against 2.1**, the bf16 projections 13.9 against 10.7. Attention was the one large item with a known
+kernel: gpt-oss's attention sinks kept every layer on `fa` (full layers 0.6-0.93 ms, 128-key window layers 0.13 ms each), while the
+causal `fe` takes Qwen3-8B's same-FLOP layers (32 heads of 128) in 0.34 ms.
+
+### 118.2 Sinks in the causal `fe`
+
+`fe` now takes `HAS_SINKS` (one logit per query head): at the output each row's denominator gets the sink, l' = l · e^(m - m') +
+e^(sink - m') with m' = max(m, sink), and the output is scaled by e^(m - m') / l' — in the register-softmax and the staged form; split
+partials (FA_KSPLIT > 1) keep leaving the sinks to the combine. `CausalFlash` accepts per-head sinks (not per-row `SINK_ROWS`);
+`SHARPLIGHT_ATTN_FE_SINKS=0` keeps them on `fa`. Mixed serving steps take the same kernel (their flash half is `fe` too), so prompt
+rows sum alike in mixed and prompt-only steps. CUDA is unchanged (its default is `attn_prefill_native`, which has sinks).
+
+Prefill, `--bench N` (one N-row chunk), best of the run, three interleaved repetitions each (`prefill.txt`), tok/s:
+
+| tokens | `fa` (`SHARPLIGHT_ATTN_FE_SINKS=0`) | `fe` with sinks | change | CUDA (same build) |
+|---|---:|---:|---:|---:|
+| 512 | 16,272-16,478 | 16,654-17,438 | +2-6 % | 21,157 |
+| 2,048 | 20,680-21,614 | 21,962-22,672 | +5 % | 28,356 |
+| 8,192 | 16,859-16,968 | 20,365-20,476 | **+21 %** | 29,460 |
+
+Attention per 2,048-row pass (`profile.txt`): `fa` 8.69 ms → `fe` 3.12 ms over 24 layers (CUDA 2.1 ms); the window layers take 55 µs
+instead of 131 µs, the full layers 170-370 µs instead of 600-930 µs.
+
+**Accuracy.** Last-token logits of a ~800-token prompt (README text) against the CPU provider (`logits_vs_cpu.txt`):
+
+| run | rms | max |
+|---|---:|---:|
+| Vulkan, `fe` with sinks (new default) | 0.0064 | 0.039 |
+| Vulkan, `fa` (`SHARPLIGHT_ATTN_FE_SINKS=0`) | 0.118 | 0.78 |
+| Vulkan, window layers on `fa` (`SHARPLIGHT_ATTN_FE_WINDOW=0`) | 0.114 | 0.71 |
+| CUDA, `attn_prefill_native` (default) | 0.014 | 0.083 |
+| CUDA, generated `fa` (`SHARPLIGHT_NATIVE_ATTN=0`) | 0.114 | 0.69 |
+
+`fa` on gpt-oss's sliding-window layers with sinks is off by ~0.12 rms on both providers, while the synthetic sink tests pass on it;
+`fe` and the hand-written CUDA kernel agree with the CPU. Greedy text of that prompt starts identically and diverges after ~40 tokens.
+The `fa` error is issue #62.
+
+### 118.3 Measured and not kept: the down projection's E4M3 rows from the dual FP8 GEMM
+
+The down projection's `quantize_fp8` reads the dual gate / up GEMM's f32 output (Qwen3-8B-FP8 at 2,048 rows: 44.9 µs of a 1.88 ms FFN
+on this GPU, `BenchTests.MatMulPrefill`). Storing E4M3 in the dual GEMM's epilogue needs one workgroup to see a whole 128-value scale
+group, i.e. 128 outputs (256 weight rows). The 64-row tile layouts that give that (`SHARPLIGHT_MMQ_CFG64`, `SHARPLIGHT_FP8_DUAL_TALL=0`),
+[4096 → 2 x 12288] at 2,048 rows: shipped 128 x 128 tile 1.227 ms (334 TFLOPS); 64-row tiles of 64 outputs 1.432 ms; 1x8x4x2 1.523 ms;
+2x4x2x4 1.471 ms; 1x4x4x4 3.05 ms. The best costs 240 µs to save ~45 µs, and 128-row tiles of 128 outputs do not fit the 48 KiB
+(55 KiB of staging at 512 threads). A per-64 activation scale in the down GEMM (two scalings per 128-value step) would change its
+numerics against CUDA for at most ~2 % of the FFN; not tried.
+
+### 118.4 Tests
+
+`Sharplight.Vulkan.Tests` on GPU 0: 1,877, 0 failed, 30 skipped. New: `StatefulTests.CachedAttentionSinksLongPrefill` (520- and
+300-row chunks after a cached prefix, then decode rows; head size 64, 8 query heads per KV head, full and 128-key windows). With `fe`
+compiled without the sinks (`SHARPLIGHT_FE_MACROS=HAS_SINKS=0`) it and the f16 cases of `CachedAttentionSinks` fail, so they run `fe`.

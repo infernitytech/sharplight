@@ -504,6 +504,12 @@ internal static class DiagnosticSwitches
     /// <summary>False keeps causal sliding-window attention on <c>fa</c> instead of the causal <c>fe</c> (<c>SHARPLIGHT_ATTN_FE_WINDOW=0</c>).</summary>
     public static bool AttentionCausalFlashWindow { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_WINDOW");
 
+    /// <summary>
+    /// False keeps causal attention with per-head sinks (gpt-oss) on <c>fa</c> instead of the causal <c>fe</c>, which adds the sink to
+    /// the softmax denominator of its rows' outputs (<c>SHARPLIGHT_ATTN_FE_SINKS=0</c>).
+    /// </summary>
+    public static bool AttentionCausalFlashSinks { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_SINKS");
+
     /// <summary>True when tensor-core flash attention may be used.</summary>
     public static bool AttentionFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FA");
 

@@ -1,0 +1,5 @@
+vulkan fe+sinks (default): rms 0.0064 max 0.039
+vulkan fa (SHARPLIGHT_ATTN_FE_SINKS=0): rms 0.1183 max 0.776
+vulkan window layers on fa (SHARPLIGHT_ATTN_FE_WINDOW=0): rms 0.1138 max 0.712
+cuda native (default): rms 0.0144 max 0.083
+cuda generated fa (SHARPLIGHT_NATIVE_ATTN=0): rms 0.1135 max 0.689

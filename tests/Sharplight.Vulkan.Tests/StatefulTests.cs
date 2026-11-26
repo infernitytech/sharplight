@@ -324,6 +324,53 @@ public sealed class StatefulTests
         Diff.Check("CachedAttention.sinks", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 160, ctx: ctx, what: $"{cacheType} window={window} Hq={Hq}");
     }
 
+    // Sinks on long prefill chunks (gpt-oss's shape: head size 64, 8 query heads per KV head, full and 128-key windows): several
+    // causal flash blocks and key tiles per head, a chunk after a cached prefix, then decode rows.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(128)]
+    public void CachedAttentionSinksLongPrefill(int window)
+    {
+        Gpu.Require();
+        int Hq = 16;
+        int Hkv = 2;
+        int D = 64;
+        int ctx = 1024;
+        float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [520, 300, 1, 1];
+        int total = chunks.Sum();
+        var tg = new TG();
+        var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, D);
+        var kc = tg.State("kc", DataType.F16, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", DataType.F16, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        // Sinks around the scores' range, so some rows' denominators are dominated by them and some not.
+        var sinks = tg.RandW("sinks", DataType.F32, 4f, Hq);
+        tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past"), ("sinks", true) };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        tg.B.RuntimeScalar("n_past");
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sinks], Attributes.From([.. attrs])));
+        var q = Rnd.F(total * Hq * D, 11).Select(x => x * 3).ToArray();
+        var k = Rnd.F(total * Hkv * D, 12);
+        var v = Rnd.F(total * Hkv * D, 13);
+        var steps = new List<Step>();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
+            past += c;
+        }
+
+        Diff.Check("CachedAttention.sinks.long", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 520, ctx: ctx, what: $"window={window}");
+    }
+
     [Fact]
     public void CachedAttentionWithStridedQueryAndKv()
     {

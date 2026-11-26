@@ -1409,7 +1409,8 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 
 #ifdef KERNEL_FE
 // ---------------------------------------------------------------------------------------------
-// Flash attention for bidirectional encoders: FULL_ATTN without SPANS, WINDOW, score biases, softcap or sinks (optional
+// Flash attention for bidirectional encoders: FULL_ATTN without SPANS, WINDOW, score biases or softcap (optional HAS_SINKS: one
+// logit per head joining the softmax denominator of direct outputs, not SINK_ROWS;
 // HAS_MASK, SEQ_ROWS, CROSS_ATTN, FA_KSPLIT, FA_SPLIT). A workgroup handles FE_BR = 64 queries of one head with 4 subgroups;
 // subgroup sg owns rows sg * 16 .. + 16 for the whole key loop, so its query fragments and output accumulators stay in
 // registers and its scores and probabilities only pass through its own shared slices (subgroup barriers). The workgroup shares
@@ -2105,7 +2106,18 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 #if FE_REG
     // Row factors as below; each lane stores its own elements (rows g, g + 8; columns 2c + {0, 1, 8, 9} of each fragment).
     {
-        float2 f2 = float2(FA_KSPLIT > 1 ? 1.0 : (l2.x > 0 ? 1.0 / l2.x : 0.0), FA_KSPLIT > 1 ? 1.0 : (l2.y > 0 ? 1.0 / l2.y : 0.0)) * (1.0 / FE_P_SCALE);
+        // Sinks (HAS_SINKS, direct output only; split partials leave them to the combine): the head's logit joins the denominator,
+        // l = l · e^(m - m') + e^(sink - m') with m' = max(m, sink), and the output is rescaled by e^(m - m') (as in fa).
+        float2 cs = float2(1.0, 1.0);
+#if HAS_SINKS && FA_KSPLIT == 1
+        {
+            float sk = p.sinks[h];
+            float2 mf = max(m2, float2(sk, sk));
+            cs = float2(exp(m2.x - mf.x), exp(m2.y - mf.y));
+            l2 = l2 * cs + float2(exp(sk - mf.x), exp(sk - mf.y));
+        }
+#endif
+        float2 f2 = float2(FA_KSPLIT > 1 ? 1.0 : (l2.x > 0 ? cs.x / l2.x : 0.0), FA_KSPLIT > 1 ? 1.0 : (l2.y > 0 ? cs.y / l2.y : 0.0)) * (1.0 / FE_P_SCALE);
         if (!layoutOk)
         {
             f2 = float2(asfloat(0x7FC00000u));
@@ -2148,7 +2160,16 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     }
 #else
     // Row factors: 1 / (2^12 · l) for the output; 1 / 2^12 for unnormalized partials (part[range][row][h] = (o[DV], m, l)).
-    float f = (FA_KSPLIT > 1 ? 1.0 : (l > 0 ? 1.0 / l : 0.0)) * (1.0 / FE_P_SCALE);
+    float cs = 1.0;
+#if HAS_SINKS && FA_KSPLIT == 1
+    {
+        // Sinks: as in the FE_REG form above.
+        float sk = p.sinks[h], mf = max(m, sk);
+        cs = exp(m - mf);
+        l = l * cs + exp(sk - mf);
+    }
+#endif
+    float f = (FA_KSPLIT > 1 ? 1.0 : (l > 0 ? cs / l : 0.0)) * (1.0 / FE_P_SCALE);
     [ForceUnroll] for (uint e = 0; e < 8; e++) feC[cBase + row * 16 + (lane % 2) * 8 + ((e + row / 2) & 7)] = f;
 #if FA_KSPLIT > 1
     if (rowValid && lane % 2 == 0)
