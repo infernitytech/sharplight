@@ -6,7 +6,7 @@ Contents: 1 summary, 2 what Sharplight supports today, 3 building blocks ranked 
 
 ## 1. Summary
 
-llama.cpp lists **172** architecture names (`LLM_ARCH_NAMES`, excluding `(unknown)`; `clip` is the mmproj pseudo-architecture). Classification used throughout:
+llama.cpp lists **172** architecture names (`LLM_ARCH_NAMES`, excluding `(unknown)`; `clip` is the mmproj pseudo-architecture). The matrix below counts the 172 of the pinned parity commit 8ca5a80; llama.cpp HEAD (b12798, 9fa7a33, 2026-11-27) has 182, the 10 additions are tracked in their own table at the end of section 4 and in section 26. Classification used throughout:
 
 - **supported**: imports (GGUF and/or HF) and runs end to end on the CPU and Vulkan providers through an existing adapter, with a test or fixture behind it.
 - **partial**: the graph can be expressed with ops and kernels Sharplight already has. What is missing is an importer mapping (GGUF arch name, hyper-parameters, tensor names, HF `model_type`) and/or a small adapter feature (LayerNorm, parallel residual, branch scale, routing bias, an activation). No new kernel.
@@ -487,6 +487,19 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `pockettts` | PocketTTS | TTS flow decoder | **missing** | `TTS` | - | - |
 | `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **supported** (as the `vocoder` of OuteTTS, see section 12) | `TTS` | `Sharplight.Import.Gguf` mapping, `WavTokenizerGraph` | `tests/Sharplight.TextToSpeech.Tests` |
 
+### Added by llama.cpp after 8ca5a80 (outside the 172; section 26)
+
+| Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
+|---|---|---|---|---|---|---|
+| `domynedge` | Domyn Edge 4B (Base, SFT, Teacher-IF / Code / Math / STEM / Agentic) | sandwich norms, unweighted q norm + weighted k norm, rope and a 1025-token window only on the 64-wide-head layers, 256-wide NoPE full layers, 1/sqrt(head size) per layer | **supported** (HF and GGUF, `attention.layer_scales`) | - | domynedge (remote code) | hf/tiny-random-domynedge, gguf/tiny-random-domynedge-hf-f32.gguf, hf/Domyn-Edge-Teacher-IF |
+| `zaya1` | Zyphra ZAYA1-8B | CCA attention (grouped q/k conv with state, delayed value head), MLP router with EDA state and skip expert, residual scales | **missing** (#82) | CCA mixer, router | zaya1 | - |
+| `hy_v4_flash` | Tencent Hy4-flash | hy_v4 trunk + pooled DSA indexer, sliding MLA, Engram, latent experts | **missing** (#83) | pooled-key position bias / rope at pool start; mapping | hy_v4_flash | - |
+| `raon1` | KRAFTON Raon-1-mini / nano | RDA, gated NoPE MLA, manifold hyper-connections, PLE | **missing** (#84) | RDA mixer, Helmert mHC | raon1_mini, raon1_nano (remote code) | - |
+| `inkling2` | Inkling-2-Small | Inkling 2 blocks without the loop | **partial** (#85) | mapping, per-expert output scales | inkling2 | - |
+| `inkling2_loop` | Inkling-2-Mini | block attention residuals, looped layers | **supported** (section 25) | - | inkling2_loop | hf/tiny-random-inkling2 |
+| `kokoro`, `zonos3`, `tiny-voca` | Kokoro (GGUF), ZONOS3-Mini, tiny-voca | TTS front ends of llama-mtmd | out of scope here (#16; Kokoro runs through `Sharplight.Import.Kokoro`) | - | - | - |
+| `moshi` | Kyutai hibiki / Moshi | full-duplex speech LM | out of scope here (#21) | - | - | - |
+
 Notes on the matrix:
 
 - `llama` is marked supported because plain Llama/Mistral/SmolLM work. Mixtral (arch `llama` + `llama.expert_count`) falls through the MoE keys in DecoderGgufMapping (`MAPMOE`) and the HF `mixtral` model_type is unmapped; both are quick fixes.
@@ -546,7 +559,7 @@ Recommended order: Wave 1a first (it is also what Qwen3.6-35B-A3B needs), then `
 
 ## 7. Multimodal projectors (mmproj)
 
-llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). Sharplight supports exactly one projector type today (`clip.projector_type = qwen3vl_merger`, the Qwen3.5/3.6/3.8 tower) and rejects DeepStack towers.
+llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). As of 2026-11-27 (llama.cpp HEAD b12798) llama.cpp knows 99 `clip.projector_type` values; Sharplight's mmproj importer (`ClipGgufMapping`) handles 10: `qwen2vl_merger`, `qwen2.5vl_merger`, `qwen3vl_merger` (incl. DeepStack), `gemma4v`, `glm4v`, `paddleocr`, `deepseekocr`, `deepseekocr2`, `hunyuanvl` and `cogvlm`. The SigLIP / LLaVA-like towers (gemma3, idefics3, lfm2 / lfm3vl, internvl, minicpmv) are #86, pixtral / llama4 / kimivl #87; the 16 types added after 8ca5a80 are almost all audio generation (#16, #21) plus `hy_v4_flash` (#83) and `inkling2v` (#85). The status column below predates several of those rows.
 
 | Family | llama.cpp projector files | Used by | Status |
 |---|---|---|---|
@@ -3546,3 +3559,41 @@ Inkling 2 GGUFs (the unsloth repository moved its files to `Old_Support/` during
 Speech TurboCTC, Nemotron 3.5 Rerank, LTX-2.5, Kandinsky Image SR, Kolibri 1.1, Sarvam 105B (transformers 5.24 now has `sarvam_mla`), ERNIE
 5.5 Flash Preview (no modeling code).
 
+## 26. llama.cpp additions after 8ca5a80 (2026-11-27, issue #22)
+
+llama.cpp HEAD b12798 (9fa7a33, 2026-11-26) has 182 architecture names, 10 more than the pinned parity commit 8ca5a80 (section 4, last table).
+References for this round come from a CPU build of that HEAD (`cmake -B build -DGGML_CUDA=OFF`, targets `llama-completion`,
+`llama-quantize`; its `convert_hf_to_gguf.py` and `gguf-py` for conversions).
+
+| Arch | Upstream commit | Status | Issue |
+|---|---|---|---|
+| domynedge | 55d323507 (2026-11-20) | supported, verified on Domyn-Edge-Teacher-IF | #22 |
+| inkling2_loop | 29b52d398 (2026-11-20) | supported since section 25 | - |
+| inkling2 | 5c008e000 (2026-11-15) | partial: mapping and per-expert output scales | #85 |
+| hy_v4_flash | c94333133 (2026-11-25) | missing | #83 |
+| zaya1 | 98d67c8d5 (2026-11-18) | missing | #82 |
+| raon1 | 5a09582d8 (2026-11-25) | missing | #84 |
+| kokoro, zonos3, tiny-voca | 307e3f155, 7ae3c6b23, 3574df84b | TTS, speech workstream | #16 |
+| moshi | c622f623f (2026-11-21) | speech-to-speech | #21 |
+
+**Domyn Edge** (`domynedge`, HF remote code `DomynEdgeForCausalLM`). 36 layers: 9 full-attention layers with 256-wide heads and no
+rope, 27 sliding-window layers (1025 positions including the current one) with 64-wide heads and rope; RMS norms before and after
+attention and MLP (canonical `attention.out_norm` / `mlp.out_norm`), an unweighted q norm and a weighted k norm per head, SwiGLU, tied
+embeddings. The only new decoder feature is `attention.layer_scales` (one attention scale per layer; here 1/sqrt of each layer's head size,
+which `attention.scale` cannot express next to per-layer head sizes). Mappings `DomynEdgeHfMapping` and `DomynEdgeGgufMapping`; the GGUF
+pre-tokenizer `domyn-edge` is Qwen2's.
+
+- Tiny checkpoint (`tools/mk_tiny_remote_code.py domynedge`, 6 layers, head sizes 32/16, window 5, seed 1, weight std 0.08; smallest
+  greedy margin 0.21): 24 greedy ids and prompt logits identical to the remote code on CPU, Vulkan and CUDA, HF and the converted f32
+  GGUF; llama.cpp b12798 gives the same text from that GGUF; batched decoding equals single-sequence decoding
+  (`LlamaCppAdditionsFamilyCases`, `HubSweepFamilyServingTests`). Dropping the per-layer scales or shrinking the window by one fails the case.
+- domyn/Domyn-Edge-Teacher-IF (3f968ac): with the chat template ("Explain in a short paragraph why the sky is blue.", thinking off,
+  greedy) the BF16 safetensors and BF16 GGUF give exactly llama.cpp's 78-token answer up to the end of text on CPU, Vulkan and CUDA.
+  Q8_0 (own conversion and prithivMLmods/Domyn-Edge-Teacher-IF-GGUF) is identical for 68 tokens, then takes " it" where llama.cpp's
+  Q8_0 takes " the" (a 0.13 near tie in float32 transformers: 30.46 vs 30.33). Q4_K_M: CPU identical to llama.cpp for 56 tokens, Vulkan
+  leaves at the 18th token (transformers float32: " appears" 23.42, " contains" 23.05; Vulkan takes the float32 choice). Raw-text prompts
+  degenerate into repetitions in every runtime, transformers included ("The capital of France is" → " is is is is mus mus ..."); the
+  catalog note says to use the chat template.
+
+Not done this round: the architectures of the table above other than Domyn Edge (issues listed), the `domyn-small` pre-tokenizer (escaped
+whitespace, llama.cpp `LLAMA_VOCAB_PRE_TYPE_DOMYN_SMALL`; no Domyn Small checkpoint was run) and the mmproj projectors of section 7 (#86, #87).

@@ -35,6 +35,11 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   when downloading public models there; `glslc` is at `~/.local/bin/glslc`. `$LLAMA_ROOT` (llama.cpp reference builds
   for the bench/ scripts) is not provisioned; a llama.cpp checkout at the pinned parity commit 8ca5a80 sits unbuilt in
   `~/scratch/llama.cpp`.
+- LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
+  (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
+  and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target
+  `llama-completion`) takes a few minutes and is the reference for architectures the pin lacks; fedora-blackwell has one in
+  `~/scratch/llama.cpp-up` (#22).
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
   `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
   `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`

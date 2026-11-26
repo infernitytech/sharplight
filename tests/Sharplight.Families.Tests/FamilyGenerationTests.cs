@@ -243,6 +243,8 @@ public class FamilyGenerationTests
         .. DeepSeekV4Cases.All,
         // Bring-up round 11: Inkling (relative bias, residual short convolutions, router-scored shared experts).
         .. InklingFamilyCases.All,
+        // Architectures llama.cpp added after 8ca5a80 (Domyn Edge, ...).
+        .. LlamaCppAdditionsFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, string provider, bool cpuFallback, bool f32Kv)

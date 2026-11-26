@@ -26,7 +26,7 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
             case "qwen35":
                 return new(new RegexFamilySplitter(RegexFamily.Llama, caseInsensitiveContractions: true, maxDigits: 1, marks: true), false, false);
 
-            case "qwen2" or "deepseek-r1-qwen" or "kormo" or "f2llmv2" or "megrez" or "stablelm2" or "hunyuan" or "solar-open":
+            case "qwen2" or "deepseek-r1-qwen" or "kormo" or "f2llmv2" or "megrez" or "stablelm2" or "hunyuan" or "solar-open" or "domyn-edge":
                 return new(new RegexFamilySplitter(RegexFamily.Llama, true, 1, false), false, false);
 
             case "llama3" or "llama-v3" or "llama-bpe" or "falcon3" or "falcon-h1" or "midm-2.0" or "jina-v5-nano":

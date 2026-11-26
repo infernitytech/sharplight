@@ -54,6 +54,14 @@ FAMILIES = {
                          layer_types=["full_attention"] * 4, max_window_layers=4, max_position_embeddings=4096),
         vision_config=dict(hidden_size=64, intermediate_size=64, num_attention_heads=2, num_hidden_layers=1, out_hidden_size=64,
                            text_hidden_size=64))),
+    # Domyn Edge (domynedge): sandwich norms, an unweighted q norm and a weighted k norm per head, rope only on the sliding-window layers, whose
+    # heads are smaller than the full layers' (per-layer head sizes, scale 1/sqrt(head size)). window_sizes is a read-only property of the config.
+    "domynedge": ("domyn/Domyn-Edge-Teacher-IF", dict(hidden_size=64, intermediate_size=128, num_attention_heads=4, num_key_value_heads=2,
+                                                      sliding_window=5, max_position_embeddings=4096, _drop=["window_sizes"], _seed=1, _weight_std=0.08,
+                                                      position_layers=["nope", "rope", "rope", "nope", "rope", "nope"],
+                                                      head_sizes=[32, 16, 16, 32, 16, 32],
+                                                      layer_types=["full_attention", "sliding_attention", "sliding_attention", "full_attention",
+                                                                   "sliding_attention", "full_attention"])),
 }
 
 TOKENIZER_FILES = ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "generation_config.json", "chat_template.jinja",
@@ -98,6 +106,7 @@ def main():
     weight_std = float(os.environ.get("TINY_WEIGHT_STD", overrides.pop("_weight_std", 0.15)))   # std of the non-norm, non-embedding weights
     router_std = float(os.environ.get("TINY_ROUTER_STD", overrides.pop("_router_std", weight_std)))   # std of the expert routers (mlp.gate)
     seed = int(os.environ.get("TINY_SEED", overrides.pop("_seed", 0)))
+    drop = overrides.pop("_drop", [])   # config keys to remove (e.g. ones the config class exposes as read-only properties)
     os.makedirs(out, exist_ok=True)
     for name in code_files(repo) + TOKENIZER_FILES:
         fetch(repo, name, os.path.join(out, name))
@@ -112,6 +121,8 @@ def main():
     if "layer_types" in overrides:
         config["num_hidden_layers"] = len(overrides["layer_types"])
     config.pop("quantization_config", None)
+    for key in drop:
+        config.pop(key, None)
     with open(os.path.join(out, "config.json"), "w") as f:
         json.dump(config, f, indent=2)
 
