@@ -44,6 +44,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
 - CPU tiers: `SHARPLIGHT_CPU_ISA=scalar|v128|avx2|avx512|...` caps the kernels' tier (`CpuIsa`); on these Zen hosts v128
   still has FMA3 and VEX encoding. To emulate a real pre-AVX x86 (unfused mul + add), run with `DOTNET_EnableAVX=0`.
   Run Sharplight.Cpu.Tests under `v128` and `scalar` too when changing CPU kernels.
+- CPU quantized matmuls: `DeviceFeatures.IntDot` (8-bit activations) applies only below `MatMulOp.IntDotGemmMinRows` (32)
+  rows; prompt-sized matmuls take the f32 GEMM (dequantized weight panels) either way (#75). `SHARPLIGHT_CPU_PROFILE=1`
+  prints separate decode (T=1) and prefill (T>1) op tables; `=min` prints per-op minima (in an LLM `--bench` these are decode-step times).
 - GPU tests: `SHARPLIGHT_VK_DEVICES=<i>[,<j>]` restricts the Vulkan provider to those device indices — set it to the
   GPU(s) assigned to your session on multi-GPU machines.
 - Vulkan `a / b` is only 2.5-ULP accurate (RADV, RTX 4090; the Blackwell driver happens to be exact). Where an exact

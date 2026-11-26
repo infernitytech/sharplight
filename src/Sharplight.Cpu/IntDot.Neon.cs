@@ -4,12 +4,13 @@ using System.Runtime.Intrinsics.Arm;
 
 namespace Sharplight.Cpu;
 
-// The Arm64 tiers of the integer dot: activation quantization with NEON (bit-identical to the scalar reference) and the
-// sdot kernel. sdot multiplies signed bytes only, so the codes enter as w = u - 128 (exact for every code 0..255) and the
+// The Arm64 tiers of the integer dot: the 128-bit activation quantization (NEON and x86 v128, bit-identical to the scalar
+// reference) and the sdot kernel. sdot multiplies signed bytes only, so the codes enter as w = u - 128 (exact for every code 0..255) and the
 // 128 * a[g] * sum(q) the shift removes is added back with the offsets, as in the x86 sign-trick path.
 internal static unsafe partial class IntDot
 {
-    private static void QuantizeBlockNeon(float* x, sbyte* q, float* laneScales, float* groupSums)
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void QuantizeBlock128(float* x, sbyte* q, float* laneScales, float* groupSums)
     {
         var v0 = Vector128.Load(x);
         var v1 = Vector128.Load(x + 4);
@@ -22,7 +23,7 @@ internal static unsafe partial class IntDot
         var m = Vector128.Max(
             Vector128.Max(Vector128.Max(Vector128.Abs(v0), Vector128.Abs(v1)), Vector128.Max(Vector128.Abs(v2), Vector128.Abs(v3))),
             Vector128.Max(Vector128.Max(Vector128.Abs(v4), Vector128.Abs(v5)), Vector128.Max(Vector128.Abs(v6), Vector128.Abs(v7))));
-        float amax = AdvSimd.Arm64.MaxAcross(m).ToScalar();
+        float amax = MaxAcross(m);
         float d = amax / 127f;
         float id = d != 0f ? 1f / d : 0f;
         var idv = Vector128.Create(id);
@@ -42,6 +43,20 @@ internal static unsafe partial class IntDot
         dv.Store(laneScales + 4);
         groupSums[0] = d * Vector128.Sum((i0 + i1) + (i2 + i3));
         groupSums[1] = d * Vector128.Sum((i4 + i5) + (i6 + i7));
+    }
+
+    /// <summary>The largest lane (exact: max is order-independent).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float MaxAcross(Vector128<float> m)
+    {
+        if (AdvSimd.Arm64.IsSupported)
+        {
+            return AdvSimd.Arm64.MaxAcross(m).ToScalar();
+        }
+
+        m = Vector128.Max(m, Vector128.Shuffle(m, Vector128.Create(2, 3, 0, 1)));
+        m = Vector128.Max(m, Vector128.Shuffle(m, Vector128.Create(1, 0, 3, 2)));
+        return m.ToScalar();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -22,7 +22,7 @@ internal sealed unsafe partial class AttentionOp
     private int _tiledLanes;
     private Action<int>? _tiled256;
     private Action<int>? _tiled512;
-    private Action<int>? _tiledNeon;
+    private Action<int>? _tiled128;
     private Action<int>? _rowTask;
     private int _headsPerTask;
     private int _tokensPerTask;
@@ -42,10 +42,10 @@ internal sealed unsafe partial class AttentionOp
             && _vQuant is null && _chunk == 0 && _softcap == 0f && _dv % ValueColumns == 0
             && _k.Strides[2] == 1 && _v.Strides[2] == 1;
         _tiledLanes = !plain ? 0 : CpuIsa.Use512 ? FloatLanes512.Count : CpuIsa.Use256 ? FloatLanes256.Count
-            : CpuIsa.UseNeon ? FloatLanes128x2.Count : 0;
+            : CpuIsa.Use128 ? FloatLanes128x2.Count : 0;
         _tiled256 = TiledTask<FloatLanes256>;
         _tiled512 = TiledTask<FloatLanes512>;
-        _tiledNeon = CpuIsa.UseNeon ? TiledTask<FloatLanes128x2> : null;
+        _tiled128 = CpuIsa.Use128 ? TiledTask<FloatLanes128x2> : null;
         _rowTask = RowTask;
     }
 
@@ -91,7 +91,7 @@ internal sealed unsafe partial class AttentionOp
             _partials = (float*)ThreadScratch.Get(ThreadScratch.Caller, baseTasks * _splits * lanes * (_dv + 2L) * sizeof(float));
         }
 
-        var body = rowPath ? _rowTask! : _tiledLanes == FloatLanes512.Count ? _tiled512! : CpuIsa.UseNeon ? _tiledNeon! : _tiled256!;
+        var body = rowPath ? _rowTask! : _tiledLanes == FloatLanes512.Count ? _tiled512! : CpuIsa.Use256 ? _tiled256! : _tiled128!;
         CpuParallel.For((int)(baseTasks * _splits), body);
         if (_splits > 1)
         {

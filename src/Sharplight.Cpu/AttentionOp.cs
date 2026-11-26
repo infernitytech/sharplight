@@ -422,7 +422,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     }
                     sum += Vector256.Sum(acc);
                 }
-                else if (CpuIsa.UseNeon)
+                else if (CpuIsa.Use128)
                 {
                     var mv = Vector128.Create(max);
                     var acc = Vector128<float>.Zero;

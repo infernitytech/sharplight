@@ -97,10 +97,12 @@ internal static class CpuIsa
     }
 
     /// <summary>
-    /// Whether the kernels have packed int8 dot products on this tier (x86 <c>vpmaddubsw</c> / VNNI, Arm64 <c>sdot</c>), which
-    /// makes the quantized-activation matmul (<see cref="Runtime.DeviceFeatures.IntDot"/>) worthwhile.
+    /// Whether the kernels have packed int8 dot products on this tier (x86 <c>vpmaddubsw</c> / VNNI, SSSE3 <c>pmaddubsw</c> on the
+    /// 128-bit x86 tier, Arm64 <c>sdot</c>), which makes the quantized-activation matmul (<see cref="Runtime.DeviceFeatures.IntDot"/>)
+    /// worthwhile.
     /// </summary>
-    public static bool HasPackedIntDot => Level >= CpuIsaLevel.Avx2 || Level == CpuIsaLevel.NeonDot;
+    public static bool HasPackedIntDot => Level >= CpuIsaLevel.Avx2 || Level == CpuIsaLevel.NeonDot
+        || (Level == CpuIsaLevel.Vector128 && Ssse3.IsSupported && Vector128.IsHardwareAccelerated);
 
     /// <summary>Whether the host can run the kernels of <paramref name="level"/>.</summary>
     public static bool IsSupported(CpuIsaLevel level) => level switch

@@ -48,19 +48,22 @@ internal static class VectorExp
         return Vector256.ConditionalSelect(Vector256.Equals(x, x), result, x);
     }
 
-    /// <summary>e^x of four lanes.</summary>
+    /// <summary>
+    /// e^x of four lanes. The multiply-adds are fused with FMA3 / NEON and separate on an SSE-only host (<see cref="Vec128.MultiplyAdd"/>;
+    /// the split ln 2 keeps n * Ln2High exact either way).
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector128<float> Exp(Vector128<float> x)
     {
         var clamped = Vector128.MinNative(Vector128.MaxNative(x, Vector128.Create(Lowest)), Vector128.Create(Highest));
         var n = Vector128.Round(clamped * Log2E);
-        var r = Vector128.FusedMultiplyAdd(n, Vector128.Create(-Ln2Low), Vector128.FusedMultiplyAdd(n, Vector128.Create(-Ln2High), clamped));
-        var p = Vector128.FusedMultiplyAdd(Vector128.Create(P0), r, Vector128.Create(P1));
-        p = Vector128.FusedMultiplyAdd(p, r, Vector128.Create(P2));
-        p = Vector128.FusedMultiplyAdd(p, r, Vector128.Create(P3));
-        p = Vector128.FusedMultiplyAdd(p, r, Vector128.Create(P4));
-        p = Vector128.FusedMultiplyAdd(p, r, Vector128.Create(P5));
-        p = Vector128.FusedMultiplyAdd(p, r * r, r + Vector128<float>.One);
+        var r = Vec128.MultiplyAdd(n, Vector128.Create(-Ln2Low), Vec128.MultiplyAdd(n, Vector128.Create(-Ln2High), clamped));
+        var p = Vec128.MultiplyAdd(Vector128.Create(P0), r, Vector128.Create(P1));
+        p = Vec128.MultiplyAdd(p, r, Vector128.Create(P2));
+        p = Vec128.MultiplyAdd(p, r, Vector128.Create(P3));
+        p = Vec128.MultiplyAdd(p, r, Vector128.Create(P4));
+        p = Vec128.MultiplyAdd(p, r, Vector128.Create(P5));
+        p = Vec128.MultiplyAdd(p, r * r, r + Vector128<float>.One);
         var exponents = Vector128.ConvertToInt32(n);
         var bias = Vector128.Create(127);
         var half = exponents >> 1;
