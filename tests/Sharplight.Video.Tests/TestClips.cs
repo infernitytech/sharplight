@@ -1,3 +1,4 @@
+using Sharplight.Audio;
 using Sharplight.Vision;
 
 namespace Sharplight.Video.Tests;
@@ -69,4 +70,33 @@ internal static class TestClips
 
     /// <summary>A unique path in the temp directory.</summary>
     public static string TempPath(string extension) => Path.Combine(Path.GetTempPath(), $"sl-video-{Guid.NewGuid():N}{extension}");
+
+    /// <summary>A stereo sine tone at half amplitude.</summary>
+    public static AudioBuffer Tone(double frequency, double seconds, int rate)
+    {
+        int count = (int)(seconds * rate);
+        float[] samples = new float[count * 2];
+        for (int i = 0; i < count; i++)
+        {
+            float value = (float)(0.5 * Math.Sin(2 * Math.PI * frequency * i / rate));
+            samples[2 * i] = value;
+            samples[2 * i + 1] = value;
+        }
+
+        return new AudioBuffer(samples, rate, 2);
+    }
+
+    /// <summary>The RMS of the samples between two times in seconds.</summary>
+    public static double Rms(AudioBuffer audio, double from, double to)
+    {
+        int first = (int)(from * audio.SampleRate) * audio.Channels;
+        int last = Math.Min(audio.Samples.Length, (int)(to * audio.SampleRate) * audio.Channels);
+        double sum = 0;
+        for (int i = first; i < last; i++)
+        {
+            sum += audio.Samples[i] * (double)audio.Samples[i];
+        }
+
+        return Math.Sqrt(sum / Math.Max(1, last - first));
+    }
 }

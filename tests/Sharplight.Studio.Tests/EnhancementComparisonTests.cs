@@ -29,10 +29,10 @@ public sealed class EnhancementComparisonTests
     private static readonly IReadOnlyList<ImageInput> s_clip = [.. Enumerable.Range(0, ClipFrames).Select(i => FakeImageGenerator.Gradient(InputWidth, InputHeight, i * 30))];
 
     /// <summary>The blue value of input frame <paramref name="index"/>.</summary>
-    private static byte OriginalBlue(int index) => (byte)(index * 30 * 37);
+    private static byte OriginalBlue(long index) => (byte)(index * 30 * 37);
 
     /// <summary>The blue value of the fake enhancer's frame <paramref name="index"/>.</summary>
-    private static byte EnhancedBlue(int index) => (byte)(index * 10 * 37);
+    private static byte EnhancedBlue(long index) => (byte)(index * 10 * 37);
 
     private static byte Blue(ImageInput image) => image.Rgb[2];
 
@@ -206,15 +206,15 @@ public sealed class EnhancementComparisonTests
         var compare = new EnhancementComparisonViewModel(new FakePlatform()) { MemoryBudgetBytes = 10 * pairBytes };
         ImageInput[] originals = Frames(0, 15, 72, 36);
         compare.Begin(expectedFrames: 10, framesPerSecond: 8);
-        compare.Add(0, originals, Frames(0, 4, 720, 360));
+        compare.Add(0, originals[0..4], Frames(0, 4, 720, 360));
         await compare.Idle;
         Assert.All(compare.Frames, frame => Assert.Equal((360, 180, 360, 180), (frame.Original.Width, frame.Original.Height, frame.Enhanced.Width, frame.Enhanced.Height)));
         Assert.Equal(4 * pairBytes, compare.StoredBytes);
         Assert.Contains("Compared at 360 × 180 (the result is 720 × 360)", compare.PreviewNote, StringComparison.Ordinal);
 
         // More frames than expected: the oldest are let go so the kept frames stay within the cap; the newest is shown.
-        compare.Add(4, originals, Frames(4, 6, 720, 360));
-        compare.Add(10, originals, Frames(10, 5, 720, 360));
+        compare.Add(4, originals[4..10], Frames(4, 6, 720, 360));
+        compare.Add(10, originals[10..15], Frames(10, 5, 720, 360));
         await compare.Idle;
         Assert.Equal(10, compare.Count);
         Assert.True(compare.StoredBytes <= compare.MemoryBudgetBytes);

@@ -535,7 +535,7 @@ predates the frame and keeps its conversation list; it uses the same `ModelPicke
 | Model picker (`ModelPickerViewModel`) | The resident models of the page's kind; follows loads and unloads and keeps the choice while the model stays resident. No model: a hint with *Library* and *Find a model*. |
 | Parameter panel (`ParameterPanelViewModel<TOptions>`) | One control per field of the task's options type (choice, slider, switch, text), `Options` maps the values to the type (for example `SpeechRecognitionOptions`), and a page can hide parameters the chosen model does not use. Presets: built-in ones ship with the page, *Save* stores the values under a name; presets and the values of the last run are JSON (`presets.json` in the page's directory) and come back when the page opens. |
 | Run queue (`RunQueueViewModel`) | Runs one after the other per model (a second run on the same model waits, runs on different models overlap), with progress, status and a cancel button for queued and running runs. Finished runs stay listed until cleared. |
-| History (`RunHistoryViewModel`) | Every completed or failed run of the page (up to 200), newest first, kept in `history.json`; *Show again* restores the result and the parameters, delete asks twice. Cancelled runs are not kept. |
+| History (`RunHistoryViewModel`) | Every completed or failed run of the page (up to 200), newest first, kept in `history.json`; *Show again* restores the result and the parameters, delete asks twice. Cancelled runs are not kept (except an Enhance run that saved part of a video). |
 | Outputs gallery (`OutputGalleryViewModel`) | The completed runs with their files (`outputs/<run>/`), metadata chips (language, audio length, speed, voice), and *Open*, *Export* (a save dialog) and *Delete* for every item. |
 | Export (`Exporter`) | The save dialog and the write, shared by the page's own export buttons and the gallery. |
 
@@ -654,6 +654,16 @@ folder* (the file manager), *Save as…* and *Delete* (asks to click again) act 
 of the side panel keep working as before (the last 200 runs).
 
 ![Image gallery](images/studio/studio-image-gallery.png)
+
+**Enhance** (video enhancement, `IVideoEnhancer`: SeedVR2). A video or an image in; the output height (or an enlargement), frames per
+batch, colour correction and seed. A video is streamed from end to end, so its length does not matter: the bundled FFmpeg decodes it frame
+by frame into the enhancer, each finished batch is encoded straight into the output video (MP4, else WebM or Matroska) with the input's
+sound track (copied when the format takes its codec, else transcoded), and the newest frame appears in the before/after comparison (blend
+or split slider). Memory stays bounded: the enhancer holds a few batches, the input frames waiting for their enhanced partners are only
+those, and the comparison keeps the newest frames within its memory cap (sized for the last 240 frames; older ones are let go and can no
+longer be scrubbed). Progress shows the batch and stage, the frames and the playback time done, the speed and the time left (measured from
+the first finished batch, so compilation does not skew it). *Cancel* (or a failure) finishes the video written so far: the output stays a
+valid, shorter video with its sound and is kept in the history as a cancelled run; nothing is kept when no batch had finished.
 
 **Search** (text embeddings). The input is a folder; *Index* reads every supported document in it (up to 5,000; `.git`, `.hg`, `.svn`
 and `node_modules` folders are skipped), cuts the text into overlapping passages (*Passage length* and *Overlap* in characters, cut at

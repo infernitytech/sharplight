@@ -22,43 +22,79 @@ internal sealed class FakeVideoEnhancer : IVideoEnhancer
 
     public TaskClientMetadata Metadata { get; } = new(Sharplight.Models.ModelKinds.VideoEnhancement, "fake-enhancer", "fake");
 
-    public Task<VideoEnhancementResult> EnhanceAsync(VideoEnhancementRequest request, VideoEnhancementOptions? options = null, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("The page streams.");
+    /// <summary>The frames read from the requests' frames or sources.</summary>
+    public int FramesRead { get; private set; }
 
     public async IAsyncEnumerable<VideoEnhancementUpdate> EnhanceStreamingAsync(VideoEnhancementRequest request, VideoEnhancementOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         options ??= VideoEnhancementOptions.Default;
         Requests.Add((request, options));
-        var input = request.Frames[0];
-        int width = options.Width ?? (int)(input.Width * (options.Scale ?? Defaults.Scale));
-        int height = options.Height ?? (int)(input.Height * (options.Scale ?? Defaults.Scale));
-        int perBatch = options.FramesPerBatch is > 0 and var frames ? frames : request.Frames.Count;
-        int batches = (request.Frames.Count + perBatch - 1) / perBatch;
-        var output = new List<ImageInput>();
-        for (int batch = 0; batch < batches; batch++)
+        await using var frames = request.ReadFramesAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
+        long? known = request.KnownFrameCount;
+        int perBatch = options.FramesPerBatch is > 0 and var size ? size : (int)Math.Min(int.MaxValue, known ?? int.MaxValue);
+        int batches = known is { } count ? (int)((count + perBatch - 1) / perBatch) : 0;
+        long seed = options.Seed ?? 777;
+        double rate = request.FramesPerSecond ?? 24;
+        long finished = 0;
+        int batch = 0;
+        (int Width, int Height) output = default;
+        bool more = true;
+        while (more)
         {
-            yield return new VideoEnhancementUpdate(VideoEnhancementPhase.Encoding, batch, batches);
+            var input = new List<ImageInput>();
+            while (input.Count < perBatch && (more = await frames.MoveNextAsync()))
+            {
+                input.Add(frames.Current);
+                FramesRead++;
+            }
+
+            if (input.Count == 0)
+            {
+                break;
+            }
+
+            int width = options.Width ?? (int)(input[0].Width * (options.Scale ?? Defaults.Scale));
+            int height = options.Height ?? (int)(input[0].Height * (options.Scale ?? Defaults.Scale));
+            output = (width, height);
+            var update = new VideoEnhancementUpdate(VideoEnhancementPhase.Encoding, batch, batches)
+            {
+                FirstFrame = finished,
+                FinishedFrames = finished,
+                TotalFrames = known,
+                Seed = seed,
+                FramesPerSecond = rate,
+                Size = output,
+            };
+            yield return update;
             await Task.Yield();
             cancellationToken.ThrowIfCancellationRequested();
-            yield return new VideoEnhancementUpdate(VideoEnhancementPhase.Restoring, batch, batches);
+            yield return update with { Phase = VideoEnhancementPhase.Restoring };
             if (batch == 0 && Gate is { } gate)
             {
                 await gate.Task.WaitAsync(cancellationToken);
             }
 
-            int count = Math.Min(perBatch, request.Frames.Count - batch * perBatch);
-            var decoded = Enumerable.Range(0, count).Select(i => FakeImageGenerator.Gradient(width, height, (batch * perBatch + i) * 10)).ToList();
-            output.AddRange(decoded);
-            yield return new VideoEnhancementUpdate(VideoEnhancementPhase.Decoding, batch, batches, Frames: decoded);
+            var decoded = Enumerable.Range(0, input.Count).Select(i => FakeImageGenerator.Gradient(width, height, (int)(finished + i) * 10)).ToList();
+            finished += decoded.Count;
+            yield return update with { Phase = VideoEnhancementPhase.Decoding, Frames = decoded, FinishedFrames = finished };
             if (AfterBatch is { } after)
             {
                 await after(batch).WaitAsync(cancellationToken);
             }
+
+            batch++;
         }
 
-        var result = new VideoEnhancementResult(output, request.FramesPerSecond ?? 24, options.Seed ?? 777);
-        yield return new VideoEnhancementUpdate(VideoEnhancementPhase.Completed, batches - 1, batches, Result: result);
+        yield return new VideoEnhancementUpdate(VideoEnhancementPhase.Completed, batch - 1, batch)
+        {
+            FirstFrame = finished,
+            FinishedFrames = finished,
+            TotalFrames = finished,
+            Seed = seed,
+            FramesPerSecond = rate,
+            Size = output,
+        };
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) => null;

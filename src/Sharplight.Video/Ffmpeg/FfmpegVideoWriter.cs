@@ -5,143 +5,179 @@ using Sharplight.Vision;
 namespace Sharplight.Video.Ffmpeg;
 
 /// <summary>
-/// Encodes a <see cref="VideoClip"/> with the bundled FFmpeg into a stream: RGB frames are converted by swscale (BT.709, limited range,
-/// tagged in the stream) or, for GIF, run through a palettegen / paletteuse filter graph; the optional audio track is resampled by
-/// swresample and interleaved by time. One instance per encode; not thread safe.
+/// Encodes frames with the bundled FFmpeg into a stream as they come: RGB frames are converted by swscale (BT.709, limited range, tagged
+/// in the stream) or, for GIF, run through a palettegen / paletteuse filter graph (which holds every frame until <see cref="Finish"/>).
+/// The optional sound track is a clip's <see cref="AudioBuffer"/> (resampled by swresample), or a source file's audio stream, copied
+/// packet by packet when the muxer accepts its codec and transcoded otherwise; either way it is interleaved with the video by time and
+/// ends with it. One instance per encode; not thread safe.
 /// </summary>
 internal sealed unsafe class FfmpegVideoWriter : IDisposable
 {
     private readonly FfmpegEncodePlan _plan;
-    private readonly VideoClip _clip;
-    private readonly OutputStreamIo _io;
-    private AVFormatContext* _format;
+    private readonly FfmpegMuxer _muxer;
     private AVCodecContext* _video;
     private AVStream* _videoStream;
-    private AVCodecContext* _audio;
-    private AVStream* _audioStream;
-    private AVAudioFifo* _audioFifo;
     private SwsContext* _scale;
     private AVFrame* _frame;
-    private AVFrame* _audioFrame;
-    private AVPacket* _packet;
     private PaletteFilter? _palette;
-    private long _audioSamplesSent;
-    private long _audioSamplesTotal;
+    private byte[]? _padded;
+    private FfmpegAudioEncoder? _audio;
+    private FfmpegAudioInput? _audioInput;
+    private FfmpegAudioCopy? _audioCopy;
+    private FfmpegAudioDecoder? _audioDecoder;
+    private long _audioTotal = long.MaxValue;
+    private bool _finished;
 
-    private FfmpegVideoWriter(FfmpegEncodePlan plan, VideoClip clip, Stream output)
+    private FfmpegVideoWriter(FfmpegEncodePlan plan, Stream output)
     {
         _plan = plan;
-        _clip = clip;
-        _io = new OutputStreamIo(output);
+        _muxer = new FfmpegMuxer(plan.Container.Muxer, output);
+        try
+        {
+            OpenVideo();
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
 
-    /// <summary>Encodes the whole clip.</summary>
+    /// <summary>The frames added so far.</summary>
+    public long FramesWritten { get; private set; }
+
+    /// <summary>Encodes a whole clip with its <see cref="VideoClip.Audio"/> (cut or padded with silence to the clip's length).</summary>
     /// <param name="plan">The resolved settings.</param>
     /// <param name="clip">The clip.</param>
     /// <param name="output">The destination.</param>
     /// <param name="cancellationToken">Checked between frames.</param>
     public static void Write(FfmpegEncodePlan plan, VideoClip clip, Stream output, CancellationToken cancellationToken)
     {
-        using var writer = new FfmpegVideoWriter(plan, clip, output);
-        writer.Run(cancellationToken);
+        using var writer = new FfmpegVideoWriter(plan, output);
+        if (plan.Audio is not null && clip.Audio is not null)
+        {
+            writer.OpenAudio(plan.Audio, clip.Audio, clip.Frames.Count);
+        }
+
+        writer.Start();
+        foreach (ImageInput frame in clip.Frames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            writer.Add(frame);
+        }
+
+        writer.Finish();
+    }
+
+    /// <summary>Starts an incremental encode whose sound track comes from a media file.</summary>
+    /// <param name="plan">The resolved settings (<see cref="FfmpegEncodePlan.Audio"/> null: no sound).</param>
+    /// <param name="output">The destination.</param>
+    /// <param name="audioSource">The media file with the sound, or <see langword="null"/>.</param>
+    /// <param name="audioStart">Where the sound starts in the file.</param>
+    /// <returns>The writer, header written.</returns>
+    public static FfmpegVideoWriter Open(FfmpegEncodePlan plan, Stream output, string? audioSource, TimeSpan audioStart)
+    {
+        var writer = new FfmpegVideoWriter(plan, output);
+        try
+        {
+            if (plan.Audio is not null && audioSource is not null)
+            {
+                writer.OpenAudio(plan.Audio, audioSource, audioStart);
+            }
+
+            writer.Start();
+            return writer;
+        }
+        catch
+        {
+            writer.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Encodes the next frame (padded to the encoded size when the codec needs even sizes).</summary>
+    /// <param name="image">The frame, of the size the plan was made for.</param>
+    public void Add(ImageInput image)
+    {
+        WriteAudioUntil(FramesWritten, final: false);
+        if (_padded is null && (image.Width != _plan.Width || image.Height != _plan.Height))
+        {
+            _padded = new byte[_plan.Width * _plan.Height * 3];
+        }
+
+        byte[] rgb = _padded is null ? image.Rgb : Pad(image, _padded);
+        if (_palette is not null)
+        {
+            _palette.Add(rgb, FramesWritten);
+        }
+        else
+        {
+            EncodeVideo(rgb, FramesWritten);
+        }
+
+        FramesWritten++;
+    }
+
+    /// <summary>Flushes the encoders, writes the sound up to the end of the video and the trailer.</summary>
+    public void Finish()
+    {
+        if (_finished)
+        {
+            return;
+        }
+
+        _finished = true;
+        if (_palette is not null)
+        {
+            _palette.Finish(frame => _muxer.Send(_video, _videoStream, frame));
+        }
+
+        _muxer.Send(_video, _videoStream, null);
+        WriteAudioUntil(FramesWritten, final: true);
+        _audio?.Flush();
+        _muxer.Finish();
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
         _palette?.Dispose();
+        _palette = null;
         if (_scale is not null)
         {
             ffmpeg.sws_freeContext(_scale);
             _scale = null;
         }
 
-        if (_audioFifo is not null)
-        {
-            ffmpeg.av_audio_fifo_free(_audioFifo);
-            _audioFifo = null;
-        }
-
+        _audioDecoder?.Dispose();
+        _audioCopy?.Dispose();
+        _audio?.Dispose();
+        _audioInput?.Dispose();
+        _audioDecoder = null;
+        _audioCopy = null;
+        _audio = null;
+        _audioInput = null;
         AVFrame* frame = _frame;
         ffmpeg.av_frame_free(&frame);
-        AVFrame* audioFrame = _audioFrame;
-        ffmpeg.av_frame_free(&audioFrame);
-        AVPacket* packet = _packet;
-        ffmpeg.av_packet_free(&packet);
+        _frame = null;
         AVCodecContext* video = _video;
         ffmpeg.avcodec_free_context(&video);
-        AVCodecContext* audio = _audio;
-        ffmpeg.avcodec_free_context(&audio);
-        _frame = null;
-        _audioFrame = null;
-        _packet = null;
         _video = null;
-        _audio = null;
-        if (_format is not null)
-        {
-            _format->pb = null;
-            ffmpeg.avformat_free_context(_format);
-            _format = null;
-        }
-
-        _io.Dispose();
+        _muxer.Dispose();
     }
 
-    private void Run(CancellationToken cancellationToken)
+    /// <summary>Writes the file header once every stream is added.</summary>
+    private void Start()
     {
-        AVFormatContext* format = null;
-        Check(ffmpeg.avformat_alloc_output_context2(&format, null, _plan.Container.Muxer, null), $"create the {_plan.Container.Muxer} muxer");
-        _format = format;
-        _format->pb = _io.Context;
-        _packet = ffmpeg.av_packet_alloc();
-        OpenVideo();
-        if (_plan.Audio is not null && _clip.Audio is not null)
-        {
-            OpenAudio(_plan.Audio, _clip.Audio);
-        }
-
         AVDictionary* muxerOptions = Dictionary(_plan.MuxerOptions);
         try
         {
-            Check(ffmpeg.avformat_write_header(_format, &muxerOptions), "write the file header");
+            _muxer.Check(ffmpeg.avformat_write_header(_muxer.Format, &muxerOptions), "write the file header");
         }
         finally
         {
             ffmpeg.av_dict_free(&muxerOptions);
         }
-
-        byte[]? padded = _plan.Width != _clip.Width || _plan.Height != _clip.Height ? new byte[_plan.Width * _plan.Height * 3] : null;
-        for (int i = 0; i < _clip.Frames.Count; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            WriteAudioUntil(i);
-            ImageInput image = _clip.Frames[i];
-            byte[] rgb = padded is null ? image.Rgb : Pad(image, padded);
-            if (_palette is not null)
-            {
-                _palette.Add(rgb, i);
-            }
-            else
-            {
-                EncodeVideo(rgb, i);
-            }
-        }
-
-        if (_palette is not null)
-        {
-            _palette.Finish(frame => SendVideo(frame));
-        }
-
-        SendVideo(null);
-        WriteAudioUntil(long.MaxValue);
-        if (_audio is not null)
-        {
-            Send(_audio, _audioStream, null);
-        }
-
-        Check(ffmpeg.av_write_trailer(_format), "finish the file");
-        ffmpeg.avio_flush(_io.Context);
-        ThrowIfOutputFailed();
     }
 
     private void OpenVideo()
@@ -202,7 +238,7 @@ internal sealed unsafe class FfmpegVideoWriter : IDisposable
             _video->colorspace = AVColorSpace.AVCOL_SPC_RGB;
         }
 
-        if ((_format->oformat->flags & ffmpeg.AVFMT_GLOBALHEADER) != 0)
+        if (_muxer.NeedsGlobalHeader)
         {
             _video->flags |= ffmpeg.AV_CODEC_FLAG_GLOBAL_HEADER;
         }
@@ -210,15 +246,15 @@ internal sealed unsafe class FfmpegVideoWriter : IDisposable
         AVDictionary* options = Dictionary(_plan.EncoderOptions);
         try
         {
-            Check(ffmpeg.avcodec_open2(_video, codec, &options), $"open the {_plan.Codec.EncoderName} encoder");
+            _muxer.Check(ffmpeg.avcodec_open2(_video, codec, &options), $"open the {_plan.Codec.EncoderName} encoder");
         }
         finally
         {
             ffmpeg.av_dict_free(&options);
         }
 
-        _videoStream = ffmpeg.avformat_new_stream(_format, null);
-        Check(ffmpeg.avcodec_parameters_from_context(_videoStream->codecpar, _video), "describe the video stream");
+        _videoStream = ffmpeg.avformat_new_stream(_muxer.Format, null);
+        _muxer.Check(ffmpeg.avcodec_parameters_from_context(_videoStream->codecpar, _video), "describe the video stream");
         _videoStream->time_base = _video->time_base;
         _videoStream->avg_frame_rate = _video->framerate;
         _frame = ffmpeg.av_frame_alloc();
@@ -231,7 +267,7 @@ internal sealed unsafe class FfmpegVideoWriter : IDisposable
         _frame->format = (int)pixelFormat;
         _frame->width = _plan.Width;
         _frame->height = _plan.Height;
-        Check(ffmpeg.av_frame_get_buffer(_frame, 0), "allocate a video frame");
+        _muxer.Check(ffmpeg.av_frame_get_buffer(_frame, 0), "allocate a video frame");
         var flags = (int)(SwsFlags.SWS_BICUBIC | SwsFlags.SWS_ACCURATE_RND | SwsFlags.SWS_FULL_CHR_H_INT);
         _scale = ffmpeg.sws_getContext(_plan.Width, _plan.Height, AVPixelFormat.AV_PIX_FMT_RGB24, _plan.Width, _plan.Height, pixelFormat, flags, null, null, null);
         if (_scale is null)
@@ -247,70 +283,32 @@ internal sealed unsafe class FfmpegVideoWriter : IDisposable
         }
     }
 
-    private void OpenAudio(FfmpegAudioPlan plan, AudioBuffer audio)
+
+    private void OpenAudio(FfmpegAudioPlan plan, AudioBuffer audio, long frames)
     {
-        AVCodec* codec = ffmpeg.avcodec_find_encoder_by_name(plan.EncoderName);
-        if (codec is null)
-        {
-            throw new PlatformNotSupportedException($"The bundled FFmpeg has no {plan.EncoderName} encoder.");
-        }
-
-        _audio = ffmpeg.avcodec_alloc_context3(codec);
-        int channels = Math.Min(audio.Channels, 2);
-        ffmpeg.av_channel_layout_default(&_audio->ch_layout, channels);
-        _audio->sample_rate = PickSampleRate(codec, audio.SampleRate);
-        _audio->sample_fmt = PickSampleFormat(codec);
-        _audio->time_base = new AVRational { num = 1, den = _audio->sample_rate };
-        if (plan.BitRate > 0)
-        {
-            _audio->bit_rate = plan.BitRate;
-        }
-
-        if ((_format->oformat->flags & ffmpeg.AVFMT_GLOBALHEADER) != 0)
-        {
-            _audio->flags |= ffmpeg.AV_CODEC_FLAG_GLOBAL_HEADER;
-        }
-
-        Check(ffmpeg.avcodec_open2(_audio, codec, null), $"open the {plan.EncoderName} encoder");
-        _audioStream = ffmpeg.avformat_new_stream(_format, null);
-        Check(ffmpeg.avcodec_parameters_from_context(_audioStream->codecpar, _audio), "describe the audio stream");
-        _audioStream->time_base = _audio->time_base;
-
+        _audio = new FfmpegAudioEncoder(_muxer, plan, audio.SampleRate, audio.Channels);
         // The track has the clip's length: the samples are cut or padded with silence after resampling.
-        _audioSamplesTotal = (long)Math.Round(_clip.Frames.Count * (double)_plan.RateDenominator / _plan.RateNumerator * _audio->sample_rate);
-        _audioFifo = ffmpeg.av_audio_fifo_alloc(_audio->sample_fmt, channels, (int)Math.Max(1, _audioSamplesTotal));
-        Resample(audio, channels);
-        int frameSize = _audio->frame_size > 0 ? _audio->frame_size : 1024;
-        _audioFrame = ffmpeg.av_frame_alloc();
-        _audioFrame->format = (int)_audio->sample_fmt;
-        _audioFrame->sample_rate = _audio->sample_rate;
-        _audioFrame->nb_samples = frameSize;
-        Check(ffmpeg.av_channel_layout_copy(&_audioFrame->ch_layout, &_audio->ch_layout), "set the channel layout");
-        Check(ffmpeg.av_frame_get_buffer(_audioFrame, 0), "allocate an audio frame");
-    }
-
-    private void Resample(AudioBuffer audio, int channels)
-    {
+        _audioTotal = (long)Math.Round(frames * (double)_plan.RateDenominator / _plan.RateNumerator * _audio.SampleRate);
         SwrContext* resampler = null;
         AVChannelLayout input = default;
         ffmpeg.av_channel_layout_default(&input, audio.Channels);
         try
         {
-            Check(ffmpeg.swr_alloc_set_opts2(&resampler, &_audio->ch_layout, _audio->sample_fmt, _audio->sample_rate, &input, AVSampleFormat.AV_SAMPLE_FMT_FLT, audio.SampleRate, 0, null), "set up the resampler");
-            Check(ffmpeg.swr_init(resampler), "set up the resampler");
+            _muxer.Check(ffmpeg.swr_alloc_set_opts2(&resampler, _audio.Layout, _audio.SampleFormat, _audio.SampleRate, &input, AVSampleFormat.AV_SAMPLE_FMT_FLT, audio.SampleRate, 0, null), "set up the resampler");
+            _muxer.Check(ffmpeg.swr_init(resampler), "set up the resampler");
             int capacity = ffmpeg.swr_get_out_samples(resampler, audio.FrameCount) + 256;
             byte** output = stackalloc byte*[8];
             int lineSize;
-            Check(ffmpeg.av_samples_alloc(output, &lineSize, channels, capacity, _audio->sample_fmt, 0), "allocate audio samples");
+            _muxer.Check(ffmpeg.av_samples_alloc(output, &lineSize, _audio.Layout->nb_channels, capacity, _audio.SampleFormat, 0), "allocate audio samples");
             try
             {
                 fixed (float* samples = audio.Samples)
                 {
                     byte* inputData = (byte*)samples;
-                    int converted = Check(ffmpeg.swr_convert(resampler, output, capacity, &inputData, audio.FrameCount), "resample the audio");
-                    AppendToFifo(output, converted);
-                    converted = Check(ffmpeg.swr_convert(resampler, output, capacity, null, 0), "resample the audio");
-                    AppendToFifo(output, converted);
+                    int converted = _muxer.Check(ffmpeg.swr_convert(resampler, output, capacity, &inputData, audio.FrameCount), "resample the audio");
+                    _audio.Append(output, converted, _audioTotal);
+                    converted = _muxer.Check(ffmpeg.swr_convert(resampler, output, capacity, null, 0), "resample the audio");
+                    _audio.Append(output, converted, _audioTotal);
                 }
             }
             finally
@@ -325,62 +323,57 @@ internal sealed unsafe class FfmpegVideoWriter : IDisposable
         }
     }
 
-    private void AppendToFifo(byte** samples, int count)
+    private void OpenAudio(FfmpegAudioPlan plan, string path, TimeSpan start)
     {
-        long room = _audioSamplesTotal - ffmpeg.av_audio_fifo_size(_audioFifo);
-        int take = (int)Math.Clamp(room, 0, count);
-        if (take > 0)
+        _audioInput = FfmpegAudioInput.Open(path, start);
+        if (_audioInput is null)
         {
-            Check(ffmpeg.av_audio_fifo_write(_audioFifo, (void**)samples, take), "buffer the audio");
+            return;
         }
+
+        AVCodecParameters* source = _audioInput.Stream->codecpar;
+        if (!plan.CodecRequested && _muxer.Accepts(source->codec_id))
+        {
+            _audioCopy = new FfmpegAudioCopy(_muxer, _audioInput, skipBeforeStart: start > TimeSpan.Zero);
+            return;
+        }
+
+        _audio = new FfmpegAudioEncoder(_muxer, plan, source->sample_rate, source->ch_layout.nb_channels);
+        _audioDecoder = new FfmpegAudioDecoder(_audioInput, _audio);
     }
 
-    /// <summary>Sends the audio up to the start of video frame <paramref name="frameIndex"/> (all of it for <see cref="long.MaxValue"/>).</summary>
-    private void WriteAudioUntil(long frameIndex)
+    /// <summary>Writes the sound up to the start of video frame <paramref name="frameIndex"/>; <paramref name="final"/>: to the video's end, which ends the track.</summary>
+    private void WriteAudioUntil(long frameIndex, bool final)
     {
+        double seconds = frameIndex * (double)_plan.RateDenominator / _plan.RateNumerator;
+        _audioCopy?.WriteUntil(seconds);
         if (_audio is null)
         {
             return;
         }
 
-        double seconds = frameIndex == long.MaxValue ? double.MaxValue : frameIndex * (double)_plan.RateDenominator / _plan.RateNumerator;
-        long until = seconds >= double.MaxValue / 2 ? _audioSamplesTotal : Math.Min(_audioSamplesTotal, (long)(seconds * _audio->sample_rate));
-        int frameSize = _audio->frame_size > 0 ? _audio->frame_size : 1024;
-        bool variable = (_audio->codec->capabilities & (ffmpeg.AV_CODEC_CAP_VARIABLE_FRAME_SIZE | ffmpeg.AV_CODEC_CAP_SMALL_LAST_FRAME)) != 0;
-        while (_audioSamplesSent < until)
+        long until = (long)(seconds * _audio.SampleRate);
+        if (_audioDecoder is null)
         {
-            long remaining = _audioSamplesTotal - _audioSamplesSent;
-            if (remaining < frameSize && frameIndex != long.MaxValue)
-            {
-                return;
-            }
-
-            Check(ffmpeg.av_frame_make_writable(_audioFrame), "reuse the audio frame");
-            int count = (int)Math.Min(frameSize, remaining);
-            void** data = (void**)&_audioFrame->data;
-            int read = ffmpeg.av_audio_fifo_read(_audioFifo, data, count);
-            int samples = Math.Max(read, 0);
-            if (samples < count)
-            {
-                ffmpeg.av_samples_set_silence((byte**)data, samples, count - samples, _audio->ch_layout.nb_channels, _audio->sample_fmt);
-            }
-
-            int sent = variable ? count : frameSize;
-            if (sent > count)
-            {
-                ffmpeg.av_samples_set_silence((byte**)data, count, sent - count, _audio->ch_layout.nb_channels, _audio->sample_fmt);
-            }
-
-            _audioFrame->nb_samples = sent;
-            _audioFrame->pts = _audioSamplesSent;
-            _audioSamplesSent += count;
-            Send(_audio, _audioStream, _audioFrame);
+            _audio.SendUntil(final ? _audioTotal : Math.Min(_audioTotal, until), _audioTotal, final);
+            return;
         }
+
+        if (final)
+        {
+            _audioDecoder.FillTo(until);
+            long total = Math.Min(_audio.Available, until);
+            _audio.SendUntil(total, total, final: true);
+            return;
+        }
+
+        _audioDecoder.FillTo(until + _audio.FrameSize);
+        _audio.SendUntil(until, _audioDecoder.Ended ? _audio.Available : long.MaxValue, final: false);
     }
 
     private void EncodeVideo(byte[] rgb, long index)
     {
-        Check(ffmpeg.av_frame_make_writable(_frame), "reuse the video frame");
+        _muxer.Check(ffmpeg.av_frame_make_writable(_frame), "reuse the video frame");
         fixed (byte* pixels = rgb)
         {
             byte*[] source = [pixels];
@@ -389,48 +382,7 @@ internal sealed unsafe class FfmpegVideoWriter : IDisposable
         }
 
         _frame->pts = index;
-        SendVideo(_frame);
-    }
-
-    private void SendVideo(AVFrame* frame)
-    {
-        Send(_video, _videoStream, frame);
-    }
-
-    private void Send(AVCodecContext* encoder, AVStream* stream, AVFrame* frame)
-    {
-        Check(ffmpeg.avcodec_send_frame(encoder, frame), "encode a frame");
-        while (true)
-        {
-            int result = ffmpeg.avcodec_receive_packet(encoder, _packet);
-            if (FfmpegError.IsAgainOrEnd(result))
-            {
-                return;
-            }
-
-            Check(result, "encode a frame");
-            ffmpeg.av_packet_rescale_ts(_packet, encoder->time_base, stream->time_base);
-            _packet->stream_index = stream->index;
-            Check(ffmpeg.av_interleaved_write_frame(_format, _packet), "write a packet");
-        }
-    }
-
-    private int Check(int result, string action)
-    {
-        if (result < 0)
-        {
-            ThrowIfOutputFailed();
-        }
-
-        return FfmpegError.Check(result, action);
-    }
-
-    private void ThrowIfOutputFailed()
-    {
-        if (_io.Failure is not null)
-        {
-            throw new IOException($"Writing the video failed: {_io.Failure.Message}", _io.Failure);
-        }
+        _muxer.Send(_video, _videoStream, _frame);
     }
 
     /// <summary>Copies the image into the even-sized buffer, repeating the last column and row.</summary>
@@ -461,41 +413,6 @@ internal sealed unsafe class FfmpegVideoWriter : IDisposable
         }
 
         return result;
-    }
-
-    private static int PickSampleRate(AVCodec* codec, int preferred)
-    {
-        int* rates = null;
-        int count = 0;
-        ffmpeg.avcodec_get_supported_config(null, codec, AVCodecConfig.AV_CODEC_CONFIG_SAMPLE_RATE, 0, (void**)&rates, &count);
-        if (rates is null || count == 0)
-        {
-            return preferred;
-        }
-
-        var supported = new ReadOnlySpan<int>(rates, count).ToArray();
-        if (supported.Contains(preferred))
-        {
-            return preferred;
-        }
-
-        // The lowest supported rate at or above the source, else the highest.
-        int[] higher = [.. supported.Where(r => r >= preferred).Order()];
-        return higher.Length > 0 ? higher[0] : supported.Max();
-    }
-
-    private static AVSampleFormat PickSampleFormat(AVCodec* codec)
-    {
-        AVSampleFormat* formats = null;
-        int count = 0;
-        ffmpeg.avcodec_get_supported_config(null, codec, AVCodecConfig.AV_CODEC_CONFIG_SAMPLE_FORMAT, 0, (void**)&formats, &count);
-        if (formats is null || count == 0)
-        {
-            return AVSampleFormat.AV_SAMPLE_FMT_FLTP;
-        }
-
-        var supported = new ReadOnlySpan<AVSampleFormat>(formats, count);
-        return supported.Contains(AVSampleFormat.AV_SAMPLE_FMT_FLTP) ? AVSampleFormat.AV_SAMPLE_FMT_FLTP : supported[0];
     }
 
     private static AVDictionary* Dictionary(IReadOnlyDictionary<string, string> values)

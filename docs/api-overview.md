@@ -96,6 +96,24 @@ VideoClip input = await reader.ReadClipAsync("in.mov", new VideoDecodeOptions { 
 `IVideoDecoder` (`FfmpegVideoDecoder`) probes files (`VideoInfo`), streams frames as RGB or I420 with timestamps (`VideoDecodeOptions`:
 range, frame limit, frame-rate resampling, scaling) and decodes the audio track to an `AudioBuffer`. All work runs on the thread pool.
 
+Long videos are written incrementally, so memory does not grow with their length: `VideoEncoderCatalog.OpenWriter(path,
+VideoStreamSettings, options)` returns an `IVideoFrameWriter` (every FFmpeg format except GIF, whose palette needs every frame:
+`IVideoEncoder.SupportsIncrementalWriting`). `WriteAsync` encodes one frame at a time, `CompleteAsync` finishes the file, and a writer
+completed early (a cancelled run) leaves a valid video of the frames written so far; disposing it without completing deletes the file.
+`VideoStreamSettings.AudioSourcePath` takes the sound track from a media file (from `AudioSourceStart` on) without decoding it into
+memory: its packets are copied as they are when the output format accepts the codec (and no `AudioCodec` is requested), else transcoded
+to the format's audio codec as the frames are written; either way the track ends with the video.
+
+```csharp
+await using var writer = videos.OpenWriter("enhanced.mp4", new VideoStreamSettings { Width = 1280, Height = 720, FramesPerSecond = 30, AudioSourcePath = "in.mp4" });
+await foreach (VideoFrame frame in decoder.ReadFramesAsync("in.mp4"))
+{
+    await writer.WriteAsync(Process(frame.ToImage()));
+}
+
+await writer.CompleteAsync();
+```
+
 The FFmpeg libraries (avutil, swresample, swscale, avcodec, avformat, avfilter of FFmpeg 9.0) are built by `native/ffmpeg/build.sh` (LGPL
 only, see `src/Sharplight.Video/THIRD-PARTY-NOTICES.md`), shipped as `runtimes/<rid>/native/` assets for win-x64, win-arm64, linux-x64,
 linux-arm64 and osx-arm64, and loaded by full path (`BundledFfmpeg`; `SHARPLIGHT_FFMPEG_DIR` points at another build of the same major
@@ -635,31 +653,64 @@ var services = new ServiceCollection()
 await using var provider = services.BuildServiceProvider();
 var enhancer = provider.GetRequiredService<IVideoEnhancer>();
 
-var clip = await provider.GetRequiredService<VideoDecoderCatalog>().ReadClipAsync("input-480p.mp4");
+// Stream a video of any length: frames are decoded as the batches need them and encoded as they finish, with the input's sound.
+var decoders = provider.GetRequiredService<VideoDecoderCatalog>();
+decoders.TryGet(out var decoder);
+var info = await decoder!.ProbeAsync("input-480p.mp4");
+var frames = decoder.ReadFramesAsync("input-480p.mp4").Select(frame => frame.ToImage());
+var request = VideoEnhancementRequest.FromSource(frames, info.FramesPerSecond, info.FrameCount);
 var options = new VideoEnhancementOptions { Height = 1080, FramesPerBatch = 33, Seed = 7 };
-await foreach (var update in enhancer.EnhanceStreamingAsync(VideoEnhancementRequest.FromClip(clip), options))
+IVideoFrameWriter? writer = null;
+await foreach (var update in enhancer.EnhanceStreamingAsync(request, options))
 {
-    Console.Write($"\r{update.Phase} batch {update.Batch + 1}/{update.TotalBatches}");   // update.Frames: a finished batch
-    if (update.Result is { } result)
+    Console.Write($"\r{update.Phase} {update.FinishedFrames}/{update.TotalFrames} frames");
+    if (update.Frames is { } finished)
     {
-        await provider.GetRequiredService<VideoEncoderCatalog>().SaveAsync(result.ToClip(), "output-1080p.mp4");
+        writer ??= provider.GetRequiredService<VideoEncoderCatalog>().OpenWriter("output-1080p.mp4", new VideoStreamSettings
+        {
+            Width = update.Size.Width, Height = update.Size.Height, FramesPerSecond = update.FramesPerSecond, AudioSourcePath = "input-480p.mp4",
+        });
+        foreach (var frame in finished)
+        {
+            await writer.WriteAsync(frame);
+        }
     }
 }
 
+await writer!.CompleteAsync();
+await writer.DisposeAsync();
+
+// Short clips in memory: the same path, collected.
+var clip = await decoders.ReadClipAsync("short.mp4");
+VideoEnhancementResult result = await enhancer.EnhanceAsync(VideoEnhancementRequest.FromClip(clip), options);
 ImageInput still = await enhancer.EnhanceImageAsync(PngCodec.Read("photo.png"), new VideoEnhancementOptions { Scale = 2 });
 ```
 
+- Requests (`VideoEnhancementRequest`): `Frames` (a list in memory, `FromClip`, `FromImage`) or `FrameSource` (an `IAsyncEnumerable<ImageInput>`
+  read while the enhancement runs, `FromSource`, with an optional `FrameCount` estimate for batch sizes and progress). Both go through one
+  streaming path: the enhancer reads a batch (and the next one ahead), enhances it and hands its frames out before it reads further, and a
+  consumer that falls behind holds it back after a few batches (`EnhanceStreamingAsync` never collects the clip). Memory is that of a few
+  batches whatever the length; `EnhanceAsync` collects the frames for clips that fit in memory.
+- Updates (`VideoEnhancementUpdate`): the phase and batch, `Frames` with `FirstFrame` (their clip index) when a batch is finished,
+  `FinishedFrames` / `TotalFrames`, the result's `Size`, `FramesPerSecond` and `Seed`; the last update is `Completed`.
 - Options (`VideoEnhancementOptions`): `Width` / `Height` (one of them keeps the input's aspect ratio) or `Scale` (default: the model's, 2);
   the result has exactly that size (the network runs on the next multiple of its size step, 16 for SeedVR2, with edge padding that is
-  cropped off). `FramesPerBatch`: frames restored together (default 0, the whole clip; a batch is padded to 1 + 4k frames with copies of
-  its last frame, as the official script does); smaller batches bound memory for long clips. `ColorCorrection`: `Wavelet` (default: the
-  output's high frequencies over the input's low frequencies), `AdaIn` (per-frame channel mean and deviation) or `None`. `Seed`, and for
-  reproducing another implementation's run exactly the explicit `InitialNoise` and `EncoderNoise` (the encoder's latent sample).
-- `IVideoEnhancer.Defaults` (`VideoEnhancementDefaults`) reports the default scale, the size and frame multiples, the default colour correction and
-  frames per batch.
-- Stages: all batches are encoded first, then restored, then decoded. Compiled graphs stay for later requests; when the device runs out of
-  memory they are released and the graph compiled again from the cached kernels, so only one network's weights and activations need to
-  fit at a time.
+  cropped off). `FramesPerBatch`: frames restored together (default 0, the whole clip up to the model's `MaxFramesPerBatch`, 65 frames for
+  SeedVR2, longer clips and frame sources of unknown length in batches of that many; a batch is padded to 1 + 4k frames with copies of its
+  last frame, as the official script does); smaller batches need less memory. `TileSize`: the longest side of the tiles the VAE runs on
+  (default: chosen from the device's free memory, see below). `ColorCorrection`: `Wavelet` (default: the output's high frequencies over the
+  input's low frequencies), `AdaIn` (per-frame channel mean and deviation) or `None`. `Seed`, and for reproducing another implementation's run
+  exactly the explicit `InitialNoise` and `EncoderNoise` (the encoder's latent sample; one batch only).
+- `IVideoEnhancer.Defaults` (`VideoEnhancementDefaults`) reports the default scale, the size and frame multiples, the default colour correction,
+  frames per batch and the longest whole-clip batch.
+- Stages: each batch is encoded, restored and decoded before the next is read; batches have their own noise streams, so the result does not
+  depend on how they are grouped. Compiled graphs stay for later batches and requests; when the device runs out of memory they are released and
+  the graph compiled again from the cached kernels (only one network's weights and activations need to fit at a time), and from then on
+  groups of up to 8 batches go through each stage together so the networks take turns once per group.
+- VAE tiling: frame sizes whose VAE activations do not fit the device are encoded and decoded in overlapping tiles crossfaded together
+  (`SpatialTiling` in `Sharplight.ImageGeneration`, shared with the video generators' tiled decoding). The tiles are chosen from the device's
+  free memory once a compiled VAE graph has shown what a pixel costs; before that the whole frame is tried, and an out-of-memory error halves
+  the tile area (down to 128-pixel sides) and runs the stage again. 1080p SeedVR2 output runs on a 32 GB card this way.
 - `sharplight-enhance-video` (samples/Sharplight.EnhanceVideo) enhances a video file or a PNG:
   `sharplight-enhance-video -m SeedVR2-3B -i input.mp4 -H 1080 -b 33 -o output.mp4`.
 

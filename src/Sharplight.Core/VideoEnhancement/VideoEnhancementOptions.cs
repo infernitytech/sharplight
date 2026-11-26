@@ -20,10 +20,19 @@ public sealed record VideoEnhancementOptions
     public float? Scale { get; init; }
 
     /// <summary>
-    /// Frames per batch, or <see langword="null"/> for the model's default (0: the whole clip in one batch). Each batch is restored on its
-    /// own, so longer clips fit in memory; a value the model does not take is rounded down to one it does (1 + k · the frame multiple).
+    /// Frames per batch, or <see langword="null"/> for the model's default (0: the whole clip in one batch, up to the model's
+    /// <see cref="VideoEnhancementDefaults.MaxFramesPerBatch"/>). Each batch is restored on its own, so longer clips fit in memory; a value
+    /// the model does not take is rounded down to one it does (1 + k · the frame multiple).
     /// </summary>
     public int? FramesPerBatch { get; init; }
+
+    /// <summary>
+    /// The longest side, in pixels of the output, of the tiles the model's autoencoder runs on (sizes whose activations do not fit the device
+    /// are encoded and decoded in overlapping tiles that are crossfaded together), or <see langword="null"/> to choose the tiles from the
+    /// device's free memory: none while the whole frame fits, smaller ones after the device runs out of memory. Smaller tiles need less
+    /// memory and take a little longer; the seams are blended, but the result differs slightly from an untiled run.
+    /// </summary>
+    public int? TileSize { get; init; }
 
     /// <summary>How the colours of the result follow the input, or <see langword="null"/> for the model's default.</summary>
     public VideoColorCorrection? ColorCorrection { get; init; }

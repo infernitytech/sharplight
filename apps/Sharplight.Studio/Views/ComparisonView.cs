@@ -81,7 +81,7 @@ internal sealed class ComparisonView : UserControl
     public Image EnhancedLayer => _enhanced;
 
     /// <summary>The index of the frame pair on screen, or -1.</summary>
-    public int ShownIndex { get; private set; } = -1;
+    public long ShownIndex { get; private set; } = -1;
 
     /// <summary>Completes when every pair handed over so far was converted and put on screen (for tests).</summary>
     public Task Idle

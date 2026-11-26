@@ -8,11 +8,15 @@ internal static class FfmpegEncodePlanner
     /// <summary>Builds the plan.</summary>
     /// <param name="container">The output format.</param>
     /// <param name="codecs">The codecs available for it on this machine, the default first.</param>
-    /// <param name="clip">The clip.</param>
+    /// <param name="width">Frame width.</param>
+    /// <param name="height">Frame height.</param>
+    /// <param name="framesPerSecond">The frames' rate (the options may override it).</param>
+    /// <param name="hasAudio">Whether there is a sound track to write.</param>
     /// <param name="options">The options.</param>
     /// <param name="seekableOutput">Whether the destination can seek (MP4 / MOV are fragmented otherwise).</param>
     /// <exception cref="ArgumentException">An option names something the format does not offer.</exception>
-    public static FfmpegEncodePlan Create(FfmpegContainer container, IReadOnlyList<FfmpegCodec> codecs, VideoClip clip, VideoEncodeOptions options, bool seekableOutput)
+    public static FfmpegEncodePlan Create(FfmpegContainer container, IReadOnlyList<FfmpegCodec> codecs, int width, int height, double framesPerSecond, bool hasAudio,
+        VideoEncodeOptions options, bool seekableOutput)
     {
         FfmpegCodec codec = PickCodec(container, codecs, options.Codec);
         string pixelFormat = Pick(options.PixelFormat, codec.PixelFormats, codec.PixelFormats[0], $"pixel format of {codec.Id}");
@@ -26,15 +30,15 @@ internal static class FfmpegEncodePlanner
             }
         }
 
-        double rate = options.FramesPerSecond ?? clip.FramesPerSecond;
+        double rate = options.FramesPerSecond ?? framesPerSecond;
         if (!double.IsFinite(rate) || rate <= 0)
         {
             throw new ArgumentException("The frame rate must be positive and finite.", nameof(options));
         }
 
         (int numerator, int denominator) = FrameRate.ToFraction(rate);
-        int width = codec.NeedsEvenSize ? (clip.Width + 1) & ~1 : clip.Width;
-        int height = codec.NeedsEvenSize ? (clip.Height + 1) & ~1 : clip.Height;
+        int encodedWidth = codec.NeedsEvenSize ? (width + 1) & ~1 : width;
+        int encodedHeight = codec.NeedsEvenSize ? (height + 1) & ~1 : height;
         int quality = Math.Clamp(options.Quality, 0, 100);
         long bitRate = options.BitrateKilobitsPerSecond is int kilobits && kilobits > 0 ? kilobits * 1000L : 0;
         int? rateFactor = RateFactor(codec, options, quality);
@@ -43,8 +47,8 @@ internal static class FfmpegEncodePlanner
             Container = container,
             Codec = codec,
             PixelFormat = pixelFormat,
-            Width = width,
-            Height = height,
+            Width = encodedWidth,
+            Height = encodedHeight,
             RateNumerator = numerator,
             RateDenominator = denominator,
             EncoderOptions = encoderOptions,
@@ -52,7 +56,7 @@ internal static class FfmpegEncodePlanner
             KeyframeInterval = options.KeyframeInterval is int interval && interval > 0 ? interval : null,
             Threads = options.MaxThreads > 0 ? options.MaxThreads : Math.Clamp(Environment.ProcessorCount, 1, 16),
             BitRate = bitRate,
-            Audio = AudioPlan(container, clip, options),
+            Audio = AudioPlan(container, hasAudio, options),
         };
 
         if (bitRate > 0)
@@ -63,7 +67,7 @@ internal static class FfmpegEncodePlanner
         }
 
         string factor = rateFactor?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
-        long pixelsPerSecond = (long)(width * (long)height * rate);
+        long pixelsPerSecond = (long)(encodedWidth * (long)encodedHeight * rate);
         switch (codec.Quality)
         {
             case QualityControl.Crf:
@@ -174,9 +178,9 @@ internal static class FfmpegEncodePlanner
         return muxer;
     }
 
-    private static FfmpegAudioPlan? AudioPlan(FfmpegContainer container, VideoClip clip, VideoEncodeOptions options)
+    private static FfmpegAudioPlan? AudioPlan(FfmpegContainer container, bool hasAudio, VideoEncodeOptions options)
     {
-        if (!options.IncludeAudio || clip.Audio is null || container.AudioCodecs.Count == 0)
+        if (!options.IncludeAudio || !hasAudio || container.AudioCodecs.Count == 0)
         {
             if (options.AudioCodec is not null && container.AudioCodecs.Count == 0)
             {
@@ -188,6 +192,6 @@ internal static class FfmpegEncodePlanner
 
         string codec = Pick(options.AudioCodec, container.AudioCodecs, container.AudioCodecs[0], $"audio codec of {container.Format}");
         long bitRate = options.AudioBitrateKilobitsPerSecond is int kilobits && kilobits > 0 ? kilobits * 1000L : 0;
-        return new FfmpegAudioPlan(AudioEncoderName(codec), bitRate);
+        return new FfmpegAudioPlan(AudioEncoderName(codec), bitRate, options.AudioCodec is not null);
     }
 }

@@ -3195,6 +3195,10 @@ Architecture (ByteDance-Seed/SeedVR, projects/inference_seedvr2_{3b,7b}.py):
 
 Implementation notes:
 
+- Streaming (2026-11-26, benchmarks §115): requests take a frame source; each batch (or, when the networks take turns on the device, a
+  group of up to 8) is encoded, restored and decoded before the next is read, so memory does not grow with the clip. Batches are capped at
+  65 frames for whole-clip requests. The VAE runs in equal overlapping tiles (`SpatialTiling`) when its activations do not fit; the
+  mid-block attention then sees one tile instead of the frame, so tiled output differs a little from untiled (PSNR in §115).
 - One new op, generic: `After(x, y)` (StandardOps, a view): x itself, available only once y is computed, a control dependency. The shared
   GPU lowering schedules independent units by dependency level, which started all time chunks of a chunked VAE graph at once (each chunk
   one level behind the previous through the causal caches): 105 GB of activations for 33 frames at 960p. Chaining each chunk's input

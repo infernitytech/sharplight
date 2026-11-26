@@ -1,10 +1,11 @@
 // VideoEnhancementBench --model <seedvr2 folder or .slm> --input <clip.mp4 | frames.u8> [--input-shape FxHxW] --width W --height H
-//                       [--provider cuda|vulkan|cpu] [--batch N] [--runs 5] [--warmup 1] [--reduced-precision]
+//                       [--provider cuda|vulkan|cpu] [--batch N] [--tile N] [--runs 5] [--warmup 1] [--reduced-precision]
 //                       [--output-u8 out.u8] [--output-video out.mp4] [--json results.json] [--noise <reference dump folder>]
 // Times IVideoEnhancer runs end to end: decode the input file, enhance (per phase: encoding = resize + VAE encoder, restoring = DiT,
 // decoding = VAE decoder + colour correction), encode the output file; after the warm-up runs (kernel compilation, weight upload) the
 // median of the timed runs is reported. The frames of the last run can be written raw for a PSNR check against another implementation;
 // --noise takes the initial noise and the encoder sample of a tools/seedvr2-reference.py dump, so the run reproduces that one.
+// --tile N runs the VAE in tiles of at most N output pixels a side (default: chosen from the device's memory).
 // --profile FxHxW (padded frames x height x width) times every kernel launch of each graph instead (Vulkan and CUDA).
 using System.Diagnostics;
 using System.Globalization;
@@ -57,7 +58,8 @@ var decoders = services.GetRequiredService<VideoDecoderCatalog>();
 Console.WriteLine($"{model.Definition.Name} on {provider.Name} ({device.Info.Name}), loaded in {loadSeconds:F1} s");
 
 var runs = new List<Dictionary<string, double>>();
-VideoEnhancementResult? last = null;
+List<ImageInput> last = [];
+(int Width, int Height) outputSize = default;
 for (int run = 0; run < options.Warmup + options.Runs; run++)
 {
     var times = new Dictionary<string, double>();
@@ -65,31 +67,45 @@ for (int run = 0; run < options.Warmup + options.Runs; run++)
     var read = Stopwatch.StartNew();
     var (frames, fps) = await ReadAsync(decoders, options);
     times["read"] = read.Elapsed.TotalSeconds;
+    // Each update starts a phase of a batch: the time up to the next update belongs to it (summed over the batches).
     var phases = new Dictionary<VideoEnhancementPhase, double>();
+    var output = new List<ImageInput>();
     var enhance = Stopwatch.StartNew();
+    (VideoEnhancementPhase Phase, double Start)? current = null;
+    double outputRate = 0;
     await foreach (var update in enhancer.EnhanceStreamingAsync(new VideoEnhancementRequest { Frames = frames, FramesPerSecond = fps },
         new VideoEnhancementOptions
         {
             Width = options.Width,
             Height = options.Height,
             FramesPerBatch = options.Batch,
+            TileSize = options.Tile,
             Seed = 42,
             InitialNoise = options.Noise is { } noise ? ReadFloats(Path.Combine(noise, "noise.f32")) : null,
             EncoderNoise = options.Noise is { } encoder ? ReadFloats(Path.Combine(encoder, "latent_eps.f32")) : null,
         }))
     {
-        phases.TryAdd(update.Phase, enhance.Elapsed.TotalSeconds);
-        last = update.Result ?? last;
+        double now = enhance.Elapsed.TotalSeconds;
+        if (current is { } previous)
+        {
+            phases[previous.Phase] = phases.GetValueOrDefault(previous.Phase) + now - previous.Start;
+        }
+
+        current = (update.Phase, now);
+        output.AddRange(update.Frames ?? []);
+        outputSize = update.Size;
+        outputRate = update.FramesPerSecond;
     }
 
-    times["encoding"] = phases[VideoEnhancementPhase.Restoring] - phases[VideoEnhancementPhase.Encoding];
-    times["restoring"] = phases[VideoEnhancementPhase.Decoding] - phases[VideoEnhancementPhase.Restoring];
-    times["decoding"] = phases[VideoEnhancementPhase.Completed] - phases[VideoEnhancementPhase.Decoding];
+    last = output;
+    times["encoding"] = phases.GetValueOrDefault(VideoEnhancementPhase.Encoding);
+    times["restoring"] = phases.GetValueOrDefault(VideoEnhancementPhase.Restoring);
+    times["decoding"] = phases.GetValueOrDefault(VideoEnhancementPhase.Decoding);
     times["enhance"] = enhance.Elapsed.TotalSeconds;
     var write = Stopwatch.StartNew();
     if (options.OutputVideo is { } video)
     {
-        await encoders.SaveAsync(last!.ToClip(), video);
+        await encoders.SaveAsync(new VideoClip(last, outputRate), video);
     }
 
     times["write"] = write.Elapsed.TotalSeconds;
@@ -107,7 +123,7 @@ Console.WriteLine($"median of {runs.Count}: {string.Join(", ", median.Select(t =
 if (options.OutputU8 is { } raw)
 {
     using var stream = File.Create(raw);
-    foreach (var frame in last!.Frames)
+    foreach (var frame in last)
     {
         stream.Write(frame.Rgb);
     }
@@ -121,8 +137,8 @@ if (options.Json is { } json)
         ["provider"] = provider.Name,
         ["device"] = device.Info.Name,
         ["load_seconds"] = loadSeconds,
-        ["frames"] = last!.Frames.Count,
-        ["output"] = $"{last.Width}x{last.Height}",
+        ["frames"] = last.Count,
+        ["output"] = $"{outputSize.Width}x{outputSize.Height}",
         ["runs"] = runs,
         ["median"] = median,
     }, new JsonSerializerOptions { WriteIndented = true }));

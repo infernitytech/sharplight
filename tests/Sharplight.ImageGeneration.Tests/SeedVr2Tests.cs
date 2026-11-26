@@ -4,6 +4,7 @@ using Sharplight.Architectures.VideoEnhancement;
 using Sharplight.Cuda;
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tasks;
 using Sharplight.VideoEnhancement;
 using Sharplight.VideoGeneration;
 using Sharplight.Vision;
@@ -159,21 +160,27 @@ public sealed class SeedVr2Tests
         var frames = new ReferenceRun(Reference(reference)).InputFrames();
         var token = TestContext.Current.CancellationToken;
         var batches = new List<int>();
-        VideoEnhancementResult? perFrame = null;
+        var perFrame = new List<ImageInput>();
+        VideoEnhancementUpdate? last = null;
         await foreach (var update in enhancer.EnhanceStreamingAsync(new VideoEnhancementRequest { Frames = frames, FramesPerSecond = 12 },
             new VideoEnhancementOptions { Width = 210, Height = 115, FramesPerBatch = 1, Seed = 3 }, token))
         {
             if (update.Frames is { } done)
             {
+                Assert.Equal(perFrame.Count, update.FirstFrame);
                 batches.Add(done.Count);
+                perFrame.AddRange(done);
             }
 
-            perFrame = update.Result ?? perFrame;
+            last = update;
         }
 
         Assert.Equal(Enumerable.Repeat(1, frames.Count), batches);
-        Assert.All(perFrame!.Frames, f => Assert.True(f.Width == 210 && f.Height == 115));
-        Assert.Equal(12, perFrame.FramesPerSecond);
+        Assert.All(perFrame, f => Assert.True(f.Width == 210 && f.Height == 115));
+        Assert.Equal(VideoEnhancementPhase.Completed, last!.Phase);
+        Assert.Equal(12, last.FramesPerSecond);
+        Assert.Equal(frames.Count, last.TotalFrames);
+        Assert.Equal((210, 115), last.Size);
         foreach (var correction in new[] { VideoColorCorrection.AdaIn, VideoColorCorrection.None })
         {
             var whole = await enhancer.EnhanceAsync(new VideoEnhancementRequest { Frames = frames },
@@ -184,6 +191,125 @@ public sealed class SeedVr2Tests
 
         var image = await enhancer.EnhanceImageAsync(frames[0], new VideoEnhancementOptions { Scale = 1.5f, Seed = 3 }, token);
         Assert.True(image.Width == 156 && image.Height == 84, $"{image.Width}x{image.Height}");
+    }
+
+    /// <summary>The clips the streaming checks run on: the tiny clip on the CPU, 17 frames of the fox clip at 832 × 480 on a GPU.</summary>
+    public static TheoryData<string> StreamingDevices => ["cpu", "vulkan", "cuda"];
+
+    /// <summary>
+    /// A frame source gives exactly the frames of the same clip as a list, in one batch and in batches of 5 (the list path and the source path
+    /// are one path; batches are independent, so reading them one by one changes nothing).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(StreamingDevices))]
+    public async Task FrameSource_EqualsFrameList(string device)
+    {
+        var (enhancer, model, frames, height) = Open(device);
+        using var owner = model;
+        using var client = enhancer;
+        var token = TestContext.Current.CancellationToken;
+        foreach (int perBatch in new[] { 0, 5 })
+        {
+            var options = new VideoEnhancementOptions { Height = height, FramesPerBatch = perBatch, Seed = 11 };
+            var fromList = await enhancer.EnhanceAsync(new VideoEnhancementRequest { Frames = frames }, options, token);
+            var fromSource = await enhancer.EnhanceAsync(VideoEnhancementRequest.FromSource(frames.ToAsyncEnumerable(), 24, null), options, token);
+            Assert.Equal(frames.Count, fromSource.Frames.Count);
+            for (int f = 0; f < frames.Count; f++)
+            {
+                Assert.True(fromList.Frames[f].Rgb.AsSpan().SequenceEqual(fromSource.Frames[f].Rgb), $"frame {f} of batches of {perBatch} differs");
+            }
+        }
+    }
+
+    /// <summary>
+    /// A long frame source (the clip repeated) with a slow consumer: the frames read from the source and not yet handed to the consumer
+    /// never exceed a few batches (the batch being enhanced, the one read ahead and the queue of finished batches), whatever the length.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(StreamingDevices))]
+    public async Task LongFrameSource_HoldsABoundedNumberOfFrames(string device)
+    {
+        var (enhancer, model, frames, height) = Open(device);
+        using var owner = model;
+        using var client = enhancer;
+        var token = TestContext.Current.CancellationToken;
+        const int perBatch = 5;
+        int total = device == "cpu" ? 60 : 200;
+        long read = 0;
+        long received = 0;
+        long mostHeld = 0;
+        async IAsyncEnumerable<ImageInput> Source()
+        {
+            for (int i = 0; i < total; i++)
+            {
+                await Task.Yield();
+                long held = Interlocked.Increment(ref read) - Interlocked.Read(ref received);
+                mostHeld = Math.Max(mostHeld, held);
+                yield return frames[i % frames.Count];
+            }
+        }
+
+        await foreach (var update in enhancer.EnhanceStreamingAsync(VideoEnhancementRequest.FromSource(Source()),
+            new VideoEnhancementOptions { Height = height, FramesPerBatch = perBatch, Seed = 1 }, token))
+        {
+            if (update.Frames is { } done)
+            {
+                await Task.Delay(device == "cpu" ? 300 : 100, token);
+                Interlocked.Add(ref received, done.Count);
+            }
+        }
+
+        Assert.Equal(total, received);
+        // The group being enhanced (one batch, up to eight on a GPU where the stages take turns), one batch read ahead, four queued
+        // updates of finished frames and the batch being read.
+        long bound = perBatch * (device == "cpu" ? 7 : 14);
+        TestContext.Current.SendDiagnosticMessage($"SeedVR2 streaming on {device}: {total} frames, at most {mostHeld} held (bound {bound})");
+        Assert.True(mostHeld <= bound, $"{mostHeld} frames held");
+    }
+
+    /// <summary>
+    /// The VAE in tiles (forced by <see cref="VideoEnhancementOptions.TileSize"/>) against the whole frame: the layout is taken, and the result
+    /// stays close (the tiles see less context, and their seams are crossfaded).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(StreamingDevices))]
+    public async Task TiledVae_IsCloseToTheWholeFrame(string device)
+    {
+        var (enhancer, model, frames, height) = Open(device);
+        using var owner = model;
+        using var client = enhancer;
+        var token = TestContext.Current.CancellationToken;
+        var options = new VideoEnhancementOptions { Height = height, Seed = 5 };
+        var whole = await enhancer.EnhanceAsync(new VideoEnhancementRequest { Frames = frames }, options, token);
+        int tile = device == "cpu" ? 128 : 384;
+        var tiled = await enhancer.EnhanceAsync(new VideoEnhancementRequest { Frames = frames }, options with { TileSize = tile }, token);
+        var layouts = ((SeedVrEnhancer)enhancer.GetService(typeof(SeedVrEnhancer))!).TileLayouts;
+        Assert.Contains(layouts.Values, layout => layout.Rows.Count * layout.Columns.Count > 1);
+        double worst = double.MaxValue;
+        double sum = 0;
+        for (int f = 0; f < frames.Count; f++)
+        {
+            double psnr = Env.Psnr(tiled.Frames[f].Rgb, whole.Frames[f].Rgb);
+            worst = Math.Min(worst, psnr);
+            sum += psnr;
+        }
+
+        TestContext.Current.SendDiagnosticMessage(
+            $"SeedVR2 tiled VAE ({string.Join(", ", layouts.Select(l => $"{l.Key}: {l.Value}"))}) on {device}: worst frame {worst:F1} dB, mean {sum / frames.Count:F1} dB vs untiled");
+        // The CPU clip is 208 × 112, so its 112-pixel tiles see little of the frame (29.5 dB); 720p in 768-pixel tiles gives 43 dB (§RVID).
+        Assert.True(worst > (device == "cpu" ? 25 : 30), $"worst frame {worst:F1} dB");
+    }
+
+    /// <summary>An enhancer on <paramref name="device"/> with the clip the streaming checks use and its output height (skips when either is missing).</summary>
+    private static (IVideoEnhancer Enhancer, TaskModel Model, List<ImageInput> Frames, int Height) Open(string device)
+    {
+        string reference = device == "cpu" ? "tiny-cpu-fp32" : "fox-480p-cuda-bf16";
+        var slot = Available(reference) ? Device(device) : null;
+        Assert.SkipWhen(slot is null, $"SeedVR2, the reference '{reference}' or the {device} device missing (CUDA runs with SHARPLIGHT_TEST_CUDA=1)");
+        var model = Env.Load(ModelPath(reference), slot!);
+        var enhancer = Env.Clients.Create<IVideoEnhancer>(model);
+        var data = new ReferenceRun(Reference(reference));
+        return (enhancer, model, data.InputFrames(), data.Shape("output")[1]);
     }
 
     /// <summary>The CPU, the Vulkan GPU or (with SHARPLIGHT_TEST_CUDA=1) the first CUDA GPU, or null when unavailable.</summary>
