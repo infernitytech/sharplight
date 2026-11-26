@@ -67,13 +67,45 @@ internal static class HubJson
             }
 
             long size = entry.TryGetProperty("size", out var sizeValue) && sizeValue.TryGetInt64(out long parsed) ? parsed : 0;
-            string? sha256 = entry.TryGetProperty("lfs", out var lfs) && lfs.ValueKind == JsonValueKind.Object ? String(lfs, "oid") : null;
-            string? gitOid = sha256 is null ? String(entry, "oid") : null;
-            files.Add(new HubFile(path, size, sha256?.ToLowerInvariant(), gitOid?.ToLowerInvariant()));
+            // An LFS file's git oid is that of its pointer, not of the content; for a gated repository the caller may not download, the
+            // Hub masks the LFS oid ("****..."): such a file has no checksum here (HubClient fills it from the revision's blob listing).
+            bool isLfs = entry.TryGetProperty("lfs", out var lfs) && lfs.ValueKind == JsonValueKind.Object;
+            string? sha256 = isLfs ? Sha256(String(lfs, "oid")) : null;
+            string? gitOid = isLfs ? null : String(entry, "oid")?.ToLowerInvariant();
+            files.Add(new HubFile(path, size, sha256, gitOid));
         }
 
         return files;
     }
+
+    /// <summary>
+    /// The SHA-256 of every LFS file in a revision info requested with <c>blobs=true</c> (<c>siblings[].lfs.sha256</c>), by path. The
+    /// Hub lists them even where the tree listing masks them (gated repositories whose terms the caller has not accepted).
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ParseLfsHashes(string json)
+    {
+        using var document = Parse(json);
+        var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!document.RootElement.TryGetProperty("siblings", out var siblings) || siblings.ValueKind != JsonValueKind.Array)
+        {
+            return hashes;
+        }
+
+        foreach (var sibling in siblings.EnumerateArray())
+        {
+            if (String(sibling, "rfilename") is { } path && sibling.TryGetProperty("lfs", out var lfs) && lfs.ValueKind == JsonValueKind.Object
+                && Sha256(String(lfs, "sha256")) is { } sha256)
+            {
+                hashes[path] = sha256;
+            }
+        }
+
+        return hashes;
+    }
+
+    /// <summary>The lower-case form of a 64-digit hex SHA-256, or null for anything else (a masked or missing value).</summary>
+    private static string? Sha256(string? value)
+        => value is { Length: 64 } && value.All(char.IsAsciiHexDigit) ? value.ToLowerInvariant() : null;
 
     public static IReadOnlyList<HubModelSummary> ParseSearch(string json)
     {

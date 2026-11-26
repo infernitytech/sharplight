@@ -96,6 +96,24 @@ public sealed class CatalogResolverTests : IDisposable
         Assert.Equal("apache-2.0", Assert.Single(resolved.Entries).License);
     }
 
+    [Fact]
+    public async Task AGatedRepositoryWithMaskedLfsOidsIsPinnedWithTheChecksumsOfItsBlobListing()
+    {
+        var gated = _hub.Add("publisher/Gated", commit: "dddddddddddddddddddddddddddddddddddddddd", gated: true).WithSize("Model-Q8_0.gguf", 40_000).With("config.json", "{}");
+        gated.MaskLfsOids = true;
+        var variant = Variant("publisher/Gated") with { Include = ["*.gguf", "config.json"] };
+
+        var resolved = await ResolveAsync(CatalogSamples.Entry("model", variant));
+
+        var entry = Assert.Single(resolved.Entries);
+        var files = entry.Variants[0].Files.ToDictionary(file => file.Path);
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(gated.Files["Model-Q8_0.gguf"])), files["Model-Q8_0.gguf"].Sha256);
+        Assert.Null(files["Model-Q8_0.gguf"].GitOid);
+        Assert.NotNull(files["config.json"].GitOid);
+        Assert.True(entry.Gated);
+        Assert.Empty(CatalogValidator.Validate(resolved));
+    }
+
     private static CatalogVariant Variant(string repository)
         => new() { Id = "q8-0-gguf", Label = "Q8_0 GGUF", Format = "gguf", Repository = repository, Include = ["*.gguf"] };
 

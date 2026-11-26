@@ -2495,7 +2495,7 @@
       "architecture": "llama",
       "level": "verified",
       "license": "llama3.2",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Meta",
         "countryOfOrigin": "US",
@@ -2557,53 +2557,55 @@
           "recommended": false,
           "memoryBytes": 3245045633,
           "companions": [],
-          "repository": "unsloth/Llama-3.2-1B-Instruct",
-          "revision": "5a8abab4a5d6f164389b1079fb721cfab8d7126c",
+          "level": "partial",
+          "verification": "Official files: the weights are byte-identical (sha256) to the copy the verification ran on; config.json, generation_config.json and the tokenizer files (Meta keeps the chat template in tokenizer_config.json) differ and are re-run once the repository grants access.",
+          "repository": "meta-llama/Llama-3.2-1B-Instruct",
+          "revision": "9213176726f574b556790deb65791e0c5aa438b6",
           "include": [
-            "chat_template.jinja",
+            "LICENSE.txt",
             "config.json",
             "generation_config.json",
-            "model.safetensors",
             "special_tokens_map.json",
             "tokenizer.json",
-            "tokenizer_config.json"
+            "tokenizer_config.json",
+            "model.safetensors"
           ],
           "primary": "",
           "files": [
             {
-              "path": "chat_template.jinja",
-              "size": 3827,
-              "gitOid": "1bad6a0f648dccdbec523ca79ba90fbcfc806af0"
+              "path": "LICENSE.txt",
+              "size": 7712,
+              "gitOid": "085b47c1575cb889b7024030e60b78f54f0b8c9e"
             },
             {
               "path": "config.json",
-              "size": 894,
-              "gitOid": "efa30582955bb5e3a626981b1b74c6ebb107c02c"
+              "size": 877,
+              "gitOid": "3e3aaf51a035cb5092d9f6827a0dc074657ba88c"
             },
             {
               "path": "generation_config.json",
-              "size": 239,
-              "gitOid": "d3af262e14cd9f678b04201e6a04ca36ba4ebb48"
+              "size": 189,
+              "gitOid": "75ae08310d6d23df373ee2644b497192b3cce6d8"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 296,
+              "gitOid": "02ee80b6196926a5ad790a004d9efd6ab1ba6542"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 9085657,
+              "gitOid": "5cc5f00a5b203e90a27a3bd60d1ec393b07971e8"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 54528,
+              "gitOid": "4ff488a165e900e5129cda7c20ab32d568d2a475"
             },
             {
               "path": "model.safetensors",
               "size": 2471645608,
               "sha256": "1ff795ff6a07e6a68085d206fb84417da2f083f68391c2843cd2b8ac6df8538f"
-            },
-            {
-              "path": "special_tokens_map.json",
-              "size": 454,
-              "gitOid": "3c1d04911c269b925af977a3151c9704e990e4d0"
-            },
-            {
-              "path": "tokenizer.json",
-              "size": 17209920,
-              "sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b"
-            },
-            {
-              "path": "tokenizer_config.json",
-              "size": 54669,
-              "gitOid": "3dc1faa6025cdb195c0889dd8d3d13ca26af9225"
             }
           ]
         }
@@ -2631,7 +2633,7 @@
         {
           "section": "1.1.1",
           "cells": {
-            "repositories": "unsloth/Llama-3.2-1B-Instruct, unsloth/Llama-3.2-1B-Instruct-GGUF",
+            "repositories": "meta-llama/Llama-3.2-1B-Instruct (verified on the unsloth copy, same weights), unsloth/Llama-3.2-1B-Instruct-GGUF",
             "formats": "safetensors, GGUF Q8_0",
             "verification": "ids identical to transformers; GGUF identical to llama.cpp",
             "notes": "also in Studio and as .slm",
@@ -2648,7 +2650,7 @@
       "architecture": "llama",
       "level": "verified",
       "license": "llama3.2",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Meta",
         "countryOfOrigin": "US",
@@ -2666,45 +2668,51 @@
           "recommended": true,
           "memoryBytes": 7792011589,
           "companions": [],
-          "repository": "unsloth/Llama-3.2-3B-Instruct",
-          "revision": "006f5dcd1393c3add266de40994ba96225e9689d",
-          "include": [],
+          "level": "partial",
+          "verification": "Official files: the weights are byte-identical (sha256) to the copy the verification ran on; config.json, generation_config.json and the tokenizer files (Meta keeps the chat template in tokenizer_config.json) differ and are re-run once the repository grants access.",
+          "repository": "meta-llama/Llama-3.2-3B-Instruct",
+          "revision": "0cb88a4f764b7a12671c53f0838cd831a0843b95",
+          "include": [
+            "LICENSE.txt",
+            "config.json",
+            "generation_config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "model-0000?-of-00002.safetensors",
+            "model.safetensors.index.json"
+          ],
           "primary": "",
           "files": [
             {
-              "path": "chat_template.jinja",
-              "size": 3827,
-              "gitOid": "1bad6a0f648dccdbec523ca79ba90fbcfc806af0"
+              "path": "LICENSE.txt",
+              "size": 7712,
+              "gitOid": "085b47c1575cb889b7024030e60b78f54f0b8c9e"
             },
             {
               "path": "config.json",
-              "size": 890,
-              "gitOid": "c9b6f554d5eda244e63d96d82c41696ee99abcb7"
+              "size": 878,
+              "gitOid": "a5a40fa6da567ab026a5a2bf37125a90182be07d"
             },
             {
               "path": "generation_config.json",
-              "size": 234,
-              "gitOid": "cabfc63e394c9abfc712a7c6f9a21d4e050fade8"
-            },
-            {
-              "path": "model.safetensors.index.json",
-              "size": 20919,
-              "gitOid": "d3a1f0f5f401eeadca0c7a6786bd9e877fd42e58"
+              "size": 189,
+              "gitOid": "75ae08310d6d23df373ee2644b497192b3cce6d8"
             },
             {
               "path": "special_tokens_map.json",
-              "size": 454,
-              "gitOid": "3c1d04911c269b925af977a3151c9704e990e4d0"
+              "size": 296,
+              "gitOid": "02ee80b6196926a5ad790a004d9efd6ab1ba6542"
             },
             {
               "path": "tokenizer.json",
-              "size": 17209920,
-              "sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b"
+              "size": 9085657,
+              "gitOid": "5cc5f00a5b203e90a27a3bd60d1ec393b07971e8"
             },
             {
               "path": "tokenizer_config.json",
-              "size": 54669,
-              "gitOid": "3dc1faa6025cdb195c0889dd8d3d13ca26af9225"
+              "size": 54528,
+              "gitOid": "4ff488a165e900e5129cda7c20ab32d568d2a475"
             },
             {
               "path": "model-00001-of-00002.safetensors",
@@ -2715,6 +2723,11 @@
               "path": "model-00002-of-00002.safetensors",
               "size": 1459729952,
               "sha256": "7b770216613ac5c34d7c54bdff1fa616bc4e338a9d0b20af6303e48c295ee23c"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 20919,
+              "gitOid": "d3a1f0f5f401eeadca0c7a6786bd9e877fd42e58"
             }
           ]
         }
@@ -3170,7 +3183,7 @@
       "architecture": "gemma3",
       "level": "verified",
       "license": "gemma",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Google",
         "countryOfOrigin": "US",
@@ -3186,11 +3199,10 @@
           "recommended": true,
           "memoryBytes": 2702436073,
           "companions": [],
-          "repository": "unsloth/gemma-3-1b-it",
-          "revision": "5b11413a10db4e486ef16a20101fd028f8f2499c",
+          "repository": "google/gemma-3-1b-it",
+          "revision": "dcc83ea841ab6100d6b47a070329e1ba4cf78752",
           "include": [
             "added_tokens.json",
-            "chat_template.jinja",
             "config.json",
             "generation_config.json",
             "model.safetensors",
@@ -3207,19 +3219,14 @@
               "gitOid": "e17bde03d42feda32d1abfca6d3b598b9a020df7"
             },
             {
-              "path": "chat_template.jinja",
-              "size": 1532,
-              "gitOid": "1117055ab8e8c90e1b200be00cddb78943616d9e"
-            },
-            {
               "path": "config.json",
-              "size": 902,
-              "gitOid": "b21feec2e4bd2d2776bb8077a1e29aed869e59e6"
+              "size": 899,
+              "gitOid": "06ab0678bc32d4f1474f31b35914512b1f9edaf7"
             },
             {
               "path": "generation_config.json",
-              "size": 233,
-              "gitOid": "4eed614387b57c1766889d51e54d66f1a5868874"
+              "size": 215,
+              "gitOid": "37a4c871d263a349f50e4a313db3e72164950702"
             },
             {
               "path": "model.safetensors",
@@ -3228,8 +3235,8 @@
             },
             {
               "path": "special_tokens_map.json",
-              "size": 670,
-              "gitOid": "bdd437b84a1eacd8b8da6a335bb31993e5502259"
+              "size": 662,
+              "gitOid": "1a6193244714d3d78be48666cb02cdbfac62ad86"
             },
             {
               "path": "tokenizer.json",
@@ -3243,8 +3250,8 @@
             },
             {
               "path": "tokenizer_config.json",
-              "size": 1158491,
-              "gitOid": "434ad02a86b7a561e9433b25c47584ead6bf6832"
+              "size": 1156999,
+              "gitOid": "7bdd14f0eaec30c8d2c56bc9d543587676e19c0f"
             }
           ]
         }
@@ -3252,12 +3259,12 @@
       "companions": [],
       "verification": {
         "reference": "transformers",
-        "summary": "HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp",
+        "summary": "HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp; official google/gemma-3-1b-it files (2026-11-26): same weights and tokenizer, decoder parity with the GGUF and the same greedy chat output",
         "providers": [
           "CPU",
           "Vulkan"
         ],
-        "date": "2026-11-15",
+        "date": "2026-11-26",
         "tests": []
       },
       "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late",
@@ -8187,7 +8194,7 @@
       "architecture": "llama",
       "level": "verified",
       "license": "llama3.1",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Meta",
         "countryOfOrigin": "US",
@@ -8227,45 +8234,51 @@
           "recommended": false,
           "memoryBytes": 18872293016,
           "companions": [],
-          "repository": "unsloth/Llama-3.1-8B-Instruct",
-          "revision": "4699cc75b550f9c6f3173fb80f4703b62d946aa5",
-          "include": [],
+          "level": "partial",
+          "verification": "Official files: the weights are byte-identical (sha256) to the copy the verification ran on; config.json, generation_config.json and the tokenizer files (Meta keeps the chat template in tokenizer_config.json) differ and are re-run once the repository grants access.",
+          "repository": "meta-llama/Llama-3.1-8B-Instruct",
+          "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+          "include": [
+            "LICENSE",
+            "config.json",
+            "generation_config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "model-0000?-of-00004.safetensors",
+            "model.safetensors.index.json"
+          ],
           "primary": "",
           "files": [
             {
-              "path": "chat_template.jinja",
-              "size": 4614,
-              "gitOid": "33089ace1be88f22a10fe861ad49718d5d886090"
+              "path": "LICENSE",
+              "size": 7627,
+              "gitOid": "a7c3ca16cee30425ed6ad841a809590f2bcbf290"
             },
             {
               "path": "config.json",
-              "size": 896,
-              "gitOid": "d6de0368686348c266f987990a410e60f4738724"
+              "size": 855,
+              "gitOid": "0bb6fd75b3ad2fe988565929f329945262c2814e"
             },
             {
               "path": "generation_config.json",
-              "size": 239,
-              "gitOid": "d3af262e14cd9f678b04201e6a04ca36ba4ebb48"
-            },
-            {
-              "path": "model.safetensors.index.json",
-              "size": 23950,
-              "gitOid": "0fd8120f1c6acddc268ebc2583058efaf699a771"
+              "size": 184,
+              "gitOid": "cc7276afd599de091142c6ed3005faf8a74aa257"
             },
             {
               "path": "special_tokens_map.json",
-              "size": 454,
-              "gitOid": "3c1d04911c269b925af977a3151c9704e990e4d0"
+              "size": 296,
+              "gitOid": "02ee80b6196926a5ad790a004d9efd6ab1ba6542"
             },
             {
               "path": "tokenizer.json",
-              "size": 17209920,
-              "sha256": "6b9e4e7fb171f92fd137b777cc2714bf87d11576700a1dcd7a399e7bbe39537b"
+              "size": 9085657,
+              "gitOid": "5cc5f00a5b203e90a27a3bd60d1ec393b07971e8"
             },
             {
               "path": "tokenizer_config.json",
-              "size": 55492,
-              "gitOid": "c363e4a8f27281356aed0aa5a0c397d41993d98f"
+              "size": 55351,
+              "gitOid": "db88166e2bc4c799fd5d1ae643b75e84d03ee70e"
             },
             {
               "path": "model-00001-of-00004.safetensors",
@@ -8286,6 +8299,11 @@
               "path": "model-00004-of-00004.safetensors",
               "size": 1168138808,
               "sha256": "92ecfe1a2414458b4821ac8c13cf8cb70aed66b5eea8dc5ad9eeb4ff309d6d7b"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 23950,
+              "gitOid": "0fd8120f1c6acddc268ebc2583058efaf699a771"
             }
           ]
         }
@@ -8306,7 +8324,7 @@
         {
           "section": "1.1.1",
           "cells": {
-            "repositories": "unsloth/Llama-3.1-8B-Instruct, bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+            "repositories": "meta-llama/Llama-3.1-8B-Instruct (verified on the unsloth copy, same weights), bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
             "formats": "safetensors, GGUF Q4_K_M"
           }
         }
@@ -13662,7 +13680,7 @@
       "architecture": "orpheus",
       "level": "verified",
       "license": "apache-2.0",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Canopy Labs",
         "countryOfOrigin": "US",
@@ -13671,22 +13689,23 @@
       "tags": [],
       "variants": [
         {
-          "id": "bf16-safetensors",
-          "label": "BF16 safetensors",
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
           "format": "safetensors",
-          "quantization": "BF16",
+          "quantization": "F32",
           "recommended": true,
-          "memoryBytes": 7994681277,
+          "memoryBytes": 17895837462,
           "companions": [
             "snac"
           ],
-          "repository": "unsloth/orpheus-3b-0.1-ft",
-          "revision": "eae2b6e5e429c81b95ac42a883ac64f126583d43",
+          "level": "partial",
+          "verification": "Official release: F32 with an untied output head (3.78B parameters); the verification ran on a BF16 copy with tied weights (unsloth/orpheus-3b-0.1-ft). Re-run on these files once the repository grants access.",
+          "repository": "canopylabs/orpheus-3b-0.1-ft",
+          "revision": "4206a56e5a68cf6cf96900a8a78acd3370c02eb6",
           "include": [
             "config.json",
             "generation_config.json",
-            "model-00001-of-00002.safetensors",
-            "model-00002-of-00002.safetensors",
+            "model-0000?-of-00004.safetensors",
             "model.safetensors.index.json",
             "special_tokens_map.json",
             "tokenizer.json",
@@ -13696,33 +13715,43 @@
           "files": [
             {
               "path": "config.json",
-              "size": 890,
-              "gitOid": "67b5336264aaabbdfd13fc48c72a437ae57b5091"
+              "size": 898,
+              "gitOid": "e813050f3a6e6b87461e613a97fbac410d12bf49"
             },
             {
               "path": "generation_config.json",
-              "size": 230,
-              "gitOid": "7d3c1203a24884165612e77bc167533c32481341"
+              "size": 180,
+              "gitOid": "655c2799211d6ea8fa10f8c3ffd538335eb6801c"
             },
             {
-              "path": "model-00001-of-00002.safetensors",
-              "size": 4991037968,
-              "sha256": "1064bbba044a8ba0f5e1c88a9f301399c958875ca0db5fb216b7c7d39c91a6ca"
+              "path": "model-00001-of-00004.safetensors",
+              "size": 4948557560,
+              "sha256": "8feb9137e2a243d33827c2196ec81270179ec6e7acf8972a37f84b5eb6852450"
             },
             {
-              "path": "model-00002-of-00002.safetensors",
-              "size": 1610725592,
-              "sha256": "6fac70f10fa2d2c37e06952366d43a0a4363b7e9e5fe48572b29f4a21b3479a9"
+              "path": "model-00002-of-00004.safetensors",
+              "size": 4932808960,
+              "sha256": "69df9510f4b3e8d883b51e5d19f5f5b669d99ba9990f9e0e16f4fedd3d73709e"
+            },
+            {
+              "path": "model-00003-of-00004.safetensors",
+              "size": 3322130968,
+              "sha256": "d24f6a0f618bd4aa09a23216fe55d086a6db92ee896f98740972702f265f026b"
+            },
+            {
+              "path": "model-00004-of-00004.safetensors",
+              "size": 1928478848,
+              "sha256": "a1deaa1b3f38d5b9efe22f012dbb5c3f29e15f31b15dcf95e471a85bb03d2d21"
             },
             {
               "path": "model.safetensors.index.json",
-              "size": 20919,
-              "gitOid": "f3f85588ca82388310813681846f0d4a86c92826"
+              "size": 20978,
+              "gitOid": "c553bb23b15fec14418c3d483424a8ebc3dbbb25"
             },
             {
               "path": "special_tokens_map.json",
-              "size": 508,
-              "gitOid": "1b8511b70dcc5349e78b32e8f3a667b2222ce919"
+              "size": 350,
+              "gitOid": "b97eb2ee34269115f2eee8ffb1fbe7d72a3a9e9b"
             },
             {
               "path": "tokenizer.json",
@@ -13731,8 +13760,8 @@
             },
             {
               "path": "tokenizer_config.json",
-              "size": 5407514,
-              "gitOid": "8876fa75f54c39bca6448391ffca75debef33942"
+              "size": 5407399,
+              "gitOid": "d03038da14efadd832d2db400ca1af1f97123276"
             }
           ]
         }
@@ -13780,7 +13809,7 @@
         {
           "section": "3",
           "cells": {
-            "repositories": "canopylabs/orpheus-3b-0.1-ft (unsloth mirror), hubertsiuzdak/snac_24khz",
+            "repositories": "canopylabs/orpheus-3b-0.1-ft (verified on the unsloth BF16 copy), hubertsiuzdak/snac_24khz",
             "formats": "safetensors"
           }
         }
@@ -16066,7 +16095,7 @@
       "architecture": "sd3",
       "level": "verified",
       "license": "other",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Stability AI",
         "countryOfOrigin": "GB",
@@ -16082,26 +16111,38 @@
           "recommended": true,
           "memoryBytes": 19111376431,
           "companions": [],
-          "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
-          "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
-          "include": [],
+          "repository": "stabilityai/stable-diffusion-3.5-medium",
+          "revision": "b940f670f0eda2d07fbb75229e779da1ad11eb80",
+          "include": [
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "text_encoder/config.json",
+            "text_encoder/model.fp16.safetensors",
+            "text_encoder_2/config.json",
+            "text_encoder_2/model.fp16.safetensors",
+            "text_encoder_3/config.json",
+            "text_encoder_3/model.fp16-00001-of-00002.safetensors",
+            "text_encoder_3/model.fp16-00002-of-00002.safetensors",
+            "text_encoder_3/model.safetensors.index.fp16.json",
+            "tokenizer/merges.txt",
+            "tokenizer/special_tokens_map.json",
+            "tokenizer/tokenizer_config.json",
+            "tokenizer/vocab.json",
+            "tokenizer_2/merges.txt",
+            "tokenizer_2/special_tokens_map.json",
+            "tokenizer_2/tokenizer_config.json",
+            "tokenizer_2/vocab.json",
+            "tokenizer_3/special_tokens_map.json",
+            "tokenizer_3/spiece.model",
+            "tokenizer_3/tokenizer.json",
+            "tokenizer_3/tokenizer_config.json",
+            "transformer/config.json",
+            "transformer/diffusion_pytorch_model.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors"
+          ],
           "primary": "",
           "files": [
-            {
-              "path": "SD3.5L_plus_SD3.5M_upscaling_example_workflow.json",
-              "size": 20634,
-              "gitOid": "8534e50bd2c6e1e4c1aa81edb643d822f2fbd8f8"
-            },
-            {
-              "path": "SD3.5M_SLG_example_workflow.json",
-              "size": 16916,
-              "gitOid": "3f54883add37c913e67a2700ab0f1ddcfbb14cf7"
-            },
-            {
-              "path": "SD3.5M_example_workflow.json",
-              "size": 11982,
-              "gitOid": "2d18d11f857505d6261c04fe071b57db8c78639a"
-            },
             {
               "path": "model_index.json",
               "size": 706,
@@ -16245,26 +16286,38 @@
             "taesd3"
           ],
           "qualityNote": "The FP16 diffusers files with TAESD3 (madebyollin, MIT) as the tiny-vae component: full-size previews while generating and the optional fast decode.",
-          "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
-          "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
-          "include": [],
+          "repository": "stabilityai/stable-diffusion-3.5-medium",
+          "revision": "b940f670f0eda2d07fbb75229e779da1ad11eb80",
+          "include": [
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "text_encoder/config.json",
+            "text_encoder/model.fp16.safetensors",
+            "text_encoder_2/config.json",
+            "text_encoder_2/model.fp16.safetensors",
+            "text_encoder_3/config.json",
+            "text_encoder_3/model.fp16-00001-of-00002.safetensors",
+            "text_encoder_3/model.fp16-00002-of-00002.safetensors",
+            "text_encoder_3/model.safetensors.index.fp16.json",
+            "tokenizer/merges.txt",
+            "tokenizer/special_tokens_map.json",
+            "tokenizer/tokenizer_config.json",
+            "tokenizer/vocab.json",
+            "tokenizer_2/merges.txt",
+            "tokenizer_2/special_tokens_map.json",
+            "tokenizer_2/tokenizer_config.json",
+            "tokenizer_2/vocab.json",
+            "tokenizer_3/special_tokens_map.json",
+            "tokenizer_3/spiece.model",
+            "tokenizer_3/tokenizer.json",
+            "tokenizer_3/tokenizer_config.json",
+            "transformer/config.json",
+            "transformer/diffusion_pytorch_model.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.safetensors"
+          ],
           "primary": "",
           "files": [
-            {
-              "path": "SD3.5L_plus_SD3.5M_upscaling_example_workflow.json",
-              "size": 20634,
-              "gitOid": "8534e50bd2c6e1e4c1aa81edb643d822f2fbd8f8"
-            },
-            {
-              "path": "SD3.5M_SLG_example_workflow.json",
-              "size": 16916,
-              "gitOid": "3f54883add37c913e67a2700ab0f1ddcfbb14cf7"
-            },
-            {
-              "path": "SD3.5M_example_workflow.json",
-              "size": 11982,
-              "gitOid": "2d18d11f857505d6261c04fe071b57db8c78639a"
-            },
             {
               "path": "model_index.json",
               "size": 706,
@@ -16432,8 +16485,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "CLIP-L text encoder",
-          "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
-          "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
+          "repository": "stabilityai/stable-diffusion-3.5-medium",
+          "revision": "b940f670f0eda2d07fbb75229e779da1ad11eb80",
           "include": [
             "model_index.json",
             "text_encoder/config.json",
@@ -16485,8 +16538,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "CLIP-G text encoder",
-          "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
-          "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
+          "repository": "stabilityai/stable-diffusion-3.5-medium",
+          "revision": "b940f670f0eda2d07fbb75229e779da1ad11eb80",
           "include": [
             "model_index.json",
             "text_encoder_2/config.json",
@@ -16538,8 +16591,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "T5-XXL encoder",
-          "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
-          "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
+          "repository": "stabilityai/stable-diffusion-3.5-medium",
+          "revision": "b940f670f0eda2d07fbb75229e779da1ad11eb80",
           "include": [
             "model_index.json",
             "text_encoder_3/config.json",
@@ -16602,8 +16655,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "SD3 VAE",
-          "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
-          "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
+          "repository": "stabilityai/stable-diffusion-3.5-medium",
+          "revision": "b940f670f0eda2d07fbb75229e779da1ad11eb80",
           "include": [
             "model_index.json",
             "vae/*"
@@ -16670,7 +16723,7 @@
         {
           "section": "4",
           "cells": {
-            "repositories": "stabilityai/stable-diffusion-3.5-medium (ungated mirror adamo1139/stable-diffusion-3.5-medium-ungated), city96/stable-diffusion-3.5-medium-gguf",
+            "repositories": "stabilityai/stable-diffusion-3.5-medium, city96/stable-diffusion-3.5-medium-gguf",
             "formats": "diffusers (fp16), GGUF Q8_0 \u002B CLIP-L, CLIP-G, T5-XXL, VAE companions"
           }
         }
@@ -17768,7 +17821,7 @@
       "architecture": "flux",
       "level": "verified",
       "license": "other",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Black Forest Labs",
         "countryOfOrigin": "DE",
@@ -17809,8 +17862,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "Qwen3-8B text encoder (pipeline folder, BF16)",
-          "repository": "unsloth/FLUX.2-klein-9B",
-          "revision": "455f1273c2f08f1fc93d725c2e6f1d7fc681cd94",
+          "repository": "black-forest-labs/FLUX.2-klein-9B",
+          "revision": "1498bcb8aaebb230bae82c34b02ecc4087beebac",
           "include": [
             "model_index.json",
             "text_encoder/*",
@@ -17901,8 +17954,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "VAE",
-          "repository": "unsloth/FLUX.2-klein-9B",
-          "revision": "455f1273c2f08f1fc93d725c2e6f1d7fc681cd94",
+          "repository": "black-forest-labs/FLUX.2-klein-9B",
+          "revision": "1498bcb8aaebb230bae82c34b02ecc4087beebac",
           "include": [
             "model_index.json",
             "vae/*"
@@ -17936,13 +17989,13 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "FLUX non-commercial license (Klein 9B); unsloth mirror of the Black Forest Labs files (the official repository is gated)",
+      "notes": "FLUX non-commercial license (Klein 9B); text encoder and VAE from the official Black Forest Labs repository (gated; byte-identical to the copy the verification ran on)",
       "licenseNotice": "FLUX non-commercial licence: the weights are for non-commercial use only; commercial use needs a licence from Black Forest Labs.",
       "doc": [
         {
           "section": "4",
           "cells": {
-            "repositories": "unsloth/FLUX.2-klein-9B-GGUF, unsloth/FLUX.2-klein-9B (black-forest-labs/FLUX.2-klein-9B)",
+            "repositories": "unsloth/FLUX.2-klein-9B-GGUF, black-forest-labs/FLUX.2-klein-9B",
             "formats": "GGUF Q8_0 \u002B Qwen3-8B text encoder and VAE companions (the pipeline\u0027s folders)",
             "providers": ""
           }
@@ -18533,7 +18586,7 @@
       "architecture": "krea2",
       "level": "verified",
       "license": "other",
-      "gated": false,
+      "gated": true,
       "publisher": {
         "name": "Krea",
         "countryOfOrigin": "US",
@@ -18574,8 +18627,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "Qwen3-VL-4B text encoder (pipeline folder)",
-          "repository": "unsloth/Krea-2-Turbo",
-          "revision": "2489d0f4cb200616c0b5410f96f64d8fdc611b06",
+          "repository": "krea/Krea-2-Turbo",
+          "revision": "98e0fe118d17c9e3547fbb2e25acdbae2cadf7c7",
           "include": [
             "model_index.json",
             "text_encoder/*",
@@ -18621,8 +18674,8 @@
           "additionalRoles": [],
           "intoVariantFolder": false,
           "label": "Qwen-Image VAE",
-          "repository": "unsloth/Krea-2-Turbo",
-          "revision": "2489d0f4cb200616c0b5410f96f64d8fdc611b06",
+          "repository": "krea/Krea-2-Turbo",
+          "revision": "98e0fe118d17c9e3547fbb2e25acdbae2cadf7c7",
           "include": [
             "model_index.json",
             "vae/*"
@@ -18664,7 +18717,7 @@
         {
           "section": "4",
           "cells": {
-            "repositories": "krea/Krea-2-Turbo (ungated mirror unsloth/Krea-2-Turbo), realrebelai/KREA-2_GGUFs",
+            "repositories": "krea/Krea-2-Turbo, realrebelai/KREA-2_GGUFs",
             "formats": "GGUF Q8_0 \u002B Qwen3-VL-4B text encoder and Qwen-Image VAE companions (the pipeline\u0027s folders)",
             "notes": "1024x1024 8 steps in 29.9 s; Studio loads the GGUF with its companions; Raw files (\u0060raw\u0060 / \u0060base\u0060 in the name) run 28 guided steps"
           }

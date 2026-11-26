@@ -63,7 +63,7 @@ internal sealed class FakeHub : HttpMessageHandler
         var path = Uri.UnescapeDataString(request.RequestUri!.AbsolutePath.TrimStart('/'));
         if (path.StartsWith("api/models/", StringComparison.Ordinal))
         {
-            return ServeApi(path["api/models/".Length..]);
+            return ServeApi(path["api/models/".Length..], request.RequestUri.Query.Contains("blobs=true", StringComparison.Ordinal));
         }
 
         var parts = path.Split('/', 5);
@@ -76,7 +76,7 @@ internal sealed class FakeHub : HttpMessageHandler
         return NotFound("EntryNotFound");
     }
 
-    private HttpResponseMessage ServeApi(string rest)
+    private HttpResponseMessage ServeApi(string rest, bool blobs)
     {
         foreach (var repository in _repositories.Values)
         {
@@ -96,6 +96,11 @@ internal sealed class FakeHub : HttpMessageHandler
                 if (repository.BaseModel is { } baseModel)
                 {
                     info["tags"] = new JsonArray($"base_model:{baseModel}", $"base_model:quantized:{baseModel}");
+                }
+
+                if (blobs)
+                {
+                    info["siblings"] = repository.SiblingsJson();
                 }
 
                 return Json(info.ToJsonString());

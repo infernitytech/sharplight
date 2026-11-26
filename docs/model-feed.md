@@ -364,6 +364,15 @@ published to `unstable`. `promote` lists package versions (`id@version`, or `id`
 `channel`, which is `stable` (promotions go from unstable to stable). With neither, the run only re-signs. Manual dispatch (inputs
 `entries`, `promote`, `validity_days`) and the schedule work once the workflow is on the default branch. A run:
 
+**Official sources only.** The feed carries official releases: every package is built from the publisher's own Hugging Face
+repository at the pinned revision of its catalog entry. Community quantizations (GGUF and the like) are published only as extra
+lower-precision variants next to an official one; an ungated mirror of a gated release is never a source. Gated repositories are
+downloaded with the token in the secret `HF_TOKEN` (passed to the build as the environment variable of the same name, which the
+Hub client sends to the Hub only); the account that owns the token must have accepted each repository's terms (or been granted
+access), otherwise the build of that entry fails with 403. The catalog pins such a repository before access is granted (`resolve`
+takes the checksums from the Hub's blob listing when the tree hides them), so an entry can point at the official files while its
+publication waits for access.
+
 A run has three jobs, one publication at a time (concurrency group `model-feed`, never cancelled halfway):
 
 1. **plan** (ubuntu-latest, no secrets): reads the request, and `tools/model-feed/split-request.py` splits the entries by the size of

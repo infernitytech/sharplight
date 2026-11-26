@@ -30,6 +30,9 @@ internal sealed class FakeRepository(string id, string commit, bool gated)
     /// <summary>Overrides the SHA-256 the tree reports for a file (checksum mismatch tests).</summary>
     public Dictionary<string, string> ReportedSha256 { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>The tree masks LFS oids, as the Hub does for a gated repository whose terms the caller has not accepted.</summary>
+    public bool MaskLfsOids { get; set; }
+
     public FakeRepository With(string path, byte[] content)
     {
         Files[path] = content;
@@ -48,7 +51,7 @@ internal sealed class FakeRepository(string id, string commit, bool gated)
             if (file.Value.Length >= LfsThreshold)
             {
                 var sha = ReportedSha256.TryGetValue(file.Key, out var reported) ? reported : Convert.ToHexStringLower(SHA256.HashData(file.Value));
-                entry["lfs"] = new JsonObject { ["oid"] = sha, ["size"] = file.Value.Length };
+                entry["lfs"] = new JsonObject { ["oid"] = MaskLfsOids ? new string('*', 64) : sha, ["size"] = file.Value.Length };
                 entry["oid"] = "ffffffffffffffffffffffffffffffffffffffff";
             }
             else
@@ -59,6 +62,26 @@ internal sealed class FakeRepository(string id, string commit, bool gated)
             return (JsonNode)entry;
         });
         return new JsonArray([.. entries]).ToJsonString();
+    }
+
+    /// <summary>The <c>siblings</c> of a revision info requested with <c>blobs=true</c>: path, size and, for LFS files, the SHA-256.</summary>
+    public JsonArray SiblingsJson()
+    {
+        var siblings = Files.Select(file =>
+        {
+            var sibling = new JsonObject { ["rfilename"] = file.Key, ["size"] = file.Value.Length };
+            if (file.Value.Length >= LfsThreshold)
+            {
+                sibling["lfs"] = new JsonObject { ["sha256"] = Convert.ToHexStringLower(SHA256.HashData(file.Value)), ["size"] = file.Value.Length };
+            }
+            else
+            {
+                sibling["blobId"] = GitOid(file.Value);
+            }
+
+            return (JsonNode)sibling;
+        });
+        return new JsonArray([.. siblings]);
     }
 
     /// <summary>Deterministic pseudo-random content.</summary>

@@ -128,6 +128,21 @@ public sealed partial class HubClient
             page = next;
         }
 
+        if (files.Any(file => file.Sha256 is null && file.GitOid is null))
+        {
+            // LFS checksums masked in the tree (a gated repository the token has no access to): the revision's blob listing has them, so
+            // a catalog can pin the official files before access is granted.
+            var blobsUri = new Uri(_options.Endpoint, $"api/models/{id}/revision/{info.Commit}?blobs=true");
+            var hashes = HubJson.ParseLfsHashes(await GetStringAsync(blobsUri, id, id, cancellationToken).ConfigureAwait(false));
+            for (int i = 0; i < files.Count; i++)
+            {
+                if (files[i] is { Sha256: null, GitOid: null } file && hashes.TryGetValue(file.Path, out var sha256))
+                {
+                    files[i] = file with { Sha256 = sha256 };
+                }
+            }
+        }
+
         return new HubRepository(id, revision, info.Commit, info.Gated, files, info.Architecture, info.License, info.BaseModel);
     }
 

@@ -154,7 +154,7 @@ dotnet run --project tools/catalog/Sharplight.CatalogTool -- schema [--check]
 dotnet run --project tools/catalog/Sharplight.CatalogTool -- check           # network: every pinned file still exists, same size and checksum
 ```
 
-`resolve` reads `HF_TOKEN` for gated repositories and uses the Hub API only (metadata, no downloads except safetensors indexes). Files are
+`resolve` reads `HF_TOKEN` for gated repositories and uses the Hub API only (metadata, no downloads except safetensors indexes). For a gated repository whose terms the token has not accepted, the tree listing hides the LFS checksums; they are then taken from the revision's blob listing, so official files can be pinned before access is granted (sets chosen by tag need the safetensors index and do need access). Files are
 chosen by the set's `include` patterns (`*` within a path segment, `**` across segments, `?`) or, without patterns, by
 `ModelFileSelector` with the set's `tag` (the selection `sharplight pull` and Studio's Hub search make).
 

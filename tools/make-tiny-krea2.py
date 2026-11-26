@@ -147,7 +147,7 @@ def main():
     latents_std = (torch.rand(16, generator=rng) + 0.75).tolist()
     vae = AutoencoderKLQwenImage(base_dim=32, z_dim=16, dim_mult=[1, 2, 4, 4], num_res_blocks=1, attn_scales=[],
                                  temperal_downsample=[False, True, True], latents_mean=latents_mean, latents_std=latents_std)
-    source = args.tokenizer or "unsloth/Krea-2-Turbo"
+    source = args.tokenizer or "krea/Krea-2-Turbo"  # gated: accept the terms and set HF_TOKEN, or pass a local folder
     tokenizer = AutoTokenizer.from_pretrained(os.path.join(source, "tokenizer")) if os.path.isdir(source) \
         else AutoTokenizer.from_pretrained(source, subfolder="tokenizer")
     config = Qwen3VLConfig(
