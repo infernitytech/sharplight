@@ -23,6 +23,12 @@ toolchain and model-asset notes are still accurate.
 - Many suites need model assets under `~/models` (tiny-* test models, audio, whisper.cpp, sd, onnx) and skip without
   them; the layout table is in docs/handoff/README.md, tiny models are regenerable with `tools/make-tiny-*.py` /
   `tools/mk_tiny_*.py` / `tools/model-assets`.
+- Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
+  `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
+  `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`
+  (built by `native/ffmpeg/build.sh`; rebuild and re-upload when the FFmpeg pins in third_party/sources.json change).
+  To build it yourself (~10 min): `ZIG=$(native/sharplight_audio/install-zig.sh ~/.local/share/sharplight/zig | tail -1)
+  native/ffmpeg/build.sh linux-x64 --jobs 16` (needs cmake, ninja, a host cc (for nasm), pkg-config, python3-venv).
 - GPU tests: `SHARPLIGHT_VK_DEVICES=<i>[,<j>]` restricts the Vulkan provider to those device indices — set it to the
   GPU(s) assigned to your session on multi-GPU machines.
 
