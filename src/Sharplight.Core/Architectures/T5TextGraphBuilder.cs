@@ -37,6 +37,21 @@ internal static class T5TextGraphBuilder
         }
 
         var x = b.Gather(b.Weight(prefix + "token_embedding.weight"), tokens);
+        b.Output(DiffusionGraphs.Hidden, Encode(b, x, keyMask, hp, prefix));
+        return b.Build();
+    }
+
+    /// <summary>
+    /// The encoder layers and the final norm over embedded rows <paramref name="x"/> [<see cref="T5TextHyperParameters.ContextLength"/>, hidden]
+    /// (token embeddings, or the patch embeddings of a time-series encoder).
+    /// </summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="x">The embedded rows.</param>
+    /// <param name="keyMask">An additive key bias [1, 1, rows] (0 for keys that take part, a large negative score for masked ones), or <see langword="null"/>.</param>
+    /// <param name="hp">The encoder hyper-parameters (<see cref="T5TextHyperParameters.ContextLength"/>: the rows).</param>
+    /// <param name="prefix">Canonical weight prefix of the encoder.</param>
+    public static Value Encode(GraphBuilder b, Value x, Value? keyMask, T5TextHyperParameters hp, string prefix)
+    {
         string sharedTable = prefix + "encoder.attention.relative_bias.weight";
         var sharedBias = b.HasWeight(sharedTable) ? WithKeyBias(b, PositionBias(b, sharedTable, hp, "relative_bias"), keyMask) : keyMask;
         for (int layer = 0; layer < hp.LayerCount; layer++)
@@ -57,8 +72,7 @@ internal static class T5TextGraphBuilder
             x = b.Add(x, Linear(b, activated, p + "mlp.down.weight"));
         }
 
-        b.Output(DiffusionGraphs.Hidden, b.RmsNorm(x, b.Weight(prefix + "encoder.output_norm.weight"), hp.NormEps));
-        return b.Build();
+        return b.RmsNorm(x, b.Weight(prefix + "encoder.output_norm.weight"), hp.NormEps);
     }
 
     private static Value WithKeyBias(GraphBuilder b, Value bias, Value? keyBias) => keyBias is null ? bias : b.Add(bias, keyBias);

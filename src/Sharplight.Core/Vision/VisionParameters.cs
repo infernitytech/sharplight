@@ -59,6 +59,19 @@ namespace Sharplight.Vision;
 /// then an RMS norm without weight and <c>vision.merger.out</c> (no bias) project to the language model's width; <c>resize.mode</c> (<c>smart</c>, the default, or
 /// <c>fit_budget</c>: the image is scaled so that it just fits max_pixels, sides rounded down to a multiple of patch_size·merge_size, also enlarged),
 /// <c>image_begin_token</c> / <c>image_end_token</c> (texts of tokens that frame the image rows of the prompt);</item>
+/// <item>Gemma 3 towers: <c>merger.pool</c> with <c>merger.pool.scale</c> <c>mean</c> (the plain average; the default <c>sqrt_hidden</c> is Gemma 4's
+/// √hidden-scaled mean), no standardization, then the RMS norm with the weight <c>vision.merger.pool_norm.weight</c> when present (the soft-embedding
+/// norm) and <c>vision.merger.out</c>; a fixed square <c>image_size</c> and <c>resize.filter</c> (<c>bicubic</c>, the default | <c>bilinear</c> |
+/// <c>lanczos</c>: Pillow's antialiased filters);</item>
+/// <item>Idefics3 / SmolVLM towers: <c>tile_size</c> (side of the square tiles in pixels; 0 = none, the default) with <c>resize.longest_edge</c>: the
+/// image is resized (aspect preserved, the longer side to longest_edge, the shorter rounded up to even), then to the next multiples of tile_size
+/// (aspect preserved again, sides rounded up), and cut into a grid of tiles; the overview is that image resized to one tile. Every tile and the
+/// overview are encoded on their own (each one attention window over its patches, the position grid resampled to the tile) and the output rows
+/// are the tiles' in raster order, then the overview's. An image that already fits one tile is encoded as the overview alone. The merger then
+/// may consist of <c>vision.merger.out</c> only (a linear map of the merged rows, pixel shuffle + projection). The prompt layout
+/// (<c>tile.layout</c> <c>idefics3</c>): per tile row, per tile <c>&lt;fake_token_around_image&gt;&lt;row_r_col_c&gt;</c> and its rows, a newline
+/// after every tile row but the last; then <c>\n\n&lt;fake_token_around_image&gt;&lt;global-img&gt;</c>, the overview's rows and
+/// <c>&lt;fake_token_around_image&gt;</c> (the texts come from <c>image_begin_token</c> and <c>tile.global_token</c>);</item>
 /// <item>preprocessing: <c>image_mean</c>, <c>image_std</c> (float[in_channels]), <c>min_pixels</c>, <c>max_pixels</c>
 /// (long; 0 = unlimited; bounds of the resized image area).</item>
 /// </list>
@@ -131,6 +144,12 @@ public sealed record VisionParameters
     public const string SequentialImagePositions = "sequential";
     /// <summary>CogVLM's grouped image positions (see <see cref="ImagePositions"/>).</summary>
     public const string GroupedImagePositions = "grouped";
+    /// <summary>The √hidden-scaled mean of a pooled merge unit (Gemma 4), the default <see cref="PoolScale"/>.</summary>
+    public const string SqrtHiddenPoolScale = "sqrt_hidden";
+    /// <summary>The plain mean of a pooled merge unit (Gemma 3), see <see cref="PoolScale"/>.</summary>
+    public const string MeanPoolScale = "mean";
+    /// <summary>The Idefics3 / SmolVLM prompt layout of a tiled image, see <see cref="TileLayout"/>.</summary>
+    public const string Idefics3TileLayout = "idefics3";
     /// <summary>Every row of an image uses the media weight set, the default <see cref="MediaWeightRows"/>.</summary>
     public const string AllMediaWeightRows = "all";
     /// <summary>Every row of an image but its last uses the media weight set (CogVLM, see <see cref="MediaWeightRows"/>).</summary>
@@ -190,6 +209,18 @@ public sealed record VisionParameters
     public bool ValueNorm { get; init; }
     /// <summary>Whether a merge unit is averaged (and scaled by √hidden) instead of concatenated.</summary>
     public bool MergerPool { get; init; }
+    /// <summary>Scale of a pooled merge unit: <see cref="SqrtHiddenPoolScale"/> (Gemma 4) or <see cref="MeanPoolScale"/> (Gemma 3).</summary>
+    public string PoolScale { get; init; } = SqrtHiddenPoolScale;
+    /// <summary>Filter of the image resize (antialiased when shrinking).</summary>
+    public ImageResampleFilter ResizeFilter { get; init; } = ImageResampleFilter.Bicubic;
+    /// <summary>Side of the square tiles a tiled tower (Idefics3) cuts the image into, in pixels; 0 = no tiling.</summary>
+    public int TileSize { get; init; }
+    /// <summary>With <see cref="TileSize"/>: the longer side of the image before it is fitted to whole tiles.</summary>
+    public int LongestEdge { get; init; }
+    /// <summary>Prompt layout of a tiled image: <see cref="Idefics3TileLayout"/>, or empty without tiling.</summary>
+    public string TileLayout { get; init; } = "";
+    /// <summary>With <see cref="TileLayout"/>: text of the token that precedes the overview's rows.</summary>
+    public string TileGlobalToken { get; init; } = "";
     /// <summary>Whether the pooled rows are standardized with <c>vision.std_bias</c> / <c>vision.std_scale</c>.</summary>
     public bool Standardize { get; init; }
     /// <summary>How images are resized: <see cref="SmartResize"/> or <see cref="FitBudgetResize"/>.</summary>
@@ -254,6 +285,22 @@ public sealed record VisionParameters
     public int PositionTaps => AxialPositionEmbedding ? 2 : PositionInterpolation == "bicubic" ? 16 : 4;
     /// <summary>Side of the learned position grid.</summary>
     public int PositionGridSide => (int)Math.Round(Math.Sqrt(PositionEmbeddingCount));
+    /// <summary>Tiled towers: output rows of the largest tile grid (the longest edge in whole tiles on both sides) plus the overview.</summary>
+    public int MaxTiledTokens
+    {
+        get
+        {
+            if (TileSize <= 0)
+            {
+                return 0;
+            }
+
+            int side = (Math.Min(LongestEdge, 4096) + TileSize - 1) / TileSize;
+            int perView = TileSize / (PatchSize * SpatialMergeSize);
+            return (side * side + 1) * perView * perView;
+        }
+    }
+
     /// <summary>Patches merged into one output token (m²).</summary>
     public int MergeUnit => SpatialMergeSize * SpatialMergeSize;
 
@@ -294,6 +341,12 @@ public sealed record VisionParameters
             ValueNorm = Get("attention.v_norm", false),
             MergerPool = Get("merger.pool", false),
             Standardize = Get("standardize", false),
+            PoolScale = Get("merger.pool.scale", SqrtHiddenPoolScale),
+            ResizeFilter = Enum.Parse<ImageResampleFilter>(Get("resize.filter", "bicubic"), ignoreCase: true),
+            TileSize = Get("tile_size", 0),
+            LongestEdge = Get("resize.longest_edge", 0),
+            TileLayout = Get("tile.layout", ""),
+            TileGlobalToken = Get("tile.global_token", ""),
             ResizeMode = Get("resize.mode", SmartResize),
             ImageBeginToken = Get("image_begin_token", ""),
             ImageEndToken = Get("image_end_token", ""),
@@ -405,6 +458,24 @@ public sealed record VisionParameters
         if (ResizeMode != SmartResize)
         {
             Set("resize.mode", ResizeMode);
+        }
+
+        if (PoolScale != SqrtHiddenPoolScale)
+        {
+            Set("merger.pool.scale", PoolScale);
+        }
+
+        if (ResizeFilter != ImageResampleFilter.Bicubic)
+        {
+            Set("resize.filter", ResizeFilter.ToString().ToLowerInvariant());
+        }
+
+        if (TileSize > 0)
+        {
+            Set("tile_size", TileSize);
+            Set("resize.longest_edge", LongestEdge);
+            Set("tile.layout", TileLayout);
+            Set("tile.global_token", TileGlobalToken);
         }
 
         if (ImageBeginToken.Length > 0)
@@ -539,6 +610,18 @@ public sealed record VisionParameters
         if (PositionInterpolation is not ("bilinear" or "bilinear_half_pixel" or "bicubic"))
         {
             throw new InvalidDataException($"vision: position_embedding.interpolation '{PositionInterpolation}' is not supported (bilinear, bilinear_half_pixel, bicubic).");
+        }
+
+        if (PoolScale is not (SqrtHiddenPoolScale or MeanPoolScale) || ResizeFilter is not (ImageResampleFilter.Bilinear or ImageResampleFilter.Bicubic or ImageResampleFilter.Lanczos))
+        {
+            throw new InvalidDataException($"vision: merger.pool.scale '{PoolScale}' ({SqrtHiddenPoolScale}, {MeanPoolScale}) or resize.filter {ResizeFilter} (bilinear, bicubic, lanczos) is not supported.");
+        }
+
+        if (TileSize < 0 || (TileSize > 0 && (TileLayout != Idefics3TileLayout || TileSize % (PatchSize * SpatialMergeSize) != 0 || LongestEdge < TileSize
+            || WindowSize > 0 || HasLayout || ClassToken || DeepstackLayers.Length > 0 || Sam is not null || RopeBase > 0)))
+        {
+            throw new InvalidDataException(
+                $"vision: tile_size {TileSize} needs tile.layout '{Idefics3TileLayout}', a multiple of patch_size·spatial_merge_size, resize.longest_edge >= tile_size and a plain tower (no windows, layout rows, class token, DeepStack, SAM stage or rotary embedding).");
         }
 
         if (PositionEmbeddingCount > 0 && !AxialPositionEmbedding && PositionGridSide * PositionGridSide != PositionEmbeddingCount)

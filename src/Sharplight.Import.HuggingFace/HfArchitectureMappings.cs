@@ -53,6 +53,8 @@ internal static class HfArchitectureMappings
         Register(new ClapHfMapping());
         Register(new MusicGenHfMapping());
         Register(new DemucsHfMapping());
+        Register(new ChronosBoltHfMapping());
+        Register(new ChronosHfMapping());
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());

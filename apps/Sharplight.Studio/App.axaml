@@ -13,6 +13,7 @@
              xmlns:audio="using:Sharplight.Studio.ViewModels.Audio"
              xmlns:image="using:Sharplight.Studio.ViewModels.Image"
              xmlns:video="using:Sharplight.Studio.ViewModels.Video"
+             xmlns:timeseries="using:Sharplight.Studio.ViewModels.TimeSeries"
              xmlns:vision="using:Sharplight.Studio.ViewModels.Vision"
              x:Class="Sharplight.Studio.App"
              RequestedThemeVariant="Dark">
@@ -52,6 +53,9 @@
     </DataTemplate>
     <DataTemplate DataType="vision:VisionPageViewModel">
       <views:VisionPage />
+    </DataTemplate>
+    <DataTemplate DataType="timeseries:TimeSeriesPageViewModel">
+      <views:TimeSeriesPage />
     </DataTemplate>
     <DataTemplate DataType="models:ModelsPageViewModel">
       <views:ModelsPage />

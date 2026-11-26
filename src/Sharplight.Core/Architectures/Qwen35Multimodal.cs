@@ -184,31 +184,37 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
 
     /// <summary>
     /// One position axis: every row, text or image, takes the next position. With <see cref="VisionParameters.ImageBeginToken"/> and
-    /// <see cref="VisionParameters.ImageEndToken"/> (Gemma 4) the image's rows are framed by those tokens, as the model's processor does.
+    /// <see cref="VisionParameters.ImageEndToken"/> (Gemma 3, Gemma 4) the image's rows are framed by those tokens, as the model's processor does.
+    /// Tiled images (<see cref="VisionParameters.Idefics3TileLayout"/>) interleave their tiles' rows with the layout's text tokens.
     /// </summary>
     private static MultimodalPrompt Sequential(ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int imagePad, VisionParameters? vision,
         MultimodalContext context, int startPosition)
     {
         int begin = vision is { ImageBeginToken.Length: > 0 } ? context.RequireToken(vision.ImageBeginToken) : -1;
         int end = vision is { ImageEndToken.Length: > 0 } ? context.RequireToken(vision.ImageEndToken) : -1;
-        int framing = (begin >= 0 ? 1 : 0) + (end >= 0 ? 1 : 0);
-        int rows = tokens.Length - images.Count + images.Sum(im => im.TokenCount + framing);
-        var toks = new int[rows];
-        var imageIndex = new int[rows];
-        var imageRow = new int[rows];
-        var pos = new int[rows];
-        int r = 0;
-        int img = 0;
+        bool tiled = vision?.TileLayout == VisionParameters.Idefics3TileLayout;
+        var toks = new List<int>(tokens.Length);
+        var imageIndex = new List<int>(tokens.Length);
+        var imageRow = new List<int>(tokens.Length);
 
         void Text(int token)
         {
-            toks[r] = token;
-            imageIndex[r] = -1;
-            imageRow[r] = -1;
-            pos[r] = startPosition + r;
-            r++;
+            toks.Add(token);
+            imageIndex.Add(-1);
+            imageRow.Add(-1);
         }
 
+        void Rows(int img, int first, int count)
+        {
+            for (int i = first; i < first + count; i++)
+            {
+                toks.Add(0);
+                imageIndex.Add(img);
+                imageRow.Add(i);
+            }
+        }
+
+        int img = 0;
         foreach (var t in tokens)
         {
             if (t != imagePad)
@@ -217,18 +223,20 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
                 continue;
             }
 
+            var im = images[img];
+            if (tiled)
+            {
+                Idefics3Layout(vision!, context, im, img, Text, Rows);
+                img++;
+                continue;
+            }
+
             if (begin >= 0)
             {
                 Text(begin);
             }
 
-            for (int i = 0; i < images[img].TokenCount; i++, r++)
-            {
-                imageIndex[r] = img;
-                imageRow[r] = i;
-                pos[r] = startPosition + r;
-            }
-
+            Rows(img, 0, im.TokenCount);
             if (end >= 0)
             {
                 Text(end);
@@ -237,6 +245,56 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
             img++;
         }
 
-        return new MultimodalPrompt { Tokens = toks, ImageIndex = imageIndex, ImageRow = imageRow, Positions = pos, PositionAxes = 1, NextPosition = startPosition + rows };
+        int rows = toks.Count;
+        var pos = new int[rows];
+        for (int r = 0; r < rows; r++)
+        {
+            pos[r] = startPosition + r;
+        }
+
+        return new MultimodalPrompt
+        {
+            Tokens = [.. toks], ImageIndex = [.. imageIndex], ImageRow = [.. imageRow], Positions = pos, PositionAxes = 1, NextPosition = startPosition + rows,
+        };
+    }
+
+    /// <summary>
+    /// The Idefics3 / SmolVLM layout of a tiled image (the processor's prompt): per tile <c>&lt;fake_token_around_image&gt;&lt;row_r_col_c&gt;</c>
+    /// and its rows, a newline after every tile row but the last, then <c>\n\n&lt;fake_token_around_image&gt;&lt;global-img&gt;</c>, the overview's
+    /// rows and <c>&lt;fake_token_around_image&gt;</c>; an image without tiles is only the framed overview.
+    /// </summary>
+    private static void Idefics3Layout(VisionParameters vision, MultimodalContext context, PreprocessedImage image, int img, Action<int> text,
+        Action<int, int, int> rows)
+    {
+        int fake = context.RequireToken(vision.ImageBeginToken);
+        int global = context.RequireToken(vision.TileGlobalToken);
+        int perView = image.TokenCount / (image.TileColumns * image.TileRows + 1);
+        int row = 0;
+        if (image.TileColumns > 0)
+        {
+            int newline = context.RequireToken("\n");
+            for (int r = 0; r < image.TileRows; r++)
+            {
+                for (int c = 0; c < image.TileColumns; c++)
+                {
+                    text(fake);
+                    text(context.RequireToken($"<row_{r + 1}_col_{c + 1}>"));
+                    rows(img, row, perView);
+                    row += perView;
+                }
+
+                if (r < image.TileRows - 1)
+                {
+                    text(newline);
+                }
+            }
+
+            text(context.RequireToken("\n\n"));
+        }
+
+        text(fake);
+        text(global);
+        rows(img, row, perView);
+        text(fake);
     }
 }

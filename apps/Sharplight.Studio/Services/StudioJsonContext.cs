@@ -11,6 +11,7 @@ namespace Sharplight.Studio.Services;
 [JsonSerializable(typeof(Pages.ParameterPresetFile))]
 [JsonSerializable(typeof(Pages.RunHistoryFile))]
 [JsonSerializable(typeof(TranscriptFile))]
+[JsonSerializable(typeof(ForecastFile))]
 [JsonSerializable(typeof(VisionResultFile))]
 [JsonSerializable(typeof(SearchResultsFile))]
 [JsonSerializable(typeof(ImageParametersFile))]

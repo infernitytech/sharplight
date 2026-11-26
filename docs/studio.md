@@ -36,6 +36,7 @@ entries; where a page is ambiguous it goes with its output:
 | **Images** | Generate (Image: generation and editing); Vision | image generation; classification, image embedding, detection, segmentation, depth, OCR, upscaling |
 | **Video** | Generate (Video); Enhance | video generation; video enhancement (SeedVR2, also enlarges images) |
 | **Audio** | Transcribe; Speak; Music & tools (Audio) | speech recognition; speech synthesis; music and audio generation, source separation, audio tagging, codecs, voice activity |
+| **Data** | Time series | time series forecasting (Chronos, Chronos-Bolt) |
 | **Models** | Library, Discover, Downloads, Loaded, Storage (the tabs of the Models page); Tasks | |
 
 Server, Statistics and Settings are pinned to the bottom, below the running downloads. OCR stays with Vision: the Vision page reads
@@ -99,7 +100,7 @@ chat model to answer from the passages with citations. Reads PDF, Word, PowerPoi
 classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
 robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page), speech to
 text (Transcribe), text to speech (Speak), image generation (Image), the image models (classification, embedding, object detection,
-depth estimation, segmentation, OCR, upscaling: Vision) and embeddings today. The cards of the runnable kinds open their page; the other kinds say
+depth estimation, segmentation, OCR, upscaling: Vision), time series forecasting (Time series) and embeddings today. The cards of the runnable kinds open their page; the other kinds say
 *Not yet supported* and their buttons lead to the library filtered to that kind and to Discover filtered to that model type. When
 the engine gains a kind, its card opens a page of its own, built from the shared pieces described under *Inference pages* below.
 
@@ -712,6 +713,16 @@ With a reranking model resident (kind *Reranker*, e.g. ms-marco-MiniLM-L6-v2, bg
 switch appears: a search then takes the nearest 4x *Results* passages (at least 20) from the index (from the chosen mode), scores each
 against the question with the reranker (a cross-encoder reads both together) and lists the best of them by the reranker's score; the
 run records the reranker in its metadata. The same model answers `/v1/rerank` (also `/v2/rerank`, `/rerank`) of the embedded server.
+
+**Time series** (forecasting, `time-series`, `ITimeSeriesForecaster`; Chronos and Chronos-Bolt). The input is a CSV, TSV or semicolon-separated file (choose, or drop it on the page). Its numeric
+columns are the series (empty or non-numeric cells are missing values); a leading column of dates is the time axis. *Column* picks the series to forecast (the first numeric column
+at first). The options are the *Horizon* (1 to 1024 steps; the model's prediction length when the model is chosen, longer horizons are predicted step by step with a quality
+loss), the *Interval* (50, 80 or 90 %: the shaded band is bounded by the quantile levels (1 - p) / 2 and (1 + p) / 2, so 80 % is 0.1 and 0.9) and, for sampling models (Chronos),
+the number of *Samples* and a *Seed*; presets *Narrow interval*, *Default* and *Wide interval*. The chart shows the last four horizons of the history, the point forecast as a dashed line
+after it and the interval as a band; below it a table lists the first 200 steps with the interval's bounds and the mean. The page shows the model's context and prediction length.
+*Export CSV* writes the forecast: `step` (1-based), or the time column's header with the timestamps continued when the column holds dates a constant step apart (a fixed time span,
+or a fixed number of months on the same day), then `mean` and one column per quantile level (`q0.1`, `q0.5`, `q0.9`). Every run keeps `forecast.csv` and `forecast.json` in its outputs;
+the history restores the forecast and the parameters. A file that cannot be read or has no numeric column is refused with a notice.
 
 **Vision** (one page for `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`, `image-segmentation`, `ocr` and `image-upscaling`; the mode follows the
 kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,

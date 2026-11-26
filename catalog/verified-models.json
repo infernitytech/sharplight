@@ -383,6 +383,35 @@
           "title": "Verified"
         }
       ]
+    },
+    {
+      "id": "9",
+      "columns": [
+        {
+          "key": "model",
+          "title": "Model"
+        },
+        {
+          "key": "repositories",
+          "title": "Hub repository"
+        },
+        {
+          "key": "formats",
+          "title": "Formats"
+        },
+        {
+          "key": "verification",
+          "title": "Verification"
+        },
+        {
+          "key": "notes",
+          "title": "Notes"
+        },
+        {
+          "key": "date",
+          "title": "Verified"
+        }
+      ]
     }
   ],
   "entries": [
@@ -3340,17 +3369,115 @@
       ],
       "verification": {
         "reference": "llama.cpp",
-        "summary": "HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp",
+        "summary": "HF vs GGUF parity; 4B Q4_K_M text identical to llama.cpp; image input via the gemma3 mmproj (tower vs transformers on a tiny checkpoint)",
         "providers": [
           "CPU",
           "Vulkan"
         ],
-        "date": "2026-11-15",
+        "date": "2026-11-27",
         "tests": []
       },
-      "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late",
+      "notes": "4B UD-IQ2_M: Vulkan identical, CPU differs late. Images: the image rows attend causally (llama.cpp and transformers let them attend to each other), so image answers are close to llama.cpp\u0027s but not identical",
       "licenseNotice": "Gemma Terms of Use: use is allowed under Google\u0027s terms and its Prohibited Use Policy, which also bind work you build from the model. Read them before you use the model commercially.",
-      "doc": []
+      "doc": [
+        {
+          "section": "1.3",
+          "cells": {
+            "repositories": "ggml-org/gemma-3-4b-it-GGUF",
+            "formats": "GGUF Q4_K_M \u002B mmproj (F16)",
+            "verification": "tower and prompt vs transformers on a tiny Gemma 3 (embeddings 2e-7, logits, greedy); 4B: the test image described correctly, wording differs from llama-mtmd-cli",
+            "notes": "image rows attend causally (bidirectional image attention is a follow-up)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "smolvlm-256m-instruct",
+      "name": "SmolVLM 256M Instruct",
+      "kind": "text-generation",
+      "family": "SmolVLM",
+      "architecture": "llama",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co/HuggingFaceTB"
+      },
+      "tags": [
+        "vision"
+      ],
+      "variants": [
+        {
+          "id": "q8-0-gguf",
+          "label": "Q8_0 GGUF",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": true,
+          "memoryBytes": 723301225,
+          "companions": [
+            "mmproj"
+          ],
+          "repository": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+          "revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+          "include": [
+            "SmolVLM-256M-Instruct-Q8_0.gguf"
+          ],
+          "primary": "SmolVLM-256M-Instruct-Q8_0.gguf",
+          "files": [
+            {
+              "path": "SmolVLM-256M-Instruct-Q8_0.gguf",
+              "size": 175054528,
+              "sha256": "2a31195d3769c0b0fd0a4906201666108834848db768af11de1d2cef7cd35e65"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "mmproj",
+          "role": "mmproj",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "Vision projector (Q8_0)",
+          "repository": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+          "revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+          "include": [
+            "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf"
+          ],
+          "primary": "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf",
+          "files": [
+            {
+              "path": "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf",
+              "size": 103769856,
+              "sha256": "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "llama.cpp",
+        "summary": "greedy image description identical to llama-mtmd-cli (b12798) for 60 tokens on the same GGUF and mmproj converted at llama.cpp HEAD; tiny Idefics3 vs transformers",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "idefics3 mmproj: tiles plus overview, pixel shuffle, the Idefics3 prompt layout. This older mmproj lacks clip.vision.preproc_image_size; Sharplight then resizes to transformers\u0027 longest edge 2048, llama.cpp slices differently",
+      "doc": [
+        {
+          "section": "1.3",
+          "cells": {
+            "repositories": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+            "formats": "GGUF Q8_0 \u002B mmproj",
+            "verification": "60 greedy tokens identical to llama-mtmd-cli (HEAD-converted f16 files, CPU and GPU); tower, layout and greedy vs transformers on a tiny Idefics3",
+            "notes": ""
+          }
+        }
+      ]
     },
     {
       "id": "gemma-2-2b-it",
@@ -8909,7 +9036,7 @@
     },
     {
       "id": "ministral-3-3b-gemma-3-4b-lfm2-vl-450m",
-      "name": "Ministral 3 3B, Gemma 3 4B, LFM2-VL 450M",
+      "name": "Ministral 3 3B, LFM2-VL 450M",
       "kind": "text-generation",
       "family": "",
       "level": "verified",
@@ -8927,12 +9054,12 @@
         "date": "2026-11-14",
         "tests": []
       },
-      "licenseNotice": "Three licences: Ministral 3 is Apache-2.0 (no conditions); Gemma 3 is under the Gemma Terms of Use (Prohibited Use Policy, binds derived work); LFM2-VL is under the LFM Open License v1.0 (commercial use only below 10 million US dollars annual revenue).",
+      "licenseNotice": "Two licences: Ministral 3 is Apache-2.0 (no conditions); LFM2-VL is under the LFM Open License v1.0 (commercial use only below 10 million US dollars annual revenue).",
       "doc": [
         {
           "section": "1.3",
           "cells": {
-            "repositories": "mistralai / google / LiquidAI",
+            "repositories": "mistralai / LiquidAI",
             "formats": "GGUF \u002B mmproj"
           }
         }
@@ -33406,6 +33533,608 @@
           "cells": {
             "repositories": "domyn/Domyn-Edge-Teacher-IF, prithivMLmods/Domyn-Edge-Teacher-IF-GGUF",
             "formats": "safetensors (bf16), GGUF Q8_0, Q4_K_M"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-tiny",
+      "name": "Chronos-Bolt Tiny",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 40000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-tiny",
+          "revision": "a0e552de83495b5c28c14c71c374f3e33280b340",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1120,
+              "gitOid": "d57acc2ef40d0a0d71be5ecdeeec067256b59cc8"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 34622352,
+              "sha256": "75068728d376d2bec670379eeef4bfb4d24c0cfe24d957451f8d19b447030a32"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-tiny",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-mini",
+      "name": "Chronos-Bolt Mini",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 90000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-mini",
+          "revision": "251268337516a88e253628c43e1d26ec577b376b",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1120,
+              "gitOid": "40ff13b0845337298878ba4e81dc13183e57046c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 84956096,
+              "sha256": "1a1a4297f132b808c5c7da24e3cce549d519c01ff5c2661fcad404baba018f24"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-mini",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-small",
+      "name": "Chronos-Bolt Small",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 200000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-small",
+          "revision": "772f3d25d38aec6d914c8949dab4462e2d46f5d8",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1121,
+              "gitOid": "d8f9b65552d4d211e28d332ad5666484092bbf77"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 190888824,
+              "sha256": "06a6a19bbe74bc10a9cd193bd4bf2bf638ae07f7e0d51653ae7ab8ea968a21dd"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-bolt-base",
+      "name": "Chronos-Bolt Base",
+      "kind": "time-series",
+      "family": "Chronos-Bolt",
+      "architecture": "chronos_bolt",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 820000000,
+          "companions": [],
+          "repository": "amazon/chronos-bolt-base",
+          "revision": "5d9f166d69f47aef3401367a7b842e78fe97b121",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1123,
+              "gitOid": "a408d6913e164963361eeacbe10f2e62d894a1d7"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 821203576,
+              "sha256": "31f875483a3215bc6880a0837ea608a13ce55f88ad90538c3cdd0b29aeb60b36"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-bolt-base",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-tiny",
+      "name": "Chronos Tiny",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 40000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-tiny",
+          "revision": "29d808298f1a62493e7b9a5e08529d0d930fa189",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1142,
+              "gitOid": "1e3c667271f9f04556624f09b821551e296fd83c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 33588440,
+              "sha256": "eed458758bd8165d80f496a90bcd2cfed9f1bf7d7b08677acd64e0f7d72bdcf2"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-tiny",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-mini",
+      "name": "Chronos Mini",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 90000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-mini",
+          "revision": "bd6a4fde8403b8469acd0abd52852b29dbe61c7b",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1113,
+              "gitOid": "048393599e2dcbf1042f7d9dff72168dc2250d0b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 81835272,
+              "sha256": "5cf49253460171e8dfc3a75cfd5e3796091352ec48df16baeb8a1bfeacef769c"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-mini",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-small",
+      "name": "Chronos Small",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 200000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-small",
+          "revision": "a971ba21945c4f1796b17a91fe69214b5f4ad472",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1113,
+              "gitOid": "b9ce8d0e4e0eee976236d60380470d74b210328b"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 184632480,
+              "sha256": "9c8b6fde5300f72b01c173153bf9288fa0a200614275bf0585071ad71a6a3d43"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-base",
+      "name": "Chronos Base",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 820000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-base",
+          "revision": "ad294eaacead15db499b740ea4122266dd2a81a2",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1116,
+              "gitOid": "96942cd803921f3847f808a8343491fb8ecdc757"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 805530528,
+              "sha256": "44a2eef44aa13d9048a625ea289beb1ea5d709d7b2044f72134c974132644bf2"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-base",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chronos-t5-large",
+      "name": "Chronos Large",
+      "kind": "time-series",
+      "family": "Chronos",
+      "architecture": "chronos",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 2900000000,
+          "companions": [],
+          "repository": "amazon/chronos-t5-large",
+          "revision": "0e46c9c7e2e9f74b53db0617fdfcfe42a413e54a",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1117,
+              "gitOid": "a6f442b58723cd629be90c08f189799361521e09"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 2835915592,
+              "sha256": "dad1e592a5ba771788d47fd3868f174eeb07e7ca0c4d6dc5ab77674952f452e1"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon)",
+        "providers": [
+          "CPU"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention; Vulkan on NVIDIA wrong after the first forecast (#88)",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-t5-large",
+            "formats": "safetensors; .slm"
           }
         }
       ]

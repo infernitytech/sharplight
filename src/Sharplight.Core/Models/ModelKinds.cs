@@ -75,4 +75,7 @@ public static class ModelKinds
 
     /// <summary>Text (and lyrics) in, music or sound out with a latent diffusion model (<c>Sharplight.Audio.IAudioGenerator</c>).</summary>
     public const string AudioGeneration = "audio-generation";
+
+    /// <summary>A univariate history in, quantile forecasts of the next steps out (<c>Sharplight.TimeSeries.ITimeSeriesForecaster</c>: Chronos, Chronos-Bolt).</summary>
+    public const string TimeSeriesForecasting = "time-series";
 }

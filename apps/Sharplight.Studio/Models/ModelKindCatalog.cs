@@ -51,7 +51,7 @@ internal static class ModelKindCatalog
         new(ModelKinds.TextEmbedding, "Text embedding", "IconEmbed", [], Runnable: true),
         new(Reranker, "Reranker", "IconEmbed", [], Runnable: true),
         new(ModelKinds.TextReranking, "Text reranking", "IconEmbed", [], Runnable: true),
-        new("time-series", "Time series", "IconStats", [ModelTask.TimeSeries], Runnable: false),
+        new(ModelKinds.TimeSeriesForecasting, "Time series", "IconStats", [ModelTask.TimeSeries], Runnable: true),
         new("3d-generation", "3D", "IconCube", [ModelTask.ThreeD], Runnable: false),
         new("bio", "Bio", "IconBio", [ModelTask.Bio], Runnable: false),
         new("robotics", "Robotics", "IconChip", [ModelTask.Robotics], Runnable: false),

@@ -52,6 +52,7 @@ public sealed class NavigationTests
         { ModelKinds.MusicGeneration, "audio", "Music & tools" },
         { ModelKinds.AudioGeneration, "audio", "Music & tools" },
         { ModelKinds.AudioSeparation, "audio", "Music & tools" },
+        { ModelKinds.TimeSeriesForecasting, "data", "Time series" },
     };
 
     [Theory]
@@ -89,8 +90,8 @@ public sealed class NavigationTests
             Assert.NotNull(main.Navigation.ForKind(kind.Id));
         }
 
-        Assert.Null(main.Navigation.ForKind("time-series"));
-        Assert.False(main.OpenKind("time-series", null));
+        Assert.Null(main.Navigation.ForKind("3d-generation"));
+        Assert.False(main.OpenKind("3d-generation", null));
     }
 
     [Fact]
@@ -100,16 +101,17 @@ public sealed class NavigationTests
         var main = new MainWindowViewModel(services.Services);
         var navigation = main.Navigation;
 
-        Assert.Equal(["text", "images", "video", "audio", "models"], navigation.Groups.Select(group => group.Id));
+        Assert.Equal(["text", "images", "video", "audio", "data", "models"], navigation.Groups.Select(group => group.Id));
         Assert.Equal(["Chat", "Search"], navigation.Group("text")!.Items.Select(item => item.Title));
         Assert.Equal(["Generate", "Vision"], navigation.Group("images")!.Items.Select(item => item.Title));
         Assert.Equal(["Generate", "Enhance"], navigation.Group("video")!.Items.Select(item => item.Title));
         Assert.Equal(["Transcribe", "Speak", "Music & tools"], navigation.Group("audio")!.Items.Select(item => item.Title));
+        Assert.Equal(["Time series"], navigation.Group("data")!.Items.Select(item => item.Title));
         Assert.Equal(["Library", "Discover", "Downloads", "Loaded", "Storage", "Tasks"], navigation.Group("models")!.Items.Select(item => item.Title));
         Assert.Equal(["Server", "Statistics", "Settings"], navigation.Footer.Select(item => item.Title));
         Assert.All(navigation.Footer, item => Assert.Null(item.Group));
 
-        PageViewModel[] pages = [main.Chat, main.Search, main.Image, main.Vision, main.Video, main.Enhance, main.Transcribe, main.Speak, main.Audio,
+        PageViewModel[] pages = [main.Chat, main.Search, main.Image, main.Vision, main.Video, main.Enhance, main.Transcribe, main.Speak, main.Audio, main.TimeSeries,
             main.Models, main.Tasks, main.Server, main.Stats, main.Settings];
         Assert.Equal(pages.ToHashSet(), navigation.Items.Select(item => item.Page).ToHashSet());
         Assert.Equal(pages.Where(page => page != main.Settings), main.Pages);

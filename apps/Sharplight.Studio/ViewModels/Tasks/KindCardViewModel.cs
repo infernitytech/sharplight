@@ -65,6 +65,7 @@ internal sealed partial class KindCardViewModel : ObservableObject
         Sharplight.Models.ModelKinds.ImageGeneration => "Open image",
         Sharplight.Models.ModelKinds.VideoGeneration => "Open video",
         Sharplight.Models.ModelKinds.VideoEnhancement => "Open enhance",
+        Sharplight.Models.ModelKinds.TimeSeriesForecasting => "Open time series",
         ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker => "Open search",
         Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding or Sharplight.Models.ModelKinds.ObjectDetection
             or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation or Sharplight.Models.ModelKinds.SemanticSegmentation or Sharplight.Models.ModelKinds.Ocr

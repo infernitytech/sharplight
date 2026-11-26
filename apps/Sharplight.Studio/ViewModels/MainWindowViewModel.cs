@@ -17,6 +17,7 @@ using Sharplight.Studio.ViewModels.Stats;
 using Sharplight.Studio.ViewModels.Tasks;
 using Sharplight.Studio.ViewModels.Updates;
 using Sharplight.Studio.ViewModels.Video;
+using Sharplight.Studio.ViewModels.TimeSeries;
 using Sharplight.Studio.ViewModels.Vision;
 using Sharplight.Studio.ViewModels.Welcome;
 
@@ -39,6 +40,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Video = new VideoPageViewModel(services, this);
         Enhance = new VideoEnhancementPageViewModel(services, this);
         Vision = new VisionPageViewModel(services, this);
+        TimeSeries = new TimeSeriesPageViewModel(services, this);
         Tasks = new TasksPageViewModel(services, this);
         Models = new ModelsPageViewModel(services, this);
         Welcome = new WelcomePageViewModel(services, this, Models);
@@ -81,6 +83,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Vision page: image classification, embedding, object detection and depth estimation.</summary>
     public VisionPageViewModel Vision { get; }
+
+    /// <summary>Time series page: forecasts of a column of a CSV file.</summary>
+    public TimeSeriesPageViewModel TimeSeries { get; }
 
     /// <summary>Tasks page: the model kinds and where each stands.</summary>
     public TasksPageViewModel Tasks { get; }

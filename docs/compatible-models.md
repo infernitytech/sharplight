@@ -202,8 +202,10 @@ In all, 1,080 of 1,138 GGUF files across 88 repositories and 49 of 72 Hub checkp
 |---|---|---|---|---|---|---|
 | Qwen3-VL 2B Instruct | Qwen/Qwen3-VL-2B-Instruct | safetensors, GGUF + mmproj | CPU, Vulkan | greedy text identical to transformers / llama.cpp; mmproj vs llama.cpp | | 2026-11-14 |
 | Qwen3.5 0.8B | Qwen/Qwen3.5-0.8B | GGUF BF16 + mmproj | CPU, Vulkan | mmproj vs llama.cpp | | 2026-11-14 |
+| Gemma 3 4B it | ggml-org/gemma-3-4b-it-GGUF | GGUF Q4_K_M + mmproj (F16) | CPU, Vulkan | tower and prompt vs transformers on a tiny Gemma 3 (embeddings 2e-7, logits, greedy); 4B: the test image described correctly, wording differs from llama-mtmd-cli | image rows attend causally (bidirectional image attention is a follow-up) | 2026-11-27 |
+| SmolVLM 256M Instruct | ggml-org/SmolVLM-256M-Instruct-GGUF | GGUF Q8_0 + mmproj | CPU, Vulkan | 60 greedy tokens identical to llama-mtmd-cli (HEAD-converted f16 files, CPU and GPU); tower, layout and greedy vs transformers on a tiny Idefics3 | | 2026-11-27 |
 | Qwen3.8 27B | Qwen/Qwen3.8-27B | GGUF mmproj (BF16) | CPU, Vulkan | projector output vs llama.cpp | | 2026-11-14 |
-| Ministral 3 3B, Gemma 3 4B, LFM2-VL 450M | mistralai / google / LiquidAI | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
+| Ministral 3 3B, LFM2-VL 450M | mistralai / LiquidAI | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
 | PaddleOCR-VL 1.6, Unlimited-OCR | PaddlePaddle/PaddleOCR-VL-1.6, baidu/Unlimited-OCR | safetensors | CPU | Loads | | 2026-11-15 |
 | GLM-OCR | zai-org/GLM-OCR | safetensors | CPU, Vulkan | greedy text and the formula and table tasks identical to transformers (CPU, Vulkan, .slm), ITextRecognizer | OCR prompts "Text Recognition:", "Formula Recognition:", "Table Recognition:"; no multi-token prediction | 2026-11-18 |
 <!-- verified-catalog:end -->
@@ -484,7 +486,28 @@ worst frame. Supported: any output size or scale, batches of 1 + 4k frames, wave
 | SeedVR2 7B | ByteDance-Seed/SeedVR2-7B (+ text embeddings of ByteDance-Seed/SeedVR2-3B) | official folder (.pth DiT, VAE, text embeddings); .slm | official .pth files, whole enhancement vs the official code (17 frames 416x240 -> 832x480, wavelet colour fix, same frames and noise; reference: bf16 autocast with the DiT weights held in bf16, which a 32 GB GPU needs; Sharplight: f16 matrices, f32 activations): 7B 44.2 dB worst frame on CUDA and Vulkan, 7B sharp 42.7 dB CUDA / 42.6 dB Vulkan | one-step video restoration and super-resolution, 7B DiT (standard and sharp checkpoints); the text embeddings come from the official 3B repository (identical to the GitHub release) | 2026-11-25 |
 <!-- verified-catalog:end -->
 
-## 9. Known unsupported or not working
+## 9. Time series
+
+Kind `time-series` (`ITimeSeriesForecaster`, api-overview.md "Time series"): probabilistic forecasts of a univariate series (quantiles 0.1 ... 0.9 and a point forecast).
+Reference: the chronos-forecasting package's pipelines on the same weights (tools/timeseries-reference/reference_chronos.py: seasonal, missing values, short, constant,
+longer than the context, a horizon beyond the model's and interpolated levels); the token models are compared decoded greedily (top-k 1). Supported: `.slm`, the Studio
+Time series page (CSV in, forecast chart and CSV out).
+
+<!-- verified-catalog:table 9 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
+| Model | Hub repository | Formats | Verification | Notes | Verified |
+|---|---|---|---|---|---|
+| Chronos-Bolt Tiny | amazon/chronos-bolt-tiny | safetensors; .slm | quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon) | 9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline | 2026-11-27 |
+| Chronos-Bolt Mini | amazon/chronos-bolt-mini | safetensors; .slm | quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon) | 9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline | 2026-11-27 |
+| Chronos-Bolt Small | amazon/chronos-bolt-small | safetensors; .slm | quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon) | 9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline | 2026-11-27 |
+| Chronos-Bolt Base | amazon/chronos-bolt-base | safetensors; .slm | quantile forecasts within 1e-6 of the forecast range (7 cases incl. missing values, a 2600-value context, a 150-step horizon) | 9 quantiles x 64 steps per pass, context 2048; longer horizons as the reference pipeline | 2026-11-27 |
+| Chronos Tiny | amazon/chronos-t5-tiny | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention | 2026-11-27 |
+| Chronos Mini | amazon/chronos-t5-mini | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention | 2026-11-27 |
+| Chronos Small | amazon/chronos-t5-small | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention | 2026-11-27 |
+| Chronos Base | amazon/chronos-t5-base | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention | 2026-11-27 |
+| Chronos Large | amazon/chronos-t5-large | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention; Vulkan on NVIDIA wrong after the first forecast (#88) | 2026-11-27 |
+<!-- verified-catalog:end -->
+
+## 10. Known unsupported or not working
 
 Popular models tried that do not work today, with the reason. These are tracked; most are a matter of days of work, not of principle.
 

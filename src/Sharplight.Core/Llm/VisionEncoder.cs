@@ -60,6 +60,12 @@ public sealed class VisionEncoder : IDisposable
         }
 
         int maxTokens = limits?.MaxTokens ?? 1024;
+        if (p.TileSize > 0)
+        {
+            // Tiled towers (Idefics3): the image size follows the tile grid, not the token limits; room for the largest grid.
+            maxTokens = Math.Max(maxTokens, p.MaxTiledTokens);
+        }
+
         int maxPatches = maxTokens * p.MergeUnit;
         var compiled = CompiledModel.Compile(def.Graph(WellKnown.VisionEncodeGraph), new PlacementOptions
         {
@@ -152,6 +158,16 @@ public sealed class VisionEncoder : IDisposable
 
             _compiled.SetInput<int>(_windowSpans, image.WindowSpans);
             _compiled.SetInput<int>(_windowOrder, image.WindowOrder);
+        }
+        else if (_windowSpans is not null)
+        {
+            // Tiled towers: one attention window per tile.
+            if (image.WindowSpans.Length != 2 * n)
+            {
+                throw new ArgumentException("The image was not preprocessed for this encoder's tiles (window spans missing).", nameof(image));
+            }
+
+            _compiled.SetInput<int>(_windowSpans, image.WindowSpans);
         }
 
         int rows = merged;

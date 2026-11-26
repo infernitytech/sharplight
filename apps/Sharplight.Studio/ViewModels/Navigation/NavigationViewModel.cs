@@ -55,6 +55,10 @@ internal sealed partial class NavigationViewModel : ObservableObject
                 Item("Speak", "Text to speech", main.Speak),
                 Item("Music & tools", "Generate music, separate sources, tag sounds, audio codecs and voice activity", main.Audio),
             ]),
+            new("data", "Data", "IconStats",
+            [
+                Item("Time series", "Forecast a column of a CSV file", main.TimeSeries),
+            ]),
             new("models", "Models", "IconModels",
             [
                 Tab("Library", "The installed models", "IconModels", ModelsPageViewModel.LibraryTab),
