@@ -214,8 +214,8 @@ Before this round an Arm64 host ran the `v128` tier, which is effectively scalar
 NEON tiers are 13.7x faster in prefill and 13x faster in decode, and `sdot` adds another 26 % in decode; on the M1 VM
 prefill is 18.6x faster and decode 3.5x (the VM's decode is memory bound and noisy).
 
-Not covered yet: the elementwise kernels of `ScalarMath` / `BinaryOp` / `ReduceOp` and the depthwise convolution still
-only have AVX tiers (they run their scalar or portable code on Arm64), and `Simd.Prefetch` is a no-op (.NET has no Arm
+Not covered yet: the elementwise kernels of `ScalarMath` / `BinaryOp` / `ReduceOp` and the NCHW depthwise convolution still
+only have AVX tiers (the channels-last convs, depthwise and pooling have NEON kernels since §121 of docs/benchmarks.md) (they run their scalar or portable code on Arm64), and `Simd.Prefetch` is a no-op (.NET has no Arm
 prefetch intrinsic).
 
 ## Sharplight Studio.app

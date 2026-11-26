@@ -128,6 +128,13 @@ internal sealed unsafe class ChannelsLastPoolOp : CpuOp
                 Channels<FloatLanes256>(row, c);
             }
         }
+        else if (CpuIsa.Use128)
+        {
+            for (; c + 8 <= c1; c += 8)
+            {
+                Channels<FloatLanes128x2>(row, c);
+            }
+        }
 
         for (; c < c1; c++)
         {
