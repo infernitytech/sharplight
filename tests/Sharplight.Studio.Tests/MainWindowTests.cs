@@ -43,12 +43,16 @@ public sealed class MainWindowTests
             await HeadlessApp.WaitForAsync(window, () => viewModel.Chat.Current is not null);
             Assert.NotNull(viewModel.Chat.Current);
             Assert.Equal(2, viewModel.Chat.Current.Messages.Count);
+            Assert.Equal("Chat", viewModel.Navigation.Current?.Title);
+            Assert.Equal("text", viewModel.Navigation.Current?.Group?.Id);
             Save(window, "chat");
 
             await viewModel.NavigateAsync(viewModel.Models);
             viewModel.Models.SelectedTab = ModelsPageViewModel.LibraryTab;
             await HeadlessApp.RenderAsync(window);
             Assert.Equal(3, viewModel.Models.Library.Entries.Count);
+            Assert.Equal("Library", viewModel.Navigation.Current?.Title);
+            Assert.True(viewModel.Navigation.Group("models")!.ContainsCurrent);
             Save(window, "library");
 
             // The load panel with its memory estimate: fits once an idle model unloads; at 64k tokens it needs CPU offload.
@@ -167,6 +171,8 @@ public sealed class MainWindowTests
 
             await viewModel.NavigateAsync(viewModel.Settings);
             await HeadlessApp.RenderAsync(window);
+            Assert.Equal("Settings", viewModel.Navigation.Current?.Title);
+            Assert.Null(viewModel.Navigation.Current?.Group);
             Save(window, "settings");
 
             theme.Apply(AppTheme.Light, "Ocean");

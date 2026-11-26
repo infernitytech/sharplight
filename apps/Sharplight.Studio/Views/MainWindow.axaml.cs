@@ -2,8 +2,10 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Sharplight.Studio.Platform;
 using Sharplight.Studio.ViewModels;
+using Sharplight.Studio.ViewModels.Navigation;
 
 namespace Sharplight.Studio.Views;
 
@@ -18,18 +20,13 @@ internal sealed partial class MainWindow : Window
     private const double DragThreshold = 4;
 
     private PointerPressedEventArgs? _titleBarPress;
+    private NavigationViewModel? _navigation;
     private Point _titleBarPressPoint;
 
     public MainWindow()
     {
         InitializeComponent();
-        Nav.SelectionChanged += (_, _) =>
-        {
-            if (DataContext is MainWindowViewModel viewModel && Nav.SelectedItem is PageViewModel page && page != viewModel.CurrentPage)
-            {
-                _ = viewModel.NavigateAsync(page);
-            }
-        };
+        Sidebar.KeyDown += (_, e) => NavigationKeyboard.Handle(Sidebar, e);
 
         MinimizeButton.Click += (_, _) => WindowState = WindowState.Minimized;
         MaximizeButton.Click += (_, _) => ToggleMaximized();
@@ -74,6 +71,46 @@ internal sealed partial class MainWindow : Window
         if (change.Property == WindowStateProperty && TitleBar is not null)
         {
             UpdateFrame();
+        }
+        else if (change.Property == ClientSizeProperty)
+        {
+            UpdateRail();
+        }
+    }
+
+    /// <inheritdoc/>
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (_navigation is not null)
+        {
+            _navigation.ItemOpened -= OnItemOpened;
+        }
+
+        _navigation = (DataContext as MainWindowViewModel)?.Navigation;
+        if (_navigation is not null)
+        {
+            _navigation.ItemOpened += OnItemOpened;
+        }
+
+        UpdateRail();
+    }
+
+    /// <summary>A window narrower than <see cref="NavigationViewModel.RailWidth"/> shows the navigation as a rail.</summary>
+    private void UpdateRail()
+    {
+        if (_navigation is not null)
+        {
+            _navigation.IsNarrow = ClientSize.Width > 0 && ClientSize.Width < NavigationViewModel.RailWidth;
+        }
+    }
+
+    /// <summary>An entry chosen in a rail flyout closes the flyout.</summary>
+    private void OnItemOpened(object? sender, EventArgs e)
+    {
+        foreach (var button in NavRail.GetVisualDescendants().OfType<Button>())
+        {
+            button.Flyout?.Hide();
         }
     }
 

@@ -373,26 +373,84 @@
     <Setter Property="Stroke" Value="{DynamicResource DangerBrush}" />
   </Style>
 
-  <!-- Navigation -->
-  <Style Selector="ListBox.nav">
+  <!-- Navigation: collapsible groups (ToggleButton.navgroup) over their entries (Button.navitem); the rail shows Button.navrail -->
+  <Style Selector="Border.sidebar">
+    <Setter Property="Width" Value="232" />
+    <Setter Property="Padding" Value="14,18,14,14" />
+    <Setter Property="Background" Value="{DynamicResource SidebarBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,1,0" />
+  </Style>
+  <Style Selector="Border.sidebar.rail">
+    <Setter Property="Width" Value="64" />
+    <Setter Property="Padding" Value="8,18,8,14" />
+  </Style>
+  <Style Selector="ToggleButton.navgroup, Button.navitem, Button.navrail">
     <Setter Property="Background" Value="Transparent" />
-  </Style>
-  <Style Selector="ListBox.nav ListBoxItem">
-    <Setter Property="Padding" Value="10,9" />
-    <Setter Property="Margin" Value="0,2" />
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="{DynamicResource RadiusNav}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
   </Style>
-  <Style Selector="ListBox.nav ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+  <Style Selector="ToggleButton.navgroup">
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="Margin" Value="0,1" />
+  </Style>
+  <Style Selector="Button.navitem">
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="Margin" Value="0,1" />
+  </Style>
+  <Style Selector="Button.navrail">
+    <Setter Property="Width" Value="44" />
+    <Setter Property="Height" Value="40" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ToggleButton.navgroup /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.navgroup:checked /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.navgroup:pointerover /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.navgroup:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.navitem:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button.navrail:pointerover /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
   </Style>
-  <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+  <Style Selector="ToggleButton.navgroup:pressed /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.navgroup:checked:pressed /template/ ContentPresenter#PART_ContentPresenter, Button.navitem:pressed /template/ ContentPresenter#PART_ContentPresenter, Button.navrail:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="TextBlock.navgrouptext">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.navtext">
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Path.icon.chevron">
+    <Setter Property="Width" Value="12" />
+    <Setter Property="Height" Value="12" />
+    <Setter Property="Stroke" Value="{DynamicResource TextMutedBrush}" />
+  </Style>
+  <Style Selector="Ellipse.navdot">
+    <Setter Property="Width" Value="7" />
+    <Setter Property="Height" Value="7" />
+    <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+  </Style>
+  <!-- The entry of the visible page; its group's header (and rail icon) carries the accent too -->
+  <Style Selector="Button.navitem.current /template/ ContentPresenter#PART_ContentPresenter, Button.navrail.current /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
   </Style>
-  <Style Selector="ListBox.nav ListBoxItem:selected TextBlock.navtext">
+  <Style Selector="Button.navitem.current TextBlock.navtext">
     <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
   </Style>
-  <Style Selector="ListBox.nav ListBoxItem:selected Path.icon">
+  <Style Selector="Button.navitem.current Path.icon, Button.navrail.current Path.icon, ToggleButton.navgroup.current Path.icon">
     <Setter Property="Stroke" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.navgroup.current Path.icon.chevron">
+    <Setter Property="Stroke" Value="{DynamicResource TextMutedBrush}" />
   </Style>
   <Style Selector="ListBox.plain">
     <Setter Property="Background" Value="Transparent" />

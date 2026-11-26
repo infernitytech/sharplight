@@ -6,12 +6,38 @@
         xmlns:c="using:Sharplight.Studio.Controls"
         xmlns:upvm="using:Sharplight.Studio.ViewModels.Updates"
         xmlns:conv="using:Sharplight.Studio.Converters"
+        xmlns:nav="using:Sharplight.Studio.ViewModels.Navigation"
         x:Class="Sharplight.Studio.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Sharplight Studio"
         Width="1440" Height="900" MinWidth="980" MinHeight="620"
         WindowStartupLocation="CenterScreen"
         Icon="avares://sharplight-studio/Assets/Icons/sharplight-studio-256.png">
+  <Window.Resources>
+    <!-- An entry of the navigation (in a group, the footer and a rail flyout) -->
+    <DataTemplate x:Key="NavItemTemplate" x:DataType="nav:NavigationItemViewModel">
+      <Button Classes="navitem" Classes.current="{Binding IsCurrent}" Command="{Binding OpenCommand}"
+              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+              AutomationProperties.Name="{Binding Title}" AutomationProperties.HelpText="{Binding Description}" ToolTip.Tip="{Binding Description}">
+        <DockPanel>
+          <Border DockPanel.Dock="Right" Classes="badge accent" IsVisible="{Binding Badge, Converter={x:Static conv:PositiveConverter.Instance}}">
+            <TextBlock Text="{Binding Badge}" />
+          </Border>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
+            <TextBlock Classes="navtext" Text="{Binding Title}" />
+          </StackPanel>
+        </DockPanel>
+      </Button>
+    </DataTemplate>
+    <!-- An app-level entry in the rail: the icon alone -->
+    <DataTemplate x:Key="NavRailItemTemplate" x:DataType="nav:NavigationItemViewModel">
+      <Button Classes="navrail" Classes.current="{Binding IsCurrent}" Command="{Binding OpenCommand}" Margin="0,0,0,4"
+              AutomationProperties.Name="{Binding Title}" AutomationProperties.HelpText="{Binding Description}" ToolTip.Tip="{Binding Title}">
+        <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
+      </Button>
+    </DataTemplate>
+  </Window.Resources>
   <!-- The frame: Studio's own title bar and resize edges (custom chrome), or the system's (see Platform/WindowChrome) -->
   <Border x:Name="Frame" BorderBrush="{DynamicResource BorderSubtleBrush}">
     <Panel>
@@ -36,30 +62,48 @@
           </DockPanel>
         </Border>
 
-          <Grid ColumnDefinitions="232,*" RowDefinitions="Auto,*,Auto">
-            <!-- Sidebar -->
-            <Border Grid.RowSpan="3" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
-              <DockPanel Margin="14,18,14,14">
-                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="6,0,0,22">
-                  <Image Source="avares://sharplight-studio/Assets/Icons/sharplight-studio-128.png" Width="34" Height="34"
-                         RenderOptions.BitmapInterpolationMode="HighQuality" />
-                  <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="Sharplight" FontWeight="SemiBold" FontSize="15" />
-                    <TextBlock Text="Studio" Classes="caption" Margin="0,-2,0,0" />
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,*,Auto">
+            <!-- Sidebar: the grouped navigation, or a rail of group icons in a narrow window or when folded -->
+            <Border x:Name="Sidebar" Grid.RowSpan="3" Classes="sidebar" Classes.rail="{Binding Navigation.IsRail}">
+              <DockPanel>
+                <!-- Header: logo and the fold button -->
+                <DockPanel DockPanel.Dock="Top" Margin="6,0,0,18" IsVisible="{Binding Navigation.IsExpandedSidebar}">
+                  <Button x:Name="FoldButton" DockPanel.Dock="Right" Classes="ghost icon" VerticalAlignment="Center"
+                          Command="{Binding Navigation.ToggleCompactCommand}" IsVisible="{Binding Navigation.CanToggleCompact}"
+                          ToolTip.Tip="Fold the navigation" AutomationProperties.Name="Fold the navigation">
+                    <Path Classes="icon" Data="{StaticResource IconSidebar}" />
+                  </Button>
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Image Source="avares://sharplight-studio/Assets/Icons/sharplight-studio-128.png" Width="34" Height="34"
+                           RenderOptions.BitmapInterpolationMode="HighQuality" />
+                    <StackPanel VerticalAlignment="Center">
+                      <TextBlock Text="Sharplight" FontWeight="SemiBold" FontSize="15" />
+                      <TextBlock Text="Studio" Classes="caption" Margin="0,-2,0,0" />
+                    </StackPanel>
                   </StackPanel>
+                </DockPanel>
+                <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,14" IsVisible="{Binding Navigation.IsRail}">
+                  <Image Source="avares://sharplight-studio/Assets/Icons/sharplight-studio-128.png" Width="34" Height="34" HorizontalAlignment="Center"
+                         RenderOptions.BitmapInterpolationMode="HighQuality" ToolTip.Tip="Sharplight Studio" />
+                  <Button x:Name="UnfoldButton" Classes="navrail" Command="{Binding Navigation.ToggleCompactCommand}" IsVisible="{Binding Navigation.CanToggleCompact}"
+                          ToolTip.Tip="Unfold the navigation" AutomationProperties.Name="Unfold the navigation">
+                    <Path Classes="icon" Data="{StaticResource IconSidebar}" />
+                  </Button>
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Bottom" Spacing="8">
                   <!-- Downloads: visible from every page -->
                   <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="0"
-                          IsVisible="{Binding Downloads.ActiveCount, Converter={x:Static conv:PositiveConverter.Instance}}" x:Name="DownloadsButton">
+                          IsVisible="{Binding Downloads.ActiveCount, Converter={x:Static conv:PositiveConverter.Instance}}" x:Name="DownloadsButton"
+                          ToolTip.Tip="{Binding Downloads.Summary}" AutomationProperties.Name="Downloads">
                     <Border Classes="inset" Padding="10,8">
                       <StackPanel Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                           <Path Classes="icon accent" Data="{StaticResource IconDownload}" />
-                          <TextBlock Text="{Binding Downloads.Summary}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Downloads.Summary}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                     IsVisible="{Binding Navigation.IsExpandedSidebar}" />
                         </StackPanel>
-                        <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Downloads.OverallProgress}" />
+                        <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Downloads.OverallProgress}" MinWidth="0" />
                       </StackPanel>
                     </Border>
                     <Button.Flyout>
@@ -84,30 +128,69 @@
                   </Button>
 
                   <Border Classes="divider" Margin="0,4" />
-                  <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,9"
-                          Command="{Binding NavigateCommand}" CommandParameter="{Binding Settings}">
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                      <Path Classes="icon" Data="{StaticResource IconSettings}" />
-                      <TextBlock Text="Settings" FontWeight="Medium" />
-                    </StackPanel>
-                  </Button>
+                  <!-- App-level entries: server, statistics, settings -->
+                  <ItemsControl x:Name="FooterNav" ItemsSource="{Binding Navigation.Footer}" IsVisible="{Binding Navigation.IsExpandedSidebar}"
+                                ItemTemplate="{StaticResource NavItemTemplate}" />
+                  <ItemsControl x:Name="FooterRail" ItemsSource="{Binding Navigation.Footer}" IsVisible="{Binding Navigation.IsRail}"
+                                ItemTemplate="{StaticResource NavRailItemTemplate}" />
                 </StackPanel>
 
-                <ListBox x:Name="Nav" Classes="nav" ItemsSource="{Binding Pages}" SelectedItem="{Binding CurrentPage, Mode=OneWay}">
-                  <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="vm:PageViewModel">
-                      <DockPanel>
-                        <Border DockPanel.Dock="Right" Classes="badge accent" IsVisible="{Binding Badge, Converter={x:Static conv:PositiveConverter.Instance}}">
-                          <TextBlock Text="{Binding Badge}" />
-                        </Border>
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                          <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
-                          <TextBlock Classes="navtext" Text="{Binding Title}" FontWeight="Medium" />
-                        </StackPanel>
-                      </DockPanel>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
+                <ScrollViewer x:Name="NavScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <Panel>
+                    <!-- Groups with their entries -->
+                    <ItemsControl x:Name="Nav" ItemsSource="{Binding Navigation.Groups}" IsVisible="{Binding Navigation.IsExpandedSidebar}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="nav:NavigationGroupViewModel">
+                          <StackPanel Margin="0,0,0,4">
+                            <ToggleButton Classes="navgroup" Classes.current="{Binding ContainsCurrent}" IsChecked="{Binding IsExpanded}"
+                                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                          AutomationProperties.Name="{Binding Title}" ToolTip.Tip="{Binding Title}">
+                              <DockPanel>
+                                <Panel DockPanel.Dock="Right" VerticalAlignment="Center">
+                                  <Path Classes="icon chevron" Data="{StaticResource IconChevronDown}" IsVisible="{Binding IsExpanded}" />
+                                  <Path Classes="icon chevron" Data="{StaticResource IconChevronRight}" IsVisible="{Binding !IsExpanded}" />
+                                </Panel>
+                                <Border DockPanel.Dock="Right" Classes="badge accent" Margin="0,0,8,0"
+                                        IsVisible="{Binding ShowsCollapsedBadge}">
+                                  <TextBlock Text="{Binding Badge}" />
+                                </Border>
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                  <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
+                                  <TextBlock Classes="navgrouptext" Text="{Binding Title}" />
+                                </StackPanel>
+                              </DockPanel>
+                            </ToggleButton>
+                            <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding IsExpanded}" Margin="16,0,0,0"
+                                          ItemTemplate="{StaticResource NavItemTemplate}" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Rail: one icon per group, its entries in a flyout -->
+                    <ItemsControl x:Name="NavRail" ItemsSource="{Binding Navigation.Groups}" IsVisible="{Binding Navigation.IsRail}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="nav:NavigationGroupViewModel">
+                          <Button Classes="navrail" Classes.current="{Binding ContainsCurrent}" Margin="0,0,0,4"
+                                  AutomationProperties.Name="{Binding Title}" ToolTip.Tip="{Binding Title}">
+                            <Panel Width="24" Height="22">
+                              <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
+                              <Ellipse Classes="navdot" IsVisible="{Binding Badge, Converter={x:Static conv:PositiveConverter.Instance}}" />
+                            </Panel>
+                            <Button.Flyout>
+                              <Flyout Placement="RightEdgeAlignedTop">
+                                <StackPanel MinWidth="200" Spacing="2">
+                                  <TextBlock Classes="section" Text="{Binding Title}" Margin="10,2,10,6" />
+                                  <ItemsControl ItemsSource="{Binding Items}" ItemTemplate="{StaticResource NavItemTemplate}" />
+                                </StackPanel>
+                              </Flyout>
+                            </Button.Flyout>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Panel>
+                </ScrollViewer>
               </DockPanel>
             </Border>
 
