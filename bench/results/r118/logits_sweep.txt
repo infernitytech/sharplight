@@ -1,0 +1,15 @@
+readme-a     fe rms 0.0069 max 0.047 | fa rms 0.0082 max 0.055
+readme-b     fe rms 0.0109 max 0.081 | fa rms 0.0097 max 0.059
+readme-c     fe rms 0.0100 max 0.089 | fa rms 0.0270 max 0.175
+readme-d     fe rms 0.0535 max 0.299 | fa rms 0.0098 max 0.066
+bench@0      fe rms 0.0142 max 0.117 | fa rms 0.0182 max 0.173
+bench@5000   fe rms 0.0065 max 0.071 | fa rms 0.3774 max 1.457
+bench@10000  fe rms 0.0347 max 0.200 | fa rms 0.0468 max 0.296
+bench@20000  fe rms 0.0341 max 0.174 | fa rms 0.0299 max 0.143
+bench@40000  fe rms 0.0333 max 0.236 | fa rms 0.0454 max 0.271
+bench@60000  fe rms 0.1492 max 0.775 | fa rms 0.0894 max 0.423
+bench@80000  fe rms 0.0278 max 0.150 | fa rms 0.0292 max 0.163
+bench@100000 fe rms 0.0698 max 0.370 | fa rms 0.0647 max 0.367
+median rms fe 0.0306 fa 0.0296; mean fe 0.0376 fa 0.0630
+sw5000: fe(FE_REG=0) rms 0.3846, cuda native rms 0.3832
+sw60000: fe(FE_REG=0) rms 0.0890, cuda native rms 0.1238

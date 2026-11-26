@@ -325,11 +325,20 @@ public sealed class StatefulTests
     }
 
     // Sinks on long prefill chunks (gpt-oss's shape: head size 64, 8 query heads per KV head, full and 128-key windows): several
-    // causal flash blocks and key tiles per head, a chunk after a cached prefix, then decode rows.
+    // causal flash blocks and key tiles per head, a chunk after a cached prefix, then decode rows. Sinks span [-4, 4) (gpt-oss's
+    // are about [-2.5, 8]); queryScale 8 and 16 give peaked rows (scores up to about +-30, most probabilities below f16's normal
+    // range). The chunk-pinned cases add a chunk longer than the context, a no-op that keeps the prompt rows on `fa` (the causal
+    // `fe` takes no chunks), so `fa` stays covered in gpt-oss's window + sink form now that `fe` runs it by default (#62).
     [Theory]
-    [InlineData(0)]
-    [InlineData(128)]
-    public void CachedAttentionSinksLongPrefill(int window)
+    [InlineData(0, 3f, false)]
+    [InlineData(128, 3f, false)]
+    [InlineData(128, 8f, false)]
+    [InlineData(128, 16f, false)]
+    [InlineData(0, 3f, true)]
+    [InlineData(128, 3f, true)]
+    [InlineData(128, 8f, true)]
+    [InlineData(128, 16f, true)]
+    public void CachedAttentionSinksLongPrefill(int window, float queryScale, bool pinFa)
     {
         Gpu.Require();
         int Hq = 16;
@@ -355,9 +364,14 @@ public sealed class StatefulTests
             attrs.Add(("window", window));
         }
 
+        if (pinFa)
+        {
+            attrs.Add(("chunk", 4 * ctx));
+        }
+
         tg.B.RuntimeScalar("n_past");
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sinks], Attributes.From([.. attrs])));
-        var q = Rnd.F(total * Hq * D, 11).Select(x => x * 3).ToArray();
+        var q = Rnd.F(total * Hq * D, 11).Select(x => x * queryScale).ToArray();
         var k = Rnd.F(total * Hkv * D, 12);
         var v = Rnd.F(total * Hkv * D, 13);
         var steps = new List<Step>();
@@ -368,7 +382,10 @@ public sealed class StatefulTests
             past += c;
         }
 
-        Diff.Check("CachedAttention.sinks.long", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 520, ctx: ctx, what: $"window={window}");
+        // The f16 query rounding errs in proportion to the scores' magnitude.
+        double widen = Math.Max(1, queryScale / 6);
+        Diff.Check("CachedAttention.sinks.long", tg.B.Build(), steps, atol: 1e-3 * widen, rtol: 3e-3 * widen, maxTokens: 520, ctx: ctx,
+            what: $"window={window} q*{queryScale} pinFa={pinFa}");
     }
 
     [Fact]
