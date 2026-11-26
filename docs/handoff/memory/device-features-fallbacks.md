@@ -1,6 +1,6 @@
 ---
 name: device-features-fallbacks
-description: "Optional GPU features must be detected, disableable per device/compile via provider-neutral names, and always have fallbacks"
+description: "Run on lots of hardware: optional GPU features detected+disableable with fallbacks; never assume memory topology (small BAR, low VRAM, unified memory) — every allocation path falls back"
 metadata:
   node_type: memory
   type: feedback
@@ -12,3 +12,5 @@ Device extensions/features (tensor cores, fp16, int8 dot, subgroup control, ...)
 **Why:** User (2026-11-12): "We need to run on other gpus as well so if the features are not there or not enabled, the extensions must not be used and we need fallbacks", "use common flag names not vulkan specific names".
 
 **How to apply:** Gate new fast paths on `LoweringOptions.Has(DeviceFeatures.X)` (effective = detected − DeviceOptions.DisabledFeatures − CompileOptions.DisabledFeatures − SHARPLIGHT_DISABLE_FEATURES env); don't enable driver extensions for disabled features. Test portability on the local AMD iGPU (vulkan:1, subgroup 64, no coopmat) and llvmpipe (vulkan:2, subgroup 8). Related: [[format-agnostic-core]].
+
+**Resilience across hardware (user, 2026-11-19, after the small-BAR staging OOM):** "we need to be resilient and work on lots of hardware". Beyond features: never assume memory topology or sizes — small/absent resizable BAR (~256 MiB host-visible device-local heap shared by all processes), low VRAM, no host-cached type, unified memory (iGPU/Apple), heaps shared with other processes. Every allocation path needs a fallback (other memory type, smaller chunks, host memory, CPU offload) and a clear error only when nothing works. Treat a hardware-specific failure found on any machine as a resilience bug to fix generally, and add a test that simulates the constraint (env caps, llvmpipe).
