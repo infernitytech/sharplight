@@ -45,6 +45,17 @@ internal sealed class MultiGemmGroup
     /// </summary>
     public Func<Bindings, bool>? TallServes { get; set; }
 
+    /// <summary>The members' single-row split-K matvec launches, captured while they are lowered.</summary>
+    public Dictionary<Node, MultiMatvecPart> MatvecParts { get; } = [];
+
+    /// <summary>False once a member's matvec launch turned out not to fit the multi-output matvec.</summary>
+    public bool MatvecUsable { get; set; } = true;
+
+    /// <summary>
+    /// The bindings the multi-output matvec serves (null until it is emitted, or when it is not); the members' matvec launches skip them.
+    /// </summary>
+    public Func<Bindings, bool>? MatvecServes { get; set; }
+
     /// <summary>The members' launches on the FP4 GEMM (NVFP4 weights, FP4 activation rows), captured while they are lowered.</summary>
     public Dictionary<Node, MultiGemmTallPart> Fp4Parts { get; } = [];
 

@@ -62,7 +62,7 @@ internal sealed unsafe class WinogradConvOp : CpuOp
     /// When convs run on Winograd: <c>auto</c> (default) on tiers without AVX-512 from a batch of <see cref="AutoMinBatch"/>,
     /// <c>n</c> &gt; 0 from a batch of n on every tier (<c>1</c>: always), <c>0</c> never; batches below the minimum take the
     /// direct conv at run time. Read from <c>SHARPLIGHT_CPU_WINOGRAD</c>; tests and benchmarks set it to compare with the
-    /// direct channels-last conv. Measured on a Ryzen 9950X (docs/benchmarks.md §116): with AVX-512 the direct conv's 8x32
+    /// direct channels-last conv. Measured on a Ryzen 9950X (docs/benchmarks.md §117): with AVX-512 the direct conv's 8x32
     /// kernels beat Winograd inside models at batch 1 and 8; with AVX2 Winograd wins about 10 % of ResNet-50 at batch 8 and
     /// loses at batch 1.
     /// </summary>

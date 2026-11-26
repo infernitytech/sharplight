@@ -165,6 +165,10 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   weights before `griddepcontrol.wait`: the 16-sequence step 12.59 → 12.19 ms (at or below vLLM's like for like), serving at 16 streams
   0.94 → 0.97-0.98x, at 64 unchanged (0.94x). vLLM's prompt GEMMs run at twice our rate (block-scaled MMA with E8M0 scales, 545 TFLOPS
   against 256): the next lever. Measured and not kept: L2 prefetches before the wait, the dual pair on the new kernel. Next: §84.6.
+  Rounds 30-48 (§86-§114) are recorded in benchmarks.md. Round 49 (§116), back on the RTX PRO 6000: Qwen3-8B-FP8 against vLLM 0.33
+  pp512 / 2048 / 8192 1.01 / 0.97 / 0.91x (prefill attention, ~210 TFLOPS, is the long-prompt gap), decode within the run spread; one
+  multi-output matvec for q / k / v at one row, bit-identical (72 fewer launches per Qwen3-8B step; -1.4 to -9 % where launches run in
+  order, unchanged under CUDA's concurrent lanes); the serving text check no longer flags Markdown. Next: §116.4.
 - **Feed round 1 (§74)**: the verified feed's GGUF K-quant models fully on the GPU against llama.cpp b11177, CUDA and Vulkan (Gemma 4
   31B, Qwen3.8 27B, Qwen3-8B, all Q4_K_M). The largest gap was attention at head sizes above 128: Gemma 4's 512-wide global layers ran
   the per-(head, query) kernel (Gemma prefill 0.32-0.79x of llama.cpp, 36 % of pp2048), and the 256-wide layers of both large models
@@ -288,7 +292,7 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
     correlation volume, about 290 small concats); Faster / Mask R-CNN on the CPU backend 2.1-2.3x of ORT CPU;
   - `fes` for head sizes above 64; a compute-unit query (VK_NV_shader_sm_builtins / VK_AMD_shader_core_properties)
     instead of the per-device-type `ConcurrentWorkgroups`; qwen2.5 fp16 on Vulkan 6x the CPU backend's error;
-  - CPU Winograd on the channels-last layout (§116) wins only with AVX2 at batch ≥ 4; encoder GEMMs stream each layer's weights
+  - CPU Winograd on the channels-last layout (§117) wins only with AVX2 at batch ≥ 4; encoder GEMMs stream each layer's weights
     from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
   Sizing round 2 (studio.md "Load options"): the load panel shows the engine's own footprint for one slot (window-sized session caches,
@@ -377,7 +381,7 @@ CPU:
 - Single-pass LayerNorm, polynomial `exp`. Conv / MatMul epilogues (§21) and the attention-scale fold (§25) are done.
 - Conv GEMM: one implicit GEMM over N·H·W with in-task packing and a shifted stride-1 form reaches 1.6-2.2 TFLOPS per
   conv (§25); channels-last convs with layout propagation are done (§30). Winograd F(4x4, 3x3) on the channels-last layout
-  (§116): 1.2-2.3x per isolated conv at 3.6x the direct conv's (still f32-class) error, but inside models only AVX2 at batch
+  (§117): 1.2-2.3x per isolated conv at 3.6x the direct conv's (still f32-class) error, but inside models only AVX2 at batch
   ≥ 4 gains (ResNet-50 b8 -10 %), so it is on there and off with AVX-512 (`SHARPLIGHT_CPU_WINOGRAD`); its transformed
   weights from DRAM and cross-CCD operand traffic are the limits. Next: cheaper b1 pooling / global-mean ops.
 - 128-bit GEMM kernels for CPUs without AVX-512; ARM64 (NEON / SVE) kernels.

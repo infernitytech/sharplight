@@ -97,6 +97,103 @@ public sealed partial class GraphLowerer
         return b => !(group.Serves.TryGetValue(part.Fp8, out var serves) && serves(b));
     }
 
+    /// <summary>
+    /// Records a member's single-row matvec launch (<see cref="MatvecVariants"/> with <paramref name="macros"/>) for the multi-output
+    /// matvec of its group (none: no group) and returns the variants of the member's launch, each also skipping the bindings that
+    /// matvec serves.
+    /// </summary>
+    private KernelVariant[] MemberMatvecVariants(MatMulPlan p, Dictionary<string, string> macros, IEnumerable<KernelVariant> variants)
+    {
+        if (!DiagnosticSwitches.MultiMatvec || p.RowsPerLead != 1 || p.K < 1024 || p.K % 8 != 0 || !_multiGemmOf.TryGetValue(p.Node, out var group))
+        {
+            return [.. variants];
+        }
+
+        var condition = _launchCondition;
+        var rows = p.RowCount;
+        if (!group.MatvecParts.TryAdd(p.Node, new MultiMatvecPart(p.X, p.W, p.Y, macros, b => (condition?.Invoke(b) ?? true) && rows(b) == 1,
+                TokenArg(p.X, 1))))
+        {
+            group.MatvecUsable = false;
+            return [.. variants];
+        }
+
+        return Unless([.. variants], b => !(group.MatvecServes?.Invoke(b) ?? false));
+    }
+
+    /// <summary>
+    /// The multi-output single-row matvec of a group (matmul.slang <c>matvec_sk_multi</c>) for the decode steps of one row: one launch
+    /// over the members' weights instead of one per member (Qwen3-8B-FP8 on an RTX PRO 6000: k and v alone at 6.9 µs each, ~0.6 TB/s).
+    /// Each member keeps its own K split, rows per workgroup and fma chain, so every output equals its own launch's (and the batched
+    /// rows of <see cref="InvariantRows"/> stay identical to single ones). Emitted when every member records a matvec of one format,
+    /// K and activation tensor (<see cref="MemberMatvecVariants"/>); <c>SHARPLIGHT_MULTI_MATVEC=0</c> keeps the members' launches.
+    /// </summary>
+    private void EmitMultiMatvec(MultiGemmGroup group)
+    {
+        if (!group.MatvecUsable || group.Members.Count > 3 || !group.Members.All(group.MatvecParts.ContainsKey))
+        {
+            return;
+        }
+
+        var parts = group.Members.Select(m => group.MatvecParts[m]).ToList();
+        var first = parts[0];
+        static Dictionary<string, string> Shared(Dictionary<string, string> m)
+            => m.Where(kv => kv.Key is not ("N" or "Y_STRIDE")).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        var shared = Shared(first.Macros);
+        if (parts.Any(pt => pt.Activations.Buffer != first.Activations.Buffer || pt.Activations.ByteOffset != first.Activations.ByteOffset
+                            || pt.Weight.Type != first.Weight.Type || pt.Weight.Shape[1] != first.Weight.Shape[1] || shared.ContainsKey("DUAL")
+                            || !Shared(pt.Macros).OrderBy(kv => kv.Key, StringComparer.Ordinal).SequenceEqual(shared.OrderBy(kv => kv.Key, StringComparer.Ordinal))))
+        {
+            return;
+        }
+
+        long k = first.Weight.Shape[1];
+        long[] widths = [.. parts.Select(pt => pt.Weight.Shape[0])];
+        var macros = new Dictionary<string, string>(shared, StringComparer.Ordinal)
+        {
+            ["N"] = widths.Sum().ToString(CultureInfo.InvariantCulture),
+            ["Y_STRIDE"] = widths.Sum().ToString(CultureInfo.InvariantCulture),
+            ["MULTI"] = parts.Count.ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O1"] = widths[0].ToString(CultureInfo.InvariantCulture),
+            ["MULTI_O2"] = (parts.Count > 2 ? widths[0] + widths[1] : widths.Sum()).ToString(CultureInfo.InvariantCulture),
+        };
+        long workgroups = 0;
+        for (int i = 0; i < parts.Count; i++)
+        {
+            int sg = SplitKMatvecSubgroups(widths[i], k);
+            long rows = SplitKMatvecRows(widths[i], dual: false);
+            bool chain = shared.ContainsKey("MV_FMA_CHAIN") || InvariantRows > 0 || rows > 1;
+            macros[$"MVM_SG{i}"] = sg.ToString(CultureInfo.InvariantCulture);
+            macros[$"MVM_R{i}"] = rows.ToString(CultureInfo.InvariantCulture);
+            macros[$"MVM_CH{i}"] = chain ? "1" : "0";
+            macros[$"MVM_N{i}"] = widths[i].ToString(CultureInfo.InvariantCulture);
+            if (i > 0)
+            {
+                macros[$"MVM_WG{i}"] = workgroups.ToString(CultureInfo.InvariantCulture);
+            }
+
+            workgroups += Grid.Div(widths[i], 8 / sg * rows);
+        }
+
+        if (parts.Count == 2)
+        {
+            macros["MVM_WG2"] = workgroups.ToString(CultureInfo.InvariantCulture);
+        }
+
+        Func<Bindings, bool> serves = b => parts.All(pt => pt.Serves(b));
+        uint grid = (uint)workgroups;
+        KernelArg[] weights = [.. parts.Skip(1).Select(pt => Pointer(pt.Weight))];
+        KernelArg[] outputs = [.. parts.Skip(1).Select(pt => Pointer(pt.Output))];
+        var outer = _launchCondition;
+        _launchCondition = null;
+        Emit($"matmul multi [{k}→{string.Join("+", widths)}] {first.Weight.Type} matvec_sk", group.Members,
+            [new KernelVariant(serves, Lib("matmul.slang", "matvec_sk_multi", macros), _ => new Grid(grid))],
+            [Pointer(first.Activations), Pointer(first.Weight), Pointer(first.Output), Pointer(first.Output), .. weights, .. outputs, first.Tokens],
+            [first.Activations, .. parts.Select(pt => pt.Weight)], [.. parts.Select(pt => pt.Output)]);
+        _launchCondition = outer;
+        group.MatvecServes = serves;
+    }
+
     /// <summary>The bias row of a split-K reduction epilogue that is a lone Add of a row vector, else null.</summary>
     private static TensorRef? EpilogueBias(MatMulEpilogueCode? epilogue)
         => epilogue is { Group: [{ Op.Name: "Add" }], Args: [var bias], Kinds: [1] } ? bias : null;
@@ -106,6 +203,7 @@ public sealed partial class GraphLowerer
     {
         if (_multiGemmOf.TryGetValue(matmul, out var group) && ++group.Lowered == group.Members.Count)
         {
+            EmitMultiMatvec(group);
             EmitNativeF16TallMultiGemm(group);
             EmitNativeFp8TallMultiGemm(group);
             EmitNativeFp4MultiGemm(group);
@@ -137,15 +235,17 @@ public sealed partial class GraphLowerer
             return;
         }
 
-        Func<Bindings, bool> served = b => group.Serves.Values.Any(serves => serves(b));
-        // Batches whose multi-output GEMM stored the bias (int-dot weights' q / k / v biases) need no launch after it.
-        Func<Bindings, bool> servedWithoutBias = b => group.Serves.Any(kv => !group.StoresBias.Contains(kv.Key) && kv.Value(b));
+        Func<Bindings, bool> matvec = b => group.MatvecServes?.Invoke(b) ?? false;
+        Func<Bindings, bool> served = b => group.Serves.Values.Any(serves => serves(b)) || matvec(b);
+        // Batches whose multi-output GEMM stored the bias (int-dot weights' q / k / v biases) need no launch after it; the multi-output
+        // matvec stores none.
+        Func<Bindings, bool> servedWithoutBias = b => group.Serves.Any(kv => !group.StoresBias.Contains(kv.Key) && kv.Value(b)) || matvec(b);
         _launchCondition = b => (condition?.Invoke(b) ?? true) && !served(b);
         LowerElementwise(epilogue.Group, [epilogue.Output]);
         _launchCondition = outer;
         group.AfterEmit.Add(() =>
         {
-            if (group.Serves.Count == 0)
+            if (group.Serves.Count == 0 && group.MatvecServes is null)
             {
                 return;
             }

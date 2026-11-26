@@ -57,7 +57,7 @@ public sealed partial class GraphLowerer
     {
         // Decode (one token): split-K matvec, one workgroup per output row, K spread over enough threads that
         // each walks only a few 8-weight groups (keeps many loads in flight per row).
-        int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+        int skSg = SplitKMatvecSubgroups(N, K);
         long skRows = SplitKMatvecRows(N, dual: m.TryGetValue("DUAL", out var dualMacro) && dualMacro == "1");
         if (InvariantRows > 0)
         {
@@ -96,6 +96,9 @@ public sealed partial class GraphLowerer
             : new KernelVariant(b => rows(b) <= MatvecMaxRows, lib("matvec", m), b => new Grid(Grid.Div(N, 4))));
         return variants;
     }
+
+    /// <summary>Subgroups per output row of the single-row split-K matvec (<c>MV_SK_SG</c> in <c>matvec_sk</c>).</summary>
+    private static int SplitKMatvecSubgroups(long n, long k) => n <= 2048 || k >= 12288 ? 8 : 4;
 
     /// <summary>
     /// Output rows per workgroup of the single-row split-K matvec (<c>MV_SK_ROWS</c> in <c>matvec_sk</c>): 2 for single matrices
@@ -252,7 +255,7 @@ public sealed partial class GraphLowerer
             var bias = Ref(add.Inputs[matmul.Output == add.Inputs[0] ? 1 : 0]);
             var y = Produce(add.Output);
             int format = WeightFormat(w.Type) ?? throw new NotSupportedException($"MatMul weight type {w.Type}");
-            int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+            int skSg = SplitKMatvecSubgroups(N, K);
             long skRows = SplitKMatvecRows(N, dual: false);
             var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"),
                 ("MV_COLS", 1), ("MV_SK_SG", skSg), ("MV_SK_ROWS", skRows), ("BIAS", 1));
@@ -937,7 +940,8 @@ public sealed partial class GraphLowerer
                 ? [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == 1, SmallMatrixKernel(p, 1), b => SmallMatrixGrid(p, b, 1))]
                 : [];
             Emit(MatMulLabel(p), [p.Node],
-                [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. smallMatrix, .. SimtGemmVariants(p)],
+                MemberMatvecVariants(p, m, [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. smallMatrix,
+                    .. SimtGemmVariants(p)]),
                 [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
                 [p.X, p.W], [p.Y]);
             return;
@@ -954,7 +958,7 @@ public sealed partial class GraphLowerer
                 b => new Grid(Grid.Div(p.N, 128), Grid.Div(p.RowCount(b), 64))));
         }
 
-        Emit(MatMulLabel(p), [p.Node], variants,
+        Emit(MatMulLabel(p), [p.Node], MemberMatvecVariants(p, m, variants),
             [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
             [p.X, p.W], [p.Y]);
     }
@@ -969,7 +973,7 @@ public sealed partial class GraphLowerer
         long K = p.K;
         long rowsPerLead = p.RowsPerLead;
         Emit(MatMulLabel(p), [p.Node],
-            MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), p.Macros, p.N, K, p.RowCount),
+            MemberMatvecVariants(p, p.Macros, MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), p.Macros, p.N, K, p.RowCount)),
             [Pointer(x), Pointer(p.W), Pointer(p.Y), TokenArg(x, rowsPerLead)],
             [x, p.W], [p.Y]);
 
