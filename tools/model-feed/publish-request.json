@@ -2,10 +2,16 @@
   "entries": [
     "seedvr2-3b:official",
     "seedvr2-7b:official",
-    "seedvr2-7b:sharp"
+    "seedvr2-7b:sharp",
+    "rumble-2-flash:bf16-safetensors",
+    "oruk-fourier-2b:bf16-safetensors",
+    "hs-rerank-1:f32-safetensors",
+    "multilingual-reranker-small:f32-safetensors",
+    "aion-1.0-instruct-2.3b:bf16-safetensors",
+    "nvidia-nemotron-3.5-bolt-e4b:q4-k-m-gguf-nvidia"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Publish SeedVR2 3B, 7B and 7B sharp (video enhancement, official ByteDance-Seed checkpoints verified against the official code; the 7B with the official text embeddings of the 3B repository)."
+  "reason": "Publish SeedVR2 3B, 7B and 7B sharp (video enhancement, official ByteDance-Seed checkpoints verified against the official code; the 7B with the official text embeddings of the 3B repository). Hot-model sweep 2026-11-25 (official files): Rumble-2-Flash and oruk Fourier 2B (speech recognition), hs-rerank-1 and Multilingual Reranker small (rerankers), Aion 1.0 Instruct 2.3B and NVIDIA's own Nemotron 3.5 Bolt E4B Q4_K_M (text generation)."
 }
