@@ -368,7 +368,7 @@ jobs:
           if-no-files-found: ignore
 
   # The MoltenVK LLM benchmark in its own job (in parallel with the suites, its log is readable as soon as it ends): the
-  # defaults, then each perf default of develop switched off, with the per-kernel GPU profile of the prefill for the defaults.
+  # defaults, then each perf default of main switched off, with the per-kernel GPU profile of the prefill for the defaults.
   macos-bench:
     name: macOS arm64 LLM benchmark (MoltenVK)
     runs-on: macos-15
@@ -416,7 +416,7 @@ jobs:
             env "$@" dotnet $cli "$model" --bench $tokens 2>&1 | grep -E 'dispatches|prefill [0-9]+ tok' || echo "(failed)"
           }
           # SHARPLIGHT_GEMM_WIDE=force: the 128 x 128 SIMT tile also where its 32 KB fill the workgroup memory (the selection
-          # before round 2); the other switches are develop's perf defaults, which round 2 found neutral here.
+          # before round 2); the other switches are main's perf defaults, which round 2 found neutral here.
           for tokens in 128 512; do
             bench $tokens
             bench $tokens SHARPLIGHT_GEMM_WIDE=force

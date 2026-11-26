@@ -19,4 +19,9 @@ internal enum PackageSectionKind : uint
     Attachment = 7,
     /// <summary>WLAY: per weight, layout facts kernels may rely on (<see cref="Models.WeightInfo.ScaleRowBlock"/>); absent when none apply.</summary>
     WeightLayout = 8,
+    /// <summary>
+    /// WACT: per weight, the activation scheme of its quantization format (<see cref="Models.WeightInfo.Activations"/>); absent when no
+    /// weight has one.
+    /// </summary>
+    WeightActivations = 9,
 }

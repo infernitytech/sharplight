@@ -9,7 +9,9 @@ namespace Sharplight.Import.HuggingFace;
 /// included) while the others attend within a symmetric local window. It maps onto the canonical decoder with <c>attention.causal</c> = false:
 /// the window of <c>local_attention</c> keys becomes the exclusive bound <c>local_attention / 2 + 1</c>, local layers use
 /// <c>local_rope_theta</c>, the fused <c>Wqkv</c> and <c>Wi</c> (activated half first) projections are split, and the first layer has no norm in
-/// front of its attention. Masked-LM and classifier heads are not used.
+/// front of its attention. The masked-LM head is not used. A sequence classifier (<c>ModernBertForSequenceClassification</c>, cross-encoders such
+/// as hs-rerank-1) keeps its head: <c>head.dense</c>, <c>head.norm</c> and <c>classifier</c> become <c>classifier.pre</c>, <c>classifier.pre_norm</c> and
+/// <c>classifier.out</c>, read after <c>classifier_pooling</c> (cls or mean) with <c>classifier_activation</c>.
 /// </summary>
 internal sealed partial class ModernBertHfMapping : HfDecoderFamilyMapping
 {
@@ -37,6 +39,16 @@ internal sealed partial class ModernBertHfMapping : HfDecoderFamilyMapping
         ["model.embeddings.norm.bias"] = "embedding_norm.bias",
         ["model.final_norm.weight"] = "output_norm.weight",
         ["model.final_norm.bias"] = "output_norm.bias",
+    };
+
+    private static readonly Dictionary<string, string> s_classifier = new(StringComparer.Ordinal)
+    {
+        ["head.dense.weight"] = "classifier.pre.weight",
+        ["head.dense.bias"] = "classifier.pre.bias",
+        ["head.norm.weight"] = "classifier.pre_norm.weight",
+        ["head.norm.bias"] = "classifier.pre_norm.bias",
+        ["classifier.weight"] = "classifier.out.weight",
+        ["classifier.bias"] = "classifier.out.bias",
     };
 
     [GeneratedRegex(@"^model\.layers\.(\d+)\.(.+)$")]
@@ -68,8 +80,27 @@ internal sealed partial class ModernBertHfMapping : HfDecoderFamilyMapping
 
     /// <inheritdoc/>
     protected override bool IsIgnored(string name)
-        => base.IsIgnored(name) || name.StartsWith("head.", StringComparison.Ordinal) || name.StartsWith("decoder.", StringComparison.Ordinal)
-           || name.StartsWith("classifier.", StringComparison.Ordinal) || name.StartsWith("model.head.", StringComparison.Ordinal);
+        => base.IsIgnored(name) || name.StartsWith("decoder.", StringComparison.Ordinal) || name.StartsWith("model.decoder.", StringComparison.Ordinal);
+
+    /// <inheritdoc/>
+    protected override bool TryMapSpecialGlobalTensor(HfConfig c, string name, WeightInfo w, HfWeightCollector collector)
+    {
+        string bare = name.StartsWith("model.head.", StringComparison.Ordinal) || name.StartsWith("model.classifier.", StringComparison.Ordinal) ? name["model.".Length..] : name;
+        if (!bare.StartsWith("head.", StringComparison.Ordinal) && !bare.StartsWith("classifier.", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // The masked-LM head (head.* next to decoder.*) is not used.
+        if (IsSequenceClassifier(c) && s_classifier.TryGetValue(bare, out var canonical))
+        {
+            collector.Add(HfTransforms.Plain(w, canonical));
+        }
+
+        return true;
+    }
+
+    private static bool IsSequenceClassifier(HfConfig c) => c.Architectures.Any(a => a.EndsWith("ForSequenceClassification", StringComparison.Ordinal));
 
     /// <inheritdoc/>
     protected override void AddHyperParameters(Dictionary<string, object> md, HfConfig c)
@@ -82,6 +113,19 @@ internal sealed partial class ModernBertHfMapping : HfDecoderFamilyMapping
         md["decoder.attention.causal"] = false;
         md["decoder.attention.sliding_window"] = (c.GetInt("local_attention") ?? DefaultLocalAttention) / 2 + 1;
         md["decoder.attention.sliding_layers"] = sliding;
+        if (IsSequenceClassifier(c))
+        {
+            md[CanonicalKeys.ClassifierPooling] = c.GetString("classifier_pooling") ?? "cls";
+            md[CanonicalKeys.ClassifierHeadActivation] = (c.GetString("classifier_activation") ?? c.GetString("hidden_activation") ?? "gelu") switch
+            {
+                "gelu" => "gelu",
+                "gelu_new" or "gelu_pytorch_tanh" or "gelu_fast" => "gelu_tanh",
+                "relu" => "relu",
+                "silu" or "swish" => "silu",
+                var other => throw new NotSupportedException($"modernbert: classifier activation '{other}' is not supported."),
+            };
+        }
+
         md["decoder.rope.local_base"] = (float)(c.LayerTypeRopeDouble("sliding_attention", "rope_theta") ?? c.GetDouble("local_rope_theta") ?? DefaultLocalRopeBase);
     }
 

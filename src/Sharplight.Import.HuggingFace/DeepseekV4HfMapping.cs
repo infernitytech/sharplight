@@ -13,6 +13,12 @@ namespace Sharplight.Import.HuggingFace;
 /// grouped low-rank output, hyper-connections with Sinkhorn mixing, sqrt-softplus routing with hash-routed first layers (<c>tid2eid</c>) and
 /// clamped SwiGLU experts. Tensor names are the native ones (<c>attn.wq_a</c>, <c>ffn.experts.{e}.w1</c>, ...), with or without the
 /// <c>model.</c> prefix; the multi-token-prediction layers are not imported.
+/// Also <c>deepseek_v41</c> (DeepSeek-V4.1, hyper-parameters in <c>text_config</c>): compression ratios 1 and 2 without position biases, the
+/// compressed caches and indexer selections of the latest <c>kv_source_layer_ids</c> / <c>index_source_layer_ids</c> layer at or before every
+/// layer, index keys derived from the entries (<c>attn.indexer.wk</c>, <c>k_norm</c>), the candidate-block selection, query heads without RMS
+/// norm, single-pass (lagged) hyper-connections without a head, and the Engram n-gram memory: the per-layer tables <c>engram.embed</c> (E4M3
+/// rows, an E8M0 scale per 32 values) concatenated in layer order as <c>engram.table</c>, the gate <c>q_weight · k_weight</c>, and the hash
+/// constants the reference code derives at load time (<see cref="DeepseekV41Engram"/>). The vision tower is not imported.
 /// </summary>
 internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
 {
@@ -20,7 +26,7 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
     public string Architecture => "latent_decoder";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v4"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v4", "deepseek_v41"];
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HuggingFaceImportOptions options)
@@ -62,6 +68,11 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
             [a + "hyper_connections.sinkhorn_iterations"] = c.Int("hc_sinkhorn_iters"),
         };
         HfMappingHelpers.AddContextLength(md, a, c);
+        if (IsV41(c))
+        {
+            AddV41(md, a, c, layers);
+        }
+
         if (limit > 0)
         {
             // Experts and the shared expert: min(gate, limit) before the SiLU, up clamped to ±limit.
@@ -73,6 +84,44 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
 
         return md;
     }
+
+    private static bool IsV41(HfConfig c) => c.ModelType is "deepseek_v41" or "deepseek_v41_text";
+
+    // DeepSeek-V4.1: layer sources, candidate blocks, the query and hyper-connection variants and the Engram memory (as the GGUF mapping).
+    private static void AddV41(Dictionary<string, object> md, string a, HfConfig c, int layers)
+    {
+        var ratios = (int[])md[a + "attention.compression.ratios"];
+        var kvLayers = IntArray(c, "kv_source_layer_ids");
+        var indexLayers = IntArray(c, "index_source_layer_ids");
+        var kvSources = new int[layers];
+        var indexSources = new int[layers];
+        int lastKv = -1, lastIndex = -1;
+        for (int il = 0; il < layers; il++)
+        {
+            lastKv = kvLayers.Contains(il) ? il : lastKv;
+            lastIndex = indexLayers.Contains(il) ? il : lastIndex;
+            kvSources[il] = ratios[il] == 0 ? -1 : lastKv;
+            indexSources[il] = ratios[il] == 0 ? -1 : lastIndex;
+        }
+
+        md[a + "attention.compression.kv_sources"] = kvSources;
+        md[a + "attention.compression.index_sources"] = indexSources;
+        md[a + "attention.compression.query_norm"] = false;
+        if (c.GetInt("candidate_source_layer_id") is int candidate and >= 0 && candidate < layers)
+        {
+            md[a + "attention.compression.candidate_source"] = candidate;
+            md[a + "attention.compression.candidate_blocks"] = c.Int("candidate_topk_blocks");
+            md[a + "attention.compression.candidate_block_size"] = c.Int("candidate_block_size");
+        }
+
+        md[a + "hyper_connections.lagged_collapse"] = true;
+        md[a + "moe.normalize_weights"] = (c.GetBool("norm_topk_prob") ?? true) && c.Int("num_experts_per_tok") > 1;
+        DeepseekV41Engram.AddHyperParameters(md, a, c);
+    }
+
+    private static int[] IntArray(HfConfig c, string key) => c.Get(key) is { ValueKind: JsonValueKind.Array } values
+        ? [.. values.EnumerateArray().Select(e => e.GetInt32())]
+        : throw new InvalidDataException($"deepseek_v41: {key} is missing.");
 
     private static int RopeDims(HfConfig c) => c.GetInt("qk_rope_head_dim")
         ?? (int)(c.Int("head_dim") * (c.GetDouble("partial_rotary_factor") ?? c.LayerTypeRopeDouble("main", "partial_rotary_factor") ?? 1.0));
@@ -123,6 +172,9 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
         ["attn.indexer.compressor.wkv.weight"] = "attention.indexer.compressor.kv.weight",
         ["attn.indexer.compressor.wgate.weight"] = "attention.indexer.compressor.gate.weight",
         ["attn.indexer.compressor.norm.weight"] = "attention.indexer.compressor.norm.weight",
+        ["attn.indexer.wk.weight"] = "attention.indexer.k.weight",
+        ["attn.indexer.k_norm.weight"] = "attention.indexer.k_norm.weight",
+        ["engram.wkv.weight"] = "engram.kv.weight",
         ["ffn.gate.weight"] = "mlp.router.weight",
         ["ffn.shared_experts.w1.weight"] = "mlp.shared.gate.weight",
         ["ffn.shared_experts.w2.weight"] = "mlp.shared.down.weight",
@@ -137,6 +189,8 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
         ["attn.indexer.compressor.ape"] = "attention.indexer.compressor.position_bias",
         ["attn.indexer.weights_proj.weight"] = "attention.indexer.head_weights.weight",
         ["ffn.gate.bias"] = "mlp.router_bias",
+        // DeepSeek-V4.1: the selection bias for image embeddings (multimodal input); text decoding does not read it.
+        ["ffn.gate.bias_vl"] = "mlp.router_bias_image",
         ["hc_attn_fn"] = "attention_hc.fn.weight",
         ["hc_attn_base"] = "attention_hc.base",
         ["hc_attn_scale"] = "attention_hc.scale",
@@ -145,6 +199,9 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
         ["hc_ffn_scale"] = "mlp_hc.scale",
     };
 
+    // DeepSeek-V4.1's vision tower, projector and image delimiter embeddings.
+    private static readonly string[] s_visionPrefixes = ["vision.", "aligner.", "image_start", "image_end", "image_newline"];
+
     private static readonly Dictionary<string, string> s_expertKinds = new(StringComparer.Ordinal) { ["w1"] = "gate", ["w2"] = "down", ["w3"] = "up" };
 
     /// <inheritdoc/>
@@ -152,14 +209,16 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
     {
         var collector = new HfWeightCollector();
         var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
+        var engramTables = new SortedDictionary<int, WeightInfo>();
         int layers = c.Int("num_hidden_layers");
         int groups = c.Int("o_groups");
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var w = tensor.ToWeightInfo();
-            if (TryMapGlobal(c, name, w, collector) || name.StartsWith("mtp.", StringComparison.Ordinal) || name.StartsWith("model.mtp.", StringComparison.Ordinal))
+            if (TryMapGlobal(c, name, w, collector) || name.StartsWith("mtp.", StringComparison.Ordinal) || name.StartsWith("model.mtp.", StringComparison.Ordinal)
+                || s_visionPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.Ordinal)))
             {
-                continue;   // the multi-token-prediction layers are not imported
+                continue;   // the multi-token-prediction layers and DeepSeek-V4.1's vision tower are not imported
             }
 
             var m = LayerName().Match(name);
@@ -201,6 +260,18 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
                 var shape = new Shape(groups, w.Shape[0].Fixed / groups, w.Shape[1].Fixed);
                 collector.Add(w.As(prefix + "attention.o_group.weight", shape));
             }
+            else if (suffix == "engram.embed.weight")
+            {
+                engramTables[layer] = w;
+            }
+            else if (suffix == "engram.q_weight")
+            {
+                collector.Add(EngramGate(prefix + "engram.gate", w, tensors[name[..^"q_weight".Length] + "k_weight"].ToWeightInfo()));
+            }
+            else if (suffix == "engram.k_weight")
+            {
+                continue;   // folded into the gate with q_weight
+            }
             else if (suffix == "ffn.gate.tid2eid")
             {
                 collector.Add(ToI32(w, prefix + "mlp.router.token_experts"));
@@ -219,6 +290,12 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
             }
 
             collector.Add(WeightInfo.Stack($"{prefix}mlp.experts.{kind}.weight", [.. byIndex.Values]));
+        }
+
+        if (engramTables.Count > 0)
+        {
+            // One table for all layers, rows in layer order (the head offsets of DeepseekV41Engram count from its start).
+            collector.Add(WeightInfo.ConcatRows("engram.table.weight", [.. engramTables.Values]));
         }
 
         if (CompressedYarn(c) is { } yarn)
@@ -280,6 +357,20 @@ internal sealed partial class DeepseekV4HfMapping : IHfArchitectureMapping
         return RopeScaling.Yarn(RopeDims(c), ropeBase, (float)y.GetProperty("factor").GetDouble(), originalContext,
             (float)HfMappingHelpers.NumberOr(y, "beta_fast", 32), (float)HfMappingHelpers.NumberOr(y, "beta_slow", 1), 1f);
     }
+
+    // The Engram gate [N, H] = q_weight · k_weight elementwise, in f32 (exact for the BF16 factors).
+    private static WeightInfo EngramGate(string name, WeightInfo q, WeightInfo k) => WeightInfo.Derived(name, DataType.F32, q.Shape, () =>
+    {
+        var a = HfTransforms.DecodeF32(q);
+        var b = HfTransforms.DecodeF32(k);
+        var bytes = new byte[a.Length * 4];
+        for (int i = 0; i < a.Length; i++)
+        {
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i * 4), a[i] * b[i]);
+        }
+
+        return bytes;
+    });
 
     // An integer table (i64 or i32) as i32.
     private static WeightInfo ToI32(WeightInfo w, string name)

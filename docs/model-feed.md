@@ -343,10 +343,10 @@ feedtool mirror   --feed <url|folder> --channel stable [--root ...] --out bundle
 ## Publishing the official feed
 
 The official feed lives in the Cloudflare R2 bucket of the Studio downloads under `models/`: https://download.sharplight.dev/models/
-(channels `stable/index.json` and `unstable/index.json` there; hosts default to stable). It is published by `.github/workflows/model-feed.yml` (a push to develop that changes `tools/model-feed/publish-request.json`, manual dispatch, plus a weekly re-sign; environment `studio-release`, the
+(channels `stable/index.json` and `unstable/index.json` there; hosts default to stable). It is published by `.github/workflows/model-feed.yml` (a push to main that changes `tools/model-feed/publish-request.json`, manual dispatch, plus a weekly re-sign; environment `studio-release`, the
 same R2 secrets as `studio.yml`):
 
-**Publish requests.** Until the workflow is on the default branch, the trigger is a commit to develop that changes
+**Publish requests.** The usual trigger is a commit to main that changes
 `tools/model-feed/publish-request.json`:
 
 ```json
@@ -387,7 +387,7 @@ A run has three jobs, one publication at a time (concurrency group `model-feed`,
    4. uploads per channel (`models/unstable/`, then `models/stable/`) the package indexes, catalog pages, `catalog/index.json`, `catalog/models.json`,
       `index.json` and `index.sig` (`no-cache`). Nothing is ever deleted.
 
-   The large pass runs only after the small one succeeded, for a push or a dispatch on develop, when the repository variable
+   The large pass runs only after the small one succeeded, for a push or a dispatch on main, when the repository variable
    `MODEL_FEED_SELF_HOSTED` is `true`; when the optional secret `MODEL_FEED_RUNNER_TOKEN` (a token that may list runners: fine-grained
    "Administration: read" on the repository, or "Self-hosted runners: read" on the organization for an organization runner) is set,
    the plan also checks that a runner labelled `sharplight-feed` is online. Otherwise the large entries (and their promotions) are
@@ -403,9 +403,9 @@ An index expires after `validity_days` (default 30) and hosts reject an expired 
 (Mondays 04:17 UTC) therefore only re-signs the index: no builds, a new sequence and a new expiry 30 days ahead. Any run without
 entries does the same, and does nothing before the first publication.
 
-**Until the next release** the weekly re-sign does not run: schedules (like dispatch) only run for workflows on the default branch
-(main), and the `studio-release` environment admits only develop and release/*. Until then, re-sign at least every three weeks by
-committing to develop a `publish-request.json` with empty `entries` and `promote` lists (and a new `reason`, so the file changes).
+Schedules and dispatches only run for workflows on the default branch (main), which is also the branch the `studio-release`
+environment admits (with release/*). Re-signing by hand works the same way as a publication: commit to main a
+`publish-request.json` with empty `entries` and `promote` lists (and a new `reason`, so the file changes).
 
 ### Publishing keys
 
@@ -476,17 +476,17 @@ workflow's large pass runs on a self-hosted runner with the labels `self-hosted`
    systemd service under that user. .NET is installed by `actions/setup-dotnet` in each job into the runner's tool cache (no root).
 3. On GitHub: for an organization runner, allow this public repository in the runner group (Organization settings → Actions →
    Runner groups → the group → Repository access; public repositories must be allowed explicitly) and, where the plan offers it,
-   restrict the group to the workflow `model-feed.yml` on `refs/heads/develop`. Then set the repository variables
+   restrict the group to the workflow `model-feed.yml` on `refs/heads/main`. Then set the repository variables
    `MODEL_FEED_SELF_HOSTED=true` and `MODEL_FEED_WORK_DIR=/home/ghrunner/feed-work` (default: next to the job's workspace), and
    optionally the secret `MODEL_FEED_RUNNER_TOKEN` for the online check.
 
 **Security.** The repository is public: a self-hosted runner must only run trusted workflows of trusted branches, never code from pull
 requests.
 
-- `model-feed.yml` has no `pull_request` trigger; the large job runs only for `push` and `workflow_dispatch` on develop, in the
-  `studio-release` environment (which admits only develop and release/*, and holds the signing key and R2 credentials).
+- `model-feed.yml` has no `pull_request` trigger; the large job runs only for `push` and `workflow_dispatch` on main, in the
+  `studio-release` environment (which admits only main and release/*, and holds the signing key and R2 credentials).
 - `setup-runner.sh` installs a job-started hook (`ACTIONS_RUNNER_HOOK_JOB_STARTED`) that fails every job on the machine whose event is
-  not `push` or `workflow_dispatch`, whose ref is not `refs/heads/develop`, or whose workflow is not `model-feed.yml` of the
+  not `push` or `workflow_dispatch`, whose ref is not `refs/heads/main`, or whose workflow is not `model-feed.yml` of the
   repository, so a workflow added in a fork's pull request cannot run there even if it names the labels. A runner registered by hand
   should get the same hook (copy `feed-job-guard.sh` and the `.env` line from the script).
 - Keep "Require approval for all outside collaborators" for fork pull request workflows in the repository's Actions settings, and do

@@ -61,6 +61,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
     private readonly float[] _rgbFactors;
     private readonly int _secondPadId;
     private readonly bool _zeroEmptyNegative;
+    private readonly bool _tinyDecoder;
+    private readonly bool _tinyEncoder;
+    private readonly bool _controlNet;
     /// <summary>Image size of the VAE activation-range measurement (<see cref="TaskModel.CalibrateActivationPrecision"/>).</summary>
     private const long ProbeSize = 256;
     private const int ProbeSeed = 5;
@@ -145,6 +148,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         _rgbFactors = vae.Config.TryGetValue(DiffusionConfigKeys.LatentRgbFactors, out var factors)
             ? [.. factors.EnumerateArray().Select(f => f.GetSingle())]
             : [];
+        _tinyDecoder = description.TryGetComponent(DiffusionGraphs.TinyVaeRole, out var tiny) && tiny.Graphs.Contains(DiffusionGraphs.TinyVaeDecode);
+        _tinyEncoder = tiny is not null && tiny.Graphs.Contains(DiffusionGraphs.TinyVaeEncode);
+        _controlNet = description.TryGetComponent(DiffusionGraphs.ControlNetRole, out var controlNet) && controlNet.Graphs.Contains(DiffusionGraphs.DenoiseControl);
         _nativeWidth = description.ConfigValue(DiffusionConfigKeys.Width, 512);
         _nativeHeight = description.ConfigValue(DiffusionConfigKeys.Height, 512);
         _defaultSteps = description.ConfigValue(DiffusionConfigKeys.Steps, 25);
@@ -177,7 +183,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     /// <inheritdoc/>
     public ImageGenerationDefaults Defaults => new(_nativeWidth, _nativeHeight, _defaultSteps, _defaultGuidance, _schedule.Sampler,
-        _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance, Aesthetic ? DefaultAestheticScore : 0f);
+        _classifierFree && !_embeddedGuidance, _maxReferences, _defaultImageGuidance, Aesthetic ? DefaultAestheticScore : 0f, _tinyDecoder, _controlNet);
 
     /// <inheritdoc/>
     public object? GetService(Type serviceType, object? serviceKey = null)
@@ -244,6 +250,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var mask = request.Mask is null ? null : LatentMask(request.Mask, run);
         var condition = _conditionMode is null ? null : await Task.Run(() => ConditionLatents(request, run, mask), cancellationToken).ConfigureAwait(false);
         var references = run.References == 0 ? null : await Task.Run(() => EncodeReferences(request.ReferenceImages!, run), cancellationToken).ConfigureAwait(false);
+        var control = request.ControlImage is null ? null : ControlPixels(request.ControlImage, run);
         var images = new List<ImageInput>(run.Count);
         var timesteps = CreateSampler(run).Timesteps;
         int evaluations = timesteps.Count;
@@ -307,7 +314,8 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 int step = index;
-                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, latents, references, condition), cancellationToken).ConfigureAwait(false);
+                var controlStep = control is null ? null : new ControlStep(control, ControlActive(run, index - start, evaluations - start) ? run.ControlScale : 0f);
+                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, latents, references, condition, controlStep), cancellationToken).ConfigureAwait(false);
                 long imageSeed = seed;
                 long noiseStream = stream++;
                 sampler.Step(index, prediction, latents, () => LatentNoise.Draw(imageSeed, noiseStream, latents.Length));
@@ -317,7 +325,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
                 }
 
                 int done = image * perImage + index - start + 1;
-                bool preview = run.PreviewInterval > 0 && _rgbFactors.Length > 0 && (index - start + 1) % run.PreviewInterval == 0;
+                bool preview = run.PreviewInterval > 0 && (_rgbFactors.Length > 0 || _tinyDecoder) && (index - start + 1) % run.PreviewInterval == 0;
                 yield return new ImageGenerationUpdate(done, total, Preview: preview ? Preview(sampler.PredictedOriginal ?? latents, run) : null);
             }
 
@@ -378,7 +386,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     /// <summary>The prompts of a request without its images (a refiner continues latents; it neither encodes nor edits an image).</summary>
     private static ImageGenerationRequest RefinerRequest(ImageGenerationRequest request)
-        => request with { Image = null, Mask = null, ReferenceImages = null };
+        => request with { Image = null, Mask = null, ReferenceImages = null, ControlImage = null };
 
     /// <summary>
     /// Continues another generator's latents as its refiner (diffusers' <c>denoising_start</c>): the timesteps of this model's schedule below
@@ -409,11 +417,11 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 int step = index;
-                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, state, null, null), cancellationToken).ConfigureAwait(false);
+                var prediction = await Task.Run(() => Denoise(run, context, sampler, step, state, null, null, null), cancellationToken).ConfigureAwait(false);
                 long seed = run.Seed;
                 long noiseStream = stream++;
                 sampler.Step(index, prediction, state, () => LatentNoise.Draw(seed, noiseStream, state.Length));
-                bool preview = run.PreviewInterval > 0 && _rgbFactors.Length > 0 && (index - first + 1) % run.PreviewInterval == 0;
+                bool preview = run.PreviewInterval > 0 && (_rgbFactors.Length > 0 || _tinyDecoder) && (index - first + 1) % run.PreviewInterval == 0;
                 yield return new ImageGenerationUpdate(before + index - first + 1, total, Preview: preview ? Preview(sampler.PredictedOriginal ?? state, run) : null);
             }
 
@@ -454,7 +462,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
                 : $"{_model.Definition.Name} takes at most {_maxReferences} reference image(s); {references} were given.");
         }
 
-        var sizeSource = request.Image ?? (references > 0 ? request.ReferenceImages![_referenceArea > 0 ? references - 1 : 0] : null);
+        var sizeSource = request.Image ?? (references > 0 ? request.ReferenceImages![_referenceArea > 0 ? references - 1 : 0] : null) ?? request.ControlImage;
         int width = options.Width ?? sizeSource?.Width ?? _nativeWidth;
         int height = options.Height ?? sizeSource?.Height ?? _nativeHeight;
         if (options.Width is null && options.Height is null && request.Image is null && references > 0 && _referenceArea > 0)
@@ -466,7 +474,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         {
             // An input image of any size is generated at the nearest size the network accepts; editing models (transformers) take
             // multiples of their token size, as their pipelines round reference images.
-            int multiple = request.Image is null ? _downscale * _patchSize : _downscale * 8;
+            int multiple = request.Image is null && request.ControlImage is null ? _downscale * _patchSize : _downscale * 8;
             width = Math.Max(multiple, width / multiple * multiple);
             height = Math.Max(multiple, height / multiple * multiple);
         }
@@ -477,6 +485,23 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         if (request.Mask is not null && request.Image is null)
         {
             throw new ArgumentException("Inpainting needs ImageGenerationRequest.Image as well as the mask.", nameof(request));
+        }
+
+        if (request.ControlImage is not null && !_controlNet)
+        {
+            throw new NotSupportedException($"{_model.Definition.Name} has no ControlNet: load one as its '{DiffusionGraphs.ControlNetRole}' auxiliary source to use a control image.");
+        }
+
+        float controlStart = options.ControlStart ?? 0f;
+        float controlEnd = options.ControlEnd ?? 1f;
+        if (controlStart is < 0f or >= 1f || controlEnd <= controlStart || controlEnd > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), $"ControlStart ({controlStart}) and ControlEnd ({controlEnd}) must satisfy 0 <= start < end <= 1.");
+        }
+
+        if (options.TinyAutoencoder && !_tinyDecoder)
+        {
+            throw new NotSupportedException($"{_model.Definition.Name} has no tiny autoencoder: load one (TAESD) as its '{DiffusionGraphs.TinyVaeRole}' auxiliary source.");
         }
 
         float guidance = options.GuidanceScale ?? _defaultGuidance;
@@ -508,6 +533,10 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             Count = options.Count,
             Sampler = options.Scheduler ?? _schedule.Sampler,
             PreviewInterval = options.PreviewInterval,
+            TinyAutoencoder = options.TinyAutoencoder,
+            ControlScale = options.ControlScale ?? 1f,
+            ControlStart = controlStart,
+            ControlEnd = controlEnd,
             InitialNoise = options.InitialNoise,
             References = references,
             Dimensions = width == _nativeWidth && height == _nativeHeight && references == 0
@@ -835,9 +864,12 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return (ids, count);
     }
 
-    private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? references, float[]? condition)
+    private float[] Denoise(DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index, float[] latents, float[]? references, float[]? condition,
+        ControlStep? control)
     {
-        var denoiser = Compiled(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, run.Dimensions);
+        var denoiser = control is null
+            ? Compiled(ModelComponentRoles.Denoiser, DiffusionGraphs.Denoise, run.Dimensions)
+            : Compiled(DiffusionGraphs.ControlNetRole, DiffusionGraphs.DenoiseControl, run.Dimensions);
         int rows = run.Rows;
         var batchDim = Input(denoiser, DiffusionGraphs.Latent).Shape[0];
         // A symbolic batch runs every row of a step at once, up to the component's bound (three rows for image guidance).
@@ -846,7 +878,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         var output = new float[run.LatentSize * rows];
         if (perRun >= rows)
         {
-            RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, condition, 0, rows, output);
+            RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, condition, control, 0, rows, output);
         }
         else
         {
@@ -854,7 +886,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             for (int row = 0; row < rows; row += perRun)
             {
                 int count = Math.Min(perRun, rows - row);
-                RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, condition, row, count, output.AsSpan(row * run.LatentSize, count * run.LatentSize));
+                RunDenoiser(denoiser, run, conditioning, sampler, index, latents, references, condition, control, row, count, output.AsSpan(row * run.LatentSize, count * run.LatentSize));
             }
         }
 
@@ -940,7 +972,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     /// <summary>One denoiser run over <paramref name="rows"/> conditioning rows starting at <paramref name="firstRow"/>.</summary>
     private static void RunDenoiser(CompiledModel denoiser, DiffusionRun run, PromptConditioning conditioning, DiffusionSampler sampler, int index,
-        float[] latents, float[]? references, float[]? condition, int firstRow, int rows, Span<float> output)
+        float[] latents, float[]? references, float[]? condition, ControlStep? control, int firstRow, int rows, Span<float> output)
     {
         float scale = sampler.ModelInputScale(index);
         var input = new float[run.LatentSize * rows];
@@ -1015,6 +1047,19 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
                 references ?? throw new InvalidOperationException("The editing denoiser was built for reference images, but the request has none."));
         }
 
+        if (control is not null)
+        {
+            // Every row of a guided step sees the control image (diffusers without guess mode).
+            var pixels = new float[control.Pixels.Length * rows];
+            for (int row = 0; row < rows; row++)
+            {
+                control.Pixels.CopyTo(pixels, row * control.Pixels.Length);
+            }
+
+            denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.ControlImage), pixels);
+            denoiser.SetInput<float>(Input(denoiser, DiffusionGraphs.ControlScale), Enumerable.Repeat(control.Scale, rows).ToArray());
+        }
+
         var parameters = new RunParameters();
         parameters.Symbols[DiffusionGraphs.BatchSymbol] = rows;
         denoiser.Run(parameters);
@@ -1023,9 +1068,12 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         result.CopyTo(output);
     }
 
-    private ImageInput Decode(DiffusionRun run, float[] latents)
+    private ImageInput Decode(DiffusionRun run, float[] latents, bool tiny = false)
     {
-        var decoder = Compiled(ModelComponentRoles.Vae, DiffusionGraphs.VaeDecode, run.Dimensions);
+        bool useTiny = (tiny || run.TinyAutoencoder) && _tinyDecoder;
+        var decoder = useTiny
+            ? Compiled(DiffusionGraphs.TinyVaeRole, DiffusionGraphs.TinyVaeDecode, run.Dimensions)
+            : Compiled(ModelComponentRoles.Vae, DiffusionGraphs.VaeDecode, run.Dimensions);
         decoder.SetInput<float>(Input(decoder, DiffusionGraphs.Latent), latents);
         var parameters = new RunParameters();
         parameters.Symbols[DiffusionGraphs.BatchSymbol] = 1;
@@ -1035,13 +1083,29 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
         return PlanarImage.FromPlanar(pixels, run.Width, run.Height, 0f, 1f);
     }
 
+    /// <summary>The control image as the ControlNet takes it: resized to the output size (Lanczos, as diffusers' image processor), [3, H, W] in [0, 1].</summary>
+    private static float[] ControlPixels(ImageInput image, DiffusionRun run)
+    {
+        var planes = new float[3 * image.Width * image.Height];
+        PlanarImage.ToPlanar(image, planes, 0f, 1f);
+        return image.Width == run.Width && image.Height == run.Height
+            ? planes
+            : PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width, lanczos: true);
+    }
+
+    /// <summary>Whether the ControlNet applies at a step (diffusers' <c>controlnet_keep</c> for <c>control_guidance_start</c> / <c>_end</c>).</summary>
+    private static bool ControlActive(DiffusionRun run, int step, int steps)
+        => !((float)step / steps < run.ControlStart || (float)(step + 1) / steps > run.ControlEnd);
+
     /// <summary>The model latents of the input image (resized to the output size): the VAE encoder's scaled mean.</summary>
     private float[] EncodeImage(ImageInput image, DiffusionRun run, bool lanczos = false)
     {
         var planes = new float[3 * image.Width * image.Height];
         PlanarImage.ToPlanar(image, planes, 0f, 1f);
         var resized = PlanarResize.Resize(planes, 3, image.Height, image.Width, run.Height, run.Width, lanczos);
-        var encoder = Compiled(ModelComponentRoles.Vae, DiffusionGraphs.VaeEncode, run.Dimensions);
+        var encoder = run.TinyAutoencoder && _tinyEncoder
+            ? Compiled(DiffusionGraphs.TinyVaeRole, DiffusionGraphs.TinyVaeEncode, run.Dimensions)
+            : Compiled(ModelComponentRoles.Vae, DiffusionGraphs.VaeEncode, run.Dimensions);
         encoder.SetInput<float>(Input(encoder, DiffusionGraphs.Image), resized);
         var parameters = new RunParameters();
         parameters.Symbols[DiffusionGraphs.BatchSymbol] = 1;
@@ -1174,8 +1238,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             ? explicitNoise.AsSpan(image * run.LatentSize, run.LatentSize).ToArray()
             : LatentNoise.Draw(seed, 0, run.LatentSize);
 
+    /// <summary>A preview of the current estimate: decoded by the tiny autoencoder when the model has one, else the latent colours.</summary>
     private ImageInput Preview(float[] latents, DiffusionRun run)
-        => LatentPreview.Render(latents, run.LatentChannels, run.LatentHeight, run.LatentWidth, _rgbFactors);
+        => _tinyDecoder ? Decode(run, latents, tiny: true) : LatentPreview.Render(latents, run.LatentChannels, run.LatentHeight, run.LatentWidth, _rgbFactors);
 
     private CompiledModel Compiled(string role, string graph, IReadOnlyDictionary<string, long>? dimensions)
     {
@@ -1183,7 +1248,7 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
             : $"{graph}@{dimensions[DiffusionGraphs.Width]}x{dimensions[DiffusionGraphs.Height]}+{dimensions.GetValueOrDefault(DiffusionGraphs.References)}";
         if (!_compiled.TryGetValue(key, out var compiled))
         {
-            if (role == ModelComponentRoles.Vae)
+            if (role is ModelComponentRoles.Vae or DiffusionGraphs.TinyVaeRole)
             {
                 // Some VAEs (SDXL's) have activations beyond f16's range: measured once per graph, such a VAE runs with bf16 activations.
                 _model.CalibrateActivationPrecision(role, graph, ProbeDimensions(dimensions), PrepareProbe);
@@ -1258,6 +1323,9 @@ internal sealed class LatentDiffusionGenerator : IImageGenerator
 
     /// <summary>The reference images as the vision-language text encoder sees them: preprocessed, and the vision tower's embeddings per image.</summary>
     private sealed record ImagePrompt(IReadOnlyList<PreprocessedImage> Images, IReadOnlyList<float[]> Embeddings);
+
+    /// <summary>The ControlNet's inputs of one step: the control image [3, H, W] and its residuals' scale (0 outside the control range).</summary>
+    private sealed record ControlStep(float[] Pixels, float Scale);
 
     /// <summary>The image inputs of the text graph: M-RoPE positions [rows, axes], the rows' embeddings [rows, width] and their mask [rows].</summary>
     private sealed record ImageRows(int[] Positions, float[] Embeddings, float[] Mask);

@@ -1,0 +1,929 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [71 ms]
+Loaded Qwen3-8B (decoder): 399 tensors, 16.38 GB, vocab 151936 [718 ms]
+Rows per forward pass: 2048 (automatic, 31057 MiB available).
+Compiling 105 / 105, 105 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 16.38 / 16.38 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' in 2319 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 15.57 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+segment 0: 473 dispatches, 328 barriers per step
+--- prefill T=2048 profile, segment 0
+GPU time 259.84 ms
+     7.328 ms   2.8%     72x  min     79.6 us  fused[Add]+RmsNorm main
+     3.310 ms   1.3%      1x  min   3310.0 us  matmul2 mul_574 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.306 ms   1.3%      1x  min   3306.0 us  matmul2 mul_598 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.304 ms   1.3%      1x  min   3303.5 us  matmul2 mul_550 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.294 ms   1.3%      1x  min   3293.7 us  matmul2 mul_502 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.292 ms   1.3%      1x  min   3291.6 us  matmul2 mul_526 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.286 ms   1.3%      1x  min   3286.5 us  matmul2 mul_670 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.281 ms   1.3%      1x  min   3281.4 us  matmul2 mul_622 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.277 ms   1.3%      1x  min   3277.3 us  matmul2 mul_646 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.260 ms   1.3%      1x  min   3259.9 us  matmul2 mul_454 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.259 ms   1.3%      1x  min   3258.9 us  matmul2 mul_430 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.259 ms   1.3%      1x  min   3258.8 us  matmul2 mul_478 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.256 ms   1.3%      1x  min   3255.8 us  matmul2 mul_862 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.253 ms   1.3%      1x  min   3252.7 us  matmul2 mul_838 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.250 ms   1.3%      1x  min   3249.7 us  matmul2 mul_694 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.249 ms   1.3%      1x  min   3248.6 us  matmul2 mul_814 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.249 ms   1.3%      1x  min   3248.6 us  matmul2 mul_790 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.247 ms   1.2%      1x  min   3246.6 us  matmul2 mul_718 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.245 ms   1.2%      1x  min   3244.5 us  matmul2 mul_766 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.242 ms   1.2%      1x  min   3242.5 us  matmul2 mul_742 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.204 ms   1.2%      1x  min   3203.6 us  matmul2 mul_382 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.202 ms   1.2%      1x  min   3201.5 us  matmul2 mul_406 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     3.086 ms   1.2%      1x  min   3085.9 us  matmul2 mul_358 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.978 ms   1.1%      1x  min   2978.3 us  matmul2 mul_286 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.977 ms   1.1%      1x  min   2977.3 us  matmul2 mul_166 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.977 ms   1.1%      1x  min   2977.3 us  matmul2 mul_334 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.976 ms   1.1%      1x  min   2976.3 us  matmul2 mul_142 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.975 ms   1.1%      1x  min   2975.3 us  matmul2 mul_310 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.975 ms   1.1%      1x  min   2975.0 us  matmul2 mul_214 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.974 ms   1.1%      1x  min   2974.2 us  matmul2 mul_70 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.972 ms   1.1%      1x  min   2972.2 us  matmul2 mul_94 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.972 ms   1.1%      1x  min   2972.2 us  matmul2 mul_262 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.972 ms   1.1%      1x  min   2972.2 us  matmul2 mul_190 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.970 ms   1.1%      1x  min   2970.2 us  matmul2 mul_22 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.970 ms   1.1%      1x  min   2970.2 us  matmul2 mul_46 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.970 ms   1.1%      1x  min   2970.1 us  matmul2 mul_238 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     2.969 ms   1.1%      1x  min   2969.1 us  matmul2 mul_118 [4096→12288]x2 bf16 fused[Silu,Mul] gemm2 gemm_cm2
+     1.970 ms   0.8%      1x  min   1970.0 us  matmul layers.22.ffn_out [12288→4096] bf16 gemm_cm2
+     1.968 ms   0.8%      1x  min   1968.0 us  matmul layers.23.ffn_out [12288→4096] bf16 gemm_cm2
+     1.966 ms   0.8%      1x  min   1966.0 us  matmul layers.24.ffn_out [12288→4096] bf16 gemm_cm2
+     1.964 ms   0.8%      1x  min   1963.9 us  matmul layers.21.ffn_out [12288→4096] bf16 gemm_cm2
+     1.961 ms   0.8%      1x  min   1960.8 us  matmul layers.19.ffn_out [12288→4096] bf16 gemm_cm2
+     1.958 ms   0.8%      1x  min   1957.7 us  matmul layers.26.ffn_out [12288→4096] bf16 gemm_cm2
+     1.949 ms   0.7%      1x  min   1948.5 us  matmul layers.20.ffn_out [12288→4096] bf16 gemm_cm2
+     1.946 ms   0.7%      1x  min   1946.5 us  matmul layers.28.ffn_out [12288→4096] bf16 gemm_cm2
+     1.943 ms   0.7%      1x  min   1943.4 us  matmul layers.18.ffn_out [12288→4096] bf16 gemm_cm2
+     1.941 ms   0.7%      1x  min   1941.4 us  matmul layers.30.ffn_out [12288→4096] bf16 gemm_cm2
+     1.941 ms   0.7%      1x  min   1941.3 us  matmul layers.25.ffn_out [12288→4096] bf16 gemm_cm2
+     1.939 ms   0.7%      1x  min   1939.3 us  matmul layers.35.ffn_out [12288→4096] bf16 gemm_cm2
+     1.937 ms   0.7%      1x  min   1937.3 us  matmul layers.34.ffn_out [12288→4096] bf16 gemm_cm2
+     1.935 ms   0.7%      1x  min   1935.2 us  matmul layers.31.ffn_out [12288→4096] bf16 gemm_cm2
+     1.935 ms   0.7%      1x  min   1934.5 us  matmul layers.17.ffn_out [12288→4096] bf16 gemm_cm2
+     1.933 ms   0.7%      1x  min   1933.2 us  matmul layers.32.ffn_out [12288→4096] bf16 gemm_cm2
+     1.928 ms   0.7%      1x  min   1928.0 us  matmul layers.27.ffn_out [12288→4096] bf16 gemm_cm2
+     1.927 ms   0.7%      1x  min   1927.0 us  matmul layers.33.ffn_out [12288→4096] bf16 gemm_cm2
+     1.926 ms   0.7%      1x  min   1926.0 us  matmul layers.29.ffn_out [12288→4096] bf16 gemm_cm2
+     1.913 ms   0.7%      1x  min   1912.8 us  matmul layers.15.ffn_out [12288→4096] bf16 gemm_cm2
+     1.913 ms   0.7%      1x  min   1912.7 us  matmul layers.14.ffn_out [12288→4096] bf16 gemm_cm2
+     1.911 ms   0.7%      1x  min   1910.7 us  matmul layers.16.ffn_out [12288→4096] bf16 gemm_cm2
+     1.786 ms   0.7%      1x  min   1785.9 us  matmul layers.8.ffn_out [12288→4096] bf16 gemm_cm2
+     1.784 ms   0.7%      1x  min   1783.9 us  matmul layers.4.ffn_out [12288→4096] bf16 gemm_cm2
+     1.782 ms   0.7%      1x  min   1781.8 us  matmul layers.12.ffn_out [12288→4096] bf16 gemm_cm2
+     1.776 ms   0.7%      1x  min   1775.7 us  matmul layers.3.ffn_out [12288→4096] bf16 gemm_cm2
+     1.776 ms   0.7%      1x  min   1775.7 us  matmul layers.10.ffn_out [12288→4096] bf16 gemm_cm2
+     1.776 ms   0.7%      1x  min   1775.6 us  matmul layers.0.ffn_out [12288→4096] bf16 gemm_cm2
+     1.774 ms   0.7%      1x  min   1773.6 us  matmul layers.5.ffn_out [12288→4096] bf16 gemm_cm2
+     1.772 ms   0.7%      1x  min   1771.6 us  matmul layers.2.ffn_out [12288→4096] bf16 gemm_cm2
+     1.772 ms   0.7%      1x  min   1771.5 us  matmul layers.6.ffn_out [12288→4096] bf16 gemm_cm2
+     1.770 ms   0.7%      1x  min   1769.5 us  matmul layers.13.ffn_out [12288→4096] bf16 gemm_cm2
+     1.769 ms   0.7%      1x  min   1769.5 us  matmul layers.9.ffn_out [12288→4096] bf16 gemm_cm2
+     1.767 ms   0.7%      1x  min   1767.5 us  matmul layers.11.ffn_out [12288→4096] bf16 gemm_cm2
+     1.767 ms   0.7%      1x  min   1767.5 us  matmul layers.1.ffn_out [12288→4096] bf16 gemm_cm2
+     1.767 ms   0.7%      1x  min   1767.5 us  matmul layers.7.ffn_out [12288→4096] bf16 gemm_cm2
+     1.480 ms   0.6%      1x  min   1479.7 us  matmul logits [4096→151936] bf16 matvec_sk
+     0.622 ms   0.2%      1x  min    622.3 us  matmul layers.23.attn_out [4096→4096] bf16 gemm_cm2
+     0.619 ms   0.2%      1x  min    619.2 us  matmul layers.24.attn_out [4096→4096] bf16 gemm_cm2
+     0.619 ms   0.2%      1x  min    619.2 us  matmul layers.25.attn_out [4096→4096] bf16 gemm_cm2
+     0.618 ms   0.2%      1x  min    618.2 us  matmul layers.21.attn_out [4096→4096] bf16 gemm_cm2
+     0.618 ms   0.2%      1x  min    618.2 us  matmul layers.20.attn_out [4096→4096] bf16 gemm_cm2
+     0.618 ms   0.2%      1x  min    618.2 us  matmul layers.26.attn_out [4096→4096] bf16 gemm_cm2
+     0.617 ms   0.2%      1x  min    617.2 us  matmul layers.22.attn_out [4096→4096] bf16 gemm_cm2
+     0.616 ms   0.2%      1x  min    616.1 us  matmul layers.27.attn_out [4096→4096] bf16 gemm_cm2
+     0.614 ms   0.2%      1x  min    614.1 us  matmul layers.18.attn_out [4096→4096] bf16 gemm_cm2
+     0.614 ms   0.2%      1x  min    614.1 us  matmul layers.28.attn_out [4096→4096] bf16 gemm_cm2
+     0.613 ms   0.2%      1x  min    613.1 us  matmul layers.31.attn_out [4096→4096] bf16 gemm_cm2
+     0.613 ms   0.2%      1x  min    613.1 us  matmul layers.34.attn_out [4096→4096] bf16 gemm_cm2
+     0.612 ms   0.2%      1x  min    612.0 us  matmul layers.19.attn_out [4096→4096] bf16 gemm_cm2
+     0.612 ms   0.2%      1x  min    612.0 us  matmul layers.29.attn_out [4096→4096] bf16 gemm_cm2
+     0.612 ms   0.2%      1x  min    612.0 us  matmul layers.30.attn_out [4096→4096] bf16 gemm_cm2
+     0.611 ms   0.2%      1x  min    611.0 us  matmul layers.35.attn_out [4096→4096] bf16 gemm_cm2
+     0.611 ms   0.2%      1x  min    611.0 us  matmul layers.32.attn_out [4096→4096] bf16 gemm_cm2
+     0.611 ms   0.2%      1x  min    611.0 us  matmul layers.33.attn_out [4096→4096] bf16 gemm_cm2
+     0.604 ms   0.2%      1x  min    603.9 us  matmul layers.15.attn_out [4096→4096] bf16 gemm_cm2
+     0.602 ms   0.2%      1x  min    601.8 us  matmul layers.16.attn_out [4096→4096] bf16 gemm_cm2
+     0.602 ms   0.2%      1x  min    601.8 us  matmul layers.17.attn_out [4096→4096] bf16 gemm_cm2
+     0.595 ms   0.2%      1x  min    594.6 us  matmul matmul_578 [4096→4096] bf16 gemm_cm2
+     0.594 ms   0.2%      1x  min    593.5 us  matmul matmul_554 [4096→4096] bf16 gemm_cm2
+     0.593 ms   0.2%      1x  min    592.5 us  matmul matmul_602 [4096→4096] bf16 gemm_cm2
+     0.591 ms   0.2%      1x  min    591.5 us  matmul matmul_506 [4096→4096] bf16 gemm_cm2
+     0.590 ms   0.2%      1x  min    590.5 us  matmul matmul_482 [4096→4096] bf16 gemm_cm2
+     0.590 ms   0.2%      1x  min    590.5 us  matmul matmul_626 [4096→4096] bf16 gemm_cm2
+     0.590 ms   0.2%      1x  min    590.5 us  matmul matmul_650 [4096→4096] bf16 gemm_cm2
+     0.589 ms   0.2%      1x  min    589.4 us  matmul matmul_530 [4096→4096] bf16 gemm_cm2
+     0.589 ms   0.2%      1x  min    589.4 us  matmul matmul_746 [4096→4096] bf16 gemm_cm2
+     0.589 ms   0.2%      1x  min    589.4 us  matmul matmul_842 [4096→4096] bf16 gemm_cm2
+     0.588 ms   0.2%      1x  min    588.4 us  matmul matmul_434 [4096→4096] bf16 gemm_cm2
+     0.587 ms   0.2%      1x  min    587.4 us  matmul matmul_698 [4096→4096] bf16 gemm_cm2
+     0.587 ms   0.2%      1x  min    587.4 us  matmul matmul_722 [4096→4096] bf16 gemm_cm2
+     0.587 ms   0.2%      1x  min    587.4 us  matmul matmul_770 [4096→4096] bf16 gemm_cm2
+     0.587 ms   0.2%      1x  min    587.4 us  matmul matmul_794 [4096→4096] bf16 gemm_cm2
+     0.587 ms   0.2%      1x  min    587.4 us  matmul matmul_818 [4096→4096] bf16 gemm_cm2
+     0.586 ms   0.2%      1x  min    586.4 us  matmul matmul_458 [4096→4096] bf16 gemm_cm2
+     0.586 ms   0.2%      1x  min    586.4 us  matmul matmul_674 [4096→4096] bf16 gemm_cm2
+     0.580 ms   0.2%      1x  min    580.2 us  matmul matmul_362 [4096→4096] bf16 gemm_cm2
+     0.578 ms   0.2%      1x  min    578.2 us  matmul matmul_386 [4096→4096] bf16 gemm_cm2
+     0.578 ms   0.2%      1x  min    577.9 us  matmul matmul_410 [4096→4096] bf16 gemm_cm2
+     0.564 ms   0.2%      1x  min    564.0 us  matmul layers.11.attn_out [4096→4096] bf16 gemm_cm2
+     0.563 ms   0.2%      1x  min    562.9 us  matmul layers.0.attn_out [4096→4096] bf16 gemm_cm2
+     0.563 ms   0.2%      1x  min    562.9 us  matmul layers.6.attn_out [4096→4096] bf16 gemm_cm2
+     0.563 ms   0.2%      1x  min    562.9 us  matmul layers.8.attn_out [4096→4096] bf16 gemm_cm2
+     0.563 ms   0.2%      1x  min    562.9 us  matmul layers.12.attn_out [4096→4096] bf16 gemm_cm2
+     0.563 ms   0.2%      1x  min    562.9 us  matmul layers.2.attn_out [4096→4096] bf16 gemm_cm2
+     0.562 ms   0.2%      1x  min    561.9 us  matmul layers.9.attn_out [4096→4096] bf16 gemm_cm2
+     0.562 ms   0.2%      1x  min    561.9 us  matmul layers.3.attn_out [4096→4096] bf16 gemm_cm2
+     0.562 ms   0.2%      1x  min    561.9 us  matmul layers.5.attn_out [4096→4096] bf16 gemm_cm2
+     0.562 ms   0.2%      1x  min    561.9 us  matmul layers.13.attn_out [4096→4096] bf16 gemm_cm2
+     0.561 ms   0.2%      1x  min    560.9 us  matmul layers.7.attn_out [4096→4096] bf16 gemm_cm2
+     0.561 ms   0.2%      1x  min    560.9 us  matmul layers.10.attn_out [4096→4096] bf16 gemm_cm2
+     0.561 ms   0.2%      1x  min    560.9 us  matmul layers.14.attn_out [4096→4096] bf16 gemm_cm2
+     0.561 ms   0.2%      1x  min    560.9 us  matmul layers.1.attn_out [4096→4096] bf16 gemm_cm2
+     0.561 ms   0.2%      1x  min    560.9 us  matmul layers.4.attn_out [4096→4096] bf16 gemm_cm2
+     0.556 ms   0.2%      1x  min    555.7 us  matmul matmul_218 [4096→4096] bf16 gemm_cm2
+     0.556 ms   0.2%      1x  min    555.6 us  matmul matmul_74 [4096→4096] bf16 gemm_cm2
+     0.555 ms   0.2%      1x  min    554.7 us  matmul matmul_146 [4096→4096] bf16 gemm_cm2
+     0.555 ms   0.2%      1x  min    554.6 us  matmul matmul_194 [4096→4096] bf16 gemm_cm2
+     0.555 ms   0.2%      1x  min    554.6 us  matmul matmul_242 [4096→4096] bf16 gemm_cm2
+     0.554 ms   0.2%      1x  min    554.5 us  matmul matmul_290 [4096→4096] bf16 gemm_cm2
+     0.554 ms   0.2%      1x  min    554.3 us  matmul matmul_338 [4096→4096] bf16 gemm_cm2
+     0.554 ms   0.2%      1x  min    553.6 us  matmul matmul_122 [4096→4096] bf16 gemm_cm2
+     0.554 ms   0.2%      1x  min    553.6 us  matmul matmul_170 [4096→4096] bf16 gemm_cm2
+     0.554 ms   0.2%      1x  min    553.6 us  matmul matmul_266 [4096→4096] bf16 gemm_cm2
+     0.554 ms   0.2%      1x  min    553.6 us  matmul matmul_314 [4096→4096] bf16 gemm_cm2
+     0.553 ms   0.2%      1x  min    552.6 us  matmul matmul_50 [4096→4096] bf16 gemm_cm2
+     0.553 ms   0.2%      1x  min    552.6 us  matmul matmul_98 [4096→4096] bf16 gemm_cm2
+     0.552 ms   0.2%      1x  min    551.6 us  matmul matmul_26 [4096→4096] bf16 gemm_cm2
+     0.549 ms   0.2%      1x  min    548.5 us  matmul matmul_2 [4096→4096] bf16 gemm_cm2
+     0.344 ms   0.1%      1x  min    344.1 us  attention layers.24.attn fe
+     0.343 ms   0.1%      1x  min    343.1 us  attention layers.20.attn fe
+     0.342 ms   0.1%      1x  min    342.0 us  attention layers.22.attn fe
+     0.342 ms   0.1%      1x  min    342.0 us  attention layers.23.attn fe
+     0.342 ms   0.1%      1x  min    342.0 us  attention layers.21.attn fe
+     0.341 ms   0.1%      1x  min    341.0 us  attention layers.19.attn fe
+     0.341 ms   0.1%      1x  min    341.0 us  attention layers.27.attn fe
+     0.341 ms   0.1%      1x  min    341.0 us  attention layers.26.attn fe
+     0.341 ms   0.1%      1x  min    341.0 us  attention layers.29.attn fe
+     0.340 ms   0.1%      1x  min    340.0 us  attention layers.25.attn fe
+     0.340 ms   0.1%      1x  min    340.0 us  attention layers.33.attn fe
+     0.340 ms   0.1%      1x  min    340.0 us  attention layers.35.attn fe
+     0.339 ms   0.1%      1x  min    339.0 us  attention layers.18.attn fe
+     0.338 ms   0.1%      1x  min    338.0 us  attention layers.31.attn fe
+     0.338 ms   0.1%      1x  min    338.0 us  attention layers.32.attn fe
+     0.338 ms   0.1%      1x  min    338.0 us  attention layers.34.attn fe
+     0.338 ms   0.1%      1x  min    337.9 us  attention layers.30.attn fe
+     0.337 ms   0.1%      1x  min    336.9 us  attention layers.28.attn fe
+     0.335 ms   0.1%      1x  min    334.9 us  attention layers.15.attn fe
+     0.333 ms   0.1%      1x  min    332.8 us  attention layers.17.attn fe
+     0.333 ms   0.1%      1x  min    332.8 us  attention layers.16.attn fe
+     0.322 ms   0.1%      1x  min    321.5 us  attention layers.0.attn fe
+     0.317 ms   0.1%      1x  min    317.5 us  attention layers.14.attn fe
+     0.317 ms   0.1%      1x  min    317.4 us  attention layers.1.attn fe
+     0.317 ms   0.1%      1x  min    317.4 us  attention layers.4.attn fe
+     0.317 ms   0.1%      1x  min    317.4 us  attention layers.6.attn fe
+     0.317 ms   0.1%      1x  min    317.4 us  attention layers.10.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.2.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.7.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.8.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.3.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.5.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.9.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.11.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.12.attn fe
+     0.315 ms   0.1%      1x  min    315.4 us  attention layers.13.attn fe
+     0.157 ms   0.1%      1x  min    157.2 us  matmul matmul_703 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.2 us  matmul matmul_727 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.1 us  matmul matmul_439 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.1 us  matmul matmul_463 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.1 us  matmul matmul_487 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.1 us  matmul matmul_511 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.1 us  matmul matmul_559 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.1 us  matmul matmul_631 [4096→1024] bf16 gemm_cm2
+     0.157 ms   0.1%      1x  min    157.1 us  matmul matmul_679 [4096→1024] bf16 gemm_cm2
+     0.156 ms   0.1%      1x  min    156.1 us  matmul matmul_535 [4096→1024] bf16 gemm_cm2
+     0.156 ms   0.1%      1x  min    156.1 us  matmul matmul_799 [4096→1024] bf16 gemm_cm2
+     0.156 ms   0.1%      1x  min    156.1 us  matmul matmul_823 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.2 us  matmul matmul_534 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.2 us  matmul matmul_630 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.1 us  matmul matmul_558 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.1 us  matmul matmul_583 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.1 us  matmul matmul_751 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.1 us  matmul matmul_847 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.1 us  matmul matmul_607 [4096→1024] bf16 gemm_cm2
+     0.155 ms   0.1%      1x  min    155.1 us  matmul matmul_655 [4096→1024] bf16 gemm_cm2
+     0.154 ms   0.1%      1x  min    154.1 us  matmul matmul_775 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_438 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_462 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_486 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_510 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_606 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_654 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_678 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_726 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_774 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_798 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_822 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_582 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_391 [4096→1024] bf16 gemm_cm2
+     0.153 ms   0.1%      1x  min    153.1 us  matmul matmul_415 [4096→1024] bf16 gemm_cm2
+     0.152 ms   0.1%      1x  min    152.1 us  matmul matmul_846 [4096→1024] bf16 gemm_cm2
+     0.151 ms   0.1%      1x  min    151.1 us  matmul matmul_366 [4096→1024] bf16 gemm_cm2
+     0.151 ms   0.1%      1x  min    151.1 us  matmul matmul_702 [4096→1024] bf16 gemm_cm2
+     0.151 ms   0.1%      1x  min    151.1 us  matmul matmul_750 [4096→1024] bf16 gemm_cm2
+     0.151 ms   0.1%      1x  min    151.0 us  matmul matmul_367 [4096→1024] bf16 gemm_cm2
+     0.149 ms   0.1%      1x  min    149.0 us  matmul matmul_390 [4096→1024] bf16 gemm_cm2
+     0.149 ms   0.1%      1x  min    149.0 us  matmul matmul_414 [4096→1024] bf16 gemm_cm2
+     0.147 ms   0.1%      1x  min    147.0 us  matmul matmul_126 [4096→1024] bf16 gemm_cm2
+     0.145 ms   0.1%      1x  min    144.9 us  matmul matmul_55 [4096→1024] bf16 gemm_cm2
+     0.145 ms   0.1%      1x  min    144.9 us  matmul matmul_78 [4096→1024] bf16 gemm_cm2
+     0.145 ms   0.1%      1x  min    144.9 us  matmul matmul_151 [4096→1024] bf16 gemm_cm2
+     0.145 ms   0.1%      1x  min    144.9 us  matmul matmul_79 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_150 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_102 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_174 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_198 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_223 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_246 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_247 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_270 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_294 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_295 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.9 us  matmul matmul_342 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.8 us  matmul matmul_103 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.8 us  matmul matmul_271 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.8 us  matmul matmul_319 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.8 us  matmul matmul_127 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.8 us  matmul matmul_175 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.8 us  matmul matmul_199 [4096→1024] bf16 gemm_cm2
+     0.143 ms   0.1%      1x  min    142.8 us  matmul matmul_343 [4096→1024] bf16 gemm_cm2
+     0.141 ms   0.1%      1x  min    140.8 us  matmul matmul_6 [4096→1024] bf16 gemm_cm2
+     0.141 ms   0.1%      1x  min    140.8 us  matmul matmul_54 [4096→1024] bf16 gemm_cm2
+     0.141 ms   0.1%      1x  min    140.8 us  matmul matmul_222 [4096→1024] bf16 gemm_cm2
+     0.141 ms   0.1%      1x  min    140.8 us  matmul matmul_318 [4096→1024] bf16 gemm_cm2
+     0.141 ms   0.1%      1x  min    140.8 us  matmul matmul_7 [4096→1024] bf16 gemm_cm2
+     0.141 ms   0.1%      1x  min    140.8 us  matmul matmul_31 [4096→1024] bf16 gemm_cm2
+     0.139 ms   0.1%      1x  min    138.8 us  matmul matmul_30 [4096→1024] bf16 gemm_cm2
+     0.082 ms   0.0%      1x  min     82.0 us  gather inp_embd gather
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_413 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_437 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_485 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_533 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_581 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_605 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_773 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_845 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_461 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_629 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_677 rope_row
+     0.078 ms   0.0%      1x  min     77.5 us  rope+norm rope_701 rope_row
+     0.077 ms   0.0%      1x  min     76.6 us  rope+norm rope_725 rope_row
+     0.077 ms   0.0%      1x  min     76.5 us  rope+norm rope_509 rope_row
+     0.077 ms   0.0%      1x  min     76.5 us  rope+norm rope_749 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_53 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_77 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_101 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_221 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_269 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_293 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_797 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_821 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_365 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_389 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_557 rope_row
+     0.075 ms   0.0%      1x  min     75.5 us  rope+norm rope_653 rope_row
+     0.074 ms   0.0%      1x  min     74.5 us  rope+norm rope_341 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_5 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_29 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_125 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_149 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_173 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_197 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_245 rope_row
+     0.073 ms   0.0%      1x  min     73.4 us  rope+norm rope_317 rope_row
+     0.024 ms   0.0%      1x  min     24.4 us  matmul layers.19.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.024 ms   0.0%      1x  min     24.4 us  matmul layers.24.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.024 ms   0.0%      1x  min     24.4 us  matmul layers.28.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.024 ms   0.0%      1x  min     24.4 us  matmul layers.33.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.024 ms   0.0%      1x  min     24.4 us  matmul layers.34.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.024 ms   0.0%      1x  min     24.4 us  matmul layers.29.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.024 ms   0.0%      1x  min     23.6 us  rope+norm+cache_write rope_11 rope_row
+     0.023 ms   0.0%      1x  min     23.4 us  matmul layers.18.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.023 ms   0.0%      1x  min     23.4 us  matmul layers.23.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.023 ms   0.0%      1x  min     23.4 us  matmul layers.1.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.023 ms   0.0%      1x  min     23.4 us  matmul layers.7.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.023 ms   0.0%      1x  min     23.4 us  matmul layers.20.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_35 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_131 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_179 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_251 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_323 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_347 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_371 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_395 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_563 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_755 rope_row
+     0.023 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_851 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_443 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_491 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_515 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_611 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_635 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_659 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_707 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_779 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_803 rope_row
+     0.022 ms   0.0%      1x  min     22.5 us  rope+norm+cache_write rope_827 rope_row
+     0.022 ms   0.0%      1x  min     22.4 us  rope+norm+cache_write rope_731 rope_row
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.0.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.9.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.11.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.13.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.15.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.17.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.26.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.27.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.30.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.31.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.32.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.35.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.2.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.3.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.4.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.5.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.6.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.8.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.10.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.12.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.14.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.16.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.21.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.22.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     22.4 us  matmul layers.25.attn_out [4096→4096] bf16 x→ranged f16 to_f16_ranged
+     0.022 ms   0.0%      1x  min     21.5 us  rope+norm+cache_write rope_107 rope_row
+     0.022 ms   0.0%      1x  min     21.5 us  rope+norm+cache_write rope_155 rope_row
+     0.022 ms   0.0%      1x  min     21.5 us  rope+norm+cache_write rope_203 rope_row
+     0.022 ms   0.0%      1x  min     21.5 us  rope+norm+cache_write rope_299 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_59 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_83 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_227 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_275 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_419 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_467 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  cache_write layers.22.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_587 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  cache_write layers.25.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.5 us  cache_write layers.27.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.5 us  rope+norm+cache_write rope_683 rope_row
+     0.020 ms   0.0%      1x  min     20.5 us  cache_write layers.32.v_cache cache_write
+     0.020 ms   0.0%      1x  min     20.4 us  rope+norm+cache_write rope_539 rope_row
+     0.020 ms   0.0%      1x  min     20.4 us  cache_write layers.23.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.16.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.21.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.26.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.29.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.5 us  cache_write layers.30.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  RmsNorm layers.0.attn_norm main
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.0.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.1.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.3.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.4.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.5.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.6.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.7.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.8.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.9.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.10.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.11.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.12.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.13.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.14.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.15.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.18.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.20.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.33.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.34.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.17.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.19.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.24.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.28.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.31.v_cache cache_write
+     0.018 ms   0.0%      1x  min     18.4 us  cache_write layers.35.v_cache cache_write
+     0.017 ms   0.0%      1x  min     17.4 us  cache_write layers.2.v_cache cache_write
+     0.008 ms   0.0%      1x  min      8.2 us  matmul layers.28.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.2 us  matmul layers.23.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.0.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_70 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_190 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.12.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_358 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.15.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_382 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.16.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_406 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.17.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_430 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.18.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_454 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.19.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.20.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_502 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_526 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.22.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_550 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_574 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.24.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_598 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.24.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.25.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_622 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.26.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_646 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.27.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_670 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_694 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.29.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_718 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.30.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_742 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.31.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_766 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.32.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_790 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.33.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_814 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.34.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_838 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul layers.35.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_862 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.006 ms   0.0%      1x  min      6.1 us  matmul2 mul_310 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.005 ms   0.0%      1x  min      5.1 us  matmul2 mul_478 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.005 ms   0.0%      1x  min      5.1 us  matmul layers.21.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.2.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.4.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.6.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.27.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.29.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.0.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.1.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.1.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.2.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.3.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_94 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.3.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_118 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.4.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.5.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_142 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.5.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.6.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.7.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.7.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.8.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_214 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.8.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.9.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_238 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.9.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.10.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_262 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.10.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.11.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.11.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.12.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.13.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_334 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.13.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.14.attn_out [4096→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.14.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.15.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.16.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.17.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.18.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.19.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.20.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.21.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.22.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.23.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.25.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.26.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.28.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.30.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.31.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.32.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.33.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.34.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  matmul layers.35.ffn_out [12288→4096] bf16 f16 range f16_range_unscale
+     0.004 ms   0.0%      1x  min      4.1 us  gather selected_rows gather
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_22 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_46 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_166 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      4.1 us  matmul2 mul_286 [4096→12288]x2 bf16 fused[Silu,Mul] f16 range f16_range_fixup
+     0.004 ms   0.0%      1x  min      3.7 us  sample sampled_tokens sample
+
+--- decode x64 profile, segment 0
+GPU time 1271.00 ms
+    91.965 ms   7.2%     64x  min   1435.6 us  matmul logits [4096→151936] bf16 matvec_sk
+    16.758 ms   1.3%   4608x  min      2.7 us  fused[Add]+RmsNorm main
+    15.159 ms   1.2%     64x  min    235.3 us  matmul2 mul_118 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.152 ms   1.2%     64x  min    235.3 us  matmul2 mul_502 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.151 ms   1.2%     64x  min    235.2 us  matmul2 mul_550 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.147 ms   1.2%     64x  min    235.3 us  matmul2 mul_310 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.145 ms   1.2%     64x  min    235.3 us  matmul2 mul_694 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.140 ms   1.2%     64x  min    235.3 us  matmul2 mul_214 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.140 ms   1.2%     64x  min    235.2 us  matmul2 mul_22 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.137 ms   1.2%     64x  min    235.3 us  matmul2 mul_646 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.135 ms   1.2%     64x  min    235.3 us  matmul2 mul_598 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.131 ms   1.2%     64x  min    235.2 us  matmul2 mul_70 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.130 ms   1.2%     64x  min    235.2 us  matmul2 mul_742 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.129 ms   1.2%     64x  min    235.3 us  matmul2 mul_358 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.125 ms   1.2%     64x  min    235.3 us  matmul2 mul_454 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.125 ms   1.2%     64x  min    235.2 us  matmul2 mul_838 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.123 ms   1.2%     64x  min    235.2 us  matmul2 mul_166 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.122 ms   1.2%     64x  min    235.2 us  matmul2 mul_262 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.120 ms   1.2%     64x  min    235.3 us  matmul2 mul_718 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.119 ms   1.2%     64x  min    235.3 us  matmul2 mul_790 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.118 ms   1.2%     64x  min    235.3 us  matmul2 mul_142 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.114 ms   1.2%     64x  min    235.3 us  matmul2 mul_478 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.110 ms   1.2%     64x  min    235.2 us  matmul2 mul_382 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.108 ms   1.2%     64x  min    235.3 us  matmul2 mul_46 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.104 ms   1.2%     64x  min    235.3 us  matmul2 mul_286 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.101 ms   1.2%     64x  min    235.3 us  matmul2 mul_862 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.101 ms   1.2%     64x  min    235.3 us  matmul2 mul_430 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.100 ms   1.2%     64x  min    235.2 us  matmul2 mul_238 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.099 ms   1.2%     64x  min    235.3 us  matmul2 mul_622 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.099 ms   1.2%     64x  min    235.3 us  matmul2 mul_766 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.098 ms   1.2%     64x  min    235.3 us  matmul2 mul_190 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.097 ms   1.2%     64x  min    235.2 us  matmul2 mul_94 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.095 ms   1.2%     64x  min    235.3 us  matmul2 mul_526 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.094 ms   1.2%     64x  min    235.3 us  matmul2 mul_574 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.092 ms   1.2%     64x  min    235.2 us  matmul2 mul_406 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.090 ms   1.2%     64x  min    235.3 us  matmul2 mul_814 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.089 ms   1.2%     64x  min    235.2 us  matmul2 mul_670 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+    15.088 ms   1.2%     64x  min    235.3 us  matmul2 mul_334 [4096→12288]x2 bf16 fused[Silu,Mul] matvec_sk
+     7.737 ms   0.6%     64x  min    120.7 us  matmul layers.23.ffn_out [12288→4096] bf16 matvec_sk
+     7.737 ms   0.6%     64x  min    118.8 us  matmul layers.31.ffn_out [12288→4096] bf16 matvec_sk
+     7.736 ms   0.6%     64x  min    118.7 us  matmul layers.9.ffn_out [12288→4096] bf16 matvec_sk
+     7.735 ms   0.6%     64x  min    120.7 us  matmul layers.18.ffn_out [12288→4096] bf16 matvec_sk
+     7.735 ms   0.6%     64x  min    120.7 us  matmul layers.30.ffn_out [12288→4096] bf16 matvec_sk
+     7.733 ms   0.6%     64x  min    120.7 us  matmul layers.6.ffn_out [12288→4096] bf16 matvec_sk
+     7.733 ms   0.6%     64x  min    120.7 us  matmul layers.34.ffn_out [12288→4096] bf16 matvec_sk
+     7.733 ms   0.6%     64x  min    120.7 us  matmul layers.0.ffn_out [12288→4096] bf16 matvec_sk
+     7.731 ms   0.6%     64x  min    118.8 us  matmul layers.14.ffn_out [12288→4096] bf16 matvec_sk
+     7.731 ms   0.6%     64x  min    118.7 us  matmul layers.32.ffn_out [12288→4096] bf16 matvec_sk
+     7.731 ms   0.6%     64x  min    118.7 us  matmul layers.19.ffn_out [12288→4096] bf16 matvec_sk
+     7.731 ms   0.6%     64x  min    120.7 us  matmul layers.28.ffn_out [12288→4096] bf16 matvec_sk
+     7.730 ms   0.6%     64x  min    120.7 us  matmul layers.22.ffn_out [12288→4096] bf16 matvec_sk
+     7.730 ms   0.6%     64x  min    118.7 us  matmul layers.16.ffn_out [12288→4096] bf16 matvec_sk
+     7.729 ms   0.6%     64x  min    118.7 us  matmul layers.10.ffn_out [12288→4096] bf16 matvec_sk
+     7.729 ms   0.6%     64x  min    118.8 us  matmul layers.2.ffn_out [12288→4096] bf16 matvec_sk
+     7.729 ms   0.6%     64x  min    120.7 us  matmul layers.24.ffn_out [12288→4096] bf16 matvec_sk
+     7.729 ms   0.6%     64x  min    118.8 us  matmul layers.4.ffn_out [12288→4096] bf16 matvec_sk
+     7.726 ms   0.6%     64x  min    118.7 us  matmul layers.12.ffn_out [12288→4096] bf16 matvec_sk
+     7.726 ms   0.6%     64x  min    118.7 us  matmul layers.8.ffn_out [12288→4096] bf16 matvec_sk
+     7.726 ms   0.6%     64x  min    118.8 us  matmul layers.26.ffn_out [12288→4096] bf16 matvec_sk
+     7.721 ms   0.6%     64x  min    118.7 us  matmul layers.21.ffn_out [12288→4096] bf16 matvec_sk
+     7.720 ms   0.6%     64x  min    118.7 us  matmul layers.20.ffn_out [12288→4096] bf16 matvec_sk
+     7.720 ms   0.6%     64x  min    118.7 us  matmul layers.17.ffn_out [12288→4096] bf16 matvec_sk
+     7.715 ms   0.6%     64x  min    118.7 us  matmul layers.11.ffn_out [12288→4096] bf16 matvec_sk
+     7.715 ms   0.6%     64x  min    118.7 us  matmul layers.27.ffn_out [12288→4096] bf16 matvec_sk
+     7.714 ms   0.6%     64x  min    118.7 us  matmul layers.3.ffn_out [12288→4096] bf16 matvec_sk
+     7.712 ms   0.6%     64x  min    118.6 us  matmul layers.15.ffn_out [12288→4096] bf16 matvec_sk
+     7.709 ms   0.6%     64x  min    118.7 us  matmul layers.25.ffn_out [12288→4096] bf16 matvec_sk
+     7.709 ms   0.6%     64x  min    118.7 us  matmul layers.33.ffn_out [12288→4096] bf16 matvec_sk
+     7.702 ms   0.6%     64x  min    118.6 us  matmul layers.13.ffn_out [12288→4096] bf16 matvec_sk
+     7.702 ms   0.6%     64x  min    118.7 us  matmul layers.35.ffn_out [12288→4096] bf16 matvec_sk
+     7.697 ms   0.6%     64x  min    118.7 us  matmul layers.7.ffn_out [12288→4096] bf16 matvec_sk
+     7.697 ms   0.6%     64x  min    118.7 us  matmul layers.29.ffn_out [12288→4096] bf16 matvec_sk
+     7.693 ms   0.6%     64x  min    118.7 us  matmul layers.5.ffn_out [12288→4096] bf16 matvec_sk
+     7.688 ms   0.6%     64x  min    118.6 us  matmul layers.1.ffn_out [12288→4096] bf16 matvec_sk
+     2.733 ms   0.2%     64x  min     41.7 us  matmul layers.33.attn_out [4096→4096] bf16 matvec_sk
+     2.730 ms   0.2%     64x  min     41.7 us  matmul layers.27.attn_out [4096→4096] bf16 matvec_sk
+     2.730 ms   0.2%     64x  min     41.7 us  matmul matmul_266 [4096→4096] bf16 matvec_sk
+     2.729 ms   0.2%     64x  min     41.7 us  matmul layers.26.attn_out [4096→4096] bf16 matvec_sk
+     2.728 ms   0.2%     64x  min     41.7 us  matmul matmul_578 [4096→4096] bf16 matvec_sk
+     2.728 ms   0.2%     64x  min     41.7 us  matmul matmul_746 [4096→4096] bf16 matvec_sk
+     2.728 ms   0.2%     64x  min     41.7 us  matmul layers.15.attn_out [4096→4096] bf16 matvec_sk
+     2.727 ms   0.2%     64x  min     41.7 us  matmul matmul_218 [4096→4096] bf16 matvec_sk
+     2.727 ms   0.2%     64x  min     41.7 us  matmul matmul_242 [4096→4096] bf16 matvec_sk
+     2.727 ms   0.2%     64x  min     41.7 us  matmul layers.21.attn_out [4096→4096] bf16 matvec_sk
+     2.727 ms   0.2%     64x  min     41.7 us  matmul layers.11.attn_out [4096→4096] bf16 matvec_sk
+     2.726 ms   0.2%     64x  min     41.7 us  matmul matmul_290 [4096→4096] bf16 matvec_sk
+     2.726 ms   0.2%     64x  min     41.7 us  matmul layers.32.attn_out [4096→4096] bf16 matvec_sk
+     2.726 ms   0.2%     64x  min     41.7 us  matmul matmul_338 [4096→4096] bf16 matvec_sk
+     2.726 ms   0.2%     64x  min     41.7 us  matmul layers.25.attn_out [4096→4096] bf16 matvec_sk
+     2.726 ms   0.2%     64x  min     41.7 us  matmul matmul_362 [4096→4096] bf16 matvec_sk
+     2.725 ms   0.2%     64x  min     41.7 us  matmul matmul_602 [4096→4096] bf16 matvec_sk
+     2.725 ms   0.2%     64x  min     41.7 us  matmul matmul_314 [4096→4096] bf16 matvec_sk
+     2.725 ms   0.2%     64x  min     41.7 us  matmul layers.34.attn_out [4096→4096] bf16 matvec_sk
+     2.725 ms   0.2%     64x  min     41.7 us  matmul layers.19.attn_out [4096→4096] bf16 matvec_sk
+     2.725 ms   0.2%     64x  min     41.7 us  matmul matmul_554 [4096→4096] bf16 matvec_sk
+     2.725 ms   0.2%     64x  min     41.7 us  matmul layers.31.attn_out [4096→4096] bf16 matvec_sk
+     2.725 ms   0.2%     64x  min     41.7 us  matmul matmul_410 [4096→4096] bf16 matvec_sk
+     2.724 ms   0.2%     64x  min     41.7 us  matmul matmul_650 [4096→4096] bf16 matvec_sk
+     2.724 ms   0.2%     64x  min     41.7 us  matmul matmul_818 [4096→4096] bf16 matvec_sk
+     2.724 ms   0.2%     64x  min     41.7 us  matmul matmul_842 [4096→4096] bf16 matvec_sk
+     2.724 ms   0.2%     64x  min     41.7 us  matmul matmul_770 [4096→4096] bf16 matvec_sk
+     2.724 ms   0.2%     64x  min     41.7 us  matmul matmul_74 [4096→4096] bf16 matvec_sk
+     2.724 ms   0.2%     64x  min     41.7 us  matmul layers.30.attn_out [4096→4096] bf16 matvec_sk
+     2.723 ms   0.2%     64x  min     41.7 us  matmul layers.22.attn_out [4096→4096] bf16 matvec_sk
+     2.723 ms   0.2%     64x  min     41.7 us  matmul matmul_626 [4096→4096] bf16 matvec_sk
+     2.723 ms   0.2%     64x  min     41.7 us  matmul layers.24.attn_out [4096→4096] bf16 matvec_sk
+     2.723 ms   0.2%     64x  min     41.7 us  matmul matmul_386 [4096→4096] bf16 matvec_sk
+     2.723 ms   0.2%     64x  min     41.7 us  matmul matmul_794 [4096→4096] bf16 matvec_sk
+     2.723 ms   0.2%     64x  min     41.7 us  matmul layers.29.attn_out [4096→4096] bf16 matvec_sk
+     2.723 ms   0.2%     64x  min     41.2 us  matmul matmul_506 [4096→4096] bf16 matvec_sk
+     2.722 ms   0.2%     64x  min     41.7 us  matmul matmul_722 [4096→4096] bf16 matvec_sk
+     2.722 ms   0.2%     64x  min     41.7 us  matmul matmul_458 [4096→4096] bf16 matvec_sk
+     2.722 ms   0.2%     64x  min     41.7 us  matmul matmul_434 [4096→4096] bf16 matvec_sk
+     2.721 ms   0.2%     64x  min     41.7 us  matmul matmul_170 [4096→4096] bf16 matvec_sk
+     2.721 ms   0.2%     64x  min     41.7 us  matmul layers.17.attn_out [4096→4096] bf16 matvec_sk
+     2.721 ms   0.2%     64x  min     41.7 us  matmul matmul_698 [4096→4096] bf16 matvec_sk
+     2.720 ms   0.2%     64x  min     41.7 us  matmul layers.23.attn_out [4096→4096] bf16 matvec_sk
+     2.720 ms   0.2%     64x  min     41.7 us  matmul layers.1.attn_out [4096→4096] bf16 matvec_sk
+     2.720 ms   0.2%     64x  min     41.7 us  matmul matmul_2 [4096→4096] bf16 matvec_sk
+     2.720 ms   0.2%     64x  min     41.7 us  matmul matmul_26 [4096→4096] bf16 matvec_sk
+     2.720 ms   0.2%     64x  min     41.7 us  matmul layers.13.attn_out [4096→4096] bf16 matvec_sk
+     2.719 ms   0.2%     64x  min     41.7 us  matmul matmul_122 [4096→4096] bf16 matvec_sk
+     2.719 ms   0.2%     64x  min     41.7 us  matmul layers.7.attn_out [4096→4096] bf16 matvec_sk
+     2.718 ms   0.2%     64x  min     41.7 us  matmul layers.2.attn_out [4096→4096] bf16 matvec_sk
+     2.718 ms   0.2%     64x  min     41.7 us  matmul layers.3.attn_out [4096→4096] bf16 matvec_sk
+     2.718 ms   0.2%     64x  min     41.7 us  matmul matmul_50 [4096→4096] bf16 matvec_sk
+     2.718 ms   0.2%     64x  min     41.7 us  matmul layers.9.attn_out [4096→4096] bf16 matvec_sk
+     2.717 ms   0.2%     64x  min     41.7 us  matmul matmul_194 [4096→4096] bf16 matvec_sk
+     2.717 ms   0.2%     64x  min     41.7 us  matmul layers.0.attn_out [4096→4096] bf16 matvec_sk
+     2.717 ms   0.2%     64x  min     41.7 us  matmul layers.35.attn_out [4096→4096] bf16 matvec_sk
+     2.717 ms   0.2%     64x  min     41.7 us  matmul matmul_530 [4096→4096] bf16 matvec_sk
+     2.717 ms   0.2%     64x  min     41.7 us  matmul matmul_674 [4096→4096] bf16 matvec_sk
+     2.716 ms   0.2%     64x  min     41.7 us  matmul layers.28.attn_out [4096→4096] bf16 matvec_sk
+     2.715 ms   0.2%     64x  min     41.7 us  matmul layers.5.attn_out [4096→4096] bf16 matvec_sk
+     2.715 ms   0.2%     64x  min     41.7 us  matmul layers.8.attn_out [4096→4096] bf16 matvec_sk
+     2.715 ms   0.2%     64x  min     41.7 us  matmul layers.10.attn_out [4096→4096] bf16 matvec_sk
+     2.714 ms   0.2%     64x  min     41.7 us  matmul layers.14.attn_out [4096→4096] bf16 matvec_sk
+     2.714 ms   0.2%     64x  min     41.7 us  matmul matmul_98 [4096→4096] bf16 matvec_sk
+     2.713 ms   0.2%     64x  min     41.7 us  matmul layers.4.attn_out [4096→4096] bf16 matvec_sk
+     2.712 ms   0.2%     64x  min     41.7 us  matmul matmul_482 [4096→4096] bf16 matvec_sk
+     2.711 ms   0.2%     64x  min     41.7 us  matmul matmul_146 [4096→4096] bf16 matvec_sk
+     2.709 ms   0.2%     64x  min     41.7 us  matmul layers.12.attn_out [4096→4096] bf16 matvec_sk
+     2.707 ms   0.2%     64x  min     41.7 us  matmul layers.6.attn_out [4096→4096] bf16 matvec_sk
+     2.705 ms   0.2%     64x  min     41.7 us  matmul layers.20.attn_out [4096→4096] bf16 matvec_sk
+     2.705 ms   0.2%     64x  min     41.7 us  matmul layers.16.attn_out [4096→4096] bf16 matvec_sk
+     2.703 ms   0.2%     64x  min     41.7 us  matmul layers.18.attn_out [4096→4096] bf16 matvec_sk
+     1.338 ms   0.1%     64x  min     20.4 us  attention layers.14.attn decode
+     1.327 ms   0.1%     64x  min     20.4 us  attention layers.0.attn decode
+     1.319 ms   0.1%     64x  min     20.4 us  attention layers.12.attn decode
+     1.315 ms   0.1%     64x  min     19.5 us  attention layers.16.attn decode
+     1.315 ms   0.1%     64x  min     20.4 us  attention layers.3.attn decode
+     1.313 ms   0.1%     64x  min     20.4 us  attention layers.22.attn decode
+     1.313 ms   0.1%     64x  min     20.4 us  attention layers.19.attn decode
+     1.313 ms   0.1%     64x  min     20.4 us  attention layers.31.attn decode
+     1.311 ms   0.1%     64x  min     20.5 us  attention layers.30.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.11.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.6.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.20.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.25.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.27.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.5.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.4.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.7.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.8.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.29.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.17.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.13.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.18.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.33.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.2.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.23.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.28.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.9.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.15.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.32.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.35.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.10.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.1.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.21.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.24.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.26.attn decode
+     1.311 ms   0.1%     64x  min     20.4 us  attention layers.34.attn decode
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_126 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_486 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_78 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_366 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_150 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_847 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_462 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_534 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_679 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_175 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_102 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_630 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_798 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_702 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_127 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_510 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_511 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_606 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_678 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_438 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_270 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_271 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_294 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_414 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_582 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_174 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_775 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_774 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_342 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_631 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_199 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_726 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_822 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_846 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_535 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_318 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.7 us  matmul matmul_55 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_607 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_558 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_654 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_583 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_799 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_79 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_463 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_222 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_415 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_439 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_151 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_367 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_751 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_319 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_703 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_6 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_823 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_487 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.3 us  matmul matmul_390 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_223 [4096→1024] bf16 matvec_sk
+     0.886 ms   0.1%     64x  min     13.8 us  matmul matmul_559 [4096→1024] bf16 matvec_sk
+     0.885 ms   0.1%     64x  min     13.8 us  matmul matmul_727 [4096→1024] bf16 matvec_sk
+     0.885 ms   0.1%     64x  min     13.8 us  matmul matmul_391 [4096→1024] bf16 matvec_sk
+     0.885 ms   0.1%     64x  min     13.8 us  matmul matmul_655 [4096→1024] bf16 matvec_sk
+     0.885 ms   0.1%     64x  min     13.8 us  matmul matmul_7 [4096→1024] bf16 matvec_sk
+     0.885 ms   0.1%     64x  min     12.8 us  matmul matmul_343 [4096→1024] bf16 matvec_sk
+     0.885 ms   0.1%     64x  min     13.2 us  matmul matmul_750 [4096→1024] bf16 matvec_sk
+     0.885 ms   0.1%     64x  min     13.2 us  matmul matmul_103 [4096→1024] bf16 matvec_sk
+     0.871 ms   0.1%     64x  min     12.8 us  matmul matmul_246 [4096→1024] bf16 matvec_sk
+     0.871 ms   0.1%     64x  min     12.8 us  matmul matmul_295 [4096→1024] bf16 matvec_sk
+     0.870 ms   0.1%     64x  min     12.8 us  matmul matmul_198 [4096→1024] bf16 matvec_sk
+     0.870 ms   0.1%     64x  min     11.8 us  matmul matmul_30 [4096→1024] bf16 matvec_sk
+     0.865 ms   0.1%     64x  min     12.8 us  matmul matmul_247 [4096→1024] bf16 matvec_sk
+     0.854 ms   0.1%     64x  min     11.8 us  matmul matmul_31 [4096→1024] bf16 matvec_sk
+     0.825 ms   0.1%     64x  min     11.8 us  matmul matmul_54 [4096→1024] bf16 matvec_sk
+     0.270 ms   0.0%     64x  min      4.0 us  attention layers.16.attn combine decode_combine
+     0.264 ms   0.0%     64x  min      4.0 us  attention layers.14.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.26.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.10.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.28.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.29.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.22.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.33.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  RmsNorm layers.0.attn_norm main
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.24.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.31.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.34.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  gather selected_rows gather
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.9.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.27.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.0.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.32.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.1.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.13.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.17.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.35.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_11 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.2.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.15.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.7.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.19.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.23.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_35 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_107 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_155 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_275 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.18.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.5.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.21.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_83 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_251 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_443 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_467 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_491 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_731 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.3.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.4.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_131 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_179 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.11.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_371 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_395 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_419 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_515 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_539 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_611 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_683 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_563 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_587 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_755 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_779 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.12.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.25.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_203 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.8.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_227 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_707 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_659 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_803 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_59 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.6.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_827 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_851 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.20.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_323 rope_row
+     0.262 ms   0.0%     64x  min      4.0 us  rope+norm+cache_write rope_347 rope_row
+     0.262 ms   0.0%     64x  min      4.1 us  attention layers.30.attn combine decode_combine
+     0.262 ms   0.0%     64x  min      4.1 us  rope+norm+cache_write rope_635 rope_row
+     0.255 ms   0.0%     64x  min      3.1 us  rope+norm+cache_write rope_299 rope_row
+     0.245 ms   0.0%     64x  min      2.4 us  gather inp_embd gather
+     0.240 ms   0.0%     64x  min      3.7 us  rope+norm rope_5 rope_row
+     0.239 ms   0.0%     64x  min      3.7 us  rope+norm rope_725 rope_row
+     0.239 ms   0.0%     64x  min      3.7 us  rope+norm rope_557 rope_row
+     0.239 ms   0.0%     64x  min      3.7 us  rope+norm rope_389 rope_row
+     0.239 ms   0.0%     64x  min      3.7 us  rope+norm rope_245 rope_row
+     0.239 ms   0.0%     64x  min      3.7 us  rope+norm rope_221 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_29 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_677 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_77 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_365 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_629 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_173 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_197 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_461 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_701 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_581 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_749 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_125 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_341 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_533 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_101 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_797 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_845 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_485 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_53 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_149 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_269 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_317 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_413 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_437 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_509 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_605 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_653 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_773 rope_row
+     0.238 ms   0.0%     64x  min      3.7 us  rope+norm rope_821 rope_row
+     0.237 ms   0.0%     64x  min      2.7 us  rope+norm rope_293 rope_row
+     0.230 ms   0.0%     64x  min      1.7 us  sample sampled_tokens sample
+     0.201 ms   0.0%     64x  min      2.0 us  cache_write layers.0.v_cache cache_write
+     0.158 ms   0.0%     64x  min      2.0 us  cache_write layers.17.v_cache cache_write
+     0.150 ms   0.0%     64x  min      2.0 us  cache_write layers.24.v_cache cache_write
+     0.143 ms   0.0%     64x  min      2.0 us  cache_write layers.31.v_cache cache_write
+     0.133 ms   0.0%     64x  min      2.0 us  cache_write layers.14.v_cache cache_write
+     0.133 ms   0.0%     64x  min      2.0 us  cache_write layers.12.v_cache cache_write
+     0.132 ms   0.0%     64x  min      2.0 us  cache_write layers.16.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.34.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.35.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.2.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.13.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.21.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.26.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.15.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.23.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.3.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.5.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.18.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.32.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.8.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.1.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.28.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.33.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.4.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.6.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.9.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.19.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.20.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.10.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.11.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.22.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.25.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.29.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.7.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.27.v_cache cache_write
+     0.131 ms   0.0%     64x  min      2.0 us  cache_write layers.30.v_cache cache_write
+
+prefill 2048 tok: best 280 ms = 7322.2 tok/s | decode: best 42.26, median 41.25, mean 40.73 tok/s | GPU ms/step: best 0.00, median 0.00, wall best 23.66 | prefill median of 5: 281.8 ms = 7266.4 tok/s | per run: prefill 7233.2 ± 80.6 tok/s of 5, decode 40.73 ± 0.00 tok/s of 1 (40.73)

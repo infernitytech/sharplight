@@ -38,6 +38,9 @@ public sealed record TokenizerData
     /// <summary>SentencePiece-style: where the space prefix goes (<see cref="CanonicalKeys.TokenizerSpacePrefixScheme"/>); null = llama.cpp's placement.</summary>
     public string? SpacePrefixScheme { get; init; }
 
+    /// <summary>Ranked BPE: cut the text before every ▁ and merge each piece on its own (<see cref="CanonicalKeys.TokenizerSplitAtSpaceMarker"/>).</summary>
+    public bool? SplitAtSpaceMarker { get; init; }
+
     /// <summary>WordPiece: lowercase the text (default true).</summary>
     public bool? Lowercase { get; init; }
 
@@ -139,6 +142,7 @@ public sealed record TokenizerData
             Scores = TokenizerMetadataReader.GetFloatArray(md, CanonicalKeys.TokenizerScores),
             AddSpacePrefix = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerAddSpacePrefix),
             SpacePrefixScheme = TokenizerMetadataReader.GetString(md, CanonicalKeys.TokenizerSpacePrefixScheme),
+            SplitAtSpaceMarker = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerSplitAtSpaceMarker),
             Lowercase = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerLowercase),
             StripChars = TokenizerMetadataReader.GetString(md, CanonicalKeys.TokenizerStripChars),
             StripAccents = TokenizerMetadataReader.GetBool(md, CanonicalKeys.TokenizerStripAccents),

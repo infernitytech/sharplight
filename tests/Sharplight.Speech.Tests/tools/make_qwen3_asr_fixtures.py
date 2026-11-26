@@ -5,7 +5,7 @@ Usage (in a venv with torch, transformers >= 5.23 and soundfile):
 
 Per recording (keyed by the file name without extension) the fixture holds the number of valid log-mel frames, every 97th value of the
 log-mel features [mel bins, frames] and of the projected audio embeddings [rows, hidden], and for two requests the prompt ids and the
-greedy ids of `generate` (at most 256 new tokens) with the decoded text: "auto" (no language given, the model names it) and "en" (the
+greedy ids of `generate` (at most 256 new tokens, plain greedy: no beams, n-gram blocking or banned words) with the decoded text: "auto" (no language given, the model names it) and "en" (the
 language forced by the assistant prefix "language English<asr_text>").
 """
 import json
@@ -45,7 +45,10 @@ def main(model_dir: str, out: str, wavs: list[str]) -> None:
                     entry["frames"] = frames
                     entry["features"] = sample(inputs["input_features"][0, :, :frames])
                     entry["embeddings"] = sample(embeddings)
-                ids = model.generate(**inputs, max_new_tokens=256, do_sample=False)[0].tolist()
+                # Plain greedy decoding whatever generation_config.json asks for (oruk-fourier-2b's beam search, n-gram block and
+                # banned words are not what the test compares).
+                ids = model.generate(**inputs, max_new_tokens=256, do_sample=False, num_beams=1, no_repeat_ngram_size=0,
+                                     bad_words_ids=None)[0].tolist()
             prompt = inputs["input_ids"][0].tolist()
             entry[name] = {
                 "prompt": prompt,

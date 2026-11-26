@@ -1,0 +1,28 @@
+decoder: MultiSequenceDecoder, slots 32, vocab 151936, device sampling: True, KV paged 2560 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 10 steps after 5 warm-up steps; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min; mean ± sd | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+[first] 16+0: 24.5 ms; recorded True record 6.7 submit 0.0 wait 9.6 gpu 17.0
+| 16 | 0 (0) | 24.5 | 474 / 0 | 12.26 / 12.29, 12.20; mean 12.31 ± 0.07 |  |
+[first] 16+48: 18.7 ms; recorded True record 6.5 submit 0.0 wait 11.2 gpu 17.7
+| 16 | 48 (1) | 18.7 | 366 / 0 | 12.99 / 13.19, 12.93; mean 13.14 ± 0.09 | 0.015 |
+[first] 16+112: 21.2 ms; recorded True record 8.8 submit 1.1 wait 11.2 gpu 21.0
+| 16 | 112 (1) | 21.2 | 402 / 0 | 14.70 / 15.00, 14.63; mean 14.91 ± 0.15 | 0.022 |
+[first] 16+176: 23.1 ms; recorded True record 6.3 submit 0.0 wait 16.7 gpu 23.0
+| 16 | 176 (1) | 23.1 | 402 / 0 | 17.97 / 18.80, 17.87; mean 18.66 ± 0.36 | 0.032 |
+[first] 16+240: 24.4 ms; recorded True record 5.4 submit 0.0 wait 18.8 gpu 24.2
+| 16 | 240 (1) | 24.4 | 366 / 0 | 20.25 / 20.90, 20.14; mean 20.79 ± 0.28 | 0.033 |
+[first] 16+368: 31.2 ms; recorded True record 5.0 submit 0.0 wait 26.0 gpu 31.0
+| 16 | 368 (1) | 31.2 | 366 / 0 | 27.26 / 27.92, 27.18; mean 27.83 ± 0.22 | 0.041 |
+[first] 16+496: 37.9 ms; recorded True record 7.9 submit 0.0 wait 29.8 gpu 37.8
+| 16 | 496 (1) | 37.9 | 366 / 0 | 35.35 / 35.47, 35.24; mean 35.47 ± 0.07 | 0.046 |
+[first] 16+752: 54.0 ms; recorded True record 3.9 submit 0.0 wait 49.8 gpu 53.7
+| 16 | 752 (1) | 54.0 | 366 / 0 | 51.48 / 51.73, 51.35; mean 51.69 ± 0.08 | 0.052 |
+[first] 0+256: 20.8 ms; recorded False record 0.0 submit 0.0 wait 19.9 gpu 19.9
+| 0 | 256 (1) | 20.8 | 366 / 0 | 19.68 / 19.93, 19.62; mean 19.90 ± 0.10 |  |
+[first] 0+512: 36.9 ms; recorded True record 4.0 submit 0.0 wait 32.7 gpu 36.7
+| 0 | 512 (1) | 36.9 | 366 / 0 | 34.32 / 34.44, 34.25; mean 34.44 ± 0.07 |  |
+[first] 0+768: 53.4 ms; recorded True record 4.1 submit 0.0 wait 49.1 gpu 53.2
+| 0 | 768 (1) | 53.4 | 366 / 0 | 50.62 / 50.84, 50.50; mean 50.82 ± 0.08 |  |

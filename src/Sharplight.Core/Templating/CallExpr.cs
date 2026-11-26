@@ -2,6 +2,9 @@ namespace Sharplight.Templating;
 
 internal sealed class CallExpr(Expr callee, List<Expr> args, List<(string Name, Expr Value)> named) : Expr
 {
+    /// <summary>The name of a <c>**mapping</c> argument in <c>named</c>: the mapping's entries are passed as keyword arguments.</summary>
+    public const string Unpack = "**";
+
     protected override object? Core(Frame f) => Run(f, null);
 
     public object? EvalWithCaller(Frame f, JinjaCallable caller)
@@ -31,7 +34,21 @@ internal sealed class CallExpr(Expr callee, List<Expr> args, List<(string Name, 
             nm = new Dictionary<string, object?>();
             foreach (var (n, v) in named)
             {
-                nm[n] = v.Eval(f);
+                if (n != Unpack)
+                {
+                    nm[n] = v.Eval(f);
+                    continue;
+                }
+
+                if (v.Eval(f) is not JinjaDict mapping)
+                {
+                    throw new TemplateRuntimeException($"argument after ** must be a mapping ({callee.Describe()})");
+                }
+
+                foreach (var (key, value) in mapping)
+                {
+                    nm[key as string ?? throw new TemplateRuntimeException("keywords after ** must be strings")] = value;
+                }
             }
         }
         if (caller != null)

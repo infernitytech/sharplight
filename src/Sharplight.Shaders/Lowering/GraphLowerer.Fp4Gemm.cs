@@ -1,5 +1,6 @@
 using System.Globalization;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -23,22 +24,26 @@ public sealed partial class GraphLowerer
     /// True when matmuls of <paramref name="type"/> weights [<paramref name="n"/>, <paramref name="k"/>] reading activation rows
     /// <paramref name="xStride"/> floats apart and writing rows <paramref name="yStride"/> apart run on the FP4 GEMM from
     /// <see cref="NativeFp4MinRows"/> rows: the device has the block-scaled E2M1 MMA (<see cref="DeviceFeatures.BlockScaledFp4"/>) and
-    /// takes CUDA C++, the weights are NVFP4 blocks (with or without the second-level scale), K is a multiple of 256, and the node may
-    /// quantize its activations. <c>SHARPLIGHT_NATIVE_FP4=0</c> keeps such matmuls on the other paths.
+    /// takes CUDA C++, the weights are NVFP4 blocks (with or without the second-level scale) of a format that quantizes activations
+    /// (<see cref="LowPrecisionActivationsAllowed"/>), K is a multiple of 256, and the node may quantize its activations.
+    /// <c>SHARPLIGHT_NATIVE_FP4=0</c> keeps such matmuls on the other paths.
     /// </summary>
     private bool UseNativeFp4Gemm(Node node, DataType type, long n, long k, long xStride, long yStride)
-        => DiagnosticSwitches.NativeFp4 && _opt.Has(DeviceFeatures.BlockScaledFp4) && _compiler.CompilesCuda(_opt.Target)
-           && _opt.MaxSharedMemory >= NativeFp4SharedBytes && (type == DataType.NVFP4 || type == DataType.NVFP4_GS)
+        => UsesNativeFp4(node.Inputs[1].Weight, type)
+           && _opt.MaxSharedMemory >= NativeFp4SharedBytes
            && k % 256 == 0 && k <= 65536 && xStride % 4 == 0 && yStride % 2 == 0 && n >= 8 && QuantizedActivationsAllowed(node);
 
     /// <summary>True when <see cref="UseNativeFp4Gemm"/> holds for the planned matmul <paramref name="p"/>.</summary>
     private bool UseNativeFp4Gemm(MatMulPlan p)
         => p.Macros.TryGetValue("Y_STRIDE", out var ys) && UseNativeFp4Gemm(p.Node, p.W.Type, p.N, p.K, p.XStride, long.Parse(ys, CultureInfo.InvariantCulture));
 
-    /// <summary>True when matmuls of <paramref name="type"/> weights leave the rows from <see cref="NativeFp4MinRows"/> to the FP4 GEMM where it applies.</summary>
-    private bool UsesNativeFp4(DataType type)
+    /// <summary>
+    /// True when matmuls of <paramref name="weight"/>, stored as <paramref name="type"/>, leave the rows from <see cref="NativeFp4MinRows"/>
+    /// to the FP4 GEMM where it applies: NVFP4 weights of a format that quantizes activations, on a device with the block-scaled E2M1 MMA.
+    /// </summary>
+    private bool UsesNativeFp4(WeightInfo? weight, DataType type)
         => DiagnosticSwitches.NativeFp4 && _opt.Has(DeviceFeatures.BlockScaledFp4) && _compiler.CompilesCuda(_opt.Target)
-           && (type == DataType.NVFP4 || type == DataType.NVFP4_GS);
+           && (type == DataType.NVFP4 || type == DataType.NVFP4_GS) && LowPrecisionActivationsAllowed(weight);
 
     /// <summary>The <c>quantize_fp4</c> kernel (<c>quantize_fp4.cu</c>) for rows of <paramref name="k"/> values <paramref name="xStride"/> floats apart.</summary>
     /// <remarks>

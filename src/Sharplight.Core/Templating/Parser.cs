@@ -839,7 +839,13 @@ internal sealed class Parser
                 break;
             }
 
-            if (Cur.Kind == TokenKind.Name && PeekAt(1).Kind == TokenKind.Op && PeekAt(1).Text == "=")
+            if (IsOp("**"))
+            {
+                // **mapping: its entries become keyword arguments (CallExpr.Unpack).
+                _i++;
+                named.Add((CallExpr.Unpack, ParseExpr()));
+            }
+            else if (Cur.Kind == TokenKind.Name && PeekAt(1).Kind == TokenKind.Op && PeekAt(1).Text == "=")
             {
                 string n = Next().Text;
                 _i++;

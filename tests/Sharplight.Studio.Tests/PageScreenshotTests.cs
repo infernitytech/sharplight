@@ -47,9 +47,18 @@ public sealed class PageScreenshotTests
         ("image", (model, _) => model.NavigateAsync(model.Image)),
         ("video", (model, _) => model.NavigateAsync(model.Video)),
         ("vision", (model, _) => model.NavigateAsync(model.Vision)),
+        ("enhance", (model, _) => model.NavigateAsync(model.Enhance)),
         ("tasks", (model, _) => model.NavigateAsync(model.Tasks)),
         ("server", (model, _) => model.NavigateAsync(model.Server)),
         ("stats", (model, _) => model.NavigateAsync(model.Stats)),
+        ("nav-collapsed-groups", async (model, _) =>
+        {
+            await model.NavigateAsync(model.Chat);
+            foreach (var group in model.Navigation.Groups.Where(group => group.Id != "text"))
+            {
+                group.IsExpanded = false;
+            }
+        }),
         ("models-discover-verified", async (model, window) => await ShowDiscoverAsync(model, window, discover => discover.ShowVerifiedCommand.Execute(null))),
         ("models-discover-hub", async (model, window) => await ShowDiscoverAsync(model, window, discover => discover.ShowHubSearchCommand.Execute(null))),
         ("models-discover-feed", async (model, window) =>

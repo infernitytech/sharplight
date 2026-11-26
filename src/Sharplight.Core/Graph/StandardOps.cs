@@ -214,7 +214,8 @@ public static partial class StandardOps
     /// distance by the adapter; distances beyond R share the bucket of ±R).
     /// Attribute <c>causal</c> (bool, default true): false makes the attention bidirectional over the rows of the step, query t attending cache rows
     /// [0, offset + T − 1] (multi-sequence form: its slot's rows up to the last row of its run; a window then counts from that row).
-    /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
+    /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks);
+    /// or f32 [T, Hq], one such logit per query row and head (sinks computed from the tokens, Inkling 2).
     /// Attribute <c>v_dims</c> (int &gt; 0): the values are the first <c>v_dims</c> entries of each vcache row, so Dv = v_dims and
     /// vcache may be the very same state as kcache (multi-head latent attention: one latent row per token serves as key and,
     /// through its prefix, as value).

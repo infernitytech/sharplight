@@ -11,6 +11,10 @@ Development runs through the MultiClaude board: one issue per branch `issue-<n>`
 workflow (memory restore via restore.sh, the `wip/*` queue, "push only when asked") no longer applies, but its
 toolchain and model-asset notes are still accurate.
 
+Branches: `main` is the unstable integration branch (`0.X-alpha`; its pushes publish the unstable Studio channel, the
+prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` carries each stable line. The old
+`develop` branch was merged into `main` and retired (#47) — never target it.
+
 ## Build and test
 
 - Requires the .NET 11 SDK (`net11.0`). On fedora-ws the SDK comes from dotnetup; non-interactive shells resolve

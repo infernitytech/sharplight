@@ -49,7 +49,7 @@ public sealed class Sd3Adapter : IModelAdapter
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(options);
-        var src = sources.Primary;
+        var src = DiffusionAddOns.Merge(sources, acceptsControlNet: false);
         RequireComponents(src);
         var transformer = Sd3HyperParameters.Read(src, Prefix);
         var vae = AutoencoderHyperParameters.Read(src, Prefix);
@@ -77,6 +77,7 @@ public sealed class Sd3Adapter : IModelAdapter
             [DiffusionGraphs.VaeDecode] = AutoencoderGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = AutoencoderGraphBuilder.BuildEncoder(src.Weight, vae, height, width),
         };
+        DiffusionAddOns.AddTinyAutoencoder(src, graphs, vae.LatentChannels, downscale, latentHeight, latentWidth);
 
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
         bool schedulerAttachment = FlowSchedulerComponent.AddAttachment(src, Prefix, attachments);
@@ -89,7 +90,7 @@ public sealed class Sd3Adapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
-            Description = Describe(src, transformer, vae, clip, t5, schedulerAttachment),
+            Description = DiffusionAddOns.WithAddOns(Describe(src, transformer, vae, clip, t5, schedulerAttachment), graphs),
         };
     }
 

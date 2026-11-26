@@ -7,7 +7,7 @@ name: Studio published smoke
 # the GitHub-hosted runners have none, so that step prints a notice and is skipped here (run the script on a GPU machine, see docs/releasing.md).
 # The script is packaging/smoke/studio-published-smoke.sh; see docs/releasing.md.
 #
-#   after every successful Studio run on develop (the packages are on R2 by then)   -> the version must be built from that commit
+#   after every successful Studio run on main (the packages are on R2 by then)      -> the version must be built from that commit
 #   nightly, manual                                                                  -> whatever is newest on the channel
 #
 # Only the workflow file on the default branch (main) is used for workflow_run and schedule triggers; manual runs work from any branch.
@@ -17,7 +17,7 @@ on:
   workflow_run:
     workflows: [Studio]
     types: [completed]
-    branches: [develop]
+    branches: [main]
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -56,7 +56,7 @@ jobs:
       # The script and the history (to tell a newer published build from the commit under test) come from the repository.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || 'develop' }}
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
           fetch-depth: 0
 
       # Vulkan must exist for the device listing: the Mesa software driver (lavapipe), libegl1 for the loader, Xvfb for the headless display.
