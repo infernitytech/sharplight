@@ -63,6 +63,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<StableAudioAdapter>()
                 .AddModelAdapter<StableAudio3Adapter>()
                 .AddModelAdapter<DemucsAdapter>()
+                .AddModelAdapter<ChronosBoltAdapter>()
                 .AddTaskClientFactory<KokoroSynthesizerFactory>()
                 .AddCompositeModelAdapter<OrpheusAdapter>()
                 .AddTaskClientFactory<OrpheusSynthesizerFactory>()

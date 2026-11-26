@@ -10,6 +10,7 @@ using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
 using Sharplight.Speech;
 using Sharplight.Tasks;
+using Sharplight.TimeSeries;
 using Sharplight.Vision;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -63,6 +64,7 @@ public static class TaskServiceCollectionExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TimedAudioDiffusionFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, FlowAudioDiffusionFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, AudioSeparatorFactory>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, PatchQuantileForecasterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, ImageSegmenterFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, TextRecognizerFactory>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<ITaskClientFactory, LanguageModelTextRecognizerFactory>());
@@ -466,6 +468,23 @@ public static class TaskServiceCollectionExtensions
         /// <returns>The service collection.</returns>
         public IServiceCollection AddAudioSeparator(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
             => services.AddTaskClient<IAudioSeparator>(configure, serviceKey);
+
+        /// <summary>Adds an <see cref="ITimeSeriesForecaster"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
+        /// <param name="configure">Configures the model path, devices and compile settings.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTimeSeriesForecaster(Action<TaskLoadOptions> configure, object? serviceKey = null)
+            => services.AddTaskClient<ITimeSeriesForecaster>(configure, serviceKey);
+
+        /// <summary>
+        /// Adds an <see cref="ITimeSeriesForecaster"/> for one model, configured with access to the container (see
+        /// <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>), e.g. to open a device from the <see cref="Sharplight.Runtime.ExecutionProviderCatalog"/>.
+        /// </summary>
+        /// <param name="configure">Configures the model path, devices and compile settings from the container's services.</param>
+        /// <param name="serviceKey">The service key, or <see langword="null"/> for an unkeyed client.</param>
+        /// <returns>The service collection.</returns>
+        public IServiceCollection AddTimeSeriesForecaster(Action<TaskLoadOptions, IServiceProvider> configure, object? serviceKey = null)
+            => services.AddTaskClient<ITimeSeriesForecaster>(configure, serviceKey);
 
         /// <summary>Adds an <see cref="IAudioGenerator"/> for one model (see <c>AddTaskClient&lt;TClient&gt;(configure, serviceKey)</c>).</summary>
         /// <param name="configure">Configures the model path, devices and compile settings.</param>

@@ -86,6 +86,7 @@
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
     <Project Path="tests/Sharplight.TextToSpeech.Tests/Sharplight.TextToSpeech.Tests.csproj" />
     <Project Path="tests/Sharplight.AudioModels.Tests/Sharplight.AudioModels.Tests.csproj" />
+    <Project Path="tests/Sharplight.TimeSeries.Tests/Sharplight.TimeSeries.Tests.csproj" />
     <Project Path="tests/Sharplight.Metal.Tests/Sharplight.Metal.Tests.csproj" />
     <Project Path="tests/Sharplight.Cuda.Tests/Sharplight.Cuda.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
