@@ -44,8 +44,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
 - GPU tests: `SHARPLIGHT_VK_DEVICES=<i>[,<j>]` restricts the Vulkan provider to those device indices — set it to the
   GPU(s) assigned to your session on multi-GPU machines.
 - Vulkan `a / b` is only 2.5-ULP accurate (RADV, RTX 4090; the Blackwell driver happens to be exact). Where an exact
-  IEEE quotient matters (index/tie math that must match the CPU), use a residual fma step like `div_rn` in
-  `spatial.slang`. The integrated RADV / llvmpipe devices (`SHARPLIGHT_VK_DEVICES=1`/`2` on fedora-blackwell) are handy
+  IEEE quotient matters (index/tie math that must match the CPU), prefer computing it on the host and passing it as
+  constants (nearest Resize reads `ResizeNearestTable` index arrays, #67: the `div_rn` residual fma step in
+  `spatial.slang` was not enough on the RTX 4090). The integrated RADV / llvmpipe devices (`SHARPLIGHT_VK_DEVICES=1`/`2` on fedora-blackwell) are handy
   for reproducing such driver-precision bugs.
 
 ## Style and layout
