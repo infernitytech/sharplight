@@ -72,6 +72,11 @@ public sealed partial class GraphLowerer
             FoldMatMulEpilogues(units, consumers);
         }
 
+        if (!DiagnosticSwitches.NoGroupMerge)
+        {
+            MergeSiblingGroups(units, consumers);
+        }
+
         FindFusedOutputs(units, consumers);
         FindMultiGemmGroups(units);
         return units;
@@ -215,6 +220,70 @@ public sealed partial class GraphLowerer
 
                 units[j].Fused = [.. earlier, .. later];
                 later = units[j].Fused!;
+                units.RemoveAt(i);
+                j--;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pointers and sizes a sibling merge may give one fused kernel: 14 device addresses and the element count fit the 128 bytes of
+    /// push constants Vulkan guarantees (see <see cref="MaxFusedInputs"/>).
+    /// </summary>
+    private const int MaxSiblingTensors = 14;
+
+    /// <summary>
+    /// Joins independent elementwise groups of one shape that read a common input (siblings: the two halves of a rotary embedding,
+    /// x1 · cos − x2 · sin and x2 · cos + x1 · sin): the earlier group moves to the later one when no unit in between reads its
+    /// outputs or writes anything, so one launch reads the shared inputs once and stores both results. Runs after the folds that
+    /// attach norms, products, convolutions or expert sums to groups and only joins plain groups, so it takes nothing from them.
+    /// </summary>
+    private void MergeSiblingGroups(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var halves = units.Where(u => u.Halves is not null).Select(u => u.Halves!.Value.Group).ToHashSet();
+        bool Plain(LoweringUnit u) => IsPlainElementwiseUnit(u) && u.Gathers is null && u.Absorbed is null && !halves.Contains(u);
+        HashSet<Value> External(List<Node> group)
+        {
+            var produced = group.Select(n => n.Output).ToHashSet();
+            return [.. group.SelectMany(n => n.Inputs).Where(v => !produced.Contains(v))];
+        }
+
+        for (int j = 0; j < units.Count; j++)
+        {
+            if (!Plain(units[j]))
+            {
+                continue;
+            }
+
+            for (int i = j - 1; i >= Math.Max(0, j - GroupMergeWindow); i--)
+            {
+                var later = units[j].Fused!;
+                if (!Plain(units[i]) || units[i].Fused is not { } earlier || !earlier[0].Output.Shape.Equals(later[0].Output.Shape))
+                {
+                    continue;
+                }
+
+                var outputs = earlier.Select(n => n.Output).ToHashSet();
+                List<Node> merged = [.. earlier, .. later];
+                var mergedSet = merged.ToHashSet();
+                int tensors = ExternalInputCount(merged) + merged.Count(n => EscapesGroup(n.Output, consumers, mergedSet));
+                if (!External(later).Overlaps(External(earlier)) || later.Any(n => n.Inputs.Any(outputs.Contains)) || tensors > MaxSiblingTensors)
+                {
+                    continue;
+                }
+
+                bool blocked = false;
+                for (int u = i + 1; u < j && !blocked; u++)
+                {
+                    blocked = units[u].Nodes.Any(n => !n.Writes.IsEmpty || n.Inputs.Any(outputs.Contains));
+                }
+
+                if (blocked)
+                {
+                    continue;
+                }
+
+                units[j].Fused = merged;
                 units.RemoveAt(i);
                 j--;
             }

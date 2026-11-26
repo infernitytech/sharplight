@@ -18580,6 +18580,74 @@ SHARPLIGHT_CPU_PROFILE=min SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 dotnet benc
 for isa in scalar v128 avx2 avx512vnni; do SHARPLIGHT_CPU_ISA=$isa dotnet run --project tests/Sharplight.Cpu.Tests -c Release --no-build -- -class Sharplight.Cpu.Tests.LayerNormTests; done
 ```
 
+## 120. ONNX decode steps: rotary halves as one launch written into their concatenation slices (phi-3.5-mini q4f16 GPU time -1.6 % Vulkan, -2.7 % CUDA; 192 → 64 rotary launches per step); against onnxruntime 1.32 on an RTX 4090 (2026-11-26)
+
+Issue #7 (ONNX open gaps). Machine: fedora-ws, RTX 4090 (24 GB, GPU 0 also drives the desktop and was shared with another
+project's tests, so GPU-timestamp minima are the statistic), driver CUDA 13.3. Harness: `bench/onnx/OnnxBench` against references
+from `bench/onnx/make_survey_refs.py` (onnxruntime 1.32 CPU EP; phi-3.5 from its f32 copy), base = `origin/main` 901fca5c (with the
+multi-output q / k / v matvec of §116), new = this branch, alternated, two rounds of up to 300 runs each
+(`bench/results/onnx-i7/ab.sh`, raw output `ab-4090.log`).
+
+### 120.1 What changed
+
+* **Concatenation slices written through strides by fused elementwise kernels.** A concatenation whose input comes from a plain
+  fused elementwise group (no norm, product, convolution or expert sum in its kernel), and which is that value's only reader, now
+  has the group store straight into its slice of the output. The slice may be strided along every outer axis and start at any
+  element offset, because the generated kernel stores element by element through the output's strides. Before, only contiguous
+  slices (every outer axis of extent 1) or Resize's batch-strided ones qualified. An ONNX RotaryEmbedding (translated as
+  x1 · cos − x2 · sin and x2 · cos + x1 · sin, concatenated along the head dimension of [B, S, H, D]) therefore no longer copies.
+* **Sibling elementwise groups merged.** Independent fused groups of one shape that read a common input are joined after all
+  other folds (`MergeSiblingGroups`), when no unit in between reads the earlier group's outputs or writes anything and the merged
+  kernel stays within 14 pointers. Only plain groups are joined, so no norm or epilogue fold loses its group. The rotary's two
+  halves become one launch that reads x, cos and sin once and stores both halves into the concatenation. `SHARPLIGHT_NO_GROUP_MERGE=1`
+  turns this off too, and `SHARPLIGHT_NO_CONCAT_IN_PLACE=1` turns off the in-place slices.
+
+phi-3.5-mini q4f16 decode step, per-kernel profile (`--profile`, serialized, 3 runs):
+
+| | Vulkan | CUDA |
+|---|---|---|
+| rotary launches per step | 64 Mul,Mul,Sub + 64 Mul,Mul,Add + 64 concat → 64 fused[Mul,Mul,Sub,Mul,Mul,Add] | same |
+| concat launches per step (left: the KV cache's past + new rows) | 128 → 64 | 128 → 64 |
+| profile GPU time, 3 steps | 10.51 → 9.86 ms | 12.66 → 11.86 ms |
+
+### 120.2 Whole runs (GPU-timestamp minimum, ms; two alternated rounds; parity identical in every row)
+
+| model | Vulkan base | new | CUDA base | new |
+|---|---:|---:|---:|---:|
+| phi-3.5-mini q4f16 (decode, past 8) | 3.089 / 3.092 | 3.039 / 3.042 (-1.6 %) | 3.020 / 3.020 | 2.938 / 2.939 (-2.7 %) |
+| qwen2.5-0.5b fp16 (4 rows) | 2.114 / 2.115 | 2.091 / 2.093 (-1.1 %) | 1.994 / 1.994 | 1.969 / 1.969 (-1.3 %) |
+| gemma3-270m (4 rows) | 1.984 / 1.976 | 1.956 / 1.957 (-1.2 %) | 1.943 / 1.942 | 1.916 / 1.917 (-1.4 %) |
+| lfm2-350m (4 rows) | 2.286 / 2.285 | 2.271 / 2.283 | 1.929 / 1.931 | 1.916 / 1.917 (-0.7 %) |
+| qwen2.5-0.5b q4 | 2.476 / 2.479 | 2.472 / 2.470 | 2.030 / 2.032 | 2.028 / 2.030 |
+| bert-base, shufflenet-v2, densenet-121, depth-anything-v2-base, retinanet, ssd-10, Faster / Mask R-CNN | | ±0.3 % | | ±0.3 % |
+
+Wall minima (Run plus the read-back of every output) follow: phi-3.5 on CUDA 3.96 → 3.87 ms.
+
+### 120.3 Against onnxruntime on this card
+
+onnxruntime-gpu 1.32.0 CUDA EP (`bench/onnx/ort_bench.py`, inputs bound on the GPU, outputs copied back), phi-3.5-mini q4f16
+decode step: wall minimum 4.67 / 4.68 ms over two runs, against Sharplight's 3.96-4.00 ms (Vulkan) and 3.87 ms (CUDA) on the same
+statistic, so 0.85x and 0.83x of ORT CUDA. On the RTX PRO 4500 (§37, §98) this row was the one Vulkan row behind ORT (1.04x).
+ORT CPU on this machine: 104 ms.
+
+### 120.4 Tests
+
+RTX 4090, GPU 0, on this change: `Sharplight.Import.Onnx.Tests` 182 (Vulkan and CUDA) 0 failed, including the new
+`StridedConcatSliceTests` (inner-axis concatenations of fused groups next to graph inputs, views, shared and repeated values);
+`Sharplight.Import.Onnx.Conformance` 4,197 on CUDA 0 failed, on Vulkan only the four `test_resize_upsample_sizes_nearest*` cases
+that fail on main too (#67); `Sharplight.Vulkan.Tests` 1,875, only the two `ResizeTests.Nearest` round_prefer_floor 7x9 cases of
+main (#67); `Sharplight.Cuda.Tests` 108 and `Sharplight.Families.Tests` 1,440 (Vulkan and CUDA) 0 failed.
+
+### 120.5 Findings that did not change code
+
+* ONNX MatMulNBits Q / K / V siblings fused at import, into one packed [9216, 3072] weight, run exactly as fast as §116's
+  lowering-side multi-output matvec (18.0 vs 18.4 µs per layer). Multi-row steps already take the multi-GEMM groups, so the
+  importer keeps the products separate.
+* Before §116, the three 3072 x 3072 Q4_0 matvecs ran at ~620 GB/s each (7.2-7.9 µs), the 3072 → 9216 and gate / up matvecs at
+  ~870 GB/s. Independent launches overlap when unprofiled, so a serialized profile overstates what removing a launch saves.
+* qwen2.5-0.5b fp16 fails the parity bar on both GPU providers (relative RMS 6.0e-3 Vulkan, 5.7e-3 CUDA), unchanged by this
+  section. It stays an open gap.
+
 ## 122. ONNX qwen2.5-0.5b fp16 parity: the reference was the outlier, and the GPU gap is the f16 activations of f16-weight matmuls (2026-11-26)
 
 Issue #72. RTX PRO 6000 Blackwell (Vulkan and CUDA) and Ryzen 9 9950X (CPU). Model `qwen2.5-0.5b/model_fp16.onnx`

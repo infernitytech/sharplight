@@ -1,0 +1,130 @@
+== phi35-mini-q4f16 vulkan
+base ok True worstRms=1.18e-04 min=4.029 med=4.11 gpuMin=3.089 gpuMed=3.095
+new ok True worstRms=1.18e-04 min=3.958 med=4.064 gpuMin=3.039 gpuMed=3.044
+base ok True worstRms=1.18e-04 min=4.049 med=4.121 gpuMin=3.092 gpuMed=3.096
+new ok True worstRms=1.18e-04 min=3.997 med=4.07 gpuMin=3.042 gpuMed=3.047
+== phi35-mini-q4f16 cuda
+base ok True worstRms=1.16e-04 min=3.959 med=3.979 gpuMin=3.02 gpuMed=3.024
+new ok True worstRms=1.16e-04 min=3.871 med=3.889 gpuMin=2.938 gpuMed=2.942
+base ok True worstRms=1.16e-04 min=3.958 med=3.977 gpuMin=3.02 gpuMed=3.024
+new ok True worstRms=1.16e-04 min=3.872 med=3.892 gpuMin=2.939 gpuMed=2.942
+== qwen2.5-0.5b.model_q4 vulkan
+base ok True worstRms=1.27e-05 min=2.895 med=2.931 gpuMin=2.476 gpuMed=2.482
+new ok True worstRms=1.27e-05 min=2.891 med=2.933 gpuMin=2.472 gpuMed=2.483
+base ok True worstRms=1.27e-05 min=2.895 med=2.95 gpuMin=2.479 gpuMed=2.49
+new ok True worstRms=1.27e-05 min=2.893 med=2.943 gpuMin=2.47 gpuMed=2.482
+== qwen2.5-0.5b.model_q4 cuda
+base ok True worstRms=1.04e-05 min=2.48 med=2.498 gpuMin=2.03 gpuMed=2.038
+new ok True worstRms=1.04e-05 min=2.474 med=2.497 gpuMin=2.028 gpuMed=2.039
+base ok True worstRms=1.04e-05 min=2.481 med=2.515 gpuMin=2.032 gpuMed=2.038
+new ok True worstRms=1.04e-05 min=2.476 med=2.495 gpuMin=2.03 gpuMed=2.035
+== qwen2.5-0.5b.model_fp16 vulkan
+base ok False worstRms=6.03e-03 min=2.526 med=2.57 gpuMin=2.114 gpuMed=2.12
+new ok False worstRms=6.03e-03 min=2.513 med=2.571 gpuMin=2.091 gpuMed=2.097
+base ok False worstRms=6.03e-03 min=2.538 med=2.589 gpuMin=2.115 gpuMed=2.123
+new ok False worstRms=6.03e-03 min=2.506 med=2.56 gpuMin=2.093 gpuMed=2.1
+== qwen2.5-0.5b.model_fp16 cuda
+base ok False worstRms=5.69e-03 min=2.44 med=2.462 gpuMin=1.994 gpuMed=2
+new ok False worstRms=5.69e-03 min=2.414 med=2.45 gpuMin=1.969 gpuMed=1.974
+base ok False worstRms=5.69e-03 min=2.45 med=2.481 gpuMin=1.994 gpuMed=1.998
+new ok False worstRms=5.69e-03 min=2.419 med=2.452 gpuMin=1.969 gpuMed=1.974
+== gemma3-270m vulkan
+base ok True worstRms=3.45e-06 min=2.607 med=2.669 gpuMin=1.984 gpuMed=1.989
+new ok True worstRms=3.45e-06 min=2.573 med=2.637 gpuMin=1.956 gpuMed=1.962
+base ok True worstRms=3.45e-06 min=2.612 med=2.676 gpuMin=1.976 gpuMed=1.983
+new ok True worstRms=3.45e-06 min=2.6 med=2.671 gpuMin=1.957 gpuMed=1.963
+== gemma3-270m cuda
+base ok True worstRms=4.53e-06 min=2.613 med=2.63 gpuMin=1.943 gpuMed=1.946
+new ok True worstRms=4.53e-06 min=2.594 med=2.614 gpuMin=1.916 gpuMed=1.919
+base ok True worstRms=4.53e-06 min=2.618 med=2.639 gpuMin=1.942 gpuMed=1.946
+new ok True worstRms=4.53e-06 min=2.587 med=2.608 gpuMin=1.917 gpuMed=1.92
+== lfm2-350m vulkan
+base ok True worstRms=2.04e-06 min=2.521 med=2.613 gpuMin=2.286 gpuMed=2.31
+new ok True worstRms=2.04e-06 min=2.531 med=2.589 gpuMin=2.271 gpuMed=2.29
+base ok True worstRms=2.04e-06 min=2.512 med=2.574 gpuMin=2.285 gpuMed=2.301
+new ok True worstRms=2.04e-06 min=2.522 med=2.595 gpuMin=2.283 gpuMed=2.299
+== lfm2-350m cuda
+base ok True worstRms=2.03e-06 min=2.181 med=2.196 gpuMin=1.929 gpuMed=1.933
+new ok True worstRms=2.03e-06 min=2.167 med=2.189 gpuMin=1.916 gpuMed=1.921
+base ok True worstRms=2.03e-06 min=2.175 med=2.199 gpuMin=1.931 gpuMed=1.936
+new ok True worstRms=2.03e-06 min=2.167 med=2.185 gpuMin=1.917 gpuMed=1.921
+== bert-base-uncased.model vulkan
+base ok True worstRms=2.15e-06 min=1.248 med=1.302 gpuMin=0.98 gpuMed=1.026
+new ok True worstRms=2.15e-06 min=1.244 med=1.297 gpuMin=0.978 gpuMed=1.024
+base ok True worstRms=2.15e-06 min=1.247 med=1.28 gpuMin=0.976 gpuMed=0.985
+new ok True worstRms=2.15e-06 min=1.247 med=1.301 gpuMin=0.978 gpuMed=1.022
+== bert-base-uncased.model cuda
+base ok True worstRms=2.36e-06 min=1.22 med=1.237 gpuMin=0.927 gpuMed=0.938
+new ok True worstRms=2.36e-06 min=1.218 med=1.235 gpuMin=0.923 gpuMed=0.936
+base ok True worstRms=2.36e-06 min=1.222 med=1.269 gpuMin=0.927 gpuMed=0.972
+new ok True worstRms=2.36e-06 min=1.225 med=1.264 gpuMin=0.927 gpuMed=0.966
+== shufflenet-v2-12 vulkan
+base ok True worstRms=1.99e-06 min=0.363 med=0.369 gpuMin=0.339 gpuMed=0.344
+new ok True worstRms=1.99e-06 min=0.366 med=0.379 gpuMin=0.341 gpuMed=0.345
+base ok True worstRms=1.99e-06 min=0.366 med=0.371 gpuMin=0.341 gpuMed=0.346
+new ok True worstRms=1.99e-06 min=0.365 med=0.371 gpuMin=0.341 gpuMed=0.346
+== shufflenet-v2-12 cuda
+base ok True worstRms=1.98e-06 min=0.514 med=0.525 gpuMin=0.501 gpuMed=0.51
+new ok True worstRms=1.98e-06 min=0.475 med=0.485 gpuMin=0.466 gpuMed=0.469
+base ok True worstRms=1.98e-06 min=0.476 med=0.488 gpuMin=0.466 gpuMed=0.469
+new ok True worstRms=1.98e-06 min=0.478 med=0.485 gpuMin=0.465 gpuMed=0.469
+== densenet-9 vulkan
+base ok True worstRms=3.73e-06 min=1.246 med=1.288 gpuMin=1.211 gpuMed=1.213
+new ok True worstRms=3.73e-06 min=1.246 med=1.378 gpuMin=1.211 gpuMed=1.309
+base ok True worstRms=3.73e-06 min=1.242 med=1.257 gpuMin=1.211 gpuMed=1.213
+new ok True worstRms=3.73e-06 min=1.243 med=1.273 gpuMin=1.211 gpuMed=1.213
+== densenet-9 cuda
+base ok True worstRms=3.72e-06 min=1.497 med=1.51 gpuMin=1.485 gpuMed=1.489
+new ok True worstRms=3.72e-06 min=1.497 med=1.51 gpuMin=1.485 gpuMed=1.489
+base ok True worstRms=3.72e-06 min=1.499 med=1.509 gpuMin=1.487 gpuMed=1.497
+new ok True worstRms=3.72e-06 min=1.499 med=1.508 gpuMin=1.488 gpuMed=1.498
+== depth-anything-v2-base vulkan
+base ok True worstRms=4.29e-06 min=4.033 med=4.086 gpuMin=3.98 gpuMed=3.996
+new ok True worstRms=4.29e-06 min=4.044 med=4.09 gpuMin=3.979 gpuMed=4.002
+base ok True worstRms=4.29e-06 min=4.046 med=4.096 gpuMin=3.978 gpuMed=3.996
+new ok True worstRms=4.29e-06 min=4.057 med=4.093 gpuMin=3.984 gpuMed=3.999
+== depth-anything-v2-base cuda
+base ok True worstRms=4.47e-06 min=3.864 med=3.885 gpuMin=3.827 gpuMed=3.85
+new ok True worstRms=4.47e-06 min=3.866 med=3.887 gpuMin=3.831 gpuMed=3.85
+base ok True worstRms=4.47e-06 min=3.866 med=3.886 gpuMin=3.827 gpuMed=3.85
+new ok True worstRms=4.47e-06 min=3.859 med=3.884 gpuMin=3.827 gpuMed=3.847
+== retinanet-9 vulkan
+base ok True worstRms=1.34e-05 min=8.48 med=9.274 gpuMin=5.957 gpuMed=6.002
+new ok True worstRms=1.34e-05 min=8.64 med=9.357 gpuMin=5.956 gpuMed=5.997
+base ok True worstRms=1.34e-05 min=8.426 med=9.448 gpuMin=5.959 gpuMed=6.001
+new ok True worstRms=1.34e-05 min=8.654 med=9.417 gpuMin=5.958 gpuMed=6.001
+== retinanet-9 cuda
+base ok True worstRms=1.34e-05 min=8.996 med=9.034 gpuMin=6.505 gpuMed=6.534
+new ok True worstRms=1.34e-05 min=9.013 med=9.058 gpuMin=6.506 gpuMed=6.545
+base ok True worstRms=1.34e-05 min=8.976 med=9.012 gpuMin=6.509 gpuMed=6.535
+new ok True worstRms=1.34e-05 min=8.985 med=9.024 gpuMin=6.509 gpuMed=6.534
+== ssd-10 vulkan
+base ok False worstRms=2.12e-02 min=10.578 med=11.081 gpuMin=10.445 gpuMed=10.89
+new ok False worstRms=2.12e-02 min=10.672 med=11.146 gpuMin=10.445 gpuMed=10.914
+base ok False worstRms=2.12e-02 min=10.605 med=11.15 gpuMin=10.448 gpuMed=10.884
+new ok False worstRms=2.12e-02 min=10.546 med=11.18 gpuMin=10.458 gpuMed=10.922
+== ssd-10 cuda
+base ok False worstRms=2.12e-02 min=10.78 med=11.195 gpuMin=10.72 gpuMed=11.157
+new ok False worstRms=2.12e-02 min=10.762 med=11.211 gpuMin=10.705 gpuMed=11.176
+base ok False worstRms=2.12e-02 min=10.762 med=11.213 gpuMin=10.714 gpuMed=11.176
+new ok False worstRms=2.12e-02 min=10.773 med=11.182 gpuMin=10.714 gpuMed=11.144
+== fasterrcnn-12 vulkan
+base ok True worstRms=1.92e-07 min=8.115 med=8.338 gpuMin=7.736 gpuMed=7.754
+new ok True worstRms=1.92e-07 min=8.027 med=8.201 gpuMin=7.726 gpuMed=7.746
+base ok True worstRms=1.92e-07 min=8.022 med=8.303 gpuMin=7.728 gpuMed=7.759
+new ok True worstRms=1.92e-07 min=8.095 med=8.316 gpuMin=7.726 gpuMed=7.755
+== fasterrcnn-12 cuda
+base ok True worstRms=1.92e-07 min=9.301 med=9.33 gpuMin=8.286 gpuMed=8.309
+new ok True worstRms=1.92e-07 min=9.3 med=9.331 gpuMin=8.292 gpuMed=8.309
+base ok True worstRms=1.92e-07 min=9.303 med=9.333 gpuMin=8.291 gpuMed=8.311
+new ok True worstRms=1.92e-07 min=9.312 med=9.338 gpuMin=8.292 gpuMed=8.314
+== maskrcnn-12 vulkan
+base ok True worstRms=0.00e+00 min=8.709 med=8.885 gpuMin=8.333 gpuMed=8.351
+new ok True worstRms=0.00e+00 min=8.748 med=8.89 gpuMin=8.332 gpuMed=8.351
+base ok True worstRms=0.00e+00 min=8.714 med=8.932 gpuMin=8.334 gpuMed=8.355
+new ok True worstRms=0.00e+00 min=8.74 med=9.03 gpuMin=8.333 gpuMed=8.353
+== maskrcnn-12 cuda
+base ok True worstRms=0.00e+00 min=9.545 med=9.576 gpuMin=8.818 gpuMed=8.84
+new ok True worstRms=0.00e+00 min=9.557 med=9.585 gpuMin=8.821 gpuMed=8.839
+base ok True worstRms=0.00e+00 min=9.551 med=9.584 gpuMin=8.819 gpuMed=8.843
+new ok True worstRms=0.00e+00 min=9.554 med=9.579 gpuMin=8.816 gpuMed=8.839
