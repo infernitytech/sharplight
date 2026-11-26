@@ -15,9 +15,10 @@ namespace Sharplight.Studio.ViewModels.Video;
 /// </summary>
 /// <remarks>
 /// Memory: frames are resized on the thread pool (one batch after another) and only the previews are kept, never extra full-size copies.
-/// The preview size is chosen when the first batch arrives so that the expected frame count fits <see cref="MemoryBudgetBytes"/>
-/// (the model's output size when it fits, else both layers reduced alike, never below <see cref="MinPreviewSide"/> pixels on the
-/// short side). When a clip is so long that even that overflows the budget, the oldest frames are let go and the newest kept.
+/// The preview size is chosen when the first batch arrives so that the expected frames, at most <see cref="PreviewWindowFrames"/> of them,
+/// fit <see cref="MemoryBudgetBytes"/> (the model's output size when they fit, else both layers reduced alike, never below
+/// <see cref="MinPreviewSide"/> pixels on the short side). When more frames arrive than fit the budget, the oldest are let go and the
+/// newest kept, so a clip of any length holds at most the budget.
 /// </remarks>
 internal sealed partial class EnhancementComparisonViewModel : ObservableObject
 {
@@ -26,6 +27,9 @@ internal sealed partial class EnhancementComparisonViewModel : ObservableObject
 
     /// <summary>The smallest short side the preview is reduced to.</summary>
     public const int MinPreviewSide = 180;
+
+    /// <summary>The most frames the preview size is chosen for: a long clip keeps its newest frames at a useful size rather than all of them tiny.</summary>
+    public const int PreviewWindowFrames = 240;
 
     private const int BytesPerPixelPair = 6;
 
@@ -38,7 +42,7 @@ internal sealed partial class EnhancementComparisonViewModel : ObservableObject
     private (int Width, int Height) _outputSize;
     private Task _chain = Task.CompletedTask;
     private Task _idle = Task.CompletedTask;
-    private int _dropped;
+    private long _dropped;
 
     /// <summary>Creates the comparison.</summary>
     /// <param name="dispatcher">Runs the updates of the shown frames on the UI thread.</param>
@@ -102,7 +106,7 @@ internal sealed partial class EnhancementComparisonViewModel : ObservableObject
     public long StoredBytes { get; private set; }
 
     /// <summary>The frames finished in this run (kept or let go).</summary>
-    public int FinishedFrames => _dropped + _frames.Count;
+    public long FinishedFrames => _dropped + _frames.Count;
 
     /// <summary>The shown frame and how far the run is.</summary>
     public string PositionText => Current is not { } frame
@@ -162,15 +166,16 @@ internal sealed partial class EnhancementComparisonViewModel : ObservableObject
         });
     }
 
-    /// <summary>Adds the finished frames of a batch, paired with the input frames of the same indices. Callable from any thread; the resizing runs on the thread pool.</summary>
+    /// <summary>Adds the finished frames of a batch, paired with their input frames. Callable from any thread; the resizing runs on the thread pool.</summary>
     /// <param name="firstIndex">The clip index of <paramref name="enhanced"/>[0].</param>
-    /// <param name="originals">All input frames, by index (a still image is one frame); not modified.</param>
+    /// <param name="originals">The input frames of the batch, in the same order (a single frame pairs with all of them, as for a still image); not modified.</param>
     /// <param name="enhanced">The batch's finished frames, in order.</param>
-    public void Add(int firstIndex, IReadOnlyList<ImageInput> originals, IReadOnlyList<ImageInput> enhanced)
+    /// <returns>Completes when the batch is resized and shown; a caller that waits for it before adding the next batch never queues more than one.</returns>
+    public Task Add(long firstIndex, IReadOnlyList<ImageInput> originals, IReadOnlyList<ImageInput> enhanced)
     {
         if (enhanced.Count == 0 || originals.Count == 0)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -181,6 +186,8 @@ internal sealed partial class EnhancementComparisonViewModel : ObservableObject
                 TaskContinuationOptions.None, TaskScheduler.Default);
             _idle = done.Task;
         }
+
+        return done.Task;
     }
 
     /// <summary>Forgets the frames (a new input, or a restored run). UI thread.</summary>
@@ -205,7 +212,7 @@ internal sealed partial class EnhancementComparisonViewModel : ObservableObject
     }
 
     /// <summary>Resizes a batch to the preview size (thread pool) and hands it to the UI thread.</summary>
-    private void Prepare(int generation, int firstIndex, IReadOnlyList<ImageInput> originals, IReadOnlyList<ImageInput> enhanced, TaskCompletionSource done)
+    private void Prepare(int generation, long firstIndex, IReadOnlyList<ImageInput> originals, IReadOnlyList<ImageInput> enhanced, TaskCompletionSource done)
     {
         bool handedOver = false;
         try
@@ -219,15 +226,15 @@ internal sealed partial class EnhancementComparisonViewModel : ObservableObject
                 }
 
                 _outputSize = (enhanced[0].Width, enhanced[0].Height);
-                _previewSize ??= PreviewSizeFor(enhanced[0].Width, enhanced[0].Height, _expectedFrames, MemoryBudgetBytes);
+                _previewSize ??= PreviewSizeFor(enhanced[0].Width, enhanced[0].Height, Math.Min(_expectedFrames, PreviewWindowFrames), MemoryBudgetBytes);
                 size = _previewSize.Value;
             }
 
             var frames = new ComparisonFrame[enhanced.Count];
             for (int i = 0; i < frames.Length; i++)
             {
-                int index = firstIndex + i;
-                var original = originals[Math.Min(index, originals.Count - 1)];
+                long index = firstIndex + i;
+                var original = originals[Math.Min(i, originals.Count - 1)];
                 frames[i] = new ComparisonFrame(index, FrameResampler.Resize(original, size.Width, size.Height),
                     FrameResampler.Resize(enhanced[i], size.Width, size.Height));
             }

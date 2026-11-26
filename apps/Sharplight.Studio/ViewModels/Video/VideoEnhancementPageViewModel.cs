@@ -4,7 +4,6 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
-using Sharplight.Audio;
 using Sharplight.Models;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
@@ -22,11 +21,13 @@ namespace Sharplight.Studio.ViewModels.Video;
 
 /// <summary>
 /// The Enhance page (kind <c>video-enhancement</c>): a video or a still image goes to the chosen model's <see cref="IVideoEnhancer"/>
-/// with an output size (a target height or an enlargement), frames per batch, colour correction and seed. The streaming call reports
-/// each stage of each batch of frames; finished frames are shown as they arrive, and the result is written as a video (MP4 through the
-/// bundled FFmpeg, else WebM or GIF) or a PNG into the page's output folder, from where it can be opened or saved elsewhere. Videos are
-/// read through the <see cref="VideoDecoderCatalog"/>; without the bundled FFmpeg only images can be enhanced. Built from the shared
-/// inference blocks, like every task page; what the page offers follows the model's <see cref="VideoEnhancementDefaults"/>.
+/// with an output size (a target height or an enlargement), frames per batch, colour correction and seed. A video is streamed: decoded
+/// frame by frame (<see cref="VideoDecoderCatalog"/>) into the enhancer, and each finished batch is encoded into the output video (MP4
+/// through the bundled FFmpeg, else WebM or Matroska, with the input's sound track) and shown in the live comparison, so a clip of any
+/// length runs in bounded memory; progress shows the frames, the playback time and the time left. A still image is written as a PNG.
+/// Results land in the page's output folder, from where they can be opened or saved elsewhere; a cancelled or failed run keeps the video
+/// finished so far. Without the bundled FFmpeg only images can be enhanced. Built from the shared inference blocks, like every task page;
+/// what the page offers follows the model's <see cref="VideoEnhancementDefaults"/>.
 /// </summary>
 internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewModel
 {
@@ -414,52 +415,58 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
     [RelayCommand]
     private void Cancel() => Queue.CancelAll();
 
+    /// <summary>
+    /// One run, streamed end to end: the video is decoded frame by frame into the enhancer, each finished batch is encoded into the output file
+    /// and shown in the comparison, so memory stays that of a few batches whatever the clip's length. A cancelled or failed run finishes the
+    /// file it has written so far (a valid, shorter video with its sound) and keeps it.
+    /// </summary>
     private async Task EnhanceAsync(ILoadedModel model, EnhancementRun plan, string title, RunContext context)
     {
         var watch = Stopwatch.StartNew();
-        VideoEnhancementResult? result = null;
-        VideoClip? clip = null;
+        var token = context.CancellationToken;
+        var progress = new EnhancementProgress(plan.Input.Frames, plan.Input.FramesPerSecond);
+        var originals = new OriginalFrameQueue();
+        await using var output = new EnhancementOutput(plan.Input, _encoders, Services.Pages.GenerationsDirectory("enhanced"));
+        VideoEnhancementUpdate? last = null;
         RunOutcome outcome = RunOutcome.Completed;
         string? error = null;
         try
         {
             VideoEnhancementRequest request;
-            IReadOnlyList<ImageInput> originals;
             if (plan.Input.Image is { } image)
             {
                 request = VideoEnhancementRequest.FromImage(image);
-                originals = [image];
             }
             else
             {
-                context.Report(null, "Reading the video");
-                clip = await _decoders.ReadClipAsync(plan.Input.Path, null, context.CancellationToken).ConfigureAwait(false);
-                request = VideoEnhancementRequest.FromClip(clip);
-                originals = clip.Frames;
-            }
-
-            Compare.Begin(originals.Count, clip?.FramesPerSecond ?? 0);
-            int finished = 0;
-
-            context.Report(null, "Loading the model");
-            using var lease = await model.AcquireClientAsync<IVideoEnhancer>(context.CancellationToken).ConfigureAwait(false);
-            context.Report(0, "Starting");
-            await foreach (var update in lease.Client.EnhanceStreamingAsync(request, plan.Options, context.CancellationToken).ConfigureAwait(false))
-            {
-                ShowProgress(context, update);
-                if (update.Frames is { Count: > 0 } frames)
+                if (!_decoders.TryGet(out IVideoDecoder? decoder))
                 {
-                    Compare.Add(firstIndex: finished, originals, frames);
-                    finished += frames.Count;
+                    throw new NotSupportedException(VideoSupportNotice);
                 }
 
-                result = update.Result ?? result;
+                var frames = decoder.ReadFramesAsync(plan.Input.Path, null, token).Select(frame => frame.ToImage());
+                request = VideoEnhancementRequest.FromSource(originals.Tap(frames, token), plan.Input.FramesPerSecond > 0 ? plan.Input.FramesPerSecond : null,
+                    plan.Input.Frames);
             }
 
-            if (finished == 0 && result is { Frames.Count: > 0 })
+            Compare.Begin(plan.Input.Frames, plan.Input.FramesPerSecond);
+            context.Report(null, "Loading the model");
+            using var lease = await model.AcquireClientAsync<IVideoEnhancer>(token).ConfigureAwait(false);
+            context.Report(0, "Starting");
+            Task shown = Task.CompletedTask;
+            await foreach (var update in lease.Client.EnhanceStreamingAsync(request, plan.Options, token).ConfigureAwait(false))
             {
-                // A model that streams no batches: compare its result as a whole.
-                Compare.Add(firstIndex: 0, originals, result.Frames);
+                last = update;
+                if (update.Frames is { Count: > 0 } finished)
+                {
+                    IReadOnlyList<ImageInput> inputs = plan.Input.Image is { } still ? [still] : originals.Take(finished.Count);
+                    await output.WriteAsync(finished, update, token).ConfigureAwait(false);
+                    // The comparison resizes on the thread pool; waiting for the previous batch keeps at most one batch queued there.
+                    await shown.ConfigureAwait(false);
+                    shown = Compare.Add(update.FirstFrame, inputs, finished);
+                }
+
+                ShowProgress(context, progress.Describe(update, watch.Elapsed));
             }
         }
         catch (OperationCanceledException)
@@ -473,7 +480,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
         }
 
         double seconds = watch.Elapsed.TotalSeconds;
-        if (outcome == RunOutcome.Completed && result is null)
+        if (outcome == RunOutcome.Completed && last is not { Phase: VideoEnhancementPhase.Completed, FinishedFrames: > 0 })
         {
             outcome = RunOutcome.Failed;
             error = "The model returned no frames.";
@@ -481,102 +488,94 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
 
         if (outcome != RunOutcome.Completed)
         {
-            Services.Dispatcher.Post(() => StepText = "");
+            string? partial = await FinishPartialAsync(output).ConfigureAwait(false);
+            string kept = partial is null ? "" : $" The {output.FramesWritten} frames finished so far were saved as {Path.GetFileName(partial)}.";
+            Services.Dispatcher.Post(() =>
+            {
+                StepText = "";
+                ResultPath = partial ?? "";
+            });
             if (outcome == RunOutcome.Failed)
             {
-                Services.Dispatcher.Post(() => Notice = error!);
-                Archived(NewRecord(title, model, plan, outcome, seconds, error, [], []));
+                Services.Dispatcher.Post(() => Notice = error! + kept);
+                Archived(NewRecord(title, model, plan, outcome, seconds, error, [], Metadata(plan, last, seconds, partial)));
                 throw new InvalidOperationException(error);
             }
 
-            throw new OperationCanceledException(context.CancellationToken);
+            if (partial is not null)
+            {
+                Services.Dispatcher.Post(() => Notice = "Cancelled." + kept);
+                Archived(NewRecord(title, model, plan, outcome, seconds, null, [], Metadata(plan, last, seconds, partial)));
+            }
+
+            throw new OperationCanceledException(token);
         }
 
-        await FinishAsync(model, plan, title, result!, clip?.Audio, seconds, context.CancellationToken).ConfigureAwait(false);
+        string? written = await output.CompleteAsync(token).ConfigureAwait(false);
+        FinishRun(model, plan, title, output, last!, written, seconds);
     }
 
-    private void ShowProgress(RunContext context, VideoEnhancementUpdate update)
+    /// <summary>Finishes the file of a run that stopped early, so the frames finished so far stay a valid video; null when there are none.</summary>
+    private static async Task<string?> FinishPartialAsync(EnhancementOutput output)
     {
-        int total = Math.Max(1, update.TotalBatches);
-        string batch = total > 1 ? $"Batch {update.Batch + 1} of {total}: " : "";
-        (string text, double fraction) = update.Phase switch
+        if (output.FramesWritten == 0)
         {
-            VideoEnhancementPhase.Encoding => ($"{batch}encoding", (update.Batch + 0.05) / total),
-            VideoEnhancementPhase.Restoring => ($"{batch}restoring", (update.Batch + 0.15) / total),
-            VideoEnhancementPhase.Decoding => ($"{batch}decoding", (update.Batch + (update.Frames is null ? 0.85 : 1.0)) / total),
-            _ => ("Done", 1.0),
-        };
-        context.Report(Math.Min(1, fraction), text);
-        Services.Dispatcher.Post(() => StepText = text);
-    }
+            return null;
+        }
 
-    private async Task FinishAsync(ILoadedModel model, EnhancementRun plan, string title, VideoEnhancementResult finished, AudioBuffer? audio,
-        double seconds, CancellationToken cancellationToken)
-    {
-        string? written = null;
-        string? writeError = null;
         try
         {
-            written = await WriteResultAsync(plan.Input, finished, audio, cancellationToken).ConfigureAwait(false);
+            return await output.CompleteAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or NotSupportedException or PlatformNotSupportedException or ArgumentException
-            or InvalidOperationException)
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            writeError = failure.Message;
+            // The file cannot be finished (the disk failed); disposing the output deletes it.
+            return null;
         }
+    }
 
-        var metadata = new Dictionary<string, string>
-        {
-            ["size"] = $"{plan.Input.Width} × {plan.Input.Height} → {finished.Width} × {finished.Height}",
-            ["frames"] = finished.Frames.Count.ToString(CultureInfo.InvariantCulture),
-            ["seed"] = finished.Seed.ToString(CultureInfo.InvariantCulture),
-            ["time"] = $"{seconds:0.0} s",
-        };
-        if (written is not null)
-        {
-            metadata[OutputMetadataKey] = written;
-        }
+    private void ShowProgress(RunContext context, (string Text, double Fraction) progress)
+    {
+        context.Report(Math.Clamp(progress.Fraction, 0, 1), progress.Text);
+        Services.Dispatcher.Post(() => StepText = progress.Text);
+    }
 
+    private void FinishRun(ILoadedModel model, EnhancementRun plan, string title, EnhancementOutput output, VideoEnhancementUpdate last, string? written,
+        double seconds)
+    {
+        var metadata = Metadata(plan, last, seconds, written);
         string summary = string.Join(" · ", metadata.Where(pair => pair.Key != OutputMetadataKey).Select(pair => $"{pair.Key}: {pair.Value}"));
         Services.Dispatcher.Post(() =>
         {
             StepText = written is null ? "" : $"Saved {Path.GetFileName(written)}";
             ResultSummary = summary;
             ResultPath = written ?? "";
-            Notice = writeError is null ? "" : $"The result could not be written: {writeError}";
+            Notice = output.WriteError is { } writeError
+                ? $"The result could not be written: {writeError}"
+                : output.AudioError is { } audioError ? $"The result has no sound: the input's sound track could not be read ({audioError})." : "";
         });
 
-        var files = new Dictionary<string, byte[]> { [ResultStillName] = ImageFiles.ToPng(finished.Frames[0]) };
+        var files = new Dictionary<string, byte[]> { [ResultStillName] = ImageFiles.ToPng(output.FirstFrame!) };
         Archived(NewRecord(title, model, plan, RunOutcome.Completed, seconds, null, [.. files.Keys], metadata), files);
     }
 
-    /// <summary>Writes the result into the page's output folder: a PNG for an image, else a video (MP4, WebM or GIF, the first available) with the input's sound.</summary>
-    private async Task<string> WriteResultAsync(EnhancementInput input, VideoEnhancementResult result, AudioBuffer? audio, CancellationToken cancellationToken)
+    private static Dictionary<string, string> Metadata(EnhancementRun plan, VideoEnhancementUpdate? last, double seconds, string? file)
     {
-        string folder = Services.Pages.GenerationsDirectory("enhanced");
-        Directory.CreateDirectory(folder);
-        string stem = $"{Path.GetFileNameWithoutExtension(input.Path)}-{result.Width}x{result.Height}-{DateTime.Now:yyyyMMdd-HHmmss}";
-        if (!input.IsVideo)
+        var metadata = new Dictionary<string, string>
         {
-            string png = Path.Combine(folder, stem + ".png");
-            await File.WriteAllBytesAsync(png, ImageFiles.ToPng(result.Frames[0]), cancellationToken).ConfigureAwait(false);
-            return png;
+            ["size"] = last is { Size.Width: > 0 } update
+                ? $"{plan.Input.Width} × {plan.Input.Height} → {update.Size.Width} × {update.Size.Height}"
+                : $"{plan.Input.Width} × {plan.Input.Height}",
+            ["frames"] = (last?.FinishedFrames ?? 0).ToString(CultureInfo.InvariantCulture),
+            ["seed"] = (last?.Seed ?? 0).ToString(CultureInfo.InvariantCulture),
+            ["time"] = $"{seconds:0.0} s",
+        };
+        if (file is not null)
+        {
+            metadata[OutputMetadataKey] = file;
         }
 
-        foreach (string format in new[] { VideoFormats.Mp4, VideoFormats.WebM, VideoFormats.Gif })
-        {
-            if (!_encoders.TryFind(format, out var encoder))
-            {
-                continue;
-            }
-
-            string path = Path.Combine(folder, stem + "." + encoder.FileExtensions[0].TrimStart('.'));
-            var clip = new VideoClip(result.Frames, result.FramesPerSecond) { Audio = format == VideoFormats.Gif ? null : audio };
-            await _encoders.SaveAsync(clip, path, null, cancellationToken).ConfigureAwait(false);
-            return path;
-        }
-
-        throw new NotSupportedException("No video encoder is available.");
+        return metadata;
     }
 
     /// <summary>Opens the result file in the system's viewer.</summary>
@@ -650,7 +649,7 @@ internal sealed partial class VideoEnhancementPageViewModel : InferencePageViewM
         [
             new NumberParameterViewModel("height", "Output height", "Pixels; the width follows the input's aspect ratio. 0 enlarges by the scale instead.", 0, MaxOutputHeight, 8, 0),
             new NumberParameterViewModel("scale", "Scale", "How much both sides grow when no output height is given.", 1, 8, 0.5, 2),
-            new NumberParameterViewModel("batch", "Frames per batch", "Frames restored together: fewer need less memory, more keep motion more consistent. 0 = the whole clip at once.", 0, 241, 4, 0),
+            new NumberParameterViewModel("batch", "Frames per batch", "Frames restored together: fewer need less memory, more keep motion more consistent. 0 = the whole clip at once, long clips in the model's longest batches.", 0, 241, 4, 0),
             new ChoiceParameterViewModel("color", "Colour correction", "How the colours of the result follow the input.", s_colorCorrections),
             new TextParameterViewModel("seed", "Seed", "Empty picks a random seed; a number repeats the result.", "Random"),
         ];

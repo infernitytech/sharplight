@@ -7,6 +7,7 @@ using Sharplight.Studio.Models;
 using Sharplight.Studio.Platform;
 using Sharplight.Studio.Services.Imaging;
 using Sharplight.Studio.Services.Library;
+using Sharplight.Studio.Services.Pages;
 using Sharplight.Studio.Tests.Fakes;
 using Sharplight.Studio.ViewModels;
 using Sharplight.Studio.ViewModels.Inference;
@@ -215,13 +216,134 @@ public sealed class VideoEnhancementPageTests
 
         Assert.Equal(RunStatus.Completed, page.Queue.Items[0].Status);
         var (request, options) = Assert.Single(client.Requests);
-        Assert.Equal(7, request.Frames.Count);
+        // The frames are streamed from the decoder, never collected into a list.
+        Assert.Null(request.Frames);
+        Assert.Equal(7, request.FrameCount);
+        Assert.Equal(7, client.FramesRead);
         Assert.Equal(4, options.FramesPerBatch);
         await page.Compare.Idle;
         Assert.Equal(7, page.Compare.Count);
         Assert.EndsWith(".mp4", page.ResultPath, StringComparison.Ordinal);
         var info = await new FfmpegVideoDecoder().ProbeAsync(page.ResultPath, TestContext.Current.CancellationToken);
         Assert.Equal((64, 32), (info.Width, info.Height));
+        Assert.Equal(7, await CountFramesAsync(page.ResultPath));
+    }
+
+    [Fact]
+    public async Task Enhance_AVideo_ShowsFramesPlaybackTimeAndTimeLeft_AndKeepsTheSoundTrack()
+    {
+        if (!BundledFfmpeg.IsAvailable)
+        {
+            Assert.Skip("the bundled FFmpeg libraries are not built");
+        }
+
+        using var services = new TestServices();
+        Enhancer(services, out _);
+        var page = await OpenAsync(services);
+        string source = Path.Combine(services.Directory, "voiced.mp4");
+        var frames = Enumerable.Range(0, 24).Select(i => FakeImageGenerator.Gradient(32, 16, i * 9)).ToList();
+        var tone = new Sharplight.Audio.AudioBuffer([.. Enumerable.Range(0, 48000 * 3).Select(i => 0.3f * MathF.Sin(i * 0.05f))], 48000, 1);
+        await new VideoEncoderCatalog([new FfmpegVideoEncoder(VideoFormats.Mp4)]).SaveAsync(new VideoClip(frames, 8) { Audio = tone }, source, null,
+            TestContext.Current.CancellationToken);
+        Assert.True(await page.SetInputAsync(source));
+        Number(page, "scale").Value = 2;
+        Number(page, "batch").Value = 4;
+        var steps = new List<string>();
+        page.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(VideoEnhancementPageViewModel.StepText) && page.StepText.Length > 0)
+            {
+                steps.Add(page.StepText);
+            }
+        };
+
+        page.RunCommand.Execute(null);
+        await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        await Task.Yield();
+
+        Assert.Equal(RunStatus.Completed, page.Queue.Items[0].Status);
+        Assert.Contains(steps, step => step.Contains("of 24 frames", StringComparison.Ordinal) && step.Contains("of 0:03", StringComparison.Ordinal));
+        Assert.Contains(steps, step => step.Contains("left", StringComparison.Ordinal));
+        var info = await new FfmpegVideoDecoder().ProbeAsync(page.ResultPath, TestContext.Current.CancellationToken);
+        Assert.NotNull(info.AudioCodec);
+        Assert.Equal(24, await CountFramesAsync(page.ResultPath));
+    }
+
+    [Fact]
+    public async Task Cancel_DuringAVideo_KeepsTheFramesFinishedSoFar_AsAPlayableVideo()
+    {
+        if (!BundledFfmpeg.IsAvailable)
+        {
+            Assert.Skip("the bundled FFmpeg libraries are not built");
+        }
+
+        using var services = new TestServices();
+        Enhancer(services, out var client);
+        var secondBatch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.AfterBatch = batch =>
+        {
+            if (batch == 1)
+            {
+                secondBatch.TrySetResult();
+                return Task.Delay(Timeout.Infinite);
+            }
+
+            return Task.CompletedTask;
+        };
+        var page = await OpenAsync(services);
+        string source = Path.Combine(services.Directory, "long.mp4");
+        var frames = Enumerable.Range(0, 20).Select(i => FakeImageGenerator.Gradient(32, 16, i * 11)).ToList();
+        await new VideoEncoderCatalog([new FfmpegVideoEncoder(VideoFormats.Mp4)]).SaveAsync(new VideoClip(frames, 8), source, null, TestContext.Current.CancellationToken);
+        Assert.True(await page.SetInputAsync(source));
+        Number(page, "scale").Value = 2;
+        Number(page, "batch").Value = 4;
+        page.RunCommand.Execute(null);
+        var item = page.Queue.Items.Single();
+        await secondBatch.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        page.CancelCommand.Execute(null);
+        await item.Completion.WaitAsync(TestContext.Current.CancellationToken);
+        await Task.Yield();
+
+        Assert.Equal(RunStatus.Cancelled, item.Status);
+        Assert.True(page.HasResultFile);
+        Assert.Contains("8 frames finished so far were saved", page.Notice, StringComparison.Ordinal);
+        Assert.Equal(8, await CountFramesAsync(page.ResultPath));
+        Assert.Equal(RunOutcome.Cancelled, Assert.Single(page.History.Items).Record.Outcome);
+    }
+
+    [Fact]
+    public async Task Enhance_ALongVideo_HoldsABoundedComparison_AndReadsEveryFrameOnce()
+    {
+        using var services = new TestServices();
+        Enhancer(services, out var client);
+        var clip = Enumerable.Range(0, 400).Select(i => FakeImageGenerator.Gradient(32, 16, i)).ToList();
+        var page = await OpenAsync(services, new VideoDecoderCatalog([new FakeVideoDecoder(clip, 25)]));
+        page.Compare.MemoryBudgetBytes = 64L * 32 * 6 * 50;
+        string path = Path.Combine(services.Directory, "long.mp4");
+        File.WriteAllBytes(path, [0]);
+        Assert.True(await page.SetInputAsync(path));
+        Number(page, "scale").Value = 2;
+        Number(page, "batch").Value = 8;
+        page.RunCommand.Execute(null);
+        await page.Queue.Items.Single().Completion.WaitAsync(TestContext.Current.CancellationToken);
+        await page.Compare.Idle;
+
+        Assert.Equal(400, client.FramesRead);
+        Assert.Equal(400, page.Compare.FinishedFrames);
+        Assert.True(page.Compare.StoredBytes <= page.Compare.MemoryBudgetBytes, $"{page.Compare.StoredBytes} bytes kept");
+        Assert.True(page.Compare.Count <= 50, $"{page.Compare.Count} frames kept");
+        Assert.Equal(399, page.Compare.Current!.Index);
+    }
+
+    private static async Task<int> CountFramesAsync(string path)
+    {
+        int count = 0;
+        await foreach (var frame in new FfmpegVideoDecoder().ReadFramesAsync(path, null, TestContext.Current.CancellationToken))
+        {
+            count++;
+        }
+
+        return count;
     }
 
     [Fact]
