@@ -231,6 +231,11 @@ public sealed class InferenceEngine : IDisposable
             }
         }
 
+        if (decoder is MultiSequenceDecoder multi)
+        {
+            multi.PadsStepShapes = _opt.StepShapeBuckets;
+        }
+
         if (decoder is MultiSequenceDecoder { RunsAsynchronously: true } asynchronous && DiagnosticSwitches.DeferEmits)
         {
             _deferEmits = true;

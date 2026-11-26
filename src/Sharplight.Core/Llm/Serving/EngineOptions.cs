@@ -64,6 +64,14 @@ public sealed record EngineOptions
     /// </summary>
     public int SmallChunkRowsPerSequence { get; set; } = 16;
     /// <summary>
+    /// Steps that carry prompt rows run in shape buckets (default on): their rows are padded up to a multiple of 64 on the last prompt
+    /// chunk (positions the sequence has not reached yet), their logits rows up to a multiple of 8 and their run table to the slot count,
+    /// so steps with nearby row counts replay one recorded step (a CUDA graph) instead of each paying the first run of a new shape (its
+    /// recording, then its capture). Applies to decoders whose caches allow it (paged, causal attention, no recurrent state or
+    /// window-sized caches); others run every step at its exact shape (benchmarks.md §R48).
+    /// </summary>
+    public bool StepShapeBuckets { get; set; } = true;
+    /// <summary>
     /// Paged KV cache: what happens when the pool runs short of blocks. <see cref="KvAdmissionPolicy.Queue"/> (default) admits a request only
     /// with room for its prompt and some growth, so new requests wait while the pool is full; <see cref="KvAdmissionPolicy.Preempt"/> admits on
     /// the prompt alone and preempts the newest running sequences (recomputing them later) when the running ones need blocks. The
