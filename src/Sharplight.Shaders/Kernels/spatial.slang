@@ -121,6 +121,8 @@ void pad(uint3 dtid : SV_DispatchThreadID, uniform PadParams p)
 // is a channel slice of a concatenation). Scales are out/in as float.
 // Macros: C H W OH OW XS_* LINEAR COORD NEAREST   (COORD: 0 half_pixel 1 align_corners 2 asymmetric 3 pytorch_half_pixel)
 //                                                 (NEAREST: 0 round_prefer_floor 1 round_prefer_ceil 2 floor 3 ceil)
+//         RIY RIX: nearest source index per output row / column (host-computed, exact ties; the GPU fallback without them
+//                  recomputes the coordinates with div_rn)
 struct ResizeParams { float* x; float* y; uint total; };
 #ifndef YS_N
 #define YS_N (C * OH * OW)
@@ -129,6 +131,11 @@ struct ResizeParams { float* x; float* y; uint total; };
 // Correctly rounded a / b. Vulkan only guarantees 2.5 ULP for OpFDiv (RADV, the RTX 4090 driver: 3.5 / 0.875 comes out
 // as 3.9999998), which moves exact round-half source coordinates off the tie, so nearest picks the wrong neighbour.
 // One residual step with an exact fma restores the IEEE quotient the CPU (and ONNX Runtime) computes.
+#ifdef RIY
+static const int RS_IY[OH] = { RIY };
+static const int RS_IX[OW] = { RIX };
+#endif
+
 float div_rn(float a, float b)
 {
     float q = a / b;
@@ -189,6 +196,9 @@ void resize(uint3 dtid : SV_DispatchThreadID, uniform ResizeParams p)
     float top = v00 * (1.0 - dx) + v01 * dx;
     float bot = v10 * (1.0 - dx) + v11 * dx;
     p.y[yi] = top * (1.0 - dy) + bot * dy;
+#elif defined(RIY)
+    // Host-computed source indices (exact CPU / ONNX Runtime float math, so round-half ties match; #67).
+    p.y[yi] = xp[RS_IY[oy] * XS_H + RS_IX[ox] * XS_W];
 #else
     int iy = clamp(nearest_pixel(fy), 0, H - 1);
     int ix = clamp(nearest_pixel(fx), 0, W - 1);

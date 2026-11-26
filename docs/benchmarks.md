@@ -18476,7 +18476,7 @@ SHARPLIGHT_BENCH=1 ... -method "*WinogradConvTests.BottleneckThroughput"      # 
 SHARPLIGHT_CPU_ISA=avx2 SHARPLIGHT_CPU_WINOGRAD=auto|1|0 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/resnet50-v1-12.json cpu --batch 8 --runs 40
 ```
 
-## 118. Vulkan round: causal `fe` with per-head sinks (gpt-oss-20b prefill attention 8.7 → 3.1 ms per 2,048 rows, pp8192 +21 %, logits 18x closer to the CPU); the FP8 dual GEMM cannot store the down projection's E4M3 rows (a 128-output tile costs 5x what it saves) (2026-11-26)
+## 118. Vulkan round: causal `fe` with per-head sinks (gpt-oss-20b prefill attention 8.7 → 3.1 ms per 2,048 rows, pp8192 +21 %; the logits' distance to the CPU is the same as `fa`'s, see the #62 correction in 118.2); the FP8 dual GEMM cannot store the down projection's E4M3 rows (a 128-output tile costs 5x what it saves) (2026-11-26)
 
 Issue #8 on the MultiClaude board, branch `issue-8`. The RTX PRO 6000 Blackwell Max-Q of section 116 (188 SMs, 300 W cap), GPU idle apart
 from the desktop compositor. Raw output in [`bench/results/r118/`](../bench/results/r118), commands in `bench/s118_fe_sinks.sh`.
@@ -18518,9 +18518,14 @@ instead of 131 µs, the full layers 170-370 µs instead of 600-930 µs.
 | CUDA, `attn_prefill_native` (default) | 0.014 | 0.083 |
 | CUDA, generated `fa` (`SHARPLIGHT_NATIVE_ATTN=0`) | 0.114 | 0.69 |
 
-`fa` on gpt-oss's sliding-window layers with sinks is off by ~0.12 rms on both providers, while the synthetic sink tests pass on it;
-`fe` and the hand-written CUDA kernel agree with the CPU. Greedy text of that prompt starts identically and diverges after ~40 tokens.
-The `fa` error is issue #62.
+**Correction (#62): this prompt was an outlier, not an `fa` error.** Over 12 prompts of ~800 tokens (README and docs/benchmarks.md text) (`logits_sweep.txt`,
+`bench/s118_logits_sweep.sh`) both kernels have the same heavy-tailed distance to the CPU: median rms `fe` 0.031, `fa` 0.030; the
+worst prompt is 0.38 for `fa` and 0.149 for `fe` (another prompt). On the prompt where `fa` is 0.38, the staged `fe`
+(`SHARPLIGHT_ATTN_FE_REG=0`, which only sums in another order) and CUDA's hand-written kernel are 0.38 too, and only the register-softmax
+`fe` is 0.0065. So any f16 rounding change flips the result between two outcomes, most likely a near-tied expert choice in the routers
+that the last token depends on. At the op level `fa` and `fe` match within 1 % relative RMS, for gpt-oss's shape with sinks, 128-key
+windows and peaked scores (`CachedAttentionSinksLongPrefill`, now also pinned to `fa`). The 0.006 vs 0.118 above is one sample of
+that noise. `fa` stays correct for Metal and the switches that keep it.
 
 ### 118.3 Measured and not kept: the down projection's E4M3 rows from the dual FP8 GEMM
 
