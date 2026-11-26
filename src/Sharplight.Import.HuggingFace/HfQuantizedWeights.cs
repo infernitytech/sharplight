@@ -19,7 +19,8 @@ internal static class HfQuantizedWeights
     /// <param name="tensors">The checkpoint tensors.</param>
     public static IReadOnlyDictionary<string, SafetensorsTensor> Resolve(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors)
     {
-        var resolved = HfFp8Weights.Resolve(config, HfTorchAoLayouts.RenameFloat8(HfQuantoLayouts.RenameFloat8(tensors)));
+        var renamed = HfSuffixedScaleLayouts.Rename(HfTorchAoLayouts.RenameFloat8(HfQuantoLayouts.RenameFloat8(tensors)));
+        var resolved = HfFp8Weights.Resolve(config, renamed);
         resolved = HfGgmlPackedWeights.Resolve(config, resolved);
         resolved = HfQuarkFloatWeights.Resolve(config, resolved);
         resolved = HfFp4Weights.Resolve(resolved);
