@@ -10,7 +10,7 @@ public class InspectionApiTests
     [Fact]
     public void SectionKindsListEveryKindOfTheFormat()
     {
-        Assert.Equal(["DEFN", "WIDX", "WDAT", "KSET", "ARTS", "DESC", "ATCH", "WLAY"], ModelPackageReader.SectionKinds);
+        Assert.Equal(["DEFN", "WIDX", "WDAT", "KSET", "ARTS", "DESC", "ATCH", "WLAY", "WACT"], ModelPackageReader.SectionKinds);
     }
 
     [Fact]

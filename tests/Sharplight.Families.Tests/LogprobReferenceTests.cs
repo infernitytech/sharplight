@@ -28,12 +28,18 @@ public class LogprobReferenceTests
     public sealed record Case(string Name, string Path, string Prompt, (int Id, double LogProb)[] Expected, double Tolerance = DefaultTolerance,
         string[]? CudaDisabled = null);
 
-    // CUDA's native NVFP4 matmuls quantize the activations to FP4 and its FP8 matmuls to FP8 (docs/cuda.md), also for weight-only (W4A16)
-    // checkpoints: 0.31 (Bolt) and 0.19 (Super-VL) off the unquantized reference, so those cases compare the dequantizing paths.
-    private static readonly string[] NativeFp4 = [DeviceFeatures.BlockScaledFp4];
+    // The Super-VL release declares W8A8 FP8 (static per-tensor input scales) for its Mamba, attention and LM-head projections, so CUDA's FP8
+    // GEMMs quantize their activations to E4M3 as the format allows. This 8-layer cut is that sensitive to FP8 activation rounding (likely a near
+    // tie in its 22-of-512 expert selection) that it moves 0.17-0.19 with either rounding: ours (dynamic per-128-value scales) and the release's own (static scales, simulated
+    // in the reference with tools/hf-logprob-reference.py --fp8-input-scales: (99093, -4.491), (35192, -4.929), (26642, -5.179),
+    // (73731, -5.241), (26114, -5.522)) part by up to 0.31, so the case compares the products without FP8 activations. Its W4A4 NVFP4
+    // experts keep the native FP4 GEMM (0.06 off). Bolt's NVFP4 projections are weight-only (W4A16) and never take it.
+    private static readonly string[] Fp8Activations =
+        [DeviceFeatures.BlockScaledFp8, DeviceFeatures.NativeGemmFp8, DeviceFeatures.MatrixFp8, DeviceFeatures.Float8];
 
-    private static readonly string[] NativeFp4AndFp8 =
-        [DeviceFeatures.BlockScaledFp4, DeviceFeatures.BlockScaledFp8, DeviceFeatures.NativeGemmFp8, DeviceFeatures.MatrixFp8, DeviceFeatures.Float8];
+    // Inkling-2-Mini's parameter groups declare NVFP4 activations for its NVFP4 experts and MXFP8 ones for its MXFP8 experts; transformers'
+    // reference dequantizes the weights only, so its case compares the products without FP4 or FP8 activations.
+    private static readonly string[] Fp4AndFp8Activations = [DeviceFeatures.BlockScaledFp4, .. Fp8Activations];
 
     private static readonly Case[] Cases =
     [
@@ -94,14 +100,15 @@ public class LogprobReferenceTests
         // language_model.backbone.=language_model.model.).
         new("nemotron-3.5-bolt 8 layers 'The capital of France is Paris. The capital of Germany is'", "hf/Nemotron-3.5-Bolt-74B-A9B-24GB-L8",
             "The capital of France is Paris. The capital of Germany is",
-            [(35192, -4.270), (99093, -4.419), (17893, -4.916), (75560, -5.583), (99868, -5.612)], Tolerance: 0.1, CudaDisabled: NativeFp4),
+            [(35192, -4.270), (99093, -4.419), (17893, -4.916), (75560, -5.583), (99868, -5.612)], Tolerance: 0.1),
         // NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4 (the release: ModelOpt NVFP4 experts with a second-level scale per expert, FP8
         // per-tensor attention, Mamba and LM-head weights) cut to its first 8 layers (4 Mamba-2, 3 latent MoE with all 512 experts,
         // 1 attention; pinned revision ae13683). Reference: the release's remote code (modeling_nemotron_h_omni.py, torch path) in
         // float32 on the dequantized weights.
         new("nemotron-3.5-super-vl-nvfp4 8 layers 'The capital of France is Paris. The capital of Germany is'", "hf/Nemotron-3.5-Super-VL-120B-A12B-NVFP4-L8",
             "The capital of France is Paris. The capital of Germany is",
-            [(99093, -4.391), (35192, -4.766), (26642, -5.298), (73731, -5.329), (26114, -5.329)], Tolerance: 0.1, CudaDisabled: NativeFp4AndFp8),
+            [(99093, -4.391), (35192, -4.766), (26642, -5.298), (73731, -5.329), (26114, -5.329)], Tolerance: 0.1,
+            CudaDisabled: Fp8Activations),
         // Inkling-2-Mini (the release: ModelOpt parameter groups, NVFP4 experts in layers 0-19 with a per-expert amax / outer-denominator factor,
         // MXFP8 experts in layers 20-23, BF16 elsewhere) with all 24 layers (the loop over layers 6-17 run 3 times) and 32 of 128 experts with
         // the router rows to match (tools/truncate-hf-remote.py ... --layers 24 --experts 32 --rows 'mlp\.experts\.w(13|2)_weight(_scale|_amax)?$=32',
@@ -110,7 +117,7 @@ public class LogprobReferenceTests
         // release's hf_quant_config asks for NVFP4 / MXFP8 activations, which transformers' dequantized reference does not apply; 1.1 off).
         new("inkling-2-mini 24 layers 32 experts 'The capital of France is Paris. The capital of Germany is'", "hf/Inkling-2-Mini-E32",
             "The capital of France is Paris. The capital of Germany is",
-            [(154328, -0.744), (220, -2.491), (149884, -2.943), (175232, -3.013), (145038, -3.412)], Tolerance: 0.1, CudaDisabled: NativeFp4AndFp8),
+            [(154328, -0.744), (220, -2.491), (149884, -2.943), (175232, -3.013), (145038, -3.412)], Tolerance: 0.1, CudaDisabled: Fp4AndFp8Activations),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));
