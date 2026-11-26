@@ -12,7 +12,8 @@ namespace Sharplight.Families.Tests;
 /// <summary>
 /// Inkling (<see cref="InklingFamilyCases"/>) behind the continuous-batching engine: greedy output of prompts
 /// of different lengths decoded together, prefilled in small chunks, is token-identical to decoding each prompt alone (the prompts run past
-/// the sliding window, the relative-bias extent and the temperature floor, and the short-convolution states follow each sequence).
+/// the sliding window, the relative-bias extent and the temperature floor, and the short-convolution states follow each sequence). Inkling 2
+/// (tiny-random-inkling2) adds per-token sinks, the per-token convolution windows and the loop's per-pass caches and windows.
 /// </summary>
 public class InklingFamilyServingTests
 {
@@ -26,6 +27,7 @@ public class InklingFamilyServingTests
         [
             "hf/tiny-random-inkling",
             "gguf/tiny-random-inkling-f32.gguf",
+            "hf/tiny-random-inkling2",
         ];
         foreach (string model in models)
         {
@@ -52,7 +54,15 @@ public class InklingFamilyServingTests
         var check = GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(header), GgufHeaderProbe.ReadTensorTable(header)!);
         Assert.True(check.IsAccepted, string.Join(" ", check.Problems));
 
-        foreach (string path in new[] { hf, gguf })
+        string hf2 = Path.Combine(Models, "hf/tiny-random-inkling2");
+        if (Directory.Exists(hf2))
+        {
+            string config2 = File.ReadAllText(Path.Combine(hf2, "config.json"));
+            Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(config2)));
+            Assert.Empty(HfSupport.Validate(config2));
+        }
+
+        foreach (string path in Directory.Exists(hf2) ? new[] { hf, gguf, hf2 } : [hf, gguf])
         {
             using var device = OpenDevice(vulkan: false);
             using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 64 });

@@ -102,6 +102,14 @@ public class LogprobReferenceTests
         new("nemotron-3.5-super-vl-nvfp4 8 layers 'The capital of France is Paris. The capital of Germany is'", "hf/Nemotron-3.5-Super-VL-120B-A12B-NVFP4-L8",
             "The capital of France is Paris. The capital of Germany is",
             [(99093, -4.391), (35192, -4.766), (26642, -5.298), (73731, -5.329), (26114, -5.329)], Tolerance: 0.1, CudaDisabled: NativeFp4AndFp8),
+        // Inkling-2-Mini (the release: ModelOpt parameter groups, NVFP4 experts in layers 0-19 with a per-expert amax / outer-denominator factor,
+        // MXFP8 experts in layers 20-23, BF16 elsewhere) with all 24 layers (the loop over layers 6-17 run 3 times) and 32 of 128 experts with
+        // the router rows to match (tools/truncate-hf-remote.py ... --layers 24 --experts 32 --rows 'mlp\.experts\.w(13|2)_weight(_scale|_amax)?$=32',
+        // pinned revision c9d0283). Reference: transformers 5.24.1's Inkling2LoopForConditionalGeneration in float32, the experts dequantized
+        // by its own conversion op (Inkling2LoopDequantizeExperts).
+        new("inkling-2-mini 24 layers 32 experts 'The capital of France is Paris. The capital of Germany is'", "hf/Inkling-2-Mini-E32",
+            "The capital of France is Paris. The capital of Germany is",
+            [(154328, -0.744), (220, -2.491), (149884, -2.943), (175232, -3.013), (145038, -3.412)], Tolerance: 0.1),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));

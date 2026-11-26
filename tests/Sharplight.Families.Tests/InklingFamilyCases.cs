@@ -13,6 +13,8 @@ internal static class InklingFamilyCases
 
     private static readonly int[] InklingIds = [280, 418, 444, 878, 468, 564, 875, 107, 437, 214, 864, 19, 376, 858, 780, 947, 712, 33, 368, 712, 511, 515, 442, 373];
 
+    private static readonly int[] Inkling2Ids = [210, 206, 393, 715, 832, 234, 565, 427, 490, 481, 796, 274, 35, 553, 306, 126, 934, 749, 562, 987, 735, 36, 164, 201];
+
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
     public static readonly Case[] All =
     [
@@ -23,5 +25,9 @@ internal static class InklingFamilyCases
         // The same checkpoint through the fork's converter (tools/convert_tiny_gguf.py, GPT-2 pre-tokenizer); the fork's llama.cpp gives the
         // reference ids.
         new("tiny-random-inkling f32 GGUF (inkling, unsloth llama.cpp)", "gguf/tiny-random-inkling-f32.gguf", Prompt, "ids", InklingIds, ""),
+        // Inkling 2 Mini (inkling2_loop, tools/mk_tiny_inkling2.py): block attention residuals over normalized rows, per-token sinks, output gates,
+        // L2 clips, static and per-token key / value convolutions, softcapped SwiGLU experts, the loop over layers 2-5 run 3 times with message
+        // gates, the final logit soft cap and the unpadded vocabulary, in the release's layout (transformers 5.24 reference).
+        new("tiny-random-inkling2 HF (inkling2_loop)", "hf/tiny-random-inkling2", Prompt, "ids", Inkling2Ids, ""),
     ];
 }
