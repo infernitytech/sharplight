@@ -1,0 +1,10 @@
+ready=1 after 6 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 4.865154276019894, "agg_tok_s": 1683.8109410790867, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "shared_prefix_words": 0, "per_stream_tok_s": 112.45763333844734, "ttft_p50_ms": 62.86023848224431, "ttft_p95_ms": 155.09236945654266, "itl_mean_ms": 8.892237639311205, "itl_p50_ms": 8.183388970792294, "itl_p95_m
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 5.078080315026455, "agg_tok_s": 1613.2080415820133, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 107.24043079453752, "ttft_p50_ms": 62.03853548504412, "ttft_p95_ms": 154.42558105569333, "itl_mean_ms": 9.324841317692066, "itl_p50_ms": 8.327487972564995, "itl_p95_
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 5.94999530701898, "agg_tok_s": 4130.423425882142, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "shared_prefix_words": 0, "per_stream_tok_s": 73.96169838457752, "ttft_p50_ms": 166.39982350170612, "ttft_p95_ms": 645.8468450582586, "itl_mean_ms": 13.520511586961067, "itl_p50_ms": 10.340503533370793, "itl_p95
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 6.785160597995855, "agg_tok_s": 3622.021858592272, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03645833333334, "shared_prefix_words": 0, "per_stream_tok_s": 64.50857791064679, "ttft_p50_ms": 206.45441999658942, "ttft_p95_ms": 718.630375090288, "itl_mean_ms": 15.501814369325222, "itl_p50_ms": 12.10342301055789, "
+textcheck wave 16: 9/16 identical to single-request, 1 part within 3 words, 1 garbage -> FAIL
+  #8 ['symbols:0.28']: ' The essay should be at least 1500 words.\n**The Role of Water and Power in Modern History**  \n**Intr'
+textcheck wave 64: 30/64 identical to single-request, 1 part within 3 words, 0 garbage -> ok
+textcheck: GARBAGE
+TEXT CHECK FAILED (rc=1): batched greedy text differs from single-request text, see <checkout>/bench/results/r49/serve/serve_sharplight_fp8.textcheck.json

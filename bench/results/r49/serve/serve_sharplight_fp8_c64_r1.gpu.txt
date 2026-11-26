@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 19302 MiB, 297.16 W, 2280 MHz, 13365 MHz, 76, P1
+2749, kwin_wayland, 576 MiB
+4078952, code
+2728722, chrome
+3755265, Sharplight.

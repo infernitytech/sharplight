@@ -18252,3 +18252,103 @@ failed once in six CPU-only runs of the suite (steps `0,0,0,0,0,0,0,1,1,2`, timi
   capturing prepared shapes ahead needs the input copies captured without staged inputs.
 * The 64-stream p95 of the bucketed runs (42-54 against 37-41 ms) wants a closer look (pad rows on large prompt steps, or noise).
 * Gemma 31B host time per step (114.4).
+
+## 116. LLM round 49: back on the RTX PRO 6000 (188 SMs, 300 W): Qwen3-8B-FP8 against vLLM 0.33 re-measured, a multi-output single-row q / k / v matvec (one launch instead of three, bit-identical; decode steps that run their launches in order -1.4 to -9 %, recorded CUDA steps with concurrent lanes unchanged), the text check's Markdown false positive (2026-11-26)
+
+Issue #3 on the MultiClaude board, branch `issue-3` (`main` at `bf6cc6fe`). The RTX PRO 6000 Blackwell Max-Q of section 1 (96 GB,
+188 SMs, 300 W cap, driver 610.57.04), no CUDA toolkit installed. vLLM 0.33.0 in `~/.venvs/vllm` with `VLLM_USE_DEEP_GEMM=0` (DeepGEMM's
+JIT needs a toolkit, and the pip `nvidia/cu13` nvcc fails its build; §54 found CUTLASS's block-scaled kernel, which it takes instead,
+just as fast) and `VLLM_USE_FLASHINFER_SAMPLER=0` (FlashInfer's sampler JITs as well). Checkpoints: `Qwen/Qwen3-8B-FP8`,
+`openai/gpt-oss-20b`, and Llama-3.1-8B-Instruct from the `unsloth` mirror (same weights; the `meta-llama` repository is gated).
+Raw output in [`bench/results/r49/`](../bench/results/r49) (`gap/` the prefill / decode table and profiles, `serve/` serving,
+`mv/` the matvec A/Bs).
+
+**The GPU was not quiet for most of the round.** From 20:34 a remote-desktop session (krfb with kwin) took 40-50 % of the SMs each
+(`nvidia-smi pmon`), and whole-step times then became bimodal (back-to-back identical runs at ~128 and ~148 decode tok/s). The gap
+table (20:15-20:25) predates it; the serving runs and the step A/Bs do not, so the A/Bs below compare GPU-time minima of alternated
+runs and per-kernel minima, and the serving table is indicative only.
+
+Kept:
+
+1. **`matvec_sk_multi`** (matmul.slang, `matvec_sk_multi_member.slang`; `GraphLowerer.EmitMultiMatvec`, `MemberMatvecVariants`):
+   the q / k / v group of a decode step of one row runs as one launch over the three weight matrices; `SHARPLIGHT_MULTI_MATVEC=0`
+   keeps the three launches.
+2. `bench/textcheck.py`: Markdown markup tokens (`**`, `#`, `-`, `|`, ...) no longer count as symbols.
+
+### 116.1 Qwen3-8B-FP8 against vLLM on this GPU
+
+`bench/s42_gap.sh` (one process per length, median of 5 prefills after a warm-up; decode: Sharplight the median of 64 steps after the
+N-token prompt, vLLM tg128 at depth 16 / 8,192):
+
+| Qwen3-8B-FP8 | pp512 | pp2048 | pp8192 | decode, short | decode at 8,192 |
+|---|---:|---:|---:|---:|---:|
+| Sharplight (CUDA) | 20,260 | 22,710 | 18,405 | 131.1 (d512) | 117.5 |
+| vLLM 0.33 | 19,991 | 23,397 | 20,218 | 137.0 (d16) | 127.8 |
+| ratio | **1.01x** | **0.97x** | **0.91x** | 0.96x | 0.92x |
+
+Where the 8,192-row prefill goes (`gap/prof_fp8_8192.txt`, 392 ms GPU): FP8 GEMMs 274 ms (~415 TFLOPS on the 114 TFLOP of the
+projections), prefill attention 94.5 ms (~210 TFLOPS on 19.8 TFLOP of causal QK / PV), the rest norms, RoPE and the LM head. The
+pass of rows 6,144-8,191 takes 1.10 ms of attention per layer against 0.18-0.50 ms for the earlier ones (it attends to 2-7 times as
+many keys); attention is the longer prompts' gap. At decode the GPU time per step (7.5-7.75 ms, `gap/sl_qwen3-8b-fp8.txt`) is level
+with vLLM's whole step (7.3-7.8 ms); BatchBench's GPU minimum of a one-row step on the quiet GPU is 6.2 ms. Decode on this card is
+therefore within its run-to-run spread of vLLM; prefill at 8,192 rows (attention) is the remaining gap.
+
+Serving (`bench/s16_serve.sh`, 16 / 64 streams of ~250 + 128 tokens, both engines in one queue, during the remote-desktop load):
+
+| Qwen3-8B-FP8 | tok/s | TTFT p50 | ITL mean | p95 | p99 |
+|---|---:|---:|---:|---:|---:|
+| Sharplight, 16 streams (r1, r2) | 1684, 1613 | 63, 62 | 8.89, 9.32 | 9.9, 11.3 | 32.4, 33.5 |
+| vLLM, 16 streams | 1318, 1313 | 200, 204 | 10.70, 10.83 | 11.9, 12.3 | 12.7, 14.1 |
+| Sharplight, 64 streams | 4130, 3622 | 166, 206 | 13.52, 15.50 | 23.5, 28.8 | 84.0, 102.0 |
+| vLLM, 64 streams | 3591, 4130 | 515, 516 | 13.75, 12.13 | 14.2, 11.8 | 16.2, 51.6 |
+
+16 streams: 1.23-1.28x of vLLM's throughput at a third of its TTFT (p99 33 against 13-14 ms: one prompt step per arriving request,
+§114.7); 64 streams level within a 12 % spread between rounds of the same server. To be repeated on a quiet GPU.
+
+**Text check.** The first serving run "failed" its batched greedy text check with one garbage flag (`serve/serve_sharplight_fp8.textcheck.json`):
+a coherent completion that opens a Markdown title (`**The Role of Water and Power in Modern History**  \n**Introduction**`), whose `*`
+tokens made 28 % of its words "symbols" (limit 25 %). The other partings are the FP8 near ties §102 describes. Markup tokens are now
+fluent text; the same completion scores 6 % (its commas and periods), and runs of real punctuation garbage still fail.
+
+### 116.2 One launch for q / k / v at one row
+
+The q / k / v projections of a decode step of one row ran three split-K matvecs (Qwen3-8B-FP8, `gap/prof_fp8_8192.txt`: q 13.4 µs at
+~1.1 TB/s, k and v 5.6 µs each at ~0.6 TB/s; 4 MB matrices are latency bound), while every larger batch already had a multi-output
+form (§50, §100). `matvec_sk_multi` runs all three in one grid. Each member keeps its own split, so every output is bit-identical to
+its own launch's and batched rows (`RowInvariantRows`) keep matching single ones: a 256-thread workgroup holds 8 / MV_SK_SG teams of the
+member's subgroup count (4 for q at N 4,096, 8 for k / v), each team computes the member's MV_SK_ROWS rows exactly as one workgroup of
+its `matvec_sk` (same group stride, subgroup sums and partial order, the member's fma chain). The lowering records each member's
+single-row launch while it is lowered and emits the multi-output launch after the last, under the bindings where all three would run
+it; the members skip those, as do their separate epilogues (which follow it). q / k / v with a bias row keep their fused-bias matvecs
+(gpt-oss-20b unchanged: 377 launches per step before and after).
+
+Per layer, per-kernel minima (one-stream profiles, `--bench 64`), the three launches → the multi-output one:
+
+| model, provider | q + k + v (µs) | multi (µs) | launches per decode step | profile GPU time, 64 steps |
+|---|---:|---:|---:|---:|
+| Qwen3-8B-FP8, CUDA | 13.4 + 5.6 + 5.6 = 24.6 | 19.2 | 401 → 329 | |
+| Llama-3.1-8B bf16, CUDA | 22.8 + 7.7 + 7.7 = 38.2 | 33.3 | 357 → 293 | 688.9 → 674.5 ms (-2.1 %) |
+| Qwen3-8B-FP8, Vulkan | 13.1 + 5.6 + 5.6 = 24.3 | 18.2 | 473 → 401 | 554.6 → 542.1 ms (-2.3 %) |
+| Llama-3.1-8B bf16, Vulkan | 22.3 + 7.6 + 7.6 = 37.5 | 32.1 | 421 → 357 | (spread larger than the change) |
+
+Whole steps (BatchBench, 2 slots, 1 row, depth 256, greedy, 300 reps, GPU ms min, three alternated pairs; `mv/bb_q_*`): CUDA with the
+recorded step's concurrent lanes (the default) 6.49 / 6.61 / 6.68 → 6.52 / 6.64 / 6.59, unchanged: the lanes already run k and v beside
+q. Without lanes (`SHARPLIGHT_CUDA_CONCURRENT=0`) 7.13-7.16 → 6.53-6.83 (-4 to -9 %, an earlier pair -1.4 %). Vulkan 6.45-6.85 →
+6.45-6.95, within the spread. The single-sequence path of `--bench` and chat runs its launches on one stream (CLI, alternated: GPU
+minima 6.45-6.83 → 6.41-7.16, inside the bimodal spread of this session).
+
+Checks: greedy text of 200 tokens identical with and without it (Qwen3-8B-FP8 CUDA; Llama-3.1-8B CUDA and Vulkan), the logits of a
+one-token prompt (a one-row pass) bitwise identical (Qwen3-8B-FP8 CUDA and Vulkan), gpt-oss-20b's logits identical.
+
+### 116.3 Tests
+
+GPU 0 of this machine: `Sharplight.Cuda.Tests` 108, 0 failed, 1 skipped; `Sharplight.Core.Tests` 1,678, 0 failed, 331 skipped;
+`Sharplight.Serving.Tests` (`SHARPLIGHT_TEST_PROVIDER=cuda`) 435, 0 failed, 43 skipped; `Sharplight.Vulkan.Tests` (`-maxThreads 2`; a first run with the default parallelism was killed by the host's OOM killer while other slots ran) 1,875, 0 failed, 30 skipped.
+(This machine has no `~/models/tiny-*` assets, so the tests that need them skip.)
+
+### 116.4 Remaining
+
+* Prefill attention at 8,192 rows (~210 TFLOPS, 24 % of the pass): the 0.91x of pp8192.
+* The serving and step comparisons of this section again on a quiet GPU; Llama-3.1-8B and gpt-oss-20b gap tables on this card (their
+  checkpoints are now in `~/models/hfsnap/`).
+* The multi-output matvec for 2-8 rows and for biased q / k / v (`LowerMatMulBias`).
