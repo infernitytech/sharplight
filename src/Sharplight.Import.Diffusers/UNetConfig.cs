@@ -86,7 +86,10 @@ internal sealed record UNetConfig
         int[] channels = config.Ints("block_out_channels");
         int levels = channels.Length;
         string[] downTypes = config.Strings("down_block_types");
-        string[] upTypes = config.Strings("up_block_types");
+        // A ControlNet's configuration has the down path only; its (unused) up path mirrors it.
+        string[] upTypes = config.TryGetProperty("up_block_types", out var up) && up.ValueKind == JsonValueKind.Array
+            ? config.Strings("up_block_types")
+            : [.. downTypes.Reverse()];
         int[] perLevel = config.IntOrList("transformer_layers_per_block", 1, levels);
         int[] heads = config.TryGetProperty("num_attention_heads", out var explicitHeads) && explicitHeads.ValueKind != JsonValueKind.Null
             ? config.IntOrList("num_attention_heads", 8, levels)
@@ -136,7 +139,9 @@ internal sealed record UNetConfig
         int layers = Count(weights, "unet.down.0.res.");
         int[] channels = [.. Enumerable.Range(0, levels).Select(l => (int)weights[$"unet.down.{l}.res.0.conv1.weight"].Shape[0].Fixed)];
         int[] down = [.. Enumerable.Range(0, levels).Select(l => Count(weights, $"unet.down.{l}.attn.0.blocks."))];
-        int[] up = [.. Enumerable.Range(0, levels).Select(l => Count(weights, $"unet.up.{l}.attn.0.blocks."))];
+        // A ControlNet has the down half only: its (unused) up path mirrors the down path, it predicts as many channels as it reads.
+        bool upPath = weights.ContainsKey("unet.output_conv.weight");
+        int[] up = upPath ? [.. Enumerable.Range(0, levels).Select(l => Count(weights, $"unet.up.{l}.attn.0.blocks."))] : [.. down.Reverse()];
         int mid = Count(weights, "unet.mid.attn.0.blocks.");
         var crossKey = weights.Keys.First(k => k.EndsWith(".cross.k.weight", StringComparison.Ordinal));
         int context = (int)weights[crossKey].Shape[1].Fixed;
@@ -145,7 +150,7 @@ internal sealed record UNetConfig
         return new UNetConfig
         {
             InChannels = (int)weights["unet.input_conv.weight"].Shape[1].Fixed,
-            OutChannels = (int)weights["unet.output_conv.weight"].Shape[0].Fixed,
+            OutChannels = upPath ? (int)weights["unet.output_conv.weight"].Shape[0].Fixed : (int)weights["unet.input_conv.weight"].Shape[1].Fixed,
             BlockChannels = channels,
             LayersPerBlock = layers,
             DownTransformerDepths = down,

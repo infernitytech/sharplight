@@ -21,6 +21,14 @@ public sealed record CatalogCompanion : CatalogFileSet
     /// <summary><see cref="Role"/> followed by <see cref="AdditionalRoles"/>.</summary>
     public IEnumerable<string> AllRoles => [Role, .. AdditionalRoles];
 
+    /// <summary>
+    /// Whether the files go beside the variant's own files instead of being passed in <see cref="Role"/>: for a release whose files
+    /// are split over repositories and whose importer expects them in one folder (SeedVR2 7B's DiT and VAE with the text embeddings of
+    /// the 3B repository). <see cref="Role"/> still names what the files are (older hosts, which do not know this property, pass them
+    /// in that role).
+    /// </summary>
+    public bool IntoVariantFolder { get; init; }
+
     /// <summary>What the companion is, e.g. <c>T5-XXL encoder (Q8_0)</c>.</summary>
     public required string Label { get; init; }
 }

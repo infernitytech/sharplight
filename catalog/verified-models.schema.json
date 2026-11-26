@@ -309,7 +309,9 @@
                     "vae",
                     "lora",
                     "transformer-2",
-                    "image-encoder"
+                    "image-encoder",
+                    "tiny-vae",
+                    "controlnet"
                   ]
                 },
                 "additionalRoles": {
@@ -326,6 +328,9 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "intoVariantFolder": {
+                  "type": "boolean"
                 },
                 "label": {
                   "type": "string"

@@ -532,8 +532,21 @@ await foreach (var update in generator.GenerateStreamingAsync(request, options))
   applies to the primary's canonical weights before the adapter builds the model (W + s · α / r · up · down, computed when the weight
   is read; quantized weights become f16). The diffusers importer reads kohya-ss files (SD 1.x diffusers names, SDXL's SGM names,
   FLUX's original names with fused q/k/v), diffusers / PEFT files (`lora_A` / `lora_B`, also with fused targets split into row blocks)
-  and ComfyUI's, for SD 1.x / 2.x / XL, FLUX, Chroma and Qwen-Image; LyCORIS / DoRA variants are rejected. A package saved with
-  `sharplight-convert` keeps the merged weights.
+  and ComfyUI's, for SD 1.x / 2.x / XL, FLUX, Chroma and Qwen-Image. LyCORIS files merge the same way (LoCon with its Tucker core, LoHa,
+  LoKr, full `diff` modules) and DoRA modules (`dora_scale`, PEFT's `lora_magnitude_vector`) renormalize the merged weight to their
+  magnitude as PEFT does (the strength scales the difference inside the norm). A package saved with `sharplight-convert` keeps the
+  merged weights.
+- Tiny autoencoder (TAESD: taesd, taesdxl, taesd3, taef1): the auxiliary role `AuxiliaryRoles.TinyVae` (`tiny-vae`) adds it as the
+  model's `tiny-vae` component (graphs `DiffusionGraphs.TinyVaeDecode` / `TinyVaeEncode`, the VAE graphs' contract) beside its VAE, for
+  SD 1.x / 2.x / XL, SD3, FLUX.1, Chroma and Z-Image; a tiny autoencoder for another latent space fails on load. Previews
+  (`PreviewInterval`) then come from it at the full size, and `ImageGenerationOptions.TinyAutoencoder` decodes (and encodes) the request's
+  images with it instead of the VAE; `ImageGenerationDefaults.TinyAutoencoder` tells front ends that it is there.
+- ControlNet (SD 1.x / 2.x / XL): the auxiliary role `AuxiliaryRoles.ControlNet` (`controlnet`; diffusers' `ControlNetModel` folders or
+  the original `control_model.*` files) adds the `controlnet` component with the graph `DiffusionGraphs.DenoiseControl` (the UNet with
+  the ControlNet's residuals, inputs `control_image` and `control_scale`). `ImageGenerationRequest.ControlImage` (an edge map, depth
+  map, ...; resized to the output size, which defaults to its size) turns it on; `ControlScale` (default 1), `ControlStart` / `ControlEnd`
+  (fractions of the steps, diffusers' `control_guidance_start` / `_end`) shape it. Both rows of a guided step see the control image.
+  Both add-ons are stored in a `.slm` like the model's own components.
 
 ```csharp
 using var model = TaskModel.Load(loader, new TaskLoadOptions

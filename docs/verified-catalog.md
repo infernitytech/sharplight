@@ -76,8 +76,12 @@ Readers that do not know the field ignore it (the schema does not forbid extra m
 
 Formats: `gguf`, `safetensors`, `pytorch` (`.bin` / `.pth`), `diffusers`, `single-file`, `whisper-cpp`, `onnx`, `slm`. Companion roles
 are the auxiliary roles of `Sharplight.Vision.AuxiliaryRoles` (`mmproj`, `vocoder`, `text-encoder`, `text-encoder-2`, `text-encoder-3`,
-`vae`, `transformer-2`, `image-encoder`, `draft`, `lora`): at install time each companion is passed to the converter in that role, so the
-installed package is complete and the Image, Video and Speak pages load it without picking companion files by hand.
+`vae`, `transformer-2`, `image-encoder`, `draft`, `lora`, `tiny-vae`, `controlnet`): at install time each companion is passed to the converter in that role, so the
+installed package is complete and the Image, Video and Speak pages load it without picking companion files by hand. A companion with
+`"intoVariantFolder": true` is instead downloaded into the variant's own folder and not passed in a role: for official releases whose
+files are split over repositories while the importer expects them in one folder (SeedVR2 7B: the DiT and VAE of `SeedVR2-7B` with the
+text embeddings `pos_emb.pt` / `neg_emb.pt` of `SeedVR2-3B`). Its `role` still names what the files are; hosts that do not know the
+field pass them in that role.
 
 Entries without variants are documented only (rows of compatible-models.md for models whose exact files are not known, families, tiny
 checkpoints); Studio lists the installable ones (`verified` or `partial` with at least one variant; partial entries carry a badge and
@@ -115,7 +119,9 @@ Q8_0 (CLIP-L, CLIP-G, T5, VAE from the pipeline), Z-Image-Turbo Q8_0 and Qwen-Im
 (SNAC), OuteTTS (WavTokenizer) and F5-TTS (Vocos), plus Kokoro, whisper.cpp, Silero VAD and a GGUF without companions; on 2026-11-17 also
 FLUX.2 Klein 4B Q8_0 and Qwen-Image 2.1 / 2.1 Turbo Q8_0 (pipeline text encoder and VAE), Wan 2.2 TI2V 5B Q8_0 and HunyuanVideo Q4_K_M (the
 pipeline folder without its transformer weights, one download in the text-encoder and VAE roles). Every one built a complete package.
-The Wan 2.2 A14B and Wan 2.1 I2V / FLF2V installs use the same folder subset (Wan 2.1's) and the roles of their verification tests; their
+On 2026-11-26 the feed builder (`feedtool build`, the same download and conversion) built `sd-1.5-controlnet-canny` (the SD 1.5 folder
+with the ControlNet in the `controlnet` role) and `stable-diffusion-1.5` / `fp16-diffusers-taesd` (TAESD in the `tiny-vae` role) from the Hub
+into complete packages. The Wan 2.2 A14B and Wan 2.1 I2V / FLF2V installs use the same folder subset (Wan 2.1's) and the roles of their verification tests; their
 conversion was not run through the installer (the Wan 2.1 umT5 files were not available locally). `RealCatalogInstallTests` installs whisper-tiny from the committed catalog against the real Hub
 (`SHARPLIGHT_HUB_NETWORK_TESTS=1`).
 
@@ -126,9 +132,13 @@ conversion was not run through the installer (the Wan 2.1 umT5 files were not av
 - installable entries have a verification summary, providers and date;
 - every variant and companion has a repository id, a 40-hex lower-case revision, a non-empty file list (unique relative paths, sizes,
   a sha256 or git oid each) and a primary path that is a listed file or a directory of one;
-- formats and roles known, companion ids unique, every companion used by a variant and every variant's companions defined;
+- formats and roles known, companion ids unique, every companion used by a variant and every variant's companions defined; a companion
+  that goes into the variant's folder has no file of the same path as the variant's;
 - a variant `level` is verified or partial and not above the entry's; a partial variant of a verified entry has a `verification` note;
   `quality` is a known tier.
+- (catalog tool `validate` only) `updated` is not older than the latest verification date: set it to the day of every change, since
+  hosts replace their copy only with a catalog of a later (or the same) date. Entries verified on 2026-11-24 went into the catalog of
+  2026-11-20 without a new date, and Studio builds of 2026-11-20 to 2026-11-23 kept their embedded copy without them.
 
 ## Tool
 
@@ -161,8 +171,8 @@ The catalog is also the source of the model feed (docs/model-feed.md): `tools/mo
 installable variant at its pinned revision, with license, publisher and verification taken from the entry.
 
 Studio embeds the catalog at build time and, when online, fetches `https://download.sharplight.dev/catalog/verified-models.json`
-(at most once a day), uses it when its schema version is supported, it validates and its `updated` date is newer than the embedded
-copy's, and caches it in Studio's data directory; offline, or when the download is not valid, the cached or embedded copy is used.
+(at most once a day), uses it when its schema version is supported, it validates and its `updated` date is not older than the
+embedded copy's (on the same date the published copy wins), and caches it in Studio's data directory; offline, or when the download is not valid, the cached or embedded copy is used.
 The `catalog` job of `.github/workflows/studio.yml` validates the catalog (and that compatible-models.md matches it) on every run and,
 on pushes to develop, uploads it to R2 as `catalog/verified-models.json` (bucket and credentials of the `studio-release` environment, the
 same as the Studio packages; `STUDIO_CATALOG_KEY` overrides the key), so Studio installs pick up newly verified models without a

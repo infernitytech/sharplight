@@ -1,11 +1,14 @@
 {
   "entries": [
-    "qwen3.5-122b-a10b:q6-k-gguf",
-    "qwen3.5-122b-a10b:fp8-safetensors",
-    "qwen3.8-flash-next:fp8-safetensors"
+    "sd-1.5-controlnet-canny:fp16-diffusers",
+    "sdxl-controlnet-canny-1.0:fp16-diffusers",
+    "stable-diffusion-1.5:fp16-diffusers-taesd",
+    "sdxl-base-1.0:fp16-diffusers-taesdxl",
+    "sd3.5-medium:fp16-diffusers-taesd3",
+    "flux.1-schnell:q8-0-gguf-taef1"
   ],
   "channel": "unstable",
   "promote": [],
   "validityDays": 30,
-  "reason": "Publish the three largest mixture-of-experts variants with routed-expert figures (they needed more free disk on the runner than run 45054150496 had)."
+  "reason": "Publish the image-generation add-ons verified on 2026-11-26: the SD 1.5 and SDXL Canny ControlNets (official lllyasviel / diffusers releases with their base pipelines) and the TAESD / TAESDXL / TAESD3 / TAEF1 variants of SD 1.5, SDXL base, SD3.5 Medium and FLUX.1-schnell."
 }

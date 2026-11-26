@@ -17398,7 +17398,7 @@ weights in bf16 runs):
 3B, 33 frames, 960 × 544 → 1920 × 1088: both run out of memory. PyTorch in the VAE decoder in all three settings; Sharplight in the
 VAE decoder too, which needs 38.8 GB of activations at this size (`raw/memory-cuda.log`).
 
-7B (fp16 safetensors), 17 frames, 416 × 240 → 832 × 480 (PyTorch: no offload, DiT weights in bf16):
+7B (the ComfyUI conversion `seedvr2_ema_7b_fp16.safetensors`, not the official release; the official files: §108.5), 17 frames, 416 × 240 → 832 × 480 (PyTorch: no offload, DiT weights in bf16):
 
 | implementation | total | read | encode | DiT | decode | write | peak memory | worst frame vs PyTorch |
 |---|---|---|---|---|---|---|---|---|
@@ -17444,6 +17444,25 @@ full-resolution levels run frame by frame.
 * 1080p output: needs spatial tiling of the VAE (the official script has none either; it fails at the same size).
 * The VAE's convolution speed (108.2).
 * `torch.compile`: not offered by the official inference script, so not used.
+
+### 108.5 The official 7B and 7B sharp (2026-11-25)
+
+The 7B rows above were measured on the ComfyUI conversion (numz/SeedVR2_comfyUI `seedvr2_ema_7b_fp16.safetensors`), not on the
+official release; like the 3B's conversion it is not a plain cast of the official weights. Measured again on the official files of
+`ByteDance-Seed/SeedVR2-7B` (`seedvr2_ema_7b.pth` and `seedvr2_ema_7b_sharp.pth`, f32, with `ema_vae.pth`; `pos_emb.pt` / `neg_emb.pt` of
+the official 3B repository, identical to the GitHub release), same harness (`run-bench.sh`, `ARCH=7b`, `DIT_WEIGHTS=bf16`, round script
+`raw/round-7b-official.sh`), 17 frames of the fox clip, 416 × 240 → 832 × 480, both GPU locks held:
+
+* Precision. PyTorch: the official bf16 autocast for the DiT and the bf16 VAE, the DiT's f32 weights cast to bf16 at load (the f32 copy
+  plus activations does not fit 32 GB), no offload, flash attention. Sharplight: `--reduced-precision` (the DiT's matrices in f16, f32
+  activations and accumulation).
+* Parity (Sharplight on PyTorch's decoded frames and noise, worst / mean frame): 7B **44.2 / 45.1 dB** on CUDA and Vulkan (44.20 and
+  44.21 dB); 7B sharp **42.7 / 44.0 dB** on CUDA, 42.6 / 44.0 dB on Vulkan. The bf16-held weights of the reference account for the gap to
+  the 3B's 49-50 dB (as in the ComfyUI file's 43.6-44.8 dB).
+* Time, end to end (median of 3 after one warm-up): Sharplight CUDA 5.24 s (7B) / 5.58 s (sharp), Vulkan 5.92 s / 4.98 s (DiT 0.90-1.08 s);
+  PyTorch's runs on the shared GPU varied (best 11.4 s and 8.3 s; DiT 1.3-4.7 s, the colour fix on the CPU 2.2-6.5 s), so no speed
+  ratio is claimed from this round. Peak device memory: Sharplight 30.0 GiB (compiled graphs are kept while memory lasts), PyTorch 30.7 GiB.
+* Raw output: `raw/7b-official-*` and `raw/7b-sharp-official-*`.
 
 ## 109. LLM round 46: a KV admission policy at KV saturation (queue, the default, or preempt with recomputation as vLLM does: Llama-3.1-8B bf16 at 256 streams TTFT p50 3.9 → 2.0 s for -4 % tok/s); the FP8 (E4M3) KV cache, default off (decode attention -38 % per layer, Qwen3-8B-FP8 256-row decode steps -12 %; throughput and accuracy partly pending) (2026-11-25)
 

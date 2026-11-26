@@ -60,6 +60,18 @@ internal sealed record DiffusionRun
     /// <summary>The aesthetic score of the negative prompt's row.</summary>
     public float NegativeAestheticScore { get; init; }
 
+    /// <summary>Whether the image is decoded (and an input image encoded) by the tiny autoencoder.</summary>
+    public bool TinyAutoencoder { get; init; }
+
+    /// <summary>The scale of the ControlNet's residuals.</summary>
+    public float ControlScale { get; init; } = 1f;
+
+    /// <summary>The fraction of the steps before which the ControlNet does not apply.</summary>
+    public float ControlStart { get; init; }
+
+    /// <summary>The fraction of the steps after which the ControlNet does not apply.</summary>
+    public float ControlEnd { get; init; } = 1f;
+
     /// <summary>Denoiser rows per evaluation: 1 unguided, 2 with classifier-free guidance, 3 with image guidance as well.</summary>
     public int Rows => !Guided ? 1 : ImageGuidance > 0 ? 3 : 2;
 

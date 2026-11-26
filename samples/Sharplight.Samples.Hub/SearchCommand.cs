@@ -11,6 +11,7 @@ public sealed class SearchCommand(StoreOptionSet store, SampleRuntime runtime)
     private const string FormatGguf = "gguf";
     private const string FormatSafetensors = "safetensors";
     private const string FormatOnnx = "onnx";
+    private const string FormatPyTorch = "pytorch";
 
     private readonly Argument<string> _query = new("query") { Description = "Text to search for in repository names." };
 
@@ -24,7 +25,7 @@ public sealed class SearchCommand(StoreOptionSet store, SampleRuntime runtime)
 
     public Command Build()
     {
-        _format.AcceptOnlyFromAmong(FormatGguf, FormatSafetensors, FormatOnnx);
+        _format.AcceptOnlyFromAmong(FormatGguf, FormatSafetensors, FormatOnnx, FormatPyTorch);
         var command = new Command("search", "Searches Hugging Face for models (most downloaded first) with parameter counts, formats and the variants (GGUF quantizations) that pull accepts as tags.");
         command.Arguments.Add(_query);
         command.Options.Add(_format);
@@ -71,6 +72,7 @@ public sealed class SearchCommand(StoreOptionSet store, SampleRuntime runtime)
         FormatGguf => ModelFormat.Gguf,
         FormatSafetensors => ModelFormat.Safetensors,
         FormatOnnx => ModelFormat.Onnx,
+        FormatPyTorch => ModelFormat.PyTorch,
         _ => null,
     };
 

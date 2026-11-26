@@ -6,8 +6,8 @@ using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.ViewModels.Chat;
 using Sharplight.Studio.ViewModels.Image;
 using Sharplight.Studio.ViewModels.Inference;
-using Sharplight.Studio.Models;
 using Sharplight.Studio.ViewModels.Models;
+using Sharplight.Studio.ViewModels.Navigation;
 using Sharplight.Studio.ViewModels.Search;
 using Sharplight.Studio.ViewModels.Server;
 using Sharplight.Studio.ViewModels.Settings;
@@ -48,7 +48,8 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         About = new AboutViewModel(services.Platform, services.Updates.CurrentVersion);
         LicenseDialog = new LicenseDialogViewModel(services.Licenses, services.Platform, services.Dispatcher);
         StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
-        Pages = [Chat, Transcribe, Speak, Search, Audio, Image, Video, Enhance, Vision, Tasks, Models, Server, Stats];
+        Navigation = new NavigationViewModel(this, services.Settings);
+        Pages = [.. Navigation.Items.Select(item => item.Page).Where(page => !ReferenceEquals(page, Settings)).Distinct()];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         services.Server.StateChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         UpdateStatus();
@@ -121,7 +122,10 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     /// <summary>The download queue, for the indicator shown on every page.</summary>
     public DownloadsViewModel Downloads => Models.Downloads;
 
-    /// <summary>Main navigation entries.</summary>
+    /// <summary>The grouped navigation and the routing from a model kind to its page.</summary>
+    public NavigationViewModel Navigation { get; }
+
+    /// <summary>The pages of the navigation in its order, each once (the Settings page excepted: the application menu has its own item).</summary>
     public ObservableCollection<PageViewModel> Pages { get; }
 
     /// <summary>The visible page.</summary>
@@ -227,34 +231,19 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     /// <inheritdoc/>
     public bool OpenKind(string kind, ILoadedModel? model)
     {
-        InferencePageViewModel? page = kind switch
+        var item = Navigation.ForKind(kind);
+        switch (item?.Page)
         {
-            Sharplight.Models.ModelKinds.SpeechRecognition => Transcribe,
-            Sharplight.Models.ModelKinds.SpeechSynthesis => Speak,
-            ModelKindCatalog.Embeddings or ModelKindCatalog.Reranker => Search,
-            Sharplight.Models.ModelKinds.AudioCodec or Sharplight.Models.ModelKinds.VoiceActivity => Audio,
-            Sharplight.Models.ModelKinds.ImageGeneration => Image,
-            Sharplight.Models.ModelKinds.VideoGeneration => Video,
-            Sharplight.Models.ModelKinds.VideoEnhancement => Enhance,
-            Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding
-                or Sharplight.Models.ModelKinds.ObjectDetection or Sharplight.Models.ModelKinds.DepthEstimation or Sharplight.Models.ModelKinds.ImageSegmentation or Sharplight.Models.ModelKinds.SemanticSegmentation
-                or Sharplight.Models.ModelKinds.Ocr or Sharplight.Models.ModelKinds.ImageUpscaling => Vision,
-            _ => null,
-        };
-        if (page is null)
-        {
-            if (kind == Sharplight.Models.ModelKinds.TextGeneration)
-            {
+            case ChatPageViewModel:
                 OpenChat(model);
                 return true;
-            }
-
-            return false;
+            case InferencePageViewModel page:
+                page.SelectModel(model);
+                _ = NavigateAsync(page);
+                return true;
+            default:
+                return false;
         }
-
-        page.SelectModel(model);
-        _ = NavigateAsync(page);
-        return true;
     }
 
     /// <inheritdoc/>
@@ -275,6 +264,19 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     public void OpenDiscover(Sharplight.Hub.ModelTask task)
     {
         Models.Discover.Filters.Apply(Models.Discover.Filters.Current with { Task = task });
+        OpenDiscover();
+    }
+
+    /// <inheritdoc/>
+    public void OpenVerifiedModels(string kind)
+    {
+        Models.Discover.ShowVerifiedKind(kind);
+        if (Models.Discover.Filters.Current.Task is not null)
+        {
+            // The kind has no Hub task: a task left from an earlier visit would select another kind's list.
+            Models.Discover.Filters.Apply(Models.Discover.Filters.Current with { Task = null });
+        }
+
         OpenDiscover();
     }
 

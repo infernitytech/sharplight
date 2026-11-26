@@ -63,7 +63,7 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(options);
-        var src = sources.Primary;
+        var src = DiffusionAddOns.Merge(sources, acceptsControlNet: true);
         var unet = UNetHyperParameters.Read(src, Prefix);
         var vae = AutoencoderHyperParameters.Read(src, Prefix);
         var text = ClipTextHyperParameters.Read(src, Prefix, "text_encoder");
@@ -90,6 +90,21 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
             [DiffusionGraphs.VaeDecode] = AutoencoderGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = AutoencoderGraphBuilder.BuildEncoder(src.Weight, vae, height, width),
         };
+        DiffusionAddOns.AddTinyAutoencoder(src, graphs, vae.LatentChannels, downscale, latentHeight, latentWidth);
+        if (ControlNetHyperParameters.IsPresent(src))
+        {
+            var control = ControlNetHyperParameters.Read(src);
+            if (control.UNet.ContextDim != unet.ContextDim || control.UNet.BlockChannels.Length != unet.BlockChannels.Length
+                || control.UNet.ClassEmbeddingInput != unet.ClassEmbeddingInput)
+            {
+                throw new NotSupportedException($"The ControlNet ({control.UNet.BlockChannels.Length} levels, {control.UNet.ContextDim}-wide text conditioning) "
+                    + $"is not for {src.Get(CanonicalKeys.Name, src.Architecture)} ({unet.BlockChannels.Length} levels, {unet.ContextDim}-wide): SD 1.x ControlNets "
+                    + "condition SD 1.x UNets, SDXL ControlNets SDXL UNets.");
+            }
+
+            graphs[DiffusionGraphs.DenoiseControl] = UNetGraphBuilder.Build(src.Weight, unet, latentHeight, latentWidth, text.ContextLength, control);
+        }
+
         if (secondText is not null)
         {
             graphs[DiffusionGraphs.TextEncode2] = ClipTextGraphBuilder.Build(src.Weight, secondText, SecondTextEncoderPrefix, DiffusionGraphs.TextEncode2,
@@ -112,7 +127,7 @@ public sealed class LatentDiffusionAdapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
-            Description = Describe(src, unet, vae, text, secondText is not null, attachments.Count > 0),
+            Description = DiffusionAddOns.WithAddOns(Describe(src, unet, vae, text, secondText is not null, attachments.Count > 0), graphs),
         };
     }
 

@@ -37,10 +37,8 @@
         </StackPanel>
       </DockPanel>
       <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" IsIndeterminate="{Binding IsIndeterminate}" IsVisible="{Binding IsActive}" />
-      <DockPanel IsVisible="{Binding FileText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-        <ProgressBar DockPanel.Dock="Right" Classes="thin" Width="120" Minimum="0" Maximum="1" Value="{Binding FileProgress}" VerticalAlignment="Center" />
-        <TextBlock Classes="caption" Text="{Binding FileText}" TextTrimming="CharacterEllipsis" />
-      </DockPanel>
+      <TextBlock Classes="caption" Text="{Binding FileText}" TextTrimming="CharacterEllipsis"
+                 IsVisible="{Binding FileText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
       <TextBlock Classes="caption" Text="{Binding Message}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
     </StackPanel>
   </Border>

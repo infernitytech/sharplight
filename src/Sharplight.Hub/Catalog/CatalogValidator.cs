@@ -22,6 +22,7 @@ public static partial class CatalogValidator
     [
         AuxiliaryRoles.Mmproj, AuxiliaryRoles.Draft, AuxiliaryRoles.Vocoder, AuxiliaryRoles.TextEncoder, AuxiliaryRoles.SecondTextEncoder,
         AuxiliaryRoles.ThirdTextEncoder, AuxiliaryRoles.Vae, AuxiliaryRoles.Lora, AuxiliaryRoles.SecondTransformer, AuxiliaryRoles.ImageEncoder,
+        AuxiliaryRoles.TinyVae, AuxiliaryRoles.ControlNet,
     ];
 
     /// <summary>The kind of text embedding models (not a <see cref="ModelKinds"/> value).</summary>
@@ -196,6 +197,13 @@ public static partial class CatalogValidator
             }
 
             ValidateFiles($"companion {companion.Id}", companion, Problem);
+            foreach (var variant in entry.Variants.Where(variant => companion.IntoVariantFolder && variant.Companions.Contains(companion.Id)))
+            {
+                foreach (var file in companion.Files.Where(file => variant.Files.Any(own => string.Equals(own.Path, file.Path, StringComparison.OrdinalIgnoreCase))))
+                {
+                    Problem($"companion {companion.Id}: '{file.Path}' goes into the folder of variant {variant.Id}, which has a file of that name");
+                }
+            }
         }
     }
 
