@@ -283,12 +283,13 @@ public class Qwen3TtsVariantTests
         string transcript = Info(name).GetProperty("reference_text").GetString()!;
         var profile = await cloner.CreateVoiceAsync("clone", recording, transcript, TestContext.Current.CancellationToken);
         var stored = VoiceLibraryRoundTrip(profile);
-        var greedy = new SamplingOptions { Temperature = 0f, RepetitionPenalty = 1.05f };
-        var fromProfile = await synthesizer.SynthesizeAsync("Good morning.", new SpeechSynthesisOptions { Language = "english", VoiceProfile = stored, Sampling = greedy },
+        // The model's own sampling with a seed (greedy in-context cloning tends not to stop).
+        var seeded = new SamplingOptions { Seed = 7 };
+        var fromProfile = await synthesizer.SynthesizeAsync("Good morning.", new SpeechSynthesisOptions { Language = "english", VoiceProfile = stored, Sampling = seeded },
             TestContext.Current.CancellationToken);
         var fromRecording = await synthesizer.SynthesizeAsync("Good morning.", new SpeechSynthesisOptions
         {
-            Language = "english", ReferenceAudio = recording, ReferenceText = transcript, Sampling = greedy,
+            Language = "english", ReferenceAudio = recording, ReferenceText = transcript, Sampling = seeded,
         }, TestContext.Current.CancellationToken);
         Assert.Equal(fromRecording.Audio.Samples, fromProfile.Audio.Samples);
         Assert.InRange(fromProfile.Audio.Samples.Length, 4800, 24000 * 10);
@@ -311,6 +312,24 @@ public class Qwen3TtsVariantTests
                 Directory.Delete(folder, recursive: true);
             }
         }
+    }
+
+    /// <summary>The voice-design model speaks a request with the voice its instruction describes (the model's own sampling).</summary>
+    [Fact]
+    public async Task Voice_design_speaks_with_an_instruction()
+    {
+        RequireFiles("design-1.7b");
+        using var model = TtsModels.Load(TtsModels.Open(false), TtsModels.Qwen3TtsVoiceDesign);
+        using var synthesizer = TtsModels.Synthesizer(model);
+        Assert.Empty(synthesizer.Voices);
+        Assert.True(((Qwen3TtsSynthesizer)synthesizer).AcceptsInstructions);
+        Assert.Null(synthesizer.GetService(typeof(IVoiceCloner)));
+        var result = await synthesizer.SynthesizeAsync("Hi there.", new SpeechSynthesisOptions
+        {
+            Language = "english", Instructions = "An old man with a deep, raspy voice.", Sampling = new SamplingOptions { Seed = 1 },
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(24000, result.Audio.SampleRate);
+        Assert.InRange(result.Audio.Samples.Length, 4800, 24000 * 10);
     }
 
     /// <summary>A voice-cloning model has no built-in voices, reads no instructions and asks for a reference recording.</summary>

@@ -196,9 +196,12 @@ internal sealed class Qwen3TtsHfMapping : IHfArchitectureMapping
             }
         }
 
-        // The code predictor's decoder takes embedding rows only; its first head stands in for the vocabulary (the host applies the head of each step).
-        predictorTensors["model.embed_tokens.weight"] = tensors[CodePredictor + "model.codec_embedding.0.weight"];
-        predictorTensors["lm_head.weight"] = tensors[CodePredictor + "lm_head.0.weight"];
+        // The code predictor's decoder takes embedding rows only; its first head stands in for the vocabulary (the host applies the head of each step). Its codebook
+        // embeddings have the talker's width (the host projects them), so when the two widths differ (1.7B) the head stands in for the embedding table too.
+        var embedding = tensors[CodePredictor + "model.codec_embedding.0.weight"];
+        var head = tensors[CodePredictor + "lm_head.0.weight"];
+        predictorTensors["model.embed_tokens.weight"] = embedding.Shape[^1] == head.Shape[^1] ? embedding : head;
+        predictorTensors["lm_head.weight"] = head;
         var mapping = new DecoderHfMapping();
         using (var config = Qwen3Config(talker, c.Directory))
         {
