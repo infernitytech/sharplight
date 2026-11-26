@@ -231,9 +231,13 @@ internal sealed unsafe partial class CpuCompiledSegment
 
         var y = NewChannelsLast(n.Output);
         var epilogue = AbsorbEpilogue(n.Output, y);
-        CpuOp op = kind == 1
-            ? ChannelsLastConvOp.Create(x, w, (int)weight.Dims[2], (int)weight.Dims[3], bias, y, strides, pads, dil, epilogue)
-            : new ChannelsLastDepthwiseOp(x, w, (int)weight.Dims[2], (int)weight.Dims[3], bias, y, strides, pads, dil, epilogue);
+        int kh = (int)weight.Dims[2];
+        int kw = (int)weight.Dims[3];
+        CpuOp op = kind == 2
+            ? new ChannelsLastDepthwiseOp(x, w, kh, kw, bias, y, strides, pads, dil, epilogue)
+            : WinogradConvOp.Applies((int)x.Dims[1], (int)y.Dims[1], (int)y.Dims[2], (int)y.Dims[3], kh, kw, strides, dil, epilogue)
+            ? WinogradConvOp.Create(x, w, bias, y, pads, epilogue, () => ChannelsLastConvOp.Create(x, w, kh, kw, bias, y, strides, pads, dil, epilogue))
+            : ChannelsLastConvOp.Create(x, w, kh, kw, bias, y, strides, pads, dil, epilogue);
         AddStep(op, Touched(x, bias, y, epilogue?.Residual));
         _refs[n.Output] = y;
         return true;

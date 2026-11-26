@@ -11,7 +11,7 @@ internal sealed unsafe partial class ChannelsLastConvOp
     /// sum of ptrs[s][i][k] * b[s * len + k][j] + residual[i][j], lo, hi).
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void Kernel8x32(float** ptrs, int s0, int s1, int k0, int k1, int len, float* b, float* bias, bool acc, float* c, long ldc, float* residual, float lo, float hi)
+    internal static void Kernel8x32(float** ptrs, int s0, int s1, int k0, int k1, int len, float* b, float* bias, bool acc, float* c, long ldc, float* residual, float lo, float hi)
     {
         Vector512<float> c00;
         Vector512<float> c01;
@@ -289,7 +289,7 @@ internal sealed unsafe partial class ChannelsLastConvOp
     /// sum of ptrs[s][i][k] * b[s * len + k][j] + residual[i][j], lo, hi).
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void Kernel6x16(float** ptrs, int s0, int s1, int k0, int k1, int len, float* b, float* bias, bool acc, float* c, long ldc, float* residual, float lo, float hi)
+    internal static void Kernel6x16(float** ptrs, int s0, int s1, int k0, int k1, int len, float* b, float* bias, bool acc, float* c, long ldc, float* residual, float lo, float hi)
     {
         Vector256<float> c00;
         Vector256<float> c01;

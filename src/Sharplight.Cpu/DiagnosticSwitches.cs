@@ -11,6 +11,7 @@ namespace Sharplight.Cpu;
 /// <item><c>SHARPLIGHT_CPU_GEMM_MIN_ROWS=n</c>: override the row thresholds from which matmul takes the GEMM path.</item>
 /// <item><c>SHARPLIGHT_CPU_NO_PAIR=1|true</c>: lower the gate and up expert projections of a layer separately instead of as one pair.</item>
 /// <item><c>SHARPLIGHT_CPU_PROFILE=1|true|min</c>: per-op timing report (<c>min</c>: minimum per op instance).</item>
+/// <item><c>SHARPLIGHT_CPU_WINOGRAD=auto|n|0</c>: from which batch (0: never) 3x3 stride-1 channels-last convs run by Winograd F(4x4, 3x3) (<see cref="WinogradConvOp.Policy"/>).</item>
 /// </list>
 /// </summary>
 internal static class DiagnosticSwitches

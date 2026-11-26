@@ -292,7 +292,7 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
     correlation volume, about 290 small concats); Faster / Mask R-CNN on the CPU backend 2.1-2.3x of ORT CPU;
   - `fes` for head sizes above 64; a compute-unit query (VK_NV_shader_sm_builtins / VK_AMD_shader_core_properties)
     instead of the per-device-type `ConcurrentWorkgroups`; qwen2.5 fp16 on Vulkan 6x the CPU backend's error;
-  - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
+  - CPU Winograd on the channels-last layout (§117) wins only with AVX2 at batch ≥ 4; encoder GEMMs stream each layer's weights
     from DRAM (vit b1 1.1x, resnet50 b8 1.05x).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
   Sizing round 2 (studio.md "Load options"): the load panel shows the engine's own footprint for one slot (window-sized session caches,
@@ -384,8 +384,10 @@ CPU:
 
 - Single-pass LayerNorm, polynomial `exp`. Conv / MatMul epilogues (§21) and the attention-scale fold (§25) are done.
 - Conv GEMM: one implicit GEMM over N·H·W with in-task packing and a shifted stride-1 form reaches 1.6-2.2 TFLOPS per
-  conv (§25). Next: NHWC / blocked layouts chosen per op with layout propagation, Winograd F(2,3) for 3x3 stride 1 behind
-  an accuracy check, and cheaper b1 pooling / global-mean ops.
+  conv (§25); channels-last convs with layout propagation are done (§30). Winograd F(4x4, 3x3) on the channels-last layout
+  (§117): 1.2-2.3x per isolated conv at 3.6x the direct conv's (still f32-class) error, but inside models only AVX2 at batch
+  ≥ 4 gains (ResNet-50 b8 -10 %), so it is on there and off with AVX-512 (`SHARPLIGHT_CPU_WINOGRAD`); its transformed
+  weights from DRAM and cross-CCD operand traffic are the limits. Next: cheaper b1 pooling / global-mean ops.
 - 128-bit GEMM kernels for CPUs without AVX-512; ARM64 (NEON / SVE) kernels.
 
 ## Precision options
