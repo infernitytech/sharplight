@@ -415,7 +415,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2 | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
 | `lfm2moe` | LFM2-8B-A1B, LFM2.5-8B-A1B | lfm2 + MoE sigmoid bias | **supported** | - | lfm2_moe | gguf/LFM2.5-8B-A1B, hf/tiny-random-lfm2-moe |
 | `lfm3` | LFM3-1.7B, LFM3-VL/Omni (text part) | gated conv + sliding/full attention (own rope bases, partial rope via `rope_freqs`), QK-norm, per-head sigmoid gate, sandwich norms | **supported** (GGUF: tiny random and real LFM3-1.7B Q8_0 vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan; b11177 predates lfm3. The non-causal "d1" decision variant (bidirectional full-attention layers, no cache) is not supported; no transformers class. HF `lfm3` (round 11): tiny checkpoint vs the remote code and llama.cpp 8ca5a80, LFM3-1.7B bf16 vs transformers) | - | lfm3 | gguf/LFM3-1.7B, gguf/tiny-random-lfm3-f32, hf/tiny-random-lfm3 |
-| `inkling` | Inkling, Inkling-Small (Thinking Machines; text decoder) | rope-less GQA attention, sliding-window layers with their own kv head count, q/k norms with scale 1/head_dim, residual short convolutions of k / v / attention output / MLP output, query-conditioned relative position bias, log-floor query temperature, sigmoid MoE whose shared experts are scored by the router, embedding norm, padded vocabulary | **supported** (text decoder on the hybrid stack: `HybridAttention` relative bias (CachedAttention `relative_bias`, CPU and Vulkan), residual short convolutions and per-layer head counts, `MoeBlock` shared-expert sinks; HF `inkling_mm_model` in the published `model.llm.*` layout and GGUF from unsloth's fork; tiny model vs transformers and the fork's llama.cpp (same 24 ids), CPU and Vulkan, batched decoding matches single-sequence decoding; every Inkling-Small GGUF and the Inkling checkpoint pass the check and import from their headers, none runs here (the smallest file is 75 GB). The vision / audio towers and the MTP layers are not imported. `inkling2` is missing, see section 10) | - | inkling_mm_model | hf/tiny-random-inkling, gguf/tiny-random-inkling-f32.gguf |
+| `inkling` | Inkling, Inkling-Small (Thinking Machines; text decoder) | rope-less GQA attention, sliding-window layers with their own kv head count, q/k norms with scale 1/head_dim, residual short convolutions of k / v / attention output / MLP output, query-conditioned relative position bias, log-floor query temperature, sigmoid MoE whose shared experts are scored by the router, embedding norm, padded vocabulary | **supported** (text decoder on the hybrid stack: `HybridAttention` relative bias (CachedAttention `relative_bias`, CPU and Vulkan), residual short convolutions and per-layer head counts, `MoeBlock` shared-expert sinks; HF `inkling_mm_model` in the published `model.llm.*` layout and GGUF from unsloth's fork; tiny model vs transformers and the fork's llama.cpp (same 24 ids), CPU and Vulkan, batched decoding matches single-sequence decoding; every Inkling-Small GGUF and the Inkling checkpoint pass the check and import from their headers, none runs here (the smallest file is 75 GB). The vision / audio towers and the MTP layers are not imported. Inkling 2 Mini (`inkling2_loop`) runs on the `block_residual_decoder` adapter since bring-up round 3 (section 25); `inkling2` (Small) is not mapped, see section 10) | - | inkling_mm_model | hf/tiny-random-inkling, gguf/tiny-random-inkling-f32.gguf |
 
 ### Linear attn
 
@@ -851,6 +851,9 @@ Open, with estimates:
    - Inkling 2 changes most of the v1 blocks: block attention residuals (as Kimi K3's `AttentionResiduals`), gated attention with per-token sinks, an L2 clip of q / k / r, an RMS norm on the values, short convolutions whose taps are computed per token, separate q / k / v input norms, softcapped SwiGLU (gate cap 4, up cap 25), a final logit softcap of 30 and per-expert output scales; 384 experts and no shared experts.
    - New pieces: the per-token convolution taps (a CausalConv1d variant taking the kernel as an input, CPU and Vulkan), the per-token attention sinks, the L2 clip and the softcapped SwiGLU; the rest exists. About 3–4 days with a tiny model against transformers.
    - Four of its nine GGUFs (BF16, UD-Q3_K_XL, UD-Q4_K_XL, UD-Q8_K_XL) carry NVFP4 tensors with per-tensor scales, so they also need item 1.
+   - Done for Inkling 2 Mini (`inkling2_loop`, bring-up round 3, section 25): the blocks run as the canonical `block_residual_decoder`; the
+     per-token taps came out of existing ops (a causal convolution with one-hot kernels gives the window), the per-token sinks are a new
+     form of CachedAttention's sinks. Inkling-2-Small (`inkling2`, no loop) still needs its mapping and the per-expert output scales.
 4. **ggml type ids 64–66 and 144–149.** Decoded since bring-up round 11.
    - 64 / 65 / 66 (unsloth's IQ1_XS / IQ1_XXS / IQ1_XXXS, Kimi-K3 UD-TQ2_0 / UD-TQ1_0 / UD-Q1_0) store IQ1_S blocks without some of their fields; they are widened to IQ1_S blocks as they are read (`GgufNarrowIq1Source`), bit-exact against the fork's `dequantize_row`. All nine Kimi-K3 GGUFs now pass the check and import.
    - 144–149 (agentionai's TQ2_T, TQK6, TQK7, TQP5, TQP6, TQP7) are the trellis types `trellis_v{4,2}k{5..8}_g128`, decoded by the managed decoder, the CPU dequantization and the Vulkan `load8` paths, bit-exact against a transcription of the fork's reference decoder. Every Gyro trellis tensor is a Hadamard-rotated expert, so the files import through the rotation unfolding, which dequantizes those experts to F16 at load: correct, but over 200 GB for any of them. Running them in their own size needs the rotation applied to the activations instead (x·H before the expert matmuls, a fast Walsh–Hadamard op on CPU and Vulkan) and the trellis types kept as matmul weights: about 2–3 days. Nothing was run on a real file (30–58 GB).
@@ -3293,7 +3296,7 @@ disk and were linked into `~/models`.
 | 13 | AuroraAI-Research/Aurora2-400M-A20M | 2026-11-18 | 1.5k / 87 / 18 | `aurora2` | rejected: model_type not supported (not inspected) |
 | 14 | nvidia/Qwen3.8-27B-NVFP4-QAD | 2026-10-26 | 3.2k / 86 / 28.5 | ModelOpt mixed precision, `qwen3_5` | imports; tokenizer identical to transformers. Not run (no NVFP4 reference on this machine) |
 | 15 | XHToken/Spark-X2.6-4B | 2026-10-19 | 37k / 1.1k / 24 | BF16 safetensors | verified earlier (section 20). Finding: the sweep's test string differs from transformers at a whitespace run (" \n\n  spaces": ours `Ġ\n\n` + `Ġ`, transformers `Ġ\n\nĠ`): the `\s+(?!\S)` branch of its custom split regex. Open, about 0.5 day |
-| 16 | thinkingmachines/Inkling-2-Mini (+ unsloth GGUF 2.4M) | 2026-11-17 | 97k / 6.0k / 1316 | `inkling2_loop` | lead (Inkling 2) |
+| 16 | thinkingmachines/Inkling-2-Mini (+ unsloth GGUF 2.4M) | 2026-11-17 | 97k / 6.0k / 1316 | `inkling2_loop` | **verified** on a cut of the release (bring-up round 3, section 25); the unsloth GGUFs moved to `Old_Support/` with renamed extensions at the time of the round |
 
 Skipped as fine-tunes or re-uploads: ccore/*, SupraLabs/*, AtomicChat/*, DavidAU/*, orcarouter/*, shinmegamiboson/*, Lucebox/*, nari-labs Qwen3.8
 NariQ, harness-hub adapters.
@@ -3319,7 +3322,7 @@ NariQ, harness-hub adapters.
 | 1 | Reson8/Rumble-2-Flash | 2026-10-14 | 3.7k / 405 / 49.5 | `qwen3_asr` BF16 (a Qwen3-ASR 0.6B derivative: 14 decoder layers, 18-layer tower, vocabulary pruned to 99,630), Apache-2.0 | **verified** (23.8), no code change |
 | 2 | FluidVoice-Labs/fluid-speech-pro | 2026-10-30 | 10k / 188 / 27 | `parakeet_tdt` F32 | imports (`conformer_asr`, speech recognition). Not compared |
 | 3 | oruk/oruk-fourier-2b | 2026-11-20 | 2.3k / 18 / 18 | `qwen3_asr` BF16 (Qwen3-ASR 1.7B fine-tune), its own Q8_0 GGUFs, CC-BY-NC-4.0 | **verified** (23.8, greedy); the GGUFs import |
-| 4 | moondream/parakeet-ultra | 2026-09-22 | 15k / 175 / 16 | `parakeet_tdt` + `vad_head.*` | rejected: the voice-activity head (`vad_head.ctx`, ...) has no mapping; dropping it (or exposing it as VAD) is about 0.5 day |
+| 4 | moondream/parakeet-ultra | 2026-09-22 | 15k / 175 / 16 | `parakeet_tdt` + `vad_head.*` | **verified** (bring-up round 3, section 25): the voice-activity head is skipped |
 | 5 | moondream/parakeet-redux | 2026-09-18 | 9.4k / 335 / 12 | `parakeet_tdt`, quantized pointwise convolutions (`*.scales`) | rejected: the custom int8 layout of the convolutions is not read |
 | 6 | fihriaLab/fihrIA-ASR-1.7B, Musci-research/Musci-ASR-qwen-1019-hf | 2026-11-20 / 10-27 | 92, 1.0k | `qwen3_asr` | import; tokenizer identical. Not compared |
 | 7 | ibm-granite/granite-speech-5.0-470m-turboctc | 2026-08-04 | 43k / 124 / 4 | `granite_speech5_ctc` | rejected: model_type not supported (CTC conformer) |
@@ -3373,7 +3376,7 @@ Check of the tool path: stabilityai/sd-turbo (`StableDiffusionPipeline`) and Wan
 |---|---|---|---|---|---|
 | 1 | hindsight-ai/hs-rerank-1 | 2026-10-28 | 2.34M / 10 | ModernBERT (mmBERT-small) cross-encoder, MIT | **verified** (23.8). Before: imported as a plain embedding model with the classifier head dropped (no rerank scores) and a different tokenization |
 | 2 | Horizon-Labs/multilingual-reranker-small | 2026-10-01 | 84k / 3 | as #1, mean pooling, Apache-2.0 | **verified** (23.8) |
-| 3 | google/embeddinggemma-2 | 2026-09-14 | 587k / 3.5k | HF `embedding_gemma2` with audio and vision towers | rejected: 1376 tower tensors unmapped (the text model maps; the unsloth GGUF is verified, section 10). Skipping the towers for text embeddings is about 0.5 day |
+| 3 | google/embeddinggemma-2 | 2026-09-14 | 587k / 3.5k | HF `embedding_gemma2` with audio and vision towers | **verified** (bring-up round 3, section 25): the release stores the composite model without the `model.` prefix and keys `per_layer_config` by zero-padded indices; both are read now |
 | 4 | nvidia/Nemotron-3.5-Rerank-1B-BF16 | 2026-11-13 | 894 / 2 | `mistral3` sequence classifier (`is_causal: false`, mean pooling, `score` head, sentence-transformers prompt template, remote code), NVIDIA license | rejected (`language_model.score.weight` unmapped). Needs the bidirectional Ministral 3 path plus the score head of 23.8 on a decoder, and the prompt template; about 1 day |
 | 5 | tencent/OmniEVIE-4B | 2026-11-24 | 399 / 20 | `qwen3_5` with custom projection heads | rejected (`custom_text_proj`, `mlp_w1`, ... unmapped) |
 | 6 | Linkup-Platform/linkup-sparseup-embed-v2 | 2026-11-18 | 224 / 15 | ModernBERT SPLADE (`vocab_fold_index`) | rejected: sparse (SPLADE) output not implemented |
@@ -3465,3 +3468,81 @@ Not done this round:
   3-4 days) plus the new ModelOpt config layout.
 - The full models were not run (disk and time); MiniMax-M3.1 and DeepSeek-V4.1 need routed experts on disk on this pod (hardware.md),
   DeepSeek-V4.1's 196 GB of Engram tables are read row by row from the memory map.
+
+## 25. Bring-up round 3 (2026-11-26): Inkling 2 Mini, Qwen3-TTS Base and VoiceDesign, EmbeddingGemma 2, Parakeet Ultra
+
+Picked from the gaps of compatible-models.md section 9 and section 23 by Hub demand on 2026-11-26 (30-day downloads / likes):
+thinkingmachines/Inkling-2-Mini (97k, its unsloth GGUF 2.4M; 6.1k likes, the most trending model of the month), Qwen/Qwen3-TTS-12Hz-1.7B-Base
+(4.1M), -0.6B-Base (888k) and -1.7B-VoiceDesign (708k), google/embeddinggemma-2
+(587k / 3.5k) and moondream/parakeet-ultra (15k / 175). Each is verified on its publisher's files at a pinned revision against the
+publisher's reference code, has a catalog entry and installs from Studio's Discover page with one click
+(`VerifiedCatalogTests.CommittedEntry_IsListedUnderItsTask_AndInstallsWithOneClick`).
+
+| Release (revision) | What was added | Reference | CPU | Vulkan | CUDA |
+|---|---|---|---|---|---|
+| thinkingmachines/Inkling-2-Mini (c9d0283), cut to 32 of 128 experts with all 24 layers (`tools/truncate-hf-remote.py ... --layers 24 --experts 32 --rows 'mlp\.experts\.w(13\|2)_weight(_scale\|_amax)?$=32'`) | `block_residual_decoder` (below); ModelOpt parameter-group experts | transformers 5.24.1 `Inkling2LoopForConditionalGeneration`, float32, the experts dequantized by its own conversion op | top-5 log-probabilities within 0.001 | within 0.001 | within 0.05 (without the native FP4 / FP8 paths) |
+| tiny-random-inkling2 (`tests/Sharplight.Families.Tests/tools/mk_tiny_inkling2.py`) | 8 layers, the loop over layers 2-5 run 3 times | transformers 5.24.1, float32 | prompt logits, 24 greedy ids identical | identical | identical |
+| google/embeddinggemma-2 (f9972ac) | the release's tensor names and per-layer config keys | sentence-transformers 6.1 (transformers 5.24.1), float32, 8 texts and the query prompt | tokens identical, cosine 1.000000 | 1.000000 | 1.000000 |
+| Qwen3-TTS 0.6B-Base, 1.7B-Base, 1.7B-VoiceDesign | speaker encoder, codec encoder, in-context / embedding-only prompts, instructions | `qwen_tts` 0.1.1 (transformers 4.57.3), float32 | 0 teacher-forced disagreements, speaker embedding 1.2e-6 | 0 disagreements | 0 disagreements |
+| moondream/parakeet-ultra (73175eb) | the voice-activity head is skipped | transformers 5.24.1 `ParakeetForTDT` (parakeet-tdt-0.6b-v3's processor and tokenizer configs next to the release's weights; the release ships none) | log-mel 1.9e-4 of 4.4, encoder 9.5e-7 of 0.19, greedy TDT tokens and text identical (jfk, LibriSpeech 29 s) | encoder 1.9e-4 of 0.19, tokens and text identical | tokens and text identical |
+
+**Qwen3-TTS Base and VoiceDesign** (official Qwen releases: 1.7B-Base fd4b2543, 0.6B-Base 5d839924, 1.7B-VoiceDesign 5ecdb673; no
+0.6B-VoiceDesign exists; details in section 12). Voice cloning uses a new ECAPA-TDNN speaker encoder graph (SE-Res2Net blocks, multi-layer
+aggregation, attentive statistics pooling; generic ops) over a 128-bin log-mel, plus the 12 Hz codec's Mimi encoder for the reference's
+codes; it follows the reference's in-context prompt (reference and request text over the reference frames) or uses the speaker embedding
+alone, with the text interleaved with the first frames (the wrapper's default for cloning). VoiceDesign reads the voice description from
+`SpeechSynthesisOptions.Instructions`. Against `qwen_tts` 0.1.1 in float32: ids identical; prompt rows 6e-8 to 1.5e-7; speaker embedding
+1.2e-6 (0.6B) / 6e-7 (1.7B) relative RMS on CPU, Vulkan and CUDA; reference codes 1616 of 1616 identical; teacher forced over 43-119
+frames, 0 talker and 0 code-predictor argmax disagreements in all four cases on all three providers (worst top logit 0.017-0.048); greedy
+frames identical up to the reference's first near tie; decoded audio 1e-6 to 4e-6; saved voices and the .slm round trip identical. The
+1.7B models needed a fix of the code predictor's embedding stand-in where talker and predictor widths differ (this also lets 1.7B-CustomVoice
+load; not verified). Greedy in-context cloning tends not to stop, in the reference too; the sampling defaults do.
+
+**Inkling 2 Mini.** The canonical architecture `block_residual_decoder` (`BlockResidualDecoderAdapter`, `GatedSinkAttention`;
+`Inkling2HfMapping` for the release layout `model.llm.*`):
+
+- Block attention residuals as in Kimi K3 (`AttentionResiduals`), in the Inkling 2 variant: the mix is a one-query attention over the
+  RMS-normalized checkpoints and partial sum (values normalized too, scores scaled by H^(-1/2)); full layers mix three inputs (query, key,
+  value), every layer mixes its MLP input, the output head mixes the final rows. A layer at a block boundary banks its input after its
+  attention input was mixed.
+- Attention without rotary embeddings: per-token sinks (a projection of the query input, one logit per token and head; CachedAttention
+  `sinks` [T, Hq], a new form on CPU and on the per-(head, query) GPU kernel that also serves the relative bias), a sigmoid output gate, L2
+  clips of the queries (with a per-head scale), keys and relative states, weight-less value RMS norms, the query-conditioned relative bias of
+  Inkling v1 (extent 1024 on both layer types), the log-floor scaling of queries and relative states on the full layers, scores scaled by
+  1/sqrt(D).
+- Short convolutions: static ones of the sliding layers' keys and values, `(x + conv(x)) / sqrt(K + 1)`; per-token ones of the full layers'
+  keys and values, whose taps are the static kernel plus a projection of the key (value) input per head group, `(x + conv(x)) / sqrt(2K + 1)`.
+  The window of the last K - 1 rows comes from a `CausalConv1d` of K - 1 copies of the rows with one-hot kernels, so the multi-sequence,
+  snapshot and rollback forms of that op carry it without a new op. Residual convolutions of the attention and MLP outputs.
+- Sigmoid routing with a selection bias and route scale 8, the soft-capped SwiGLU (the `situ` activation: gate cap 4, up cap 25), the final
+  logit soft cap 30, the unpadded vocabulary (200058 of 201024 rows).
+- The loop: layers 6-17 run 3 times with KV caches and convolution windows of their own per pass (48 layer passes); passes 2 and 3 restart
+  from the core's input rows and checkpoints and gate four messages per layer (query, key, value, MLP) from the previous pass into the layer's
+  inputs, `(1 - tanh(F d)) x + tanh(G d) m` with `d = D [rms(x), rms(m)]`.
+- Weights: the release keeps the experts as ModelOpt parameter groups with underscore names (`w13_weight`, `w13_weight_scale`, ...): NVFP4
+  in layers 0-19 with a per-expert factor `amax / outer_scale_denominator`, MXFP8 (E8M0 exponents per 32 values) in layers 20-23, BF16
+  elsewhere. `HfSuffixedScaleLayouts` renames them for the FP4 and FP8 readers (the factor becomes the NVFP4 second-level scale). Its
+  `hf_quant_config.json` asks for NVFP4 and MXFP8 activations; transformers dequantizes the weights only, and so do the CPU and Vulkan
+  paths. CUDA's native FP4 / FP8 paths quantize activations and move the cut 1.1 off the weight-only reference, so the CUDA case runs
+  without them (as for the Nemotron releases of section 24).
+
+The whole release (20.5 GB) also runs on the GPU of this pod: Vulkan, chat template (the default system turn "Thinking effort level: 0.9"),
+greedy, "What is the capital of Germany? Answer in one sentence." gives a short thinking turn and "The capital of Germany is Berlin."
+(prefill 73 tokens/s for 27 tokens, decode 80 tokens/s; CUDA gives the same 76 tokens, prefill 237 tokens/s, decode 80 tokens/s). A float32 reference of the whole model needs about 100 GB, more
+than this pod's 62 GB memory limit, so the catalog entry is `partial` (verified on the cut).
+
+The tiny model's random router has near-tied expert scores; with f16 KV caches the rounding switches experts in some of its 20 layer passes,
+so its generation case runs with f32 caches (the batched-decoding test, which compares the engine with itself, keeps f16).
+
+**EmbeddingGemma 2.** The mapping existed for the text model saved alone; the release stores the composite model without the `model.`
+prefix (`language_model.*` next to `audio_tower.*`, `vision_tower.*`, `embed_audio.*`, `embed_vision.*`, which are skipped) and keys
+`per_layer_config` by zero-padded layer indices (`"05"`), which left the full-attention layers with the sliding layers' head size.
+
+**Parakeet Ultra.** A post-trained parakeet-tdt-0.6b-v3 whose `vad_head.*` (a voice-activity head for moondream's own runtime) is not
+used for transcription and is skipped.
+
+Not done this round: Inkling-2-Small (`inkling2`: the mapping, per-expert output scales and a cut of the 390 GB release, about 1 day), the
+Inkling 2 GGUFs (the unsloth repository moved its files to `Old_Support/` during the round), parakeet-redux's int8 convolutions, Granite
+Speech TurboCTC, Nemotron 3.5 Rerank, LTX-2.5, Kandinsky Image SR, Kolibri 1.1, Sarvam 105B (transformers 5.24 now has `sarvam_mla`), ERNIE
+5.5 Flash Preview (no modeling code).
+
