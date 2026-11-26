@@ -1,0 +1,13 @@
+
+Provider Name                           Keywords            Level               Enabled By
+Microsoft-DotNETCore-SampleProfiler     0x0000F00000000000  Informational(4)    --profile
+
+[ERROR] Microsoft.Diagnostics.NETCore.Client.ServerNotAvailableException: Unable to connect to Process 3680938. Please verify that <home>/work-tmp is writable by the current user. If the target process is in a different container, ensure this process runs with 'pid: host' and has access to /proc/{pid}<home>/ (requires CAP_SYS_PTRACE or privileged mode). Please see https://aka.ms/dotnet-diagnostics-port for more information.
+   at Microsoft.Diagnostics.NETCore.Client.PidIpcEndpoint.GetDefaultAddress(Int32 pid) in /_/src/Microsoft.Diagnostics.NETCore.Client/DiagnosticsIpc/IpcTransport.cs:line 555
+   at Microsoft.Diagnostics.NETCore.Client.PidIpcEndpoint.GetDefaultAddress() in /_/src/Microsoft.Diagnostics.NETCore.Client/DiagnosticsIpc/IpcTransport.cs:line 301
+   at Microsoft.Diagnostics.NETCore.Client.PidIpcEndpoint.ConnectAsync(CancellationToken token) in /_/src/Microsoft.Diagnostics.NETCore.Client/DiagnosticsIpc/IpcTransport.cs:line 284
+   at Microsoft.Diagnostics.NETCore.Client.IpcClient.SendMessageGetContinuationAsync(IpcEndpoint endpoint, IpcMessage message, CancellationToken cancellationToken) in /_/src/Microsoft.Diagnostics.NETCore.Client/DiagnosticsIpc/IpcClient.cs:line 79
+   at Microsoft.Diagnostics.NETCore.Client.EventPipeSession.StartAsync(IpcEndpoint endpoint, EventPipeSessionConfiguration config, CancellationToken cancellationToken) in /_/src/Microsoft.Diagnostics.NETCore.Client/DiagnosticsClient/EventPipeSession.cs:line 52
+   at Microsoft.Diagnostics.Tools.Trace.CollectCommandHandler.<>c.<<-ctor>b__4_0>d.MoveNext() in /_/src/Tools/dotnet-trace/CommandLine/Commands/CollectCommand.cs:line 29
+--- End of stack trace from previous location ---
+   at Microsoft.Diagnostics.Tools.Trace.CollectCommandHandler.Collect(CancellationToken ct, CommandLineConfiguration cliConfig, Int32 processId, FileInfo output, UInt32 buffersize, String[] providers, String[] profile, TraceFileFormat format, TimeSpan duration, String clrevents, String clreventlevel, String name, String diagnosticPort, Boolean showchildio, Boolean resumeRuntime, String stoppingEventProviderName, String stoppingEventEventName, String stoppingEventPayloadFilter, Nullable`1 rundown, String dsrouter, EventPipeBufferingMode bufferingMode) in /_/src/Tools/dotnet-trace/CommandLine/Commands/CollectCommand.cs:line 263

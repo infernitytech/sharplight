@@ -1,0 +1,15 @@
+decoder: MultiSequenceDecoder, slots 16, vocab 262144, device sampling: True, KV paged 640 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 30 steps after 5 warm-up steps; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 99.7 | 836 / 0 | 25.84 / 74.08, 25.64; mean 52.42 ± 25.64 | 25.95 / 73.89, 25.65; mean 53.33 ± 26.78 |
+Unhandled exception. System.InvalidOperationException: Context of slot 0 full (640 + 1 > 640).
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.PackInputs(IReadOnlyList`1 inputs) in <path>/MultiSequenceDecoder.cs:line 922
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs, IReadOnlyList`1 sampling, Span`1 tokens, Span`1 logprobs) in <path>/MultiSequenceDecoder.cs:line 667
+   at Sharplight.Llm.Serving.MultiSequenceDecoder.Step(IReadOnlyList`1 inputs) in <path>/MultiSequenceDecoder.cs:line 650
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Step|14(String mode, List`1 inputs) in <path>/Program.cs:line 188
+   at Program.<>c__DisplayClass0_0.<<Main>$>g__Time|15(String mode, List`1 inputs) in <path>/Program.cs:line 233
+   at Program.<>c__DisplayClass0_8.<<Main>$>b__44(String m) in <path>/Program.cs:line 354
+   at System.Linq.Enumerable.ArraySelectIterator`2.ToList()
+   at Program.<Main>$(String[] args) in <path>/Program.cs:line 354
+timeout: the monitored command dumped core

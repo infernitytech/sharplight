@@ -18252,3 +18252,132 @@ failed once in six CPU-only runs of the suite (steps `0,0,0,0,0,0,0,1,1,2`, timi
   capturing prepared shapes ahead needs the input copies captured without staged inputs.
 * The 64-stream p95 of the bucketed runs (42-54 against 37-41 ms) wants a closer look (pad rows on large prompt steps, or noise).
 * Gemma 31B host time per step (114.4).
+
+## §R50. LLM round 50: host time per step on Gemma 4 31B against vLLM 0.33 (already at parity: 0.07-0.22 ms per decode step, GPU 99.7 % busy), cheaper recording of new step shapes (Llama-3.1-8B 1.32 → 0.81 ms per shape), prepared decode shapes captured into CUDA graphs ahead (no first-use launch-by-launch steps or decode captures left in a 16-stream run) (2026-11-26)
+
+Branch `perf/llm-r50` (`develop` at `3e91ab4d` with `perf/llm-r48`, then `166f3f43` merged). GPU 0 of the RunPod machine (RTX PRO 4500
+Blackwell 32 GB, 200 W cap), shared with other agents: every GPU run held the bench lock, other agents' builds ran beside it (load
+average 5-20 on 10 cores, `*.load`, cgroup throttling in `*.thr0/thr1`). `base` is the branch's start (`develop` + r48), `br` the branch.
+vLLM 0.33 (venv `vllm-r12`) in the same session. Raw output in [`bench/results/r50/`](../bench/results/r50) (`base/`, `br/`, `br2/`,
+`c/`, `e/`; `scripts/` the queues, the nsys idle script `gpuidle.py`, the step-profile summary `gap.py`, the probe-trace summary `ss.py`).
+
+Kept (keyed on launches, variants, recordings and device memory; no model names, no new switches):
+
+1. **Launch templates** (`CudaLaunchTemplate`): what recording a launch with one of its variants resolves independently of the
+   symbol bindings (the loaded kernel, the profile name, the parameter struct with pointers, constants and tensor maps) is built once
+   per program launch and variant; a new step shape only evaluates grids and writes its symbol-valued scalars.
+2. **Shared variant conditions evaluated once per shape** (`Bindings.Holds`): a launch condition (`GraphLowerer.Emit`) and the guard
+   of a fused launch's fallback variants (`Unless`) are shared by every variant of the launches they cover and were evaluated for each
+   of them; they are now remembered per bindings (by reference). Shared lowering code, so Vulkan's recordings benefit too.
+3. **Prepared shapes captured ahead** (`CudaSegment.Prepare`): the decode shapes the engine prepares at start are captured into CUDA
+   graphs at once, so their first run replays the graph instead of launching its 800-2,600 launches one by one and the second no
+   longer captures. Bounded for small devices: the graphs captured ahead on a device stay within 1/64 of its memory budget
+   (`CudaDevice.AheadGraphBudget`: 512 MB on 32 GB, 128 MB on 8 GB) and are only captured while 1 GiB of device memory stays free
+   (`TryChargeDriverMemory(bytes, keepFree)`); a shape refused at start is captured at its second run as before; segments that stream
+   their weights (offload) keep capturing at the second run. Evicted or disposed graphs give their budget back.
+4. BatchBench `--prepare-probe [--prepare-rounds N]`: times recording every decode shape 1 .. `--slots` without running it.
+
+### R50.1 Host time per step on Gemma 4 31B: already small, and at parity with vLLM
+
+Serving (`scripts/servprof.sh`: 16 slots of 512 tokens, ~250-token prompts, 128 output tokens, closed loop; step profile on), per
+replayed decode step (medians of the steady half, `gap.py`): the step's period against its own GPU time.
+
+| model, streams | step period | GPU (graph events) | host + launch per step | ITL p50 / p99 |
+|---|---:|---:|---:|---:|
+| Gemma 4 31B Q4_K_M, 1 | 26.17 | 26.09 | 0.07 | 26.1 / 26.5 |
+| Gemma 4 31B Q4_K_M, 16 | 38.77 | 38.55 | 0.22 (mean of per-step gaps 0.14) | 38.6 / 476 |
+| Gemma 4 31B QAT w4a16, 1 | 28.66 | 28.59 | 0.08 | 28.6 / 29.0 |
+| Gemma 4 31B QAT w4a16, 16 | 50.39 | 49.46 | 0.22 | 49.8 / 438 |
+
+Of the host time, scheduling, packing, input staging, submission and result processing take 0.01-0.05 ms each (`steps.csv` columns).
+BatchBench (`c/gemma_base_*`, `gemma_br_*`, 16 slots, depth 448, 30 steps, two rounds each): 1 sequence greedy 26.09 ms wall against
+25.85-25.88 GPU (0.2 ms), 16 sequences greedy 40.20-40.28 against 39.71-39.78 (0.5 ms), download mode 41.9-42.3 against 39.96-39.99 (the
+16 × 262,144-float logits copy, which serving's device sampling does not make); base and branch the same.
+
+GPU busy share over a 6 s nsys window (`--cuda-graph-trace=graph`, union of graph, kernel and copy intervals, `gpuidle.py`), the same
+official checkpoint (`google/gemma-4-31B-it-qat-w4a16-ct`) on both engines:
+
+| run | window starts | GPU busy | idle | gaps ≥ 100 µs |
+|---|---|---:|---:|---|
+| Sharplight, 1 stream | 6 s into round 3 | 99.57 % | 26.6 ms | 9, 10.8 ms |
+| vLLM 0.33, 1 stream | 6 s | 99.31 % | 42.0 ms | 53, 36.8 ms |
+| Sharplight Q4_K_M, 1 stream | 6 s | 99.68 % | 19.6 ms | 2, 5.6 ms |
+| Sharplight Q4_K_M, 16 streams, base / branch | 14 s (steady decode) | 99.74 / 99.76 % | 15.9 / 14.4 ms | 29 / 26 |
+| Sharplight QAT, 16 streams | 6 s (prompts still arriving) | ≥ 97.95 % | ≤ 126 ms | 73, 118.8 ms |
+| vLLM 0.33, 16 streams | 6 s | 99.83 % | 10.5 ms | 2, 7.1 ms |
+
+The GPU waits for our host 0.2-0.4 % of the time in steady decode, vLLM's (asynchronous scheduling) 0.2-0.7 %: no host gap to close on
+decode steps. nsys lists no individual Sharplight kernels launched outside graphs (only graph executions and copies), so the share of a
+window with launch-by-launch steps (the 16-stream QAT row: prompt steps) is a lower bound for busy. Where Sharplight loses to vLLM on this
+model it is GPU time: at 16 streams our QAT decode steps take 49.5 ms (vLLM's ITL p50 33.2 ms; 237 against 304 tok/s; vLLM returned no
+tokens for 5 of 64 requests in that run), so the w4a16 group-32 products at 16 rows are the gap, not the host; at 1 stream 28.6 against
+26.7 ms. On Q4_K_M the 16-stream ITL p99 (476 ms) and TTFT (1.0 s) are the prompt steps of 251-768 rows (180-500 ms of GPU each).
+
+The host costs that do show in a Gemma serving run are per new shape (base, 16 streams, `base/serve*/…c16.steps.csv`, two runs):
+12-13 first uses of prepared decode shapes launched one by one at 26-119 ms of GPU time (against ~37 ms replayed; 70-119 ms at 4-8 rows),
+22 graph captures on decode steps' second use (104-182 ms of host time in a run), 10-11 captures of prompt shapes (95-125 ms) and 9-12
+recordings of new prompt shapes (156-224 ms, 8-25 ms each).
+
+### R50.2 Recording a new step shape
+
+`--prepare-probe` (decode shapes 1..256 of Llama-3.1-8B, 358 launches each, with more shapes than the 128 kept recordings so every
+round records all of them again; `base/steps/probe_*`): 2.13 ms per shape in the first round, 1.0-1.3 ms after; Gemma 4 31B (836
+launches) 3.48 ms per shape. A sampling trace of 8 rounds (`dotnet-trace`, `ss.py`): `HazardTracker.Order` 68 % of recording, most of
+it variant selection (`KernelLaunch.Select` 55 %: launch conditions and fallback guards evaluated for every variant, some of them
+evaluating other launches' selection, string-keyed binding lookups), the profile name of each launch 29 % (`ProfileName`: string
+splits per launch), the rest argument packing, kernel lookups and tensor-map encodes.
+
+With templates and shared conditions (`br/steps/probe_llama` trace, same 8 rounds): recording 2,710 → 1,666 ms, **1.32 → 0.81 ms per
+shape** (-39 %), `Select` 1,517 → 1,111 ms, the profile names gone. 26 % of the remaining selection was the remembered-condition table
+growing (a concurrent dictionary rebuilds its locks); it is now sized up front (`br2/`, see R50.4). BatchBench first runs of new mixed
+shapes on Llama-3.1-8B (`base`/`br` `llama_mixed`): record 3.9-7.5 → 3.4-4.3 ms (the branch's first entry 9.0 ms with JIT warm-up),
+first-run wall 25.7-76.6 → 26.0-36.3 ms (16 + 160: 53.0 → 31.1, 15 + 200: 76.6 → 34.4). Steady GPU times of those entries moved by
+-0.3 to +2.7 ms between the two runs; the change touches no kernel, so that is the shared GPU's spread.
+
+What did not change: the barrier placement cache already serves most shapes (it is keyed by the set of launches that run), and selection
+cannot be memoized across shapes (a condition's value depends on the row count, which every new shape changes); the remaining cost is
+the conditions themselves.
+
+### R50.3 Prepared decode shapes captured ahead
+
+16 streams, Gemma 4 31B Q4_K_M (`br/serve/…c16.steps.csv` against the two base runs): decode steps not replayed from a graph 12-13 → **0**,
+decode captures 22 (104-182 ms) → **0**; prompt captures 9 (102 ms) and recordings 10 (158 ms) as before. Throughput and latency of
+the run are the same (274.7 against 274.4 tok/s, ITL p50 38.5 / p99 475.9 against 477.0 ms): the shapes' first uses are a few steps
+of a server's ramp, and this run's p99 is its prompt steps. The capture moves to the engine's start: the prepare probe with captures
+takes 13.7 ms per Gemma shape (~0.9 s for 64 shapes) and 3.1-10.5 ms per Llama shape (falling as the ahead budget fills and later shapes
+are only recorded). `PreparedStepGraphTests` (new): a prepared shape's first run replays a graph and matches an unprepared run bit for
+bit, at 1, 7 and 48 rows (the 1-row case first failed on a test-input bug, `test_prepared.txt`; fixed, then passed in the suite run).
+
+### R50.4 Tests and pending work
+
+On GPU 0 under the bench lock, the branch with `develop` at `166f3f43` merged (`tests/`): `Sharplight.Core.Tests` 1,677, 0 failed, 332
+skipped; `Sharplight.Cuda.Tests` 111, 0 failed, 1 skipped (cuBLASLt; includes `PreparedStepGraphTests` at 1, 7 and 48 rows);
+`Sharplight.Serving.Tests` (`SHARPLIGHT_TEST_PROVIDER=cuda`) 435, 0 failed, 13 skipped; `Sharplight.Hosting.Tests` 31, 0 failed. The
+final prepare probe with the sized condition table (`br2/probe_llama.txt`, recording plus ahead capture until the budget is full):
+2.94 ms per shape in the first round, 1.69-1.83 ms after.
+
+Pending (the work moved to another setup before the GPU queue reached it; scripts in `bench/results/r50/scripts/`):
+
+* the sampling trace of the final probe (`br2/`, recording alone with the sized table) was not analysed;
+* `jobE.sh` (running at hand-off, results not collected): serving reruns at 1 and 16 streams on the final build, and 1 stream on the base, replacing the contaminated branch
+  1-stream run (`br/serve/…c1`).
+* **Follow-up for ahead capture:** capturing every prepared decode shape at engine start makes model load slower (~0.9 s for Gemma 4
+  31B's 64 shapes, up to ~2.7 s for 256 Llama-3.1-8B shapes). It should run in the background after load (shapes captured while the
+  server already serves, a shape used first before its capture still launching its recording as before), or capture only the
+  smallest batch sizes ahead, so load time is unchanged.
+
+### R50.5 What did not work, and what is left
+
+* Target 1 found no host gap to cut on decode steps (R50.1); the r48 queue for it (`--ctx 1024` at 16 slots) does not fit the card
+  (30.8 GiB needed) and was rerun at `--ctx 640 --depth 448`.
+* A first look at BatchBench Gemma steps alternating 25.8 / 74 ms of wall time at 25.6 ms of GPU time (`base/steps/gemma_q4_1`, both
+  builds) and a branch serving run with 40-48 ms waits on 25.8 ms steps (`br/serve/…c1`) were contaminated: both ran 11:08-11:14 at
+  load average 13-20, the steps waited for longer than their own GPU time, and the same BatchBench configuration rerun later was steady
+  (`c/stall_d512`: 26.11 ± 0.05 ms); the serving rerun is pending (R50.4). The contaminated runs are kept but not used.
+* Prompt-shape recordings (8-25 ms each on Gemma) and captures (~10 ms) remain per new prompt bucket: updating an existing executable
+  graph (`cuGraphExecUpdate`) instead of instantiating a new one, or not capturing steps whose kernels are long against the launch
+  rate, would cut them; not tried.
+* Gemma 4 31B QAT w4a16 at 16 streams is 22 % behind vLLM in throughput (49.5 against ~33 ms decode steps): the int4 group-32 products
+  at 9-64 rows, a kernel task for a later round.
+* nsys records no kernels Sharplight launches outside graphs (driver API launches; graph replays and copies are listed), so idle shares
+  of windows with launch-by-launch steps are upper bounds.

@@ -1,0 +1,2 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 262144, device sampling: True, KV paged 256 x 16
+[prepare] round 1: 64 decode shapes in 874.7 ms, 13.674 ms per shape

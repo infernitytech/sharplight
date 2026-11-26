@@ -1,0 +1,6 @@
+Sharplight.Hosting.Tests.FitPlannerTests exit=0 Total: 9, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.211s
+Sharplight.Hosting.Tests.ModelHostingJsonTests exit=0 Total: 15, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.349s
+Sharplight.Hosting.Tests.ModelHostManagerTests exit=0 Total: 6, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 0.410s
+Sharplight.Hosting.Tests.RealModelHostingTests exit=0 Total: 1, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.169s
+Sharplight.Hosting.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 0 (per class: 4 processes)
+exit=0

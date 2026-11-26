@@ -1,0 +1,14 @@
+Graph optimization (sharplight-ir/1): decode 1678 -> 1668 nodes, decode_embeddings 1676 -> 1666 nodes, embed 1555 -> 1545 nodes, classify 1558 -> 1548 nodes [121 ms]
+Loaded gemma-4-31B-it-qat-w4a16-ct (decoder): 833 tensors, 21.13 GB, vocab 262144 [5037 ms]
+Rows per forward pass: 2048 (automatic, 30812 MiB available).
+Compiling 203 / 203, 49 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 21.13 / 21.13 GB (NVIDIA RTX PRO 4500 Blackwell)
+Compiled 'decode' for 16 sequences x 512 tokens, paged KV cache of 8192 tokens in 191753 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 62 groups, 26.55 GiB weights+state
+1 segment(s): [0@0: 1669 nodes]
+Ready (decode)
+Model 'gemma-4-31B-it-qat-w4a16-ct' loaded in 197903 ms (estimated 28923 MiB, resident 28136 MiB).
+Serving 'gemma-4-31B-it-qat-w4a16-ct' (both API, VRAM reserve 1 GiB) on http://127.0.0.1:18090
+  gemma-4-31B-it-qat-w4a16-ct [Chat] Loaded 28136 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 28950 MiB (ours 28136 MiB), available 3176 MiB
+Collecting data...

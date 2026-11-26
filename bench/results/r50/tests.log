@@ -1,0 +1,4 @@
+Core.Tests                   Sharplight.Core.Tests  Total: 1677, Errors: 0, Failed: 0, Skipped: 332, Not Run: 0, Time: 0.953s [0m[0mexit=0
+Serving.Tests                Sharplight.Serving.Tests  Total: 435, Errors: 0, Failed: 0, Skipped: 13 (per class: 41 processes) exit=0
+Cuda.Tests                   Sharplight.Cuda.Tests  Total: 111, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 72.897s [0m[0mexit=0
+Hosting.Tests                Sharplight.Hosting.Tests  Total: 31, Errors: 0, Failed: 0, Skipped: 0 (per class: 4 processes) exit=0

@@ -1,0 +1,13 @@
+
+Provider Name                           Keywords            Level               Enabled By
+Microsoft-DotNETCore-SampleProfiler     0x0000F00000000000  Informational(4)    --profile
+
+Process        : <path>/sharplight
+Output File    : <path>/sl_gemma_qat_c1.nettrace
+Trace Duration : 00:00:00:08
+
+Stopping the trace. This may take several minutes depending on the application being traced.
+
+Trace completed.
+Processing trace data file '<path>/sl_gemma_qat_c1.nettrace' to create a new Speedscope file '<path>/sl_gemma_qat_c1.speedscope.json'.
+Conversion complete

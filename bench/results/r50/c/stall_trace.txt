@@ -1,0 +1,13 @@
+
+Provider Name                           Keywords            Level               Enabled By
+Microsoft-DotNETCore-SampleProfiler     0x0000F00000000000  Informational(4)    --profile
+
+Launching: <path>/BatchBench <path>/gemma-4-31B-it-Q4_K_M.gguf --provider cuda --slots 4 --ctx 1024 --depth 512 --batch 2048 --modes greedy --reps 200 --sizes 1 
+Process        : <path>/BatchBench
+Output File    : <path>/stall.nettrace
+
+
+Trace completed.
+Processing trace data file '<path>/stall.nettrace' to create a new Speedscope file '<path>/stall.speedscope.json'.
+Conversion complete
+Process exited with code '0'.

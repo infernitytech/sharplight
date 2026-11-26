@@ -1,0 +1,13 @@
+
+Provider Name                           Keywords            Level               Enabled By
+Microsoft-DotNETCore-SampleProfiler     0x0000F00000000000  Informational(4)    --profile
+
+Launching: <path>/BatchBench <path>/Llama-3.1-8B-Instruct --provider cuda --slots 256 --ctx 64 --depth 16 --batch 2048 --sizes 256 --prepare-probe --prepare-rounds 8 
+Process        : <path>/BatchBench
+Output File    : <path>/probe_llama.nettrace
+
+
+Trace completed.
+Processing trace data file '<path>/probe_llama.nettrace' to create a new Speedscope file '<path>/probe_llama.speedscope.json'.
+Conversion complete
+Process exited with code '0'.

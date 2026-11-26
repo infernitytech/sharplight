@@ -1,0 +1,20 @@
+ready=1 after 9 s
+{"concurrency": 1, "requests": 8, "errors": 0, "wall_s": 28.131154568050988, "agg_tok_s": 36.400923308102456, "out_tokens": 1024, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 38.21893117091907, "ttft_p50_ms": 192.22556753084064, "ttft_p95_ms": 196.
+{"concurrency": 1, "requests": 8, "errors": 0, "wall_s": 28.213113519945182, "agg_tok_s": 36.29517881023965, "out_tokens": 1024, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 38.097738263810975, "ttft_p50_ms": 192.57972354535013, "ttft_p95_ms": 194.
+Generating '<path>/nsys-report-1936.qdstrm'
+[1/1] [0%                          ] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [0%                          ] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [=========45%                ] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [==========49%               ] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [===========52%              ] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [===========53%              ] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [============54%             ] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [========================100%] sl_gemma_q4_c1.nsys.nsys-rep[1/1] [========================100%] sl_gemma_q4_c1.nsys.nsys-rep
+Generated:
+	<path>/sl_gemma_q4_c1.nsys.nsys-rep
+{"concurrency": 1, "requests": 8, "errors": 0, "wall_s": 28.168300791061483, "agg_tok_s": 36.3529205256478, "out_tokens": 1024, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 38.16321943160038, "ttft_p50_ms": 192.81493400922045, "ttft_p95_ms": 193.88
+ready=1 after 7 s
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 29.93467747804243, "agg_tok_s": 273.6625442518619, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 20.045470978758896, "ttft_p50_ms": 906.2052489607595, "ttft_p95_ms": 2139
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 29.804689795942977, "agg_tok_s": 274.85607319137733, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 20.152071694793246, "ttft_p50_ms": 1017.5774085801095, "ttft_p95_ms": 2
+Generating '<path>/nsys-report-1614.qdstrm'
+[1/1] [0%                          ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [0%                          ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [========41%                 ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [==========48%               ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [============55%             ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [============56%             ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [============57%             ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [=============58%            ] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [========================100%] sl_gemma_q4_c16.nsys.nsys-rep[1/1] [========================100%] sl_gemma_q4_c16.nsys.nsys-rep
+Generated:
+	<path>/sl_gemma_q4_c16.nsys.nsys-rep
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 29.790908140013926, "agg_tok_s": 274.9832251336052, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 20.158846663134593, "ttft_p50_ms": 1015.1058060582727, "ttft_p95_ms": 20
+ready=1 after 7 s
+{"concurrency": 1, "requests": 8, "errors": 0, "wall_s": 27.868853618972935, "agg_tok_s": 36.74352788242669, "out_tokens": 1024, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 38.54278759880911, "ttft_p50_ms": 187.4871514737606, "ttft_p95_ms": 190.49
+{"concurrency": 1, "requests": 8, "errors": 0, "wall_s": 27.885253482032567, "agg_tok_s": 36.72191829490804, "out_tokens": 1024, "avg_out_tokens": 128.0, "avg_prompt_tokens": 251, "shared_prefix_words": 0, "per_stream_tok_s": 38.51801299859346, "ttft_p50_ms": 188.079503539484, "ttft_p95_ms": 189.116
+jobE-done

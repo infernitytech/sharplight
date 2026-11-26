@@ -1,0 +1,14 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Cuda.Tests
+[0m[37m  Discovered:  Sharplight.Cuda.Tests
+[0m[37m  Starting:    Sharplight.Cuda.Tests
+[0m[91m    Sharplight.Cuda.Tests.PreparedStepGraphTests.PreparedShape_FirstRunReplaysAGraph_WithTheResultsOfAnUnpreparedRun(rows: 1) [FAIL]
+[0m[37m      System.ArgumentOutOfRangeException : Specified argument was out of the range of valid values.
+[0m[90m      Stack Trace:
+[0m[37m        tests/Sharplight.Cuda.Tests/PreparedStepGraphTests.cs(48,0): at Sharplight.Cuda.Tests.PreparedStepGraphTests.PreparedShape_FirstRunReplaysAGraph_WithTheResultsOfAnUnpreparedRun(Int32 rows)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[0m[37m           at System.Reflection.MethodBaseInvoker.InvokeDirectByRefWithFewArgs(Object obj, Span`1 copyOfArgs, BindingFlags invokeAttr)
+[0m[37m  Finished:    Sharplight.Cuda.Tests (ID = '27930e81ccb16d59155ed64454652a80349af653ad792cd221806a5dd8f3e16d')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Cuda.Tests  Total: 3, Errors: 0, Failed: 1, Skipped: 0, Not Run: 0, Time: 4.286s
+[0m[0m

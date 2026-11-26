@@ -1,0 +1,2 @@
+   Sharplight.Core.Tests  Total: 1677, Errors: 0, Failed: 0, Skipped: 332, Not Run: 0, Time: 0.953s
+exit=0

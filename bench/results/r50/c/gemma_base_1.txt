@@ -1,0 +1,6 @@
+decoder: MultiSequenceDecoder, slots 16, vocab 262144, device sampling: True, KV paged 640 x 16
+Per mode: wall ms min / median, GPU ms min; mean ± sd of the wall ms over 30 steps after 5 warm-up steps; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | download |
+|---|---|---|---|---|
+| 1 | 36.4 | 836 / 0 | 25.95 / 26.09, 25.85; mean 26.09 ± 0.06 | 26.11 / 26.22, 25.92; mean 26.22 ± 0.04 |
+| 16 | 45.8 | 762 / 0 | 39.87 / 40.26, 39.71; mean 40.25 ± 0.18 | 41.69 / 42.11, 39.96; mean 42.11 ± 0.19 |
