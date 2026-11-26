@@ -26,7 +26,7 @@ namespace Sharplight.Architectures;
 /// frames, whose audio is dropped) into 24 kHz audio in chunks of <see cref="Qwen3TtsAdapter.CodecChunkFrames"/> frames with
 /// <see cref="Qwen3TtsAdapter.CodecContextFrames"/> frames of context, like the reference.
 /// </summary>
-internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer, IVoiceCloner
+internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer, IVoiceCloner, ISpeechLanguageList
 {
     /// <summary>Frames decoded per streamed buffer.</summary>
     public const int StreamFrames = 25;
@@ -122,6 +122,9 @@ internal sealed class Qwen3TtsSynthesizer : ISpeechSynthesizer, IVoiceCloner
     /// <inheritdoc/>
     /// <remarks>The built-in speakers of a custom-voice model; voice-cloning and voice-design models have none (they speak with a reference's or a described voice).</remarks>
     public IReadOnlyList<string> Voices { get; }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> LanguageNames => Languages;
 
     /// <summary>Whether the model reads <see cref="SpeechSynthesisOptions.Instructions"/> (voice design, and the larger custom-voice models' speaking style).</summary>
     public bool AcceptsInstructions => _instructions;

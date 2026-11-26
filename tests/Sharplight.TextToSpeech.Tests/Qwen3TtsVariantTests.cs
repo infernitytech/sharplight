@@ -207,7 +207,8 @@ public class Qwen3TtsVariantTests
         Assert.Equal(0, predictorHard);
         Assert.True(worst < (gpu ? 0.15 : 0.05), $"worst top logit error {worst:E2}");
 
-        var greedy = synthesizer.GenerateFrames(prompt, options, CancellationToken.None).ToList();
+        // At most a few frames past the reference's (capped) count: greedy in-context cloning often does not stop.
+        var greedy = synthesizer.GenerateFrames(prompt, options, CancellationToken.None).Take(frames.Count + 8).ToList();
         int same = 0;
         while (same < Math.Min(greedy.Count, frames.Count) && greedy[same].SequenceEqual(frames[same]))
         {
