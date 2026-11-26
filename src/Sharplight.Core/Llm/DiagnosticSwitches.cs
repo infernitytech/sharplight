@@ -22,6 +22,8 @@ namespace Sharplight.Llm;
 /// <see cref="LlmLoadOptions.ReservePerDevice"/> leaves at its default (for measurements).</item>
 /// <item><c>SHARPLIGHT_STEP_TILE_AWARE=0|1</c>: prompt rows scheduled around token tiles on measured prices, overriding
 /// <see cref="Serving.EngineOptions.TileAwarePrompts"/>.</item>
+/// <item><c>SHARPLIGHT_STEP_PRICED_CHUNKS=0|1</c>: prompt chunk sizes of decoding steps chosen on measured prices, overriding
+/// <see cref="Serving.EngineOptions.PricedPromptChunks"/>.</item>
 /// <item><c>SHARPLIGHT_STEP_FLOOR_WAVES=1|0|full</c>: the serving scheduler's step-floor policy, overriding
 /// <see cref="Serving.EngineOptions.StepFloor"/> (waves, always, full).</item>
 /// <item><c>SHARPLIGHT_KV_ADMISSION=queue|preempt</c>: how the serving scheduler admits requests when the paged KV cache runs short,
@@ -55,6 +57,17 @@ internal static class DiagnosticSwitches
     /// measurements), or null.
     /// </summary>
     public static bool? TileAwarePrompts { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_TILE_AWARE") switch
+    {
+        "1" => true,
+        "0" => false,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The <see cref="Serving.EngineOptions.PricedPromptChunks"/> forced for the process (<c>SHARPLIGHT_STEP_PRICED_CHUNKS=0|1</c>, for A/B
+    /// measurements), or null.
+    /// </summary>
+    public static bool? PricedPromptChunks { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_STEP_PRICED_CHUNKS") switch
     {
         "1" => true,
         "0" => false,
