@@ -188,6 +188,7 @@ public class EngineTests
         var d = new FakeBatchDecoder(4, maxBatchTokens: 400)
         {
             StepDelayForRows = rows => TimeSpan.FromMilliseconds(rows <= 1 ? 1 : rows <= 9 ? 2 : 10 * ((rows + 31) / 32)),
+            SimulatesStepTime = true,
         };
         d.Script("a", loop: true);
         using var e = Engine(d, new EngineOptions { MinBatchTokens = 0, BatchTokensGranule = 32, TileAwarePrompts = tileAware });
@@ -235,6 +236,7 @@ public class EngineTests
         var d = new FakeBatchDecoder(8, maxBatchTokens: 512)
         {
             StepDelayForRows = rows => TimeSpan.FromMilliseconds(1 + 0.01 * rows + 0.00005 * rows * rows),
+            SimulatesStepTime = true,
         };
         d.Script("a", loop: true);
         using var e = Engine(d, new EngineOptions
@@ -405,10 +407,15 @@ public class EngineTests
         using var e = Engine(d);
         var blocker = e.Submit(Req("blocker", max: 3));
         await T.WaitUntil(() => e.GetMetrics().ActiveSequences == 1);
-        var order = new List<int>();
-        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req("r" + i)).CompleteAsync().ContinueWith(_ => Record(order, i))).ToArray();
+        // The order the prompts are prefilled in (one slot: one after another), told apart by their lengths; completion callbacks
+        // could run in any order.
+        int start = d.Steps.Count;
+        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req(new string((char)('k' + i), 2 + i))).CompleteAsync()).ToArray();
         await Task.WhenAll(tasks);
-        Assert.Equal([0, 1, 2, 3], order);
+        var prefills = d.Steps.ToList().Skip(start).Where(s => s.Length == 1 && s[0].Rows > 1).Select(s => s[0].Rows).ToList();
+        Assert.Equal(4, prefills.Count);
+        Assert.Equal([.. prefills.Order()], prefills);
+        Assert.Equal(4, prefills.Distinct().Count());
     }
 
     // ---- stop strings / detokenization ---------------------------------------------------------------------------------

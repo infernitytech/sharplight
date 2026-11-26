@@ -1635,7 +1635,7 @@ public sealed class InferenceEngine : IDisposable
         var results = PrepareDeviceSampling()
             ? _deviceSampler!.Step(_inputs, _deviceRows, _sampledTokens, _sampledLogprobs)
             : _decoder.Step(_inputs);
-        var elapsed = Stopwatch.GetElapsedTime(t0);
+        var elapsed = (_decoder as ISimulatedStepTime)?.LastStepTime ?? Stopwatch.GetElapsedTime(t0);
         Metrics.Step(stepTokens - budget.Tokens, _inputs.Count, elapsed);
         if (_tiles is not null && !(_cost.Seen > 16 && elapsed.TotalMilliseconds > 3 * _cost.StepMs(stepTokens - budget.Tokens) + 1))
         {
