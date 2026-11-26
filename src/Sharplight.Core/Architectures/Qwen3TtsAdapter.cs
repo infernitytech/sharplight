@@ -11,14 +11,17 @@ namespace Sharplight.Architectures;
 /// The talker (a Qwen3 decoder over the codec's first codebook, fed with embedding rows) is built by <see cref="DecoderAdapter"/>; the code predictor (a small Qwen3
 /// decoder that predicts codebooks 1 to 15 of each frame from the talker's hidden state) is a second decoder whose weights and caches live under <c>code_predictor.</c>
 /// (graph <see cref="CodePredictorGraph"/>); the codec's decoder graph turns the 16 codebooks into 24 kHz audio. The text embedding, the text projection and the code
-/// predictor's codebook embeddings and heads are read on the host. <see cref="Qwen3TtsSynthesizer"/> runs it.
+/// predictor's codebook embeddings and heads are read on the host. <see cref="Qwen3TtsSynthesizer"/> runs it. A voice-cloning model also has an ECAPA-TDNN speaker
+/// encoder (<see cref="EcapaTdnnGraph"/>, weights under <see cref="SpeakerEncoderPrefix"/>) with its log-mel front end, and the codec's encoder graph (the reference
+/// recording's codes for the in-context prompt).
 /// </summary>
 /// <remarks>
 /// Hyper-parameters: the talker's decoder keys (<c>decoder.*</c>), the code predictor's under <c>qwen3_tts.code_predictor.decoder.*</c>, and <c>qwen3_tts.{text_bos,text_eos,
 /// text_pad,text_hidden_size,code_groups,codec_bos,codec_eos,codec_pad,codec_think,codec_nothink,codec_think_bos,codec_think_eos,languages,language_ids,speakers,speaker_ids,
-/// speaker_dialects}</c> and the sampling defaults <c>qwen3_tts.sampling.*</c>. Weights: the talker's canonical decoder names, <c>code_predictor.</c> plus the code predictor's,
+/// speaker_dialects,instructions,interleaved_text}</c>, the speaker encoder's <c>qwen3_tts.speaker_encoder.{mel_bins,embedding,channels,kernels,dilations,
+/// attention_channels,res2net_scale,se_channels,sample_rate,fft_size,hop_length}</c> (with the attachment <c>speaker-features/mel-filters</c>) and the sampling defaults <c>qwen3_tts.sampling.*</c>. Weights: the talker's canonical decoder names, <c>code_predictor.</c> plus the code predictor's,
 /// and <c>qwen3_tts.{text_embedding.weight,text_projection.linear_fc{1,2}.{weight,bias},code_predictor.embedding.{i}.weight,code_predictor.head.{i}.weight,
-/// code_predictor.projection.{weight,bias}}</c>.
+/// code_predictor.projection.{weight,bias}}</c>; a voice-cloning model's speaker encoder under <c>speaker_encoder.</c> (<see cref="EcapaTdnnGraph"/>).
 /// </remarks>
 internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
 {
@@ -33,6 +36,18 @@ internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
 
     /// <summary>The role of the codec decoder component.</summary>
     public const string CodecRole = "codec-decoder";
+
+    /// <summary>The role of the codec encoder component (voice-cloning models).</summary>
+    public const string CodecEncoderRole = "codec-encoder";
+
+    /// <summary>The role of the speaker encoder component (voice-cloning models).</summary>
+    public const string SpeakerEncoderRole = "speaker-encoder";
+
+    /// <summary>The role of the speaker encoder's log-mel front end.</summary>
+    public const string SpeakerFeaturesRole = "speaker-features";
+
+    /// <summary>The prefix of the speaker encoder's weights.</summary>
+    public const string SpeakerEncoderPrefix = "speaker_encoder.";
 
     /// <summary>The prefix of the codec's weights in the model.</summary>
     public const string CodecPrefix = "codec.";
@@ -54,6 +69,9 @@ internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
 
     /// <summary>The most frames one request generates (about 5.5 minutes of speech).</summary>
     public const int MaxFrames = 4096;
+
+    /// <summary>The longest reference recording the speaker encoder reads, in codec frames (the rest of a longer recording is ignored).</summary>
+    public const int MaxReferenceFrames = 750;
 
     /// <inheritdoc/>
     public string Name => "Qwen3-TTS";
@@ -105,11 +123,13 @@ internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
         }
 
         var codec = Qwen3TtsCodecParameters.From(codecSource);
+        WeightInfo? Codec(string n) => weights.GetValueOrDefault(CodecPrefix + n);
         var graphs = new Dictionary<string, ComputeGraph>(talker.Graphs, StringComparer.Ordinal)
         {
             [CodePredictorGraph] = predictorGraph,
-            [AudioCodecGraphs.DecodeGraph] = Qwen3TtsCodecGraph.BuildDecoder(codec, n => weights.GetValueOrDefault(CodecPrefix + n)),
+            [AudioCodecGraphs.DecodeGraph] = Qwen3TtsCodecGraph.BuildDecoder(codec, Codec),
         };
+        var cloning = CloningComponents(src, codecSource, graphs, Codec, n => weights.GetValueOrDefault(n));
         int sampleRate = codecSource.Get<int>(Qwen3TtsCodecParameters.Architecture + ".sample_rate");
         var speakers = src.Get<string[]>(a + "speakers");
         var speakerIds = src.Get<int[]>(a + "speaker_ids");
@@ -124,6 +144,7 @@ internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
             ("codecThinkBos", src.Get<int>(a + "codec_think_bos")), ("codecThinkEos", src.Get<int>(a + "codec_think_eos")),
             ("speakers", string.Join(',', speakers.Select((s, i) => $"{s}={speakerIds[i]}={dialects[i]}"))),
             ("languages", string.Join(',', languages.Select((l, i) => $"{l}={languageIds[i]}"))),
+            ("instructions", src.Get(a + "instructions", false)), ("interleavedText", src.Get(a + "interleaved_text", false)),
         };
         foreach (var key in new[] { "temperature", "top_k", "top_p", "repetition_penalty", "code_predictor.temperature", "code_predictor.top_k", "code_predictor.top_p" })
         {
@@ -133,7 +154,7 @@ internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
             }
         }
 
-        var talkerPrefixes = talker.Weights.Keys.Where(k => !k.StartsWith(CodePredictorPrefix, StringComparison.Ordinal))
+        var talkerPrefixes = talker.Weights.Keys.Where(k => !k.StartsWith(CodePredictorPrefix, StringComparison.Ordinal) && !k.StartsWith(SpeakerEncoderPrefix, StringComparison.Ordinal))
             .Select(k => k[..(k.IndexOf('.', StringComparison.Ordinal) + 1)]).Where(p => p.Length > 0).Distinct().Order(StringComparer.Ordinal).ToList();
         var description = new ModelDescription
         {
@@ -164,6 +185,7 @@ internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
                         ("codebookSize", codec.CodebookSize), ("samplesPerFrame", codec.SamplesPerFrame)),
                     SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = CodecChunkFrames + CodecContextFrames },
                 },
+                .. cloning,
             ],
             Config = ComponentConfig.Of(("sampleRate", sampleRate)),
         };
@@ -178,8 +200,54 @@ internal sealed class Qwen3TtsAdapter : ICompositeModelAdapter
             Properties = properties,
             SourceMetadata = talker.SourceMetadata,
             Description = description,
-            Attachments = talker.Attachments,
+            Attachments = cloning.Count == 0 ? talker.Attachments : new Dictionary<string, IWeightSource>(src.Attachments.Concat(talker.Attachments), StringComparer.Ordinal),
             OwnedResources = [.. talker.OwnedResources, .. codecSource.OwnedResources],
         };
+    }
+
+    // A voice-cloning model's speaker encoder, its log-mel front end and the codec's encoder (graphs added to graphs); none for the other models.
+    private static List<ModelComponent> CloningComponents(ModelSource src, ModelSource codecSource, Dictionary<string, ComputeGraph> graphs, Func<string, WeightInfo?> codec,
+        Func<string, WeightInfo?> weights)
+    {
+        if (!src.Weights.ContainsKey(SpeakerEncoderPrefix + "fc.weight"))
+        {
+            return [];
+        }
+
+        string k = Architecture + ".speaker_encoder.";
+        var parameters = new EcapaTdnnParameters(src.Get<int>(k + "mel_bins"), src.Get<int>(k + "embedding"), src.Get<int[]>(k + "channels"), src.Get<int[]>(k + "kernels"),
+            src.Get<int[]>(k + "dilations"), src.Get<int>(k + "attention_channels"), src.Get<int>(k + "res2net_scale"), src.Get<int>(k + "se_channels"));
+        graphs[EcapaTdnnGraph.GraphName] = EcapaTdnnGraph.Build(parameters, weights, SpeakerEncoderPrefix);
+        var mimi = MimiParameters.From(codecSource);
+        graphs[AudioCodecGraphs.EncodeGraph] = MimiGraph.BuildEncoder(mimi, codec);
+        int sampleRate = src.Get<int>(k + "sample_rate");
+        return
+        [
+            new ModelComponent
+            {
+                Role = SpeakerEncoderRole,
+                Graphs = [EcapaTdnnGraph.GraphName],
+                WeightPrefixes = [SpeakerEncoderPrefix],
+                Config = ComponentConfig.Of(("embedding", parameters.Embedding), ("sampleRate", sampleRate)),
+                SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = MaxReferenceFrames * mimi.SamplesPerFrame / src.Get<int>(k + "hop_length") + 1 },
+            },
+            new ModelComponent
+            {
+                Role = SpeakerFeaturesRole,
+                Config = ComponentConfig.Of(("type", "log-mel"), ("sampleRate", sampleRate), ("fftSize", src.Get<int>(k + "fft_size")), ("hopLength", src.Get<int>(k + "hop_length")),
+                    ("melBins", parameters.MelBins), ("center", false), ("edgePadding", (src.Get<int>(k + "fft_size") - src.Get<int>(k + "hop_length")) / 2), ("magnitude", true),
+                    ("magnitudeGuard", 1e-9), ("logBase", "e"), ("logFloor", 1e-5)),
+                Attachments = new Dictionary<string, string>(StringComparer.Ordinal) { [ModelComponentAttachments.MelFilters] = SpeakerFeaturesRole + "/mel-filters" },
+            },
+            new ModelComponent
+            {
+                Role = CodecEncoderRole,
+                Graphs = [AudioCodecGraphs.EncodeGraph],
+                WeightPrefixes = [CodecPrefix + "encoder", CodecPrefix + "downsample.", CodecPrefix + "quantizer."],
+                Config = ComponentConfig.Of((AudioCodecGraphs.SampleRateKey, mimi.SampleRate), (AudioCodecGraphs.SamplesPerFrameKey, mimi.SamplesPerFrame),
+                    (AudioCodecGraphs.CodebooksKey, mimi.Codebooks), (AudioCodecGraphs.PositionsNumeratorKey, 1), (AudioCodecGraphs.PositionsDenominatorKey, mimi.SamplesPerConvFrame)),
+                SymbolBounds = new Dictionary<string, long> { [WellKnown.TokenSymbol] = Qwen3TtsCodecAdapter.MaxFrames * mimi.SamplesPerFrame },
+            },
+        ];
     }
 }

@@ -8,7 +8,7 @@ namespace Sharplight.Studio.ViewModels.Speech;
 /// <param name="MultiSpeaker">The text is a script of <c>Speaker N: ...</c> turns with a voice per speaker.</param>
 /// <param name="ScriptInOneRequest">The model speaks the whole script in one request (VibeVoice); otherwise the page speaks the turns one by one (CSM).</param>
 /// <param name="DiffusionOptions">The model has a diffusion head with steps and guidance (VibeVoice, VoxCPM2).</param>
-/// <param name="VoiceDesign">A text describes the voice to speak with (OmniVoice, VoxCPM2).</param>
+/// <param name="VoiceDesign">A text describes the voice to speak with (OmniVoice, VoxCPM2, Qwen3-TTS VoiceDesign).</param>
 /// <param name="Languages">The language names the model takes, or empty when it has no language choice.</param>
 internal sealed record SpeechModelTraits(bool MultiSpeaker, bool ScriptInOneRequest, bool DiffusionOptions, bool VoiceDesign, IReadOnlyList<string> Languages)
 {
@@ -34,6 +34,9 @@ internal sealed record SpeechModelTraits(bool MultiSpeaker, bool ScriptInOneRequ
             "omnivoice" => new SpeechModelTraits(false, false, false, true, languages),
             "dia" => None with { SpeakerTags = true },
             "voxcpm2" => new SpeechModelTraits(false, false, true, true, languages) { DefaultGuidance = 2.0 },
+
+            // Qwen3-TTS: the voice-design model has neither built-in speakers nor a speaker encoder (the custom-voice and voice-cloning models have one of them).
+            "qwen3_tts" => new SpeechModelTraits(false, false, false, client.Voices.Count == 0 && client.GetService(typeof(IVoiceCloner)) is null, languages),
             _ => languages.Count > 0 ? None with { Languages = languages } : None,
         };
     }
