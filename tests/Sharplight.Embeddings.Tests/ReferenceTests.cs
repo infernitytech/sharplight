@@ -38,6 +38,9 @@ public class ReferenceTests
         { "bge-reranker-v2-m3", "gguf:bge-reranker-v2-m3/bge-reranker-v2-m3-Q8_0.gguf", "cpu" }, { "bge-reranker-v2-m3", "gguf:bge-reranker-v2-m3/bge-reranker-v2-m3-Q8_0.gguf", "vulkan" },
         { "Qwen3-Reranker-0.6B", "hf", "cpu" }, { "Qwen3-Reranker-0.6B", "hf", "vulkan" },
         { "Qwen3-Reranker-4B", "hf", "vulkan" },
+        // ModernBERT (mmBERT-small) cross-encoders on a Gemma vocabulary: hindsight-ai/hs-rerank-1 (cls pooling), Horizon-Labs/multilingual-reranker-small (mean pooling).
+        { "hs-rerank-1", "hf", "cpu" }, { "hs-rerank-1", "hf", "vulkan" },
+        { "multilingual-reranker-small", "hf", "cpu" }, { "multilingual-reranker-small", "hf", "vulkan" },
     };
 
     private static string PathOf(string model, string format)
