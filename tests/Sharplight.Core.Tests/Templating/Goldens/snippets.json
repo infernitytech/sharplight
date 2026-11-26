@@ -1572,6 +1572,13 @@
   "output": "ab"
  },
  {
+  "name": "call_kwargs_unpack",
+  "template": "{% set ns = namespace(d={}) %}{% for k, v in {'a': 1, 'b': 'x'}.items() %}{% set ns.d = dict(ns.d, **{k: v}) %}{% endfor %}{{ ns.d }}|{{ dict(z=0, **{'y': 2}) }}",
+  "context": {},
+  "options": {},
+  "output": "{'a': 1, 'b': 'x'}|{'z': 0, 'y': 2}"
+ },
+ {
   "name": "dict_braces_close",
   "template": "{{ {'a': {'b': 1}} }}|{{ {'a': 1}.a }}{{ {} }}",
   "context": {},

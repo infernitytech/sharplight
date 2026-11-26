@@ -206,6 +206,15 @@ internal sealed partial class OnnxTranslator
     {
         string name = Nm(n);
         bool linear = n.OpType == "QLinearConv";
+        bool channelsLast = n.Domain == "com.microsoft" && n.Int("channels_last", 0) != 0;
+        if (channelsLast)
+        {
+            // com.microsoft QLinearConv with channels_last: [N, spatial..., C] in and out around the channels-first convolution.
+            var input = AsValue(ins[0]!);
+            ins = [.. ins];
+            ins[0] = TranslatedTensor.Dyn(Permute(input, [0, input.Rank - 1, .. Enumerable.Range(1, input.Rank - 2)]));
+        }
+
         var x = linear ? ShiftZp(ins[0]!, OptConst(ins, 2, "x_zp"), name) : ShiftZp(ins[0]!, Opt(ins, 2), name);
         var weightConst = ConstIn(ins, linear ? 3 : 1, "W");
         var weightZeroPoint = OptConst(ins, linear ? 5 : 3, "w_zp");
@@ -219,7 +228,12 @@ internal sealed partial class OnnxTranslator
         if (linear)
         {
             var multipliers = Multipliers(ConstIn(ins, 1, "x_scale").ScalarF32(), ConstIn(ins, 4, "w_scale"), ConstIn(ins, 6, "y_scale").ScalarF32());
-            y = Requant(y, multipliers, 1, OptConst(ins, 7, "y_zp"), name);
+            y = Requant(y, multipliers, 1, OptConst(ins, 7, "y_zp"), channelsLast ? name + ".nchw" : name);
+        }
+
+        if (channelsLast)
+        {
+            y = Permute(y, [0, .. Enumerable.Range(2, y.Rank - 2), 1]);
         }
 
         SetDyn(n, 0, y);
@@ -231,6 +245,16 @@ internal sealed partial class OnnxTranslator
         string name = Nm(n);
         switch (n.OpType)
         {
+            case "QLinearMul" when QuantizedProductRatio(ins) is { } ratio:
+            {
+                // onnxruntime: round((a - a_zp) · (b - b_zp) · (a_scale · b_scale / y_scale)) + y_zp.
+                var product = _b.Mul(ShiftZp(ins[0]!, Opt(ins, 2), name + ".a"), ShiftZp(ins[3]!, Opt(ins, 5), name + ".b"));
+                SetDyn(n, 0, Requant(product, [ratio], 0, OptConst(ins, 7, "y_zp"), name));
+                break;
+            }
+            case "QLinearLeakyRelu" when QuantizedLookup(ins, 0, 1, 2, 3, 4, x => x >= 0 ? x : x * n.Float("alpha", 0.01f), name) is { } table:
+                SetDyn(n, 0, table);
+                break;
             case "QLinearAdd" or "QLinearMul":
             {
                 var a = Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".a");
@@ -277,6 +301,53 @@ internal sealed partial class OnnxTranslator
             default:
                 throw new NotSupportedException(n.OpType);
         }
+    }
+
+    /// <summary>a_scale · b_scale / y_scale in f32 when all three are constant scalars (and the zero points constant); else null.</summary>
+    private static float? QuantizedProductRatio(TranslatedTensor?[] ins)
+    {
+        bool Scalar(int i) => ins.Length > i && ins[i] is { IsConst: true } t && t.C!.Count == 1;
+        bool ConstOrAbsent(int i) => ins.Length <= i || ins[i] is null or { IsConst: true };
+        if (!Scalar(1) || !Scalar(4) || !Scalar(6) || !ConstOrAbsent(2) || !ConstOrAbsent(5) || !ConstOrAbsent(7))
+        {
+            return null;
+        }
+
+        return ins[1]!.C!.ScalarF32() * ins[4]!.C!.ScalarF32() / ins[6]!.C!.ScalarF32();
+    }
+
+    /// <summary>
+    /// A quantized unary operator as onnxruntime evaluates it: a lookup table over the 256 input codes, built at import in f32
+    /// (dequantize, <paramref name="op"/>, round(y / y_scale) + y_zp, clamp) and gathered by code. Null unless the input is 8-bit and the
+    /// scales and zero points are constant scalars.
+    /// </summary>
+    private Value? QuantizedLookup(TranslatedTensor?[] ins, int x, int xScale, int xZeroPoint, int yScale, int yZeroPoint, Func<float, float> op, string name)
+    {
+        bool Scalar(int i) => ins.Length > i && ins[i] is { IsConst: true } t && t.C!.Count == 1;
+        bool ScalarOrAbsent(int i) => ins.Length <= i || ins[i] is null || Scalar(i);
+        int inputType = ElemTypeOf(ins[x]!);
+        if (inputType is not (OnnxType.UInt8 or OnnxType.Int8) || !Scalar(xScale) || !Scalar(yScale) || !ScalarOrAbsent(xZeroPoint) || !ScalarOrAbsent(yZeroPoint))
+        {
+            return null;
+        }
+
+        float inScale = ins[xScale]!.C!.ScalarF32();
+        float outScale = ins[yScale]!.C!.ScalarF32();
+        float inZero = Opt(ins, xZeroPoint)?.C!.ScalarF32() ?? 0f;
+        var outZeroPoint = Opt(ins, yZeroPoint)?.C;
+        float outZero = outZeroPoint?.ScalarF32() ?? 0f;
+        var (lo, hi) = OnnxFold.Range(outZeroPoint?.ElemType ?? OnnxType.UInt8);
+        int first = inputType == OnnxType.Int8 ? -128 : 0;
+        var table = new float[256];
+        for (int code = 0; code < 256; code++)
+        {
+            float y = op((code + first - inZero) * inScale);
+            table[code] = Math.Clamp(MathF.Round(y / outScale, MidpointRounding.ToEven) + outZero, (float)lo, (float)hi);
+        }
+
+        var input = AsValue(ins[x]!);
+        var index = Emit("Cast", [first == 0 ? input : _b.Scale(input, 1f, -first)], Attributes.From(("type", "i32")));
+        return Emit("GatherAxis", [F32Const(table, name + ".table"), index], Attributes.From(("axis", 0L)), name);
     }
 
     private void QLinearPool(OnnxNode n, TranslatedTensor?[] ins)

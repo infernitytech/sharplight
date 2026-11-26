@@ -11,6 +11,10 @@ Development runs through the MultiClaude board: one issue per branch `issue-<n>`
 workflow (memory restore via restore.sh, the `wip/*` queue, "push only when asked") no longer applies, but its
 toolchain and model-asset notes are still accurate.
 
+Branches: `main` is the unstable integration branch (`0.X-alpha`; its pushes publish the unstable Studio channel, the
+prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` carries each stable line. The old
+`develop` branch was merged into `main` and retired (#47) — never target it.
+
 ## Build and test
 
 - Requires the .NET 11 SDK (`net11.0`). On fedora-ws the SDK comes from dotnetup; non-interactive shells resolve
@@ -31,8 +35,18 @@ toolchain and model-asset notes are still accurate.
   when downloading public models there; `glslc` is at `~/.local/bin/glslc`. `$LLAMA_ROOT` (llama.cpp reference builds
   for the bench/ scripts) is not provisioned; a llama.cpp checkout at the pinned parity commit 8ca5a80 sits unbuilt in
   `~/scratch/llama.cpp`.
+- Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
+  `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
+  `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`
+  (built by `native/ffmpeg/build.sh`; rebuild and re-upload when the FFmpeg pins in third_party/sources.json change).
+  To build it yourself (~10 min): `ZIG=$(native/sharplight_audio/install-zig.sh ~/.local/share/sharplight/zig | tail -1)
+  native/ffmpeg/build.sh linux-x64 --jobs 16` (needs cmake, ninja, a host cc (for nasm), pkg-config, python3-venv).
 - GPU tests: `SHARPLIGHT_VK_DEVICES=<i>[,<j>]` restricts the Vulkan provider to those device indices — set it to the
   GPU(s) assigned to your session on multi-GPU machines.
+- Vulkan `a / b` is only 2.5-ULP accurate (RADV, RTX 4090; the Blackwell driver happens to be exact). Where an exact
+  IEEE quotient matters (index/tie math that must match the CPU), use a residual fma step like `div_rn` in
+  `spatial.slang`. The integrated RADV / llvmpipe devices (`SHARPLIGHT_VK_DEVICES=1`/`2` on fedora-blackwell) are handy
+  for reproducing such driver-precision bugs.
 
 ## Style and layout
 

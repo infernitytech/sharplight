@@ -2,49 +2,49 @@
 
 ## Branches
 
-- `main` is stable. `develop` is the unstable integration branch every working branch merges into; it merges into `main` once
-  everything is green.
+- `main` is the unstable integration branch (`0.X-alpha`) every working branch (`issue-<n>`) merges into. There is no separate
+  `develop` branch any more (it was merged into `main` and retired in #47); the stable line of each minor version lives on its
+  release branch.
 - Releases are cut from `release/vX.Y` branches with [Nerdbank.GitVersioning](https://github.com/dotnet/Nerdbank.GitVersioning)
   (`version.json` has `release.branchName = release/v{version}`).
-- Versions: builds of `main` and `release/v*` are public releases (`0.1.7`, or `0.1.7-alpha` while `version.json` still says
-  `0.1-alpha`); builds of `develop` and everything else are prereleases with the commit id (`0.2.3-alpha.g1a2b3c4`).
+- Versions: builds of `release/v*` are public releases (`0.1.7`); builds of `main` and everything else are prereleases with the
+  commit id (`0.2.3-alpha.g1a2b3c4`; the published-build smoke test relies on the commit id in the unstable versions).
 
 ## What CI does
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `ci.yml` | push to `develop`, `main`, `release/**`; pull requests | restore, build, run every test suite that works on a hosted runner (not the Vulkan and ONNX conformance suites) |
-| `packages.yml` | same | pack the NuGet libraries (artifact). **Publishes to nuget.org only on `release/**` pushes** (trusted publishing, environment `nuget`, variable `NUGET_USER`); never from `develop`, `main` or a pull request. `develop` pushes also publish the prerelease packages to the GitHub Packages feed once CI is green for that commit (see [Prerelease feed](#prerelease-feed)) |
-| `studio.yml` | same (not for documentation-only changes) | Studio packages for 5 runtimes on native runners. `develop` push: upload to R2, channels `<rid>-unstable`. `release/**` push: upload to R2, channels `<rid>-stable`, and attach the installers to the GitHub release `v<version>`. `main` and pull requests: build only. Job `catalog`: validates `catalog/verified-models.json` and, on `develop` pushes, uploads it to R2 as `catalog/verified-models.json` (docs/verified-catalog.md) |
-| `studio-published-smoke.yml` | after every successful `Studio` run on `develop`, nightly, manual | Tests the packages users get ([Published-build smoke test](#published-build-smoke-test)): downloads the newest unstable package of Linux x64, Windows x64 and macOS ARM64 from the update feed, starts it headless and runs `--smoke` |
+| `ci.yml` | push to `main`, `release/**`; pull requests | restore, build, run every test suite that works on a hosted runner (not the Vulkan and ONNX conformance suites) |
+| `packages.yml` | same | pack the NuGet libraries (artifact). **Publishes to nuget.org only on `release/**` pushes** (trusted publishing, environment `nuget`, variable `NUGET_USER`); never from `main` or a pull request. `main` pushes also publish the prerelease packages to the GitHub Packages feed once CI is green for that commit (see [Prerelease feed](#prerelease-feed)) |
+| `studio.yml` | same (not for documentation-only changes) | Studio packages for 5 runtimes on native runners. `main` push: upload to R2, channels `<rid>-unstable`. `release/**` push: upload to R2, channels `<rid>-stable`, and attach the installers to the GitHub release `v<version>`. Pull requests and other branches: build only. Job `catalog`: validates `catalog/verified-models.json` and, on `main` pushes, uploads it to R2 as `catalog/verified-models.json` (docs/verified-catalog.md) |
+| `studio-published-smoke.yml` | after every successful `Studio` run on `main`, nightly, manual | Tests the packages users get ([Published-build smoke test](#published-build-smoke-test)): downloads the newest unstable package of Linux x64, Windows x64 and macOS ARM64 from the update feed, starts it headless and runs `--smoke` |
 
 ## Release procedure
 
-1. **Prepare.** On a clean, up-to-date `develop` (green CI):
+1. **Prepare.** On a clean, up-to-date `main` (green CI):
    ```sh
-   nbgv prepare-release          # creates release/v0.1 and bumps develop's version.json to the next minor (0.2-alpha)
-   git push origin release/v0.1 develop
+   nbgv prepare-release          # creates release/v0.1 and bumps main's version.json to the next minor (0.2-alpha)
+   git push origin release/v0.1 main
    ```
    (Install it with `dotnet tool install -g nbgv`.) With `firstUnstableTag: alpha` the release branch's version.json gets `0.1`
-   (the `-alpha` suffix is removed); `develop` moves on.
+   (the `-alpha` suffix is removed); `main` moves on.
    Write the curated release notes as `docs/release-notes/vX.Y.md` on the release branch (and a line in `CHANGELOG.md`): for a
    stable version, `packaging/release-notes.sh` hands them to Velopack and `studio.yml` uses them for the GitHub release
    (otherwise both fall back to the commit subjects / GitHub's generated notes).
-2. **Stabilize.** Only fixes go onto `release/v0.1` (cherry-pick or merge from `develop`). Every push builds and tests,
+2. **Stabilize.** Only fixes go onto `release/v0.1` (cherry-pick from `main`). Every push builds and tests,
    publishes the NuGet packages `0.1.N` (N = git height; `--skip-duplicate`) and the Studio packages on the `*-stable` channels.
    Installed stable Studio builds offer the update.
 3. **Publish.** The last green push of the release branch is the release: the NuGet packages are on nuget.org, the GitHub release
    `v0.1.N` has the Studio installers (the tag is created by the workflow, never by hand), and R2 has the update feeds. Nothing
    else to do. Check the Actions run, then the GitHub release and `releases.<rid>-stable.json` at the update URL.
-4. **Merge back.** Merge `release/v0.1` into `main` (this makes `main` the stable line, and a public release version), and merge
-   it into `develop` so fixes made on the branch are not lost (`git merge release/v0.1` on `develop`; resolve the `version.json`
-   conflict in favor of `develop`'s).
+4. **Merge back.** Merge `release/v0.1` into `main` so fixes made on the branch are not lost (`git merge release/v0.1` on `main`;
+   resolve the `version.json` conflict in favor of `main`'s, which stays on the next `-alpha` version).
 
 Hotfixes: fix on `release/vX.Y`, push, merge back as in step 4.
 
 ## Prerelease feed
 
-Every push to `develop` whose CI run (`ci.yml`) succeeds publishes all packable projects (the libraries under `src/`) to the
+Every push to `main` whose CI run (`ci.yml`) succeeds publishes all packable projects (the libraries under `src/`) to the
 GitHub Packages NuGet feed of the repository owner, with the Nerdbank.GitVersioning prerelease version of that commit
 (`0.2.3-alpha.g1a2b3c4`; the same version the package artifact has). Job `prerelease` in `packages.yml` waits for the CI run of the
 same commit, then pushes with the workflow's `GITHUB_TOKEN` (`packages: write`, `--skip-duplicate`). Forks, pull requests and other
@@ -106,7 +106,7 @@ the organization (Packages tab) or `dotnet package search Sharplight --source sh
 ## Published-build smoke test
 
 Rule: test the builds users get, not the builds CI made. `studio-published-smoke.yml` runs after every successful `Studio` workflow
-on `develop` (so the packages are on R2), nightly, and on demand (*Run workflow*, with a channel choice). On `ubuntu-24.04`,
+on `main` (so the packages are on R2), nightly, and on demand (*Run workflow*, with a channel choice). On `ubuntu-24.04`,
 `windows-latest` and `macos-15` it runs `packaging/smoke/studio-published-smoke.sh <rid> <out>`:
 
 1. reads the Velopack feed `releases.<rid>-unstable.json` at `download.sharplight.dev/studio` and takes the newest full release,
@@ -125,8 +125,7 @@ on `develop` (so the packages are on R2), nightly, and on demand (*Run workflow*
 The job uploads the artifact `studio-smoke-<rid>`: `report.json`, `storage.txt`, `run.txt` and `logs/` (the Studio log folder). The
 repository does not use issues for CI, so a failure only fails the run (and the step summary lists the steps). Run the script
 locally (`packaging/smoke/studio-published-smoke.sh linux-x64 out`, needs `xvfb-run` and `jq`) to reproduce a Linux failure.
-`workflow_run` and `schedule` triggers run the workflow file of the default branch: the nightly and after-publish runs start once
-the file is on `main`; manual runs work from any branch.
+`workflow_run` and `schedule` triggers run the workflow file of the default branch (`main`); manual runs work from any branch.
 
 ## Studio update channels and Cloudflare R2
 
@@ -142,12 +141,12 @@ One-time setup on GitHub:
 | repository variable | `STUDIO_UPDATE_URL` | public URL of the folder, `https://download.sharplight.dev/studio` |
 | repository variable | `STUDIO_UPDATE_PREFIX` | key prefix in the bucket, `studio` (default when unset) |
 | repository variable | `NUGET_USER` | nuget.org user for trusted publishing (already used) |
-| environment `studio-release` (restrict it to `develop` and `release/*`) | secret `R2_ACCOUNT_ID` | Cloudflare account id (endpoint `https://<id>.r2.cloudflarestorage.com`, region `auto`) |
+| environment `studio-release` (restrict it to `main` and `release/*`) | secret `R2_ACCOUNT_ID` | Cloudflare account id (endpoint `https://<id>.r2.cloudflarestorage.com`, region `auto`) |
 | same environment | secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | R2 API token with Object Read and Write on the bucket |
 | same environment | secret `R2_BUCKET` | bucket name |
 | environment `nuget` | (already exists) | trusted publisher for `packages.yml` |
 
-Only the uploading pushes (develop, release/*) enter the `studio-release` environment; pull requests and other branches build
+Only the uploading pushes (main, release/*) enter the `studio-release` environment; pull requests and other branches build
 without any secret.
 
 **R2 and cache settings.** Serve the bucket on the custom domain (public access through the domain, not the `r2.dev` URL). Cache

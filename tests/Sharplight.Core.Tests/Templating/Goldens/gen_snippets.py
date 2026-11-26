@@ -230,6 +230,7 @@ t("raw_multi", "{% raw %}\n{{ a }}\n{% endraw %}\n{% raw %}{# c #}{% endraw %}")
 
 # ---- comments / misc syntax
 t("comment_in_block", "{# {% if %} #}a{# #}b")
+t("call_kwargs_unpack", "{% set ns = namespace(d={}) %}{% for k, v in {'a': 1, 'b': 'x'}.items() %}{% set ns.d = dict(ns.d, **{k: v}) %}{% endfor %}{{ ns.d }}|{{ dict(z=0, **{'y': 2}) }}")
 t("dict_braces_close", "{{ {'a': {'b': 1}} }}|{{ {'a': 1}.a }}{{ {} }}")
 t("string_with_delims", "{{ '}}' }}{{ '%}' }}{{ '{#' }}{% set x = '%}' %}{{ x }}")
 t("block_in_expr_strings", "{% if 'a}}b' == 'a}}b' %}y{% endif %}")

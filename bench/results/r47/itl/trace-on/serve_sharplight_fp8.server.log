@@ -1,0 +1,1343 @@
+Graph optimization (sharplight-ir/1): decode 868 -> 868 nodes, decode_embeddings 867 -> 867 nodes, embed 796 -> 796 nodes, classify 796 -> 796 nodes [91 ms]
+Loaded Qwen3-8B-FP8 (decoder): 399 tensors, 9.65 GB, vocab 151936 [1347 ms]
+Rows per forward pass: 2048 (automatic, 30826 MiB available).
+[load] lower segment 0: 947 ms (2961 launches, 494 buffers)
+Compiling 179 / 179, 179 cached (NVIDIA RTX PRO 4500 Blackwell)
+Uploading weights 9.65 / 9.65 GB (NVIDIA RTX PRO 4500 Blackwell)
+[load] upload segment 0: 34398 ms, 9.65 GB; Runtime 0.0 MiB, Activations 545.9 MiB, Input 0.0 MiB, State 1152.0 MiB, Output 41.3 MiB
+[load] kernels segment 0: waited 0 ms for 179 kernels; slang CompileStatistics { Compiled = 0, CompileTime = 00:00:00 }; nvrtc 0 kernels 0 ms; 179 linked, 0 cubins cached, 1003 ms summed
+[load] NVIDIA RTX PRO 4500 Blackwell after compiling 'decode': 20588 MiB available, 10945 MiB held, 1 segments, 0 streamed, 0 sparse, 1024 MiB reserved
+Compiled 'decode' for 16 sequences x 512 tokens, paged KV cache of 8192 tokens in 35667 ms
+slot 0 NVIDIA RTX PRO 4500 Blackwell: 38 groups, 10.12 GiB weights+state
+1 segment(s): [0@0: 869 nodes]
+Ready (decode)
+[sched] prepared 16 decode step shapes in 2 ms
+Model 'Qwen3-8B-FP8' loaded in 37920 ms (estimated 11366 MiB, resident 10945 MiB).
+Serving 'Qwen3-8B-FP8' (both API, VRAM reserve 1 GiB) on http://127.0.0.1:18080
+  Qwen3-8B-FP8 [Chat] Loaded 10945 MiB
+  NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 11538 MiB (ours 10945 MiB), available 20588 MiB
+[sched]  103.69 ms rows   766 decode   0 active   4 P1@0+250/250 P2@0+250/250 P3@0+250/250 P4@0+16/250
+[sched]   24.19 ms rows   237 decode   3 active   4 P4@16+234/250
+[sched]   17.40 ms rows     4 decode   4 active   4
+[sched]   24.86 ms rows     4 decode   4 active   4
+[sched]   19.73 ms rows     4 decode   4 active   4
+[sched]   12.07 ms rows     4 decode   4 active   4
+[sched]   12.07 ms rows     4 decode   4 active   4
+[sched]   12.11 ms rows     4 decode   4 active   4
+[sched]   12.12 ms rows     4 decode   4 active   4
+[sched]   12.12 ms rows     4 decode   4 active   4
+[sched]   12.12 ms rows     4 decode   4 active   4
+[sched]   12.16 ms rows     4 decode   4 active   4
+[sched]   12.19 ms rows     4 decode   4 active   4
+[sched]   12.24 ms rows     4 decode   4 active   4
+[sched]   12.27 ms rows     4 decode   4 active   4
+[sched]   12.26 ms rows     4 decode   4 active   4
+[sched]   12.28 ms rows     4 decode   4 active   4
+[sched]   12.32 ms rows     4 decode   4 active   4
+[sched]   12.30 ms rows     4 decode   4 active   4
+[sched]   12.29 ms rows     4 decode   4 active   4
+[sched]   12.31 ms rows     4 decode   4 active   4
+[sched]   12.30 ms rows     4 decode   4 active   4
+[sched]   12.29 ms rows     4 decode   4 active   4
+[sched]   12.31 ms rows     4 decode   4 active   4
+[sched]   12.31 ms rows     4 decode   4 active   4
+[sched]   12.33 ms rows     4 decode   4 active   4
+[sched]   12.32 ms rows     4 decode   4 active   4
+[sched]   12.33 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.34 ms rows     4 decode   4 active   4
+[sched]   12.33 ms rows     4 decode   4 active   4
+[sched]   12.33 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.34 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.34 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.34 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.41 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.40 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.40 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.34 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.39 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.35 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.36 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.49 ms rows     4 decode   4 active   4
+[sched]   12.40 ms rows     4 decode   4 active   4
+[sched]   12.40 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.39 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.37 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   12.41 ms rows     4 decode   4 active   4
+[sched]   12.41 ms rows     4 decode   4 active   4
+[sched]   12.41 ms rows     4 decode   4 active   4
+[sched]   12.39 ms rows     4 decode   4 active   4
+[sched]   12.41 ms rows     4 decode   4 active   4
+[sched]   12.39 ms rows     4 decode   4 active   4
+[sched]   12.39 ms rows     4 decode   4 active   4
+[sched]   12.40 ms rows     4 decode   4 active   4
+[sched]   12.41 ms rows     4 decode   4 active   4
+[sched]   12.42 ms rows     4 decode   4 active   4
+[sched]   12.47 ms rows     4 decode   4 active   4
+[sched]   12.46 ms rows     4 decode   4 active   4
+[sched]   12.40 ms rows     4 decode   4 active   4
+[sched]   12.38 ms rows     4 decode   4 active   4
+[sched]   15.88 ms rows     1 decode   1 active   1
+[sched]   22.27 ms rows   250 decode   0 active   1 P5@0+250/250
+[sched]   48.03 ms rows   768 decode   1 active  16 P6@0+250/250 P7@0+250/250 P8@0+250/250 P9@0+16/250 P10@0+1/250
+[sched]   48.66 ms rows   768 decode   4 active  16 P9@16+234/250 P10@1+249/250 P11@0+250/250 P12@0+16/250 P13@0+15/250
+[sched]   51.43 ms rows   768 decode   7 active  16 P12@16+234/250 P13@15+235/250 P14@0+250/250 P15@0+32/250 P16@0+10/250
+[sched]   52.14 ms rows   768 decode  10 active  16 P15@32+218/250 P16@10+240/250 P17@0+250/250 P18@0+48/250 P19@0+2/250
+[sched]   50.29 ms rows   713 decode  13 active  16 P18@48+202/250 P19@2+248/250 P20@0+250/250
+[sched]   17.30 ms rows    16 decode  16 active  16
+[sched]   16.52 ms rows    16 decode  16 active  16
+[sched]   12.21 ms rows    16 decode  16 active  16
+[sched]   12.19 ms rows    16 decode  16 active  16
+[sched]   12.24 ms rows    16 decode  16 active  16
+[sched]   12.26 ms rows    16 decode  16 active  16
+[sched]   12.28 ms rows    16 decode  16 active  16
+[sched]   12.26 ms rows    16 decode  16 active  16
+[sched]   12.28 ms rows    16 decode  16 active  16
+[sched]   12.30 ms rows    16 decode  16 active  16
+[sched]   12.30 ms rows    16 decode  16 active  16
+[sched]   12.32 ms rows    16 decode  16 active  16
+[sched]   12.30 ms rows    16 decode  16 active  16
+[sched]   12.31 ms rows    16 decode  16 active  16
+[sched]   12.34 ms rows    16 decode  16 active  16
+[sched]   12.31 ms rows    16 decode  16 active  16
+[sched]   12.34 ms rows    16 decode  16 active  16
+[sched]   12.33 ms rows    16 decode  16 active  16
+[sched]   12.36 ms rows    16 decode  16 active  16
+[sched]   12.35 ms rows    16 decode  16 active  16
+[sched]   12.34 ms rows    16 decode  16 active  16
+[sched]   12.33 ms rows    16 decode  16 active  16
+[sched]   12.37 ms rows    16 decode  16 active  16
+[sched]   12.33 ms rows    16 decode  16 active  16
+[sched]   12.33 ms rows    16 decode  16 active  16
+[sched]   12.33 ms rows    16 decode  16 active  16
+[sched]   12.33 ms rows    16 decode  16 active  16
+[sched]   12.35 ms rows    16 decode  16 active  16
+[sched]   12.34 ms rows    16 decode  16 active  16
+[sched]   12.33 ms rows    16 decode  16 active  16
+[sched]   12.35 ms rows    16 decode  16 active  16
+[sched]   12.35 ms rows    16 decode  16 active  16
+[sched]   12.37 ms rows    16 decode  16 active  16
+[sched]   12.41 ms rows    16 decode  16 active  16
+[sched]   12.38 ms rows    16 decode  16 active  16
+[sched]   12.40 ms rows    16 decode  16 active  16
+[sched]   12.40 ms rows    16 decode  16 active  16
+[sched]   12.40 ms rows    16 decode  16 active  16
+[sched]   12.41 ms rows    16 decode  16 active  16
+[sched]   12.45 ms rows    16 decode  16 active  16
+[sched]   12.46 ms rows    16 decode  16 active  16
+[sched]   12.46 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.46 ms rows    16 decode  16 active  16
+[sched]   12.46 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.46 ms rows    16 decode  16 active  16
+[sched]   12.52 ms rows    16 decode  16 active  16
+[sched]   12.49 ms rows    16 decode  16 active  16
+[sched]   12.46 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.48 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.48 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.47 ms rows    16 decode  16 active  16
+[sched]   12.49 ms rows    16 decode  16 active  16
+[sched]   12.49 ms rows    16 decode  16 active  16
+[sched]   12.48 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.52 ms rows    16 decode  16 active  16
+[sched]   12.51 ms rows    16 decode  16 active  16
+[sched]   12.52 ms rows    16 decode  16 active  16
+[sched]   12.52 ms rows    16 decode  16 active  16
+[sched]   12.52 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.53 ms rows    16 decode  16 active  16
+[sched]   12.55 ms rows    16 decode  16 active  16
+[sched]   12.55 ms rows    16 decode  16 active  16
+[sched]   12.56 ms rows    16 decode  16 active  16
+[sched]   12.55 ms rows    16 decode  16 active  16
+[sched]   12.55 ms rows    16 decode  16 active  16
+[sched]   12.56 ms rows    16 decode  16 active  16
+[sched]   12.58 ms rows    16 decode  16 active  16
+[sched]   12.58 ms rows    16 decode  16 active  16
+[sched]   12.59 ms rows    16 decode  16 active  16
+[sched]   12.57 ms rows    16 decode  16 active  16
+[sched]   12.59 ms rows    16 decode  16 active  16
+[sched]   12.60 ms rows    16 decode  16 active  16
+[sched]   12.58 ms rows    16 decode  16 active  16
+[sched]   12.59 ms rows    16 decode  16 active  16
+[sched]   12.60 ms rows    16 decode  16 active  16
+[sched]   12.61 ms rows    16 decode  16 active  16
+[sched]   12.61 ms rows    16 decode  16 active  16
+[sched]   12.60 ms rows    16 decode  16 active  16
+[sched]   12.59 ms rows    16 decode  16 active  16
+[sched]   12.59 ms rows    16 decode  16 active  16
+[sched]   12.61 ms rows    16 decode  16 active  16
+[sched]   12.64 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.63 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.63 ms rows    16 decode  16 active  16
+[sched]   12.66 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.63 ms rows    16 decode  16 active  16
+[sched]   12.63 ms rows    16 decode  16 active  16
+[sched]   12.62 ms rows    16 decode  16 active  16
+[sched]   12.68 ms rows    16 decode  16 active  16
+[sched]   12.63 ms rows    16 decode  16 active  16
+[sched]   12.63 ms rows    16 decode  16 active  16
+[sched]   12.65 ms rows    16 decode  16 active  16
+[sched]   12.65 ms rows    16 decode  16 active  16
+[sched]   12.67 ms rows    16 decode  16 active  16
+[sched]   12.66 ms rows    16 decode  16 active  16
+[sched]   12.67 ms rows    16 decode  16 active  16
+[sched]   12.66 ms rows    16 decode  16 active  16
+[sched]   12.66 ms rows    16 decode  16 active  16
+[sched]   12.67 ms rows    16 decode  16 active  16
+[sched]   18.08 ms rows    15 decode  15 active  15
+[sched]   27.81 ms rows   262 decode  12 active  13 P21@0+250/250
+[sched]   44.20 ms rows   638 decode  10 active  13 P22@0+250/250 P23@0+250/250 P24@0+128/250
+[sched]   41.69 ms rows   640 decode   9 active  13 P24@128+122/250 P25@0+251/251 P26@0+250/250 P27@0+8/250
+[sched]   42.74 ms rows   640 decode   9 active  13 P27@8+242/250 P28@0+250/250 P29@0+128/250 P30@0+11/250
+[sched]   42.83 ms rows   640 decode   8 active  13 P29@128+122/250 P30@11+239/250 P31@0+250/250 P32@0+16/250 P33@0+5/250
+[sched]   56.29 ms rows   768 decode  11 active  16 P32@16+234/250 P33@5+245/250 P34@0+250/250 P35@0+16/250 P36@0+12/250
+[sched]   35.97 ms rows   486 decode  14 active  16 P35@16+234/250 P36@12+238/250
+[sched]   12.18 ms rows    16 decode  16 active  16 small
+[sched]   12.17 ms rows    16 decode  16 active  16 small
+[sched]   12.19 ms rows    16 decode  16 active  16 small
+[sched]   12.21 ms rows    16 decode  16 active  16 small
+[sched]   12.27 ms rows    16 decode  16 active  16 small
+[sched]   12.28 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.75 ms rows    16 decode  16 active  16 small
+[sched]   13.06 ms rows    16 decode  16 active  16 small
+[sched]   13.12 ms rows    16 decode  16 active  16 small
+[sched]   13.20 ms rows    16 decode  16 active  16 small
+[sched]   12.97 ms rows    16 decode  16 active  16 small
+[sched]   13.37 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.78 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.69 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   13.01 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.68 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   16.45 ms rows    15 decode  15 active  15
+[sched]   22.21 ms rows   253 decode  13 active  14 P37@0+240/250 held<=512 (tile 5.09 ms, row 0.0273 ms)
+[sched]   22.38 ms rows   256 decode  10 active  13 P37@240+10/250 P38@0+224/250 P39@0+12/250 small
+[sched]   23.16 ms rows   256 decode   9 active  14 P38@224+26/250 P39@12+212/250 P40@0+9/250 small
+[sched]   21.56 ms rows   256 decode   7 active  13 P39@224+26/250 P40@9+215/250 P41@0+8/250 small
+[sched]   21.45 ms rows   256 decode   5 active  13 P40@224+26/250 P41@8+216/250 P42@0+9/250 small
+[sched]   21.30 ms rows   256 decode   4 active  14 P41@224+26/250 P42@9+215/250 P43@0+11/250 small
+[sched]   23.44 ms rows   256 decode   5 active  16 P42@224+26/250 P43@11+213/250 P44@0+12/250 small
+[sched]   21.84 ms rows   256 decode   6 active  16 P43@224+26/250 P44@12+212/250 P46@0+12/250 small
+[sched]   23.23 ms rows   256 decode   7 active  16 P44@224+26/250 P46@12+212/250 P45@0+11/250 small
+[sched]   21.81 ms rows   256 decode   8 active  16 P46@224+26/250 P45@11+213/250 P47@0+9/250 small
+[sched]   23.01 ms rows   256 decode   9 active  16 P45@224+26/250 P47@9+215/250 P48@0+6/250 small
+[sched]   24.51 ms rows   256 decode  10 active  16 P47@224+26/250 P48@6+218/250 P49@0+2/250 small
+[sched]   21.66 ms rows   256 decode  11 active  16 P48@224+26/250 P49@2+206/250 P50@0+13/250 small
+[sched]   20.85 ms rows   256 decode  12 active  16 P49@208+42/250 P50@13+195/250 P51@0+7/250 small
+[sched]   20.71 ms rows   256 decode  13 active  16 P50@208+42/250 P51@7+201/250 small
+[sched]   20.10 ms rows   248 decode  14 active  16 P51@208+42/250 P52@0+192/250 small
+[sched]   15.49 ms rows    73 decode  15 active  16 P52@192+58/250 small
+[sched]   12.22 ms rows    16 decode  16 active  16 small
+[sched]   12.22 ms rows    16 decode  16 active  16 small
+[sched]   12.27 ms rows    16 decode  16 active  16 small
+[sched]   12.29 ms rows    16 decode  16 active  16 small
+[sched]   12.29 ms rows    16 decode  16 active  16 small
+[sched]   12.29 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.29 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    15 decode  15 active  15 small
+[sched]   23.51 ms rows   254 decode  14 active  15 P53@0+240/250 held<=128 (tile 4.06 ms, row 0.0338 ms) small
+[sched]   21.20 ms rows   247 decode  13 active  15 P53@240+10/250 P54@0+224/250 small
+[sched]   23.62 ms rows   247 decode  13 active  15 P54@224+26/250 P55@0+208/250 small
+[sched]   19.72 ms rows   247 decode  13 active  15 P55@208+42/250 P56@0+192/250 small
+[sched]   19.82 ms rows   247 decode  13 active  15 P56@192+58/250 P57@0+176/250 small
+[sched]   19.93 ms rows   247 decode  13 active  15 P57@176+74/250 P58@0+160/250 small
+[sched]   20.03 ms rows   247 decode  13 active  15 P58@160+90/250 P59@0+144/250 small
+[sched]   20.11 ms rows   247 decode  13 active  15 P59@144+106/250 P60@0+128/250 small
+[sched]   20.29 ms rows   247 decode  13 active  15 P60@128+122/250 P61@0+112/251 small
+[sched]   23.50 ms rows   248 decode  13 active  15 P61@112+139/251 P62@0+96/250 small
+[sched]   19.91 ms rows   247 decode  13 active  15 P62@96+154/250 P63@0+80/250 small
+[sched]   19.97 ms rows   247 decode  13 active  15 P63@80+170/250 P64@0+64/250 small
+[sched]   19.82 ms rows   247 decode  13 active  15 P64@64+186/250 P65@0+48/250 small
+[sched]   19.79 ms rows   247 decode  13 active  15 P65@48+202/250 P66@0+32/250 small
+[sched]   19.87 ms rows   247 decode  13 active  15 P66@32+218/250 P67@0+16/250 small
+[sched]   22.60 ms rows   256 decode  14 active  16 P67@16+234/250 P68@0+8/250 small
+[sched]   21.06 ms rows   247 decode  15 active  16 P68@8+232/250 held<=128 (tile 3.26 ms, row 0.0416 ms) small
+[sched]   14.86 ms rows    25 decode  15 active  16 P68@240+10/250 small
+[sched]   12.25 ms rows    16 decode  16 active  16 small
+[sched]   12.26 ms rows    16 decode  16 active  16 small
+[sched]   12.28 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.29 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    15 decode  15 active  15 small
+[sched]   15.79 ms rows    14 decode  14 active  14 small
+[sched]   14.73 ms rows    13 decode  13 active  13 small
+[sched]   14.23 ms rows    12 decode  12 active  12 small
+[sched]   13.91 ms rows    11 decode  11 active  11 small
+[sched]   13.64 ms rows    10 decode  10 active  10 small
+[sched]   13.40 ms rows     9 decode   9 active   9 small
+[sched]   13.89 ms rows     8 decode   8 active   8 small
+[sched]   13.73 ms rows     7 decode   7 active   7 small
+[sched]   13.53 ms rows     6 decode   6 active   6 small
+[sched]   13.40 ms rows     5 decode   5 active   5 small
+[sched]   12.34 ms rows     4 decode   4 active   4 small
+[sched]   13.24 ms rows     3 decode   3 active   3 small
+[sched]   13.13 ms rows     2 decode   2 active   2
+[sched]   14.89 ms rows     1 decode   1 active   1
+[sched]   11.10 ms rows     1 decode   1 active   1
+[sched]   48.80 ms rows   766 decode   0 active   4 P69@0+250/250 P70@0+250/250 P71@0+250/250 P72@0+16/250
+[sched]   21.49 ms rows   237 decode   3 active   4 P72@16+234/250 small
+[sched]   12.10 ms rows     4 decode   4 active   4 small
+[sched]   12.08 ms rows     4 decode   4 active   4 small
+[sched]   12.15 ms rows     4 decode   4 active   4 small
+[sched]   12.15 ms rows     4 decode   4 active   4 small
+[sched]   12.23 ms rows     4 decode   4 active   4 small
+[sched]   12.27 ms rows     4 decode   4 active   4 small
+[sched]   12.28 ms rows     4 decode   4 active   4 small
+[sched]   12.33 ms rows     4 decode   4 active   4 small
+[sched]   12.32 ms rows     4 decode   4 active   4 small
+[sched]   12.31 ms rows     4 decode   4 active   4 small
+[sched]   12.33 ms rows     4 decode   4 active   4 small
+[sched]   12.32 ms rows     4 decode   4 active   4 small
+[sched]   12.31 ms rows     4 decode   4 active   4 small
+[sched]   12.32 ms rows     4 decode   4 active   4 small
+[sched]   12.34 ms rows     4 decode   4 active   4 small
+[sched]   12.32 ms rows     4 decode   4 active   4 small
+[sched]   12.32 ms rows     4 decode   4 active   4 small
+[sched]   12.33 ms rows     4 decode   4 active   4 small
+[sched]   12.35 ms rows     4 decode   4 active   4 small
+[sched]   12.34 ms rows     4 decode   4 active   4 small
+[sched]   12.34 ms rows     4 decode   4 active   4 small
+[sched]   12.34 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.35 ms rows     4 decode   4 active   4 small
+[sched]   12.34 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.36 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.37 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.38 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.40 ms rows     4 decode   4 active   4 small
+[sched]   12.39 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.43 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.43 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.41 ms rows     4 decode   4 active   4 small
+[sched]   12.44 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.44 ms rows     4 decode   4 active   4 small
+[sched]   12.43 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   12.43 ms rows     4 decode   4 active   4 small
+[sched]   12.44 ms rows     4 decode   4 active   4 small
+[sched]   12.44 ms rows     4 decode   4 active   4 small
+[sched]   12.42 ms rows     4 decode   4 active   4 small
+[sched]   11.13 ms rows     1 decode   1 active   1 small
+[sched]   22.53 ms rows   250 decode   0 active   1 P73@0+250/250
+[sched]   27.97 ms rows   384 decode   1 active  16 P74@0+250/250 P75@0+128/250 P76@0+5/250 small
+[sched]   26.71 ms rows   256 decode   2 active  16 P75@128+122/250 P76@5+123/250 P77@0+9/250 small
+[sched]   19.70 ms rows   256 decode   3 active  16 P76@128+122/250 P77@9+119/250 P78@0+12/250 small
+[sched]   22.87 ms rows   256 decode   4 active  16 P77@128+122/250 P78@12+116/250 P79@0+14/250 small
+[sched]   19.33 ms rows   256 decode   5 active  16 P78@128+122/250 P79@14+114/250 P80@0+15/250 small
+[sched]   23.19 ms rows   256 decode   6 active  16 P79@128+122/250 P80@15+113/250 P81@0+15/250 small
+[sched]   19.91 ms rows   256 decode   7 active  16 P80@128+122/250 P81@15+113/250 P82@0+14/250 small
+[sched]   23.20 ms rows   256 decode   8 active  16 P81@128+122/250 P82@14+114/250 P83@0+12/250 small
+[sched]   19.97 ms rows   256 decode   9 active  16 P82@128+122/250 P83@12+116/250 P84@0+9/250 small
+[sched]   20.01 ms rows   256 decode  10 active  16 P83@128+122/250 P84@9+119/250 P85@0+5/250 small
+[sched]   22.08 ms rows   256 decode  11 active  16 P84@128+122/250 P85@5+123/250 small
+[sched]   24.32 ms rows   256 decode  12 active  16 P85@128+122/250 P86@0+112/250 P87@0+10/250 small
+[sched]   21.78 ms rows   256 decode  13 active  16 P86@112+138/250 P87@10+102/250 P88@0+3/250 small
+[sched]   20.30 ms rows   245 decode  14 active  16 P87@112+138/250 P88@3+93/250 small
+[sched]   18.86 ms rows   169 decode  15 active  16 P88@96+154/250 small
+[sched]   12.23 ms rows    16 decode  16 active  16 small
+[sched]   12.22 ms rows    16 decode  16 active  16 small
+[sched]   12.27 ms rows    16 decode  16 active  16 small
+[sched]   12.29 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.32 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.39 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    15 decode  15 active  15 small
+[sched]   24.13 ms rows   254 decode  14 active  15 P89@0+240/250 held<=128 (tile 3.44 ms, row 0.0356 ms) small
+[sched]   20.23 ms rows   247 decode  13 active  15 P89@240+10/250 P90@0+224/250 small
+[sched]   20.23 ms rows   247 decode  13 active  15 P90@224+26/250 P91@0+208/250 small
+[sched]   20.10 ms rows   247 decode  13 active  15 P91@208+42/250 P92@0+192/250 small
+[sched]   20.09 ms rows   247 decode  13 active  15 P92@192+58/250 P93@0+176/250 small
+[sched]   20.33 ms rows   247 decode  13 active  15 P93@176+74/250 P94@0+160/250 small
+[sched]   20.39 ms rows   247 decode  13 active  15 P94@160+90/250 P95@0+144/250 small
+[sched]   20.36 ms rows   247 decode  13 active  15 P95@144+106/250 P96@0+128/250 small
+[sched]   20.34 ms rows   247 decode  13 active  15 P96@128+122/250 P97@0+112/250 small
+[sched]   20.36 ms rows   247 decode  13 active  15 P97@112+138/250 P98@0+96/250 small
+[sched]   20.24 ms rows   247 decode  13 active  15 P98@96+154/250 P99@0+80/250 small
+[sched]   20.23 ms rows   247 decode  13 active  15 P99@80+170/250 P100@0+64/250 small
+[sched]   20.19 ms rows   247 decode  13 active  15 P100@64+186/250 P101@0+48/250 small
+[sched]   20.20 ms rows   247 decode  13 active  15 P101@48+202/250 P102@0+32/250 small
+[sched]   20.18 ms rows   247 decode  13 active  15 P102@32+218/250 P103@0+16/250 small
+[sched]   24.38 ms rows   256 decode  14 active  16 P103@16+234/250 P104@0+8/250 small
+[sched]   23.19 ms rows   247 decode  15 active  16 P104@8+232/250 held<=128 (tile 2.78 ms, row 0.0415 ms) small
+[sched]   15.75 ms rows    25 decode  15 active  16 P104@240+10/250 small
+[sched]   12.22 ms rows    16 decode  16 active  16 small
+[sched]   12.26 ms rows    16 decode  16 active  16 small
+[sched]   12.27 ms rows    16 decode  16 active  16 small
+[sched]   12.27 ms rows    16 decode  16 active  16 small
+[sched]   12.26 ms rows    16 decode  16 active  16 small
+[sched]   12.28 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.39 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.40 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.68 ms rows    16 decode  16 active  16 small
+[sched]   12.68 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    15 decode  15 active  15 small
+[sched]   20.50 ms rows   254 decode  14 active  15 P105@0+240/250 held<=128 (tile 2.88 ms, row 0.0407 ms) small
+[sched]   20.52 ms rows   247 decode  13 active  15 P105@240+10/250 P106@0+224/250 small
+[sched]   20.51 ms rows   247 decode  13 active  15 P106@224+26/250 P107@0+208/250 small
+[sched]   20.43 ms rows   247 decode  13 active  15 P107@208+42/250 P108@0+192/250 small
+[sched]   20.45 ms rows   247 decode  13 active  15 P108@192+58/250 P109@0+176/250 small
+[sched]   20.41 ms rows   247 decode  13 active  15 P109@176+74/250 P110@0+160/250 small
+[sched]   20.37 ms rows   247 decode  13 active  15 P110@160+90/250 P111@0+144/250 small
+[sched]   20.35 ms rows   247 decode  13 active  15 P111@144+106/250 P112@0+128/250 small
+[sched]   20.32 ms rows   247 decode  13 active  15 P112@128+122/250 P113@0+112/250 small
+[sched]   20.35 ms rows   247 decode  13 active  15 P113@112+138/250 P114@0+96/250 small
+[sched]   20.32 ms rows   247 decode  13 active  15 P114@96+154/250 P115@0+80/250 small
+[sched]   20.30 ms rows   247 decode  13 active  15 P115@80+170/250 P116@0+64/250 small
+[sched]   20.21 ms rows   247 decode  13 active  15 P116@64+186/250 P117@0+48/251 small
+[sched]   23.54 ms rows   248 decode  13 active  15 P117@48+203/251 P118@0+32/250 small
+[sched]   23.83 ms rows   248 decode  14 active  16 P118@32+218/250 P119@0+16/250 small
+[sched]   22.55 ms rows   248 decode  14 active  15 P119@16+234/250 small
+[sched]   22.03 ms rows   255 decode  15 active  16 P120@0+240/250 held<=128 (tile 2.41 ms, row 0.0444 ms) small
+[sched]   12.38 ms rows    25 decode  15 active  16 P120@240+10/250 small
+[sched]   12.26 ms rows    16 decode  16 active  16 small
+[sched]   12.26 ms rows    16 decode  16 active  16 small
+[sched]   12.26 ms rows    16 decode  16 active  16 small
+[sched]   12.28 ms rows    16 decode  16 active  16 small
+[sched]   12.28 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.38 ms rows    16 decode  16 active  16 small
+[sched]   12.37 ms rows    16 decode  16 active  16 small
+[sched]   12.40 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.45 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.68 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    15 decode  15 active  15 small
+[sched]   20.41 ms rows   254 decode  14 active  15 P121@0+240/250 held<=128 (tile 2.58 ms, row 0.0431 ms) small
+[sched]   20.42 ms rows   247 decode  13 active  15 P121@240+10/250 P122@0+224/250 small
+[sched]   20.59 ms rows   247 decode  13 active  15 P122@224+26/250 P123@0+208/250 small
+[sched]   20.57 ms rows   247 decode  13 active  15 P123@208+42/250 P124@0+192/250 small
+[sched]   20.42 ms rows   247 decode  13 active  15 P124@192+58/250 P125@0+176/250 small
+[sched]   20.44 ms rows   247 decode  13 active  15 P125@176+74/250 P126@0+160/250 small
+[sched]   20.40 ms rows   247 decode  13 active  15 P126@160+90/250 P127@0+144/250 small
+[sched]   20.36 ms rows   247 decode  13 active  15 P127@144+106/250 P128@0+128/250 small
+[sched]   20.35 ms rows   247 decode  13 active  15 P128@128+122/250 P129@0+112/250 small
+[sched]   20.36 ms rows   247 decode  13 active  15 P129@112+138/250 P130@0+96/250 small
+[sched]   20.35 ms rows   247 decode  13 active  15 P130@96+154/250 P131@0+80/250 small
+[sched]   20.31 ms rows   247 decode  13 active  15 P131@80+170/250 P132@0+64/250 small
+[sched]   20.27 ms rows   247 decode  13 active  15 P132@64+186/250 P133@0+48/250 small
+[sched]   20.25 ms rows   247 decode  13 active  15 P133@48+202/250 P134@0+32/250 small
+[sched]   20.29 ms rows   248 decode  14 active  16 P134@32+218/250 P135@0+16/250 small
+[sched]   23.54 ms rows   248 decode  14 active  15 P135@16+234/250 small
+[sched]   24.75 ms rows   255 decode  15 active  16 P136@0+240/250 held<=128 (tile 1.04 ms, row 0.0553 ms) small
+[sched]   12.38 ms rows    25 decode  15 active  16 P136@240+10/250 small
+[sched]   12.23 ms rows    16 decode  16 active  16 small
+[sched]   12.27 ms rows    16 decode  16 active  16 small
+[sched]   12.27 ms rows    16 decode  16 active  16 small
+[sched]   12.29 ms rows    16 decode  16 active  16 small
+[sched]   12.28 ms rows    16 decode  16 active  16 small
+[sched]   12.30 ms rows    16 decode  16 active  16 small
+[sched]   12.31 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.33 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.34 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.35 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.36 ms rows    16 decode  16 active  16 small
+[sched]   12.39 ms rows    16 decode  16 active  16 small
+[sched]   12.39 ms rows    16 decode  16 active  16 small
+[sched]   12.40 ms rows    16 decode  16 active  16 small
+[sched]   12.39 ms rows    16 decode  16 active  16 small
+[sched]   12.40 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.40 ms rows    16 decode  16 active  16 small
+[sched]   12.41 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.42 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.43 ms rows    16 decode  16 active  16 small
+[sched]   12.44 ms rows    16 decode  16 active  16 small
+[sched]   12.46 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.47 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.48 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.49 ms rows    16 decode  16 active  16 small
+[sched]   12.50 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.52 ms rows    16 decode  16 active  16 small
+[sched]   12.51 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.53 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.55 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.56 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.58 ms rows    16 decode  16 active  16 small
+[sched]   12.57 ms rows    16 decode  16 active  16 small
+[sched]   12.59 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.60 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.61 ms rows    16 decode  16 active  16 small
+[sched]   12.62 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.63 ms rows    16 decode  16 active  16 small
+[sched]   12.64 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.65 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.66 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.68 ms rows    16 decode  16 active  16 small
+[sched]   12.67 ms rows    16 decode  16 active  16 small
+[sched]   12.68 ms rows    16 decode  16 active  16 small
+[sched]   12.54 ms rows    15 decode  15 active  15 small
+[sched]   16.08 ms rows    14 decode  14 active  14 small
+[sched]   16.27 ms rows    13 decode  13 active  13 small
+[sched]   15.76 ms rows    12 decode  12 active  12 small
+[sched]   15.93 ms rows    11 decode  11 active  11 small
+[sched]   15.95 ms rows    10 decode  10 active  10 small
+[sched]   16.64 ms rows     9 decode   9 active   9 small
+[sched]   17.73 ms rows     8 decode   8 active   8 small
+[sched]   16.25 ms rows     7 decode   7 active   7 small
+[sched]   16.04 ms rows     6 decode   6 active   6 small
+[sched]   16.34 ms rows     5 decode   5 active   5 small
+[sched]   12.19 ms rows     4 decode   4 active   4 small
+[sched]   15.63 ms rows     3 decode   3 active   3 small
+[sched]   15.67 ms rows     2 decode   2 active   2 small
+[sched]   11.05 ms rows     1 decode   1 active   1
+[sched]   11.04 ms rows     1 decode   1 active   1

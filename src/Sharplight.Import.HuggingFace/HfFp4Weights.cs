@@ -14,7 +14,8 @@ namespace Sharplight.Import.HuggingFace;
 /// <item>Codes: <c>X.weight</c> (ModelOpt) or <c>X.weight_packed</c> (compressed-tensors), U8 [..., N, K/2], value 2i in the low
 /// nibble of byte i and 2i+1 in the high one; E2M1 codes (bit 3 the sign, bits 0..2 index 0, 0.5, 1, 1.5, 2, 3, 4, 6).</item>
 /// <item>NVFP4: <c>X.weight_scale</c> F8_E4M3 [..., N, K/16], one scale per 16 values, and a per-tensor f32 second-level scale,
-/// <c>X.weight_scale_2</c> (ModelOpt, a multiplier) or <c>X.weight_global_scale</c> (compressed-tensors, a divisor). Value =
+/// <c>X.weight_scale_2</c> (ModelOpt, a multiplier), <c>X.weight_global_scale</c> (compressed-tensors, a divisor) or <c>X.weight_amax</c> /
+/// <c>X.weight_outer_scale_denominator</c> (ModelOpt parameter groups, one factor per matrix; see <see cref="HfSuffixedScaleLayouts"/>). Value =
 /// e2m1 * (e4m3(scale) * g), g = weight_scale_2 or 1 / weight_global_scale. When g is a power of two and every scaled E4M3 scale
 /// is again an E4M3 value, g is folded into the scales and the weight becomes <see cref="DataType.NVFP4"/>; otherwise every
 /// 64-value block keeps g in front: <see cref="DataType.NVFP4_GS"/> (5 bits per weight instead of 4.5). The ModelOpt multiplier
@@ -23,7 +24,8 @@ namespace Sharplight.Import.HuggingFace;
 /// <item>MXFP4: <c>X.weight_scale</c> U8 (E8M0, bias 127) [..., N, K/32]; becomes <see cref="DataType.MXFP4"/> bit-exactly. DeepSeek's
 /// own FP4 experts (DeepSeek-V4, <c>expert_dtype fp4</c>) use the same packing with I8 codes <c>X.weight</c> and an F8_E8M0
 /// <c>X.scale</c>.</item>
-/// <item>Static activation scales (<c>input_scale</c>, <c>input_global_scale</c>) are dropped: activations are not quantized.</item>
+/// <item>Static activation scales (<c>input_scale</c>, <c>input_global_scale</c>) are dropped: kernels that quantize activations (only
+/// for weights whose config declares it, <see cref="HfActivationSchemes"/>) compute their scales per row.</item>
 /// <item>NVFP4 rows whose K is not a multiple of 64 have no block type and are decoded to BF16.</item>
 /// </list>
 /// The codes are converted while they are read (<see cref="HfRowConvertedSource"/>); nothing is cached.
@@ -111,6 +113,15 @@ internal static class HfFp4Weights
         {
             consumed.Add(divisor.Name);
             return [.. HfTransforms.DecodeF32(divisor.ToWeightInfo()).Select(v => 1f / v)];
+        }
+
+        // ModelOpt parameter groups (weight_scale_format "amax_denominator"): the factor of matrix e is amax[e] / outer_scale_denominator.
+        if (tensors.TryGetValue(stem + ".weight_amax", out var amax) && tensors.TryGetValue(stem + ".weight_outer_scale_denominator", out var denominator))
+        {
+            consumed.Add(amax.Name);
+            consumed.Add(denominator.Name);
+            float d = HfTransforms.DecodeF32(denominator.ToWeightInfo())[0];
+            return [.. HfTransforms.DecodeF32(amax.ToWeightInfo()).Select(v => v / d)];
         }
 
         return [1f];

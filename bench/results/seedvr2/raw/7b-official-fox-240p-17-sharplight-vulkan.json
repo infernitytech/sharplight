@@ -1,0 +1,46 @@
+{
+  "model": "seedvr2_ema_7b",
+  "provider": "vulkan",
+  "device": "NVIDIA RTX PRO 4500 Blackwell",
+  "load_seconds": 1.0010411,
+  "frames": 17,
+  "output": "832x480",
+  "runs": [
+    {
+      "read": 0.1092077,
+      "encoding": 1.3745081000000001,
+      "restoring": 1.0952037,
+      "decoding": 2.8175453000000004,
+      "enhance": 5.2878022,
+      "write": 0.9035429,
+      "total": 6.3005636
+    },
+    {
+      "read": 0.2964627,
+      "encoding": 1.2262644,
+      "restoring": 1.0564869000000001,
+      "decoding": 2.7065668999999994,
+      "enhance": 4.9896943,
+      "write": 0.6315138,
+      "total": 5.917677
+    },
+    {
+      "read": 0.177772,
+      "encoding": 1.2098427999999999,
+      "restoring": 1.0753103,
+      "decoding": 2.7015453000000003,
+      "enhance": 4.9871347,
+      "write": 0.7106364,
+      "total": 5.87555
+    }
+  ],
+  "median": {
+    "read": 0.177772,
+    "encoding": 1.2262644,
+    "restoring": 1.0753103,
+    "decoding": 2.7065668999999994,
+    "enhance": 4.9896943,
+    "write": 0.7106364,
+    "total": 5.917677
+  }
+}

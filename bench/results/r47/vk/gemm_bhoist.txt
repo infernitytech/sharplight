@@ -1,0 +1,6 @@
+4
+Time Elapsed 00:00:09.94
+F8_BHOIST=1 Register Binary Stack Register Binary Stack Register Binary Stack Register Binary Stack Register Binary Stack T=2048 1.052 195.9 Register Binary Stack Register Binary Stack Register Binary Stack Register Binary Stack Register Binary Stack Register Binary Stack Register Binary Stack T=2048 1.186 173.9 
+F8_BHOIST=1,F8_EXP=7 Register Binary Stack Register Binary Stack Register Binary Stack T=2048 0.726 283.8 Register Binary Stack Register Binary Stack Register Binary Stack Register Binary Stack T=2048 0.815 253.1 
+
+[exited with code 0]

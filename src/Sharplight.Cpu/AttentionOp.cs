@@ -328,7 +328,9 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 }
 
                 float* relativeRow = _relativeBias is null ? null : (float*)_relativeBias.P + task * _relativeExtent;
-                float sink = _sinks is null ? float.NegativeInfinity : ((float*)_sinks.P)[h * _sinks.Strides[0]];   // learned per-head logit that attends to nothing
+                // A learned logit that attends to nothing: one per head, or one per query row and head (sinks [T, Hq]).
+                float sink = _sinks is null ? float.NegativeInfinity
+                    : _sinks.Dims.Length == 2 ? ((float*)_sinks.P)[t * _sinks.Strides[0] + h * _sinks.Strides[1]] : ((float*)_sinks.P)[h * _sinks.Strides[0]];
                 float max = sink;
                 for (long entry = j0; entry < n; entry++)
                 {

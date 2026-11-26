@@ -16,9 +16,11 @@ namespace Sharplight.Import.HuggingFace;
 /// despite the name).</item>
 /// <item>compressed-tensors and NVIDIA ModelOpt (<c>hf_quant_config.json</c>): <c>X.weight_scale</c> per tensor, per channel or per
 /// block, also a multiplier. <c>X.input_scale</c> (static activation scales) is dropped: activations are quantized dynamically (or
-/// not at all), so the per-tensor activation calibration is not needed. KV-cache scales (<c>k_scale</c> / <c>v_scale</c>) are dropped
+/// not at all, for weight-only schemes, <see cref="HfActivationSchemes"/>), so the per-tensor activation calibration is not needed. KV-cache scales (<c>k_scale</c> / <c>v_scale</c>) are dropped
 /// too: FP8 KV caches are not used.</item>
 /// <item>DeepSeek's own layout (DeepSeek-V4, <c>scale_fmt ue8m0</c>): <c>X.scale</c> F8_E8M0 per 128 x 128 block, a power of two.</item>
+/// <item>MXFP8 (<c>quant_method mxfp8</c>, <c>weight_block_size [1, 32]</c>; MiniMax-M3.1): <c>X.weight_scale_inv</c> U8 E8M0 exponents
+/// [N, K/32], a multiplier like the others.</item>
 /// </list>
 /// A weight becomes <see cref="DataType.F8E4M3_B128"/> when K and the scale granularity along K are multiples of 128, else
 /// <see cref="DataType.F8E4M3_B32"/> when they are multiples of 32 (the scale repeated in each block it covers), else
@@ -28,6 +30,12 @@ namespace Sharplight.Import.HuggingFace;
 internal static class HfFp8Weights
 {
     private const string E4m3DType = "F8_E4M3";
+
+    /// <summary>
+    /// A U8 scale of an E4M3 weight is an E8M0 exponent byte: MXFP8 checkpoints (<c>quant_method mxfp8</c>, MiniMax-M3.1, block [1, 32])
+    /// store <c>X.weight_scale_inv</c> that way; an integer multiplier is never stored as U8.
+    /// </summary>
+    private const string ExponentScaleDType = "U8";
 
     /// <summary>Scale tensor suffixes that replace <c>.weight</c> (DeepSeek style first).</summary>
     private static readonly string[] s_weightScaleSuffixes = [".weight_scale_inv", ".weight_scale"];
@@ -160,6 +168,11 @@ internal static class HfFp8Weights
         long batch = weight.Shape[..^2].Aggregate(1L, (a, d) => a * d);
         var layout = HfFp8ScaleLayout.Infer(batch, rows, columns, scale.Shape, block)
             ?? throw new NotSupportedException($"{weight.Name}: scale {scale.Name} of shape [{string.Join(", ", scale.Shape)}] fits no FP8 scale layout.");
+        if (IsExponentRowLayout(scale, layout, rows, columns))
+        {
+            return HfMlxFloatWeights.Mxfp8(weight.Name, weight, scale, columns);
+        }
+
         var target = TargetType(columns, layout.ColumnBlock);
         var codes = weight.ToWeightInfo();
         var converted = new WeightInfo
@@ -167,7 +180,8 @@ internal static class HfFp8Weights
             Name = weight.Name,
             Type = target,
             Shape = codes.Shape,
-            Source = new HfFp8WeightSource(codes.Source, scale.DecodeScales, layout, target, rows, columns),
+            Source = new HfFp8WeightSource(codes.Source, scale.DType == ExponentScaleDType ? scale.DecodeExponentScales : scale.DecodeScales, layout, target,
+                rows, columns),
             ScaleRowBlock = ScaleRowBlock(layout, rows, target),
         };
         return new SafetensorsTensor
@@ -184,12 +198,22 @@ internal static class HfFp8Weights
     }
 
     /// <summary>
+    /// Whether the scales are exponent bytes, one per 32 values of every row in row order (MXFP8; DeepSeek-V4.1's Engram tables): such a
+    /// weight converts row by row from the memory map, without a scale array (the Engram tables have 3 billion scales).
+    /// </summary>
+    private static bool IsExponentRowLayout(SafetensorsTensor scale, HfFp8ScaleLayout layout, long rows, long columns)
+        => scale.DType is SafetensorsTensor.E8m0DType or ExponentScaleDType && columns % 32 == 0 && layout.RowBlock == 1 && layout.ColumnBlock == 32
+            && layout.Columns == columns / 32 && layout.ChunkRows == 0 && layout.BatchStride == rows * layout.Columns
+            && scale.ByteLength == scale.Shape.Aggregate(1L, (a, d) => a * d);
+
+    /// <summary>
     /// Rows of each matrix sharing every scale of a block-scaled <paramref name="target"/> (<see cref="WeightInfo.ScaleRowBlock"/>):
-    /// the checkpoint's row block where it divides the rows (128 x 128 blocks: 128), all rows for one scale per matrix, else 0.
+    /// the checkpoint's row block where it divides the rows (128 x 128 blocks: 128), all rows for one scale per matrix, else 0 (also for scales
+    /// tiled per slice).
     /// </summary>
     private static int ScaleRowBlock(HfFp8ScaleLayout layout, long rows, DataType target)
     {
-        if (target == DataType.BF16 || layout.RowBlock <= 1 || layout.RowBlock > int.MaxValue)
+        if (target == DataType.BF16 || layout.RowBlock <= 1 || layout.RowBlock > int.MaxValue || layout.ChunkRows != 0)
         {
             return 0;
         }

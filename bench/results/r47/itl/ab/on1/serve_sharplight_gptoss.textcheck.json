@@ -1,0 +1,155 @@
+{
+ "url": "http://127.0.0.1:18080",
+ "max_tokens": 48,
+ "prompts": 8,
+ "waves": [
+  {
+   "requests": 16,
+   "identical": 9,
+   "early": 0,
+   "garbage": 0,
+   "ok": true,
+   "rows": [
+    {
+     "i": 0,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 1,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 2,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 3,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 4,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 5,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 6,
+     "prompt": 6,
+     "same_words": 45,
+     "identical": true,
+     "flags": [],
+     "text": " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n"
+    },
+    {
+     "i": 7,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    },
+    {
+     "i": 8,
+     "prompt": 0,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential"
+    },
+    {
+     "i": 9,
+     "prompt": 1,
+     "same_words": 51,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a"
+    },
+    {
+     "i": 10,
+     "prompt": 2,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a"
+    },
+    {
+     "i": 11,
+     "prompt": 3,
+     "same_words": 47,
+     "identical": true,
+     "flags": [],
+     "text": "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of"
+    },
+    {
+     "i": 12,
+     "prompt": 4,
+     "same_words": 7,
+     "identical": false,
+     "flags": [],
+     "text": " the 15th century, when Johannes Gutenberg invented the first movable type printing press in Mainz, Germany. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was a"
+    },
+    {
+     "i": 13,
+     "prompt": 5,
+     "same_words": 6,
+     "identical": false,
+     "flags": [],
+     "text": " \n\nPhotosynthesis is the process by which plants, algae, and some bacteria convert light energy into chemical energy in the form of glucose (a sugar). This process occurs in the chloroplasts of plant cells, which contain a pigment called chlor"
+    },
+    {
+     "i": 14,
+     "prompt": 6,
+     "same_words": 4,
+     "identical": false,
+     "flags": [],
+     "text": " 1) It can improve your communication skills and help you connect with people from different cultures. 2) It can enhance your career prospects and open up new job opportunities. 3) It can broaden your perspective and help you understand the"
+    },
+    {
+     "i": 15,
+     "prompt": 7,
+     "same_words": 10,
+     "identical": false,
+     "flags": [],
+     "text": " The letter should be in the style of a \"letter to a friend.\" The letter should be in the style of a \"letter to a friend.\" The letter should be in the \"letter\" format. The letter should be in the \""
+    }
+   ]
+  }
+ ],
+ "ok": true,
+ "references": [
+  " Include a discussion about the role of water and power in the modern world.\n\nWater and power have played a crucial role in shaping modern history. From the development of early civilizations to the industrial revolution and beyond, water and power have been essential",
+  "\n\nSure! Here's a step-by-step guide on how a teacher could help a student solve a problem with their homework:\n\n1. Identify the problem: The first step is to identify the problem that the student is facing. This could be a",
+  "\n\nIn the heart of a sprawling forest, where the trees stood tall and proud, a young girl named Lily found herself lost. She had been exploring the woods with her friends, but she had wandered off the path and found herself in a",
+  "\n\nAs a doctor, I would consider the following factors when comparing cities and villages:\n\nAdvantages of cities:\n\n1. Access to specialized medical care: Cities typically have a larger number of hospitals and medical centers, which can provide a wider range of",
+  " the 15th century, when Johannes Gutenberg, a German blacksmith, invented the movable type printing press. This invention revolutionized the printing industry and made it possible to produce books and other printed materials quickly and efficiently. The printing press was",
+  " \n\nPhotosynthesis is the process by which green plants, algae, and some bacteria convert light energy from the sun into chemical energy in the form of glucose (a type of sugar). This process occurs in the chloroplasts of plant cells,",
+  " 1) It can help you communicate with people from different cultures. 2) It can improve your job prospects. 3) It can help you learn about different cultures.\n\nQ: What are the benefits of learning a second language?\n",
+  " The letter should be in the style of a \"travel diary\" and should include the following elements: 1) The first letter of each word in the **bold** text (the **bold** text is **bold**?**?"
+ ]
+}

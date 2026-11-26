@@ -43,12 +43,15 @@ public sealed partial class GraphLowerer
     /// True when a block-scaled E4M3 weight is stored in the 128-row groups of <see cref="WeightRepack.Fp8B128Grouped"/> for the
     /// hand-written FP8 GEMM: a [N, K] matrix (N % 128 == 0, K % 512 == 0) that only matmuls read as their weight. Every generated
     /// kernel reading FP8 weights decodes that layout too (<c>FP8_GROUPED</c>, <c>F8_GROUPED</c>), so the smaller batches and
-    /// decode keep their kernels. <c>SHARPLIGHT_REPACK_FP8=0</c> keeps the stored block layout.
+    /// decode keep their kernels. Weights of a weight-only format (<see cref="LowPrecisionActivationsAllowed"/>) keep it too: the
+    /// hand-written GEMM quantizes the activations, and the block-scaled mode would requantize the weights.
+    /// <c>SHARPLIGHT_REPACK_FP8=0</c> keeps the stored block layout.
     /// </summary>
     private bool NativeFp8GroupedWeight(Value weight)
     {
         var w = weight.Weight!;
         if (!(DiagnosticSwitches.Fp8Grouped ?? NativeGemmFp8) || DiagnosticSwitches.NoWeightRepack || !DiagnosticSwitches.Fp8Repack || w.Type != DataType.F8E4M3_B128
+            || !LowPrecisionActivationsAllowed(w)
             || w.Shape.Rank != 2 || w.Shape.Dims.Any(d => d.IsSymbolic) || w.Shape[0].Fixed % WeightRepacker.Fp8GroupRows != 0
             || w.Shape[1].Fixed % 512 != 0)
         {

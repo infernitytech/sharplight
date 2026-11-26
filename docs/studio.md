@@ -25,13 +25,38 @@ The icon is embedded in the app (window and taskbar icon, sidebar logo, and the 
 The X11 window class is `sharplight-studio`, the `StartupWMClass` of the desktop file, so the taskbar groups the window under its
 launcher.
 
+## Navigation
+
+The sidebar groups the pages by the modality of what they produce, each group a collapsible header (icon and label) over its
+entries; where a page is ambiguous it goes with its output:
+
+| Group | Entries (page) | Model kinds that open there |
+|---|---|---|
+| **Text** | Chat; Search | text generation (also vision-language chat with images); embeddings, rerankers |
+| **Images** | Generate (Image: generation and editing); Vision | image generation; classification, image embedding, detection, segmentation, depth, OCR, upscaling |
+| **Video** | Generate (Video); Enhance | video generation; video enhancement (SeedVR2, also enlarges images) |
+| **Audio** | Transcribe; Speak; Music & tools (Audio) | speech recognition; speech synthesis; music and audio generation, source separation, audio tagging, codecs, voice activity |
+| **Models** | Library, Discover, Downloads, Loaded, Storage (the tabs of the Models page); Tasks | |
+
+Server, Statistics and Settings are pinned to the bottom, below the running downloads. OCR stays with Vision: the Vision page reads
+an image and draws what it found on it (boxes, masks, depth, the recognized lines), so its results are pictures with annotations.
+
+The entry of the visible page (and Models tab) is highlighted and its group's icon carries the accent; showing a page, also from
+the library (*Open* on a model), a Tasks card or a link, expands its group. Which page a model opens on comes from the model's kind
+alone (`NavigationViewModel.ForKind`: the kinds each page runs, from the page itself). Collapsed groups are remembered in the
+settings (`CollapsedNavigationGroups`). Below 1100 pixels of window width, or when folded with the button next to the logo
+(`CompactNavigation`), the sidebar is a rail of group icons: each opens a flyout with the group's entries, the app-level entries
+are icons with tooltips, and a dot marks a group with a badge. The arrow keys move between headers and entries (Home and End to
+the ends), Left collapses a group or moves from an entry to its header, Right expands, Enter and Space open; every header and entry
+has an accessible name, and the entries their description as help text and tooltip.
+
 ## Menus (macOS)
 
 The application name is *Sharplight Studio* everywhere macOS shows it: `Application.Name`, and `CFBundleName` and
 `CFBundleDisplayName` of `packaging/macos/Info.plist`. The application menu has *About Sharplight Studio* (an About dialog with the
 version, license and links), *Settings…* (Cmd+,), *Check for Updates…* (opens Settings and checks now) and the standard Services,
 Hide, Hide Others, Show All and Quit items; the menu bar has *File* (model library, Hugging Face search, downloads), *View* (every
-page, Cmd+1 to Cmd+9) and *Help* (documentation, report an issue). They are built by `Platform/AppMenu` as Avalonia `NativeMenu`s.
+page in the order of the navigation, Cmd+1 to Cmd+9) and *Help* (documentation, report an issue). They are built by `Platform/AppMenu` as Avalonia `NativeMenu`s.
 Windows and Linux draw no native menu: the same pages and the Settings page are reached through the navigation as before, and the
 About dialog through the same command.
 
@@ -150,7 +175,7 @@ the engine gains a kind, its card opens a page of its own, built from the shared
   - **Updates.** *Update all (n · size)* updates every feed package that has a newer version, one after the other, with an overall progress bar
     weighted by download size and Cancel; each update is the same verified atomic swap as a single update, a failed one leaves that model as it was
     and the others continue. *Settings > Models* has an optional daily check of the feed (`CheckModelUpdates`, every
-    `ModelUpdateIntervalHours`, last check `LastModelUpdateCheck`); the number of models with a newer version is a badge on the Models item of the
+    `ModelUpdateIntervalHours`, last check `LastModelUpdateCheck`); the number of models with a newer version is a badge on the Library entry of the
     navigation (added to the running downloads) and on the Library tab.
   - **Last used.** Every load is recorded in `model-usage.json` next to `studio.db` (by model path, also loads by API clients); the card shows
     *Used 3 days ago* or *Never loaded*. Models not loaded for 90 days (counted from the day they were added when never loaded) are suggested in the
@@ -792,7 +817,7 @@ The package cost is accepted (owner decision of 2026-11-19). The Windows x64 fil
 ([cuda.md](cuda.md#package-sizes)).
 
 **Channels.** Every build belongs to one of ten update channels, `<rid>-stable` (built from `release/*` branches) and `<rid>-unstable`
-(built from `develop`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
+(built from `main`), for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64` and `osx-arm64`, for example `win-x64-stable` or
 `osx-arm64-unstable`. An installed app checks the channel it was installed from until you pick another one: *Settings > Updates > Update
 channel* switches between **Stable** and **Preview (unstable)**, is saved in the settings (`UpdateChannel`) and re-checks the
 chosen feed at once. The page shows the installed channel and the selected one. A channel that has no release yet shows "No stable
@@ -963,6 +988,9 @@ versions kept them.
   gallery persistence with open, export and delete) and the Transcribe and Speak pages over fake task clients (streamed segments, `.txt` /
   `.srt` / `.vtt` export, cancel and failure, microphone, voices, streaming playback, no-player fallback);
 - a headless render of every page that fails on binding errors;
+- `NavigationTests`: every runnable kind opens its page under the expected group and expands it, every page is listed once, the Models tabs
+  follow the tab strip, collapsed groups and the folded rail are remembered, and the headless window shows the groups (wide) or the rail
+  (narrow) in both themes, with the arrow keys, a collapsed group and a rail flyout (`studio-nav-*.png`);
 - `PageScreenshotTests`: one screenshot test per page (and the Search page after a hybrid Ask, with highlighted passages and cited answer), per Models tab and Discover source (Verified, Sharplight feed, Hub search) and per
   Settings tab, in the light and the dark theme at 1440 and 900 px wide, over demo data and a local test feed. Each fails on binding
   errors and on controls that are clipped or painted over their neighbours (`LayoutChecker`) and saves

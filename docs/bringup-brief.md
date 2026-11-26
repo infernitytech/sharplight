@@ -40,11 +40,11 @@ docs/api-overview.md.
   big models one at a time, and use CPU offload or skip if VRAM is short. Retry timing-only test failures once.
 
 ## Process
-- Work in your git worktree; `git merge develop` first so you are on the latest integration branch (`develop`; `main` is
-  the stable branch). Merge develop again before finishing and resolve conflicts (other agents work in parallel on other
+- Work in your git worktree; `git merge main` first so you are on the latest integration branch (`main`; releases are
+  stabilized on `release/vX.Y`). Merge main again before finishing and resolve conflicts (other agents work in parallel on other
   families).
 - Small commits ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; never push; never touch `main` or
-  `develop` directly.
+  `release/*` directly.
 - Final report: architectures now supported (with test model, CPU/Vulkan parity result), new ops /
   building blocks, what is left, and anything the other agents need to know.
 - Every model bring-up or sweep adds its verified models to `catalog/verified-models.json` (with the pinned revision and exact files:

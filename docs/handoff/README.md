@@ -94,6 +94,13 @@ first on the new machine.
 
 ## 4. Work in progress (`wip/*` branches, all based on main or its parent; merge `main` into them first)
 
+> **Branch audit 2026-11-26 (#36):** every `wip/*`, `macos/*` and `handoff/new-machine` branch listed below was fully
+> contained in `main` (0 commits ahead) and has been deleted from origin; the in-flight items of section 3a (public API
+> pass, weight formats A2/A3/B, Studio S2b Image + Vision pages, macOS rounds) are on `main` too. The one branch with
+> unmerged work was `develop` (0.4-alpha, 88 commits of 2026-11-26), which is merged into `main` and retired by #47.
+> The sharplight-server `feature/*`, `engine/api-r2` and `develop` branches were all merged and are deleted as well.
+
+
 | branch | what | state | next step |
 |---|---|---|---|
 | `wip/core-restructure` | Llm + Tokenizers + Templating folded into Core, BuiltinAdapters moved to Architectures, `Sharplight` one-call registration (commit e3c86c19); task-layer skeleton started (`src/Sharplight.Core/{Tasks,Speech,Audio,Imaging}`, last commit WIP) | restructure commit done; skeleton unfinished, unverified | finish the skeleton per section 2 (open task abstraction, .slm model kind + components description, docs/api-overview.md + docs/model-format.md), build, run all suites, merge. **Do this first**: the speech/image/Studio work builds on it |

@@ -1,0 +1,22 @@
+Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [65 ms]
+Loaded Llama-3.1-8B-Instruct (decoder): 292 tensors, 16.06 GB, vocab 128256 [2570 ms]
+Rows per forward pass: 512 (automatic, 12068 MiB available).
+Model 'Llama-3' failed to load: The model 'Llama-3' needs about 17322 MiB of device memory but only 12068 MiB are free after keeping 1024 MiB in reserve. Pool NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 19034 MiB (ours 0 MiB), available 13092 MiB. Loaded: none. Free memory (stop other models or applications), lower the context/slots, or configure a CPU fallback to offload layers.
+fail: Microsoft.Extensions.Hosting.Internal.Host[11]
+      Hosting failed to start
+      Sharplight.Llm.Serving.Hosting.ModelDoesNotFitException: The model 'Llama-3' needs about 17322 MiB of device memory but only 12068 MiB are free after keeping 1024 MiB in reserve. Pool NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 19034 MiB (ours 0 MiB), available 13092 MiB. Loaded: none. Free memory (stop other models or applications), lower the context/slots, or configure a CPU fallback to offload layers.
+         at Sharplight.Llm.Serving.Hosting.ModelHost.Admit(Entry self, IPreparedModel p) in ~/sl-worktrees/perf-r47-itl/src/Sharplight.Core/Llm/Serving/Hosting/ModelHost.cs:line 467
+         at Sharplight.Llm.Serving.Hosting.ModelHost.DoLoad(Entry e) in ~/sl-worktrees/perf-r47-itl/src/Sharplight.Core/Llm/Serving/Hosting/ModelHost.cs:line 388
+         at Sharplight.Llm.Serving.Hosting.ModelHost.<>c__DisplayClass28_0.<AcquireAsync>b__1() in ~/sl-worktrees/perf-r47-itl/src/Sharplight.Core/Llm/Serving/Hosting/ModelHost.cs:line 259
+         at System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(Thread threadPoolThread, ExecutionContext executionContext, ContextCallback callback, Object state)
+      --- End of stack trace from previous location ---
+         at System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(Thread threadPoolThread, ExecutionContext executionContext, ContextCallback callback, Object state)
+         at System.Threading.Tasks.Task.ExecuteWithThreadLocal(Task& currentTaskSlot, Thread threadPoolThread)
+      --- End of stack trace from previous location ---
+         at Sharplight.Llm.Serving.Hosting.ModelHost.AcquireAsync(String name, Nullable`1 kind, CancellationToken ct) in ~/sl-worktrees/perf-r47-itl/src/Sharplight.Core/Llm/Serving/Hosting/ModelHost.cs:line 266
+         at Sharplight.Llm.Serving.Hosting.ModelHost.LoadAsync(String name, CancellationToken ct) in ~/sl-worktrees/perf-r47-itl/src/Sharplight.Core/Llm/Serving/Hosting/ModelHost.cs:line 362
+         at Sharplight.Llm.Serving.Hosting.ModelHost.LoadStartupModelsAsync(CancellationToken ct) in ~/sl-worktrees/perf-r47-itl/src/Sharplight.Core/Llm/Serving/Hosting/ModelHost.cs:line 376
+         at Sharplight.Hosting.HostedModelStartup.StartAsync(CancellationToken cancellationToken) in ~/sl-worktrees/perf-r47-itl/src/Sharplight.Hosting/HostedModelStartup.cs:line 13
+         at Microsoft.Extensions.Hosting.Internal.Host.<StartAsync>b__16_1(IHostedService service, CancellationToken token)
+         at Microsoft.Extensions.Hosting.Internal.Host.ForeachService[T](IEnumerable`1 services, CancellationToken token, Boolean concurrent, Boolean abortOnFirstException, List`1 exceptions, Func`3 operation)
+error: Cannot load model: The model 'Llama-3' needs about 17322 MiB of device memory but only 12068 MiB are free after keeping 1024 MiB in reserve. Pool NVIDIA RTX PRO 4500 Blackwell: total 32126 MiB, budget 32126 MiB, used 19034 MiB (ours 0 MiB), available 13092 MiB. Loaded: none. Free memory (stop other models or applications), lower the context/slots, or configure a CPU fallback to offload layers.

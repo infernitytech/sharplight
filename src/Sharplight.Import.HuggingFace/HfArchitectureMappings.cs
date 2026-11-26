@@ -23,6 +23,7 @@ internal static class HfArchitectureMappings
         Register(new GraniteHybridHfMapping());
         Register(new FalconH1HfMapping());
         Register(new InklingHfMapping());
+        Register(new Inkling2HfMapping());
         Register(new Mamba2HfMapping());
         Register(new Lfm2HfMapping());
         Register(new MiniMaxHfMapping());
@@ -151,6 +152,7 @@ internal static class HfArchitectureMappings
         yield return new K2HorizonHfMapping();
         yield return new GraniteSwitchHfMapping();
         yield return new Spark25HfMapping();
+        yield return new AionInstructHfMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its model types; later registrations win.</summary>

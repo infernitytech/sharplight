@@ -43,6 +43,11 @@ FAMILIES = {
                                                    num_hidden_layers=6, hybrid_layer_pattern=[0, 1, 1, 1, 1, 0], moe_layer_freq=[0, 1, 1, 1, 1, 1],
                                                    sliding_window=5, sliding_window_size=5, max_position_embeddings=4096, vision_config=None,
                                                    audio_config=None)),
+    # Aion 1.0 (aion_instruct): the Qwen3 layer with sliding layers from layer_types; YaRN on the full layers' rope, plain rope on the sliding ones.
+    "aion_instruct": ("microsoft/Aion-1.0-Instruct-2.3B", dict(hidden_size=64, intermediate_size=128, num_attention_heads=4, num_key_value_heads=2,
+                                                             head_dim=16, sliding_window=5, max_position_embeddings=4096,
+                                                             layer_types=["sliding_attention", "sliding_attention", "full_attention", "full_attention",
+                                                                          "sliding_attention", "full_attention"])),
     # Mage-VL (llava_onevision2): a Qwen3 text decoder on 1D positions below a OneVision encoder (tiny and random; the text import skips it).
     "llava_onevision2": ("microsoft/Mage-VL-Cowork", dict(
         text_config=dict(hidden_size=64, intermediate_size=128, num_attention_heads=4, num_key_value_heads=2, head_dim=16, num_hidden_layers=4,
