@@ -1,7 +1,7 @@
 {
   "$schema": "./verified-models.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-25",
+  "updated": "2026-11-26",
   "docSections": [
     {
       "id": "1.1",
@@ -13731,6 +13731,94 @@
           ]
         },
         {
+          "id": "fp16-diffusers-taesd",
+          "label": "FP16 diffusers \u002B TAESD",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": false,
+          "memoryBytes": 2875149520,
+          "companions": [
+            "taesd"
+          ],
+          "qualityNote": "The FP16 diffusers files with TAESD (madebyollin, MIT) as the tiny-vae component: full-size previews while generating and the optional fast decode.",
+          "repository": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+          "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "feature_extractor/preprocessor_config.json",
+              "size": 342,
+              "gitOid": "5294955ff7801083f720b34b55d0f1f51313c5c5"
+            },
+            {
+              "path": "model_index.json",
+              "size": 541,
+              "gitOid": "daf7e2e2dfc64fb437a2b44525667111b00cb9fc"
+            },
+            {
+              "path": "safety_checker/config.json",
+              "size": 4723,
+              "gitOid": "5dbd88952e7e521aa665e5052e6db7def3641d03"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 308,
+              "gitOid": "82d05b0e688d7ea94675678646c427907419346e"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 617,
+              "gitOid": "4d3e873ab5086ad989f407abd50fdce66db8d657"
+            },
+            {
+              "path": "text_encoder/model.fp16.safetensors",
+              "size": 246144864,
+              "sha256": "77795e2023adcf39bc29a884661950380bd093cf0750a966d473d1718dc9ef4e"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 472,
+              "gitOid": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 806,
+              "gitOid": "5ba7bf706515bc60487ad0e1816b4929b82542d6"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 743,
+              "gitOid": "1a02ee8abc93e840ffbcb2d68b66ccbcb74b3ab3"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+              "size": 1719125304,
+              "sha256": "c83908253f9a64d08c25fc90874c9c8aef9a329ce1ca5fb909d73b0c83d1ea21"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 547,
+              "gitOid": "55d78924fee13e4220f24320127c5f16284e13b9"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+              "size": 167335342,
+              "sha256": "4fbcf0ebe55a0984f5a5e00d8c4521d52359af7229bb4d81890039d2aa16dd7c"
+            }
+          ]
+        },
+        {
           "id": "single-file",
           "label": "Single file (EMA-only)",
           "format": "single-file",
@@ -13753,7 +13841,34 @@
           ]
         }
       ],
-      "companions": [],
+      "companions": [
+        {
+          "id": "taesd",
+          "role": "tiny-vae",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "TAESD tiny autoencoder (previews, fast decode)",
+          "repository": "madebyollin/taesd",
+          "revision": "614f76814bbe30edbe2e627ace1c2234c81a2c0e",
+          "include": [
+            "config.json",
+            "diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 597,
+              "gitOid": "accadb8be0fabedda0082b4d83b698f4835a8a80"
+            },
+            {
+              "path": "diffusion_pytorch_model.safetensors",
+              "size": 9793292,
+              "sha256": "db169d69145ec4ff064e49d99c95fa05d3eb04ee453de35824a6d0f325513549"
+            }
+          ]
+        }
+      ],
       "verification": {
         "reference": "diffusers",
         "summary": "Euler 76.3 dB, DDIM 76.2 dB, DPM\u002B\u002B 2M Karras 73.8 dB, PNDM 58.8 dB vs diffusers fp32; GGUF f16 48.7 dB",
@@ -13764,7 +13879,7 @@
         "date": "2026-11-15",
         "tests": []
       },
-      "notes": "Q4_0 file produces a degenerate image in every implementation",
+      "notes": "Q4_0 file produces a degenerate image in every implementation; TAESD variant: TAESD decoder / encoder 2.3e-6 / 9e-7 relative RMS vs diffusers' AutoencoderTiny (CPU, Vulkan, CUDA); SD 1.5 decoded through TAESD 75.1 dB vs diffusers",
       "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
@@ -14091,6 +14206,151 @@
           ]
         },
         {
+          "id": "fp16-diffusers-taesdxl",
+          "label": "FP16 diffusers \u002B TAESDXL",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": false,
+          "memoryBytes": 8401366328,
+          "companions": [
+            "taesdxl"
+          ],
+          "qualityNote": "The FP16 diffusers files with TAESDXL (madebyollin, MIT) as the tiny-vae component: full-size previews while generating and the optional fast decode.",
+          "repository": "stabilityai/stable-diffusion-xl-base-1.0",
+          "revision": "462165984030d82259a11f4367a4eed129e94a7b",
+          "include": [
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "text_encoder/config.json",
+            "text_encoder/model.fp16.safetensors",
+            "text_encoder_2/config.json",
+            "text_encoder_2/model.fp16.safetensors",
+            "tokenizer/merges.txt",
+            "tokenizer/special_tokens_map.json",
+            "tokenizer/tokenizer_config.json",
+            "tokenizer/vocab.json",
+            "tokenizer_2/merges.txt",
+            "tokenizer_2/special_tokens_map.json",
+            "tokenizer_2/tokenizer_config.json",
+            "tokenizer_2/vocab.json",
+            "unet/config.json",
+            "unet/diffusion_pytorch_model.fp16.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.fp16.safetensors",
+            "vae_1_0/config.json",
+            "vae_decoder/config.json",
+            "vae_encoder/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 609,
+              "gitOid": "6cc5138ddb67e9309c9b4e058e33e52087f1d215"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 479,
+              "gitOid": "e5bc8421e047838523be7acfb6720f167f7382f6"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 565,
+              "gitOid": "cde352ada4bb95fdad2fc503b8121257cef215a6"
+            },
+            {
+              "path": "text_encoder/model.fp16.safetensors",
+              "size": 246144152,
+              "sha256": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"
+            },
+            {
+              "path": "text_encoder_2/config.json",
+              "size": 575,
+              "gitOid": "da1848b5ed17b676f021578838f12c4023b86379"
+            },
+            {
+              "path": "text_encoder_2/model.fp16.safetensors",
+              "size": 1389382176,
+              "sha256": "ec310df2af79c318e24d20511b601a591ca8cd4f1fce1d8dff822a356bcdb1f4"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 472,
+              "gitOid": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 737,
+              "gitOid": "2e8612a429492973fe60635b3f44a28b065cfac0"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "tokenizer_2/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer_2/special_tokens_map.json",
+              "size": 460,
+              "gitOid": "ae0c5be6f35217e51c4c000fd325d8de0294e99c"
+            },
+            {
+              "path": "tokenizer_2/tokenizer_config.json",
+              "size": 725,
+              "gitOid": "a8438e020c4497a429240d6b89e0bf9a6e2ffa92"
+            },
+            {
+              "path": "tokenizer_2/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 1680,
+              "gitOid": "c8714c90f0e2409156da42781954416cb7df36af"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+              "size": 5135149760,
+              "sha256": "83e012a805b84c7ca28e5646747c90a243c65c8ba4f070e2d7ddc9d74661e139"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 642,
+              "gitOid": "a66a171ba7c8efb1a8fc3bdc64e65318eade8e13"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+              "size": 167335342,
+              "sha256": "bcb60880a46b63dea58e9bc591abe15f8350bde47b405f9c38f4be70c6161e68"
+            },
+            {
+              "path": "vae_1_0/config.json",
+              "size": 607,
+              "gitOid": "29a4d9ff621cd8e3b50d80eb10e08450187d29b8"
+            },
+            {
+              "path": "vae_decoder/config.json",
+              "size": 607,
+              "gitOid": "29a4d9ff621cd8e3b50d80eb10e08450187d29b8"
+            },
+            {
+              "path": "vae_encoder/config.json",
+              "size": 607,
+              "gitOid": "29a4d9ff621cd8e3b50d80eb10e08450187d29b8"
+            }
+          ]
+        },
+        {
           "id": "single-file",
           "label": "Single file",
           "format": "single-file",
@@ -14135,7 +14395,34 @@
           ]
         }
       ],
-      "companions": [],
+      "companions": [
+        {
+          "id": "taesdxl",
+          "role": "tiny-vae",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "TAESDXL tiny autoencoder (previews, fast decode)",
+          "repository": "madebyollin/taesdxl",
+          "revision": "b20258aaef75ef61e659c1e0f14f251cf0ad153e",
+          "include": [
+            "config.json",
+            "diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 597,
+              "gitOid": "accadb8be0fabedda0082b4d83b698f4835a8a80"
+            },
+            {
+              "path": "diffusion_pytorch_model.safetensors",
+              "size": 9793292,
+              "sha256": "ff4824aca94dd6111e0340fa749347fb74101060d9712cb5ef1ca8f1cf17502f"
+            }
+          ]
+        }
+      ],
       "verification": {
         "reference": "diffusers",
         "summary": "Euler 42.4 dB, DPM\u002B\u002B 2M Karras 30.0 dB (fp16 files); GGUF Q8_0 27.7 dB",
@@ -14146,7 +14433,7 @@
         "date": "2026-11-15",
         "tests": []
       },
-      "notes": "Q4_K: visually equivalent (17.3 dB); separate VAE / text-encoder files not supported",
+      "notes": "Q4_K: visually equivalent (17.3 dB); separate VAE / text-encoder files not supported; TAESDXL variant: TAESDXL decoder / encoder 1.6e-6 / 1.6e-5 relative RMS vs diffusers' AutoencoderTiny (CPU, Vulkan, CUDA)",
       "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
       "doc": [
         {
@@ -14524,6 +14811,34 @@
           ]
         },
         {
+          "id": "q8-0-gguf-taef1",
+          "label": "Q8_0 GGUF \u002B TAEF1",
+          "format": "gguf",
+          "quantization": "Q8_0",
+          "recommended": false,
+          "memoryBytes": 21503135665,
+          "companions": [
+            "clip-l",
+            "t5xxl",
+            "vae",
+            "taef1"
+          ],
+          "qualityNote": "The Q8_0 GGUF files with TAEF1 (madebyollin, MIT) as the tiny-vae component: full-size previews while generating and the optional fast decode.",
+          "repository": "city96/FLUX.1-schnell-gguf",
+          "revision": "f495746ed9c5efcf4661f53ef05401dceadc17d2",
+          "include": [
+            "flux1-schnell-Q8_0.gguf"
+          ],
+          "primary": "flux1-schnell-Q8_0.gguf",
+          "files": [
+            {
+              "path": "flux1-schnell-Q8_0.gguf",
+              "size": 12687821728,
+              "sha256": "f6694941193b10148dbf1f0f498d4ccd3e9875c127fc53946213b68580c66f10"
+            }
+          ]
+        },
+        {
           "id": "bf16-diffusers",
           "label": "BF16 diffusers",
           "format": "diffusers",
@@ -14744,6 +15059,32 @@
               "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
             }
           ]
+        },
+        {
+          "id": "taef1",
+          "role": "tiny-vae",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "TAEF1 tiny autoencoder (previews, fast decode)",
+          "repository": "madebyollin/taef1",
+          "revision": "b1b2d00e9e440cfbf3dedb34266864da86016ceb",
+          "include": [
+            "config.json",
+            "diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 660,
+              "gitOid": "81721c38e4e9c3ff96cb5e7867f4f8ec26e76eea"
+            },
+            {
+              "path": "diffusion_pytorch_model.safetensors",
+              "size": 9848636,
+              "sha256": "47a6c2bff850da04b267cab70fe3553fef57255eb9a8e76852baa0a87850e54d"
+            }
+          ]
         }
       ],
       "verification": {
@@ -14756,7 +15097,7 @@
         "date": "2026-11-15",
         "tests": []
       },
-      "notes": "companion files found beside the GGUF; 1024x1024 step about 1 s on a 32 GB GPU",
+      "notes": "companion files found beside the GGUF; 1024x1024 step about 1 s on a 32 GB GPU; TAEF1 variant: TAEF1 decoder / encoder 7e-7 / 8e-5 relative RMS vs diffusers' AutoencoderTiny (CPU, Vulkan, CUDA), also beside the GGUF's companions",
       "doc": [
         {
           "section": "4",
@@ -15201,6 +15542,169 @@
           ]
         },
         {
+          "id": "fp16-diffusers-taesd3",
+          "label": "FP16 diffusers \u002B TAESD3",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": false,
+          "memoryBytes": 19131376431,
+          "companions": [
+            "taesd3"
+          ],
+          "qualityNote": "The FP16 diffusers files with TAESD3 (madebyollin, MIT) as the tiny-vae component: full-size previews while generating and the optional fast decode.",
+          "repository": "adamo1139/stable-diffusion-3.5-medium-ungated",
+          "revision": "1cb9becf522803da9d25c2713d1a82b41bc6198d",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "SD3.5L_plus_SD3.5M_upscaling_example_workflow.json",
+              "size": 20634,
+              "gitOid": "8534e50bd2c6e1e4c1aa81edb643d822f2fbd8f8"
+            },
+            {
+              "path": "SD3.5M_SLG_example_workflow.json",
+              "size": 16916,
+              "gitOid": "3f54883add37c913e67a2700ab0f1ddcfbb14cf7"
+            },
+            {
+              "path": "SD3.5M_example_workflow.json",
+              "size": 11982,
+              "gitOid": "2d18d11f857505d6261c04fe071b57db8c78639a"
+            },
+            {
+              "path": "model_index.json",
+              "size": 706,
+              "gitOid": "d1e85db2887d95ee9e0f6206771a4c52f9233e2f"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 141,
+              "gitOid": "eca5b2eed3727b3ad375eb20e467e4264120fd5d"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 574,
+              "gitOid": "dbda34b6008657d7be7423051c47abd4c94e263a"
+            },
+            {
+              "path": "text_encoder/model.fp16.safetensors",
+              "size": 247323896,
+              "sha256": "71e183d11db0c6b6282a4d9e0abb74125edc8692393e89ed8ee5571005f35cb1"
+            },
+            {
+              "path": "text_encoder_2/config.json",
+              "size": 570,
+              "gitOid": "35886d089e214b9e35db394d4d3d122a19baf231"
+            },
+            {
+              "path": "text_encoder_2/model.fp16.safetensors",
+              "size": 1389382176,
+              "sha256": "ec310df2af79c318e24d20511b601a591ca8cd4f1fce1d8dff822a356bcdb1f4"
+            },
+            {
+              "path": "text_encoder_3/config.json",
+              "size": 740,
+              "gitOid": "5f020057278e664f8d4875a172b8266a9707c249"
+            },
+            {
+              "path": "text_encoder_3/model.fp16-00001-of-00002.safetensors",
+              "size": 4994582104,
+              "sha256": "4f2751ceeb2a96edd693e539dc5d6bba0b8d3814f49a9b3798403a0cec4b2e3d"
+            },
+            {
+              "path": "text_encoder_3/model.fp16-00002-of-00002.safetensors",
+              "size": 4530066248,
+              "sha256": "f63154532130422309532ff56f11945fbea8266c958e3133e8e5aef85c6293c7"
+            },
+            {
+              "path": "text_encoder_3/model.safetensors.index.fp16.json",
+              "size": 20980,
+              "gitOid": "26fbacbb229da635a50237394681830c048fc371"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 588,
+              "gitOid": "cf0682d6de72c1547f41b4f6d7c59f62deffef94"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 705,
+              "gitOid": "180a4e1be2a7d0b38a44108d6f24f585f35147b1"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "tokenizer_2/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer_2/special_tokens_map.json",
+              "size": 576,
+              "gitOid": "b3b93aa8e7fd8552501067e63e04e2958298c2b2"
+            },
+            {
+              "path": "tokenizer_2/tokenizer_config.json",
+              "size": 856,
+              "gitOid": "f4299b251265219ef1369503c04d837bd9528f0a"
+            },
+            {
+              "path": "tokenizer_2/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "tokenizer_3/special_tokens_map.json",
+              "size": 2543,
+              "gitOid": "17ade346a1042cbe0c1436f5bedcbd85c099d582"
+            },
+            {
+              "path": "tokenizer_3/spiece.model",
+              "size": 791656,
+              "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86"
+            },
+            {
+              "path": "tokenizer_3/tokenizer.json",
+              "size": 2424035,
+              "gitOid": "6f055030106071d446e559644b285557a82fefd4"
+            },
+            {
+              "path": "tokenizer_3/tokenizer_config.json",
+              "size": 20617,
+              "gitOid": "15377e70a0e43e060a98bbc5cb6245664d906e6c"
+            },
+            {
+              "path": "transformer/config.json",
+              "size": 524,
+              "gitOid": "313f18cd3d297a5d77ceab073ef54dbec312c0f0"
+            },
+            {
+              "path": "transformer/diffusion_pytorch_model.safetensors",
+              "size": 4939433672,
+              "sha256": "f81eb93a348be218af757dd095cbda45090380d9bbda91049442e0e40bb4cc95"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 809,
+              "gitOid": "059ae000f22d9c502030ead3c3f1db2718ae6f1f"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.safetensors",
+              "size": 167666902,
+              "sha256": "8f53304a79335b55e13ec50f63e5157fee4deb2f30d5fae0654e2b2653c109dc"
+            }
+          ]
+        },
+        {
           "id": "q8-0-gguf",
           "label": "Q8_0 GGUF",
           "format": "gguf",
@@ -15429,6 +15933,32 @@
               "sha256": "8f53304a79335b55e13ec50f63e5157fee4deb2f30d5fae0654e2b2653c109dc"
             }
           ]
+        },
+        {
+          "id": "taesd3",
+          "role": "tiny-vae",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "TAESD3 tiny autoencoder (previews, fast decode)",
+          "repository": "madebyollin/taesd3",
+          "revision": "d58dcaccd2b36fcb7a6b9e93c1cc507acab5a778",
+          "include": [
+            "config.json",
+            "diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 637,
+              "gitOid": "57629c4f9c7f6766575ee509d7aa524196516a96"
+            },
+            {
+              "path": "diffusion_pytorch_model.safetensors",
+              "size": 9848636,
+              "sha256": "6f79c1397cb9ce1dac363722dbe70147aee0ccca75e28338f8482fe515891399"
+            }
+          ]
         }
       ],
       "verification": {
@@ -15441,7 +15971,7 @@
         "date": "2026-11-16",
         "tests": []
       },
-      "notes": "28 steps, guidance 7; 1024x1024 in 12.6 s",
+      "notes": "28 steps, guidance 7; 1024x1024 in 12.6 s; TAESD3 variant: TAESD3 decoder / encoder 6.7e-7 / 7.3e-7 relative RMS vs diffusers' AutoencoderTiny (CPU, Vulkan, CUDA)",
       "licenseNotice": "Stability AI Community License: free for research and for commercial use while your annual revenue is below 1 million US dollars; above that you need an enterprise licence.",
       "doc": [
         {
@@ -28473,6 +29003,379 @@
           "cells": {
             "repositories": "ByteDance-Seed/SeedVR2-7B (\u002B text embeddings of ByteDance-Seed/SeedVR2-3B)",
             "formats": "official folder (.pth DiT, VAE, text embeddings); .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "sd-1.5-controlnet-canny",
+      "name": "SD 1.5 \u002B ControlNet Canny (v1.1)",
+      "kind": "image-generation",
+      "family": "Stable Diffusion 1.5",
+      "architecture": "sd1",
+      "level": "verified",
+      "license": "openrail",
+      "gated": false,
+      "publisher": {
+        "name": "lllyasviel",
+        "countryOfOrigin": "US",
+        "url": "https://github.com/lllyasviel/ControlNet-v1-1-nightly"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp16-diffusers",
+          "label": "FP16 diffusers",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": true,
+          "memoryBytes": 4305149520,
+          "companions": [
+            "controlnet-canny"
+          ],
+          "repository": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+          "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+          "include": [],
+          "primary": "",
+          "files": [
+            {
+              "path": "feature_extractor/preprocessor_config.json",
+              "size": 342,
+              "gitOid": "5294955ff7801083f720b34b55d0f1f51313c5c5"
+            },
+            {
+              "path": "model_index.json",
+              "size": 541,
+              "gitOid": "daf7e2e2dfc64fb437a2b44525667111b00cb9fc"
+            },
+            {
+              "path": "safety_checker/config.json",
+              "size": 4723,
+              "gitOid": "5dbd88952e7e521aa665e5052e6db7def3641d03"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 308,
+              "gitOid": "82d05b0e688d7ea94675678646c427907419346e"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 617,
+              "gitOid": "4d3e873ab5086ad989f407abd50fdce66db8d657"
+            },
+            {
+              "path": "text_encoder/model.fp16.safetensors",
+              "size": 246144864,
+              "sha256": "77795e2023adcf39bc29a884661950380bd093cf0750a966d473d1718dc9ef4e"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 472,
+              "gitOid": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 806,
+              "gitOid": "5ba7bf706515bc60487ad0e1816b4929b82542d6"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 743,
+              "gitOid": "1a02ee8abc93e840ffbcb2d68b66ccbcb74b3ab3"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+              "size": 1719125304,
+              "sha256": "c83908253f9a64d08c25fc90874c9c8aef9a329ce1ca5fb909d73b0c83d1ea21"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 547,
+              "gitOid": "55d78924fee13e4220f24320127c5f16284e13b9"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+              "size": 167335342,
+              "sha256": "4fbcf0ebe55a0984f5a5e00d8c4521d52359af7229bb4d81890039d2aa16dd7c"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "controlnet-canny",
+          "role": "controlnet",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "ControlNet v1.1 Canny (lllyasviel/control_v11p_sd15_canny)",
+          "repository": "lllyasviel/control_v11p_sd15_canny",
+          "revision": "115a470d547982438f70198e353a921996e2e819",
+          "include": [
+            "config.json",
+            "diffusion_pytorch_model.safetensors"
+          ],
+          "primary": "diffusion_pytorch_model.safetensors",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 996,
+              "gitOid": "ebd8387e9b5a9c67032880f7799042436ef94efb"
+            },
+            {
+              "path": "diffusion_pytorch_model.safetensors",
+              "size": 1445157124,
+              "sha256": "be713fb941fc7c625f0c7d816b6a19115783a665f3049a8974f127e0c075d9a9"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "82.8 dB (Vulkan) / 83.1 dB (CUDA) vs diffusers' StableDiffusionControlNetPipeline (fp32, 512x768, 20 Euler steps, guidance 7.5, ControlScale 1, same latents); ControlNet + UNet 6.5e-7 (GPU) / 1.1e-6 (CPU) relative RMS; the original control_v11p_sd15_canny.pth maps to identical weights",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "ControlNetTests"
+        ]
+      },
+      "notes": "Takes a control image (a Canny edge map; ImageGenerationRequest.ControlImage, Studio does not show it yet); ControlScale 1 by default. Other v1.1 SD 1.5 ControlNets (depth, openpose, lineart, ...) share the layout and load the same way; only Canny was compared with diffusers.",
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "lllyasviel/control_v11p_sd15_canny (with stable-diffusion-v1-5/stable-diffusion-v1-5); the original control_v11p_sd15_canny.pth (lllyasviel/ControlNet-v1-1)",
+            "formats": "diffusers folder (ControlNetModel), original \u0060.pth\u0060 / \u0060.safetensors\u0060",
+            "providers": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "sdxl-controlnet-canny-1.0",
+      "name": "SDXL \u002B ControlNet Canny 1.0",
+      "kind": "image-generation",
+      "family": "SDXL",
+      "architecture": "sdxl",
+      "level": "verified",
+      "license": "openrail\u002B\u002B",
+      "gated": false,
+      "publisher": {
+        "name": "Hugging Face",
+        "countryOfOrigin": "US",
+        "url": "https://huggingface.co/diffusers"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "fp16-diffusers",
+          "label": "FP16 diffusers",
+          "format": "diffusers",
+          "quantization": "F16",
+          "recommended": true,
+          "memoryBytes": 10891366328,
+          "companions": [
+            "controlnet-canny-sdxl"
+          ],
+          "repository": "stabilityai/stable-diffusion-xl-base-1.0",
+          "revision": "462165984030d82259a11f4367a4eed129e94a7b",
+          "include": [
+            "model_index.json",
+            "scheduler/scheduler_config.json",
+            "text_encoder/config.json",
+            "text_encoder/model.fp16.safetensors",
+            "text_encoder_2/config.json",
+            "text_encoder_2/model.fp16.safetensors",
+            "tokenizer/merges.txt",
+            "tokenizer/special_tokens_map.json",
+            "tokenizer/tokenizer_config.json",
+            "tokenizer/vocab.json",
+            "tokenizer_2/merges.txt",
+            "tokenizer_2/special_tokens_map.json",
+            "tokenizer_2/tokenizer_config.json",
+            "tokenizer_2/vocab.json",
+            "unet/config.json",
+            "unet/diffusion_pytorch_model.fp16.safetensors",
+            "vae/config.json",
+            "vae/diffusion_pytorch_model.fp16.safetensors",
+            "vae_1_0/config.json",
+            "vae_decoder/config.json",
+            "vae_encoder/config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "model_index.json",
+              "size": 609,
+              "gitOid": "6cc5138ddb67e9309c9b4e058e33e52087f1d215"
+            },
+            {
+              "path": "scheduler/scheduler_config.json",
+              "size": 479,
+              "gitOid": "e5bc8421e047838523be7acfb6720f167f7382f6"
+            },
+            {
+              "path": "text_encoder/config.json",
+              "size": 565,
+              "gitOid": "cde352ada4bb95fdad2fc503b8121257cef215a6"
+            },
+            {
+              "path": "text_encoder/model.fp16.safetensors",
+              "size": 246144152,
+              "sha256": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"
+            },
+            {
+              "path": "text_encoder_2/config.json",
+              "size": 575,
+              "gitOid": "da1848b5ed17b676f021578838f12c4023b86379"
+            },
+            {
+              "path": "text_encoder_2/model.fp16.safetensors",
+              "size": 1389382176,
+              "sha256": "ec310df2af79c318e24d20511b601a591ca8cd4f1fce1d8dff822a356bcdb1f4"
+            },
+            {
+              "path": "tokenizer/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer/special_tokens_map.json",
+              "size": 472,
+              "gitOid": "2c2130b544c0c5a72d5d00da071ba130a9800fb2"
+            },
+            {
+              "path": "tokenizer/tokenizer_config.json",
+              "size": 737,
+              "gitOid": "2e8612a429492973fe60635b3f44a28b065cfac0"
+            },
+            {
+              "path": "tokenizer/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "tokenizer_2/merges.txt",
+              "size": 524619,
+              "gitOid": "76e821f1b6f0a9709293c3b6b51ed90980b3166b"
+            },
+            {
+              "path": "tokenizer_2/special_tokens_map.json",
+              "size": 460,
+              "gitOid": "ae0c5be6f35217e51c4c000fd325d8de0294e99c"
+            },
+            {
+              "path": "tokenizer_2/tokenizer_config.json",
+              "size": 725,
+              "gitOid": "a8438e020c4497a429240d6b89e0bf9a6e2ffa92"
+            },
+            {
+              "path": "tokenizer_2/vocab.json",
+              "size": 1059962,
+              "gitOid": "469be27c5c010538f845f518c4f5e8574c78f7c8"
+            },
+            {
+              "path": "unet/config.json",
+              "size": 1680,
+              "gitOid": "c8714c90f0e2409156da42781954416cb7df36af"
+            },
+            {
+              "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+              "size": 5135149760,
+              "sha256": "83e012a805b84c7ca28e5646747c90a243c65c8ba4f070e2d7ddc9d74661e139"
+            },
+            {
+              "path": "vae/config.json",
+              "size": 642,
+              "gitOid": "a66a171ba7c8efb1a8fc3bdc64e65318eade8e13"
+            },
+            {
+              "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+              "size": 167335342,
+              "sha256": "bcb60880a46b63dea58e9bc591abe15f8350bde47b405f9c38f4be70c6161e68"
+            },
+            {
+              "path": "vae_1_0/config.json",
+              "size": 607,
+              "gitOid": "29a4d9ff621cd8e3b50d80eb10e08450187d29b8"
+            },
+            {
+              "path": "vae_decoder/config.json",
+              "size": 607,
+              "gitOid": "29a4d9ff621cd8e3b50d80eb10e08450187d29b8"
+            },
+            {
+              "path": "vae_encoder/config.json",
+              "size": 607,
+              "gitOid": "29a4d9ff621cd8e3b50d80eb10e08450187d29b8"
+            }
+          ]
+        }
+      ],
+      "companions": [
+        {
+          "id": "controlnet-canny-sdxl",
+          "role": "controlnet",
+          "additionalRoles": [],
+          "intoVariantFolder": false,
+          "label": "ControlNet Canny SDXL 1.0 (fp16)",
+          "repository": "diffusers/controlnet-canny-sdxl-1.0",
+          "revision": "eb115a19a10d14909256db740ed109532ab1483c",
+          "include": [
+            "config.json",
+            "diffusion_pytorch_model.fp16.safetensors"
+          ],
+          "primary": "diffusion_pytorch_model.fp16.safetensors",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1309,
+              "gitOid": "c38f38aa9f7b635abd06ccd5d211870d9c8c150b"
+            },
+            {
+              "path": "diffusion_pytorch_model.fp16.safetensors",
+              "size": 2502139136,
+              "sha256": "b2e7d3921058a442cc80430d1ec8847f42599c705e2451c95e77cf4dcf8d6c25"
+            }
+          ]
+        }
+      ],
+      "verification": {
+        "reference": "diffusers",
+        "summary": "60.6 dB (Vulkan) / 59.7 dB (CUDA) vs diffusers' StableDiffusionXLControlNetPipeline (the fp16 files upcast to f32, 768x1152, 20 Euler steps, guidance 5, ControlScale 0.5, same latents); ControlNet + UNet 7e-6 (GPU) / 1.4e-6 (CPU) relative RMS",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "ControlNetTests"
+        ]
+      },
+      "notes": "Takes a control image (a Canny edge map; ImageGenerationRequest.ControlImage, Studio does not show it yet); the model card recommends ControlScale 0.5.",
+      "licenseNotice": "OpenRAIL licence: free to use, also commercially, but it bans listed harmful uses and passes those restrictions on to anything you share. Read it on the model page.",
+      "doc": [
+        {
+          "section": "4",
+          "cells": {
+            "repositories": "diffusers/controlnet-canny-sdxl-1.0 (with stabilityai/stable-diffusion-xl-base-1.0)",
+            "formats": "diffusers folder (ControlNetModel, fp16 files)",
+            "providers": ""
           }
         }
       ]

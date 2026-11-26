@@ -1887,8 +1887,9 @@ no new ops were needed), and Core's latent-diffusion pipeline runs them with hos
 | Krea 2 (Turbo, Raw and fine-tunes) | diffusers folder; the release's original-name single files (`turbo.safetensors`, `raw.safetensors`, ComfyUI's bf16 files); transformer-only GGUF (realrebelai, vantagewithai, ...: architecture `krea2`, some labelled `qwen_image`) plus companions: the Qwen3-VL-4B text encoder (the pipeline's `text_encoder` folder or a `qwen3vl` GGUF), the Qwen-Image VAE (the pipeline's file or ComfyUI's `qwen_image_vae.safetensors`) | **supported** (text-to-image; Turbo: 8 steps without guidance; Raw (file names with `raw` / `base`): 28 steps, guidance 5.5) | [below](#krea-2) |
 | SDXL refiner (stabilityai/stable-diffusion-xl-refiner-1.0: the OpenCLIP bigG encoder alone, aesthetic-score conditioning; as the second stage after the SDXL base or for image to image) | diffusers folder (`text_encoder_2/` and `tokenizer_2/` only) | **supported** since 2026-11-18 ("SDXL refiner" below): base + refiner 48.3 dB against diffusers | |
 | Qwen-Image 2.1 image editing, Lumina-Image-2.0, HiDream, AuraFlow, MiniMax-H3-Image | - | missing (recognized in GGUF and safetensors single files and rejected as "Not supported yet: ... (diffusion transformer)") | the graph contract (`DiffusionGraphs`), the description, the flow sampler and the companion-file loading are kind-generic |
-| LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors` | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image, Krea 2 (merged at load, role `lora[@scale]`, several at once); LyCORIS / DoRA rejected | [below](#lora) |
-| ControlNet, TAESD | - | missing | |
+| LoRA | kohya-ss (SD 1.x diffusers names, SDXL SGM names, FLUX original names), diffusers / PEFT, ComfyUI `.safetensors`; LyCORIS (LoCon, LoHa, LoKr, Tucker cores, full diffs) and DoRA since 2026-11-26 | **supported** for SD 1.x / 2.x / XL, FLUX, Chroma, Qwen-Image, Krea 2 (merged at load, role `lora[@scale]`, several at once) | [below](#lora), [LyCORIS / DoRA](#lycoris) |
+| TAESD tiny autoencoders (madebyollin/taesd, taesdxl, taesd3, taef1) | diffusers `AutoencoderTiny` folder / file, the original `taesd*_decoder` / `_encoder` files | **supported since 2026-11-26** (role `tiny-vae`: full-size previews, optional fast decode / encode; SD 1.x / 2.x / XL, SD3, FLUX.1, Chroma, Z-Image) | [below](#taesd) |
+| ControlNet (SD 1.x / 2.x / XL; lllyasviel/control_v11p_sd15_canny, diffusers/controlnet-canny-sdxl-1.0) | diffusers `ControlNetModel` folder, the original `control_model.*` files (`.pth` / `.safetensors`) | **supported since 2026-11-26** (role `controlnet`: a control image with scale and start / end) | [below](#controlnet) |
 
 Verification (tools/make-diffusion-references.py writes the diffusers references; tests in `tests/Sharplight.ImageGeneration.Tests`):
 
@@ -2453,6 +2454,81 @@ into f16 (Krea 2 Q8_0: 26 GB, more than the GPU); merged quantized weights are n
 multiples of 32. ComfyUI's `krea2_darkbrush.safetensors` (rank 32, every linear incl. the text fusion) on realrebelai's Q8_0 GGUF at 1024, 8 steps,
 against diffusers' `load_lora_weights` on the same files: 23.3 dB, the same picture (the brush texture keeps the PSNR low); 7.8 dB from the
 image without the LoRA (`Krea2Tests.LoraMatchesDiffusers`).
+
+### LyCORIS and DoRA LoRAs
+
+<a id="lycoris"></a>
+LyCORIS and DoRA files (2026-11-26) load like plain LoRAs (role `lora[@scale]`, merged at load, kohya / LyCORIS names and PEFT / diffusers names):
+every module becomes a dense weight difference ΔW (`LoraDelta`, Import.Diffusers) added as W + s · α / r · ΔW, with
+
+- LoCon: `lora_down` / `lora_up` on convolutions (as before), plus LyCORIS' Tucker core `lora_mid` (the 1×1 down matrix spread over the kernel,
+  as ComfyUI and LyCORIS rebuild it);
+- LoHa: (w1a · w1b) ⊙ (w2a · w2b) (`hada_w1_a` ... `hada_w2_b`), the convolutions' Tucker form with `hada_t1` / `hada_t2`
+  (`einsum('i j k l, j r, i p -> p r k l')`), α / r with r the rank of w1b;
+- LoKr: kron(w1, w2) with either factor stored whole or as a product (`lokr_w1`, `lokr_w1_a/b`, `lokr_w2`, `lokr_w2_a/b`, `lokr_t2`), α divided by
+  the decomposed factor's rank and not applied when both factors are whole (LyCORIS writes α = rank there);
+- full differences (`diff`);
+- DoRA: a LoRA module with a magnitude (`dora_scale` [out, 1] or [1, in], PEFT's `lora_magnitude_vector`): the merged weight is
+  m · (W + s · α / r · ΔW) / ‖W + s · α / r · ΔW‖ per output row (per input column for [1, in] magnitudes), PEFT's merge; the strength scales the
+  difference inside the norm (PEFT's `set_scale`; ComfyUI blends the renormalized weight instead, the same at strength 1).
+
+Bias differences (`diff_b`) are ignored, as before. Verification (tools/make-tiny-lycoris.py, `TinyLycorisTests`): random LoCon, LoHa and LoKr
+(Tucker cores on the 3×3 residual convolutions) and DoRA adapters of the tiny SD 1.x UNet (attention projections and residual convolutions) made
+with PEFT, written in kohya / LyCORIS names (DoRA also in PEFT's), loaded at strength 0.8 against PEFT's `merge_and_unload` at that strength:
+the merged weights within 8e-8 relative RMS (f32), the images **80.6 to 89 dB** (or bit-identical) on the CPU, Vulkan and CUDA, 11 to 20 dB
+away from the unadapted image. Not checked: a published LyCORIS / DoRA file of a real model (the merge is per module and shape-checked; the
+module names are those of the plain LoRAs).
+
+### TAESD
+
+<a id="taesd"></a>
+The tiny autoencoders by madebyollin (2026-11-26: taesd and taesdxl for the 4-channel SD 1.x / 2.x / XL latents, taesd3 for SD3's and taef1 for
+FLUX.1's 16-channel latents) are an add-on: the auxiliary role `tiny-vae` (a diffusers `AutoencoderTiny` folder or file, or the original
+`taesd_decoder.safetensors` with `taesd_encoder.safetensors` beside it) adds the `tiny-vae` component beside the model's VAE.
+
+- Core: `DiffusionAddOns` merges the add-on's namespaced weights (`tiny_vae.*`) and metadata (`tiny_autoencoder.*`) into the primary source (the
+  companion adapters of transformer-only checkpoints pass it through), so a rebuild for another size and a `.slm` package keep it;
+  `TinyAutoencoderGraphBuilder` builds `tiny_vae_decode` / `tiny_vae_encode` with the VAE graphs' contract (model latents in, an image in [0, 1]
+  out; the clamp 3 · tanh(z / 3), ReLU residual blocks, nearest upsampling / strided convolutions; Conv, Relu, Tanh, Resize, Clip: no new
+  ops). The latent channels and downscale must match the model's VAE (a taesd for FLUX fails naming TAEF1). LatentDiffusion, SD3, FLUX.1,
+  Chroma and Z-Image adapters attach it.
+- Generator: previews (`PreviewInterval`) are decoded by it at the full size when the model has one (otherwise the latent colours at latent
+  resolution); `ImageGenerationOptions.TinyAutoencoder` decodes the result (and encodes an input image) with it; `ImageGenerationDefaults.TinyAutoencoder`.
+
+Verification (tools/make-taesd-references.py: diffusers `AutoencoderTiny` in float32 on CUDA, 512×512, seeded latents and a test picture, the
+pipelines' scaling; `TinyAutoencoderTests`): decoder / encoder relative RMS on the CPU, Vulkan and CUDA: taesd 2.3e-6 / 9e-7, taesdxl 1.6e-6 /
+1.6e-5, taesd3 6.7e-7 / 7.3e-7, taef1 7e-7 / 8e-5 (the same on all three); SD 1.5 (fp32 folder) with TAESD as its VAE against
+StableDiffusionPipeline with `vae=AutoencoderTiny` (Euler, 20 steps, guidance 7.5, the same noise) on Vulkan **75.1 dB**; FLUX.1-schnell's Q8_0
+GGUF with its companions and taef1 decodes as the folder does; taesd's original files hold exactly the diffusers file's weights (taesdxl's
+original files are a later training run with the same layout); the `.slm` round trip keeps both graphs and rebuilds them for other sizes.
+
+### ControlNet
+
+<a id="controlnet"></a>
+ControlNets for the SD 1.x / 2.x / XL UNets (2026-11-26) are the second add-on: the auxiliary role `controlnet` (diffusers' `ControlNetModel`
+folder or file with its `config.json`, or the original `control_model.*` files such as lllyasviel's `control_v11p_sd15_canny.pth`, read with the
+restricted unpickler and configured from the shapes) adds the `controlnet` component with the graph `denoise_control`.
+
+- Import: the UNet half keeps the UNet's canonical names under `controlnet.` (`controlnet.input_conv`, `.time_embedding`, `.class_embedding`,
+  `.down.*`, `.mid.*`), plus `controlnet.condition_embedding.{input_conv, blocks.{i}, output_conv}`, `controlnet.zero_convs.{i}` and
+  `controlnet.mid_zero_conv`; metadata `controlnet.unet.*` (the UNet keys), `controlnet.condition_channels`, `controlnet.condition_embedding_channels`.
+- Graph: `UNetGraphBuilder` builds the UNet's down half for a weight prefix, so `denoise_control` runs the ControlNet's copy on the noisy
+  latents plus the control image's embedding (SiLU convolutions, three stride-2 levels), passes each skip feature and the middle block's output
+  through its zero convolution, scales them per row by `control_scale` and adds them to the UNet's skip features and middle output (diffusers'
+  `down_block_additional_residuals` / `mid_block_additional_residual`); SDXL's ControlNet takes the same pooled and size conditioning. One graph,
+  no host round trip of the residuals. A ControlNet of another family fails on load.
+- Generator: `ImageGenerationRequest.ControlImage` (resized to the output size with Lanczos, as diffusers' image processor; the output size defaults
+  to its size), `ImageGenerationOptions.ControlScale` (1), `ControlStart` / `ControlEnd` (diffusers' `control_guidance_start` / `_end`: the scale is 0
+  outside); both rows of a guided step see the control image (no guess mode). `ImageGenerationDefaults.ControlNet`.
+
+Verification (tools/make-controlnet-references.py: diffusers' StableDiffusionControlNetPipeline / StableDiffusionXLControlNetPipeline in float32
+(fp16 files upcast) on CUDA, Euler, 20 steps, the same initial noise, the bird Canny map of the model card resized to the output size;
+`ControlNetTests`): one ControlNet + UNet evaluation (two rows at scales s and s / 2, the UNet alone 1.3e-2 / 2.4e-2 away) within 1.1e-6 (CPU) / 6.5e-7
+(Vulkan, CUDA) relative RMS for control_v11p_sd15_canny with SD 1.5, 1.4e-6 / 7e-6 for diffusers/controlnet-canny-sdxl-1.0 (fp16 files) with
+SDXL base; whole images: SD 1.5 + Canny (512×768, guidance 7.5, scale 1) **82.8 dB** (Vulkan) / **83.1 dB** (CUDA), SDXL + Canny (768×1152,
+guidance 5, scale 0.5, the model card's) **60.6 dB** / **59.7 dB**. The original `control_v11p_sd15_canny.pth` maps to exactly the diffusers folder's weights and configuration. The
+`.slm` round trip keeps the ControlNet and rebuilds it for the control image's size. Not done: multi-ControlNet, guess mode, the union / XS /
+FLUX / SD3 ControlNets, T2I adapters, a preprocessor (the control image is given).
 
 ## 18. Video generation (2026-11-16)
 
