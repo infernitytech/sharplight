@@ -87,7 +87,7 @@ public sealed partial class GraphLowerer
                 var w = node.Inputs[1];
                 var type = _refs.TryGetValue(w, out var stored) ? stored.Type : w.Type;
                 long n = w.Shape.Rank > 0 ? w.Shape.Dims[0].Fixed : 0;
-                ActivationCode reader = UseFp8Gemm(type, k) && !UseMmq(type, n, k) ? ActivationCode.Fp8
+                ActivationCode reader = UseFp8Gemm(w.Weight, type, k) && !UseMmq(type, n, k) ? ActivationCode.Fp8
                     : UseMmq(type, n, k) ? ActivationCode.Q8_1 : ActivationCode.F16;
                 if (reader == ActivationCode.Q8_1 || (code is { } c && c != reader))
                 {

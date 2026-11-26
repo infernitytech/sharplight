@@ -74,6 +74,21 @@ public sealed class SeedVrDiscoverTests
     }
 
     [Fact]
+    public async Task EmbeddedCatalog_ListsTheOfficialSeedVr2Models()
+    {
+        var catalog = await new VerifiedCatalogSource(null, null).GetAsync(TestContext.Current.CancellationToken);
+
+        foreach (var (id, variants) in new[] { ("seedvr2-3b", new[] { "official" }), ("seedvr2-7b", new[] { "official", "sharp" }) })
+        {
+            var entry = catalog.Find(id)!;
+            Assert.True(entry.IsInstallable);
+            Assert.Equal("video-enhancement", entry.Kind);
+            Assert.Equal(variants, entry.Variants.Select(variant => variant.Id));
+            Assert.All(entry.Variants, variant => Assert.StartsWith("ByteDance-Seed/", variant.Repository, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public async Task VerifiedList_ShowsSeedVr_AndInstallsThe7bWithItsEmbeddings()
     {
         using var services = new TestServices();

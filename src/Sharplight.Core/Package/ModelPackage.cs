@@ -148,6 +148,11 @@ public static class ModelPackage
                 sections.Add(PackageWriter.WriteSection(fs, PackageSectionKind.WeightLayout, "", w => WeightLayoutCodec.Write(w, weights)));
             }
 
+            if (WeightActivationCodec.Applies(weights))
+            {
+                sections.Add(PackageWriter.WriteSection(fs, PackageSectionKind.WeightActivations, "", w => WeightActivationCodec.Write(w, weights)));
+            }
+
             sections.AddRange(WriteAttachments(fs, definition.Attachments));
 
             sections.AddRange(WriteArtifactSets(fs, artifacts));

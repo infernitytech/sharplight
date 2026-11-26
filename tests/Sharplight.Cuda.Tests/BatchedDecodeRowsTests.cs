@@ -36,6 +36,8 @@ public sealed partial class BatchedDecodeRowsTests
     [InlineData("bf16", 16)]
     [InlineData("bf16", 40)]
     [InlineData("bf16", 64)]
+    [InlineData("bf16", 80)]
+    [InlineData("bf16", 128)]
     [InlineData("mxfp4-moe", 12)]
     [InlineData("mxfp4-moe", 16)]
     [InlineData("mxfp4-moe", 40)]

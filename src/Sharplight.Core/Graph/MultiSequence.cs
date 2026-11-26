@@ -18,8 +18,8 @@ namespace Sharplight.Graph;
 /// input [S, blocks per slot] maps each slot's positions to blocks; CacheWrite and CachedAttention get it as their last input
 /// and attribute <c>block_size</c>.</item>
 /// <item>Paged with window rows (<see cref="Transform(ComputeGraph, int, int, int, int, int, int)"/>): the caches that only sliding-window
-/// attention reads (every CachedAttention of the cache has the same <c>window</c>, is causal and has no chunks, selection or compressed
-/// entries) become pools of window rows of their own, addressed through the <see cref="InputRole.KvWindowBlockTable"/> input [S, blocks per slot]; the runtime keeps
+/// attention reads (every CachedAttention of the cache has the same <c>window</c>, is causal and has no chunks or selection) become pools of
+/// window rows of their own, addressed through the <see cref="InputRole.KvWindowBlockTable"/> input [S, blocks per slot]; the runtime keeps
 /// only the blocks a slot's window still reaches (<see cref="Result.Window"/>, <see cref="Result.WindowStates"/>).</item>
 /// <item>Compressed KV caches (<see cref="StateDefinition.Compression"/>) are resized to equal slot ranges of whole entries, or to the
 /// paged pool's ceil(block size / compression) rows per block.</item>
@@ -344,9 +344,8 @@ public static class MultiSequence
 
     /// <summary>
     /// The KV caches only sliding-window attention reads, and its window: every CachedAttention reading such a cache is causal, has the
-    /// same <c>window</c> and neither chunks, a selection nor compressed entries, no other op reads it, and it is written by CacheWrite only
-    /// (uncompressed). A compressed attention is excluded because it takes one block table for its window keys and its compressed cache, and
-    /// the compressed entries must stay addressable after the window has moved past their blocks (a window block table would recycle them). The
+    /// same <c>window</c> and neither chunks, a selection nor a compressed cache (whose entries it reads through its own block table), no
+    /// other op reads it, and it is written by CacheWrite only (uncompressed). The
     /// window is the largest one any such cache has (all windowed caches share one pool layout); empty when no cache qualifies.
     /// </summary>
     public static (int Window, HashSet<StateDefinition> Caches) WindowedCaches(ComputeGraph g)
@@ -369,9 +368,11 @@ public static class MultiSequence
                 }
 
                 var a = n.Attributes;
-                bool windowOnly = n.Op.Name == "CachedAttention" && a.Get("causal", true) && a.Get("chunk", 0) == 0 && !a.Get("selection", false)
-                    && a.Get("compression", 0) == 0;
-                int w = windowOnly ? a.Get("window", 0) : 0;
+                // An attention that also reads a compressed cache addresses its entries through the same block table as its keys, which must then be
+                // the main table (the compressed caches are never window-sized).
+                int w = n.Op.Name == "CachedAttention" && a.Get("causal", true) && a.Get("chunk", 0) == 0 && !a.Get("selection", false) && !a.Has("compression")
+                    ? a.Get("window", 0)
+                    : 0;
                 if (w <= 0 || s.Compression > 1 || (window.TryGetValue(s, out int seen) && seen != w))
                 {
                     excluded.Add(s);

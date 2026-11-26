@@ -83,6 +83,10 @@
 #define COMP_ATTN 0
 #endif
 #define RAW_SELECTED (SELECTED && !COMP_ATTN)
+// SINK_ROWS (`main` without splits only): p.sinks is [T, HQ], one sink logit per query row and head, instead of [HQ].
+#ifndef SINK_ROWS
+#define SINK_ROWS 0
+#endif
 // REL_BIAS = E > 0 (`main` only): query-conditioned relative position bias. p.relb is [T, HQ, E]; the score of query row t, head h and the key
 // at distance d = query position - key position gets p.relb[t][h][d] added (after the soft cap) when 0 <= d < E.
 #ifndef REL_BIAS
@@ -912,7 +916,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     float* orow = p.o + (uint64_t(t) * HQ + h) * DV;
 #if HAS_SINKS
     {
-        float sk = p.sinks[h], mf = max(m, sk), cf = exp(m - mf);
+        float sk = p.sinks[SINK_ROWS ? uint64_t(t) * HQ + h : h], mf = max(m, sk), cf = exp(m - mf);
         l = l * cf + exp(sk - mf);
         [ForceUnroll] for (int di = 0; di < DPT; di++) acc[di] *= cf;
     }

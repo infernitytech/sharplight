@@ -40,6 +40,16 @@ internal static class ComponentCheckpoint
             return LoraCheckpoint.Architecture;
         }
 
+        if (TinyAutoencoderCheckpoint.IsTinyAutoencoder(names))
+        {
+            return TinyAutoencoderCheckpoint.Architecture;
+        }
+
+        if (ControlNetCheckpoint.IsControlNet(names))
+        {
+            return ControlNetCheckpoint.Architecture;
+        }
+
         if (names.Any(n => n.StartsWith("vision_model.", StringComparison.Ordinal) || n.StartsWith("model.diffusion_model.", StringComparison.Ordinal)))
         {
             return null;

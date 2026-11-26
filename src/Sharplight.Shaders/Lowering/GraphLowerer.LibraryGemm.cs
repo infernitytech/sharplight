@@ -8,10 +8,13 @@ namespace Sharplight.Shaders.Lowering;
 public sealed partial class GraphLowerer
 {
     /// <summary>
-    /// Fewest rows a matmul runs on the vendor GEMM library with (<c>SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS</c>, default 256): below that the
-    /// generated GEMMs' small-batch tiles and K splits are as fast.
+    /// Fewest rows a matmul runs on the library path with (<c>SHARPLIGHT_LIBRARY_GEMM_MIN_ROWS</c> overrides it): on the provider's
+    /// hand-written f16 GEMM (<see cref="NativeGemmF16"/>) from <see cref="NativeGemmMinRows"/>, the rows past its decode form's 64-row
+    /// tile; on the vendor library from 256, below which the generated GEMMs' small-batch tiles and K splits are as fast as the library.
+    /// The hand-written GEMM's 64- and 128-row token tiles beat gemm_cm2's K splits at 65-255 rows (RTX PRO 4500, Llama-3.1-8B bf16,
+    /// GPU ms: steps of 16 decode + 160 / 224 prompt rows 36.8 → 26.4 / 39.1 → 31.8; benchmarks.md §114).
     /// </summary>
-    private static long LibraryGemmMinRows => DiagnosticSwitches.LibraryGemmMinRows ?? 256;
+    private long LibraryGemmMinRows => DiagnosticSwitches.LibraryGemmMinRows ?? (NativeGemmF16 ? NativeGemmMinRows : 256);
 
     /// <summary>
     /// Fewest rows a matmul with a bias row runs on the hand-written f16 GEMM with the bias in its store (<see cref="UseNativeBiasGemm"/>):
@@ -19,7 +22,7 @@ public sealed partial class GraphLowerer
     /// (mixed serving steps of 64 + 192 / 64 + 448 rows: 28.49 / 43.96 against 29.95 / 44.35 ms) and slower from 1024 rows (64 + 960
     /// rows 74.57 against 73.73 ms; a 2048-row prefill 15,543 → 15,834 tok/s).
     /// </summary>
-    private static long NativeBiasGemmMinRows => Math.Max(LibraryGemmMinRows, 1024);
+    private long NativeBiasGemmMinRows => Math.Max(LibraryGemmMinRows, 1024);
 
     /// <summary>
     /// Fewest outputs a matmul runs on the library path with: narrower products (an MoE router's 32 or 128 expert logits) give the

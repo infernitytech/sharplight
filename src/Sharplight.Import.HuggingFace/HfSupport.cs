@@ -68,7 +68,7 @@ public static class HfSupport
     public static bool IsDraftModel(string? modelType) => HfArchitectureMappings.Find(modelType)?.IsDraftModel == true;
 
     /// <summary>
-    /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
+    /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, <c>mxfp8</c> E8M0 scales per 32 values, compressed-tensors
     /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
     /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c> / <c>gemv_fast</c> / <c>marlin</c>), GPTQ Marlin, compressed-tensors integer weights,
     /// bitsandbytes (NF4, FP4, LLM.int8), HQQ, EETQ, optimum-quanto, torchao int8 / float8, MLX quantization (affine and the <c>mxfp4</c> / <c>nvfp4</c> / <c>mxfp8</c> modes), AutoRound (GPTQ / AWQ packings)
@@ -123,7 +123,7 @@ public static class HfSupport
 
         switch (method.ToLowerInvariant())
         {
-            case "fp8":
+            case "fp8" or "mxfp8":
                 return new HfQuantizationSupport(method, SupportLevel.Supported);
             case "mxfp4":
                 return new HfQuantizationSupport(method,

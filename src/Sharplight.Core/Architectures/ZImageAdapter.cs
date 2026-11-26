@@ -47,7 +47,7 @@ public sealed class ZImageAdapter : IModelAdapter
     {
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(options);
-        var src = sources.Primary;
+        var src = DiffusionAddOns.Merge(sources, acceptsControlNet: false);
         RequireComponents(src);
         var transformer = ZImageHyperParameters.Read(src, Prefix);
         var vae = AutoencoderHyperParameters.Read(src, Prefix);
@@ -75,6 +75,7 @@ public sealed class ZImageAdapter : IModelAdapter
             [DiffusionGraphs.VaeDecode] = AutoencoderGraphBuilder.BuildDecoder(src.Weight, vae, latentHeight, latentWidth),
             [DiffusionGraphs.VaeEncode] = AutoencoderGraphBuilder.BuildEncoder(src.Weight, vae, height, width),
         };
+        DiffusionAddOns.AddTinyAutoencoder(src, graphs, vae.LatentChannels, downscale, latentHeight, latentWidth);
 
         var attachments = new Dictionary<string, IWeightSource>(StringComparer.Ordinal);
         bool schedulerAttachment = FlowSchedulerComponent.AddAttachment(src, Prefix, attachments);
@@ -87,7 +88,7 @@ public sealed class ZImageAdapter : IModelAdapter
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
             Attachments = attachments,
-            Description = Describe(src, transformer, vae, promptLength, schedulerAttachment),
+            Description = DiffusionAddOns.WithAddOns(Describe(src, transformer, vae, promptLength, schedulerAttachment), graphs),
         };
     }
 

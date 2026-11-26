@@ -10,7 +10,9 @@ namespace Sharplight.Import.Diffusers;
 /// (<c>unet.</c> / <c>transformer.</c> / <c>text_encoder.</c> / <c>text_encoder_2.</c> modules with <c>.lora_A</c> / <c>.lora_B</c>, or the
 /// older <c>.lora.down</c> / <c>.lora.up</c>) and ComfyUI's (<c>diffusion_model.</c> modules). It opens as a source of architecture
 /// <see cref="Architecture"/> whose <see cref="ModelSource.FormatData"/> is the <see cref="IWeightPatch"/> (<see cref="DiffusionLoraPatch"/>)
-/// that merges it into the canonical weights of the model it is loaded with. LyCORIS variants (LoHa, LoKr, DoRA, Tucker) are rejected.
+/// that merges it into the canonical weights of the model it is loaded with. LyCORIS' variants are read too: LoCon (convolution LoRAs, with
+/// the optional Tucker core <c>lora_mid</c>), LoHa (<c>hada_w1_a</c> ... <c>hada_t2</c>), LoKr (<c>lokr_w1</c> ... <c>lokr_t2</c>), full
+/// differences (<c>diff</c>) and DoRA's magnitudes (<c>dora_scale</c>, PEFT's <c>lora_magnitude_vector</c>).
 /// </summary>
 internal static class LoraCheckpoint
 {
@@ -26,11 +28,25 @@ internal static class LoraCheckpoint
     /// <summary>The second text encoder (SDXL's OpenCLIP bigG).</summary>
     public const string SecondTextEncoder = "text_encoder_2";
 
-    private static readonly (string Suffix, bool IsDown)[] s_matrices =
-    [
-        (".lora_down.weight", true), (".lora_up.weight", false), (".lora_A.weight", true), (".lora_B.weight", false),
-        (".lora_A.default.weight", true), (".lora_B.default.weight", false), (".lora.down.weight", true), (".lora.up.weight", false),
-    ];
+    // Module tensors by suffix (the longest match wins): plain LoRA (kohya, PEFT, diffusers' old names), LyCORIS' LoCon Tucker core, LoHa,
+    // LoKr and full differences, DoRA magnitudes (LyCORIS / kohya's dora_scale, PEFT's lora_magnitude_vector) and the alpha.
+    private static readonly (string Suffix, string Part)[] s_parts = [.. new (string Suffix, string Part)[]
+    {
+        (".lora_down.weight", "down"), (".lora_up.weight", "up"), (".lora_A.weight", "down"), (".lora_B.weight", "up"),
+        (".lora_A.default.weight", "down"), (".lora_B.default.weight", "up"), (".lora.down.weight", "down"), (".lora.up.weight", "up"),
+        (".lora_mid.weight", "mid"),
+        (".hada_w1_a", "hada_w1_a"), (".hada_w1_b", "hada_w1_b"), (".hada_w2_a", "hada_w2_a"), (".hada_w2_b", "hada_w2_b"),
+        (".hada_t1", "hada_t1"), (".hada_t2", "hada_t2"),
+        (".lokr_w1", "lokr_w1"), (".lokr_w1_a", "lokr_w1_a"), (".lokr_w1_b", "lokr_w1_b"), (".lokr_w2", "lokr_w2"), (".lokr_w2_a", "lokr_w2_a"),
+        (".lokr_w2_b", "lokr_w2_b"), (".lokr_t2", "lokr_t2"),
+        (".diff", "diff"),
+        (".dora_scale", "magnitude"), (".lora_magnitude_vector", "magnitude"), (".lora_magnitude_vector.weight", "magnitude"),
+        (".lora_magnitude_vector.default.weight", "magnitude"),
+        (".alpha", "alpha"),
+    }.OrderByDescending(p => p.Suffix.Length)];
+
+    // Parts that start a module (a file with none of them is not a LoRA).
+    private static readonly string[] s_leadingParts = ["down", "hada_w1_a", "lokr_w1", "lokr_w1_a"];
 
     private static readonly (string Prefix, string Component, bool Kohya)[] s_prefixes =
     [
@@ -40,16 +56,29 @@ internal static class LoraCheckpoint
         ("text_encoder.", TextEncoder, false),
     ];
 
-    /// <summary>Whether the tensor names are a LoRA file.</summary>
+    /// <summary>Whether the tensor names are a LoRA-family file (LoRA, LoCon, LoHa, LoKr, DoRA).</summary>
     /// <param name="names">The tensor names.</param>
     public static bool IsLora(IReadOnlyCollection<string> names)
-        => names.Count > 0 && names.Any(n => s_matrices.Any(m => n.EndsWith(m.Suffix, StringComparison.Ordinal)))
-           && names.All(n => n.Contains("lora", StringComparison.Ordinal) || n.EndsWith(".alpha", StringComparison.Ordinal)
-               || n.Contains("dora_scale", StringComparison.Ordinal));
+        => names.Count > 0 && names.Any(n => Part(n) is { } part && s_leadingParts.Contains(part.Part))
+           && names.All(n => n.Contains("lora", StringComparison.Ordinal) || Part(n) is not null);
+
+    /// <summary>The module key and part of a tensor name, or null for other tensors.</summary>
+    private static (string Key, string Part)? Part(string name)
+    {
+        foreach (var (suffix, part) in s_parts)
+        {
+            if (name.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                return (name[..^suffix.Length], part);
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Opens the file as a LoRA source.</summary>
     /// <param name="path">The safetensors file.</param>
-    /// <exception cref="NotSupportedException">A LyCORIS variant, or a module without its down or up matrix.</exception>
+    /// <exception cref="NotSupportedException">A module without its matrices.</exception>
     public static ModelSource Open(string path)
     {
         var tensors = new CheckpointTensors();
@@ -80,45 +109,64 @@ internal static class LoraCheckpoint
         }
     }
 
-    /// <summary>The modules of a LoRA state dict.</summary>
+    /// <summary>The modules of a LoRA-family state dict.</summary>
     /// <param name="tensors">The tensors by name.</param>
-    /// <exception cref="NotSupportedException">A LyCORIS variant, or a module without its down or up matrix.</exception>
+    /// <exception cref="NotSupportedException">A module without its matrices, or with an incomplete LoHa / LoKr decomposition.</exception>
     public static IReadOnlyList<LoraModule> Modules(IReadOnlyDictionary<string, WeightInfo> tensors)
     {
-        if (tensors.Keys.FirstOrDefault(n => n.Contains("dora_scale", StringComparison.Ordinal) || n.Contains("hada_", StringComparison.Ordinal)
-                || n.Contains("lokr_", StringComparison.Ordinal) || n.Contains("lora_mid", StringComparison.Ordinal)) is { } variant)
-        {
-            throw new NotSupportedException($"Not supported yet: LyCORIS / DoRA LoRA variants ('{variant}'); plain LoRA (down / up matrices) is supported.");
-        }
-
-        var downs = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
-        var ups = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
+        var parts = new Dictionary<string, Dictionary<string, WeightInfo>>(StringComparer.Ordinal);
         foreach (var (name, weight) in tensors)
         {
-            foreach (var (suffix, isDown) in s_matrices)
+            if (Part(name) is not { } found)
             {
-                if (name.EndsWith(suffix, StringComparison.Ordinal))
-                {
-                    (isDown ? downs : ups)[name[..^suffix.Length]] = weight;
-                    break;
-                }
+                continue;
             }
+
+            if (!parts.TryGetValue(found.Key, out var module))
+            {
+                parts[found.Key] = module = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
+            }
+
+            module[found.Part] = weight;
         }
 
         var modules = new List<LoraModule>();
-        foreach (var (key, down) in downs)
+        foreach (var (key, module) in parts)
         {
-            if (!ups.TryGetValue(key, out var up))
-            {
-                throw new NotSupportedException($"LoRA module '{key}' has no up matrix.");
-            }
-
-            float? alpha = tensors.TryGetValue(key + ".alpha", out var alphaTensor) ? Scalar(alphaTensor) : null;
+            float? alpha = module.TryGetValue("alpha", out var alphaTensor) ? Scalar(alphaTensor) : null;
             var (component, name, kohya) = Split(key);
-            modules.Add(new LoraModule(component, name, kohya, down, up, alpha));
+            modules.Add(new LoraModule(component, name, kohya, Delta(key, module), alpha, module.GetValueOrDefault("magnitude")));
         }
 
         return modules;
+    }
+
+    private static LoraDelta Delta(string key, Dictionary<string, WeightInfo> module)
+    {
+        WeightInfo? Get(string part) => module.GetValueOrDefault(part);
+        WeightInfo Need(string part, string kind) => Get(part) ?? throw new NotSupportedException($"{kind} module '{key}' has no '{part}' tensor.");
+        if (Get("hada_w1_a") is not null)
+        {
+            return new HadamardDelta(Need("hada_w1_a", "LoHa"), Need("hada_w1_b", "LoHa"), Need("hada_w2_a", "LoHa"), Need("hada_w2_b", "LoHa"),
+                Get("hada_t1"), Get("hada_t2"));
+        }
+
+        if (Get("lokr_w1") is not null || Get("lokr_w1_a") is not null)
+        {
+            var w1 = Get("lokr_w1");
+            var w2 = Get("lokr_w2");
+            return new KroneckerDelta(w1, w1 is null ? Need("lokr_w1_a", "LoKr") : null, w1 is null ? Need("lokr_w1_b", "LoKr") : null,
+                w2, w2 is null ? Need("lokr_w2_a", "LoKr") : null, w2 is null ? Need("lokr_w2_b", "LoKr") : null, Get("lokr_t2"));
+        }
+
+        if (Get("down") is { } down)
+        {
+            return new LowRankDelta(down, Get("up") ?? throw new NotSupportedException($"LoRA module '{key}' has no up matrix."), Get("mid"));
+        }
+
+        return Get("diff") is { } difference
+            ? new FullDelta(difference)
+            : throw new NotSupportedException($"LoRA module '{key}' has no weight difference (only {string.Join(", ", module.Keys)}).");
     }
 
     private static (string Component, string Name, bool Kohya) Split(string key)
