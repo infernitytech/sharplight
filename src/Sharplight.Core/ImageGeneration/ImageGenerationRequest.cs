@@ -30,4 +30,11 @@ public sealed record ImageGenerationRequest
     /// or empty for text-to-image.
     /// </summary>
     public IReadOnlyList<ImageInput>? ReferenceImages { get; init; }
+
+    /// <summary>
+    /// For models with a ControlNet (<see cref="ImageGenerationDefaults.ControlNet"/>): the control image (a canny edge map, depth map, pose
+    /// skeleton, ... as the ControlNet was trained on), resized to the output size; the output size defaults to its size. <see langword="null"/>
+    /// to generate without control (the ControlNet is not run).
+    /// </summary>
+    public ImageInput? ControlImage { get; init; }
 }
