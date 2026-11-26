@@ -92,10 +92,19 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             return ViewPreprocessor.Process(p, image);
         }
 
-        var (tw, th) = TargetSize(image.Width, image.Height);
-        byte[] px = image.Width == tw && image.Height == th ? image.Rgb : ResizeBicubic(image.Rgb, image.Width, image.Height, tw, th);
+        if (p.TileSize > 0)
+        {
+            return ProcessTiles(image);
+        }
 
-        // Normalization: (x/255 - mean) / std  ==  x * a + b.
+        var (tw, th) = TargetSize(image.Width, image.Height);
+        byte[] px = image.Width == tw && image.Height == th ? image.Rgb : Resize(image.Rgb, image.Width, image.Height, tw, th, p.ResizeFilter);
+        return Patchify(Normalize(px), tw, th);
+    }
+
+    // Normalization: (x/255 - mean) / std  ==  x * a + b.
+    private float[] Normalize(byte[] px)
+    {
         Span<float> a = stackalloc float[3];
         Span<float> b = stackalloc float[3];
         for (int c = 0; c < 3; c++)
@@ -112,7 +121,121 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             }
         }
 
-        return Patchify(values, tw, th);
+        return values;
+    }
+
+    /// <summary>
+    /// Size of a tiled tower's image before it is cut (Idefics3): the longer side resized to <see cref="VisionParameters.LongestEdge"/> (the shorter
+    /// one truncated, then rounded up to even, at most 4096), then both sides rounded up to multiples of the tile size, the shorter one recomputed from
+    /// the aspect ratio first.
+    /// </summary>
+    internal (int Width, int Height, int ResizedWidth, int ResizedHeight) TiledSize(int width, int height)
+    {
+        int L = p.LongestEdge;
+        int T = p.TileSize;
+        int w;
+        int h;
+        if (width >= height)
+        {
+            w = L;
+            h = (int)(w / ((double)width / height));
+            h += h % 2;
+        }
+        else
+        {
+            h = L;
+            w = (int)(h * ((double)width / height));
+            w += w % 2;
+        }
+
+        w = Math.Clamp(w, 1, 4096);
+        h = Math.Clamp(h, 1, 4096);
+        double aspect = (double)w / h;
+        int rw;
+        int rh;
+        if (w >= h)
+        {
+            rw = (w + T - 1) / T * T;
+            rh = ((int)(rw / aspect) + T - 1) / T * T;
+        }
+        else
+        {
+            rh = (h + T - 1) / T * T;
+            rw = ((int)(rh * aspect) + T - 1) / T * T;
+        }
+
+        return (rw, rh, w, h);
+    }
+
+    /// <summary>Tiled towers (Idefics3): resizes the image, cuts it into tiles and adds the overview (see <see cref="VisionParameters.TileSize"/>).</summary>
+    private PreprocessedImage ProcessTiles(ImageInput image)
+    {
+        int T = p.TileSize;
+        var (rw, rh, w, h) = TiledSize(image.Width, image.Height);
+        var resized = image.Width == w && image.Height == h ? image.Rgb : Resize(image.Rgb, image.Width, image.Height, w, h, p.ResizeFilter);
+        var refined = w == rw && h == rh ? resized : Resize(resized, w, h, rw, rh, p.ResizeFilter);
+        int columns = rw / T;
+        int rows = rh / T;
+        if (columns == 1 && rows == 1)
+        {
+            return PatchifyTiles(Normalize(refined), [], 0, 0);
+        }
+
+        var tiles = new List<float[]>();
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < columns; c++)
+            {
+                var tile = new byte[3 * T * T];
+                for (int y = 0; y < T; y++)
+                {
+                    Array.Copy(refined, 3 * ((r * T + y) * rw + c * T), tile, 3 * y * T, 3 * T);
+                }
+
+                tiles.Add(Normalize(tile));
+            }
+        }
+
+        var overview = Resize(refined, rw, rh, T, T, p.ResizeFilter);
+        return PatchifyTiles(Normalize(overview), tiles, columns, rows);
+    }
+
+    /// <summary>
+    /// The encoder input of a tiled tower from normalized interleaved RGB views of tile size: the tiles of a <paramref name="columns"/> ×
+    /// <paramref name="rows"/> grid in raster order (none: 0 × 0), then the overview. Each view is patchified on its own and is one attention
+    /// window; <see cref="PreprocessedImage.GridHeight"/> stacks the views' patch grids and <see cref="PreprocessedImage.MergedHeight"/> their
+    /// merged grids, so the output rows are the views' in order.
+    /// </summary>
+    internal PreprocessedImage PatchifyTiles(float[] overview, IReadOnlyList<float[]> tiles, int columns, int rows)
+    {
+        int T = p.TileSize;
+        if (tiles.Count != columns * rows || overview.Length != 3 * T * T || tiles.Any(t => t.Length != 3 * T * T))
+        {
+            throw new ArgumentException($"Tiled image: expected {columns}x{rows} tiles and an overview of {T}x{T} pixels.");
+        }
+
+        var views = tiles.Select(t => Patchify(t, T, T)).Append(Patchify(overview, T, T)).ToArray();
+        int n = views[0].PatchCount;
+        var spans = new int[views.Length * n * 2];
+        for (int v = 0; v < views.Length; v++)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                spans[(v * n + i) * 2] = v * n;
+                spans[(v * n + i) * 2 + 1] = n;
+            }
+        }
+
+        var first = views[0];
+        return new PreprocessedImage
+        {
+            Width = columns > 0 ? columns * T : T, Height = rows > 0 ? rows * T : T,
+            GridHeight = first.GridHeight * views.Length, GridWidth = first.GridWidth,
+            MergedHeight = first.MergedHeight * views.Length, MergedWidth = first.MergedWidth,
+            Patches = [.. views.SelectMany(v => v.Patches)], Positions = [.. views.SelectMany(v => v.Positions)],
+            EmbeddingIndex = [.. views.SelectMany(v => v.EmbeddingIndex)], EmbeddingWeight = [.. views.SelectMany(v => v.EmbeddingWeight)],
+            WindowSpans = spans, TileColumns = columns, TileRows = rows,
+        };
     }
 
     /// <summary>

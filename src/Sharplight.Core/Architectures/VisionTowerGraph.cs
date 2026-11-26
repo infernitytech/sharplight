@@ -41,9 +41,14 @@ internal static class VisionTowerGraph
             positions = b.Input(VisionParameters.PositionsInput, InputRole.Positions, DataType.I32, new Shape(N, 2));
             embIndex = b.Input(VisionParameters.EmbeddingIndexInput, InputRole.Other, DataType.I32, new Shape(N, p.PositionTaps));
             embWeight = b.Input(VisionParameters.EmbeddingWeightInput, InputRole.Other, DataType.F32, new Shape(N, p.PositionTaps));
+            if (p.WindowSize > 0 || p.TileSize > 0)
+            {
+                // Tiled towers (Idefics3) attend within each tile: one window per tile, already in output order.
+                windowSpans = b.Input(VisionParameters.WindowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(N, 2));
+            }
+
             if (p.WindowSize > 0)
             {
-                windowSpans = b.Input(VisionParameters.WindowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(N, 2));
                 windowOrder = b.Input(VisionParameters.WindowOrderInput, InputRole.Other, DataType.I32, new Shape(Dim.Sym(VisionParameters.MergedSymbol)));
             }
 
@@ -116,6 +121,13 @@ internal static class VisionTowerGraph
         using (b.Group("merger"))
         {
             var h = Merge(b, b.HasWeight("vision.merger.norm.weight") ? MergerNorm(b, p, x, "vision.merger.norm") : x, p);
+            if (!b.HasWeight("vision.merger.up.weight"))
+            {
+                // Idefics3: the merged rows (pixel shuffle) projected by one linear map.
+                b.Output(VisionParameters.EmbeddingsOutput, b.Linear(h, "vision.merger.out.weight", "vision.merger.out.bias", "merger_out"));
+                return b.Build();
+            }
+
             if (b.HasWeight("vision.merger.downsample.weight"))
             {
                 // A stride-m convolution over each m×m window (GLM-4V), i.e. a linear map of the merged row.
@@ -147,7 +159,8 @@ internal static class VisionTowerGraph
 
     /// <summary>
     /// Gemma 4's output: the m×m patches of every merge unit averaged and scaled by √hidden, standardized (<c>vision.std_bias</c>, <c>vision.std_scale</c>),
-    /// RMS-normed without weight and projected (<c>vision.merger.out.weight</c>, no bias).
+    /// RMS-normed without weight and projected (<c>vision.merger.out.weight</c>, no bias). Gemma 3's: the plain average, RMS-normed with
+    /// <c>vision.merger.pool_norm.weight</c> and projected.
     /// </summary>
     private static Value PooledOutput(GraphBuilder b, VisionParameters p, Value x)
     {
@@ -159,13 +172,14 @@ internal static class VisionTowerGraph
             sum = b.Add(sum, b.Slice(units, 1, (long)k * H, H));
         }
 
-        var pooled = b.Scale(sum, MathF.Sqrt(H) / p.MergeUnit, 0f, "pooled");
+        float scale = p.PoolScale == VisionParameters.MeanPoolScale ? 1f / p.MergeUnit : MathF.Sqrt(H) / p.MergeUnit;
+        var pooled = b.Scale(sum, scale, 0f, "pooled");
         if (p.Standardize)
         {
             pooled = b.Mul(b.Sub(pooled, b.Weight("vision.std_bias")), b.Weight("vision.std_scale"), "standardized");
         }
 
-        var normed = b.RmsNorm(pooled, null, p.MergerNormEps ?? p.NormEps);
+        var normed = b.RmsNorm(pooled, b.HasWeight("vision.merger.pool_norm.weight") ? b.Weight("vision.merger.pool_norm.weight") : null, p.MergerNormEps ?? p.NormEps);
         return b.Linear(normed, "vision.merger.out.weight", "vision.merger.out.bias", "merger_out");
     }
 

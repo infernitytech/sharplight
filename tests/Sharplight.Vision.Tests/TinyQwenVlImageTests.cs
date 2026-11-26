@@ -15,6 +15,9 @@ namespace Sharplight.Vision.Tests;
 /// weights) from tools/hf_image_reference.py, which feeds the same synthetic normalized image into the tower without resizing. The GGUF
 /// variants run the f32 GGUF and mmproj files converted by llama.cpp (tools/convert_tiny_mmproj.py, convert_tiny_cogvlm.py) against the same
 /// references: the image path end to end through the GGUF mappings (image token, projector, layout and positions from the mmproj).
+/// The tiny Gemma 3 (4×4 average pooling, soft-embedding norm, framed image rows) and Idefics3 / SmolVLM (tiles plus overview, pixel shuffle,
+/// the processor's prompt layout) checkpoints come from mk_tiny_siglip_vl.py, their references from siglip_vl_reference.py (GGUF variants only:
+/// the Hugging Face importer does not read their towers).
 /// </summary>
 public class TinyQwenVlImageTests
 {
@@ -75,6 +78,10 @@ public class TinyQwenVlImageTests
     [InlineData("tiny-random-hunyuan-vl", true)]
     [InlineData("tiny-random-cogvlm", false)]
     [InlineData("tiny-random-cogvlm", true)]
+    [InlineData("tiny-random-gemma3-vl", false)]
+    [InlineData("tiny-random-gemma3-vl", true)]
+    [InlineData("tiny-random-idefics3", false)]
+    [InlineData("tiny-random-idefics3", true)]
     public void Tiny_vl_gguf_mmproj_image_prompt_matches_transformers(string name, bool gpu)
     {
         string refPath = Path.Combine(Home, "models/hf", name, "reference_image.json");
@@ -99,7 +106,9 @@ public class TinyQwenVlImageTests
         int height = r.GetProperty("height").GetInt32();
         var expected = r.GetProperty("embeddings").EnumerateArray().Select(e => e.GetSingle()).ToArray();
         using var vision = model.CreateVisionEncoder();
-        var image = vision.Preprocessor.Patchify(SineImage(width, height), width, height);
+        var image = r.TryGetProperty("tile_columns", out var tileColumns)
+            ? TiledImage(vision.Preprocessor, width, height, tileColumns.GetInt32(), r.GetProperty("tile_rows").GetInt32())
+            : vision.Preprocessor.Patchify(SineImage(width, height), width, height);
         Assert.Equal(r.GetProperty("image_tokens").GetInt32(), image.TokenCount);
         var embeddings = vision.Encode(image);
         var (maxAbs, _, rms) = Env.Compare(embeddings, expected);
@@ -109,6 +118,18 @@ public class TinyQwenVlImageTests
 
         var promptIds = r.GetProperty("prompt_ids").EnumerateArray().Select(e => e.GetInt32()).ToArray();
         var mm = Multimodal(model).Assemble(new MultimodalContext(model.Definition, t => Single(model, t)), promptIds, [image], 0);
+        if (r.TryGetProperty("expanded_ids", out var expandedIds))
+        {
+            // The processor's own prompt layout: the text rows equal its tokens, the image rows sit where it puts image tokens.
+            var hf = expandedIds.EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            Assert.Equal(hf.Length, mm.Length);
+            int imageId = hf.GroupBy(t => t).MaxBy(g => g.Count())!.Key;
+            for (int i = 0; i < hf.Length; i++)
+            {
+                Assert.Equal(hf[i], mm.ImageIndex[i] >= 0 ? imageId : mm.Tokens[i]);
+            }
+        }
+
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
         var logits = session.Process(mm, [embeddings]);
         var topIds = r.GetProperty("top_ids").EnumerateArray().Select(e => e.GetInt32()).ToArray();
@@ -129,6 +150,33 @@ public class TinyQwenVlImageTests
         }
 
         Assert.Equal(greedy, ids.ToArray());
+    }
+
+    /// <summary>
+    /// The views of siglip_vl_reference.py's tiled image: the tiles of a <paramref name="columns"/> × <paramref name="rows"/> grid cut from the sine
+    /// image of the whole canvas and an overview holding the negated sine pattern of one tile.
+    /// </summary>
+    private static PreprocessedImage TiledImage(VisionPreprocessor pre, int width, int height, int columns, int rows)
+    {
+        int tile = width / columns;
+        var canvas = SineImage(width, height);
+        var tiles = new List<float[]>();
+        for (int ty = 0; ty < rows; ty++)
+        {
+            for (int tx = 0; tx < columns; tx++)
+            {
+                var view = new float[3 * tile * tile];
+                for (int y = 0; y < tile; y++)
+                {
+                    Array.Copy(canvas, 3 * ((ty * tile + y) * width + tx * tile), view, 3 * y * tile, 3 * tile);
+                }
+
+                tiles.Add(view);
+            }
+        }
+
+        var overview = SineImage(tile, tile).Select(v => -v).ToArray();
+        return pre.PatchifyTiles(overview, tiles, columns, rows);
     }
 
     private static int? Single(LlmModel model, string text)
