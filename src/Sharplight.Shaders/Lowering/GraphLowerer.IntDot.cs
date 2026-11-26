@@ -217,7 +217,9 @@ public sealed partial class GraphLowerer
             {
                 long from = Math.Max(minRows, q8Copy.MaxRows + 1);
                 var extensionKey = (root, x.ByteOffset, xStride, k, from, maxRows, code, (object?)_launchCondition);
-                if (_quantizedActivations.TryAdd(extensionKey, q8Copy.Copy))
+                // A range starting above the norm's rows (the int8 GEMM's, from MmqMinRows) has the extension as its own key, just
+                // added: it still needs the conversion (#78: Qwen3.8-27B Q8_0 prefills of 171+ tokens read unwritten q8_1 rows).
+                if (from == minRows || _quantizedActivations.TryAdd(extensionKey, q8Copy.Copy))
                 {
                     EmitActivationConversion(label, nodes, x, xStride, rowsPerLead, k, from, maxRows, code, q8Copy.Copy);
                 }

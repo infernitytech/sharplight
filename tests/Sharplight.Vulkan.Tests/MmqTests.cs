@@ -34,6 +34,18 @@ public sealed class MmqTests
     public static IEnumerable<object[]> Formats() => s_formats.Select(f => new object[] { f });
 
     private static void Run(string fmt, int t, int n, int k, float[] x, double atol, double rtol, IReadOnlySet<string>? disabled = null)
+        => WithEveryFormat(() =>
+        {
+            var tg = new TG();
+            var xv = tg.InF("x", TG.T, k);
+            var w = tg.RandW("w", DataType.Get(fmt), 1f, n, k);
+            tg.B.Output("y", tg.B.MatMul(xv, w));
+            Diff.Check("MatMul.mmq." + fmt, tg.B.Build(), new Step(t, 0, (xv, x)), atol: atol, rtol: rtol, maxTokens: Math.Max(t, 64),
+                what: $"T={t} N={n} K={k}", disabledFeatures: disabled);
+        });
+
+    /// <summary>Runs <paramref name="test"/> with every supported weight format on the int8 GEMM at every size.</summary>
+    private static void WithEveryFormat(Action test)
     {
         Gpu.Require();
         var old = GraphLowerer.MmqFormats;
@@ -42,12 +54,7 @@ public sealed class MmqTests
         GraphLowerer.MmqLargeOnlyFormats = new HashSet<DataType>();
         try
         {
-            var tg = new TG();
-            var xv = tg.InF("x", TG.T, k);
-            var w = tg.RandW("w", DataType.Get(fmt), 1f, n, k);
-            tg.B.Output("y", tg.B.MatMul(xv, w));
-            Diff.Check("MatMul.mmq." + fmt, tg.B.Build(), new Step(t, 0, (xv, x)), atol: atol, rtol: rtol, maxTokens: Math.Max(t, 64),
-                what: $"T={t} N={n} K={k}", disabledFeatures: disabled);
+            test();
         }
         finally
         {
@@ -55,6 +62,28 @@ public sealed class MmqTests
             GraphLowerer.MmqLargeOnlyFormats = oldLargeOnly;
         }
     }
+
+    /// <summary>
+    /// A row norm read by Q8_0 matmuls writes the q8_1 rows of their int-dot matvecs for decode steps; at prefill sizes the int8
+    /// GEMM readers (from 33 rows) must quantize into those rows themselves. #78: when no reader's int-dot range extended the copy
+    /// past 8 rows, nothing did, and the GEMMs read unwritten rows (Qwen3.8-27B Q8_0: NaN logits from 171-token prompts).
+    /// </summary>
+    [Theory]
+    [InlineData(4)]
+    [InlineData(40)]
+    [InlineData(200)]
+    public void NormThenGemms(int t) => WithEveryFormat(() =>
+    {
+        const int K = 1024;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var n = tg.B.RmsNorm(x, tg.RandW("nw", DataType.F32, 1f, K), 1e-6f);
+        var g = tg.B.MatMul(n, tg.RandW("wg", DataType.Q8_0, 0.05f, 1024, K));
+        var u = tg.B.MatMul(n, tg.RandW("wu", DataType.Q8_0, 0.05f, 1024, K));
+        tg.B.Output("h", tg.B.Mul(tg.B.Silu(g), u));
+        Diff.Check("NormThenMmq", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: 2e-2, rtol: 2e-2, maxTokens: 256,
+            what: $"T={t}");
+    });
 
     /// <summary>
     /// Random activations: 8-bit block quantization errs in proportion to the weight row's norm (large for these random
