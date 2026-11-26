@@ -120,7 +120,7 @@ public sealed class FfmpegEncoderTests
         }
 
         // 2 s of video, 1.5 s of a 440 Hz tone: the track is padded with silence to the video's length.
-        VideoClip clip = TestClips.MovingGradient(32, 32, 20) with { Audio = Tone(440, 1.5, 44_100) };
+        VideoClip clip = TestClips.MovingGradient(32, 32, 20) with { Audio = TestClips.Tone(440, 1.5, 44_100) };
         string extension = new FfmpegVideoEncoder(format).FileExtensions[0];
         string path = TestClips.TempPath(extension);
         try
@@ -132,8 +132,8 @@ public sealed class FfmpegEncoderTests
             Assert.Equal(expectedCodec, info.AudioCodec);
             AudioBuffer audio = (await decoder.ReadAudioAsync(path, 48_000, TestContext.Current.CancellationToken))!;
             Assert.InRange(audio.Duration.TotalSeconds, 1.95, 2.1);
-            double toneEnergy = Rms(audio, 0.2, 1.3);
-            double silenceEnergy = Rms(audio, 1.6, 1.9);
+            double toneEnergy = TestClips.Rms(audio, 0.2, 1.3);
+            double silenceEnergy = TestClips.Rms(audio, 1.6, 1.9);
             Assert.InRange(toneEnergy, 0.25, 0.45);
             Assert.True(silenceEnergy < 0.02, $"silence rms {silenceEnergy}");
         }
@@ -262,32 +262,5 @@ public sealed class FfmpegEncoderTests
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new FfmpegVideoEncoder(VideoFormats.WebM).EncodeAsync(TestClips.MovingGradient(), new MemoryStream(), null, cancellation.Token));
-    }
-
-    private static AudioBuffer Tone(double frequency, double seconds, int rate)
-    {
-        int count = (int)(seconds * rate);
-        float[] samples = new float[count * 2];
-        for (int i = 0; i < count; i++)
-        {
-            float value = (float)(0.5 * Math.Sin(2 * Math.PI * frequency * i / rate));
-            samples[2 * i] = value;
-            samples[2 * i + 1] = value;
-        }
-
-        return new AudioBuffer(samples, rate, 2);
-    }
-
-    private static double Rms(AudioBuffer audio, double from, double to)
-    {
-        int first = (int)(from * audio.SampleRate) * audio.Channels;
-        int last = Math.Min(audio.Samples.Length, (int)(to * audio.SampleRate) * audio.Channels);
-        double sum = 0;
-        for (int i = first; i < last; i++)
-        {
-            sum += audio.Samples[i] * (double)audio.Samples[i];
-        }
-
-        return Math.Sqrt(sum / Math.Max(1, last - first));
     }
 }

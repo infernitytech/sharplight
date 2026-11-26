@@ -81,6 +81,48 @@ public sealed class VideoEncoderCatalog
         }
     }
 
+    /// <summary>Finds the available encoder for a file name by its extension that writes frames incrementally (<see cref="IVideoEncoder.SupportsIncrementalWriting"/>).</summary>
+    /// <param name="path">A file name or path.</param>
+    /// <param name="encoder">The encoder when found.</param>
+    /// <returns>Whether such an encoder handles the extension.</returns>
+    public bool TryFindIncrementalForPath(string path, [NotNullWhen(true)] out IVideoEncoder? encoder)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        string extension = Path.GetExtension(path);
+        return Pick(e => e.SupportsIncrementalWriting && e.FileExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase), out encoder);
+    }
+
+    /// <summary>
+    /// Starts an incremental encode into a file, choosing the format by the file extension (<see cref="TryFindIncrementalForPath"/>). The
+    /// writer owns the file: <see cref="IVideoFrameWriter.CompleteAsync"/> finishes it, disposing without completing deletes it.
+    /// </summary>
+    /// <param name="path">The file (created or overwritten); its extension selects the format.</param>
+    /// <param name="stream">The frame size and rate and the source of the sound track.</param>
+    /// <param name="options">Encode settings, or <see langword="null"/> for the defaults.</param>
+    /// <returns>The writer; dispose it.</returns>
+    /// <exception cref="NotSupportedException">No available encoder writes the extension incrementally.</exception>
+    public IVideoFrameWriter OpenWriter(string path, VideoStreamSettings stream, VideoEncodeOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        if (!TryFindIncrementalForPath(path, out IVideoEncoder? encoder))
+        {
+            string known = string.Join(", ", Available.Where(e => e.SupportsIncrementalWriting).SelectMany(e => e.FileExtensions));
+            throw new NotSupportedException($"No available video encoder writes '{Path.GetExtension(path)}' incrementally (available: {known}).");
+        }
+
+        var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16);
+        try
+        {
+            return new FileVideoFrameWriter(encoder.OpenWriter(file, stream, options), file, path);
+        }
+        catch
+        {
+            file.Dispose();
+            File.Delete(path);
+            throw;
+        }
+    }
+
     private bool Pick(Func<IVideoEncoder, bool> matches, [NotNullWhen(true)] out IVideoEncoder? encoder)
     {
         foreach (IVideoEncoder candidate in _encoders)

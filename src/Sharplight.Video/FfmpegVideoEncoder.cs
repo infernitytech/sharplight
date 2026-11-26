@@ -59,10 +59,34 @@ public sealed class FfmpegVideoEncoder : IVideoEncoder
         await Task.Run(
             () =>
             {
-                FfmpegEncodePlan plan = FfmpegEncodePlanner.Create(_container, UsableCodecs(), clip, settings, output.CanSeek);
+                FfmpegEncodePlan plan = FfmpegEncodePlanner.Create(_container, UsableCodecs(), clip.Width, clip.Height, clip.FramesPerSecond, clip.Audio is not null, settings,
+                    output.CanSeek);
                 FfmpegVideoWriter.Write(plan, clip, output, cancellationToken);
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>True for every format but GIF, whose palette is computed from all frames (its writer would hold the whole clip).</remarks>
+    public bool SupportsIncrementalWriting => _container.Format != VideoFormats.Gif;
+
+    /// <inheritdoc />
+    /// <remarks>The first call tries the hardware encoders once (tens of milliseconds); call it off the UI thread.</remarks>
+    public IVideoFrameWriter OpenWriter(Stream output, VideoStreamSettings stream, VideoEncodeOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(stream);
+        stream.Validate();
+        if (!SupportsIncrementalWriting)
+        {
+            throw new NotSupportedException($"The {Format} encoder writes whole clips only.");
+        }
+
+        BundledFfmpeg.ThrowIfUnavailable();
+        VideoEncodeOptions settings = options ?? new VideoEncodeOptions();
+        FfmpegEncodePlan plan = FfmpegEncodePlanner.Create(_container, UsableCodecs(), stream.Width, stream.Height, stream.FramesPerSecond, stream.AudioSourcePath is not null,
+            settings, output.CanSeek);
+        return new FfmpegVideoFrameWriter(FfmpegVideoWriter.Open(plan, output, stream.AudioSourcePath, stream.AudioSourceStart), stream.Width, stream.Height);
     }
 
     private IReadOnlyList<FfmpegCodec> UsableCodecs() => FfmpegCodecProbe.Usable(_container, _hardware);

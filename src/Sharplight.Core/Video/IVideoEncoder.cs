@@ -29,4 +29,18 @@ public interface IVideoEncoder
     /// <exception cref="PlatformNotSupportedException"><see cref="IsAvailable"/> is false.</exception>
     /// <exception cref="ArgumentException">An option names a codec, preset or pixel format the encoder does not offer.</exception>
     public Task EncodeAsync(VideoClip clip, Stream output, VideoEncodeOptions? options = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Whether <see cref="OpenWriter"/> works: the encoder writes frames as they come, with memory independent of the video's length.</summary>
+    public bool SupportsIncrementalWriting => false;
+
+    /// <summary>Starts an incremental encode: frames are written one at a time and the file is finished by <see cref="IVideoFrameWriter.CompleteAsync"/>.</summary>
+    /// <param name="output">The destination stream; written sequentially (and seeked when it can seek) and not disposed.</param>
+    /// <param name="stream">The frame size and rate and the source of the sound track.</param>
+    /// <param name="options">Encode settings; <see langword="null"/> uses the defaults of <see cref="VideoEncodeOptions"/>.</param>
+    /// <returns>The writer; dispose it.</returns>
+    /// <exception cref="NotSupportedException"><see cref="SupportsIncrementalWriting"/> is false.</exception>
+    /// <exception cref="PlatformNotSupportedException"><see cref="IsAvailable"/> is false.</exception>
+    /// <exception cref="ArgumentException">An option names a codec, preset or pixel format the encoder does not offer.</exception>
+    public IVideoFrameWriter OpenWriter(Stream output, VideoStreamSettings stream, VideoEncodeOptions? options = null)
+        => throw new NotSupportedException($"The {Format} encoder writes whole clips only.");
 }
