@@ -1,5 +1,10 @@
 # Roadmap
 
+> **Note (2026-11-26):** open work from this document has been moved to the project issue board as backlog issues
+> (performance rounds, feature waves, Studio/platform tracks and the "Other" items). The board is the authoritative
+> list of planned work; this document stays as technical context (goals, measurements and the history of the
+> benchmark rounds) and is updated as rounds complete.
+
 Goals: run every architecture llama.cpp supports, match or beat llama.cpp and vLLM on the same hardware, and cover the
 full ONNX operator set. Optimizations stay generic (op and kernel selection, not per model); hardware paths are device
 features with a fallback and a disable switch; anything consumers see goes through the provider abstraction.
