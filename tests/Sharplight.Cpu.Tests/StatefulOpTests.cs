@@ -466,6 +466,113 @@ public class StatefulOpTests
         }
     }
 
+    /// <summary>
+    /// Per-row attention sinks (sinks [T, Hq], one logit per query row and head; Inkling 2) together with the query-conditioned relative bias
+    /// [T, Hq, E], with and without a sliding window, f16/f32 caches, against a direct computation.
+    /// </summary>
+    [Theory]
+    [InlineData("f32", 0), InlineData("f16", 0), InlineData("f32", 5), InlineData("f16", 9)]
+    public void CachedAttentionRowSinksAndRelativeBias(string cacheType, int window)
+    {
+        int Hq = 4;
+        int Hkv = 2;
+        int D = 16;
+        int E = 7;
+        int ctx = 40;
+        float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [6, 3, 1, 1, 8, 25];
+        int total = chunks.Sum();
+        var q = Kit.Rand(total * Hq * D, 1);
+        var k = Kit.Rand(total * Hkv * D, 2);
+        var v = Kit.Rand(total * Hkv * D, 3);
+        var sinks = Kit.Rand(total * Hq, 4).Select(x => 4f * x).ToArray();
+        var bias = Kit.Rand(total * Hq * E, 5).Select(x => 2f * x).ToArray();
+        var ct = DataType.Get(cacheType);
+        var tg = new TestGraph();
+        var T = TestGraph.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, D);
+        var si = tg.InF("sinks", T, Hq);
+        var bi = tg.InF("bias", T, Hq, E);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, ki);
+        tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past"), ("sinks", true), ("relative_bias", E) };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        tg.B.RuntimeScalar("n_past");
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, si, bi], Attributes.From([.. attrs])));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 32, ctx: ctx + 32);
+        Func<float, float> rnd = cacheType == "f16" ? (x => (float)(Half)x) : (x => x);
+        var kr = k.Select(rnd).ToArray();
+        var vr = v.Select(rnd).ToArray();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            Kit.Set(m, qi, q[(past * Hq * D)..((past + c) * Hq * D)]);
+            Kit.Set(m, ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]);
+            Kit.Set(m, vi, v[(past * Hkv * D)..((past + c) * Hkv * D)]);
+            Kit.Set(m, si, sinks[(past * Hq)..((past + c) * Hq)]);
+            Kit.Set(m, bi, bias[(past * Hq * E)..((past + c) * Hq * E)]);
+            var p = Kit.P(c, past);
+            m.Run(p);
+            var exp = new float[c * Hq * D];
+            for (int t = 0; t < c; t++)
+            {
+                int position = past + t;
+                for (int h = 0; h < Hq; h++)
+                {
+                    int hk = h / (Hq / Hkv);
+                    int first = window > 0 ? Math.Max(0, position - window + 1) : 0;
+                    var scores = new double[position + 1 - first];
+                    double max = sinks[position * Hq + h];
+                    for (int j = first; j <= position; j++)
+                    {
+                        double d = 0;
+                        for (int i = 0; i < D; i++)
+                        {
+                            d += (double)q[(position * Hq + h) * D + i] * kr[(j * Hkv + hk) * D + i];
+                        }
+
+                        d *= scale;
+                        if (position - j < E)
+                        {
+                            d += bias[(position * Hq + h) * E + position - j];
+                        }
+
+                        scores[j - first] = d;
+                        max = Math.Max(max, d);
+                    }
+
+                    double sum = Math.Exp(sinks[position * Hq + h] - max);
+                    for (int j = first; j <= position; j++)
+                    {
+                        sum += scores[j - first] = Math.Exp(scores[j - first] - max);
+                    }
+
+                    for (int i = 0; i < D; i++)
+                    {
+                        double acc = 0;
+                        for (int j = first; j <= position; j++)
+                        {
+                            acc += scores[j - first] * vr[(j * Hkv + hk) * D + i];
+                        }
+
+                        exp[(t * Hq + h) * D + i] = (float)(acc / sum);
+                    }
+                }
+            }
+
+            Kit.AssertClose(exp, Kit.Out(m, "o", p), 2e-5, 2e-4, $"row sinks + relative bias window {window} past {past} T {c}");
+            past += c;
+        }
+    }
+
     /// <summary>ALiBi: every score gets slope · (key position − query position) added, with and without a sliding window, f16/f32 caches.</summary>
     [Theory]
     [InlineData("f32", 0), InlineData("f16", 0), InlineData("f32", 5)]

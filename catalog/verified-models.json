@@ -5027,6 +5027,123 @@
       ]
     },
     {
+      "id": "inkling-2-mini",
+      "name": "Inkling 2 Mini",
+      "kind": "text-generation",
+      "family": "Inkling",
+      "architecture": "inkling2_loop",
+      "level": "partial",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Thinking Machines Lab",
+        "countryOfOrigin": "US",
+        "url": "https://thinkingmachines.ai"
+      },
+      "tags": [
+        "moe",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "nvfp4-mxfp8-safetensors",
+          "label": "NVFP4 / MXFP8 safetensors (release)",
+          "format": "safetensors",
+          "quantization": "NVFP4 / MXFP8",
+          "recommended": true,
+          "memoryBytes": 22857575227,
+          "companions": [],
+          "verification": "Release weights (NVFP4 / MXFP8 experts) cut to 32 of 128 experts with all 24 layers: next-token log-probabilities equal transformers (float32 on the dequantized weights) within 0.001 on CPU and Vulkan and 0.05 on CUDA; the whole 20.5 GB release runs (80 tokens/s on one GPU), its float32 reference does not fit this machine",
+          "repository": "thinkingmachines/Inkling-2-Mini",
+          "revision": "c9d028302cd0f035fdf8e7e91f089a4ce94d2195",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "hf_quant_config.json",
+            "chat_template.jinja",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "model.safetensors.index.json",
+            "model-00001-of-00001.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2722,
+              "gitOid": "e6c170c3fb666c50e3b509493b6b7a8f948b7d15"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 98,
+              "gitOid": "1b5d49d129001d2be58c2f254bfae3221eab6d96"
+            },
+            {
+              "path": "hf_quant_config.json",
+              "size": 67924,
+              "gitOid": "ec915fa4d2b07bfe26240f71e981d34778022baf"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 6868,
+              "gitOid": "cae99e08917fe3d9ff21551a7c9a835981c69032"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 529,
+              "gitOid": "e4fe9735b528be1c630eb832d655fc8c4c2c309f"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 26178678,
+              "sha256": "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 13235,
+              "gitOid": "abf8fb60451e6c33d2cfa3c4dfab9f8c1e7516aa"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 109300,
+              "gitOid": "3b835a38066039133931b604a0734dfae89a644e"
+            },
+            {
+              "path": "model-00001-of-00001.safetensors",
+              "size": 19526019168,
+              "sha256": "65e60f51aa1284d4fb022584908c315270334d991828bb774af60584523539d1"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers 5.24.1 Inkling2LoopForConditionalGeneration",
+        "summary": "Release weights (NVFP4 / MXFP8 experts) cut to 32 of 128 experts with all 24 layers: next-token log-probabilities equal transformers (float32 on the dequantized weights) within 0.001 on CPU and Vulkan and 0.05 on CUDA; the whole 20.5 GB release runs (80 tokens/s on one GPU), its float32 reference does not fit this machine",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "Sharplight.Families.Tests.LogprobReferenceTests",
+          "Sharplight.Families.Tests.FamilyGenerationTests"
+        ]
+      },
+      "notes": "text decoder only (the vision tower and the multi-token-prediction layers are not imported); the loop over layers 6-17 runs three times, so KV caches hold 48 layer passes",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "thinkingmachines/Inkling-2-Mini",
+            "formats": "safetensors NVFP4 / MXFP8 (release)"
+          }
+        }
+      ]
+    },
+    {
       "id": "mage-vl-cowork",
       "name": "Mage-VL-Cowork",
       "kind": "text-generation",
@@ -11452,6 +11569,82 @@
       ]
     },
     {
+      "id": "parakeet-ultra",
+      "name": "Parakeet Ultra",
+      "kind": "speech-recognition",
+      "family": "Parakeet",
+      "architecture": "parakeet",
+      "level": "verified",
+      "license": "cc-by-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Moondream",
+        "countryOfOrigin": "US",
+        "url": "https://moondream.ai"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f16-safetensors",
+          "label": "F16 safetensors",
+          "format": "safetensors",
+          "quantization": "F16",
+          "recommended": true,
+          "memoryBytes": 1846309577,
+          "companions": [],
+          "repository": "moondream/parakeet-ultra",
+          "revision": "73175eb7aeb0d82f1e2a6b53b3aabc10a90bcd0b",
+          "include": [
+            "config.json",
+            "model.safetensors",
+            "tokenizer.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1153,
+              "gitOid": "969c65410a736e4a3922f968b3481b2418aba786"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1255353386,
+              "sha256": "c9608f36d0ab956c14bfcc525479b0746b3b42a56f6949ec85c14eb7466717dc"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 1159960,
+              "gitOid": "a10a554cf61e38108756650018d5781ae9675c1d"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers 5.24.1 ParakeetForTDT",
+        "summary": "log-mel features, encoder output (CPU 9.5e-7, Vulkan 1.9e-4 of 0.19) and greedy TDT tokens and text identical to transformers on jfk.wav and a 29 s LibriSpeech recording",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "Sharplight.Speech.Tests.ParakeetParityTests"
+        ]
+      },
+      "notes": "post-trained parakeet-tdt-0.6b-v3 (25 European languages); its voice-activity head is not imported",
+      "doc": [
+        {
+          "section": "2",
+          "cells": {
+            "repositories": "moondream/parakeet-ultra",
+            "formats": "safetensors F16"
+          }
+        }
+      ]
+    },
+    {
       "id": "canary-1b-v2",
       "name": "Canary 1B v2",
       "kind": "speech-recognition",
@@ -12827,12 +13020,378 @@
         "date": "2026-11-18",
         "tests": []
       },
-      "notes": "9 built-in speakers; Base (voice cloning) and VoiceDesign variants are not supported.",
+      "notes": "9 built-in speakers; the Base (voice cloning) and VoiceDesign models are their own entries.",
       "doc": [
         {
           "section": "3",
           "cells": {
             "repositories": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+            "formats": "safetensors"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen3-tts-12hz-1.7b-base",
+      "name": "Qwen3-TTS 12Hz 1.7B Base",
+      "kind": "speech-synthesis",
+      "family": "Qwen3-TTS",
+      "architecture": "qwen3_tts",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 5623316045,
+          "companions": [],
+          "repository": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "merges.txt",
+            "speech_tokenizer/config.json",
+            "speech_tokenizer/configuration.json",
+            "speech_tokenizer/model.safetensors",
+            "speech_tokenizer/preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4494,
+              "gitOid": "81b57e8e790c07e8fa7f82d8bdfd7574d485c396"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 245,
+              "gitOid": "1872b16d4535564abf2db5d6debe6cddd82b7f2e"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 3857413744,
+              "sha256": "38fc7fc51c5e776e840414b6fd443962e9411b9654888fd7913e4da643cb857c"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 127,
+              "gitOid": "0525dd953bb9241912f7147666f0d535165d5d4f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 7344,
+              "gitOid": "6ff9fd60cc623bb54bbd603cbd418c97a11528d7"
+            },
+            {
+              "path": "vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "merges.txt",
+              "size": 1671839,
+              "gitOid": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0"
+            },
+            {
+              "path": "speech_tokenizer/config.json",
+              "size": 2336,
+              "gitOid": "06cc8dc4c5ec8a1929086b71b98c313020d9268b"
+            },
+            {
+              "path": "speech_tokenizer/configuration.json",
+              "size": 76,
+              "gitOid": "ab58e2eaf53cd14a1a2a7527d9261ceea93a24cd"
+            },
+            {
+              "path": "speech_tokenizer/model.safetensors",
+              "size": 682293092,
+              "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+            },
+            {
+              "path": "speech_tokenizer/preprocessor_config.json",
+              "size": 234,
+              "gitOid": "ba40914f4f49ab98a8ca545d4892ef7291a39592"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "qwen_tts",
+        "summary": "vs the official qwen_tts package (CPU, f32): text ids identical, prompt rows relative RMS 7e-8; ECAPA-TDNN speaker embedding relative RMS 6e-7 (CPU, Vulkan, CUDA), reference codec codes 1616 of 1616 identical; in-context cloning teacher forced over 49 frames: 0 talker and 0 code-predictor argmax disagreements on CPU, Vulkan and CUDA (worst top logit error 0.025-0.029); greedy frames identical up to the reference\u0027s first near tie; decoded audio relative RMS 2.5e-6",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": []
+      },
+      "notes": "Voice cloning: the voice of a reference recording (SpeechSynthesisOptions.ReferenceAudio), with its transcript (ReferenceText) as an in-context prompt, or the speaker embedding alone without one; a voice can be saved (IVoiceCloner, VoiceLibrary). No built-in speakers; 10 languages. Apache-2.0.",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+            "formats": "safetensors"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen3-tts-12hz-0.6b-base",
+      "name": "Qwen3-TTS 12Hz 0.6B Base",
+      "kind": "speech-synthesis",
+      "family": "Qwen3-TTS",
+      "architecture": "qwen3_tts",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 3291036152,
+          "companions": [],
+          "repository": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+          "revision": "5d83992436eae1d760afd27aff78a71d676296fc",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "merges.txt",
+            "speech_tokenizer/config.json",
+            "speech_tokenizer/configuration.json",
+            "speech_tokenizer/model.safetensors",
+            "speech_tokenizer/preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4494,
+              "gitOid": "4e923f500f5c3eeb78d44072e7049b28817c2e04"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 245,
+              "gitOid": "1872b16d4535564abf2db5d6debe6cddd82b7f2e"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1829344272,
+              "sha256": "180b3b10eb1c9f1b4db7806d5475bae3071c0243c299d49926bab1da3b6946f6"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 127,
+              "gitOid": "0525dd953bb9241912f7147666f0d535165d5d4f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 7344,
+              "gitOid": "6ff9fd60cc623bb54bbd603cbd418c97a11528d7"
+            },
+            {
+              "path": "vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "merges.txt",
+              "size": 1671839,
+              "gitOid": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0"
+            },
+            {
+              "path": "speech_tokenizer/config.json",
+              "size": 2336,
+              "gitOid": "06cc8dc4c5ec8a1929086b71b98c313020d9268b"
+            },
+            {
+              "path": "speech_tokenizer/configuration.json",
+              "size": 76,
+              "gitOid": "ab58e2eaf53cd14a1a2a7527d9261ceea93a24cd"
+            },
+            {
+              "path": "speech_tokenizer/model.safetensors",
+              "size": 682293092,
+              "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+            },
+            {
+              "path": "speech_tokenizer/preprocessor_config.json",
+              "size": 234,
+              "gitOid": "ba40914f4f49ab98a8ca545d4892ef7291a39592"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "qwen_tts",
+        "summary": "vs the official qwen_tts package (CPU, f32): text ids identical, prompt rows relative RMS 7e-8 (in-context) / 6e-8 (speaker embedding only); ECAPA-TDNN speaker embedding relative RMS 1.2e-6 (CPU, Vulkan, CUDA), reference codec codes 1616 of 1616 identical; teacher forced over 119 (in-context) and 43 (speaker embedding only) frames: 0 talker and 0 code-predictor argmax disagreements on CPU, Vulkan and CUDA (worst top logit error 0.03-0.048); greedy frames identical up to the reference\u0027s first near tie; decoded audio relative RMS 3.6e-6; .slm round trip identical",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": []
+      },
+      "notes": "Voice cloning: the voice of a reference recording (SpeechSynthesisOptions.ReferenceAudio), with its transcript (ReferenceText) as an in-context prompt, or the speaker embedding alone without one; a voice can be saved (IVoiceCloner, VoiceLibrary). No built-in speakers; 10 languages. Apache-2.0.",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+            "formats": "safetensors"
+          }
+        }
+      ]
+    },
+    {
+      "id": "qwen3-tts-12hz-1.7b-voicedesign",
+      "name": "Qwen3-TTS 12Hz 1.7B VoiceDesign",
+      "kind": "speech-synthesis",
+      "family": "Qwen3-TTS",
+      "architecture": "qwen3_tts",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Alibaba Cloud (Qwen)",
+        "countryOfOrigin": "CN",
+        "url": "https://qwenlm.github.io"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 5595703174,
+          "companions": [],
+          "repository": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "include": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "merges.txt",
+            "speech_tokenizer/config.json",
+            "speech_tokenizer/configuration.json",
+            "speech_tokenizer/model.safetensors",
+            "speech_tokenizer/preprocessor_config.json"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4421,
+              "gitOid": "2c2c027c574a85c0d5a5d48e3cfed1a8a051ff9d"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 245,
+              "gitOid": "1872b16d4535564abf2db5d6debe6cddd82b7f2e"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 3833402552,
+              "sha256": "391e8db219f292c515297cdceeb43e4eae67cdde35fa57e79a6a8a532fca0522"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 127,
+              "gitOid": "0525dd953bb9241912f7147666f0d535165d5d4f"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 7344,
+              "gitOid": "6ff9fd60cc623bb54bbd603cbd418c97a11528d7"
+            },
+            {
+              "path": "vocab.json",
+              "size": 2776833,
+              "gitOid": "4783fe10ac3adce15ac8f358ef5462739852c569"
+            },
+            {
+              "path": "merges.txt",
+              "size": 1671839,
+              "gitOid": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0"
+            },
+            {
+              "path": "speech_tokenizer/config.json",
+              "size": 2336,
+              "gitOid": "06cc8dc4c5ec8a1929086b71b98c313020d9268b"
+            },
+            {
+              "path": "speech_tokenizer/configuration.json",
+              "size": 76,
+              "gitOid": "ab58e2eaf53cd14a1a2a7527d9261ceea93a24cd"
+            },
+            {
+              "path": "speech_tokenizer/model.safetensors",
+              "size": 682293092,
+              "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+            },
+            {
+              "path": "speech_tokenizer/preprocessor_config.json",
+              "size": 234,
+              "gitOid": "ba40914f4f49ab98a8ca545d4892ef7291a39592"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "qwen_tts",
+        "summary": "vs the official qwen_tts package (CPU, f32): text and instruction ids identical, prompt rows relative RMS 1.5e-7; teacher forced over 119 frames: 0 talker and 0 code-predictor argmax disagreements on CPU, Vulkan and CUDA (worst top logit error 0.017-0.020); greedy frames on CPU identical to the reference\u0027s 119; decoded audio relative RMS 1.1e-6",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": []
+      },
+      "notes": "Voice design: the voice described in SpeechSynthesisOptions.Instructions (gender, age, timbre, emotion, speaking style); no built-in speakers or cloning; 10 languages. Apache-2.0.",
+      "doc": [
+        {
+          "section": "3",
+          "cells": {
+            "repositories": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
             "formats": "safetensors"
           }
         }
@@ -26704,6 +27263,118 @@
             "model": "hs-rerank-1 (reranker)",
             "repositories": "hindsight-ai/hs-rerank-1",
             "formats": "safetensors"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embeddinggemma-2",
+      "name": "EmbeddingGemma 2",
+      "kind": "embeddings",
+      "family": "EmbeddingGemma",
+      "architecture": "embedding_gemma2",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://ai.google.dev/gemma"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 2114905765,
+          "companions": [],
+          "repository": "google/embeddinggemma-2",
+          "revision": "f9972ac22e696a105c482202646979e33e4b5a1e",
+          "include": [
+            "config.json",
+            "config_sentence_transformers.json",
+            "modules.json",
+            "sentence_bert_config.json",
+            "1_Pooling/config.json",
+            "2_Normalize/config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 4455,
+              "gitOid": "dc524b2cbef566d66d8533c67dc68a6a8f5d340a"
+            },
+            {
+              "path": "config_sentence_transformers.json",
+              "size": 1565,
+              "gitOid": "ba7dd4d5481cbaf271d5e8d1ad4271c5a45d2fd7"
+            },
+            {
+              "path": "modules.json",
+              "size": 413,
+              "gitOid": "1ab20c8ab29b8338488b415e5c09af14b742fe3d"
+            },
+            {
+              "path": "sentence_bert_config.json",
+              "size": 747,
+              "gitOid": "b3b98f8308641875fca1e4ddbfae5f38996bb54f"
+            },
+            {
+              "path": "1_Pooling/config.json",
+              "size": 90,
+              "gitOid": "2730fc1de168630e474c4066987f46d091de2189"
+            },
+            {
+              "path": "2_Normalize/config.json",
+              "size": 97,
+              "gitOid": "8babba92405167e8718211dc51f44fb117e423e4"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 32170510,
+              "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 1599,
+              "gitOid": "a9afd12fb3ca2c418fd405320ace85ad46748d03"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1488915288,
+              "sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "sentence-transformers 6.1 (transformers 5.24.1)",
+        "summary": "tokens identical, cosine similarity 1.000000 to sentence-transformers (float32) on 8 texts and with the query prompt",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-26",
+        "tests": [
+          "Sharplight.Embeddings.Tests.ReferenceTests"
+        ]
+      },
+      "notes": "text embeddings (the release\u0027s audio and vision towers are not imported); prompts from config_sentence_transformers.json",
+      "doc": [
+        {
+          "section": "1.5",
+          "cells": {
+            "repositories": "google/embeddinggemma-2",
+            "formats": "safetensors BF16"
           }
         }
       ]

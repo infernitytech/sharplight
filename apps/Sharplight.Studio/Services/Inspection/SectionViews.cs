@@ -32,6 +32,8 @@ internal static class SectionViews
             InspectorTab.Overview, true),
         ["WLAY"] = new("Weight layout", "Per weight, layout facts kernels may rely on (such as the row block of block scales); absent when none apply.",
             InspectorTab.Weights, true),
+        ["WACT"] = new("Weight activations", "Per quantized weight, whether its format quantizes activations or is weight-only; absent when the source does not say.",
+            InspectorTab.Weights, true),
         [TableKind] = new("Section table", "Kind, name, offset and length of every section; written last.", InspectorTab.Sections, true),
         [UnusedKind] = new("Unused", "Bytes no section covers: alignment padding, or superseded sets and old tables that compacting removes.",
             InspectorTab.Sections, true),
