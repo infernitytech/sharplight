@@ -85,30 +85,9 @@ internal sealed unsafe class RowOp : CpuOp
                 case RowKind.LayerNorm:
                 {
                     float* y = (float*)_y.P + r * n;
-                    float mean = Simd.Sum(x, n) / n;
-                    double v = 0;
-                    for (long i = 0; i < n; i++)
-                    {
-                        double d = x[i] - mean;
-                        v += d * d;
-                    }
-                    float inv = 1f / MathF.Sqrt((float)(v / n) + _eps);
-                    float* bias = _b is null ? null : (float*)_b.P;
-                    for (long i = 0; i < n; i++)
-                    {
-                        float o = (x[i] - mean) * inv;
-                        if (w != null)
-                            {
-                                o *= w[i];
-                            }
-
-                            if (bias != null)
-                            {
-                                o += bias[i];
-                            }
-
-                            y[i] = o;
-                    }
+                    Simd.MeanVar(x, n, out float mean, out float variance);
+                    float inv = 1f / MathF.Sqrt(variance + _eps);
+                    Simd.Normalize(x, y, mean, inv, w, _b is null ? null : (float*)_b.P, n);
                     break;
                 }
                 case RowKind.Softmax:

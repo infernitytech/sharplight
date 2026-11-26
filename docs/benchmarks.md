@@ -18473,3 +18473,42 @@ SHARPLIGHT_BENCH=1 SHARPLIGHT_THREADS=16 taskset -c 0-15 dotnet tests/Sharplight
 SHARPLIGHT_BENCH=1 ... -method "*WinogradConvTests.BottleneckThroughput"      # 1x1 → 3x3 → 1x1 + residual; SHARPLIGHT_BENCH_COLD=1 evicts the caches per run
 SHARPLIGHT_CPU_ISA=avx2 SHARPLIGHT_CPU_WINOGRAD=auto|1|0 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/resnet50-v1-12.json cpu --batch 8 --runs 40
 ```
+
+## 118. CPU LayerNorm: one-pass f64 statistics and a vectorized normalize-scale-shift pass, 1.15-6x on the LayerNorm row (2026-11-26)
+
+`RowKind.LayerNorm` (`src/Sharplight.Cpu/RowOp.cs`, every LayerNorm that isn't decomposed: vit, bert, whisper, convnext's
+channels-last LayerNorm) made three passes per row: an f32 vector sum for the mean, a scalar f64 loop for the variance, and a
+scalar normalize loop. Now (`Simd.MeanVar` / `Simd.Normalize` in `Simd.LayerNorm.cs`):
+
+- **Statistics in one pass.** Each vector of floats is widened to f64 and shifted by the pivot `x[0]` (exact in f64), and the sum
+  and sum of squares accumulate in f64 lanes (Vector512 / 256 / 128; scalar tail). var = Σd²/n − (Σd/n)², clamped at 0. The
+  pivot keeps the cancellation small for rows with a large mean, and an outlier pivot costs no precision because the difference
+  is taken in f64.
+- **Normalize-scale-shift vectorized** with the weight / bias branches hoisted out of the loops: `fma((x − mean)·inv, w, b)`
+  on AVX2 / AVX-512, multiply + add on the 128-bit tier.
+
+Accuracy: `tests/Sharplight.Cpu.Tests/LayerNormTests.cs` checks row lengths 1-1029 (non-multiples of 4 / 8 / 16), with and
+without weight / bias (bias only through the kernel directly), means 0, 100 and 1e4 with std ~0.58, and an outlier first
+element, against an f64 two-pass reference. It passes under `SHARPLIGHT_CPU_ISA=scalar|v128|avx2|avx512vnni`, and the old kernel
+passes the same tolerances, so the error stays at the old level. Model parity is unchanged (vit-base logits rms 1.25e-5 before and
+after; distilbert 2.0e-6 → 1.6e-6).
+
+Ryzen 9 9950X, 16 threads on cores 0-15, `SHARPLIGHT_CPU_PROFILE=min` (sum of per-op minima of the LayerNorm row), main
+6c06fae1 against this branch, interleaved rounds on a shared machine (load 1-14):
+
+| Model | LayerNorms | before (ms) | after (ms) | speedup |
+|---|---|---|---|---|
+| vit-base-patch16-224 b1 (197 x 768 rows) | 25 | 0.55-0.57 | 0.13-0.14 (one round 0.46) | ~4x |
+| vit-base-patch16-224 b8 (1576 x 768) | 25 | 3.12-3.38 (mean 3.27) | 2.71-3.13 (mean 2.87) | ~1.15x |
+| distilbert-base-uncased b1 | 14 | 0.159-0.165 | 0.024-0.027 | ~6x |
+| whisper-tiny-encoder b1 (1500 x 384) | 9 | 0.54-0.56 | 0.15-0.16 (one round 0.37) | ~3.5x |
+
+The whole-model medians move by less than the noise of the shared machine (the LayerNorm row was 2.5-3 % of the profile). At
+vit b8 the rows (4.8 MB of activations per LayerNorm) come out of L2 / L3 and the op is bandwidth bound, so the speedup is
+small there. There was no bert-base manifest in `$SHARPLIGHT_ONNX_MODELS/ref`; distilbert-base has the same 768-wide
+LayerNorm rows.
+
+```
+SHARPLIGHT_CPU_PROFILE=min SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/vit-base-patch16-224.json cpu --batch 1 --runs 40
+for isa in scalar v128 avx2 avx512vnni; do SHARPLIGHT_CPU_ISA=$isa dotnet run --project tests/Sharplight.Cpu.Tests -c Release --no-build -- -class Sharplight.Cpu.Tests.LayerNormTests; done
+```
