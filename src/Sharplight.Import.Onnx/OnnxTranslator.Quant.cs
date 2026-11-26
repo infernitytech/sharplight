@@ -206,6 +206,15 @@ internal sealed partial class OnnxTranslator
     {
         string name = Nm(n);
         bool linear = n.OpType == "QLinearConv";
+        bool channelsLast = n.Domain == "com.microsoft" && n.Int("channels_last", 0) != 0;
+        if (channelsLast)
+        {
+            // com.microsoft QLinearConv with channels_last: [N, spatial..., C] in and out around the channels-first convolution.
+            var input = AsValue(ins[0]!);
+            ins = [.. ins];
+            ins[0] = TranslatedTensor.Dyn(Permute(input, [0, input.Rank - 1, .. Enumerable.Range(1, input.Rank - 2)]));
+        }
+
         var x = linear ? ShiftZp(ins[0]!, OptConst(ins, 2, "x_zp"), name) : ShiftZp(ins[0]!, Opt(ins, 2), name);
         var weightConst = ConstIn(ins, linear ? 3 : 1, "W");
         var weightZeroPoint = OptConst(ins, linear ? 5 : 3, "w_zp");
@@ -219,7 +228,12 @@ internal sealed partial class OnnxTranslator
         if (linear)
         {
             var multipliers = Multipliers(ConstIn(ins, 1, "x_scale").ScalarF32(), ConstIn(ins, 4, "w_scale"), ConstIn(ins, 6, "y_scale").ScalarF32());
-            y = Requant(y, multipliers, 1, OptConst(ins, 7, "y_zp"), name);
+            y = Requant(y, multipliers, 1, OptConst(ins, 7, "y_zp"), channelsLast ? name + ".nchw" : name);
+        }
+
+        if (channelsLast)
+        {
+            y = Permute(y, [0, .. Enumerable.Range(2, y.Rank - 2), 1]);
         }
 
         SetDyn(n, 0, y);
