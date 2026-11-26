@@ -16,7 +16,7 @@ namespace Sharplight.Import.HuggingFace;
 /// despite the name).</item>
 /// <item>compressed-tensors and NVIDIA ModelOpt (<c>hf_quant_config.json</c>): <c>X.weight_scale</c> per tensor, per channel or per
 /// block, also a multiplier. <c>X.input_scale</c> (static activation scales) is dropped: activations are quantized dynamically (or
-/// not at all), so the per-tensor activation calibration is not needed. KV-cache scales (<c>k_scale</c> / <c>v_scale</c>) are dropped
+/// not at all, for weight-only schemes, <see cref="HfActivationSchemes"/>), so the per-tensor activation calibration is not needed. KV-cache scales (<c>k_scale</c> / <c>v_scale</c>) are dropped
 /// too: FP8 KV caches are not used.</item>
 /// <item>DeepSeek's own layout (DeepSeek-V4, <c>scale_fmt ue8m0</c>): <c>X.scale</c> F8_E8M0 per 128 x 128 block, a power of two.</item>
 /// <item>MXFP8 (<c>quant_method mxfp8</c>, <c>weight_block_size [1, 32]</c>; MiniMax-M3.1): <c>X.weight_scale_inv</c> U8 E8M0 exponents

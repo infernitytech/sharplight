@@ -6,7 +6,7 @@ internal readonly record struct PackageSection(PackageSectionKind Kind, string N
     /// <summary>Whether the section holds precompiled artifacts (ARTS or legacy KSET).</summary>
     public bool IsArtifactSet => Kind is PackageSectionKind.ArtifactSet or PackageSectionKind.KernelSet;
 
-    /// <summary>Four-character tag of the kind (<c>DEFN</c>, <c>WIDX</c>, <c>WDAT</c>, <c>KSET</c>, <c>ARTS</c>, <c>DESC</c>, <c>ATCH</c>, <c>WLAY</c>), or the number of an unknown kind.</summary>
+    /// <summary>Four-character tag of the kind (<c>DEFN</c>, <c>WIDX</c>, <c>WDAT</c>, <c>KSET</c>, <c>ARTS</c>, <c>DESC</c>, <c>ATCH</c>, <c>WLAY</c>, <c>WACT</c>), or the number of an unknown kind.</summary>
     public string Tag => Kind switch
     {
         PackageSectionKind.Definition => "DEFN",
@@ -17,6 +17,7 @@ internal readonly record struct PackageSection(PackageSectionKind Kind, string N
         PackageSectionKind.Description => "DESC",
         PackageSectionKind.Attachment => "ATCH",
         PackageSectionKind.WeightLayout => "WLAY",
+        PackageSectionKind.WeightActivations => "WACT",
         _ => ((uint)Kind).ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
 }

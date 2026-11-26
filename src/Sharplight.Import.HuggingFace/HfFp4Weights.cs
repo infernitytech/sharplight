@@ -23,7 +23,8 @@ namespace Sharplight.Import.HuggingFace;
 /// <item>MXFP4: <c>X.weight_scale</c> U8 (E8M0, bias 127) [..., N, K/32]; becomes <see cref="DataType.MXFP4"/> bit-exactly. DeepSeek's
 /// own FP4 experts (DeepSeek-V4, <c>expert_dtype fp4</c>) use the same packing with I8 codes <c>X.weight</c> and an F8_E8M0
 /// <c>X.scale</c>.</item>
-/// <item>Static activation scales (<c>input_scale</c>, <c>input_global_scale</c>) are dropped: activations are not quantized.</item>
+/// <item>Static activation scales (<c>input_scale</c>, <c>input_global_scale</c>) are dropped: kernels that quantize activations (only
+/// for weights whose config declares it, <see cref="HfActivationSchemes"/>) compute their scales per row.</item>
 /// <item>NVFP4 rows whose K is not a multiple of 64 have no block type and are decoded to BF16.</item>
 /// </list>
 /// The codes are converted while they are read (<see cref="HfRowConvertedSource"/>); nothing is cached.
