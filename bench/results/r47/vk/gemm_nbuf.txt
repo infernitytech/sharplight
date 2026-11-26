@@ -1,0 +1,8 @@
+0 %, 2 MiB
+### for e in "F8_NBUF=1" "F8_NBUF=2"; do echo "$e $(SHARPLIGHT_GEMM_MACROS=$e SHARPLIGHT_VK_PIPELINE_STATS=1 ~/r47-scripts/r47-mm.sh vulkan f8e4m3_b128 2048 "4096,12288;12288,4096;4096,4096" 0 | grep -oE "gemm_fp8: Register Count=[0-9]+.*Shared Memory Size=[0-9]+|T=2048 +[0-9>-]+ +[0-9.]+ ms +[0-9.]+" | sed 's/Binary.*Shared/Shared/' | sort -u | tr '\n' ' ')"; done
+F8_NBUF=1 T=2048 12288->4096    1.183 ms     174.2 T=2048 4096->12288    1.055 ms     195.4 T=2048 4096->4096    0.385 ms     178.5 gemm_fp8: Register Count=154, Shared Memory Size=28416 gemm_fp8: Register Count=159, Shared Memory Size=28416 gemm_fp8: Register Count=222, Shared Memory Size=37888 gemm_fp8: Register Count=242, Shared Memory Size=37888 
+F8_NBUF=2 T=2048 12288->4096    1.544 ms     133.5 T=2048 4096->12288    1.393 ms     148.0 T=2048 4096->4096    0.508 ms     135.3 gemm_fp8: Register Count=132, Shared Memory Size=32256 gemm_fp8: Register Count=140, Shared Memory Size=32256 gemm_fp8: Register Count=203, Shared Memory Size=43008 gemm_fp8: Register Count=212, Shared Memory Size=43008 
+### echo "dual NBUF2 $(SHARPLIGHT_GEMM_MACROS=F8_NBUF=2 ~/r47-scripts/r47-mm.sh vulkan f8e4m3_b128 2048 "4096,12288" 1 | grep BENCH)"
+dual NBUF2 [0mBENCH matmul f8e4m3_b128 T=2048 4096->12288    2.694 ms     153.0 TFLOP/s
+### SHARPLIGHT_GEMM_MACROS=F8_NBUF=2 ~/r47-scripts/r47-class.sh vulkan Sharplight.Vulkan.Tests.Fp8GemmTests
+   Sharplight.Vulkan.Tests  Total: 52, Errors: 0, Failed: 0, Skipped: 1, Not Run: 0, Time: 132.471s
