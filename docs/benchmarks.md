@@ -18264,7 +18264,7 @@ frame, the enhancer encoded all batches, then restored all, then decoded all, an
 decoded the whole video into that list first and encoded the output at the end. Memory grew with the clip (input and output frames), and
 with the default "whole clip in one batch" a long clip does not fit even the arrays of one batch.
 
-### RVID.1 Before and after on a long clip
+### 115.1 Before and after on a long clip
 
 Input: a 640 × 360, 24 fps, 10-minute synthetic clip (14,400 frames, `mandelbrot` source, H.264 + AAC). Output 1280 × 720.
 
@@ -18288,16 +18288,16 @@ Input: a 640 × 360, 24 fps, 10-minute synthetic clip (14,400 frames, `mandelbro
   fit together, so the enhancer releases the compiled graphs and compiles them again from the cached kernels; it doubled its group of
   batches to 8 within the first 400 frames, so that happens once per 520 frames. The output is a valid 1280 × 720 H.264 file of 3,416
   frames with the AAC track copied (142.3 s). The absolute RSS is the model's host-side weights and the compile staging, not frames
-  (RVID.4).
+  (115.4).
 
-### RVID.2 Same output as before
+### 115.2 Same output as before
 
 The streaming path replaced the batch-all path (one path; `EnhanceAsync` collects the stream). On CUDA with the 17-frame fox clip
 (416 × 240 → 832 × 480, seed 42), `develop`'s bench and this branch's wrote **byte-identical** frames, with the whole clip in one batch and
 with batches of 5. The CPU reference test against the official PyTorch code is unchanged (49.3 dB worst frame, tiny clip), and a frame
 source gives exactly the frames of the same clip as a list, on CPU, Vulkan and CUDA (`SeedVr2Tests.FrameSource_EqualsFrameList`).
 
-### RVID.3 VAE tiling
+### 115.3 VAE tiling
 
 `SpatialTiling` (Core, `Sharplight.ImageGeneration`): diffusers' crossfade of overlapping tiles over any stack of planes, for encoders and
 decoders; the video generators' tiled decoding now uses it (same values, checked against a copy of the old code). SeedVR2 runs its VAE
@@ -18318,7 +18318,7 @@ untiled decoder failed, the enhancer released its graphs, retried, then went on 
 difference to untiled output comes from the VAE's mid-block attention, which sees one tile instead of the frame; the seams themselves
 are crossfaded. On the 208 × 112 CPU test clip, 112-pixel tiles give 29.5 dB (tiles that small see little of the frame).
 
-### RVID.4 Host memory
+### 115.4 Host memory
 
 The process's own host memory is the same before and after: `develop`'s bench and this branch's, 17 frames 416 × 240 → 1248 × 720,
 sampled every 10 s, peaked at 31.0 and 29.2 GiB (and took 18.6 / 17.9 s). It is the model, not the clip: the DiT's f32 weights and their
@@ -18326,7 +18326,7 @@ f16 copies, which stay on the host so released graphs can be compiled again, plu
 batches: at most 8 × 65 input frames (360p: 36 MB) read ahead and the float pixels of the batch being decoded (65 × 720p: 0.7 GB).
 Reducing the model's host footprint is a separate item (not done here).
 
-### RVID.5 Tests
+### 115.5 Tests
 
 * `SeedVr2Tests` (official 3B files; CPU, Vulkan, CUDA): `FrameSource_EqualsFrameList` (bit-identical, one batch and batches of 5),
   `LongFrameSource_HoldsABoundedNumberOfFrames` (a 60-frame CPU / 200-frame GPU source with a slow consumer: at most 15 frames read and
