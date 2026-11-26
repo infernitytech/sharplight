@@ -547,6 +547,33 @@ def cases():
         qmoe("ms_qmoe_4b_blocks_swiglu", 4, block=16, activation="swiglu", fusion=1),
         qmoe("ms_qmoe_8b_rows_zp", 8, activation="gelu", zero_points=True),   # onnxruntime CPU has no FC3 gating (fc3=True)
     ]
+
+    # ---- QLinear* elementwise / pooling / concat (onnxruntime's QDQ-fused CNN exports) ---------------------------------------
+    def qp(scale, zero):
+        return np.array(scale, np.float32), np.array(zero, np.uint8)
+
+    (as_, az), (bs_, bz), (ys_, yz) = qp(0.05, 120), qp(0.03, 100), qp(0.07, 128)
+    qa, qb = u8(B, 6, 4, 4), u8(B, 6, 4, 4)
+    out += [
+        Case("ms_qlinear_add", "QLinearAdd", [("a", qa), ("as", None), ("az", None), ("b", qb), ("bs", None), ("bz", None), ("ys", None), ("yz", None)],
+             ["y"], inits={"as": as_, "az": az, "bs": bs_, "bz": bz, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_mul_broadcast", "QLinearMul",
+             [("a", qa), ("as", None), ("az", None), ("b", u8(1, 6, 1, 1)), ("bs", None), ("bz", None), ("ys", None), ("yz", None)],
+             ["y"], inits={"as": as_, "az": az, "bs": bs_, "bz": bz, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_sigmoid", "QLinearSigmoid", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             inits={"xs": as_, "xz": az, "ys": np.array(1 / 256, np.float32), "yz": np.array(0, np.uint8)}),
+        Case("ms_qlinear_leaky_relu", "QLinearLeakyRelu", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             {"alpha": 0.1}, inits={"xs": as_, "xz": az, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_softmax", "QLinearSoftmax", [("x", u8(B, 10)), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             {"axis": -1, "opset": 13}, inits={"xs": as_, "xz": az, "ys": np.array(1 / 256, np.float32), "yz": np.array(0, np.uint8)}),
+        Case("ms_qlinear_global_average_pool", "QLinearGlobalAveragePool", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)],
+             ["y"], {"channels_last": 0}, inits={"xs": as_, "xz": az, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_average_pool", "QLinearAveragePool", [("x", qa), ("xs", None), ("xz", None), ("ys", None), ("yz", None)], ["y"],
+             {"kernel_shape": [2, 2], "strides": [2, 2]}, inits={"xs": as_, "xz": az, "ys": ys_, "yz": yz}),
+        Case("ms_qlinear_concat", "QLinearConcat",
+             [("ys", None), ("yz", None), ("a", qa), ("as", None), ("az", None), ("b", u8(B, 3, 4, 4)), ("bs", None), ("bz", None)], ["y"],
+             {"axis": 1}, inits={"ys": ys_, "yz": yz, "as": as_, "az": az, "bs": bs_, "bz": bz}),
+    ]
     return out
 
 
