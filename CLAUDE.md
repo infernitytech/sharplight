@@ -25,6 +25,10 @@ toolchain and model-asset notes are still accurate.
   `tools/mk_tiny_*.py` / `tools/model-assets`.
 - GPU tests: `SHARPLIGHT_VK_DEVICES=<i>[,<j>]` restricts the Vulkan provider to those device indices — set it to the
   GPU(s) assigned to your session on multi-GPU machines.
+- Vulkan `a / b` is only 2.5-ULP accurate (RADV, RTX 4090; the Blackwell driver happens to be exact). Where an exact
+  IEEE quotient matters (index/tie math that must match the CPU), use a residual fma step like `div_rn` in
+  `spatial.slang`. The integrated RADV / llvmpipe devices (`SHARPLIGHT_VK_DEVICES=1`/`2` on fedora-blackwell) are handy
+  for reproducing such driver-precision bugs.
 
 ## Style and layout
 
