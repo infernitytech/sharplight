@@ -1,0 +1,9 @@
+stages: 127.0.0.1:7181 (NVIDIA GeForce RTX 4090)
+sampling: on the last stage (token ids return)
+greedy: 12095,13 " Paris."
+decode G=1 B=1: median 1.92 ms/step, min 1.82 ms, 521.5 tok/s
+  [decode G=1 B=1] 127.0.0.1:7181: 310 exec, round trip 2.411 ms, worker 1.895 ms, wait 0.462 ms, overhead 0.055 ms, 0.3 KiB out, 0.1 KiB in per exec
+decode G=1 B=8: median 2.33 ms/step, min 2.10 ms, 3428.2 tok/s
+  [decode G=1 B=8] 127.0.0.1:7181: 302 exec, round trip 2.332 ms, worker 2.137 ms, wait 0.018 ms, overhead 0.178 ms, 0.8 KiB out, 0.1 KiB in per exec
+prefill 512 tok in chunks of 512: median 6.4 ms, 79532.7 tok/s
+  [prefill chunk 512] 127.0.0.1:7181: 4 exec, round trip 7.030 ms, worker 6.544 ms, wait 0.045 ms, overhead 0.441 ms, 12.5 KiB out, 593.6 KiB in per exec

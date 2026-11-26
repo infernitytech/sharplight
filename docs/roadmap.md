@@ -408,8 +408,10 @@ Devices without f16 matrix units keep strict. Open: the q4 decoders and the SIMT
   layers from their local copy (fingerprint-checked), keep the KV cache of those layers and exchange only boundary activations, worker to
   worker over persistent TCP streams (mutual TLS optional); `--workers` on the CLI and `serve`, `workers` per hosted model. Output equals
   the single-machine run (tokens and logits); a lost or hung worker fails the request in under a second or at the heartbeat timeout.
-  Chunked prefill overlaps the stages; several decoders over one pipeline overlap their steps. Next: decode micro-batches inside one
-  serving engine, lower per-step protocol overhead (0.15-0.35 ms per worker on loopback), f16 boundary values, an RDMA transport.
+  Chunked prefill overlaps the stages; several decoders over one pipeline overlap their steps. Round 2 (§115): f16 / bf16 boundary
+  values (`RemoteSegmentOptions.BoundaryPrecision`, half the bytes per hop); the per-step protocol cost measured at ~0.1 ms on an idle
+  machine (round 1's 0.15-0.35 ms was a contended pod). Next: decode micro-batches inside one serving engine, concurrent executions on a
+  worker, an RDMA transport.
 - Later: tensor and expert parallel across nodes for RDMA networks (InfiniBand / RoCE) and large MoE models; over TCP the
   per-layer all-reduces cost several milliseconds per token.
 

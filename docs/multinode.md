@@ -92,6 +92,16 @@ coordinator instead (four hops for the same pipeline).
 Executions are asynchronous (`ExecutesAsynchronously`): `Execute` returns once the request is sent, and the first output read waits for
 the reply. A segment whose ops produce data-dependent symbols runs synchronously, because the next segment needs those symbols at once.
 
+### Boundary values in 16 bits
+
+`RemoteSegmentOptions.BoundaryPrecision` (`SHARPLIGHT_REMOTE_BOUNDARY=f16|bf16`; hosting: `services.Configure<RemoteSegmentOptions>`)
+narrows the f32 activations passed between stages to f16 or bf16 (round to nearest even) and halves the bytes per hop. Only f32 values
+produced by one segment and read by another are narrowed, never graph inputs or graph outputs (logits, sampled tokens, hidden states
+the caller reads). The coordinator decides per value and tells each worker which of its inputs and outputs travel narrowed when it
+compiles the segment, so the producer and the consumer agree whichever way the value travels (through the coordinator, over a peer link,
+or in memory within one worker). The next stage computes from rounded activations, so the results may differ slightly from one process
+(§115.2: greedy tokens unchanged, logits within ~1 of ~20 on SmolLM2); the default stays f32.
+
 ### Sampling on the last stage
 
 When the devices compile a sampling head (`SamplingHead`, the default with GPU and remote devices), it is part of the last segment: the
@@ -213,9 +223,9 @@ compilations and releases.
 ## Testing
 
 `tests/Sharplight.Distributed.Tests`: framing and payloads, TCP on loopback (large frames, closed and refused connections, oversized
-frames, mutual TLS with self-signed certificates, a plain client refused by a TLS worker), heartbeats (a worker that goes silent after the
+frames, mutual TLS with self-signed certificates, the 16-bit boundary codecs, a plain client refused by a TLS worker), heartbeats (a worker that goes silent after the
 handshake fails within the timeout), pipelines over in-process workers on loopback (SmolLM2-135M, a tiny DeepSeek MoE with latent
-attention, a tiny hybrid recurrent + attention MoE: tokens and logits equal a single CPU run, with and without peer forwarding; all stages
+attention, a tiny hybrid recurrent + attention MoE: tokens and logits equal a single CPU run, with and without peer forwarding; f16 / bf16 boundary values keep the tokens and halve the first worker's bytes; all stages
 remote with several sequences; the session path; a killed worker fails the next step within seconds and every step after at once; a worker
 with another model or a changed weight is refused; placement weights workers by their memory) and worker processes of the CLI build
 (`MultiProcessTests`, skipped when the CLI is not built). `bench/PipelineBench` measures decode and prefill through workers against the same
@@ -226,10 +236,12 @@ split in one process, and the transport's round trip (`--echo` / `--pingpong`).
 - **Decode micro-batches in the engine.** Several decoders over the same workers overlap their steps (§88), but one serving engine runs one
   decoder; the next step is an engine that keeps two or more groups of sequences in flight, each stepping as soon as its previous step
   returned (no bubble, unlike splitting one step), or several engines over one pipeline behind one model name.
-- **Lower protocol overhead.** A step adds 0.15-0.35 ms per worker on loopback (thread hand-offs on both ends: reader to executor on the
-  worker, reader to the waiting thread on the coordinator); spinning briefly before blocking and writing replies from the executor's
-  buffer would take most of it.
-- **Boundary values in f16 / bf16** halve the bytes on the wire (an option, since the outputs then differ from the single-machine run).
+- **Protocol overhead** (round 2, §115.1): on an idle machine a remote stage adds ~0.1 ms per decode step over loopback, about twice the
+  transport floor; round 1's 0.15-0.35 ms came from a shared, contended pod. Spinning before blocking did not measurably help and was not
+  kept. Replies are written in place and frames received into uninitialized buffers.
+- **Concurrent executions on a worker.** A worker runs the executions of one coordinator connection on one thread, so two micro-batches
+  over a single worker serialize (§115.1: 4.1 ms against 2.5 ms in process); executing independent segments concurrently would let
+  micro-batches overlap within a stage as they do in one process.
 - **RDMA transport** (InfiniBand / RoCE) behind `ISegmentTransport`; **tensor and expert parallel across nodes** for RDMA networks and
   large MoE models (over TCP the per-layer all-reduces cost several milliseconds per token, see [roadmap.md](roadmap.md)).
 - **A coordinator without the model file**: the coordinator needs the graphs and its own stage's weights; a metadata-only package would

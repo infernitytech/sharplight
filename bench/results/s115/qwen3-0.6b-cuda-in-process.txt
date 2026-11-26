@@ -1,0 +1,8 @@
+stages: NVIDIA GeForce RTX 4090
+sampling: on the last stage (token ids return)
+greedy: 12095,13,576,6722 " Paris. The capital"
+decode G=1 B=1: median 1.85 ms/step, min 1.78 ms, 541.1 tok/s
+decode G=1 B=8: median 2.11 ms/step, min 2.06 ms, 3789.9 tok/s
+decode G=2 B=8: median 2.49 ms/step, min 2.38 ms, 3212.7 tok/s
+prefill 512 tok in chunks of 512: median 5.9 ms, 86275.2 tok/s
+prefill 512 tok in chunks of 128: median 27.8 ms, 18428.3 tok/s

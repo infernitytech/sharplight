@@ -18252,3 +18252,56 @@ failed once in six CPU-only runs of the suite (steps `0,0,0,0,0,0,0,1,1,2`, timi
   capturing prepared shapes ahead needs the input copies captured without staged inputs.
 * The 64-stream p95 of the bucketed runs (42-54 against 37-41 ms) wants a closer look (pad rows on large prompt steps, or noise).
 * Gemma 31B host time per step (114.4).
+
+## 115. Multi-node round 2: f16 / bf16 boundary values halve the bytes per hop; the per-step protocol cost on an idle machine is 0.1 ms, and spinning does not lower it (2026-11-26)
+
+Branch `issue-6` ([multinode.md](multinode.md)). One workstation (Ryzen 9 7950X, RTX 4090 = GPU 0, otherwise idle); the worker is a
+`sharplight segment-worker --provider cuda` process on 127.0.0.1, the coordinator `bench/PipelineBench` with its GPU hidden. Qwen3-0.6B
+(safetensors, f32 activations). Raw output in [`bench/results/s115/`](../bench/results/s115).
+
+### 115.1 What a remote stage costs per step
+
+The whole model on one CUDA worker (`--remote-only`) against the same model on the same GPU in one process:
+
+| run | in process | one CUDA worker | difference | `OverheadMsPerExecution` |
+|---|---:|---:|---:|---:|
+| decode B = 1 | 1.85 ms | 1.95-1.98 ms | +0.10-0.13 ms | 0.05-0.07 ms |
+| decode B = 8 | 2.11-2.12 ms | 2.18-2.25 ms | +0.07-0.13 ms | 0.03-0.07 ms |
+| decode B = 8 as two micro-batches of 4 | 2.49-2.50 ms | 4.11 ms | +1.6 ms | 0.05 ms |
+| prefill 512 in one pass (the 600 KB logits row returns) | 5.9-6.0 ms | 6.4-6.5 ms | +0.5 ms | 0.40-0.46 ms |
+
+- On an idle machine the protocol adds ~0.1 ms per decode step over loopback, about twice the transport floor (two traversals of
+  ~20 us each). Round 1's 0.15-0.35 ms (§88) came from a pod whose CPU quota the workers and other jobs shared.
+- Spinning the coordinator's waiting thread for up to 3 ms before it blocks (an experiment, not kept) changed decode by -0.05 to +0.15 ms
+  between runs, within the run-to-run noise: the reply's wake-up is not where the time goes. On CPU workers spinning costs compute.
+- Two micro-batches over **one** worker are slower than in process: a worker runs the executions of one coordinator connection one
+  after another on one thread, while in one process the two decoders' steps run concurrently. With several stages the micro-batches
+  overlap across stages instead (§88.4); a worker that runs independent segments concurrently is a follow-up.
+- Large replies: frames are now received into uninitialized buffers and the worker writes the outputs it returns straight into its reply
+  buffer (one array and one copy less per output); prefill-512 overhead 0.46 → 0.40 ms.
+
+### 115.2 Boundary values in 16 bits
+
+The coordinator's CPU runs the embeddings and the first layer (`--split 1,6`), the CUDA worker the rest, so every step sends the hidden
+rows (1024 wide) to the worker. `RemoteSegmentOptions.BoundaryPrecision` (`--boundary` in PipelineBench, `SHARPLIGHT_REMOTE_BOUNDARY`):
+
+| boundary | greedy tokens (12) | bytes to the worker per decode step, B = 1 / B = 8 | per 512-row prefill chunk | overhead per 512-row chunk | per 128-row chunk |
+|---|---|---:|---:|---:|---:|
+| f32 | " Paris. The capital of Italy is Rome. The capital of" | 4.0 / 32.8 KiB | 2058 KiB | 0.95 ms | 0.45 ms |
+| f16 | identical | 2.1 / 16.8 KiB | 1035 KiB | 0.72 ms | 0.25 ms |
+| bf16 | identical | 2.1 / 16.8 KiB | 1035 KiB | 0.73 ms | 0.26 ms |
+
+On loopback step times are unchanged (decode 2.0-2.3 ms, prefill 7.8-7.9 ms either way): the conversion costs about what the copy saves.
+On a network the saving is the halved wire time: ~0.8 ms per 512-row chunk of a 1024-wide model at 10 GbE, 3.4 ms for a 4096-wide one.
+Logits move: SmolLM2-135M over three stages keeps its greedy tokens, but its logits differ by up to 1.3 (f16) / 1.0 (bf16) of ~20 from
+the f32 run, because its residual stream carries values in the hundreds (`RemotePipelineTests.NarrowBoundaryValuesHalveTheBytesAndStayClose`);
+hence an option, f32 by default.
+
+### 115.3 Commands
+
+```
+sharplight segment-worker ~/models/hf/Qwen3-0.6B --provider cuda --listen 127.0.0.1:7181 &
+PipelineBench ~/models/hf/Qwen3-0.6B --workers 127.0.0.1:7181 --remote-only --sizes 1,8 --groups 1,2 --reps 200 --prefill 512 --chunks 512,128
+PipelineBench ~/models/hf/Qwen3-0.6B --provider cuda --sizes 1,8 --groups 1,2 --reps 200 --prefill 512 --chunks 512,128      # in process
+PipelineBench ~/models/hf/Qwen3-0.6B --workers 127.0.0.1:7181 --split 1,6 --boundary f16 --sizes 1,8 --groups 1 --reps 100 --prefill 512 --chunks 512,128
+```
