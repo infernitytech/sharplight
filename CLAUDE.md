@@ -59,7 +59,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   `~/scratch/llama.cpp-up` (#22). `llama-completion` refuses GGUFs whose tokenizer adds EOS (ZAYA1: `GGML_ASSERT(!add_eos)`, and a prompt
   ending in an EOG token stops at once); `llama-simple -m X -n N "prompt"` tokenizes like transformers (BOS and EOS added) and is the reference
   there, `--override-kv tokenizer.ggml.add_eos_token=bool:false` makes `llama-completion` usable for chat prompts. ZAYA1 tiny models come from
-  `tools/mk_tiny_zaya1.py` (#82; transformers resets the skip expert's class bias to -1 on load).
+  `tools/mk_tiny_zaya1.py` (#82; transformers resets the skip expert's class bias to -1 on load). Raon-1 mini tiny models come from
+  `tools/mk_tiny_raon1.py` (#84; copies KRAFTON's remote code from `~/models/hf/Raon-1-mini`); llama.cpp b12798 refuses KRAFTON's official
+  Raon-1-mini GGUFs (reasoning-effort steering tensors `ffn_effort_steer` it doesn't know), so compare on a copy without those tensors.
 - Vision towers (mmproj): `ClipGgufMapping` maps each `clip.projector_type` onto the canonical `VisionParameters` keys that
   `VisionTowerGraph` / `VisionPreprocessor` / `Qwen35Multimodal` interpret; a new projector is usually a table entry plus a few keys.
   Tiny VL checkpoints are compared with transformers in `TinyQwenVlImageTests` (references written by the tools scripts named in

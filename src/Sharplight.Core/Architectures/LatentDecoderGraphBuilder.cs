@@ -40,6 +40,7 @@ internal sealed partial class LatentDecoderGraphBuilder
     private Value? _engramIds;   // while a graph is built: the n-gram token window (null for the embeddings graph)
     private Value? _laggedPre;   // while a graph is built: the collapse weights of the last module (lagged hyper-connections)
     private CompressedKvShared? _compressedShared;   // while a graph is built: caches and selections shared across layers
+    private readonly float _steeringScale;   // Raon-1: the reasoning-effort factor of the layers' steering vectors (mlp.steering)
 
     /// <summary>Creates the builder and the latent cache state of every layer.</summary>
     public LatentDecoderGraphBuilder(ModelSource source, AdapterOptions options, LatentDecoderHyperParameters hyperParameters)
@@ -58,6 +59,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         // Delta-attention layers (Kimi-Linear, Ling 3) keep a convolution window and a recurrent state instead of a latent cache.
         _delta = new ChannelDeltaAttention(_src);
         _residuals = AttentionResiduals.Read(_src, _hp.Eps);
+        _steeringScale = _src.Arch("mlp.steering_scale", 0f);
         _deltaStates = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => ChannelDeltaAttention.IsPresent(_src.Weight, $"layers.{il}.")
             ? _delta.DefineStates($"layers.{il}") : ((StateDefinition, StateDefinition)?)null)];
         _caches = new StateDefinition?[_hp.LayerCount];
@@ -286,7 +288,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         x = b.Add(ResidualBranch(b, attention), x, $"{p}attn_residual");
 
         h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
-        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        var ffn = FeedForward(b, h, p);
         return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 
@@ -359,7 +361,7 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "mlp_hc.", hc, _hp.HiddenSize);
         h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
-        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        var ffn = FeedForward(b, h, p);
         return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc, _hp.HiddenSize, $"{p}l_out");
     }
 
@@ -379,7 +381,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         (_laggedPre, post, mixing) = StreamHyperConnections.Weigh(b, x, p + "mlp_hc.", hc);
         h = b.RmsNorm(StreamHyperConnections.Apply(b, x, attentionPre, hc, hidden, $"{p}mlp_hc.input"), b.Weight(p + "post_attention_norm.weight"), _hp.Eps,
             $"{p}post_attn_norm");
-        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        var ffn = FeedForward(b, h, p);
         return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc, hidden, $"{p}l_out");
     }
 
@@ -401,7 +403,7 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         input = residuals.Mix(b, x, p + "mlp_res.score.weight", _hp.HiddenSize, $"{p}mlp_res");
         h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
-        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        var ffn = FeedForward(b, h, p);
         return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 

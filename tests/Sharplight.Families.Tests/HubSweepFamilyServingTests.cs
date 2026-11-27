@@ -37,6 +37,8 @@ public class HubSweepFamilyServingTests
             "hf/tiny-random-zaya1",
             // The ZAYA1 variant whose skip expert wins for part of the tokens (llama.cpp's converter keeps its class bias of 0).
             "gguf/tiny-random-zaya1-skip-f32.gguf",
+            "hf/tiny-random-raon1-mini",
+            "gguf/tiny-random-raon1-mini-f32.gguf",
         ];
         foreach (string model in models)
         {

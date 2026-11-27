@@ -11,7 +11,8 @@ namespace Sharplight.Architectures;
 /// default eps), <c>mixing_clamp</c> (bound of the mixing logits before the softmax, 0 = none) and <c>mixing_transposed</c> (stream k reads
 /// row k of the mixing matrix instead of column k) and <c>lagged_collapse</c> (DeepSeek-V4.1's single-pass form: the collapse weights a module
 /// computes from its block's input collapse the next block's input; the first block reads stream 0, the final collapse uses the last
-/// module's weights).
+/// module's weights) and <c>chart_mixing</c> (Raon_mHC: the mixing matrix comes from the Helmert chart of (N−1)² logits instead of Sinkhorn
+/// iterations, see <see cref="StreamHyperConnections"/>).
 /// </summary>
 /// <param name="Streams">Residual streams N.</param>
 /// <param name="NormEps">Epsilon of the RMS norm over all streams.</param>
@@ -24,8 +25,9 @@ namespace Sharplight.Architectures;
 /// <param name="MixingClamp">The mixing logits are clamped to ±this before the softmax; 0 = no clamp.</param>
 /// <param name="MixingTransposed">Stream k after a block mixes the old streams with row k of the mixing matrix (Σ_j C[k, j]·X_j).</param>
 /// <param name="LaggedCollapse">A module's collapse weights collapse the next block's input (single-pass hyper-connections).</param>
+/// <param name="ChartMixing">The mixing matrix is Raon_mHC's Helmert chart (<c>scale</c> [4]: collapse, expansion and chart factors, then η).</param>
 internal sealed record StreamHyperConnectionOptions(int Streams, float NormEps, float Eps, float Magnitude, float PostOffset, int SinkhornIterations,
-    float PreEps, float MixingEps, float MixingClamp, bool MixingTransposed, bool LaggedCollapse = false)
+    float PreEps, float MixingEps, float MixingClamp, bool MixingTransposed, bool LaggedCollapse = false, bool ChartMixing = false)
 {
     /// <summary>Reads the options of <paramref name="src"/>; null when the model has no hyper-connections.</summary>
     /// <param name="src">The model source.</param>
@@ -45,6 +47,7 @@ internal sealed record StreamHyperConnectionOptions(int Streams, float NormEps, 
             src.Arch("hyper_connections.mixing_eps", eps),
             src.Arch("hyper_connections.mixing_clamp", 0f),
             src.Arch("hyper_connections.mixing_transposed", false),
-            src.Arch("hyper_connections.lagged_collapse", false));
+            src.Arch("hyper_connections.lagged_collapse", false),
+            src.Arch("hyper_connections.chart_mixing", false));
     }
 }

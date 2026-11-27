@@ -4,7 +4,7 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// Decoder-only transformer with multi-head latent attention (canonical arch <c>latent_decoder</c>): DeepSeek-V2/V2-Lite/V3/R1,
-/// Kimi-K2, GLM-4.7-Flash, Mistral 4, MiniCPM3, PLM and Hunyuan v4 are this graph with different hyper-parameters. Attention is the
+/// Kimi-K2, GLM-4.7-Flash, Mistral 4, MiniCPM3, PLM, Hunyuan v4 and Raon-1 mini are this graph with different hyper-parameters. Attention is the
 /// <see cref="LatentAttention"/> block (latent KV cache, absorbed queries); the feed-forward part is a gated MLP or a routed
 /// mixture of experts with optional shared experts.
 /// </summary>
@@ -56,6 +56,8 @@ namespace Sharplight.Architectures;
 /// its last that many positions), their own geometry <c>attention.sliding.{head_count,latent_rank,nope_dim,value_dim,scale}</c> (defaults: the full
 /// layers' values, scale 1/sqrt(nope + rope)) and rope base <c>rope.base_sliding</c> (frequency factors <c>rope.freq_factors_sliding</c>); they attend
 /// densely, without an indexer.</item>
+/// <item>Reasoning-effort steering (Raon-1): <c>mlp.steering_scale</c> (the effort's factor, 0 = off) times the per-layer vector
+/// <c>layers.{i}.mlp.steering</c> (f32 [H]) is added to those layers' feed-forward output.</item>
 /// <item><c>final_logit_softcap</c> (logits = cap·tanh(logits/cap), 0 = off).</item>
 /// <item><c>embedding_scale</c> (factor on the token embeddings), <c>residual_scale</c> (factor on each sub-layer output before its residual
 /// add; MiniCPM's scale_depth/sqrt(layers)), <c>logit_scale</c> (factor on the final hidden state before the output head); all default 1.</item>

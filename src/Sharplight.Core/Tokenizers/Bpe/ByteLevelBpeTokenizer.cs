@@ -32,6 +32,7 @@ internal sealed class ByteLevelBpeTokenizer : ITokenizer
     private readonly MergeTable _merges;
     private readonly PreTokenizer _splitter;
     private readonly bool _ignoreMerges;
+    private readonly bool _normalizeNfc;
     private readonly (string Text, int Id)[] _specials; // longest first
     private readonly int[] _eogIds;
     private readonly HashSet<int> _eogSet;
@@ -55,6 +56,7 @@ internal sealed class ByteLevelBpeTokenizer : ITokenizer
         var preset = PreTokenizerPreset.Resolve(data.PreTokenizer);
         _splitter = preset.Splitter;
         _ignoreMerges = preset.IgnoreMerges;
+        _normalizeNfc = preset.NormalizeNfc;
 
         int vocab = data.Tokens.Length;
         _tokens = new string[vocab];
@@ -290,7 +292,15 @@ internal sealed class ByteLevelBpeTokenizer : ITokenizer
                 }
                 else
                 {
-                    EncodeRaw(text.AsSpan(f.Start, f.Length), ref output);
+                    var raw = text.AsSpan(f.Start, f.Length);
+                    if (_normalizeNfc && !raw.IsNormalized(System.Text.NormalizationForm.FormC))
+                    {
+                        EncodeRaw(raw.ToString().Normalize(System.Text.NormalizationForm.FormC), ref output);
+                    }
+                    else
+                    {
+                        EncodeRaw(raw, ref output);
+                    }
                 }
             }
         }

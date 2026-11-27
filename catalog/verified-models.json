@@ -33771,6 +33771,75 @@
       ]
     },
     {
+      "id": "raon-1-mini",
+      "name": "Raon-1 mini",
+      "kind": "text-generation",
+      "family": "Raon-1",
+      "architecture": "raon1",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "KRAFTON",
+        "countryOfOrigin": "KR",
+        "url": "https://www.krafton.com"
+      },
+      "tags": [
+        "moe",
+        "reasoning"
+      ],
+      "variants": [
+        {
+          "id": "q4-k-m-gguf",
+          "label": "Q4_K_M GGUF",
+          "format": "gguf",
+          "quantization": "Q4_K_M",
+          "recommended": true,
+          "memoryBytes": 23042111808,
+          "companions": [],
+          "repository": "KRAFTON/Raon-1-mini-gguf",
+          "revision": "84afe5c89be174639c1855aa0c7528ed34ec3d63",
+          "tag": "Q4_K_M",
+          "include": [],
+          "primary": "raon-1-mini-Q4_K_M.gguf",
+          "files": [
+            {
+              "path": "raon-1-mini-Q4_K_M.gguf",
+              "size": 19686485760,
+              "sha256": "38e9910ce20dc2a48b88f017b2348d76a093775550f267ef60f12a8e56e704c8"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "llama.cpp b12798 (9fa7a33) and the KRAFTON remote code (transformers 5.24)",
+        "summary": "Q4_K_M chat answer (thinking off, greedy) of Raon-1-mini-preview identical to llama.cpp b12798 for about 70 tokens on Vulkan and CUDA; Raon-1-mini without its steering vectors identical to llama.cpp for about 60 tokens on Vulkan; tiny checkpoints (HF, GGUF, steering) identical to the remote code on CPU, Vulkan and CUDA",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-27",
+        "tests": [
+          "Sharplight.Families.Tests.FamilyGenerationTests",
+          "Sharplight.Families.Tests.HubSweepFamilyServingTests",
+          "Sharplight.Families.Tests.RecurrentRollbackTests",
+          "Sharplight.Families.Tests.StepStateSnapshotTests"
+        ]
+      },
+      "notes": "the reasoning-effort steering vectors are applied with the default effort (high); llama.cpp b12798 does not load KRAFTON\u0027s official GGUFs because of those tensors",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "KRAFTON/Raon-1-mini-gguf, KRAFTON/Raon-1-mini-preview-gguf",
+            "formats": "GGUF Q4_K_M"
+          }
+        }
+      ]
+    },
+    {
       "id": "chronos-bolt-tiny",
       "name": "Chronos-Bolt Tiny",
       "kind": "time-series",

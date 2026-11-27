@@ -16,7 +16,7 @@ internal sealed partial class LatentDecoderGgufMapping
 
     private static bool IsBailing3(GgufMetadataView g) => g.GgufArchitecture == "bailingmoe3";
 
-    private static bool IsDeltaHybrid(GgufMetadataView g) => IsKimiLinear(g) || IsBailing3(g) || IsGlm5Next(g);
+    private static bool IsDeltaHybrid(GgufMetadataView g) => IsKimiLinear(g) || IsBailing3(g) || IsGlm5Next(g) || IsRaon1(g);
 
     /// <summary>Whether trunk layer <paramref name="layer"/> is a delta-attention layer (no key/value heads).</summary>
     private static bool IsDeltaLayer(GgufMetadataView g, int layer)
@@ -31,6 +31,10 @@ internal sealed partial class LatentDecoderGgufMapping
         if (IsBailing3(g))
         {
             md[a + "linear_attention.decay_bound"] = g.Float("kda.gate_lower_bound");
+        }
+        else if (IsRaon1(g))
+        {
+            // AddRaon1HyperParameters sets the gate and the NoPE latent attention.
         }
         else if (IsGlm5Next(g))
         {
@@ -72,7 +76,7 @@ internal sealed partial class LatentDecoderGgufMapping
     /// <summary>Canonical suffix of a delta-layer tensor, or null when it is not delta-attention specific.</summary>
     private static string? MapDeltaSuffix(GgufMetadataView g, string suffix)
     {
-        bool lowRank = IsKimiLinear(g) || IsGlm5Next(g);
+        bool lowRank = IsKimiLinear(g) || IsGlm5Next(g) || IsRaon1(g);
         return suffix switch
         {
             "ssm_f_a.weight" => lowRank ? "linear_attention.decay_down.weight" : "linear_attention.decay.weight",
@@ -80,6 +84,7 @@ internal sealed partial class LatentDecoderGgufMapping
             "ssm_g_a.weight" => lowRank ? "linear_attention.gate_down.weight" : "linear_attention.gate.weight",
             "ssm_g_b.weight" => "linear_attention.gate_up.weight",
             "ssm_g.weight" => "linear_attention.gate.weight",   // Kimi K3: full-rank gate
+            RaonWriteGate => "linear_attention.write.weight",   // Raon-1: the write gate of RDA
             _ => s_delta.GetValueOrDefault(suffix),
         };
     }

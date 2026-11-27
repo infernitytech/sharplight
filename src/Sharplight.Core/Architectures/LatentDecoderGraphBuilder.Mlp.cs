@@ -4,6 +4,21 @@ namespace Sharplight.Architectures;
 
 internal sealed partial class LatentDecoderGraphBuilder
 {
+    /// <summary>
+    /// The feed-forward block of the layer below <paramref name="p"/>: routed experts when the layer has a router, the dense MLP otherwise; plus the
+    /// layer's reasoning-effort steering vector <c>mlp.steering</c> [H] times <c>mlp.steering_scale</c> when it has one (Raon-1).
+    /// </summary>
+    private Value FeedForward(GraphBuilder b, Value h, string p)
+    {
+        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        if (_steeringScale != 0f && b.TryWeight(p + "mlp.steering") is { } steering)
+        {
+            ffn = b.Add(ffn, b.Scale(steering, _steeringScale), $"{p}ffn_steered");
+        }
+
+        return ffn;
+    }
+
     /// <summary>Dense MLP from the weights below <paramref name="p"/> + <paramref name="block"/> (gated unless <c>mlp.gated</c> is false).</summary>
     private Value Mlp(GraphBuilder b, Value h, string p, string block, string name)
     {

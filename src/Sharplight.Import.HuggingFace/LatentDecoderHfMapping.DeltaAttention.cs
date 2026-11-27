@@ -19,9 +19,11 @@ internal sealed partial class LatentDecoderHfMapping
 
     private static bool IsBailingHybrid(HfConfig c) => c.ModelType == "bailing_hybrid";
 
-    private static bool IsDeltaHybrid(HfConfig c) => IsKimiLinear(c) || IsBailingHybrid(c) || IsGlm5Next(c);
+    private static bool IsDeltaHybrid(HfConfig c) => IsKimiLinear(c) || IsBailingHybrid(c) || IsGlm5Next(c) || IsRaon1(c);
 
-    private static JsonElement? LinearConfig(HfConfig c) => c.Get("linear_attn_config") is { ValueKind: JsonValueKind.Object } j ? j : null;
+    private static JsonElement? LinearConfig(HfConfig c)
+        => c.Get("linear_attn_config") is { ValueKind: JsonValueKind.Object } j ? j
+            : c.Get("rda_config") is { ValueKind: JsonValueKind.Object } rda ? rda : null;   // Raon-1
 
     private static int LinearHeads(HfConfig c)
         => (int)(HfMappingHelpers.OptionalNumber(LinearConfig(c), "num_heads") ?? c.GetInt("linear_num_heads") ?? c.Int("num_attention_heads"));
@@ -30,7 +32,7 @@ internal sealed partial class LatentDecoderHfMapping
         => (int)(HfMappingHelpers.OptionalNumber(LinearConfig(c), "head_dim") ?? c.GetInt("linear_head_dim") ?? c.Int("head_dim"));
 
     private static int LinearKernel(HfConfig c)
-        => (int)(HfMappingHelpers.OptionalNumber(LinearConfig(c), "short_conv_kernel_size") ?? c.GetInt("linear_conv_kernel_dim", "short_conv_kernel_size") ?? 4);
+        => (int)(HfMappingHelpers.OptionalNumber(LinearConfig(c), "short_conv_kernel_size") ?? HfMappingHelpers.OptionalNumber(LinearConfig(c), "conv_kernel_size") ?? c.GetInt("linear_conv_kernel_dim", "short_conv_kernel_size") ?? 4);
 
     /// <summary>Whether trunk layer <paramref name="layer"/> is a delta-attention layer.</summary>
     private static bool IsDeltaLayer(HfConfig c, int layer)
@@ -40,9 +42,10 @@ internal sealed partial class LatentDecoderHfMapping
             return types[layer] == "linear_attention";
         }
 
-        if (LinearConfig(c) is { } linear && linear.TryGetProperty("kda_layers", out var kda) && kda.ValueKind == JsonValueKind.Array)
+        if (LinearConfig(c) is { } linear && (linear.TryGetProperty("kda_layers", out var kda) || linear.TryGetProperty("rda_layers", out kda))
+            && kda.ValueKind == JsonValueKind.Array)
         {
-            return kda.EnumerateArray().Any(e => e.GetInt32() == layer + 1);   // 1-based
+            return kda.EnumerateArray().Any(e => e.GetInt32() == layer + 1);   // 1-based (Kimi kda_layers, Raon-1 rda_layers)
         }
 
         if (IsBailingHybrid(c))

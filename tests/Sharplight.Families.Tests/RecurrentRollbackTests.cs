@@ -35,6 +35,7 @@ public class RecurrentRollbackTests
         { "hf/tiny-random-kimi-k31-shared-f32", "GatedDeltaRule (bounded per-channel decay), CausalConv1d, attention residuals, shared indexer selection" },
         { "hf/tiny-random-minimax", "GatedDeltaRule (additive rule, time-invariant decay)" },
         { "gguf/tiny-random-zaya1-skip-f32.gguf", "CausalConv1d (ZAYA1 CCA: q/k windows, delayed values), skip expert" },
+        { "hf/tiny-random-raon1-mini", "GatedDeltaRule (Raon delta attention: write gate, bounded decay), CausalConv1d, Raon_mHC streams" },
     };
 
     [Theory]

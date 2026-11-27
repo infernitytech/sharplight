@@ -18,7 +18,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
-        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "xing4_0", "kimi_k3", "kimi_k31"];
+        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "xing4_0", "kimi_k3", "kimi_k31", "raon1_mini"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -83,6 +83,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         if (IsKimiK3(c))
         {
             AddKimiK3HyperParameters(md, a, c);
+        }
+        else if (IsRaon1(c))
+        {
+            AddRaon1HyperParameters(md, a, c);
         }
         else if (IsGlm5Next(c))
         {
@@ -301,6 +305,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
         var convolutions = new SortedDictionary<string, WeightInfo?[]>(StringComparer.Ordinal);
         var residualScores = new Dictionary<string, (WeightInfo? Norm, WeightInfo? Projection)>(StringComparer.Ordinal);
+        var raonMhc = new Dictionary<string, Dictionary<string, WeightInfo>>(StringComparer.Ordinal);
         int layers = c.Int("num_hidden_layers");
         foreach (var (fullName, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
@@ -334,7 +339,8 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             }
 
             int layer = int.Parse(m.Groups[1].Value);
-            string suffix = IsDeltaHybrid(c) ? NormalizeDeltaHybridSuffix(c, m.Groups[2].Value) : m.Groups[2].Value;
+            string suffix = IsRaon1(c) ? NormalizeRaon1Suffix(m.Groups[2].Value)
+                : IsDeltaHybrid(c) ? NormalizeDeltaHybridSuffix(c, m.Groups[2].Value) : m.Groups[2].Value;
             // Multi-token-prediction (NextN) layers follow the trunk: an ordinary layer plus the NextN tensors, below mtp.layers.{j}.
             string prefix = layer < layers ? $"layers.{layer}." : $"mtp.layers.{layer - layers}.";
             if (layer >= layers && HfNextnTensors.Suffixes.TryGetValue(suffix, out var nextn))
@@ -343,6 +349,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
                 {
                     collector.Add(HfTransforms.Plain(w, prefix + nextn));
                 }
+            }
+            else if (IsRaon1(c) && TryMapRaon1Layer(prefix, suffix, w, collector, raonMhc))
+            {
+                continue;
             }
             else if (layer < layers && IsDeltaHybrid(c) && IsDeltaLayer(c, layer) && TryMapDeltaLayer(c, prefix, suffix, w, collector, convolutions))
             {
@@ -378,6 +388,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
         AddJoinedConvolutions(convolutions, collector);
         AddResidualScores(residualScores, collector);
+        AddRaonMhcModules(raonMhc, collector);
         AddRopeFactors(c, collector);
         collector.ThrowIfUnmapped(c.ModelType);
         return collector.Weights;

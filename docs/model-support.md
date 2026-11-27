@@ -494,7 +494,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `domynedge` | Domyn Edge 4B (Base, SFT, Teacher-IF / Code / Math / STEM / Agentic) | sandwich norms, unweighted q norm + weighted k norm, rope and a 1025-token window only on the 64-wide-head layers, 256-wide NoPE full layers, 1/sqrt(head size) per layer | **supported** (HF and GGUF, `attention.layer_scales`) | - | domynedge (remote code) | hf/tiny-random-domynedge, gguf/tiny-random-domynedge-hf-f32.gguf, hf/Domyn-Edge-Teacher-IF |
 | `zaya1` | Zyphra ZAYA1-8B | CCA attention (grouped q/k conv with state, delayed value head), MLP router with EDA state and skip expert, residual scales | **missing** (#82) | CCA mixer, router | zaya1 | - |
 | `hy_v4_flash` | Tencent Hy4-flash | hy_v4 trunk + pooled DSA indexer, sliding MLA, Engram, latent experts | **missing** (#83) | pooled-key position bias / rope at pool start; mapping | hy_v4_flash | - |
-| `raon1` | KRAFTON Raon-1-mini / nano | RDA, gated NoPE MLA, manifold hyper-connections, PLE | **missing** (#84) | RDA mixer, Helmert mHC | raon1_mini, raon1_nano (remote code) | - |
+| `raon1` | KRAFTON Raon-1-mini (nano: KRAFTON's fork arch `raon1nano`) | RDA, gated NoPE MLA, manifold hyper-connections, PLE | **supported** for Raon-1-mini (HF and GGUF; nano #126) | nano: PLE, MTP, fused conv | raon1_mini (remote code) | hf/tiny-random-raon1-mini(-steer), gguf/tiny-random-raon1-mini-f32.gguf, gguf/Raon-1-mini(-preview) |
 | `inkling2` | Inkling-2-Small | Inkling 2 blocks without the loop | **partial** (#85) | mapping, per-expert output scales | inkling2 | - |
 | `inkling2_loop` | Inkling-2-Mini | block attention residuals, looped layers | **supported** (section 25) | - | inkling2_loop | hf/tiny-random-inkling2 |
 | `kokoro`, `zonos3`, `tiny-voca` | Kokoro (GGUF), ZONOS3-Mini, tiny-voca | TTS front ends of llama-mtmd | out of scope here (#16; Kokoro runs through `Sharplight.Import.Kokoro`) | - | - | - |
@@ -3621,7 +3621,7 @@ References for this round come from a CPU build of that HEAD (`cmake -B build -D
 | inkling2 | 5c008e000 (2026-11-15) | partial: mapping and per-expert output scales | #85 |
 | hy_v4_flash | c94333133 (2026-11-25) | missing | #83 |
 | zaya1 | 98d67c8d5 (2026-11-18) | supported, verified on ZAYA1-8B | #82 |
-| raon1 | 5a09582d8 (2026-11-25) | missing | #84 |
+| raon1 | 5a09582d8 (2026-11-25) | supported, verified on Raon-1-mini(-preview) (nano: #123) | #84 |
 | kokoro, zonos3, tiny-voca | 307e3f155, 7ae3c6b23, 3574df84b | TTS, speech workstream | #16 |
 | moshi | c622f623f (2026-11-21) | speech-to-speech | #21 |
 
@@ -3672,7 +3672,38 @@ model: its class bias is -1 (transformers even resets it to -1 on load) and prob
   The community GGUFs (Abiray/ZAYA1-8B-GGUF, JusteLeo/ZAYA1-8B-GGUF, May 2026) were written by a pre-mainline fork (`general.architecture`
   `zaya`, 80 blocks) and do not load (#120).
 
-Not done this round: the architectures of the table above other than Domyn Edge and ZAYA1 (issues listed), the `domyn-small` pre-tokenizer (escaped
+**Raon-1 mini** (`raon1`, HF remote code `raon1_mini` / `Raon1MiniForCausalLM`, KRAFTON/Raon-1-mini and -preview: 25 layers, hidden 2560,
+19 Raon delta attention (RDA) and 6 latent attention layers, 128 experts top 6 plus a shared expert, 4 hyper-connection streams). It maps onto
+the canonical `latent_decoder` (`LatentDecoderHfMapping.Raon1`, `LatentDecoderGgufMapping.Raon1`), which had latent attention, the channel-wise
+delta rule (Kimi-Linear's KDA), SiTU, sigmoid-routed MoE and `StreamHyperConnections`. New pieces:
+- RDA on `ChannelDeltaAttention`: the decay `lower_bound·sigmoid(exp(A_log)·(f_b(f_a(x)) + dt_bias))` (`linear_attention.decay_bound`, −5) and a
+  write gate (`linear_attention.write.weight`, HF `rda_w_proj`, GGUF `ssm_rda`) that scales the values by
+  `σ(β + δ) / σ(β) = exp(softplus(−β) − softplus(−β − δ))`; separate q/k/v convolutions and the full-rank output gate already existed.
+- NoPE gated latent attention: `rope.style none` (the 64 "rope" channels stay unrotated, scale 1/sqrt(192)) with the sigmoid output gate.
+- Raon_mHC: `hyper_connections.chart_mixing` builds the stream mixing from a Helmert chart instead of Sinkhorn: E = Q Z Qᵀ from the (N−1)²
+  logits, ρ = max(0, max(−E/B)) with B = (I + 11ᵀ/N)/2, H = I + σ(η)(B + E/(1+ρ) − I), applied transposed; the HF importer packs the ten
+  parameters of each site into llama.cpp's `hc_*_{fn,base,scale}` layout. The streams are averaged before the output norm.
+- Reasoning-effort steering (official Raon-1-mini, not the preview): per-layer vectors added to the MoE output times the default effort's
+  factor (`mlp.steering`, `mlp.steering_scale`; HF `reasoning_effort_steering`, GGUF `ffn_effort_steer` and `raon1.reasoning_effort.*`;
+  "high", 0.05). Per-request efforts are #124. llama.cpp b12798 does not know these tensors and refuses KRAFTON's official GGUFs
+  ("wrong number of tensors"); comparisons ran on a copy without them.
+- Pre-tokenizer `raon` (tokenizer.json's split regex with CJK runs, NFC normalization first, llama.cpp `LLAMA_VOCAB_PRE_TYPE_RAON`).
+- MXFP8 routed experts of the HF checkpoint go through `HfFp8Weights` (not run on the real safetensors this round).
+
+- Tiny checkpoints (`tools/mk_tiny_raon1.py`, 6 layers, MLA layers 3 and 6, 8 experts top 2, every mHC parameter, norm and gate drawn away
+  from its default; smallest greedy margin 0.034, steering variant `TINY_SEED=1 TINY_STEERING=1` 0.136): 24 greedy ids and prompt logits
+  identical to the remote code (transformers 5.24) on CPU, Vulkan and CUDA, HF, the converted f32 GGUF and the HF steering variant;
+  llama.cpp b12798 gives the same text from the GGUF. Batched decoding equals single-sequence decoding, rolled-back and snapshotted states
+  equal plain decoding (`HubSweepFamilyServingTests`, `RecurrentRollbackTests`, `StepStateSnapshotTests`).
+- KRAFTON/Raon-1-mini-preview-gguf Q4_K_M (chat prompt "Explain in a short paragraph why the sky is blue.", `<think></think>` = thinking off,
+  greedy): llama.cpp b12798 (CPU) answers in 87 tokens; Vulkan and CUDA are identical to it for about 70 tokens. The CPU leaves at token 16
+  (" and blue" over " and shorter" by 0.012): the 8-bit integer-dot matvec moves this model's logits by 0.2–0.3; with
+  `--disable-features int_dot` the CPU takes " and shorter" like the GPU and llama.cpp (#125).
+- KRAFTON/Raon-1-mini-gguf Q4_K_M (84afe5c): without the steering tensors Vulkan matches llama.cpp for about 60 tokens; CUDA and the CPU
+  (int_dot off) take another near-tied branch (" shorter, blue wavelengths" for " shorter wavelengths of sunlight"), the same text the
+  steered file gives on every provider. Decoding runs at 165–230 tokens/s on the RTX PRO 6000 (Vulkan / CUDA).
+
+Not done this round: the architectures of the table above other than Domyn Edge, ZAYA1 and Raon-1 mini (issues listed), the `domyn-small` pre-tokenizer (escaped
 whitespace, llama.cpp `LLAMA_VOCAB_PRE_TYPE_DOMYN_SMALL`; no Domyn Small checkpoint was run) and the mmproj projectors of section 7 (#86, #87).
 
 

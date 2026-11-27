@@ -19,7 +19,8 @@ namespace Sharplight.Architectures;
 /// <c>linear_attention.decay_up.weight</c> [heads·D, r]; <c>linear_attention.dt_bias</c> f32 [heads·D]; <c>linear_attention.a</c> f32 [heads] (A = −exp(A_log),
 /// one decay rate per head) or [heads·D] (one per key channel of every head, Kimi K3); <c>linear_attention.beta.weight</c> [heads, hidden] (β = sigmoid); the output gate from <c>linear_attention.gate.weight</c>
 /// [heads·D, hidden] or <c>linear_attention.gate_down.weight</c> / <c>linear_attention.gate_up.weight</c>; <c>linear_attention.norm.weight</c> [D];
-/// <c>linear_attention.out.weight</c> [hidden, heads·D].
+/// <c>linear_attention.out.weight</c> [hidden, heads·D]. Optional <c>linear_attention.write.weight</c> [heads, hidden] (Raon delta attention, RDA): a
+/// write gate sigmoid(β + δ) apart from the erase gate β, applied as the value factor σ(β + δ)/σ(β).
 /// </remarks>
 internal sealed class ChannelDeltaAttention
 {
@@ -76,7 +77,16 @@ internal sealed class ChannelDeltaAttention
         var g = _decayBound == 0f
             ? b.Mul(b.Softplus(f), a)
             : b.Scale(b.Sigmoid(b.Mul(f, b.Scale(a, -1f))), _decayBound);
-        var beta = b.Sigmoid(b.Linear(h, w + "beta.weight"));                                                              // [T, H]
+        var betaLogits = b.Linear(h, w + "beta.weight");                                                                   // [T, H]
+        var beta = b.Sigmoid(betaLogits);
+        if (b.HasWeight(w + "write.weight"))
+        {
+            // Raon delta attention: the write gate sigmoid(β + δ) differs from the erase gate sigmoid(β); the ratio of the two scales the values,
+            // exp(log σ(β + δ) − log σ(β)) = exp(softplus(−β) − softplus(−β − δ)).
+            var writeLogits = b.Add(betaLogits, b.Linear(h, w + "write.weight"));
+            var ratio = b.Unary("Exp", b.Sub(b.Softplus(b.Scale(betaLogits, -1f)), b.Softplus(b.Scale(writeLogits, -1f))));
+            v = b.Mul(v, b.Reshape(ratio, 0, _heads, 1), $"{p}rda_v_scaled");
+        }
 
         var recurrent = b.State(state);
         var o = b.Emit("GatedDeltaRule", [q, k, v, g, beta, recurrent], Attributes.From(("scale", 1f / MathF.Sqrt(_headDim))), $"{p}kda",

@@ -3,6 +3,15 @@ namespace Sharplight.Tokenizers.Bpe;
 /// <summary>A resolved <c>tokenizer.pre</c> value: splitter plus the BPE behaviours llama.cpp ties to it.</summary>
 internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool IgnoreMerges, bool DefaultAddBos)
 {
+    /// <summary>Whether text between special tokens is NFC-normalized before the split (llama.cpp does so for <c>raon</c>).</summary>
+    public bool NormalizeNfc { get; init; }
+
+    // Raon-1 (tokenizer.json's split, llama.cpp LLAMA_VOCAB_PRE_TYPE_RAON): CJK / kana runs, letter words (marks attached) that may span single
+    // spaces, digit groups of 1-3 aligned to the end of the number, then the usual punctuation and whitespace pieces.
+    private const string RaonCjk = @"一-龥぀-ゟ゠-ヿ";
+    private const string RaonPattern = @" ?[" + RaonCjk + @"]+| ?(?:(?:(?![" + RaonCjk + @"])\p{L})\p{M}*)+(?: (?:(?:(?![" + RaonCjk + @"])\p{L})\p{M}*)+)*"
+        + @"|\p{N}{1,3}(?=(?:\p{N}{3})*(?!\p{N}))| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+";
+
     // Case-aware word pieces with optional contraction suffix and 1-3 digit groups (OpenAI o200k, Llama 4).
     private const string Gpt4oPattern = @"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+";
 
@@ -83,6 +92,9 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
                     @"[\u4E00-\u9FA5\u3040-\u309F\u30A0-\u30FF]+",
                     @"[!""#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~][A-Za-z]+|[^\r\n\p{L}\p{P}\p{S}]?[\p{L}\p{M}]+| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+",
                 ]), false, false);
+
+            case "raon":
+                return new(new DefaultRegexStages([RaonPattern]), false, false) { NormalizeNfc = true };
 
             case "lfm2":
                 return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, true);
