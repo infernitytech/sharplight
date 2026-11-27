@@ -115,15 +115,18 @@ public sealed class Fp8GemmTests
     }
 
     /// <summary>
-    /// A batch whose shared tiles fill at least a wave (266 rows of 4,096 outputs: 96 tiles) runs the CUDA provider's tensor-copy GEMM
-    /// stream-K with each cut tile continued from the previous block's accumulators: its outputs equal bit for bit those of the same rows
-    /// in a batch of 2,100 rows, whose 17 token tiles walk tile by tile.
+    /// A batch whose shared tiles fill at least a wave (266 rows of 128 outputs per third of the SMs plus 128: 84 tiles on the RTX PRO
+    /// 4500's 82 SMs, 189 on the RTX PRO 6000's 188; the lowering's estimate takes the 128-row tiles stream-K for 46-200 SMs) runs the
+    /// CUDA provider's tensor-copy GEMM stream-K with each cut tile continued from the previous block's accumulators: its outputs equal
+    /// bit for bit those of the same rows in a batch of 2,100 rows, whose 17 token tiles walk tile by tile. With fewer tiles than SMs (a
+    /// fixed 4,096 outputs on the RTX PRO 6000, #81) the batch takes the 64-row tiles of gemm_fp8_native.cu instead, another kernel.
     /// </summary>
     [Fact]
     public void StreamKMatchesTileWalkBitwise()
     {
         Gpu.RequireCuda();
-        var (part, whole) = RunPrefix("f8e4m3_b128", 266, 2100, 4096, 8192);
+        int n = 128 * (Gpu.ComputeUnits > 0 ? Gpu.ComputeUnits / 3 + 1 : 32);
+        var (part, whole) = RunPrefix("f8e4m3_b128", 266, 2100, n, 8192);
         Assert.Equal(whole, part);
     }
 
