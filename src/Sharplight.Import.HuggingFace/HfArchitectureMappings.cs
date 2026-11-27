@@ -26,6 +26,7 @@ internal static class HfArchitectureMappings
         Register(new Inkling2HfMapping());
         Register(new Mamba2HfMapping());
         Register(new Lfm2HfMapping());
+        Register(new Lfm2VlHfMapping());
         Register(new MiniMaxHfMapping());
         Register(new MambaHfMapping());
         Register(new LatentDecoderHfMapping());

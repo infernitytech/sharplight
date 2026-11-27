@@ -9,7 +9,7 @@ namespace Sharplight.Vision.Tests;
 /// mk_tiny_siglip_vl.py, written by siglip_vl_preprocess_reference.py; the tower inputs come from the converted mmproj files), and LFM2-VL's
 /// (smart resize within 64..256 tokens, or the tile grid closest to the aspect ratio plus the thumbnail; bicubic) against its torchvision processor:
 /// LiquidAI/LFM2-VL-450M with the published F16 text GGUF and an mmproj converted by llama.cpp HEAD (the published one predates the tiling and
-/// resize keys).
+/// resize keys), and the same checkpoint read from its safetensors (<c>hf:</c> cases: the tiling keys from preprocessor_config.json).
 /// </summary>
 public class SiglipVlPreprocessTests
 {
@@ -19,14 +19,21 @@ public class SiglipVlPreprocessTests
     [InlineData("tiny-random-gemma3-vl")]
     [InlineData("tiny-random-idefics3")]
     [InlineData("LFM2-VL-450M")]
+    [InlineData("hf:LFM2-VL-450M")]
     public void Preprocessing_matches_transformers(string name)
     {
+        bool safetensors = name.StartsWith("hf:", StringComparison.Ordinal);
+        name = safetensors ? name["hf:".Length..] : name;
         string refPath = Path.Combine(Home, "models/hf", name, "reference_preprocess.json");
         bool real = !name.StartsWith("tiny-", StringComparison.Ordinal);
         string gguf = real ? Path.Combine(Home, "models/gguf", name, $"{name}-F16.gguf") : Path.Combine(Home, "models/gguf", $"{name}-f32.gguf");
         string mmproj = real ? Path.Combine(Home, "models/gguf", name, $"mmproj-{name}-F16-head.gguf") : Path.Combine(Home, "models/gguf", $"mmproj-{name}-f32.gguf");
-        Assert.SkipUnless(File.Exists(refPath) && File.Exists(gguf) && File.Exists(mmproj), $"{name}: reference_preprocess.json, GGUF or mmproj not available");
-        using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj } });
+        string hf = Path.Combine(Home, "models/hf", name);
+        Assert.SkipUnless(File.Exists(refPath) && (safetensors ? File.Exists(Path.Combine(hf, "model.safetensors")) : File.Exists(gguf) && File.Exists(mmproj)),
+            $"{name}: reference_preprocess.json, the checkpoint or mmproj not available");
+        using var model = safetensors
+            ? LlmModel.Load(TestHost.Loader, hf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64 })
+            : LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj } });
         using var vision = model.CreateVisionEncoder();
         var pre = vision.Preprocessor;
         using var doc = JsonDocument.Parse(File.ReadAllBytes(refPath));

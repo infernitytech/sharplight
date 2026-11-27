@@ -67,6 +67,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   every caller of a graph with that input must bind `A`. Towers whose views differ in size
   (LFM2-VL tiles + thumbnail) go through `VisionPreprocessor.PatchifyViews`; the `hybrid` adapter (LFM2) takes a tower like `decoder`.
   `siglip_vl_reference.py` for LFM2-VL needs torchvision in the venv (`uv pip install torchvision` matching the torch build).
+  LFM2-VL safetensors (`lfm2_vl`, #110) import into the same canonical tower as the mmproj; a learned position table resampled with
+  dense weights (`bilinear_antialias`) must be imported as f32 (the resample is a MatMul with the table as activation; bf16 fails on the CPU).
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
   `native/ffmpeg/out/<rid>/` (gitignored, so needed once per checkout). Fastest route for linux-x64:
   `multiclaude artifact get builds/sharplight-native-ffmpeg-9.0.2-linux-x64.tar.gz native/ffmpeg/out -x`

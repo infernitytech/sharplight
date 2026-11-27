@@ -412,7 +412,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2 | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
+| `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2, lfm2_vl | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
 | `lfm2moe` | LFM2-8B-A1B, LFM2.5-8B-A1B | lfm2 + MoE sigmoid bias | **supported** | - | lfm2_moe | gguf/LFM2.5-8B-A1B, hf/tiny-random-lfm2-moe |
 | `lfm3` | LFM3-1.7B, LFM3-VL/Omni (text part) | gated conv + sliding/full attention (own rope bases, partial rope via `rope_freqs`), QK-norm, per-head sigmoid gate, sandwich norms | **supported** (GGUF: tiny random and real LFM3-1.7B Q8_0 vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan; b11177 predates lfm3. The non-causal "d1" decision variant (bidirectional full-attention layers, no cache) is not supported; no transformers class. HF `lfm3` (round 11): tiny checkpoint vs the remote code and llama.cpp 8ca5a80, LFM3-1.7B bf16 vs transformers) | - | lfm3 | gguf/LFM3-1.7B, gguf/tiny-random-lfm3-f32, hf/tiny-random-lfm3 |
 | `inkling` | Inkling, Inkling-Small (Thinking Machines; text decoder) | rope-less GQA attention, sliding-window layers with their own kv head count, q/k norms with scale 1/head_dim, residual short convolutions of k / v / attention output / MLP output, query-conditioned relative position bias, log-floor query temperature, sigmoid MoE whose shared experts are scored by the router, embedding norm, padded vocabulary | **supported** (text decoder on the hybrid stack: `HybridAttention` relative bias (CachedAttention `relative_bias`, CPU and Vulkan), residual short convolutions and per-layer head counts, `MoeBlock` shared-expert sinks; HF `inkling_mm_model` in the published `model.llm.*` layout and GGUF from unsloth's fork; tiny model vs transformers and the fork's llama.cpp (same 24 ids), CPU and Vulkan, batched decoding matches single-sequence decoding; every Inkling-Small GGUF and the Inkling checkpoint pass the check and import from their headers, none runs here (the smallest file is 75 GB). The vision / audio towers and the MTP layers are not imported. Inkling 2 Mini (`inkling2_loop`) runs on the `block_residual_decoder` adapter since bring-up round 3 (section 25); `inkling2` (Small) is not mapped, see section 10) | - | inkling_mm_model | hf/tiny-random-inkling, gguf/tiny-random-inkling-f32.gguf |
@@ -616,8 +616,20 @@ down and up; embeddings 6e-7 relative RMS, logits, greedy and the processor's ex
 torchvision processor of LFM2-VL-450M (`SiglipVlPreprocessTests`: same grids and view sizes for six images up to 10 tiles, pixels within two 8-bit
 steps; mmproj converted at llama.cpp HEAD, which writes the resize and tiling keys), and LFM2-VL-450M (Q8_0 and F16 with the published F16 mmproj):
 60 greedy tokens identical to llama-mtmd-cli on the test image and on a 1600×1100 enlargement (6 tiles + thumbnail, 1806 prompt rows), CPU and
-GPU. Not done: `lfm3vl` (LFM3-VL: a different tower with gated depthwise convolution layers, 2-D rotary attention and RMS norms; #109)
-and the Hugging Face import of `Lfm2VlForConditionalGeneration` (GGUF + mmproj only; #110).
+GPU. Not done: `lfm3vl` (LFM3-VL: a different tower with gated depthwise convolution layers, 2-D rotary attention and RMS norms; #109).
+
+**lfm2_vl safetensors (#110, 2026-11-27).** The Hugging Face importer reads `Lfm2VlForConditionalGeneration` checkpoints (`model_type`
+`lfm2_vl`, `Lfm2VlHfMapping`) into the same canonical `hybrid` model with tower: the text model through `Lfm2HfMapping` (`model.language_model.*`),
+the SigLIP 2 tower `model.vision_tower.vision_model.*` (the patch embedding, a Linear over (row, column, channel) patches, permuted to the
+canonical (channel, row, column) kernel like llama.cpp's converter; the position table widened to f32 for the dense antialiased resample; the
+unused pooling head dropped), the projector `model.multi_modal_projector.{layer_norm, linear_1, linear_2}` → `vision.merger.{merged_norm, up, down}`,
+and the tiling / preprocessing keys from `preprocessor_config.json` (config.json's copies as fallback): `tile_size`, `min_tiles` / `max_tiles`
+(`do_image_splitting` false → no tiles), `max_pixels_tolerance`, `use_thumbnail`, `min_image_tokens` / `max_image_tokens` → min/max pixels (the
+model's own bounds, 64..256 for the Hub checkpoints), `resample` (3 = bicubic), mean / std; `use_image_special_tokens` false is rejected. Verified:
+`Tiny_qwen_vl_image_prompt_matches_transformers` with hf/tiny-random-lfm2-vl (embeddings 6e-7 relative RMS, logits, greedy, expanded prompt; CPU
+and Vulkan), `SiglipVlPreprocessTests` `hf:LFM2-VL-450M` (the six preprocessing cases from the safetensors config) and
+`Lfm2VlCheckpointTests` (LFM2-VL-450M bf16 safetensors vs the F16 GGUF + HEAD mmproj on a 1024×640 image, 2 tiles + thumbnail: embeddings 4e-6
+relative RMS, the same 24 greedy tokens, CPU).
 
 mmproj assets downloaded: Qwen3.8-Flash-Next-UD-Q4_K_XL (F16), Qwen3.6-35B-A3B (F16), Qwen3-VL-2B-Instruct (F16), gemma-3-4b-it (f16), Ministral-3-3B-Instruct-2512 (BF16), LFM2-VL-450M (F16). Priority: Qwen3-VL (DeepStack) with Wave 1b, then SigLIP/Gemma-3 and Pixtral.
 
