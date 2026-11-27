@@ -489,13 +489,14 @@ worst frame. Supported: any output size or scale, batches of 1 + 4k frames, wave
 
 ## 9. Time series
 
-Kind `time-series` (`ITimeSeriesForecaster`, api-overview.md "Time series"): probabilistic forecasts of a univariate series (quantiles 0.1 ... 0.9 and a point forecast).
+Kind `time-series` (`ITimeSeriesForecaster`, api-overview.md "Time series"): probabilistic forecasts of a univariate series (quantiles 0.1 ... 0.9 and a point forecast), with Chronos-2 also of several related series with covariates.
 Reference: the chronos-forecasting package's pipelines on the same weights (tools/timeseries-reference/reference_chronos.py: seasonal, missing values, short, constant,
 longer than the context, a horizon beyond the model's and interpolated levels); the token models are compared decoded greedily (top-k 1). TimesFM: transformers
 (2.0) and the timesfm package with its model card's forecast flags (2.5) on the same cases plus a signed series (tools/timeseries-reference/reference_timesfm.py). Moirai: uni2ts' Moirai2Forecast (2.0, exact quantiles)
 and MoiraiForecast's mixture distribution at patch size 32 (1.1: parameters per step, sampled quantiles compared statistically) on the TimesFM cases
-(tools/timeseries-reference/reference_moirai.py). Supported: `.slm`, the Studio
-Time series page (CSV in, forecast chart and CSV out).
+(tools/timeseries-reference/reference_moirai.py). Chronos-2 also forecasts several targets jointly with past-only and known-future covariates; reference:
+chronos-forecasting's Chronos2Pipeline on univariate, multivariate and covariate cases (tools/timeseries-reference/reference_chronos2.py). Supported: `.slm`, the Studio
+Time series page (CSV in, forecast chart and CSV out; covariate columns for Chronos-2).
 
 <!-- verified-catalog:table 9 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
 | Model | Hub repository | Formats | Verification | Notes | Verified |
@@ -516,6 +517,7 @@ Time series page (CSV in, forecast chart and CSV out).
 | Moirai 1.1 Small | Salesforce/moirai-1.1-R-small | safetensors; .slm | mixture parameters per step within 3e-6 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series); seeded sampled quantiles statistically equal to uni2ts' samples | masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license | 2026-11-27 |
 | Moirai 1.1 Base | Salesforce/moirai-1.1-R-base | safetensors; .slm | mixture parameters per step within 2e-5 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) (CPU) | masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license | 2026-11-27 |
 | Moirai 1.1 Large | Salesforce/moirai-1.1-R-large | safetensors; .slm | mixture parameters per step within 2e-5 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) (CPU) | masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license | 2026-11-27 |
+| Chronos-2 | amazon/chronos-2 | safetensors; .slm | quantile forecasts within 8e-6 of the forecast range (10 cases: univariate incl. missing values and empty patches, an 8500-value context, a 1100-step horizon; two targets forecast jointly; past-only and known-future covariates, also over a 1050-step horizon) | 21 quantiles x up to 1024 steps per pass, context 8192; several targets and past-only / known-future numeric covariates forecast as one group (ForecastAsync(TimeSeriesForecastRequest)); longer horizons unroll as the reference pipeline | 2026-11-27 |
 <!-- verified-catalog:end -->
 
 ## 10. Known unsupported or not working

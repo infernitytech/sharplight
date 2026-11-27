@@ -203,6 +203,7 @@ internal sealed partial class HfConfig : IDisposable
         ["modeling_grove_moe.GroveMoeForCausalLM"] = "grove_moe",
         ["VibeVoiceForASRTraining"] = VibeVoiceAsrHfMapping.ModelType,
         ["ChronosBoltModelForForecasting"] = ChronosBoltHfMapping.ModelType,
+        ["Chronos2Model"] = Chronos2HfMapping.ModelType,
     };
 
     /// <summary>The <c>architectures</c> class names (e.g. "Qwen3ForCausalLM"); empty when absent.</summary>

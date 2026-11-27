@@ -81,6 +81,14 @@ internal static partial class CpuOpSupport
             return OpSupport.No("CachedAttention relative bias must be f32 [T, Hq, E] and cannot be combined with compression");
         }
 
+        int lookaheadInput = relativeInput + (node.Attributes.Get("relative_bias", 0) > 0 ? 1 : 0);
+        if (node.Attributes.Get("lookahead", false)
+            && (ins.Length <= lookaheadInput || ins[lookaheadInput].Type != DataType.I32 || ins[lookaheadInput].Shape.Rank != 1 || !node.Attributes.Get("causal", true)
+                || compressed || node.Attributes.Get("selection", false) || node.Attributes.Get("chunk", 0) > 0))
+        {
+            return OpSupport.No("CachedAttention lookahead must be i32 [A] on causal attention without compression, selection or chunks");
+        }
+
         return OpSupport.Yes;
     }
 

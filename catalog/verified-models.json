@@ -34723,6 +34723,73 @@
           }
         }
       ]
+    },
+    {
+      "id": "chronos-2",
+      "name": "Chronos-2",
+      "kind": "time-series",
+      "family": "Chronos-2",
+      "architecture": "chronos2",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Amazon",
+        "countryOfOrigin": "US",
+        "url": "https://www.amazon.science"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 600000000,
+          "companions": [],
+          "repository": "amazon/chronos-2",
+          "revision": "29ec3766d36d6f73f0696f85560a422f50e8498c",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1067,
+              "gitOid": "f3207394965100a2aa18820b87da3d2bbad3b1f0"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 477930472,
+              "sha256": "ddcda3c7508bf2528087723e98a20707cc04b7f370ae275a9fd88078ddba4f42"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "chronos-forecasting",
+        "summary": "quantile forecasts within 8e-6 of the forecast range (10 cases: univariate incl. missing values and empty patches, an 8500-value context, a 1100-step horizon; two targets forecast jointly; past-only and known-future covariates, also over a 1050-step horizon)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "21 quantiles x up to 1024 steps per pass, context 8192; several targets and past-only / known-future numeric covariates forecast as one group (ForecastAsync(TimeSeriesForecastRequest)); longer horizons unroll as the reference pipeline",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "amazon/chronos-2",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
     }
   ]
 }

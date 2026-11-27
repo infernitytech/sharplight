@@ -231,15 +231,20 @@ public static partial class StandardOps
     /// the compressed cache and the selection when present) is f32 [T, Hq, E]; the score of query row t, head h and a key at distance
     /// d = query position − key position gets <c>bias[t, h, d]</c> added after the scale (and soft cap) when 0 ≤ d &lt; E, nothing otherwise (Inkling).
     /// Not combined with <c>compression</c>.
+    /// Attribute <c>lookahead</c> (bool): rows that also see later rows of the same pass (Gemma 3's image rows attend to every row of their image).
+    /// The input after the relative bias (after V, the sinks, the compressed cache, the selection and the relative bias when present) is i32 [A]
+    /// (<see cref="Models.InputRole.AttentionLookahead"/>): with A = T, query row t at position p attends keys up to position p + lookahead[t]
+    /// (those rows must be rows of the same pass and sequence); a window still counts back from p. With A = 1 the entry is ignored (plain causal rows).
+    /// Causal attention only; not combined with <c>chunk</c>, <c>selection</c> or <c>compression</c>.
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
-    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks, selection and relative bias) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
+    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks, selection, relative bias and lookahead) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot (bidirectional: the rows table
     /// is the <see cref="Models.InputRole.SequenceRunEndRows"/> table, whose position is that of the run's last row).
     /// Paged form: attribute <c>block_size</c> = B and a last input, the block table [S, blocks per slot] i32
     /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B. A compressed cache with r
     /// positions per row keeps ceil(B / r) rows per block: entry e of slot s is row table[s, e·r / B] · ceil(B / r) + (e·r mod B) / r.
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 9, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 11, (i, a) =>
     {
         var q = i[0].Shape;
         var v = i[2].Shape;

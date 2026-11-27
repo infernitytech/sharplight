@@ -228,6 +228,15 @@ public sealed partial class GraphLowerer
             return OpSupport.No("CachedAttention: the relative bias must be f32 [T, HQ, E] and cannot be combined with compression");
         }
 
+        int lookaheadInput = relativeInput + (node.Attributes.Get("relative_bias", 0) > 0 ? 1 : 0);
+        if (node.Attributes.Get("lookahead", false)
+            && (node.Inputs.Length <= lookaheadInput || node.Inputs[lookaheadInput].Type != DataType.I32 || node.Inputs[lookaheadInput].Shape.Rank != 1
+                || !node.Inputs[lookaheadInput].Shape[0].IsSymbolic || !node.Attributes.Get("causal", true) || compressed
+                || node.Attributes.Get("selection", false) || node.Attributes.Get("chunk", 0) > 0))
+        {
+            return OpSupport.No("CachedAttention: the lookahead must be i32 [A] (symbolic) on causal attention without compression, selection or chunks");
+        }
+
         // Head sizes that are not a multiple of 8 run on the per-head kernel, which then reads one key element per load.
         if (node.Inputs[1].Type != node.Inputs[2].Type)
         {

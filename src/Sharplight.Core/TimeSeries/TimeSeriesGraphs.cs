@@ -1,7 +1,7 @@
 namespace Sharplight.TimeSeries;
 
 /// <summary>
-/// The graph contracts of the <see cref="Models.ModelKinds.TimeSeriesForecasting"/> kind. Three forms exist:
+/// The graph contracts of the <see cref="Models.ModelKinds.TimeSeriesForecasting"/> kind. These forms exist:
 /// <list type="bullet">
 /// <item><description>Patch-quantile models (Chronos-Bolt): one <see cref="Models.ModelComponentRoles.Encoder"/> component with the graph <see cref="ForecastGraph"/>.
 /// The host scales the context (instance normalization: mean and standard deviation of the observed values), left-pads it with missing values to
@@ -27,6 +27,11 @@ namespace Sharplight.TimeSeries;
 /// <see cref="QuantileDecoderGraph"/>, a causal transformer over patches with the observation mask in the input; each row predicts the
 /// <see cref="PredictTokensKey"/> patches after it at every quantile level. Longer horizons feed every quantile forecast back as its own sequence; the
 /// sequences run packed in one pass (<see cref="SpansInput"/>), and the quantiles of all level-by-level forecasts give the next block.</description></item>
+/// <item><description>Group-encoder models (Chronos-2): one <see cref="Models.ModelComponentRoles.Encoder"/> component with the graph <see cref="GroupEncoderGraph"/>,
+/// a bidirectional transformer whose layers alternate attention along time (within each series) and attention across the series of a group (at each
+/// position). Every series of a group (targets, then covariates) is one sequence: its context patches, a register token row and the horizon patches, which hold
+/// the known future values of covariates. The host standardizes every series with its own context (and passes it through arcsinh, <see cref="ArcsinhKey"/>),
+/// packs all sequences into the rows of one pass and reads the quantile forecast of every horizon patch.</description></item>
 /// </list>
 /// The configuration keys sit on the encoder component (the decoder component for patch-decoder and quantile-decoder models).
 /// </summary>
@@ -51,7 +56,7 @@ public static class TimeSeriesGraphs
     /// </summary>
     public const string PatchDecoderGraph = "patch_decoder";
 
-    /// <summary>The symbol of the patch rows of <see cref="PatchDecoderGraph"/>, <see cref="MaskedEncoderGraph"/> and <see cref="QuantileDecoderGraph"/>.</summary>
+    /// <summary>The symbol of the patch rows of <see cref="PatchDecoderGraph"/>, <see cref="MaskedEncoderGraph"/>, <see cref="QuantileDecoderGraph"/> and <see cref="GroupEncoderGraph"/>.</summary>
     public const string PatchSymbol = "P";
 
     /// <summary>The patch positions of <see cref="PatchDecoderGraph"/>, i32 <c>[patches, 1]</c>: 0, 1, ... (rotary models only).</summary>
@@ -92,7 +97,7 @@ public static class TimeSeriesGraphs
     /// </summary>
     public const string PredictMaskInput = "predict_mask";
 
-    /// <summary>The rows whose prediction <see cref="MaskedEncoderGraph"/> and <see cref="QuantileDecoderGraph"/> return, i32 <c>[<see cref="ReadSymbol"/>]</c>.</summary>
+    /// <summary>The rows whose prediction <see cref="MaskedEncoderGraph"/>, <see cref="QuantileDecoderGraph"/> and <see cref="GroupEncoderGraph"/> return, i32 <c>[<see cref="ReadSymbol"/>]</c>.</summary>
     public const string ReadRowsInput = "read_rows";
 
     /// <summary>The symbol of <see cref="ReadRowsInput"/>.</summary>
@@ -111,6 +116,58 @@ public static class TimeSeriesGraphs
     /// <c>log_normal</c>: loc, scale). The host applies uni2ts' domain maps (softplus for scales, counts and 2 + softplus for df).
     /// </summary>
     public const string DistributionOutput = "distribution";
+
+    /// <summary>
+    /// The group-encoder graph: <see cref="PatchesInput"/> (<see cref="PatchSymbol"/> rows of 3 · p values: the time encoding, the scaled values (0 where
+    /// missing) and the observation mask; register rows are ignored), <see cref="RegisterRowsInput"/>, <see cref="KeyBiasInput"/>, <see cref="PositionsInput"/>
+    /// (the row within its sequence), <see cref="SpansInput"/> (every row its sequence), <see cref="GroupOrderInput"/>, <see cref="GroupInverseInput"/>,
+    /// <see cref="GroupSpansInput"/> and <see cref="ReadRowsInput"/> in, <see cref="PatchQuantilesOutput"/> out.
+    /// </summary>
+    public const string GroupEncoderGraph = "group_encoder";
+
+    /// <summary>The register-token rows of <see cref="GroupEncoderGraph"/>, f32 <c>[patches, 1]</c>: 1 where the row is its sequence's register token, else 0.</summary>
+    public const string RegisterRowsInput = "register_rows";
+
+    /// <summary>
+    /// The key bias of <see cref="GroupEncoderGraph"/>, f32 <c>[patches, 1]</c>: 0 for rows that take part as keys, a large negative score (−1e9) for context
+    /// patches without an observed value. Both attentions use it.
+    /// </summary>
+    public const string KeyBiasInput = "key_bias";
+
+    /// <summary>
+    /// The group order of <see cref="GroupEncoderGraph"/>, i32 <c>[patches]</c>: the rows rearranged so that the rows of one group at one position are
+    /// adjacent (group by group, position by position, series by series).
+    /// </summary>
+    public const string GroupOrderInput = "group_order";
+
+    /// <summary>The inverse permutation of <see cref="GroupOrderInput"/>, i32 <c>[patches]</c>: the position of every row in the group order.</summary>
+    public const string GroupInverseInput = "group_inverse";
+
+    /// <summary>
+    /// The spans of the attention across series, i32 <c>[patches, 2]</c>, in the group order: every row sees the rows of its group at its position.
+    /// </summary>
+    public const string GroupSpansInput = "group_spans";
+
+    /// <summary>
+    /// The scaled forecast of <see cref="GroupEncoderGraph"/>, f32 <c>[<see cref="ReadSymbol"/>, levels · p]</c>: per read row (a horizon patch) every level of
+    /// <see cref="QuantilesKey"/> × p steps, standardized (and arcsinh-transformed) like the series' context.
+    /// </summary>
+    public const string PatchQuantilesOutput = "patch_quantiles";
+
+    /// <summary>The <see cref="FormKey"/> of group-encoder models.</summary>
+    public const string GroupEncoderForm = "group-encoder";
+
+    /// <summary>The configuration key of the most horizon patches one group-encoder pass predicts (longer horizons are unrolled).</summary>
+    public const string MaxOutputPatchesKey = "maxOutputPatches";
+
+    /// <summary>The configuration key of the divisor of a group-encoder model's time encoding (the step offset from the forecast start).</summary>
+    public const string TimeEncodingScaleKey = "timeEncodingScale";
+
+    /// <summary>The configuration key of the arcsinh transform of a group-encoder model (bool): standardized values pass through arcsinh, forecasts through sinh.</summary>
+    public const string ArcsinhKey = "arcsinh";
+
+    /// <summary>The configuration key of a group-encoder model's register token (bool): a register row follows every sequence's context patches.</summary>
+    public const string RegisterTokenKey = "registerToken";
 
     /// <summary>The <see cref="FormKey"/> of masked-encoder models.</summary>
     public const string MaskedEncoderForm = "masked-encoder";
@@ -131,8 +188,8 @@ public static class TimeSeriesGraphs
     public const string MaxHorizonKey = "maxHorizon";
 
     /// <summary>
-    /// The configuration key of the form: <see cref="PatchQuantileForm"/>, <see cref="TokenForm"/>, <see cref="PatchDecoderForm"/>, <see cref="MaskedEncoderForm"/>
-    /// or <see cref="QuantileDecoderForm"/>.
+    /// The configuration key of the form: <see cref="PatchQuantileForm"/>, <see cref="TokenForm"/>, <see cref="PatchDecoderForm"/>, <see cref="MaskedEncoderForm"/>,
+    /// <see cref="QuantileDecoderForm"/> or <see cref="GroupEncoderForm"/>.
     /// </summary>
     public const string FormKey = "form";
 

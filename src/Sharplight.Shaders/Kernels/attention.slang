@@ -41,6 +41,11 @@
 #ifndef SPANS
 #define SPANS 0
 #endif
+// LOOKAHEAD (`main` only, cached attention without CHUNK, SELECTED or COMP_ATTN): query row t also sees the look[t] keys after its own
+// position (rows of the same pass and sequence), e.g. the rest of its image (Gemma 3).
+#ifndef LOOKAHEAD
+#define LOOKAHEAD 0
+#endif
 #ifndef CAUSAL
 #define CAUSAL 0
 #endif
@@ -645,6 +650,9 @@ struct Params
 #if HAS_POS_BIAS
     float* posb; // [HQ, 2 * POS_BIAS_RANGE + 1] relative position bias by key - query distance (see HAS_POS_BIAS)
 #endif
+#if LOOKAHEAD
+    int* look;   // [T] rows of this pass each query row also sees after its own (Gemma 3's image rows; see LOOKAHEAD)
+#endif
     uint* arrivals;   // DEC_FUSED_COMBINE: [T, DEC_GROUPS] split arrivals of `decode`, zero between launches (else unused)
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
@@ -782,6 +790,9 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #endif
 #if CHUNK && !FULL_ATTN
     jLo = max(jLo, (L - 1) / CHUNK * CHUNK);   // chunked attention: only the keys of the query's own chunk
+#endif
+#if LOOKAHEAD
+    L += uint(p.look[t]);   // the later rows of the pass this row also sees; the window still counts back from qPos
 #endif
 #if SPLITS > 1
     uint split = gid.z;

@@ -636,13 +636,29 @@ non-negativity, the quantile-crossing fix). Salesforce's Moirai (uni2ts checkpoi
 `quantile_decoder` graph) is a causal patch decoder whose last row predicts 64 steps at 9 levels, longer horizons feeding every level back as its own
 sequence (packed into one pass); Moirai 1.1 (`moirai`, one `masked_encoder_p<p>` graph per patch size) is a masked encoder that predicts a mixture
 distribution (Student-t, normal, negative binomial, log-normal) for every step of the horizon in one pass, from which the host draws `SampleCount`
-paths (default 100; `PatchSize` picks one of 8 ... 128, default 32). Levels other than the native ones are interpolated as the reference does. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
+paths (default 100; `PatchSize` picks one of 8 ... 128, default 32). Levels other than the native ones are interpolated as the reference does. Amazon's
+Chronos-2 (`chronos2`, `group_encoder` graph) forecasts several related series jointly: `ForecastAsync(TimeSeriesForecastRequest)` takes target series and
+covariates (`TimeSeriesCovariate`: past-only, or known into the future with their values over the horizon), and every layer attends along time within each
+series and across the series of the request at each step; 21 quantile levels, up to 1024 steps per pass, context 8192. Models without covariate support
+(`SupportsCovariates` false) forecast the targets of a request one by one and reject covariates. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
 
 ```csharp
 using var forecaster = provider.GetRequiredService<TaskClientProvider>().Create<ITimeSeriesForecaster>(model);
 var table = TimeSeriesTable.Load("sales.csv");
 TimeSeriesForecast forecast = await forecaster.ForecastAsync(table.Column("sales").Values, new TimeSeriesForecastOptions { Horizon = 48 });
 float[] median = forecast.Quantile(0.5f), low = forecast.Quantile(0.1f), high = forecast.Quantile(0.9f);
+
+// Chronos-2: a target with a past-only covariate and a known-future one (its 48 values over the horizon set the horizon).
+var joint = await forecaster.ForecastAsync(new TimeSeriesForecastRequest
+{
+    Targets = [table.Column("sales").Values],
+    Covariates =
+    [
+        new TimeSeriesCovariate { Name = "visits", History = table.Column("visits").Values },
+        new TimeSeriesCovariate { Name = "promo", History = promoHistory, Future = promoPlan },
+    ],
+});
+TimeSeriesForecast sales = joint.Targets[0];
 ```
 
 ### Video enhancement

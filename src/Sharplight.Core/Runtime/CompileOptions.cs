@@ -141,12 +141,13 @@ public sealed class CompileOptions
         Models.WellKnown.TokenSymbol => MaxTokens,
         Models.WellKnown.ContextSymbol => ContextLength,
         _ when SymbolBounds.TryGetValue(symbol, out var v) => v,
+        Models.WellKnown.LookaheadSymbol => MaxTokens,
         _ when !Tensors.SymbolicExpression.IsSymbolName(symbol) => Tensors.SymbolicExpression.Parse(symbol).UpperBound(Bound),
         _ => throw new InvalidOperationException($"No bound for symbol '{symbol}'."),
     };
 
     /// <summary>Whether <see cref="Bound"/> knows a bound for the symbol or for every symbol of the expression.</summary>
-    public bool HasBound(string symbol) => symbol is Models.WellKnown.TokenSymbol or Models.WellKnown.ContextSymbol || SymbolBounds.ContainsKey(symbol)
+    public bool HasBound(string symbol) => symbol is Models.WellKnown.TokenSymbol or Models.WellKnown.ContextSymbol or Models.WellKnown.LookaheadSymbol || SymbolBounds.ContainsKey(symbol)
         || (!Tensors.SymbolicExpression.IsSymbolName(symbol) && Tensors.SymbolicExpression.Parse(symbol).Atoms().All(HasBound));
 
     /// <summary>A copy with additional symbol bounds (existing bounds of the same symbols are replaced).</summary>

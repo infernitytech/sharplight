@@ -94,6 +94,11 @@ public static class WellKnown
     public const string SourcePastScalar = "source_past";
     /// <summary>Symbol of the run count of a multi-sequence graph (rows of <see cref="InputRole.SequenceRuns"/>).</summary>
     public const string RunSymbol = "U";
+    /// <summary>
+    /// Symbol of the length of the <see cref="InputRole.AttentionLookahead"/> input: T when some row of the pass looks ahead, 1 otherwise
+    /// (bounded by the maximum token count).
+    /// </summary>
+    public const string LookaheadSymbol = "A";
 
     /// <summary>
     /// Packed-sequence graph that turns a batch of sequences into one vector each (embedding models): inputs token ids [T],

@@ -1,5 +1,6 @@
 using Sharplight.Graph;
 using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -274,6 +275,14 @@ internal sealed partial class DecoderGraphBuilder
         {
             attnIn = [.. attnIn, selection];
             attrs.Add(("selection", true));
+        }
+
+        if (_lookaheadInput && selection is null && !_hp.Chunked(il))
+        {
+            // Rows of one image attend to each other (Gemma 3): the rows of an image span see the rest of their span.
+            _lookahead ??= b.Input("attention_lookahead", InputRole.AttentionLookahead, DataType.I32, new Shape(Dim.Sym(WellKnown.LookaheadSymbol)));
+            attnIn = [.. attnIn, _lookahead];
+            attrs.Add(("lookahead", true));
         }
 
         return b.Emit1("CachedAttention", attnIn, Attributes.From([.. attrs]), $"{p}attn");

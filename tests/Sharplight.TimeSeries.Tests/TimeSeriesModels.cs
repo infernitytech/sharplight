@@ -55,6 +55,36 @@ internal static class TimeSeriesModels
         return cases;
     }
 
+    /// <summary>The multivariate reference cases of a model (<c>reference_chronos2.py</c>: targets, covariates and per target the forecast).</summary>
+    public static IReadOnlyList<MultivariateCase> MultivariateCases(string name)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Reference(name)));
+        var cases = new List<MultivariateCase>();
+        foreach (var c in document.RootElement.GetProperty("cases").EnumerateArray())
+        {
+            var request = new TimeSeriesForecastRequest
+            {
+                Targets = [.. c.GetProperty("targets").EnumerateArray().Select(t => (ReadOnlyMemory<float>)Values(t))],
+                Covariates = [.. c.GetProperty("covariates").EnumerateArray().Select(v => new TimeSeriesCovariate
+                {
+                    Name = v.GetProperty("name").GetString()!,
+                    History = Values(v.GetProperty("history")),
+                    Future = v.GetProperty("future").ValueKind == JsonValueKind.Null ? ReadOnlyMemory<float>.Empty : Values(v.GetProperty("future")),
+                })],
+            };
+            var forecasts = c.GetProperty("forecasts").EnumerateArray().ToArray();
+            cases.Add(new MultivariateCase(
+                c.GetProperty("name").GetString()!,
+                request,
+                c.GetProperty("horizon").GetInt32(),
+                Values(c.GetProperty("levels")),
+                [.. forecasts.Select(f => f.GetProperty("quantiles").EnumerateArray().Select(Values).ToArray())],
+                [.. forecasts.Select(f => Values(f.GetProperty("mean")))]));
+        }
+
+        return cases;
+    }
+
     /// <summary>
     /// The largest error of <paramref name="actual"/> against <paramref name="expected"/>, relative to the spread of the expected values (but at least a thousandth
     /// of their largest magnitude, so that a flat forecast does not divide by zero).
@@ -116,4 +146,6 @@ internal static class TimeSeriesModels
 
         return null;
     }
+
+    private static float[] Values(JsonElement array) => [.. array.EnumerateArray().Select(v => v.ValueKind == JsonValueKind.Null ? float.NaN : v.GetSingle())];
 }

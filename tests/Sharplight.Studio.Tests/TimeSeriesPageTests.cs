@@ -266,4 +266,59 @@ public sealed class TimeSeriesPageTests
 
         Assert.Equal(ModelKinds.TimeSeriesForecasting, ModelInspector.Inspect(root).Kind);
     }
+
+    private const string WithFuture = "date,sales,promo,visits\n2024-01-01,10,0,100\n2024-01-02,11,1,101\n2024-01-03,12,0,103\n2024-01-04,,1,\n2024-01-05,,0,\n";
+
+    private static (TimeSeriesForecastRequest Request, int Horizon, int HistoryLength) Build(string csv, (string Name, bool Known)[] covariates, int? horizon, int fallback = 24)
+    {
+        var table = TimeSeriesTable.Parse(csv);
+        var chosen = covariates.Select(covariate => (table.Column(covariate.Name), covariate.Known)).ToList();
+        return TimeSeriesPageViewModel.BuildRequest(table.Column("sales"), chosen, horizon, fallback);
+    }
+
+    [Fact]
+    public void Covariates_ExcludeTheTargetColumn()
+    {
+        Assert.Equal(["promo", "visits"], TimeSeriesPageViewModel.CovariateNames(["sales", "promo", "visits"], "sales"));
+        Assert.Equal(["sales", "visits"], TimeSeriesPageViewModel.CovariateNames(["sales", "promo", "visits"], "promo"));
+    }
+
+    [Fact]
+    public void BuildRequest_PastOnlyCovariate_TrimsTheHistoryAndHasNoFuture()
+    {
+        var (request, horizon, length) = Build(WithFuture, [("visits", false)], null);
+
+        Assert.Equal(3, length);
+        Assert.Equal(24, horizon);
+        Assert.Equal([10f, 11f, 12f], request.Targets[0].ToArray());
+        var covariate = Assert.Single(request.Covariates);
+        Assert.Equal("visits", covariate.Name);
+        Assert.Equal([100f, 101f, 103f], covariate.History.ToArray());
+        Assert.True(covariate.Future.IsEmpty);
+    }
+
+    [Fact]
+    public void BuildRequest_KnownFutureCovariate_TakesTheTrailingRows_AndSetsTheHorizon()
+    {
+        var (request, horizon, _) = Build(WithFuture, [("promo", true), ("visits", true)], null);
+
+        Assert.Equal(2, horizon);
+        Assert.Equal([0f, 1f, 0f], request.Covariates[0].History.ToArray());
+        Assert.Equal([1f, 0f], request.Covariates[0].Future.ToArray());
+        Assert.True(request.Covariates[1].Future.IsEmpty);
+    }
+
+    [Fact]
+    public void BuildRequest_PadsOrTruncatesTheFutureToTheHorizon()
+    {
+        var (padded, longHorizon, _) = Build(WithFuture, [("promo", true)], 4);
+        Assert.Equal(4, longHorizon);
+        var future = padded.Covariates[0].Future.ToArray();
+        Assert.Equal([1f, 0f], future[..2]);
+        Assert.True(float.IsNaN(future[2]) && float.IsNaN(future[3]));
+
+        var (truncated, shortHorizon, _) = Build(WithFuture, [("promo", true)], 1);
+        Assert.Equal(1, shortHorizon);
+        Assert.Equal([1f], truncated.Covariates[0].Future.ToArray());
+    }
 }

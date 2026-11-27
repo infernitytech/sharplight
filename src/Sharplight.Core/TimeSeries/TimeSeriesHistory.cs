@@ -77,4 +77,81 @@ internal static class TimeSeriesHistory
         double scale = count == 0 ? 0 : sum / count;
         return scale > 0 ? scale : 1;
     }
+
+    /// <summary>
+    /// The horizon of a multivariate request: <see cref="TimeSeriesForecastOptions.Horizon"/>, else the length of the known futures of its covariates, else
+    /// <paramref name="predictionLength"/>.
+    /// </summary>
+    public static int Horizon(TimeSeriesForecastRequest request, TimeSeriesForecastOptions? options, int predictionLength)
+    {
+        if (options?.Horizon is { } horizon)
+        {
+            return horizon;
+        }
+
+        foreach (var covariate in request.Covariates)
+        {
+            if (!covariate.Future.IsEmpty)
+            {
+                return covariate.Future.Length;
+            }
+        }
+
+        return predictionLength;
+    }
+
+    /// <summary>Checks a multivariate request for <paramref name="horizon"/> steps.</summary>
+    /// <exception cref="ArgumentException">
+    /// The request has no target, a target has no observed value, a series holds an infinite value, the histories differ in length, or a known future is not
+    /// <paramref name="horizon"/> steps long.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">The horizon is below 1.</exception>
+    public static void Validate(TimeSeriesForecastRequest request, int horizon)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(horizon, 1, nameof(horizon));
+        if (request.Targets is null || request.Targets.Count == 0)
+        {
+            throw new ArgumentException("The request has no target series.", nameof(request));
+        }
+
+        int length = request.Targets[0].Length;
+        foreach (var target in request.Targets)
+        {
+            Validate(target.Span);
+            if (target.Length != length)
+            {
+                throw new ArgumentException($"The target histories differ in length ({target.Length} and {length}).", nameof(request));
+            }
+        }
+
+        foreach (var covariate in request.Covariates)
+        {
+            if (covariate.History.Length != length)
+            {
+                throw new ArgumentException($"Covariate '{covariate.Name}' has {covariate.History.Length} history values; the targets have {length}.", nameof(request));
+            }
+
+            Finite(covariate.History.Span, covariate.Name);
+            if (!covariate.Future.IsEmpty)
+            {
+                if (covariate.Future.Length != horizon)
+                {
+                    throw new ArgumentException($"Covariate '{covariate.Name}' has {covariate.Future.Length} future values; the horizon is {horizon} steps.", nameof(request));
+                }
+
+                Finite(covariate.Future.Span, covariate.Name);
+            }
+        }
+    }
+
+    private static void Finite(ReadOnlySpan<float> values, string name)
+    {
+        foreach (float value in values)
+        {
+            if (float.IsInfinity(value))
+            {
+                throw new ArgumentException($"Covariate '{name}' holds an infinite value.", "request");
+            }
+        }
+    }
 }

@@ -25,6 +25,7 @@ public class BatchedMultimodalTests
         { "qwen3-vl-2b", false }, { "qwen3-vl-2b", true },
         { "qwen3.5-0.8b", false }, { "qwen3.5-0.8b", true },
         { "glm-ocr", false }, { "glm-ocr", true },
+        { "gemma3-vl-tiny", false }, { "gemma3-vl-tiny", true },
     };
 
     /// <summary>The checkpoint (and mmproj) of a case, and the most image tokens it is loaded with.</summary>
@@ -38,6 +39,8 @@ public class BatchedMultimodalTests
             Path.Combine(Home, "models/gguf/Qwen3-VL-2B-Instruct/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"), 256),
         "qwen3.5-0.8b" => (Env.Hf08, null, 256),
         "glm-ocr" => (Path.Combine(Home, "models/vision-r10/glm-ocr"), null, 256),
+        // Bidirectional image rows (issue #98): the engine keeps an image's rows in one step.
+        "gemma3-vl-tiny" => (Path.Combine(Home, "models/gguf/tiny-random-gemma3-vl-f32.gguf"), Path.Combine(Home, "models/gguf/mmproj-tiny-random-gemma3-vl-f32.gguf"), 128),
         _ => throw new ArgumentException(name),
     };
 
