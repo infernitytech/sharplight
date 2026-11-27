@@ -549,7 +549,7 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
             new ChoiceParameterViewModel("interval", "Interval", "The shaded band holds this share of the likely values.",
                 [.. ForecastInterval.Coverages.Select(percent => new ParameterChoice(percent.ToString(CultureInfo.InvariantCulture), $"{percent} %"))],
                 ForecastInterval.DefaultCoverage.ToString(CultureInfo.InvariantCulture)),
-            new NumberParameterViewModel("samples", "Samples", "Sample paths of sampling models (Chronos, Moirai 1.x); more are steadier and slower. Quantile models ignore it.", 1, 200, 1, 20),
+            new NumberParameterViewModel("samples", "Samples", "Sample paths of sampling models (Chronos, Moirai 1.x, Moirai-MoE); more are steadier and slower. Quantile models ignore it.", 1, 200, 1, 20),
             new TextParameterViewModel("seed", "Seed", "Fixes the samples of sampling models; empty is random.", "Random"),
         ];
         ParameterPreset[] presets =
