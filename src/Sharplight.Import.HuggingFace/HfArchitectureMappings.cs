@@ -54,6 +54,7 @@ internal static class HfArchitectureMappings
         Register(new MusicGenHfMapping());
         Register(new DemucsHfMapping());
         Register(new ChronosBoltHfMapping());
+        Register(new Chronos2HfMapping());
         Register(new ChronosHfMapping());
         Register(new TimesFmHfMapping());
         Register(new TimesFm25HfMapping());

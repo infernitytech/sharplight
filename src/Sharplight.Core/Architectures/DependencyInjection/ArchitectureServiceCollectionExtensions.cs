@@ -64,6 +64,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<StableAudio3Adapter>()
                 .AddModelAdapter<DemucsAdapter>()
                 .AddModelAdapter<ChronosBoltAdapter>()
+                .AddModelAdapter<Chronos2Adapter>()
                 .AddModelAdapter<TimesFmAdapter>()
                 .AddModelAdapter<MoiraiAdapter>()
                 .AddModelAdapter<ChronosAdapter>()

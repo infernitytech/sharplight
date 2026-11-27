@@ -13,6 +13,7 @@ public class PackageTests
     [InlineData("timesfm-2.5-200m-pytorch")]
     [InlineData("moirai-2.0-R-small")]
     [InlineData("moirai-1.1-R-small")]
+    [InlineData("chronos-2")]
     public async Task Package_forecasts_like_the_checkpoint(string name)
     {
         TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));
