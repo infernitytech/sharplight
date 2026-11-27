@@ -3,7 +3,7 @@ using Sharplight.Tasks;
 namespace Sharplight.TimeSeries;
 
 /// <summary>
-/// Probabilistic time-series forecasting (kind <see cref="Models.ModelKinds.TimeSeriesForecasting"/>: Chronos, Chronos-Bolt): the history of one
+/// Probabilistic time-series forecasting (kind <see cref="Models.ModelKinds.TimeSeriesForecasting"/>: Chronos, Chronos-Bolt, TimesFM): the history of one
 /// univariate series in, quantile forecasts of the next steps out. Follows the task-client pattern of every model kind (<see cref="ITaskClient"/>);
 /// the call runs the compiled graphs off the caller's thread, one request at a time.
 /// </summary>

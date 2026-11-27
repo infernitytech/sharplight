@@ -490,7 +490,8 @@ worst frame. Supported: any output size or scale, batches of 1 + 4k frames, wave
 
 Kind `time-series` (`ITimeSeriesForecaster`, api-overview.md "Time series"): probabilistic forecasts of a univariate series (quantiles 0.1 ... 0.9 and a point forecast).
 Reference: the chronos-forecasting package's pipelines on the same weights (tools/timeseries-reference/reference_chronos.py: seasonal, missing values, short, constant,
-longer than the context, a horizon beyond the model's and interpolated levels); the token models are compared decoded greedily (top-k 1). Supported: `.slm`, the Studio
+longer than the context, a horizon beyond the model's and interpolated levels); the token models are compared decoded greedily (top-k 1). TimesFM: transformers
+(2.0) and the timesfm package with its model card's forecast flags (2.5) on the same cases plus a signed series (tools/timeseries-reference/reference_timesfm.py). Supported: `.slm`, the Studio
 Time series page (CSV in, forecast chart and CSV out).
 
 <!-- verified-catalog:table 9 (generated from catalog/verified-models.json; edit the catalog, then run tools/catalog docs) -->
@@ -505,6 +506,9 @@ Time series page (CSV in, forecast chart and CSV out).
 | Chronos Small | amazon/chronos-t5-small | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention | 2026-11-27 |
 | Chronos Base | amazon/chronos-t5-base | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention | 2026-11-27 |
 | Chronos Large | amazon/chronos-t5-large | safetensors; .slm | greedy (top-k 1) forecasts identical within float rounding (6 cases incl. a 2600-value context, a 150-step horizon) | sampled forecasts (20 paths, top-k 50 by default), context 512; missing values inside the context stay visible to the attention; Vulkan on NVIDIA wrong after the first forecast (#88) | 2026-11-27 |
+| TimesFM 2.0 500M | google/timesfm-2.0-500m-pytorch | safetensors; .slm | quantile and mean forecasts within 2e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) | 9 quantiles and a mean x 128 steps per pass, context 2048, frequency 0; longer horizons append the mean forecast; missing values interpolated as the timesfm package does | 2026-11-27 |
+| TimesFM 2.5 200M | google/timesfm-2.5-200m-pytorch | safetensors; .slm | quantile and point forecasts within 5e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series); the transformers layout gives the same forecasts | 9 quantiles x 128 steps per pass, context 15360; the model card's forecast flags (input normalization, continuous quantile head up to 1024 steps, flip invariance, non-negativity, quantile-crossing fix) | 2026-11-27 |
+| TimesFM 2.5 200M (transformers) | google/timesfm-2.5-200m-transformers | safetensors; .slm | the timesfm package's forecasts of google/timesfm-2.5-200m-pytorch within 5e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) | the transformers layout of TimesFM 2.5 (TimesFm2_5ModelForPrediction); forecasts as google/timesfm-2.5-200m-pytorch | 2026-11-27 |
 <!-- verified-catalog:end -->
 
 ## 10. Known unsupported or not working

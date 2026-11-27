@@ -34138,6 +34138,207 @@
           }
         }
       ]
+    },
+    {
+      "id": "timesfm-2.0-500m",
+      "name": "TimesFM 2.0 500M",
+      "kind": "time-series",
+      "family": "TimesFM",
+      "architecture": "timesfm",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://research.google"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 2200000000,
+          "companions": [],
+          "repository": "google/timesfm-2.0-500m-pytorch",
+          "revision": "dc2443792ce5516872b89b37cf1bc058c3bf0c10",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 692,
+              "gitOid": "6091755f05e0e2b1f4d4886097a44373bf4c15f7"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1995406976,
+              "sha256": "bb9d7022d8027325f4e656b7d5cf36dd919269fd79ad714eab41f5ba49cc1cfe"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "transformers",
+        "summary": "quantile and mean forecasts within 2e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles and a mean x 128 steps per pass, context 2048, frequency 0; longer horizons append the mean forecast; missing values interpolated as the timesfm package does",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "google/timesfm-2.0-500m-pytorch",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timesfm-2.5-200m",
+      "name": "TimesFM 2.5 200M",
+      "kind": "time-series",
+      "family": "TimesFM",
+      "architecture": "timesfm2_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://research.google"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 1050000000,
+          "companions": [],
+          "repository": "google/timesfm-2.5-200m-pytorch",
+          "revision": "1d952420fba87f3c6dee4f240de0f1a0fbc790e3",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 475,
+              "gitOid": "94445b5415c93256bbab9cf759df2ffce2671b16"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 925181104,
+              "sha256": "2f776efe6245e42b24bc4153ffdf61810140210e4bd3b01fb21f7aa779ab6ce8"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "timesfm",
+        "summary": "quantile and point forecasts within 5e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series); the transformers layout gives the same forecasts",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 128 steps per pass, context 15360; the model card's forecast flags (input normalization, continuous quantile head up to 1024 steps, flip invariance, non-negativity, quantile-crossing fix)",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "google/timesfm-2.5-200m-pytorch",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timesfm-2.5-200m-transformers",
+      "name": "TimesFM 2.5 200M (transformers)",
+      "kind": "time-series",
+      "family": "TimesFM",
+      "architecture": "timesfm2_5",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Google",
+        "countryOfOrigin": "US",
+        "url": "https://research.google"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 1050000000,
+          "companions": [],
+          "repository": "google/timesfm-2.5-200m-transformers",
+          "revision": "5a9806b9b291fad9233b5249d88263f1846304d3",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 914,
+              "gitOid": "96c4a6d9064440246b891ac8083af6a3a9382ace"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 925187448,
+              "sha256": "b53f6d52114e2ad786890f3c4637ce05f580b7800d6e24401f88b398b76035ef"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "timesfm",
+        "summary": "the timesfm package's forecasts of google/timesfm-2.5-200m-pytorch within 5e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "the transformers layout of TimesFM 2.5 (TimesFm2_5ModelForPrediction); forecasts as google/timesfm-2.5-200m-pytorch",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "google/timesfm-2.5-200m-transformers",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
     }
   ]
 }
