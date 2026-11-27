@@ -89,7 +89,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
   arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC
   each differ; #10, benchmarks §123), so after touching matvec / int-dot sums run `*RowInvarianceTests*` on both providers
-  and `VerificationRowInvarianceTests` (Families).
+  and `VerificationRowInvarianceTests` (Families). Row-invariant sums must not imitate what one driver makes of the plain
+  expression: give plain and row-invariant SPIR-V compiles the same explicit `fma` / `precise` form (mmvq.slang
+  `MQ_FMA_CHAIN`, #102). The Families test needs `~/models/gguf/Qwen3-0.6B/Qwen3-0.6B-{Q8_0,Q4_K_M}.gguf` (unsloth/Qwen3-0.6B-GGUF).
 
 ## Style and layout
 
