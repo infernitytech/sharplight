@@ -77,8 +77,9 @@ public sealed class HybridAdapter : IModelAdapter
         {
             string p = $"layers.{il}.";
             var ssm = src.Weight(p + "ssm.in.weight") is null ? default
-                : Plamo2Layer.Is(src, p) ? plamo.DefineStates(src, $"layers.{il}", p)
-                : Mamba1Layer.Is(src, p) ? mamba1.DefineStates(src, $"layers.{il}", p) : mamba.DefineStates($"layers.{il}");
+                : Plamo2Layer.Is(src, p) ? plamo.DefineStates(src, $"layers.{il}", p, options.RecurrentStateType)
+                : Mamba1Layer.Is(src, p) ? mamba1.DefineStates(src, $"layers.{il}", p, options.RecurrentStateType)
+                : mamba.DefineStates($"layers.{il}", options.RecurrentStateType);
             var kv = src.Weight(p + "attention.q.weight") is not null ? attention.DefineStates($"layers.{il}", options.KvCacheType, il) : default;
             var kvConv = HybridAttention.DefineConvStates(src, $"layers.{il}", p);
             var mixerConv = OutputConvState(src, $"layers.{il}", "mixer_conv_state", p + "post_mixer_conv.weight");

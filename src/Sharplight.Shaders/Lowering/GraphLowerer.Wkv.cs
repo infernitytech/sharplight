@@ -6,18 +6,22 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
-    /// <summary>Support check of the RWKV recurrences: all token inputs, <c>u</c> and the state are f32 (anything else is partitioned to the CPU provider).</summary>
+    /// <summary>
+    /// Support check of the RWKV recurrences: all token inputs and <c>u</c> are f32, the state (the last of the
+    /// <paramref name="inputs"/>) f32, f16 or bf16 (anything else is partitioned to the CPU provider).
+    /// </summary>
     private static OpSupport SupportsWkv(Node node, int inputs)
     {
-        for (int i = 0; i < inputs; i++)
+        for (int i = 0; i < inputs - 1; i++)
         {
             if (node.Inputs[i].Type != DataType.F32)
             {
-                return OpSupport.No($"{node.Op.Name} needs f32 inputs and state, got {node.Inputs[i].Type} for {node.Inputs[i].Name}");
+                return OpSupport.No($"{node.Op.Name} needs f32 inputs, got {node.Inputs[i].Type} for {node.Inputs[i].Name}");
             }
         }
 
-        return OpSupport.Yes;
+        var state = node.Inputs[inputs - 1];
+        return IsRecurrentStateType(state.Type) ? OpSupport.Yes : OpSupport.No($"{node.Op.Name} state must be f32, f16 or bf16, got {state.Type}");
     }
 
     /// <summary>RWKV-7 recurrence: one workgroup per (head, block of state rows, run); the state is updated in place.</summary>
@@ -50,7 +54,8 @@ public sealed partial class GraphLowerer
         }
 
         long timeBlock = Math.Clamp(1024 / N, 1, 16);
-        var k = Lib("wkv.slang", entry, Macros([("H", H), ("N", N), ("LPR", lanesPerRow), ("RB", rowsPerBlock), ("TB", timeBlock), ("MULTI_SEQ", runs is not null), .. rollback, .. snapshot]));
+        var k = Lib("wkv.slang", entry, Macros([("H", H), ("N", N), ("LPR", lanesPerRow), ("RB", rowsPerBlock), ("TB", timeBlock), ("MULTI_SEQ", runs is not null),
+            ("STATE_FMT", RecurrentStateFormat(state.Type)), .. rollback, .. snapshot]));
 
         // Wkv7: r, w, k, v, a, b; Wkv6: r, k, v, w and u. The kernel binds (r, w, k, v, a-or-u, b-or-unused).
         TensorRef[] bound = entry == "wkv7"

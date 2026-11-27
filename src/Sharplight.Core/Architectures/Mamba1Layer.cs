@@ -1,5 +1,6 @@
 using Sharplight.Graph;
 using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -29,14 +30,17 @@ internal sealed class Mamba1Layer
     /// <summary>Whether the layer with weight prefix <paramref name="p"/> is a Mamba-1 layer (it has the low-rank (dt, B, C) projection).</summary>
     public static bool Is(ModelSource src, string p) => src.Weight(p + "ssm.x.weight") is not null;
 
-    /// <summary>Declares the per-layer recurrent states for the layer weights found under <paramref name="p"/>.</summary>
-    public (StateDefinition Conv, StateDefinition Scan) DefineStates(ModelSource src, string group, string p)
+    /// <summary>
+    /// Declares the per-layer recurrent states for the layer weights found under <paramref name="p"/>; the scan state has element type
+    /// <paramref name="stateType"/> (f32, or bf16 / f16: <see cref="AdapterOptions.RecurrentStateType"/>).
+    /// </summary>
+    public (StateDefinition Conv, StateDefinition Scan) DefineStates(ModelSource src, string group, string p, DataType stateType)
     {
         var a = src.Weight(p + "ssm.a")!.Shape;
         int inner = (int)a[0].Fixed;
         int stateSize = (int)a[1].Fixed;
         var conv = RecurrentStates.ConvWindow(group, _convKernel - 1, inner);
-        var scan = RecurrentStates.Scan(group, inner, 1, stateSize);
+        var scan = RecurrentStates.Scan(group, inner, 1, stateSize, stateType);
         return (conv, scan);
     }
 

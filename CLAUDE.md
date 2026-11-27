@@ -90,6 +90,10 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   dynamically indexed one into every thread's local memory, and at 16 KB per thread (T5-large's position-bias table) that
   corrupted other models' memory and lost the device (#88). Pass them as `const:` buffers (`NewBuffer(BufferKind.Weight, "const:…", init:)`).
   `SHARPLIGHT_VK_PIPELINE_STATS=1` shows each pipeline's "Local Memory Size" (the NVIDIA driver reports it plus 2^36).
+- 16-bit recurrent states (`AdapterOptions.RecurrentStateType`, `--reduced-precision` → bf16): `GatedDeltaRule`, `SelectiveScan` and
+  `Wkv6/7` keep f32 math and round the state after every token (`state16.slang` on the GPU, `RecurrentState16` on the CPU; the
+  chunked delta rule after every 64-row chunk, #11). Keep that rule in new recurrence kernels: it makes outputs independent of how
+  rows are batched, which speculative verification and prefix-cache snapshots rely on.
 - Output buffers come from a reused arena: a GPU kernel that leaves part of its output unwritten gives a right first run and drifting later
   runs (#111, rank-3 `Gather` tables; now gathered as `[V, prod(rest)]` rows). Tests for such ops should run two steps with different inputs.
 - Sharplight.Vulkan.Tests also runs on the CUDA provider with `SHARPLIGHT_TEST_PROVIDER=cuda` (same lowering, NVRTC).

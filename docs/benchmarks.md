@@ -2717,7 +2717,8 @@ bf16 instead of f32 (`AdapterOptions.RecurrentStateType` / `LlmLoadOptions.Recur
 * The CPU reference rounds per row.
 
 Rollback records hold per-token inputs, not the state, so they are unchanged. State buffers and resets follow the
-declared type. Conv, Mamba and RWKV states stay f32.
+declared type. Conv, Mamba and RWKV states stay f32 (Mamba and RWKV states: 16-bit too since section 126, which also
+rounds the chunked prefill per chunk).
 
 27B FP8, BatchBench `--ctx 2048 --modes greedy --sizes 16,64 --reps 40`, three interleaved rounds, the state type set
 by the env switch (isolating it from the other reduced-precision paths), minimum step GPU time:
@@ -18954,3 +18955,78 @@ bench/BatchBench/bin/Release/net11.0/BatchBench <model> --provider vulkan|cuda -
 SHARPLIGHT_SPLITK_FUSED=1 bench/BatchBench/bin/Release/net11.0/BatchBench ~/models/hf/Qwen3.5-0.8B --provider vulkan --ctx 1024 \
   --modes greedy --sizes 4,8,16 --profile 16
 ```
+
+## 126. 16-bit recurrent states for the selective scan and RWKV, and the chunked delta rule rounding per chunk (2026-11-27)
+
+Issue #11, the "Precision options" follow-ups of section 24.6. Machine: fedora-blackwell, RTX PRO 6000 Blackwell Max-Q,
+NVIDIA 610. Raw results in [`bench/results/s126/`](../bench/results/s126).
+
+### 126.1 What changed
+
+* **`SelectiveScan` (Mamba-1, Mamba-2, PLaMo-2 layers) and `Wkv6` / `Wkv7`** accept an f32, bf16 or f16 state, like the gated
+  delta rule. On Vulkan / CUDA, `ssm.slang` and `wkv.slang` include `state16.slang`: the state is widened on load,
+  updated in f32 registers, and rounded to the state type after every token. The outputs use the unrounded update, as in
+  `delta_rule`. On the CPU, `SelectiveScanOp` and `HeadRecurrenceOp` (the base of `Wkv6Op` / `Wkv7Op`) work on a task-local
+  f32 copy of their state rows and round it after every token, including replayed rollback rows. They narrow it back at
+  the end of a run, at snapshots and before a tentative run. The helpers are shared with `GatedDeltaRuleOp` in
+  `RecurrentState16`.
+* **Adapters.** `Mamba2Layer`, `Mamba1Layer` and `Plamo2Layer` (`HybridAdapter`, `NemotronHAdapter`, `DepthMemoryAdapter`)
+  and the RWKV-6 / RWKV-7 adapters declare their scan / WKV state with `AdapterOptions.RecurrentStateType`. So
+  `--reduced-precision` (bf16 by default, section 24.6) and `SHARPLIGHT_RECURRENT_STATE` now cover them too. Convolution
+  windows stay f32.
+* **Chunked delta rule.** `delta_chunk_state` rounds a 16-bit state after every 64-row chunk instead of once per run. Step 1
+  already stages the state through f32 shared memory for the two-part split. With a 16-bit state it also stages it in
+  the one-part form, rounds it there, and reloads the accumulators from the rounded values.
+
+### 126.2 Why the chunked form now rounds per chunk
+
+Against the CPU oracle, which rounds after every row, per-chunk rounding is no closer than per-run rounding
+(`ChunkedDeltaRuleTests`: relRms 3.83e-3 / 3.83e-3, 1.28e-2 / 1.28e-2, f16 9.17e-4 / 9.14e-4, main / this change). With 64
+times as many roundings, the per-row trajectory dominates the difference.
+
+What per-chunk rounding gives a 16-bit state is the invariance the f32 state already has. Prefill passes cut at chunk ends
+(multiples of 64 rows, e.g. `--batch 512`) produce exactly the outputs of one pass. A state kept at a chunk end for prefix
+caching (snapshots end a chunk there, section 18.1) continues like the uninterrupted run.
+`ChunkedDeltaRuleTests.PassesCutAtChunkEndsMatchOnePass` checks this bit for bit: [256] vs [64, 128, 64] vs [192, 64]. It
+passes for f32, bf16 and f16 on Vulkan and CUDA, and fails for bf16 / f16 on `main`.
+
+Cost, with the 16-bit state only: Qwen3.5-0.8B, bf16 state, T = 2048, `delta_chunk_state` minimum 367-375 → 385-393 µs
+(+5 %, one more barrier and accumulator reload per chunk). That is about 0.3 ms of a 37 ms prefill. An f32 state compiles
+the same kernel as before.
+
+### 126.3 Accuracy
+
+**Op level** (`RecurrentState16Tests`, Vulkan vs the CPU oracle, steps of 3 / 1 / 40 / 2 / 1 / 17 rows, plus a multi-sequence
+script with a slot restart). Both providers follow the same rounded trajectory, so a 16-bit state agrees about as well as
+f32:
+
+| op | f32 | bf16 | f16 |
+|---|---|---|---|
+| SelectiveScan (Mamba-2) | 2.6e-7 | 1.2e-7 | 6.8e-6 |
+| SelectiveScan (Mamba-1, per-element decay) | | 4.6e-6 | 6.0e-6 |
+| Wkv6 | 1.6e-7 | 9.3e-5 | 2.8e-5 |
+| Wkv7 | | 6.9e-5 | |
+
+The CPU's `RecurrentState16Tests` checks that the 16-bit outputs are identical however the tokens are split into calls
+([9], 9 × [1], [4, 1, 3, 1]), as speculative verification needs. The same suites pass on CUDA and on the integrated RADV
+device.
+
+**Model level** (`RecurrentStateAccuracyTests`, teacher-forced, a 64-token prefill chunk and 192 single-token steps, Vulkan):
+
+| model | state | same top-1 | within 2 % of the spread | mean KL | max logit diff / spread |
+|---|---|---|---|---|---|
+| granite-4.0-h-350m (Mamba-2 hybrid) | bf16 | 191 / 193 | 100 % | 6.3e-4 | 1.2e-2 |
+| | f16 | 193 / 193 | 100 % | 1.5e-5 | 1.8e-3 |
+
+`StepStateSnapshotTests` (kept state continues like the whole prompt) passes for granite-4.0-h-350m with a bf16 scan state
+and for Qwen3.5-0.8B with f32 and bf16 delta-rule states. The tiny-model cases added for the scan and RWKV states, in
+`RecurrentRollbackTests` and `StepStateSnapshotTests`, need the tiny recurrent checkpoints (provisioned on fedora-ws, not
+on this machine).
+
+### 126.4 Speed
+
+granite-4.0-h-350m decode is launch bound on this GPU: 1.14 ms per step with either state type. Its scan state, 28 Mamba-2
+layers of 48 × 32 × 128 values, is 22 MB in f32. Reading and writing it costs about 30 µs of the step, against 0.7 GB of
+bf16 weights. The 16-bit state matters where state traffic is a real share of the step: batched decode, where the state is
+per sequence and the weights are shared, of the larger Mamba-2 hybrids (granite-4.0-h-tiny / small, Nemotron-H, Falcon-H1)
+and of RWKV-7. None of those models is on this machine, so they were not measured here.

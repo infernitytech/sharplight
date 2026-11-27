@@ -1,0 +1,16 @@
+# Op level: tests/Sharplight.Vulkan.Tests RecurrentState16Tests, Vulkan (RTX PRO 6000, NVIDIA 610) vs the CPU oracle, relative RMS over all outputs
+SelectiveScan (Mamba-2)  f32 2.64e-7   bf16 1.17e-7   f16 6.82e-6   multi-sequence bf16 7.49e-6
+SelectiveScan (Mamba-1)                bf16 4.59e-6   f16 6.00e-6   multi-sequence f16 1.65e-6
+Wkv6                     f32 1.63e-7   bf16 9.32e-5   f16 2.76e-5   multi-sequence f16 1.17e-5
+Wkv7                                   bf16 6.86e-5
+# ChunkedDeltaRuleTests 16-bit cases, relRms vs the per-row-rounding oracle, main (per run) / issue-11 (per chunk)
+Hk=1 Hv=3 Dk=128 Dv=128 bf16            3.83e-3 / 3.83e-3
+Hk=1 Hv=3 Dk=128 Dv=128 bf16 one part   3.83e-3 / 3.86e-3
+Hk=2 Hv=4 Dk=64 Dv=32 f16               9.17e-4 / 9.14e-4
+Hk=2 Hv=6 Dk=128 Dv=128 bf16            1.28e-2 / 1.28e-2
+multi Hk=1 Hv=3 bf16                    4.96e-3 / 4.99e-3
+multi Hk=2 Hv=4 f16                     6.05e-4 / 6.08e-4
+# Model level: Sharplight.Families.Tests RecurrentStateAccuracyTests (SHARPLIGHT_TEST_LARGE=1), Vulkan, one 64-token prefill chunk, then 192 teacher-forced single-token steps (193 compared logit rows)
+hf/granite-4.0-h-350m state bf16: same top-1 191/193, within 2% of the spread 193/193 (100.0%), mean KL 6.34E-004, max |logit diff| / spread 1.15E-002
+hf/granite-4.0-h-350m state f16: same top-1 193/193, within 2% of the spread 193/193 (100.0%), mean KL 1.48E-005, max |logit diff| / spread 1.80E-003
+# Decode, sharplight hf/granite-4.0-h-350m --bench 128 --ctx 512 (two rounds each): GPU ms/step best 1.14 / 1.14 (f32) and 1.14 / 1.13 (bf16)

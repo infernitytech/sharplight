@@ -35,7 +35,8 @@ public sealed class LlmLoadOptions : TaskLoadOptions
     public int Sequences { get; set; } = 1;
 
     /// <summary>
-    /// Element type of 16-bit-capable recurrent states (the gated delta rule's state matrices), overriding
+    /// Element type of 16-bit-capable recurrent states (the state matrices of the gated delta rule, the selective scan and the RWKV
+    /// recurrences), overriding
     /// <see cref="AdapterOptions.RecurrentStateType"/> of <see cref="TaskLoadOptions.Adapter"/>: f32, bf16 or f16. Null: bf16 when
     /// <see cref="TaskLoadOptions.AllowReducedPrecision"/> is set, otherwise the adapter setting (default f32). The environment variable
     /// <c>SHARPLIGHT_RECURRENT_STATE</c> (f32, bf16, f16) overrides both. Has no effect on prebuilt packages.

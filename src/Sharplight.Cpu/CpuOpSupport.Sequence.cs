@@ -163,9 +163,14 @@ internal static partial class CpuOpSupport
     private static OpSupport CheckSelectiveScan(Node node)
     {
         var ins = node.Inputs;
-        if (ins[0].Type != DataType.F32 || ins[1].Type != DataType.F32 || ins[4].Type != DataType.F32 || ins[5].Type != DataType.F32 || ins[7].Type != DataType.F32)
+        if (ins[0].Type != DataType.F32 || ins[1].Type != DataType.F32 || ins[4].Type != DataType.F32 || ins[5].Type != DataType.F32)
         {
-            return OpSupport.No("SelectiveScan needs f32 x/dt/B/C and state");
+            return OpSupport.No("SelectiveScan needs f32 x/dt/B/C");
+        }
+
+        if (!IsRecurrentStateType(ins[7].Type))
+        {
+            return OpSupport.No($"SelectiveScan state must be f32, bf16 or f16, got {ins[7].Type}");
         }
 
         if (ins.Length > 8 && ins[8].Type != DataType.I32)
@@ -190,7 +195,7 @@ internal static partial class CpuOpSupport
             }
         }
 
-        if (ins[5].Type != DataType.F32 && ins[5].Type != DataType.BF16 && ins[5].Type != DataType.F16)
+        if (!IsRecurrentStateType(ins[5].Type))
         {
             return OpSupport.No($"GatedDeltaRule state must be f32, bf16 or f16, got {ins[5].Type}");
         }
@@ -203,18 +208,29 @@ internal static partial class CpuOpSupport
         return node.Attributes.Get("rule", "delta") is "delta" or "additive" ? OpSupport.Yes : OpSupport.No("GatedDeltaRule rule must be delta or additive");
     }
 
-    /// <summary>RWKV recurrences: f32 activations and state; the optional trailing sequence-runs table is i32 (<paramref name="inputs"/> counts the inputs before it).</summary>
+    /// <summary>
+    /// RWKV recurrences: f32 activations, an f32, bf16 or f16 state (the last of the <paramref name="inputs"/>); the optional trailing
+    /// sequence-runs table is i32 (<paramref name="inputs"/> counts the inputs before it).
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static OpSupport CheckWkv(Node node, int inputs)
     {
-        for (int i = 0; i < inputs; i++)
+        for (int i = 0; i < inputs - 1; i++)
         {
             if (node.Inputs[i].Type != DataType.F32 && !(i == 4 && inputs == 6 && F32Like(node.Inputs[i])))
             {
-                return OpSupport.No($"{node.Op.Name} needs f32 inputs and state, got {node.Inputs[i].Type}");
+                return OpSupport.No($"{node.Op.Name} needs f32 inputs, got {node.Inputs[i].Type}");
             }
+        }
+
+        if (!IsRecurrentStateType(node.Inputs[inputs - 1].Type))
+        {
+            return OpSupport.No($"{node.Op.Name} state must be f32, bf16 or f16, got {node.Inputs[inputs - 1].Type}");
         }
 
         return node.Inputs.Length > inputs && node.Inputs[inputs].Type != DataType.I32 ? OpSupport.No($"{node.Op.Name} sequence runs must be i32") : OpSupport.Yes;
     }
+
+    /// <summary>Whether a recurrence op's state may have this element type: f32, bf16 or f16 (<see cref="RecurrentState16"/>).</summary>
+    private static bool IsRecurrentStateType(DataType type) => type == DataType.F32 || type == DataType.BF16 || type == DataType.F16;
 }

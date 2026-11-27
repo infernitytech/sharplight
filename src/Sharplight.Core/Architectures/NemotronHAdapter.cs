@@ -76,7 +76,7 @@ public sealed class NemotronHAdapter : IModelAdapter
             switch (kinds[il])
             {
                 case "ssm":
-                    (convState[il], ssmState[il]) = mamba.DefineStates(g);
+                    (convState[il], ssmState[il]) = mamba.DefineStates(g, options.RecurrentStateType);
                     states.Add(convState[il]);
                     states.Add(ssmState[il]);
                     break;
