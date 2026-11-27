@@ -26,6 +26,23 @@
               <TextBlock Text="Column" VerticalAlignment="Center" />
               <ComboBox ItemsSource="{Binding ColumnNames}" SelectedItem="{Binding SelectedColumn}" MinWidth="200" />
             </StackPanel>
+            <StackPanel Spacing="6" IsVisible="{Binding SupportsCovariates}">
+              <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasTable}">
+                <TextBlock Text="Covariates" VerticalAlignment="Center" />
+                <TextBlock Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap"
+                           Text="Related columns the model draws on. Known in future: the column has values in the rows after the series ends." />
+              </StackPanel>
+              <ItemsControl ItemsSource="{Binding Covariates}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="ts:CovariateColumnViewModel">
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                      <CheckBox MinWidth="200" Content="{Binding Name}" IsChecked="{Binding IsSelected}" />
+                      <CheckBox Content="Known in future" IsChecked="{Binding KnownInFuture}" IsEnabled="{Binding IsSelected}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="10">
               <Button Classes="accent" Content="Forecast" Command="{Binding RunCommand}" />
               <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsForecasting}" />

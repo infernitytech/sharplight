@@ -723,6 +723,9 @@ after it and the interval as a band; below it a table lists the first 200 steps 
 *Export CSV* writes the forecast: `step` (1-based), or the time column's header with the timestamps continued when the column holds dates a constant step apart (a fixed time span,
 or a fixed number of months on the same day), then `mean` and one column per quantile level (`q0.1`, `q0.5`, `q0.9`). Every run keeps `forecast.csv` and `forecast.json` in its outputs;
 the history restores the forecast and the parameters. A file that cannot be read or has no numeric column is refused with a notice.
+Models with covariate support (Chronos-2) list the other numeric columns as *Covariates*: each ticked column is a related series the model draws on, and the forecast is still of the chosen
+column. A covariate marked *Known in future* takes its values in the rows after the target's last observed value (leave those target cells empty) as its future; the horizon is then that
+number of rows unless set, a longer horizon pads the future with unknown values and a shorter one truncates it. Other covariates are past-only. The run records the covariates in its metadata.
 
 **Vision** (one page for `image-classification`, `image-embedding`, `object-detection`, `depth-estimation`, `image-segmentation`, `ocr` and `image-upscaling`; the mode follows the
 kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,

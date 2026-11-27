@@ -33,6 +33,7 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
 
     private TimeSeriesTable? _table;
     private ForecastFile? _result;
+    private int _predictionLength;
 
     /// <param name="services">The services.</param>
     /// <param name="navigator">Moves to the library and Discover.</param>
@@ -71,6 +72,13 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
     /// <summary>The column that is forecast (the first numeric column once a file is read).</summary>
     [ObservableProperty]
     public partial string? SelectedColumn { get; set; }
+
+    /// <summary>The other numeric columns, each of which can be chosen as a covariate (listed when <see cref="SupportsCovariates"/>).</summary>
+    public ObservableCollection<CovariateColumnViewModel> Covariates { get; } = [];
+
+    /// <summary>The chosen model uses covariates (Chronos-2); known once the model has been probed.</summary>
+    [ObservableProperty]
+    public partial bool SupportsCovariates { get; set; }
 
     /// <summary>The page is forecasting (a run is queued or running).</summary>
     public bool IsForecasting => Queue.IsBusy;
@@ -161,6 +169,7 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
             }
 
             SelectedColumn = ColumnNames.FirstOrDefault();
+            RebuildCovariates(clear: true);
             string columns = table.Columns.Count == 1 ? "1 numeric column" : $"{table.Columns.Count} numeric columns";
             TableSummary = $"{table.RowCount} rows · {columns}" + (table.Timestamps is null ? "" : table.TimeColumn is { Length: > 0 } time ? $" · time column {time}" : " · time column");
             OnInputChanged();
@@ -177,6 +186,7 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
     protected override void OnModelChanged(ILoadedModel? model)
     {
         ModelInfo = "";
+        SupportsCovariates = false;
         ModelProbe = model is { State: ResidentState.Ready } ? ProbeAsync(model) : Task.CompletedTask;
         OnInputChanged();
     }
@@ -207,7 +217,33 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
         }
     }
 
-    partial void OnSelectedColumnChanged(string? value) => OnInputChanged();
+    partial void OnSelectedColumnChanged(string? value)
+    {
+        RebuildCovariates(clear: false);
+        OnInputChanged();
+    }
+
+    /// <summary>Lists every numeric column except the target as a covariate choice, keeping the choices already made.</summary>
+    private void RebuildCovariates(bool clear)
+    {
+        var previous = clear ? [] : Covariates.ToDictionary(covariate => covariate.Name);
+        Covariates.Clear();
+        foreach (string name in CovariateNames(ColumnNames, SelectedColumn))
+        {
+            var covariate = new CovariateColumnViewModel(name);
+            if (previous.TryGetValue(name, out var old))
+            {
+                covariate.IsSelected = old.IsSelected;
+                covariate.KnownInFuture = old.KnownInFuture;
+            }
+
+            Covariates.Add(covariate);
+        }
+    }
+
+    /// <summary>The columns that can be covariates of <paramref name="target"/>: all but the target itself.</summary>
+    internal static IReadOnlyList<string> CovariateNames(IEnumerable<string> columns, string? target)
+        => [.. columns.Where(name => !string.Equals(name, target, StringComparison.Ordinal))];
 
     private void OnInputChanged()
     {
@@ -226,6 +262,7 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
             using var lease = await model.AcquireClientAsync<ITimeSeriesForecaster>(CancellationToken.None).ConfigureAwait(false);
             int context = lease.Client.ContextLength;
             int prediction = lease.Client.PredictionLength;
+            bool covariates = lease.Client.SupportsCovariates;
             Services.Dispatcher.Post(() =>
             {
                 if (!ReferenceEquals(model, SelectedModel))
@@ -234,6 +271,8 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
                 }
 
                 ModelInfo = ModelText(context, prediction);
+                SupportsCovariates = covariates;
+                _predictionLength = prediction;
                 if (!Panel.IsModified && Panel.GetInt("horizon") == DefaultHorizon)
                 {
                     Panel.Apply(new Dictionary<string, string> { ["horizon"] = Math.Clamp(prediction, 1, 1024).ToString(CultureInfo.InvariantCulture) });
@@ -271,15 +310,19 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
         var values = Panel.Snapshot();
         string name = Path.GetFileName(TablePath);
         string title = $"{name} · {column.Name}";
+        var chosen = SupportsCovariates
+            ? Covariates.Where(covariate => covariate.IsSelected).Select(covariate => (table.Column(covariate.Name), covariate.KnownInFuture)).ToList()
+            : [];
+        int? horizon = options.Horizon is { } set && set != DefaultHorizon && set != _predictionLength ? set : null;
         Panel.Persist();
         Notice = "";
-        Queue.Enqueue(title, model.Id, context => ForecastAsync(model, table, column, options, values, name, title, context));
+        Queue.Enqueue(title, model.Id, context => ForecastAsync(model, table, column, options, values, name, title, chosen, horizon, context));
         OnPropertyChanged(nameof(IsForecasting));
         RunCommand.NotifyCanExecuteChanged();
     }
 
     private async Task ForecastAsync(ILoadedModel model, TimeSeriesTable table, TimeSeriesColumn column, TimeSeriesForecastOptions options, Dictionary<string, string> values,
-        string fileName, string title, RunContext context)
+        string fileName, string title, IReadOnlyList<(TimeSeriesColumn Column, bool KnownFuture)> covariates, int? horizon, RunContext context)
     {
         var watch = Stopwatch.StartNew();
         ForecastFile? file = null;
@@ -291,8 +334,18 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
             using var lease = await model.AcquireClientAsync<ITimeSeriesForecaster>(context.CancellationToken).ConfigureAwait(false);
             context.Report(null, "Forecasting");
             var forecaster = lease.Client;
-            var forecast = await forecaster.ForecastAsync(column.Values, options, context.CancellationToken).ConfigureAwait(false);
-            file = BuildFile(table, column, forecast, options, forecaster);
+            if (covariates.Count > 0 && forecaster.SupportsCovariates)
+            {
+                var (request, resolved, length) = BuildRequest(column, covariates, horizon, options.Horizon ?? forecaster.PredictionLength);
+                var multivariate = await forecaster.ForecastAsync(request, options with { Horizon = resolved }, context.CancellationToken).ConfigureAwait(false);
+                var history = new TimeSeriesColumn(column.Name, column.Values[..length]);
+                file = BuildFile(table, history, multivariate.Targets[0], options, forecaster);
+            }
+            else
+            {
+                var forecast = await forecaster.ForecastAsync(column.Values, options, context.CancellationToken).ConfigureAwait(false);
+                file = BuildFile(table, column, forecast, options, forecaster);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -306,6 +359,11 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
 
         double seconds = watch.Elapsed.TotalSeconds;
         var metadata = new Dictionary<string, string> { ["column"] = column.Name, ["time"] = $"{seconds:0.0} s" };
+        if (covariates.Count > 0 && file is not null)
+        {
+            metadata["covariates"] = string.Join(", ", covariates.Select(covariate => covariate.Column.Name));
+        }
+
         if (file is not null)
         {
             metadata["horizon"] = file.Horizon.ToString(CultureInfo.InvariantCulture);
@@ -349,6 +407,50 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
         }
     }
 
+    /// <summary>
+    /// Builds the multivariate request of a table: the target's history is its rows up to the last observed value; a covariate marked known in the future takes the
+    /// rows after that (the target's trailing empty rows) as its future when it has values there, a past-only covariate (or one without values there) has none.
+    /// The horizon is <paramref name="horizon"/> when set, else the number of trailing rows of the known-future covariates, else <paramref name="defaultHorizon"/>;
+    /// futures are padded with <see cref="float.NaN"/> or truncated to it.
+    /// </summary>
+    /// <param name="target">The column to forecast.</param>
+    /// <param name="covariates">The chosen covariate columns and whether each is known in the future.</param>
+    /// <param name="horizon">The horizon the user set, or <see langword="null"/>.</param>
+    /// <param name="defaultHorizon">The horizon when neither the user nor the covariates give one.</param>
+    /// <returns>The request, its horizon and the length of the history (the rows before the trailing empty ones).</returns>
+    internal static (TimeSeriesForecastRequest Request, int Horizon, int HistoryLength) BuildRequest(TimeSeriesColumn target,
+        IReadOnlyList<(TimeSeriesColumn Column, bool KnownFuture)> covariates, int? horizon, int defaultHorizon)
+    {
+        int length = target.Values.Length;
+        while (length > 0 && !float.IsFinite(target.Values[length - 1]))
+        {
+            length--;
+        }
+
+        int trailing = target.Values.Length - length;
+        var futures = covariates.Select(covariate => covariate.KnownFuture && trailing > 0 && covariate.Column.Values.Skip(length).Any(float.IsFinite)
+            ? covariate.Column.Values[length..]
+            : []).ToList();
+        int resolved = horizon ?? (futures.Any(future => future.Length > 0) ? trailing : defaultHorizon);
+        var list = new List<TimeSeriesCovariate>();
+        for (int i = 0; i < covariates.Count; i++)
+        {
+            float[] future = futures[i];
+            if (future.Length > 0)
+            {
+                var fitted = new float[resolved];
+                Array.Fill(fitted, float.NaN);
+                Array.Copy(future, fitted, Math.Min(future.Length, resolved));
+                future = fitted;
+            }
+
+            list.Add(new TimeSeriesCovariate { Name = covariates[i].Column.Name, History = covariates[i].Column.Values.AsMemory(0, length), Future = future });
+        }
+
+        var request = new TimeSeriesForecastRequest { Targets = [target.Values.AsMemory(0, length)], Covariates = list };
+        return (request, resolved, length);
+    }
+
     /// <summary>Builds the stored forecast: the plotted tail of the history (about 4 horizons), the quantiles and the continued timestamps.</summary>
     internal static ForecastFile BuildFile(TimeSeriesTable table, TimeSeriesColumn column, TimeSeriesForecast forecast, TimeSeriesForecastOptions options, ITimeSeriesForecaster model)
     {
@@ -357,16 +459,17 @@ internal sealed partial class TimeSeriesPageViewModel : InferencePageViewModel
         float high = levels.Count > 0 ? levels[^1] : forecast.QuantileLevels[^1];
         int tail = Math.Min(column.Values.Length, Math.Max(16, 4 * forecast.Horizon));
         int first = column.Values.Length - tail;
+        var stamps = table.Timestamps is { } all && all.Count >= column.Values.Length ? all.Take(column.Values.Length).ToList() : null;
         return new ForecastFile
         {
             Column = column.Name,
             TimeHeader = table.TimeColumn ?? "",
             History = [.. column.Values.Skip(first).Select(value => float.IsFinite(value) ? value : (float?)null)],
-            HistoryTimes = table.Timestamps is { } stamps && stamps.Count == column.Values.Length ? [.. stamps.Skip(first)] : null,
+            HistoryTimes = stamps is not null ? [.. stamps.Skip(first)] : null,
             Levels = [.. forecast.QuantileLevels],
             Quantiles = [.. forecast.Quantiles],
             Mean = forecast.Mean,
-            Times = ForecastTimeline.Continue(table.Timestamps, forecast.Horizon),
+            Times = ForecastTimeline.Continue(stamps ?? table.Timestamps, forecast.Horizon),
             LowLevel = low,
             HighLevel = high,
             ContextLength = model.ContextLength,

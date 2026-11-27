@@ -3644,8 +3644,8 @@ sample). Sampled paths are not comparable with torch's RNG, so the parity cases 
 Deviation: missing values inside a Chronos context become padding tokens that stay visible to the attention (the reference masks them; the
 encoder graph has no key mask); leading missing values are dropped, which is exact. Chronos-Bolt handles missing values exactly.
 
-Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates; follow-up issue; TimesFM is section 28, Moirai section 29), batching several series in one
-pass, an HTTP forecasting endpoint.
+Not done: batching several series in one pass, an HTTP forecasting endpoint (TimesFM is section 28, Moirai section 29, Chronos-2 with multivariate
+series and covariates section 30).
 
 ## 28. Time series: TimesFM 2.0 and 2.5 (2026-11-27, issue #89)
 
@@ -3726,5 +3726,46 @@ Verification of the sampling model: the mixture parameters of every step are com
 seeded paths) is compared in probability space with the quantiles of 20000 torch samples: every reference quantile at level l lies between the
 forecast's quantiles at l ± 0.025 (about five standard errors), which holds for all 6 748 checks of the eight cases (torch's RNG is not reproduced, and
 level-space bounds fail in heavy tails, where torch's own seeds differ by up to a quarter of the forecast range on the constant series). Not done: uni2ts' `patch_size="auto"` (the patch
-size with the lowest validation loss on the history's last window), multivariate series and covariates (the variate ids and the variate bias; with the
-Chronos-2 issue's multivariate API), Moirai-MoE, batching several series in one pass.
+size with the lowest validation loss on the history's last window), multivariate series and covariates (the variate ids and the variate bias; the multivariate API of
+section 30 exists, Moirai's default `ForecastAsync(TimeSeriesForecastRequest)` forecasts every target on its own), Moirai-MoE, batching several series in one pass.
+
+## 30. Time series: Chronos-2, multivariate series and covariates (2026-11-27, issue #91)
+
+Kind `time-series` like section 27; `amazon/chronos-2` under `~/models/timeseries/chronos-2` (config.json + model.safetensors), references from
+`tools/timeseries-reference/reference_chronos2.py` (chronos-forecasting 2.3.2, torch 2.15 CPU, transformers 5.24, f32; `Chronos2Pipeline.predict_quantiles`);
+tests `Chronos2Tests` in `tests/Sharplight.TimeSeries.Tests`. The config is a T5-style config (`model_type` `t5`) with a `chronos_config`; the
+`architectures` class `Chronos2Model` maps it to `chronos2` (`Chronos2HfMapping`). Licence Apache 2.0.
+
+| model | architecture | params | CPU | GPU (Vulkan, RADV iGPU) | `.slm` |
+|---|---|---|---|---|---|
+| chronos-2 | `chronos2` | 120M | quantiles within 7.8e-6 of the forecast range (10 cases) | within 2e-6 | yes |
+
+The cases: the univariate ones of section 27 (missing values with whole empty patches, a 21-value series, a constant, an 8500-value context beyond the
+8192 limit, a 1100-step horizon that unrolls, interpolated levels 0.025 / 0.975 outside the native range), two related targets forecast jointly, a target
+with a past-only covariate and two known-future covariates (one with gaps), and a known-future covariate over a 1050-step horizon (the unroll replaces the
+covariate's fed-back forecast with its known values).
+
+API: `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest, options)` takes several targets (aligned, equal length) and covariates
+(`TimeSeriesCovariate`: a history and, for known-future covariates, the values over the horizon); all series of one request are one group. Models with
+`SupportsCovariates` (Chronos-2) forecast the group jointly; the others get a default implementation that forecasts every target on its own and rejects
+covariates (`NotSupportedException`). Without a horizon option, the known futures' length is the horizon. Categorical covariates (the pipeline's ordinal /
+target encoding of string columns) are not supported; encode them as numbers.
+
+Graph (`TimeSeriesGraphs.GroupEncoderGraph`, the group-encoder form): every series is one sequence of its context patches (16 values; per row the time
+encoding (step − context end) / 8192, the standardized-then-arcsinh values and the observation mask), a register token row and the horizon patches (time
+encoding from 0, the covariate's known future values or zeros, their mask). The input residual block embeds the rows; each of the 12 layers runs
+time attention (within a sequence, rotary positions over the whole 64-dim head, NeoX pairs, unscaled scores, keys of empty patches masked), group
+attention (across the series of a group at each row position, no positions) and a ReLU feed-forward block, all pre-RMS-norm; the output residual block
+turns every horizon row into 21 levels × 16 steps. Both attentions are packed-span `Attention` ops over all rows of a pass: the time attention in the
+series-major row order, the group attention in the group order (`group_order` / `group_inverse` gathers); the key mask rides in an extra query / key
+column (query 1, key the 0 / −1e9 bias, padded to 8 columns), which adds it to the scores exactly. The client compiles for one series at the longest
+context and horizon and recompiles with doubled row bounds for larger groups.
+
+Host (`GroupEncoderForecasterClient`, as `Chronos2Pipeline`): instance normalization per series (mean and population deviation of the observed context
+values, 1e-5 for a constant) and arcsinh; one pass predicts up to 64 patches (1024 steps). Longer horizons unroll: every series' context (targets and
+covariates) is extended by its forecast at each of the levels 0.1 … 0.9 (interpolated as `interpolate_quantiles`), one group per level, the groups run
+packed in one pass, and the next block is the weighted quantiles (`weighted_quantile`, trapezoid probability mass per level) of all 9 × 21 forecasts per
+step. Requested levels outside the native ones are interpolated as `interpolate_quantiles` (flat beyond 0.01 / 0.99); the point forecast is the median.
+
+Not done: categorical covariates, the pipeline's cross-learning mode (several requests as one group) and batching several requests in one pass (#92),
+Moirai's multivariate path (variate ids, the variate attention bias, covariate rows; see section 29), TimesFM's covariates.
