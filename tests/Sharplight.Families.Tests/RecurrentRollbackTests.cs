@@ -71,6 +71,9 @@ public class RecurrentRollbackTests
     {
         string path = Path.Combine(Home, "models", relativePath);
         Assert.SkipUnless(File.Exists(path) || Directory.Exists(path), $"{path} not present");
+        // Batched and single-row passes differ by f32 noise upstream; a 16-bit state turns that into occasional 1-ULP (2^-8) flips
+        // (tiny-random-arwkv7 on the CPU: up to 2.2e-3 of the logit scale).
+        float tolerance = recurrentStateType is null ? 2e-3f : 5e-3f;
         using var device = OpenDevice(vulkan);
         using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions
         {
@@ -89,8 +92,8 @@ public class RecurrentRollbackTests
         int[] prompt1 = [.. prompt.Take(5).Reverse()];
         var spec = speculative.Step([new SequenceInput(0, prompt), new SequenceInput(1, prompt1)]);
         var refOut = reference.Step([new SequenceInput(0, prompt), new SequenceInput(1, prompt1)]);
-        AssertClose(refOut[0].Span, spec[0].Span, "prompt");
-        AssertClose(refOut[1].Span, spec[1].Span, "prompt, slot 1");
+        AssertClose(refOut[0].Span, spec[0].Span, "prompt", tolerance);
+        AssertClose(refOut[1].Span, spec[1].Span, "prompt, slot 1", tolerance);
         int pending = LogitsMath.ArgMax(spec[0].Span);
         int maxKeepSeen = 0;
         for (int round = 0; round < Rounds; round++)
@@ -122,10 +125,10 @@ public class RecurrentRollbackTests
             for (int j = 0; j < keep; j++)
             {
                 var r = reference.Step(j == 0 ? [new SequenceInput(0, new[] { input[j] }), new SequenceInput(1, other)] : [new SequenceInput(0, new[] { input[j] })]);
-                AssertClose(r[0].Span, logits.AsSpan(j * vocab, vocab), $"round {round}, kept row {j} of {keep}");
+                AssertClose(r[0].Span, logits.AsSpan(j * vocab, vocab), $"round {round}, kept row {j} of {keep}", tolerance);
                 if (j == 0)
                 {
-                    AssertClose(r[1].Span, otherLogits, $"round {round}, slot 1");
+                    AssertClose(r[1].Span, otherLogits, $"round {round}, slot 1", tolerance);
                 }
             }
 
@@ -137,7 +140,7 @@ public class RecurrentRollbackTests
         // The state after the last (fully kept) round continues exactly like the reference.
         var next = speculative.Step([new SequenceInput(0, new[] { pending })]);
         var expected = reference.Step([new SequenceInput(0, new[] { pending })]);
-        AssertClose(expected[0].Span, next[0].Span, "continuation");
+        AssertClose(expected[0].Span, next[0].Span, "continuation", tolerance);
         Assert.True(maxKeepSeen > 1);
 
         // A round keeping part of its rows, then a run long enough for the prefill kernels (chunked delta rule, token-parallel
@@ -149,11 +152,11 @@ public class RecurrentRollbackTests
         const int Kept = 2;
         speculative.Truncate(0, length + Kept);
         var keptRef = reference.Step([new SequenceInput(0, partial[..Kept])]);
-        AssertClose(keptRef[0].Span, partialRows.AsSpan((Kept - 1) * vocab, vocab), "partial round");
+        AssertClose(keptRef[0].Span, partialRows.AsSpan((Kept - 1) * vocab, vocab), "partial round", tolerance);
         int[] longRun = [LogitsMath.ArgMax(keptRef[0].Span), .. Enumerable.Range(0, 63).Select(_ => rng.Next(1, Math.Min(vocab, 1000)))];
         var longSpec = speculative.Step([new SequenceInput(0, longRun)]);
         var longRef = reference.Step([new SequenceInput(0, longRun)]);
-        AssertClose(longRef[0].Span, longSpec[0].Span, "long run after a rollback");
+        AssertClose(longRef[0].Span, longSpec[0].Span, "long run after a rollback", tolerance);
     }
 
     /// <summary>Greedy logits after <paramref name="context"/> plus <paramref name="token"/>, from a fresh single-sequence session.</summary>
@@ -164,7 +167,7 @@ public class RecurrentRollbackTests
         return session.Process([token]).ToArray();
     }
 
-    private static void AssertClose(ReadOnlySpan<float> expected, ReadOnlySpan<float> actual, string what)
+    private static void AssertClose(ReadOnlySpan<float> expected, ReadOnlySpan<float> actual, string what, float tolerance)
     {
         float scale = 1e-6f;
         float worst = 0;
@@ -174,7 +177,7 @@ public class RecurrentRollbackTests
             worst = Math.Max(worst, Math.Abs(expected[i] - actual[i]));
         }
 
-        Assert.True(worst <= 2e-3f * scale, $"{what}: max |diff| {worst} at logit scale {scale}");
+        Assert.True(worst <= tolerance * scale, $"{what}: max |diff| {worst} at logit scale {scale}");
     }
 
     private static IComputeDevice OpenDevice(bool vulkan)
