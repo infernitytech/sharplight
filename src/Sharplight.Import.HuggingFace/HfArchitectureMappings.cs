@@ -60,6 +60,7 @@ internal static class HfArchitectureMappings
         Register(new TimesFm25HfMapping());
         Register(new MoiraiHfMapping());
         Register(new Moirai2HfMapping());
+        Register(new MoiraiMoeHfMapping());
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());

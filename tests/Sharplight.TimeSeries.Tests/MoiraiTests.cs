@@ -101,6 +101,91 @@ public class MoiraiTests
         Assert.Equal(24, forecast.Horizon);
     }
 
+    // Moirai-MoE, decoder-only: the distribution of every forecast patch after the context and a fixed fed path (the reference's Student-t locations),
+    // compared per pass (scaler and mixture parameters of the patch's 16 steps).
+    [Theory]
+    [InlineData("moirai-moe-1.0-R-small", false)]
+    [InlineData("moirai-moe-1.0-R-small", true)]
+    [InlineData("moirai-moe-1.0-R-base", false)]
+    public async Task MoiraiMoe_step_distributions_match_the_reference(string name, bool gpu)
+    {
+        TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));
+        using var model = TimeSeriesModels.Load(TimeSeriesModels.Open(gpu), TimeSeriesModels.Model(name));
+        using var forecaster = TimeSeriesModels.Client<ITimeSeriesForecaster>(model);
+        Assert.Equal(1000, forecaster.ContextLength);
+        var client = Assert.IsType<MixtureDecoderForecasterClient>(forecaster);
+        using var document = JsonDocument.Parse(File.ReadAllText(TimeSeriesModels.Reference(name)));
+        var cases = TimeSeriesModels.Cases(name);
+        int index = 0;
+        foreach (var c in document.RootElement.GetProperty("cases").EnumerateArray())
+        {
+            var expected = cases[index++];
+            var fed = new List<float>();
+            double worst = 0;
+            string worstName = "";
+            foreach (var step in c.GetProperty("steps").EnumerateArray())
+            {
+                var (loc, scale, parameters) = await client.StepDistributionAsync(expected.History, [.. fed]);
+                Assert.Equal(step.GetProperty("loc").GetDouble(), loc, 1e-5 * Math.Max(1, Math.Abs(loc)));
+                Assert.Equal(step.GetProperty("scale").GetDouble(), scale, 1e-5 * Math.Max(1, scale));
+                var (error, where) = ParameterError(step.GetProperty("params"), parameters, parameters.Length);
+                if (error > worst)
+                {
+                    worst = error;
+                    worstName = $"{where} of patch {fed.Count / 16}";
+                }
+
+                fed.AddRange(step.GetProperty("feed").EnumerateArray().Select(v => v.GetSingle()));
+            }
+
+            TestContext.Current.TestOutputHelper?.WriteLine($"{expected.Name}: largest parameter error {worst:E2} ({worstName})");
+            Assert.True(worst < 1e-3, $"{expected.Name}: parameter error {worst:E2} ({worstName})");
+        }
+    }
+
+    // The sampled forecast in probability space as for Moirai 1.1, with 4000 reference paths (refs: MOE_SAMPLES) against 8000 seeded ones: the bracket
+    // l ± 0.04 is about five standard errors of the level difference, sqrt(0.25 / 4000 + 0.25 / 8000).
+    [Theory]
+    [InlineData("moirai-moe-1.0-R-small")]
+    public async Task MoiraiMoe_sampled_quantiles_match_the_reference_statistically(string name)
+    {
+        TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));
+        using var model = TimeSeriesModels.Load(TimeSeriesModels.Open(gpu: false), TimeSeriesModels.Model(name));
+        using var forecaster = TimeSeriesModels.Client<ITimeSeriesForecaster>(model);
+        const float delta = 0.04f;
+        int outside = 0;
+        int total = 0;
+        foreach (var expected in TimeSeriesModels.Cases(name))
+        {
+            float[] bracket = [.. expected.Levels.SelectMany(l => new[] { Math.Max(0.001f, l - delta), Math.Min(0.999f, l + delta) })];
+            var forecast = await forecaster.ForecastAsync(expected.History,
+                new TimeSeriesForecastOptions { Horizon = expected.Horizon, QuantileLevels = bracket, SampleCount = 8000, Seed = 5 },
+                TestContext.Current.CancellationToken);
+            int caseOutside = 0;
+            for (int l = 0; l < expected.Levels.Length; l++)
+            {
+                var low = forecast.Quantiles[2 * l];
+                var high = forecast.Quantiles[(2 * l) + 1];
+                for (int t = 0; t < expected.Horizon; t++)
+                {
+                    float value = expected.Quantiles[l][t];
+                    float slack = 1e-5f * Math.Max(1f, Math.Abs(value));
+                    total++;
+                    if (value < low[t] - slack || value > high[t] + slack)
+                    {
+                        caseOutside++;
+                        TestContext.Current.TestOutputHelper?.WriteLine($"{expected.Name}: level {expected.Levels[l]} step {t}: {value} not in [{low[t]}, {high[t]}]");
+                    }
+                }
+            }
+
+            TestContext.Current.TestOutputHelper?.WriteLine($"{expected.Name}: {caseOutside} of {expected.Levels.Length * expected.Horizon} reference quantiles outside the bracket");
+            outside += caseOutside;
+        }
+
+        Assert.Equal(0, outside);
+    }
+
     [Fact]
     public void Mixture_log_density_follows_the_component_distributions()
     {

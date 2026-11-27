@@ -20,6 +20,11 @@ model.safetensors of Salesforce/<name>). fedora-blackwell has the environment in
   (no samples).
 
     python -I tools/timeseries-reference/reference_moirai.py --auto moirai-1.1-R-small
+- Moirai-MoE (config without patch sizes other than 16 whose weights hold encoder.centroid): MoiraiMoEForecast at context_length = min(len(history), 1000).
+  The module is decoder-only: the last context row's mixture is the next patch, which is sampled and fed back (re-scaled with it) for the next. Per
+  forecast patch j the reference feeds a fixed path (feed_j = the Student-t component's location of step j, mapped back to the series' scale) and
+  writes that pass's scaler loc/scale, the mixture parameters of the patch's steps ("steps": [{"loc", "scale", "params", "feed"}]); plus the quantiles
+  and mean of MOE_SAMPLES seeded forward() paths (statistics only).
 """
 import json, math, os, sys
 import numpy as np
@@ -148,6 +153,60 @@ def moirai1_auto(path, context_length=1000):
     return forecast
 
 
+MOE_SAMPLES = int(os.environ.get("MOIRAI_MOE_SAMPLES", "4000"))   # the environment override is for quick parameter-only runs
+
+
+def moirai_moe(path):
+    from uni2ts.model.moirai_moe import MoiraiMoEForecast, MoiraiMoEModule
+    module = MoiraiMoEModule.from_pretrained(path).eval()
+    ps = 16
+
+    def forecast(history, horizon, levels):
+        series = np.array(history, dtype=np.float32)
+        context = min(len(series), 1000)
+        series = series[-context:]
+        observed = ~np.isnan(series)
+        series = np.where(observed, series, 0).astype(np.float32)
+        model = MoiraiMoEForecast(module=module, prediction_length=horizon, context_length=context, patch_size=ps, num_samples=MOE_SAMPLES,
+                                  target_dim=1, feat_dynamic_real_dim=0, past_feat_dynamic_real_dim=0).eval()
+        t, o, p = torch.tensor(series)[None, :, None], torch.tensor(observed)[None, :, None], torch.zeros(1, context, dtype=torch.bool)
+        steps = []
+        with torch.no_grad():
+            target, observed_mask, sample_id, time_id, variate_id, prediction_mask = model._convert(ps, t, o, p)
+            last = model.context_token_length(ps) - 1
+            for j in range(model.prediction_token_length(ps)):
+                distr = model.module(target, observed_mask, sample_id, time_id, variate_id, prediction_mask, torch.ones_like(time_id) * ps)
+                row = last + j
+                mixture = distr.base_dist
+                student, normal, negbin, lognormal = mixture.components
+                feed = (student.loc[0, row] * distr.scale[0, row, 0] + distr.loc[0, row, 0]).float()
+
+                def at(x):
+                    return x[0, row].double().tolist()
+
+                params = {
+                    "weights": mixture.weights.probs[0, row].double().tolist(),
+                    "student_t": {"df": at(student.df), "loc": at(student.loc), "scale": at(student.scale)},
+                    "normal": {"loc": at(normal.loc)},
+                    "negative_binomial": {"total_count": at(negbin.total_count), "logits": at(negbin.logits)},
+                    "log_normal": {"loc": at(lognormal.loc), "scale": at(lognormal.scale)},
+                }
+                steps.append({"loc": float(distr.loc[0, row, 0]), "scale": float(distr.scale[0, row, 0]), "params": params, "feed": feed.double().tolist()})
+                target[0, row + 1] = feed
+                prediction_mask[0, row + 1] = False
+            torch.manual_seed(0)
+            samples = model(t, o, p).double().numpy()[0]   # [samples, horizon]
+        return {"quantiles": np.quantile(samples, levels, axis=0).tolist(), "mean": samples.mean(axis=0).tolist(), "steps": steps, "patch_size": ps}
+
+    return forecast
+
+
+def is_moe(path):
+    with open(path + "/model.safetensors", "rb") as f:
+        header = f.read(int.from_bytes(f.read(8), "little"))
+    return b'"encoder.centroid"' in header
+
+
 def distribution(distr, context, horizon, patch_size):
     start = math.ceil(context / patch_size)
     rows = [start + t // patch_size for t in range(horizon)]
@@ -176,7 +235,8 @@ def main():
         path = ROOT + "/" + name
         with open(path + "/config.json") as f:
             config = json.load(f)
-        forecast = moirai1_auto(path) if auto else moirai2(path) if "quantile_levels" in config else moirai1(path)
+        forecast = (moirai1_auto(path) if auto else moirai2(path) if "quantile_levels" in config else moirai_moe(path) if is_moe(path)
+                    else moirai1(path))
         out = []
         for case, history, horizon in cases():
             levels = [0.05, 0.25, 0.5, 0.75, 0.95] if case == "interpolated_levels" else LEVELS

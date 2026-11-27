@@ -188,6 +188,17 @@ public static class TimeSeriesGraphs
     /// <summary>The <see cref="FormKey"/> of quantile-decoder models.</summary>
     public const string QuantileDecoderForm = "quantile-decoder";
 
+    /// <summary>The <see cref="FormKey"/> of the mixture-decoder form (Moirai-MoE, <see cref="MixtureDecoderGraph"/>).</summary>
+    public const string MixtureDecoderForm = "mixture-decoder";
+
+    /// <summary>
+    /// The mixture-decoder graph (Moirai-MoE): <see cref="PatchesInput"/> (<see cref="PatchSymbol"/> rows of <see cref="PatchSizeKey"/> scaled values),
+    /// <see cref="PositionsInput"/>, <see cref="SpansInput"/> (causal in time, set by the host; several sample paths run packed) and
+    /// <see cref="ReadRowsInput"/>; output <see cref="DistributionOutput"/> of the read rows, each predicting the next patch (layout of
+    /// <see cref="ComponentsKey"/>).
+    /// </summary>
+    public const string MixtureDecoderGraph = "mixture_decoder";
+
     /// <summary>The configuration key of the patch sizes of a masked-encoder model (comma separated; <see cref="PatchSizeKey"/> is the default).</summary>
     public const string PatchSizesKey = "patchSizes";
 

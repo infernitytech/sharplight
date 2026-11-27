@@ -12,7 +12,11 @@ namespace Sharplight.Architectures;
 /// <item><description>Moirai 1.x (<see cref="TimeSeriesGraphs.MaskedEncoderGraph"/>): the linear patch projection of one patch size, the learned mask embedding
 /// on the horizon rows, bidirectional attention, and the fused distribution head of that patch size on the read rows;</description></item>
 /// <item><description>Moirai 2.0 (<see cref="TimeSeriesGraphs.QuantileDecoderGraph"/>): residual-block input and output projections around attention that
-/// the host's spans make causal in time.</description></item>
+/// the host's spans make causal in time;</description></item>
+/// <item><description>Moirai-MoE (<see cref="TimeSeriesGraphs.MixtureDecoderGraph"/>): the input projection silu(in(x)) through <c>feat_proj</c> plus the residual
+/// projection <c>res_proj</c>, attention the host's spans make causal in time, a mixture-of-experts feed-forward block routed by the Euclidean distance of
+/// every row to the layer's 32 centroids (the 2 farthest experts, mixed by the softmax of their distances, as uni2ts' <c>MoEFeedForward</c>), and the
+/// distribution head on the read rows (each the next patch's mixture).</description></item>
 /// </list>
 /// The variate attention bias is not emitted: within one univariate series it adds the same value to every score of a head.
 /// </summary>
@@ -64,6 +68,29 @@ internal static class MoiraiGraph
         return b.Build();
     }
 
+    /// <summary>Builds the mixture-decoder graph (Moirai-MoE).</summary>
+    public static ComputeGraph BuildMixtureDecoder(MoiraiParameters p, Func<string, WeightInfo?> weights)
+    {
+        var b = new GraphBuilder(TimeSeriesGraphs.MixtureDecoderGraph, weights);
+        var rows = Dim.Sym(TimeSeriesGraphs.PatchSymbol);
+        int ps = p.PatchSize;
+        var patches = b.Input(TimeSeriesGraphs.PatchesInput, InputRole.Other, DataType.F32, new Shape(rows, ps));
+        var (positions, spans, read) = Common(b);
+        Value x;
+        using (b.Group("input"))
+        {
+            x = b.Add(Linear(b, b.Silu(Linear(b, patches, $"in_proj.p{ps}")), $"feat_proj.p{ps}"), Linear(b, patches, $"res_proj.p{ps}"));
+        }
+
+        x = Encoder(b, x, positions, spans, p);
+        using (b.Group("output"))
+        {
+            b.Output(TimeSeriesGraphs.DistributionOutput, Linear(b, b.Gather(x, read), $"param_proj.p{ps}"));
+        }
+
+        return b.Build();
+    }
+
     private static (Value Positions, Value Spans, Value Read) Common(GraphBuilder b)
     {
         var rows = Dim.Sym(TimeSeriesGraphs.PatchSymbol);
@@ -99,8 +126,31 @@ internal static class MoiraiGraph
         var attended = b.Emit1("Attention", [q, k, v, spans], Attributes.From(("scale", 1f / MathF.Sqrt(p.HeadDim)), ("causal", false)));
         x = b.Add(x, Linear(b, b.Reshape(attended, 0, p.HiddenSize), a + "out_proj"));
         var f = b.RmsNorm(x, b.Weight(n + "norm2.weight"), p.NormEps);
+        if (p.IsMoe)
+        {
+            return b.Add(x, Experts(b, f, n, p));
+        }
+
         var gated = b.Mul(b.Silu(Linear(b, f, n + "ffn.fc_gate")), Linear(b, f, n + "ffn.fc1"));
         return b.Add(x, Linear(b, gated, n + "ffn.fc2"));
+    }
+
+    private static readonly UnaryMlpActivation s_silu = new("Silu");
+
+    // uni2ts' MoEFeedForward: distances d = sqrt(max(|f|² + |c|² − 2 f·c, 0)) to the centroids c (torch.cdist's matrix-product form), the top-k largest,
+    // their softmax as the mixing weights of SiLU-gated experts.
+    private static Value Experts(GraphBuilder b, Value f, string n, MoiraiParameters p)
+    {
+        var centroid = b.Weight(n + "ffn.centroid");                                                                  // [E, H]
+        var rowNorms = b.Emit1("ReduceSum", [b.Mul(f, f)]);                                                         // [T, 1]
+        var centroidNorms = b.Reshape(b.Emit1("ReduceSum", [b.Mul(centroid, centroid)]), 1, p.ExpertCount);       // [1, E]
+        var dots = b.Emit1("MatMul", [f, centroid], Attributes.From((StandardOps.F32ActivationsAttribute, true)));   // [T, E]
+        var squared = b.Add(b.Add(rowNorms, centroidNorms), b.Scale(dots, -2f));
+        var distances = b.Unary("Sqrt", b.Unary("Relu", squared));
+        var top = b.Emit("TopK", [distances], Attributes.From(("k", (long)p.ExpertsUsed)), n + "ffn.router_topk");
+        var mixing = b.Emit1("Softmax", [top[0]]);
+        var options = new MoeOptions(p.ExpertCount, p.ExpertsUsed, MoeScoreFunction.Softmax, NormalizeWeights: false, WeightsScale: 1f, NormEps: p.NormEps);
+        return MoeBlock.Build(b, f, n, "ffn.", options, p.HiddenSize, s_silu, route: (mixing, top[1]));
     }
 
     private static Value Heads(GraphBuilder b, Value x, MoiraiParameters p) => b.Reshape(x, 0, p.HeadCount, p.HeadDim);
