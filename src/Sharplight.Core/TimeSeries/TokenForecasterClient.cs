@@ -10,7 +10,9 @@ namespace Sharplight.TimeSeries;
 /// the context is mean-scaled and quantized into bin tokens (plus the end token), encoded once, and every sample path is drawn token by token from the decoder
 /// (temperature, top-k; the end token is suppressed); the tokens map back to the bin centers. Horizons beyond <see cref="PredictionLength"/> continue from the
 /// context extended by the median path. Leading missing values are dropped (the reference masks them); missing values inside the context become padding tokens
-/// that, unlike in the reference, stay visible to the attention.
+/// that, as in the reference's <c>attention_mask</c>, the encoder's self-attention masks through its key-bias input (<see cref="Architectures.EncoderDecoderAdapter.KeyBiasInput"/>)
+/// and the decoder's cross-attention does not see (it gets the encoder output of the observed rows only). Graphs stored before #93 lack the key-bias input: their
+/// padding tokens stay visible to the encoder.
 /// </summary>
 internal sealed class TokenForecasterClient : ITimeSeriesForecaster
 {
@@ -20,6 +22,7 @@ internal sealed class TokenForecasterClient : ITimeSeriesForecaster
     private readonly CompiledModel _encoder;
     private readonly CompiledModel _decoder;
     private readonly Value _encoderTokens;
+    private readonly Value? _keyBias;
     private readonly Value _decoderTokens;
     private readonly Value _encoderOutput;
     private readonly Value? _sourceSpans;
@@ -71,6 +74,7 @@ internal sealed class TokenForecasterClient : ITimeSeriesForecaster
         }
 
         _encoderTokens = _encoder.Graph.Input(InputRole.TokenIds);
+        _keyBias = _encoder.Graph.Inputs.FirstOrDefault(v => v.Input!.Name == Architectures.EncoderDecoderAdapter.KeyBiasInput);
         _decoderTokens = _decoder.Graph.Input(InputRole.TokenIds);
         _encoderOutput = _decoder.Graph.Input(InputRole.EncoderOutput);
         _sourceSpans = _decoder.Graph.TryInput(InputRole.RowSpans);
@@ -232,9 +236,14 @@ internal sealed class TokenForecasterClient : ITimeSeriesForecaster
         context = context[first..];
         float scale = (float)TimeSeriesHistory.MeanAbsoluteScale(context);
         var tokens = new int[context.Length + (_endToken >= 0 ? 1 : 0)];
+        var bias = new float[tokens.Length];   // 0: observed (and the end token), -1e9: missing
+        bool masked = false;
         for (int i = 0; i < context.Length; i++)
         {
-            tokens[i] = float.IsNaN(context[i]) ? _padToken : Math.Clamp(Bucket(context[i] / scale) + _specialTokens, 0, _vocabulary - 1);
+            bool missing = float.IsNaN(context[i]);
+            tokens[i] = missing ? _padToken : Math.Clamp(Bucket(context[i] / scale) + _specialTokens, 0, _vocabulary - 1);
+            bias[i] = missing ? -1e9f : 0f;
+            masked |= missing;
         }
 
         if (_endToken >= 0)
@@ -243,12 +252,38 @@ internal sealed class TokenForecasterClient : ITimeSeriesForecaster
         }
 
         _encoder.SetInput<int>(_encoderTokens, tokens);
+        if (_keyBias is not null)
+        {
+            _encoder.SetInput<float>(_keyBias, bias);
+        }
+
         var run = new RunParameters();
         run.Symbols[WellKnown.TokenSymbol] = tokens.Length;
         _encoder.Run(run);
-        _source = new float[tokens.Length * _width];
-        _encoder.GetOutput<float>(WellKnown.EncoderOutput, _source);
-        _sourceRows = tokens.Length;
+        var encoded = new float[tokens.Length * _width];
+        _encoder.GetOutput<float>(WellKnown.EncoderOutput, encoded);
+        if (_keyBias is not null && masked)
+        {
+            // The cross-attention sees the observed rows only: dropping the masked rows is exact (their keys would get no weight).
+            int kept = 0;
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                if (bias[i] == 0f)
+                {
+                    encoded.AsSpan(i * _width, _width).CopyTo(encoded.AsSpan(kept * _width));
+                    kept++;
+                }
+            }
+
+            _source = encoded[..(kept * _width)];
+            _sourceRows = kept;
+        }
+        else
+        {
+            _source = encoded;
+            _sourceRows = tokens.Length;
+        }
+
         _sourceFresh = true;
         return scale;
     }

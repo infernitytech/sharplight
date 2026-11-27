@@ -54,9 +54,16 @@ namespace Sharplight.Architectures;
 /// <see cref="InputRole.EncoderOutput"/> input then carries the source on the first pass of a context (E = rows) and no rows afterwards
 /// (E = 0); the runtime scalar <see cref="WellKnown.SourcePastScalar"/> is 0. Token sources of up to <c>encoder.rows</c> rows
 /// (<c>encoder.variable_rows</c>: the Chronos forecasters) add the decode graph's <see cref="InputRole.RowSpans"/> input as variable-length audio does.</para>
+/// <para>Key bias (<c>encoder.key_bias</c>, token encoders): the <see cref="WellKnown.EncodeGraph"/> takes the f32 input <see cref="KeyBiasInput"/> [T], one
+/// additive score bias per source row that every query of the encoder's self-attention adds to that key (0: the row takes part, −1e9: it is masked, the
+/// reference's <c>attention_mask</c>); masked rows keep their positions. The decoder's cross-attention has no such input: the host passes it the encoder
+/// output of the unmasked rows only, which is exact.</para>
 /// </remarks>
 public sealed class EncoderDecoderAdapter : IModelAdapter
 {
+    /// <summary>The f32 key-bias input [T] of the encode graph of a model with <c>encoder.key_bias</c> (see the remarks).</summary>
+    public const string KeyBiasInput = "key_bias";
+
     /// <inheritdoc/>
     public string Name => "Transformer encoder-decoder";
     /// <inheritdoc/>
@@ -99,6 +106,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
         int crossWidth = encoderProjection ? nEmbd : src.Arch("encoder.hidden_size", nEmbd);
         bool cachedCross = src.Arch("cross_attention.cached", false);
         bool variableRows = src.Arch("encoder.variable_rows", false);
+        bool keyBiasInput = src.Arch("encoder.key_bias", false);
         var extraWeights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         bool conformerEncoder = audio && src.Arch("encoder.type", "transformer") == "conformer";
         var conformer = conformerEncoder ? new ConformerEncoder(src, extraWeights) : null;
@@ -183,6 +191,7 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
             var b = new GraphBuilder(WellKnown.EncodeGraph, Lookup);
             Value x;
             Value? encoderPositions = null;
+            Value? keyBias = null;
             if (image)
             {
                 var tower = new TowerOptions(src.Arch<int>("vision.layer_count"), src.Arch<int>("vision.hidden_size"), src.Arch<int>("vision.attention.head_count"),
@@ -240,10 +249,12 @@ public sealed class EncoderDecoderAdapter : IModelAdapter
                 var T = Dim.Sym(WellKnown.TokenSymbol);
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                 var positions = HasPositions("encoder") ? b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1)) : null;
+                keyBias = keyBiasInput ? b.Input(KeyBiasInput, InputRole.Other, DataType.F32, new Shape(T)) : null;
                 x = Embeddings(b, "encoder", tokens, positions);
             }
 
-            x = EncoderLayers(b, x, encoderPositions, (q, k, v, il, name) => b.Emit1("Attention", [q, k, v], Attributes.From([("scale", scale), ("causal", false), .. BiasAttributes(encoderBias[il])]), name));
+            x = EncoderLayers(b, x, encoderPositions, (q, k, v, il, name) => b.Emit1("Attention", keyBias is null ? [q, k, v] : [q, k, v, keyBias],
+                Attributes.From([("scale", scale), ("causal", false), .. BiasAttributes(encoderBias[il])]), name));
             using (b.Group("output"))
             {
                 b.Output(WellKnown.EncoderOutput, FinalNorm(b, x, "encoder.output_norm", "encoder_output"));

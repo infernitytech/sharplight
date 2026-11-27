@@ -31,13 +31,6 @@ public class ChronosTests
             Assert.Equal(reference.Horizon, forecast.Horizon);
             double error = TimeSeriesModels.RelativeError(forecast.Quantiles, reference.Quantiles);
             TestContext.Current.TestOutputHelper?.WriteLine($"{reference.Name}: error {error:E2} (of the forecast's range)");
-            if (reference.Name == "gaps")
-            {
-                // Missing values inside the context are padding tokens the reference masks out of the attention; here they stay visible.
-                Assert.All(forecast.Mean, v => Assert.True(float.IsFinite(v)));
-                continue;
-            }
-
             Assert.True(error < 1e-4, $"{reference.Name}: error {error:E2}");
         }
     }

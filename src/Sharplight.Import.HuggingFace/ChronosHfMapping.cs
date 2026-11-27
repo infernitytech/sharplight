@@ -62,6 +62,7 @@ internal sealed class ChronosHfMapping : IHfArchitectureMapping
         result[a + "cross_attention.cached"] = true;
         result[a + "encoder.rows"] = context + (eos ? 1 : 0);
         result[a + "encoder.variable_rows"] = true;
+        result[a + "encoder.key_bias"] = true;   // missing values inside the context are masked out of the encoder's attention (#93)
         result[a + "forecast.context_length"] = context;
         result[a + "forecast.prediction_length"] = Int(chronos, "prediction_length", 64);
         result[a + "forecast.tokens"] = Int(chronos, "n_tokens", 4096);
