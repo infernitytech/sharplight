@@ -9,21 +9,24 @@ namespace Sharplight.Families.Tests;
 /// <summary>
 /// DeepSeek sparse attention behind the continuous-batching engine: tiny DSA models whose indexer budget (8) is far below the context, so the
 /// indexer key cache and the per-row selection go through the multi-sequence form (rows, runs and pages). Greedy output of prompts of different
-/// lengths decoded together, prefilled in small chunks, is token-identical to decoding each prompt alone.
+/// lengths decoded together, prefilled in small chunks, is token-identical to decoding each prompt alone. Hunyuan v4 Flash adds the pooled
+/// indexer (pools of 4, the query's own pool always attended) next to sliding-window layers and Engram modules.
 /// </summary>
 public class SparseAttentionServingTests
 {
-    private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "hf");
+    private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
 
     [Theory]
-    [InlineData("tiny-random-deepseek-v32-sparse", false)]
-    [InlineData("tiny-random-deepseek-v32-sparse", true)]
-    [InlineData("tiny-random-hy-v4-sparse", false)]
-    [InlineData("tiny-random-hy-v4-sparse", true)]
+    [InlineData("hf/tiny-random-deepseek-v32-sparse", false)]
+    [InlineData("hf/tiny-random-deepseek-v32-sparse", true)]
+    [InlineData("hf/tiny-random-hy-v4-sparse", false)]
+    [InlineData("hf/tiny-random-hy-v4-sparse", true)]
+    [InlineData("gguf/tiny-random-hy-v4-flash-f32.gguf", false)]
+    [InlineData("gguf/tiny-random-hy-v4-flash-f32.gguf", true)]
     public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan)
     {
         string path = Path.Combine(Models, name);
-        Assert.SkipUnless(Directory.Exists(path), $"{path} not present");
+        Assert.SkipUnless(Directory.Exists(path) || File.Exists(path), $"{path} not present");
         using var device = OpenDevice(vulkan);
         using var model = LlmModel.Load(TestHost.Loader, path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 128, MaxBatchTokens = 16 });
         var rng = new Random(3);

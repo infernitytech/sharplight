@@ -22,6 +22,11 @@ namespace Sharplight.Architectures;
 /// <c>attention.indexer.pool_gate.weight</c> [D, hidden] · h; the indexer scores one key per G consecutive positions (per channel the softmax
 /// over the members of gate + <c>attention.indexer.pool_position.weight</c> [G, D] weights their keys) and picks budget / G whole pools,
 /// optionally followed by the query's incomplete pool.
+/// Value-pooled keys (Hunyuan v4 Flash, <c>attention.indexer.pool_value.weight</c> [D, D] present): the token key is RMS-normed
+/// (<c>attention.indexer.k_norm.weight</c>, no bias) and not rotated, the cache rows hold its projections [pool_value · k | pool_gate · k]
+/// (<c>pool_gate</c> [D, D]), and the pooled key is RMS-normed (<c>attention.indexer.pool_norm.weight</c> [D]) and its rope dimensions rotated at
+/// the position of the pool's first member (the layer's rope base and pairing). With <see cref="SparseAttentionIndexerOptions.PoolOwn"/> the
+/// query's own pool is always attended and the budget's other pools are the best earlier ones.
 /// </remarks>
 internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions options)
 {
@@ -53,9 +58,11 @@ internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions optio
     /// <param name="ropeDims">Rotary dimensions of each query and key.</param>
     /// <param name="rotate">Applies the indexer's rotary embedding to a [T, heads, <paramref name="ropeDims"/>] tensor.</param>
     /// <param name="logPositions">ln(pos + 1) of every row (<see cref="ScalableSoftmax.LogPositions"/>) when the model has SSMax factors.</param>
+    /// <param name="ropeBase">Rotary base of the layer (value-pooled keys rotate at their first member's position with it).</param>
     public Value Select(GraphBuilder b, Value h, Value queryInput, string prefix, StateDefinition keyCache, int ropeDims, Func<Value, Value> rotate,
-        Value? logPositions = null)
+        Value? logPositions = null, float ropeBase = 10000f)
     {
+        bool valuePooled = options.Pooled && b.HasWeight(prefix + "attention.indexer.pool_value.weight");
         int heads = (int)b.Weight(prefix + "attention.indexer.head_weights.weight").Shape[0].Fixed;
         int dims = (int)b.Weight(prefix + "attention.indexer.k.weight").Shape[0].Fixed;
         if (b.HasWeight(prefix + "attention.indexer.q_norm.weight"))
@@ -66,11 +73,23 @@ internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions optio
 
         var q = b.Reshape(b.Linear(queryInput, prefix + "attention.indexer.q_up.weight", name: $"{prefix}indexer_q"), 0, heads, dims);
         q = ScalableSoftmax.Apply(b, q, logPositions, prefix + "attention.indexer.ssmax");
-        var k = b.Emit1("LayerNorm", [b.Linear(h, prefix + "attention.indexer.k.weight"), b.Weight(prefix + "attention.indexer.k_norm.weight"),
-            b.Weight(prefix + "attention.indexer.k_norm.bias")], Attributes.From(("eps", options.NormEps)), $"{prefix}indexer_k");
+        var k = valuePooled
+            ? b.RmsNorm(b.Linear(h, prefix + "attention.indexer.k.weight"), b.Weight(prefix + "attention.indexer.k_norm.weight"), options.NormEps, $"{prefix}indexer_k")
+            : b.Emit1("LayerNorm", [b.Linear(h, prefix + "attention.indexer.k.weight"), b.Weight(prefix + "attention.indexer.k_norm.weight"),
+                b.Weight(prefix + "attention.indexer.k_norm.bias")], Attributes.From(("eps", options.NormEps)), $"{prefix}indexer_k");
         q = Rotate(b, q, dims, ropeDims, rotate);
-        k = Rotate(b, b.Reshape(k, 0, 1, dims), dims, ropeDims, rotate);
-        if (options.Pooled)
+        if (valuePooled)
+        {
+            // The value and the gate are linear in the token key; the pooled key is normed and rotated inside the selection.
+            k = b.Concat(2, b.Reshape(b.Linear(k, prefix + "attention.indexer.pool_value.weight", name: $"{prefix}indexer_value"), 0, 1, dims),
+                b.Reshape(b.Linear(k, prefix + "attention.indexer.pool_gate.weight", name: $"{prefix}indexer_gate"), 0, 1, dims));
+        }
+        else
+        {
+            k = Rotate(b, b.Reshape(k, 0, 1, dims), dims, ropeDims, rotate);
+        }
+
+        if (options.Pooled && !valuePooled)
         {
             k = b.Concat(2, k, b.Reshape(b.Linear(h, prefix + "attention.indexer.pool_gate.weight", name: $"{prefix}indexer_gate"), 0, 1, dims));
         }
@@ -80,12 +99,29 @@ internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions optio
 
         var weights = b.Scale(b.Linear(h, prefix + "attention.indexer.head_weights.weight"), 1f / MathF.Sqrt(heads * dims), name: $"{prefix}indexer_w");
         b.RuntimeScalar(WellKnown.PastScalar);
-        var attributes = Attributes.From(("k", (long)options.TokenBudget), ("offset", WellKnown.PastScalar));
+        // With the own pool always attended, the scored pools take the rest of the budget.
+        long budget = options.PoolOwn ? options.TokenBudget - options.PoolSize : options.TokenBudget;
+        var attributes = Attributes.From(("k", budget), ("offset", WellKnown.PastScalar));
         Value[] inputs = [q, state, weights];
         if (options.Pooled)
         {
             attributes = attributes.With("group", (long)options.PoolSize).With("group_score", "pooled").With("tail", options.PoolTail);
             inputs = [.. inputs, b.Weight(prefix + "attention.indexer.pool_position.weight")];
+            if (options.PoolOwn)
+            {
+                attributes = attributes.With("own_group", true);
+            }
+        }
+
+        if (valuePooled)
+        {
+            attributes = attributes.With("pool_norm_eps", options.NormEps);
+            inputs = [.. inputs, b.Weight(prefix + "attention.indexer.pool_norm.weight")];
+            if (ropeDims > 0)
+            {
+                attributes = attributes.With("pool_rope_dims", (long)ropeDims).With("pool_rope_base", ropeBase).With("pool_rope_style", options.RopeStyle)
+                    .With("pool_rope_last", options.RopeLast);
+            }
         }
 
         return b.Emit1("IndexerTopK", inputs, attributes, $"{prefix}indexer_topk");

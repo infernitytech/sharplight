@@ -7,7 +7,8 @@ namespace Sharplight.Architectures;
 /// hyper-parameters: <c>layers</c> (the layers that read the memory, ascending; module e belongs to the e-th of them), <c>order</c> (n-gram
 /// length N including the token itself), <c>heads_per_order</c>, <c>multipliers</c> (N per module), <c>head_sizes</c> / <c>head_offsets</c>
 /// ((N - 1)·heads_per_order per module: bucket count and first row of every hash head in the shared table), <c>token_map</c> (token id →
-/// hashed id; negative: no id) and <c>pad_token</c> (the token whose hashed id stands for missing tokens).
+/// hashed id; negative: no id), <c>pad_token</c> (the token whose hashed id stands for missing tokens) and <c>norm_eps</c> (epsilon of the
+/// module's RMS norms; default the model's).
 /// </summary>
 /// <param name="Layers">The layers with a memory module, ascending.</param>
 /// <param name="Order">N-gram length (the token and its N - 1 predecessors).</param>
@@ -17,8 +18,9 @@ namespace Sharplight.Architectures;
 /// <param name="HeadOffsets">First table row of every hash head, laid out like <paramref name="HeadSizes"/>.</param>
 /// <param name="TokenMap">Hashed id of every token id; negative for tokens without one.</param>
 /// <param name="Pad">Hashed id that replaces missing tokens.</param>
+/// <param name="NormEps">Epsilon of the RMS norms, or null for the model's.</param>
 internal sealed record EngramOptions(int[] Layers, int Order, int HeadsPerOrder, long[] Multipliers, long[] HeadSizes, long[] HeadOffsets, int[] TokenMap,
-    long Pad)
+    long Pad, float? NormEps = null)
 {
     /// <summary>Hash heads per module.</summary>
     public int Heads => (Order - 1) * HeadsPerOrder;
@@ -51,6 +53,7 @@ internal sealed record EngramOptions(int[] Layers, int Order, int HeadsPerOrder,
             throw new InvalidDataException($"{source.Architecture}: inconsistent engram tables.");
         }
 
-        return new EngramOptions(layers, order, headsPerOrder, multipliers, sizes, offsets, map, map[padToken]);
+        float eps = source.Arch("engram.norm_eps", 0f);
+        return new EngramOptions(layers, order, headsPerOrder, multipliers, sizes, offsets, map, map[padToken], eps > 0f ? eps : null);
     }
 }

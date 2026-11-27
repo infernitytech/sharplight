@@ -282,11 +282,11 @@ internal sealed partial class LatentDecoderGraphBuilder
         }
 
         var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
-        var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
+        var attention = PostNorm(b, Mixer(b, h, p, il, headIds, rotate, temperature), p + "attention.");
         x = b.Add(ResidualBranch(b, attention), x, $"{p}attn_residual");
 
         h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
-        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        var ffn = PostNorm(b, MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out"), p + "mlp.");
         return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 
@@ -332,7 +332,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         {
             // An indexer without rotary embedding (Kimi K3.1) scores the whole rows as they are.
             int ropeDims = _indexer.Options.RopeStyle == "none" ? 0 : _attentions[il].Parameters.RopeDims;
-            return queryInput => _previousSelection = _indexer.Select(b, h, queryInput, p, keys, ropeDims, _indexerRotate!, _logPositions);
+            return queryInput => _previousSelection = _indexer.Select(b, h, queryInput, p, keys, ropeDims, _indexerRotate!, _logPositions, _hp.RopeBase);
         }
 
         return _ => _previousSelection ?? throw new InvalidDataException($"latent_decoder: layer {il} reuses an indexer selection, but no earlier layer has an indexer.");
@@ -354,12 +354,12 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         var (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "attention_hc.", hc, _hp.HiddenSize);
         var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
-        var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
+        var attention = PostNorm(b, Mixer(b, h, p, il, headIds, rotate, temperature), p + "attention.");
         x = StreamHyperConnections.Merge(b, x, ResidualBranch(b, attention), post, mixing, hc, _hp.HiddenSize, $"{p}attn_residual");
 
         (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "mlp_hc.", hc, _hp.HiddenSize);
         h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
-        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        var ffn = PostNorm(b, MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out"), p + "mlp.");
         return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc, _hp.HiddenSize, $"{p}l_out");
     }
 
@@ -408,6 +408,10 @@ internal sealed partial class LatentDecoderGraphBuilder
     /// <summary>The query temperature of every row (Mistral 4 / Mistral Large 3), or null when the model has none.</summary>
     private Value? Temperature(GraphBuilder b, Value positions)
         => _hp.TemperatureScale == 0f ? null : AttentionTemperature.Build(b, positions, _hp.TemperatureScale, _hp.TemperatureLength);
+
+    // Sandwich norms (Hunyuan v4 Flash): a sub-layer's output is RMS-normalized by <block>post_norm.weight when the layer has one.
+    private Value PostNorm(GraphBuilder b, Value branch, string block)
+        => b.TryWeight(block + "post_norm.weight") is { } weight ? b.RmsNorm(branch, weight, _hp.Eps, $"{block}post_norm") : branch;
 
     private Value ResidualBranch(GraphBuilder b, Value branch) => _hp.ResidualScale == 1f ? branch : b.Scale(branch, _hp.ResidualScale);
 

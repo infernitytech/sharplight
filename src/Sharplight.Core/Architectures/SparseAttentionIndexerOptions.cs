@@ -6,8 +6,9 @@ namespace Sharplight.Architectures;
 /// Settings of <see cref="SparseAttentionIndexer"/>, read from the <c>{arch}.attention.indexer.*</c> keys: <c>token_budget</c> (top-k, 0 = no
 /// indexer), <c>rope_style</c> ("neox" rotate-half, the default, or "gptj" interleaved pairs), <c>rope_last</c> (the rotary part is the end of
 /// each query and key instead of its start; Hunyuan v4), <c>norm_eps</c> (epsilon of the key LayerNorm, default 1e-6), <c>pool_size</c> (G &gt; 1:
-/// the indexer scores pooled keys of G consecutive positions and picks whole pools, GLM-5.3; default 1) and <c>pool_tail</c> (bool: the
-/// positions of the query's incomplete pool are attended as well).
+/// the indexer scores pooled keys of G consecutive positions and picks whole pools, GLM-5.3; default 1), <c>pool_tail</c> (bool: the
+/// positions of the query's incomplete pool are attended as well) and <c>pool_own</c> (bool, with <c>pool_tail</c>: the query's own pool is
+/// never scored but always attended, complete or not, and takes one pool of the budget; Hunyuan v4 Flash).
 /// </summary>
 /// <param name="TokenBudget">Key positions every query attends (top-k), a multiple of <paramref name="PoolSize"/>.</param>
 /// <param name="RopeStyle">Rotary pairing of the indexer's rope dimensions.</param>
@@ -15,7 +16,9 @@ namespace Sharplight.Architectures;
 /// <param name="NormEps">Epsilon of the key LayerNorm.</param>
 /// <param name="PoolSize">Positions per pooled key (1: every position is scored by its own key).</param>
 /// <param name="PoolTail">Whether the positions of the query's incomplete pool follow the selection.</param>
-internal sealed record SparseAttentionIndexerOptions(int TokenBudget, string RopeStyle, bool RopeLast, float NormEps, int PoolSize = 1, bool PoolTail = false)
+/// <param name="PoolOwn">Whether the query's own pool is always attended instead of scored (within the budget).</param>
+internal sealed record SparseAttentionIndexerOptions(int TokenBudget, string RopeStyle, bool RopeLast, float NormEps, int PoolSize = 1, bool PoolTail = false,
+    bool PoolOwn = false)
 {
     /// <summary>Whether keys are pooled in groups of <see cref="PoolSize"/> positions.</summary>
     public bool Pooled => PoolSize > 1;
@@ -36,7 +39,13 @@ internal sealed record SparseAttentionIndexerOptions(int TokenBudget, string Rop
             src.Arch("attention.indexer.rope_last", false),
             src.Arch("attention.indexer.norm_eps", 1e-6f),
             Math.Max(1, src.Arch("attention.indexer.pool_size", 1)),
-            src.Arch("attention.indexer.pool_tail", false));
+            src.Arch("attention.indexer.pool_tail", false),
+            src.Arch("attention.indexer.pool_own", false));
+        if (options.PoolOwn && (!options.Pooled || !options.PoolTail || budget < 2 * options.PoolSize))
+        {
+            throw new InvalidDataException("attention.indexer.pool_own needs pool_tail and a token_budget of at least two pools.");
+        }
+
         return budget % options.PoolSize == 0
             ? options
             : throw new InvalidDataException($"attention.indexer.token_budget {budget} is not a multiple of attention.indexer.pool_size {options.PoolSize}.");

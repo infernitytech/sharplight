@@ -15,8 +15,9 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     private readonly TRef _q;
     private readonly TRef _keys;
     private readonly TRef? _weights;     // [T, H] head weights (null: per-head selection)
-    private readonly TRef? _poolInput;   // pooled groups: [G, D] gate offset per member; mean groups with a norm: the norm weight [D]
-    private readonly double[]? _poolInvFreq; // mean groups with rotated keys: base^(-2i/R) per rotated pair
+    private readonly TRef? _poolGate;    // pooled groups: [G, D] gate offset per member
+    private readonly TRef? _poolNorm;    // pooled or mean groups with a norm: the norm weight [D]
+    private readonly double[]? _poolInvFreq; // pooled or mean groups with rotated keys: base^(-2i/R) per rotated pair
     private readonly TRef _y;
     private readonly IndexerSelection _selection;
     private readonly int _heads;
@@ -41,7 +42,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
 
     public override string Name => "IndexerTopK";
 
-    public IndexerTopKOp(TRef q, TRef keys, TRef? weights, TRef? poolInput, TRef y, IndexerSelection selection, string offsetScalar, TRef? rows = null,
+    public IndexerTopKOp(TRef q, TRef keys, TRef? weights, TRef? poolGate, TRef? poolNorm, TRef y, IndexerSelection selection, string offsetScalar, TRef? rows = null,
         int slots = 1, KvPages? pages = null, long compression = 1, TRef? candidates = null)
     {
         _compression = Math.Max(1, compression);
@@ -49,8 +50,9 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         _q = q;
         _keys = keys;
         _weights = weights;
-        _poolInput = poolInput;
-        if (selection.Mean && selection.PoolRopeDims > 0)
+        _poolGate = poolGate;
+        _poolNorm = poolNorm;
+        if (selection.CompleteGroups && selection.PoolRopeDims > 0)
         {
             _poolInvFreq = new double[selection.PoolRopeDims / 2];
             for (int i = 0; i < _poolInvFreq.Length; i++)
@@ -156,7 +158,8 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
 
         int group = _selection.Group;
         int budget = _selection.Budget / group;
-        long candidates = _selection.CompleteGroups ? visible / group : (visible + group - 1) / group;
+        // Complete groups (pooled, mean) or every group with a visible position; with own_group only the complete groups before the row's own.
+        long candidates = _selection.OwnGroup ? (visible - 1) / group : _selection.CompleteGroups ? visible / group : (visible + group - 1) / group;
         int* y = (int*)_y.P + (t * _selectionHeads + head) * _width;
         new Span<int>(y, _width).Fill(-1);
         if (_candidates is not null)
@@ -167,7 +170,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
 
         if (_selection.Tail)
         {
-            for (int i = 0; i < group - 1 && candidates * group + i < visible; i++)
+            for (int i = 0; i < _width - _selection.Budget && candidates * group + i < visible; i++)
             {
                 y[_selection.Budget + i] = (int)(candidates * group + i);
             }
@@ -399,14 +402,14 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         max.Fill(float.NegativeInfinity);
         new Span<float>(sum, _dims).Clear();
         new Span<float>(acc, _dims).Clear();
-        float* offsets = (float*)_poolInput!.P;
+        float* offsets = (float*)_poolGate!.P;
         for (int i = 0; i < group; i++)
         {
             long row = slot >= 0 ? _pages!.Row(slot, g * group + i) : rowBase + g * group + i;
             for (int d = 0; d < _dims; d++)
             {
                 float key = CacheValue(row, d);
-                float logit = CacheValue(row, _dims + d) + offsets[i * _poolInput.Strides[0] + d];
+                float logit = CacheValue(row, _dims + d) + offsets[i * _poolGate.Strides[0] + d];
                 if (logit > max[d])
                 {
                     float rescale = MathF.Exp(max[d] - logit);
@@ -426,7 +429,9 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
             max[d] = acc[d] / sum[d];
         }
 
-        return new KeyRef(-1, (float*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref pooled[0]));
+        float* pooledKey = (float*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref pooled[0]);
+        NormAndRotate(pooledKey, g);
+        return new KeyRef(-1, pooledKey);
     }
 
     // The mean key of group g: the mean of its members' rows, RMS-normed (times the norm weight) and its first R channels rotated as neox pairs
@@ -451,17 +456,29 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
             }
         }
 
-        float squares = 0f;
         for (int d = 0; d < _dims; d++)
         {
             key[d] /= group;
-            squares += key[d] * key[d];
         }
 
+        NormAndRotate(key, g);
+        return new KeyRef(-1, key);
+    }
+
+    // RMS-normalizes a pooled or mean key (times the norm weight) and rotates its R rope channels (the first or the last R, neox or gptj pairs)
+    // at the group's first position, when the selection asks for it.
+    private void NormAndRotate(float* key, long g)
+    {
         if (_selection.PoolNormEps > 0f)
         {
+            float squares = 0f;
+            for (int d = 0; d < _dims; d++)
+            {
+                squares += key[d] * key[d];
+            }
+
             float scale = 1f / MathF.Sqrt(squares / _dims + _selection.PoolNormEps);
-            float* weight = (float*)_poolInput!.P;
+            float* weight = (float*)_poolNorm!.P;
             for (int d = 0; d < _dims; d++)
             {
                 key[d] = key[d] * scale * weight[d];
@@ -471,20 +488,21 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         if (_poolInvFreq is not null)
         {
             int half = _poolInvFreq.Length;
-            long position = g * group;
+            float* rotated = key + (_selection.PoolRopeLast ? _dims - 2 * half : 0);
+            long position = g * _selection.Group;
             for (int i = 0; i < half; i++)
             {
                 double theta = position * _poolInvFreq[i];
                 float cos = (float)Math.Cos(theta);
                 float sin = (float)Math.Sin(theta);
-                float x0 = key[i];
-                float x1 = key[i + half];
-                key[i] = x0 * cos - x1 * sin;
-                key[i + half] = x1 * cos + x0 * sin;
+                int first = _selection.PoolRopeGptj ? 2 * i : i;
+                int second = _selection.PoolRopeGptj ? 2 * i + 1 : i + half;
+                float x0 = rotated[first];
+                float x1 = rotated[second];
+                rotated[first] = x0 * cos - x1 * sin;
+                rotated[second] = x1 * cos + x0 * sin;
             }
         }
-
-        return new KeyRef(-1, key);
     }
 
     private float CacheValue(long row, int index)

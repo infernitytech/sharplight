@@ -44,7 +44,9 @@ public sealed class SparseAttentionTests
     /// <summary>
     /// Group selection: per-head block selection by the best position score with forced local blocks (MiniMax), and pooled groups whose keys are
     /// softmax-gated averages, with the incomplete group's positions appended (GLM-5.3 k-pool), and mean groups, RMS-normed and rotated at their
-    /// first position ("mean", Qwen QSA) or plain ("mean-plain"); exact positions against the CPU oracle.
+    /// first position ("mean", Qwen QSA) or plain ("mean-plain"), and pooled groups whose pooled keys are RMS-normed and rotated at their first
+    /// position, with the query's own group always listed ("pooled-own": the last channels in interleaved pairs, Hunyuan v4 Flash;
+    /// "pooled-own-neox": the first channels in neox pairs); exact positions against the CPU oracle.
     /// </summary>
     [Theory]
     [InlineData("f32", 2, 16, 4, 12, "max", 1, false, true)]
@@ -55,12 +57,16 @@ public sealed class SparseAttentionTests
     [InlineData("f32", 4, 32, 4, 8, "mean", 0, true, false)]
     [InlineData("f16", 4, 128, 4, 8, "mean", 0, true, false)]
     [InlineData("f32", 2, 16, 4, 12, "mean-plain", 0, true, false)]
+    [InlineData("f32", 2, 16, 4, 8, "pooled-own", 0, true, false)]
+    [InlineData("f16", 4, 32, 4, 12, "pooled-own", 0, true, false)]
+    [InlineData("f32", 4, 32, 8, 16, "pooled-own-neox", 0, true, false)]
     public void IndexerTopKGroupsAcrossSteps(string cacheType, int heads, int dims, int group, int k, string score, int local, bool tail, bool perHead)
     {
         Gpu.Require();
         int[] chunks = [5, 3, 1, 1, 40, 1, 7, 1];
         int total = chunks.Sum();
-        bool pooled = score == "pooled";
+        bool own = score.StartsWith("pooled-own", StringComparison.Ordinal);
+        bool pooled = score == "pooled" || own;
         int rowValues = pooled ? 2 * dims : dims;
         var tg = new TG();
         var T = TG.T;
@@ -81,12 +87,20 @@ public sealed class SparseAttentionTests
             inputs.Add(tg.WF("gate", Rnd.F(group * dims, 11), group, dims));
         }
 
-        var attributes = Attributes.From(("k", (long)k), ("offset", "n_past"), ("group", (long)group), ("group_score", score == "mean-plain" ? "mean" : score),
+        var attributes = Attributes.From(("k", (long)k), ("offset", "n_past"), ("group", (long)group),
+            ("group_score", score == "mean-plain" ? "mean" : pooled ? "pooled" : score),
             ("local", (long)local), ("tail", tail), ("per_head", perHead));
         if (score == "mean")
         {
             inputs.Add(tg.WF("norm", Rnd.F(dims, 12), dims));
             attributes = attributes.With("pool_norm_eps", 1e-6f).With("pool_rope_dims", (long)dims / 4).With("pool_rope_base", 1e7f);
+        }
+
+        if (own)
+        {
+            inputs.Add(tg.WF("norm", Rnd.F(dims, 12), dims));
+            attributes = attributes.With("pool_norm_eps", 1e-5f).With("pool_rope_dims", (long)dims / 2).With("pool_rope_base", 1e4f).With("own_group", true)
+                .With("pool_rope_style", score == "pooled-own" ? "gptj" : "neox").With("pool_rope_last", score == "pooled-own");
         }
 
         tg.B.Output("selection", tg.B.Emit1("IndexerTopK", inputs, attributes));
