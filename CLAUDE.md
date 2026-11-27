@@ -57,7 +57,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Tiny VL checkpoints are compared with transformers in `TinyQwenVlImageTests` (references written by the tools scripts named in
   docs/model-support.md 8.3; the GGUFs come from llama.cpp HEAD's converter, which stores some projector weights in f16 regardless of
   `--outtype`, so round them in the reference too — but check the converted file's tensor types first: LFM2-VL's projector stays f32).
-  The language model does not yet model bidirectional attention over image rows (Gemma 3, PaliGemma; #98). Towers whose views differ in size
+  Bidirectional attention over an image's rows (Gemma 3, mmproj key `image_attention`; #98) goes through CachedAttention's `lookahead` input
+  (`InputRole.AttentionLookahead`, symbol `A`: 1 = no row looks ahead, plain kernels; T = the pass has image rows, per-(head, query) kernel);
+  every caller of a graph with that input must bind `A`. Towers whose views differ in size
   (LFM2-VL tiles + thumbnail) go through `VisionPreprocessor.PatchifyViews`; the `hybrid` adapter (LFM2) takes a tower like `decoder`.
   `siglip_vl_reference.py` for LFM2-VL needs torchvision in the venv (`uv pip install torchvision` matching the torch build).
 - Sharplight.Video.Tests (BundledFfmpegTests) fails, by design, without the bundled FFmpeg libraries in
@@ -89,7 +91,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
   arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC
   each differ; #10, benchmarks §123), so after touching matvec / int-dot sums run `*RowInvarianceTests*` on both providers
-  and `VerificationRowInvarianceTests` (Families).
+  and `VerificationRowInvarianceTests` (Families). Row-invariant sums must not imitate what one driver makes of the plain
+  expression: give plain and row-invariant SPIR-V compiles the same explicit `fma` / `precise` form (mmvq.slang
+  `MQ_FMA_CHAIN`, #102). The Families test needs `~/models/gguf/Qwen3-0.6B/Qwen3-0.6B-{Q8_0,Q4_K_M}.gguf` (unsloth/Qwen3-0.6B-GGUF).
 
 ## Style and layout
 

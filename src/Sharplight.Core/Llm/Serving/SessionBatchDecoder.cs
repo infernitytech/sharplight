@@ -35,6 +35,8 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     /// <inheritdoc/>
     public int EmbeddingWidth => session.EmbeddingWidth;
     /// <inheritdoc/>
+    public bool BidirectionalMediaRows => session.BidirectionalImageRows;
+    /// <inheritdoc/>
     public int PositionAxes => Math.Max(1, session.PositionAxes);
     /// <inheritdoc/>
     public int TextPositionAxes => Math.Min(PositionAxes, session.TextPositionAxes);

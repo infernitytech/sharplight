@@ -1891,7 +1891,7 @@ public sealed class InferenceEngine : IDisposable
             }
 
             int chunk = Math.Min(Math.Min(Math.Min(_prefillChunk, replay.Length - s.ReplayPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
-            chunk = ClipToEncodedMedia(s, s.ReplayPos, chunk);
+            chunk = ClipToWholeMedia(s, s.ReplayPos, ClipToEncodedMedia(s, s.ReplayPos, chunk));
             if (chunk <= 0)
             {
                 continue;
@@ -1944,7 +1944,7 @@ public sealed class InferenceEngine : IDisposable
                 s.TraceClip += " whole";
             }
 
-            chunk = ClipToEncodedMedia(s, s.PromptPos, chunk);
+            chunk = ClipToWholeMedia(s, s.PromptPos, ClipToEncodedMedia(s, s.PromptPos, chunk));
             if (chunk <= 0)
             {
                 continue;
@@ -2408,6 +2408,32 @@ public sealed class InferenceEngine : IDisposable
         int bs = _decoder.KvBlockSize;
         int aligned = bs > 0 ? start / bs * bs - pos : 0;
         return Math.Max(0, aligned > 0 ? aligned : start - pos);
+    }
+
+    /// <summary>
+    /// A decoder whose media rows attend to each other (<see cref="IBatchDecoder.BidirectionalMediaRows"/>): a chunk that would end inside a
+    /// media starting after the chunk's first row ends before it (on a block boundary where it can), so the media's rows go into one later
+    /// step together. A media that starts at the chunk's first row and is longer than the chunk is still split (each part then sees within itself).
+    /// </summary>
+    private int ClipToWholeMedia(EngineSequence s, int pos, int chunk)
+    {
+        if (chunk <= 0 || !_decoder.BidirectionalMediaRows || s.Layout is not { } layout)
+        {
+            return chunk;
+        }
+
+        int end = pos + chunk;
+        foreach (var m in layout.Media)
+        {
+            if (m.Start > pos && m.Start < end && m.End > end)
+            {
+                int bs = _decoder.KvBlockSize;
+                int aligned = bs > 0 ? m.Start / bs * bs - pos : 0;
+                return aligned > 0 ? aligned : m.Start - pos;
+            }
+        }
+
+        return chunk;
     }
 
     private void AddInput(EngineSequence s, SequenceInput input, bool replay = false)

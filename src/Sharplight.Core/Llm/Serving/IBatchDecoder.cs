@@ -50,6 +50,11 @@ public interface IBatchDecoder : IDisposable
     /// layers where the model has them); 0 when the decoder takes token rows only (compiled without the multimodal graph).
     /// </summary>
     public int EmbeddingWidth => 0;
+    /// <summary>
+    /// Whether the rows of one embedding run (an image's rows within an input) attend to each other (Gemma 3; <see cref="Models.InputRole.AttentionLookahead"/>):
+    /// a run split over two steps would have its first part miss the second, so the engine keeps an image's rows in one step where it can.
+    /// </summary>
+    public bool BidirectionalMediaRows => false;
     /// <summary>Rope position axes per row (<see cref="SequenceInput.Positions"/>): 1 for plain rope, 3 or 4 for M-RoPE / XD-RoPE models.</summary>
     public int PositionAxes => 1;
     /// <summary>Leading position axes that carry a text row's position (the others are 0 for text rows): 3 for M-RoPE, all axes otherwise.</summary>

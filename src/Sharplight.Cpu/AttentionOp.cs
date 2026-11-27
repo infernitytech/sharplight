@@ -45,6 +45,8 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly bool _cHalf;
     private readonly long _sequenceRows;  // > 0: batched form, query rows [b·R, (b+1)·R) see key rows [b·L, (b+1)·L)
     private readonly long _sequenceKeys;  // L of the batched form
+    private readonly TRef? _lookahead;    // cached attention: i32 [A], rows of the pass each query row also sees after its own (A = 1: none)
+    private int* _look;                   // this run's lookahead entries, or null
     private long _t;
     private long _past;
     private long _s;
@@ -59,8 +61,9 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
         KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null, CompressedKv? compressed = null, long sequenceRows = 0, long sequenceKeys = 0,
-        TRef? relativeBias = null, int relativeExtent = 0)
+        TRef? relativeBias = null, int relativeExtent = 0, TRef? lookahead = null)
     {
+        _lookahead = lookahead;
         _relativeBias = relativeBias;
         _relativeExtent = relativeExtent;
         _sequenceRows = sequenceRows;
@@ -127,6 +130,34 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
         _body = Body;
         InitTiled();
+    }
+
+    /// <summary>
+    /// Validates this run's lookahead entries (one per query row, each reaching rows of the pass only: in the multi-sequence form rows of
+    /// the same slot at the following positions) and makes them visible to <see cref="Body"/>.
+    /// </summary>
+    private void CheckLookahead(RunParameters p)
+    {
+        var look = _lookahead!;
+        if (look.Dim(0, p) != _t)
+        {
+            throw new InvalidOperationException($"CachedAttention lookahead has {look.Dim(0, p)} entries for {_t} rows (1 or one per row).");
+        }
+
+        int* la = (int*)look.P;
+        int* rw = _rows is null ? null : (int*)_rows.P;
+        for (long t = 0; t < _t; t++)
+        {
+            long ahead = la[t];
+            bool sameRun = ahead >= 0 && t + ahead < _t
+                           && (rw == null || (rw[(t + ahead) * 4] == rw[t * 4] && rw[(t + ahead) * 4 + 1] == rw[t * 4 + 1] + ahead));
+            if (!sameRun)
+            {
+                throw new InvalidOperationException($"CachedAttention lookahead {ahead} of row {t} reaches past the rows of its sequence in this pass.");
+            }
+        }
+
+        _look = la;
     }
 
     /// <summary>The block format of a quantized KV cache (q8_0 / q4_0 / f8e4m3_b32, rows of whole 32-value blocks), or null.</summary>
@@ -200,7 +231,13 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 throw new InvalidOperationException($"KV cache overflow: n_past {_past} + T {_t} > context {_k.Dims[0]}.");
             }
         }
-        if (_tiledLanes > 0)
+        _look = null;
+        if (_lookahead is not null && _lookahead.Dim(0, p) > 1)
+        {
+            CheckLookahead(p);
+        }
+
+        if (_tiledLanes > 0 && _look == null)
         {
             RunTiled();
             return;
@@ -285,6 +322,11 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     // Keys closer than _window positions; for causal attention only the end before the query remains.
                     j0 = Math.Max(j0, queryPosition - _window + 1);
                     n = Math.Min(n, queryPosition + _window);
+                }
+
+                if (_look != null)
+                {
+                    n += _look[t];   // the later rows of the pass this row also sees (the rest of its image)
                 }
 
                 float* q = _q.F(task);

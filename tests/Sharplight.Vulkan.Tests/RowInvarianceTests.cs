@@ -12,7 +12,8 @@ namespace Sharplight.Vulkan.Tests;
 /// The f32 matvec writes its sums as an explicit chain of fused multiply-adds, so its variants agree by construction. So does
 /// the integer-dot matvec of the formats whose single rows take it (K-quants, <c>MQ_FMA_CHAIN</c> in <c>mmvq.slang</c>); left
 /// to the driver, its variants that split K over several subgroups contracted differently (q4_k / q5_k [2048→48], q6_k
-/// [5120→1024]).
+/// [5120→1024]); and the RTX 4090's Vulkan driver contracted even the plain single-row expression differently from the explicit
+/// form, so SPIR-V plain compiles take <c>MQ_FMA_CHAIN</c> too (#102).
 /// </summary>
 public sealed class RowInvarianceTests
 {
