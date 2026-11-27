@@ -38,9 +38,10 @@ namespace Sharplight.Architectures;
 /// (see <see cref="ClampedSwigluActivation"/>); dense layers and shared experts keep the plain activation unless <c>mlp.swiglu_clamp</c>
 /// (float[layer_count], 0 = plain; with <c>mlp.swiglu_clamp_input</c> on the gate before the SiLU) clamps them too (experts without their own limit
 /// follow it).</item>
-/// <item>Sparse-attention indexer (DeepSeek-V3.2, GLM-5, Hunyuan v4, GLM-5.3 with pooled keys): <c>attention.indexer.*</c>
+/// <item>Sparse-attention indexer (DeepSeek-V3.2, GLM-5, Hunyuan v4, GLM-5.3 and Hunyuan v4 Flash with pooled keys): <c>attention.indexer.*</c>
 /// (<see cref="SparseAttentionIndexerOptions"/>) and per layer the weights <c>attention.indexer.{q_up,k,head_weights}.weight</c>,
-/// <c>attention.indexer.k_norm.{weight,bias}</c> (pooled keys also <c>attention.indexer.{pool_gate,pool_position}.weight</c>; see
+/// <c>attention.indexer.k_norm.{weight,bias}</c> (pooled keys also <c>attention.indexer.{pool_gate,pool_position}.weight</c>, value-pooled
+/// keys <c>attention.indexer.{pool_value,pool_norm}.weight</c>; see
 /// <see cref="SparseAttentionIndexer"/>); a layer without them reuses the previous indexed layer's selection. When the context does not exceed the
 /// budget the indexer is left out (every row would keep every visible position).</item>
 /// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC, Xing4.0): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
@@ -56,6 +57,10 @@ namespace Sharplight.Architectures;
 /// its last that many positions), their own geometry <c>attention.sliding.{head_count,latent_rank,nope_dim,value_dim,scale}</c> (defaults: the full
 /// layers' values, scale 1/sqrt(nope + rope)) and rope base <c>rope.base_sliding</c> (frequency factors <c>rope.freq_factors_sliding</c>); they attend
 /// densely, without an indexer.</item>
+/// <item>Sandwich norms (Hunyuan v4 Flash): per layer optional <c>attention.out_norm.weight</c> / <c>mlp.out_norm.weight</c> RMS-normalize the
+/// attention / feed-forward output before its residual add.</item>
+/// <item>Engram n-gram memory (DeepSeek-V4.1, Hunyuan v4 Flash; hyper-connected models only): <c>engram.*</c> (<see cref="EngramOptions"/>, weights on
+/// <see cref="EngramMemory"/>).</item>
 /// <item><c>final_logit_softcap</c> (logits = cap·tanh(logits/cap), 0 = off).</item>
 /// <item><c>embedding_scale</c> (factor on the token embeddings), <c>residual_scale</c> (factor on each sub-layer output before its residual
 /// add; MiniCPM's scale_depth/sqrt(layers)), <c>logit_scale</c> (factor on the final hidden state before the output head); all default 1.</item>

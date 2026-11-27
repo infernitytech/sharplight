@@ -409,9 +409,9 @@ internal sealed partial class LatentDecoderGraphBuilder
     private Value? Temperature(GraphBuilder b, Value positions)
         => _hp.TemperatureScale == 0f ? null : AttentionTemperature.Build(b, positions, _hp.TemperatureScale, _hp.TemperatureLength);
 
-    // Sandwich norms (Hunyuan v4 Flash): a sub-layer's output is RMS-normalized by <block>post_norm.weight when the layer has one.
+    // Sandwich norms (Hunyuan v4 Flash): a sub-layer's output is RMS-normalized by <block>out_norm.weight when the layer has one.
     private Value PostNorm(GraphBuilder b, Value branch, string block)
-        => b.TryWeight(block + "post_norm.weight") is { } weight ? b.RmsNorm(branch, weight, _hp.Eps, $"{block}post_norm") : branch;
+        => b.TryWeight(block + "out_norm.weight") is { } weight ? b.RmsNorm(branch, weight, _hp.Eps, $"{block}out_norm") : branch;
 
     private Value ResidualBranch(GraphBuilder b, Value branch) => _hp.ResidualScale == 1f ? branch : b.Scale(branch, _hp.ResidualScale);
 

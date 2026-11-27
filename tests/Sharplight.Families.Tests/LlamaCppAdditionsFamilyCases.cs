@@ -17,9 +17,9 @@ internal static class LlamaCppAdditionsFamilyCases
         101963, 64974, 103280, 15925, 105556, 9700, 9700, 9700];
 
     // Hunyuan v4 Flash (tools/mk_tiny_hy_v4_flash.py, no transformers class): greedy ids of llama.cpp HEAD a07831a (tools/llamacpp_greedy.c) on the
-    // f32 GGUF its converter writes from the checkpoint; smallest top-2 margin 0.075.
-    private static readonly int[] HyV4FlashIds = [242, 169, 729, 35, 538, 669, 533, 309, 944, 962, 80, 958, 712, 502, 656, 100, 62, 356, 452, 903, 891, 984, 454,
-        823];
+    // f32 GGUF its converter writes from the checkpoint, up to the tiny tokenizer's end of text (id 0, the 20th); smallest top-2 margin 0.062. 8 indexer heads: with fewer, pools often score exactly 0
+    // (every head's dot negative), and llama.cpp's top-k breaks such ties in no defined order (the smallest pick margin is now 1.4%).
+    private static readonly int[] HyV4FlashIds = [793, 48, 335, 991, 340, 772, 162, 899, 51, 988, 131, 773, 523, 262, 177, 831, 513, 756, 899];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
     public static readonly Case[] All =
@@ -32,6 +32,8 @@ internal static class LlamaCppAdditionsFamilyCases
         // Hunyuan v4 Flash (hy_v4_flash): sparse layers with the pooled indexer (pools of 4, index_topk 8: the best earlier pool plus the query's
         // own) and sliding-window layers (window 8, twice the heads), sandwich norms, latent MoE, hyper-connections and two Engram modules.
         // F32 KV cache: the pooled keys come from f16 cache rows otherwise, which can swap the indexer's picks.
+        // The checkpoint itself (no transformers class: its reference_logits.json holds llama.cpp's prompt logits of the GGUF).
+        new("tiny-random-hy-v4-flash HF (hy_v4_flash, llama.cpp reference)", "hf/tiny-random-hy-v4-flash", Prompt, "ids", HyV4FlashIds, "", F32KvCache: true),
         new("tiny-random-hy-v4-flash f32 GGUF (hy_v4_flash, llama.cpp)", "gguf/tiny-random-hy-v4-flash-f32.gguf", Prompt, "ids", HyV4FlashIds, "", F32KvCache: true),
     ];
 }

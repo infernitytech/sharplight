@@ -83,8 +83,8 @@ internal sealed partial class LatentDecoderGgufMapping
     {
         ["attn_gate.weight"] = "attention.gate.weight",
         ["attn_sinks.weight"] = "attention.sinks",
-        ["post_attention_norm.weight"] = "attention.post_norm.weight",
-        ["post_ffw_norm.weight"] = "mlp.post_norm.weight",
+        ["post_attention_norm.weight"] = "attention.out_norm.weight",
+        ["post_ffw_norm.weight"] = "mlp.out_norm.weight",
         ["ffn_routed_down.weight"] = "mlp.latent_down.weight",
         ["ffn_routed_up.weight"] = "mlp.latent_up.weight",
         ["indexer_compressor_value.weight"] = "attention.indexer.pool_value.weight",

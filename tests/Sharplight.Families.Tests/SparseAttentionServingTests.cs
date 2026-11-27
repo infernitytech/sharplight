@@ -21,6 +21,8 @@ public class SparseAttentionServingTests
     [InlineData("hf/tiny-random-deepseek-v32-sparse", true)]
     [InlineData("hf/tiny-random-hy-v4-sparse", false)]
     [InlineData("hf/tiny-random-hy-v4-sparse", true)]
+    [InlineData("hf/tiny-random-hy-v4-flash", false)]
+    [InlineData("hf/tiny-random-hy-v4-flash", true)]
     [InlineData("gguf/tiny-random-hy-v4-flash-f32.gguf", false)]
     [InlineData("gguf/tiny-random-hy-v4-flash-f32.gguf", true)]
     public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan)

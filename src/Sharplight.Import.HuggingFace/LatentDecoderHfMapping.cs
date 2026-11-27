@@ -7,7 +7,7 @@ namespace Sharplight.Import.HuggingFace;
 /// <summary>
 /// Hugging Face checkpoints with multi-head latent attention → canonical <c>latent_decoder</c> (vocabulary documented on
 /// <c>LatentDecoderAdapter</c>): <c>deepseek_v2</c>, <c>deepseek_v3</c> / <c>kimi_k2</c>, <c>glm4_moe_lite</c> (GLM-4.7-Flash),
-/// <c>minicpm3</c>, <c>hy_v4</c> (Hunyuan v4, <c>LatentDecoderHfMapping.HyV4.cs</c>), <c>glm5_next</c> (GLM-5.3-Flash, <c>LatentDecoderHfMapping.Glm5Next.cs</c>), <c>xing4_0</c> (Xing4.0, <c>LatentDecoderHfMapping.Xing40.cs</c>) and <c>mistral4</c> (softmax routing over groups scored by their two best experts, Llama-4-style query temperature). The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
+/// <c>minicpm3</c>, <c>hy_v4</c> (Hunyuan v4, <c>LatentDecoderHfMapping.HyV4.cs</c>), <c>hy_v4_flash</c> (Hy4-flash, <c>LatentDecoderHfMapping.HyV4Flash.cs</c>), <c>glm5_next</c> (GLM-5.3-Flash, <c>LatentDecoderHfMapping.Glm5Next.cs</c>), <c>xing4_0</c> (Xing4.0, <c>LatentDecoderHfMapping.Xing40.cs</c>) and <c>mistral4</c> (softmax routing over groups scored by their two best experts, Llama-4-style query temperature). The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
 /// tensors are stacked; multi-token-prediction layers (after <c>num_hidden_layers</c>) map like decoder layers below
 /// <c>mtp.layers.{j}.</c>, with their NextN tensors (<see cref="HfNextnTensors"/>).
 /// </summary>
@@ -18,7 +18,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
-        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "xing4_0", "kimi_k3", "kimi_k31"];
+        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "xing4_0", "kimi_k3", "kimi_k31", "hy_v4_flash"];
+
+    /// <inheritdoc/>
+    public IEnumerable<string> Validate(HfConfig config) => IsHyV4Flash(config) ? ValidateHyV4Flash(config) : [];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -91,6 +94,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         else if (IsXing40(c))
         {
             AddXing40HyperParameters(md, a, c);
+        }
+        else if (IsHyV4Flash(c))
+        {
+            AddHyV4FlashHyperParameters(md, a, c);
         }
         else if (IsHyV4(c))
         {
@@ -301,6 +308,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
         var convolutions = new SortedDictionary<string, WeightInfo?[]>(StringComparer.Ordinal);
         var residualScores = new Dictionary<string, (WeightInfo? Norm, WeightInfo? Projection)>(StringComparer.Ordinal);
+        var engram = new Dictionary<int, Dictionary<string, WeightInfo>>();
         int layers = c.Int("num_hidden_layers");
         foreach (var (fullName, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
@@ -316,9 +324,14 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
                 continue;
             }
 
-            if (TryMapGlobal(c, name, w, collector) || (IsHyV4(c) && TryMapHyV4Global(name, w, collector)))
+            if (TryMapGlobal(c, name, w, collector) || ((IsHyV4(c) || IsHyV4Flash(c)) && TryMapHyV4Global(name, w, collector)))
             {
                 continue;
+            }
+
+            if (IsHyV4Flash(c) && IsHyV4FlashSkipped(name))
+            {
+                continue;   // the vision tower and the draft layers are not imported
             }
 
             if (IsGlm5Next(c) && name.StartsWith("model.visual.", StringComparison.Ordinal))
@@ -348,6 +361,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             {
                 continue;
             }
+            else if (IsHyV4Flash(c) && layer < layers && TryMapHyV4FlashLayer(c, layer, prefix, suffix, w, collector, engram))
+            {
+                continue;
+            }
             else if ((HasIndexer(c) || IsHyV4(c)) && TryMapIndexer(prefix, suffix, w, collector))
             {
                 continue;
@@ -360,7 +377,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             {
                 continue;
             }
-            else if (!TryMapLayer(c, prefix, suffix, w, collector, experts) && !(IsHyV4(c) && TryMapHyV4Layer(prefix, suffix, w, collector)))
+            else if (!TryMapLayer(c, prefix, suffix, w, collector, experts) && !((IsHyV4(c) || IsHyV4Flash(c)) && TryMapHyV4Layer(prefix, suffix, w, collector)))
             {
                 collector.AddUnmapped(name);
             }
@@ -376,6 +393,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             collector.Add(WeightInfo.Stack($"{prefix}mlp.experts.{kind}.weight", [.. byIndex.Values]));
         }
 
+        AddHyV4FlashEngram(c, engram, collector);
         AddJoinedConvolutions(convolutions, collector);
         AddResidualScores(residualScores, collector);
         AddRopeFactors(c, collector);

@@ -17,7 +17,8 @@ namespace Sharplight.Architectures;
 /// heads, [k_0 .. k_{N-1} | v] = kv · e and per stream s: g = Σ_d rms(X_s)[d]·rms(k_s)[d]·gate[s, d] / sqrt(H),
 /// X_s += sigmoid(sign(g)·sqrt(max(|g|, 1e-6)))·v (the norms without weights). A token without a hashed id (and every predecessor before a
 /// missing one, or before the sequence start) hashes as the pad id.
-/// Hunyuan v4 Flash adds optional weights below the layer prefix: <c>engram.lookup_norm.weight</c> [heads, Dh] (every looked-up row is RMS-normed
+/// Hunyuan v4 Flash adds optional weights below the layer prefix: <c>engram.table.weight</c> (the module's own table, its heads' offsets then
+/// count within it), <c>engram.lookup_norm.weight</c> [heads, Dh] (every looked-up row is RMS-normed
 /// and scaled by its head's weight), <c>engram.kv.bias</c> [N + 1, H], <c>engram.pre_gamma</c> [H] (the value is RMS-normed and scaled by it)
 /// and <c>engram.hc_scale</c> [N, H] (stream s adds v·(gate + hc_scale[s]) instead of v·gate). The token window comes from a causal convolution used as a shift register
 /// over (hashed id + 1), carried per sequence like any recurrent state (a cleared state reads as "no token").
@@ -69,7 +70,7 @@ internal static class EngramMemory
             ("head_offsets", options.HeadOffsets[(module * heads)..((module + 1) * heads)]),
             ("heads_per_order", (long)options.HeadsPerOrder), ("stop_token", options.Pad), ("stop_cuts", false)), $"{p}engram_hash");
 
-        var table = b.Weight("engram.table.weight");
+        var table = b.TryWeight(p + "engram.table.weight") ?? b.Weight("engram.table.weight");   // the module's own table, or the shared one
         var rows = Enumerable.Range(0, heads).Select(h => b.Gather(table, b.Reshape(b.Slice(ids, 1, h, 1), 0))).ToArray();
         var embedding = rows.Length == 1 ? rows[0] : b.Concat(1, rows);
         if (b.TryWeight(p + "engram.lookup_norm.weight") is { } lookupNorm)
