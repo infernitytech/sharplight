@@ -155,6 +155,50 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
+        if (plan.Lookahead is not { } lookahead)
+        {
+            LowerAttentionPlan(plan);
+            return;
+        }
+
+        // Rows that see later rows of their pass (Gemma 3's image rows): passes without them (the lookahead input bound to one entry: text
+        // prompts, decode and verification steps) run the usual kernels; passes with them, which come once per image, the per-(head, query)
+        // kernel with the per-row key limit.
+        string symbol = lookahead.Symbol ?? throw new NotSupportedException("CachedAttention: the lookahead input needs a symbolic length.");
+        var outer = _launchCondition;
+        try
+        {
+            _launchCondition = b => (outer is null || outer(b)) && b[symbol] <= 1;
+            LowerAttentionPlan(plan);
+            _launchCondition = b => (outer is null || outer(b)) && b[symbol] > 1;
+            EmitLookaheadAttention(plan, lookahead);
+        }
+        finally
+        {
+            _launchCondition = outer;
+        }
+    }
+
+    /// <summary>
+    /// The per-(head, query) kernel with <c>LOOKAHEAD</c>: row t sees keys up to its position plus lookahead[t]. Long batches are sliced like the
+    /// scalar kernel's on devices with a submission budget.
+    /// </summary>
+    private void EmitLookaheadAttention(AttentionPlan plan, TensorRef lookahead)
+    {
+        var q = plan.Q;
+        long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
+        long sliceRows = SliceRows(plan, flash: false, maxRows);
+        var kernel = Lib("attention.slang", "main", new Dictionary<string, string>(plan.Macros) { ["LOOKAHEAD"] = "1" });
+        for (long firstRow = 0; firstRow < maxRows; firstRow += sliceRows)
+        {
+            long first = firstRow;
+            var variant = new KernelVariant(b => Rows(b, q) > first, kernel, b => new Grid((uint)plan.HQ, (uint)Math.Min(sliceRows, Rows(b, q) - first)));
+            EmitAttentionLaunch(plan, [variant], plan.Output, first, split: false, lookahead: lookahead);
+        }
+    }
+
+    private void LowerAttentionPlan(AttentionPlan plan)
+    {
         if (plan.Selection is not null || plan.Compressed is not null || plan.RelativeBias is not null || plan.Sinks is { Rank: 2 })
         {
             // The relative bias and per-row sinks are read by the per-(head, query) kernel only.
@@ -303,7 +347,7 @@ public sealed partial class GraphLowerer
         bool hasSelection = !full && n.Attributes.Get("selection", false);
         long compression = full ? 1 : n.Attributes.Get("compression", 1L);
         bool hasCompressed = !full && n.Attributes.Has("compression");
-        // inputs: q, k, v, [sinks], [compressed cache], [selection], [relative bias], [rows, runs, [block table]]
+        // inputs: q, k, v, [sinks], [compressed cache], [selection], [relative bias], [lookahead], [rows, runs, [block table]]
         int sinksInputs = (hasSinks ? 1 : 0) + (hasCompressed ? 1 : 0) + (hasSelection ? 1 : 0);
         // attention sinks f32, [HQ] or one logit per query row and head [T, HQ]
         TensorRef? sinks = !hasSinks ? null : n.Inputs[3].Rank == 2 ? DenseInput(n.Inputs[3], "attn-sinks") : Ref(n.Inputs[3]);
@@ -314,6 +358,9 @@ public sealed partial class GraphLowerer
         TensorRef? relativeBias = relativeExtent > 0 ? DenseInput(n.Inputs[3 + sinksInputs], "attn-relative-bias") : null;
         var positionBias = PositionBiasTable(n);
         sinksInputs += relativeBias is null ? 0 : 1;
+        // then [lookahead i32 [A]] (rows of the pass each row also sees after its own)
+        TensorRef? lookahead = !full && n.Attributes.Get("lookahead", false) ? DenseInput(n.Inputs[3 + sinksInputs], "attn-lookahead") : null;
+        sinksInputs += lookahead is null ? 0 : 1;
         long HQ = q.Shape[1];
         long D = q.Shape[2];
         long HKV = k.Shape[1];
@@ -408,6 +455,7 @@ public sealed partial class GraphLowerer
             RelativeBias = relativeBias,
             PositionBias = positionBias,
             Compressed = compressed,
+            Lookahead = lookahead,
             Cross = cross,
             HQ = HQ,
             HKV = HKV,
@@ -980,7 +1028,8 @@ public sealed partial class GraphLowerer
     /// <see cref="DecodeArrivals"/>) is the last pointer of every attention kernel's parameters; launches without it pass the
     /// output, which those kernels never read through it.
     /// </summary>
-    private void EmitAttentionLaunch(AttentionPlan plan, List<KernelVariant> variants, TensorRef part, long firstRow, bool split, TensorRef? arrivals = null)
+    private void EmitAttentionLaunch(AttentionPlan plan, List<KernelVariant> variants, TensorRef part, long firstRow, bool split, TensorRef? arrivals = null,
+        TensorRef? lookahead = null)
     {
         var o = plan.Output;
         var sinks = plan.Sinks;
@@ -990,9 +1039,9 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, plan.PositionBias), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : [],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, plan.PositionBias, lookahead), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : [],
              Pointer(arrivals ?? o)],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, plan.PositionBias)],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias, plan.PositionBias, lookahead)],
             arrivals is null ? outputs : [.. outputs, arrivals]);
     }
 

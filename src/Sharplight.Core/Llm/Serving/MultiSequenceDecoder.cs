@@ -26,6 +26,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _rows, _runs;
     private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _windowTable, _commits, _hiddenInput, _runEndRows, _snapshots;
+    private readonly Value? _lookahead;   // image rows that attend to their whole image (Gemma 3): rows of the step each row also sees
+    private readonly int[] _lookBuf = [];
+    private bool _anyLookahead;           // whether some row of the packed step looks ahead
     private readonly string[] _windowStates = [];      // window-sized KV caches (rows of the window pool)
     // Multimodal graph: embedding rows [T, width] and their row mask [T, 1]; the media weight mask [T, 1] of models with visual experts.
     private readonly Value? _embeddings, _embeddingMask, _mediaWeightMask;
@@ -79,6 +82,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     public int HiddenSize => _hiddenSize;
     /// <inheritdoc/>
     public int EmbeddingWidth => _embeddingWidth;
+    /// <inheritdoc/>
+    public bool BidirectionalMediaRows => _lookahead is not null;
     /// <inheritdoc/>
     public int PositionAxes => Math.Max(1, _posAxes);
     /// <inheritdoc/>
@@ -207,6 +212,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _hiddenInput = g.TryInput(InputRole.HiddenStates);
         _runEndRows = g.TryInput(InputRole.SequenceRunEndRows);
         _snapshots = g.TryInput(InputRole.SequenceSnapshots);
+        _lookahead = g.TryInput(InputRole.AttentionLookahead);
         _hiddenInputSize = _hiddenInput is null ? 0 : (int)_hiddenInput.Shape[-1].Fixed;
         _hiddenOutput = hiddenOutput ?? WellKnown.HiddenOutput;
         _hiddenSize = g.Outputs.TryGetValue(_hiddenOutput, out var hidden) ? (int)hidden.Shape[-1].Fixed : 0;
@@ -274,6 +280,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         _runBuf = new int[slots * 4];
+        if (_lookahead is not null)
+        {
+            _lookBuf = new int[MaxBatchTokens];
+        }
+
         MaxLogitsRows = Math.Max(slots, maxLogitsRows);
         _outBuf = new int[MaxLogitsRows];
         _paramBuf = new int[MaxLogitsRows * SamplingRow.Width];
@@ -582,6 +593,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             run.Symbols[WellKnown.TokenSymbol] = n;
             run.Symbols["R"] = n;
             run.Symbols[WellKnown.RunSymbol] = n;
+            run.Symbols[WellKnown.LookaheadSymbol] = 1;
             _compiled.Prepare(run);
         }
 
@@ -738,6 +750,13 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _run.Symbols[WellKnown.TokenSymbol] = T;
         _run.Symbols["R"] = logitsRows;
         _run.Symbols[WellKnown.RunSymbol] = runs;
+        if (_lookahead is not null)
+        {
+            // Steps without image rows bind one ignored entry, so they keep the usual attention kernels.
+            _compiled.SetInput<int>(_lookahead, _lookBuf.AsSpan(0, _anyLookahead ? T : 1));
+            _run.Symbols[WellKnown.LookaheadSymbol] = _anyLookahead ? T : 1;
+        }
+
         _run.SkipOutputs.Clear();
         if (!needLogits)
         {
@@ -885,6 +904,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         int count = inputs.Count;
         int T = 0;
         int R = 0;
+        _anyLookahead = false;
         if (_embRowsDirty > 0)
         {
             // Rows a previous step filled: token rows of this step read zeros there.
@@ -967,6 +987,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 PackEmbeddings(inp, T);
             }
 
+            if (_lookahead is not null)
+            {
+                PackLookahead(inp, T);
+            }
+
             _runBuf[u * 4] = inp.Slot;
             _runBuf[u * 4 + 1] = T;
             _runBuf[u * 4 + 2] = n;
@@ -992,6 +1017,26 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// </summary>
     /// <exception cref="NotSupportedException">The decoder was compiled without the multimodal graph.</exception>
     /// <exception cref="ArgumentException">A run is not a whole number of rows or lies outside the input.</exception>
+    /// <summary>
+    /// Lookahead entries of an input's rows (<see cref="InputRole.AttentionLookahead"/>): the rows of each embedding run (one image's rows in
+    /// this input) see the rest of the run; other rows none.
+    /// </summary>
+    private void PackLookahead(SequenceInput input, int first)
+    {
+        int n = input.Tokens.Length;
+        _lookBuf.AsSpan(first, n).Clear();
+        foreach (var run in input.Embeddings ?? [])
+        {
+            int rows = run.Rows(_embeddingWidth);
+            for (int i = 0; i < rows; i++)
+            {
+                _lookBuf[first + run.Row + i] = rows - 1 - i;
+            }
+
+            _anyLookahead |= rows > 1;
+        }
+    }
+
     private void PackEmbeddings(SequenceInput input, int first)
     {
         if (_embeddings is null)
@@ -1178,6 +1223,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         {
             int row = rows + i;
             _tokBuf[row] = _tokBuf[rows - 1];
+            if (_lookahead is not null)
+            {
+                _lookBuf[row] = 0;
+            }
+
             _rowBuf[row * 4] = last.Slot;
             _rowBuf[row * 4 + 1] = pos0 + n + i;
             _rowBuf[row * 4 + 2] = n + padRows;

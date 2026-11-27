@@ -25,6 +25,8 @@ internal sealed partial class DecoderGraphBuilder
     private readonly int[] _taps;                                 // layers whose inputs the decode graphs export (an EAGLE-3 drafter's features)
     private Dictionary<int, Value>? _tapValues;                   // while a trunk graph is built: the tapped layer inputs
     private Value? _mediaMask;                                     // while the multimodal graph is built: the per-row media weight-set mask
+    private bool _lookaheadInput;                                 // while the multimodal graph is built: declare the attention lookahead input
+    private Value? _lookahead;                                    // its value (i32 [A]) once declared
     private Value? _valueEmbeddings;                              // while a graph with token inputs is built: value_embedding rows [T, KvH·D]
     private readonly int[] _kvExports;                            // layers whose keys and values the decode graphs export (a shared-KV drafter's)
     private Dictionary<int, (Value K, Value V)>? _kvExportValues; // while a trunk graph is built: the exported keys and values by layer
@@ -234,7 +236,24 @@ internal sealed partial class DecoderGraphBuilder
     /// of H columns (DeepStack, zero on text rows) is added to the hidden state after layer k. Layers with a media weight set (<see cref="TokenWeightSets"/>,
     /// CogVLM's visual experts) also take the <see cref="InputRole.MediaWeightMask"/> input; every other graph uses their text weights only.
     /// </summary>
-    public ComputeGraph BuildMultimodal(int deepstackLayers) => BuildTrunk(WellKnown.DecodeMultimodalGraph, embeddingsInput: false, deepstackLayers);
+    /// <param name="deepstackLayers">DeepStack blocks of the embeddings input.</param>
+    /// <param name="mediaLookahead">
+    /// Whether the cached attention takes the <see cref="InputRole.AttentionLookahead"/> input, so the rows of one image attend to each other
+    /// (<see cref="Vision.VisionParameters.BidirectionalImageAttention"/>, Gemma 3); the session and the batch decoders fill it from the image spans.
+    /// </param>
+    public ComputeGraph BuildMultimodal(int deepstackLayers, bool mediaLookahead = false)
+    {
+        _lookaheadInput = mediaLookahead;
+        try
+        {
+            return BuildTrunk(WellKnown.DecodeMultimodalGraph, embeddingsInput: false, deepstackLayers);
+        }
+        finally
+        {
+            _lookaheadInput = false;
+            _lookahead = null;
+        }
+    }
 
     private ComputeGraph BuildTrunk(string name, bool embeddingsInput, int deepstackLayers = -1)
     {
