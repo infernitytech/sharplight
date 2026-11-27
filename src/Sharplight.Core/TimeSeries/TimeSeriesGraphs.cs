@@ -18,8 +18,17 @@ namespace Sharplight.TimeSeries;
 /// patch (<see cref="NormalizationKey"/>), and decodes autoregressively: the graph returns the normalized forecast of the patch after the last one,
 /// <see cref="PredictionLengthKey"/> steps of the point forecast and every quantile level, which the host de-normalizes; for longer horizons it appends
 /// column <see cref="DecodeIndexKey"/> to the series and runs the graph again. The patch rows are symbolic (<see cref="PatchSymbol"/>).</description></item>
+/// <item><description>Masked-encoder models (Moirai 1.x): one <see cref="Models.ModelComponentRoles.Encoder"/> component with one graph per patch size
+/// (<see cref="MaskedEncoderGraph"/>, sizes <see cref="PatchSizesKey"/>), a bidirectional transformer over the context patches followed by the patches of
+/// the horizon, which hold a learned mask embedding (<see cref="PredictMaskInput"/>). The host standardizes the series (mean and sample deviation of the
+/// observed context values, see <c>MoiraiPatches.Scale</c>), left-pads the context to whole patches and returns, per horizon step, the raw parameters of a
+/// mixture distribution (<see cref="ComponentsKey"/>) from which it samples.</description></item>
+/// <item><description>Quantile-decoder models (Moirai 2.0): one <see cref="Models.ModelComponentRoles.Decoder"/> component with the graph
+/// <see cref="QuantileDecoderGraph"/>, a causal transformer over patches with the observation mask in the input; each row predicts the
+/// <see cref="PredictTokensKey"/> patches after it at every quantile level. Longer horizons feed every quantile forecast back as its own sequence; the
+/// sequences run packed in one pass (<see cref="SpansInput"/>), and the quantiles of all level-by-level forecasts give the next block.</description></item>
 /// </list>
-/// The configuration keys sit on the encoder component (the decoder component for patch-decoder models).
+/// The configuration keys sit on the encoder component (the decoder component for patch-decoder and quantile-decoder models).
 /// </summary>
 public static class TimeSeriesGraphs
 {
@@ -42,7 +51,7 @@ public static class TimeSeriesGraphs
     /// </summary>
     public const string PatchDecoderGraph = "patch_decoder";
 
-    /// <summary>The symbol of the patch rows of <see cref="PatchDecoderGraph"/>.</summary>
+    /// <summary>The symbol of the patch rows of <see cref="PatchDecoderGraph"/>, <see cref="MaskedEncoderGraph"/> and <see cref="QuantileDecoderGraph"/>.</summary>
     public const string PatchSymbol = "P";
 
     /// <summary>The patch positions of <see cref="PatchDecoderGraph"/>, i32 <c>[patches, 1]</c>: 0, 1, ... (rotary models only).</summary>
@@ -63,7 +72,68 @@ public static class TimeSeriesGraphs
     /// <summary>The continuous quantile head of <see cref="PatchDecoderGraph"/>, f32 <c>[<see cref="QuantileHorizonKey"/>, 1 + quantile levels]</c>, laid out as <see cref="PointOutput"/>.</summary>
     public const string QuantileSpreadOutput = "quantile_spread";
 
-    /// <summary>The configuration key of the form: <see cref="PatchQuantileForm"/>, <see cref="TokenForm"/> or <see cref="PatchDecoderForm"/>.</summary>
+    /// <summary>
+    /// The masked-encoder graph of patch size p (<see cref="MaskedEncoderGraph"/>(p)): <see cref="PatchesInput"/> (<see cref="PatchSymbol"/> rows of p scaled
+    /// values; missing values and the left padding are 0 before scaling, so −loc / scale after it), <see cref="PredictMaskInput"/>, <see cref="PositionsInput"/>
+    /// (the time ids), <see cref="SpansInput"/> (every row its sequence) and <see cref="ReadRowsInput"/> in, <see cref="DistributionOutput"/> out.
+    /// </summary>
+    public static string MaskedEncoderGraph(int patchSize) => $"masked_encoder_p{patchSize}";
+
+    /// <summary>
+    /// The quantile-decoder graph: <see cref="PatchesInput"/> (rows of p scaled values, then the observation mask; missing values and padding are 0 before
+    /// scaling), <see cref="PositionsInput"/> (the time ids), <see cref="SpansInput"/> (row r sees the rows of its sequence whose time id is at most its own)
+    /// and <see cref="ReadRowsInput"/> in, <see cref="TokenQuantilesOutput"/> out.
+    /// </summary>
+    public const string QuantileDecoderGraph = "quantile_decoder";
+
+    /// <summary>
+    /// The horizon mask of <see cref="MaskedEncoderGraph"/>, f32 <c>[patches, 1]</c>: 1 for the patches of the horizon (their embedding is replaced by the
+    /// learned mask embedding), 0 for the context.
+    /// </summary>
+    public const string PredictMaskInput = "predict_mask";
+
+    /// <summary>The rows whose prediction <see cref="MaskedEncoderGraph"/> and <see cref="QuantileDecoderGraph"/> return, i32 <c>[<see cref="ReadSymbol"/>]</c>.</summary>
+    public const string ReadRowsInput = "read_rows";
+
+    /// <summary>The symbol of <see cref="ReadRowsInput"/>.</summary>
+    public const string ReadSymbol = "R";
+
+    /// <summary>
+    /// The scaled forecast of <see cref="QuantileDecoderGraph"/>, f32 <c>[<see cref="ReadSymbol"/>, tokens · levels · p]</c>: per read row, the
+    /// <see cref="PredictTokensKey"/> patches after it, each as every level of <see cref="QuantilesKey"/> × p steps.
+    /// </summary>
+    public const string TokenQuantilesOutput = "token_quantiles";
+
+    /// <summary>
+    /// The distribution parameters of <see cref="MaskedEncoderGraph"/>, f32 <c>[<see cref="ReadSymbol"/>, p · columns]</c>: per read row and step of its patch,
+    /// the raw (unconstrained) parameters: the mixture logits (one per component), then the parameters of every component of <see cref="ComponentsKey"/>
+    /// (<c>student_t</c>: df, loc, scale; <c>normal</c>: loc, scale; <c>normal_fixed:&lt;scale&gt;</c>: loc; <c>negative_binomial</c>: total count, logits;
+    /// <c>log_normal</c>: loc, scale). The host applies uni2ts' domain maps (softplus for scales, counts and 2 + softplus for df).
+    /// </summary>
+    public const string DistributionOutput = "distribution";
+
+    /// <summary>The <see cref="FormKey"/> of masked-encoder models.</summary>
+    public const string MaskedEncoderForm = "masked-encoder";
+
+    /// <summary>The <see cref="FormKey"/> of quantile-decoder models.</summary>
+    public const string QuantileDecoderForm = "quantile-decoder";
+
+    /// <summary>The configuration key of the patch sizes of a masked-encoder model (comma separated; <see cref="PatchSizeKey"/> is the default).</summary>
+    public const string PatchSizesKey = "patchSizes";
+
+    /// <summary>The configuration key of the mixture components of a masked-encoder model (comma separated, see <see cref="DistributionOutput"/>).</summary>
+    public const string ComponentsKey = "components";
+
+    /// <summary>The configuration key of the patches one row of a quantile-decoder model predicts.</summary>
+    public const string PredictTokensKey = "predictTokens";
+
+    /// <summary>The configuration key of the longest horizon of a masked-encoder or quantile-decoder model (it bounds the patch rows of one pass).</summary>
+    public const string MaxHorizonKey = "maxHorizon";
+
+    /// <summary>
+    /// The configuration key of the form: <see cref="PatchQuantileForm"/>, <see cref="TokenForm"/>, <see cref="PatchDecoderForm"/>, <see cref="MaskedEncoderForm"/>
+    /// or <see cref="QuantileDecoderForm"/>.
+    /// </summary>
     public const string FormKey = "form";
 
     /// <summary>The <see cref="FormKey"/> of patch-quantile models.</summary>

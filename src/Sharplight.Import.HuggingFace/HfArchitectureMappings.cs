@@ -57,6 +57,8 @@ internal static class HfArchitectureMappings
         Register(new ChronosHfMapping());
         Register(new TimesFmHfMapping());
         Register(new TimesFm25HfMapping());
+        Register(new MoiraiHfMapping());
+        Register(new Moirai2HfMapping());
         Register(new DacHfMapping());
         Register(new MimiHfMapping());
         Register(new Qwen3TtsTokenizerHfMapping());

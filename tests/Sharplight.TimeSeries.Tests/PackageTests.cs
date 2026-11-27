@@ -11,6 +11,8 @@ public class PackageTests
     [InlineData("chronos-bolt-tiny")]
     [InlineData("chronos-t5-tiny")]
     [InlineData("timesfm-2.5-200m-pytorch")]
+    [InlineData("moirai-2.0-R-small")]
+    [InlineData("moirai-1.1-R-small")]
     public async Task Package_forecasts_like_the_checkpoint(string name)
     {
         TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));

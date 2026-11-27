@@ -34451,6 +34451,278 @@
           }
         }
       ]
+    },
+    {
+      "id": "moirai-2.0-r-small",
+      "name": "Moirai 2.0 Small",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai2",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 120000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-2.0-R-small",
+          "revision": "30f43ff08c8494f4943ae1521e9d4e94a0fbb389",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 291,
+              "gitOid": "e5117c0f34056ab8b5ef57202b9dffa6ad39059a"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 45557824,
+              "sha256": "fb5652a3db8ea572606221b7cb1e77bb8962b168e4d4cc752cf31ceb04074669"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "quantile forecasts within 2e-6 of the forecast range (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "9 quantiles x 64 steps per pass, context 1680; longer horizons feed every quantile back as its own sequence (uni2ts\u0027 Moirai2Forecast); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-2.0-R-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moirai-1.1-r-small",
+      "name": "Moirai 1.1 Small",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 150000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-1.1-R-small",
+          "revision": "0c24ab99db2c1a70ea2a0fc03bf113329772ac64",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 682,
+              "gitOid": "ae2a0de8172dba3af57413d0d459723ecf714773"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 55320200,
+              "sha256": "cc46831272ea07e99d78fe05c09e730c7c76a1b272cddbdaf5173dae371cb238"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "mixture parameters per step within 3e-6 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series); seeded sampled quantiles statistically equal to uni2ts\u0027 samples",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-1.1-R-small",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moirai-1.1-r-base",
+      "name": "Moirai 1.1 Base",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 800000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-1.1-R-base",
+          "revision": "a0358780de4cdd7ac7963b12ae9985d225d55026",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 683,
+              "gitOid": "21f44903cb12e12ba23d6afc0bbf4dfc0b2b296c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 365449072,
+              "sha256": "a533dc23e2981c558ec030d49260053b9e93d87d3deb8bf22cb158118ba29b0e"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "mixture parameters per step within 2e-5 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) (CPU)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-1.1-R-base",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
+    },
+    {
+      "id": "moirai-1.1-r-large",
+      "name": "Moirai 1.1 Large",
+      "kind": "time-series",
+      "family": "Moirai",
+      "architecture": "moirai",
+      "level": "verified",
+      "license": "cc-by-nc-4.0",
+      "gated": false,
+      "publisher": {
+        "name": "Salesforce",
+        "countryOfOrigin": "US",
+        "url": "https://www.salesforce.com/research"
+      },
+      "tags": [],
+      "variants": [
+        {
+          "id": "f32-safetensors",
+          "label": "F32 safetensors",
+          "format": "safetensors",
+          "quantization": "F32",
+          "recommended": true,
+          "memoryBytes": 2600000000,
+          "companions": [],
+          "repository": "Salesforce/moirai-1.1-R-large",
+          "revision": "d144331c5a18e986a9828e7378994b39e209d466",
+          "include": [
+            "config.json",
+            "model.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 684,
+              "gitOid": "2862ed818e8c02d35670576b283ca672c1134f5c"
+            },
+            {
+              "path": "model.safetensors",
+              "size": 1243917120,
+              "sha256": "2fd4e26c83779431550ea5f09fdb43de5c9dea5a349abb33b8bc9be8d8da94e5"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "uni2ts",
+        "summary": "mixture parameters per step within 2e-5 of uni2ts (8 cases incl. missing values, a 2600-value context, a 300-step horizon, a signed series) (CPU)",
+        "providers": [
+          "CPU",
+          "Vulkan"
+        ],
+        "date": "2026-11-27",
+        "tests": []
+      },
+      "notes": "masked encoder at patch size 32 (8 to 128 per request), context 1000, horizons up to 2048 steps in one pass; quantiles and mean of 100 sampled paths by default (mixture of Student-t, normal, negative binomial and log-normal); univariate only; non-commercial license",
+      "licenseNotice": "CC BY-NC 4.0: research and other non-commercial use only; commercial use needs a separate licence from Salesforce.",
+      "doc": [
+        {
+          "section": "9",
+          "cells": {
+            "repositories": "Salesforce/moirai-1.1-R-large",
+            "formats": "safetensors; .slm"
+          }
+        }
+      ]
     }
   ]
 }
