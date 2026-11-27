@@ -68,6 +68,10 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   constants (nearest Resize reads `ResizeNearestTable` index arrays, #67: the `div_rn` residual fma step in
   `spatial.slang` was not enough on the RTX 4090). The integrated RADV / llvmpipe devices (`SHARPLIGHT_VK_DEVICES=1`/`2` on fedora-blackwell) are handy
   for reproducing such driver-precision bugs.
+- Don't bake large tables into kernels as `static const` arrays (macro initializer lists): NVIDIA's Vulkan compiler copies a
+  dynamically indexed one into every thread's local memory, and at 16 KB per thread (T5-large's position-bias table) that
+  corrupted other models' memory and lost the device (#88). Pass them as `const:` buffers (`NewBuffer(BufferKind.Weight, "const:…", init:)`).
+  `SHARPLIGHT_VK_PIPELINE_STATS=1` shows each pipeline's "Local Memory Size" (the NVIDIA driver reports it plus 2^36).
 - Sharplight.Vulkan.Tests also runs on the CUDA provider with `SHARPLIGHT_TEST_PROVIDER=cuda` (same lowering, NVRTC).
   Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
   arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC

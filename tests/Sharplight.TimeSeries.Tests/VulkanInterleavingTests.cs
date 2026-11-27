@@ -13,7 +13,7 @@ public class VulkanInterleavingTests
     [InlineData("chronos-t5-small", false)]
     [InlineData("chronos-t5-small", true)]
     [InlineData("chronos-t5-large", false)]
-    [InlineData("chronos-t5-large", true, Skip = "Vulkan on NVIDIA: a decoder pass corrupts the next encoder run (#88)")]
+    [InlineData("chronos-t5-large", true)]
     public void Decoder_pass_leaves_the_encoder_unchanged(string name, bool gpu)
     {
         TimeSeriesModels.Require(TimeSeriesModels.Model(name));

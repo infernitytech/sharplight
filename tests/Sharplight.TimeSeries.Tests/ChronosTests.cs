@@ -16,7 +16,7 @@ public class ChronosTests
     [InlineData("chronos-t5-base", false)]
     [InlineData("chronos-t5-base", true)]
     [InlineData("chronos-t5-large", false)]
-    [InlineData("chronos-t5-large", true, Skip = "Vulkan on NVIDIA: a decoder pass corrupts the next encoder run (#88)")]
+    [InlineData("chronos-t5-large", true)]
     public async Task Greedy_forecasts_match_the_reference(string name, bool gpu)
     {
         TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));
