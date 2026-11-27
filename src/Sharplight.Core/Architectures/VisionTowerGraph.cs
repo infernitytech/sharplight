@@ -31,7 +31,8 @@ internal static class VisionTowerGraph
 
         Value x;
         Value positions;
-        Value embIndex, embWeight;
+        Value? embIndex = null;
+        Value embWeight;
         Value? windowSpans = null;
         Value? windowOrder = null;
         Value? layout = null;
@@ -39,7 +40,11 @@ internal static class VisionTowerGraph
         {
             var patches = b.Input(VisionParameters.PatchesInput, InputRole.Media, DataType.F32, new Shape(N, p.PatchDim));
             positions = b.Input(VisionParameters.PositionsInput, InputRole.Positions, DataType.I32, new Shape(N, 2));
-            embIndex = b.Input(VisionParameters.EmbeddingIndexInput, InputRole.Other, DataType.I32, new Shape(N, p.PositionTaps));
+            if (!p.DensePositionWeights)
+            {
+                embIndex = b.Input(VisionParameters.EmbeddingIndexInput, InputRole.Other, DataType.I32, new Shape(N, p.PositionTaps));
+            }
+
             embWeight = b.Input(VisionParameters.EmbeddingWeightInput, InputRole.Other, DataType.F32, new Shape(N, p.PositionTaps));
             if (p.WindowSize > 0 || p.TileSize > 0)
             {
@@ -69,7 +74,13 @@ internal static class VisionTowerGraph
             using var _ = b.Group("position_embedding");
             var table = b.Weight("vision.position_embedding.weight");
             Value? sum = null;
-            for (int k = 0; k < p.PositionTaps; k++)
+            if (embIndex is null)
+            {
+                // Dense resampling weights [N, count]: the product with the table [count, hidden] (MatMul takes it as [hidden, count]).
+                sum = b.MatMul(embWeight, b.Contiguous(b.Permute(table, 1, 0)), "pos_embd_resampled");
+            }
+
+            for (int k = 0; embIndex is not null && k < p.PositionTaps; k++)
             {
                 var idx = b.Reshape(b.Slice(embIndex, 1, k, 1), 0);
                 var term = b.Mul(b.Gather(table, idx), b.Slice(embWeight, 1, k, 1));
@@ -121,6 +132,12 @@ internal static class VisionTowerGraph
         using (b.Group("merger"))
         {
             var h = Merge(b, b.HasWeight("vision.merger.norm.weight") ? MergerNorm(b, p, x, "vision.merger.norm") : x, p);
+            if (b.HasWeight("vision.merger.merged_norm.weight"))
+            {
+                // LFM2-VL: a LayerNorm of the merged rows (pixel unshuffle) before the MLP.
+                h = MergerNorm(b, p, h, "vision.merger.merged_norm");
+            }
+
             if (!b.HasWeight("vision.merger.up.weight"))
             {
                 // Idefics3: the merged rows (pixel shuffle) projected by one linear map.

@@ -113,7 +113,7 @@ public sealed class VisionEncoder : IDisposable
         var g = compiled.Graph;
         _patches = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.PatchesInput);
         _positions = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.PositionsInput);
-        _embIndex = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingIndexInput)!;
+        _embIndex = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingIndexInput);
         _embWeight = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingWeightInput)!;
         _windowSpans = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowSpansInput);
         _windowOrder = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowOrderInput);
@@ -147,7 +147,12 @@ public sealed class VisionEncoder : IDisposable
 
         _compiled.SetInput<float>(_patches!, image.Patches);
         _compiled.SetInput<int>(_positions!, image.Positions);
-        _compiled.SetInput<int>(_embIndex!, image.EmbeddingIndex);
+        if (_embIndex is not null)
+        {
+            // Dense position weights (VisionParameters.DensePositionWeights) have no tap indices.
+            _compiled.SetInput<int>(_embIndex, image.EmbeddingIndex);
+        }
+
         _compiled.SetInput<float>(_embWeight!, image.EmbeddingWeight);
         if (_windowSpans is not null && _windowOrder is not null)
         {

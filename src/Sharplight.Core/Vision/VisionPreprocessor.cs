@@ -92,6 +92,11 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             return ViewPreprocessor.Process(p, image);
         }
 
+        if (p.TileLayout == VisionParameters.Lfm2TileLayout)
+        {
+            return ProcessLfm2(image);
+        }
+
         if (p.TileSize > 0)
         {
             return ProcessTiles(image);
@@ -198,6 +203,149 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
 
         var overview = Resize(refined, rw, rh, T, T, p.ResizeFilter);
         return PatchifyTiles(Normalize(overview), tiles, columns, rows);
+    }
+
+    /// <summary>
+    /// LFM2-VL's view sizes (Lfm2VlImageProcessor): the smart-resized size within the model's pixel bounds and, for an image too large for one
+    /// view, the tile grid (columns, rows) closest to its aspect ratio; (0, 0) when the image is not tiled.
+    /// </summary>
+    internal (int Width, int Height, int Columns, int Rows) Lfm2Layout(int width, int height)
+    {
+        int factor = p.PatchSize * p.SpatialMergeSize;
+        double h = height;
+        double w = width;
+        // Python round() (half to even) in double precision, as the processor.
+        int hBar = Math.Max(factor, (int)Math.Round(h / factor, MidpointRounding.ToEven) * factor);
+        int wBar = Math.Max(factor, (int)Math.Round(w / factor, MidpointRounding.ToEven) * factor);
+        int sh = hBar;
+        int sw = wBar;
+        if ((long)hBar * wBar > p.MaxPixels)
+        {
+            double beta = Math.Sqrt(h * w / p.MaxPixels);
+            sh = Math.Max(factor, (int)Math.Floor(h / beta / factor) * factor);
+            sw = Math.Max(factor, (int)Math.Floor(w / beta / factor) * factor);
+        }
+        else if ((long)hBar * wBar < p.MinPixels)
+        {
+            double beta = Math.Sqrt(p.MinPixels / (h * w));
+            sh = (int)Math.Ceiling(h * beta / factor) * factor;
+            sw = (int)Math.Ceiling(w * beta / factor) * factor;
+        }
+
+        // The too-large test rounds the sides to merge units but bounds them below by one patch only.
+        int th = Math.Max(p.PatchSize, (int)Math.Round(h / factor, MidpointRounding.ToEven) * factor);
+        int tw = Math.Max(p.PatchSize, (int)Math.Round(w / factor, MidpointRounding.ToEven) * factor);
+        bool tiled = p.MaxTiles > 1 && (double)th * tw > p.MaxPixels * (double)p.MaxPixelsTolerance;
+        if (!tiled)
+        {
+            return (sw, sh, 0, 0);
+        }
+
+        // The grid closest to the aspect ratio among min_tiles..max_tiles tiles (fewest tiles first); a tie goes to the later grid when the image
+        // covers more than half of its area.
+        var ratios = new List<(int W, int H)>();
+        for (int n = p.MinTiles; n <= p.MaxTiles; n++)
+        {
+            for (int gw = 1; gw <= n; gw++)
+            {
+                for (int gh = 1; gh <= n; gh++)
+                {
+                    if (gw * gh >= p.MinTiles && gw * gh <= p.MaxTiles && !ratios.Contains((gw, gh)))
+                    {
+                        ratios.Add((gw, gh));
+                    }
+                }
+            }
+        }
+
+        // Python's sorted() is stable; so is OrderBy.
+        double aspect = w / h;
+        double best = double.PositiveInfinity;
+        var grid = (W: 1, H: 1);
+        foreach (var r in ratios.OrderBy(r => r.W * r.H))
+        {
+            double diff = Math.Abs(aspect - (double)r.W / r.H);
+            if (diff < best)
+            {
+                best = diff;
+                grid = r;
+            }
+            else if (diff == best && w * h > 0.5 * p.TileSize * p.TileSize * r.W * r.H)
+            {
+                grid = r;
+            }
+        }
+
+        return (sw, sh, grid.W, grid.H);
+    }
+
+    /// <summary>LFM2-VL (see <see cref="VisionParameters.Lfm2TileLayout"/>): one smart-resized view, or the tiles of a grid and the thumbnail.</summary>
+    private PreprocessedImage ProcessLfm2(ImageInput image)
+    {
+        int T = p.TileSize;
+        var (sw, sh, columns, rows) = Lfm2Layout(image.Width, image.Height);
+        byte[] Resized(int w, int h) => image.Width == w && image.Height == h ? image.Rgb : Resize(image.Rgb, image.Width, image.Height, w, h, p.ResizeFilter);
+        if (columns == 0)
+        {
+            return PatchifyViews([(Normalize(Resized(sw, sh)), sw, sh)], 0, 0);
+        }
+
+        var grid = Resized(columns * T, rows * T);
+        var views = new List<(float[], int, int)>();
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < columns; c++)
+            {
+                var tile = new byte[3 * T * T];
+                for (int y = 0; y < T; y++)
+                {
+                    Array.Copy(grid, 3 * ((r * T + y) * columns * T + c * T), tile, 3 * y * T, 3 * T);
+                }
+
+                views.Add((Normalize(tile), T, T));
+            }
+        }
+
+        if (p.UseThumbnail)
+        {
+            views.Add((Normalize(Resized(sw, sh)), sw, sh));
+        }
+
+        return PatchifyViews(views, columns, rows);
+    }
+
+    /// <summary>
+    /// The encoder input of a tower that encodes several views of their own sizes (LFM2-VL: the tiles of a <paramref name="columns"/> ×
+    /// <paramref name="rows"/> grid in raster order, none: 0 × 0, then the thumbnail): normalized interleaved RGB views, each patchified on its own
+    /// (positions and position weights of its own grid) and one attention window. The output rows are the views' in order; as the views differ in
+    /// size, the grids are reported as one column (<see cref="PreprocessedImage.GridHeight"/> = patches, <see cref="PreprocessedImage.MergedHeight"/>
+    /// = output rows) and <see cref="PreprocessedImage.Width"/> / <see cref="PreprocessedImage.Height"/> are the tile grid's (or the single view's) size.
+    /// </summary>
+    internal PreprocessedImage PatchifyViews(IReadOnlyList<(float[] Rgb, int Width, int Height)> views, int columns, int rows)
+    {
+        var patched = views.Select(v => Patchify(v.Rgb, v.Width, v.Height)).ToArray();
+        int total = patched.Sum(v => v.PatchCount);
+        var spans = new int[total * 2];
+        int first = 0;
+        foreach (var v in patched)
+        {
+            for (int i = 0; i < v.PatchCount; i++)
+            {
+                spans[(first + i) * 2] = first;
+                spans[(first + i) * 2 + 1] = v.PatchCount;
+            }
+
+            first += v.PatchCount;
+        }
+
+        return new PreprocessedImage
+        {
+            Width = columns > 0 ? columns * p.TileSize : views[0].Width, Height = rows > 0 ? rows * p.TileSize : views[0].Height,
+            GridHeight = total, GridWidth = 1, MergedHeight = total / p.MergeUnit, MergedWidth = 1,
+            Patches = [.. patched.SelectMany(v => v.Patches)], Positions = [.. patched.SelectMany(v => v.Positions)],
+            EmbeddingIndex = [.. patched.SelectMany(v => v.EmbeddingIndex)], EmbeddingWeight = [.. patched.SelectMany(v => v.EmbeddingWeight)],
+            WindowSpans = spans, TileColumns = columns, TileRows = rows,
+        };
     }
 
     /// <summary>
@@ -407,7 +555,7 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         int n = positions.Length / 2;
         int side = Math.Max(1, p.PositionGridSide);
         int taps = p.PositionTaps;
-        var index = new int[n * taps];
+        int[] index = p.DensePositionWeights ? [] : new int[n * taps];
         var weight = new float[n * taps];
         if (p.PositionEmbeddingCount == 0)
         {
@@ -423,6 +571,29 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
                 index[i * 2 + 1] = p.PositionEmbeddingCount + positions[i * 2];
                 weight[i * 2] = 1f;
                 weight[i * 2 + 1] = 1f;
+            }
+
+            return (index, weight);
+        }
+
+
+        if (p.DensePositionWeights)
+        {
+            // PyTorch's antialiased bilinear resize of the side × side grid to gh × gw (separable: the product of the row and column weights).
+            var (rs, rc, rw, rm) = ImageResampling.Coefficients(side, gh, ImageResampleFilter.Bilinear);
+            var (cs, cc, cw, cm) = ImageResampling.Coefficients(side, gw, ImageResampleFilter.Bilinear);
+            int count = side * side;
+            for (int i = 0; i < n; i++)
+            {
+                int row = positions[i * 2];
+                int col = positions[i * 2 + 1];
+                for (int a = 0; a < rc[row]; a++)
+                {
+                    for (int c = 0; c < cc[col]; c++)
+                    {
+                        weight[(long)i * count + (rs[row] + a) * side + cs[col] + c] = rw[row * rm + a] * cw[col * cm + c];
+                    }
+                }
             }
 
             return (index, weight);

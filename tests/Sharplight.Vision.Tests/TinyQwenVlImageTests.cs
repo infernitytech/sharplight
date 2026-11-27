@@ -16,8 +16,9 @@ namespace Sharplight.Vision.Tests;
 /// variants run the f32 GGUF and mmproj files converted by llama.cpp (tools/convert_tiny_mmproj.py, convert_tiny_cogvlm.py) against the same
 /// references: the image path end to end through the GGUF mappings (image token, projector, layout and positions from the mmproj).
 /// The tiny Gemma 3 (4×4 average pooling, soft-embedding norm, framed image rows) and Idefics3 / SmolVLM (tiles plus overview, pixel shuffle,
-/// the processor's prompt layout) checkpoints come from mk_tiny_siglip_vl.py, their references from siglip_vl_reference.py (GGUF variants only:
-/// the Hugging Face importer does not read their towers).
+/// the processor's prompt layout) and LFM2-VL (SigLIP 2 NaFlex tower on tiles and a thumbnail of its own size, antialiased position grid, pixel
+/// unshuffle with LayerNorm and MLP, the LFM2 hybrid language model) checkpoints come from mk_tiny_siglip_vl.py, their references from
+/// siglip_vl_reference.py (GGUF variants only: the Hugging Face importer does not read their towers).
 /// </summary>
 public class TinyQwenVlImageTests
 {
@@ -82,6 +83,8 @@ public class TinyQwenVlImageTests
     [InlineData("tiny-random-gemma3-vl", true)]
     [InlineData("tiny-random-idefics3", false)]
     [InlineData("tiny-random-idefics3", true)]
+    [InlineData("tiny-random-lfm2-vl", false)]
+    [InlineData("tiny-random-lfm2-vl", true)]
     public void Tiny_vl_gguf_mmproj_image_prompt_matches_transformers(string name, bool gpu)
     {
         string refPath = Path.Combine(Home, "models/hf", name, "reference_image.json");
@@ -106,7 +109,10 @@ public class TinyQwenVlImageTests
         int height = r.GetProperty("height").GetInt32();
         var expected = r.GetProperty("embeddings").EnumerateArray().Select(e => e.GetSingle()).ToArray();
         using var vision = model.CreateVisionEncoder();
-        var image = r.TryGetProperty("tile_columns", out var tileColumns)
+        var image = r.TryGetProperty("thumbnail_width", out var thumbnailWidth)
+            ? ViewsImage(vision.Preprocessor, width, height, r.GetProperty("tile_columns").GetInt32(), r.GetProperty("tile_rows").GetInt32(),
+                thumbnailWidth.GetInt32(), r.GetProperty("thumbnail_height").GetInt32())
+            : r.TryGetProperty("tile_columns", out var tileColumns)
             ? TiledImage(vision.Preprocessor, width, height, tileColumns.GetInt32(), r.GetProperty("tile_rows").GetInt32())
             : vision.Preprocessor.Patchify(SineImage(width, height), width, height);
         Assert.Equal(r.GetProperty("image_tokens").GetInt32(), image.TokenCount);
@@ -177,6 +183,33 @@ public class TinyQwenVlImageTests
 
         var overview = SineImage(tile, tile).Select(v => -v).ToArray();
         return pre.PatchifyTiles(overview, tiles, columns, rows);
+    }
+
+    /// <summary>
+    /// The views of siglip_vl_reference.py's LFM2-VL image: the tiles of a <paramref name="columns"/> × <paramref name="rows"/> grid cut from the sine
+    /// image of the whole canvas and a thumbnail of its own size holding the negated sine pattern.
+    /// </summary>
+    private static PreprocessedImage ViewsImage(VisionPreprocessor pre, int width, int height, int columns, int rows, int thumbnailWidth, int thumbnailHeight)
+    {
+        int tile = width / columns;
+        var canvas = SineImage(width, height);
+        var views = new List<(float[], int, int)>();
+        for (int ty = 0; ty < rows; ty++)
+        {
+            for (int tx = 0; tx < columns; tx++)
+            {
+                var view = new float[3 * tile * tile];
+                for (int y = 0; y < tile; y++)
+                {
+                    Array.Copy(canvas, 3 * ((ty * tile + y) * width + tx * tile), view, 3 * y * tile, 3 * tile);
+                }
+
+                views.Add((view, tile, tile));
+            }
+        }
+
+        views.Add((SineImage(thumbnailWidth, thumbnailHeight).Select(v => -v).ToArray(), thumbnailWidth, thumbnailHeight));
+        return pre.PatchifyViews(views, columns, rows);
     }
 
     private static int? Single(LlmModel model, string text)

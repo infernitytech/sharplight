@@ -204,8 +204,9 @@ In all, 1,080 of 1,138 GGUF files across 88 repositories and 49 of 72 Hub checkp
 | Qwen3.5 0.8B | Qwen/Qwen3.5-0.8B | GGUF BF16 + mmproj | CPU, Vulkan | mmproj vs llama.cpp | | 2026-11-14 |
 | Gemma 3 4B it | ggml-org/gemma-3-4b-it-GGUF | GGUF Q4_K_M + mmproj (F16) | CPU, Vulkan | tower and prompt vs transformers on a tiny Gemma 3 (embeddings 2e-7, logits, greedy); 4B: the test image described correctly, wording differs from llama-mtmd-cli | image rows attend causally (bidirectional image attention is a follow-up) | 2026-11-27 |
 | SmolVLM 256M Instruct | ggml-org/SmolVLM-256M-Instruct-GGUF | GGUF Q8_0 + mmproj | CPU, Vulkan | 60 greedy tokens identical to llama-mtmd-cli (HEAD-converted f16 files, CPU and GPU); tower, layout and greedy vs transformers on a tiny Idefics3 | | 2026-11-27 |
+| LFM2-VL 450M | LiquidAI/LFM2-VL-450M-GGUF | GGUF Q8_0, F16 + mmproj (F16) | CPU, Vulkan | 60 greedy tokens identical to llama-mtmd-cli (Q8_0 and F16, untiled and tiled image, CPU and GPU); tower, layout and greedy vs transformers on a tiny LFM2-VL; preprocessing vs the transformers processor | LFM3-VL (lfm3vl projector) is #109 | 2026-11-27 |
 | Qwen3.8 27B | Qwen/Qwen3.8-27B | GGUF mmproj (BF16) | CPU, Vulkan | projector output vs llama.cpp | | 2026-11-14 |
-| Ministral 3 3B, LFM2-VL 450M | mistralai / LiquidAI | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
+| Ministral 3 3B | mistralai | GGUF + mmproj | CPU, Vulkan | text vs llama.cpp (see 1.1); projector files load | | 2026-11-14 |
 | PaddleOCR-VL 1.6, Unlimited-OCR | PaddlePaddle/PaddleOCR-VL-1.6, baidu/Unlimited-OCR | safetensors | CPU | Loads | | 2026-11-15 |
 | GLM-OCR | zai-org/GLM-OCR | safetensors | CPU, Vulkan | greedy text and the formula and table tasks identical to transformers (CPU, Vulkan, .slm), ITextRecognizer | OCR prompts "Text Recognition:", "Formula Recognition:", "Table Recognition:"; no multi-token prediction | 2026-11-18 |
 <!-- verified-catalog:end -->

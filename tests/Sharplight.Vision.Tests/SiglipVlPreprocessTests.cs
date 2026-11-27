@@ -6,7 +6,10 @@ namespace Sharplight.Vision.Tests;
 /// <summary>
 /// Image preprocessing of the Gemma 3 (fixed square, bilinear) and Idefics3 / SmolVLM (longest-edge and tile-multiple Lanczos resizes, tile grid
 /// and overview) towers against transformers' PIL image processors on synthetic 8-bit images (reference_preprocess.json next to the tiny checkpoints of
-/// mk_tiny_siglip_vl.py, written by siglip_vl_preprocess_reference.py; the tower inputs come from the converted mmproj files).
+/// mk_tiny_siglip_vl.py, written by siglip_vl_preprocess_reference.py; the tower inputs come from the converted mmproj files), and LFM2-VL's
+/// (smart resize within 64..256 tokens, or the tile grid closest to the aspect ratio plus the thumbnail; bicubic) against its torchvision processor:
+/// LiquidAI/LFM2-VL-450M with the published F16 text GGUF and an mmproj converted by llama.cpp HEAD (the published one predates the tiling and
+/// resize keys).
 /// </summary>
 public class SiglipVlPreprocessTests
 {
@@ -15,11 +18,13 @@ public class SiglipVlPreprocessTests
     [Theory]
     [InlineData("tiny-random-gemma3-vl")]
     [InlineData("tiny-random-idefics3")]
+    [InlineData("LFM2-VL-450M")]
     public void Preprocessing_matches_transformers(string name)
     {
         string refPath = Path.Combine(Home, "models/hf", name, "reference_preprocess.json");
-        string gguf = Path.Combine(Home, "models/gguf", $"{name}-f32.gguf");
-        string mmproj = Path.Combine(Home, "models/gguf", $"mmproj-{name}-f32.gguf");
+        bool real = !name.StartsWith("tiny-", StringComparison.Ordinal);
+        string gguf = real ? Path.Combine(Home, "models/gguf", name, $"{name}-F16.gguf") : Path.Combine(Home, "models/gguf", $"{name}-f32.gguf");
+        string mmproj = real ? Path.Combine(Home, "models/gguf", name, $"mmproj-{name}-F16-head.gguf") : Path.Combine(Home, "models/gguf", $"mmproj-{name}-f32.gguf");
         Assert.SkipUnless(File.Exists(refPath) && File.Exists(gguf) && File.Exists(mmproj), $"{name}: reference_preprocess.json, GGUF or mmproj not available");
         using var model = LlmModel.Load(TestHost.Loader, gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = { [AuxiliaryRoles.Mmproj] = mmproj } });
         using var vision = model.CreateVisionEncoder();
@@ -45,9 +50,29 @@ public class SiglipVlPreprocessTests
             var pixels = c.GetProperty("pixels").EnumerateArray().Select(e => e.GetSingle()).ToArray();
             int side = pre.Parameters.TileSize > 0 ? pre.Parameters.TileSize : pre.Parameters.ImageSize;
             int plane = side * side;
-            var views = Enumerable.Range(0, pixels.Length / (3 * plane)).Select(v => Interleave(pixels, v * 3 * plane, side)).ToList();
+            var views = Enumerable.Range(0, pixels.Length / (3 * plane)).Select(v => Interleave(pixels, v * 3 * plane, side, side)).ToList();
             PreprocessedImage expected;
-            if (c.TryGetProperty("rows", out var rows))
+            if (c.TryGetProperty("views", out var viewSizes))
+            {
+                // LFM2-VL: views of their own sizes; one view is an untiled image (the processor reports a 1 × 1 grid).
+                var sized = new List<(float[], int, int)>();
+                int offset = 0;
+                foreach (var v in viewSizes.EnumerateArray())
+                {
+                    int vw = v[0].GetInt32();
+                    int vh = v[1].GetInt32();
+                    sized.Add((Interleave(pixels, offset, vw, vh), vw, vh));
+                    offset += 3 * vw * vh;
+                }
+
+                int columns = sized.Count > 1 ? c.GetProperty("cols").GetInt32() : 0;
+                int tileRows = sized.Count > 1 ? c.GetProperty("rows").GetInt32() : 0;
+                Assert.Equal(columns, ours.TileColumns);
+                Assert.Equal(tileRows, ours.TileRows);
+                Assert.Equal(sized.Count, ours.WindowSpans.Where((_, i) => i % 2 == 0).Distinct().Count());
+                expected = pre.PatchifyViews(sized, columns, tileRows);
+            }
+            else if (c.TryGetProperty("rows", out var rows))
             {
                 int columns = c.GetProperty("cols").GetInt32();
                 Assert.Equal(columns, ours.TileColumns);
@@ -60,7 +85,8 @@ public class SiglipVlPreprocessTests
             }
 
             var (maxAbs, _, rms) = Env.Compare(ours.Patches, expected.Patches);
-            Console.Error.WriteLine($"{name} {width}x{height}: {views.Count} view(s), max |diff| {maxAbs:E2}, rms {rms:E2}");
+            int viewCount = ours.WindowSpans.Where((_, i) => i % 2 == 0).Distinct().Count();
+            Console.Error.WriteLine($"{name} {width}x{height}: {Math.Max(1, viewCount)} view(s), max |diff| {maxAbs:E2}, rms {rms:E2}");
             // One 8-bit step is 2/255 after the (x/255 - 0.5)/0.5 normalization. Both passes round to 8 bits like Pillow, but Pillow 13 runs the
             // vertical pass first for some sizes (older Pillow always horizontal first, as here), which moves many pixels by one step and a few
             // by more next to the Lanczos kernel's overshoot.
@@ -69,15 +95,16 @@ public class SiglipVlPreprocessTests
         }
     }
 
-    // One channels-first view [3, side, side] at offset as interleaved RGB.
-    private static float[] Interleave(float[] chw, int offset, int side)
+    // One channels-first view [3, height, width] at offset as interleaved RGB.
+    private static float[] Interleave(float[] chw, int offset, int width, int height)
     {
-        var v = new float[3 * side * side];
+        int plane = width * height;
+        var v = new float[3 * plane];
         for (int c = 0; c < 3; c++)
         {
-            for (int i = 0; i < side * side; i++)
+            for (int i = 0; i < plane; i++)
             {
-                v[i * 3 + c] = chw[offset + c * side * side + i];
+                v[i * 3 + c] = chw[offset + c * plane + i];
             }
         }
 

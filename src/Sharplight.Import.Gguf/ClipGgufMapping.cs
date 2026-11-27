@@ -21,7 +21,9 @@ namespace Sharplight.Import.Gguf;
 /// as do <c>deepseekocr</c> (DeepSeek-OCR and Unlimited-OCR: SAM and CLIP stages) and <c>deepseekocr2</c> (DeepSeek-OCR-2: SAM and a
 /// query encoder), see ClipGgufMapping.DeepseekOcr.cs. <c>gemma3</c> (Gemma 3's SigLIP tower: fixed square image, 4×4 average pooling, soft-embedding
 /// norm and input projection, image rows framed by <c>&lt;start_of_image&gt;</c> / <c>&lt;end_of_image&gt;</c>) and <c>idefics3</c> (SmolVLM: SigLIP
-/// tower on tiles plus an overview, pixel shuffle and a linear projection, the Idefics3 prompt layout) belong to <c>decoder</c> too.
+/// tower on tiles plus an overview, pixel shuffle and a linear projection, the Idefics3 prompt layout) belong to <c>decoder</c> too. <c>lfm2</c>
+/// (LFM2-VL: SigLIP 2 NaFlex tower on smart-resized views or tiles plus a thumbnail, antialiased resampling of the position grid, pixel unshuffle,
+/// LayerNorm and GELU MLP, the LFM2-VL prompt layout) belongs to <c>hybrid</c> (the LFM2 language model).
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -44,10 +46,12 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <c>clip.use_gelu</c> means the exact GELU of the checkpoint (llama.cpp runs every GELU as the tanh approximation). <c>DefaultMerge</c>: the
     /// merge size when the file has neither <c>clip.vision.spatial_merge_size</c> nor <c>clip.vision.projector.scale_factor</c>. <c>FixedSize</c>:
     /// images are resized to the square <c>clip.vision.image_size</c>. <c>Tiled</c>: images are cut into tiles of that size (Idefics3).
+    /// <c>Lfm2Tiles</c>: LFM2-VL's views (<c>clip.vision.preproc_*</c> tiling keys with llama.cpp's defaults for older files, 64..256 image tokens).
     /// </summary>
     private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh",
         string NormType = "layer", bool LearnedPositions = true, IReadOnlyDictionary<string, string>? Names = null, IReadOnlyDictionary<string, object>? Extra = null,
-        bool ClassToken = false, bool ExactGelu = false, bool AxialPositions = false, int DefaultMerge = 2, bool FixedSize = false, bool Tiled = false);
+        bool ClassToken = false, bool ExactGelu = false, bool AxialPositions = false, int DefaultMerge = 2, bool FixedSize = false, bool Tiled = false,
+        bool Lfm2Tiles = false);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
     private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
@@ -183,6 +187,27 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
                 ["resize.filter"] = "lanczos", ["image_token"] = "<image>", ["image_begin_token"] = "<fake_token_around_image>",
                 ["tile.layout"] = "idefics3", ["tile.global_token"] = "<global-img>",
             }),
+        // LFM2-VL: SigLIP 2 NaFlex tower (the 16×16 position grid resampled to every view with PyTorch's antialiased bilinear interpolate),
+        // trunk post-norm v.post_ln, pixel unshuffle (clip.vision.projector.scale_factor), LayerNorm mm.input_norm (eps 1e-5) and the exact-GELU MLP
+        // mm.1 / mm.2 (transformers' "gelu"; llama.cpp runs the tanh form). The trunk's GELU is gelu_pytorch_tanh, whatever clip.use_gelu says.
+        ["lfm2"] = new("hybrid", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, Lfm2Tiles: true,
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["v.post_ln.weight"] = "vision.post_norm.weight",
+                ["v.post_ln.bias"] = "vision.post_norm.bias",
+                ["mm.input_norm.weight"] = "vision.merger.merged_norm.weight",
+                ["mm.input_norm.bias"] = "vision.merger.merged_norm.bias",
+                ["mm.1.weight"] = "vision.merger.up.weight",
+                ["mm.1.bias"] = "vision.merger.up.bias",
+                ["mm.2.weight"] = "vision.merger.down.weight",
+                ["mm.2.bias"] = "vision.merger.down.bias",
+            },
+            Extra: new Dictionary<string, object>
+            {
+                ["merger.norm_eps"] = 1e-5f, ["position_embedding.interpolation"] = "bilinear_antialias", ["image_token"] = "<image>",
+                ["image_begin_token"] = "<|image_start|>", ["image_end_token"] = "<|image_end|>", ["tile.layout"] = "lfm2",
+                ["tile.global_token"] = "<|img_thumbnail|>",
+            }),
         [DeepseekOcr] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "quick_gelu"),
         [DeepseekOcr2] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "silu"),
     };
@@ -274,6 +299,20 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             int tile = g.Int("vision.image_size");
             md[a + "tile_size"] = tile;
             md[a + "resize.longest_edge"] = g.Int("vision.preproc_image_size", 4 * tile);
+        }
+
+        if (p.Lfm2Tiles)
+        {
+            // llama.cpp's defaults for files converted before the tiling keys (LFM2.5-VL's processor_config.json) and its token bounds 64..256;
+            // older files have no resize algorithm either and llama.cpp then resizes bilinearly.
+            long unit = (long)patch * patch * (int)md[a + "spatial_merge_size"] * (int)md[a + "spatial_merge_size"];
+            md[a + "tile_size"] = g.Int("vision.preproc_tile_size", 512);
+            md[a + "tile.min_tiles"] = g.Int("vision.preproc_min_tiles", 2);
+            md[a + "tile.max_tiles"] = g.Int("vision.preproc_max_tiles", 10);
+            md[a + "tile.max_pixels_tolerance"] = g.Float("vision.preproc_max_pixels_tolerance", 2f);
+            md[a + "min_pixels"] = 64 * unit;
+            md[a + "max_pixels"] = 256 * unit;
+            md[a + "resize.filter"] = g.Raw("vision.image_resize_algo") as string ?? "bilinear";
         }
 
         if (p.ClassToken || p.FixedSize)

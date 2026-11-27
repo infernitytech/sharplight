@@ -21,11 +21,12 @@ namespace Sharplight.Architectures;
 /// which image rows use the language model's media weight set (<see cref="MultimodalPrompt.MediaWeights"/>).
 /// <c>&lt;|IMAGE_PLACEHOLDER|&gt;</c>); DeepStack blocks travel in the image rows' embeddings. A model with one position axis (DeepSeek-OCR, whose
 /// placeholder is <c>&lt;image&gt;</c>) gets consecutive positions for all rows instead, unless its tower has grouped image positions.
+/// The layer-stack <c>hybrid</c> language models with a tower (LFM2-VL) have one position axis as well.
 /// </summary>
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> Architectures => ["qwen3_5", "decoder"];
+    public IReadOnlyList<string> Architectures => ["qwen3_5", "decoder", "hybrid"];
 
     // Position axes of an M-RoPE language model.
     private const int MropeAxes = 4;
@@ -193,6 +194,7 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
         int begin = vision is { ImageBeginToken.Length: > 0 } ? context.RequireToken(vision.ImageBeginToken) : -1;
         int end = vision is { ImageEndToken.Length: > 0 } ? context.RequireToken(vision.ImageEndToken) : -1;
         bool tiled = vision?.TileLayout == VisionParameters.Idefics3TileLayout;
+        bool lfm2 = vision?.TileLayout == VisionParameters.Lfm2TileLayout;
         var toks = new List<int>(tokens.Length);
         var imageIndex = new List<int>(tokens.Length);
         var imageRow = new List<int>(tokens.Length);
@@ -231,6 +233,13 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
                 continue;
             }
 
+            if (lfm2)
+            {
+                Lfm2Layout(vision!, context, im, img, Text, Rows);
+                img++;
+                continue;
+            }
+
             if (begin >= 0)
             {
                 Text(begin);
@@ -256,6 +265,39 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
         {
             Tokens = [.. toks], ImageIndex = [.. imageIndex], ImageRow = [.. imageRow], Positions = pos, PositionAxes = 1, NextPosition = startPosition + rows,
         };
+    }
+
+    /// <summary>
+    /// The LFM2-VL layout (Lfm2VlProcessor with image special tokens): <c>&lt;|image_start|&gt;</c>, per tile <c>&lt;|img_row_r_col_c|&gt;</c> and
+    /// its rows, <c>&lt;|img_thumbnail|&gt;</c> and the thumbnail's rows (when there is one), <c>&lt;|image_end|&gt;</c>; an untiled image is only its
+    /// framed rows.
+    /// </summary>
+    private static void Lfm2Layout(VisionParameters vision, MultimodalContext context, PreprocessedImage image, int img, Action<int> text,
+        Action<int, int, int> rows)
+    {
+        text(context.RequireToken(vision.ImageBeginToken));
+        int row = 0;
+        if (image.TileColumns > 0)
+        {
+            int side = vision.TileSize / (vision.PatchSize * vision.SpatialMergeSize);
+            for (int r = 0; r < image.TileRows; r++)
+            {
+                for (int c = 0; c < image.TileColumns; c++)
+                {
+                    text(context.RequireToken($"<|img_row_{r + 1}_col_{c + 1}|>"));
+                    rows(img, row, side * side);
+                    row += side * side;
+                }
+            }
+
+            if (row < image.TokenCount)
+            {
+                text(context.RequireToken(vision.TileGlobalToken));
+            }
+        }
+
+        rows(img, row, image.TokenCount - row);
+        text(context.RequireToken(vision.ImageEndToken));
     }
 
     /// <summary>
