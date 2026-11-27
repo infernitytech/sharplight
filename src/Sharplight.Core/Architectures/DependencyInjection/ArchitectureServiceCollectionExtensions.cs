@@ -65,6 +65,7 @@ public static class ArchitectureServiceCollectionExtensions
                 .AddModelAdapter<DemucsAdapter>()
                 .AddModelAdapter<ChronosBoltAdapter>()
                 .AddModelAdapter<TimesFmAdapter>()
+                .AddModelAdapter<MoiraiAdapter>()
                 .AddModelAdapter<ChronosAdapter>()
                 .AddTaskClientFactory<KokoroSynthesizerFactory>()
                 .AddCompositeModelAdapter<OrpheusAdapter>()

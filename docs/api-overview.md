@@ -632,7 +632,11 @@ empirical quantiles. Horizons beyond `PredictionLength` (64) follow the referenc
 does). TimesFM 2.0 (`timesfm`) and 2.5 (`timesfm2_5`) are the third form, a decoder-only patch transformer (`patch_decoder` graph with symbolic patch rows): the host fills
 missing values, normalizes the patches (first-patch or running statistics), runs the causal graph over all patches and de-normalizes the next 128-step output patch of the
 last one; longer horizons append the point forecast and run again (TimesFM 2.5 also applies its model card's forecast flags: flip invariance, the continuous quantile head,
-non-negativity, the quantile-crossing fix). Levels other than the native ones are interpolated as the reference does. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
+non-negativity, the quantile-crossing fix). Salesforce's Moirai (uni2ts checkpoints, configs of module arguments) adds two forms: Moirai 2.0 (`moirai2`,
+`quantile_decoder` graph) is a causal patch decoder whose last row predicts 64 steps at 9 levels, longer horizons feeding every level back as its own
+sequence (packed into one pass); Moirai 1.1 (`moirai`, one `masked_encoder_p<p>` graph per patch size) is a masked encoder that predicts a mixture
+distribution (Student-t, normal, negative binomial, log-normal) for every step of the horizon in one pass, from which the host draws `SampleCount`
+paths (default 100; `PatchSize` picks one of 8 ... 128, default 32). Levels other than the native ones are interpolated as the reference does. `TimeSeriesTable` reads CSV, semicolon- or tab-separated text into a time column and numeric columns.
 
 ```csharp
 using var forecaster = provider.GetRequiredService<TaskClientProvider>().Create<ITimeSeriesForecaster>(model);
