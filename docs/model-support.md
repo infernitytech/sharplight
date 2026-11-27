@@ -582,7 +582,13 @@ mask and llama.cpp's non-causal image batch (`mtmd_decode_use_non_causal`) do: t
 the session ends a pass before an image that would not fit whole and fills the entries from the image spans, the batch decoder from each input's
 embedding runs, and the engine keeps an image's rows in one prefill step where it can (`IBatchDecoder.BidirectionalMediaRows`). Passes without
 image rows bind the input to one ignored entry and keep the usual attention kernels; passes with them run the per-(head, query) kernel
-(`attention.slang` `main` with `LOOKAHEAD`) on the GPU. PaliGemma's bidirectional prefix (image + prompt) would use the same input once its tower is imported. `idefics3` (SmolVLM / SmolVLM2): images are
+(`attention.slang` `main` with `LOOKAHEAD`) on the GPU. PaliGemma's bidirectional prefix (image + prompt) would use the same input once its tower is imported. Verified: the tiny
+Gemma 3 vs transformers with `token_type_ids` (the reference changes the top logits by 0.03-0.06 against the causal one; CPU, Vulkan, CUDA, the
+session and the batch decoder: `BidirectionalImageRowsTests`, `LookaheadAttentionTests`); gemma-3-4b-it Q4_K_M + mmproj-model-f16 on the moon-landing
+test image, greedy, 64 tokens: CPU, Vulkan and CUDA give the same text; it follows llama-mtmd-cli (CPU build of 8ca5a80, which has the same
+non-causal rule) through "The image is a vintage newspaper" and then words it differently ("front page of *The New York Times*, dated Monday" vs
+"page from *The New York Times*, specifically the front page of a late edition dated Monday"); with causal image rows it already differed at
+"newspaper clipping". `idefics3` (SmolVLM / SmolVLM2): images are
 resized (Lanczos) so the longer side is `clip.vision.preproc_image_size` (default 4 · image_size, transformers' `size.longest_edge`), then to
 whole tiles of `clip.vision.image_size`, cut into a tile grid plus an overview; every view is one attention window of the tower
 (`VisionParameters.TileSize`), pixel shuffle (`clip.vision.projector.scale_factor`) and the linear `mm.model.fc`; the prompt layout is the
