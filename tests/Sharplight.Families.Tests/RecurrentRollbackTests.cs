@@ -55,6 +55,18 @@ public class RecurrentRollbackTests
     public void RolledBack16BitDeltaState_Matches_NonSpeculativeDecoding(bool vulkan, string stateType)
         => Run("hf/tiny-random-qwen3.5-mtp", "GatedDeltaRule, CausalConv1d", vulkan, DataType.Get(stateType));
 
+    /// <summary>The selective scan's and the RWKV recurrences' state in bf16 (rounded after every token, also when replaying), CPU and Vulkan.</summary>
+    [Theory]
+    [InlineData("gguf/tiny-random-plamo2-f32.gguf", "SelectiveScan, CausalConv1d", false)]
+    [InlineData("gguf/tiny-random-plamo2-f32.gguf", "SelectiveScan, CausalConv1d", true)]
+    [InlineData("hf/tiny-random-MambaForCausalLM", "SelectiveScan (Mamba-1), CausalConv1d", true)]
+    [InlineData("hf/tiny-random-granite-4.0-h", "SelectiveScan (Mamba-2), CausalConv1d", true)]
+    [InlineData("gguf/tiny-random-arwkv7-f32.gguf", "Wkv7, CausalConv1d (token shift)", false)]
+    [InlineData("gguf/tiny-random-arwkv7-f32.gguf", "Wkv7, CausalConv1d (token shift)", true)]
+    [InlineData("gguf/tiny-random-rwkv6qwen2-f32.gguf", "Wkv6, CausalConv1d (token shift)", true)]
+    public void RolledBack16BitScanState_Matches_NonSpeculativeDecoding(string path, string ops, bool vulkan)
+        => Run(path, ops, vulkan, DataType.BF16);
+
     private static void Run(string relativePath, string ops, bool vulkan, DataType? recurrentStateType = null)
     {
         string path = Path.Combine(Home, "models", relativePath);

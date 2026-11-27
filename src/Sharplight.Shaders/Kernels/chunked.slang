@@ -24,8 +24,8 @@
 //   gc  float [SROWS][HV]                  (chunk-local cumulative log decay G)
 // Macros: HK HV DK DV QS0 QS1 KS0 KS1 VS0 VS1 SCALE NORM_Q EPS_Q NORM_K EPS_K MULTI_SEQ PARTS BV SROWS CHUNK_MIN
 // STATE_THREADS (128 or 256: subgroups of delta_chunk_state), STATE_FMT (state16.slang: a 16-bit state is widened through the
-// f32 staging tile at the run start and rounded once at its end; within a run it stays f32, unlike the token-by-token kernel,
-// which rounds it after every row).
+// f32 staging tile at the run start and rounded to the state format after every chunk, the chunked analogue of the
+// token-by-token kernel's rounding after every row; within a chunk the products use the f32 accumulators).
 // SNAPSHOT (multi-sequence snapshot form, see RecurrentSnapshots): one more binding after the runs table, snapshots [U, 2] i32 (k, row).
 // A run with k > 0 starts with a chunk of k mod 64 rows (when not 0), so that a chunk ends after its row k; delta_chunk_state stores
 // the state there into state row `row` as well.
@@ -388,7 +388,7 @@ groupshared float fG[CH];
         }                                                                                                             \
     }
 // Stores the state accumulators S^T into the state rows at dst (S^T(i, j) at dst[j * DK + i]); a 16-bit state goes through the f32
-// staging tile fX and is rounded once for the whole run.
+// staging tile fX (rounding the last chunk's update; step 1 rounds the state at every other chunk boundary).
 #if STATE_FMT
 #define STORE_STATE(dst)                                                                                              \
     {                                                                                                                 \
@@ -485,7 +485,10 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
         if (tid < CH) fG[tid] = gNext;
 
         // 1. S^T -> f16 planes fA [DK][BV]. Two parts: staged in f32 and split in scalar code (a converted accumulator
-        // can come back from the driver unrounded, which would leave the lo part zero).
+        // can come back from the driver unrounded, which would leave the lo part zero). A 16-bit state is staged too: the
+        // state after every chunk is rounded to the state format (like the token-by-token kernel's after every row) and the
+        // accumulators continue from the rounded values.
+#define STAGE_STATE (PARTS > 1 || STATE_FMT)
         [ForceUnroll]
         for (uint m = 0; m < S_ROWS; m++)
         {
@@ -494,7 +497,7 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
             [ForceUnroll]
             for (uint ci = 0; ci < CB; ci++)
             {
-#if PARTS > 1
+#if STAGE_STATE
                 S[m][ci].Store<CoopMatMatrixLayout.RowMajor>(fX, ri * 16 * XS + ci * 16, XS);
 #else
                 MCH hi = MCH(S[m][ci]);
@@ -502,12 +505,32 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
 #endif
             }
         }
-#if PARTS > 1
+#if STAGE_STATE
         GroupMemoryBarrierWithGroupSync();
         for (uint e = tid; e < DK * BV; e += NTC)
         {
             uint i = e / BV, j = e % BV;
-            STORE_PARTS(fA, ROWS_A * FS, i * FS + j, fX[i * XS + j]);
+#if STATE_FMT
+            float sv = state_round(fX[i * XS + j]);
+            fX[i * XS + j] = sv;
+#else
+            float sv = fX[i * XS + j];
+#endif
+            STORE_PARTS(fA, ROWS_A * FS, i * FS + j, sv);
+        }
+#endif
+#if STATE_FMT
+        GroupMemoryBarrierWithGroupSync();
+        [ForceUnroll]
+        for (uint m = 0; m < S_ROWS; m++)
+        {
+            uint ri = sg + m * NSG;
+            if (ri >= RB) continue;
+            [ForceUnroll]
+            for (uint ci = 0; ci < CB; ci++)
+            {
+                S[m][ci] = MC.Load<CoopMatMatrixLayout.RowMajor>(fX, ri * 16 * XS + ci * 16, XS);
+            }
         }
 #endif
         GroupMemoryBarrierWithGroupSync();

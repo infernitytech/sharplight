@@ -11,8 +11,8 @@ namespace Sharplight.Vulkan.Tests;
 /// handed back and forth between the two; single and multi-sequence (runs of both kinds in one step, a slot that starts
 /// over). q and k are L2-normalized, as in every model using the op, either inside the graph (absorbed into the kernels) or
 /// beforehand. <c>reduced</c> selects the one-product f16 form (reduced precision), otherwise the two-part split. A 16-bit
-/// state (<c>stateType</c>) is rounded once per run by the chunked form but after every row by the oracle and the token-by-token
-/// kernel, hence the wider tolerance. The graphs
+/// state (<c>stateType</c>) is rounded after every 64-row chunk by the chunked form but after every row by the oracle and the
+/// token-by-token kernel, hence the wider tolerance. The graphs
 /// also carry the causal conv1d that precedes the op in the models, so its token-parallel prefill form (and the state
 /// hand-over to the per-channel walk of short batches) is checked on the same batches.
 /// </summary>

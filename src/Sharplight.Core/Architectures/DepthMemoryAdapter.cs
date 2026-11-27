@@ -70,7 +70,7 @@ public sealed class DepthMemoryAdapter : IModelAdapter
         {
             layerStates[v] = isAttention[v % layerCount]
                 ? attention.DefineStates($"layers.{v}", options.KvCacheType)
-                : mamba.DefineStates($"layers.{v}");
+                : mamba.DefineStates($"layers.{v}", options.RecurrentStateType);
             states.Add(layerStates[v].First);
             states.Add(layerStates[v].Second);
         }

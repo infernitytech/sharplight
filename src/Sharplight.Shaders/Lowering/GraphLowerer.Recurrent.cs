@@ -114,6 +114,9 @@ public sealed partial class GraphLowerer
             args, reads, [st]);
     }
 
+    /// <summary>Whether a recurrent op's state may have this element type (<c>state16.slang</c>): f32, f16 or bf16.</summary>
+    private static bool IsRecurrentStateType(DataType type) => type == DataType.F32 || type == DataType.F16 || type == DataType.BF16;
+
     /// <summary>The <c>STATE_FMT</c> of a recurrent state type (<c>state16.slang</c>): 0 f32, 1 f16, 2 bf16.</summary>
     private static int RecurrentStateFormat(DataType type)
         => type == DataType.F32 ? 0 : type == DataType.F16 ? 1 : type == DataType.BF16 ? 2

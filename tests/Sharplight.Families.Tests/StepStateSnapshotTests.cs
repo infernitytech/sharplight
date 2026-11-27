@@ -54,6 +54,14 @@ public class StepStateSnapshotTests
         Run(path, ops, gpu, 112, null);
     }
 
+    /// <summary>The selective scan's and the RWKV recurrences' state in bf16, on the GPU.</summary>
+    [Theory]
+    [InlineData("gguf/tiny-random-plamo2-f32.gguf", "SelectiveScan, CausalConv1d")]
+    [InlineData("hf/tiny-random-granite-4.0-h", "SelectiveScan (Mamba-2), CausalConv1d")]
+    [InlineData("gguf/tiny-random-arwkv7-f32.gguf", "Wkv7, CausalConv1d (token shift)")]
+    [InlineData("gguf/tiny-random-rwkv6qwen2-f32.gguf", "Wkv6, CausalConv1d (token shift)")]
+    public void SixteenBitScanState_KeptState_ContinuesLikeTheWholePrompt(string path, string ops) => Run(path, ops, true, 48, DataType.BF16);
+
     /// <summary>A real gated delta net hybrid (Qwen3.5-0.8B: the chunked delta rule on the GPU), f32 and bf16 recurrent state.</summary>
     [Theory]
     [InlineData(null)]
@@ -93,8 +101,9 @@ public class StepStateSnapshotTests
         // Slot 2 restores it with the blocks up to the boundary and computes only the rest.
         Assert.Equal(keep, decoder.AttachKvBlocks(2, hashes.AsSpan(0, keep / bs)));
         var restored = decoder.Step([new SequenceInput(2, prompt[keep..])]).ToArray()[0].ToArray();
-        // A 16-bit state is rounded where it is kept: the restored slot continues from a state rounded at row `keep` (the chunked delta
-        // rule rounds once per run), so it agrees within the state's precision.
+        // A 16-bit state is rounded where it is kept: the restored slot continues from a state rounded at row `keep`, while the chunked
+        // delta rule of the reference (no snapshot, so no chunk ends at `keep`) rounds at other rows, so it agrees within the state's
+        // precision.
         AssertClose(expected[0], restored, $"{ops}: the rest of the prompt from the state kept at {keep}", stateType is null ? 2e-3f : 1e-2f);
 
         // The slot's own state after the whole prompt, and the restored one, continue like the reference.

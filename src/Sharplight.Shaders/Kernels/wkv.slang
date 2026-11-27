@@ -3,11 +3,11 @@
 // reads); the per-row dot products are subgroup butterfly sums (LPR = 1 needs no subgroup ops at all). Tokens are staged TB at a time in shared memory.
 //   Wkv7: sa = a . S_i;  S_i = S_i * w + v_i k + sa b;  y_i = S_i . r
 //   Wkv6: y_i = sum_j r_j (u_j k_j v_i + S_ij);  S_i = S_i * w + k v_i
-// All token inputs are dense [T, H, N] f32; u [H, N]; state [H, N, N] (MULTI_SEQ: [S, H, N, N], grid z = run of the [U, 4] runs table,
+// All token inputs are dense [T, H, N] f32; u [H, N]; state [H, N, N] f32, f16 or bf16 (STATE_FMT, rounded after every token) (MULTI_SEQ: [S, H, N, N], grid z = run of the [U, 4] runs table,
 // a run at position 0 starts from zero state); y dense [T, H, N].
 // Macros: H, N, LPR, RB (N % RB == 0), TB, MULTI_SEQ
 // ROLLBACK, KR, RW: rollback form (see recurrent.slang); record row per head h: Wkv7 w|k|v|a|b at h * 5N, Wkv6 k|v|w at h * 3N.
-#include "common.slang"
+#include "state16.slang"   // STATE_FMT: f32 / f16 / bf16 state (rounded after every token)
 
 #ifndef ROLLBACK
 #define ROLLBACK 0
@@ -40,7 +40,7 @@ struct WkvParams
     float* v;
     float* a;      // Wkv7: a; Wkv6: u [H, N]
     float* b;      // Wkv7 only
-    float* state;
+    STATE_T* state;
     float* y;
 #if MULTI_SEQ
     int* runs;
@@ -165,16 +165,16 @@ void wkv6(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform WkvPara
     uint part = ltid.x % LPR;
 #if MULTI_SEQ
     int4 run = int4(p.runs[gid.z * 4], p.runs[gid.z * 4 + 1], p.runs[gid.z * 4 + 2], p.runs[gid.z * 4 + 3]);
-    float* st = p.state + (((uint64_t(run.x) * H + h) * N) + row) * N + part;
+    STATE_T* st = p.state + (((uint64_t(run.x) * H + h) * N) + row) * N + part;
     uint tBeg = uint(run.y), tEnd = uint(run.y + run.z);
     bool fresh = run.w == 0;
 #else
-    float* st = p.state + (uint64_t(h) * N + row) * N + part;
+    STATE_T* st = p.state + (uint64_t(h) * N + row) * N + part;
     uint tBeg = 0, tEnd = p.T;
     bool fresh = false;
 #endif
     float M[EPL];
-    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = fresh ? 0.0 : st[e * LPR];
+    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = fresh ? 0.0 : state_load(st[e * LPR]);
 #ifdef KERNEL_WKV6
     float U[EPL];
     [ForceUnroll] for (int e = 0; e < EPL; e++) U[e] = p.a[uint64_t(h) * N + part + e * LPR];
@@ -195,7 +195,7 @@ void wkv6(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform WkvPara
     // In-step snapshot: the state after the run's first k rows into state row snaps[z].y.
     int snapK = tentative ? 0 : p.snaps[gid.z * 2];
     uint snapEnd = snapK > 0 ? replay + uint(snapK) : 0u;
-    float* snapSt = p.state + (((uint64_t(p.snaps[gid.z * 2 + 1]) * H + h) * N) + row) * N + part;
+    STATE_T* snapSt = p.state + (((uint64_t(p.snaps[gid.z * 2 + 1]) * H + h) * N) + row) * N + part;
 #endif
 
     for (uint r0 = 0; r0 < rEnd; r0 += TB)
@@ -214,7 +214,7 @@ void wkv6(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform WkvPara
             // A tentative run leaves the slot's state as it is after the replay.
             if (tentative && r0 + tt == replay)
             {
-                [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+                [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = state_store(M[e]);
             }
 #endif
             float vi = sV[tt * RB + rl];
@@ -238,18 +238,21 @@ void wkv6(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform WkvPara
             }
 #endif
             float y = row_sum(ya[0] + ya[1]);
+#if STATE_FMT
+            [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = state_round(M[e]);
+#endif
             if (part == 0 && r0 + tt >= replay) p.y[(uint64_t(tBeg + r0 + tt - replay) * H + h) * N + row] = y;
 #if SNAPSHOT
             if (r0 + tt + 1 == snapEnd)
             {
-                [ForceUnroll] for (int e = 0; e < EPL; e++) snapSt[e * LPR] = M[e];
+                [ForceUnroll] for (int e = 0; e < EPL; e++) snapSt[e * LPR] = state_store(M[e]);
             }
 #endif
         }
     }
     if (!tentative)
     {
-        [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+        [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = state_store(M[e]);
     }
 }
 #endif

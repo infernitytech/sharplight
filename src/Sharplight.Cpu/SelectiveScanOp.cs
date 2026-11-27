@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
@@ -8,6 +9,8 @@ namespace Sharplight.Cpu;
 /// Selective scan (see <c>StandardOps.SelectiveScan</c>; Mamba-2, or Mamba-1 when A is [H, N]): per head sequential over tokens; the P rows of a head's
 /// state matrix S[p, :N] are independent, so (head, row-chunk) tasks run in parallel and N is vectorized. Rollback form: a record
 /// row holds x (P) and the raw dt per head, then B [G, N]; a tentative run advances a task-local copy of its state rows.
+/// A 16-bit (bf16 / f16) state is widened into a task-local f32 copy, updated in f32 and rounded to the state type after every token
+/// (as the Vulkan kernel does), then narrowed back (<see cref="RecurrentState16"/>).
 /// </summary>
 internal sealed unsafe class SelectiveScanOp : CpuOp
 {
@@ -34,8 +37,10 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     private int _pPer;
     private readonly RollbackTables? _rollback;
     private readonly StateSnapshotTable? _snapshots;
-    private float* _scratch;        // tentative runs: per task, a copy of its state rows
+    private float* _scratch;        // tentative runs and 16-bit states: per task, an f32 copy of its state rows
     private long _scratchFloats;
+    private readonly int _stateBytes;   // bytes per state element: 4 (f32) or 2 (bf16, f16)
+    private readonly bool _bf16;
     public override string Name => "SelectiveScan";
 
     public SelectiveScanOp(TRef x, TRef dt, TRef dtBias, TRef a, TRef b, TRef c, TRef d, TRef state, TRef y, float dtMin, TRef? runs = null,
@@ -80,6 +85,8 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             throw new ArgumentException("SelectiveScan: dt shape mismatch.");
         }
 
+        _stateBytes = RecurrentState16.ElementBytes(state.Type, Name);
+        _bf16 = state.Type == DataType.BF16;
         _body = Body;
     }
 
@@ -105,14 +112,15 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
 
                 if (r[3] == 0)
                 {
-                    new Span<float>((float*)_state.P + (long)r[0] * _h * _p * _n, _h * _p * _n).Clear();
+                    long slotBytes = (long)_h * _p * _n * _stateBytes;
+                    new Span<byte>(_state.P + r[0] * slotBytes, checked((int)slotBytes)).Clear();
                 }
             }
         }
 
         _pChunks = Math.Max(1, Math.Min(_p / 4, (CpuParallel.Threads * 2 + _h - 1) / _h));
         _pPer = (_p + _pChunks - 1) / _pChunks;
-        if (_rollback is not null && _scratchFloats < (long)_h * _pChunks * _pPer * _n)
+        if ((_rollback is not null || _stateBytes != 4) && _scratchFloats < (long)_h * _pChunks * _pPer * _n)
         {
             Mem.Free((byte*)_scratch);
             _scratchFloats = (long)_h * _pChunks * _pPer * _n;
@@ -162,6 +170,16 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             }
 
             float* S = (float*)_state.P + (slot * _h + h) * (long)_p * _n;
+            long rowFloats = (long)(p1 - p0) * _n;
+            ushort* stored = null;
+            if (_stateBytes != 4)
+            {
+                // 16-bit state: work on an f32 copy of this task's rows (indexed like the state), rounded after every update.
+                stored = (ushort*)_state.P + ((slot * _h + h) * (long)_p + p0) * _n;
+                S = _scratch + (long)task * _pPer * _n - (long)p0 * _n;
+                RecurrentState16.Widen(stored, S + (long)p0 * _n, rowFloats, _bf16);
+            }
+
             var plan = _rollback?.Plan(u, slot, t1 - t0, position) ?? default;
             for (int i = 0; i < plan.Replay; i++)
             {
@@ -169,7 +187,12 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
                 StepRow(S, rec[xAt + _p], rec + bAt, rec + bAt, rec + xAt, null, h, p0, p1, bias, A, D);
             }
 
-            if (plan.Tentative)
+            if (plan.Tentative && stored is not null)
+            {
+                // The slot's state stays as it is after the replay; the run advances the f32 copy.
+                RecurrentState16.Narrow(S + (long)p0 * _n, stored, rowFloats, _bf16);
+            }
+            else if (plan.Tentative)
             {
                 // The slot's state stays at the run's start: advance a copy of this task's rows (indexed like the state).
                 float* copy = _scratch + (long)task * _pPer * _n;
@@ -211,6 +234,11 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             {
                 StoreRows(S, snapRow, h, p0, p1);
             }
+
+            if (stored is not null && !plan.Tentative)
+            {
+                RecurrentState16.Narrow(S + (long)p0 * _n, stored, rowFloats, _bf16);
+            }
         }
     }
 
@@ -218,7 +246,15 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     private void StoreRows(float* S, long slot, int h, int p0, int p1)
     {
         long floats = (long)(p1 - p0) * _n;
-        Buffer.MemoryCopy(S + (long)p0 * _n, (float*)_state.P + ((slot * _h + h) * (long)_p + p0) * _n, floats * 4, floats * 4);
+        long at = ((slot * _h + h) * (long)_p + p0) * _n;
+        if (_stateBytes != 4)
+        {
+            RecurrentState16.Narrow(S + (long)p0 * _n, (ushort*)_state.P + at, floats, _bf16);
+        }
+        else
+        {
+            Buffer.MemoryCopy(S + (long)p0 * _n, (float*)_state.P + at, floats * 4, floats * 4);
+        }
     }
 
     /// <summary>Advances rows [p0, p1) of head <paramref name="h"/> by one token; writes y unless <paramref name="y"/> is null (replay).</summary>
@@ -235,6 +271,11 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             if (y != null)
             {
                 y[p] = dot + D * xp;
+            }
+
+            if (_stateBytes != 4)
+            {
+                RecurrentState16.Round(row, _n, _bf16);
             }
         }
     }

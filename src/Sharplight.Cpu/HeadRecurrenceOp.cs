@@ -7,7 +7,9 @@ namespace Sharplight.Cpu;
 /// Base of the per-head recurrences over square state matrices (RWKV-6/7): the rows of a head's state S[i, :] are independent, so (head, row-chunk) tasks
 /// run in parallel; sequence runs (multi-sequence form) select the slot's state and a run starting at position 0 clears it first.
 /// Rollback form: recorded rows are replayed before a run (<see cref="ReplayRow"/>); a tentative run records its rows
-/// (<see cref="RecordRow"/>) and advances a task-local copy of its state rows.
+/// (<see cref="RecordRow"/>) and advances a task-local copy of its state rows. A 16-bit (bf16 / f16) state is widened into a
+/// task-local f32 copy, advanced one token at a time and rounded to the state type after every token (as the Vulkan kernels do),
+/// then narrowed back (<see cref="RecurrentState16"/>).
 /// </summary>
 internal abstract unsafe class HeadRecurrenceOp : CpuOp
 {
@@ -23,8 +25,10 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
     private int _rowsPer;
     private readonly RollbackTables? _rollback;
     private readonly StateSnapshotTable? _snapshots;
-    private float* _scratch;        // tentative runs: per task, a copy of its state rows
+    private float* _scratch;        // tentative runs and 16-bit states: per task, an f32 copy of its state rows
     private long _scratchFloats;
+    private readonly int _stateBytes;   // bytes per state element: 4 (f32) or 2 (bf16, f16)
+    private readonly bool _bf16;
 
     /// <summary>Creates the base for state [(S,) H, N, N] and a token-major input of rows [T, H, N].</summary>
     protected HeadRecurrenceOp(TRef tokens, TRef state, TRef? runs, RollbackTables? rollback, StateSnapshotTable? snapshots = null)
@@ -42,6 +46,8 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
             throw new ArgumentException($"{Name}: state shape mismatch.");
         }
 
+        _stateBytes = RecurrentState16.ElementBytes(state.Type, Name);
+        _bf16 = state.Type == Tensors.DataType.BF16;
         _body = Body;
     }
 
@@ -90,14 +96,15 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
 
                 if (r[3] == 0)
                 {
-                    new Span<float>((float*)_state.P + (long)r[0] * _heads * _size * _size, _heads * _size * _size).Clear();
+                    long slotBytes = (long)_heads * _size * _size * _stateBytes;
+                    new Span<byte>(_state.P + r[0] * slotBytes, checked((int)slotBytes)).Clear();
                 }
             }
         }
 
         _rowChunks = Math.Max(1, Math.Min(_size / 8, (CpuParallel.Threads * 2 + _heads - 1) / _heads));
         _rowsPer = (_size + _rowChunks - 1) / _rowChunks;
-        if (_rollback is not null && _scratchFloats < (long)_heads * _rowChunks * _rowsPer * _size)
+        if ((_rollback is not null || _stateBytes != 4) && _scratchFloats < (long)_heads * _rowChunks * _rowsPer * _size)
         {
             Mem.Free((byte*)_scratch);
             _scratchFloats = (long)_heads * _rowChunks * _rowsPer * _size;
@@ -135,17 +142,37 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
 
             float* state = (float*)_state.P + (slot * _heads + head) * _size * _size;
             var plan = _rollback?.Plan(u, slot, t1 - t0, position) ?? default;
+            long rowFloats = (long)(row1 - row0) * _size;
+            ushort* stored = null;
+            if (_stateBytes != 4)
+            {
+                // 16-bit state: work on an f32 copy of this task's rows (indexed like the state), rounded after every token.
+                stored = (ushort*)_state.P + ((slot * _heads + head) * _size + row0) * (long)_size;
+                state = _scratch + (long)task * _rowsPer * _size - (long)row0 * _size;
+                RecurrentState16.Widen(stored, state + (long)row0 * _size, rowFloats, _bf16);
+            }
+
             for (int i = 0; i < plan.Replay; i++)
             {
                 ReplayRow(state, plan.ReadRecords + i * _rollback!.Width, head, row0, row1);
+                RoundRows(state, row0, rowFloats);
             }
 
             if (plan.Tentative)
             {
-                // The slot's state stays at the run's start: advance a copy of this task's rows (indexed like the state).
-                float* copy = _scratch + (long)task * _rowsPer * _size;
-                Buffer.MemoryCopy(state + (long)row0 * _size, copy, (long)(row1 - row0) * _size * 4, (long)(row1 - row0) * _size * 4);
-                state = copy - (long)row0 * _size;
+                if (stored is not null)
+                {
+                    // The slot's state stays as it is after the replay; the run advances the f32 copy.
+                    RecurrentState16.Narrow(state + (long)row0 * _size, stored, rowFloats, _bf16);
+                }
+                else
+                {
+                    // The slot's state stays at the run's start: advance a copy of this task's rows (indexed like the state).
+                    float* copy = _scratch + (long)task * _rowsPer * _size;
+                    Buffer.MemoryCopy(state + (long)row0 * _size, copy, rowFloats * 4, rowFloats * 4);
+                    state = copy - (long)row0 * _size;
+                }
+
                 for (long t = t0; t < t1; t++)
                 {
                     RecordRow(plan.WriteRecords + (t - t0) * _rollback!.Width, t, head, row0, row1, row0 == 0);
@@ -156,14 +183,54 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
             if (k > 0)
             {
                 // The state after the run's first k rows: this task's rows into the snapshot row.
-                RunRows(state, t0, t0 + k, head, row0, row1);
-                long bytes = (long)(row1 - row0) * _size * 4;
-                float* snapshot = (float*)_state.P + (snapshotRow * _heads + head) * _size * _size;
-                Buffer.MemoryCopy(state + (long)row0 * _size, snapshot + (long)row0 * _size, bytes, bytes);
+                Advance(state, t0, t0 + k, head, row0, row1);
+                long at = ((snapshotRow * _heads + head) * _size + row0) * (long)_size;
+                if (stored is not null)
+                {
+                    RecurrentState16.Narrow(state + (long)row0 * _size, (ushort*)_state.P + at, rowFloats, _bf16);
+                }
+                else
+                {
+                    Buffer.MemoryCopy(state + (long)row0 * _size, (float*)_state.P + at, rowFloats * 4, rowFloats * 4);
+                }
+
                 t0 += k;
             }
 
+            Advance(state, t0, t1, head, row0, row1);
+            if (stored is not null && !plan.Tentative)
+            {
+                RecurrentState16.Narrow(state + (long)row0 * _size, stored, rowFloats, _bf16);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <see cref="RunRows"/> over tokens [t0, t1); with a 16-bit state one token at a time, rounding the rows after each.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private void Advance(float* state, long t0, long t1, int head, int row0, int row1)
+    {
+        if (_stateBytes == 4)
+        {
             RunRows(state, t0, t1, head, row0, row1);
+            return;
+        }
+
+        long rowFloats = (long)(row1 - row0) * _size;
+        for (long t = t0; t < t1; t++)
+        {
+            RunRows(state, t, t + 1, head, row0, row1);
+            RoundRows(state, row0, rowFloats);
+        }
+    }
+
+    /// <summary>Rounds this task's rows of a 16-bit state's f32 copy (indexed like the state) to the state type; no-op for f32.</summary>
+    private void RoundRows(float* state, int row0, long rowFloats)
+    {
+        if (_stateBytes != 4)
+        {
+            RecurrentState16.Round(state + (long)row0 * _size, rowFloats, _bf16);
         }
     }
 }
