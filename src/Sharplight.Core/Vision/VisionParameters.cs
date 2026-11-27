@@ -154,6 +154,10 @@ public sealed record VisionParameters
     public const string AllMediaWeightRows = "all";
     /// <summary>Every row of an image but its last uses the media weight set (CogVLM, see <see cref="MediaWeightRows"/>).</summary>
     public const string AllButLastMediaWeightRows = "all_but_last";
+    /// <summary>The language model attends causally over an image's rows, the default <see cref="ImageAttention"/>.</summary>
+    public const string CausalImageAttention = "causal";
+    /// <summary>The rows of one image attend to each other in the language model (Gemma 3), see <see cref="ImageAttention"/>.</summary>
+    public const string BidirectionalImageAttention = "bidirectional";
 
     /// <summary>Number of transformer layers in the tower.</summary>
     public int LayerCount { get; init; }
@@ -250,6 +254,13 @@ public sealed record VisionParameters
     public string ImagePositions { get; init; } = MropeImagePositions;
     /// <summary>Which image rows use the language model's media weight set: <see cref="AllMediaWeightRows"/> or <see cref="AllButLastMediaWeightRows"/>.</summary>
     public string MediaWeightRows { get; init; } = AllMediaWeightRows;
+    /// <summary>
+    /// How the language model's attention treats an image's rows (key <c>image_attention</c>): <see cref="CausalImageAttention"/>, or
+    /// <see cref="BidirectionalImageAttention"/>, where every row of an image also sees the image's later rows (each still sees all earlier
+    /// context; transformers' Gemma 3 <c>token_type_ids</c> mask, llama.cpp's non-causal image batches). The multimodal graph then takes the
+    /// <see cref="Models.InputRole.AttentionLookahead"/> input.
+    /// </summary>
+    public string ImageAttention { get; init; } = CausalImageAttention;
     /// <summary>Text of the prompt placeholder that expands to one row per merged image token.</summary>
     public string ImageToken { get; init; } = DefaultImageToken;
     /// <summary>Per-channel mean of the input normalization.</summary>
@@ -358,6 +369,7 @@ public sealed record VisionParameters
             ImageBoundary = Get("merger.boundary", false),
             ImagePositions = Get("image_positions", MropeImagePositions),
             MediaWeightRows = Get("media_weight_rows", AllMediaWeightRows),
+            ImageAttention = Get("image_attention", CausalImageAttention),
             ImageToken = Get("image_token", DefaultImageToken),
             DeepstackLayers = Get("deepstack_layers", Array.Empty<int>()),
             ImageMean = Get("image_mean", new[] { 0.5f, 0.5f, 0.5f }),
@@ -520,6 +532,11 @@ public sealed record VisionParameters
             Set("media_weight_rows", MediaWeightRows);
         }
 
+        if (ImageAttention != CausalImageAttention)
+        {
+            Set("image_attention", ImageAttention);
+        }
+
         if (ImageToken != DefaultImageToken)
         {
             Set("image_token", ImageToken);
@@ -580,6 +597,11 @@ public sealed record VisionParameters
         if (MediaWeightRows is not (AllMediaWeightRows or AllButLastMediaWeightRows))
         {
             throw new InvalidDataException($"vision: media_weight_rows '{MediaWeightRows}' is not supported ({AllMediaWeightRows}, {AllButLastMediaWeightRows}).");
+        }
+
+        if (ImageAttention is not (CausalImageAttention or BidirectionalImageAttention))
+        {
+            throw new InvalidDataException($"vision: image_attention '{ImageAttention}' is not supported ({CausalImageAttention}, {BidirectionalImageAttention}).");
         }
 
         if (NormPlacement is not ("pre" or "post" or "sandwich") || ImageSize < 0)

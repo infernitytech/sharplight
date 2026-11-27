@@ -43,6 +43,12 @@ internal sealed class AttentionPlan
     /// <summary>Compressed cache of a compressed attention (entries of pooled windows joining the softmax); null otherwise.</summary>
     public TensorRef? Compressed { get; init; }
 
+    /// <summary>
+    /// Cached attention with attribute <c>lookahead</c>: i32 [A], rows of the pass each query row also sees after its own (A = 1: none); only
+    /// the per-(head, query) kernel with <c>LOOKAHEAD</c> reads it.
+    /// </summary>
+    public TensorRef? Lookahead { get; init; }
+
     /// <summary>"Attention" with i32 spans: the key range each query may see.</summary>
     public TensorRef? Spans { get; init; }
 

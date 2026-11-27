@@ -185,7 +185,8 @@ public sealed class DecoderAdapter : IModelAdapter
             {
                 graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
             }
-            graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length);
+            graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length,
+                mediaLookahead: vision.ImageAttention == VisionParameters.BidirectionalImageAttention);
             if (graphs.ContainsKey(WellKnown.DraftGraph) && graphBuilder.BuildDraftMultimodal(vision.DeepstackLayers.Length) is { } draft)
             {
                 graphs[WellKnown.DraftMultimodalGraph] = draft;

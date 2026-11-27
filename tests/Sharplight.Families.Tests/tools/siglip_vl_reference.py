@@ -5,7 +5,8 @@ Usage: python siglip_vl_reference.py <model_dir> [--new-tokens N]
 Feeds synthetic, already normalized views (value(y, x, c) = sin(0.031·x + 0.017·(c + 1)·y + 0.5·c), the formula of the C# tests) straight into
 the tower, bypassing resizing and normalization, so that only the tower, the prompt layout and the language model are compared:
 - gemma3: one 64×64 image; the prompt expands the chat template's <start_of_image> to <start_of_image>, the image rows and <end_of_image>
-  (llama.cpp's layout; transformers' processor adds "\\n\\n" around it). No token_type_ids are passed, so the image rows attend causally.
+  (llama.cpp's layout; transformers' processor adds "\\n\\n" around it). token_type_ids mark the image rows, so the rows of the image attend
+  to each other (transformers' blockwise mask, llama.cpp's non-causal image batch; issue #98).
   The input projection is rounded to f16 first, as llama.cpp's converter stores it.
 - idefics3: a 2×1 tile grid cut from a 128×64 image plus an overview whose values are the negated 64×64 pattern; the prompt layout is the
   processor's own (Idefics3Processor.replace_image_token).
@@ -49,7 +50,8 @@ with torch.no_grad():
         for t in prompt_ids:
             expanded.extend([boi] + [config.image_token_index] * config.mm_tokens_per_image + [eoi] if t == boi else [t])
         input_ids = torch.tensor([expanded])
-        kwargs = dict(pixel_values=pixel_values)
+        token_type_ids = (input_ids == config.image_token_index).long()
+        kwargs = dict(pixel_values=pixel_values, token_type_ids=token_type_ids)
         result.update(width=side, height=side)
     else:
         tile = config.vision_config.image_size

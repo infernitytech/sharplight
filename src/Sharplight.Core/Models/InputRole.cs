@@ -100,4 +100,11 @@ public enum InputRole
     /// (j + 1) · block size) of slot s while the slot's window still reaches them (other entries name any block of the pool).
     /// </summary>
     KvWindowBlockTable,
+    /// <summary>
+    /// Graphs whose cached attention lets some rows see later rows of the same pass (<see cref="Graph.StandardOps.CachedAttention"/> attribute
+    /// <c>lookahead</c>; Gemma 3's image rows attend to every row of their image): i32 [<see cref="WellKnown.LookaheadSymbol"/>]. With the
+    /// symbol bound to T, entry t is how many rows after row t (of the same pass and sequence, at the following positions) row t also
+    /// attends; with the symbol bound to 1 no row looks ahead (the single entry is ignored, a pass of plain causal rows).
+    /// </summary>
+    AttentionLookahead,
 }

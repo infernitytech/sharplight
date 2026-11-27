@@ -155,6 +155,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         // Gemma 3: SigLIP tower on a fixed 896² image (bilinear resize), trunk post-norm v.post_ln, 4×4 average pooling, the soft-embedding RMS
         // norm mm.soft_emb_norm (the converter already added Gemma's 1) and mm.input_projection (stored [vision, text], transposed by Transform).
         // The prompt frames the 256 rows with <start_of_image> / <end_of_image>; the chat template's <start_of_image> is the placeholder.
+        // The language model attends bidirectionally over an image's rows (transformers' token_type_ids mask, llama.cpp's non-causal image batch).
         ["gemma3"] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultMerge: 4, FixedSize: true,
             Names: new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -166,7 +167,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             Extra: new Dictionary<string, object>
             {
                 ["merger.pool"] = true, ["merger.pool.scale"] = "mean", ["resize.filter"] = "bilinear", ["image_token"] = "<start_of_image>",
-                ["image_begin_token"] = "<start_of_image>", ["image_end_token"] = "<end_of_image>",
+                ["image_begin_token"] = "<start_of_image>", ["image_end_token"] = "<end_of_image>", ["image_attention"] = "bidirectional",
             }),
         // Idefics3 / SmolVLM: SigLIP tower, trunk post-norm v.post_ln, pixel shuffle (clip.vision.projector.scale_factor) and the linear
         // mm.model.fc; images are cut into tiles of clip.vision.image_size after a Lanczos resize to clip.vision.preproc_image_size (default

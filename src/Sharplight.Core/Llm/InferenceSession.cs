@@ -25,6 +25,9 @@ public sealed class InferenceSession : IDisposable
     private readonly Value? _embeddingMask;
     private readonly Value? _mediaWeightMask;   // layers with a media weight set (visual experts): which rows use it
     private readonly Value? _samplingParams;
+    private readonly Value? _lookahead;         // image rows that attend to their whole image (Gemma 3): rows of the pass each row also sees
+    private int[] _lookBuf = [];
+    private bool _lookSet;                      // whether this pass's lookahead entries are in _lookBuf
     private readonly int[] _paramBuf = new int[SamplingRow.Width];
     private readonly int[] _sampledToken = new int[1];
     private readonly float[] _sampledLogprob = new float[1];
@@ -86,6 +89,11 @@ public sealed class InferenceSession : IDisposable
     internal int TextPositionAxes => _textPositionAxes;
     /// <summary>Whether the session's graph accepts media embeddings (a <see cref="WellKnown.DecodeMultimodalGraph"/>).</summary>
     public bool SupportsEmbeddings => _embeddings is not null && _embeddingMask is not null;
+    /// <summary>
+    /// Whether the rows of one image attend to each other (the graph takes <see cref="InputRole.AttentionLookahead"/>, Gemma 3): a multimodal
+    /// prompt's passes then end before an image that would not fit whole.
+    /// </summary>
+    public bool BidirectionalImageRows => _lookahead is not null;
     /// <summary>The compiled graph (placement plan, profiling and device state).</summary>
     public CompiledModel Compiled => _compiled;
     /// <summary>
@@ -120,6 +128,7 @@ public sealed class InferenceSession : IDisposable
         _embeddingMask = _graph.TryInput(InputRole.EmbeddingMask);
         _mediaWeightMask = _graph.TryInput(InputRole.MediaWeightMask);
         _samplingParams = _graph.TryInput(InputRole.SamplingParameters);
+        _lookahead = _graph.TryInput(InputRole.AttentionLookahead);
         _hidden = _embeddings is null ? 0 : (int)_embeddings.Shape[-1].Fixed;
         _posAxes = _positions is null ? 0 : (int)_positions.Shape[-1].Fixed;
         if (_positions is not null && _positions.Rank == 1)
@@ -371,6 +380,11 @@ public sealed class InferenceSession : IDisposable
 
         _run.Symbols[WellKnown.TokenSymbol] = T;
         _run.Symbols["R"] = 1;
+        if (_lookahead is not null)
+        {
+            SetLookahead(T);
+        }
+
         if (_sequenceRows is not null)
         {
             SetSequenceTables(T);
@@ -413,6 +427,82 @@ public sealed class InferenceSession : IDisposable
             _compiled.GetOutput<float>("hidden", _lastHidden.AsSpan(0, length));
             _lastHiddenLength = length;
         }
+    }
+
+    /// <summary>
+    /// The <see cref="InputRole.AttentionLookahead"/> input: this pass's entries when <see cref="Process(MultimodalPrompt, IReadOnlyList{float[]})"/>
+    /// set some (one per row), else a single ignored entry (no row looks ahead).
+    /// </summary>
+    private void SetLookahead(int T)
+    {
+        bool any = _lookSet && _lookBuf.AsSpan(0, T).ContainsAnyExcept(0);
+        if (!any && _lookBuf.Length == 0)
+        {
+            _lookBuf = new int[1];
+        }
+
+        if (!any)
+        {
+            _lookBuf[0] = 0;
+        }
+
+        _compiled.SetInput<int>(_lookahead!, _lookBuf.AsSpan(0, any ? T : 1));
+        _run.Symbols[WellKnown.LookaheadSymbol] = any ? T : 1;
+        _lookSet = false;
+    }
+
+    /// <summary>
+    /// The pass's rows of the image spans of <paramref name="prompt"/> see the rest of their span within the pass
+    /// (<see cref="InputRole.AttentionLookahead"/>; rows [<paramref name="start"/>, <paramref name="start"/> + <paramref name="T"/>)).
+    /// </summary>
+    private void FillLookahead(MultimodalPrompt prompt, int start, int T)
+    {
+        if (_lookBuf.Length < _maxTokens)
+        {
+            _lookBuf = new int[_maxTokens];
+        }
+
+        int end = start + T;
+        for (int row = start; row < end; row++)
+        {
+            int img = prompt.ImageIndex[row];
+            int last = row;
+            while (img >= 0 && last + 1 < end && prompt.ImageIndex[last + 1] == img)
+            {
+                last++;
+            }
+
+            _lookBuf[row - start] = last - row;
+        }
+
+        _lookSet = true;
+    }
+
+    /// <summary>
+    /// Rows of the multimodal pass starting at <paramref name="start"/>: up to the compiled maximum, ending before an image span that would
+    /// not fit whole when the image's rows attend to each other (a span longer than a pass is split, its parts seeing within themselves).
+    /// </summary>
+    private int MultimodalPassRows(MultimodalPrompt prompt, int start)
+    {
+        int end = Math.Min(prompt.Length, start + _maxTokens);
+        if (_lookahead is null || end == prompt.Length)
+        {
+            return end - start;
+        }
+
+        int img = prompt.ImageIndex[end - 1];
+        if (img < 0 || prompt.ImageIndex[end] != img)
+        {
+            return end - start;
+        }
+
+        int first = end - 1;
+        while (first > start && prompt.ImageIndex[first - 1] == img)
+        {
+            first--;
+        }
+
+        return first > start ? first - start : end - start;
     }
 
     /// <summary>
@@ -493,9 +583,9 @@ public sealed class InferenceSession : IDisposable
         }
 
         var toks = new int[_maxTokens];
-        for (int start = 0; start < prompt.Length; start += _maxTokens)
+        for (int start = 0, T; start < prompt.Length; start += T)
         {
-            int T = Math.Min(_maxTokens, prompt.Length - start);
+            T = MultimodalPassRows(prompt, start);
             for (int t = 0; t < T; t++)
             {
                 int row = start + t;
@@ -527,6 +617,11 @@ public sealed class InferenceSession : IDisposable
             if (_mediaWeightMask is not null)
             {
                 _compiled.SetInput<float>(_mediaWeightMask, _mediaBuf.AsSpan(0, T));
+            }
+
+            if (_lookahead is not null)
+            {
+                FillLookahead(prompt, start, T);
             }
 
             Execute(T, wantLogits: start + T == prompt.Length);

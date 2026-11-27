@@ -559,7 +559,7 @@ Recommended order: Wave 1a first (it is also what Qwen3.6-35B-A3B needs), then `
 
 ## 7. Multimodal projectors (mmproj)
 
-llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). As of 2026-11-27 (llama.cpp HEAD b12798) llama.cpp knows 99 `clip.projector_type` values; Sharplight's mmproj importer (`ClipGgufMapping`) handles 12: `qwen2vl_merger`, `qwen2.5vl_merger`, `qwen3vl_merger` (incl. DeepStack), `gemma4v`, `glm4v`, `paddleocr`, `deepseekocr`, `deepseekocr2`, `hunyuanvl`, `cogvlm`, `gemma3` and `idefics3` (#86, see below). The remaining SigLIP / LLaVA-like towers are #99 (lfm2 / lfm3vl), #100 (internvl) and #101 (minicpmv); bidirectional image attention (Gemma 3) is #98; pixtral / llama4 / kimivl #87; the 16 types added after 8ca5a80 are almost all audio generation (#16, #21) plus `hy_v4_flash` (#83) and `inkling2v` (#85). The status column below predates several of those rows.
+llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). As of 2026-11-27 (llama.cpp HEAD b12798) llama.cpp knows 99 `clip.projector_type` values; Sharplight's mmproj importer (`ClipGgufMapping`) handles 12: `qwen2vl_merger`, `qwen2.5vl_merger`, `qwen3vl_merger` (incl. DeepStack), `gemma4v`, `glm4v`, `paddleocr`, `deepseekocr`, `deepseekocr2`, `hunyuanvl`, `cogvlm`, `gemma3` and `idefics3` (#86, see below). The remaining SigLIP / LLaVA-like towers are #99 (lfm2 / lfm3vl), #100 (internvl) and #101 (minicpmv); bidirectional image attention (Gemma 3) is done (#98); pixtral / llama4 / kimivl #87; the 16 types added after 8ca5a80 are almost all audio generation (#16, #21) plus `hy_v4_flash` (#83) and `inkling2v` (#85). The status column below predates several of those rows.
 
 | Family | llama.cpp projector files | Used by | Status |
 |---|---|---|---|
@@ -576,9 +576,13 @@ llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file na
 bilinear resize), trunk post-norm `v.post_ln`, 4×4 average pooling (`merger.pool.scale` `mean`), the soft-embedding RMS norm `mm.soft_emb_norm`
 (`vision.merger.pool_norm`) and `mm.input_projection` (stored [vision, text], transposed on import); the chat template's `<start_of_image>` is the
 placeholder and expands to `<start_of_image>`, the 256 rows and `<end_of_image>` (llama.cpp's layout; transformers' processor adds `\n\n` on both
-sides). **Gap:** the language model attends causally over the image rows; transformers (with `token_type_ids`) and llama.cpp
-(`mtmd_decode_use_non_causal`) let an image's rows attend to each other, so real-model answers are close but not identical (gemma-3-4b-it Q4_K_M on
-the moon-landing test image: both describe the NYT front page of July 21, 1969, in different words). `idefics3` (SmolVLM / SmolVLM2): images are
+sides). The rows of one image attend to each other in the language model (`image_attention` = `bidirectional`, #98), as transformers' `token_type_ids`
+mask and llama.cpp's non-causal image batch (`mtmd_decode_use_non_causal`) do: the multimodal graph's CachedAttention takes the
+`InputRole.AttentionLookahead` input (row t also sees the next lookahead[t] rows of its pass; the window still counts back from its own position),
+the session ends a pass before an image that would not fit whole and fills the entries from the image spans, the batch decoder from each input's
+embedding runs, and the engine keeps an image's rows in one prefill step where it can (`IBatchDecoder.BidirectionalMediaRows`). Passes without
+image rows bind the input to one ignored entry and keep the usual attention kernels; passes with them run the per-(head, query) kernel
+(`attention.slang` `main` with `LOOKAHEAD`) on the GPU. PaliGemma's bidirectional prefix (image + prompt) would use the same input once its tower is imported. `idefics3` (SmolVLM / SmolVLM2): images are
 resized (Lanczos) so the longer side is `clip.vision.preproc_image_size` (default 4 · image_size, transformers' `size.longest_edge`), then to
 whole tiles of `clip.vision.image_size`, cut into a tile grid plus an overview; every view is one attention window of the tower
 (`VisionParameters.TileSize`), pixel shuffle (`clip.vision.projector.scale_factor`) and the linear `mm.model.fc`; the prompt layout is the
