@@ -181,6 +181,11 @@ public sealed partial class GraphLowerer
             return OpSupport.No($"IndexerTopK: more than {MaxIndexerGroups} selected groups per row");
         }
 
+        if (selection.Mean && (selection.PoolRopeGptj || selection.PoolRopeLast))
+        {
+            return OpSupport.No("IndexerTopK: mean groups rotate their first channels as neox pairs only");
+        }
+
         return node.Inputs[0].Shape[2] is { IsSymbolic: false } keyDims && keyDims.Fixed % 8 == 0 && node.Inputs[0].Shape[1] is { IsSymbolic: false }
             ? OpSupport.Yes
             : OpSupport.No("IndexerTopK: the key size must be a multiple of 8");

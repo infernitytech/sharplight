@@ -71,7 +71,7 @@ internal sealed partial class LatentDecoderGgufMapping
     /// <summary>The RDA write gate (only on delta-attention layers).</summary>
     private const string RaonWriteGate = "ssm_rda.weight";
 
-    /// <summary>The f32 form of the steering vectors and the hyper-connection vectors; null for other tensors.</summary>
+    /// <summary>The f32 form of the reasoning-effort steering vectors; null for other tensors.</summary>
     private static WeightInfo? Raon1Vector(WeightInfo w)
     {
         if (!w.Name.EndsWith(".mlp.steering", StringComparison.Ordinal) || w.Type == DataType.F32)

@@ -28,7 +28,11 @@ public sealed partial class GraphLowerer
         var q = EnsureDense(AsF32(Ref(n.Inputs[0]), "indexer-q"), "indexer-q");
         var keys = Ref(n.Inputs[1]);
         var weights = selection.PerHead ? null : EnsureDense(AsF32(Ref(n.Inputs[2]), "indexer-w"), "indexer-w");
-        var gate = selection.HasPoolInput ? EnsureDense(AsF32(Ref(n.Inputs[selection.CandidateInput - 1]), "indexer-gate"), "indexer-gate") : null;
+        // The position gate (pooled) or, for mean groups, the norm weight in the gate slot; a pooled key's norm weight in its own.
+        bool normed = selection.CompleteGroups && selection.PoolNormEps > 0f;
+        int gateInput = selection.Pooled ? selection.PoolGateInput : selection.PoolNormInput;
+        var gate = selection.Pooled || normed ? EnsureDense(AsF32(Ref(n.Inputs[gateInput]), "indexer-gate"), "indexer-gate") : null;
+        var poolNorm = selection.Pooled && normed ? EnsureDense(AsF32(Ref(n.Inputs[selection.PoolNormInput]), "indexer-pool-norm"), "indexer-pool-norm") : null;
         var candidates = selection.CandidateGroup > 0 ? DenseInput(n.Inputs[selection.CandidateInput], "indexer-candidates") : null;
         var output = Produce(n.Output);
         int tableInput = selection.TableInput;
@@ -52,7 +56,7 @@ public sealed partial class GraphLowerer
         var macros = Macros([.. PageMacros(n, pages), ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, keys)),
             ("H", heads), ("D", dims), ("BUDGET", selection.Budget), ("GROUP", selection.Group), ("GROUP_POOLED", selection.Pooled),
             ("GROUP_MEAN", selection.Mean), ("POOL_NORM", selection.PoolNormEps > 0f), ("POOL_EPS", selection.PoolNormEps), ("POOL_ROPE", selection.PoolRopeDims),
-            ("POOL_BASE", selection.PoolRopeBase),
+            ("POOL_BASE", selection.PoolRopeBase), ("POOL_GPTJ", selection.PoolRopeGptj), ("POOL_LAST", selection.PoolRopeLast), ("OWN_GROUP", selection.OwnGroup),
             ("LOCAL", selection.Local), ("TAIL", selection.Tail), ("PER_HEAD", selection.PerHead), ("WIDTH", selection.Width), ("CTX", context),
             ("KEY_F16", keys.Type == DataType.F16), ("WG", IndexerWorkgroup), ("RT_N_PAST", seq is null ? Slot(n) : 0),
             ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compression == 1 ? 0 : SlotContext(n, keys)),
@@ -62,10 +66,10 @@ public sealed partial class GraphLowerer
         for (long firstRow = 0; firstRow < maxRows; firstRow += sliceRows)
         {
             long first = firstRow;
-            KernelArg[] args = [Pointer(q), Pointer(keys), Pointer(weights ?? q), Pointer(gate ?? q), Pointer(candidates ?? q), Pointer(scores), Pointer(output),
+            KernelArg[] args = [Pointer(q), Pointer(keys), Pointer(weights ?? q), Pointer(gate ?? q), Pointer(poolNorm ?? q), Pointer(candidates ?? q), Pointer(scores), Pointer(output),
                 new PointerArg(_runtime, 0), .. SeqArgs(seq, pages), TokenArg(q), new UIntArg((uint)first)];
             TensorRef[] tables = PresentTables(seq, pages);
-            TensorRef[] inputs = [q, keys, .. weights is null ? [] : (TensorRef[])[weights], .. gate is null ? [] : (TensorRef[])[gate],
+            TensorRef[] inputs = [q, keys, .. weights is null ? [] : (TensorRef[])[weights], .. gate is null ? [] : (TensorRef[])[gate], .. poolNorm is null ? [] : (TensorRef[])[poolNorm],
                 .. candidates is null ? [] : (TensorRef[])[candidates], .. tables];
             Func<Bindings, long> rows = b => Math.Min(sliceRows, Rows(b, q) - first);
             Emit($"indexer scores {n.Output.Name}", [n],

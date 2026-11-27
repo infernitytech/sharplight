@@ -493,8 +493,8 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `domynedge` | Domyn Edge 4B (Base, SFT, Teacher-IF / Code / Math / STEM / Agentic) | sandwich norms, unweighted q norm + weighted k norm, rope and a 1025-token window only on the 64-wide-head layers, 256-wide NoPE full layers, 1/sqrt(head size) per layer | **supported** (HF and GGUF, `attention.layer_scales`) | - | domynedge (remote code) | hf/tiny-random-domynedge, gguf/tiny-random-domynedge-hf-f32.gguf, hf/Domyn-Edge-Teacher-IF |
 | `zaya1` | Zyphra ZAYA1-8B | CCA attention (grouped q/k conv with state, delayed value head), MLP router with EDA state and skip expert, residual scales | **missing** (#82) | CCA mixer, router | zaya1 | - |
-| `hy_v4_flash` | Tencent Hy4-flash | hy_v4 trunk + pooled DSA indexer, sliding MLA, Engram, latent experts | **missing** (#83) | pooled-key position bias / rope at pool start; mapping | hy_v4_flash | - |
-| `raon1` | KRAFTON Raon-1-mini (nano: KRAFTON's fork arch `raon1nano`) | RDA, gated NoPE MLA, manifold hyper-connections, PLE | **supported** for Raon-1-mini (HF and GGUF; nano #126) | nano: PLE, MTP, fused conv | raon1_mini (remote code) | hf/tiny-random-raon1-mini(-steer), gguf/tiny-random-raon1-mini-f32.gguf, gguf/Raon-1-mini(-preview) |
+| `hy_v4_flash` | Tencent Hy4-flash | hy_v4 trunk + pooled DSA indexer, sliding MLA, Engram, latent experts | **supported** (HF and GGUF, tiny checkpoints vs llama.cpp; the real checkpoint is #126) | - | hy_v4_flash (no transformers class) | hf/tiny-random-hy-v4-flash, gguf/tiny-random-hy-v4-flash-f32.gguf |
+| `raon1` | KRAFTON Raon-1-mini (nano: KRAFTON's fork arch `raon1nano`) | RDA, gated NoPE MLA, manifold hyper-connections, PLE | **supported** for Raon-1-mini (HF and GGUF; nano #123) | nano: PLE, MTP, fused conv | raon1_mini (remote code) | hf/tiny-random-raon1-mini(-steer), gguf/tiny-random-raon1-mini-f32.gguf, gguf/Raon-1-mini(-preview) |
 | `inkling2` | Inkling-2-Small | Inkling 2 blocks without the loop | **partial** (#85) | mapping, per-expert output scales | inkling2 | - |
 | `inkling2_loop` | Inkling-2-Mini | block attention residuals, looped layers | **supported** (section 25) | - | inkling2_loop | hf/tiny-random-inkling2 |
 | `kokoro`, `zonos3`, `tiny-voca` | Kokoro (GGUF), ZONOS3-Mini, tiny-voca | TTS front ends of llama-mtmd | out of scope here (#16; Kokoro runs through `Sharplight.Import.Kokoro`) | - | - | - |
@@ -559,7 +559,7 @@ Recommended order: Wave 1a first (it is also what Qwen3.6-35B-A3B needs), then `
 
 ## 7. Multimodal projectors (mmproj)
 
-llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). As of 2026-11-27 (llama.cpp HEAD b12798) llama.cpp knows 99 `clip.projector_type` values; Sharplight's mmproj importer (`ClipGgufMapping`) handles 13: `qwen2vl_merger`, `qwen2.5vl_merger`, `qwen3vl_merger` (incl. DeepStack), `gemma4v`, `glm4v`, `paddleocr`, `deepseekocr`, `deepseekocr2`, `hunyuanvl`, `cogvlm`, `gemma3`, `idefics3` (#86) and `lfm2` (#99, see below). The remaining SigLIP / LLaVA-like towers are #109 (lfm3vl), #100 (internvl) and #101 (minicpmv); bidirectional image attention (Gemma 3) is done (#98); pixtral / llama4 / kimivl #87; the 16 types added after 8ca5a80 are almost all audio generation (#16, #21) plus `hy_v4_flash` (#83) and `inkling2v` (#85). The status column below predates several of those rows.
+llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file names = projector families). As of 2026-11-27 (llama.cpp HEAD b12798) llama.cpp knows 99 `clip.projector_type` values; Sharplight's mmproj importer (`ClipGgufMapping`) handles 13: `qwen2vl_merger`, `qwen2.5vl_merger`, `qwen3vl_merger` (incl. DeepStack), `gemma4v`, `glm4v`, `paddleocr`, `deepseekocr`, `deepseekocr2`, `hunyuanvl`, `cogvlm`, `gemma3`, `idefics3` (#86) and `lfm2` (#99, see below). The remaining SigLIP / LLaVA-like towers are #109 (lfm3vl), #100 (internvl) and #101 (minicpmv); bidirectional image attention (Gemma 3) is done (#98); pixtral / llama4 / kimivl #87; the 16 types added after 8ca5a80 are almost all audio generation (#16, #21) plus `hy_v4_flash` (#127; its text model is #83) and `inkling2v` (#85). The status column below predates several of those rows.
 
 | Family | llama.cpp projector files | Used by | Status |
 |---|---|---|---|
@@ -3379,7 +3379,7 @@ NariQ, harness-hub adapters.
 
 | # | Model | Released | dl30 / likes / trend | Format | Status |
 |---|---|---|---|---|---|
-| 1 | tencent/Hy4-flash, tencent/Hy4 | 2026-11-17 / 10-29 | 10.5k / 712 / 132, 2.9k / 335 / 70 | `hy_v4_flash`, `hy_v4_vl` | rejected: model_type not supported (`hy_v4` of Hy4-preview is supported; the vision wrappers are new) |
+| 1 | tencent/Hy4-flash, tencent/Hy4 | 2026-11-17 / 10-29 | 10.5k / 712 / 132, 2.9k / 335 / 70 | `hy_v4_flash`, `hy_v4_vl` | `hy_v4_flash` text model supported since #83 (section 26; real checkpoint not run, #126); the vision wrappers (`vit.`, `hy_v4_vl`) are not mapped |
 | 2 | RadixArk/DaisyRose-27B | 2026-11-18 | 3.2k / 388 / 101 | `qwen3_5` BF16 | imports (text); tokenizer identical, template renders. Not run (27B BF16) |
 | 3 | sensenova/SenseNova-Loop-9B (+ GGUF 118k) | 2026-11-17 | 3.3k / 741 / 88 | `sensenova_loop` | rejected (compatible-models section 9: layer loops) |
 | 4 | llamaindex/OCRia-1, Cloudflare/clairic, clairic-flash | 2026-11-13 / 10-16 / 11-12 | 419-1.2k / 85-350 | `qwen3_5` | import (text); tokenizer identical, templates render. Not run |
@@ -3631,7 +3631,7 @@ References for this round come from a CPU build of that HEAD (`cmake -B build -D
 | domynedge | 55d323507 (2026-11-20) | supported, verified on Domyn-Edge-Teacher-IF | #22 |
 | inkling2_loop | 29b52d398 (2026-11-20) | supported since section 25 | - |
 | inkling2 | 5c008e000 (2026-11-15) | partial: mapping and per-expert output scales | #85 |
-| hy_v4_flash | c94333133 (2026-11-25) | missing | #83 |
+| hy_v4_flash | c94333133 (2026-11-25) | supported (tiny checkpoints; real checkpoint #126) | #83 |
 | zaya1 | 98d67c8d5 (2026-11-18) | supported, verified on ZAYA1-8B | #82 |
 | raon1 | 5a09582d8 (2026-11-25) | supported, verified on Raon-1-mini(-preview) (nano: #123) | #84 |
 | kokoro, zonos3, tiny-voca | 307e3f155, 7ae3c6b23, 3574df84b | TTS, speech workstream | #16 |
@@ -3684,6 +3684,33 @@ model: its class bias is -1 (transformers even resets it to -1 on load) and prob
   The community GGUFs (Abiray/ZAYA1-8B-GGUF, JusteLeo/ZAYA1-8B-GGUF, May 2026) were written by a pre-mainline fork (`general.architecture`
   `zaya`, 80 blocks) and do not load (#120).
 
+**Hunyuan v4 Flash** (`hy_v4_flash`, tencent/Hy4-flash; HF `HYV4FlashForCausalLM` / `...ForConditionalGeneration` without a transformers
+class or shipped modeling code, so llama.cpp HEAD's `src/models/hy-v4-flash.cpp` is the reference). The Hunyuan v4 trunk (hyper-connections
+without a mixing matrix, gated MLA with sinks, dense first block and sigmoid-routed MoE with clamped routed experts) plus: sparse and
+sliding-window MLA layers of one latent geometry (`layer_types`; the window layers have `swa_num_attention_heads` and their own rope base,
+`attention.sliding.*` as for dots.3), sandwich norms (canonical `attention.out_norm` / `mlp.out_norm`, as the decoder family's), latent routed
+experts (`mlp.latent_down` / `latent_up`), DeepSeek-V4.1's Engram with per-head lookup norms, a key/value bias, an RMS-normed value times
+`pre_gamma` and per-stream offsets of the gate (`EngramMemory`), and a pooled indexer on the sparse layers. The indexer caches
+[W_v·k | W_g·k] of the RMS-normed token key k; a pool of 4 tokens is the per-channel softmax(gate + position bias)-weighted sum of the values,
+RMS-normed and rotated at its first token's position (`IndexerTopK` with `group_score` "pooled" plus `pool_norm_eps`, `pool_rope_dims`,
+`pool_rope_style` gptj and `pool_rope_last`); a query attends the best `top_k / 4 − 1` earlier pools plus its own pool, complete or not
+(attribute `own_group`). Rotary pairs are interleaved (llama.cpp reads the rope rows as stored; Hy4-preview's transformers port rotates
+halves). The released files carry M-RoPE sections (llama.cpp's IMROPE after a pair reorder); for text rows all position planes are equal and
+that is the plain interleaved rope, which Sharplight runs (image rows are #127). Mappings: the HyV4Flash parts of `LatentDecoderGgufMapping` and `LatentDecoderHfMapping`; the HF import keeps each Engram module's
+table (no 127 GB concatenation) and turns the `lookup_table` tensor and the hash multipliers into the weights `engram.token_ids` /
+`engram.hash_multipliers` (the multipliers come from numpy's PCG64 seeded with `engram_seed` + 10007 · layer id: `NumpyRandom`, checked
+against numpy). The MTP block, the dfly draft layers and the vision tower are not imported (llama.cpp skips them too).
+
+- Tiny checkpoint (`tools/mk_tiny_hy_v4_flash.py`: 5 layers, 2 sparse (index_topk 8, pools of 4, 8 indexer heads) and 3 sliding (window 8,
+  twice the heads), 2 Engram modules, latent 24 < hidden 64, 3 streams), converted by llama.cpp HEAD a07831a's `convert_hf_to_gguf.py`
+  (`tools/convert_tiny_gguf.py`): 19 greedy ids (up to the tokenizer's end of text) identical to llama.cpp HEAD on that GGUF
+  (`tools/llamacpp_greedy.c`, against `libllama`) on CPU, Vulkan and CUDA, HF and GGUF; prompt logits of the HF checkpoint within 0.018 of
+  llama.cpp's (largest 21). A dense `top_k` or a wide window changes llama.cpp's first token, so the selection and the window are covered.
+  Batched decoding equals single-sequence decoding (`SparseAttentionServingTests`), and the extended `IndexerTopK` equals the CPU oracle on
+  Vulkan and CUDA (`SparseAttentionTests`, "pooled-own"). With 2 indexer heads, pools often scored exactly 0 (every head's dot negative) and
+  llama.cpp's `std::partial_sort` top-k broke those ties in no defined order (0.11 logit gaps with identical ids), hence the 8 heads.
+- Not run: the real checkpoint (about 220B parameters; the smallest community GGUFs are about 85 GB, IQ2) — #126.
+
 **Raon-1 mini** (`raon1`, HF remote code `raon1_mini` / `Raon1MiniForCausalLM`, KRAFTON/Raon-1-mini and -preview: 25 layers, hidden 2560,
 19 Raon delta attention (RDA) and 6 latent attention layers, 128 experts top 6 plus a shared expert, 4 hyper-connection streams). It maps onto
 the canonical `latent_decoder` (`LatentDecoderHfMapping.Raon1`, `LatentDecoderGgufMapping.Raon1`), which had latent attention, the channel-wise
@@ -3715,7 +3742,7 @@ delta rule (Kimi-Linear's KDA), SiTU, sigmoid-routed MoE and `StreamHyperConnect
   (int_dot off) take another near-tied branch (" shorter, blue wavelengths" for " shorter wavelengths of sunlight"), the same text the
   steered file gives on every provider. Decoding runs at 165–230 tokens/s on the RTX PRO 6000 (Vulkan / CUDA).
 
-Not done this round: the architectures of the table above other than Domyn Edge, ZAYA1 and Raon-1 mini (issues listed), the `domyn-small` pre-tokenizer (escaped
+Not done this round: the architectures of the table above other than Domyn Edge, ZAYA1, Hunyuan v4 Flash and Raon-1 mini (issues listed), the `domyn-small` pre-tokenizer (escaped
 whitespace, llama.cpp `LLAMA_VOCAB_PRE_TYPE_DOMYN_SMALL`; no Domyn Small checkpoint was run) and the mmproj projectors of section 7 (#86, #87).
 
 

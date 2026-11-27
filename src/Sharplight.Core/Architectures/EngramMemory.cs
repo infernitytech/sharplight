@@ -16,7 +16,11 @@ namespace Sharplight.Architectures;
 /// [(N + 1)·H, heads·Dh] and <c>engram.gate</c> [N, H] (f32), for N streams of H channels. With e the concatenated rows of the token's hash
 /// heads, [k_0 .. k_{N-1} | v] = kv · e and per stream s: g = Σ_d rms(X_s)[d]·rms(k_s)[d]·gate[s, d] / sqrt(H),
 /// X_s += sigmoid(sign(g)·sqrt(max(|g|, 1e-6)))·v (the norms without weights). A token without a hashed id (and every predecessor before a
-/// missing one, or before the sequence start) hashes as the pad id. The token window comes from a causal convolution used as a shift register
+/// missing one, or before the sequence start) hashes as the pad id.
+/// Hunyuan v4 Flash adds optional weights below the layer prefix: <c>engram.table.weight</c> (the module's own table, its heads' offsets then
+/// count within it), <c>engram.lookup_norm.weight</c> [heads, Dh] (every looked-up row is RMS-normed
+/// and scaled by its head's weight), <c>engram.kv.bias</c> [N + 1, H], <c>engram.pre_gamma</c> [H] (the value is RMS-normed and scaled by it)
+/// and <c>engram.hc_scale</c> [N, H] (stream s adds v·(gate + hc_scale[s]) instead of v·gate). The token window comes from a causal convolution used as a shift register
 /// over (hashed id + 1), carried per sequence like any recurrent state (a cleared state reads as "no token").
 /// </remarks>
 internal static class EngramMemory
@@ -58,6 +62,7 @@ internal static class EngramMemory
     /// <summary>The streams x [T, N·H] after the module of layer prefix <paramref name="p"/> (module index <paramref name="module"/>) added its memory.</summary>
     public static Value Build(GraphBuilder b, Value window, Value x, string p, int module, EngramOptions options, int streams, int hidden, float eps)
     {
+        eps = options.NormEps ?? eps;
         int heads = options.Heads;
         var ids = b.Emit1("NGramHash", [window], Attributes.From(
             ("multipliers", options.Multipliers[(module * options.Order)..((module + 1) * options.Order)]),
@@ -65,10 +70,20 @@ internal static class EngramMemory
             ("head_offsets", options.HeadOffsets[(module * heads)..((module + 1) * heads)]),
             ("heads_per_order", (long)options.HeadsPerOrder), ("stop_token", options.Pad), ("stop_cuts", false)), $"{p}engram_hash");
 
-        var table = b.Weight("engram.table.weight");
+        var table = b.TryWeight(p + "engram.table.weight") ?? b.Weight("engram.table.weight");   // the module's own table, or the shared one
         var rows = Enumerable.Range(0, heads).Select(h => b.Gather(table, b.Reshape(b.Slice(ids, 1, h, 1), 0))).ToArray();
         var embedding = rows.Length == 1 ? rows[0] : b.Concat(1, rows);
+        if (b.TryWeight(p + "engram.lookup_norm.weight") is { } lookupNorm)
+        {
+            long dims = lookupNorm.Shape[1].Fixed;
+            embedding = b.Reshape(b.Mul(b.RmsNorm(b.Reshape(embedding, 0, heads, dims), null, eps), lookupNorm), 0, heads * dims);
+        }
+
         var kv = b.Linear(embedding, p + "engram.kv.weight", name: $"{p}engram_kv");                                     // [T, (N + 1)·H]
+        if (b.TryWeight(p + "engram.kv.bias") is { } bias)
+        {
+            kv = b.Add(kv, b.Reshape(bias, (long)(streams + 1) * hidden));   // stored [N + 1, H] or flat
+        }
         var key = b.RmsNorm(b.Reshape(b.Slice(kv, 1, 0, (long)streams * hidden), 0, streams, hidden), null, eps);
         var value = b.Reshape(b.Slice(kv, 1, (long)streams * hidden, hidden), 0, 1, hidden);
         var query = b.RmsNorm(b.Reshape(x, 0, streams, hidden), null, eps);
@@ -76,7 +91,13 @@ internal static class EngramMemory
         var g = b.Scale(b.Emit1("ReduceSum", [match]), 1f / MathF.Sqrt(hidden));                                       // [T, N, 1]
         var floor = b.Constant(p + "engram.gate_floor", DataType.F32, new Shape(1), BitConverter.GetBytes(GateFloor));
         var gate = b.Sigmoid(b.Mul(b.Unary("Sign", g), b.Unary("Sqrt", b.Binary("Max", b.Unary("Abs", g), floor))));
-        var added = b.Add(b.Reshape(x, 0, streams, hidden), b.Mul(gate, value), $"{p}engram_out");
+        if (b.TryWeight(p + "engram.pre_gamma") is { } gamma)
+        {
+            value = b.Mul(b.RmsNorm(value, null, eps), gamma);
+        }
+
+        var scale = b.TryWeight(p + "engram.hc_scale") is { } offsets ? b.Add(gate, offsets) : gate;                     // [T, N, 1] or [T, N, H]
+        var added = b.Add(b.Reshape(x, 0, streams, hidden), b.Mul(scale, value), $"{p}engram_out");
         return b.Reshape(added, 0, (long)streams * hidden);
     }
 }

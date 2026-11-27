@@ -272,12 +272,18 @@ public static partial class StandardOps
     /// <item><c>group_score</c> "pooled": the cache rows hold [key | gate] (2·D values) and an extra input after w, the position gate [G, D] f32,
     /// pools each group to one key, per channel d <c>Σ_i softmax_i(gate[i, d] + position_gate[i, d]) · key[i, d]</c> over its members; only
     /// complete groups are candidates. Attribute <c>tail</c> (bool) appends the row's visible positions of its incomplete group (G − 1 entries,
-    /// −1 padded), so the output is [T, k + G − 1] (GLM-5.3 k-pool indexer).</item>
+    /// −1 padded), so the output is [T, k + G − 1] (GLM-5.3 k-pool indexer). With <c>pool_norm_eps</c> &gt; 0 the pooled key is RMS-normed (an
+    /// extra input after the position gate, the norm weight [D] f32) and with <c>pool_rope_dims</c> rotated as for "mean" (Hunyuan v4 Flash:
+    /// the cache rows hold [value | gate] of the token keys).</item>
     /// <item><c>group_score</c> "mean": a group's key is the mean of its members' cache rows, RMS-normed when attribute <c>pool_norm_eps</c> &gt; 0
     /// (then an extra input after w, the norm weight [D] f32) and, with <c>pool_rope_dims</c> = R &gt; 0, its first R channels rotated (neox
     /// pairs, base <c>pool_rope_base</c>) at the group's first position; only complete groups are candidates, <c>tail</c> as for "pooled"
-    /// (Qwen QSA block selection).</item>
+    /// (Qwen QSA block selection). Attributes <c>pool_rope_style</c> ("neox" default, or "gptj": interleaved pairs) and <c>pool_rope_last</c>
+    /// (bool: the last R channels instead of the first) place the rotated channels (pooled groups only on the GPU).</item>
     /// </list>
+    /// Attribute <c>own_group</c> (bool, with <c>tail</c>, pooled or mean groups): the row's own group is never a candidate, even when complete;
+    /// the tail lists all its visible positions (G entries), so the output is [T, k + G] (Hunyuan v4 Flash: the best k / G earlier pools plus the
+    /// query's own pool).
     /// Attribute <c>local</c> (int, default 0): the row's latest <c>local</c> groups (its own and the ones before it) are always picked.
     /// Attribute <c>per_head</c> (bool): there is no w input; every head selects for itself with the score <c>q[t, h] · key[j]</c> (no relu) and
     /// the output is [T, H, width] (one selection per head, e.g. per key-value group for <see cref="CachedAttention"/>).
