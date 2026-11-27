@@ -60,6 +60,11 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   ending in an EOG token stops at once); `llama-simple -m X -n N "prompt"` tokenizes like transformers (BOS and EOS added) and is the reference
   there, `--override-kv tokenizer.ggml.add_eos_token=bool:false` makes `llama-completion` usable for chat prompts. ZAYA1 tiny models come from
   `tools/mk_tiny_zaya1.py` (#82; transformers resets the skip expert's class bias to -1 on load).
+  Architectures without a transformers class (Hy4-flash, #83): write the tiny checkpoint directly with the released tensor names
+  (`tools/mk_tiny_hy_v4_flash.py`), convert it with `tools/convert_tiny_gguf.py <llama.cpp HEAD> <dir> <out.gguf>` and take greedy ids /
+  logits from `tools/llamacpp_greedy.c` (built against HEAD's `libllama`; usage in the file); fedora-ws has a HEAD build in
+  `~/scratch/llama.cpp-up` too (cmake from `uv tool install cmake`). llama.cpp's CPU `top_k` breaks exact score ties in no defined order:
+  give tiny indexers enough heads that pools do not score exactly 0.
 - Vision towers (mmproj): `ClipGgufMapping` maps each `clip.projector_type` onto the canonical `VisionParameters` keys that
   `VisionTowerGraph` / `VisionPreprocessor` / `Qwen35Multimodal` interpret; a new projector is usually a table entry plus a few keys.
   Tiny VL checkpoints are compared with transformers in `TinyQwenVlImageTests` (references written by the tools scripts named in
