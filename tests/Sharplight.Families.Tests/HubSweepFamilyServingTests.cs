@@ -19,7 +19,8 @@ public class HubSweepFamilyServingTests
     {
         // The tiny PaliGemma models scale their final norm far above one, so f16 KV rounding decides near-ties; their caches are kept in f32
         // as in the generation cases.
-        string[] f32Kv = ["hf/tiny-random-paligemma", "hf/tiny-random-paligemma2"];
+        // tiny ZAYA1's router has near-ties that f16 KV rounding flips on the CPU (see LlamaCppAdditionsFamilyCases).
+        string[] f32Kv = ["hf/tiny-random-paligemma", "hf/tiny-random-paligemma2", "hf/tiny-random-zaya1", "gguf/tiny-random-zaya1-skip-f32.gguf"];
         var data = new TheoryData<string, bool, bool>();
         string[] models =
         [
@@ -33,6 +34,9 @@ public class HubSweepFamilyServingTests
             "hf/tiny-random-llava-onevision2",
             // Architectures llama.cpp added after 8ca5a80 (LlamaCppAdditionsFamilyCases).
             "hf/tiny-random-domynedge",
+            "hf/tiny-random-zaya1",
+            // The ZAYA1 variant whose skip expert wins for part of the tokens (llama.cpp's converter keeps its class bias of 0).
+            "gguf/tiny-random-zaya1-skip-f32.gguf",
         ];
         foreach (string model in models)
         {

@@ -8,7 +8,7 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// Layer-pattern hybrid decoder (canonical arch <c>hybrid</c>): a stack of residual layers whose token mixer is a Mamba-2 state-space layer, grouped-query
 /// attention, or both in parallel (their outputs are summed), optionally followed by a gated feed-forward block (dense and/or routed experts).
-/// Covers MiniMax-01 (lightning attention interleaved with attention), Jamba (Mamba-1 / attention / MLP), Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer), LFM2 (gated short convolutions interleaved with attention),
+/// Covers ZAYA1 (CCA attention and a skip-expert MoE in every layer), MiniMax-01 (lightning attention interleaved with attention), Jamba (Mamba-1 / attention / MLP), Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer), LFM2 (gated short convolutions interleaved with attention),
 /// PLaMo-2 (Mamba-2 style layers with their own projection layout, see <see cref="Plamo2Layer"/>, interleaved with attention, sandwich norms around both blocks),
 /// and pure Mamba-2 stacks (no feed-forward).
 /// </summary>
@@ -31,6 +31,11 @@ namespace Sharplight.Architectures;
 /// [hidden, K] f32 add a causal depthwise convolution of the mixer / feed-forward output to itself before it joins the residual
 /// (<c>y + conv(y)</c>, states <c>{group}.mixer_conv_state</c> / <c>ffn_conv_state</c>); <c>mlp.output_scale</c> [1] multiplies the
 /// feed-forward output.
+/// Optional (ZAYA1): a layer with <c>attention.cca.conv.weight</c> mixes with compressed convolutional attention (<see cref="CcaAttention"/>);
+/// <c>mlp.router.out.weight</c> selects the MLP router with a skip expert (<see cref="SkipExpertRouter"/>, its router rows carried from layer to
+/// layer); per-channel residual scales <c>residual.{mixer,ffn}_{out_scale,in_scale,bias}</c> [hidden] replace the scalar ones
+/// (<c>x = out · out_scale + r · in_scale + bias</c>); <c>input_scale.weight</c> / <c>input_scale.bias</c> [hidden] turn every input row x into
+/// <c>(x + bias) · scale</c>.
 /// Optional vision tower (image input, LFM2-VL): hyper-parameters <c>hybrid.vision.*</c> and weights <c>vision.*</c> as documented on
 /// <see cref="VisionParameters"/>, in the primary source or an auxiliary <see cref="AuxiliaryRoles.Mmproj"/> source; the definition then has the
 /// <see cref="WellKnown.VisionEncodeGraph"/> and <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (token or image rows per prompt row) and prompts
@@ -45,7 +50,7 @@ public sealed class HybridAdapter : IModelAdapter
 
     private sealed record LayerStates(StateDefinition? Conv, StateDefinition? Scan, StateDefinition? Keys, StateDefinition? Values, StateDefinition? ShortConv,
         StateDefinition? Lightning, StateDefinition? KeyConv = null, StateDefinition? ValueConv = null, StateDefinition? MixerConv = null,
-        StateDefinition? FeedForwardConv = null);
+        StateDefinition? FeedForwardConv = null, (StateDefinition QueryKey, StateDefinition Depthwise, StateDefinition Value)? Cca = null);
 
     /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
@@ -67,6 +72,7 @@ public sealed class HybridAdapter : IModelAdapter
         var mamba1 = new Mamba1Layer(src, eps);
         var plamo = new Plamo2Layer(src, eps);
         var attention = new HybridAttention(src);
+        var cca = new CcaAttention(attention);
         var shortConv = new ShortConvLayer(src);
         var lightning = new LightningAttention(src);
         var feedForward = new HybridFeedForward(src, hidden);
@@ -85,8 +91,13 @@ public sealed class HybridAdapter : IModelAdapter
             var ffnConv = OutputConvState(src, $"layers.{il}", "ffn_conv_state", p + "mlp.out_conv.weight");
             var conv = src.Weight(p + "shortconv.in.weight") is { } convIn ? shortConv.DefineState($"layers.{il}", (int)(convIn.Shape[0].Fixed / 3)) : null;
             var linear = LightningAttention.IsPresent(src.Weight, p) ? lightning.DefineState($"layers.{il}") : null;
-            layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear, kvConv.Keys, kvConv.Values, mixerConv, ffnConv);
+            var ccaStates = CcaAttention.Is(src, p) ? cca.DefineStates($"layers.{il}", il) : default((StateDefinition QueryKey, StateDefinition Depthwise, StateDefinition Value)?);
+            layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear, kvConv.Keys, kvConv.Values, mixerConv, ffnConv, ccaStates);
             states.AddRange(new[] { ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear, kvConv.Keys, kvConv.Values, mixerConv, ffnConv }.OfType<StateDefinition>());
+            if (ccaStates is { } windows)
+            {
+                states.AddRange([windows.QueryKey, windows.Depthwise, windows.Value]);
+            }
         }
 
         // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
@@ -155,12 +166,20 @@ public sealed class HybridAdapter : IModelAdapter
                 }
             }
 
+            if (b.TryWeight("input_scale.weight") is { } inputScale)
+            {
+                // ZAYA1: x = (x + bias) · scale on every input row.
+                using var _ = b.Group("input");
+                x = b.Mul(b.TryWeight("input_scale.bias") is { } inputBias ? b.Add(x, inputBias) : x, inputScale, "inp_scaled");
+            }
+
             var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
             var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
+            Value? routerState = null;
             for (int il = 0; il < layerCount; il++)
             {
                 using var _ = b.Group($"layers.{il}");
-                x = Layer(b, x, positions, il);
+                x = Layer(b, x, positions, il, ref routerState);
             }
 
             using (b.Group("output"))
@@ -177,7 +196,7 @@ public sealed class HybridAdapter : IModelAdapter
             return b.Build();
         }
 
-        Value Layer(GraphBuilder b, Value x, Value positions, int il)
+        Value Layer(GraphBuilder b, Value x, Value positions, int il, ref Value? routerState)
         {
             string p = $"layers.{il}.";
             var layer = layers[il];
@@ -201,27 +220,36 @@ public sealed class HybridAdapter : IModelAdapter
 
             if (layer.Keys is not null)
             {
-                var attended = attention.Build(b, h, positions, il, p, layer.Keys, layer.Values!, layer.KeyConv, layer.ValueConv);
+                var attended = layer.Cca is { } windows
+                    ? cca.Build(b, h, positions, il, p, layer.Keys, layer.Values!, windows)
+                    : attention.Build(b, h, positions, il, p, layer.Keys, layer.Values!, layer.KeyConv, layer.ValueConv);
                 mixed = mixed is null ? attended : b.Add(mixed, attended);
             }
 
             var mixer = HybridAttention.ResidualConv(b, mixed ?? throw new InvalidDataException($"hybrid: layer {il} has neither a state-space nor an attention mixer."),
                 p + "post_mixer_conv.weight", layer.MixerConv);
-            var mixerOut = Scaled(b, OutputNorm(b, mixer, p + "post_mixer_norm.weight"), PerLayer(mixerScale, il, residualScale));
-            x = b.Add(mixerOut, Scaled(b, residualFromNorm ? h : x, PerLayer(mixerInputScale, il, 1f)), $"{p}mix_out");
+            x = b.TryWeight(p + "residual.mixer_out_scale") is not null
+                ? VectorResidual(b, mixer, x, p + "residual.mixer_", $"{p}mix_out")
+                : b.Add(Scaled(b, OutputNorm(b, mixer, p + "post_mixer_norm.weight"), PerLayer(mixerScale, il, residualScale)),
+                    Scaled(b, residualFromNorm ? h : x, PerLayer(mixerInputScale, il, 1f)), $"{p}mix_out");
             if (!HybridFeedForward.Exists(src, p))
             {
                 return x;
             }
 
             var normed = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), eps, $"{p}post_attn_norm");
-            var ffn = feedForward.Build(b, normed, p);
+            var ffn = feedForward.Build(b, normed, p, ref routerState);
             if (b.TryWeight(p + "mlp.output_scale") is { } outputScale)
             {
                 ffn = b.Mul(ffn, outputScale);
             }
 
             ffn = HybridAttention.ResidualConv(b, ffn, p + "mlp.out_conv.weight", layer.FeedForwardConv);
+            if (b.TryWeight(p + "residual.ffn_out_scale") is not null)
+            {
+                return VectorResidual(b, ffn, x, p + "residual.ffn_", $"{p}l_out");
+            }
+
             var ffnOut = Scaled(b, OutputNorm(b, ffn, p + "mlp.out_norm.weight"), PerLayer(ffnScale, il, residualScale));
             return b.Add(ffnOut, Scaled(b, residualFromNorm ? normed : x, PerLayer(ffnInputScale, il, 1f)), $"{p}l_out");
         }
@@ -240,6 +268,18 @@ public sealed class HybridAdapter : IModelAdapter
             }
 
             return x;
+        }
+
+        // out · {prefix}out_scale + (residual · {prefix}in_scale + {prefix}bias), all [hidden] (ZAYA1).
+        static Value VectorResidual(GraphBuilder b, Value output, Value residual, string prefix, string name)
+        {
+            var scaledResidual = b.Mul(residual, b.Weight(prefix + "in_scale"));
+            if (b.TryWeight(prefix + "bias") is { } bias)
+            {
+                scaledResidual = b.Add(scaledResidual, bias);
+            }
+
+            return b.Add(b.Mul(output, b.Weight(prefix + "out_scale")), scaledResidual, name);
         }
 
         static float PerLayer(float[] scales, int il, float fallback) => il < scales.Length ? scales[il] : fallback;

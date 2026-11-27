@@ -33650,6 +33650,127 @@
       ]
     },
     {
+      "id": "zaya1-8b",
+      "name": "ZAYA1 8B",
+      "kind": "text-generation",
+      "family": "ZAYA1",
+      "architecture": "zaya1",
+      "level": "verified",
+      "license": "apache-2.0",
+      "gated": false,
+      "publisher": {
+        "name": "Zyphra",
+        "countryOfOrigin": "US",
+        "url": "https://www.zyphra.com"
+      },
+      "tags": [
+        "reasoning",
+        "tools"
+      ],
+      "variants": [
+        {
+          "id": "bf16-safetensors",
+          "label": "BF16 safetensors",
+          "format": "safetensors",
+          "quantization": "BF16",
+          "recommended": true,
+          "memoryBytes": 20735962739,
+          "companions": [],
+          "repository": "Zyphra/ZAYA1-8B",
+          "revision": "67d34da515b30409ee8daa67c3605c4402d03f6f",
+          "include": [
+            "*.json",
+            "*.jinja",
+            "*.safetensors"
+          ],
+          "primary": "",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 1718,
+              "gitOid": "886d13d78a3fcd6db39b6ac060e680323828f22a"
+            },
+            {
+              "path": "generation_config.json",
+              "size": 188,
+              "gitOid": "9056e8bff70264a23ff6f9e8753de82514c3028f"
+            },
+            {
+              "path": "model.safetensors.index.json",
+              "size": 119904,
+              "gitOid": "ce71e8d386aa5eba8b56d2a1d572fb0f2c3e2b28"
+            },
+            {
+              "path": "special_tokens_map.json",
+              "size": 667,
+              "gitOid": "cb9d4f43a1352afd20df3dba962c4d1cc4b025fb"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 33385481,
+              "sha256": "29299fe0a5dfb9f41cacc71436a714a412e1163858fbf7085b84adbf9544133a"
+            },
+            {
+              "path": "tokenizer_config.json",
+              "size": 1155781,
+              "gitOid": "ad53e4d0c027fd3255428bf4a29f298425e15986"
+            },
+            {
+              "path": "chat_template.jinja",
+              "size": 10700,
+              "gitOid": "c4e0174b98ab6e24fe149b59368c688c152bbce9"
+            },
+            {
+              "path": "model-00001-of-00004.safetensors",
+              "size": 5225951004,
+              "sha256": "4bd392be96c2e58f332246ce767f69804bce3ccb8e5cb96e3d52bcb192fd931d"
+            },
+            {
+              "path": "model-00002-of-00004.safetensors",
+              "size": 4982058288,
+              "sha256": "22852fd86b31271426067619fd4e4c3e6488c3e59b15f0fb97987254b15bba28"
+            },
+            {
+              "path": "model-00003-of-00004.safetensors",
+              "size": 4982058208,
+              "sha256": "6147c66cbe6ef18906a32a4c1c35883ed22545ba9ea2624e0055249500307eb1"
+            },
+            {
+              "path": "model-00004-of-00004.safetensors",
+              "size": 2491071244,
+              "sha256": "9f50221aeed836e3942fbd38ad9dd10840bbc0e8e622680591c862510333096d"
+            }
+          ]
+        }
+      ],
+      "companions": [],
+      "verification": {
+        "reference": "llama.cpp b12798 (9fa7a33) and transformers 5.24",
+        "summary": "BF16 chat answer (thinking on, greedy) identical to llama.cpp b12798 for 35 tokens on CPU, Vulkan and CUDA, safetensors and its BF16 GGUF, up to a 0.003-logit near tie in float32 transformers; the CPU stays identical past it for about 140 tokens; tiny checkpoints vs transformers and llama.cpp",
+        "providers": [
+          "CPU",
+          "Vulkan",
+          "CUDA"
+        ],
+        "date": "2026-11-27",
+        "tests": [
+          "Sharplight.Families.Tests.FamilyGenerationTests",
+          "Sharplight.Families.Tests.HubSweepFamilyServingTests",
+          "Sharplight.Families.Tests.RecurrentRollbackTests"
+        ]
+      },
+      "notes": "GGUF files converted by llama.cpp\u0027s converter (arch zaya1, since 98d67c8d5) load too; the earlier community GGUFs of the fork architecture zaya (80 blocks) do not",
+      "doc": [
+        {
+          "section": "1.1",
+          "cells": {
+            "repositories": "Zyphra/ZAYA1-8B",
+            "formats": "safetensors (bf16), GGUF (llama.cpp zaya1 conversions)"
+          }
+        }
+      ]
+    },
+    {
       "id": "chronos-bolt-tiny",
       "name": "Chronos-Bolt Tiny",
       "kind": "time-series",
