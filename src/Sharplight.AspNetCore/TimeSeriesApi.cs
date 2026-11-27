@@ -326,10 +326,18 @@ public static class TimeSeriesApi
             SampleCount = samples,
             Temperature = temperature,
             TopK = topK,
-            PatchSize = body.Int("patch_size"),
+            PatchSize = PatchSize(body),
             Seed = (int?)seed,
         };
     }
+
+    // "patch_size": an integer, or "auto" (TimeSeriesForecastOptions.AutoPatchSize: the patch size of the lowest validation loss).
+    private static int? PatchSize(JsonElement body)
+        => body.Get("patch_size") is { ValueKind: JsonValueKind.String } text
+            ? string.Equals(text.GetString(), "auto", StringComparison.OrdinalIgnoreCase)
+                ? TimeSeriesForecastOptions.AutoPatchSize
+                : throw ApiException.BadRequest("'patch_size' must be an integer or \"auto\".", "patch_size")
+            : body.Int("patch_size");
 
     private static async Task<Leased> Pick(HttpContext http, TimeSeriesModels models, string? requested)
     {

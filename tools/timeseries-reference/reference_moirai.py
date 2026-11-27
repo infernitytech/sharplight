@@ -14,6 +14,12 @@ model.safetensors of Salesforce/<name>). fedora-blackwell has the environment in
   zero-filled as gluonts' AddObservedValuesIndicator does. Per forecast step the mixture parameters after the domain maps ("params": weights (probs),
   student_t df/loc/scale, normal loc, negative_binomial total_count/logits, log_normal loc/scale) and the scaler's loc/scale, plus the quantiles and the mean
   of 20000 seeded samples (statistics only; torch's RNG is not reproduced).
+- Moirai 1.1 with --auto (writes refs/<model>-auto.json): MoiraiForecast(patch_size="auto") at context_length 1000 (Sharplight's context), fed as
+  gluonts feeds it: the history's last 1000 + horizon steps, left-padded with is_pad. Per case the validation loss of every patch size
+  (MoiraiForecast._val_loss, SampleNLLLoss), the patch size forward() picks (argmin) and that size's distribution on the last 1000 steps as above
+  (no samples).
+
+    python -I tools/timeseries-reference/reference_moirai.py --auto moirai-1.1-R-small
 """
 import json, math, os, sys
 import numpy as np
@@ -115,14 +121,62 @@ def moirai1(path, patch_size=32):
     return forecast
 
 
+def moirai1_auto(path, context_length=1000):
+    from uni2ts.model.moirai import MoiraiForecast, MoiraiModule
+    module = MoiraiModule.from_pretrained(path).eval()
+
+    def forecast(history, horizon, levels):
+        series = np.array(history, dtype=np.float32)
+        length = context_length + horizon
+        window = series[-length:]
+        pad = length - window.size
+        observed = np.concatenate([np.zeros(pad, dtype=bool), ~np.isnan(window)])
+        target = np.concatenate([np.zeros(pad, dtype=np.float32), np.where(np.isnan(window), 0, window)]).astype(np.float32)
+        is_pad = np.concatenate([np.ones(pad, dtype=bool), np.zeros(window.size, dtype=bool)])
+        model = MoiraiForecast(module=module, prediction_length=horizon, context_length=context_length, patch_size="auto", num_samples=100,
+                               target_dim=1, feat_dynamic_real_dim=0, past_feat_dynamic_real_dim=0).eval()
+        assert model.past_length == length
+        t, o, p = torch.tensor(target)[None, :, None], torch.tensor(observed)[None, :, None], torch.tensor(is_pad)[None, :]
+        with torch.no_grad():
+            losses = torch.stack([model._val_loss(patch_size=ps, target=t, observed_target=o, is_pad=p) for ps in module.patch_sizes])
+            best = int(module.patch_sizes[int(losses.argmin(dim=0)[0])])
+            distr = model._get_distr(best, t[:, -context_length:], o[:, -context_length:], p[:, -context_length:])
+            entry = {"val_loss": losses[:, 0].double().tolist(), "patch_size": best}
+            entry.update(distribution(distr, context_length, horizon, best))
+        return entry
+
+    return forecast
+
+
+def distribution(distr, context, horizon, patch_size):
+    start = math.ceil(context / patch_size)
+    rows = [start + t // patch_size for t in range(horizon)]
+    cols = [t % patch_size for t in range(horizon)]
+
+    def at(x):
+        return x[0, rows, cols].double().tolist()
+
+    mixture = distr.base_dist
+    student, normal, negbin, lognormal = mixture.components
+    params = {
+        "weights": mixture.weights.probs[0, rows, cols].double().tolist(),
+        "student_t": {"df": at(student.df), "loc": at(student.loc), "scale": at(student.scale)},
+        "normal": {"loc": at(normal.loc)},
+        "negative_binomial": {"total_count": at(negbin.total_count), "logits": at(negbin.logits)},
+        "log_normal": {"loc": at(lognormal.loc), "scale": at(lognormal.scale)},
+    }
+    return {"loc": float(distr.loc[0, rows[0], 0]), "scale": float(distr.scale[0, rows[0], 0]), "params": params}
+
+
 def main():
     torch.set_num_threads(8)
     os.makedirs(ROOT + "/refs", exist_ok=True)
-    for name in sys.argv[1:]:
+    auto = "--auto" in sys.argv[1:]
+    for name in [a for a in sys.argv[1:] if a != "--auto"]:
         path = ROOT + "/" + name
         with open(path + "/config.json") as f:
             config = json.load(f)
-        forecast = moirai2(path) if "quantile_levels" in config else moirai1(path)
+        forecast = moirai1_auto(path) if auto else moirai2(path) if "quantile_levels" in config else moirai1(path)
         out = []
         for case, history, horizon in cases():
             levels = [0.05, 0.25, 0.5, 0.75, 0.95] if case == "interpolated_levels" else LEVELS
@@ -135,7 +189,7 @@ def main():
             entry.update(forecast(history, horizon, levels))
             out.append(entry)
             print(name, case, "ok", flush=True)
-        with open(f"{ROOT}/refs/{name}.json", "w") as f:
+        with open(f"{ROOT}/refs/{name}{'-auto' if auto else ''}.json", "w") as f:
             json.dump({"model": name, "cases": out}, f)
         print(name, "ok")
 

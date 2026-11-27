@@ -125,12 +125,22 @@ public sealed class TimeSeriesApiTests : IAsyncLifetime
     [InlineData("""{"model":"bolt","series":[1],"temperature":0}""", "temperature")]
     [InlineData("""{"model":"bolt","series":[1],"seed":1e12}""", "seed")]
     [InlineData("""{"model":"bolt","series":[1],"covariates":[{"name":"x"}]}""", "covariates")]
+    [InlineData("""{"model":"bolt","series":[1],"patch_size":"best"}""", "patch_size")]
     public async Task InvalidRequestsAreRejectedWithTheirField(string json, string param)
     {
         var (status, body) = await Post(json);
         Assert.Equal(HttpStatusCode.BadRequest, status);
         Assert.Equal(param, body.GetProperty("error").GetProperty("param").GetString());
         Assert.Empty(_bolt.Batches);
+    }
+
+    [Fact]
+    public async Task AutoPatchSizeIsPassedOn()
+    {
+        var (status, _) = await Post("""{"model":"bolt","series":[1,2,3],"patch_size":"auto"}""");
+        Assert.Equal(HttpStatusCode.OK, status);
+        var (_, options) = Assert.Single(_bolt.Batches);
+        Assert.Equal(TimeSeriesForecastOptions.AutoPatchSize, options!.PatchSize);
     }
 
     [Fact]

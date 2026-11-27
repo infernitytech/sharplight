@@ -11,6 +11,8 @@ namespace Sharplight.TimeSeries;
 /// from which <see cref="TimeSeriesForecastOptions.SampleCount"/> values are drawn; the quantiles are the samples' empirical quantiles, the mean their mean.
 /// Missing values are 0 with a false observation flag, as uni2ts' gluonts pipeline passes them; the patch size comes from
 /// <see cref="TimeSeriesForecastOptions.PatchSize"/> (default <see cref="TimeSeriesGraphs.PatchSizeKey"/>), each size compiling its graph on first use.
+/// <see cref="TimeSeriesForecastOptions.AutoPatchSize"/> follows uni2ts' <c>patch_size="auto"</c>: every patch size forecasts the history's last horizon
+/// from the steps before it, and the one whose mixture gives those held-out values the lowest mean negative log density forecasts the request.
 /// </summary>
 internal sealed class MaskedEncoderForecasterClient : ITimeSeriesForecaster
 {
@@ -77,7 +79,23 @@ internal sealed class MaskedEncoderForecasterClient : ITimeSeriesForecaster
         TimeSeriesHistory.Validate(history);
         int size = CheckPatchSize(patchSize);
         CheckHorizon(horizon);
-        return BackgroundCompute.RunAsync(_gate, () => Distribution(history, horizon, size), CancellationToken.None);
+        return BackgroundCompute.RunAsync(_gate, () => Distribution(history, horizon,
+            size == TimeSeriesForecastOptions.AutoPatchSize ? AutoPatchSize(history, horizon, CancellationToken.None) : size), CancellationToken.None);
+    }
+
+    /// <summary>
+    /// The validation loss of every patch size (<see cref="PatchSizes"/> order) and the patch size <see cref="TimeSeriesForecastOptions.AutoPatchSize"/>
+    /// picks for this history and horizon (for parity tests).
+    /// </summary>
+    internal Task<(double[] Losses, int PatchSize)> ValidationLossesAsync(float[] history, int horizon)
+    {
+        TimeSeriesHistory.Validate(history);
+        CheckHorizon(horizon);
+        return BackgroundCompute.RunAsync(_gate, () =>
+        {
+            var losses = _patchSizes.Select(ps => ValidationLoss(history, horizon, ps)).ToArray();
+            return (losses, AutoPatchSize(history, horizon, CancellationToken.None));
+        }, CancellationToken.None);
     }
 
     public void Dispose()
@@ -110,9 +128,9 @@ internal sealed class MaskedEncoderForecasterClient : ITimeSeriesForecaster
     private int CheckPatchSize(int? patchSize)
     {
         int size = patchSize ?? _defaultPatchSize;
-        if (!_patchSizes.Contains(size))
+        if (size != TimeSeriesForecastOptions.AutoPatchSize && !_patchSizes.Contains(size))
         {
-            throw new ArgumentOutOfRangeException("options", $"Patch size {size} is not one of the model's ({string.Join(", ", _patchSizes)}).");
+            throw new ArgumentOutOfRangeException("options", $"Patch size {size} is not one of the model's ({string.Join(", ", _patchSizes)}) or {TimeSeriesForecastOptions.AutoPatchSize} (auto).");
         }
 
         return size;
@@ -133,6 +151,11 @@ internal sealed class MaskedEncoderForecasterClient : ITimeSeriesForecaster
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (patchSize == TimeSeriesForecastOptions.AutoPatchSize)
+        {
+            patchSize = AutoPatchSize(history, horizon, cancellationToken);
+        }
+
         var (loc, scale, parameters) = Distribution(history, horizon, patchSize);
         var quantiles = new float[levels.Count][];
         for (int l = 0; l < levels.Count; l++)
@@ -165,14 +188,76 @@ internal sealed class MaskedEncoderForecasterClient : ITimeSeriesForecaster
 
     private (float Loc, float Scale, double[][] Parameters) Distribution(float[] history, int horizon, int ps)
     {
-        var compiled = Compiled(ps);
         var window = history.Length <= ContextLength ? history : history[^ContextLength..];
-        var (values, observed) = MoiraiPatches.Pad(window, ps);
+        return Pass(window, horizon, 0, ps);
+    }
+
+    /// <summary>
+    /// uni2ts' validation loss of patch size <paramref name="ps"/> (<c>MoiraiForecast._val_loss</c> with <c>SampleNLLLoss</c>): the history's last
+    /// <see cref="ContextLength"/> + <paramref name="horizon"/> steps (left-padded when shorter), the first <see cref="ContextLength"/> as the context
+    /// and the last <paramref name="horizon"/> as held-out targets; the mean negative log density of the observed targets under the predicted mixture
+    /// (in the series' own scale), 0 when no target is observed.
+    /// </summary>
+    private double ValidationLoss(float[] history, int horizon, int ps)
+    {
+        int end = Math.Max(0, history.Length - horizon);
+        var context = history[Math.Max(0, end - ContextLength)..end];
+        int padding = Math.Max(0, horizon - history.Length);
+        var (loc, scale, parameters) = Pass(context, horizon, padding / ps, ps);
+        double logScale = Math.Log(scale);
+        double sum = 0;
+        int count = 0;
+        for (int t = padding; t < horizon; t++)
+        {
+            float target = history[history.Length - horizon + t];
+            if (float.IsNaN(target))
+            {
+                continue;
+            }
+
+            // AffineTransformed.log_prob: the base density at (y − loc) / scale (in float, as torch's inverse transform) less log scale.
+            sum -= _mixture.LogProb(parameters[t - (padding / ps * ps)], (target - loc) / scale) - logScale;
+            count++;
+        }
+
+        return count == 0 ? 0 : sum / count;
+    }
+
+    /// <summary>The patch size of the lowest validation loss (the first of equal ones, as torch's argmin), as uni2ts' <c>patch_size="auto"</c>.</summary>
+    private int AutoPatchSize(float[] history, int horizon, CancellationToken cancellationToken)
+    {
+        int best = _patchSizes[0];
+        double bestLoss = double.PositiveInfinity;
+        foreach (int ps in _patchSizes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            double loss = ValidationLoss(history, horizon, ps);
+            if (loss < bestLoss)
+            {
+                best = ps;
+                bestLoss = loss;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// One pass of the masked encoder: the context patches of <paramref name="context"/> (left-padded to whole patches) and the masked horizon patches
+    /// <paramref name="skip"/> ... ⌈<paramref name="horizon"/> / <paramref name="ps"/>⌉ − 1 (earlier horizon patches are pure padding, which uni2ts
+    /// keeps apart as another sample; their time ids stay reserved). Returns the scaler's loc and scale and the mapped mixture parameters of the horizon
+    /// steps from patch <paramref name="skip"/> on.
+    /// </summary>
+    private (float Loc, float Scale, double[][] Parameters) Pass(float[] context, int horizon, int skip, int ps)
+    {
+        var compiled = Compiled(ps);
+        var (values, observed) = MoiraiPatches.Pad(context, ps);
         var (loc, scale) = MoiraiPatches.Scale(values, observed);
         var times = MoiraiPatches.TimeIds(observed, ps);
-        int context = times.Length;
-        int future = (horizon + ps - 1) / ps;
-        int rows = context + future;
+        int contextRows = times.Length;
+        int firstFuture = (contextRows == 0 ? 0 : times[^1]) + 1;
+        int future = ((horizon + ps - 1) / ps) - skip;
+        int rows = contextRows + future;
         var patches = new float[rows * ps];
         var predict = new float[rows];
         var positions = new int[rows];
@@ -182,15 +267,15 @@ internal sealed class MaskedEncoderForecasterClient : ITimeSeriesForecaster
         {
             for (int c = 0; c < ps; c++)
             {
-                patches[(r * ps) + c] = MoiraiPatches.Scaled(r < context ? values[(r * ps) + c] : 0f, loc, scale);
+                patches[(r * ps) + c] = MoiraiPatches.Scaled(r < contextRows ? values[(r * ps) + c] : 0f, loc, scale);
             }
 
-            predict[r] = r < context ? 0f : 1f;
-            positions[r] = r < context ? times[r] : times[^1] + 1 + (r - context);
+            predict[r] = r < contextRows ? 0f : 1f;
+            positions[r] = r < contextRows ? times[r] : firstFuture + skip + (r - contextRows);
             spans[(2 * r) + 1] = rows;
-            if (r >= context)
+            if (r >= contextRows)
             {
-                read[r - context] = r;
+                read[r - contextRows] = r;
             }
         }
 
@@ -206,8 +291,8 @@ internal sealed class MaskedEncoderForecasterClient : ITimeSeriesForecaster
         int columns = _mixture.Columns;
         var output = new float[future * ps * columns];
         compiled.GetOutput<float>(TimeSeriesGraphs.DistributionOutput, output);
-        var parameters = new double[horizon][];
-        for (int t = 0; t < horizon; t++)
+        var parameters = new double[horizon - (skip * ps)][];
+        for (int t = 0; t < parameters.Length; t++)
         {
             parameters[t] = _mixture.Map(output.AsSpan(t * columns, columns));
         }
