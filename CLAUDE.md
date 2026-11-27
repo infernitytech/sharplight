@@ -83,8 +83,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   dynamically indexed one into every thread's local memory, and at 16 KB per thread (T5-large's position-bias table) that
   corrupted other models' memory and lost the device (#88). Pass them as `const:` buffers (`NewBuffer(BufferKind.Weight, "const:…", init:)`).
   `SHARPLIGHT_VK_PIPELINE_STATS=1` shows each pipeline's "Local Memory Size" (the NVIDIA driver reports it plus 2^36).
-- The Vulkan/CUDA `Gather` lowering only handles 2-D tables: a rank-3 table fills just the first `[.., last dim]` slice of every output row and
-  leaves the rest stale (#111); gather 2-D tensors (reshape first). Symptom: the first run of a compiled graph is right, later runs drift.
+- Output buffers come from a reused arena: a GPU kernel that leaves part of its output unwritten gives a right first run and drifting later
+  runs (#111, rank-3 `Gather` tables; now gathered as `[V, prod(rest)]` rows). Tests for such ops should run two steps with different inputs.
 - Sharplight.Vulkan.Tests also runs on the CUDA provider with `SHARPLIGHT_TEST_PROVIDER=cuda` (same lowering, NVRTC).
   Speculative (MTP) output equals plain decoding only while row-invariant compiles reproduce the plain single-row
   arithmetic bit for bit. Driver contraction differs per kernel variant and per compiler (NVIDIA Vulkan, RADV and NVRTC

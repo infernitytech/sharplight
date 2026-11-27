@@ -36,4 +36,45 @@ public sealed class GatherTests
         var g = tg.B.Build();
         Diff.Check("Gather.view", g, new Step(6, 0, (x, Rnd.F(6 * 32, 1)), (rows, new[] { 5, 1, 3 })) { R = 3 }, atol: 1e-6);
     }
+
+    /// <summary>
+    /// Rank-3 tables gather whole [H, W] rows (#111: only the first W values were written, the rest kept stale arena
+    /// data, so the second run differed). Two runs with different table contents; W = 8 takes the 8-value-group kernel,
+    /// W = 6 the one-thread-per-value one, a sliced table the dense copy first.
+    /// </summary>
+    [Theory]
+    [InlineData(8, false)]
+    [InlineData(6, false)]
+    [InlineData(8, true)]
+    public void Rank3ActivationTable(int w, bool sliced)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        int h = 3;
+        int wIn = sliced ? w + 8 : w;
+        var x = tg.InF("x", 5, h, wIn);
+        var rows = tg.In("rows", DataType.I32, Dim.Sym("R"));
+        var table = sliced ? tg.B.Slice(x, 2, 4, w) : x;
+        tg.B.Output("y", tg.B.Gather(table, rows));
+        var g = tg.B.Build();
+        Diff.Check($"Gather.rank3.{w}{(sliced ? ".view" : "")}", g,
+        [
+            new Step(1, 0, (x, Rnd.F(5 * h * wIn, 1)), (rows, new[] { 4, 0, 2 })) { R = 3 },
+            new Step(1, 0, (x, Rnd.F(5 * h * wIn, 2)), (rows, new[] { 1, 3, 3, 0 })) { R = 4 },
+        ], atol: 1e-6);
+    }
+
+    [Theory]
+    [InlineData("f16")]
+    [InlineData("q8_0")]
+    public void Rank3WeightTable(string fmt)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var ids = tg.In("ids", DataType.I32, TG.T);
+        var table = tg.RandW("emb", DataType.Get(fmt), 1f, 20, 2, 64);
+        tg.B.Output("y", tg.B.Gather(table, ids));
+        Diff.Check("Gather.rank3." + fmt, tg.B.Build(),
+            [new Step(5, 0, (ids, Rnd.I(5, 4, 20))), new Step(7, 0, (ids, Rnd.I(7, 5, 20)))], atol: 1e-6, rtol: 1e-6);
+    }
 }
