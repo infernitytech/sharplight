@@ -7,9 +7,10 @@
 //         (KV_F16: KV_FMT == FMT_F16), WG (threads, = chunk of keys),
 //         WINDOW (> 0: a query sees only keys less than WINDOW positions away: its last WINDOW keys when causal, the symmetric
 //         window of bidirectional encoders with FULL_ATTN), HAS_ALIBI + ALIBI_SLOPES (initializer list of HQ floats: scores get
-//         -slope[h] * |key position - query position|), HAS_POS_BIAS + POS_BIAS_RANGE + POS_BIAS_TABLE (initializer list of
-//         HQ * (2 * POS_BIAS_RANGE + 1) floats: scores of head h get table[h][clamp(key position - query position, ±RANGE) + RANGE],
-//         a learned relative position bias such as T5's),
+//         -slope[h] * |key position - query position|), HAS_POS_BIAS + POS_BIAS_RANGE (p.posb is
+//         [HQ, 2 * POS_BIAS_RANGE + 1] f32: scores of head h get posb[h][clamp(key position - query position, ±RANGE) + RANGE],
+//         a learned relative position bias such as T5's; a buffer, not a constant array: NVIDIA's Vulkan compiler copies a dynamically
+//         indexed constant array into every thread's local memory, 16 KB for T5-large's 16 x 257 table, which corrupted memory, #88),
 //         CHUNK (> 0: a query at position p sees only keys [p - p % CHUNK, p]; Llama 4 chunked attention), HAS_SOFTCAP + SOFTCAP
 //         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
@@ -114,13 +115,11 @@ float alibi_bias(uint h, uint j, uint qp)
 #ifndef HAS_POS_BIAS
 #define HAS_POS_BIAS 0
 #endif
-#if HAS_POS_BIAS
-static const float kPosBias[HQ * (2 * POS_BIAS_RANGE + 1)] = POS_BIAS_TABLE;
-#endif
 #define HAS_SCORE_BIAS (HAS_ALIBI || HAS_POS_BIAS)
 #if HAS_SCORE_BIAS
-// Additive score bias of head h for key position j and query position qp (ALiBi and/or the learned relative position bias).
-float score_bias(uint h, uint j, uint qp)
+// Additive score bias of head h for key position j and query position qp (ALiBi and/or the learned relative position bias
+// posb, see HAS_POS_BIAS; unused without it).
+float score_bias(float* posb, uint h, uint j, uint qp)
 {
     float b = 0;
 #if HAS_ALIBI
@@ -128,10 +127,15 @@ float score_bias(uint h, uint j, uint qp)
 #endif
 #if HAS_POS_BIAS
     int d = clamp(int(j) - int(qp), -POS_BIAS_RANGE, POS_BIAS_RANGE);
-    b += kPosBias[h * (2 * POS_BIAS_RANGE + 1) + uint(d + POS_BIAS_RANGE)];
+    b += posb[h * (2 * POS_BIAS_RANGE + 1) + uint(d + POS_BIAS_RANGE)];
 #endif
     return b;
 }
+#if HAS_POS_BIAS
+#define SCORE_BIAS(h, j, qp) score_bias(p.posb, h, j, qp)
+#else
+#define SCORE_BIAS(h, j, qp) score_bias((float*)0, h, j, qp)
+#endif
 #endif
 // KV_FP8: f8e4m3_b32 caches, blocks of { f32 d; u8 e4m3[32] } (36 bytes, 4-byte aligned), value = d * e4m3(q).
 #define KV_FP8 (KV_FMT == FMT_F8E4M3_B32)
@@ -638,6 +642,9 @@ struct Params
 #if REL_BIAS
     float* relb; // [T, HQ, REL_BIAS] query-conditioned relative position bias by query - key distance
 #endif
+#if HAS_POS_BIAS
+    float* posb; // [HQ, 2 * POS_BIAS_RANGE + 1] relative position bias by key - query distance (see HAS_POS_BIAS)
+#endif
     uint* arrivals;   // DEC_FUSED_COMBINE: [T, DEC_GROUPS] split arrivals of `decode`, zero between launches (else unused)
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
@@ -821,7 +828,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         if (valid) s = SOFTCAP * tanh(s / SOFTCAP);
 #endif
 #if HAS_SCORE_BIAS
-        if (valid) s += score_bias(h, j, qPos);
+        if (valid) s += SCORE_BIAS(h, j, qPos);
 #endif
 #if REL_BIAS
         if (valid && j <= qPos && qPos - j < REL_BIAS) s += p.relb[(uint64_t(t) * HQ + h) * REL_BIAS + (qPos - j)];
@@ -1284,7 +1291,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             sc = SOFTCAP * tanh(sc / SOFTCAP);
 #endif
 #if HAS_SCORE_BIAS
-            sc += score_bias(h, j, faQueryPos);
+            sc += SCORE_BIAS(h, j, faQueryPos);
 #endif
             bool visible = rowValid && j < rowEnd && j >= rowBeg && j < jStop;
 #if HAS_MASK
@@ -2909,7 +2916,7 @@ void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
                 s[i][g] = SOFTCAP * tanh(s[i][g] / SOFTCAP);
 #endif
 #if HAS_SCORE_BIAS
-                s[i][g] += score_bias(h0 + g, c0 + i * DEC_NRG + rg, L - 1);
+                s[i][g] += SCORE_BIAS(h0 + g, c0 + i * DEC_NRG + rg, L - 1);
 #endif
                 if (c0 + i * DEC_NRG + rg < jEnd) mNew = max(mNew, s[i][g]);
             }
