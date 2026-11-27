@@ -1,4 +1,4 @@
-"""Image references for the tiny Gemma 3 and Idefics3 checkpoints of mk_tiny_siglip_vl.py from Hugging Face transformers (fp32).
+"""Image references for the tiny Gemma 3, Idefics3 and LFM2-VL checkpoints of mk_tiny_siglip_vl.py from Hugging Face transformers (fp32).
 
 Usage: python siglip_vl_reference.py <model_dir> [--new-tokens N]
 
@@ -9,6 +9,9 @@ the tower, bypassing resizing and normalization, so that only the tower, the pro
   The input projection is rounded to f16 first, as llama.cpp's converter stores it.
 - idefics3: a 2×1 tile grid cut from a 128×64 image plus an overview whose values are the negated 64×64 pattern; the prompt layout is the
   processor's own (Idefics3Processor.replace_image_token).
+- lfm2_vl: a 2×1 grid of 128-pixel tiles cut from a 256×128 image plus a 96×32 thumbnail (negated pattern; its 2×6 patch grid resamples the 4×4
+  position grid down along the rows and up along the columns); the views go through the NaFlex padding and attention mask as the processor
+  would pass them, the prompt layout is Lfm2VlProcessor._build_image_tokens'.
 Writes <model_dir>/reference_image.json: the embeddings (all views, in output order), the top-10 logits of the last prompt row, the greedy
 continuation and "prompt_ids" with one placeholder per image (the runtime expands it).
 """
@@ -51,6 +54,37 @@ with torch.no_grad():
         input_ids = torch.tensor([expanded])
         kwargs = dict(pixel_values=pixel_values)
         result.update(width=side, height=side)
+    elif config.model_type == "lfm2_vl":
+        ps = config.vision_config.patch_size
+        tile, columns, rows = 128, 2, 1
+        tw, th = 96, 32
+        canvas = sine(columns * tile, rows * tile)
+        views = [canvas[:, r * tile:(r + 1) * tile, c * tile:(c + 1) * tile] for r in range(rows) for c in range(columns)] + [-sine(tw, th)]
+        patched = []
+        shapes = []
+        for v in views:
+            c_, h_, w_ = v.shape
+            patches = v.reshape(c_, h_ // ps, ps, w_ // ps, ps).transpose(1, 3, 2, 4, 0).reshape((h_ // ps) * (w_ // ps), ps * ps * c_)
+            patched.append(patches)
+            shapes.append([h_ // ps, w_ // ps])
+        longest = max(p.shape[0] for p in patched)
+        pixel_values = torch.zeros(len(views), longest, ps * ps * 3)
+        mask = torch.zeros(len(views), longest, dtype=torch.int32)
+        for i, p in enumerate(patched):
+            pixel_values[i, :p.shape[0]] = torch.from_numpy(np.ascontiguousarray(p))
+            mask[i, :p.shape[0]] = 1
+        spatial = torch.tensor(shapes)
+        embeddings = torch.cat(list(model.model.get_image_features(pixel_values=pixel_values, spatial_shapes=spatial, pixel_attention_mask=mask).pooler_output))
+        processor = AutoProcessor.from_pretrained(model_dir)
+        text = "<|startoftext|><|im_start|>user\n<image>Describe this image.<|im_end|>\n<|im_start|>assistant\n"
+        prompt_ids = tokenizer(text, add_special_tokens=False).input_ids
+        per_tile = (tile // ps // 2) ** 2
+        thumb = (th // ps // 2) * (tw // ps // 2)
+        expanded_text = text.replace("<image>", processor._build_image_tokens(rows, columns, per_tile, thumb, True, True))
+        input_ids = torch.tensor([tokenizer(expanded_text, add_special_tokens=False).input_ids])
+        kwargs = dict(pixel_values=pixel_values, spatial_shapes=spatial, pixel_attention_mask=mask)
+        result.update(width=columns * tile, height=rows * tile, tile_columns=columns, tile_rows=rows, thumbnail_width=tw, thumbnail_height=th,
+                      expanded_ids=input_ids[0].tolist())
     else:
         tile = config.vision_config.image_size
         columns, rows = 2, 1
