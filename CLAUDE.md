@@ -40,6 +40,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   chronos-forecasting; writes `~/models/timeseries/refs/<name>.json`). Chronos-T5 parity runs greedy (top-k 1); sampling is seeded, not torch-RNG equal.
   TimesFM (#89): `google/timesfm-2.0-500m-pytorch`, `google/timesfm-2.5-200m-pytorch` and `-transformers` in the same folder, references from
   `reference_timesfm.py` (venv with torch CPU, transformers >= 5 and the timesfm package from GitHub; fedora-blackwell has it in `~/venvs/timeseries`).
+  Moirai (#90): `Salesforce/moirai-2.0-R-small`, `moirai-1.1-R-{small,base,large}` (config.json + model.safetensors), references from
+  `reference_moirai.py` (uni2ts installed `--no-deps` from GitHub plus its imports, jax included for jaxtyping's PyTree; fedora-blackwell: `~/venvs/uni2ts`).
+  Moirai 1.1 samples a mixture: parity is on the distribution parameters, sampled quantiles are compared in probability space.
 - LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target

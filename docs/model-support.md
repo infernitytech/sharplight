@@ -3644,7 +3644,7 @@ sample). Sampled paths are not comparable with torch's RNG, so the parity cases 
 Deviation: missing values inside a Chronos context become padding tokens that stay visible to the attention (the reference masks them; the
 encoder graph has no key mask); leading missing values are dropped, which is exact. Chronos-Bolt handles missing values exactly.
 
-Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates), Moirai (follow-up issues; TimesFM is section 28), batching several series in one
+Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates; follow-up issue; TimesFM is section 28, Moirai section 29), batching several series in one
 pass, an HTTP forecasting endpoint.
 
 ## 28. Time series: TimesFM 2.0 and 2.5 (2026-11-27, issue #89)
@@ -3685,3 +3685,46 @@ port takes none (the reference fills them the same way). `normalize_inputs` uses
 deviation of the constant lands just above the 1e-6 floor, which collapses every level onto the constant), here the deviation is exactly 0 and the levels
 keep the model's own spread of about 0.15 % around it (the test bounds that case separately). Not done: TimesFM 1.0 (sinusoidal position embedding, package
 checkpoint), the 2.0 frequency as a request option, covariates (`forecast_with_covariates`), batching several series in one pass.
+
+## 29. Time series: Moirai 1.1 and 2.0 (2026-11-27, issue #90)
+
+Kind `time-series` like section 27; models under `~/models/timeseries/<name>` (Hub downloads of `Salesforce/<name>`: config.json and model.safetensors),
+references from `tools/timeseries-reference/reference_moirai.py` (uni2ts at GitHub main of 2026-11-27, torch 2.15 CPU, f32; the cases of section 28);
+tests `MoiraiTests` in `tests/Sharplight.TimeSeries.Tests`. Moirai is not a transformers model: config.json holds the uni2ts module's keyword arguments
+without a `model_type`, so the importer recognizes the two forms by their keys (`distr_output` + `patch_sizes`: `moirai`; `quantile_levels` +
+`num_predict_token`: `moirai2`). Licence CC BY-NC 4.0 (the catalog entries carry a notice).
+
+| model | architecture | params | CPU | GPU (Vulkan, RADV iGPU) | `.slm` |
+|---|---|---|---|---|---|
+| moirai-2.0-R-small | `moirai2` | 11M | quantiles within 1.1e-6 of the forecast range | within 9e-7 | yes |
+| moirai-1.1-R-small | `moirai` | 14M | mixture parameters within 3e-6 (relative, at least 1); sampled quantiles statistically equal | parameters within 2e-6 | yes |
+| moirai-1.1-R-base | `moirai` | 91M | mixture parameters within 2e-5 | not run | not run (same importer path as small) |
+| moirai-1.1-R-large | `moirai` | 311M | mixture parameters within 1.2e-5 | not run | not run (same importer path as small) |
+
+Both share uni2ts' encoder: pre-norm layers with RMS norms (eps 1e-5), per-head query / key RMS norms, rotary time positions on the first half of every
+head (GPT-J pairs, base 10000), a SiLU-gated feed-forward block and a final RMS norm. The binary variate attention bias is not in the graph: for one
+series it adds the same value to every score of a head. Time ids follow uni2ts: leading patches without an observed value share id 0 with the first
+observed patch. The host does uni2ts' packed standard scaler (mean and sample deviation of the observed context values, `sqrt(var + 1e-5)`); missing
+values are 0 with a false observation flag, which is what uni2ts' imputation leaves for a univariate series (its `CausalMeanImputation` zero-fills
+2-D input), and the left padding to whole patches is 0 too (both scaled to −loc / scale).
+
+- **Moirai 2.0** (`TimeSeriesGraphs.QuantileDecoderGraph`, the quantile-decoder form): residual-block input projection of the 16 scaled values and their
+  observation mask, attention causal in time (spans: a row sees the rows whose time id is at most its own), and a residual-block head whose rows predict
+  the next 4 patches at 9 levels (64 steps per pass). Longer horizons follow `Moirai2Forecast`: every level's forecast extends its own sequence (each
+  re-scaled with statistics that include the fed-back values), the 9 sequences run packed in one pass, and the levels of all 81 forecasts per step give
+  the next block. The point forecast is the median. Context 1680 (the uni2ts notebook's).
+- **Moirai 1.1** (`TimeSeriesGraphs.MaskedEncoderGraph(p)`, the masked-encoder form, one graph per patch size 8 ... 128): the linear input projection
+  of patch size p, the learned mask embedding on the horizon's patches, bidirectional attention over context and horizon, and the distribution head of
+  p on the horizon rows. The importer splits the multi-size layers per patch size and fuses the 12 parameter heads into one matrix per size, keeping
+  the module's mixture-logit layout (component c at step t is row c · 128 + t of a head masked from 4 · p on, so for p < 128 three of the four
+  logits are trained biases). The host applies the domain maps and samples the mixture (Student-t, normal with scale 1e-3, negative binomial as a
+  gamma-Poisson draw, log-normal), 100 paths by default (`SampleCount`), seeded with `Seed`; quantiles are the samples' empirical quantiles, the mean
+  their mean. Patch size 32 by default (the notebook's), any of the five per request (`TimeSeriesForecastOptions.PatchSize`); context 1000, the whole
+  horizon (up to `maxHorizon`, 2048) in one pass, `PredictionLength` 64 is only the default horizon.
+
+Verification of the sampling model: the mixture parameters of every step are compared with uni2ts' distribution object; the sampled forecast (20000
+seeded paths) is compared in probability space with the quantiles of 20000 torch samples: every reference quantile at level l lies between the
+forecast's quantiles at l ± 0.025 (about five standard errors), which holds for all 6 748 checks of the eight cases (torch's RNG is not reproduced, and
+level-space bounds fail in heavy tails, where torch's own seeds differ by up to a quarter of the forecast range on the constant series). Not done: uni2ts' `patch_size="auto"` (the patch
+size with the lowest validation loss on the history's last window), multivariate series and covariates (the variate ids and the variate bias; with the
+Chronos-2 issue's multivariate API), Moirai-MoE, batching several series in one pass.
