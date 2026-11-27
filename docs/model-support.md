@@ -3719,13 +3719,13 @@ deviation of the constant lands just above the 1e-6 floor, which collapses every
 keep the model's own spread of about 0.15 % around it (the test bounds that case separately). Not done: TimesFM 1.0 (sinusoidal position embedding, package
 checkpoint), the 2.0 frequency as a request option, covariates (`forecast_with_covariates`), batching several series in one pass.
 
-## 29. Time series: Moirai 1.1 and 2.0 (2026-11-27, issue #90)
+## 29. Time series: Moirai 1.1, 2.0 and Moirai-MoE (2026-11-27, issues #90, #108)
 
 Kind `time-series` like section 27; models under `~/models/timeseries/<name>` (Hub downloads of `Salesforce/<name>`: config.json and model.safetensors),
 references from `tools/timeseries-reference/reference_moirai.py` (uni2ts at GitHub main of 2026-11-27, torch 2.15 CPU, f32; the cases of section 28);
 tests `MoiraiTests` in `tests/Sharplight.TimeSeries.Tests`. Moirai is not a transformers model: config.json holds the uni2ts module's keyword arguments
-without a `model_type`, so the importer recognizes the two forms by their keys (`distr_output` + `patch_sizes`: `moirai`; `quantile_levels` +
-`num_predict_token`: `moirai2`). Licence CC BY-NC 4.0 (the catalog entries carry a notice).
+without a `model_type`, so the importer recognizes the forms by their keys (`distr_output` + `patch_sizes`: `moirai`, or `moirai_moe` when the
+safetensors header holds `encoder.centroid`; `quantile_levels` + `num_predict_token`: `moirai2`). Licence CC BY-NC 4.0 (the catalog entries carry a notice).
 
 | model | architecture | params | CPU | GPU (Vulkan, RADV iGPU) | `.slm` |
 |---|---|---|---|---|---|
@@ -3733,6 +3733,10 @@ without a `model_type`, so the importer recognizes the two forms by their keys (
 | moirai-1.1-R-small | `moirai` | 14M | mixture parameters within 3e-6 (relative, at least 1); sampled quantiles statistically equal | parameters within 2e-6 | yes |
 | moirai-1.1-R-base | `moirai` | 91M | mixture parameters within 2e-5 | not run | not run (same importer path as small) |
 | moirai-1.1-R-large | `moirai` | 311M | mixture parameters within 1.2e-5 | not run | not run (same importer path as small) |
+| moirai-1.1-R-small, `patch_size="auto"` | `moirai` | | validation losses within 1e-5, the same patch size in all 8 cases (16, 32, 64, 128 chosen), then that size's parameters within 3e-6 | same | |
+| moirai-1.1-R-base, `patch_size="auto"` | `moirai` | | validation losses within 2e-6, the same patch size in all 8 cases | not run | |
+| moirai-moe-1.0-R-small | `moirai_moe` | 117M (11M active) | mixture parameters of every forecast patch within 4e-6 along a fixed fed path; sampled quantiles statistically equal | parameters within 3e-6 | yes |
+| moirai-moe-1.0-R-base | `moirai_moe` | 935M (86M active) | mixture parameters within 8e-6 | not run | not run (same importer path as small) |
 
 Both share uni2ts' encoder: pre-norm layers with RMS norms (eps 1e-5), per-head query / key RMS norms, rotary time positions on the first half of every
 head (GPT-J pairs, base 10000), a SiLU-gated feed-forward block and a final RMS norm. The binary variate attention bias is not in the graph: for one
@@ -3754,13 +3758,32 @@ values are 0 with a false observation flag, which is what uni2ts' imputation lea
   gamma-Poisson draw, log-normal), 100 paths by default (`SampleCount`), seeded with `Seed`; quantiles are the samples' empirical quantiles, the mean
   their mean. Patch size 32 by default (the notebook's), any of the five per request (`TimeSeriesForecastOptions.PatchSize`); context 1000, the whole
   horizon (up to `maxHorizon`, 2048) in one pass, `PredictionLength` 64 is only the default horizon.
+  `PatchSize = TimeSeriesForecastOptions.AutoPatchSize` (0; HTTP `"patch_size": "auto"`) is uni2ts' `patch_size="auto"`: every patch size forecasts
+  the last `horizon` steps of the history's last 1000 + horizon steps from the steps before them (one extra pass per size), the host scores the
+  held-out observed values with the mixture's mean negative log density (`MixtureDistribution.LogProb`: torch's Student-t, normal, log-normal and uni2ts'
+  negative-binomial densities, a component outside its support contributing nothing, the affine scaler's log-Jacobian; `SampleNLLLoss`), and the
+  size with the lowest loss (the first of equal ones) forecasts. Horizon patches that are pure padding (a history shorter than the horizon) are left
+  out, as uni2ts keeps them apart as another sample.
+- **Moirai-MoE** (`TimeSeriesGraphs.MixtureDecoderGraph`, the mixture-decoder form, `MixtureDecoderForecasterClient`): decoder-only at patch size 16.
+  The input is `feat_proj(silu(in_proj(x))) + res_proj(x)` of the scaled patch (no mask embedding), attention is causal in time through the spans
+  (leading patches without observations share time id 0 and see each other), and every layer's feed-forward block is a mixture of 32 SiLU-gated
+  experts routed by `torch.cdist` to the layer's centroids (`encoder.centroid`, cast to f32): the 2 experts at the largest Euclidean distance, mixed
+  by the softmax of the two distances (uni2ts' `MoEFeedForward`; the graph computes sqrt(max(|x|² + |c|² − 2 x·c, 0)) as cdist's matrix-product form
+  does, then `TopK` and `MoeBlock` with the given route). The last context row's mixture (the Moirai 1.x head of size 16) is the next patch:
+  `MoiraiMoEForecast` samples it per path, writes the draw into the path's context as observed values (so the next pass re-scales with them) and
+  predicts the next patch, so every path runs its own pass per forecast patch; up to 100 paths run packed in one pass (`MaxPathsPerPass`, one causal
+  block each), the first patch comes from one shared pass. Context 1000 (as Moirai 1.1), up to 2048 steps, 100 paths by default. Parity: per
+  forecast patch the scaler and the 16 steps' mixture parameters after the context plus a fixed fed path (the reference's Student-t locations), and
+  the sampled forecast in probability space (8000 seeded paths against 4000 torch paths, every reference quantile at level l between the forecast's
+  quantiles at l ± 0.04).
 
 Verification of the sampling model: the mixture parameters of every step are compared with uni2ts' distribution object; the sampled forecast (20000
 seeded paths) is compared in probability space with the quantiles of 20000 torch samples: every reference quantile at level l lies between the
 forecast's quantiles at l ± 0.025 (about five standard errors), which holds for all 6 748 checks of the eight cases (torch's RNG is not reproduced, and
-level-space bounds fail in heavy tails, where torch's own seeds differ by up to a quarter of the forecast range on the constant series). Not done: uni2ts' `patch_size="auto"` (the patch
-size with the lowest validation loss on the history's last window), multivariate series and covariates (the variate ids and the variate bias; the multivariate API of
-section 30 exists, Moirai's default `ForecastAsync(TimeSeriesForecastRequest)` forecasts every target on its own), Moirai-MoE, batching several series in one pass.
+level-space bounds fail in heavy tails, where torch's own seeds differ by up to a quarter of the forecast range on the constant series). Not done: multivariate series and
+covariates (the variate ids and the variate bias; the multivariate API of section 30 exists, Moirai's default `ForecastAsync(TimeSeriesForecastRequest)` forecasts every
+target on its own), batching several series in one pass, a KV cache for Moirai-MoE's patch-by-patch decoding (every pass re-scales the path, so the
+reference re-runs the whole sequence too).
 
 ## 30. Time series: Chronos-2, multivariate series and covariates (2026-11-27, issue #91)
 

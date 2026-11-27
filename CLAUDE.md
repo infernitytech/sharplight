@@ -43,6 +43,9 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Moirai (#90): `Salesforce/moirai-2.0-R-small`, `moirai-1.1-R-{small,base,large}` (config.json + model.safetensors), references from
   `reference_moirai.py` (uni2ts installed `--no-deps` from GitHub plus its imports, jax included for jaxtyping's PyTree; fedora-blackwell: `~/venvs/uni2ts`).
   Moirai 1.1 samples a mixture: parity is on the distribution parameters, sampled quantiles are compared in probability space.
+  #108: `reference_moirai.py --auto <moirai-1.x>` writes `refs/<name>-auto.json` (uni2ts' `patch_size="auto"` validation losses); Moirai-MoE
+  (`moirai-moe-1.0-R-{small,base}`, arch `moirai_moe`, detected by `encoder.centroid` in the safetensors header) references take ~15 min for the
+  4000 torch sample paths (`MOIRAI_MOE_SAMPLES=20` for a quick parameter-only run). Spans inputs are (first row, row count), not (start, end).
   Chronos-2 (#91): `amazon/chronos-2`, references from `reference_chronos2.py` (chronos-forecasting >= 2.0; fedora-blackwell: `~/venvs/chronos2`);
   multivariate requests and covariates go through `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest)` (default implementation for univariate models).
   HTTP (#92): `POST /v1/timeseries/forecast` (`TimeSeriesApi`, Sharplight.Serving.Tests `TimeSeriesApiTests` / `TimeSeriesRealTests`); independent series go through

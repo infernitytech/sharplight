@@ -233,7 +233,7 @@ internal sealed class MixtureDecoderForecasterClient : ITimeSeriesForecaster
                 }
 
                 spans[2 * row] = block;
-                spans[(2 * row) + 1] = block + end;
+                spans[(2 * row) + 1] = end;   // (first row, row count)
             }
 
             read[s] = block + perPath - 1;

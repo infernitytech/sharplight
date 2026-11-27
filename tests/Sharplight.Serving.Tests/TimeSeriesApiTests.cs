@@ -140,7 +140,7 @@ public sealed class TimeSeriesApiTests : IAsyncLifetime
         var (status, _) = await Post("""{"model":"bolt","series":[1,2,3],"patch_size":"auto"}""");
         Assert.Equal(HttpStatusCode.OK, status);
         var (_, options) = Assert.Single(_bolt.Batches);
-        Assert.Equal(TimeSeriesForecastOptions.AutoPatchSize, options!.PatchSize);
+        Assert.Equal(Sharplight.TimeSeries.TimeSeriesForecastOptions.AutoPatchSize, options!.PatchSize);
     }
 
     [Fact]
