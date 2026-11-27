@@ -267,13 +267,25 @@ public sealed partial class GraphLowerer
         var idx = Ref(n.Inputs[1]);
         idx = EnsureDense(idx, "gather-idx");
 
+        // A row is everything behind the first axis (a [V, H, W] table gathers H*W values per index, like the CPU op):
+        // view the table as [V, H*W] and the output as [N, H*W] (#111).
+        if (table.Rank > 2)
+        {
+            if (!TrailingDimsCollapse(table))
+            {
+                table = DenseTemp(table, "gather");
+            }
+
+            table = CollapseRows(table);
+        }
+
         long D = table.Shape[^1];
         if (D % 8 != 0 && !table.Type.IsQuantized)
         {
             // Rows that are not a multiple of the kernel's 8-value groups (e.g. 180 channels): one thread per output value.
             string element = $"p.in0[uint64_t(clamp(p.in1[d0], 0, {table.Shape[0] - 1})) * {table.Strides[0]}u + d1]";
             string load = table.Type == DataType.F16 ? $"h2f({element})" : table.Type == DataType.BF16 ? $"bf2f({element})" : element;
-            var rowsOut = Produce(n.Output);
+            var rowsOut = CollapseRows(Produce(n.Output));
             EmitGen($"gather {n.Output.Name}", [n], rowsOut.Shape, rowsOut.Symbol, [table, idx], [rowsOut], $"  p.out0[idx] = {load};");
             return;
         }
@@ -307,6 +319,40 @@ public sealed partial class GraphLowerer
             [Always(k, b => new Grid(Grid.Div(Rows(b, ti) * (D / 8), 128)))],
             [Pointer(table), Pointer(idx), Pointer(y), TokenArg(idx)],
             [table, idx], [y]);
+    }
+
+    /// <summary>True when the axes behind the first one form one contiguous row (innermost stride 1).</summary>
+    private static bool TrailingDimsCollapse(TensorRef r)
+    {
+        long s = 1;
+        for (int k = r.Rank - 1; k >= 1; k--)
+        {
+            if (r.Shape[k] != 1 && r.Strides[k] != s)
+            {
+                return false;
+            }
+
+            s *= r.Shape[k];
+        }
+
+        return true;
+    }
+
+    /// <summary>[A, B, C, ...] view as [A, B*C*...] (the trailing axes must collapse, see <see cref="TrailingDimsCollapse"/>).</summary>
+    private static TensorRef CollapseRows(TensorRef r)
+    {
+        if (r.Rank <= 2)
+        {
+            return r;
+        }
+
+        long row = 1;
+        for (int k = 1; k < r.Rank; k++)
+        {
+            row *= r.Shape[k];
+        }
+
+        return r with { Shape = [r.Shape[0], row], Strides = [r.Strides[0], 1] };
     }
 
     /// <summary>SequencePool: one thread per (sequence, column) loops over the sequence's rows.</summary>
