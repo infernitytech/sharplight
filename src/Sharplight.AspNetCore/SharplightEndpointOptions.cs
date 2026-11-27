@@ -19,6 +19,9 @@ public sealed class SharplightEndpointOptions
     /// <summary>Map the audio and image endpoints (when such models are registered).</summary>
     public bool Media { get; set; } = true;
 
+    /// <summary>Map the time-series forecasting endpoint <c>/v1/timeseries/forecast</c> (when forecasters are registered or the host's models are served).</summary>
+    public bool TimeSeries { get; set; } = true;
+
     /// <summary>Map <c>/health</c>, <c>/health/live</c>, <c>/health/ready</c> and <c>/metrics</c> (turn off for tenant route groups).</summary>
     public bool Operations { get; set; } = true;
 

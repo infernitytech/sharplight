@@ -129,6 +129,24 @@ public sealed class HostModelApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ForecastsWithAHostTimeSeriesModel()
+    {
+        var forecaster = new FakeForecaster();
+        var loader = Add("bolt", ModelKind.Task, () => new FakeTaskLoaded(forecaster));
+        using var response = await Json("/v1/timeseries/forecast", """{"model":"bolt","series":[[1,2,3],[4,5,6]],"horizon":2}""");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("bolt", body.RootElement.GetProperty("model").GetString());
+        Assert.Equal(2, body.RootElement.GetProperty("forecasts").GetArrayLength());
+        Assert.Equal(2, Assert.Single(forecaster.Batches).Histories.Length);
+        Assert.Equal(1, loader.Loads);
+
+        Add("sd", ModelKind.Task, () => new FakeTaskLoaded(_generator));
+        using var wrongKind = await Json("/v1/timeseries/forecast", """{"model":"sd","series":[1,2]}""");
+        Assert.Equal(HttpStatusCode.NotFound, wrongKind.StatusCode);
+    }
+
+    [Fact]
     public async Task AModelOfAnotherKindIsRefusedWithItsName()
     {
         Add("tts", ModelKind.Task, () => new FakeTaskLoaded(_synthesizer));

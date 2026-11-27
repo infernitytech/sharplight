@@ -36,7 +36,7 @@ internal sealed class ServeOptionSet
     private readonly Option<string[]> _models = new("--model")
     {
         HelpName = "NAME=MODEL[,key=value...]",
-        Description = "Serve another model (file, stored or Hub model) under NAME; repeatable. Per-model keys: ctx, slots, batch, device (auto, cpu, an index, a device id such as vulkan:1, or several joined with +), mmproj, template, lazy, pin, idle (seconds), offload, kind (chat, embedding, reranker), task (a task kind such as speech-recognition).",
+        Description = "Serve another model (file, stored or Hub model) under NAME; repeatable. Per-model keys: ctx, slots, batch, device (auto, cpu, an index, a device id such as vulkan:1, or several joined with +), mmproj, template, lazy, pin, idle (seconds), offload, kind (chat, embedding, reranker), task (a task kind such as speech-recognition or time-series).",
         DefaultValueFactory = _ => [],
     };
 

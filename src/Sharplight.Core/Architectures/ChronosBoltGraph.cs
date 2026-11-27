@@ -7,10 +7,11 @@ using Sharplight.TimeSeries;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// Emits the Chronos-Bolt forecaster as one graph of generic ops (the patch-quantile form of <see cref="TimeSeriesGraphs"/>): the input residual block embeds every
-/// patch, the register token row follows, the T5 encoder runs over all rows with the patches without observations masked out as keys, and a single decoder step
-/// from the start token (whose self-attention over its one row reduces to the value projection) cross-attends to the encoder output; the output residual block
-/// turns its hidden state into the scaled quantile forecasts.
+/// Emits the Chronos-Bolt forecaster as one graph of generic ops (the patch-quantile form of <see cref="TimeSeriesGraphs"/>) over a batch of series (the symbolic
+/// <see cref="TimeSeriesGraphs.SeriesSymbol"/> axis leads every tensor): the input residual block embeds every patch, the register token row follows, the T5 encoder
+/// runs over all rows of each series with the patches without observations masked out as keys, and a single decoder step from the start token (whose
+/// self-attention over its one row reduces to the value projection) cross-attends to the encoder output of its series; the output residual block turns its hidden
+/// state into the scaled quantile forecasts.
 /// </summary>
 internal static class ChronosBoltGraph
 {
@@ -23,8 +24,12 @@ internal static class ChronosBoltGraph
         var hp = p.Encoder;
         int patches = p.Patches;
         int rows = hp.ContextLength;
-        var input = b.Input(TimeSeriesGraphs.PatchesInput, InputRole.Other, DataType.F32, new Shape(patches, 2 * p.PatchSize));
-        var mask = b.Input(TimeSeriesGraphs.MaskInput, InputRole.Other, DataType.F32, new Shape(patches));
+        var series = Dim.Sym(TimeSeriesGraphs.SeriesSymbol);
+        var input = b.Input(TimeSeriesGraphs.PatchesInput, InputRole.Other, DataType.F32, new Shape(series, patches, 2 * p.PatchSize));
+        var mask = b.Input(TimeSeriesGraphs.MaskInput, InputRole.Other, DataType.F32, new Shape(series, patches));
+
+        // [S, 1, 1] ones (from the mask's first column: finite, so 0 · m + 1 is exactly 1), to broadcast the shared token rows over the series.
+        var ones = b.Reshape(b.Scale(b.Slice(mask, 1, 0, 1), 0f, 1f), 0, 1, 1);
         Value x;
         Value keyMask;
         using (b.Group("input"))
@@ -32,16 +37,16 @@ internal static class ChronosBoltGraph
             x = ResidualBlock(b, input, "input_patch_embedding", p.PatchActivation);
             if (p.RegisterToken)
             {
-                x = b.Concat(0, x, Row(b, "register_token", 1));
-                mask = b.Concat(0, mask, b.Constant("register_mask", DataType.F32, new Shape(1), MemoryMarshal.AsBytes<float>([1f]).ToArray()));
+                x = b.Concat(1, x, b.Mul(ones, Row(b, "register_token", 1)));
+                mask = b.Concat(1, mask, b.Reshape(ones, 0, 1));
             }
 
             // (mask − 1) · 10⁹: 0 for observed patches, a large negative score for empty ones, broadcast over heads and query rows.
-            keyMask = b.Reshape(b.Scale(mask, 1e9f, -1e9f), 1, 1, rows);
+            keyMask = b.Reshape(b.Scale(mask, 1e9f, -1e9f), 0, 1, 1, rows);
         }
 
         var encoded = T5TextGraphBuilder.Encode(b, x, keyMask, hp, "");
-        var y = Row(b, "decoder_start", 0);
+        var y = b.Mul(ones, Row(b, "decoder_start", 0));
         int inner = hp.HeadCount * hp.HeadDim;
         for (int layer = 0; layer < p.DecoderLayers; layer++)
         {
@@ -50,12 +55,12 @@ internal static class ChronosBoltGraph
             var h = b.RmsNorm(y, b.Weight(d + "attention_norm.weight"), hp.NormEps);
             y = b.Add(y, Linear(b, Linear(b, h, d + "attention.v.weight"), d + "attention.o.weight"));
             h = b.RmsNorm(y, b.Weight(d + "cross_attention_norm.weight"), hp.NormEps);
-            var q = b.Reshape(Linear(b, h, d + "cross_attention.q.weight"), hp.HeadCount, 1, hp.HeadDim);
+            var q = b.Reshape(Linear(b, h, d + "cross_attention.q.weight"), 0, hp.HeadCount, 1, hp.HeadDim);
             var k = Heads(b, Linear(b, encoded, d + "cross_attention.k.weight"), rows, hp);
             var v = Heads(b, Linear(b, encoded, d + "cross_attention.v.weight"), rows, hp);
             var scores = b.Add(b.Emit1("BatchMatMul", [q, k], Attributes.From(("trans_b", true))), keyMask);
             var attended = b.Emit1("BatchMatMul", [b.Emit1("Softmax", [scores]), v]);
-            y = b.Add(y, Linear(b, b.Reshape(attended, 1, inner), d + "cross_attention.o.weight"));
+            y = b.Add(y, Linear(b, b.Reshape(attended, 0, 1, inner), d + "cross_attention.o.weight"));
             h = b.RmsNorm(y, b.Weight(d + "mlp_norm.weight"), hp.NormEps);
             y = b.Add(y, Linear(b, Activate(b, Linear(b, h, d + "mlp.up.weight"), hp.Activation), d + "mlp.down.weight"));
         }
@@ -64,18 +69,22 @@ internal static class ChronosBoltGraph
         {
             y = b.RmsNorm(y, b.Weight("decoder.output_norm.weight"), hp.NormEps);
             var forecast = ResidualBlock(b, y, "output_patch_embedding", p.PatchActivation);
-            b.Output(TimeSeriesGraphs.QuantilesOutput, b.Reshape(forecast, p.Quantiles.Length, p.PredictionLength));
+            b.Output(TimeSeriesGraphs.QuantilesOutput, b.Reshape(forecast, 0, p.Quantiles.Length, p.PredictionLength));
         }
 
         return b.Build();
     }
 
-    // Row `index` of the two-row token embedding (0: decoder start, 1: register token) as [1, hidden].
+    // Row `index` of the two-row token embedding (0: decoder start, 1: register token) as [1, 1, hidden].
     private static Value Row(GraphBuilder b, string name, int index)
-        => b.Gather(b.Weight("token_embedding.weight"), b.Constant(name + "_id", DataType.I32, new Shape(1), MemoryMarshal.AsBytes<int>([index]).ToArray()));
+    {
+        var row = b.Gather(b.Weight("token_embedding.weight"), b.Constant(name + "_id", DataType.I32, new Shape(1), MemoryMarshal.AsBytes<int>([index]).ToArray()));
+        return b.Reshape(row, 1, 1, -1);
+    }
 
+    // [S, rows, hidden] → [S, heads, rows, head dim].
     private static Value Heads(GraphBuilder b, Value x, int rows, T5TextHyperParameters hp)
-        => b.Contiguous(b.Permute(b.Reshape(x, rows, hp.HeadCount, hp.HeadDim), 1, 0, 2));
+        => b.Contiguous(b.Permute(b.Reshape(x, 0, rows, hp.HeadCount, hp.HeadDim), 0, 2, 1, 3));
 
     // Chronos-Bolt's ResidualBlock: output(act(hidden(x))) + residual(x).
     private static Value ResidualBlock(GraphBuilder b, Value x, string module, string activation)

@@ -7,7 +7,8 @@ namespace Sharplight.TimeSeries;
 /// The host scales the context (instance normalization: mean and standard deviation of the observed values), left-pads it with missing values to
 /// <see cref="ContextLengthKey"/> observations and cuts it into patches of <see cref="PatchSizeKey"/> values; per patch the input row holds the scaled values (0 where
 /// missing) followed by the observation mask (1 observed, 0 missing). The graph returns the scaled forecast of every quantile level of
-/// <see cref="QuantilesKey"/>, <see cref="PredictionLengthKey"/> steps each.</description></item>
+/// <see cref="QuantilesKey"/>, <see cref="PredictionLengthKey"/> steps each. Graphs built since #92 carry a leading series axis (<see cref="SeriesSymbol"/>) on every input
+/// and on the output, so one pass forecasts several series; older stored graphs (rank-2 <see cref="PatchesInput"/>) forecast one series per pass.</description></item>
 /// <item><description>Token models (Chronos): an <see cref="Models.ModelComponentRoles.Encoder"/> and a <see cref="Models.ModelComponentRoles.Decoder"/> component
 /// (the encoder-decoder <c>encode</c> / <c>decode</c> graphs of a text model) over a vocabulary of value bins: the host mean-scales the context, maps every value to the
 /// bin whose interval holds it (<see cref="BinCountKey"/> bins with centers spread evenly over [<see cref="LowLimitKey"/>, <see cref="HighLimitKey"/>] after
@@ -40,14 +41,26 @@ public static class TimeSeriesGraphs
     /// <summary>The patch-quantile graph: <see cref="PatchesInput"/> and <see cref="MaskInput"/> in, <see cref="QuantilesOutput"/> out.</summary>
     public const string ForecastGraph = "forecast";
 
-    /// <summary>The patches, f32 <c>[patches, 2 · patch size]</c>: per patch the scaled values (0 where missing), then the observation mask.</summary>
+    /// <summary>
+    /// The patches, f32 <c>[patches, 2 · patch size]</c>: per patch the scaled values (0 where missing), then the observation mask. In
+    /// <see cref="ForecastGraph"/> <c>[<see cref="SeriesSymbol"/>, patches, 2 · patch size]</c>: one block per series.
+    /// </summary>
     public const string PatchesInput = "patches";
 
-    /// <summary>The patch mask, f32 <c>[patches]</c>: 1 where the patch has at least one observed value, 0 where it has none (those patches are not attended).</summary>
+    /// <summary>
+    /// The patch mask of <see cref="ForecastGraph"/>, f32 <c>[<see cref="SeriesSymbol"/>, patches]</c> (<c>[patches]</c> in older stored graphs): 1 where the patch has
+    /// at least one observed value, 0 where it has none (those patches are not attended).
+    /// </summary>
     public const string MaskInput = "patch_mask";
 
-    /// <summary>The scaled forecast, f32 <c>[quantile levels, prediction length]</c>.</summary>
+    /// <summary>
+    /// The scaled forecast of <see cref="ForecastGraph"/>, f32 <c>[<see cref="SeriesSymbol"/>, quantile levels, prediction length]</c> (<c>[quantile levels, prediction
+    /// length]</c> in older stored graphs).
+    /// </summary>
     public const string QuantilesOutput = "quantiles";
+
+    /// <summary>The symbol of the series axis of <see cref="ForecastGraph"/>: the series one pass forecasts, each with its own scaling and mask.</summary>
+    public const string SeriesSymbol = "S";
 
     /// <summary>
     /// The patch-decoder graph: <see cref="PatchesInput"/> (<see cref="PatchSymbol"/> rows; the observation mask marks only the left padding of the

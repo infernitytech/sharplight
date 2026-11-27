@@ -45,6 +45,8 @@ prerelease NuGet feed, the verified catalog and the model feed); `release/vX.Y` 
   Moirai 1.1 samples a mixture: parity is on the distribution parameters, sampled quantiles are compared in probability space.
   Chronos-2 (#91): `amazon/chronos-2`, references from `reference_chronos2.py` (chronos-forecasting >= 2.0; fedora-blackwell: `~/venvs/chronos2`);
   multivariate requests and covariates go through `ITimeSeriesForecaster.ForecastAsync(TimeSeriesForecastRequest)` (default implementation for univariate models).
+  HTTP (#92): `POST /v1/timeseries/forecast` (`TimeSeriesApi`, Sharplight.Serving.Tests `TimeSeriesApiTests` / `TimeSeriesRealTests`); independent series go through
+  `ForecastBatchAsync` — Chronos-Bolt's graph has a symbolic series axis `S` (old `.slm` files keep the rank-2 graph, one series per pass).
 - LLM architecture bring-up: tiny remote-code checkpoints come from `tests/Sharplight.Families.Tests/tools/mk_tiny_remote_code.py`
   (references: `hf_greedy_reference.py`); architectures llama.cpp added after the 8ca5a80 pin go in `LlamaCppAdditionsFamilyCases.cs`
   and docs/model-support.md section 26. A CPU-only build of llama.cpp HEAD (`cmake -B build -DGGML_CUDA=OFF`, target

@@ -34,6 +34,62 @@ public class ChronosBoltTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_batch_matches_the_reference_and_the_series_one_by_one(bool gpu)
+    {
+        // Every reference case once at its own horizon (the long ones run the context copies batched too), all cases batched at the longest horizon.
+        string name = "chronos-bolt-tiny";
+        TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));
+        using var model = TimeSeriesModels.Load(TimeSeriesModels.Open(gpu), TimeSeriesModels.Model(name));
+        using var forecaster = TimeSeriesModels.Client<ITimeSeriesForecaster>(model);
+        var cases = TimeSeriesModels.Cases(name);
+        var ct = TestContext.Current.CancellationToken;
+        int horizon = cases.Max(c => c.Horizon);
+        var options = new TimeSeriesForecastOptions { Horizon = horizon };
+        var batch = await forecaster.ForecastBatchAsync([.. cases.Select(c => (ReadOnlyMemory<float>)c.History)], options, ct);
+        Assert.Equal(cases.Count, batch.Count);
+        for (int i = 0; i < cases.Count; i++)
+        {
+            var single = await forecaster.ForecastAsync(cases[i].History, options, ct);
+            double error = TimeSeriesModels.RelativeError(batch[i].Quantiles, single.Quantiles);
+            Assert.True(error < 1e-5, $"{cases[i].Name}: batch vs single error {error:E2}");
+            // The first block does not depend on the horizon, so shorter references compare with the forecast's first steps (native levels only).
+            var reference = cases[i];
+            if (reference.Levels.SequenceEqual(forecaster.QuantileLevels) && (reference.Horizon <= forecaster.PredictionLength || reference.Horizon == horizon))
+            {
+                var levels = reference.Levels.Select(level => batch[i].Quantile(level)[..reference.Horizon]).ToArray();
+                double referenceError = TimeSeriesModels.RelativeError(levels, reference.Quantiles);
+                Assert.True(referenceError < 1e-4, $"{reference.Name}: batch vs reference error {referenceError:E2}");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task A_batch_larger_than_one_pass_keeps_every_series_apart()
+    {
+        // 70 series (more than MaxSeriesPerPass): scaled and shifted copies of one history, so every forecast is the same affine map of the first.
+        string name = "chronos-bolt-tiny";
+        TimeSeriesModels.Require(TimeSeriesModels.Model(name), TimeSeriesModels.Reference(name));
+        using var model = TimeSeriesModels.Load(TimeSeriesModels.Open(gpu: false), TimeSeriesModels.Model(name));
+        using var forecaster = TimeSeriesModels.Client<ITimeSeriesForecaster>(model);
+        var history = TimeSeriesModels.Cases(name)[0].History;
+        const int Count = 70;
+        var histories = Enumerable.Range(0, Count).Select(i => (ReadOnlyMemory<float>)history.Select(v => (v * (1 + i)) + (10 * i)).ToArray()).ToArray();
+        var forecasts = await forecaster.ForecastBatchAsync(histories, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(Count, forecasts.Count);
+        for (int i = 0; i < Count; i++)
+        {
+            var expected = forecasts[0].Quantiles.Select(row => row.Select(v => (v * (1 + i)) + (10 * i)).ToArray()).ToArray();
+            double error = TimeSeriesModels.RelativeError(forecasts[i].Quantiles, expected);
+            Assert.True(error < 1e-4, $"series {i}: error {error:E2}");
+        }
+
+        await Assert.ThrowsAsync<ArgumentException>(() => forecaster.ForecastBatchAsync([history, new[] { float.NaN }], cancellationToken: TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() => forecaster.ForecastBatchAsync([], cancellationToken: TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task Rejects_a_history_without_observations()
     {

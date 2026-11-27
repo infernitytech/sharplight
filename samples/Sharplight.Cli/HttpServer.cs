@@ -67,6 +67,8 @@ internal static class HttpServer
             options.AllowClientCacheSalt = settings.AllowClientCacheSalt;
 
             // A single chat model answers to any name (clients often send arbitrary ones); with several, an unknown name is a 404.
+            // Task models (speech, images, time-series forecasting) are served from the host per request by their name.
+            options.ServeHostModels = hosting.OnDemand || hosting.Models.Any(model => model.Kind is ModelKind.Task);
             options.UnknownModelFallsBackToDefault = hosting.Models.Count(model => model.Kind == ModelKind.Chat) == 1 && !hosting.OnDemand;
         });
 
