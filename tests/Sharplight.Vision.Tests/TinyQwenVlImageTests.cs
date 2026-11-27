@@ -18,7 +18,7 @@ namespace Sharplight.Vision.Tests;
 /// The tiny Gemma 3 (4×4 average pooling, soft-embedding norm, framed image rows) and Idefics3 / SmolVLM (tiles plus overview, pixel shuffle,
 /// the processor's prompt layout) and LFM2-VL (SigLIP 2 NaFlex tower on tiles and a thumbnail of its own size, antialiased position grid, pixel
 /// unshuffle with LayerNorm and MLP, the LFM2 hybrid language model) checkpoints come from mk_tiny_siglip_vl.py, their references from
-/// siglip_vl_reference.py (GGUF variants only: the Hugging Face importer does not read their towers).
+/// siglip_vl_reference.py (GGUF variants only for Gemma 3 and Idefics3: the Hugging Face importer does not read their towers; LFM2-VL both ways).
 /// </summary>
 public class TinyQwenVlImageTests
 {
@@ -55,6 +55,8 @@ public class TinyQwenVlImageTests
     [InlineData("tiny-random-hunyuan-vl", true)]
     [InlineData("tiny-random-cogvlm", false)]
     [InlineData("tiny-random-cogvlm", true)]
+    [InlineData("tiny-random-lfm2-vl", false)]
+    [InlineData("tiny-random-lfm2-vl", true)]
     public void Tiny_qwen_vl_image_prompt_matches_transformers(string name, bool gpu)
     {
         string dir = Path.Combine(Home, "models/hf", name);
