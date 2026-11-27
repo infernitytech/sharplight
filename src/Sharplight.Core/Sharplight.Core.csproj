@@ -5,6 +5,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
     <InternalsVisibleTo Include="Sharplight.AudioModels.Tests" />
+    <InternalsVisibleTo Include="Sharplight.TimeSeries.Tests" />
     <InternalsVisibleTo Include="Sharplight.Cpu" />
     <InternalsVisibleTo Include="Sharplight.Cuda" />
     <InternalsVisibleTo Include="Sharplight.Shaders" />

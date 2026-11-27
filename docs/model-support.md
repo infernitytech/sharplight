@@ -3654,5 +3654,44 @@ sample). Sampled paths are not comparable with torch's RNG, so the parity cases 
 Deviation: missing values inside a Chronos context become padding tokens that stay visible to the attention (the reference masks them; the
 encoder graph has no key mask); leading missing values are dropped, which is exact. Chronos-Bolt handles missing values exactly.
 
-Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates), TimesFM, Moirai (follow-up issues), batching several series in one
+Not done: Chronos-2 (`Chronos2Model`, multivariate with covariates), Moirai (follow-up issues; TimesFM is section 28), batching several series in one
 pass, an HTTP forecasting endpoint.
+
+## 28. Time series: TimesFM 2.0 and 2.5 (2026-11-27, issue #89)
+
+Kind `time-series` like section 27; models under `~/models/timeseries/<name>` (Hub downloads of `google/<name>`), references from
+`tools/timeseries-reference/reference_timesfm.py` (transformers 5.24 for 2.0, the timesfm package 3.0.2 for 2.5; torch CPU, f32; the same synthetic cases as
+Chronos plus a 300-step horizon and a signed series); tests `TimesFmTests` in `tests/Sharplight.TimeSeries.Tests`.
+
+| model | architecture | params | CPU | GPU (Vulkan, RADV iGPU) | `.slm` |
+|---|---|---|---|---|---|
+| timesfm-2.0-500m-pytorch (transformers `TimesFmModelForPrediction`) | `timesfm` | 500M | quantiles and mean within 2e-6 of the forecast range | within 1e-6 | yes |
+| timesfm-2.5-200m-pytorch (timesfm package layout) | `timesfm2_5` | 230M | quantiles and point forecast within 4e-6 | within 5e-6 | yes |
+| timesfm-2.5-200m-transformers (`TimesFm2_5ModelForPrediction`) | `timesfm2_5` | 230M | the package's forecasts of the checkpoint above, same errors | same | yes |
+
+A third graph form, the patch decoder (`TimeSeriesGraphs.PatchDecoderGraph`): TimesFM is a decoder-only transformer over patches of 32 values, so neither
+the patch-quantile graph (fixed context, one pass) nor the token form fits. The graph takes the series' patches with symbolic rows (only real patches, aligned
+to the series' end), runs causal attention over them and returns the next output patch of the last row (128 steps x the point / mean head and 9 quantiles,
+plus TimesFM 2.5's 1024-step continuous quantile head); the host normalizes, de-normalizes and loops. Without padded patches neither the key mask nor the
+rotary offset of the references' left padding is needed (both make padded patches invisible, so the forecasts are the same). Longer horizons re-run the whole
+sequence with the fed-back forecast instead of TimesFM 2.5's KV cache (causal, so the result is the same; the cost is one full pass per 128 steps).
+
+- **TimesFM 2.0**: the residual-block tokenizer embeds the 32 normalized values and their padding indicators, the frequency embedding (row 0, high
+  frequency; `timesfm.frequency`) is added, 50 layers of RMS-normed attention with the learned per-dimension query scale (softplus · 1.44 / √80, no
+  position embedding) and a LayerNorm-ed ReLU feed-forward block. Normalization: the mean and deviation of the first patch with at least 3 values scale
+  every patch. Longer horizons append the mean forecast and keep the last 2048 values (the timesfm 1.x decoding loop; transformers' forward predicts one
+  output patch).
+- **TimesFM 2.5**: 20 layers with rotary positions, query / key RMS norms after the rotation, RMS norms before and after attention and the SiLU
+  feed-forward block; per-patch running mean and deviation (patch i is scaled by the statistics of patches 0 ... i; the output by the last patch's).
+  The host applies the model card's `ForecastConfig` (`normalize_inputs`, `use_continuous_quantile_head`, `force_flip_invariance` (a second decode of the
+  negated series), `infer_is_positive`, `fix_quantile_crossing`); the point forecast is the median column, fed back for longer horizons. Context 15360 (the
+  16384 limit less the quantile head's 1024 steps); the sequence with fed-back forecasts grows up to 16384 values, then slides.
+- Both layouts of 2.5 import as `timesfm2_5`: the package's config says `model_type` `timesfm` (told apart by `quantile_horizon_length`), its fused
+  `qkv_proj` stays fused in the graph.
+
+Deviations: missing values are filled as the timesfm package does (leading ones dropped, the others linearly interpolated), also for 2.0, whose transformers
+port takes none (the reference fills them the same way). `normalize_inputs` uses the package's statistics of the context zero-padded to the context length
+(15360), so forecasts equal the package at `max_context` 15360; the package's result for an exactly constant series rests on float32 rounding (its running
+deviation of the constant lands just above the 1e-6 floor, which collapses every level onto the constant), here the deviation is exactly 0 and the levels
+keep the model's own spread of about 0.15 % around it (the test bounds that case separately). Not done: TimesFM 1.0 (sinusoidal position embedding, package
+checkpoint), the 2.0 frequency as a request option, covariates (`forecast_with_covariates`), batching several series in one pass.
